@@ -351,3 +351,47 @@ it('public lifecycle: propagates the original Host attestor error without changi
     expect(await store.load(original.id)).toEqual(original)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+it('retains a checkpoint for review when another Host moves its keys between observation and ownership', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'muse-watch-ownership-race-'))
+  const store = new GenerationWatchStore(root), other = new GenerationWatchStore(root)
+  const original = run(root, 'a', 'original-session', ['b'])
+  const successor = { ...original, id: 'd'.repeat(64) }
+  const fetch = vi.fn(async () => { throw new Error('Ambiguous ownership must not call the provider') })
+  const deliver = vi.fn(async () => 'settled' as const)
+  const warn = vi.fn()
+  const runtime = new GenerationWatchRuntime({ store,
+    client: new JubianClient({ credential: async () => 'fixture', fetch }),
+    ledger: new JubianLedger({ root: join(root, 'ledger') }), deliver, warn,
+    watchTimeoutMs: 5000, watchPollIntervalMs: 20,
+    withoutInitiator: async (operation) => { await operation() } })
+  // oxlint-disable-next-line typescript/unbound-method -- The race calls the real method with its Store receiver.
+  const observed = GenerationWatchStore.prototype.mayObserve
+  let raced = false
+  // mayObserve and claimOwnership take the ownership lock separately, so a second Host on the
+  // same watch root can record the completed preflight and hand the keys to its corrected
+  // successor in that window. This reproduces the real interleaving deterministically.
+  const spy = vi.spyOn(GenerationWatchStore.prototype, 'mayObserve').mockImplementation(async function (this: GenerationWatchStore, id: string) {
+    const value = await observed.call(this, id)
+    if (raced || !value) return value
+    raced = true
+    await other.recordNoSend(original.id)
+    await other.retryUnsent(original.id, successor)
+    return value
+  })
+  try {
+    await store.create(original)
+    runtime.start()
+    await vi.waitFor(async () => { expect((await store.load(original.id))?.reviewRequired).toBe(true) })
+    await runtime.close()
+    expect(raced).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/ambiguous ownership/u), expect.any(GenerationWatchOwnershipConflict))
+    expect(deliver).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(await store.load(successor.id)).toMatchObject({ packs: original.packs.map(({ key, previewPath }) => ({ key, previewPath })) })
+  } finally {
+    spy.mockRestore()
+    await runtime.close()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 20_000)

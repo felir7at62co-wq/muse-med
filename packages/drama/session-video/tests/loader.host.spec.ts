@@ -321,6 +321,46 @@ it('binds playback to its conversation and exact current file version', async ()
   expect(spawn).not.toHaveBeenCalled()
 })
 
+it('refuses playback whose real source changed before its own metadata read', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  const stat = f.ctx.fs.stat.bind(f.ctx.fs), read = vi.spyOn(f.ctx.fs, 'readByteRange')
+  let sourceStats = 0
+  const mutation = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    if (args[0].displayPath === f.source.path && ++sourceStats === 2) appendFileSync(f.file, 'changed-before-metadata')
+    return stat(...args)
+  })
+  try {
+    const response = await f.route.fetch(new Request(f.url))
+    expect(sourceStats).toBe(2)
+    expect(response.status).toBe(409)
+    expect(await response.text()).toBe('Video source changed; reload it')
+    expect(read).not.toHaveBeenCalled()
+    expect(readFileSync(f.file)).toEqual(Buffer.concat([before, Buffer.from('changed-before-metadata')]))
+  } finally { mutation.mockRestore() }
+})
+
+it('aborts a playback body whose real source changed before its first byte read', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  const stat = f.ctx.fs.stat.bind(f.ctx.fs), read = vi.spyOn(f.ctx.fs, 'readByteRange')
+  let sourceStats = 0
+  const mutation = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    if (args[0].displayPath === f.source.path && ++sourceStats === 3) appendFileSync(f.file, 'changed-before-first-read')
+    return stat(...args)
+  })
+  try {
+    const response = await f.route.fetch(new Request(f.url))
+    expect(sourceStats).toBe(3)
+    expect(response.status).toBe(200)
+    await expect(response.arrayBuffer()).rejects.toThrow('Video changed during playback')
+    expect(read).not.toHaveBeenCalled()
+  } finally { mutation.mockRestore() }
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]
+  if (!source?.playbackUrl) throw Error('Expected current playback URL after a rejected first read')
+  const current = await f.route.fetch(new Request(new URL(source.playbackUrl, f.url)))
+  expect(current.status).toBe(200)
+  expect(Buffer.from(await current.arrayBuffer())).toEqual(Buffer.concat([before, Buffer.from('changed-before-first-read')]))
+})
+
 it('returns exact full, open and suffix byte ranges while HEAD performs no byte read', async () => {
   const f = await localPlayback({ playbackChunkBytes: 127 }), bytes = readFileSync(f.file)
   const read = vi.spyOn(f.ctx.fs, 'readByteRange')
@@ -433,6 +473,47 @@ it('refuses already aborted GET and HEAD playback before reading source bytes', 
   const next = await f.route.fetch(new Request(f.url))
   expect(next.status).toBe(200)
   expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+})
+
+it('contains a string cancellation reason before playback without reading source bytes', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange'), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const caller = new AbortController(); caller.abort('Caller cancelled playback')
+  for (const method of ['GET', 'HEAD']) {
+    const response = await f.route.fetch(new Request(f.url, { method, signal: caller.signal }))
+    expect(response.status).toBe(499)
+    expect(await response.text()).toBe(method === 'HEAD' ? '' : 'Video unavailable')
+  }
+  expect(read).not.toHaveBeenCalled(); expect(spawn).not.toHaveBeenCalled()
+  const next = await f.route.fetch(new Request(f.url))
+  expect(next.status).toBe(200)
+  expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+  expect(readFileSync(f.file)).toEqual(before)
+})
+
+it('releases a playback slot when the caller cancels after real metadata returns before the body starts', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  const caller = new AbortController(), reason = new Error('Caller cancelled after metadata')
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange'), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const stat = f.ctx.fs.stat.bind(f.ctx.fs)
+  let sourceStats = 0
+  const inspection = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    const info = await stat(...args)
+    if (args[0].displayPath === f.source.path && ++sourceStats === 2) caller.abort(reason)
+    return info
+  })
+  try {
+    const response = await f.route.fetch(new Request(f.url, { signal: caller.signal }))
+    expect(sourceStats).toBe(2)
+    expect(caller.signal.reason).toBe(reason)
+    expect(response.status).toBe(200)
+    await expect(response.arrayBuffer()).rejects.toBe(reason)
+    expect(read).not.toHaveBeenCalled(); expect(spawn).not.toHaveBeenCalled()
+  } finally { inspection.mockRestore() }
+  const next = await f.route.fetch(new Request(f.url))
+  expect(next.status).toBe(200)
+  expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+  expect(readFileSync(f.file)).toEqual(before)
 })
 
 it('propagates caller abort during playback and releases its slot after the owned read settles', async () => {

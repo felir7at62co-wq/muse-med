@@ -210,6 +210,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         const request = args.request
         if (!args.request.authorization_quote.trim()) throw Error('refinement_human_authorization: 请引用真实用户的明确授权。')
         const users = refinementUsers?.stateOf(session)
+        /* v8 ignore if -- the projection is registered under exactly this method condition and its
+        init state is `{ users: [] }`, so stateOf answers a real handle; an unenabled method is
+        rejected by the argument schema before execute. */
         if (users === undefined) throw Error('refinement_human_authorization: 真实用户消息投影尚未就绪。')
         authorization = captureRefinementAuthorization(users, messages, actor, request.authorization_quote, request.consent_assessment)
         latestUserSeq = users.users.at(-1)?.seq

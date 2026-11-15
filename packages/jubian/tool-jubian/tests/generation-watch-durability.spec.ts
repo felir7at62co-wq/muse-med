@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm'
-import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
+import Sessions, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -28,6 +28,36 @@ async function checkpoint() {
     createdAt: 0, deadlineAt: 100, packs: [{ key: 'b'.repeat(64), previewPath: join(root, 'original.json') }] }
   return { root, store, run, path: join(root, 'watches', `${run.id}.json`) }
 }
+
+it('reads an original v1 ownership record and retains its checkpoint when publishing the current index', async () => {
+  const f = await checkpoint()
+  await f.store.create(f.run)
+  const legacy = join(f.root, 'legacy-watch'), orphan = join(f.root, 'orphan-watch')
+  await mkdir(legacy); await mkdir(orphan)
+  const checkpointBytes = await readFile(f.path), v1 = await readFile(join(f.root, 'watches', 'ownership.v1.json'))
+  const legacyCheckpoint = join(legacy, `${f.run.id}.json`), legacyIndex = join(legacy, 'ownership.v1.json')
+  await writeFile(legacyCheckpoint, checkpointBytes)
+  await writeFile(legacyIndex, v1)
+  const restored = new GenerationWatchStore(legacy)
+  await expect(readFile(join(legacy, 'ownership.v2.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await restored.mayObserve(f.run.id)).toBe(true)
+  expect(await restored.load(f.run.id)).toEqual(f.run)
+  expect(await restored.claimAndCreate(f.run)).toBe(false)
+  expect(await restored.mayObserve(f.run.id)).toBe(true)
+  expect(await readFile(legacyCheckpoint)).toEqual(checkpointBytes)
+  expect(await readFile(legacyIndex)).toEqual(v1)
+  expect(await readFile(f.path)).toEqual(checkpointBytes)
+  const current = z.object({ version: z.literal(2), runs: z.record(z.string(), z.unknown()) })
+    .parse(JSON.parse(await readFile(join(legacy, 'ownership.v2.json'), 'utf8')))
+  expect(current.runs[f.run.id]).toMatchObject({ sessionId: f.run.sessionId, packs: f.run.packs,
+    dispatchFinished: true, startedKeys: [], noSend: false })
+  const orphanIndex = join(orphan, 'ownership.v1.json')
+  await writeFile(orphanIndex, v1)
+  await expect(new GenerationWatchStore(orphan).claimAndCreate(f.run)).rejects.toBeInstanceOf(GenerationWatchOwnershipConflict)
+  expect(await readFile(orphanIndex)).toEqual(v1)
+  await expect(readFile(join(orphan, `${f.run.id}.json`))).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(readFile(join(orphan, 'ownership.v2.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
 
 it.each(['ownership.v2.json', 'ownership.v1.json'])('propagates a corrupt %s without replacing it or creating a watch', async (name) => {
   const f = await checkpoint(), directory = join(f.root, 'watches'), path = join(directory, name)
@@ -353,3 +383,81 @@ it('checks the binding before waking a queued notice after a lost guard record',
   expect(f.agent.wakePending).not.toHaveBeenCalled()
   expect(f.followup).not.toHaveBeenCalled()
 })
+
+it('withholds delivery when Host ownership changes during agent resolution', async () => {
+  const f = await delivery()
+  const verify = vi.fn(async () => true).mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+  expect(await deliverGenerationWatchNotice(f.ctx, f.session.id, f.notice, undefined, undefined, undefined,
+    verify, f.projection)).toBe('needs-review')
+  expect(verify).toHaveBeenCalledTimes(2)
+  expect(f.followup).not.toHaveBeenCalled()
+  expect(f.flush).not.toHaveBeenCalled()
+})
+
+it('withholds a queued notice when ownership changes during binding verification', async () => {
+  const f = await delivery()
+  f.agent.inbox.nextTurn.push(f.message)
+  f.session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [f.message] })
+  const verify = vi.fn(async () => true).mockResolvedValueOnce(true).mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+  const binding = vi.fn(async () => true)
+  expect(await deliverGenerationWatchNotice(f.ctx, f.session.id, f.notice, undefined, undefined, undefined,
+    verify, f.projection, binding)).toBe('needs-review')
+  expect(binding).toHaveBeenCalledOnce()
+  expect(verify).toHaveBeenCalledTimes(3)
+  expect(f.agent.wakePending).not.toHaveBeenCalled()
+  expect(f.followup).not.toHaveBeenCalled()
+  expect(f.flush).not.toHaveBeenCalled()
+})
+
+it.each(['active', 'step-count', 'turn-count', 'step-id', 'turn-id', 'missing-filter', 'wrong-filter-turn',
+  'missing-settlement', 'wrong-settlement-turn', 'pending-step', 'pending-turn', 'splice-range'] as const)(
+  'rejects persisted %s notice history when reconstructing the delivery projection', async (kind) => {
+    const persistence = await import('@deepseek-ai/dsh-session-persistence-jsonl')
+    const root = await mkdtemp(join(tmpdir(), 'muse-notice-history-'))
+    roots.push(root)
+    const ctx = new Context()
+    hosts.push(ctx)
+    await ctx.plugin(persistence, { root, compression: 'none' }).await()
+    const id = SessionId(`persisted-notice-${kind}`), session = Session.create(id)
+    const message = freezeMessage<UserMessage>({ id: MessageId(randomUUID()), role: 'user',
+      content: [{ type: 'text', text: 'Original pending notice' }],
+      source: { kind: 'jubian-generation-watch', form: 'notice', summary: 'Verified result' } })
+    const otherId = MessageId(randomUUID())
+    const claims = ['active', 'step-count', 'turn-count', 'step-id', 'turn-id']
+    if (claims.includes(kind)) {
+      session.append('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [message] })
+      const nextStep = kind === 'step-count' ? [message.id, otherId] : kind === 'step-id' ? [otherId] : [message.id]
+      const nextTurn = kind === 'turn-count' || kind === 'turn-id' ? [otherId] : []
+      if (kind === 'turn-id') session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [message] })
+      session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep, nextTurn })
+      if (kind === 'active') session.append('agent/inbox/claim', { turn: 1, step: 2, nextStep: [], nextTurn: [] })
+    } else if (kind === 'missing-filter' || kind === 'wrong-filter-turn') {
+      if (kind === 'wrong-filter-turn') session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [], nextTurn: [] })
+      session.append('agent/inbox/claim-filtered', { turn: 2, step: 1, discarded: [] })
+    } else if (kind === 'splice-range') {
+      session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] })
+    } else {
+      if (kind === 'pending-step' || kind === 'pending-turn') {
+        session.append('agent/inbox/spliced', { target: kind === 'pending-step' ? 'next-step' : 'next-turn', start: 0, inserted: [message] })
+      }
+      if (kind !== 'missing-settlement') session.append('agent/inbox/claim', { turn: 1, step: 1,
+        nextStep: kind === 'pending-step' ? [message.id] : [], nextTurn: kind === 'pending-turn' ? [message.id] : [] })
+      session.append('agent/inbox/claim-settled', { turn: kind === 'wrong-settlement-turn' ? 2 : 1, step: 1 })
+    }
+    const writer = await ctx.sessionPersistence.create(session.header)
+    try { await writer.append(session.snapshotEvents()); await writer.flush() } finally { await writer.close() }
+    const reader = await ctx.sessionPersistence.open(id, 'read')
+    const restored = await (async () => {
+      try { return Session.create(id, (await reader.read()).events, reader.header, reader.inheritedEventCount) }
+      finally { await reader.close() }
+    })()
+    await ctx.plugin(Sessions)
+    await ctx.plugin(SessionProjections)
+    const projection = await registerGenerationWatchDelivery(ctx)
+    const expected = kind === 'active' ? 'already has an active durable claim'
+      : claims.includes(kind) ? 'durable claim does not match inbox'
+        : kind === 'missing-filter' || kind === 'wrong-filter-turn' ? 'claim is missing'
+          : kind === 'splice-range' ? 'Invalid inbox projection splice' : 'durable claim is not settled'
+    expect(() => projection.stateOf(restored)).toThrow(expected)
+  },
+)

@@ -162,7 +162,7 @@ async function narrowPresentation(page: Page, platform: 'web' | 'darwin' | 'wind
   return restored
 }
 
-/** Read browser layout on successive painted frames, including interrupted transitions. */
+/** Read raw browser subpixels on successive painted frames, including interrupted transitions. */
 async function sampleMotion(page: Page, toggles: number[] = []) {
   return page.evaluate(async (interruptAt) => {
     const sidebar = document.querySelector('[data-slot="sidebar"]')!.parentElement!
@@ -221,8 +221,9 @@ async function sampleMotion(page: Page, toggles: number[] = []) {
           return JSON.stringify({ label: button.getAttribute('aria-label'), x: box.x, y: box.y, width: box.width, height: box.height,
             alpha: opacityOf(button), hit: hit?.tagName, hitLabel: hit?.getAttribute('aria-label'), hitClass: hit?.getAttribute('class') })
         })
-      snapshots.push({ time: Math.round(now - started), width: Math.round(bounds.width * 100) / 100,
-        mainLeft: Math.round(main.getBoundingClientRect().left * 100) / 100,
+      // Separate decimal rounding can turn an exact 1px border into a larger floating-point delta.
+      snapshots.push({ time: Math.round(now - started), width: bounds.width,
+        mainLeft: main.getBoundingClientRect().left,
         visibleControls: visibleButtons.length, toggleHit, toggleDetails,
         transition: style.transitionProperty, duration: style.transitionDuration,
         animating: frame.hasAttribute('data-animating') })

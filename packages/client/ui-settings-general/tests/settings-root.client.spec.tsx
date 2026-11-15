@@ -443,13 +443,15 @@ describe('SettingsPanel navigation', () => {
     expect(inactive).toHaveLength(0)
   })
 
-  it('takes the panel down when an onboarding step appears beneath it', () => {
-    const { setOnboardingActive } = mount({ onboardingActive: false })
+  it('keeps the panel until an onboarding step displays its dialog', () => {
+    const { setOnboardingActive, renderSlot } = mount({ onboardingActive: false })
     openPanel()
     expect(screen.getByRole('dialog')).toBeDefined()
 
-    // The step's overlay marks only #root inert, and the panel is portalled beside it.
     setOnboardingActive(true)
+    expect(screen.getByRole('dialog')).toBeDefined()
+    const step = renderSlot.mock.calls.filter(call => call[0] === 'settings.onboarding').at(-1)
+    act(() => { (step?.[1] as { onVisible: () => void }).onVisible() })
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
@@ -503,8 +505,11 @@ describe('SettingsPanel navigation', () => {
 
 it('explicitly reopens one onboarding editor during an existing session', () => {
   const { renderSlot } = mount({ onboardingActive: false })
+  openPanel()
+  expect(screen.getByRole('dialog')).toBeDefined()
   const launcher = renderSlot.mock.calls.find(call => call[0] === 'settings.launcher')
   act(() => { (launcher?.[1] as { openOnboarding: (id: string) => void }).openOnboarding('credential') })
+  expect(screen.queryByRole('dialog')).toBeNull()
   const call = renderSlot.mock.calls.filter(call => call[0] === 'settings.onboarding').at(-1)
   expect(call?.[1]).toMatchObject({ stepId: 'credential', explicit: true })
   act(() => { (call?.[1] as { complete: () => void }).complete() })

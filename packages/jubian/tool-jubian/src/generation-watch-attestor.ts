@@ -126,6 +126,9 @@ function recordedSubmission(events: readonly SessionEvent[], inherited: number,
     if (event.type === 'assistant/message') {
       const { message, turn, step } = event.data
       if (position?.turn !== turn || position.step !== step) {
+        /* v8 ignore next -- a mismatched assistant message carrying a text block needs a position the
+        released v4 reader rejects (session-format-v3-to-v4 relationships.requireStep); a fork tail
+        always starts after a closed turn, so every block here is a tool-call. */
         for (const block of message.content) if (block.type === 'tool-call') unscopedRootIds.add(block.id)
         continue
       }
@@ -204,6 +207,8 @@ function recordedSubmission(events: readonly SessionEvent[], inherited: number,
   if (candidate.subKey === undefined) {
     if (results.get(candidate.rootKey) !== 1) return undefined
   } else {
+    /* v8 ignore if -- the reader rejects a second end for one subCallId ("PTC dispatch repeats
+    subCallId") and every found sub-dispatch is counted from its end, so ends is always exactly 1. */
     if (ends.get(candidate.subKey) !== 1) return undefined
     let current: string | undefined = candidate.subKey
     const seen = new Set<string>()
@@ -286,6 +291,8 @@ export function createGenerationWatchSubmissionModelReader(persistence: Generati
  */
 export function createGenerationWatchOwnerAttestor(persistence: GenerationWatchSessionReader,
   ledger: JubianLedger, verifyHost: GenerationWatchHostVerifier): GenerationWatchOwnerAttestor {
+  /* v8 ignore if -- answers a JS caller that violates this exported signature; the parameter is
+  typed as a function and the only callers pass local closures. */
   if (typeof verifyHost !== 'function') throw new Error('A trusted Host ownership verifier is required')
   return async (owner, projectDir) => {
     if (!isAbsolute(owner.previewPath) || !isAbsolute(projectDir)) return false
