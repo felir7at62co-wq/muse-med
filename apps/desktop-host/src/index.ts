@@ -151,7 +151,7 @@ async function main(): Promise<void> {
   }
   // The shipped driver runs in its own process; no PATH lookup or user installation is needed.
   process.env.MUSE_COMPUTER_USE_EXECUTABLE = join(primarySource, '..', 'cua', process.platform === 'win32' ? 'cua-driver.exe' : 'cua-driver')
-  const installAnchor = packageManifestPath(runtimeDir, '@deepseek-ai/dsh')
+  const installAnchor = join(runtimeDir, 'package.json')
   const { profile, patches, moduleOverrides } = await desktopComposition(runtimeDir, projectDir, allowLinkedPackages)
   reportSkippedBundles('muse-med', profile)
   // JSON is YAML-compatible; inherited bundle rows remain owned by runProfile.

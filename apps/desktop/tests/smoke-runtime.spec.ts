@@ -537,7 +537,7 @@ it('bounds lifecycle observations and isolates observer failures without changin
   expect(diagnostic.droppedRecords).toBeGreaterThan(0)
   expect(diagnostic.observerErrors.some(error => error.message.includes('observer-only getter failure'))).toBe(true)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
-  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(f.dispose).toHaveBeenCalledTimes(17)
   for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
   for (const listeners of f.lifecycleListeners.values()) expect(listeners.size).toBe(0)
 })
@@ -611,7 +611,7 @@ it('retains the disposal event when native call-site collection fails', async ()
   expect(diagnostic.observerErrors).toHaveLength(1)
   expect(diagnostic.observerErrors[0]?.event).toBe('getCallSites')
   expect(diagnostic.observerErrors[0]?.message).toContain('call-site collection unavailable')
-  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(f.dispose).toHaveBeenCalledTimes(17)
   for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
 })
 
@@ -1151,7 +1151,7 @@ it('rejects ordinary tools in the private reviewer and awaits its disposal', asy
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'muse-manuscript-continuity-reviewer'
     ? [{ name: 'write' }] : schemas(key))
   await expect(f.apply(f.ctx)).rejects.toThrow('private continuity reviewer exposes ordinary tools')
-  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(f.dispose).toHaveBeenCalledTimes(17)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
@@ -1586,7 +1586,7 @@ it('waits for Agent teardown before checking later presets or marking completion
     expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
     release.resolve(undefined)
     await request
-    expect(f.dispose).toHaveBeenCalledTimes(15)
+    expect(f.dispose).toHaveBeenCalledTimes(17)
   } finally {
     release.resolve(undefined)
     await request

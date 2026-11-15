@@ -37,6 +37,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       return
     }
     if (teams === undefined || source !== 'startup') return
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing restored-selection read; migration deferred.
     if (agent.session.ownEvents().some(event => event.type === 'team/mode')) return
     await teams.setEnabled(agent, true, signal)
   })

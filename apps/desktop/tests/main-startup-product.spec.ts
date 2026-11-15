@@ -179,15 +179,16 @@ const harness = await vi.hoisted(async () => {
     pluginsEnabled = false
     return 'desktop-test-profile/cordis.patch.yml.bak-1'
   })
+  // Primary Windows windows follow `updated` appearance events and remove their listener when closed.
+  const nativeTheme = Object.assign(new EventEmitter(), { shouldUseDarkColors: false, themeSource: 'system' })
   return {
     windows, hosts, notifications, mutations, listeners, handlers, app, appRoot, FakeWindow, FakeHost, FakeNotification, disableAllPlugins,
-    setFocusedWindow,
+    setFocusedWindow, nativeTheme,
     dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn() },
     menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
     openExternal: vi.fn(async () => {}),
     clipboard: { writeText: vi.fn(), readText: vi.fn(() => '') },
     nativeImage: { createFromPath: vi.fn(() => ({ isEmpty: () => true })) },
-    nativeTheme: { shouldUseDarkColors: false, themeSource: 'system' },
     net: { fetch: vi.fn(async () => new Response('', { status: 200 })) },
     powerMonitor: new EventEmitter(),
     session: {
@@ -228,6 +229,8 @@ const harness = await vi.hoisted(async () => {
       windows.length = 0; hosts.length = 0; notifications.length = 0; mutations.length = 0
       focusedWindow = null
       listeners.clear(); handlers.clear(); app.removeAllListeners()
+      nativeTheme.removeAllListeners()
+      nativeTheme.themeSource = 'system'; nativeTheme.shouldUseDarkColors = false
       app.isPackaged = true
       pluginsEnabled = false
       resets = 0
@@ -840,6 +843,7 @@ describe('desktop main startup', () => {
     for (const name of ['DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_FONTS_DIR',
       'MUSE_FONT_FAMILY', 'MUSE_SUBTITLE_FONT_FAMILY', 'MUSE_WATERMARK_FONT_FAMILY']) vi.stubEnv(name, undefined)
     await import('../src/main.ts')
+    await harness.preparing.promise
     const media = join('desktop-test-resources', 'runtime', 'media')
     expect(process.env.DSH_FFMPEG_PATH).toBe(join(media, 'ffmpeg', 'bin', 'ffmpeg'))
     expect(process.env.DSH_FFPROBE_PATH).toBe(join(media, 'ffmpeg', 'bin', 'ffprobe'))
@@ -859,6 +863,7 @@ describe('desktop main startup', () => {
     vi.stubEnv('MUSE_SUBTITLE_FONT_FAMILY', 'custom-subtitle')
     vi.stubEnv('MUSE_FONT_FAMILY', 'old-parent-font')
     await import('../src/main.ts')
+    await harness.preparing.promise
     expect(process.env.DSH_FFMPEG_PATH).toBe('custom-ffmpeg')
     expect(process.env.MUSE_FONTS_DIR).toBe(join('desktop-test-resources', 'runtime', 'media', 'fonts'))
     expect(process.env.MUSE_SUBTITLE_FONT_FAMILY).toBe('Zhuque Fangsong (technical preview)')

@@ -49,7 +49,7 @@ describe('Desktop workspace successor ownership', () => {
     await rm(h.sourcePath)
     const scan = vi.spyOn(isolatedScan, 'read').mockResolvedValue({ platform: 'posix',
       stdout: `${process.pid} self\n999999 node /other/dsh-desktop-host/lib/index.js\n`, stderr: '' })
-    onTestFinished(() => scan.mockRestore())
+    onTestFinished(() => { scan.mockRestore() })
     const read = vi.spyOn(h.sourceBackend, 'readSource')
     const unit = await h.backend.kv.open(descriptor)
     expect(await unit.loadAll()).toEqual({ global: null, tables: { workspaces: {} } })
@@ -66,7 +66,7 @@ describe('Desktop workspace successor ownership', () => {
     const h = await harness()
     const scan = vi.spyOn(isolatedScan, 'read').mockResolvedValue({ platform: 'posix',
       stdout: `${process.pid} self\n999999 node /other/dsh-desktop-host/lib/index.js\n`, stderr: '' })
-    onTestFinished(() => scan.mockRestore())
+    onTestFinished(() => { scan.mockRestore() })
     await expect(h.backend.kv.open(descriptor)).rejects.toMatchObject({ reason: 'other-host' })
     await expect(stat(h.root)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(await readFile(h.sourcePath, 'utf8')).toBe(h.source)
@@ -113,7 +113,7 @@ describe('Desktop workspace successor ownership', () => {
       await rm(h.sourcePath)
       return { platform: 'posix', stdout: `${process.pid} self\n`, stderr: '' }
     })
-    onTestFinished(() => scan.mockRestore())
+    onTestFinished(() => { scan.mockRestore() })
     await expect(h.backend.kv.open(descriptor)).rejects.toThrow('changed after handoff')
     await expect(stat(h.root)).rejects.toMatchObject({ code: 'ENOENT' })
   })

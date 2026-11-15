@@ -219,8 +219,8 @@ export function apply(ctx) {
   const observeCreated = ({ agent, signal }) => {
     try {
       if (!agent.session.id.startsWith('desktop-product-smoke-') || signal === undefined || observedAgents.has(agent)) return
-      // Seven ordinary presets own two Agents each; the private reviewer owns one.
-      if (signalReleases.length >= 15) { observerError('agent-created-capacity', new Error('Smoke Agent observation limit reached')); return }
+      // Eight ordinary presets own two Agents each; the private reviewer owns one.
+      if (signalReleases.length >= 17) { observerError('agent-created-capacity', new Error('Smoke Agent observation limit reached')); return }
       const context = agent.ctx, fiber = context.fiber, agentIdentity = identity(agent), contextIdentity = identity(context)
       const alreadyAborted = signal.aborted
       let recorded = false

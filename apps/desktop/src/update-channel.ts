@@ -5,7 +5,8 @@ import type { DesktopUpdatePreferences } from './settings-file.ts'
 export type DesktopUpdateChannel = DesktopUpdatePreferences['channel']
 
 /**
- * Read the packaged channel; older manifests retain their existing nightly behavior.
+ * Read the packaged channel; older manifests retain their existing nightly behavior, and the legacy
+ * `latest` name reads as `stable`.
  * @param manifest Parsed application manifest.
  * @returns Validated channel. Invalid explicit values reject instead of changing feeds.
  */

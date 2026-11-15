@@ -55,7 +55,13 @@ function releaseFeed(tags: readonly string[]): string {
     + `<link href="https://github.com/felir7at62co-wq/muse-med/releases/tag/${tag}"/><content>Release</content></entry>`).join('')}</feed>`
 }
 
-async function fixture(version: string, channel: string, sources: readonly DesktopUpdateSource[] = []) {
+/** The GitHub feed a package seals for one release channel. */
+function packagedFeed(channel: string): DesktopUpdateSource {
+  return { provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel }
+}
+
+/** An installed updater configured with the GitHub feed for its channel and no coordinator-selected channel. */
+async function installedUpdater(version: string, channel: string) {
   const root = await mkdtemp(join(tmpdir(), 'muse-updater-discovery-'))
   roots.push(root)
   await writeFile(join(root, 'unused.yml'), JSON.stringify({ updaterCacheDirName: 'updater-cache' }))
@@ -76,7 +82,13 @@ async function fixture(version: string, channel: string, sources: readonly Deskt
   }), { httpExecutor: executor, _testOnlyOptions: { platform: 'win32' } })
   updater.logger = null
   updater.disableDifferentialDownload = true
-  updater.setFeedURL({ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel })
+  updater.autoDownload = false
+  updater.setFeedURL(packagedFeed(channel))
+  return { updater, executor, responses, root }
+}
+
+async function fixture(version: string, channel: string, sources: readonly DesktopUpdateSource[] = []) {
+  const { updater, executor, responses, root } = await installedUpdater(version, channel)
   const states: DesktopUpdateState[] = []
   const coordinator = new DesktopUpdateCoordinator((state) => { states.push(state); return state }, async () => {
     throw new Error('Update discovery must not prepare installation')
@@ -99,8 +111,9 @@ describe('Muse GitHub updater discovery', () => {
     expect(f.executor.requests).toEqual([`${base}.atom`, `${base}/latest`, `${base}/download/v${stable}/latest.yml`])
   })
 
+  // The coordinator selects the updater channel, so the packaged discovery channel arrives through the sealed feed.
   it.each(['rc', 'latest'])('retains legacy RC discovery through packaged %s metadata', async (channel) => {
-    const f = await fixture('0.1.7-rc.8', channel)
+    const f = await fixture('0.1.7-rc.8', channel, [packagedFeed(channel)])
     expect(await f.coordinator.check(true)).toMatchObject({ phase: 'available', version: stable })
     expect(f.updater.allowPrerelease).toBe(channel !== 'latest')
     expect(f.updater.allowDowngrade).toBe(false)
@@ -110,7 +123,7 @@ describe('Muse GitHub updater discovery', () => {
   })
 
   it('retains beta discovery and excludes non-semantic runtime tags', async () => {
-    const f = await fixture('1.0.4-beta.1', 'beta')
+    const f = await fixture('1.0.4-beta.1', 'beta', [packagedFeed('beta')])
     expect(await f.coordinator.check(true)).toMatchObject({ phase: 'available', version: beta })
     expect(f.updater.allowPrerelease).toBe(true)
     expect(f.executor.requests).toEqual([`${base}.atom`, `${base}/download/v${beta}/beta.yml`])
@@ -125,11 +138,11 @@ describe('Muse GitHub updater discovery', () => {
   })
 
   it('lets the original stable client discover genuine metadata when the RC alias is published last', async () => {
-    const f = await fixture('1.0.1', 'latest')
-    // Released 1.0.1 uses first-entry discovery until the new package replaces its coordinator.
+    // Released 1.0.1 accepts prereleases without selecting an updater channel, so it reads the first feed entry.
+    const f = await installedUpdater('1.0.1', 'latest')
     f.updater.allowPrerelease = true
     f.responses.set(`${base}.atom`, releaseFeed([rcTag, `v${stable}`, runtimeTag]))
-    expect(await f.coordinator.check(true)).toMatchObject({ phase: 'available', version: stable })
+    expect((await f.updater.checkForUpdates())?.updateInfo.version).toBe(stable)
     expect(f.executor.requests).toEqual([`${base}.atom`, `${base}/download/${rcTag}/rc.yml`])
   })
 })

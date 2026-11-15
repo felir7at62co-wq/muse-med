@@ -11,7 +11,7 @@ function transport(preference?: string) {
   ]
   const send = vi.fn<Parameters<typeof connectDesktopWelcome>[1]>(async (_input, init) => {
     if (init?.method === undefined) return new Response(null, { status: 200 })
-    const { rpcId, method, payload } = JSON.parse(init!.body as string) as {
+    const { rpcId, method, payload } = JSON.parse(init.body as string) as {
       rpcId: string
       method: string
       payload: { args: { ref: string; value: string; refs: string[] } }
