@@ -22,6 +22,10 @@ class EmbeddedPythonImportTests(unittest.TestCase):
                 file = root / name
                 file.write_bytes(b'fixture')
                 inputs[name] = str(file)
+            Path(inputs['timeline.json']).write_text(json.dumps({'clips': [
+                {'shot': 1, 'start_us': 0, 'duration_us': 2_000_000}]}), encoding='utf-8')
+            Path(inputs['subtitles.srt']).write_text(
+                '1\n00:00:00,000 --> 00:00:02,000\nIsolated import fixture\n', encoding='utf-8')
             request = root / 'request.json'
             request.write_text(json.dumps({
                 'project': str(root), 'episode': 23, 'name_prefix': 'isolated-',

@@ -38,6 +38,8 @@ Verify your work by running the code or tests. Keep answers brief and factual.
 
 Windows 保留原视频声音时，请求写 audio_mode="embedded"，省略 audio；由 aa剪映后端直接保留视频声音，BGM 独立；仅 9:16 在整集末尾追加片尾，16:9 不加。未声明模式的旧请求仍走独立主音轨：成功导入后才静音正文源视频，导入失败保留原声并说明缺口。Mac 暂不支持 embedded，不改用独立音轨冒称满足。独立 BGM 必须是纯音乐，不能叠加含对白的审查混音。已有草稿不会自动迁移；修复旧稿时生成唯一名称的新候选，不覆盖原稿。以上为 Agent 操作指导，不新增用户审批，不把保存成功写成剪映打开、播放或听感已验收。
 
+恢复时不强删锁、不移动活动素材目录、不手改 root_meta_info.json；同名并发需等本次实际退出，或另用唯一新名生成候选。Windows 原声生成期间保护活动目录和已保留素材；身份或源时窗明确不符则失败并保留文件，无法读取则保持未验证且不出交付凭据。保存检查不替代剪映裁剪、保存、关闭重开验收，不自动修复旧稿。
+
 If a file operation returns FS_STALE_VERSION, read the current file, rebase your intended change onto the new content, and retry.
 
 Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.

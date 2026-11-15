@@ -47,7 +47,7 @@ class DisplaySourceCLI(unittest.TestCase):
             'episodes': {'03': {'sha256': digest(source.encode('utf-8')), 'char_count': len(source)}}})
 
     def files(self):
-        return {str(path.relative_to(self.root)): path.read_bytes()
+        return {path.relative_to(self.root).as_posix(): path.read_bytes()
                 for path in self.root.rglob('*') if path.is_file()}
 
     def cli(self, expected_exit, *arguments):
