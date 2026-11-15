@@ -49,6 +49,9 @@ export const MATCHED_VERSION = 5
 /** The `@[name](key)` placeholder the prompt binds material keys with. */
 const MATERIAL_PLACEHOLDER = /@\[([^\]]+)\]\(([^()\s]+)\)/g
 
+/** Asset-selection metadata is retained for validation and omitted from video directions. */
+const BODY_STATE_LINE = /^[ \t]*(?:【[^】\r\n]+】[ \t]*-?[ \t]*)?身体状态[ \t]*[:：][^\r\n]*(?:\r?\n|$)/gm
+
 /** A remote asset reference, which the episode package does not copy. */
 const REMOTE_REFERENCE = /^https?:\/\//i
 
@@ -129,7 +132,8 @@ export function materialKeys(prompt: string): string[] {
  * Complete shot prompts with the confirmed assets their visual directions bind.
  * Existing keys are reused across the episode, including registered alias labels;
  * otherwise the parent asset id supplies the stable `asset_<id>` key. Shot directions
- * and dialogue are retained; marker labels and keys are normalized before missing
+ * and dialogue are retained except for asset-selection body-state lines; marker
+ * labels and keys are normalized before missing
  * named references are appended. Each shot's selected human identities limit its
  * visible cast without forcing every reference into frame; prior derived cast
  * limits are replaced when the selected identities change. Multi-view references
@@ -143,7 +147,7 @@ export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: rea
   const { times } = reviewSceneTimes(shots.map(item => item.shot))
   const keysByAsset = new Map<string, string>()
   for (const item of shots) {
-    for (const match of item.shot.visual.matchAll(MATERIAL_PLACEHOLDER)) {
+    for (const match of item.shot.visual.replace(BODY_STATE_LINE, '').matchAll(MATERIAL_PLACEHOLDER)) {
       const asset = referenceAsset(item, match, manifest)
       if (asset !== undefined && !keysByAsset.has(asset.assetId)) {
         keysByAsset.set(asset.assetId, placeholderKey(match))
@@ -152,7 +156,7 @@ export function prepareShotPrompts(shots: readonly CompiledShot[], manifest: rea
   }
   return shots.map((item) => {
     const present = new Set<string>()
-    const original = item.shot.visual.split('\n').filter(line => !line.startsWith('本镜人物范围：')
+    const original = item.shot.visual.replace(BODY_STATE_LINE, '').split('\n').filter(line => !line.startsWith('本镜人物范围：')
       && !/^时段(?:连续性|呈现)[：:]/u.test(line))
       .join('\n').replace(MATERIAL_PLACEHOLDER, (whole: string, label: string, key: string) => {
         const match: RegExpMatchArray = [whole, label, key]
@@ -334,7 +338,8 @@ function advisoryPackages(
       const contentSeconds = pack.reduce((sum, item) => sum + item.shot.durationSeconds, 0)
       const [first] = pack as readonly [CompiledShot, ...CompiledShot[]]
       const opening = openings.get(first.shot.shot)
-      const prompt = [opening, ...pack.map(item => item.shot.visual)].filter(Boolean).join('\n\n')
+      const prompt = [opening, ...pack.map(item => item.shot.visual.replace(BODY_STATE_LINE, '').trimEnd())]
+        .filter(Boolean).join('\n\n')
       const bindings = materialKeys(prompt).flatMap((key) => {
         const binding = candidates.get(key)
         return binding === undefined || rejectedKeys.has(key) || rejectedParents.has(binding.asset_id) ? [] : [binding]

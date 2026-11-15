@@ -61,6 +61,27 @@ async function project(episode = '01'): Promise<string> {
 }
 
 describe('material keys', () => {
+  it.each(['身体状态：', '【苏晚】-身体状态：', '【苏晚】身体状态:', '  身体状态 :'])(
+    'keeps %s for binding without sending costume metadata to the video model', (prefix) => {
+      const source = speakingShot(1, '苏晚：你说的身体状态：是什么意思？', ['核心场景：后厨',
+        '动作状态：【右手整理衣领】；'])
+        .replace('身体状态：', prefix)
+      const shots = fixture([source], DEFAULT_ASSETS)
+      const declared = shots[0]?.shot.bodyStates.get('苏晚')
+      expect(declared).toBe('非孕期；青年；家常装')
+      const prepared = prepareShotPrompts(shots)
+      const visual = prepared[0]?.shot.visual ?? ''
+      expect(visual).not.toContain('家常装')
+      expect(visual).not.toContain('非孕期')
+      expect(visual).toContain('动作状态：【右手整理衣领】；')
+      expect(visual).toContain('台词：苏晚：你说的身体状态：是什么意思？')
+      expect(materialKeys(visual)).toEqual(['asset_70001', 'asset_70002'])
+      expect(prepared[0]?.shot.bodyStates.get('苏晚')).toBe(declared)
+      expect(shots[0]?.shot.visual).toContain('家常装')
+      expect(prepareShotPrompts(prepared)).toEqual(prepared)
+    },
+  )
+
   it('keeps first-appearance order and drops repeats', () => {
     expect(materialKeys('雨夜街头 @[陆沉舟](lead) 与 @[苏晚](guest)，@[陆沉舟](lead) 回头。'))
       .toEqual(['lead', 'guest'])
@@ -79,7 +100,9 @@ describe('material keys', () => {
     const assets = parseAssetManifest(manifestDocument(...rows), 'manifest.json').assets
     const completed = prepareShotPrompts(shots, assets)
     expect(completed.map(item => materialKeys(item.shot.visual))).toEqual([['existing'], ['existing']])
-    expect(completed[0]?.shot.visual).toContain(shots[0]?.shot.visual.replace('@[晚晚](existing)', '@[苏晚](existing)'))
+    expect(completed[0]?.shot.visual).toContain('台词：苏晚：别走')
+    expect(completed[0]?.shot.visual).toContain('@[苏晚](existing)')
+    expect(completed[0]?.shot.visual).not.toContain('身体状态')
     expect(prepareShotPrompts(completed)).toEqual(completed)
   })
 })
