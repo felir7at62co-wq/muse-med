@@ -136,8 +136,7 @@ export function parseMarketPublication(value: unknown, limits: Pick<MarketLimits
     return { id: parseMarketPublicationId(value.id), publisherId: parseMarketPublisherId(value.publisherId),
       publisher: value.publisher, manifest, sha256: value.sha256, bytes: value.bytes, status: value.status,
       reviewNote: value.reviewNote, revision: value.revision, createdAt: value.createdAt }
-  } catch (error) {
-    if (error instanceof MarketCloudError && error.code === 'invalid-response') throw error
+  } catch (_error) {
     throw new MarketCloudError('invalid-response', 502)
   }
 }

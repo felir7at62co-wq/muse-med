@@ -6,6 +6,9 @@
  * across Loader rebuilds of the declaring chain.
  */
 import { describe, expect, onTestFinished, vi } from 'vitest'
+import { render } from '@testing-library/react'
+import { createElement } from 'react'
+import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { ok, type RemoteMock } from '@deepseek-ai/dsh-remote-mock'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-settings/types'
@@ -15,11 +18,13 @@ import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { LOCALE_SETTINGS_NAMESPACE, LocaleSettingsSchema } from '@deepseek-ai/dsh-client-locale/src/locale-settings.ts'
 import { inject } from '../src/client/index.ts'
 import type { DeveloperToolsRowInjected } from '../src/client/DeveloperToolsRow.tsx'
+import type { SystemDnsInjected } from '../src/client/SystemDnsRow.tsx'
 import { HostReleasePrompt, type HostReleasePromptInjected } from '../src/client/HostReleasePrompt.tsx'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
 import { SettingsDocumentAction } from '../src/client/SettingsDocumentAction.tsx'
 import type { SettingsDocumentActionInjected } from '../src/client/SettingsDocumentAction.tsx'
+import type { createSettingsShellStore } from '../src/client/shell-store.ts'
 
 const SELF = '@deepseek-ai/dsh-client-ui-settings-general'
 const SIDEBAR = '@deepseek-ai/dsh-client-ui-sidebar'
@@ -101,13 +106,64 @@ describe('ui-settings-general apply', () => {
 
   it('registers the system DNS control only for a Muse Desktop bridge', async ({ mock, start }) => {
     const status = vi.fn().mockResolvedValue({ saved: false, active: false })
-    vi.stubGlobal('dshDesktop', { protocolVersion: 1, productName: 'muse-med', systemDns: { status, set: vi.fn() } })
+    const set = vi.fn(async () => ({ saved: true, active: false }))
+    vi.stubGlobal('dshDesktop', { protocolVersion: 1, productName: 'muse-med', systemDns: { status, set } })
     onTestFinished(() => { vi.unstubAllGlobals() })
     const { c } = await client(mock, start)
     expect(c.ctx.slots.entries('settings.general.item').filter(row => row.options.id === 'system-dns')).toHaveLength(1)
     expect(c.ctx.slots.entries('shell.overlay').filter(row => row.options.id === 'system-dns-toast')).toHaveLength(1)
     expect(status).toHaveBeenCalledExactlyOnceWith()
+    const row = c.ctx.slots.entries('settings.general.item').find(entry => entry.options.id === 'system-dns')!
+    const toast = c.ctx.slots.entries('shell.overlay').find(entry => entry.options.id === 'system-dns-toast')!
+    const face = (row.inject as () => SystemDnsInjected & Record<string, unknown>)()
+    const feedback = (toast.inject as () => SystemDnsInjected & Record<string, unknown>)()
+    expect(feedback.hooks.systemDns).toBe(face.hooks.systemDns)
+    await vi.waitFor(() => { expect(face.hooks.systemDns.getSnapshot().loading).toBe(false) })
+    await face.setEnabled(true)
+    expect(set).toHaveBeenCalledExactlyOnceWith(true)
+    expect(feedback.hooks.systemDns.getSnapshot()).toMatchObject({
+      preference: { saved: true, active: false }, notice: 'saved', busy: false,
+    })
+    feedback.dismiss()
+    expect(face.hooks.systemDns.getSnapshot().notice).toBeNull()
+    status.mockResolvedValueOnce({ saved: true, active: true })
+    await face.reload()
+    expect(status).toHaveBeenCalledTimes(2)
+    expect(face.hooks.systemDns.getSnapshot().preference).toEqual({ saved: true, active: true })
   }, COLD_BOOT_TIMEOUT_MS)
+
+  it('opens the shared Settings state with its registered shortcut, closes its modal and refuses another modal owner', async ({ mock, start }) => {
+    const platform = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32')
+    onTestFinished(() => { platform.mockRestore() })
+    const { c } = await client(mock, start)
+    const register = vi.spyOn(c.ctx.shortcuts, 'register')
+    onTestFinished(() => { register.mockRestore() })
+    await c.reload('@deepseek-ai/dsh-client-ui-settings-general')
+    const command = register.mock.calls.find(([entry]) => entry.id === 'settings.open')?.[0]
+    const binding = c.ctx.shortcuts.catalog.getSnapshot().find(entry => entry.id === 'settings.open')?.binding
+    if (command === undefined || binding === undefined || binding === null) throw new Error('Settings command is unavailable')
+    const entry = c.ctx.slots.entries('sidebar.settings')[0]!
+    const handle = entry.store as ReturnType<typeof createSettingsShellStore>
+    const store = handle.create()
+    const press = (): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', { key: ',', code: binding.code, bubbles: true, cancelable: true,
+        ctrlKey: binding.modifiers.includes('control'), altKey: binding.modifiers.includes('alt'),
+        shiftKey: binding.modifiers.includes('shift'), metaKey: binding.modifiers.includes('meta') })
+      document.body.dispatchEvent(event)
+      return event
+    }
+    expect(store.getSnapshot().open).toBe(false)
+    expect(press().defaultPrevented).toBe(true)
+    expect(store.getSnapshot().open).toBe(true)
+    const close = vi.fn(() => { store.actions.close() })
+    const view = render(createElement(Modal, { open: true, title: 'Settings', closeLabel: 'Close', shortcutModal: 'settings', onClose: close }))
+    onTestFinished(() => { view.unmount() })
+    expect(press().defaultPrevented).toBe(true)
+    expect(close).toHaveBeenCalledOnce()
+    expect(store.getSnapshot().open).toBe(false)
+    expect(command.resolve({ region: 'page', modal: 'another-dialog', target: document.body })).toEqual({ status: 'blocked', reason: 'modal' })
+    expect(close).toHaveBeenCalledOnce()
+  })
 
   it('fills the five seats of the shell it declares, with the locale-following General label', async ({ mock, start }) => {
     const { c } = await client(mock, start)

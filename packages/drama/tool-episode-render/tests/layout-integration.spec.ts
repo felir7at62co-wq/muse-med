@@ -381,9 +381,14 @@ it.skipIf(!nativeAvailable)('refuses a real fallback font before body encoding a
   const owner = createMediaRunner(), family = 'Muse Fixture Missing Font Family'
   const input = await fixture({ ...visual, font_family: family },
     { ffmpegPath: ffmpeg, ffprobePath: ffprobe, fontsDir: fonts, subtitleFontFamily: family }, owner.dispose)
-  const calls: (readonly string[])[] = []
+  const source = join(input.root, 'video', '01', 'shot_001.mp4')
+  const generated = await owner.runCommand(ffmpeg, ['-y', '-v', 'error', '-f', 'lavfi', '-i',
+    'color=c=black:size=320x180:rate=12:duration=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    source])
+  expect(generated.code, generated.stderr).toBe(0)
+  const calls: { command: string; args: readonly string[] }[] = []
   const toolkit: MediaToolkit = { ffmpeg, ffprobe, channel: { run: async (command, args) => {
-    calls.push(args)
+    calls.push({ command, args })
     return await owner.runCommand(command, args)
   } } }
   const factory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue(toolkit)
@@ -397,8 +402,11 @@ it.skipIf(!nativeAvailable)('refuses a real fallback font before body encoding a
   expect(result.checks.find(check => check.id === 'subtitle_display_font')).toMatchObject({ ok: false, severity: 'failure' })
   expect(await readFile(input.output)).toEqual(original)
   expect(await stat(input.output)).toMatchObject({ dev: before.dev, ino: before.ino })
-  expect(calls.length).toBeGreaterThan(0)
-  expect(calls.every(args => args.some(argument => argument.includes('bbox=min_val=1')))).toBe(true)
+  expect(calls[0]).toEqual({ command: ffprobe,
+    args: ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', source] })
+  expect(calls.slice(1).length).toBeGreaterThan(0)
+  expect(calls.slice(1).every(call => call.command === ffmpeg
+    && call.args.some(argument => argument.includes('bbox=min_val=1')))).toBe(true)
 })
 
 it.skipIf(!nativeAvailable || !existsSync(join(fonts, 'ZhuqueFangsong-Regular.ttf'))).each([

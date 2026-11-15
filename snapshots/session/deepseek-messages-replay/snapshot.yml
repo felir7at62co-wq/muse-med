@@ -1,4 +1,5 @@
 version: 1
+writerOutput: true
 scenario: deepseek-messages-replay
 profile: headless
 composition: default

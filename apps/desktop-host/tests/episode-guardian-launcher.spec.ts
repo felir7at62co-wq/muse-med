@@ -26,13 +26,16 @@ async function fixture() {
   return { root, packageRoot }
 }
 
-it('retains only declared OS facts and overrides both Harness homes privately', () => {
+it('retains only declared OS facts and overrides both Harness homes privately', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'guardian-environment-'))
+  roots.push(root)
+  const workerHome = await realpath(root)
   vi.stubEnv('MUSE_HOME', '/personal/muse'); vi.stubEnv('DSH_HOME', '/personal/dsh')
   vi.stubEnv('MUSE_FONTS_DIR', '/personal/fonts'); vi.stubEnv('NODE_OPTIONS', '--inspect')
   vi.stubEnv('HTTP_PROXY', 'http://private.invalid'); vi.stubEnv('DEEPSEEK_API_KEY', 'secret')
-  const env = guardianEnvironment('/private/worker', process.platform)
-  expect(env).toMatchObject({ MUSE_HOME: '/private/worker', DSH_HOME: '/private/worker', ELECTRON_RUN_AS_NODE: '1',
-    DSH_TELEMETRY_DISABLED: '1', XDG_CONFIG_HOME: '/private/worker/config' })
+  const env = guardianEnvironment(workerHome, process.platform)
+  expect(env).toMatchObject({ MUSE_HOME: workerHome, DSH_HOME: workerHome, ELECTRON_RUN_AS_NODE: '1',
+    DSH_TELEMETRY_DISABLED: '1', XDG_CONFIG_HOME: join(workerHome, 'config') })
   for (const key of ['MUSE_FONTS_DIR', 'NODE_OPTIONS', 'HTTP_PROXY', 'DEEPSEEK_API_KEY']) expect(env[key]).toBeUndefined()
   expect(process.env.MUSE_HOME).toBe('/personal/muse')
 })

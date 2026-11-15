@@ -26,6 +26,7 @@ const stateKeys = { 'not-admitted': 'episodeNotAdmitted', queued: 'episodeQueued
   failed: 'episodeFailed', unknown: 'episodeUnknown' } as const
 
 /** Render query facts and explicit export actions; mounting performs no expensive input check.
+ * Query and original-selection callbacks are present only for a valid episode number.
  * @param props - Framework resource/state hooks, action callbacks and locale.
  * @returns The episode subsection in the existing Jubian Settings column.
  */
@@ -46,6 +47,12 @@ export function EpisodeExportSection({ useEpisodeState, useRecoveryState, useRes
     && status.digest === readiness.digest && (state.target === null || state.target.digest === readiness.digest)
   const canResume = available && state.target !== null && observed.status === 'live' && status?.canResume === true
   const loading = ready.status === 'loading' || history.status === 'loading' || observed.status === 'loading'
+  const historyRows = episode === null ? [] : historyValue?.entries.map(entry => <div key={entry.attempt} className={css.report}>
+    <code>{t('episodeAttempt', { id: entry.attempt })}</code><code>{t('recoverySha', { hash: entry.digest })}</code>
+    <p className={css.line}>{t(entry.recordedState === null ? 'episodeRecordedUnknown' : stateKeys[entry.recordedState])}</p>
+    <Button size="sm" variant="outline" disabled={!available || history.status !== 'live' || state.historyAddress === ''}
+      onClick={() => { selectEpisodeOriginal({ projectDir: project, episode, digest: entry.digest }, state.historyAddress) }}>{t('episodeSelect')}</Button>
+  </div>) ?? []
   return <section className={css.section} aria-label={t('episodeTitle')} aria-busy={state.busy || loading}>
     <h3 className={css.title}>{t('episodeTitle')}</h3>
     <p className={css.line}>{t('episodeHint')}</p>
@@ -56,9 +63,9 @@ export function EpisodeExportSection({ useEpisodeState, useRecoveryState, useRes
     {!state.connected && <p className={css.notice}>{t('episodeOffline')}</p>}
     <div className={css.actions}>
       <Button size="sm" variant="outline" disabled={!available}
-        onClick={() => { if (episode !== null) checkEpisode({ projectDir: project, episode }) }}>{t('episodeCheck')}</Button>
+        onClick={episode === null ? undefined : () => { checkEpisode({ projectDir: project, episode }) }}>{t('episodeCheck')}</Button>
       <Button size="sm" variant="outline" disabled={!available}
-        onClick={() => { if (episode !== null) loadEpisodeHistory({ projectDir: project, episode }) }}>{t('episodeHistory')}</Button>
+        onClick={episode === null ? undefined : () => { loadEpisodeHistory({ projectDir: project, episode }) }}>{t('episodeHistory')}</Button>
     </div>
     {loading && <div className={css.loading}><StateDot state="ongoing" /></div>}
     {ready.status === 'failed' && <p className={css.notice}>{t('episodeCheckFailed')}</p>}
@@ -71,12 +78,7 @@ export function EpisodeExportSection({ useEpisodeState, useRecoveryState, useRes
       {historyValue.entries.length === 0 && <p className={css.line}>{t('episodeHistoryEmpty')}</p>}
       {historyValue.truncated && <p className={css.notice}>{t('episodeHistoryTruncated')}</p>}
       {historyValue.unreadableRecords > 0 && <p className={css.notice}>{t('episodeHistoryUnreadable', { count: historyValue.unreadableRecords })}</p>}
-      {historyValue.entries.map(entry => <div key={entry.attempt} className={css.report}>
-        <code>{t('episodeAttempt', { id: entry.attempt })}</code><code>{t('recoverySha', { hash: entry.digest })}</code>
-        <p className={css.line}>{t(entry.recordedState === null ? 'episodeRecordedUnknown' : stateKeys[entry.recordedState])}</p>
-        <Button size="sm" variant="outline" disabled={!available || history.status !== 'live' || state.historyAddress === ''}
-          onClick={() => { if (episode !== null) selectEpisodeOriginal({ projectDir: project, episode, digest: entry.digest }, state.historyAddress) }}>{t('episodeSelect')}</Button>
-      </div>)}
+      {historyRows}
     </div>}
     {observed.status === 'failed' && <p className={css.notice}>{t('episodeStatusFailed')}</p>}
     {status !== undefined && <div className={css.feedback}>

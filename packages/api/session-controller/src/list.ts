@@ -125,12 +125,13 @@ export class ApiSessionList {
   summaryFor(session: Session): SessionSummary {
     const metadata = this.listMetadata.stateOf(session)
     const projections = this.projectionsFor(session.header, session)
+    const agent = this.ctx.agents.get(session.id)
     return {
       sessionId: session.id,
       updatedAt: updatedAt(session.header, metadata),
-      agentAvailable: this.ctx.agents.get(session.id)?.session === session,
+      agentAvailable: agent?.session === session,
       formatStatus: 'current',
-      running: this.ctx.agents.get(session.id)?.status === 'running',
+      running: agent?.status === 'running',
       blank: metadata.blank,
       ...listFields(session.header),
       ...(projections === undefined ? {} : { projections }),
@@ -146,12 +147,13 @@ export class ApiSessionList {
     signal?.throwIfAborted()
     const records = await this.ctx.sessionQuery.listSessions(signal)
     signal?.throwIfAborted()
+    const sessions = this.ctx.sessions
     const items: SessionSummary[] = []
     const cold: SessionRecord[] = []
     let yieldDeadline = performance.now() + this.workSliceMs
     for (const record of records) {
       signal?.throwIfAborted()
-      const live = this.ctx.sessions.get(record.header.id)
+      const live = sessions.get(record.header.id)
       if (live !== undefined) {
         items.push(this.summaryFor(live))
       } else if (record.header.cwd !== undefined) {
@@ -310,11 +312,12 @@ export class ApiSessionList {
       // hands back one stable set until the key table changes; both faces below
       // serve only those keys, so a list row cannot carry a unit that declares
       // itself summary-excluded.
-      const keys = this.ctx.sessionProjections.summaryKeys()
+      const projections = this.ctx.sessionProjections
+      const keys = projections.summaryKeys()
       if (session !== undefined) {
         // The live registry computes the block for this Session: its watermark
         // shares the sequence space of the Session's baselines and frames.
-        return hintsOf('sequenced', this.ctx.sessionProjections.snapshot(session, keys))
+        return hintsOf('sequenced', projections.snapshot(session, keys))
       }
       // A cold row reads the persisted cache by header alone; the cache serves
       // seeded and unseeded lifecycles alike because a listing never seeds a

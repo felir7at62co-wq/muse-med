@@ -51,7 +51,12 @@ def subtitle_visual(timeline: dict, project: Path | None = None, *, _ignore_forc
         raw = os.environ.get('MUSE_DEFAULT_SUBTITLE_VISUAL')
         if not raw:
             raise ValueError('The product subtitle visual configuration is missing')
-        visual = subtitle_visual({'delivery': {'subtitle_visual': json.loads(raw)}}, _ignore_force=True)
+        configured = json.loads(raw)
+        if isinstance(configured, dict) and 'font_family' not in configured:
+            family = os.environ.get('MUSE_SUBTITLE_FONT_FAMILY')
+            if family:
+                configured = {**configured, 'font_family': family}
+        visual = subtitle_visual({'delivery': {'subtitle_visual': configured}}, _ignore_force=True)
         if visual is None:
             raise ValueError('The product subtitle visual configuration must be complete')
         return visual
@@ -120,6 +125,17 @@ def draft_subtitle_visual(visual: dict, subtitle_style: dict, *, product: bool =
     }
 
 
+def subtitle_font_request(name: str | None, backend: str, *, required: bool = False) -> dict:
+    """Keep the requested identity separate from backend binding and saved-font verification."""
+    status = 'backendUnsupported' if name else ('missingIdentity' if required else 'notRequested')
+    warning = (f'请求字幕字体“{name}”；{backend} 尚无已验证的字体绑定，草稿保留为待修候选，禁止交付。'
+               if name else '产品字幕缺少实际字体身份，草稿保留为待修候选，禁止交付。')
+    return {'requested': name, 'resolved': None, 'resource_id': None, 'backend': backend,
+            'required': required or name is not None, 'status': status,
+            'delivery_ready': not name and not required, 'binding_verified': False,
+            'gui_verified': False, 'warnings': [warning] if name or required else []}
+
+
 def draft_style(timeline: dict, project: Path | None = None, *, center_y_ratio: float | None = None,
                 enforce_product: bool | None = None) -> dict:
     """Inherit an omitted watermark while retaining snapshot subtitles, explicit resets and product enforcement."""
@@ -177,7 +193,7 @@ def draft_style(timeline: dict, project: Path | None = None, *, center_y_ratio: 
     if force:
         visual = subtitle_visual(timeline, project)
         return {'watermark': {'font_size_ui': watermark.get('font_size_ui', 7.0)},
-                'subtitle': {'font_family': None, 'font_size_ui': 11.0, 'border_width_ui': 20.0,
+                'subtitle': {'font_family': visual.get('font_family'), 'font_size_ui': 11.0, 'border_width_ui': 20.0,
                              'transform_y': 1 - 2 * visual['center_y_ratio'],
                              'auto_wrapping': False, 'max_line_width': visual['max_width_ratio']}}
     default_position = -0.465625 if center_y_ratio is None else 1 - 2 * center_y_ratio

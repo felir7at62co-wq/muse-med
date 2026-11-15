@@ -73,9 +73,15 @@ export const PLUGIN_TOGGLE_SETTLE_MS = 10_000
  *
  * The pinned clock advances with real elapsed time, so turn deadlines, session
  * ordering, and durations keep running.
+ * @param sharedOrigin - optional native `performance.timeOrigin + performance.now()`
+ * anchor shared with a browser; without it, this call starts its own fixture clock.
  * @returns the installed `Date.now` spy, restored by the caller in teardown.
  */
-export function pinHostClock(): MockInstance<typeof Date.now> {
+export function pinHostClock(sharedOrigin?: number): MockInstance<typeof Date.now> {
+  if (sharedOrigin !== undefined) {
+    return vi.spyOn(Date, 'now').mockImplementation(() =>
+      WEB_FIXTURE_TIME + Math.floor(performance.timeOrigin + performance.now() - sharedOrigin))
+  }
   const startedAt = performance.now()
   return vi.spyOn(Date, 'now').mockImplementation(() =>
     WEB_FIXTURE_TIME + Math.floor(performance.now() - startedAt))
@@ -90,17 +96,21 @@ export function pinHostClock(): MockInstance<typeof Date.now> {
  * keep running even when the Host's Date.now is also pinned; Playwright's full
  * clock derives timer history from that Host clock and cannot provide this isolation.
  * @param page - page whose clock is pinned.
+ * @param sharedOrigin - optional native epoch anchor shared with the Host; it
+ * preserves elapsed time across reloads. Without it, each document starts its own clock.
  * @returns the disposer that restores the current document's native Date. Page
  * closure releases the navigation initializer; call the disposer in teardown.
  */
-export async function pinBrowserClock(page: Page): Promise<() => Promise<void>> {
-  const install = (time: number): void => {
+export async function pinBrowserClock(page: Page, sharedOrigin?: number): Promise<() => Promise<void>> {
+  const install = ({ time, origin }: { time: number; origin?: number }): void => {
     const state = globalThis as typeof globalThis & { __dshFixtureNativeDate?: DateConstructor }
     if (state.__dshFixtureNativeDate !== undefined) return
     const NativeDate = Date
     state.__dshFixtureNativeDate = NativeDate
     const startedAt = performance.now()
-    const now = (): number => time + Math.floor(performance.now() - startedAt)
+    const now = origin === undefined
+      ? (): number => time + Math.floor(performance.now() - startedAt)
+      : (): number => time + Math.floor(performance.timeOrigin + performance.now() - origin)
     globalThis.Date = new Proxy(NativeDate, {
       construct: (target, args, newTarget) => Reflect.construct(target, args.length === 0 ? [now()] : args, newTarget) as Date,
       apply: () => new NativeDate(now()).toString(),
@@ -111,8 +121,9 @@ export async function pinBrowserClock(page: Page): Promise<() => Promise<void>> 
       },
     })
   }
-  await page.addInitScript(install, WEB_FIXTURE_TIME)
-  await page.evaluate(install, WEB_FIXTURE_TIME)
+  const clock = { time: WEB_FIXTURE_TIME, ...sharedOrigin === undefined ? {} : { origin: sharedOrigin } }
+  await page.addInitScript(install, clock)
+  await page.evaluate(install, clock)
   return async () => {
     if (page.isClosed()) return
     try {

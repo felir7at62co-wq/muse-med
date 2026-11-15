@@ -4,6 +4,7 @@ import type { PostToolDecision, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { parseShotScript } from './script.ts'
 import { NATURAL_HOLD_SECONDS } from './episode.ts'
 import { reviewSceneTimes } from './quality.ts'
+import { reviewPreparedPlan, type PreparedPlanPolicy } from './prepared-plan.ts'
 
 /**
  * Report speech, scene time, timing and declared physical-performance findings before paid generation.
@@ -11,9 +12,10 @@ import { reviewSceneTimes } from './quality.ts'
  * @param definition - Compiler definition selected for the calling agent's scope.
  * @param actionShotSeconds - Deployment silent-shot estimate, used only while parsing.
  * @param speechCharsPerSecond - Deployment speech estimate, used only while parsing.
+ * @param policy - Deployment-owned empty-shot and explicit repetition advisory limits.
  */
 export function installPreparedQualityReview(ctx: Context, definition: ToolDefinition,
-  actionShotSeconds: number, speechCharsPerSecond: number): void {
+  actionShotSeconds: number, speechCharsPerSecond: number, policy: PreparedPlanPolicy): void {
   ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
     const decision = await next()
     const args = exec.arguments
@@ -38,6 +40,8 @@ export function installPreparedQualityReview(ctx: Context, definition: ToolDefin
       'placeholder_dialogue', 'missing_voice_type', 'action_voice_with_dialogue', 'speech_too_long',
       'unknown_action_complexity', 'scene_time_declaration_invalid', 'scene_time_change_unexplained'])
     const findings = parsed.issues.filter(issue => relevant.has(issue.code))
+    const plan = reviewPreparedPlan(config.prompt, parsed.shots, policy)
+    findings.push(...plan.issues)
     const timeReview = reviewSceneTimes(parsed.shots)
     if (timeReview.unresolved.length) findings.push({ code: 'scene_time_missing', severity: 'warning', shot: 0, line: 0,
       message: `镜头${timeReview.unresolved.join('、')}缺少可继承的原文场景时段；对照原文场次补明确时段并带入每个独立包，不能仅凭前包夕阳、场景图或台词猜测昼夜。` })
@@ -50,9 +54,10 @@ export function installPreparedQualityReview(ctx: Context, definition: ToolDefin
     return { kind: 'accept', ...(decision.additionalContexts ? { additionalContexts: decision.additionalContexts } : {}),
       value: { ...value, first_pass_review: { status: findings.length ? 'needs_review' : 'text_checks_passed',
         scope: 'actual_prepared_prompt', media_acceptance: false,
+        evidence_kind: 'plan_text_only', declared_shots: plan.declarations,
         performance_seconds: performanceSeconds, timing_includes_estimates: hasEstimates,
         unchecked: ['source_mapping_and_exact_speech', 'actual_asset_scale_and_interaction', 'generated_visuals_and_audio'],
-        findings: findings.map(issue => ({ code: issue.code, shot: issue.shot, message: issue.message })),
+        findings: findings.map(issue => ({ code: issue.code, shot: issue.shot, line: issue.line, message: issue.message })),
         next: '首次生成前完成来源映射和台词预检，实看绑定素材，解决本包发声、动作、时间或连续性冲突，再按相同标准审片；不要为清警告删改剧情或降低审查要求。此文本检查不修改预览、幂等key或付费权限，不签发成片验收。' } } }
   })
 }

@@ -1,9 +1,9 @@
 /** Public download lookup and refusal paths run through shipped source and built tools without network access. */
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { runLoaderSmoke, resolveExampleMode, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
 
-it.each(['src', 'lib'] as const)('publishes only an opened public episode through %s tools', async (mode) => {
+it.each([resolveExampleMode()])('publishes only an opened public episode through %s tools', async (mode) => {
   const patch = fileURLToPath(new URL('../../../snapshots/session/muse-hongguo-public-download/cordis.yml', import.meta.url))
   const result = await runLoaderSmoke({ label: 'Hongguo public download', tempDirPrefix: 'hongguo-public-download-loader-',
     binScript: fileURLToPath(new URL('../../cli/src/bin.ts', import.meta.url)), configPath: patch,

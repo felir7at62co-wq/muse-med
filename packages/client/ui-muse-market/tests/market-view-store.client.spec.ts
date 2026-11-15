@@ -20,6 +20,15 @@ it('does not select an older preparation result over a newer form edit', () => {
   expect(store.getSnapshot().creator).toMatchObject({ selectedId: null, metadata: { title: 'New author title' } })
 })
 
+it('selects the prepared release only for the current draft revision', () => {
+  const store = createMarketViewStore().create()
+  const initial = store.getSnapshot().creator
+  store.actions.prepared(initial.revision, firstRelease)
+  expect(store.getSnapshot().creator).toEqual({ ...initial, selectedId: firstRelease, revision: initial.revision + 1 })
+  store.actions.prepared(initial.revision, secondRelease)
+  expect(store.getSnapshot().creator.selectedId).toBe(firstRelease)
+})
+
 it('keeps an unresolved attempt when an earlier preparation finishes', () => {
   const store = createMarketViewStore().create()
   store.actions.setCreator({ ...store.getSnapshot().creator, selectedId: firstRelease, uploadRequest: attempt('original-upload') })

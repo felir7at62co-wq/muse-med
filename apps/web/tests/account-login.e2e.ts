@@ -1,14 +1,17 @@
-// Real-composition acceptance for DeepSeek account sign-in from a plain browser. The
-// scaffold boots the shipped Web Loader tree, so the real account provider drives
+// Real-composition acceptance for DeepSeek account UI on its supported Desktop
+// carrier. A browser supplies the explicit non-Muse preload marker, not Electron
+// installation evidence. A test-owned native-opener boundary observes the real
+// account stream and opens an owned browser page. The real account provider drives
 // auth_init, the loopback OAuth callback, and auth_exchange against a loopback Platform
-// double, while a real Chromium follows the tab the Web UI preopens.
+// double, while a real Chromium follows that authorization page.
 import { createServer, type Server } from 'node:http'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium, type Browser } from 'playwright'
-import { afterAll, beforeAll, describe, expect, it, onTestFailed, onTestFinished } from 'vitest'
+import { chromium, type Browser, type Page } from 'playwright'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed, onTestFinished, vi } from 'vitest'
+import type {} from '@deepseek-ai/dsh-deepseek-account'
 import { compareOrRefreshGolden, launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -96,7 +99,7 @@ async function mockPlatform() {
   }
 }
 
-describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in in a plain browser', () => {
+describe.skipIf(MODE === 'record')('web e2e: DeepSeek account UI by carrier', () => {
   let root: string | undefined
   let scaffold: WebScaffold
   let browser: Browser
@@ -118,28 +121,75 @@ describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in in a plain
     if (root !== undefined) await rm(root, { recursive: true, force: true })
   })
 
-  it('signs in through a themed tab and recovers both avatars on a later Settings entry', async () => {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, locale: 'en-US', colorScheme: 'dark' })
+  it('keeps DeepSeek account UI and subscriptions absent from plain Web', async () => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, locale: 'en-US' })
     onTestFinished(() => context.close())
+    const watch = vi.spyOn(scaffold.ctx.deepseekAccount, 'watch')
+    try {
+      const page = await context.newPage()
+      const console = watchConsole(page)
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-account-plain-web'))
+      await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+      await settings.getByRole('button', { name: 'Models', exact: true }).waitFor()
+      expect(await page.evaluate(() => 'dshDesktop' in globalThis)).toBe(false)
+      expect(await page.getByRole('button', { name: 'Account menu', exact: true }).count()).toBe(0)
+      expect(await settings.getByRole('region', { name: 'Account', exact: true }).count()).toBe(0)
+      expect(watch).not.toHaveBeenCalled()
+      expect(console.pageErrors).toEqual([])
+    } finally {
+      try { await context.close() } finally { watch.mockRestore() }
+    }
+  })
+
+  it('uses the non-Muse Desktop UI browser carrier to sign in through a themed tab and recover both avatars on a later Settings entry', async () => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, locale: 'en-US', colorScheme: 'dark' })
+    const opener: { controller: AbortController; opened?: Promise<Page> } = { controller: new AbortController() }
+    onTestFinished(async () => {
+      opener.controller.abort()
+      // The scenario awaits the original outcome; this join also covers an
+      // earlier UI assertion failure before that await.
+      try { await opener.opened?.catch(() => undefined) } finally { await context.close() }
+    })
     const page = await context.newPage()
+    await page.addInitScript(() => {
+      Object.defineProperty(globalThis, 'dshDesktop', { value: { protocolVersion: 1 } })
+    })
     const console = watchConsole(page)
     onTestFailed(() => saveFailureShot(page, 'web-e2e-account-login'))
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     const menu = page.getByRole('button', { name: 'Account menu', exact: true })
     await menu.click()
-    const tab = context.waitForEvent('page')
+    // Electron's main process owns opening the system browser. This carrier
+    // fixture supplies only that outer boundary, using the actual Host attempt.
+    opener.opened = (async () => {
+      for await (const view of scaffold.ctx.deepseekAccount.watch(opener.controller.signal)) {
+        const attempt = view.attempt
+        if (attempt?.phase !== 'waiting-browser' || attempt.authorizeUrl === undefined) continue
+        const destination = new URL(attempt.authorizeUrl)
+        destination.searchParams.set('theme', await page.evaluate(() =>
+          matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
+        const opened = await context.newPage()
+        await opened.goto(destination.href, { waitUntil: 'load' })
+        return opened
+      }
+      throw new Error('Desktop opener account stream ended before an authorization URL')
+    })()
+    // Keep a rejected opener observed while the click itself is still pending.
+    void opener.opened.catch(() => undefined)
     await page.getByRole('menuitem', { name: 'Sign in', exact: true }).click()
-    const authorization = await tab
+    const authorization = await opener.opened
     await authorization.waitForURL(url => url.pathname === '/dsh/authorized', { timeout: 30_000 })
     expect(await authorization.evaluate(() => window.opener === null)).toBe(true)
     await expect.poll(() => menu.textContent(), { timeout: 30_000 }).toBe('Web User')
 
     const pageOrigin = new URL(scaffold.authenticatedUrl).origin
     expect(platform.inits).toHaveLength(1)
-    expect(platform.inits[0]).toMatchObject({ login_source: 'web', redirect_uri: `${pageOrigin}/oauth/callback` })
+    expect(platform.inits[0]).toMatchObject({ login_source: 'desktop', redirect_uri: `${pageOrigin}/oauth/callback` })
     const [authorize, authorized] = platform.pages.map(href => new URL(href))
     expect(authorize?.searchParams.get('theme')).toBe('dark')
-    expect(authorized?.searchParams.get('login_source')).toBe('web')
+    expect(authorized?.searchParams.get('login_source')).toBe('desktop')
     await expect.poll(platform.avatarRequests).toBe(1)
     await menu.locator('[data-avatar-status="failed"]').waitFor()
     expect(await menu.locator('img').count()).toBe(0)

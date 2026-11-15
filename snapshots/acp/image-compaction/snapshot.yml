@@ -1,6 +1,7 @@
 version: 1
 scenario: image-compaction
 profile: acp
+writerOutput: true
 composition: image-compaction
 recording: authored
 header:

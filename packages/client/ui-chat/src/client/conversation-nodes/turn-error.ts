@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, TurnErrorNode,
+  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, ConversationNodeDefinitionInput, TurnErrorNode,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session/types'
 import { chatNode } from './common.ts'
@@ -71,20 +71,25 @@ function fallbackState(context: ConversationNodeContext<TurnErrorState>): TurnEr
   return { turn: end.event.data.turn, failure }
 }
 
+const matchTurnError: ConversationNodeDefinition<TurnErrorState>['match'] = (event) => {
+  if (event.type === 'turn/start') return { id: String(event.data.turn), role: 'start' }
+  if (event.type === 'turn/end' && endFailure(event.data.reason) !== undefined) {
+    return { id: String(event.data.turn), role: 'update' }
+  }
+  return null
+}
+
 /**
  * Terminal turn failure Definition. Retries run inside the failing turn, so the
  * turn's `llm/retry` history never suppresses this terminal row; the model-retry
  * node renders that history separately.
  */
-export const turnErrorDefinition: ConversationNodeDefinition<TurnErrorState> = {
+export const turnErrorDefinition: ConversationNodeDefinitionInput<TurnErrorState> = {
   kind: 'turn-error',
   target: 'chat',
-  match: (event) => {
-    if (event.type === 'turn/start') return { id: String(event.data.turn), role: 'start' }
-    if (event.type === 'turn/end' && endFailure(event.data.reason) !== undefined) {
-      return { id: String(event.data.turn), role: 'update' }
-    }
-    return null
+  match: {
+    'turn/start': matchTurnError,
+    'turn/end': matchTurnError,
   },
   start: (_context, match) => {
     if (match.event.type !== 'turn/start') throw new Error('turn-error start requires turn/start')

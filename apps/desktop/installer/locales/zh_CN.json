@@ -11,6 +11,7 @@
     "INSTALLER_CHOOSE_PATH": "选择安装位置",
     "INSTALLER_BROWSE": "选择",
     "INSTALLER_LAUNCH": "立即启动",
+    "INSTALLER_REBOOT_REQUIRED": "安装已完成。请先重启 Windows，再打开 Muse。",
     "INSTALLER_LAUNCH_FAILED": "无法启动 DeepSeek Harness。请重试，或取消勾选立即启动后关闭安装程序。",
     "INSTALLER_UI_ERROR": "无法初始化安装窗口，请关闭后重试。",
     "INSTALLER_THEME_ERROR": "主题参数须为 /THEME=auto、/THEME=light 或 /THEME=dark。",
