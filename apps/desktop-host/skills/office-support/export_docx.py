@@ -13,7 +13,13 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 
 
+EPISODE_LAYOUTS = ("continuous", "page_per_episode")
+
+
 def export(request):
+    episode_layout = request["episode_layout"]
+    if episode_layout not in EPISODE_LAYOUTS:
+        raise ValueError("episode_layout must be one of " + ", ".join(EPISODE_LAYOUTS))
     sources = []
     total = 0
     pinned = request.get("contents")
@@ -56,7 +62,7 @@ def export(request):
                     run.font.size = Pt(16)
             paragraph.paragraph_format.keep_with_next = episode or scene or bool(heading) or plain.startswith("人物：")
             paragraph.paragraph_format.widow_control = True
-            if episode and expected:
+            if episode and expected and episode_layout == "page_per_episode":
                 paragraph.paragraph_format.page_break_before = True
             if re.fullmatch(r"[（(]第[0-9一二三四五六七八九十百零〇]+集完.*[）)]", plain.strip()) and len(document.paragraphs) > 1:
                 document.paragraphs[-2].paragraph_format.keep_with_next = True

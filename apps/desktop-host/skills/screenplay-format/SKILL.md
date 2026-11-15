@@ -49,4 +49,4 @@ description: Use when 将小说改编成真人短剧、将视频或音频转写�
 
 角色与地点称谓保持一致，发声写在对应人物对白行，不埋进动作说明。来源时间轴、ASR 疑点、改编说明与审稿意见另存，不混入台词；正文仍保留场次日夜、剧情中的时间及用户要求的闪回标记。对白、动作、知情和连续性方法见共享写作品质，不因排版重新改写或删减故事。
 
-Word 使用已保存的 Markdown 和 `office-docx` 的 `screenplay_export_docx`，按集数顺序生成新文件，保留源稿与用户返稿。核对转换后的正文与排版，用 `present` 交付实际 `.docx`；转换成功不代表内容已经审校。
+Word 使用已保存的 Markdown 和 `office-docx` 的 `screenplay_export_docx`，按集数顺序生成新文件，保留源稿与用户返稿。各集默认连排；用户要一集一页时传 `episode_layout: "page_per_episode"` 重新导出，不另写脚本改 Word。核对转换后的正文与排版，用 `present` 交付实际 `.docx`；转换成功不代表内容已经审校。

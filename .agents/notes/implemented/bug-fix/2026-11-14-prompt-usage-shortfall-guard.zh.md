@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-[`prompt-usage-guard`](../../../../packages/guard/prompt-usage/README.zh.md) 是一个只作用于显式列出的供应商与模型路由的 `llm/stream` 监听器。流开始时它测量两个参照：请求中非延迟加载工具定义的启发式大小（T），以及 token meter 的上下文估算（E）。它只判定没有调用工具、且报告了正数提示 token P = input + cache-read + cache-write 的 `stop` 回复。P < `minToolSchemaRatio` × T 且 P < `minEstimateRatio` × E 时，它扣下 `stop`，改为输出 `PROMPT_USAGE_SHORTFALL` 失败；只满足其中一个时，保留回复并记录警告。Muse 以 1.0 和 0.5 列出 `muse-cloud-yunying`/`gemini-3.1-pro`，把这个代码加入 `muse-account` 的重试策略和目标的暂时性错误续跑代码，并让代码只在插件内部定义。
+[`prompt-usage-guard`](../../../../packages/guard/prompt-usage/README.zh.md) 是一个只作用于显式列出的供应商与模型路由的 `llm/stream` 监听器。流开始时它测量两个参照：请求中非延迟加载工具定义的启发式大小（T），以及 token meter 的上下文估算（E）。它只判定没有调用工具、且报告了正数提示 token P = input + cache-read + cache-write 的 `stop` 回复。P < `minToolSchemaRatio` × T 且 P < `minEstimateRatio` × E 时，它扣下 `stop`，改为输出 `PROMPT_USAGE_SHORTFALL` 失败；只满足其中一个时，保留回复并记录警告。回复流出了非空文本或推理、却报告输出 token 为 0 时，一律不判定：BB6 中转出口在约 40% 基于完整的 6 万至 19 万 token 上下文生成的回复上，报告一个很小的固定提示 token 和恰好为 0 的补全 token，这种报告的提示 token 不可靠。没有生成内容且输出 token 为 0 的空回复仍会被判定。Muse 以 1.0 和 0.5 列出 `muse-cloud-yunying`/`gemini-3.1-pro`，把这个代码加入 `muse-account` 的重试策略和目标的暂时性错误续跑代码，并让代码只在插件内部定义。
 
 阈值来自 124 个本机会话中 17,663 条带用量的回复。其中 8 条标为坏回复：没有调用工具的 `stop`，每 KB 请求文本只报告 21–46 个 token，而正常回复最低为 224。它们报告的提示 token 为 T 的 0.19–0.73、E 的 0.09–0.25。所有模型的正常回复都不低于 1.53 × T，未被标为坏回复的 Gemini 回复最低为 0.56 × E。要求两个参照同时满足，能抓到全部 8 条且没有误判，也容得下 E 已知的偏高：token meter 按包含输出 token 的锚点用量缩放，前一条回复若有很长的隐藏推理，E 就会被抬高。
 
@@ -32,4 +32,4 @@ Status: implemented
 
 ## Consequences
 
-被丢弃的回复是仅入日志的 `assistant/attempt`，它的文本不会进入模型上下文，它的用量也不会成为校准锚点。重试用同一份已记录的上下文重新发送。按 Muse 的策略，持续故障在约四分钟内花掉九次请求后结束本轮，无人值守的目标最多再续跑三次；误判的代价相同，因为同一个请求每次报告的数字都一样。被丢弃的文本会先实时显示再撤下。不报告用量、保留了工具定义或以 `max-tokens` 结束的线路抓不到。网关按模型钉选上游线路仍是主要修复；本防护还覆盖网关管不到的路由和传输方式。
+被丢弃的回复是仅入日志的 `assistant/attempt`，它的文本不会进入模型上下文，它的用量也不会成为校准锚点。重试用同一份已记录的上下文重新发送。按 Muse 的策略，持续故障在约四分钟内花掉九次请求后结束本轮，无人值守的目标最多再续跑三次；误判的代价相同，因为同一个请求每次报告的数字都一样。被丢弃的文本会先实时显示再撤下。不报告用量、对含文本的回复报告输出 token 为 0、保留了工具定义或以 `max-tokens` 结束的线路抓不到。网关按模型钉选上游线路仍是主要修复；本防护还覆盖网关管不到的路由和传输方式。

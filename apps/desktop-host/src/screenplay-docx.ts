@@ -10,6 +10,26 @@ import { sha256, validateAcceptedStoryEvidence, validateStoryApprovalLog } from 
 import { resolveTrustedVideoEvidence } from '@deepseek-ai/dsh-tool-video-inspect'
 import { approveVideoMarkdown, validateVideoDelivery, verifyWordBody, type StoryEvidenceVerifier } from './video-delivery.ts'
 
+/** Word layout of episode headings: `continuous` runs episodes on, `page_per_episode` starts each episode after the first on a new page. */
+export type EpisodeLayout = 'continuous' | 'page_per_episode'
+
+/** Accepted `EpisodeLayout` values, shared by the tool schema and runtime validation. */
+export const episodeLayouts = ['continuous', 'page_per_episode'] as const satisfies readonly EpisodeLayout[]
+
+/**
+ * Choose the Word layout for one export.
+ * @param requested - Per-call `episode_layout` argument; omission selects the deployment layout.
+ * @param config - Deployment configuration; omitted `episodeLayout` means `continuous`.
+ * @returns The validated layout passed to Python.
+ * @throws Error when the raw configuration or argument is not an accepted layout.
+ */
+export function resolveEpisodeLayout(requested: EpisodeLayout | undefined, config: Pick<Config, 'episodeLayout'>): EpisodeLayout {
+  const layout: unknown = requested ?? config.episodeLayout ?? 'continuous'
+  const accepted = episodeLayouts.find(value => value === layout)
+  if (accepted === undefined) throw new Error(`episode_layout must be one of ${episodeLayouts.join(', ')}`)
+  return accepted
+}
+
 /** Application-owned Word export limits and runtime. */
 export interface Config {
   /** Deployment-selected creative review policy; omission preserves strict managed-project approval. */
@@ -22,6 +42,8 @@ export interface Config {
   timeoutMs: number
   /** Maximum bytes read from managed project and delivery records. */
   maxProjectBytes: number
+  /** Deployment default for episode headings in Word; omission selects `continuous`. */
+  episodeLayout?: EpisodeLayout
 }
 
 /** Source files in delivery order and a new Word destination. */
@@ -30,11 +52,13 @@ export interface ScreenplayDocxInput {
   output: string
   /** Managed video or refinement project when exporting outside its conventional final directory. */
   project?: string
+  /** Per-export override of the configured episode layout. */
+  episode_layout?: EpisodeLayout
 }
 
 /**
  * Convert script files without overwriting an existing destination.
- * @param input - Absolute Markdown paths in episode order and a new DOCX path.
+ * @param input - Absolute Markdown paths in episode order, a new DOCX path, and an optional episode layout override.
  * @param config - Bundled runtime and resource limits.
  * @param signal - Caller cancellation, forwarded to the conversion process.
  * @param verifyStoryEvidence - Host-only persisted video receipt verification for story projects.
@@ -43,6 +67,7 @@ export interface ScreenplayDocxInput {
 export async function exportScreenplayDocx(input: ScreenplayDocxInput, config: Config, signal?: AbortSignal,
   verifyStoryEvidence?: StoryEvidenceVerifier): Promise<{ output: string }> {
   signal?.throwIfAborted()
+  const episodeLayout = resolveEpisodeLayout(input.episode_layout, config)
   if (!input.inputs.length || input.inputs.some(path => !isAbsolute(path) || extname(path).toLowerCase() !== '.md')
     || !isAbsolute(input.output) || extname(input.output).toLowerCase() !== '.docx') {
     throw new Error('Use absolute .md input paths and a new absolute .docx output path')
@@ -89,7 +114,7 @@ export async function exportScreenplayDocx(input: ScreenplayDocxInput, config: C
       else resolveRun()
     })
     child.stdin?.on('error', () => { /* execFile reports process failure through its callback. */ })
-    child.stdin?.end(JSON.stringify({ ...input, max_input_bytes: config.maxInputBytes,
+    child.stdin?.end(JSON.stringify({ ...input, episode_layout: episodeLayout, max_input_bytes: config.maxInputBytes,
       ...(pinned !== undefined ? { contents: pinned.contents } : approved === undefined ? {} : { contents: approved.contents }) }))
   })
   if (pinned !== undefined) {
@@ -138,10 +163,13 @@ export function apply(ctx: Context, config: Config): void {
     name: 'screenplay_export_docx',
     description: '将剧本 Markdown 转为 Word 交付。按 inputs 顺序合并多集，保留场次、人物、▲动作、对白和 OS/VO；转换标题与加粗，其他 Markdown 写法按原文保留。逐段核对导出正文，不覆盖已有文件。'
       + (config.reviewMode === 'advisory' ? '导出不要求批准候选；返稿差异可通过manuscript_revision查看。编写或修改后的剧本交付须核对最终DOCX当前版本，或用manuscript_revision delivery明确登记为草稿，再按返回标签调用present。' : '受管项目沿用其严格候选验收与交付检查。')
-      + '格式沿系统提示词，Word 操作使用 office-docx；生成后检查排版，再用 present 交付实际 DOCX。',
+      + '格式沿系统提示词，Word 操作使用 office-docx；生成后检查排版，再用 present 交付实际 DOCX。'
+      + '要调整各集排版，用 episode_layout 参数换新文件名重新导出，不要另写脚本改 DOCX。',
     parameters: {
       inputs: { type: 'array', required: true, items: { type: 'string' }, description: '绝对路径的 .md 文件，按交付集数顺序排列；使用本次实际正文。' },
       output: { type: 'string', required: true, description: '项目 final/ 下新的绝对 .docx 路径；已有文件请换版本名。' },
+      episode_layout: { type: 'string', enum: [...episodeLayouts],
+        description: '各集排版：continuous 各集连排（默认，按部署配置），page_per_episode 每集另起一页；只在用户明确要求时改。' },
       project: { type: 'string', description: config.reviewMode === 'advisory'
         ? '可选的 screenplay_project 项目路径；不作为内容审校或候选批准前提。'
         : '视频转剧本的 screenplay_project 项目文件；跨目录导出也保留验收绑定。普通文档转换无需填写。' },

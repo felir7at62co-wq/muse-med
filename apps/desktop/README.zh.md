@@ -697,6 +697,6 @@ node apps/desktop/node_modules/pnpm/bin/pnpm.mjs --dir apps/desktop run test:upd
 
 内置 `muse-llm-wiki` 技能沿用当前 Muse 登录，支持浏览目录、全文检索、读取原始资料，以及沿链接页和引用查找依据。经审核的笔记和剧本在私人或明确绑定的项目范围内保留不可变原文；Muse 主模型使用原文区间引用和版本检查写入派生页。共享资料需要管理员授权。工具与访问规则见 [Muse LLM Wiki](../../services/muse-accounts/README.zh.md#muse-llm-wiki)。
 
-桌面 Office 组合提供 `screenplay_export_docx`：按给定顺序用内置 python-docx 将 Markdown 合成新的 Word 文件，设置分集分页、中文字体并核对段落正文。支持标题与加粗，其他 Markdown 语法原样保留，不覆盖已有文件。编辑模式保留 Markdown，按 `office-docx` 检查 Word 排版后交付 DOCX。
+桌面 Office 组合提供 `screenplay_export_docx`：按给定顺序用内置 python-docx 将 Markdown 合成新的 Word 文件，默认各集连排（`episode_layout: page_per_episode` 或选项 `docxEpisodeLayout` 可让之后每集另起一页）、设置中文字体并核对段落正文。支持标题与加粗，其他 Markdown 语法原样保留，不覆盖已有文件。编辑模式保留 Markdown，按 `office-docx` 检查 Word 排版后交付 DOCX。
 
 用户提供抖音作品链接并要求作品数据时，短剧预设指导 Agent 搜索本地 `douyin_data`；工具调用仍由模型决定。抖音获取使用已注册的 `douyin_download` 和 `douyin_download_task` 工具，保留文件回执，支持有归属的后台 job 和显式恢复；公开播放不可用时使用 Muse 浏览器的正常登录。任务状态及验证限制见[插件参考](../../third_party/plugins/muse-douyin-download/README.zh.md)。旧 `douyin-download` 技能已禁用，这些工具不提供外部浏览器 profile 或 Cookie 文件参数。

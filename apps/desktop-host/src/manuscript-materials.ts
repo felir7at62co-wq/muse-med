@@ -149,7 +149,12 @@ export function isManuscriptEpisodeHeading(text: string): boolean {
   return headingToken(text.normalize('NFKC').trim().replace(/^#{1,6}\s*/u, '')) !== undefined
 }
 
-function episodeIndex(lines: readonly string[]): ManuscriptMaterialEpisodeIndex {
+/**
+ * Index the `第…集` sections of extracted manuscript lines; fenced code blocks never contribute headings.
+ * @param lines - Extracted manuscript lines in file order.
+ * @returns One-based inclusive episode ranges plus duplicate, ordering, unreadable-number and scene-number issues.
+ */
+export function manuscriptEpisodeIndex(lines: readonly string[]): ManuscriptMaterialEpisodeIndex {
   const headings: { episode: number; start: number }[] = [], issues: string[] = []
   let current: number | undefined, fence: { character: string; length: number } | undefined
   for (const [index, text] of lines.entries()) {
@@ -236,7 +241,7 @@ export async function readManuscriptMaterials(raw: unknown, cwd: string, limits:
     const document = await readManuscript(input.path, cwd, limits, signal)
     if (paths.has(document.path)) throw Error('MANUSCRIPT_MATERIALS_ROLES: 同一规范路径不能重复提供或同时充当不同稿件角色。')
     paths.add(document.path)
-    const lines = document.text.split(/\r\n|\r|\n/u), index = episodeIndex(lines)
+    const lines = document.text.split(/\r\n|\r|\n/u), index = manuscriptEpisodeIndex(lines)
     const selected = select(input, index, lines.length)
     const returned = lines.flatMap((text, position) => selected.ranges.some(range =>
       position + 1 >= range.start && position + 1 <= range.end)

@@ -174,7 +174,7 @@ Muse 忙碌时，Enter 和发送按钮默认插话，Cmd/Ctrl+Enter 将消息排
 
 默认写作入口不挂载受管剧本项目流程。已有项目记录保留在磁盘上，显式采用项目部署时仍可读取。
 
-分场格式包含集号、场次、人物、动作、对白、OS/VO 和闪回标记，用户指定格式优先。Word 转换使用 `office-docx` 与 `screenplay_export_docx` 处理已保存正文。
+分场格式包含集号、场次、人物、动作、对白、OS/VO 和闪回标记，用户指定格式优先。Word 转换使用 `office-docx` 与 `screenplay_export_docx` 处理已保存正文。各集默认连排；`episode_layout: page_per_episode` 或 Office 选项 `docxEpisodeLayout` 可让之后每集另起一页，调整排版须重新导出，不用脚本改 DOCX。
 
 创作预设通过共用的 `muse:short-drama-production` 系统段执行短剧制作要求：每镜1–4秒、每秒8个有效字、无声反应镜更快。仅场景固定、在场人物固定、人物位置保持不变的视频包可用站位图；剧本或视频提示涉及走动、靠近、后退、换位等任何人物位置移动，或有人物进出场景、换场时，整包不用站位图。摄影机移动、切镜或因取景画外不算人物走位，也不为配图强行拆包。使用时一包一张实际看过的完整全景，展示全部在场角色、每人唯一实体、空间关系与固定环境锚点；阵容、布局和环境相同且各包均适用时才可复用。生图明确沿用项目已确认风格和既有资产，包括脸型比例、材质、服装与场景渲染，3D不能变真人摄影，真人也不能强改3D。绑定视频前必须实际看图确认画风，文字或style字段不能替代；不符时按既有付费规则修复或重生成并复审。站位图约束身份和空间；站立、蹲下、坐下、姿势、情绪与动作由每镜脚本和视频提示决定，不能照搬静态姿势或让人物提前起身，姿势或表情变化无需重做站位图。每镜出镜名单优先于全包参考图。拍摄时间只进入本地预算元数据和生成参数；提交的视频提示词不含控制分镜时长的要求，原台词中的时间信息保持不变。
 
@@ -204,6 +204,8 @@ Host 默认值和 `standard`、`ptc`、`cordis`、`short-drama`、`main-session`
 只读动作 `transcript_coverage` 不调用模型，把忠实视频稿件与保存的来源文字逐集比对。`transcript_sources` 每项对应一集：稿件 `path`，合并稿用 `episode` 或提取正文 `lines` 指定其中一集；该集 `audio_transcribe` 的 `output_json` 作为 `asr_path`，没有转写结果时省略；可选的 `video_ocr` `raw_json_path` 文件作为 `ocr_paths`。不按文件名配对。文字经 NFKC 规范化、去掉标点与空白、把中文和阿拉伯数字统一成同一数值后比较；不比较读音，因此查不出同音字。台词行先分两轮按顺序与 ASR 原段和画面内容文字对齐，仍未匹配的每段再单独与共有两字片段最多的未匹配台词行对齐；至少两个字的相同连续片段、或整行整段相同，才把一对关联起来，一行或一段已对齐字数的占比达到 `transcriptMinSimilarity` 即算匹配。每集报告台词行数；按序覆盖、错序覆盖、未写入（附所在动作行）或部分缺失的 ASR 段；两种来源都对不上或只有画面文字的台词；新增措辞；与画面文字不同的字；没有写进任何台词的画面文字；以及最后一句有来源台词之后的行，并给出供交付说明引用的 `summary` 句。部分缺失与新增措辞指至少 `transcriptMinGapChars` 个字的未对齐片段。提供明确的 `characters` 人物表时，还列出表外的说话人标签及相近的表内定名，以及正文中出现的已列 `variants`。计数完整；超出 `transcriptMaxOutputChars` 的整条发现会被省略并计数，超出 `transcriptMaxEditLength` 的集报告为未测量。来源 JSON 文件适用 `maxFileBytes` 限制。结果标注 `semantic_assessment: not_performed`：不核实说话人、动作、原音或媒体同源，与 ASR 一致不证明台词正确，也从不拦截交付。`transcriptMinSimilarity`、`transcriptMinGapChars`、`transcriptMaxEditLength`、`transcriptMaxOutputChars` 的默认值分别为 0.6、4、20,000 和 20,000。
 
 视频稿件通过 `manuscript_revision delivery` 显式声明 `source_mode: "video"`。已复核交付将已通过的来源凭据与既有文字审校绑定到实际稿件；Host 在登记时及 `present` 前后复验依据与版本。成功加载 `video-to-screenplay` 或调用明确来源审校动作，会保留本轮已知来源要求，省略字段不能绕过。来源与文字问题互不清除；证据未知或问题未解决时可用明确草稿并说明缺口，不能宣称已修复。同版本、同实际范围的凭据可复用；材料变化时核对受影响范围，不主动重跑整剧。导出后的最终文件字节仍须绑定，不能假定 Markdown 凭据自动转给 Word。标签只标注实际正文行和原片秒范围内抽样原帧、保存 ASR 的核对，不认证全片或原音。
+
+视频来源文件登记时另给 `video_dir`，即本剧原片目录，文件名里带集号。Host 按共用剧本格式逐个检查 `第N集` 段落：场次行带日/夜与内/外，每个场次下一行是 `人物：`，每集至少一行 `▲` 动作，说话人在本场人物行内，不用 `某人`、`男主` 之类占位名，集尾不以光秃的 `【下集钩子】` 结束。这些问题从不拒绝登记：标签写明受影响的集，`video_check.format_errors` 逐行列出要改的地方；单人包揽台词、连续多集同一单场次、场次无动作和无法归类的行作为提醒返回。随后逐集读取工作区 `.muse/video-observations` 下由 `video_inspect` 写出的看帧报告：只有对应编号原片当前版本的报告扫描完成、且每帧都有观察记录，该集才算完整。草稿与已复核标签都写明这些看帧事实，每个文件附带逐集计数 `video_check`。带视频来源要求的任务里 `update_goal complete` 成功时，结果会列出仍缺的部分：已 present 且未改动、覆盖连续集号并包含所有单独交付过的集的 `.docx`，这些集的完整看帧记录，以及每集对仍为当前版本的稿件跑过的 `transcript_coverage`。引导 agent 能补则补、补不了如实汇报；不拒绝任何操作。`formatDominantSpeakerMinLines`、`formatDominantSpeakerShare`、`formatRepeatedSceneEpisodes`、`formatMaxMessages`、`videoEpisodeMaxFiles`、`videoEpisodeMaxReports` 和 `videoEpisodeMaxReportBytes` 默认分别为 8、0.9、12、20、4,000、5,000 和 16 MiB；超出扫描上限时直接失败，不截断。
 
 草稿工具的已记录提示会提醒新建与恢复的 Agent，在导入同一集剪映草稿前完成有剧情依据的 BGM。缺少配乐或误传对白／音乐审查混音时，返回的候选会增加配乐待完成提示，不删除候选也不增加审批。确实不加音乐时，请求写 `music_decision: "none"` 和非空 `decision_reason`，并省略 `bgm`；旧渲染配置不能代替本次决定。Windows 适配器在创建项目之前用 .NET 计算 CLI 摘要，不依赖 PowerShell 可选的文件哈希命令。实际轨道回读和听校仍分别核验。
 

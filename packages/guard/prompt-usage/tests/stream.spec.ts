@@ -85,12 +85,12 @@ async function collect(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[
 }
 
 const REPLY = 'I am not running inside the client, so I will write the content directly.'
-function textReply(inputTokens: number): StreamChunk[] {
+function textReply(inputTokens: number, outputTokens = 662): StreamChunk[] {
   return [
     { type: 'block-start', index: 0, blockType: 'text' },
     { type: 'text-delta', index: 0, text: REPLY },
     { type: 'block-end', index: 0, block: { type: 'text', text: REPLY } },
-    { type: 'usage', usage: { inputTokens, outputTokens: 662 } },
+    { type: 'usage', usage: { inputTokens, outputTokens } },
     { type: 'finish', reason: { kind: 'stop' }, replayState: { response: { id: 'resp-1' } } },
   ]
 }
@@ -248,6 +248,23 @@ describe('requests the guard leaves alone', () => {
   ])('passes a reply with %s', async (_case, script) => {
     const { ctx } = await harness(new ScriptedAdapter(script))
     expect(await collect(ctx.llm.stream(request()))).toEqual(script)
+  })
+
+  it('passes a text reply whose usage reports 5008 prompt and 0 completion tokens, as BB6 sends it', async () => {
+    const script = textReply(5008, 0)
+    const { ctx, warn } = await harness(new ScriptedAdapter(script), { estimate: 120000 })
+    expect(await collect(ctx.llm.stream(request()))).toEqual(script)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('still judges an empty reply that reports zero completion tokens', async () => {
+    const empty: StreamChunk[] = [
+      { type: 'usage', usage: { inputTokens: 5008, outputTokens: 0 } },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    const { ctx } = await harness(new ScriptedAdapter(empty), { estimate: 120000 })
+    const chunks = await collect(ctx.llm.stream(request()))
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'error', failure: { code: 'PROMPT_USAGE_SHORTFALL' } } })
   })
 
   it.each<[string, GenerateOptions]>([

@@ -78,6 +78,19 @@ describe('Chat Completions transport completion', () => {
     expect(await completeCompletionsResponse(source.response).text()).toBe(text)
   })
 
+  it('leaves compliant parallel tool calls byte-identical and rewrites a reused index even when split at every byte', async () => {
+    const compliant = [
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"a","function":{"name":"f","arguments":"{}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"b","function":{"name":"g","arguments":"{}"}}]}}]}\n\n',
+      'data: [DONE]\n\n',
+    ].join('')
+    expect(await completeCompletionsResponse(responseOf([encoder.encode(compliant)]).response).text()).toBe(compliant)
+    const reused = compliant.replace('"index":1,"id":"b"', '"index":0,"id":"b"')
+    const bytes = encoder.encode(reused)
+    const text = await completeCompletionsResponse(responseOf(Array.from(bytes, byte => Uint8Array.of(byte))).response).text()
+    expect(text).toBe(compliant)
+  })
+
   it('preserves status and headers', async () => {
     const response = new Response('data: [DONE]\n\n', {
       status: 201,
@@ -238,6 +251,21 @@ describe('installed pi-ai Chat Completions protocol', () => {
     })
     expect(events.some(event => event.type === 'toolcall_end')).toBe(true)
     await server.responseClosed
+  })
+
+  it('separates relay calls that reuse one tool_calls index and drops their repeated duplicates', async () => {
+    const call = (id: string, name: string, x: string) => JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id,
+      type: 'function', function: { name, arguments: JSON.stringify({ x }) } }] }, finish_reason: null }] })
+    const finish = JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })
+    const server = await mockServer([{ events: [call('call-a', 'load_a', '1'), finish, call('call-b', 'load_b', '2'), finish,
+      call('call-c', 'load_a', '1'), finish, call('call-d', 'load_c', '3'), finish, call('call-e', 'load_b', '2'), finish, '[DONE]'] }])
+    const events = await collect(server.url, new AbortController().signal)
+    expect(events.at(-1)).toMatchObject({ type: 'done', reason: 'toolUse', message: { content: [
+      { type: 'toolCall', id: 'call-a', name: 'load_a', arguments: { x: '1' } },
+      { type: 'toolCall', id: 'call-b', name: 'load_b', arguments: { x: '2' } },
+      { type: 'toolCall', id: 'call-d', name: 'load_c', arguments: { x: '3' } },
+    ] } })
+    expect((events.at(-1) as { message?: { content: unknown[] } }).message?.content).toHaveLength(3)
   })
 
   it('keeps a missing finish_reason as an SDK error even when DONE closes the body', async () => {

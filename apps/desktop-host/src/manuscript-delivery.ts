@@ -19,20 +19,24 @@ import type {} from './manuscript-revisions.ts'
 import type { ManuscriptNoteLimits } from './manuscript-notes.ts'
 import { videoSourceInputsSchema, videoSourceManifestSchema, type VideoSourceManifest }
   from './manuscript-video-source-review.ts'
+import { screenplayFacts, type ScreenplayFormatLimits } from './screenplay-episode-facts.ts'
+import type { VideoEpisodeFrames } from './video-episode-frames.ts'
 
 export { manuscriptDeliveryIntent } from './manuscript-task-intent.ts'
 
 /** Deployment limits; completed deliveries never become a global adopted-manuscript selection. */
-export interface ManuscriptDeliveryConfig extends DocumentLimits, ManuscriptNoteLimits {
+export interface ManuscriptDeliveryConfig extends DocumentLimits, ManuscriptNoteLimits, ScreenplayFormatLimits {
   maxDocuments: number
   continuityDeliveryChecks: boolean
   continuityMaxDeliveryCorrections: number
 }
 
-/** Optional source reader; absent verification preserves text delivery and refuses reviewed video delivery. */
+/** Optional source readers; absent verification preserves text delivery and refuses reviewed video delivery. */
 export interface ManuscriptDeliveryOptions {
   /** Re-read the exact source, ASR and cached image versions for this Session; false denies reviewed delivery. */
   verifyVideoSource?: (session: Session, manifest: VideoSourceManifest, signal: AbortSignal) => Promise<boolean>
+  /** Per-episode frame-observation states of one source folder; absent leaves every episode `unchecked`. */
+  episodeFrames?: (session: Session, videoDir: string, episodes: readonly number[], signal: AbortSignal) => Promise<VideoEpisodeFrames>
 }
 
 const rangeSchema = z.object({ start: z.number().int().positive(), end: z.number().int().positive() })
@@ -60,9 +64,19 @@ const sourceReviewSchema = z.object({ state: z.literal('video_source_review'), s
   notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional() })
 const sourceBindingSchema = z.object({ source_manifest: videoSourceManifestSchema, dependencies: z.array(documentSchema),
   notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional() })
+const frameStateSchema = z.enum(['complete', 'incomplete', 'stale', 'not_viewed', 'no_video', 'ambiguous_video', 'unchecked'])
+const videoEpisodeSchema = z.object({ episode: z.number().int().positive(), frames: frameStateSchema,
+  frame_count: z.number().int().nonnegative().optional(), recorded: z.number().int().nonnegative().optional(),
+  scenes: z.number().int().nonnegative(), action_lines: z.number().int().nonnegative(),
+  dialogue_lines: z.number().int().nonnegative(), format_errors: z.number().int().nonnegative(),
+  warnings: z.number().int().nonnegative() })
+const videoCheckSchema = z.object({ video_dir: z.string().nullable(), videos: z.number().int().nonnegative().nullable(),
+  episodes: z.array(videoEpisodeSchema), format_errors: z.array(z.string()), format_error_count: z.number().int().nonnegative(),
+  warnings: z.array(z.string()), warning_count: z.number().int().nonnegative() })
 const fileSchema = z.object({ path: z.string(), file_sha256: z.string(), aliases: z.array(z.string()),
   label: z.string(), review_scope: scopeSchema.nullable(), dependencies: z.array(documentSchema),
-  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(), source_reviews: z.array(sourceBindingSchema).optional() })
+  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(), source_reviews: z.array(sourceBindingSchema).optional(),
+  video_check: videoCheckSchema.optional() })
 const declarationSchema = z.object({ state: z.literal('delivery'), mode: z.enum(['reviewed', 'draft']), advisory: z.literal(true),
   task_id: z.string(), files: z.array(fileSchema), note: z.string().optional(), source_mode: z.literal('video').optional() })
 const factSchema = z.union([reviewSchema, sourceReviewSchema, declarationSchema.omit({ note: true })])
@@ -88,12 +102,18 @@ const rowSchema = z.object({ path: z.string(), sha: z.string(), review: reviewSc
 type Row = z.infer<typeof rowSchema>
 const callSchema = z.object({ id: z.string(), turn: z.number(), name: z.string(), args: z.string() })
 const receiptSchema = z.object({ call_id: z.string(), task_id: z.string(), files: z.array(fileSchema), mode: z.enum(['reviewed', 'draft']) })
+const coverageFactSchema = z.object({ path: z.string(), file_sha256: z.string(), episodes: z.array(z.number().int().positive()) })
+const coverageResultSchema = z.object({ state: z.literal('transcript_coverage'), episodes: z.array(z.object({
+  label: z.string(), draft: z.object({ path: z.string(), file_sha256: z.string() }).nullish() })) })
 const stateSchema = z.object({ task_id: z.string(), writing: z.boolean(), file_request: z.boolean(), cwd: z.string(),
   source_required: z.boolean(),
   turn: z.number(), corrections: z.number(), fingerprint: z.string(), overflow: z.boolean(),
   rows: z.array(rowSchema), outputs: z.array(z.string()), calls: z.array(callSchema),
-  packets: z.array(receiptSchema.extend({ turn: z.number() })), presented: z.array(z.object({ turn: z.number(), id: z.string() })) })
+  packets: z.array(receiptSchema.extend({ turn: z.number() })), presented: z.array(z.object({ turn: z.number(), id: z.string() })),
+  coverage: z.array(coverageFactSchema) })
 type DeliveryState = z.infer<typeof stateSchema>
+type CoverageFact = z.infer<typeof coverageFactSchema>
+type VideoCheck = z.infer<typeof videoCheckSchema>
 const presentSchema = z.object({ files: z.array(z.object({ path: z.string(), description: z.string().optional() })) })
 const deliveryNoticeSchema = z.object({ manuscript_delivery_notice: z.object({
   task_id: z.string(), fingerprint: z.string(), attempt: z.number(),
@@ -287,10 +307,37 @@ function joinPresented(state: DeliveryState): DeliveryState {
  * @returns Host-only projection definition; no client or Session event vocabulary is added.
  */
 function manuscriptDeliveryProjection(maxDocuments: number): ProjectionDefinition<'muse.manuscript-delivery', DeliveryState> {
-  return { key: 'muse.manuscript-delivery', stateVersion: 9, stateSchema,
+  return { key: 'muse.manuscript-delivery', stateVersion: 10, stateSchema,
     init: header => ({ task_id: '', writing: false, file_request: false, cwd: header.cwd ?? '', turn: 0, corrections: 0,
-      source_required: false, fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }),
+      source_required: false, fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [],
+      presented: [], coverage: [] }),
     apply(state, event) { return foldDelivery(state, event, maxDocuments) } }
+}
+
+function coverageEpisode(label: string): number | undefined {
+  const digits = /^第\s*(\d+)\s*集/u.exec(label.normalize('NFKC').trim())?.[1]
+  return digits === undefined ? undefined : Number(digits)
+}
+
+/** Keep the newest measured episode set per exact file version; versions of other files stay until the bound evicts the oldest. */
+function rememberCoverage(state: DeliveryState, value: z.infer<typeof coverageResultSchema>, max: number): DeliveryState {
+  const measured = new Map<string, CoverageFact>()
+  for (const episode of value.episodes) {
+    const number = coverageEpisode(episode.label)
+    if (number === undefined || episode.draft === undefined || episode.draft === null) continue
+    const key = JSON.stringify([episode.draft.path, episode.draft.file_sha256])
+    const fact = measured.get(key) ?? { path: episode.draft.path, file_sha256: episode.draft.file_sha256, episodes: [] }
+    if (!fact.episodes.includes(number)) fact.episodes.push(number)
+    measured.set(key, fact)
+  }
+  if (measured.size === 0) return state
+  const merged = [...state.coverage]
+  for (const fact of measured.values()) {
+    const index = merged.findIndex(item => item.path === fact.path && item.file_sha256 === fact.file_sha256)
+    const previous = index < 0 ? undefined : merged.splice(index, 1)[0]
+    merged.push({ ...fact, episodes: [...new Set([...previous?.episodes ?? [], ...fact.episodes])].toSorted((a, b) => a - b) })
+  }
+  return { ...state, coverage: merged.slice(-max * 4) }
 }
 function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): DeliveryState {
   if ('surfaceOp' in event && event.surfaceOp !== 'append') return state
@@ -304,7 +351,8 @@ function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): D
     const intent = manuscriptDeliveryIntent(textOf(event.data.content))
     if (intent.continuation && state.writing) return intent.file && !state.file_request ? { ...state, file_request: true } : state
     return { ...state, task_id: String(event.seq), writing: intent.writing, file_request: intent.writing && intent.file,
-      source_required: false, corrections: 0, fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }
+      source_required: false, corrections: 0, fingerprint: '', overflow: false, rows: [], outputs: [], calls: [],
+      packets: [], presented: [] }
   }
   if (event.type === 'turn/start') return { ...state, turn: event.data.turn,
     corrections: 0, fingerprint: '', calls: [], packets: [], presented: [] }
@@ -349,6 +397,10 @@ function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): D
     if (!args.success) return next
     const metadata = metadataFactSchema.safeParse(result.meta)
     const fact = metadata.success ? metadata.data.manuscript_delivery_fact : undefined
+    if (args.data.action === 'transcript_coverage') {
+      const coverage = parseBlocks(result.content, coverageResultSchema)
+      return coverage === undefined ? next : rememberCoverage(next, coverage, max)
+    }
     if (['continuity', 'cross_episode', 'repetitions'].includes(args.data.action)) {
       const review = fact?.state === 'continuity' ? fact : parseBlocks(result.content, reviewSchema)
       return review === undefined ? next : rememberReview(next, review, max)
@@ -431,6 +483,41 @@ function sourceCoverageProblem(bindings: readonly SourceBinding[], scope: Manusc
 }
 function failure(code: string, reason: string): Error {
   return Object.assign(new Error(`${code}: ${reason}`), { code })
+}
+
+function episodeRanges(episodes: readonly number[]): string {
+  const ranges: { start: number; end: number }[] = []
+  for (const episode of [...new Set(episodes)].toSorted((a, b) => a - b)) {
+    const last = ranges.at(-1)
+    if (last !== undefined && last.end + 1 === episode) last.end = episode
+    else ranges.push({ start: episode, end: episode })
+  }
+  return ranges.map(range => range.start === range.end ? String(range.start) : `${range.start}–${range.end}`).join('、')
+}
+
+const FRAME_STATE_TEXT: Record<z.infer<typeof frameStateSchema>, string> = {
+  complete: '已逐帧看完并记录', incomplete: '有帧未看或未记录', stale: '看帧记录对应的是旧版原片', not_viewed: '没有看帧记录',
+  no_video: '原片目录里找不到这一集', ambiguous_video: '原片目录里这一集有多个文件', unchecked: '未核对画面',
+}
+
+function frameGaps(check: VideoCheck): string[] {
+  if (check.video_dir === null) return ['交付登记没有给出 video_dir（本剧原片目录），画面未核对']
+  const states = Object.keys(FRAME_STATE_TEXT).filter((state): state is z.infer<typeof frameStateSchema> => state !== 'complete')
+  return states.flatMap((state) => {
+    const episodes = check.episodes.filter(episode => episode.frames === state).map(episode => episode.episode)
+    return episodes.length === 0 ? [] : [`第${episodeRanges(episodes)}集${FRAME_STATE_TEXT[state]}`]
+  })
+}
+
+function formatGaps(check: VideoCheck): string[] {
+  const episodes = check.episodes.filter(episode => episode.format_errors > 0).map(episode => episode.episode)
+  if (check.format_error_count === 0) return []
+  return [`${episodes.length > 0 ? `第${episodeRanges(episodes)}集` : '全文'}有${check.format_error_count}处格式问题（见 video_check.format_errors）`]
+}
+
+function videoLabel(check: VideoCheck): string {
+  const gaps = [...formatGaps(check), ...frameGaps(check)]
+  return gaps.length > 0 ? gaps.join('，') : `第${episodeRanges(check.episodes.map(episode => episode.episode))}集画面已逐帧记录`
 }
 function denial(error: Error & { code?: string }): PreToolDecision {
   return { kind: 'deny', reason: error.message, info: { name: 'ManuscriptDeliveryError', code: error.code ?? 'MANUSCRIPT_DELIVERY_REVIEW_REQUIRED' } }
@@ -564,6 +651,26 @@ export class ManuscriptDelivery {
     return undefined
   }
 
+  private async videoCheck(current: ManuscriptDocument, agent: Agent, videoDir: string | undefined,
+    signal: AbortSignal): Promise<VideoCheck> {
+    const facts = screenplayFacts(current.text, this.config)
+    const frames = videoDir === undefined || this.options.episodeFrames === undefined ? undefined
+      : await this.options.episodeFrames(agent.session, videoDir, facts.episodes.map(episode => episode.episode), signal)
+    return { video_dir: frames?.video_dir ?? videoDir ?? null, videos: frames?.videos ?? null,
+      episodes: facts.episodes.map((episode) => {
+        const status = frames?.episodes.find(item => item.episode === episode.episode)
+        return { episode: episode.episode, frames: status?.state ?? 'unchecked',
+          ...status?.frames === undefined ? {} : { frame_count: status.frames },
+          ...status?.recorded === undefined ? {} : { recorded: status.recorded },
+          scenes: episode.scenes, action_lines: episode.action_lines, dialogue_lines: episode.dialogue_lines,
+          format_errors: episode.error_count, warnings: episode.warning_count }
+      }),
+      format_errors: [...facts.errors, ...facts.episodes.flatMap(episode => episode.errors)].slice(0, this.config.formatMaxMessages),
+      format_error_count: facts.error_count,
+      warnings: [...facts.warnings, ...facts.episodes.flatMap(episode => episode.warnings)].slice(0, this.config.formatMaxMessages),
+      warning_count: facts.warning_count }
+  }
+
   private async sourceBindingsUnchanged(bindings: readonly SourceBinding[], agent: Agent, signal: AbortSignal): Promise<boolean> {
     const verify = this.options.verifyVideoSource
     if (verify === undefined || bindings.length === 0) return false
@@ -582,10 +689,13 @@ export class ManuscriptDelivery {
    * @param agent - Owning Session; no other Session's receipts are consulted.
    * @param signal - Caller cancellation.
    * @param sourceMode - Video requires independent source review in addition to text review; absence preserves any known task requirement.
-   * @returns File hashes and exact descriptions required by present; this does not present a file.
+   * @param videoDir - Video-sourced deliveries: this drama's source folder, whose file names carry episode numbers;
+   * absent leaves frames unchecked.
+   * @returns File hashes and exact descriptions required by present; this does not present a file. Video-sourced files
+   * also carry per-episode format and frame facts, which their labels state without refusing the declaration.
    */
   declare(candidatePaths: readonly string[], mode: 'reviewed' | 'draft', note: string | undefined,
-    agent: Agent, signal: AbortSignal, sourceMode?: 'video'): Promise<ManuscriptDeliveryResult> {
+    agent: Agent, signal: AbortSignal, sourceMode?: 'video', videoDir?: string): Promise<ManuscriptDeliveryResult> {
     return this.operate(signal, async (checkSignal) => {
       await this.awaitCommitted(agent, checkSignal)
       const cwd = agent.session.header.cwd
@@ -599,7 +709,9 @@ export class ManuscriptDelivery {
         if (files.some(file => file.path === current.path)) throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '同一规范路径不能重复声明。')
         const row = state.rows.find(item => item.path === current.path)
         const review = row?.sha === current.sha256 ? row.review : null
-        let label = sourceRequired ? '草稿：当前版本尚未完成来源与语义复核' : '草稿：当前版本未完成语义复核'
+        const videoCheck = sourceRequired ? await this.videoCheck(current, agent, videoDir, checkSignal) : undefined
+        let label = videoCheck !== undefined ? `草稿：${videoLabel(videoCheck)}；当前版本尚未完成来源与语义复核`
+          : sourceRequired ? '草稿：当前版本尚未完成来源与语义复核' : '草稿：当前版本未完成语义复核'
         let reviewScope: ManuscriptDeliveryScope | null = null
         let dependencies: DeliveryFile['dependencies'] = []
         let sourceBindings: SourceBinding[] | undefined
@@ -633,10 +745,12 @@ export class ManuscriptDelivery {
             sourceBindings = bindings
             label += sourceLabel(bindings)
           }
+          if (videoCheck !== undefined) label += `；${videoLabel(videoCheck)}`
         }
         files.push({ path: current.path, file_sha256: current.sha256, aliases: [resolve(cwd, path)],
           label, review_scope: reviewScope, dependencies,
           ...sourceBindings === undefined ? {} : { source_reviews: sourceBindings },
+          ...videoCheck === undefined ? {} : { video_check: videoCheck },
           ...(mode === 'reviewed' && review?.notes_sha256 !== undefined ? { notes_sha256: review.notes_sha256 } : {}) })
       }
       const activePaths = new Set([...state.rows.filter(row => !row.presented).map(row => row.path), ...files.map(file => file.path)])
@@ -714,6 +828,68 @@ export class ManuscriptDelivery {
       }
       return undefined
     })
+  }
+
+  /** List what a video-transcription task still lacks when its goal is marked complete; the completion itself proceeds.
+   * @param execution - Exact successful tool execution; other tools and other goal actions yield nothing.
+   * @returns Guidance text naming each remaining gap, or undefined when none remain or no video task is active.
+   */
+  async goalCompletionNotice(execution: ToolExecution): Promise<string | undefined> {
+    if (execution.name !== 'update_goal' || execution.agent === undefined || !this.config.continuityDeliveryChecks
+      || execution.agent.session.header.agentPreset === CONTINUITY_REVIEW_PRESET
+      || !z.object({ action: z.literal('complete') }).safeParse(execution.arguments).success) return undefined
+    const agent = execution.agent
+    return this.operate(execution.signal, async (signal) => {
+      await this.awaitCommitted(agent, signal)
+      const state = this.handle.stateOf(agent.session)
+      if (!state.source_required) return undefined
+      const problems = await this.acceptanceProblems(state, signal)
+      return problems.length === 0 ? undefined : `程序核对：这个视频转剧本任务仍有缺口：\n- ${problems.join('\n- ')}\n`
+        + '收尾汇报里逐条如实写明这些缺口，不要写成已全部核对；能补的部分先补，补不了的说明原因。'
+    })
+  }
+
+  private async currentSha(path: string, cwd: string, signal: AbortSignal): Promise<string | undefined> {
+    try { return (await readManuscript(path, cwd, this.config, signal)).sha256 }
+    catch (error) {
+      // A missing or unreadable file is reported as not current; cancellation and non-Error throws propagate.
+      signal.throwIfAborted()
+      if (!(error instanceof Error)) throw error
+      return undefined
+    }
+  }
+
+  private async acceptanceProblems(state: DeliveryState, signal: AbortSignal): Promise<string[]> {
+    const video = state.rows.filter(row => row.declaration?.source_mode === 'video')
+    const checkOf = (row: Row): VideoCheck | undefined => row.declaration?.files
+      .find(file => file.path === row.path && file.file_sha256 === row.sha)?.video_check
+    const words = video.filter(row => row.presented && row.path.toLowerCase().endsWith('.docx'))
+    const fresh: Row[] = []
+    for (const row of words) if (await this.currentSha(row.path, state.cwd, signal) === row.sha) fresh.push(row)
+    if (fresh.length === 0) {
+      return [words.length > 0 ? '已交付的 Word 在交付后被改动；重新登记并 present 当前版本'
+        : '还没有交付整剧 Word：用 screenplay_export_docx 从最终 Markdown 导出 .docx，再用 manuscript_revision delivery（source_mode: video，并给出 video_dir）登记，按返回标签 present']
+    }
+    const checks = fresh.flatMap(row => checkOf(row) ?? [])
+    if (checks.length === 0) return ['交付的 Word 没有逐集核对结果；用 source_mode: video 并给出 video_dir 重新登记']
+    const problems: string[] = []
+    const episodes = [...new Set(checks.flatMap(check => check.episodes.map(episode => episode.episode)))].toSorted((a, b) => a - b)
+    const first = episodes[0] ?? 1, last = episodes.at(-1) ?? 0
+    const gaps = Array.from({ length: Math.max(0, last - first + 1) }, (_, index) => first + index)
+      .filter(episode => !episodes.includes(episode))
+    if (gaps.length > 0) problems.push(`Word 里缺第${episodeRanges(gaps)}集`)
+    const separate = video.flatMap(row => checkOf(row)?.episodes.map(episode => episode.episode) ?? [])
+      .filter(episode => !episodes.includes(episode))
+    if (separate.length > 0) problems.push(`第${episodeRanges(separate)}集已单独交付，但不在交付的 Word 里`)
+    for (const check of checks) problems.push(...frameGaps(check))
+    const covered = new Set<number>()
+    for (const fact of state.coverage) {
+      if (await this.currentSha(fact.path, state.cwd, signal) !== fact.file_sha256) continue
+      for (const episode of fact.episodes) covered.add(episode)
+    }
+    const uncovered = episodes.filter(episode => !covered.has(episode))
+    if (uncovered.length > 0) problems.push(`第${episodeRanges(uncovered)}集还没有对当前稿运行 manuscript_revision transcript_coverage`)
+    return [...new Set(problems)]
   }
 
   /** Recheck bytes after dispatch and produce the private packet paired with actual presented events.
@@ -821,7 +997,7 @@ export class ManuscriptDelivery {
         || agent.inbox.nextStep.length > 0 || agent.inbox.nextTurn.length > 0) return
       const instruction = missingReceipt
         ? '本轮用户要求实际剧本文件，但当前没有已核实的本机文件交付回执。请先确认已有执行或任务的结果，再实际生成、回读并交付文件；不要重复启动已有任务。代码块、外部执行标签和文本链接不代表 Muse 已在本机执行或生成文件。文件不存在时如实说明，不猜测路径或声称文件已完成；能够继续时完成真实工具调用，核对最终版本或明确登记为草稿，再使用返回标签 present。'
-        : `以下明确输出的剧本文件尚未成功 present：${pending.join('、')}。请核对最终文件并调用 manuscript_revision delivery，选择 reviewed 或明确标为 draft，再用返回的逐字 label 作为 present.description。局部审校只能注明实际范围；有未解问题可交付明确草稿，不需逐项请用户批准。不要凭回复文字声称文件已完成交付。`
+        : `以下明确输出的剧本文件尚未成功 present：${pending.join('、')}。请核对最终文件并调用 manuscript_revision delivery（视频转写设 source_mode: video 并给出 video_dir），选择 reviewed 或明确标为 draft，再用返回的逐字 label 作为 present.description。标签由程序按实际核对结果生成；局部审校只能注明实际范围，不需逐项请用户批准。不要凭回复文字声称文件已完成交付。`
       agent.inject(createUserMessage({ source: { kind: 'muse-manuscript', form: 'notice', summary: '剧本文件尚无有效交付回执' },
         content: [{ type: 'text', text: instruction },
           { type: 'text', text: JSON.stringify({ manuscript_delivery_notice: { task_id: state.task_id, fingerprint, attempt: state.corrections + 1 } }) }] }))
@@ -860,6 +1036,10 @@ export async function createManuscriptDelivery(ctx: Context, config: ManuscriptD
   })
   const post = ctx.on('tools/post-execute', async (execution, result, next) => {
     const decision = await next()
+    if (execution.name === 'update_goal' && !result.isError && decision.kind === 'accept' && !('value' in decision)) {
+      const notice = await service.goalCompletionNotice(execution)
+      return notice === undefined ? decision : { ...decision, content: [...decision.content ?? result.content, { type: 'text', text: notice }] }
+    }
     if (execution.name !== 'present' || result.isError || decision.kind !== 'accept') return decision
     try {
       const packet = await service.finishPresent(execution)

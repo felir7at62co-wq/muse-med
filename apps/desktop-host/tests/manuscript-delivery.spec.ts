@@ -24,7 +24,8 @@ const signal = new AbortController().signal
 const config = { maxDocuments: 4, maxFileBytes: 65536, maxTextChars: 20000, maxMaterialChars: 20000,
   maxNotes: 256, maxNoteChars: 40000, maxVersions: 256, maxVersionBytes: 1024 * 1024,
   maxLedgerBytes: 1024 * 1024, lockWaitMs: 5000,
-  continuityDeliveryChecks: true, continuityMaxDeliveryCorrections: 1 }
+  continuityDeliveryChecks: true, continuityMaxDeliveryCorrections: 1, formatDominantSpeakerMinLines: 8,
+  formatDominantSpeakerShare: 0.9, formatRepeatedSceneEpisodes: 12, formatMaxMessages: 20 }
 const body = '第1集\n1-1 门口 日 外\n▲甲来到门口。\n甲：请开门。\n第2集\n2-1 客厅 日 内\n▲甲坐下。\n甲：谢谢。\n第3集\n3-1 院子 日 外\n▲甲离开。'
 let serial = 0
 
@@ -282,7 +283,7 @@ it('replays an older delivery checkpoint instead of retaining its report misclas
     val: { ...z.record(z.string(), z.unknown()).parse(current.val), writing: true, file_request: true } }
   const restored = f.ctx.sessionProjections.restore({ [key]: stale }, f.session.snapshotEvents(),
     SessionLogOffset(0), f.session.header, SessionLogOffset(0))
-  expect(restored.checkpoint[key]).toMatchObject({ ver: 9, val: { writing: false, file_request: false } })
+  expect(restored.checkpoint[key]).toMatchObject({ ver: 10, val: { writing: false, file_request: false } })
 })
 
 it('blocks unreviewed direct present, accepts explicit draft and rejects a stale same-path declaration', async () => {
@@ -378,7 +379,7 @@ it('ordinary affirmative intent refolds stale version-four false flags before th
   const result = await executeModelToolFixture(f.ctx, { callId: ToolCallId(`restored-present-${++serial}`), name: 'present',
     arguments: { files: [{ path: 'final.md' }] }, agent, signal })
   expect(result).toMatchObject({ isError: true, error: { info: { code: 'MANUSCRIPT_DELIVERY_REQUIRED' } } })
-  expect(f.ctx.sessionProjections.checkpoint(restored)[key]).toMatchObject({ ver: 9, val: { writing: true, file_request: true } })
+  expect(f.ctx.sessionProjections.checkpoint(restored)[key]).toMatchObject({ ver: 10, val: { writing: true, file_request: true } })
 })
 
 it('does not infer a new creation when only a continuation remains in restored human context', async () => {

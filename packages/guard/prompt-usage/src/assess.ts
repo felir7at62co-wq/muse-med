@@ -1,7 +1,7 @@
 /**
  * Route resolution and the pure verdict of prompt-usage-guard: a finished reply
  * fails only when its provider-reported prompt is below both the request's tool
- * definitions and its working-context estimate.
+ * definitions and its working-context estimate, and the usage report is reliable.
  * @module
  */
 
@@ -111,6 +111,8 @@ export interface AssessInput {
   finish: FinishReason
   /** The reply contains tool-call evidence. */
   toolCall: boolean
+  /** The reply streamed non-empty text or reasoning. */
+  generatedText: boolean
   /** Latest usage chunk of the reply, if any. */
   usage: TokenUsage | undefined
   /** Heuristic tokens of the request's non-deferred tool schemas. */
@@ -123,13 +125,18 @@ export interface AssessInput {
 
 /**
  * Judge one finished reply. Only a tool-less `stop` with reported usage is judged;
- * missing or zero usage and missing references always pass.
+ * missing or zero usage and missing references always pass. A report of zero
+ * output tokens for a reply that streamed text or reasoning contradicts the reply,
+ * so it is an unreliable report (a relay exit that zeroes the completion count also
+ * understates the prompt) and passes. A reply with no generated content and zero
+ * output tokens stays judged.
  * @param input - the reply's finish, tool-call evidence and usage with the request's references and route.
  * @returns the verdict; reject only when the reported prompt misses both thresholds.
  */
 export function assess(input: AssessInput): ShortfallVerdict {
-  const { finish, toolCall, usage, toolSchemaTokens, estimateTokens, route } = input
+  const { finish, toolCall, generatedText, usage, toolSchemaTokens, estimateTokens, route } = input
   if (finish.kind !== 'stop' || toolCall || usage === undefined) return { kind: 'pass' }
+  if (usage.outputTokens === 0 && generatedText) return { kind: 'pass' }
   const reportedPromptTokens = usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
   if (!(reportedPromptTokens > 0) || !(toolSchemaTokens > 0) || !(estimateTokens > 0)) return { kind: 'pass' }
   const belowToolSchemas = reportedPromptTokens < route.minToolSchemaRatio * toolSchemaTokens

@@ -3,7 +3,8 @@
  * the request's tool definitions and its working-context estimate, a sign that the
  * provider answered an incomplete request. Only listed provider/model routes are
  * judged, only a `stop` reply without tool calls, and missing or zero usage always
- * passes. The guard replaces the terminal `stop` with a `PROMPT_USAGE_SHORTFALL`
+ * passes, as does a report of zero output tokens for a reply that streamed text.
+ * The guard replaces the terminal `stop` with a `PROMPT_USAGE_SHORTFALL`
  * failure; the route's retry policy resends the request only when its
  * `retryableCodes` list that code.
  * @module @deepseek-ai/dsh-prompt-usage
@@ -81,12 +82,14 @@ export function apply(ctx: Context, config: Config): void {
         const estimateTokens = ctx.tokenMeter.measureWorkingContext(session).totalTokens
         let usage: TokenUsage | undefined
         let toolCall = false
+        let generatedText = false
         let rejected: ShortfallMeasurement | undefined
         for await (const chunk of next()) {
           if (chunk.type === 'usage') usage = chunk.usage
           else if (isToolCallChunk(chunk)) toolCall = true
+          else if ((chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') && chunk.text.length > 0) generatedText = true
           else if (chunk.type === 'finish' && active) {
-            const verdict = assess({ finish: chunk.reason, toolCall, usage, toolSchemaTokens, estimateTokens, route })
+            const verdict = assess({ finish: chunk.reason, toolCall, generatedText, usage, toolSchemaTokens, estimateTokens, route })
             if (verdict.kind === 'reject') {
               rejected = verdict
               // Leaving the loop closes the inner stream, so inner listeners never observe a completed stop.
