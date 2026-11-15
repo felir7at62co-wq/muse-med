@@ -152,14 +152,6 @@ function catalogMessages(session: Session): Extract<SessionEvent, { type: 'user/
     && event.data.source.kind === 'skill-catalog')
 }
 
-function readableCatalog(event: Extract<SessionEvent, { type: 'user/message' }>): boolean {
-  const entries = (event.data.source as { entries?: unknown }).entries
-  return Array.isArray(entries)
-    && entries.every(entry => typeof entry === 'object' && entry !== null
-      && typeof (entry as { name?: unknown }).name === 'string'
-      && typeof (entry as { description?: unknown }).description === 'string')
-}
-
 function catalogContent(entries: string[]): Message['content'] {
   return [{
     type: 'text',
@@ -732,6 +724,7 @@ describe('dsh-tool-skill', () => {
       { kind: 'skill-catalog', form: 'catalog', entries: [null] },
       { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'x' }] },
       { kind: 'skill-catalog', form: 'catalog', entries: [{ description: 'no name' }] },
+      { kind: 'skill-catalog', form: 'catalog', bounded: false, entries: [{ name: 'stale', description: 'Unreadable bound flag' }] },
     ]) {
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'unreadable catalog' }],
@@ -739,11 +732,12 @@ describe('dsh-tool-skill', () => {
       }), { surfaceOp: 'append' })
     }
 
+    const beforeStep = session.seq
     await expect(fireStep(ctx, agent, 1, 1)).resolves.toBeUndefined()
 
-    // None of the six counted as published, so the live catalog lands as a
+    // None of the malformed records count as published, so the live catalog lands as a
     // first publication rather than a replacement.
-    const published = catalogMessages(session).filter(event => readableCatalog(event))
+    const published = catalogMessages(session).filter(event => event.seq >= beforeStep)
     expect(published).toHaveLength(1)
     expect(published[0]?.data.source).toMatchObject({ kind: 'skill-catalog', form: 'catalog' })
     expect(published[0]?.data.source).not.toHaveProperty('update')

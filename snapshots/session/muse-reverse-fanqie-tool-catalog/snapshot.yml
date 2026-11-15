@@ -3,6 +3,7 @@ scenario: muse-reverse-fanqie-tool-catalog
 profile: headless
 composition: muse-reverse-fanqie-tool-catalog
 recording: authored
+writerOutput: true
 header:
   class: muse-reverse-fanqie-tool-catalog
   pin: true

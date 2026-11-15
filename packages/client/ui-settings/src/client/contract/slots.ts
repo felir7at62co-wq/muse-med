@@ -152,6 +152,8 @@ export interface SettingsOnboardingOwnerProps {
   explicit?: boolean
   /** Complete or skip this step and transfer ownership to the next entry. */
   complete: () => void
+  /** Stable, idempotent Settings closer, called when visible dialog DOM attaches. Hidden or loading steps do not call it. */
+  onVisible: () => void
   /** Open the settings panel directly on one registered section. */
   openSection: (id: string) => void
 }

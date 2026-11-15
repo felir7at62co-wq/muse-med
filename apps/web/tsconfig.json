@@ -23,6 +23,7 @@
   // this client-registered project must not also hold them (one program
   // cannot see both sides of the cordis Context merges).
   "exclude": [
+    "tests/pwa-manifest.e2e.ts",
     "tests/muse-skill-market.e2e.ts",
     "tests/jubian-episode-delivery.e2e.ts",
     "tests/jubian-video-recovery.e2e.ts",
@@ -73,6 +74,8 @@
     "tests/prefix-proxy.ts",
     "tests/auto-review-fixture.ts",
     "tests/scaffold-generation.spec.ts",
+    "tests/scaffold-generation.e2e.ts",
+    "tests/fixtures/writer-output.ts",
     "tests/scaffold-hermetic.e2e.ts",
     "tests/startup-rpc-budget.e2e.ts",
     "tests/minimal-preset.snapshot.ts",

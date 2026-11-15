@@ -117,12 +117,13 @@ export function developmentRuntimeDirectory(
 
 /**
  * Select the output directory and filename suffix for one packaging mode.
+ * Unsigned builds retain the release filenames in their own output directory.
  * @param {{ artifacts: string, unsignedArtifacts: string, unnotarizedArtifacts: string }} paths Target artifact directories.
  * @param {{ unsigned: boolean, skipNotarization: boolean }} mode Validated packaging mode.
  * @returns {{ directory: string, suffix: string }} Matching artifact destination and filename marker.
  */
 export function desktopArtifactOutput(paths, mode) {
-  if (mode.unsigned) return { directory: paths.unsignedArtifacts, suffix: '-unsigned' }
+  if (mode.unsigned) return { directory: paths.unsignedArtifacts, suffix: '' }
   if (mode.skipNotarization) return { directory: paths.unnotarizedArtifacts, suffix: '-unnotarized' }
   return { directory: paths.artifacts, suffix: '' }
 }

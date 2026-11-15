@@ -1,0 +1,62 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      { "type": "block-start", "index": 0, "blockType": "tool-call" },
+      {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_dsh_sdk_first",
+        "name": "subagent_dsh_sdk",
+        "argumentsDelta": "{\"description\":\"Observe first SDK failure\",\"prompt\":\"Return the scripted DSH SDK failure.\"}"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "call_dsh_sdk_first",
+          "name": "subagent_dsh_sdk",
+          "arguments": "{\"description\":\"Observe first SDK failure\",\"prompt\":\"Return the scripted DSH SDK failure.\"}"
+        }
+      },
+      { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 5 } },
+      { "type": "finish", "reason": { "kind": "tool-calls" } }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      { "type": "block-start", "index": 0, "blockType": "tool-call" },
+      {
+        "type": "tool-call-delta",
+        "index": 0,
+        "id": "call_dsh_sdk_second",
+        "name": "subagent_dsh_sdk_second",
+        "argumentsDelta": "{\"description\":\"Observe second SDK failure\",\"prompt\":\"Return the scripted DSH SDK failure.\"}"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "call_dsh_sdk_second",
+          "name": "subagent_dsh_sdk_second",
+          "arguments": "{\"description\":\"Observe second SDK failure\",\"prompt\":\"Return the scripted DSH SDK failure.\"}"
+        }
+      },
+      { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 5 } },
+      { "type": "finish", "reason": { "kind": "tool-calls" } }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      { "type": "block-start", "index": 0, "blockType": "text" },
+      { "type": "text-delta", "index": 0, "text": "PARENT_OBSERVED_DSH_SDK_DIAGNOSTIC" },
+      { "type": "block-end", "index": 0, "block": { "type": "text", "text": "PARENT_OBSERVED_DSH_SDK_DIAGNOSTIC" } },
+      { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 5 } },
+      { "type": "finish", "reason": { "kind": "stop" } }
+    ]
+  }
+]

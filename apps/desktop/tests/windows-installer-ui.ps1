@@ -313,6 +313,22 @@ public static class InstallerCapture {
         return width + "x" + height;
     }
 
+    // Automatic updates can close between enumeration and capture. Never wait on a stale HWND.
+    public static bool TrySaveAutomaticProgress(int process, IntPtr window, string path) {
+        if (window == IntPtr.Zero || !IsWindow(window)) return false;
+        uint owner;
+        GetWindowThreadProcessId(window, out owner);
+        if (owner != process) throw new ArgumentException("Progress window belongs to another process", "window");
+        if (!IsWindowVisible(window) || GetProp(window, "HarnessInstaller.Ready") == IntPtr.Zero) return false;
+        try {
+            SaveVisibleDesktop(window, path);
+        } catch (ArgumentException) {
+            if (!IsWindow(window) || !IsWindowVisible(window)) return false;
+            throw;
+        }
+        return true;
+    }
+
     public static IntPtr TopLevel(IntPtr child) { return GetAncestor(child, 2); }
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr window, uint flags);
 

@@ -17,8 +17,7 @@ const theme: ThemeSnapshot = {
   active: { id: 'light', colorScheme: 'light', tokens: {} }, themes: [], revision: 0,
 }
 
-it('claims onboarding while loading, offers API key fallback, and completes after login', () => {
-  let account: AccountSnapshot = { view: undefined, details: undefined, avatar: undefined, failed: false }
+function onboardingProps(account: () => AccountSnapshot) {
   const unused = (): never => { throw new Error('AccountOnboarding does not consume global hooks') }
   const globals: GlobalStandardProps = {
     usePanelInfo: unused, useSessions: unused, useSessionStatus: unused,
@@ -29,19 +28,30 @@ it('claims onboarding while loading, offers API key fallback, and completes afte
   const props = {
     ...globals,
     hasRunningAccountTasks: vi.fn(async () => false),
-    complete: vi.fn(), useApiKey: vi.fn(), setOnboarding: vi.fn(), showLogin: vi.fn(),
-    useAccount: <T,>(select: (snapshot: AccountSnapshot) => T) => select(account),
+    complete: vi.fn(), useApiKey: vi.fn(), onVisible: vi.fn(), setOnboarding: vi.fn(), showLogin: vi.fn(),
+    useAccount: <T,>(select: (snapshot: AccountSnapshot) => T) => select(account()),
     useTheme: <T,>(select: (snapshot: ThemeSnapshot) => T) => select(theme),
     start: vi.fn(async () => {}), cancel: vi.fn(async () => {}), signOut: vi.fn(async () => {}),
     contactUs: vi.fn(), t: makeTranslate(en),
     refreshAccount: vi.fn(async () => {}), bonusNoticeShown: vi.fn(), bonusNoticeDismissed: vi.fn(),
     avatarFailed: vi.fn(),
   }
+  return props
+}
+
+it('claims onboarding while loading, offers API key fallback, and completes after login', () => {
+  let account: AccountSnapshot = { view: undefined, details: undefined, avatar: undefined, failed: false }
+  const props = onboardingProps(() => account)
   const view = render(<AccountOnboarding {...props} />)
   expect(props.setOnboarding).toHaveBeenCalledExactlyOnceWith(true)
   expect(screen.queryByRole('dialog')).toBeNull()
+  expect(props.onVisible).not.toHaveBeenCalled()
   account = { ...account, view: { status: 'signed-out', attempt: null, links: { usageUrl: '', topUpUrl: '' } } }
   view.rerender(<AccountOnboarding {...props} />)
+  expect(screen.getByRole('dialog')).toBeTruthy()
+  expect(props.onVisible).toHaveBeenCalledOnce()
+  view.rerender(<AccountOnboarding {...props} />)
+  expect(props.onVisible).toHaveBeenCalledOnce()
   fireEvent.click(screen.getByRole('button', { name: en.addApiKey }))
   expect(props.showLogin).toHaveBeenLastCalledWith(false)
   expect(props.useApiKey).toHaveBeenCalledOnce()
@@ -51,6 +61,19 @@ it('claims onboarding while loading, offers API key fallback, and completes afte
   view.rerender(<AccountOnboarding {...props} />)
   expect(props.complete).toHaveBeenCalledTimes(2)
   expect(screen.queryByRole('dialog')).toBeNull()
+  expect(props.onVisible).toHaveBeenCalledOnce()
   view.unmount()
   expect(props.setOnboarding).toHaveBeenLastCalledWith(false)
+  expect(props.onVisible).toHaveBeenCalledOnce()
+})
+
+it('completes stored-credential onboarding without announcing a visible dialog', () => {
+  const account: AccountSnapshot = { view: {
+    status: 'credential-stored', attempt: null, links: { usageUrl: '', topUpUrl: '' },
+  }, details: undefined, avatar: undefined, failed: false }
+  const props = onboardingProps(() => account)
+  render(<AccountOnboarding {...props} />)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(props.complete).toHaveBeenCalledOnce()
+  expect(props.onVisible).not.toHaveBeenCalled()
 })

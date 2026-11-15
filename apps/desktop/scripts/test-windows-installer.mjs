@@ -10,7 +10,7 @@ import { promisify } from 'node:util'
 import { createWindowsTokenSigner, installWindowsNsisBootstrapSigner, scrubWindowsSigningEnvironment } from './windows-sign.mjs'
 import { loadDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createPackagingRun } from './packaging-run.mjs'
-import { assertInstallerNegativeControl, assertVisualCppPrerequisiteReceipt, createInstallerTestPagesSource, createInstallerTestSource } from './windows-installer-test-fixture.mjs'
+import { assertInstallerNegativeControl, assertVisualCppPrerequisiteReceipt, prepareInstallerTestFixtures } from './windows-installer-test-fixture.mjs'
 
 if (process.platform !== 'win32' || process.arch !== 'x64') {
   throw new Error('Installer UI checks require an interactive Windows x64 desktop')
@@ -61,7 +61,7 @@ try {
     '--vc-redist-only', '--output', prerequisiteDirectory, '--cache', join(outputRoot, 'vc-redist-cache')], childOptions)
   if (!process.argv.includes('--compile-only')) {
     const receiptFile = join(output, 'vc-runtime-receipt.json')
-    const prerequisite = await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+    const prerequisite = await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
       join(appRoot, 'scripts', 'prepare-windows-installer-prerequisite.ps1'),
       '-RuntimeFile', join(prerequisiteDirectory, 'vc_redist.x64.exe'),
       '-ReceiptFile', receiptFile], childOptions)
@@ -69,7 +69,7 @@ try {
     process.stdout.write(prerequisite.stdout)
   }
   try {
-    await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+    await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
       join(appRoot, 'scripts', 'prepare-windows-installer.ps1'), '-OutputDirectory', join(output, 'ui'), '-CompileProgressOnly'], childOptions)
   } catch (error) {
     process.stdout.write(error.stdout ?? '')
@@ -144,10 +144,7 @@ SectionEnd
     const strings = join(languageOutput, 'strings.nsh')
     await writeFile(strings, renderInstallerStrings([locale]), 'utf8')
     const include = join(languageOutput, 'include.nsh')
-    const fixture = join(languageOutput, 'installer.nsh')
-    const pages = join(languageOutput, 'pages.nsh')
-    await writeFile(fixture, fixtureSource)
-    await writeFile(pages, fixturePages)
+    const { fixture, pages } = await prepareInstallerTestFixtures(appRoot, languageOutput)
     await writeFile(include, `!define INSTALLER_BUILD_DIR "${join(output, 'ui')}"\n!define INSTALLER_STRINGS_FILE "${strings}"\n!define INSTALLER_TEST_PAGES_FILE "${pages}"\n!define INSTALLER_TEST_TRACE_DIR "${languageOutput}"\n!include "${fixture}"\n`)
     await build({ projectDir: appRoot, prepackaged: payload, targets: Platform.WINDOWS.createTarget(['nsis'], Arch.x64), publish: 'never',
       config: { ...config, productName, extraMetadata: { ...config.extraMetadata, name: packageName },
@@ -155,7 +152,7 @@ SectionEnd
         nsis: { ...config.nsis, guid, include, installerLanguages: [language] }, beforeBuild: undefined, afterPack: undefined, afterSign: undefined, artifactBuildCompleted: undefined },
     })
     if (process.argv.includes('--compile-only')) continue
-    const result = await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+    const result = await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
       join(appRoot, 'tests', uninstallOnly ? 'windows-uninstall-smoke.ps1' : 'windows-installer-smoke.ps1'),
       '-Installer', join(languageOutput, 'installer-test.exe'),
       '-ProductName', productName, '-RegistryKey', guid, '-OutputDirectory', languageOutput,
@@ -166,11 +163,11 @@ SectionEnd
       await mkdir(negativeOutput)
       let injectedFailure
       try {
-        await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+        await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
           join(appRoot, 'tests', 'windows-installer-smoke.ps1'),
           '-Installer', join(languageOutput, 'installer-test.exe'),
           '-ProductName', productName, '-RegistryKey', guid, '-OutputDirectory', negativeOutput,
-          '-FailAfterAutomaticRelaunch'], childOptions)
+          '-Language', language, '-FailAfterAutomaticRelaunch'], childOptions)
       } catch (error) { injectedFailure = error }
       const receipt = JSON.parse(await readFile(join(negativeOutput, 'cleanup-receipt.json'), 'utf8'))
       assertInstallerNegativeControl(injectedFailure, receipt)

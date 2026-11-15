@@ -144,13 +144,14 @@ function Card({ original, ...input }: AbsorptionOptions & { original?: OriginalS
     aria-hidden={original?.aria}><video /><span>原卡片</span>{portal}</div>
 }
 
-function Fixture({ external = false, hasAnchor = true, siblingAnchor = false, delivered = false,
+function Fixture({ external = false, hasAnchor = true, siblingAnchor = false, delivered = false, scrollable = true,
   sourceOriginal, deliveryOriginal, ...input }:
 AbsorptionOptions & {
   external?: boolean
   hasAnchor?: boolean
   siblingAnchor?: boolean
   delivered?: boolean
+  scrollable?: boolean
   sourceOriginal?: OriginalSurface
   deliveryOriginal?: OriginalSurface
 }) {
@@ -158,7 +159,7 @@ AbsorptionOptions & {
   const target = hasAnchor && <button data-muse-video-anchor type="button" aria-label="视频气泡" />
   const content = <div data-chat-frame>
     {!siblingAnchor && target}
-    <div data-chat-scroll>{delivered ? <div data-presented-file data-video="true"
+    <div data-chat-scroll={scrollable ? '' : undefined}>{delivered ? <div data-presented-file data-video="true"
       style={{ visibility: deliveryOriginal?.visibility }} aria-hidden={deliveryOriginal?.aria}
       ref={(element) => { if (element) element.inert = deliveryOriginal?.inert ?? false }}>
       <button type="button">Native file action</button>{card}
@@ -179,6 +180,16 @@ function deliveredElements(container: HTMLElement) {
 function inputs(): AbsorptionOptions { return { id: 'real-video', onCollect: vi.fn(), onOpen: vi.fn() } }
 
 describe('useAbsorption', () => {
+  it('retains an inline card without a portal when it has no owning Chat frame', () => {
+    const input = inputs()
+    const view = render(<Card {...input} />)
+    expect(view.container.querySelector('[data-video-absorption]')).toBeNull()
+    expect(view.container.querySelector<HTMLElement>('[data-video-source]')?.style.visibility).toBe('')
+    expect(frames.size).toBe(0)
+    expect(input.onCollect).not.toHaveBeenCalled()
+    expect(pauseVideo).not.toHaveBeenCalled()
+  })
+
   it('collects into the conversation sibling anchor while retaining the portal in its Chat frame', () => {
     const view = render(<Fixture {...inputs()} siblingAnchor />)
     const card = view.container.querySelector<HTMLElement>('[data-video-source]')!
@@ -348,6 +359,123 @@ describe('useAbsorption', () => {
     flushFrame()
     expect(view.container.querySelector<HTMLElement>('[data-video-source]')?.style.visibility).toBe('')
     expect(view.container.querySelector<HTMLElement>('[data-video-absorption]')?.hidden).toBe(true)
+  })
+
+  it('retains its source without scheduling animation when no conversation scroll owner exists', () => {
+    const input = inputs()
+    setProgress(0.5)
+    const view = render(<Fixture {...input} scrollable={false} />)
+    const card = view.container.querySelector<HTMLElement>('[data-video-source]')!
+    expect(frames.size).toBe(0)
+    fireEvent.resize(window)
+    expect(frames.size).toBe(0)
+    expect(resizeListeners).toHaveLength(0)
+    expect(card.style.visibility).toBe('')
+    expect(card.inert).toBe(false)
+    expect(input.onCollect).not.toHaveBeenCalled()
+    expect(pauseVideo).not.toHaveBeenCalled()
+  })
+
+  it('clips the entering material into the bubble without drawing a neck or unreadable content', () => {
+    setProgress(0.9)
+    const view = render(<Fixture {...inputs()} />)
+    flushFrame()
+    const layer = view.container.querySelector<HTMLElement>('[data-video-absorption]')!
+    expect(layer.dataset.phase).toBe('inside')
+    expect(layer.hidden).toBe(false)
+    const clip = at(0.9).clip!
+    expect(canvasContext.roundRect).toHaveBeenCalledWith(clip.left, clip.top, clip.width, clip.height, clip.height / 2)
+    expect(canvasContext.bezierCurveTo).not.toHaveBeenCalled()
+    expect(canvasContext.drawImage).not.toHaveBeenCalled()
+    expect(view.queryByRole('button', { name: '打开真实视频' })).toBeNull()
+  })
+
+  it('keeps drawing bubble material when only the detached video snapshot context is unavailable', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      return this.isConnected ? browserContext as CanvasRenderingContext2D : null
+    })
+    setProgress(0.5)
+    const view = render(<Fixture {...inputs()} />)
+    const video = view.container.querySelector('video')!
+    Object.defineProperty(video, 'readyState', { configurable: true, value: 2 })
+    Object.defineProperty(video, 'videoWidth', { configurable: true, value: 1920 })
+    flushFrame()
+    expect(canvasContext.fill).toHaveBeenCalled()
+    expect(canvasContext.drawImage).not.toHaveBeenCalled()
+    expect(canvasContext.getImageData).not.toHaveBeenCalled()
+    expect(view.container.querySelector<HTMLElement>('[data-video-absorption]')?.hidden).toBe(false)
+    expect(view.container.querySelector<HTMLElement>('[data-video-source]')?.style.visibility).toBe('hidden')
+  })
+
+  it('releases collection and restores its card when the owning anchor is removed', () => {
+    const input = inputs()
+    setProgress(1)
+    const view = render(<Fixture {...input} />)
+    flushFrame()
+    expect(input.onCollect).toHaveBeenCalledExactlyOnceWith(true)
+    const card = view.container.querySelector<HTMLElement>('[data-video-source]')!
+    expect(card.style.visibility).toBe('hidden')
+    view.getByRole('button', { name: '视频气泡' }).remove()
+    fireEvent.resize(window)
+    flushFrame()
+    expect(input.onCollect).toHaveBeenNthCalledWith(1, true)
+    expect(input.onCollect).toHaveBeenNthCalledWith(2, false)
+    expect(input.onCollect).toHaveBeenCalledTimes(2)
+    expect(card.style.visibility).toBe('')
+    expect(card.inert).toBe(false)
+    expect(card.hasAttribute('aria-hidden')).toBe(false)
+    expect(view.container.querySelector<HTMLElement>('[data-video-absorption]')?.hidden).toBe(true)
+    view.unmount()
+    expect(input.onCollect).toHaveBeenCalledTimes(2)
+  })
+
+  it('restores the preexisting bubble fusion value after reverse scroll and unmount', () => {
+    const view = render(<Fixture {...inputs()} />)
+    const target = view.getByRole('button', { name: '视频气泡' })
+    target.style.setProperty('--muse-video-fusion', '0.25')
+    const scroll = view.container.querySelector<HTMLElement>('[data-chat-scroll]')!
+    setProgress(0.5)
+    flushFrame()
+    expect(target.style.getPropertyValue('--muse-video-fusion')).toBe('1')
+    expect(target.getAttribute('data-muse-video-fusion-owner')).toBe('real-video')
+    setProgress(0)
+    fireEvent.scroll(scroll)
+    flushFrame()
+    expect(target.style.getPropertyValue('--muse-video-fusion')).toBe('0.25')
+    expect(target.hasAttribute('data-muse-video-fusion-owner')).toBe(false)
+    setProgress(0.5)
+    fireEvent.scroll(scroll)
+    flushFrame()
+    view.unmount()
+    expect(target.style.getPropertyValue('--muse-video-fusion')).toBe('0.25')
+    expect(target.hasAttribute('data-muse-video-fusion-owner')).toBe(false)
+  })
+
+  it('ignores an already dispatched animation callback after its card unmounts', () => {
+    const input = inputs()
+    const view = render(<Fixture {...input} />)
+    const callback = [...frames.values()][0]
+    if (callback === undefined) throw new Error('Expected a scheduled browser frame')
+    view.unmount()
+    act(() => { callback(0) })
+    expect(frames.size).toBe(0)
+    expect(canvasContext.setTransform).not.toHaveBeenCalled()
+    expect(canvasContext.fill).not.toHaveBeenCalled()
+    expect(input.onCollect).not.toHaveBeenCalled()
+    expect(pauseVideo).not.toHaveBeenCalled()
+  })
+
+  it('uses CSS pixels when pixel density is unavailable and paints the real anchor color', () => {
+    vi.stubGlobal('devicePixelRatio', undefined)
+    setProgress(0.5)
+    const view = render(<Fixture {...inputs()} />)
+    view.getByRole('button', { name: '视频气泡' }).style.backgroundColor = 'rgb(12, 34, 56)'
+    flushFrame()
+    const canvas = view.container.querySelector('canvas')!
+    expect(canvas.width).toBe(600)
+    expect(canvas.height).toBe(580)
+    expect(canvasContext.setTransform).toHaveBeenCalledWith(1, 0, 0, 1, -100, -60)
+    expect(canvasContext.fillStyle).toBe('rgb(12, 34, 56)')
   })
 
   it('conceals the entire delivered card and native action while retaining its original inline geometry', () => {

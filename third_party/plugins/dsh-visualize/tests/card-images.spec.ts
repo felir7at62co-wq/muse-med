@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { visualizeTool } from '../src/tool.ts'
 import { visualizeMetaFrom } from '../src/fragment.ts'
-import { handleImageRequest, inside, realpathOfDeepest } from '../src/storage.ts'
+import { handleImageRequest, inside, ownedPath, realpathOfDeepest } from '../src/storage.ts'
 import type { UrlFetcher } from '../src/images.ts'
 
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
@@ -68,6 +68,13 @@ const exec = { agent: { session: { id: 'sess-1', header: { cwd: '' } } }, signal
 
 type Value = { path: string; fragment: string; images?: { src: string; id: string; type: string; bytes: number }[]; imageReport?: string }
 
+/** Resolve the display path through the same session ownership check used for updates. */
+async function cardPath(path: string): Promise<string> {
+  const target = await ownedPath(join(home, 'visualize', 'sessions', 'sess-1'), path)
+  expect(target).toBeDefined()
+  return target!
+}
+
 function setup(delivery = true) {
   const web = fakeWeb()
   const tool = visualizeTool(host(), 100_000, 'whale', { delivery: () => delivery, fetchUrl: web.fetchUrl })
@@ -89,7 +96,7 @@ describe('visualize with data-viz-src images', () => {
 
     // The fragment the model wrote is what the card stores and replays.
     expect(value.fragment).toBe(FRAGMENT)
-    expect(await readFile(value.path, 'utf8')).toBe(FRAGMENT)
+    expect(await readFile(await cardPath(value.path), 'utf8')).toBe(FRAGMENT)
     expect(value.images!.map(i => [i.src, i.type, i.bytes])).toEqual([
       ['./figs/loss.png', 'image/png', FIGURE.byteLength],
       ['https://example.com/a.png', 'image/png', PNG.byteLength],
@@ -151,7 +158,7 @@ describe('visualize with data-viz-src images', () => {
     }
     const tool = visualizeTool(host(), 100_000, 'whale', { delivery: () => true, fetchUrl })
     const created = await tool.execute({ fragment: '<div id="lab"><h3>Loss</h3></div>', title: 'Lab' }, exec) as Value
-    const manifest = created.path.replace(/\.html$/u, '.images.json')
+    const manifest = (await cardPath(created.path)).replace(/\.html$/u, '.images.json')
     const patch = { action: 'update', path: created.path, title: 'Lab', old_str: '<h3>Loss</h3>', new_str: '<img data-viz-src="https://example.com/a.png"><h3>Loss</h3>' }
 
     const cancel = new AbortController()
@@ -159,7 +166,7 @@ describe('visualize with data-viz-src images', () => {
     await fetching
     cancel.abort()
     await expect(call).rejects.toThrow()
-    expect(await readFile(created.path, 'utf8')).toBe('<div id="lab"><h3>Loss</h3></div>')
+    expect(await readFile(await cardPath(created.path), 'utf8')).toBe('<div id="lab"><h3>Loss</h3></div>')
     await expect(stat(manifest)).rejects.toThrow()
 
     // The same patch, retried, still finds its old_str.
@@ -174,7 +181,7 @@ describe('visualize with data-viz-src images', () => {
     const { run, text } = setup(false)
     const value = await run({ fragment: FRAGMENT, title: 'Lab' })
     expect(value.images).toBeUndefined()
-    expect(await readFile(value.path, 'utf8')).toBe(FRAGMENT)
+    expect(await readFile(await cardPath(value.path), 'utf8')).toBe(FRAGMENT)
     expect(text(value)).toContain('3 images could not be embedded')
     expect(text(value)).toContain('needs dsh 0.1.7 or later')
   })

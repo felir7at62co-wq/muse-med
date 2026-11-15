@@ -1,6 +1,6 @@
 /** Muse first-run account step using the same Feishu sign-in flow as Settings. */
 
-import { useEffect, type ReactNode } from 'react'
+import { useCallback, useEffect, type ReactNode } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { MuseAccountSection, type MuseAccountInjected } from './MuseAccountSection.tsx'
@@ -14,6 +14,9 @@ import css from './MuseAccountOnboarding.module.css'
 export function MuseAccountOnboarding(props: PropsRuntime<'settings.onboarding'> & PropsLocale<'settings.museAccount'> & InjectFace<MuseAccountInjected>): ReactNode {
   const { complete, t } = props
   const keepOpen = (): void => {}
+  const mounted = useCallback((element: HTMLDivElement | null) => {
+    if (element !== null) props.onVisible()
+  }, [props.onVisible])
   useEffect(() => {
     const root = document.getElementById('root')
     if (root === null) return
@@ -22,7 +25,7 @@ export function MuseAccountOnboarding(props: PropsRuntime<'settings.onboarding'>
     return () => { root.inert = previous }
   }, [])
   return <Modal open title={t('onboardingTitle')} onClose={keepOpen} headless className={css.dialog as string}>
-    <div className={css.content}>
+    <div ref={mounted} className={css.content}>
       <h2 className={css.title}>{t('onboardingTitle')}</h2>
       <p className={css.description}>{t('onboardingDescription')}</p>
       <MuseAccountSection {...props} close={keepOpen} onSignedIn={complete} />

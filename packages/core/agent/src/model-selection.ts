@@ -136,7 +136,8 @@ export class AgentModel implements Model {
     const release = () => {
       if (controller.signal.aborted) return
       signal.removeEventListener('abort', release)
-      if (this.held?.guard === guard) this.held = undefined
+      // A live guard owns held; abort listeners may acquire its successor only after this clear.
+      this.held = undefined
       controller.abort(new Error('guarded model selection released'))
     }
     const guard: ModelSelectionGuard = {

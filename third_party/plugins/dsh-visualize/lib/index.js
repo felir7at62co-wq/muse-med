@@ -4,6 +4,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { access, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { setTimeout } from "node:timers/promises";
 import { lookup } from "node:dns";
 import { request } from "node:http";
 import { request as request$1 } from "node:https";
@@ -763,7 +764,8 @@ async function handleImageRequest(root, request) {
 /**
 * Write a plugin-owned file through a sibling temporary file and a rename, so
 * a reader never sees half of it. The rename replaces a symlink at `path`
-* rather than writing through it.
+* rather than writing through it. Windows sharing conflicts retry only the
+* rename, at most five attempts; other failures retain their original error.
 * @param path - absolute file path; missing parent directories are created private.
 * @param content - the new text, or raw bytes.
 * @param signal - optional cancellation; abort before rename leaves the previous file intact.
@@ -783,7 +785,17 @@ async function writeFileAtomic(path, content, signal) {
 			flag: "wx"
 		});
 		signal?.throwIfAborted();
-		await rename(temp, path);
+		for (let attempt = 0;; attempt++) {
+			signal?.throwIfAborted();
+			try {
+				await rename(temp, path);
+				break;
+			} catch (error) {
+				const code = error.code;
+				if (process.platform !== "win32" || code !== "EPERM" && code !== "EBUSY" || attempt >= 4) throw error;
+				await setTimeout(20 * (attempt + 1), void 0, { signal });
+			}
+		}
 	} catch (error) {
 		if (error.code !== "EEXIST") await rm(temp, { force: true }).catch(() => {});
 		throw error;
@@ -797,7 +809,7 @@ async function writeFileAtomic(path, content, signal) {
 */
 function displayOf(path) {
 	const home = homedir();
-	return path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path;
+	return path.startsWith(`${home}${sep}`) ? `~/${path.slice(home.length + 1).split(sep).join("/")}` : path;
 }
 /**
 * Workspace files through the composed fs seam and the session-level sandbox

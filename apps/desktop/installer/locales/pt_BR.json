@@ -11,6 +11,7 @@
     "INSTALLER_CHOOSE_PATH": "Escolha o local",
     "INSTALLER_BROWSE": "Procurar",
     "INSTALLER_LAUNCH": "Lançar agora",
+    "INSTALLER_REBOOT_REQUIRED": "A instalação foi concluída. Reinicie o Windows antes de abrir o Muse.",
     "INSTALLER_LAUNCH_FAILED": "DeepSeek Harness não pôde ser iniciado. Tente novamente ou desmarque Iniciar agora e feche o instalador.",
     "INSTALLER_UI_ERROR": "O instalador não conseguiu inicializar sua janela. Feche-o e tente novamente.",
     "INSTALLER_THEME_ERROR": "Use /THEME=auto, /THEME=light ou /THEME=dark.",

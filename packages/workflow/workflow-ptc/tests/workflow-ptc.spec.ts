@@ -248,6 +248,25 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       expect(provider.runs[0]!.request.parent).toBeDefined()
     })
 
+    it('reports invalid child structured output without treating it as a workflow artifact', async () => {
+      const { ctx, parent, provider } = await setup({
+        reply: () => ({ output: [], structured: { other: 'not a file list' }, stopReason: 'completed' }),
+      })
+      const outcomes: unknown[] = []
+      ctx.on('workflow/agent-end', (_run, info) => { outcomes.push(info) })
+      try {
+        const result = await run(ctx, parent, scripted(`
+          return await agent('list files', { schema: { type: 'object', properties: { files: { type: 'array', items: { type: 'string' } } }, required: ['files'] } })
+        `))
+        expect(result.stopReason).toBe('completed')
+        expect(result.value).toBeNull()
+        const missingFiles: unknown = expect.stringContaining('files')
+        expect(outcomes).toEqual([expect.objectContaining({ outcome: 'failed',
+          reason: { kind: 'invalid-structured-output', detail: missingFiles } })])
+        expect(provider.runs[0]!.disposed).toBe(true)
+      } finally { await ctx.fiber.dispose() }
+    })
+
     it('agent({provider}) forwards provider-only agentOptions through PTC bindings', async () => {
       const { ctx, parent, provider } = await setup()
       const result = await run(ctx, parent, scripted("return await agent('route me', { provider: 'openai' })"))
@@ -566,7 +585,7 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
           id: SessionId('trap-child'),
           result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
           cancel: () => { /* settled already */ },
-          // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection IS the scenario under test
+          // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test
           dispose: () => Promise.reject({ toString: () => { throw new Error('coercion trap') } }),
         }),
       }

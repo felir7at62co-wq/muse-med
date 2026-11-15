@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { SESSION_FORMAT_VERSION, SessionSeq } from '@deepseek-ai/dsh-session'
@@ -1361,6 +1362,97 @@ describe('installLlmReplay (through the real LlmRuntime)', () => {
       const streamed = await streamScripted('{"goal_id":"{{fromRequest:goal-[0-9a-z]{4}}}"}')
       const delta = streamed.find(chunk => chunk.type === 'tool-call-delta')
       expect(delta).toMatchObject({ argumentsDelta: '{"goal_id":"goal-42ab"}' })
+    })
+
+    it('resolves the real visualize override with a quoted Windows path', () => {
+      const source = new URL('../../../../snapshots/session/muse-visualize/', import.meta.url)
+      const entry = loadReplayScript({ file: fileURLToPath(new URL('session.v4.jsonl', source)),
+        overrideFile: fileURLToPath(new URL('replay.override.json', source)) })[2]!
+      const path = 'C:\\snapshot\\他说"继续"\\card.html'
+      const messages = [createToolResultMessage({ callId: ToolCallId('call_visualize_create'), isError: false,
+        content: [{ type: 'text', text: `Rendered (saved copy at ${path})` }] })]
+      const resolved = resolveScriptedEntry(entry, messages)
+      if (resolved.kind !== 'chunks') throw new Error('expected chunks entry')
+      const end = resolved.chunks.find(chunk => chunk.type === 'block-end')
+      if (end?.type !== 'block-end' || end.block.type !== 'tool-call') throw new Error('expected tool call')
+      expect(JSON.parse(end.block.arguments)).toEqual({ action: 'update', title: '预算交互卡', path,
+        old_str: '预算方案 V1', new_str: '预算方案 V2', mode: 'inline' })
+    })
+
+    it('escapes captured control characters in nested JSON while retaining template spacing', () => {
+      const value = 'C:\\folder\\a"b\n下一行\tend'
+      const messages = [createUserMessage({ content: [{ type: 'text', text: `VALUE:${value}:END` }], source: { kind: 'user' } })]
+      const template = ' { "nested": [{"value":"{{fromRequest:VALUE:([\\s\\S]+?):END}}"}], "literal": "a\\\\b" } '
+      const resolved = resolveScriptedEntry({ kind: 'chunks', chunks: scriptedCall(template) }, messages)
+      if (resolved.kind !== 'chunks') throw new Error('expected chunks entry')
+      const delta = resolved.chunks.find(chunk => chunk.type === 'tool-call-delta')
+      if (delta?.type !== 'tool-call-delta') throw new Error('expected tool-call delta')
+      expect(delta.argumentsDelta).toBe(` { "nested": [{"value":${JSON.stringify(value)}}], "literal": "a\\\\b" } `)
+      expect(JSON.parse(delta.argumentsDelta)).toEqual({ nested: [{ value }], literal: 'a\\b' })
+    })
+
+    it('keeps separate JSON string cursors across interleaved argument fragments', () => {
+      const value = 'C:\\folder\\"quoted"'
+      const messages = [createUserMessage({ content: [{ type: 'text', text: `VALUE:${value}` }], source: { kind: 'user' } })]
+      const placeholder = '{{fromRequest:VALUE:(.*)}}'
+      const chunks: StreamChunk[] = [
+        { type: 'tool-call-delta', index: 0, id: ToolCallId('c1'), name: 'first', argumentsDelta: '{"value":"prefix' + '\\' },
+        { type: 'tool-call-delta', index: 1, id: ToolCallId('c2'), name: 'second', argumentsDelta: '{"value":' },
+        { type: 'tool-call-delta', index: 0, id: ToolCallId('c1'), argumentsDelta: '\\' + placeholder + '"}' },
+        { type: 'tool-call-delta', index: 1, id: ToolCallId('c2'), argumentsDelta: '"' + placeholder + '"}' },
+      ]
+      const resolved = resolveScriptedEntry({ kind: 'chunks', chunks }, messages)
+      if (resolved.kind !== 'chunks') throw new Error('expected chunks entry')
+      for (const index of [0, 1]) {
+        const args = resolved.chunks.flatMap(chunk => chunk.type === 'tool-call-delta' && chunk.index === index
+          ? [chunk.argumentsDelta] : []).join('')
+        expect(JSON.parse(args)).toEqual({ value: (index === 0 ? 'prefix\\' : '') + value })
+      }
+    })
+
+    it('keeps ordinary text literal and leaves unquoted JSON substitutions unescaped', () => {
+      const value = 'C:\\folder\\"quoted"'
+      const messages = [createUserMessage({ content: [{ type: 'text', text: `VALUE:${value}\nNUMBER:42` }], source: { kind: 'user' } })]
+      const text = '{"value":"{{fromRequest:VALUE:([^\\n]+)}}"}'
+      const entry: ReplayEntry = { kind: 'throw', message: text, code: 'FIXTURE', chunks: [
+        { type: 'text-delta', index: 0, text },
+        ...scriptedCall('{"number":{{fromRequest:NUMBER:(\\d+)}} }'),
+      ] }
+      const resolved = resolveScriptedEntry(entry, messages)
+      if (resolved.kind !== 'throw') throw new Error('expected throw entry')
+      expect(resolved.message).toBe(`{"value":"${value}"}`)
+      expect(resolved.chunks[0]).toEqual({ type: 'text-delta', index: 0, text: resolved.message })
+      const delta = resolved.chunks.find(chunk => chunk.type === 'tool-call-delta')
+      if (delta?.type !== 'tool-call-delta') throw new Error('expected tool-call delta')
+      expect(JSON.parse(delta.argumentsDelta)).toEqual({ number: 42 })
+    })
+
+    it('does not repair malformed JSON templates or resolve captured placeholders again', () => {
+      const value = '{{fromRequest:missing-pattern}}'
+      const messages = [createUserMessage({ content: [{ type: 'text', text: `VALUE:${value}` }], source: { kind: 'user' } })]
+      const resolved = resolveScriptedEntry({ kind: 'chunks', chunks: scriptedCall('{"value":"{{fromRequest:VALUE:(.*)}}"') }, messages)
+      if (resolved.kind !== 'chunks') throw new Error('expected chunks entry')
+      const delta = resolved.chunks.find(chunk => chunk.type === 'tool-call-delta')
+      if (delta?.type !== 'tool-call-delta') throw new Error('expected tool-call delta')
+      expect(delta.argumentsDelta).toBe(`{"value":${JSON.stringify(value)}`)
+      expect(() => { JSON.parse(delta.argumentsDelta) }).toThrow(SyntaxError)
+    })
+
+    it('does not treat tool-call-shaped opaque replay metadata as JSON arguments', () => {
+      const value = 'C:\\folder\\"quoted"'
+      const messages = [createUserMessage({ content: [{ type: 'text', text: `VALUE:${value}` }], source: { kind: 'user' } })]
+      const text = '{"value":"{{fromRequest:VALUE:(.*)}}"}'
+      const entry: ReplayEntry = { kind: 'chunks', chunks: [{ type: 'finish', reason: { kind: 'stop' },
+        replayState: { response: [{ type: 'tool-call', arguments: text }] } }] }
+      expect(resolveScriptedEntry(entry, messages)).toEqual({ kind: 'chunks', chunks: [{ type: 'finish', reason: { kind: 'stop' },
+        replayState: { response: [{ type: 'tool-call', arguments: `{"value":"${value}"}` }] } }] })
+    })
+
+    it('keeps a dynamically captured hang readiness path as ordinary filesystem text', () => {
+      const readyFile = 'C:\\folder\\"quoted"\\ready.txt'
+      const messages = [createUserMessage({ content: [{ type: 'text', text: `READY:${readyFile}` }], source: { kind: 'user' } })]
+      expect(resolveScriptedEntry({ kind: 'hang', readyFile: '{{fromRequest:READY:(.*)}}' }, messages))
+        .toEqual({ kind: 'hang', readyFile })
     })
 
     it('fails loud when a placeholder matches nothing in the request', async () => {

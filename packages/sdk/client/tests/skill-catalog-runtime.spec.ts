@@ -1,9 +1,11 @@
 /** Complete bounded-directory payloads through the ordinary built SDK profile. */
 import { existsSync } from 'node:fs'
+import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { expect, it } from 'vitest'
 import type {} from '@deepseek-ai/dsh-tool-skill'
 import { DeepSeekHarness, validatedSessionEvent } from '../src/index.ts'
@@ -47,17 +49,24 @@ function hydrate(value: unknown, identities: ReadonlyMap<string, string>, cwd: s
 it.skipIf(!existsSync(CLI))('retains full bounded catalog pages, cursor results and durable diagnostics through the sdk profile', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'sdk-skill-catalog-'))
   try {
+    // The fixture's market root uses the child's OS cwd, which can retain a Windows 8.3 alias.
+    const child = await promisify(execFile)(process.execPath, ['-e', 'process.stdout.write(process.cwd())'],
+      { cwd, timeout: 10_000, maxBuffer: 64 * 1024 })
+    expect(child.stderr).toBe('')
+    expect(await realpath(child.stdout)).toBe(await realpath(cwd))
     const home = join(cwd, 'home'), scope = join(home, 'profiles/sdk/node_modules/@deepseek-ai')
     await mkdir(scope, { recursive: true })
     await symlink(join(ROOT, 'packages/test-support/llm-replay'), join(scope, 'dsh-llm-replay'), process.platform === 'win32' ? 'junction' : 'dir')
     const harness = new DeepSeekHarness({
       dshBin: CLI, profile: 'sdk', dshHome: home, cwd, processCwd: cwd,
-      patches: [join(CASE, 'cordis.snapshot.yml')], provider: 'deepseek-official', model: 'deepseek-v4-flash',
+      patches: [join(CASE, 'cordis.snapshot.yml'), join(import.meta.dirname, 'fixtures/market-runtime.cordis.patch.yml')],
+      provider: 'deepseek-official', model: 'deepseek-v4-flash',
       env: { ...process.env, DEEPSEEK_API_KEY: '', DSH_TELEMETRY_DISABLED: '1', DSH_EXAMPLE_MODE: 'lib',
         DSH_SNAPSHOT: 'replay', DSH_SNAPSHOT_FILE: join(CASE, 'session.v4.jsonl') },
     })
     try {
       const result = await harness.run(await recordedInput(), { sessionId: SESSION })
+      expect(result.finishReason, JSON.stringify(result.events.filter(event => event.type === 'turn/end'))).toBe('completed')
       expect(result.sessionId).toBe(SESSION)
       const notifications = result.notifications.filter(notification => notification.method === 'session.event'
         && notification.params.sessionId === result.sessionId).map(notification => validatedSessionEvent(notification.params.event))
@@ -111,7 +120,7 @@ it.skipIf(!existsSync(CLI))('retains full bounded catalog pages, cursor results 
       const proof: unknown = JSON.parse(await readFile(join(cwd, 'market-catalog-proof.json'), 'utf8'))
       const actual = { finalResponse: result.finalResponse, finishReason: result.finishReason,
         catalogMessages: catalogs, toolResults: tools, proof }
-      expect(actual).toEqual(hydrate(expected, identities, await realpath(cwd)))
+      expect(actual).toEqual(hydrate(expected, identities, child.stdout))
     } finally { await harness.close() }
   } finally { await rm(cwd, { recursive: true, force: true }) }
 })

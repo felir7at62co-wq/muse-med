@@ -1,4 +1,5 @@
 version: 1
+writerOutput: true
 scenario: pi-ai-conversation-updates
 profile: headless
 composition: pi-ai-conversation-updates
