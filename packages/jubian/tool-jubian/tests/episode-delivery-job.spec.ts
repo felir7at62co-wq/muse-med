@@ -1,7 +1,7 @@
 /** Durable admission, strict records and one-shot arm ownership use actual files. */
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import * as files from 'node:fs/promises'
@@ -66,6 +66,49 @@ async function fixture(recordBytes = 16384) {
   }
   return { root, job, options, identity, input, admission, execution, running, finish }
 }
+
+it('refuses a pre-existing linked private directory without changing its owned target or the original admission', async () => {
+  const f = await fixture(), selected = join(f.root, 'linked-project'), alias = join(selected, '.muse')
+  await mkdir(selected)
+  const originalBytes = await readFile(f.input), originalEntries = await readdir(f.job.attemptRoot)
+  await symlink(f.job.attemptRoot, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  try {
+    await expect(createEpisodeDeliveryJob({ ...f.options, projectDir: selected }))
+      .rejects.toThrow('Episode job directory must be canonical and regular')
+    expect(await readdir(f.job.attemptRoot)).toEqual(originalEntries)
+    expect(await readFile(f.input)).toEqual(originalBytes)
+    expect(await f.job.read()).toBeUndefined()
+  } finally { await unlink(alias) }
+  const original = await createEpisodeDeliveryJob(f.options)
+  expect(await original.admit(f.admission)).toEqual(await f.job.read())
+})
+
+it('refuses a static directory selected as an input before admitting any job and allows a later valid admission', async () => {
+  const f = await fixture(), selected = join(f.job.attemptRoot, 'directory-input')
+  await mkdir(selected)
+  await expect(f.job.admit({ ...f.admission, inputs: [{ path: selected, sha256: hash(''), bytes: 0 }] }))
+    .rejects.toThrow('Episode input must be a regular file')
+  expect(await f.job.read()).toBeUndefined()
+  expect(await readdir(selected)).toEqual([])
+  expect(await readFile(f.input, 'utf8')).toBe('approved source')
+  const admitted = await f.job.admit(f.admission)
+  expect(await f.job.read()).toEqual(admitted)
+})
+
+it('preserves a native invalid candidate-path error instead of admitting an armed execution', async () => {
+  const f = await fixture(); await f.job.admit(f.admission)
+  const id = randomUUID(), stage = join(f.job.attemptRoot, id)
+  await mkdir(stage)
+  const descriptor = JSON.stringify({ attempt: f.identity.attempt, execution: id }), descriptorPath = join(stage, 'descriptor.json')
+  await writeFile(descriptorPath, descriptor)
+  const identity = executionIdentitySchema.parse({ ...f.identity, execution: id, descriptorSha256: hash(descriptor) })
+  const proposed: EpisodeExecutionAdmission = { identity, descriptorPath, candidatePath: join(stage, 'candidate\0.mp4'), retry: 'initial' }
+  await f.job.admitExecution(proposed)
+  await expect(f.job.assertAdmission(identity)).rejects.toMatchObject({ code: 'ERR_INVALID_ARG_VALUE' })
+  expect((await f.job.read())?.executionRef).toBeNull()
+  expect(await f.job.readExecution(identity.execution)).toEqual(proposed)
+  expect(await readFile(f.input, 'utf8')).toBe('approved source')
+})
 
 it('accepts typed full execution facts as an attempt and shares one durable admission', async () => {
   const f = await fixture()
@@ -249,6 +292,30 @@ it('observes bounded state JSON and rejects I/O errors, malformed JSON and overs
   await writeFile(path, '{'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow(SyntaxError)
   await writeFile(path, '12345'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('bounded regular file')
   await expect(readEpisodeStateSnapshot(f.root, 4)).rejects.toThrow('bounded regular file')
+})
+
+it('reads bounded state through the POSIX open branch on either lane', async () => {
+  // The POSIX arm of readEpisodeStateSnapshot is unreachable while process.platform is 'win32'.
+  // Stub the platform for this case (the inverse of the Windows-compatibility stubs below) so the
+  // Windows lane exercises the same open/stat/read/close path on real files instead of skipping it.
+  const f = await fixture(), path = join(f.root, 'posix-state.json')
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  if (descriptor === undefined) throw new Error('Expected process platform descriptor')
+  Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux', configurable: true })
+  onTestFinished(() => { Object.defineProperty(process, 'platform', descriptor) })
+  expect(await readEpisodeStateSnapshot(join(f.root, 'absent-state.json'), 4)).toBeUndefined()
+  await writeFile(path, '{}')
+  expect(await readEpisodeStateSnapshot(path, 2)).toEqual({})
+  await writeFile(path, '12345')
+  await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('bounded regular file')
+  // A directory opens but is not a regular file.
+  await expect(readEpisodeStateSnapshot(f.root, 4096)).rejects.toThrow('bounded regular file')
+  // A self-referential link answers ELOOP with O_NOFOLLOW on both platforms.
+  const loop = join(f.root, 'posix-loop.json')
+  await symlink('posix-loop.json', loop, 'file')
+  await expect(readEpisodeStateSnapshot(loop, 4)).rejects.toThrow('bounded regular file')
+  // Any other failure leaves the POSIX branch's own error intact rather than reporting the path absent.
+  await expect(readEpisodeStateSnapshot(join(f.root, 'posix-nul\u0000name.json'), 4)).rejects.toThrow(/\u0000|null byte/iu)
 })
 
 it('retains the complete opened state when its path is atomically replaced', async () => {
