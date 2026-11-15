@@ -137,7 +137,7 @@ SectionEnd
       join(appRoot, 'tests', 'fixtures', 'restart-status-owner.nsi')],
     { ...childOptions, env: { ...childOptions.env, ...compiler.env } })
     if (sign) await sign({ path: owner, hash: 'sha256', isNest: false })
-    await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+    await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
       join(appRoot, 'tests', 'windows-restart-status.ps1'), '-OwnerExe', owner], childOptions)
   }
   for (const locale of readInstallerLocales()) {

@@ -50,10 +50,11 @@ export async function desktopPublicationSummary(
     row('发布环境', code(plan.environment)),
     row('版本号', code(plan.version)),
     row('升级通道', code(source.channel)),
-    ...feeds.map((feed) => {
+    // Legacy discovery feeds copy the selected feed's contents, so each distinct rollout setting is listed once.
+    ...new Set(feeds.map((feed) => {
       const metadata = z.object({ stagingPercentage: z.number().optional() }).parse(load(feed.contents!))
       return row('更新灰度比例', metadata.stagingPercentage === undefined ? '全量（未设置）' : `${metadata.stagingPercentage}%`)
-    }),
+    })),
     row('平台', code(plan.target)),
     ...(plan.environment === 'test' ? [row('测试 release ID', `${code(source.testReleaseId!)}<br>测试下载路径的随机前缀，用于降低地址被猜到的可能性；连续升级测试需使用相同值。`)] : []),
     row('下载地址预览', `${installers.map(file => link(url(file.key))).join('<br>')}<br>发布后的目标地址，审批前不保证可下载。`),

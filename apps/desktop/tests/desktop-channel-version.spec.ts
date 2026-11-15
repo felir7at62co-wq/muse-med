@@ -1,8 +1,13 @@
-import { readFileSync } from 'node:fs'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { desktopCiVersion } from '../scripts/desktop-ci-version.mjs'
 import { desktopBuildVersionPrefix } from '../scripts/desktop-build-version.mjs'
 import { createElectronBuilderConfig } from '../scripts/electron-builder-config.mjs'
+
+// Build versions extend the Muse product release; a fixed release keeps these fixtures independent of muse-product.json.
+vi.mock('../scripts/desktop-build-version.mjs', async importOriginal => ({
+  ...await importOriginal<typeof import('../scripts/desktop-build-version.mjs')>(),
+  readDesktopProductVersion: () => '1.0.0',
+}))
 
 it.each(['nightly', 'stable'] as const)('resolves every CI version mode independently of %s', (channel) => {
   const now = new Date('2026-11-03T00:00:00Z')
@@ -22,9 +27,8 @@ it.each(['nightly', 'stable'] as const)('resolves every CI version mode independ
   }
 })
 
-it.each(['arm64', 'x64'] as const)('embeds stable in a prerelease macOS %s package and provider', (arch) => {
-  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
-  const version = `${desktopBuildVersionPrefix(manifest.version)}20261103.1`
+it.each(['arm64', 'x64'] as const)('embeds stable in a prerelease macOS %s package with the product GitHub source', (arch) => {
+  const version = `${desktopBuildVersionPrefix('1.0.0')}20261103.1`
   const config = createElectronBuilderConfig({
     DSH_DESKTOP_APP_ID: 'com.example.channel-test',
     DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
@@ -36,12 +40,11 @@ it.each(['arm64', 'x64'] as const)('embeds stable in a prerelease macOS %s packa
     APPLE_KEYCHAIN_PROFILE: 'channel-test',
   }, 'darwin', arch)
   expect(config.extraMetadata).toMatchObject({ version, dshDesktopUpdateChannel: 'stable' })
-  expect(config.publish).toEqual([{ provider: 'generic', url: `https://download.deepseek.com/dsh-desk/feeds/mac-${arch}/`, channel: 'stable' }])
+  expect(config.publish).toEqual([{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel: 'test' }])
 })
 
 it('accepts a stable prerelease in an unsigned Windows x64 configuration', () => {
-  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
-  const version = `${desktopBuildVersionPrefix(manifest.version)}20261103.1`
+  const version = `${desktopBuildVersionPrefix('1.0.0')}20261103.1`
   const config = createElectronBuilderConfig({
     DSH_DESKTOP_APP_ID: 'com.example.channel-test',
     DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
@@ -51,5 +54,5 @@ it('accepts a stable prerelease in an unsigned Windows x64 configuration', () =>
     DSH_DESKTOP_UNSIGNED: '1',
   }, 'win32', 'x64')
   expect(config.extraMetadata).toMatchObject({ version })
-  expect(config.publish).toBeNull()
+  expect(config.publish).toEqual([{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel: 'test' }])
 })

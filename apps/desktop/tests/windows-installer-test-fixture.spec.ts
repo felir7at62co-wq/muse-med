@@ -53,7 +53,7 @@ async function wrapperPowerShellCalls(language: string): Promise<{ file: string;
     ts.forEachChild(node, visit)
   }
   visit(parsed)
-  expect(expressions).toHaveLength(4)
+  expect(expressions).toHaveLength(5)
   const calls: { file: string; args: string[] }[] = []
   const appRoot = join(tmpdir(), 'installer-argv-only')
   const output = join(appRoot, 'output'), languageOutput = join(output, language)
@@ -63,6 +63,7 @@ async function wrapperPowerShellCalls(language: string): Promise<{ file: string;
       execute(file: string, args: string[], _options: object) { calls.push({ file, args }) },
       join, appRoot, output, languageOutput, language,
       prerequisiteDirectory: join(output, 'prerequisites'), receiptFile: join(output, 'vc-runtime-receipt.json'),
+      owner: join(output, 'restart-status-owner.exe'),
       negativeOutput: join(languageOutput, 'negative-cleanup'), productName: 'Harness argv test',
       guid: 'private-argv-test', packageName: 'private-argv-test', uninstallOnly: false,
       childOptions: { windowsHide: true },
