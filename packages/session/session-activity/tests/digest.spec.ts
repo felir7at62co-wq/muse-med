@@ -26,9 +26,10 @@ const running = status({
 
 describe('status lines', () => {
   it('renders the state, its duration, the latest tool and running work', () => {
-    const rest = ' · last tool bash · job: ffmpeg -i ep001.mp4 -vf fps=2 frames/%0…, asr, cut +1 more · schedule'
+    const rest = ' · job: ffmpeg -i ep001.mp4 -vf fps=2 frames/%0…, asr, cut +1 more · schedule'
     expect(statusKey(running)).toBe(`running${rest}`)
-    expect(statusText(running, 12 * minute + 5)).toBe(`running for 12 min${rest}`)
+    expect(statusKey({ ...running, lastTool: { name: 'read', time: 1, arguments: '{}' } })).toBe(statusKey(running))
+    expect(statusText(running, 12 * minute + 5)).toBe(`running for 12 min · last tool bash${rest}`)
     expect(statusText(status({ since: 10 }), 20)).toBe('idle for under 1 min')
     expect(statusText(status({ kind: 'not-open' }), 0)).toBe('not open')
     expect(statusText(status({ kind: 'failed', since: 0, error: 'model down' }), 3 * minute)).toBe('last turn failed for 3 min · error: model down')
@@ -52,7 +53,8 @@ describe('wake reasons', () => {
 describe('digests', () => {
   it('renders only changed Sessions within line and character bounds', () => {
     const idle = status({})
-    expect(renderDigest([entry('quiet', idle, statusKey(idle)), entry('new', status({ kind: 'not-open' }))], options, 0)).toBeUndefined()
+    expect(renderDigest([entry('quiet', idle, statusKey(idle)), entry('new', status({ kind: 'not-open' })),
+      entry('closed', status({ kind: 'not-open' }), statusKey(running))], options, 0)).toBeUndefined()
     const progressed = renderDigest([entry('ep1', running), entry('ep2', running), entry('ep3', running)], { ...options, maxLines: 2 }, minute)
     expect(progressed).toEqual({
       wake: false, summary: '3 Session status change(s)',

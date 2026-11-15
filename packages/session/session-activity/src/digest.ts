@@ -74,13 +74,13 @@ const stateText: Record<SessionStatusKind, string> = {
 }
 
 /**
- * Render the state-independent part of a status line; equal keys mean nothing the parent needs changed.
+ * Render the part of a status line that decides whether the parent hears about it: state, running work and failure.
+ * The duration and the latest tool change with every step and are left out.
  * @param status - Current status.
- * @returns The line without its duration.
+ * @returns The line without its duration and latest tool.
  */
 export function statusKey(status: SessionStatus): string {
   const parts = [stateText[status.kind]]
-  if (status.lastTool !== null) parts.push(`last tool ${status.lastTool.name}`)
   for (const family of status.activity) {
     const shown = family.labels.slice(0, SHOWN_LABELS).map(label => boundActivityText(label, LABEL_CHARS))
     const more = family.labels.length > SHOWN_LABELS ? ` +${family.labels.length - SHOWN_LABELS} more` : ''
@@ -94,14 +94,15 @@ export function statusKey(status: SessionStatus): string {
  * Render a full status line.
  * @param status - Current status.
  * @param now - Current time, epoch milliseconds.
- * @returns The state with its duration, then the rest of the key.
+ * @returns The state with its duration, the latest tool, then the rest of the key.
  */
 export function statusText(status: SessionStatus, now: number): string {
   const key = statusKey(status)
-  if (status.since === null) return key
-  const minutes = Math.floor(Math.max(0, now - status.since) / 60_000)
   const head = stateText[status.kind]
-  return `${head} for ${minutes < 1 ? 'under 1' : minutes} min${key.slice(head.length)}`
+  const minutes = status.since === null ? null : Math.floor(Math.max(0, now - status.since) / 60_000)
+  const duration = minutes === null ? '' : ` for ${minutes < 1 ? 'under 1' : minutes} min`
+  const tool = status.lastTool === null ? '' : ` · last tool ${status.lastTool.name}`
+  return `${head}${duration}${tool}${key.slice(head.length)}`
 }
 
 /**
@@ -133,8 +134,9 @@ export function wakeReasons(entry: DigestEntry): string[] {
  */
 export function renderDigest(entries: readonly DigestEntry[], options: { readonly maxLines: number; readonly maxChars: number },
   now: number): RenderedDigest | undefined {
-  const changed = entries.filter(entry => entry.stalledMs !== undefined
-    || (statusKey(entry.status) !== entry.delivered && !(entry.delivered === null && entry.status.kind === 'not-open')))
+  // A Session that is not open has nothing to report; a subagent's own closing notice reports its end.
+  const changed = entries.filter(entry => entry.status.kind !== 'not-open'
+    && (entry.stalledMs !== undefined || statusKey(entry.status) !== entry.delivered))
   if (changed.length === 0) return undefined
   const reasons = changed.flatMap(wakeReasons)
   const header = 'Status of the Sessions you dispatched, as the session list shows it (read a Session for details):'
