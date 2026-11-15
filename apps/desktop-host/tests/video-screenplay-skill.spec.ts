@@ -63,7 +63,8 @@ it('keeps whole-series transcription on a goal with subtitle OCR aligned to ASR'
   expect(entry).toMatch(/▲行写看帧记录里实际看到的.*每集都要有/su)
   expect(entry).toMatch(/不补写原片没有的台词、动作或钩子/u)
   expect(entry).toMatch(/不用脚本把 ASR 批量套进模板/u)
-  expect(entry).toMatch(/`source_mode: "video"`.*`video_dir`.*`screenplay_export_docx` 导出 Word.*程序会列出仍缺的整剧 Word/su)
+  expect(entry).toMatch(/`source_mode: "video"`.*`video_dir`.*`screenplay_export_docx` 按集顺序导出 Word/su)
+  expect(entry).toMatch(/用 `tool_search` 搜出来再调用.*不要自己写脚本替代或模拟这些工具.*程序会列出仍缺的整剧 Word/su)
   expect(entry).toMatch(/没跑 `video_ocr` 的集不称已按字幕校正/u)
 
   const workflow = await readFile(join(directory, 'references', 'video-workflow.md'), 'utf8')

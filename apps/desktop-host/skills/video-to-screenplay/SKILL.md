@@ -20,7 +20,7 @@ description: 用户要把视频、短剧片段或已有视频转写整理成分�
 
 多集时把每集交给一个子代理：简报写明原片、ASR、OCR 和人物表的路径，要求先看完该集全部帧再写，以及写到哪个文件；主控负责人物表、合稿、跨集统一和交付。
 
-交付用 `manuscript_revision delivery`，设 `source_mode: "video"`，`video_dir` 填本剧原片目录。程序逐集检查剧本格式和看帧记录，按事实生成标签，`present` 时原样使用；标签或 `video_check` 列出格式问题、没看完帧的集时，逐条改正、补看后重新登记。整剧写完后合成完整 Markdown，用 `transcript_coverage` 覆盖全部集，再用 `screenplay_export_docx` 导出 Word（各集默认连排），登记并 `present` 这份 Word，不等用户开口要。标目标完成时，程序会列出仍缺的整剧 Word、看帧或覆盖率；标完成前先补齐，补不了的在收尾汇报里如实写明。
+交付用 `manuscript_revision delivery`，设 `source_mode: "video"`，`video_dir` 填本剧原片目录。程序逐集检查剧本格式和看帧记录，按事实生成标签，`present` 时原样使用；标签或 `video_check` 列出格式问题、没看完帧的集时，逐条改正、补看后重新登记。整剧写完后合成完整 Markdown（各集之间空一行），用 `transcript_coverage` 覆盖全部集，再用 `screenplay_export_docx` 按集顺序导出 Word（各集默认连排），登记并 `present` 这份 Word，不等用户开口要。`manuscript_revision`、`screenplay_export_docx` 未加载时用 `tool_search` 搜出来再调用；不要在 bash 里运行技能目录的 Python 脚本，也不要自己写脚本替代或模拟这些工具。标目标完成时，程序会列出仍缺的整剧 Word、看帧或覆盖率；标完成前先补齐，补不了的在收尾汇报里如实写明。
 
 语音收据、恢复和计费沿 `audio-transcribe`，来源画面读取沿 `video-review`；本任务不因加载这些技能而改为制作成片。分场、OS/VO、版本与批注保留，以及跨集和重复核对见 `screenplay-format`，重新分集见 `muse-episode-design`。资源按技能返回的实际 `resourceBase` 定位，不猜兄弟技能目录。
 
