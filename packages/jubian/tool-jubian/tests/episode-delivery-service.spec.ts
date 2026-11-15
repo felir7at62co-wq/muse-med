@@ -34,6 +34,34 @@ function observeRenderer(f: Awaited<ReturnType<typeof createEpisodeDeliveryFixtu
 }
 
 describe('approved episode service', () => {
+  it('offers explicit recovery after descriptor publication fails before physical execution is armed', async () => {
+    const f = await createEpisodeDeliveryFixture(), input = await selection(f)
+    const write = Files.writeFile, failure = Object.assign(new Error('Descriptor publication denied'), { code: 'EACCES' })
+    const spy = vi.spyOn(Files, 'writeFile').mockImplementation(async (...args) => {
+      if (typeof args[0] === 'string' && basename(args[0]) === 'descriptor.json') throw failure
+      return write(...args)
+    })
+    let attempt: string
+    try {
+      const admitted = await f.service.admitEpisode(input)
+      if (admitted.attempt === null) throw new Error('Admission did not retain its original attempt')
+      attempt = admitted.attempt
+      await expect.poll(async () => f.service.episodeStatus(input)).toMatchObject({
+        attempt, state: 'failed', canResume: true, problem: failure.message,
+      })
+      const root = join(f.project, '.muse', 'episode-delivery', attempt)
+      const job = library.parseEpisodeDeliveryJobRecord(JSON.parse(await readFile(join(root, 'job.json'), 'utf8')))
+      expect(job.executionRef).toBeNull()
+      expect(job.armedExecutions).toEqual([])
+      await expect(readFile(join(root, 'execution.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(await readFile(join(root, 'inputs', 'source.mp4'))).toEqual(f.sourceBytes)
+    } finally { spy.mockRestore() }
+    f.renderer.release()
+    expect(await f.service.admitEpisode({ ...input, resume: true })).toMatchObject({ attempt })
+    await expect.poll(async () => f.service.episodeStatus(input)).toMatchObject({ attempt, state: 'completed', canResume: false })
+    expect(f.renderer.calls).toBe(2)
+  })
+
   it('refuses publication when the captured renderer input revalidation fails', async () => {
     const f = await createEpisodeDeliveryFixture()
     const capture = f.provider.capture.bind(f.provider)
