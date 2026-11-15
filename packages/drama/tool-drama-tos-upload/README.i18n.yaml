@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/tool-drama-tos-upload/README.md
+/:
+  en: b69460c79fcd6f72
+  zh: cf9e0f5fd8ffc633
+/deepseek-ai-dsh-tool-drama-tos-upload:
+  en: ea9958a6c32f3778
+  zh: 2a84460788319216
+/deepseek-ai-dsh-tool-drama-tos-upload/summary:
+  en: 55a19946247fc115
+  zh: e81f14ca50712b00
+/deepseek-ai-dsh-tool-drama-tos-upload/table-of-contents:
+  en: 85d7b1dd2cd9b783
+  zh: 7aa0d477064a4334
+/deepseek-ai-dsh-tool-drama-tos-upload/use-this-package:
+  en: 766c65fe080d5df7
+  zh: 8019bc7272c4fdc5
+/deepseek-ai-dsh-tool-drama-tos-upload/write-safety:
+  en: fa62af507b032137
+  zh: 762100bfec1ca3c1
+/deepseek-ai-dsh-tool-drama-tos-upload/understand-the-implementation:
+  en: a3f7087c2cf9528e
+  zh: 372270b3e81bed1c
+/deepseek-ai-dsh-tool-drama-tos-upload/further-exploration:
+  en: ef8fbf5f6d5b41ac
+  zh: 6059895bd808b373
+/deepseek-ai-dsh-tool-drama-tos-upload/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tool-drama-tos-upload/model-experience/drama-media-upload:
+  en: 3e2f1c4c04472a21
+  zh: b2985cac2e18f6a4
+/deepseek-ai-dsh-tool-drama-tos-upload/model-experience/drama-media-upload/what-the-model-sees:
+  en: ffbd1987bb0d7f67
+  zh: aa47a1ad21cad065
+/deepseek-ai-dsh-tool-drama-tos-upload/model-experience/drama-media-upload/what-the-model-sees/tool-description:
+  en: 163f477a7dd52e3f
+  zh: 489ef7ec88dee135
+/deepseek-ai-dsh-tool-drama-tos-upload/model-experience/drama-media-upload/token-effect:
+  en: 24f9c0a1e061aaa0
+  zh: cfa5b70b66d32245
+/deepseek-ai-dsh-tool-drama-tos-upload/model-experience/drama-media-upload/kv-cache-effect:
+  en: 2b0e92529612c967
+  zh: 4efbb4078fd6510d
+/deepseek-ai-dsh-tool-drama-tos-upload/known-limitations-and-deferred-work:
+  en: 1342b5559e8142e9
+  zh: c591af6507d0cee1
+/deepseek-ai-dsh-tool-drama-tos-upload/known-limitations-and-deferred-work/dev-note:
+  en: 7b9db8e3815e1efe
+  zh: f88a7f9f4abc2e90
