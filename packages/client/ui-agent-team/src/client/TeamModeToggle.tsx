@@ -28,12 +28,14 @@ export type TeamModeToggleProps = PropsRuntime<'conversation.input.model.options
  */
 export function TeamModeToggle(props: TeamModeToggleProps) {
   const addressedChild = props.useSession(snapshot => snapshot.subagent !== null)
-  const unavailable = props.useSessions((state) => {
-    const session = state.byId[props.sessionId]
-    return session?.origin === 'subagent' || session?.projectionValues?.agentPreset === 'main-session'
-  })
+  const unavailable = props.useSessions(state => teamModeUnavailable(state.byId[props.sessionId]))
   if (addressedChild || unavailable) return null
   return <RootTeamModeToggle {...props} />
+}
+
+/** Subagent Sessions and the routing-only Main Session have no Team selection. */
+function teamModeUnavailable(session: { origin?: unknown; projectionValues?: { agentPreset?: unknown } } | undefined): boolean {
+  return session?.origin === 'subagent' || session?.projectionValues?.agentPreset === 'main-session'
 }
 
 /** Read and change the selection only for root Sessions. */

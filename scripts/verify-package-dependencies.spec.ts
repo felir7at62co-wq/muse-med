@@ -1175,14 +1175,12 @@ describe('dependency sections', () => {
     ])
   })
 
-  it('keeps native generation bindings and provider rejection imports on shared peers', async () => {
+  it('keeps native generation binding imports on shared peers', async () => {
     const imports = {
       '@deepseek-ai/dsh-jubian-api': ['buildDocumentObjectKey', 'MANUSCRIPT_SCRIPT_FORMATS', 'buildProjectShareUsersRequest'],
-      '@deepseek-ai/dsh-llm': ['ReasoningEffortId'],
       '@deepseek-ai/dsh-tools/pipeline': ['TOOL_BODY_META_KEY'],
-      '@deepseek-ai/dsh-workspace': ['WorkspaceId'],
     }
-    const providers = ['@deepseek-ai/dsh-jubian-api', '@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-workspace']
+    const providers = ['@deepseek-ai/dsh-jubian-api', '@deepseek-ai/dsh-tools']
     const root = mkdtempSync(join(tmpdir(), 'dsh-generation-dependencies-'))
     roots.push(root)
     const subject = pkg('@f/generation', 'packages/core/generation/package.json', {

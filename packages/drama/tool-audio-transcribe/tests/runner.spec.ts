@@ -1324,7 +1324,7 @@ it('returns the latest complete same-purpose version of a source from a batch', 
   }
   const before = { encodes: f.calls.encodes.length, submits: f.calls.submits.length }
   const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
-  expect(result.items).toEqual([expect.objectContaining({ input: f.inputs[0], status: 'complete', receipt: join(f.jobs, 'ep1-v2.json') })])
+  expect(result.items).toEqual([expect.objectContaining({ input: f.inputs[0], status: 'complete', receipt: join(f.jobs, 'ep1-v2.json').replaceAll('\\', '/') })])
   expect({ encodes: f.calls.encodes.length, submits: f.calls.submits.length }).toEqual(before)
 })
 
@@ -1340,7 +1340,7 @@ it('reuses a legacy complete receipt without a purpose as subtitles and starts a
   expect(subtitles.items).toEqual([{ input: f.inputs[0], status: 'complete', receipt: legacy.receipt, job_id: legacy.job_id }])
   expect(f.calls.submits).toHaveLength(1)
   const screenplay = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media, 'screenplay')
-  expect(screenplay.items).toEqual([expect.objectContaining({ status: 'processing', purpose: 'screenplay', receipt: join(f.jobs, 'ep1-v2.json') })])
+  expect(screenplay.items).toEqual([expect.objectContaining({ status: 'processing', purpose: 'screenplay', receipt: join(f.jobs, 'ep1-v2.json').replaceAll('\\', '/') })])
   expect(f.calls.submits).toHaveLength(2)
 })
 
