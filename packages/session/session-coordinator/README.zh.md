@@ -27,6 +27,8 @@ kind: "package-reference"
 
 `mainPreset` 与 `workerPreset` 指定不同角色；`searchLimit` 限制搜索条数，`readChars` 限制每页原始历史字符数，但单个超限事件完整返回。`noteChars` 限制主会话写的每条路由说明（`instructions`、`reason`），`summaryChars` 限制执行会话汇报摘要。`maxWorkers`（默认 3）限制同时执行的协调任务数，超出时需要新建执行会话的派发会等待。检索权限限于当前本地配置的所有者，可跨工作目录，不会打开其他远程账号或授权读取其他用户配置。Remote 方法要求全局所有者权限，访客的局部授权不能访问任务目录。
 
+Host 同时挂载 [`dsh-session-activity`](../session-activity/README.zh.md) 时，协调器关注每个占用 `maxWorkers` 名额的任务的执行会话，任务离开这些状态时释放关注。主会话因此在回执之间收到精简的进展摘要：进展等主会话下一步时带入，执行会话提问、轮次失败或停滞会唤醒主会话。此时主会话提示词会说明：摘要不需要回复，也不需要因此轮询；有人值守时转告执行会话的问题并请用户到该执行会话回答；无人值守时只记下需处理事项并等回执。未挂载该插件时主会话只收到回执，提示词不变。
+
 无人回答问题的部署（例如每日定时运行）设置 `unattended`。此时主会话除用户消息外还能按最新一条定时提醒派发，主会话和已分配执行会话的整棵执行树都不能调用 `humanTools`，默认是 `ask_user_question` 和 `exit_plan_mode`。任务最新修订以 `needs-report`、`failed`、`blocked` 或 `needs-input` 结束，或者执行会话静止后停在 `interrupted` 时，协调器把它重派给同一目录中的新执行会话。连续自动重派达到 `redispatchLimit`（默认 1）次后，改为在该修订上记录 `attention` 原因和时间。`taskRoot` 是一个绝对目录，为每个任务提供独立文件夹 `<taskRoot>/<任务标识>`：派发在该任务第一个新执行会话启动前创建它，并拒绝其他 `cwd` 或复用其他目录中的会话。用 subagent 插件的 `maxActiveSubagents`（默认 8）限制每个执行会话内的子代理：每个执行会话是自己子代理树的根，因此 `maxWorkers` 个新建执行会话任务同时最多运行 `maxWorkers` × `maxActiveSubagents` 个子代理。该设置适用于 Host 上所有根会话。
 
 主会话的正向工具清单允许协调工具、`ask_user_question`、`show_view` 与 `visualize`。固定入口 `coordinator_display_skill` 仅通过原生注册表读取允许模型调用的 `visualize` Skill；通用 `skill`、文件与 shell 工具仍不可用。执行守卫同时拒绝其他工具，包括后注册工具与 PTC 传输。执行会话通过普通会话控制器独立创建，不继承主会话的限制。主会话负责路由请求、转告回执和执行会话的问题、处理停止请求；规划、调研、写稿、文件修改、下载、生成和复核仍交给执行会话。任务说明和 `coordinator_report` 引导执行会话以 `needs-input` 汇报并把一个问题写在摘要中，而不是在自己的聊天中提问，由主会话转告用户。执行会话仍保留 `ask_user_question`，因为短剧的内容试听验收和预算授权只认同一会话中提问得到的回答。

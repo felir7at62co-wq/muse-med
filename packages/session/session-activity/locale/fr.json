@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Activité des sessions",
+    "description": "Transmet des résumés compacts de l’avancement des sessions suivies à la session qui les a lancées."
+  }
+}

@@ -130,6 +130,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   sessionQuery: 'session-query.md',
   sessionVideo: 'session-query.md',
   sessionCoordinator: 'session.md',
+  sessionActivity: 'session.md',
   sessionFileReferences: 'session-reference.md',
   sessionReferenceResolver: 'session-reference.md',
   sessionProjectionCache: 'session-projection.md',

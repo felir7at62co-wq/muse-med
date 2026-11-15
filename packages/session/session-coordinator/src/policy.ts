@@ -5,6 +5,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from './index.ts'
+import type {} from '@deepseek-ai/dsh-session-activity'
 import { mainSessionPrompt } from './prompt.ts'
 
 /** Cordis role contribution. */
@@ -32,6 +33,6 @@ export function apply(ctx: Context): void {
   }
   ctx.systemPrompt.section({
     name: 'muse:main-session', order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
-    text: () => mainSessionPrompt(ctx.get('sessionCoordinator')?.mode ?? { unattended: false, taskFolders: false }),
+    text: () => mainSessionPrompt(ctx.get('sessionCoordinator')?.mode ?? { unattended: false, taskFolders: false }, ctx.get('sessionActivity') !== undefined),
   })
 }

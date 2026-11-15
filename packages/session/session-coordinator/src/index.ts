@@ -16,6 +16,7 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-tool-present/types'
 import type {} from '@deepseek-ai/dsh-tool-jubian'
+import type {} from '@deepseek-ai/dsh-session-activity'
 import { createUserMessage, boundContextSummary } from '@deepseek-ai/dsh-llm'
 import type { MessageId, UserMessage } from '@deepseek-ai/dsh-llm'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -137,6 +138,8 @@ export class SessionCoordinator extends TypertRemoteService {
   private generation = 0
   private readonly treeWaits = new Map<Agent, Promise<void>>()
   private reconciliationInput!: ProjectionHandle<ReconciliationInput>
+  /** Activity digests of executing workers, keyed by task; present only while `sessionActivity` is mounted. */
+  private readonly activityWatches = new Map<CoordinationTaskId, { readonly worker: SessionId; readonly release: () => void }>()
 
   /**
    * @param ctx - Profile-owner Host services.
@@ -220,6 +223,13 @@ export class SessionCoordinator extends TypertRemoteService {
       if (event.type === 'settled' && event.job.owner !== undefined) this.background(() => this.settleAllWorkers())
     }), 'coordination: owned Job settlement')
     this.ctx.on('subagent/end', () => { this.background(() => this.settleAllWorkers()) })
+    // A replaced activity service holds none of the previous watches.
+    this.ctx.on('internal/service', (name) => {
+      if (name !== 'sessionActivity') return
+      for (const watch of this.activityWatches.values()) watch.release()
+      this.activityWatches.clear()
+      this.syncActivity()
+    })
     this.background(() => this.recover())
   }
 
@@ -1260,6 +1270,7 @@ export class SessionCoordinator extends TypertRemoteService {
    * Waiting fresh workers start afterwards within `maxWorkers`, and unresolved unattended revisions are followed up.
    */
   private async recover(): Promise<void> {
+    this.syncActivity()
     for (const [id, task] of this.table.entries()) {
       try { await this.recoverTask(task) }
       catch (error) { this.ctx.logger.error('session-coordinator: recovery of %s failed: %s', id, String(error)) }
@@ -1326,7 +1337,29 @@ export class SessionCoordinator extends TypertRemoteService {
 
   private changed(): void {
     this.generation++
+    this.syncActivity()
     for (const notify of [...this.observers]) notify()
+  }
+
+  /** Watch the worker of every executing assignment for Main's activity digests; release the rest. */
+  private syncActivity(): void {
+    const activity = this.ctx.get('sessionActivity')
+    const executing = new Map<CoordinationTaskId, CoordinationTask>()
+    if (activity !== undefined && !this.unloading()) {
+      for (const [id, task] of this.table.entries()) if (slotStatuses.has(latest(task).status)) executing.set(id, task)
+    }
+    for (const [id, watch] of this.activityWatches) {
+      const task = executing.get(id)
+      if (task !== undefined && latest(task).sessionId === watch.worker) continue
+      watch.release()
+      this.activityWatches.delete(id)
+    }
+    if (activity === undefined) return
+    for (const [id, task] of executing) {
+      if (this.activityWatches.has(id)) continue
+      const worker = latest(task).sessionId
+      this.activityWatches.set(id, { worker, release: activity.watch(task.owner, worker, task.title) })
+    }
   }
 
   private serial<T>(operation: () => Promise<T>): Promise<T> {

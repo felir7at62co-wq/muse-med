@@ -74,6 +74,8 @@
 
 # Routing role and task directory are independently removable plugin contributions.
 - insert:
+    - id: muse-session-activity
+      name: '@deepseek-ai/dsh-session-activity'
     - id: muse-session-coordinator
       name: '@deepseek-ai/dsh-session-coordinator'
       config:

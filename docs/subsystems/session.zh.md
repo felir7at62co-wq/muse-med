@@ -881,6 +881,28 @@ type SessionLogUploadExclusion = (request: SessionLogUploadRequest) => boolean
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxsessionactivity--sessionactivitywatcher"></a>
+
+### `ctx.sessionActivity` — `SessionActivityWatcher`
+
+Service surface consumers use to watch Sessions on behalf of a parent.
+
+```ts cordis-catalog
+/**
+ * Deliver compact activity digests of one Session to a parent Session's live Agent until disposed.
+ * Registering the same pair again adds a reference and replaces the label.
+ * @param parent - Session whose Agent receives the digests.
+ * @param child - Session whose committed events are summarized.
+ * @param label - Short task label shown on the child's digest line.
+ * @returns the disposer removing this registration; repeated calls do nothing.
+ */
+watch(parent: SessionId, child: SessionId, label: string): () => void
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/session/session-activity/src/types.ts`](../../packages/session/session-activity/src/types.ts)
+
 <a id="ctxsessioncontroller--sessioncontroller"></a>
 
 ### `ctx.sessionController` — `SessionController`

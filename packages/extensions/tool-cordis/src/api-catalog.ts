@@ -3468,6 +3468,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sessionActivity',
+    summary: 'Service surface consumers use to watch Sessions on behalf of a parent.',
+    description: 'Service surface consumers use to watch Sessions on behalf of a parent.',
+    methods: [
+      {
+        signature: 'watch(parent: SessionId, child: SessionId, label: string): () => void',
+        description: 'Deliver compact activity digests of one Session to a parent Session\'s live Agent until disposed. Registering the same pair again adds a reference and replaces the label.',
+        parameters: [{ name: 'parent', description: 'Session whose Agent receives the digests.' }, { name: 'child', description: 'Session whose committed events are summarized.' }, { name: 'label', description: 'Short task label shown on the child\'s digest line.' }],
+        returns: 'the disposer removing this registration; repeated calls do nothing.',
+      },
+    ],
+  },
+  {
     key: 'sessionController',
     summary: 'Host service backing the generated `ctx.remote.session` namespace.',
     description: 'Host service backing the generated `ctx.remote.session` namespace.',
