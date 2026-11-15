@@ -1016,7 +1016,7 @@ describe('headless stream-json snapshots', () => {
         expect(JSON.stringify(request.messages)).toContain('read task.txt and follow it')
         const userContent = (request.messages as JsonObject[]).find(message => message.role === 'user')?.content
         expect(userContent).toEqual(expect.stringContaining('read task.txt and follow it'))
-        expect(userContent).toEqual(expect.stringContaining('Current runtime context.'))
+        expect(userContent).toEqual(expect.stringContaining('The following information describes your current session'))
         expect(userContent).toEqual(expect.stringContaining('Current working directory:'))
       }
       expect(server.requests.map(piAiTranscript)).toMatchInlineSnapshot(`

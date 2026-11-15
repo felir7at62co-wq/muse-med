@@ -23,9 +23,9 @@ export const name = 'hit-queue'
 export const inject = ['tools']
 
 /** Actions of `drama_hit_queue`. */
-export const ACTIONS = ['claim', 'status', 'progress', 'videos', 'publish', 'fail'] as const
+const ACTIONS = ['claim', 'status', 'progress', 'videos', 'publish', 'fail'] as const
 /** Working states a worker may report. */
-export const WORK_STATES = ['downloading', 'transcribing', 'checking'] as const
+const WORK_STATES = ['downloading', 'transcribing', 'checking'] as const
 
 const MIB = 1024 * 1024
 const WORK_ID = /^(?:hongguo:)?[0-9]{1,32}$/

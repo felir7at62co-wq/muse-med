@@ -2946,7 +2946,7 @@ export interface Config {
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
 - `refs`: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/host/muse-account/src/index.ts:51`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:50`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -3774,7 +3774,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-session-coordinator`
 
 - `inject`: `agents` · `sessions` · `sessionQuery` · `sessionController` · `workspaceController` · `storageDomain` · `workspaceRegistry` · `jobs` · `typert` · `tools` · `sessionProjections`
-- `source`: [`packages/session/session-coordinator/src/index.ts:72`](../packages/session/session-coordinator/src/index.ts)
+- `source`: [`packages/session/session-coordinator/src/index.ts:77`](../packages/session/session-coordinator/src/index.ts)
 
 ```ts config-catalog
 /** Deployment choices for the optional coordination plugin. */
@@ -5098,7 +5098,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-drama-tos-upload`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-drama-tos-upload/src/index.ts:24`](../packages/drama/tool-drama-tos-upload/src/index.ts)
+- `source`: [`packages/drama/tool-drama-tos-upload/src/index.ts:23`](../packages/drama/tool-drama-tos-upload/src/index.ts)
 
 ```ts config-catalog
 /** Deployment configuration. */

@@ -12,7 +12,6 @@ import z from '@deepseek-ai/schemastery'
 import { createTosUploadClient, loadTosSdk, type TosClientSettings, type TosCredentials, type TosSdkModule } from './tos-client.ts'
 import { FILE_KINDS, PLATFORMS, executeUpload, resolveUpload, type FileKind, type UploadLimits, type UploadLocation, type UploadResult } from './upload.ts'
 
-export { FILE_KINDS, PLATFORMS, publicUrl } from './upload.ts'
 export type { FileKind, Platform, UploadRequest, UploadResult } from './upload.ts'
 
 /** Cordis plugin name. */

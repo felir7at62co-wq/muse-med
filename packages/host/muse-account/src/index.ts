@@ -38,7 +38,6 @@ export { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 export { readMuseSession } from './session.ts'
 export type * from './types.ts'
 export { mountMuseFeedbackTools } from './feedback-tools.ts'
-export { mountMuseDouyinTools } from './douyin-tools.ts'
 export type { MuseDouyinToolOptions } from './douyin-tools.ts'
 
 /** Cordis plugin name used by Loader diagnostics. */
