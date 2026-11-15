@@ -1,7 +1,7 @@
 - id: agent-default-model
   config:
-    provider: hongguo-v2-health-fixture
-    model: v2-health-test-model
+    provider: hongguo-jackotom-cleanup-fixture
+    model: jackotom-cleanup-test-model
 - id: llm-deepseek
   disabled: true
 - id: tool-bash
@@ -15,5 +15,5 @@
 - id: subprocess
   disabled: true
 - insert:
-    - id: hongguo-v2-health-fixture
-      name: ./health-fixture.mjs
+    - id: hongguo-jackotom-cleanup-fixture
+      name: ./download-fixture.mjs

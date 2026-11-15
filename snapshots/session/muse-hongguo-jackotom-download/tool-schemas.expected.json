@@ -99,6 +99,211 @@
       }
     },
     {
+      "name": "glob",
+      "description": "Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to match file paths against (e.g. \"**/*.ts\", \"src/**/*.test.js\"). A pattern with no \"/\" matches the basename at any depth, so \"*\" and \"*.ts\" both search the whole tree; include a separator to anchor the depth."
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    {
+      "name": "grep",
+      "description": "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Regular expression to search for (ripgrep syntax)."
+          },
+          "path": {
+            "type": "string",
+            "description": "File or directory to search. Defaults to the session workspace; a relative path resolves against it."
+          },
+          "include": {
+            "type": "string",
+            "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    {
+      "name": "hongguo_download",
+      "description": "使用 jackotom/hongguo-drama 引擎下载红果短剧。抖音上有的完整短剧也用本工具下载：按剧名用 hongguo_search 取得 seriesId 后下载全集或指定集，不逐条下载抖音视频。quality 可选1080p、720p、auto；省略采用插件默认画质（通常1080p），固定画质不可用时停止，不自动降级；auto沿来源兼容优先规则选源。回执分别记录requestedQuality和实际尺寸、画质；更高分辨率保留原样，不放大冒充高清。seriesIds 为十进制字符串；省略 episodes 下载全集，指定则仅下这些集。下载经过容器、尺寸、完整解码和SHA256校验。已验证文件及进度保留，重复同一请求及画质可续下。只读权限拒绝写入，工作区权限仅写工作区，完全权限可写显式外部绝对目录。遇到来源拒绝停止，不盲目重试；ByteVC2 通过内置组件转换为 H.264/AAC 后完整校验；缺少解码组件时停止。不返回媒体直链、签名、设备信息或解密密钥。部分完成不可称为全集。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seriesIds"
+        ],
+        "properties": {
+          "seriesIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "minItems": 1,
+            "maxItems": 10
+          },
+          "episodes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "1080p",
+              "720p",
+              "auto"
+            ],
+            "description": "本次下载画质；省略采用插件默认值。固定画质不自动降级，auto兼容优先"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "wait",
+              "background"
+            ],
+            "description": "wait等待验证完成（默认）；background返回持久taskId，通过hongguo_download_task管理"
+          },
+          "outputDir": {
+            "type": "string",
+            "description": "默认当前会话 downloads；完全权限可指定外部绝对路径"
+          }
+        }
+      }
+    },
+    {
+      "name": "hongguo_download_info",
+      "description": "通过 jackotom/hongguo-drama 开源引擎读取红果系列的真实分集目录。不返回签名地址或密钥；目录完整不表示视频已下载。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seriesIds"
+        ],
+        "properties": {
+          "seriesIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "minItems": 1,
+            "maxItems": 10
+          }
+        }
+      }
+    },
+    {
+      "name": "hongguo_download_task",
+      "description": "管理当前会话和工作区中的红果下载任务。list/status查询；pause暂停，resume继续，cancel取消，retry按原清晰度重试；remove仅移除已结束的任务记录，保留视频和原下载进度。暂停/取消须带status返回的expectedRunId，只有控制确认acknowledged才表示已停止。重启不自动下载；清理未知的任务保持blocked，不得强行恢复。taskId不同于Jobs的jobId。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "status",
+              "pause",
+              "resume",
+              "cancel",
+              "retry",
+              "remove"
+            ]
+          },
+          "taskId": {
+            "type": "string",
+            "pattern": "^hgt-[a-f0-9]{32}$"
+          },
+          "expectedRunId": {
+            "type": "string",
+            "pattern": "^hgr-[a-f0-9]{32}$"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,160}$"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "wait",
+              "background"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "hongguo_merge",
+      "description": "将当前会话和工作区中已有红果下载任务的分集合并为一个MP4。taskId使用下载工具返回的任务ID；多剧任务须选seriesId。episodes省略时合并原任务选集或该剧完整目录，缺集停止，不自动补下载；显式选集按数字顺序合并。每个输入重新检查原回执、路径、大小和SHA256。auto仅在流参数完全一致时直接拼接，否则统一为H.264/AAC；copy不兼容时拒绝；compatible统一格式。outputFile仅为.mp4文件名，保存在原任务下载目录；已有文件不覆盖，原始分集保留。只读权限拒绝，外部目录仍须当前完全权限。前台等待完整解码、时长和SHA256验证后返回，部分选集不可称为全集。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "taskId"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "pattern": "^hgt-[a-f0-9]{32}$"
+          },
+          "seriesId": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "episodes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "minItems": 1,
+            "maxItems": 1000,
+            "uniqueItems": true
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "copy",
+              "compatible"
+            ]
+          },
+          "outputFile": {
+            "type": "string",
+            "description": "原任务下载目录中的MP4文件名，不含路径；省略使用按剧和集号生成的名称"
+          }
+        }
+      }
+    },
+    {
       "name": "job_kill",
       "description": "Request cancellation of a running background job.",
       "parameters": {
@@ -435,6 +640,84 @@
             "description": "Wait duration in milliseconds, from 10000 through 3600000. Defaults to 30000."
           }
         }
+      }
+    },
+    {
+      "name": "workflow",
+      "description": "Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.\n\nScript-body hooks:\n- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object, and the child must call its `structured_output` tool to report it: a `schema` call whose child answers in plain text resolves `null`. If the prompt text states its own return format, that text describes the payload, never the reporting channel. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.\n- `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.\n- `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.\n- `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.\n\nMisused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) end the whole script instead of producing `null`. The script has no filesystem, network, timer, or Node.js APIs; the agents do the work.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "script": {
+            "type": "string",
+            "description": "The plain JavaScript body, not TypeScript and without an `export const meta` statement; top-level await is allowed. End with `return <value>`; the JSON-serializable value is this tool's result."
+          },
+          "meta": {
+            "type": "object",
+            "description": "The workflow identity as plain JSON, not code.",
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Short kebab-case workflow name."
+              },
+              "description": {
+                "type": "string",
+                "description": "One-line description of what the workflow does."
+              },
+              "whenToUse": {
+                "type": "string",
+                "description": "Optional guidance on when this workflow applies."
+              },
+              "phases": {
+                "type": "array",
+                "description": "Optional phase declarations matched by phase() calls.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "description": "The phase title phase() calls match by exact string."
+                    },
+                    "detail": {
+                      "type": "string",
+                      "description": "Optional one-line description of the phase."
+                    },
+                    "provider": {
+                      "type": "string",
+                      "description": "Optional provider override this phase is expected to use."
+                    },
+                    "model": {
+                      "type": "string",
+                      "description": "Optional model override this phase is expected to use."
+                    }
+                  },
+                  "required": [
+                    "title"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "name",
+              "description"
+            ]
+          },
+          "args": {
+            "type": "object",
+            "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
+            "additionalProperties": true
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice."
+          }
+        },
+        "required": [
+          "script",
+          "meta"
+        ]
       }
     },
     {

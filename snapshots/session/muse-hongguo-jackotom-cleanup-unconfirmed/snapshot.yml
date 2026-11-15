@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-hongguo-jackotom-cleanup-unconfirmed
+profile: headless
+composition: muse-hongguo-jackotom-cleanup-unconfirmed
+recording: authored
+writerOutput: true
+header:
+  class: muse-hongguo-jackotom-cleanup-unconfirmed
+  pin: true
+workspace:
+  final: true

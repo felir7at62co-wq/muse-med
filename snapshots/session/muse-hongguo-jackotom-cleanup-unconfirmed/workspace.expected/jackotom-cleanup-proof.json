@@ -1,0 +1,13 @@
+{
+  "verifiedEpisodesRetained": 1,
+  "unconfirmedProcessExits": 1,
+  "stageRetained": true,
+  "leaseRetained": true,
+  "taskState": "blocked",
+  "retryCode": "task_locked",
+  "catalogLookups": 1,
+  "playInfoLookups": 2,
+  "mediaTransfers": 2,
+  "signedUrlsLogged": false,
+  "codecValidation": "controlled-external-verdict"
+}

@@ -1,7 +1,7 @@
 - id: agent-default-model
   config:
-    provider: hongguo-v2-download-fixture
-    model: v2-download-test-model
+    provider: hongguo-jackotom-download-fixture
+    model: jackotom-download-test-model
 - id: llm-deepseek
   disabled: true
 - id: tool-bash
@@ -15,13 +15,13 @@
 - id: subprocess
   disabled: true
 - insert:
-    - id: hongguo-v2-download-fixture
+    - id: hongguo-jackotom-download-fixture
       name: ./download-fixture.mjs
     - id: llm-replay
       name: '@deepseek-ai/dsh-llm-replay'
       config:
         providers:
-          - id: hongguo-v2-download-fixture
-            name: Hongguo v2 download fixture
+          - id: hongguo-jackotom-download-fixture
+            name: Hongguo jackotom download fixture
             models:
-              - id: v2-download-test-model
+              - id: jackotom-download-test-model
