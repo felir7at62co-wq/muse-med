@@ -2312,7 +2312,9 @@ describe('headless recorded-session snapshots', () => {
     const [fixture] = await fixtureSessions(owner)
     if (fixture === undefined) throw new Error('Missing canonical confinement input')
     const job = 'bash-aaaaaaaaaaaaaaaa'
-    const schemas = parseToolSchemasSnapshot(await readFile(join(owner.dir, 'tool-schemas.expected.json'), 'utf8'))
+    const schemaOwner = scenarioByName.get(owner.manifest.header.toolSchemasSource ?? owner.name)
+    if (schemaOwner === undefined) throw new Error('Missing confinement tool-schema sidecar owner')
+    const schemas = parseToolSchemasSnapshot(await readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'))
     const firstTool = schemas.initial[0]
     if (firstTool === null || typeof firstTool !== 'object' || Array.isArray(firstTool)
       || !('description' in firstTool) || typeof firstTool.description !== 'string') throw new Error('Missing confinement tool definition')
