@@ -326,7 +326,17 @@ function tokenizeRefreshedFixtureCwd(log: string, cwd: string): string {
   const lines = log.split('\n')
   const header = JSON.parse(lines[0] as string) as JsonObject
   if (header.cwd === '{{cwd}}') lines[0] = JSON.stringify({ ...header, cwd })
-  return tokenizeSessionFixtureCwd(lines.join('\n'))
+  if (!insidePrimaryCwd(header.cwd, cwd)) return tokenizeSessionFixtureCwd(lines.join('\n'))
+  // Replay normalizes child roles against the primary cwd, so a child in a subdirectory keeps its suffix.
+  return tokenizeSessionFixtureCwd([JSON.stringify({ cwd }), ...lines].join('\n')).split('\n').slice(1).join('\n')
+}
+
+/** Whether a role's retained or raw header cwd is a strict subdirectory of the primary cwd. */
+function insidePrimaryCwd(value: unknown, cwd: string): boolean {
+  if (typeof value !== 'string') return false
+  if (/^\{\{cwd\}\}[\\/]/u.test(value)) return true
+  const path = relative(cwd, value)
+  return path !== '' && path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
 }
 
 /**
@@ -2466,6 +2476,24 @@ describe('headless recorded-session snapshots', () => {
     const result = records(output)[1]?.data as { text: string }
     expect(result.text).toContain('{{cwd}}')
     expect(result.text).not.toContain(cwd)
+  })
+
+  it('tokenizes a refreshed child role in a primary subdirectory against the primary cwd', () => {
+    const cwd = '/private/var/folders/xy/T/dsh-log-snap-child'
+    const child = (headerCwd: string) => [
+      JSON.stringify({ type: 'session', id: 'child', cwd: headerCwd, parentSession: 'parent' }),
+      JSON.stringify({ type: 'user/message', data: { text: `Current working directory: "${cwd}/selected-project".` } }),
+      JSON.stringify({ type: 'tool/result', data: { text: `parent ${cwd}/cwd-retarget-proof.json` } }),
+      '',
+    ].join('\n')
+
+    for (const headerCwd of ['{{cwd}}/selected-project', `${cwd}/selected-project`]) {
+      const [header, message, result] = records(tokenizeRefreshedFixtureCwd(child(headerCwd), cwd))
+      expect(header?.cwd).toBe('{{cwd}}/selected-project')
+      expect((message?.data as { text: string }).text).toBe('Current working directory: "{{cwd}}/selected-project".')
+      expect((result?.data as { text: string }).text).toBe('parent {{cwd}}/cwd-retarget-proof.json')
+    }
+    expect(records(tokenizeRefreshedFixtureCwd(child(`${cwd}-sibling`), cwd))[0]?.cwd).toBe('{{cwd}}')
   })
 
   it('bootstraps only live recordings with no Session files', () => {
