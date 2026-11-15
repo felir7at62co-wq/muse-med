@@ -3469,14 +3469,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'sessionActivity',
-    summary: 'Service surface consumers use to watch Sessions on behalf of a parent.',
-    description: 'Service surface consumers use to watch Sessions on behalf of a parent.',
+    summary: 'Service surface consumers use to read Session status lines and watch Sessions on behalf of a parent.',
+    description: 'Service surface consumers use to read Session status lines and watch Sessions on behalf of a parent.',
     methods: [
       {
         signature: 'watch(parent: SessionId, child: SessionId, label: string): () => void',
-        description: 'Deliver compact activity digests of one Session to a parent Session\'s live Agent until disposed. Registering the same pair again adds a reference and replaces the label.',
-        parameters: [{ name: 'parent', description: 'Session whose Agent receives the digests.' }, { name: 'child', description: 'Session whose committed events are summarized.' }, { name: 'label', description: 'Short task label shown on the child\'s digest line.' }],
+        description: 'Deliver status digests of one Session to a parent Session\'s live Agent until disposed. Registering the same pair again adds a reference and replaces the label.',
+        parameters: [{ name: 'parent', description: 'Session whose Agent receives the digests.' }, { name: 'child', description: 'Session whose status is reported.' }, { name: 'label', description: 'Short task label shown on the child\'s line.' }],
         returns: 'the disposer removing this registration; repeated calls do nothing.',
+      },
+      {
+        signature: 'describe(sessionId: SessionId): Promise<string>',
+        description: 'Render one Session\'s current status line, as the session list shows it.',
+        parameters: [{ name: 'sessionId', description: 'Any local Session, open or not.' }],
+        returns: 'The line, such as `running for 12 min · last tool bash · job: ffmpeg`.',
       },
     ],
   },

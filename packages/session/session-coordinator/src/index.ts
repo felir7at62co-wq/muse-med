@@ -312,11 +312,13 @@ export class SessionCoordinator extends TypertRemoteService {
     const visible = rows.filter(row => row.header.id !== main.id && row.header.origin !== 'subagent'
       && row.header.agentPreset !== this.config.mainPreset)
     const candidates = []
+    const activity = this.ctx.get('sessionActivity')
     for (const row of visible.slice(0, this.config.searchLimit)) {
       const header = row.header
       const title = (await this.ctx.sessionQuery.readTitle(header.id))?.title ?? ''
       candidates.push({ sessionId: header.id, title, cwd: header.cwd ?? null,
         preset: header.agentPreset ?? null, busy: this.busy(header.id),
+        ...activity === undefined ? {} : { status: await activity.describe(header.id) },
         archived: this.ctx.workspaceRegistry.archivedSessionIds.includes(header.id),
         excerpt: 'bestMatch' in row ? row.bestMatch.snippet : null })
     }

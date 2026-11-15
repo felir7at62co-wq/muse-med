@@ -10,7 +10,7 @@
 ```mermaid
 flowchart LR
   pkg_session_activity["session-activity"]
-  svc_sessionActivity["ctx.sessionActivity<br/>Watched-Session activity digests"]
+  svc_sessionActivity["ctx.sessionActivity<br/>Session status lines and digests"]
   pkg_session_coordinator["session-coordinator"]
   svc_sessionCoordinator["ctx.sessionCoordinator<br/>Ordinary-session task coordination"]
   pkg_client_ui_session_coordinator["client-ui-session-coordinator"]
@@ -744,7 +744,7 @@ flowchart LR
 
 | ctx 键 | 角色 | 所属包 | 实现 | 直接消费方 | 配套插件 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `ctx.sessionActivity` | `core` | [`session-activity`](../packages/session/session-activity) | - | [`session-coordinator`](../packages/session/session-coordinator) | - | Folds watched Sessions into bounded running totals and delivers one replaceable digest to each parent; questions, failed turns and stalls wake it. |
+| `ctx.sessionActivity` | `core` | [`session-activity`](../packages/session/session-activity) | - | [`session-coordinator`](../packages/session/session-coordinator) | - | Renders each Session as the session list shows it and delivers one replaceable status digest to each watching parent; waiting for input, failed turns and stalls wake it. |
 | `ctx.sessionCoordinator` | `core` | [`session-coordinator`](../packages/session/session-coordinator) | - | [`session-coordinator`](../packages/session/session-coordinator), [`client-ui-session-coordinator`](../packages/client/ui-session-coordinator) | - | Routing-only Main Sessions assign independent durable tasks to ordinary workers; native receipts and explicit reports distinguish delivery, completion and confirmed stopping. |
 | `ctx.toolDiscovery` | `core` | [`tool-discovery`](../packages/core/tool-discovery) | - | [`tool-discovery`](../packages/core/tool-discovery) | - | Selects authorized tool definitions and records session loading; optional Bot adapters own durable preferred names. |
 | `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | Validates historical metadata and bounded images for character-reference search; recommendations grant no publication, binding or generation permission. |

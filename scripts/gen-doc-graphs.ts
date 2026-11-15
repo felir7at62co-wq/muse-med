@@ -110,10 +110,10 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'sessionActivity',
     pkg: 'session-activity',
-    title: 'Watched-Session activity digests',
+    title: 'Session status lines and digests',
     mode: 'core',
     consumers: ['session-coordinator'],
-    note: 'Folds watched Sessions into bounded running totals and delivers one replaceable digest to each parent; questions, failed turns and stalls wake it.',
+    note: 'Renders each Session as the session list shows it and delivers one replaceable status digest to each watching parent; waiting for input, failed turns and stalls wake it.',
   },
   {
     key: 'sessionCoordinator',

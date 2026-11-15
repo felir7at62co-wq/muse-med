@@ -1,7 +1,8 @@
 /**
- * Watched-Session activity digests: a host-only `sessionActivity` projection folds each Session's
- * calls, failures, image inputs, deliverables, jobs and token use, and the `sessionActivity` service
- * delivers one coalesced, replaceable notice to each parent whose watched Sessions changed.
+ * Session status lines as the session list shows them, and watched-Session status digests: the
+ * `sessionActivity` service reads live Agent state, pending questions and approvals, and running
+ * jobs and subagents, and delivers one coalesced, replaceable notice to each parent whose watched
+ * Sessions changed status.
  *
  * @module @deepseek-ai/dsh-session-activity
  */
@@ -10,26 +11,27 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-agent'
-import { renderDigest, type DigestEntry } from './digest.ts'
-import { sessionActivityProjectionDefinition, type SessionActivityState } from './projection.ts'
+import type {} from '@deepseek-ai/dsh-workspace'
+import type {} from '@deepseek-ai/dsh-api-gateway/types'
+import { renderDigest, statusKey, statusText } from './digest.ts'
+import type { DigestEntry, SessionStatus, SessionStatusKind } from './digest.ts'
+import { initialActivity, sessionActivityProjectionDefinition, type SessionActivityState } from './projection.ts'
 import type { SessionActivityWatcher } from './types.ts'
 
 export type * from './types.ts'
 
-/** Deployment choices for activity digests. */
+/** Deployment choices for status digests. */
 export interface Config {
-  /** Tool names whose new calls in a watched Session wake the parent. Defaults to `ask_user_question`. */
-  readonly wakeTools?: string[]
   /** Maximum Session lines in one digest. Defaults to 8. */
   readonly maxLines?: number
   /** Maximum characters of one digest. Defaults to 1200. */
   readonly maxChars?: number
   /** Running time without a new event after which a watched Session wakes its parent once; 0 disables. Defaults to 600000. */
   readonly stallMs?: number
-  /** Delay that merges a burst of events into one digest evaluation. Defaults to 1000. */
+  /** Delay that merges a burst of events into one status evaluation. Defaults to 1000. */
   readonly coalesceMs?: number
 }
 
@@ -39,10 +41,10 @@ type ResolvedConfig = Required<Config>
 interface ChildWatch {
   label: string
   references: number
-  /** State included in the digest the parent last logged. */
-  delivered: SessionActivityState | null
-  /** State included in the digest last sent, logged or still pending; wake reasons are judged against it. */
-  notified: SessionActivityState | null
+  /** Status key in the digest the parent last logged. */
+  delivered: string | null
+  /** State kind in the digest last sent, logged or still pending; wake reasons are judged against it. */
+  notified: SessionStatusKind | null
   lastEventAt: number
   stallTimer: ReturnType<typeof setTimeout> | undefined
   stalledMs: number | undefined
@@ -51,7 +53,7 @@ interface ChildWatch {
 /** Digest still waiting in a parent's inbox. */
 interface PendingDigest {
   readonly id: MessageId
-  readonly states: ReadonlyMap<SessionId, SessionActivityState>
+  readonly keys: ReadonlyMap<SessionId, string>
 }
 
 /** Watches of one parent. */
@@ -59,13 +61,14 @@ interface ParentWatch {
   readonly children: Map<SessionId, ChildWatch>
   pending: PendingDigest | undefined
   evaluation: ReturnType<typeof setTimeout> | undefined
+  /** Serializes this parent's evaluations and releases. */
+  chain: Promise<void>
 }
 
-/** Coalescing digest delivery from watched Sessions to their parents. */
+/** Session status lines and coalescing status digests from watched Sessions to their parents. */
 export class SessionActivityDigests extends Service implements SessionActivityWatcher {
   static inject = ['sessions', 'sessionProjections', 'agents']
   static Config: z<Config> = z.object({
-    wakeTools: z.array(z.string()).default(['ask_user_question']),
     maxLines: z.natural().min(1).default(8),
     maxChars: z.natural().min(200).default(1200),
     stallMs: z.natural().default(600_000),
@@ -99,9 +102,9 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
     this.ctx.on('session/event', (session, event) => {
       const parent = this.parents.get(session.id)
       if (parent?.pending !== undefined && event.type === 'user/message' && event.data.id === parent.pending.id) {
-        for (const [id, state] of parent.pending.states) {
+        for (const [id, key] of parent.pending.keys) {
           const child = parent.children.get(id)
-          if (child !== undefined) { child.delivered = state; child.stalledMs = undefined }
+          if (child !== undefined) child.delivered = key
         }
         parent.pending = undefined
         if (parent.children.size === 0) this.parents.delete(session.id)
@@ -120,7 +123,7 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
     if (this.disposed) return () => {}
     let watch = this.parents.get(parent)
     if (watch === undefined) {
-      watch = { children: new Map(), pending: undefined, evaluation: undefined }
+      watch = { children: new Map(), pending: undefined, evaluation: undefined, chain: Promise.resolve() }
       this.parents.set(parent, watch)
     }
     const existing = watch.children.get(child)
@@ -133,6 +136,7 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
       }
       watch.children.set(child, entry)
       this.armStall(parent, watch, child, entry)
+      this.schedule(parent, watch)
     }
     let released = false
     return () => {
@@ -142,19 +146,27 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
     }
   }
 
+  async describe(sessionId: SessionId): Promise<string> {
+    return statusText(await this.status(sessionId), Date.now())
+  }
+
   private release(parentId: SessionId, childId: SessionId): void {
     const parent = this.parents.get(parentId)
     const child = parent?.children.get(childId)
     if (parent === undefined || child === undefined) return
     if (--child.references > 0) return
     clearTimeout(child.stallTimer)
-    // Changes committed since the last evaluation would otherwise never reach the parent.
-    this.deliver(parentId, parent)
-    parent.children.delete(childId)
-    if (parent.children.size > 0) return
-    clearTimeout(parent.evaluation)
-    parent.evaluation = undefined
-    if (parent.pending === undefined) this.parents.delete(parentId)
+    child.stallTimer = undefined
+    // One last evaluation reports a change the coalescing delay has not reached yet.
+    this.enqueue(parentId, parent, async () => {
+      await this.deliver(parentId, parent)
+      if (child.references > 0) return
+      parent.children.delete(childId)
+      if (parent.children.size > 0) return
+      clearTimeout(parent.evaluation)
+      parent.evaluation = undefined
+      if (parent.pending === undefined) this.parents.delete(parentId)
+    })
   }
 
   /** Restart the stall timer of a running child; release and unload clear it. */
@@ -175,37 +187,73 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
     if (watch.evaluation !== undefined) return
     watch.evaluation = setTimeout(() => {
       watch.evaluation = undefined
-      this.deliver(parentId, watch)
+      this.enqueue(parentId, watch, () => this.deliver(parentId, watch))
     }, this.config.coalesceMs)
   }
 
+  /** Run one evaluation or release after the parent's earlier ones; a failure is logged and skipped. */
+  private enqueue(parentId: SessionId, watch: ParentWatch, task: () => Promise<void>): void {
+    watch.chain = watch.chain.then(async () => { if (!this.disposed) await task() }).catch((error: unknown) => {
+      this.ctx.logger.warn('session-activity: status digest for %s failed: %s', parentId, String(error))
+    })
+  }
+
+  /**
+   * Read one Session's status from live Agent state, pending forwarded requests, running work and its log.
+   * @param sessionId - Any local Session.
+   * @returns The status behind its line.
+   */
+  private async status(sessionId: SessionId): Promise<SessionStatus> {
+    const session = this.ctx.sessions.get(sessionId)
+    const state = session === undefined ? initialActivity() : this.handle.stateOf(session)
+    const agent = this.ctx.agents.get(sessionId)
+    const pending = new Set((this.ctx.get('typertGateway')?.getPendingRemoteEvents() ?? [])
+      .filter(item => String(item.agentId) === sessionId).map(item => item.event))
+    const families = await this.ctx.waterfall('workspace/session-activity', { sessionId }, () => Promise.resolve([]))
+    const kind: SessionStatusKind = pending.has('user-questions/request') ? 'question'
+      : pending.has('approval/request') ? 'approval'
+        : agent?.status === 'running' ? 'running'
+          : agent === undefined ? 'not-open'
+            : state.lastTurnEnd?.kind === 'error' ? 'failed' : 'idle'
+    const active = kind === 'running' || kind === 'question' || kind === 'approval'
+    return {
+      kind,
+      since: active ? state.turnStartedAt : state.lastTurnEnd?.time ?? null,
+      lastTool: state.lastTool,
+      activity: families.flatMap((family) => {
+        const familyKind: string = family.kind
+        // The turn family repeats the running state itself.
+        return familyKind === 'turn' ? [] : [{ kind: familyKind, labels: (family.items ?? []).map(item => item.label ?? item.id) }]
+      }),
+      error: state.lastTurnEnd?.kind === 'error' && kind === 'failed' ? state.lastTurnEnd.text : '',
+    }
+  }
+
   /** Render the parent's changed children and queue, replace, or wake with one digest. */
-  private deliver(parentId: SessionId, watch: ParentWatch): void {
+  private async deliver(parentId: SessionId, watch: ParentWatch): Promise<void> {
     const agent = this.ctx.agents.get(parentId)
     if (agent === undefined) return
     const entries: DigestEntry[] = []
-    const sent: [ChildWatch, SessionActivityState][] = []
-    const states = new Map<SessionId, SessionActivityState>()
+    const sent: [ChildWatch, SessionStatusKind][] = []
+    const keys = new Map<SessionId, string>()
     for (const [id, child] of watch.children) {
-      const session: Session | undefined = this.ctx.sessions.get(id)
-      if (session === undefined) continue
-      const state = this.handle.stateOf(session)
-      states.set(id, state)
-      sent.push([child, state])
+      const status = await this.status(id)
+      keys.set(id, statusKey(status))
+      sent.push([child, status.kind])
       entries.push({
-        label: child.label, sessionId: id, state, delivered: child.delivered, notified: child.notified, stalledMs: child.stalledMs,
+        label: child.label, sessionId: id, status, delivered: child.delivered, notified: child.notified, stalledMs: child.stalledMs,
       })
     }
-    const digest = renderDigest(entries, this.config)
+    const digest = renderDigest(entries, this.config, Date.now())
     if (digest === undefined) return
     const message = createUserMessage({
       content: [{ type: 'text', text: digest.text }],
       source: { kind: 'session-activity', form: 'notice', summary: boundContextSummary(digest.summary) },
     })
     const replaced = watch.pending !== undefined && agent.inbox.replace(watch.pending.id, message)
-    watch.pending = { id: message.id, states }
-    for (const [child, state] of sent) {
-      child.notified = state
+    watch.pending = { id: message.id, keys }
+    for (const [child, kind] of sent) {
+      child.notified = kind
       child.stalledMs = undefined
     }
     if (!digest.wake || agent.status !== 'idle') {
