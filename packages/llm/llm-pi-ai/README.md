@@ -124,7 +124,7 @@ The exported `discoverModels(request, storedProfile?, fetcher?)` operation also 
 
 ### Failures and recovery
 
-Successful Chat Completions SSE responses finish at a complete `[DONE]` event and cancel any unread HTTP body, even when the provider keeps the connection open. A `finish_reason` alone does not truncate the stream, so trailing usage is retained. Normal HTTP EOF and pi-ai's missing-terminal-reason validation still apply when no complete `[DONE]` arrives.
+Successful Chat Completions SSE responses finish at a complete `[DONE]` event and cancel any unread HTTP body, even when the provider keeps the connection open. A `finish_reason` alone does not truncate the stream, so trailing usage is retained. Normal HTTP EOF and pi-ai's missing-terminal-reason validation still apply when no complete `[DONE]` arrives. Some relays stream every parallel tool call under one `tool_calls` index with distinct ids, and sometimes repeat whole calls; the transport then moves each new id to the next free index and drops a repeated call whose name and arguments match an earlier call of the same choice, so pi-ai does not merge their arguments. Streams that never reuse an index pass through byte for byte; identical parallel calls on such a relay keep only the first.
 
 Chat Completions usage updates require a finite, nonnegative `prompt_tokens` or `completion_tokens` count. Empty usage and billing-only metadata cannot overwrite earlier token counts or cache usage; explicit zero token counts remain valid.
 

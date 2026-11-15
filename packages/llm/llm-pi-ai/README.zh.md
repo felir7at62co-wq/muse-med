@@ -124,7 +124,7 @@ profile 的 `models` 列表会替换而非扩展路由的已安装目录；每�
 
 ### 失败与恢复
 
-成功的 Chat Completions SSE（Server-Sent Events）响应在收到完整的 `[DONE]` 事件时结束，并取消尚未读取的 HTTP 响应正文，即使提供方仍保持连接也不会继续等待。仅有 `finish_reason` 不会截断流，因此其后的用量信息仍会保留。没有收到完整 `[DONE]` 时，仍按正常 HTTP EOF 结束，并保留 pi-ai 对缺失终止原因的校验。
+成功的 Chat Completions SSE（Server-Sent Events）响应在收到完整的 `[DONE]` 事件时结束，并取消尚未读取的 HTTP 响应正文，即使提供方仍保持连接也不会继续等待。仅有 `finish_reason` 不会截断流，因此其后的用量信息仍会保留。没有收到完整 `[DONE]` 时，仍按正常 HTTP EOF 结束，并保留 pi-ai 对缺失终止原因的校验。部分中转站把所有并行工具调用都放在同一个 `tool_calls` 序号下、只靠 id 区分，有时还会整条重复发送；此时传输层把每个新 id 移到下一个空闲序号，并丢弃名称和参数都与同一 choice 中较早调用相同的重复调用，避免 pi-ai 把参数拼在一起。从不复用序号的流逐字节原样通过；在这类中转站上，完全相同的并行调用只保留第一个。
 
 Chat Completions 用量更新需要包含有限、非负的 `prompt_tokens` 或 `completion_tokens`。空用量和只含账务信息的对象不会覆盖先前的 Token 及缓存计数；明确报告的零计数仍有效。
 
