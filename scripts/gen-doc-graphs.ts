@@ -108,6 +108,14 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'sessionActivity',
+    pkg: 'session-activity',
+    title: 'Watched-Session activity digests',
+    mode: 'core',
+    consumers: ['session-coordinator'],
+    note: 'Folds watched Sessions into bounded running totals and delivers one replaceable digest to each parent; questions, failed turns and stalls wake it.',
+  },
+  {
     key: 'sessionCoordinator',
     pkg: 'session-coordinator',
     title: 'Ordinary-session task coordination',

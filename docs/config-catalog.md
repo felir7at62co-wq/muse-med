@@ -3725,13 +3725,38 @@ export interface JsonRpcConfig {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-sdk-jsonrpc-server -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-session-activity -->
+<a id="deepseek-aidsh-session-activity"></a>
+
+## `@deepseek-ai/dsh-session-activity`
+
+- `inject`: `sessions` · `sessionProjections` · `agents`
+- `source`: [`packages/session/session-activity/src/index.ts:26`](../packages/session/session-activity/src/index.ts)
+
+```ts config-catalog
+/** Deployment choices for activity digests. */
+export interface Config {
+  /** Tool names whose new calls in a watched Session wake the parent. Defaults to `ask_user_question`. */
+  readonly wakeTools?: string[]
+  /** Maximum Session lines in one digest. Defaults to 8. */
+  readonly maxLines?: number
+  /** Maximum characters of one digest. Defaults to 1200. */
+  readonly maxChars?: number
+  /** Running time without a new event after which a watched Session wakes its parent once; 0 disables. Defaults to 600000. */
+  readonly stallMs?: number
+  /** Delay that merges a burst of events into one digest evaluation. Defaults to 1000. */
+  readonly coalesceMs?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-activity -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-session-coordinator -->
 <a id="deepseek-aidsh-session-coordinator"></a>
 
 ## `@deepseek-ai/dsh-session-coordinator`
 
 - `inject`: `agents` · `sessions` · `sessionQuery` · `sessionController` · `workspaceController` · `storageDomain` · `workspaceRegistry` · `jobs` · `typert` · `tools` · `sessionProjections`
-- `source`: [`packages/session/session-coordinator/src/index.ts:71`](../packages/session/session-coordinator/src/index.ts)
+- `source`: [`packages/session/session-coordinator/src/index.ts:72`](../packages/session/session-coordinator/src/index.ts)
 
 ```ts config-catalog
 /** Deployment choices for the optional coordination plugin. */
