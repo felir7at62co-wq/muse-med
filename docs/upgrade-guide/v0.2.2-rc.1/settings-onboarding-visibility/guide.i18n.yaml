@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/settings-onboarding-visibility/guide.md
+/:
+  en: 472bfcaf42c4ed58
+  zh: 686ea030b350a4e1
+/notify-settings-when-an-onboarding-dialog-becomes-visible:
+  en: 8ca3b52c11e7e89f
+  zh: 3dc6ad476f0e6980
+/notify-settings-when-an-onboarding-dialog-becomes-visible/change:
+  en: 6bf35a57d0b9fe9a
+  zh: cadd65d5dc466d16
+/notify-settings-when-an-onboarding-dialog-becomes-visible/migration:
+  en: 57aa15a217f9cd60
+  zh: 952c10cc32b3cf0f

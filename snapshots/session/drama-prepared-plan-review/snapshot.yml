@@ -1,0 +1,13 @@
+version: 1
+scenario: drama-prepared-plan-review
+profile: headless
+composition: drama-prepared-plan-review
+recording: authored
+writerOutput: true
+header:
+  class: drama-prepared-plan-review
+  pin: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-prepared-plan-fixture

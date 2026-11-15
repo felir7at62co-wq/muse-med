@@ -101,4 +101,19 @@ describe('durable market binding projection', () => {
       expect(() => definition.apply(definition.init(), bound(invalid))).toThrow()
     }
   })
+
+  it('rejects invalid persisted releases and preserves the first requested state', async () => {
+    const { entries } = await setup(), entry = entries[0]
+    if (entry === undefined) throw new Error('Expected a verified release')
+    for (const release of [null, {}, { ...entry.release, id: 'invalid' },
+      { ...entry.release, sha256: 'a'.repeat(64) }, { ...entry.release, bytes: 0 },
+      { ...entry.release, bytes: Number.NaN }, { ...entry.release, manifest: { ...entry.release.manifest, skills: [] } }]) {
+      expect(definition.stateSchema.safeParse({ bound: true, requested: false, releases: [{ ...entry, release }] }).success).toBe(false)
+    }
+    const request: SessionEvent<'request/header'> = { type: 'request/header', seq: SessionSeq(0), time: 1,
+      data: { header: { config: { provider: 'fixture', model: 'fixture' } }, reason: 'initial' } }
+    const state = definition.apply(definition.init(), request)
+    expect(definition.apply(state, request)).toBe(state)
+    expect(definition.wire.view(state)).toBe(state)
+  })
 })

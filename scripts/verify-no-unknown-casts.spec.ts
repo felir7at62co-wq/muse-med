@@ -1,14 +1,40 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { countUnknownCasts, findUnknownCasts, scanUnknownCasts, verifyNoUnknownCasts } from './verify-no-unknown-casts.ts'
+import { retainedPluginSourcePrefixes } from './retained-plugin-sources.ts'
 
 const roots: string[] = []
 const baselinePath = 'scripts/no-unknown-casts.baseline.json'
 const sourcePath = 'packages/example/src/index.ts'
 const assertion = 'const result = value as unknown\n'
+const retainedPath = 'third_party/plugins/example-retained/src/index.ts'
+const originalPath = 'scripts/fixtures/retained-plugin-origins/example-retained/src/index.ts.upstream.txt'
+const retainedOriginal = 'const ctx = {\n  home: home,\n} as unknown as Context\n'
+
+function hash(text: string): string {
+  return createHash('sha256').update(text).digest('hex')
+}
+
+function retainedFixture(current = retainedOriginal, maintained = false): string {
+  const root = fixture()
+  write(root, retainedPath, current)
+  write(root, originalPath, retainedOriginal)
+  write(root, 'third_party/plugins/example-retained/LICENSE', 'MIT fixture\n')
+  write(root, 'third_party/plugins/sources.json', JSON.stringify({ 'example-retained': {
+    repository: 'https://example.com/upstream', commit: 'a'.repeat(40), license: 'MIT',
+    ...maintained ? { localModifications: { files: { 'src/index.ts': { upstreamSha256: hash(retainedOriginal), sha256: hash(current) } } } } : {},
+  } }))
+  write(root, 'scripts/retained-plugin-origins.json', JSON.stringify({ version: 1, files: [{
+    path: retainedPath, repository: 'https://example.com/upstream', commit: 'a'.repeat(40), license: 'MIT', sha256: hash(retainedOriginal),
+    upstreamText: originalPath, licenseFile: 'third_party/plugins/example-retained/LICENSE',
+  }] }))
+  git(root, 'add', '.')
+  return root
+}
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
@@ -111,6 +137,92 @@ describe('unknown assertion syntax', () => {
   ])('preserves the recorded fingerprint for %s', (text, fingerprint) => {
     expect(findUnknownCasts('input.ts', text)[0]?.fingerprint).toBe(fingerprint)
   })
+})
+
+describe('retained unknown assertion source mapping', () => {
+  it('rejects an owned source ancestor junction before deciding whether the tracked leaf still exists', () => {
+    const root = fixture()
+    write(root, sourcePath, assertion)
+    git(root, 'add', '.')
+    const outside = mkdtempSync(join(tmpdir(), 'unknown-casts-owned-target-'))
+    roots.push(outside)
+    const original = join(root, 'packages/example/src'), target = join(outside, 'source')
+    renameSync(original, target)
+    symlinkSync(target, original, process.platform === 'win32' ? 'junction' : 'dir')
+    try {
+      expect(() => scanUnknownCasts(root)).toThrow(/Repository source link is unsupported/u)
+      unlinkSync(join(target, 'index.ts'))
+      expect(() => scanUnknownCasts(root)).toThrow(/Repository source link is unsupported/u)
+    } finally {
+      unlinkSync(original)
+    }
+  })
+
+  it.each([
+    ['source', 'third_party/plugins/example-retained/src'],
+    ['pins', 'third_party/plugins'],
+    ['lock', 'scripts'],
+    ['original', 'scripts/fixtures'],
+    ['license', 'third_party/plugins/example-retained'],
+  ])('rejects a %s reached through an ancestor junction with unchanged content hashes', (_name, directory) => {
+    const root = retainedFixture(retainedOriginal.replace('home: home', 'home: options.homeDirectory ?? home'), true)
+    const outside = mkdtempSync(join(tmpdir(), 'unknown-casts-link-target-'))
+    roots.push(outside)
+    const original = join(root, directory), target = join(outside, 'original')
+    renameSync(original, target)
+    symlinkSync(target, original, process.platform === 'win32' ? 'junction' : 'dir')
+    try {
+      expect(() => verifyNoUnknownCasts(root)).toThrow(/Repository source link is unsupported/u)
+    } finally {
+      unlinkSync(original)
+    }
+  })
+
+  it('accepts exact immutable bytes and maintained non-operator edits without a cast baseline', () => {
+    expect(verifyNoUnknownCasts(retainedFixture())).toBe(0)
+    const changed = `const prefix = true\n${retainedOriginal.replace('home: home', 'home: options.homeDirectory ?? home')}`
+    const original = findUnknownCasts(retainedPath, retainedOriginal)[0]?.fingerprint
+    expect(findUnknownCasts(retainedPath, changed)[0]?.fingerprint).not.toBe(original)
+    expect(verifyNoUnknownCasts(retainedFixture(changed, true))).toBe(0)
+  })
+
+  it.each([
+    ['added line', `${retainedOriginal}const added = value as unknown\n`],
+    ['same-line extra cast', retainedOriginal.replace('as unknown as Context', 'as unknown as Context as unknown')],
+    ['duplicated upstream cast', `${retainedOriginal}\n${retainedOriginal}`],
+    ['changed operator line', retainedOriginal.replace('} as unknown', '} satisfies object as unknown')],
+    ['new angle assertion', `${retainedOriginal}const added = <unknown>value\n`],
+    ['new multiline assertion', `${retainedOriginal}const added = value as\nunknown\n`],
+  ])('rejects a %s even with an updated maintained-content SHA', (_name, text) => {
+    const root = retainedFixture(text, true)
+    expect(() => verifyNoUnknownCasts(root)).toThrow(/new assertions to unknown/u)
+  })
+
+  it('rejects added files, owned neighbors and compatibility/check adapters beside exact retained source', () => {
+    const root = retainedFixture()
+    const owned = ['third_party/plugins/example-retained/src/new.ts', 'third_party/plugins/example-retained-owned/src/index.ts',
+      'third_party/plugins/compatibility/example-retained.ts', 'third_party/plugins/checks/example-retained.ts']
+    for (const path of owned) write(root, path, assertion)
+    expect(scanUnknownCasts(root).map(cast => cast.file)).toEqual(owned.toSorted())
+    expect(() => verifyNoUnknownCasts(root)).toThrow(/new assertions to unknown/u)
+  })
+
+  it.each(['pin', 'original', 'maintained-sha', 'missing-ledger', 'missing-lock'] as const)(
+    'fails closed on invalid retained source records: %s', (failure) => {
+      const current = retainedOriginal.replace('home: home', 'home: options.homeDirectory ?? home')
+      const root = retainedFixture(current, true)
+      if (failure === 'original') write(root, originalPath, `${retainedOriginal}// changed origin\n`)
+      if (failure === 'maintained-sha') write(root, retainedPath, `${current}// unrecorded edit\n`)
+      if (failure === 'missing-lock') unlinkSync(join(root, 'scripts/retained-plugin-origins.json'))
+      if (failure === 'pin' || failure === 'missing-ledger') {
+        write(root, 'third_party/plugins/sources.json', JSON.stringify({ 'example-retained': {
+          repository: 'https://example.com/upstream', commit: (failure === 'pin' ? 'b' : 'a').repeat(40), license: 'MIT',
+          ...failure === 'pin' ? { localModifications: { files: { 'src/index.ts': { upstreamSha256: hash(retainedOriginal), sha256: hash(current) } } } } : {},
+        } }))
+      }
+      expect(() => verifyNoUnknownCasts(root)).toThrow(/Retained|retained|Maintained/u)
+    },
+  )
 })
 
 describe('unknown assertion inventory', () => {
@@ -236,18 +348,18 @@ describe('unknown assertion source discovery', () => {
     expect(verifyNoUnknownCasts(root)).toBe(0)
   })
 
-  it.each(['dsh-feishu', 'dsh-im'])('excludes only the pinned %s source directory while checking owned adapters and neighboring plugins', (plugin) => {
+  it.each(retainedPluginSourcePrefixes)('excludes only pinned %s while checking owned adapters and neighboring plugins', (prefix) => {
     const root = fixture()
-    write(root, `third_party/plugins/${plugin}/src/index.ts`, assertion)
-    write(root, `third_party/plugins/${plugin}/tests/bridge.spec.ts`, assertion)
+    write(root, `${prefix}src/index.ts`, assertion)
+    write(root, `${prefix}tests/bridge.spec.ts`, assertion)
     git(root, 'add', '.')
     expect(scanUnknownCasts(root)).toEqual([])
     expect(verifyNoUnknownCasts(root)).toBe(0)
     const owned = [
-      `third_party/plugins/compatibility/${plugin}-owned.ts`,
-      `third_party/plugins/checks/${plugin}-owned.mts`,
-      `third_party/plugins/${plugin}-owned/src/index.ts`,
-      `third_party/plugins/${plugin}.ts`,
+      `${prefix.slice(0, -1)}-owned/src/index.ts`,
+      `${prefix.slice(0, -1)}.ts`,
+      'third_party/plugins/compatibility/owned.ts',
+      'third_party/plugins/checks/owned.mts',
     ]
     for (const file of owned) write(root, file, assertion)
     expect(scanUnknownCasts(root).map(cast => cast.file)).toEqual(owned.toSorted())
@@ -273,7 +385,7 @@ describe('unknown assertion source discovery', () => {
     const link = join(root, 'scripts/linked.ts')
     symlinkSync(join(root, 'target.txt'), link)
     try {
-      expect(() => verifyNoUnknownCasts(root)).toThrow('source symlink is unsupported: scripts/linked.ts')
+      expect(() => verifyNoUnknownCasts(root)).toThrow('Repository source link is unsupported: scripts/linked.ts')
     } finally {
       unlinkSync(link)
     }

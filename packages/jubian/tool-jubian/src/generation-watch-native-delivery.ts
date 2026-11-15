@@ -71,6 +71,8 @@ export function createNativeGenerationDelivery(ctx: Context, projection: Generat
       }
       assertOpen()
       current.lease.assertCurrent()
+      /* v8 ignore if -- AgentModel.current() runs the same field-for-field guard comparison before it
+      answers, so a differing selection aborts at the lease assertion above. */
       if (!isDeepStrictEqual(modelSelection, current.binding.model)) throw new Error('GENERATION_WATCH_BINDING_CHANGED: original model changed')
       const result = await next()
       assertOpen()
@@ -131,6 +133,8 @@ export function createNativeGenerationDelivery(ctx: Context, projection: Generat
       await Promise.allSettled([...inFlight])
       try {
         const settled = await Promise.allSettled(running.map(current => current.agent.whenIdle()))
+        /* v8 ignore next -- whenIdle() rejects only if the driver promise rejects, and the driver
+        swallows every failure in its own catch, so no settled entry is rejected. */
         for (const result of settled) if (result.status === 'rejected') failures.push(result.reason)
         for (const owned of notices.values()) {
           try {
@@ -180,12 +184,17 @@ export function createNativeGenerationDelivery(ctx: Context, projection: Generat
     if (current === undefined) {
       const lease = await acquireGenerationSessionBinding(ctx, agent, binding, signal)
       if (lease === undefined) return 'pending'
+      /* v8 ignore next -- a just-acquired lease throws inside acquire when its signal is already
+      aborted, and closing is set only inside one synchronous teardown block that returns 'pending'
+      at the top of this function. */
       if (isClosing() || signal.aborted) { lease.release(); signal.throwIfAborted(); assertOpen() }
       let active = true
       const cancel = () => { if (active && !isClosing()) agent.cancel({ kind: 'hook', reason: 'Original generation binding was revoked' }, { keepInbox: true }) }
       const release = () => {
         if (!active) return
         active = false
+        /* v8 ignore else -- a replacement lease needs a second acquire for the same Session, and the
+        model guard refuses one while it is held. */
         if (held.get(sessionId)?.lease === lease) held.delete(sessionId)
         lease.signal.removeEventListener('abort', cancel)
         lease.release()
@@ -193,6 +202,8 @@ export function createNativeGenerationDelivery(ctx: Context, projection: Generat
       current = { agent, binding, lease, release }
       held.set(sessionId, current)
       lease.signal.addEventListener('abort', cancel, { once: true })
+      /* v8 ignore if -- no await runs between the held.set above and this check, so the lease signal
+      cannot change here; an aborted lease already threw inside acquire. */
       if (lease.signal.aborted) cancel()
     }
     let owned = notices.get(sessionId)

@@ -111,6 +111,29 @@ it('keeps the original model when the notice waits behind active maintenance', a
   }
 }, 20_000)
 
+it('does not classify an unrelated pre-step failure as a rejected generation binding', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-native-watch-unrelated-error-')))
+  const { ctx, projection } = await nativeHost(root)
+  try {
+    const agent = await ctx.agentLoop.create(SessionId('unrelated-pre-step-error'), selection, { cwd: root })
+    const adapter = new MockAdapter([textResponse('This request must not run.')])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    ctx.on('agent/pre-step', () => { throw new Error('Unrelated pre-step failure') })
+    const message = createUserMessage({ content: [{ type: 'text', text: 'Resume the original result.' }],
+      source: { kind: 'jubian-generation-watch', form: 'notice', summary: 'Original result' } })
+    agent.followup(message)
+    await agent.whenIdle()
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.snapshotEvents().some(event => event.type === 'user/message' && event.data.id === message.id)).toBe(false)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/end').map(event => event.data.reason))
+      .toMatchObject([{ kind: 'error', error: { message: 'Unrelated pre-step failure' } }])
+    expect(projection.stateOf(agent.session).notices[message.id]).toBe('queued')
+  } finally {
+    await ctx.fiber.dispose()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 20_000)
+
 it('rejects a queued notice at model-request admission after the session model changes', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-native-watch-request-guard-')))
   const { ctx, projection } = await nativeHost(root)
@@ -407,9 +430,9 @@ it('restores a protected actual AgentLoop batch after interrupted preparation an
   }
 }, 20_000)
 
-it('explicitly drops filtered items from a protected actual AgentLoop batch', async () => {
+it.each(['user', 'watcher'] as const)('explicitly drops filtered %s items from a protected actual AgentLoop batch', async (kind) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-native-durable-filter-')))
-  const { ctx } = await nativeHost(root, true)
+  const { ctx, projection } = await nativeHost(root, true)
   const release = Promise.withResolvers<undefined>()
   try {
     const agent = await ctx.agentLoop.create(SessionId('actual-durable-filter'), selection, { cwd: root })
@@ -417,7 +440,8 @@ it('explicitly drops filtered items from a protected actual AgentLoop batch', as
     ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('Done')]))
     const hold = agent.runMaintenance(async () => { await release.promise })
     const a = createUserMessage({ content: [{ type: 'text', text: 'keep' }], source: { kind: 'user' } })
-    const b = createUserMessage({ content: [{ type: 'text', text: 'discard' }], source: { kind: 'user' } })
+    const b = createUserMessage({ content: [{ type: 'text', text: 'discard' }],
+      source: kind === 'watcher' ? { kind: 'jubian-generation-watch', form: 'notice', summary: 'Original result' } : { kind: 'user' } })
     const c = createUserMessage({ content: [{ type: 'text', text: 'turn' }], source: { kind: 'user' } })
     agent.inbox.append('next-step', a)
     agent.inbox.append('next-step', b)
@@ -434,6 +458,7 @@ it('explicitly drops filtered items from a protected actual AgentLoop batch', as
     expect(events.flatMap(event => event.type === 'user/message' && [a.id, b.id, c.id].includes(event.data.id) ? [event.data.id] : [])).toEqual([a.id, c.id])
     expect(agent.inbox.nextStep).toHaveLength(0)
     expect(agent.inbox.nextTurn).toHaveLength(0)
+    expect(projection.stateOf(agent.session).notices[b.id]).toBe(kind === 'watcher' ? 'needs-review' : undefined)
   } finally {
     release.resolve(undefined)
     await ctx.fiber.dispose()

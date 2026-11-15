@@ -3,6 +3,7 @@ scenario: muse-fanqie-system-proxy-failure
 profile: headless
 composition: muse-fanqie-system-proxy-failure
 recording: authored
+writerOutput: true
 header:
   class: muse-fanqie-system-proxy-failure
   pin: true

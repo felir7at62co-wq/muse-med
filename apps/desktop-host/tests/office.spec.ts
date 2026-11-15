@@ -12,11 +12,12 @@ import SkillRegistry from '@deepseek-ai/dsh-skill'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import Sessions from '@deepseek-ai/dsh-session'
+import Projections from '@deepseek-ai/dsh-session-projection'
 import { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { Config as DiscoveryConfig } from '@deepseek-ai/dsh-tool-discovery'
 import { ToolSearchIndex } from '../../../packages/core/tool-discovery/src/search.ts'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import * as desktopOffice from '../src/office.ts'
 
 class OfficeQueries extends SessionQueryEngine {
@@ -42,7 +43,7 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
       const modules = new Map<string, unknown>([
         ['agents', AgentRegistry], ['systemPrompt', SystemPrompt], ['tools', ToolRuntime],
         ['skills', SkillRegistry], ['subprocess', LocalSubprocessRuntime], ['office', desktopOffice], ['nativeToolExecutor', NativeToolExecutor],
-        ['sessions', Sessions], ['sessionQuery', OfficeQueries],
+        ['sessions', Sessions], ['sessionProjections', Projections], ['sessionQuery', OfficeQueries],
       ])
       ctx.loader.internal = {
         version: 'v2',
@@ -53,7 +54,7 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
       } as unknown as NonNullable<typeof ctx.loader.internal>
       const config = join(root, 'cordis.yml')
       await writeFile(config, [
-        '- name: sessions', '- name: sessionQuery', '- name: agents', '- name: systemPrompt', '- name: tools',
+        '- name: sessions', '- name: sessionProjections', '- name: sessionQuery', '- name: agents', '- name: systemPrompt', '- name: tools',
         '- name: skills', '- name: subprocess', '- name: nativeToolExecutor', '- name: office',
         '  config:', `    source: ${JSON.stringify(join(root, 'runtime', 'primary-runtime'))}`,
         `    root: ${JSON.stringify(join(root, 'installed'))}`,
@@ -68,10 +69,12 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
       expect((await ctx.skills.get('office-pptx'))?.resourceBase).toEqual({ kind: 'directory', path: join(assets, 'office-pptx').split(sep).join('/') })
       expect((await ctx.skills.get('office-pptx'))?.content).toContain('office-render')
       expect((await ctx.skills.get('office-pptx'))?.content).not.toContain(nodeDirectory)
-      expect(ctx.tools.schemas().map(tool => tool.name)).toEqual([
-        'load_workspace_dependencies', 'manuscript_revision', ...(recoveryEnabled ? ['source_recover'] : []),
-        'jianying_draft', 'screenplay_export_docx',
-      ])
+      await vi.waitFor(() => {
+        expect(ctx.tools.schemas().map(tool => tool.name)).toEqual([
+          'load_workspace_dependencies', 'manuscript_revision', ...(recoveryEnabled ? ['source_recover'] : []),
+          'jianying_draft', 'screenplay_export_docx',
+        ])
+      })
       const discovery = loadOverlayPatches('desktop-office-discovery', fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url)))
         .flatMap(patch => patch.insert ?? []).find(row => row.id === 'tool-discovery')
       if (!discovery) throw new Error('Missing Desktop tool-discovery row')
@@ -89,7 +92,7 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
         expect(index.search(query, 1).map(result => result.name)).toEqual([tool])
       }
       const description = ctx.tools.schemas().find(tool => tool.name === 'screenplay_export_docx')?.description
-      expect(description).toContain(reviewMode === 'advisory' ? '不要求独立审校' : '严格候选验收')
+      expect(description).toContain(reviewMode === 'advisory' ? '导出不要求批准候选' : '严格候选验收')
       const entry = [...ctx.loader.entries()].find(entry => entry.options.name === 'office')
       expect(entry).toBeDefined()
       await entry?.fiber?.dispose()

@@ -61,9 +61,14 @@ export async function registerGenerationWatchDelivery(ctx: Context): Promise<Gen
       if (event.type === 'step/start') return { ...state, claimTurn: null }
       if (event.type === 'jubian/generation-notice-parked') {
         const previous = state.notices[event.data.id]
+        /* v8 ignore else -- park() only appends this event when agent.inbox.remove(id) succeeded, so
+        the notice is still pending; its other states (settled/interrupted/unknown) require the notice
+        to have been consumed, and needs-review comes from a filtered claim that already dropped it
+        (core/agent-loop/src/inbox.ts restores claims only for a non-drop turn/end). */
         if (previous === 'queued' || previous === 'guard-rejected') {
           return { ...state, notices: { ...state.notices, [event.data.id]: 'guard-rejected' } }
         }
+        /* v8 ignore next -- unreachable with the else arm above; keeps the unchanged-state answer. */
         return state
       }
       if (event.type === 'agent/inbox/claim') {
@@ -132,6 +137,9 @@ export async function registerGenerationWatchDelivery(ctx: Context): Promise<Gen
         const claimed = Object.fromEntries(Object.entries(state.claimed).filter(([, claimedTurn]) => claimedTurn !== turn))
         for (const id of state.running) notices[id] = state.durableRunning.includes(id) && reason.kind !== 'completed' ? 'unknown' : outcome
         for (const [id, claimedTurn] of Object.entries(state.claimed)) {
+          /* v8 ignore if -- claimed[id] is written only while claimTurn is that turn, and claimTurn is
+          set by turn/start and cleared by step/start or turn/end, so a claimed entry always belongs to
+          the finishing turn. */
           if (claimedTurn !== turn) continue
           if (reason.kind === 'error' && reason.error.message.startsWith('GENERATION_WATCH_BINDING_CHANGED:')) notices[id] = 'guard-rejected'
         }

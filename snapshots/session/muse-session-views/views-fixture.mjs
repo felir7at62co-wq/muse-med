@@ -3,10 +3,11 @@ import assert from 'node:assert/strict'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { readViewReply } from '../../../third_party/plugins/deep-view/src/core/reply.js'
-import { importSnapshotModule } from '../muse-fixture-import.mjs'
+import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 
+const { loadOverlayPatches } = await importSnapshotPackage('@deepseek-ai/dsh-app-boot',
+  new URL('../../../apps/desktop-host/package.json', import.meta.url))
 const Discovery = await importSnapshotModule(new URL('../../../packages/core/tool-discovery/src/index.ts', import.meta.url),
   new URL('../../../packages/core/tool-discovery/lib/index.js', import.meta.url))
 

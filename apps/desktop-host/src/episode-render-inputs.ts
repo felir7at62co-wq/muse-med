@@ -1,10 +1,15 @@
 /** Stable regular-file capture and exclusive private staging for episode renders. */
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, open, readdir, realpath, unlink } from 'node:fs/promises'
+import * as nodeFs from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Sha256 } from '@deepseek-ai/dsh-tool-jubian/episode-delivery'
+
+// Descriptor identity requires physical metadata, including when Electron has patched node:fs.
+const { lstat, open, readdir, realpath, unlink } = process.versions.electron === undefined ? nodeFs
+  : (createRequire(import.meta.url)('original-fs') as typeof import('node:fs')).promises
 
 /** Exact bytes captured from one canonical regular file. */
 export interface EpisodeFileFact {

@@ -10,6 +10,14 @@ import { marketRelease, readMarketPackage } from './package.ts'
 import type { MuseMarketInstallation, MarketLimits, MarketRelease, MarketReleaseId,
   MuseMarketBindingEntry, MuseMarketDefaultInput, MuseMarketDefaults } from './types.ts'
 
+/** Select native file flags without changing the current process platform.
+ * @param platform - Operating system hosting the file read.
+ * @returns Read-only flags, with no-follow and nonblocking mode on POSIX.
+ */
+export function marketReadOpenFlags(platform: NodeJS.Platform): number {
+  return constants.O_RDONLY | (platform === 'win32' ? 0 : constants.O_NOFOLLOW | constants.O_NONBLOCK)
+}
+
 /** Read a bounded regular file without accepting links, special files or concurrent replacement.
  * @param path - Absolute file location.
  * @param maximum - Maximum accepted bytes.
@@ -18,8 +26,7 @@ import type { MuseMarketInstallation, MarketLimits, MarketRelease, MarketRelease
 export async function readMarketBytes(path: string, maximum: number): Promise<Buffer> {
   const before = await lstat(path, { bigint: true })
   if (!before.isFile() || before.size > BigInt(maximum)) throw new MarketError('invalid-storage')
-  const flags = constants.O_RDONLY | (process.platform === 'win32' ? 0 : constants.O_NOFOLLOW | constants.O_NONBLOCK)
-  const handle = await open(path, flags)
+  const handle = await open(path, marketReadOpenFlags(process.platform))
   try {
     const opened = await handle.stat({ bigint: true })
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) throw new MarketError('invalid-storage')
@@ -49,6 +56,12 @@ interface LocalStateV2 {
   defaults: Record<string, MarketReleaseId>
 }
 type LocalState = LocalStateV1 | LocalStateV2
+
+function defaultInstallation(installations: readonly MuseMarketInstallation[], id: unknown): MuseMarketInstallation {
+  const item = installations.find(row => row.release.id === id)
+  if (item === undefined) throw new MarketError('invalid-ledger')
+  return item
+}
 
 /** Explicit storage location and resolved bounds for local publications. */
 export interface MarketLocalConfig {
@@ -102,8 +115,8 @@ export class MuseMarketLocal {
       || value.activationRevision < 0 || !marketRecord(value.defaults)) throw new MarketError('invalid-ledger')
     const defaults: [string, MarketReleaseId][] = []
     for (const [name, id] of Object.entries(value.defaults)) {
-      const installed = installations.find(row => row.release.id === id)
-      if (!isSkillName(name) || installed?.release.manifest.skills[0]?.name !== name) throw new MarketError('invalid-ledger')
+      const installed = defaultInstallation(installations, id)
+      if (!isSkillName(name) || installed.release.manifest.skills[0]?.name !== name) throw new MarketError('invalid-ledger')
       defaults.push([name, installed.release.id])
     }
     return { version: 2, installations, defaults: Object.fromEntries(defaults), activationRevision: value.activationRevision }
@@ -196,13 +209,9 @@ export class MuseMarketLocal {
     return await withFileLock(this.ledger, async () => {
       const state = this.activation(await this.state()), entries: MuseMarketBindingEntry[] = []
       for (const [name, id] of Object.entries(state.defaults)) {
-        const item = state.installations.find(row => row.release.id === id)
-        if (item === undefined) throw new MarketError('invalid-ledger')
+        const item = defaultInstallation(state.installations, id)
         const parsed = readMarketPackage(await this.verify(item.release), this.config.limits)
-        const member = item.release.manifest.skills[0]
-        const bytes = member === undefined ? undefined : parsed.files[member.path]
-        if (bytes === undefined) throw new MarketError('missing-skill')
-        const skill = marketSkill(new TextDecoder('utf-8', { fatal: true }).decode(bytes), name)
+        const skill = marketSkill(new TextDecoder('utf-8', { fatal: true }).decode(parsed.skillInstructions), name)
         entries.push({ release: item.release, skill: { name, description: skill.description, invocation: skill.invocation,
           ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }) } })
       }
@@ -232,9 +241,8 @@ export class MuseMarketLocal {
       for (const entry of await readdir(directory, { withFileTypes: true })) {
         const path = prefix + entry.name, native = join(directory, entry.name)
         if (entry.isDirectory() && directories.has(path)) { await visit(native, path + '/'); continue }
-        if (!entry.isFile() || path !== 'publication.zip' && files[path] === undefined) throw new MarketError('modified-installation')
         const expected = path === 'publication.zip' ? archive : files[path]
-        if (expected === undefined) throw new MarketError('modified-installation')
+        if (!entry.isFile() || expected === undefined) throw new MarketError('modified-installation')
         const actual = await readMarketBytes(native, this.config.limits.expandedBytes)
         if (!actual.equals(expected)) throw new MarketError('modified-installation')
       }

@@ -22,6 +22,8 @@ describe('model-driven tool package generation', () => {
       root: workspaceRoot,
       faces: ['host'],
       packages: ['@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-tool-executor-ptc'],
+      // The build gate owns TypeScript diagnostics; this case checks the complete emitted runtime model.
+      checkDiagnostics: false,
     }).analyze()
     const host = workspace.faces.find(candidate => candidate.face === 'host')
     if (host === undefined) throw new Error('dsh-tools has no analyzed host face')

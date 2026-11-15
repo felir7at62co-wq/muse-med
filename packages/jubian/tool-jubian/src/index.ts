@@ -419,6 +419,8 @@ const storyboardOutput = (generationBindings: WeakMap<object, GenerationSessionB
   preserveBodyMeta: true,
   presentationMeta: (args: unknown, value: Record<string, unknown>) => {
     if (typeof value.generation_watch_id !== 'string') return undefined
+    /* v8 ignore next -- the tool schema fixes the argument root as an object, so a non-object args
+    value is refused before dispatch and cannot reach this projection. */
     const binding = args !== null && typeof args === 'object' ? generationBindings.get(args) : undefined
     if (binding === undefined) return undefined
     const { reasoningEffort } = binding.model
@@ -1218,10 +1220,15 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
             await beforeSend(key)
             captured.lease.assertCurrent()
           })
-          const report = enrollment.initial ? await watch.executeDispatch(enrollment.id, submit) : await dispatch(() =>
-            Promise.reject(new Error('The original video dispatch is already owned; reconcile its original key instead of submitting again')))
+          /* v8 ignore next 2 -- an already-recorded key returns from the native reconcile path before
+          beforeSend, so this rejection never runs; it stays as the ownership backstop. */
+          const refuseRepeat = (): Promise<never> =>
+            Promise.reject(new Error('The original video dispatch is already owned; reconcile its original key instead of submitting again'))
+          const report = enrollment.initial ? await watch.executeDispatch(enrollment.id, submit) : await dispatch(refuseRepeat)
           captured.lease.assertCurrent()
           const result = { ...report, generation_watch_id: enrollment.id,
+            /* v8 ignore next -- enroll() never assigns groupExchangeId: it refuses group origins
+            outright and every return omits the field. */
             ...(enrollment.groupExchangeId === undefined ? {} : { generation_watch_group_exchange_id: enrollment.groupExchangeId }) }
           if (enrollment.initial) generationBindings.set(args, captured.binding)
           return result

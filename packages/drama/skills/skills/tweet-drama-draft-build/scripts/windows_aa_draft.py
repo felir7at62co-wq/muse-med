@@ -27,7 +27,8 @@ sys.path.insert(0, str(SCRIPT_ROOT))
 CORE_SCRIPTS = SCRIPT_ROOT.parents[1] / 'tweet-drama-core' / 'scripts'
 sys.path.insert(0, str(CORE_SCRIPTS))
 from video_bans import check_videos, find_project
-from draft_inputs import audio_gains, body_clock, draft_style, bgm_import, product_subtitle_cues, write_product_subtitles
+from draft_inputs import (audio_gains, body_clock, draft_style, bgm_import, product_subtitle_cues,
+                          subtitle_font_request, write_product_subtitles)
 from generate_draft_request import attach_episode_source_receipt, read_subtitle_overlay_report, verify_draft_subtitle_clock
 
 _policy_spec = importlib.util.spec_from_file_location(
@@ -388,8 +389,10 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
                                     if key not in ('source_path', 'report')}
         plan['subtitle_overlay']['report_path'] = str(stage / 'subtitle-overlay-report.json')
         warnings.extend(plan['subtitle_overlay']['warnings'])
-    if plan['draft_style']['subtitle']['font_family']:
-        warnings.append('AA 草稿未自动下载或选择字体资源；实际默认字族及用户指定字体需在剪映核对。')
+    plan['subtitle_font'] = subtitle_font_request(
+        plan['draft_style']['subtitle']['font_family'], 'aa-jianying', required=(
+            os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1' and policy['height'] > policy['width']))
+    warnings.extend(plan['subtitle_font']['warnings'])
     if request.get('bgm'):
         decision = bgm_import(request.get('bgm_role'))
         warnings.extend(decision['warnings'])
@@ -663,7 +666,10 @@ def verify_readback(plan: dict, result: dict) -> dict:
                       for row in subtitle_offsets for end in ('start', 'end')), default=0)
     timeline_offset = max(abs(row['saved_' + end + '_us'] - row['requested_' + end + '_us'])
                           for row in timeline_offsets for end in ('start', 'end'))
-    return {'saved_readback': True, 'source_bytes_preserved': True,
+    subtitle_font = {**plan['subtitle_font'], 'warnings': list(plan['subtitle_font']['warnings'])}
+    if not subtitle_ids:
+        subtitle_font.update(status='notApplicable', delivery_ready=True)
+    return {'saved_readback': True, 'source_bytes_preserved': True, 'subtitle_font': subtitle_font,
             'watermark_font_size': watermark_font_size, 'warnings': warnings,
             'source_audio_mode': 'embedded', 'subtitle_times_preserved': max_offset == 0,
             'timeline_times_preserved': timeline_offset == 0,
@@ -711,16 +717,24 @@ def generate_request(request: dict, drafts_dir: str) -> dict:
         warnings.append('字幕保留原始 SRT；原生草稿按 30fps 分别取最近起止帧，实际最大边界偏差为 '
                         f'{verification["subtitle_timing"]["max_endpoint_offset_us"] / 1000:g} ms，详见回读记录。')
     review_path = Path(plan['draft_path']) / 'muse-review.json'
-    review = {'status': 'needs_review', 'backend': 'aa-jianying', 'warnings': warnings,
+    subtitle_font = verification['subtitle_font']
+    font_ready = subtitle_font['delivery_ready']
+    quality = 'needs_review' if font_ready else 'needs_repair'
+    error = '' if font_ready else (
+        f'请求字幕字体尚未绑定并验证，禁止交付。可编辑候选：{plan["draft_path"]}；核对记录：{review_path}')
+    review = {'status': quality, 'backend': 'aa-jianying', 'warnings': warnings,
+              'draft_style': plan['draft_style'], 'subtitle_font': subtitle_font,
               'verification': verification, 'runtime_receipt': str(receipt),
               'materials': plan['materials'], 'runtime': result['runtime'],
-              'next': '原生草稿已保存并回读；实际剪映打开、重开、字幕与声音仍需验收。'}
+              'next': ('原生草稿已保存并回读；实际剪映打开、重开、字幕与声音仍需验收。' if font_ready else
+                       '草稿字体待修，禁止交付；保留本候选，补齐后端字体绑定并重新验证。')}
     if 'subtitle_overlay' in plan:
         review['subtitle_overlay'] = plan['subtitle_overlay']
     review_path.write_text(json.dumps(review, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     candidate = {'episode': str(request['episode']).zfill(2), 'name': plan['name'],
-                 'path': plan['draft_path'], 'id': result['draft_id'], 'success': True, 'error': '',
-                 'quality': 'needs_review', 'warnings': warnings, 'review_path': str(review_path)}
+                 'path': plan['draft_path'], 'id': result['draft_id'], 'success': font_ready,
+                 'saved': True, 'error': error, 'subtitle_font': subtitle_font,
+                 'quality': quality, 'warnings': warnings, 'review_path': str(review_path)}
     native_sources = (native_source_path(row['attributes']['source']) for row in extract_nodes(result['full'])
                       if row.get('type') in ('video', 'audio'))
     warning = attach_episode_source_receipt(
@@ -729,9 +743,10 @@ def generate_request(request: dict, drafts_dir: str) -> dict:
         native_sources=native_sources, path_decoder=native_source_path)
     if warning is not None:
         warnings = candidate['warnings']
-    return {'success': True, 'backend': 'aa-jianying', 'drafts_created': 1,
+    return {'success': font_ready, 'backend': 'aa-jianying', 'drafts_created': int(font_ready),
             'drafts': [candidate],
-            'materials_dir': str(stage), 'quality': 'needs_review', 'warnings': warnings,
+            'materials_dir': str(stage), 'quality': quality, 'warnings': warnings,
+            **({'error': error} if error else {}),
             'library': {'name': 'aa-jianying', 'version': '1'}, 'editor_open_verified': False,
             'runtime': result['runtime'], 'verification': verification,
             **({'subtitle_overlay': plan['subtitle_overlay']} if 'subtitle_overlay' in plan else {})}

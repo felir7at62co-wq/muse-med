@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../session/session-projection"
+    },
+    {
       "path": "../../perception/tool-video-inspect"
     },
     {

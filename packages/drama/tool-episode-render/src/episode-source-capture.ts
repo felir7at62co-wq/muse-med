@@ -50,6 +50,9 @@ export async function captureEpisodeSourceReview(project: string, episode: strin
     }
   }
   const summary = summarizeSourceQa(reviews)
+  /* v8 ignore if -- this function verifies with requireContent, and an approved review only
+  resolves after the verifier pushed its binding, so reviews imply bindings; an empty review list
+  already threw inside summarizeSourceQa. */
   if (bindings.length === 0) throw new Error('Strict source review has no verified Session bindings')
   const selectedPaths = await Promise.all(rows.map(row => realpath(resolve(project, row.video))))
   return { sourceQaSha256: summary.sha256, selectedPaths, files: summary.files, bindings }

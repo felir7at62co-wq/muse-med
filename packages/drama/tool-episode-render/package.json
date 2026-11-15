@@ -30,13 +30,15 @@
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/dsh-atomic-write": "workspace:*",
-    "@deepseek-ai/schemastery": "workspace:~"
+    "@deepseek-ai/schemastery": "workspace:~",
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*",
     "@deepseek-ai/dsh-tool-video-inspect": "workspace:*",
+    "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/dsh-bgm-license-info": "workspace:*"
   },
   "devDependencies": {
@@ -49,6 +51,7 @@
     "@deepseek-ai/dsh-bgm-license-info": "workspace:*",
     "@deepseek-ai/dsh-tool-testkit": "workspace:*",
     "@deepseek-ai/dsh-tool-executor-native": "workspace:*",
-    "@deepseek-ai/dsh-tool-video-inspect": "workspace:*"
+    "@deepseek-ai/dsh-tool-video-inspect": "workspace:*",
+    "@deepseek-ai/dsh-session-projection": "workspace:*"
   }
 }

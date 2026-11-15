@@ -7,10 +7,8 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-const run = promisify(execFile);
 const spec = JSON.parse(process.argv[1]);
 const parent = join(spec.cwd, ...spec.directory.split('/'));
 const staging = join(parent, '.import-' + spec.nonce);
@@ -20,6 +18,48 @@ const final = join(parent, spec.jobId + '-' + spec.name);
 const receipt = final + '.source.json';
 let ownsFinal = false, ownsReceipt = false, controls, controlInput;
 const emit = value => process.stdout.write(JSON.stringify(value) + '\n');
+let verificationIndex = 0;
+// File-backed stdio keeps descendants confined without libuv's Windows named-pipe boundary.
+async function run(program, args) {
+  const prefix = join(staging, '.verify-' + ++verificationIndex);
+  const paths = [prefix + '.stdout', prefix + '.stderr'];
+  const handles = [];
+  let timer, sampling = Promise.resolve(), outputError;
+  try {
+    for (const path of paths) handles.push(await open(path, 'wx+', 0o600));
+    const child = spawn(program, args, { windowsHide: true, stdio: ['ignore', handles[0].fd, handles[1].fd] });
+    const inspect = async () => {
+      for (const handle of handles) {
+        if ((await handle.stat()).size > spec.maxOutputBytes) throw Error('INVALID_MEDIA');
+      }
+    };
+    timer = setInterval(() => {
+      sampling = sampling.then(inspect).catch(error => { outputError ??= error; child.kill(); });
+    }, 20);
+    let spawnError;
+    child.once('error', error => { spawnError = error; });
+    const outcome = await new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
+    clearInterval(timer); timer = undefined;
+    await sampling;
+    if (spawnError) throw spawnError;
+    if (outputError) throw outputError;
+    await inspect();
+    if (outcome.code !== 0 || outcome.signal !== null) throw Error('INVALID_MEDIA');
+    const bytes = Buffer.alloc((await handles[0].stat()).size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesRead } = await handles[0].read(bytes, offset, bytes.length - offset, offset);
+      if (bytesRead === 0) throw Error('INVALID_MEDIA');
+      offset += bytesRead;
+    }
+    return { stdout: bytes.toString('utf8') };
+  } finally {
+    clearInterval(timer);
+    await sampling;
+    await Promise.all(handles.map(handle => handle.close()));
+    await Promise.all(paths.map(path => unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; })));
+  }
+}
 async function cleanup() {
   if (ownsReceipt) await unlink(receipt).catch(error => { if (error.code !== 'ENOENT') throw error; });
   if (ownsFinal) await unlink(final).catch(error => { if (error.code !== 'ENOENT') throw error; });
@@ -63,9 +103,8 @@ try {
     }});
     await pipeline(process.stdin, bound, createWriteStream(temporary, { flags: 'wx', mode: 0o600 }));
     if (bytes !== spec.bytes || hash.digest('hex') !== spec.sha256) throw Error('FILE_INCOMPLETE');
-    const options = { maxBuffer: spec.maxOutputBytes, windowsHide: true };
     const probe = await run(spec.ffprobe, ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_entries',
-      'format=format_name,duration:stream=codec_type,width,height', '-of', 'json', temporary], options);
+      'format=format_name,duration:stream=codec_type,width,height', '-of', 'json', temporary]);
     const metadata = JSON.parse(probe.stdout);
     const video = metadata.streams?.find(stream => stream.codec_type === 'video');
     const durationSeconds = Number(metadata.format?.duration);
@@ -77,7 +116,7 @@ try {
       || (spec.kind === 'image' && !imageFormat && Number.isFinite(durationSeconds) && durationSeconds > 0)
       || (spec.kind === 'video' && (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > spec.maxDurationSeconds))) throw Error('INVALID_MEDIA');
     await run(spec.ffmpeg, ['-nostdin', '-v', 'error', '-xerror', '-protocol_whitelist', 'file,pipe', '-i', temporary,
-      '-map', '0:v:0', '-map', '0:a?', '-f', 'null', '-'], options);
+      '-map', '0:v:0', '-map', '0:a?', '-f', 'null', '-']);
     const facts = { bytes, sha256: spec.sha256, kind: spec.kind, width: video.width, height: video.height,
       ...(spec.kind === 'video' ? { durationSeconds } : {}), fullDecodeVerified: true };
     emit({ phase: 'verified', ...facts });
