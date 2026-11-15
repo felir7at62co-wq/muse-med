@@ -258,13 +258,14 @@ describe('installed pi-ai Chat Completions protocol', () => {
       type: 'function', function: { name, arguments: JSON.stringify({ x }) } }] }, finish_reason: null }] })
     const finish = JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })
     const server = await mockServer([{ events: [call('call-a', 'load_a', '1'), finish, call('call-b', 'load_b', '2'), finish,
-      call('call-c', 'load_a', '1'), finish, call('call-d', 'load_b', '2'), finish, '[DONE]'] }])
+      call('call-c', 'load_a', '1'), finish, call('call-d', 'load_c', '3'), finish, call('call-e', 'load_b', '2'), finish, '[DONE]'] }])
     const events = await collect(server.url, new AbortController().signal)
     expect(events.at(-1)).toMatchObject({ type: 'done', reason: 'toolUse', message: { content: [
       { type: 'toolCall', id: 'call-a', name: 'load_a', arguments: { x: '1' } },
       { type: 'toolCall', id: 'call-b', name: 'load_b', arguments: { x: '2' } },
+      { type: 'toolCall', id: 'call-d', name: 'load_c', arguments: { x: '3' } },
     ] } })
-    expect((events.at(-1) as { message?: { content: unknown[] } }).message?.content).toHaveLength(2)
+    expect((events.at(-1) as { message?: { content: unknown[] } }).message?.content).toHaveLength(3)
   })
 
   it('keeps a missing finish_reason as an SDK error even when DONE closes the body', async () => {

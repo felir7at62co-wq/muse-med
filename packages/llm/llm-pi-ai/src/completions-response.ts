@@ -50,6 +50,7 @@ interface ToolCallSlot {
 
 interface ChoiceToolCalls {
   slots: Map<number, ToolCallSlot>
+  targets: Set<number>
   calls: Map<number, { name: string; args: string }>
 }
 
@@ -88,7 +89,7 @@ class ToolCallIndexes {
       if (choice === undefined || delta === undefined || !Array.isArray(calls)) continue
       const key = typeof choice['index'] === 'number' ? choice['index'] : position
       const state: ChoiceToolCalls = this.choices.get(key)
-        ?? { slots: new Map<number, ToolCallSlot>(), calls: new Map<number, { name: string; args: string }>() }
+        ?? { slots: new Map<number, ToolCallSlot>(), targets: new Set<number>(), calls: new Map<number, { name: string; args: string }>() }
       this.choices.set(key, state)
       const kept: unknown[] = []
       for (const [callPosition, rawCall] of calls.entries()) {
@@ -101,9 +102,9 @@ class ToolCallIndexes {
         let slot = state.slots.get(source)
         if (slot === undefined || id !== undefined && slot.id !== undefined && id !== slot.id) {
           const reused = slot !== undefined
-          const used = new Set([...state.slots.values()].map(item => item.target))
           let target = source
-          while (used.has(target)) target += 1
+          while (state.targets.has(target)) target += 1
+          state.targets.add(target)
           const duplicate = reused && [...state.calls.values()].some(previous => previous.name === name && previous.args === args)
           slot = { target, id, drop: duplicate }
           state.slots.set(source, slot)
