@@ -3731,7 +3731,7 @@ export interface JsonRpcConfig {
 ## `@deepseek-ai/dsh-session-coordinator`
 
 - `inject`: `agents` · `sessions` · `sessionQuery` · `sessionController` · `workspaceController` · `storageDomain` · `workspaceRegistry` · `jobs` · `typert` · `tools` · `sessionProjections`
-- `source`: [`packages/session/session-coordinator/src/index.ts:62`](../packages/session/session-coordinator/src/index.ts)
+- `source`: [`packages/session/session-coordinator/src/index.ts:71`](../packages/session/session-coordinator/src/index.ts)
 
 ```ts config-catalog
 /** Deployment choices for the optional coordination plugin. */
@@ -3758,6 +3758,23 @@ export interface Config {
    * start at once and count toward the limit. Defaults to 3.
    */
   readonly maxWorkers?: number
+  /**
+   * Run without a human. Main and assigned workers cannot call `humanTools`, Main may dispatch from a schedule
+   * reminder, and a task whose latest revision ends `needs-report`, `failed`, `blocked` or `needs-input`, or
+   * `interrupted` once its worker is quiescent, is re-dispatched to a fresh worker up to `redispatchLimit` times
+   * and then marked for attention. Defaults to false.
+   */
+  readonly unattended?: boolean
+  /** Consecutive automatic re-dispatches of one task before it is marked for attention; 0 marks it at once. Defaults to 1. */
+  readonly redispatchLimit?: number
+  /** Tools that wait for a human answer, denied when `unattended` is set. Defaults to `ask_user_question` and `exit_plan_mode`. */
+  readonly humanTools?: string[]
+  /**
+   * Absolute directory under which every assignment of a task runs in `<taskRoot>/<task id>`, created before
+   * its first fresh worker starts. Dispatch then rejects another `cwd` and reuse of a Session in another
+   * directory. Omitted, fresh workers use Main's directory unless Main passes `cwd`.
+   */
+  readonly taskRoot?: string
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-coordinator -->

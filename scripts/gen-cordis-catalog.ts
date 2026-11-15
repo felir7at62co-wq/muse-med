@@ -1121,6 +1121,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   CoordinationReport: 'Muse owner-verified report receipts are owned by packages/session/session-coordinator/README.md',
   DispatchRequest: 'Muse coordination records and routing operations are owned by packages/session/session-coordinator/README.md',
   ReconcileRequest: 'Muse coordination records and routing operations are owned by packages/session/session-coordinator/README.md',
+  RoutingMode: 'Muse unattended and task-folder deployment facts are owned by packages/session/session-coordinator/README.md',
   RoutingTaskList: 'Muse coordination records and routing operations are owned by packages/session/session-coordinator/README.md',
   WorkerReport: 'Muse coordination records and routing operations are owned by packages/session/session-coordinator/README.md',
   SessionVideoInventory: 'recorded video inventory and coverage fields are owned by packages/drama/session-video/README.md',

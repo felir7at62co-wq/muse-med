@@ -1165,7 +1165,9 @@ async read(main: Agent, sessionId: SessionId, fromSeq: number): Promise<string>
  * Record and deliver one new goal or an explicit revision, reusing an identical key.
  * A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded.
  * A fresh worker is created only when `maxWorkers` permits and no older fresh-worker dispatch is waiting;
- * otherwise the recorded intent waits as `dispatching` and starts automatically.
+ * otherwise the recorded intent waits as `dispatching` and starts automatically. With `taskRoot`, every
+ * revision runs in the task's folder; another `cwd` or a reused Session in another directory fails before
+ * any intent is recorded. The request source is Main's latest human message, or schedule reminder when unattended.
  * @param main - Exact routing Agent.
  * @param request - Agent-selected existing or fresh ordinary worker and bounded routing notes.
  * @returns authoritative task; `dispatching` for a waiting fresh worker; acceptance is not execution completion.

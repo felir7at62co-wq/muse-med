@@ -26,6 +26,8 @@ const assignment = z.object({
   videoKey: z.string().nullable(), status, report: report.nullable(), issue: z.string().nullable(),
   noticeId: z.string().transform(value => brandString<MessageId>(value)), notifiedStatus: status.nullable(),
   changedInputSeq: z.number().int().nonnegative().optional(), notifiedInputSeq: z.number().int().nonnegative().optional(),
+  redispatch: z.object({ after: status }).optional(),
+  attention: z.object({ reason: z.string().min(1), at: z.number() }).optional(),
 }).superRefine((value, refinement) => {
   if (value.reconciliation === undefined && (value.forwardedIds.length === 0 || value.status === 'reconciling')) {
     refinement.addIssue({ code: 'custom', message: 'Ordinary assignments require forwarded human input' })
@@ -90,7 +92,8 @@ export function routingTask(task: CoordinationTask): RoutingTask {
   return { id: task.id, title: task.title, revision: attempt.revision, sessionId: attempt.sessionId,
     cwd: attempt.cwd, status: attempt.status, issue: attempt.issue,
     report: attempt.report === null ? null
-      : { outcome: attempt.report.outcome, summary: attempt.report.summary, fileCount: attempt.report.files.length } }
+      : { outcome: attempt.report.outcome, summary: attempt.report.summary, fileCount: attempt.report.files.length },
+    ...(attempt.attention === undefined ? {} : { attention: attempt.attention }) }
 }
 
 /**
