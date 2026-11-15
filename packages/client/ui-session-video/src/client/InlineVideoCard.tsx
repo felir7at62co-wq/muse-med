@@ -24,8 +24,8 @@ export function InlineVideoCard({ source, sourceUrl, label, actions, t }: Pick<V
     onCollect: (value) => { actions.collect(id, value) },
     onOpen: () => { if (source) actions.openSource(source.id) } })
   useEffect(() => {
-    const element = video.current
-    if (!element) return
+    // This unconditional video is mounted before React commits its effect.
+    const element = video.current as HTMLVideoElement
     element.src = sourceUrl
     return () => { element.pause(); element.removeAttribute('src'); element.load() }
   }, [sourceUrl])

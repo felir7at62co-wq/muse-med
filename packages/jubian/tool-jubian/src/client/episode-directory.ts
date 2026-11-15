@@ -160,17 +160,17 @@ export class EpisodeDirectory {
   }
 
   /** Submit once, or explicitly resume the same observed original task.
+   * One submission and its completion remain bound to the connection captured for that action.
    * @param resume - True only for a user-selected Resume action backed by current Host permission.
    */
   async admit(resume = false): Promise<void> {
-    if (!this.available()) return
+    const binding = this.binding
+    if (this.closed || binding === undefined || this.operation !== undefined) return
     const permission = this.permission, selected = this.state.getSnapshot().target
     const input = selected ?? this.ready
     if (input === undefined || permission === undefined || !this.same(input, permission.input)
       || (resume ? !permission.status.canResume : this.ready === undefined || !this.same(input, this.ready)
         || permission.status.state !== 'not-admitted')) return
-    const binding = this.binding
-    if (binding === undefined) return
     const operation = {}, selection = this.selection
     this.operation = operation; this.permission = undefined; this.ready = undefined
     this.releaseQuery('status')

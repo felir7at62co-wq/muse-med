@@ -7,6 +7,7 @@
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
+import { isJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {
   AgentEventDispatch,
   Inbox as InboxContract,
@@ -23,6 +24,14 @@ export const inboxProjectionSchema = z.object({
   claim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
     nextStep: z.array(z.custom<UserMessage>()).readonly(), nextTurn: z.array(z.custom<UserMessage>()).readonly() }).optional(),
 }).readonly()
+
+const inboxWireSchema = z.object({
+  'next-turn': z.array(z.custom<JsonValue>(isJsonValue)),
+  'next-step': z.array(z.custom<JsonValue>(isJsonValue)),
+  activeClaim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
+    nextStep: z.array(z.custom<MessageId>()).readonly(), nextTurn: z.array(z.custom<MessageId>()).readonly() }).optional(),
+}).transform(({ activeClaim, ...pending }): InboxWireState => activeClaim === undefined
+  ? pending : { ...pending, activeClaim }) satisfies z.ZodType<InboxWireState>
 
 /** Standard fold that reconstructs pending input and rejects invalid durable splice history. */
 export const inboxProjectionDefinition = {
@@ -100,15 +109,11 @@ export const inboxProjectionDefinition = {
   wire: {
     // Pending messages round-trip the session log as lossless JSON. Claims expose
     // only the identities and positions needed to follow later queue restoration.
-    viewSchema: z.object({ 'next-turn': z.array(z.custom<UserMessage>()),
-      'next-step': z.array(z.custom<UserMessage>()),
-      activeClaim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
-        nextStep: z.array(z.custom<MessageId>()).readonly(), nextTurn: z.array(z.custom<MessageId>()).readonly() }).optional(),
-    }) as unknown as z.ZodType<InboxWireState>,
-    view: (state: InboxState) => ({ 'next-turn': state['next-turn'], 'next-step': state['next-step'],
+    viewSchema: inboxWireSchema,
+    view: (state: InboxState) => inboxWireSchema.parse({ 'next-turn': state['next-turn'], 'next-step': state['next-step'],
       ...state.claim === undefined ? {} : { activeClaim: { turn: state.claim.turn, step: state.claim.step,
         nextStep: state.claim.nextStep.map(message => message.id), nextTurn: state.claim.nextTurn.map(message => message.id) } },
-    }) as unknown as InboxWireState,
+    }),
   },
   stateVersion: 2,
 } satisfies ProjectionDefinition<'inbox', InboxState>

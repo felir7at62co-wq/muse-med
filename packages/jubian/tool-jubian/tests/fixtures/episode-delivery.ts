@@ -25,11 +25,12 @@ export async function createEpisodeDeliveryFixture() {
   await writeFile(join(editing, 'timeline.json'), JSON.stringify({ clips: [{ shot: 1, start_us: 0, duration_us: 1000000 }], body_end: 1 }))
   await writeFile(join(editing, 'subtitles.srt'), '1\n00:00:00,000 --> 00:00:01,000\nLocal fixture\n')
   await writeFile(join(editing, 'mix.json'), '{"schema_version":1,"mode":"no_bgm"}')
-  let enter: () => void = () => {}, release: () => void = () => {}
+  let enter: () => void = () => {}, arm: () => void = () => {}, release: () => void = () => {}
   const entered = new Promise<void>((resolve) => { enter = resolve })
+  const armed = new Promise<void>((resolve) => { arm = resolve })
   const barrier = new Promise<void>((resolve) => { release = resolve })
   const providerLifetime = new AbortController()
-  const renderer = { calls: 0, encodes: 0, captures: 0, mode: 'complete' as 'complete' | 'unknown' | 'failed' | 'retry-required', entered,
+  const renderer = { calls: 0, encodes: 0, captures: 0, mode: 'complete' as 'complete' | 'unknown' | 'failed' | 'retry-required', entered, armed,
     release, dispose: () => { providerLifetime.abort(new Error('Controlled renderer disposed')) } }
   const digest = (value: string): Sha256 => brandString<Sha256>(createHash('sha256').update(value).digest('hex'))
   const provider: ApprovedEpisodeRenderer = {
@@ -71,6 +72,7 @@ export async function createEpisodeDeliveryFixture() {
         await input.job.assertAdmission(identity); await input.job.armExecution(running)
         renderer.encodes++
         await writeFileAtomic(join(input.job.attemptRoot, 'execution.json'), JSON.stringify(running), { mode: 0o600 })
+        arm()
         await Promise.race([barrier, new Promise<void>((resolve) => { if (signal.aborted) resolve(); else signal.addEventListener('abort', () => { resolve() }, { once: true }) })])
         if (renderer.mode === 'unknown') return { kind: 'unknown', previous: running, diagnostic: 'Controlled unknown guardian outcome' }
         if (signal.aborted) {

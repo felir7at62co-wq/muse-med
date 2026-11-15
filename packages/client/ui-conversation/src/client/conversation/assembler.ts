@@ -490,12 +490,6 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     let startMatch: ConversationMatch | undefined
     let updateMatch: ConversationMatch | undefined
     let location: ConversationMatch['location'] | undefined
-    const matchFor = (role: ConversationMatch['role']): ConversationMatch => {
-      location ??= this.locationIndex.locationOf(event)
-      return role === 'start'
-        ? startMatch ??= conversationMatch(input, role, location)
-        : updateMatch ??= conversationMatch(input, role, location)
-    }
     const definitions = this.matchedDefinitions
     const results = this.matchedResults
     definitions.length = 0
@@ -546,7 +540,11 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
         else if (secondTarget === undefined) secondTarget = target
         else (otherTargets ??= new Set()).add(target)
       }
-      publication = maximumPublication(publication, accept.call(this, definition, result.id, matchFor(result.role)))
+      location ??= this.locationIndex.locationOf(event)
+      const match = result.role === 'start'
+        ? startMatch ??= conversationMatch(input, result.role, location)
+        : updateMatch ??= conversationMatch(input, result.role, location)
+      publication = maximumPublication(publication, accept.call(this, definition, result.id, match))
     }
     const fallback = this.eventDefinitions.fallbackEntry()
     const target = fallback?.target
@@ -554,7 +552,11 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
       && target !== firstTarget && target !== secondTarget && otherTargets?.has(target) !== true) {
       const result = fallback.match(event)
       if (result !== null) {
-        publication = maximumPublication(publication, accept.call(this, fallback, result.id, matchFor(result.role)))
+        location ??= this.locationIndex.locationOf(event)
+        const match = result.role === 'start'
+          ? startMatch ??= conversationMatch(input, result.role, location)
+          : updateMatch ??= conversationMatch(input, result.role, location)
+        publication = maximumPublication(publication, accept.call(this, fallback, result.id, match))
       }
     }
     return publication
@@ -589,12 +591,13 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     id: string,
     match: ConversationMatch,
   ): ConversationPublication {
-    const latest = this.contextsByKind.get(definition.kind)?.at(-1)
+    const kindContexts = this.contextsByKind.get(definition.kind)
+    const latest = kindContexts?.[kindContexts.length - 1]
     const key = latest?.id === id ? latest.key : conversationContextKey(definition.kind, id)
-    let context = this.contexts.get(key)
+    let context = latest?.id === id ? latest : this.contexts.get(key)
     context ??= this.createContext(definition, id, key)
     const starting = match.role === 'start' && context.start === undefined
-    const previous = context.matches.at(-1)
+    const previous = context.matches[context.matches.length - 1]
     if (previous !== undefined && previous.event.seq >= match.event.seq) {
       throw new Error(`conversation Context ${key} received non-appended Match ${match.event.seq}`)
     }

@@ -10,10 +10,10 @@
 .toolbar, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .query { flex: 1; min-width: 120px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; }
-.card { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; gap: 12px; border: 1px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-xl); padding: 16px; }
+.card { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; gap: 12px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-xl); padding: 16px; }
 .form { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .form label, .field { display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 20px; }
-.form textarea, .form select { min-width: 0; max-width: 100%; padding: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); border: 1px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md); font: inherit; }
+.form textarea, .form select { min-width: 0; max-width: 100%; padding: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md); font: inherit; }
 .form code { overflow-wrap: anywhere; }
 .notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--dsw-radius-md); background: var(--dsw-alias-state-warn-tertiary); }
 .skeletons { display: grid; min-height: 120px; place-items: center; }
