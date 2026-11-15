@@ -119,7 +119,7 @@ Per parent the service keeps the watched children with their reference count, la
 
 #### What the model sees
 
-The parent model receives a user message with source `session-activity` and form `notice`. Its text starts with `Status of the Sessions you dispatched, as the session list shows it (read a Session for details):`, followed by one line per changed Session, for example `- episode 1 [session-…] running for 12 min · last tool video_inspect · job: ffmpeg cut`. When a Session needs the parent, a `Needs your attention:` section names the waiting state with the latest tool call, the failed turn's error, or the stall time. The plugin registers no tools and no system-prompt section; consumers render `describe` lines in their own tool results.
+The parent model receives a user message with source `session-activity` and form `notice`. Its text starts with `Status of the Sessions you dispatched, as the session list shows it.` and tells the model that these updates arrive by themselves, so it should not poll `list_agents`, `job_list` or `coordinator_tasks`, should wait for the closing notice or receipt rather than interrupt a Session that already reported, and should read a Session only for details. It continues with one line per changed Session, for example `- episode 1 [session-…] running for 12 min · last tool video_inspect · job: ffmpeg cut`. When a Session needs the parent, a `Needs your attention:` section names the waiting state with the latest tool call, the failed turn's error, or the stall time. The plugin registers no tools and no system-prompt section; consumers render `describe` lines in their own tool results.
 
 #### Token effect
 

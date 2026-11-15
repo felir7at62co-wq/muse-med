@@ -119,7 +119,7 @@ kind: "package-reference"
 
 #### 模型可见内容
 
-父会话模型收到来源为 `session-activity`、形式为 `notice` 的用户消息。正文以 `Status of the Sessions you dispatched, as the session list shows it (read a Session for details):` 开头，随后每个有变化的会话一行，例如 `- episode 1 [session-…] running for 12 min · last tool video_inspect · job: ffmpeg cut`。需要父会话处理时，`Needs your attention:` 段落写明等待状态及最近一次工具调用、失败轮次的错误或停滞时长。插件不注册工具，也不添加系统提示词段落；使用方在自己的工具结果中呈现 `describe` 状态行。
+父会话模型收到来源为 `session-activity`、形式为 `notice` 的用户消息。正文以 `Status of the Sessions you dispatched, as the session list shows it.` 开头，说明这些更新会自动送达，不必轮询 `list_agents`、`job_list` 或 `coordinator_tasks`，已经回报的会话应等它的结束通知或回执而不是打断，只有需要细节时才去读会话；随后每个有变化的会话一行，例如 `- episode 1 [session-…] running for 12 min · last tool video_inspect · job: ffmpeg cut`。需要父会话处理时，`Needs your attention:` 段落写明等待状态及最近一次工具调用、失败轮次的错误或停滞时长。插件不注册工具，也不添加系统提示词段落；使用方在自己的工具结果中呈现 `describe` 状态行。
 
 #### Token 影响
 

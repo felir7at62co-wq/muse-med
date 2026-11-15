@@ -139,7 +139,9 @@ export function renderDigest(entries: readonly DigestEntry[], options: { readonl
     && (entry.stalledMs !== undefined || statusKey(entry.status) !== entry.delivered))
   if (changed.length === 0) return undefined
   const reasons = changed.flatMap(wakeReasons)
-  const header = 'Status of the Sessions you dispatched, as the session list shows it (read a Session for details):'
+  const header = 'Status of the Sessions you dispatched, as the session list shows it. '
+    + 'These updates arrive by themselves when a state changes, so do not poll list_agents, job_list or coordinator_tasks for progress; '
+    + 'wait for the closing notice or receipt rather than interrupting a Session that already reported. Read a Session only when you need details:'
   const lines = changed.slice(0, options.maxLines).map(entry => `- ${entry.label} [${entry.sessionId}] ${statusText(entry.status, now)}`)
   const omitted = changed.length - lines.length
   const tail = omitted > 0 ? [`- ${omitted} more Sessions changed.`] : []

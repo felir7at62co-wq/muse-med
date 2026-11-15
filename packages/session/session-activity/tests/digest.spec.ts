@@ -58,7 +58,9 @@ describe('digests', () => {
     const progressed = renderDigest([entry('ep1', running), entry('ep2', running), entry('ep3', running)], { ...options, maxLines: 2 }, minute)
     expect(progressed).toEqual({
       wake: false, summary: '3 Session status change(s)',
-      text: ['Status of the Sessions you dispatched, as the session list shows it (read a Session for details):',
+      text: ['Status of the Sessions you dispatched, as the session list shows it. These updates arrive by themselves when a state changes, '
+      + 'so do not poll list_agents, job_list or coordinator_tasks for progress; wait for the closing notice or receipt rather than interrupting '
+      + 'a Session that already reported. Read a Session only when you need details:',
         `- ep1 [session-ep1] ${statusText(running, minute)}`, `- ep2 [session-ep2] ${statusText(running, minute)}`,
         '- 1 more Sessions changed.'].join('\n'),
     })
