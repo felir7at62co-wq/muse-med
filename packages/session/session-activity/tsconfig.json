@@ -24,10 +24,10 @@
       "path": "../../../packages/llm/llm"
     },
     {
-      "path": "../../../packages/jobs/jobs"
+      "path": "../../../packages/workspace/workspace"
     },
     {
-      "path": "../../../packages/deliverables/tool-present"
+      "path": "../../../packages/api/gateway/tsconfig.host.json"
     },
     {
       "path": "../session-projection"

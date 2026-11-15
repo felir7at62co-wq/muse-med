@@ -17157,9 +17157,9 @@ importers:
       '@deepseek-ai/dsh-agent-loop-testkit':
         specifier: workspace:*
         version: link:../../test-support/agent-loop-testkit
-      '@deepseek-ai/dsh-attachment':
+      '@deepseek-ai/dsh-api-gateway':
         specifier: workspace:*
-        version: link:../../attachment/attachment
+        version: link:../../api/gateway
       '@deepseek-ai/dsh-jobs':
         specifier: workspace:*
         version: link:../../jobs/jobs
@@ -17172,9 +17172,9 @@ importers:
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:*
         version: link:../session-projection
-      '@deepseek-ai/dsh-tool-present':
+      '@deepseek-ai/dsh-workspace':
         specifier: workspace:*
-        version: link:../../deliverables/tool-present
+        version: link:../../workspace/workspace
 
   packages/session/session-checkpoint-policy:
     devDependencies:

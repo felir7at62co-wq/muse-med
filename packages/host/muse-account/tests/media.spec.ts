@@ -155,7 +155,7 @@ it('aborts a blocked body on deadline and does not retry an uncertain submission
     entered.resolve(undefined)
     return new Response(new ReadableStream({ cancel }), { headers: { 'content-type': 'application/json' } })
   })
-  const pending = value.client.download({ platform: 'douyin', content_id: '1', requestId })
+  const pending = value.client.download({ platform: 'tiktok', content_id: '1', requestId })
   const assertion = expect(pending).rejects.toMatchObject({ code: 'unconfirmed' })
   await entered.promise
   deadline.abort(new DOMException('Controlled deadline', 'TimeoutError'))
@@ -415,10 +415,10 @@ it('retains unknown partial counts and validates MCP failure state and submissio
   await expect(value.client.data('get_video', { platform: 'douyin', content_id: '123' })).rejects
     .toMatchObject({ code: 'invalid-response' })
   value.fetcher.mockImplementationOnce(async (_url, init) => rpc(init, { ...saved, request_id: 'another-request' }))
-  await expect(value.client.download({ requestId, platform: 'douyin', content_id: '123' })).rejects
+  await expect(value.client.download({ requestId, platform: 'tiktok', content_id: '123' })).rejects
     .toMatchObject({ code: 'invalid-response' })
   value.fetcher.mockImplementationOnce(async (_url, init) => rpc(init, { state: 'failed', code: 'invalid_input' }, true))
-  await expect(value.client.download({ requestId, platform: 'douyin', content_id: '123' })).resolves
+  await expect(value.client.download({ requestId, platform: 'tiktok', content_id: '123' })).resolves
     .toEqual({ state: 'failed', code: 'invalid_input' })
 })
 
@@ -455,11 +455,30 @@ it('uses the configured global transport and skips cleanup of an already consume
   expect(value.fetcher).not.toHaveBeenCalled()
 })
 
+it.each([
+  { platform: 'douyin' as const, content_id: '7126745726494821640' },
+  { url: 'https://www.douyin.com/video/7126745726494821640' },
+  { url: '7.43 复制打开抖音，看看【作品】 https://v.douyin.com/iRNBho6u/ ' },
+  { url: 'https://www.iesdouyin.com/share/video/7126745726494821640/' },
+])('refuses a Douyin download before reading the login or contacting the gateway: %o', async (target) => {
+  const value = await fixture({}, false)
+  await expect(value.client.download({ requestId, ...target })).rejects.toMatchObject({ code: 'douyin-unsupported' })
+  expect(value.fetcher).not.toHaveBeenCalled()
+})
+
+it.each(['https://www.tiktok.com/@a/video/1?ref=notdouyin.com.example', 'https://www.bilibili.com/video/BV1xx411c7mD'])(
+  'keeps non-Douyin download targets on the company cloud: %s', async (url) => {
+    const value = await fixture({}, false)
+    await expect(value.client.download({ requestId, url })).rejects.toMatchObject({ code: 'sign-in-required' })
+    await expect(value.client.download({ requestId, platform: 'bilibili', content_id: 'BV1xx411c7mD' })).rejects
+      .toMatchObject({ code: 'sign-in-required' })
+  })
+
 it('separates read transport failure from an unconfirmed submission without retrying either', async () => {
   const value = await fixture()
   value.fetcher.mockRejectedValueOnce(new Error('private socket error')).mockRejectedValueOnce(new Error('private socket error'))
   await expect(value.client.get(id)).rejects.toMatchObject({ code: 'unavailable' })
-  await expect(value.client.download({ requestId, platform: 'douyin', content_id: '123' })).rejects
+  await expect(value.client.download({ requestId, platform: 'tiktok', content_id: '123' })).rejects
     .toMatchObject({ code: 'unconfirmed' })
   expect(value.fetcher).toHaveBeenCalledTimes(2)
 })

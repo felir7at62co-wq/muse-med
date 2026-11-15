@@ -2946,7 +2946,7 @@ export interface Config {
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
 - `refs`: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/host/muse-account/src/index.ts:47`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:51`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -3021,6 +3021,22 @@ export interface Config {
   readonly mediaMaxPixels: number
   /** Maximum complete video duration accepted by the local importer. */
   readonly mediaMaxDurationSeconds: number
+  /** Register `douyin_download`, which queues Douyin works on the data station with the current private Muse login. */
+  readonly douyinDownloadTool: boolean
+  /** Data-station Douyin route prefix joined to the `baseUrl` origin. */
+  readonly douyinStationPath: string
+  /** Deadline for one data-station request and its complete reply. */
+  readonly douyinRequestTimeoutMs: number
+  /** Deadline for reading one `v.douyin.com` share link's redirect. */
+  readonly douyinLinkTimeoutMs: number
+  /** Maximum complete JSON reply accepted from the data station. */
+  readonly douyinMaxReplyBytes: number
+  /** Largest `wait_seconds` one tool call may spend waiting for downloads. */
+  readonly douyinMaxWaitSeconds: number
+  /** Pause between record queries while a tool call waits. */
+  readonly douyinPollIntervalMs: number
+  /** Records requested by one query; the station serves at most 500 and queues at most its own series limit. */
+  readonly douyinListLimit: number
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
@@ -3733,20 +3749,18 @@ export interface JsonRpcConfig {
 ## `@deepseek-ai/dsh-session-activity`
 
 - `inject`: `sessions` · `sessionProjections` · `agents`
-- `source`: [`packages/session/session-activity/src/index.ts:26`](../packages/session/session-activity/src/index.ts)
+- `source`: [`packages/session/session-activity/src/index.ts:27`](../packages/session/session-activity/src/index.ts)
 
 ```ts config-catalog
-/** Deployment choices for activity digests. */
+/** Deployment choices for status digests. */
 export interface Config {
-  /** Tool names whose new calls in a watched Session wake the parent. Defaults to `ask_user_question`. */
-  readonly wakeTools?: string[]
   /** Maximum Session lines in one digest. Defaults to 8. */
   readonly maxLines?: number
   /** Maximum characters of one digest. Defaults to 1200. */
   readonly maxChars?: number
   /** Running time without a new event after which a watched Session wakes its parent once; 0 disables. Defaults to 600000. */
   readonly stallMs?: number
-  /** Delay that merges a burst of events into one digest evaluation. Defaults to 1000. */
+  /** Delay that merges a burst of events into one status evaluation. Defaults to 1000. */
   readonly coalesceMs?: number
 }
 ```
@@ -5977,8 +5991,9 @@ export interface Config {
   /** Maximum images per observation batch. */
   reviewBatchFrames: number
   /**
-   * After `observe` records frames, log an `image/offload` decision for their retained images so later requests send
-   * placeholder text; requires the `image/offload` projection of `@deepseek-ai/dsh-compaction-image-offload`.
+   * Omit frame images once the model has seen them: `observe` offloads the recorded frames' images, and each successful
+   * agent-loop request offloads labelled frame images, including Host-attached evidence, logged before the previous
+   * successful request; requires the `image/offload` projection of `@deepseek-ai/dsh-compaction-image-offload`.
    */
   offloadObservedFrames: boolean
   /** Thumbnail rate for cumulative appearance changes. */

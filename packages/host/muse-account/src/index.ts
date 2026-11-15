@@ -21,6 +21,8 @@ import { mountMuseWebSearch } from './web-search.ts'
 import { MuseMediaClient } from './media.ts'
 import { MuseMediaImporter } from './media-import.ts'
 import { mountMuseMediaTools } from './media-tools.ts'
+import { MuseDouyinStationClient } from './douyin-station.ts'
+import { mountMuseDouyinTools } from './douyin-tools.ts'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -36,6 +38,8 @@ export { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 export { readMuseSession } from './session.ts'
 export type * from './types.ts'
 export { mountMuseFeedbackTools } from './feedback-tools.ts'
+export { mountMuseDouyinTools } from './douyin-tools.ts'
+export type { MuseDouyinToolOptions } from './douyin-tools.ts'
 
 /** Cordis plugin name used by Loader diagnostics. */
 export const name = 'muse-account'
@@ -115,6 +119,22 @@ export interface Config {
   readonly mediaMaxPixels: number
   /** Maximum complete video duration accepted by the local importer. */
   readonly mediaMaxDurationSeconds: number
+  /** Register `douyin_download`, which queues Douyin works on the data station with the current private Muse login. */
+  readonly douyinDownloadTool: boolean
+  /** Data-station Douyin route prefix joined to the `baseUrl` origin. */
+  readonly douyinStationPath: string
+  /** Deadline for one data-station request and its complete reply. */
+  readonly douyinRequestTimeoutMs: number
+  /** Deadline for reading one `v.douyin.com` share link's redirect. */
+  readonly douyinLinkTimeoutMs: number
+  /** Maximum complete JSON reply accepted from the data station. */
+  readonly douyinMaxReplyBytes: number
+  /** Largest `wait_seconds` one tool call may spend waiting for downloads. */
+  readonly douyinMaxWaitSeconds: number
+  /** Pause between record queries while a tool call waits. */
+  readonly douyinPollIntervalMs: number
+  /** Records requested by one query; the station serves at most 500 and queues at most its own series limit. */
+  readonly douyinListLimit: number
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
@@ -167,6 +187,14 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   mediaCommandMaxOutputBytes: Schema.number().step(1).min(1024).max(1_048_576).default(65_536),
   mediaMaxPixels: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(67_108_864),
   mediaMaxDurationSeconds: Schema.number().min(1).max(86_400).default(7_200),
+  douyinDownloadTool: Schema.boolean().default(false),
+  douyinStationPath: Schema.string().pattern(/^(?:\/(?!\.\.?(?:\/|$))[A-Za-z0-9._~-]+)+$/u).default('/data/api/muse-client/douyin'),
+  douyinRequestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(15_000),
+  douyinLinkTimeoutMs: Schema.number().step(1).min(1_000).max(60_000).default(10_000),
+  douyinMaxReplyBytes: Schema.number().step(1).min(1024).max(16_777_216).default(1_048_576),
+  douyinMaxWaitSeconds: Schema.number().step(1).min(0).max(600).default(60),
+  douyinPollIntervalMs: Schema.number().step(1).min(1_000).max(60_000).default(5_000),
+  douyinListLimit: Schema.number().step(1).min(1).max(500).default(300),
   activityReportIntervalMs: Schema.number().step(1).min(1_000).max(3_600_000).default(30_000),
   activityRequestTimeoutMs: Schema.number().step(1).min(100).max(30_000).default(5_000),
   remoteAccess: Schema.boolean().default(false),
@@ -214,6 +242,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       scope.effect(() => async () => { await importer.dispose(); await media.dispose() }, 'muse-account: settle company media')
       mountMuseMediaTools(scope, media, importer)
     }).await()
+  }
+  if (config.douyinDownloadTool) {
+    const station = new MuseDouyinStationClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), path: config.douyinStationPath,
+      requestTimeoutMs: config.douyinRequestTimeoutMs, linkTimeoutMs: config.douyinLinkTimeoutMs,
+      maxReplyBytes: config.douyinMaxReplyBytes, listLimit: config.douyinListLimit })
+    ctx.effect(() => () => station.dispose(), 'muse-account: settle data-station Douyin requests')
+    mountMuseDouyinTools(ctx, station, { maxWaitSeconds: config.douyinMaxWaitSeconds, pollIntervalMs: config.douyinPollIntervalMs })
   }
   const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs })
   const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,

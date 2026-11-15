@@ -2173,6 +2173,36 @@ it.each([true, false])('offloads the images of observed frames only when offload
   for (const image of images) expect(image.offloaded).toBe(enabled && image.label !== undefined && observed.has(image.label))
 })
 
+it.each([true, false])('omits unobserved frame images after a second successful request only when offloadObservedFrames is %s',
+  async (enabled) => {
+    const h = await fixture({ offload: true, config: { offloadObservedFrames: enabled } })
+    await h.run(h.call('scan'), h.call('status'), h.call('status'), undefined)
+    const retained = (index: number) => h.adapter.requests[index]!.messages.flatMap(message => message.content)
+      .filter(block => block.type === 'image' && block.offloaded !== true).length
+    expect(retained(1)).toBeGreaterThan(0)
+    expect(retained(2)).toBe(retained(1))
+    expect(retained(3)).toBe(enabled ? 0 : retained(1))
+    expect(h.review().frames.every(frame => frame.observation === undefined)).toBe(true)
+  })
+
+it('omits a labelled frame image in a Host user message after a second successful request', async () => {
+  const h = await fixture({ offload: true, config: { offloadObservedFrames: true } })
+  await h.run(h.call('scan'), undefined)
+  const review = h.review(), frame = review.frames.find(row => row.image !== undefined)!
+  const image = h.results()[0]!.content.find(block => block.type === 'image')!
+  h.adapter.plans = [h.call('status'), undefined]
+  h.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [
+    { type: 'text', text: `VIDEO_FRAME ${review.id}/${frame.id} evidence` }, image] }))
+  await h.agent.whenIdle()
+  const evidence = (index: number) => h.adapter.requests[index]!.messages.filter(message => message.role === 'user')
+    .flatMap(message => message.content).filter(block => block.type === 'image' && block.offloaded !== true).length
+  expect(evidence(2)).toBe(1)
+  expect(evidence(3)).toBe(1)
+  const messages = h.agent.session.deriveMessages().filter(message => message.role === 'user')
+  expect(messages.flatMap(message => message.content).filter(block => block.type === 'image')
+    .every(block => block.type === 'image' && block.offloaded === true)).toBe(true)
+})
+
 it('shrinks a partially oversized new batch to its retained pending count rather than always to one', async () => {
   const h = await fixture({ offload: true, config: { reviewBatchFrames: 3 } })
   await h.run(h.call('scan'), 'offload', undefined)

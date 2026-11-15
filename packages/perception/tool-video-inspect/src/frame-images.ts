@@ -1,4 +1,4 @@
-/** Retained frame-image occurrences in tool results, and planned omission of frames whose observations are recorded. */
+/** Retained frame-image occurrences in input messages, and planned omission of frame images the model has already seen. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-compaction-image-offload/projection'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -29,8 +29,9 @@ function labelledImages(content: readonly ContentBlock[]): { label: string; inde
 }
 
 /**
- * Register the Host-only projection of frame images that later model requests would still resend.
- * State grows with retained frame images and shrinks as `image/offload` decisions select them.
+ * Register the Host-only projection of labelled frame images in tool results and Host-injected user messages that later
+ * model requests would still resend. State grows with retained frame images and shrinks as `image/offload` decisions
+ * select them.
  * @param ctx - Session projection registration owner.
  * @returns Ready reader retained by the calling owner.
  */
@@ -38,10 +39,10 @@ export async function installFrameImageState(ctx: Context): Promise<FrameImageRe
   const projections = ctx.get('sessionProjections')
   if (projections === undefined) throw Error('Video frame image offload requires sessionProjections')
   const projection = await projections.register<'videoFrameImages', FrameImageOccurrences>({ key: 'videoFrameImages',
-    stateSchema, init: () => ({}), stateVersion: 1,
+    stateSchema, init: () => ({}), stateVersion: 2,
     apply: (state, event) => {
-      if (event.type === 'tool/result') {
-        const images = labelledImages(event.data.message.content)
+      if (event.type === 'tool/result' || event.type === 'user/message') {
+        const images = labelledImages(event.type === 'tool/result' ? event.data.message.content : event.data.content)
         if (images.length === 0) return state
         const next = { ...state }
         for (const image of images) next[image.label] = [...next[image.label] ?? [], { seq: event.seq, index: image.index }]
@@ -62,16 +63,19 @@ export async function installFrameImageState(ctx: Context): Promise<FrameImageRe
 }
 
 /**
- * Log one `image/offload` decision for every retained image of the given frames; later requests send placeholder text instead.
- * @param session - Session that recorded the observations.
+ * Log one `image/offload` decision for every selected retained frame image; later requests send placeholder text instead.
+ * @param session - Session whose later requests omit the images.
  * @param read - Reader of retained frame-image occurrences.
- * @param labels - `review_id/frame_id` labels whose observations were just recorded.
+ * @param select - Whether the image of one `review_id/frame_id` label recorded at one event seq is omitted.
  * @returns Number of selected image occurrences; zero appends nothing.
  */
-export function offloadObservedFrameImages(session: Session, read: FrameImageReader, labels: readonly string[]): number {
-  const state = read(session), bySeq = new Map<number, number[]>()
-  for (const label of labels) {
-    for (const occurrence of state[label] ?? []) bySeq.set(occurrence.seq, [...bySeq.get(occurrence.seq) ?? [], occurrence.index])
+export function offloadFrameImages(session: Session, read: FrameImageReader,
+  select: (label: string, seq: number) => boolean): number {
+  const bySeq = new Map<number, number[]>()
+  for (const [label, occurrences] of Object.entries(read(session))) {
+    for (const occurrence of occurrences) {
+      if (select(label, occurrence.seq)) bySeq.set(occurrence.seq, [...bySeq.get(occurrence.seq) ?? [], occurrence.index])
+    }
   }
   if (bySeq.size === 0) return 0
   const targets = [...bySeq].map(([seq, indexes]) => ({ seq: SessionSeq(seq), imageIndexes: indexes.toSorted((a, b) => a - b) }))

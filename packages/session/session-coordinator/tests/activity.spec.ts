@@ -1,4 +1,4 @@
-/** Main receives activity digests of its executing workers when the Host mounts session activity. */
+/** Main receives status digests of its executing workers when the Host mounts session activity. */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,36 +6,28 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SessionActivityDigests from '@deepseek-ai/dsh-session-activity'
-import { toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import type { DispatchRequest } from '../src/types.ts'
 import { mainSessionPrompt } from '../src/prompt.ts'
 import { setup, textResponse } from './fixture.ts'
 
 type Script = Parameters<typeof setup>[1]
 
-/** The worker asks a question once after receiving its assignment; every other request answers with text. */
-const script: Script = Array.from({ length: 40 }, () => (options) => {
-  const assigned = options.messages.some(message => message.role === 'user'
-    && message.source?.kind === 'muse-coordination' && message.source.purpose === 'assignment')
-  return assigned && !options.messages.some(message => message.role === 'tool')
-    ? toolCallResponse('ask-1', 'ask_user_question', { question: '保留片头吗？' })
-    : textResponse('ack')
-})
-
 const request: DispatchRequest = { key: 'drama-1', title: '转写《山河》', instructions: '每部作品一个执行会话', reason: '新的候选作品' }
 
 describe('coordinator activity watches', () => {
-  it('delivers a worker question to Main as an activity digest', { timeout: 20000 }, async () => {
+  it('wakes Main for a stalled worker and shows its status in the session list', { timeout: 20000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-coordinator-activity-'))
-    const test = await setup(root, script)
+    const test = await setup(root, [textResponse('ack'), 'hang', ...Array.from({ length: 20 }, () => textResponse('ack'))])
     onTestFinished(async () => {
       await test.ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
     })
-    await test.ctx.plugin(SessionActivityDigests, { coalesceMs: 0, stallMs: 0 })
     const main = await test.makeAgent('main', 'main-session')
     main.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '转写《山河》' }] }))
     await main.whenIdle()
+    const before = JSON.parse(await test.service.search(main, '')) as { sessions: object[] }
+    expect(before.sessions.every(row => !('status' in row))).toBe(true)
+    await test.ctx.plugin(SessionActivityDigests, { coalesceMs: 0, stallMs: 50 })
     const digests: string[] = []
     test.ctx.on('session/event', (session, event) => {
       if (session.id === main.id && event.type === 'user/message' && event.data.source.kind === 'session-activity') {
@@ -45,8 +37,11 @@ describe('coordinator activity watches', () => {
 
     const task = await test.service.dispatch(main, request)
     const worker = task.attempts.at(-1)?.sessionId
-    await vi.waitFor(() => { expect(digests.some(text => text.includes('called ask_user_question'))).toBe(true) }, { timeout: 15000 })
-    expect(digests.find(text => text.includes('called ask_user_question'))).toContain(`- 转写《山河》 [${worker}]`)
+    await vi.waitFor(() => { expect(digests.some(text => text.includes('no new activity'))).toBe(true) }, { timeout: 15000 })
+    expect(digests.find(text => text.includes('no new activity'))).toContain(`- 转写《山河》 [${worker}] running for`)
+    const listed = JSON.parse(await test.service.search(main, '')) as { sessions: { sessionId: string; status?: string }[] }
+    expect(listed.sessions.find(row => row.sessionId === worker)?.status).toMatch(/^running for /u)
+    await test.service.stop(main.id, task.id, 1)
   })
 
   it('moves the watches of executing workers to a reloaded activity service', { timeout: 20000 }, async () => {
@@ -76,7 +71,7 @@ describe('coordinator activity watches', () => {
 
   it('adds digest guidance to Main only when activity digests are delivered', () => {
     expect(mainSessionPrompt({ unattended: false, taskFolders: false })).not.toContain('Activity of the Sessions you dispatched')
-    expect(mainSessionPrompt({ unattended: false, taskFolders: false }, true)).toContain('就把问题原文转告用户，并说明要在该执行会话里回答')
+    expect(mainSessionPrompt({ unattended: false, taskFolders: false }, true)).toContain('执行会话在等回答或审批，就告诉用户到该执行会话里处理')
     expect(mainSessionPrompt({ unattended: true, taskFolders: false }, true)).toContain('摘要带 "Needs your attention" 时用一句话记下，等回执处理。')
   })
 })

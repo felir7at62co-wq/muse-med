@@ -1,105 +1,57 @@
 /**
- * Pure rendering of activity digests: one line per watched Session and the reasons that wake the parent.
+ * Pure rendering of Session status lines, the session-list view a parent reads, and of digests
+ * that report changed lines and the states that need the parent.
  *
  * @module @deepseek-ai/dsh-session-activity/digest
  */
 
-import type { SessionActivityState } from './projection.ts'
+import { boundActivityText } from './projection.ts'
+import type { LastToolCall } from './projection.ts'
 
-/** Tool names shown per line, most-called first. */
-const SHOWN_TOOLS = 4
-/** Deliverable names shown per line, most recent first. */
-const SHOWN_FILES = 4
+/** Characters kept from one activity item label. */
+const LABEL_CHARS = 40
+/** Activity item labels shown per family. */
+const SHOWN_LABELS = 3
 
-/** One watched Session as the digest renders it. */
+/** What a Session is doing, as the session list shows it. */
+export type SessionStatusKind = 'running' | 'idle' | 'question' | 'approval' | 'failed' | 'not-open'
+
+/** One family of work still running for a Session, such as jobs or subagents. */
+export interface ActivityFamily {
+  /** Family key reported by its provider, such as `job` or `subagent`. */
+  readonly kind: string
+  /** Labels of the running items; empty for a family without per-item labels. */
+  readonly labels: readonly string[]
+}
+
+/** The facts behind one status line. */
+export interface SessionStatus {
+  /** Current state. */
+  readonly kind: SessionStatusKind
+  /** When the current state began, epoch milliseconds; null when unknown. */
+  readonly since: number | null
+  /** The latest tool call. */
+  readonly lastTool: LastToolCall | null
+  /** Running work other than the turn itself. */
+  readonly activity: readonly ActivityFamily[]
+  /** Failure text of the latest turn when `kind` is `failed`, otherwise empty. */
+  readonly error: string
+}
+
+/** One watched Session as a digest renders it. */
 export interface DigestEntry {
   /** Parent-chosen task label. */
   readonly label: string
-  /** The watched Session id, shown so the parent can address it. */
+  /** The watched Session id, shown so the parent can open it. */
   readonly sessionId: string
-  /** Current totals. */
-  readonly state: SessionActivityState
-  /** State the parent has logged; null before the first logged digest. Sessions unchanged since it are not listed. */
-  readonly delivered: SessionActivityState | null
-  /** State last sent to the parent, logged or still pending; facts up to it never wake the parent again. Defaults to `delivered`. */
-  readonly notified?: SessionActivityState | null | undefined
+  /** Current status. */
+  readonly status: SessionStatus
+  /** Status key the parent has logged; null before the first logged digest. */
+  readonly delivered: string | null
+  /** State kind last sent to the parent, logged or pending; null before the first. */
+  readonly notified: SessionStatusKind | null
   /** Milliseconds the Session has been running without a new event, when a stall was detected. */
   readonly stalledMs?: number | undefined
-}
-
-/** Digest rendering options. */
-export interface DigestOptions {
-  /** Tool names whose new calls wake the parent; their bounded arguments are quoted. */
-  readonly wakeTools: readonly string[]
-  /** Maximum Session lines; further changed Sessions are counted. */
-  readonly maxLines: number
-  /** Maximum characters of the whole digest. */
-  readonly maxChars: number
-}
-
-/**
- * Format a token count compactly.
- * @param tokens - Non-negative token count.
- * @returns e.g. `950`, `21k`, `2.1M`.
- */
-export function formatTokens(tokens: number): string {
-  if (tokens < 1000) return String(Math.round(tokens))
-  if (tokens < 1_000_000) return `${Math.round(tokens / 1000)}k`
-  return `${(tokens / 1_000_000).toFixed(1)}M`
-}
-
-/**
- * Final path segment of a deliverable path.
- * @param path - Absolute or relative path with `/` or `\` separators.
- * @returns The file name.
- */
-function baseName(path: string): string {
-  return path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
-}
-
-/**
- * Reasons this entry should wake its parent, newest facts only.
- * @param entry - One watched Session.
- * @param options - Wake tool names.
- * @returns Human-readable reasons; empty when nothing needs the parent now.
- */
-export function wakeReasons(entry: DigestEntry, options: Pick<DigestOptions, 'wakeTools'>): string[] {
-  const since = (entry.notified ?? entry.delivered)?.seq ?? -1
-  const reasons: string[] = []
-  for (const name of options.wakeTools) {
-    const tally = Object.hasOwn(entry.state.tools, name) ? entry.state.tools[name] : undefined
-    if (tally !== undefined && tally.lastSeq > since) reasons.push(`${entry.label} called ${name}: ${tally.lastArguments}`)
-  }
-  const end = entry.state.lastTurnEnd
-  if (end !== null && end.seq > since && end.kind === 'error') reasons.push(`${entry.label} turn failed: ${end.text}`)
-  if (entry.stalledMs !== undefined) reasons.push(`${entry.label} has had no new activity for ${Math.round(entry.stalledMs / 60_000)} min while running`)
-  return reasons
-}
-
-/**
- * Render one Session's current totals.
- * @param entry - One watched Session.
- * @returns A single line without a trailing newline.
- */
-export function activityLine(entry: DigestEntry): string {
-  const state = entry.state
-  const parts: string[] = [state.openTurn === null ? `idle after ${state.turns} turns` : `running turn ${state.openTurn}`]
-  const tools = Object.entries(state.tools).sort(([a, x], [b, y]) => y.calls - x.calls || a.localeCompare(b))
-  if (tools.length > 0) {
-    const shown = tools.slice(0, SHOWN_TOOLS).map(([name, tally]) => `${name} ${tally.calls}`)
-    parts.push(`tools ${shown.join(', ')}${tools.length > SHOWN_TOOLS ? ` +${tools.length - SHOWN_TOOLS} more` : ''}`)
-  }
-  if (state.images > 0) parts.push(`images ${state.images}`)
-  const files = Object.entries(state.files).sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
-  if (files.length > 0) {
-    const shown = files.slice(0, SHOWN_FILES).map(([path]) => baseName(path))
-    parts.push(`delivered ${shown.join(', ')}${files.length > SHOWN_FILES ? ` +${files.length - SHOWN_FILES} more` : ''}`)
-  }
-  const jobs = state.jobs
-  if (jobs.running + jobs.completed + jobs.failed > 0) parts.push(`jobs ${jobs.running} running/${jobs.completed} done/${jobs.failed} failed`)
-  if (state.errors > 0) parts.push(`errors ${state.errors}${state.lastError === null ? '' : ` (last: ${state.lastError.text})`}`)
-  if (state.inputTokens > 0) parts.push(`context ${formatTokens(state.contextTokens)} tokens, input total ${formatTokens(state.inputTokens)}`)
-  return `- ${entry.label} [${entry.sessionId}] ${parts.join(' · ')}`
 }
 
 /** A rendered digest. */
@@ -112,24 +64,86 @@ export interface RenderedDigest {
   readonly wake: boolean
 }
 
+const stateText: Record<SessionStatusKind, string> = {
+  'running': 'running',
+  'idle': 'idle',
+  'question': 'waiting for an answer in its own chat',
+  'approval': 'waiting for an approval in its own chat',
+  'failed': 'last turn failed',
+  'not-open': 'not open',
+}
+
 /**
- * Render a digest for the changed entries, or nothing when none changed.
+ * Render the state-independent part of a status line; equal keys mean nothing the parent needs changed.
+ * @param status - Current status.
+ * @returns The line without its duration.
+ */
+export function statusKey(status: SessionStatus): string {
+  const parts = [stateText[status.kind]]
+  if (status.lastTool !== null) parts.push(`last tool ${status.lastTool.name}`)
+  for (const family of status.activity) {
+    const shown = family.labels.slice(0, SHOWN_LABELS).map(label => boundActivityText(label, LABEL_CHARS))
+    const more = family.labels.length > SHOWN_LABELS ? ` +${family.labels.length - SHOWN_LABELS} more` : ''
+    parts.push(shown.length === 0 ? family.kind : `${family.kind}: ${shown.join(', ')}${more}`)
+  }
+  if (status.error !== '') parts.push(`error: ${status.error}`)
+  return parts.join(' · ')
+}
+
+/**
+ * Render a full status line.
+ * @param status - Current status.
+ * @param now - Current time, epoch milliseconds.
+ * @returns The state with its duration, then the rest of the key.
+ */
+export function statusText(status: SessionStatus, now: number): string {
+  const key = statusKey(status)
+  if (status.since === null) return key
+  const minutes = Math.floor(Math.max(0, now - status.since) / 60_000)
+  const head = stateText[status.kind]
+  return `${head} for ${minutes < 1 ? 'under 1' : minutes} min${key.slice(head.length)}`
+}
+
+/**
+ * Reasons this entry should wake its parent.
+ * @param entry - One watched Session.
+ * @returns Human-readable reasons; empty when nothing needs the parent now.
+ */
+export function wakeReasons(entry: DigestEntry): string[] {
+  const reasons: string[] = []
+  const status = entry.status
+  const call = status.lastTool === null ? '' : ` (last call: ${status.lastTool.name} ${status.lastTool.arguments})`
+  if (status.kind !== entry.notified) {
+    if (status.kind === 'question') reasons.push(`${entry.label} is waiting for an answer in its own chat${call}`)
+    if (status.kind === 'approval') reasons.push(`${entry.label} is waiting for an approval in its own chat${call}`)
+    if (status.kind === 'failed') reasons.push(`${entry.label} last turn failed: ${status.error}`)
+  }
+  if (entry.stalledMs !== undefined) {
+    reasons.push(`${entry.label} has shown no new activity for ${Math.floor(entry.stalledMs / 60_000)} min while running`)
+  }
+  return reasons
+}
+
+/**
+ * Render a digest of the entries whose status changed, or nothing when none changed.
  * @param entries - Watched Sessions of one parent.
- * @param options - Line, character and wake bounds.
+ * @param options - Line and character bounds.
+ * @param now - Current time, epoch milliseconds.
  * @returns The digest, or undefined when no entry changed.
  */
-export function renderDigest(entries: readonly DigestEntry[], options: DigestOptions): RenderedDigest | undefined {
+export function renderDigest(entries: readonly DigestEntry[], options: { readonly maxLines: number; readonly maxChars: number },
+  now: number): RenderedDigest | undefined {
   const changed = entries.filter(entry => entry.stalledMs !== undefined
-    || (entry.delivered === null ? entry.state.seq >= 0 : entry.delivered !== entry.state))
+    || (statusKey(entry.status) !== entry.delivered && !(entry.delivered === null && entry.status.kind === 'not-open')))
   if (changed.length === 0) return undefined
-  const reasons = changed.flatMap(entry => wakeReasons(entry, options))
-  const header = 'Activity of the Sessions you dispatched (running totals; read a Session for details):'
-  const lines = changed.slice(0, options.maxLines).map(activityLine)
+  const reasons = changed.flatMap(wakeReasons)
+  const header = 'Status of the Sessions you dispatched, as the session list shows it (read a Session for details):'
+  const lines = changed.slice(0, options.maxLines).map(entry => `- ${entry.label} [${entry.sessionId}] ${statusText(entry.status, now)}`)
   const omitted = changed.length - lines.length
-  const attention = reasons.length === 0 ? [] : ['Needs your attention:', ...reasons.map(reason => `- ${reason}`)]
   const tail = omitted > 0 ? [`- ${omitted} more Sessions changed.`] : []
+  const attention = reasons.length === 0 ? [] : ['Needs your attention:', ...reasons.map(reason => `- ${reason}`)]
   let text = [header, ...lines, ...tail, ...attention].join('\n')
   if (text.length > options.maxChars) text = `${text.slice(0, options.maxChars - 1)}…`
-  const summary = reasons.length > 0 ? `${reasons.length} activity item(s) need attention` : `${changed.length} Session(s) progressed`
+  const summary = reasons.length > 0 ? `${reasons.length} Session state(s) need attention` : `${changed.length} Session status change(s)`
   return { text, summary, wake: reasons.length > 0 }
 }

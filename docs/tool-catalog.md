@@ -15,7 +15,7 @@ This table connects model-visible tool names to the plugin package and service s
 
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
-| `@deepseek-ai/dsh-muse-account` | `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`, `signed-in Muse account for execution` | `tool/call`, `tool/result`, `explicit feedback submission to the central inbox` | - | Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. |
+| `@deepseek-ai/dsh-muse-account` | `douyin_download`, `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`, `signed-in Muse account for execution`, `data station on the account origin for douyin_download` | `tool/call`, `tool/result`, `explicit feedback submission to the central inbox`, `Douyin download queue entries on the data station` | - | Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. |
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
@@ -71,6 +71,48 @@ This table connects model-visible tool names to the plugin package and service s
 <a id="deepseek-aidsh-muse-account"></a>
 
 ## `@deepseek-ai/dsh-muse-account`
+
+### `douyin_download`
+
+通过数据站下载抖音视频，使用当前登录的 Muse 账号；这是 Muse 唯一的抖音视频下载方式，不要用命令行、浏览器或其他工具自行下载抖音视频。action=download 提交一个作品（url 填作品链接或分享文本，或填 aweme_id）或整部合集（mix_id，按集数排队）；数据站不会重复下载已排队或已完成的作品，失败的作品再次提交会重新排队。action=query 只查询已有记录，不提交；action=quota 查看是否可用及今日额度（网页和 Muse 共用）。wait_seconds（0–60）在本次调用内等待，约每 5 秒查询一次。preparing 表示仍在排队、下载或上传；done 的作品带 url，是数据站存储中的视频地址，不是本地文件。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "download 提交并可等待；query 只查询；quota 查看可用状态和今日额度。",
+      "enum": [
+        "download",
+        "query",
+        "quota"
+      ]
+    },
+    "url": {
+      "type": "string",
+      "description": "抖音作品链接或分享文本：v.douyin.com 短链、douyin.com/video/<编号>、带 modal_id 的链接，或合集链接 douyin.com/collection/<编号>。"
+    },
+    "aweme_id": {
+      "type": "string",
+      "description": "抖音作品编号，纯数字。"
+    },
+    "mix_id": {
+      "type": "string",
+      "description": "抖音合集编号，纯数字；整部合集按集数排队。"
+    },
+    "wait_seconds": {
+      "type": "integer",
+      "description": "本次调用最多等待的秒数，0–60，默认 0（不等待）。"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/host/muse-account/src/douyin-tools.ts`](../packages/host/muse-account/src/douyin-tools.ts)
 
 ### `muse_feedback_status`
 
@@ -138,7 +180,7 @@ Submit a product problem or suggestion to the Muse feedback inbox when the user 
 
 Source: [`packages/host/muse-account/src/feedback-tools.ts`](../packages/host/muse-account/src/feedback-tools.ts)
 
-Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed.
+Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files.
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 

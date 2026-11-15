@@ -19,7 +19,7 @@
 
 | 工具包 | 模型可见名称 | 依赖 | 写入／影响 | 随产品发布的别名 | 部署说明 |
 | --- | --- | --- | --- | --- | --- |
-| `@deepseek-ai/dsh-muse-account` | `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`、执行时已登录的 Muse 账号 | `tool/call`、`tool/result`、向中心意见箱显式提交反馈 | - | Muse 桌面端常驻提供反馈提交和回执状态查询。仅支持当前登录账号提交和查看本人反馈，不开放管理员能力。 |
+| `@deepseek-ai/dsh-muse-account` | `douyin_download`, `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`、执行时已登录的 Muse 账号、douyin_download 所需的账号源站数据站 | `tool/call`、`tool/result`、向中心意见箱显式提交反馈、数据站上的抖音下载队列记录 | - | Muse 桌面端常驻提供反馈提交和回执状态查询。仅支持当前登录账号提交和查看本人反馈，不开放管理员能力。桌面端以延迟加载方式启用 douyin_download；它是唯一的抖音视频下载工具，在数据站排队下载，返回公开存储地址而非本地文件。 |
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
@@ -75,6 +75,48 @@
 <a id="deepseek-aidsh-muse-account"></a>
 
 ## `@deepseek-ai/dsh-muse-account`
+
+### `douyin_download`
+
+通过数据站下载抖音视频，使用当前登录的 Muse 账号；这是 Muse 唯一的抖音视频下载方式，不要用命令行、浏览器或其他工具自行下载抖音视频。action=download 提交一个作品（url 填作品链接或分享文本，或填 aweme_id）或整部合集（mix_id，按集数排队）；数据站不会重复下载已排队或已完成的作品，失败的作品再次提交会重新排队。action=query 只查询已有记录，不提交；action=quota 查看是否可用及今日额度（网页和 Muse 共用）。wait_seconds（0–60）在本次调用内等待，约每 5 秒查询一次。preparing 表示仍在排队、下载或上传；done 的作品带 url，是数据站存储中的视频地址，不是本地文件。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "download 提交并可等待；query 只查询；quota 查看可用状态和今日额度。",
+      "enum": [
+        "download",
+        "query",
+        "quota"
+      ]
+    },
+    "url": {
+      "type": "string",
+      "description": "抖音作品链接或分享文本：v.douyin.com 短链、douyin.com/video/<编号>、带 modal_id 的链接，或合集链接 douyin.com/collection/<编号>。"
+    },
+    "aweme_id": {
+      "type": "string",
+      "description": "抖音作品编号，纯数字。"
+    },
+    "mix_id": {
+      "type": "string",
+      "description": "抖音合集编号，纯数字；整部合集按集数排队。"
+    },
+    "wait_seconds": {
+      "type": "integer",
+      "description": "本次调用最多等待的秒数，0–60，默认 0（不等待）。"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+来源：[`packages/host/muse-account/src/douyin-tools.ts`](../packages/host/muse-account/src/douyin-tools.ts)
 
 ### `muse_feedback_status`
 
@@ -142,7 +184,7 @@
 
 来源：[`packages/host/muse-account/src/feedback-tools.ts`](../packages/host/muse-account/src/feedback-tools.ts)
 
-Muse 桌面端常驻提供反馈提交和回执状态查询。仅支持当前登录账号提交和查看本人反馈，不开放管理员能力。
+Muse 桌面端常驻提供反馈提交和回执状态查询。仅支持当前登录账号提交和查看本人反馈，不开放管理员能力。桌面端以延迟加载方式启用 douyin_download；它是唯一的抖音视频下载工具，在数据站排队下载，返回公开存储地址而非本地文件。
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 

@@ -1,0 +1,19 @@
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- insert:
+    - id: snapshot-muse-douyin-station
+      name: './station-fixture.mjs'
+    - id: snapshot-douyin-discovery
+      name: '@deepseek-ai/dsh-tool-discovery'
+      config:
+        alwaysLoad: [douyin_download, muse_media_download]

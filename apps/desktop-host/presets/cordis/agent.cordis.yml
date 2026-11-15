@@ -327,12 +327,6 @@
     ffprobeExecutable: !!js process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || ''
     ffmpegExecutable: !!js process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || ''
     bytevc2Executable: !!js process.env.MUSE_HONGGUO_BYTEVC2_PATH || ''
-- id: muse-douyin-download
-  name: muse-douyin-download
-  config:
-    pythonExecutable: !!js process.env.MUSE_DOUYIN_PYTHON_PATH || null
-    ffmpegExecutable: !!js process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || null
-    ffprobeExecutable: !!js process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || null
 
 - id: muse-reverse-tools
   name: muse-reverse-tools
