@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: 3b70d6ae4f192ea1
-  zh: e170b40200d5cd73
+  en: 2539bcf51e3d3668
+  zh: dbe7e28efc1f4108
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
@@ -87,8 +87,20 @@
   en: efdcf8538d0b69ac
   zh: efdcf8538d0b69ac
 /tool-schema-catalog/deepseek-ai-dsh-tool-audio-transcribe/audio-transcribe:
-  en: 47206f906ba83702
-  zh: 47206f906ba83702
+  en: 082698ecb466f362
+  zh: 082698ecb466f362
+/tool-schema-catalog/deepseek-ai-dsh-tool-drama-tos-upload:
+  en: 4481a680f12cf842
+  zh: 4481a680f12cf842
+/tool-schema-catalog/deepseek-ai-dsh-tool-drama-tos-upload/drama-tos-upload:
+  en: f3812e940e68e970
+  zh: f3812e940e68e970
+/tool-schema-catalog/deepseek-ai-dsh-tool-hit-queue:
+  en: d472e2a550629ed4
+  zh: d472e2a550629ed4
+/tool-schema-catalog/deepseek-ai-dsh-tool-hit-queue/drama-hit-queue:
+  en: d94d7151a92b5e2c
+  zh: d94d7151a92b5e2c
 /tool-schema-catalog/deepseek-ai-dsh-tool-video-inspect:
   en: dfdadcaad7b5ae07
   zh: dfdadcaad7b5ae07

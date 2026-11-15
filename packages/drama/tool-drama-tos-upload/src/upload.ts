@@ -318,9 +318,11 @@ export async function executeUpload(plan: UploadPlan, client: TosUploadClient, l
     platform: plan.platform,
     work_id: plan.workId,
     title: plan.title,
+    bucket: location.bucket,
     date: plan.date,
+    directory: plan.directory,
     created_at: now.toISOString(),
-    objects: objects.map(({ kind, key, bytes, sha256 }) => ({ kind, key, bytes, sha256 })),
+    objects: objects.map(({ kind, key, bytes, sha256, status }) => ({ kind, key, bytes, sha256, status })),
   }, null, 2) + '\n')
   signal.throwIfAborted()
   await client.putJson(manifestKey, manifest, createHash('sha256').update(manifest).digest('hex'), signal)

@@ -647,6 +647,7 @@
     { "path": "./packages/drama/tool-bgm-compose" },
     { "path": "./packages/drama/tool-audio-transcribe" },
     { "path": "./packages/drama/tool-drama-tos-upload" },
+    { "path": "./packages/drama/tool-hit-queue" },
     { "path": "./packages/perception/tool-video-inspect" },
     { "path": "./packages/drama/tool-episode-render" },
     { "path": "./packages/drama/character-asset-catalog" },

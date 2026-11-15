@@ -28,6 +28,8 @@
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`、`ctx.userQuestions` | `tool/call`、`tool/result after an answer or timeout`、`late user/message` | - | ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才启用前台超时与 pending 结果，同时问题仍可回答；timed 模式内 `timeout: -1` 让本次调用无限期阻塞。 |
 | `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.sandboxPolicy（文件系统约束开启时）` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | 来源片段编号、修订号、候选摘要、时间和正文引用行号由宿主生成。事实与逐集候选须经另一会话审校后验收。 |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`、`ctx.museAccount`、PATH 中的 FFmpeg 与 FFprobe | `tool/call`、`tool/result`，`transcript/jobs` 中的任务收据，`transcript/raw` 中的 TXT 与 JSON | - | start 使用已登录的 Muse 账号上传压缩音轨并提交云转写；status 根据收据查询同一任务，完成后保存带时间戳的结果。需要可读取的本地音视频与服务端转写配置。 |
+| `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`、TOS 访问密钥的凭据引用、可访问火山引擎 TOS 的网络 | `tool/call`、`tool/result`，`download-video-date/{platform}/{date}/{work_id}/` 下的公开 TOS 对象，`remove_local` 为 true 时删除本地文件 | - | 可选包：只由云端转写部署组合，并由它提供凭据引用。 |
+| `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`、数据站服务令牌的凭据引用、可访问数据站服务接口的网络 | `tool/call`、`tool/result`，数据站转写任务状态 | - | 可选包：只由云端转写部署组合。每个被派出的工人自己领取作品，主会话路由器不调用它。 |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`、`ctx.tools`、`ctx.ptcRuntime`、`ctx.systemPrompt` | `tool/call`、`one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`、`tool/result` | - | PTC 执行器只向模型公开 run_code，并在运行时语言生成的 SDK 中声明其他可见能力。程序绑定按提交顺序进入共享的受守卫工具流水线；并行安全的函数体最多重叠 maxParallelSubCalls 个，嵌套结果保持与外层程序关联。最终超时时间与 maxSubCallsPerMinute 决定调用总额度；超限会终止程序。 |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`、`ctx.systemPrompt`、`ctx.agents`、`ctx.userQuestions (execution time, opportunistic)` | `tool/call`、`plan/mode inactive on an approved review`、`tool/result` | - | 规划未激活时，exit_plan_mode 仍保留在面向模型的 schema 中，这样状态转换不会在规划策略变更之外额外造成工具目录变动。其执行路径会拒绝规划模式之外的调用；在规划模式下，它通过用户交互 seam 提交计划（批准／根据反馈继续规划），批准后会在步骤边界记录规划模式已停用。 |
@@ -1741,6 +1743,186 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
 Source: [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/tool-audio-transcribe/src/index.ts)
 
 `start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway.
+
+<a id="deepseek-aidsh-tool-drama-tos-upload"></a>
+
+## `@deepseek-ai/dsh-tool-drama-tos-upload`
+
+### `drama_tos_upload`
+
+把一部作品的原始素材和剧本存到 TOS：红果剧的原片和转写材料，或番茄、七猫小说的原文和改成的剧本。位置是 download-video-date/{platform}/{日期}/{work_id}/{kind}/{文件名}，文件公开可读，返回每个文件的公开地址和本次清单。远端已有同名同内容的文件记为已存在，同名不同内容的不会覆盖；不会删除远端文件。remove_local 为 true 时，全部文件核对成功后才删除这些本地文件。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "platform": {
+      "type": "string",
+      "description": "hongguo 红果短剧，fanqie 番茄小说，qimao 七猫小说。",
+      "enum": [
+        "hongguo",
+        "fanqie",
+        "qimao"
+      ]
+    },
+    "work_id": {
+      "type": "string",
+      "description": "作品在该平台上的纯数字 ID：红果剧的 series_id，或小说的书籍 ID。"
+    },
+    "title": {
+      "type": "string",
+      "description": "作品名，写进清单。"
+    },
+    "date": {
+      "type": "string",
+      "description": "目录日期 YYYYMMDD；不填用 Asia/Shanghai 的今天。"
+    },
+    "files": {
+      "type": "array",
+      "description": "要上传的文件，按清单顺序。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "本地文件的绝对路径。"
+          },
+          "kind": {
+            "type": "string",
+            "description": "video 原片，novel 小说原文，asr 语音转写，ocr 字幕识别，observations 看帧记录，scripts 剧本。",
+            "enum": [
+              "video",
+              "novel",
+              "asr",
+              "ocr",
+              "observations",
+              "scripts"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "远端文件名，默认用本地文件名。"
+          }
+        },
+        "required": [
+          "path",
+          "kind"
+        ]
+      }
+    },
+    "remove_local": {
+      "type": "boolean",
+      "description": "全部文件核对成功后删除这些本地文件，默认 false。"
+    }
+  },
+  "required": [
+    "platform",
+    "work_id",
+    "files"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-drama-tos-upload/src/index.ts`](../packages/drama/tool-drama-tos-upload/src/index.ts)
+
+Optional package: only the cloud transcription deployment composes it, with its credential references.
+
+<a id="deepseek-aidsh-tool-hit-queue"></a>
+
+## `@deepseek-ai/dsh-tool-hit-queue`
+
+### `drama_hit_queue`
+
+数据站爆款转写任务队列。claim 领取一部待转写的红果剧（不填 work_id 取队首），返回任务和租约 lease；之后每一步都带上 work_id 和 lease。progress 上报阶段和第几集，也作心跳，至少每 30 分钟一次；videos 用 drama_tos_upload 返回的 manifest.url 登记原片；publish 上传通过程序检查的剧本并发布；fail 报告失败，检查重写后仍不过时设 needs_attention。status 查询任务。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "要执行的操作。",
+      "enum": [
+        "claim",
+        "status",
+        "progress",
+        "videos",
+        "publish",
+        "fail"
+      ]
+    },
+    "work_id": {
+      "type": "string",
+      "description": "红果剧 series_id；claim 时可不填。"
+    },
+    "lease": {
+      "type": "string",
+      "description": "claim 返回的租约。"
+    },
+    "state": {
+      "type": "string",
+      "description": "progress：当前阶段。",
+      "enum": [
+        "downloading",
+        "transcribing",
+        "checking"
+      ]
+    },
+    "episode": {
+      "type": "integer",
+      "description": "progress：正在处理第几集。"
+    },
+    "total_episodes": {
+      "type": "integer",
+      "description": "progress：总集数。"
+    },
+    "message": {
+      "type": "string",
+      "description": "progress：一句话进度说明。"
+    },
+    "manifest_url": {
+      "type": "string",
+      "description": "videos：drama_tos_upload 返回的 manifest.url。"
+    },
+    "script_path": {
+      "type": "string",
+      "description": "publish：剧本文件的绝对路径（.docx、.md、.txt 或 .pdf）。"
+    },
+    "checks_passed": {
+      "type": "boolean",
+      "description": "publish：程序检查是否全部通过；未通过时改用 fail。"
+    },
+    "checks_summary": {
+      "type": "string",
+      "description": "publish：检查结果摘要，例如「65/65 集通过」。"
+    },
+    "reason": {
+      "type": "string",
+      "description": "fail：失败原因。"
+    },
+    "stage": {
+      "type": "string",
+      "description": "fail：失败所在阶段。"
+    },
+    "retryable": {
+      "type": "boolean",
+      "description": "fail：能否重新排队重试，默认 true。"
+    },
+    "needs_attention": {
+      "type": "boolean",
+      "description": "fail：直接标为待人工处理。"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-hit-queue/src/index.ts`](../packages/drama/tool-hit-queue/src/index.ts)
+
+Optional package: only the cloud transcription deployment composes it. Each dispatched worker claims its own work; the Main Session router does not call it.
 
 <a id="deepseek-aidsh-tool-video-inspect"></a>
 

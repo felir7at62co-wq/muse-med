@@ -3379,7 +3379,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-prompt-usage`
 
 - `inject`: `llm` · `sessions` · `tokenMeter`
-- `source`: [`packages/guard/prompt-usage/src/index.ts:31`](../packages/guard/prompt-usage/src/index.ts)
+- `source`: [`packages/guard/prompt-usage/src/index.ts:32`](../packages/guard/prompt-usage/src/index.ts)
 
 ```ts config-catalog
 /** Deployment policy; there are no default routes or thresholds. */
@@ -5032,6 +5032,53 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-drama-assets -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-drama-tos-upload -->
+<a id="deepseek-aidsh-tool-drama-tos-upload"></a>
+
+## `@deepseek-ai/dsh-tool-drama-tos-upload`
+
+- `inject`: `tools`
+- `source`: [`packages/drama/tool-drama-tos-upload/src/index.ts:24`](../packages/drama/tool-drama-tos-upload/src/index.ts)
+
+```ts config-catalog
+/** Deployment configuration. */
+export interface Config {
+  /** Credential reference for the TOS access key id. */
+  readonly accessKeyIdRef: string
+  /** Credential reference for the TOS secret access key. */
+  readonly secretAccessKeyRef: string
+  /** Bucket name. */
+  readonly bucket: string
+  /** Region, for example `cn-beijing`. */
+  readonly region: string
+  /** Endpoint host for the region: `tos-<region>.volces.com`, or `tos-<region>.ivolces.com` inside the region. */
+  readonly endpoint: string
+  /** Public `https://` origin of the bucket, without a trailing slash. */
+  readonly publicBaseUrl: string
+  /** Top folder that holds the platform folders; lowercase letters, digits and `-`. */
+  readonly rootFolder: string
+  /** IANA time zone that decides the default folder date. */
+  readonly timeZone: string
+  /** Maximum number of files in one call. */
+  readonly maxFiles: number
+  /** Maximum size of one file in bytes. */
+  readonly maxFileBytes: number
+  /** Maximum total size of one call in bytes. */
+  readonly maxTotalBytes: number
+  /** Multipart part size in bytes. */
+  readonly partSizeBytes: number
+  /** Parallel part uploads per file. */
+  readonly taskNum: number
+  /** SDK retries per request. */
+  readonly maxRetryCount: number
+  /** Per-request timeout in milliseconds. */
+  readonly requestTimeoutMs: number
+  /** Per-request connection timeout in milliseconds. */
+  readonly connectionTimeoutMs: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-drama-tos-upload -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-episode-render -->
 <a id="deepseek-aidsh-tool-episode-render"></a>
 
@@ -5206,6 +5253,33 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-goal -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-hit-queue -->
+<a id="deepseek-aidsh-tool-hit-queue"></a>
+
+## `@deepseek-ai/dsh-tool-hit-queue`
+
+- `inject`: `tools`
+- `source`: [`packages/drama/tool-hit-queue/src/index.ts:40`](../packages/drama/tool-hit-queue/src/index.ts)
+
+```ts config-catalog
+/** Deployment configuration. */
+export interface Config {
+  /** Credential reference for the station service token. */
+  readonly tokenRef: string
+  /** Service API root without a trailing slash. */
+  readonly baseUrl: string
+  /** Public object-store origin that manifest URLs must start with, without a trailing slash. */
+  readonly manifestOrigin: string
+  /** Per-request timeout in milliseconds. */
+  readonly requestTimeoutMs: number
+  /** Maximum station response or manifest size in bytes. */
+  readonly maxResponseBytes: number
+  /** Maximum screenplay file size in bytes; the station accepts at most 20 MiB. */
+  readonly maxScriptBytes: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-hit-queue -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-jobs -->
 <a id="deepseek-aidsh-tool-jobs"></a>

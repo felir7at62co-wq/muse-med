@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/tool-hit-queue/README.md
+/:
+  en: 0102c33f53bd1606
+  zh: 06c60aa041fcdf44
+/deepseek-ai-dsh-tool-hit-queue:
+  en: 68afcf08a7b3f538
+  zh: ba46224810a2c05e
+/deepseek-ai-dsh-tool-hit-queue/summary:
+  en: 8817794762facfde
+  zh: c612b4309ef10a99
+/deepseek-ai-dsh-tool-hit-queue/table-of-contents:
+  en: 6946dbbc2f06d8d9
+  zh: b521a35c97f6b3d2
+/deepseek-ai-dsh-tool-hit-queue/use-this-package:
+  en: d741ac0f97c65ceb
+  zh: 6db8fdc3e24eaa4d
+/deepseek-ai-dsh-tool-hit-queue/request-safety:
+  en: d7f6c18ecadb8d07
+  zh: a397fd02e4b6b1bc
+/deepseek-ai-dsh-tool-hit-queue/understand-the-implementation:
+  en: a63d3016705974e7
+  zh: c611b3fe37a9e75a
+/deepseek-ai-dsh-tool-hit-queue/further-exploration:
+  en: 7e4f967e16636168
+  zh: 371d39419048b84d
+/deepseek-ai-dsh-tool-hit-queue/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tool-hit-queue/model-experience/hit-queue-tool:
+  en: d86bc6c863cb4c7c
+  zh: 64f4eb9d7c996c69
+/deepseek-ai-dsh-tool-hit-queue/model-experience/hit-queue-tool/what-the-model-sees:
+  en: e6897eb013331e9f
+  zh: e81c92e74129f8ba
+/deepseek-ai-dsh-tool-hit-queue/model-experience/hit-queue-tool/what-the-model-sees/tool-description:
+  en: 163f477a7dd52e3f
+  zh: 489ef7ec88dee135
+/deepseek-ai-dsh-tool-hit-queue/model-experience/hit-queue-tool/token-effect:
+  en: 6f10b04d7ae51e81
+  zh: 83b2ab669c16edd6
+/deepseek-ai-dsh-tool-hit-queue/model-experience/hit-queue-tool/kv-cache-effect:
+  en: 9d5281c82c3789c1
+  zh: d61deb857b313e79
+/deepseek-ai-dsh-tool-hit-queue/known-limitations-and-deferred-work:
+  en: d1b15e814655e38b
+  zh: e878cc30207f2390
+/deepseek-ai-dsh-tool-hit-queue/known-limitations-and-deferred-work/dev-note:
+  en: b328a42f8534336f
+  zh: 1b2658e7c001bc1f

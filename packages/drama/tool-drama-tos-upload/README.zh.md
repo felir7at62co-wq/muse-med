@@ -67,7 +67,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-`src/upload.ts` 先把请求解析成计划（校验、键、本地 SHA-256），这一步不访问远端；随后对 `TosUploadClient` 接口执行计划。`src/tos-client.ts` 把该接口绑定到 `@volcengine/tos-sdk@2.9.1`，并把 SDK 失败映射为带代码的 `HarnessError`，不回显请求细节。`src/index.ts` 在加载时校验配置，每次调用时解析凭据，并注册工具。清单键为 `manifest-<UTC 时间戳>.json`，重复调用不会替换之前的清单。
+`src/upload.ts` 先把请求解析成计划（校验、键、本地 SHA-256），这一步不访问远端；随后对 `TosUploadClient` 接口执行计划。`src/tos-client.ts` 把该接口绑定到 `@volcengine/tos-sdk@2.9.1`，并把 SDK 失败映射为带代码的 `HarnessError`，不回显请求细节。`src/index.ts` 在加载时校验配置，每次调用时解析凭据，并注册工具。清单键为 `manifest-<UTC 时间戳>.json`，重复调用不会替换之前的清单。清单记录平台、作品 ID、标题、桶、日期、目录、创建时间，以及每个对象的类型、键、大小、SHA-256 和上传状态，因此数据站任务接口等使用方仅凭清单地址就能登记一部作品的文件。
 
 </details>
 
@@ -93,7 +93,7 @@ kind: "package-reference"
 ##### 工具描述
 
 ```markdown
-把一部作品的原始素材和剧本存到 TOS：红果剧的原片和转写材料，或番茄、七猫小说的原文和改成的剧本。位置是 download-video-date/<platform>/<日期>/<work_id>/<kind>/<文件名>，文件公开可读，返回每个文件的公开地址和本次清单。远端已有同名同内容的文件记为已存在，同名不同内容的不会覆盖；不会删除远端文件。remove_local 为 true 时，全部文件核对成功后才删除这些本地文件。
+把一部作品的原始素材和剧本存到 TOS：红果剧的原片和转写材料，或番茄、七猫小说的原文和改成的剧本。位置是 download-video-date/{platform}/{日期}/{work_id}/{kind}/{文件名}，文件公开可读，返回每个文件的公开地址和本次清单。远端已有同名同内容的文件记为已存在，同名不同内容的不会覆盖；不会删除远端文件。remove_local 为 true 时，全部文件核对成功后才删除这些本地文件。
 ```
 
 #### Token 影响

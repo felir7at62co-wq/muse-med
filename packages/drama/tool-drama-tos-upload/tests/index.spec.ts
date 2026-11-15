@@ -113,7 +113,7 @@ describe('drama_tos_upload', () => {
     const { ctx, fiber } = await bench()
     const definition = ctx.tools.get('drama_tos_upload')
     expect(definition?.description).toBe('把一部作品的原始素材和剧本存到 TOS：红果剧的原片和转写材料，或番茄、七猫小说的原文和改成的剧本。'
-      + '位置是 download-video-date/<platform>/<日期>/<work_id>/<kind>/<文件名>，'
+      + '位置是 download-video-date/{platform}/{日期}/{work_id}/{kind}/{文件名}，'
       + '文件公开可读，返回每个文件的公开地址和本次清单。远端已有同名同内容的文件记为已存在，同名不同内容的不会覆盖；不会删除远端文件。'
       + 'remove_local 为 true 时，全部文件核对成功后才删除这些本地文件。')
     expect(definition?.presentCall?.({ platform: 'hongguo', work_id: '1', files: [{ path: '/a.mp4', kind: 'video' }] }))

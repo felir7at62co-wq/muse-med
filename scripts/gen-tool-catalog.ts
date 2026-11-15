@@ -89,6 +89,8 @@ import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolJubian from '@deepseek-ai/dsh-tool-jubian'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import * as ToolAudioTranscribe from '@deepseek-ai/dsh-tool-audio-transcribe'
+import * as ToolDramaTosUpload from '@deepseek-ai/dsh-tool-drama-tos-upload'
+import * as ToolHitQueue from '@deepseek-ai/dsh-tool-hit-queue'
 import * as ScreenplayProject from '@deepseek-ai/dsh-screenplay-project'
 import * as ToolVideoInspect from '@deepseek-ai/dsh-tool-video-inspect'
 import { mountMuseFeedbackTools, type MuseAccountService } from '@deepseek-ai/dsh-muse-account'
@@ -369,6 +371,28 @@ const TOOL_PACKAGES: ToolPackage[] = [
       '`start` submits compressed speech under the signed-in Muse account and returns a project receipt; '
       + '`status` checks that receipt and publishes timed TXT and JSON when recognition completes. '
       + 'The same tool is available in every Muse mode, with provider credentials held by the account gateway.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-drama-tos-upload',
+    dir: 'tool-drama-tos-upload',
+    source: 'packages/drama/tool-drama-tos-upload/src/index.ts',
+    requires: ['ctx.tools', 'TOS access key credential references', 'network access to Volcengine TOS'],
+    writes: ['tool/call', 'tool/result', 'public TOS objects below download-video-date/{platform}/{date}/{work_id}/', 'local file deletion only when remove_local is true'],
+    async mount(ctx) {
+      await ctx.plugin(ToolDramaTosUpload, { accessKeyIdRef: 'VOLCENGINE_ACCESS_KEY_ID', secretAccessKeyRef: 'VOLCENGINE_SECRET_ACCESS_KEY' })
+    },
+    note: 'Optional package: only the cloud transcription deployment composes it, with its credential references.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-hit-queue',
+    dir: 'tool-hit-queue',
+    source: 'packages/drama/tool-hit-queue/src/index.ts',
+    requires: ['ctx.tools', 'data station service token credential reference', 'network access to the data station service API'],
+    writes: ['tool/call', 'tool/result', 'data station transcription job state'],
+    async mount(ctx) {
+      await ctx.plugin(ToolHitQueue, { tokenRef: 'MUSE_DATA_SERVICE_TOKEN' })
+    },
+    note: 'Optional package: only the cloud transcription deployment composes it. Each dispatched worker claims its own work; the Main Session router does not call it.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-video-inspect',

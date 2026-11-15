@@ -199,8 +199,9 @@ describe('executeUpload', () => {
     })
     expect(bucket.calls).toEqual([`head ${DIRECTORY}video/001.mp4`, `upload ${DIRECTORY}video/001.mp4`, `head ${DIRECTORY}video/001.mp4`, `put ${manifestKey}`])
     expect(JSON.parse(bucket.objects.get(manifestKey)?.body ?? '')).toEqual({
-      version: 1, platform: 'hongguo', work_id: '7470000000000000001', title: '剧名', date: '20261115', created_at: NOW.toISOString(),
-      objects: [{ kind: 'video', key: `${DIRECTORY}video/001.mp4`, bytes: 7, sha256: sha256('video-1') }],
+      version: 1, platform: 'hongguo', work_id: '7470000000000000001', title: '剧名', bucket: 'muse', date: '20261115', directory: DIRECTORY,
+      created_at: NOW.toISOString(),
+      objects: [{ kind: 'video', key: `${DIRECTORY}video/001.mp4`, bytes: 7, sha256: sha256('video-1'), status: 'uploaded' }],
     })
     await expect(readFile(video, 'utf8')).resolves.toBe('video-1')
   })

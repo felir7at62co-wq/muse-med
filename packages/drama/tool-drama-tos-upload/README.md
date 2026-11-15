@@ -67,7 +67,7 @@ The tool takes `platform` (`hongguo`, `fanqie` or `qimao`), `work_id` (the work'
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-`src/upload.ts` resolves the request into a plan (validation, keys, local SHA-256) without remote access, then executes it against the `TosUploadClient` interface. `src/tos-client.ts` binds that interface to `@volcengine/tos-sdk@2.9.1` and maps SDK failures to coded `HarnessError`s without echoing request details. `src/index.ts` validates configuration at load, resolves credentials per call and registers the tool. The manifest key is `manifest-<UTC timestamp>.json` so repeated calls never replace an earlier manifest.
+`src/upload.ts` resolves the request into a plan (validation, keys, local SHA-256) without remote access, then executes it against the `TosUploadClient` interface. `src/tos-client.ts` binds that interface to `@volcengine/tos-sdk@2.9.1` and maps SDK failures to coded `HarnessError`s without echoing request details. `src/index.ts` validates configuration at load, resolves credentials per call and registers the tool. The manifest key is `manifest-<UTC timestamp>.json` so repeated calls never replace an earlier manifest. The manifest records the platform, work id, title, bucket, date, directory, creation time and each object's kind, key, size, SHA-256 and upload status, so a consumer such as the data station's job API can register a work's files from the manifest URL alone.
 
 </details>
 
@@ -93,7 +93,7 @@ When composed, the model sees the `drama_tos_upload` definition, whose descripti
 ##### Tool description
 
 ```markdown
-把一部作品的原始素材和剧本存到 TOS：红果剧的原片和转写材料，或番茄、七猫小说的原文和改成的剧本。位置是 download-video-date/<platform>/<日期>/<work_id>/<kind>/<文件名>，文件公开可读，返回每个文件的公开地址和本次清单。远端已有同名同内容的文件记为已存在，同名不同内容的不会覆盖；不会删除远端文件。remove_local 为 true 时，全部文件核对成功后才删除这些本地文件。
+把一部作品的原始素材和剧本存到 TOS：红果剧的原片和转写材料，或番茄、七猫小说的原文和改成的剧本。位置是 download-video-date/{platform}/{日期}/{work_id}/{kind}/{文件名}，文件公开可读，返回每个文件的公开地址和本次清单。远端已有同名同内容的文件记为已存在，同名不同内容的不会覆盖；不会删除远端文件。remove_local 为 true 时，全部文件核对成功后才删除这些本地文件。
 ```
 
 #### Token effect
