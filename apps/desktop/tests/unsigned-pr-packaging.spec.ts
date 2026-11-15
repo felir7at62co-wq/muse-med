@@ -26,6 +26,19 @@ it('builds the Host peers before qualifying download bundles on a clean checkout
   expect(qualification).toBeGreaterThan(build)
 })
 
+it('qualifies native macOS identity and signature rejection before assembling an update candidate', () => {
+  const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
+  const steps = record(record(workflow.jobs).build).steps
+  if (!Array.isArray(steps)) throw new Error('Expected packaging steps')
+  const native = steps.map((step: unknown) => record(step)).find(step => step.name === 'Check native macOS DMG identity and signature verification')
+  if (!native || typeof native.run !== 'string') throw new Error('Expected native macOS DMG verification')
+  expect(native.if).toBe("matrix.target == 'mac-arm64'")
+  expect(native.run).toContain('--config vitest.e2e.config.ts apps/desktop/tests/macos-update-package.e2e.ts')
+  expect(native.run).toContain('--retry 0')
+  expect(native.run).toContain('--outputFile="$RUNNER_TEMP/muse-candidate-update-native/result.json"')
+  expect(steps.indexOf(native)).toBeLessThan(steps.findIndex((step: unknown) => record(step).name === 'Build and verify the assembled application'))
+})
+
 it('allows ad-hoc resource sealing for unsigned PR packages without publisher signing', () => {
   const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
   const steps = record(record(workflow.jobs).build).steps

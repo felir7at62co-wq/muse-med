@@ -1,5 +1,12 @@
 # This authored failure case must only run keyless replay/refresh.
 # Keep this failure oracle independent of bundled operating-system skills.
+# This zero-dispatch argument-loop owner does not test Sandbox backends.
+# The unused operator sentinel avoids OS skills; accidental process dispatch must fail.
+- id: sandbox
+  config:
+    runnerCommand: [operator-runner]
+    runnerFailureSignatures: [operator runner unavailable]
+
 - id: skill-filesystem
   disabled: true
 

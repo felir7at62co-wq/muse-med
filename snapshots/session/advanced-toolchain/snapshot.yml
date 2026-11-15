@@ -3,6 +3,7 @@ scenario: advanced-toolchain
 profile: headless
 composition: advanced-toolchain
 recording: authored
+writerOutput: true
 header:
   class: native-ptc-native
   pin: true

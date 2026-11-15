@@ -5354,7 +5354,7 @@ Sources: [`packages/session/session-title/src/types.ts:28`](../packages/session/
 
 <a id="persistence-type-sha256-34ffea2b49d0fb384aefb364d8d0e9e6121a1ae40dccacb77c61bb1bb08df8a0"></a>
 
-<a id="persistence-type-packagesjubiantool-jubianlibtypesvideo-session-typesdtssessionvideoselection"></a>
+<a id="persistence-type-packagesjubiantool-jubiansrcvideo-session-typestssessionvideoselection"></a>
 
 <a id="persistence-type-sessionvideoselection"></a>
 
@@ -5362,7 +5362,7 @@ Sources: [`packages/session/session-title/src/types.ts:28`](../packages/session/
 
 SHA-256: `34ffea2b49d0fb384aefb364d8d0e9e6121a1ae40dccacb77c61bb1bb08df8a0`
 
-Sources: [`packages/jubian/tool-jubian/lib/types/video-session-types.d.ts:19`](../packages/jubian/tool-jubian/lib/types/video-session-types.d.ts)
+Sources: [`packages/jubian/tool-jubian/src/video-session-types.ts:25`](../packages/jubian/tool-jubian/src/video-session-types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -7925,7 +7925,7 @@ SHA-256: `3194254408aef09a9b01fab22f1e22f471120c65b432770992a2f445f74cb9fe`
 
 SHA-256: `5c1fd4488e18d2a6cd8737d89021084c190456659371ce4e909b8f9fc741d1d9`
 
-Sources: [`packages/jubian/tool-jubian/lib/types/video-session-types.d.ts:61`](../packages/jubian/tool-jubian/lib/types/video-session-types.d.ts)
+Sources: [`packages/jubian/tool-jubian/src/video-session-types.ts:68`](../packages/jubian/tool-jubian/src/video-session-types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -9153,7 +9153,7 @@ Sources: [`packages/web/web-search-deepseek/src/provider.ts:64`](../packages/web
 
 SHA-256: `be95d182aef39a3613e14a7fe8e5bcb9c87ea67fe74883764a6754e63772629e`
 
-Sources: [`packages/jubian/tool-jubian/lib/types/video-session-types.d.ts:37`](../packages/jubian/tool-jubian/lib/types/video-session-types.d.ts)
+Sources: [`packages/jubian/tool-jubian/src/video-session-types.ts:47`](../packages/jubian/tool-jubian/src/video-session-types.ts)
 
 | Property | Presence | Type |
 |---|---|---|

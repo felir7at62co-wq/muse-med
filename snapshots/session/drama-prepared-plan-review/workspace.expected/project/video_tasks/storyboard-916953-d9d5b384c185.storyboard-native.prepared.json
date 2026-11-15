@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "operation": "prepare_storyboard_native_video",
+  "status": "prepared",
+  "createdAt": "2026-09-29T11:40:41.000Z",
+  "scriptId": 2708,
+  "storyboardId": 916953,
+  "idempotencyKey": "d9d5b384c18548b2c2bc0214e0f81f895e3ba02e62607c8a839d0d785f46f4aa",
+  "estimatedSubmissions": 1,
+  "assetSummary": {
+    "count": 1,
+    "orderedAssets": [
+      {
+        "assetId": "asset-courtyard",
+        "materialAssetId": 11,
+        "materialKey": "scene",
+        "materialName": "院落",
+        "imageUrl": "https://cdn.example.test/courtyard.png"
+      }
+    ]
+  },
+  "payload": {
+    "id": 916953,
+    "scriptId": 2708,
+    "episodeId": 9,
+    "isGenerate": 1,
+    "storyboardName": "Offline declared plan",
+    "modelConfig": "{\"standardId\":61,\"modelId\":\"doubao-seedance-2-5-260628\",\"platformId\":\"FANG_ZHOU\",\"genType\":3,\"modelGenerationTypeId\":71,\"videoStandardId\":337,\"duration\":12,\"ratio\":\"16:9\",\"resolution\":\"480p\",\"genNum\":1,\"prompt\":\"@[院落](scene)\\n真人短剧写实风格\\n【镜头1】\\n核心场景：院落\\n场景时段：清晨\\n镜头类型：【纯环境空镜】；\\n景别：【特写】；\\n主运镜：【固定机位】；\\n空镜用途：交代场景\\n视线目标：未知\\n情绪触发：未知\\n发声类型：action\\n时长：3秒\\n无噪点，无跳帧，五官稳定不变形\\n\\n真人短剧写实风格\\n【镜头2】\\n核心场景：院落\\n场景时段：清晨\\n镜头类型：【纯环境空镜】；\\n景别：【特写】；\\n主运镜：【固定机位】；\\n空镜用途：交代场景\\n视线目标：未知\\n情绪触发：未知\\n发声类型：action\\n时长：3秒\\n无噪点，无跳帧，五官稳定不变形\\n\\n真人短剧写实风格\\n【镜头3】\\n核心场景：院落\\n场景时段：清晨\\n镜头类型：【纯环境空镜】；\\n景别：【特写】；\\n主运镜：【固定机位】；\\n空镜用途：交代场景\\n视线目标：未知\\n情绪触发：未知\\n发声类型：action\\n时长：3秒\\n四层朝向链：瞳孔自发光\\n眼部特效依据：原文：待定\\n无噪点，无跳帧，五官稳定不变形\",\"materialList\":[{\"assetId\":\"asset-courtyard\",\"materialAssetId\":11,\"fileName\":\"院落\",\"materialKey\":\"scene\",\"materialType\":\"image\",\"materialUrl\":\"https://cdn.example.test/courtyard.png\",\"sortOrder\":1,\"official\":true,\"asset_status\":\"confirmed\"}],\"backupModelList\":[]}",
+    "storyboardMaterialList": [
+      {
+        "assetId": "asset-courtyard",
+        "materialAssetId": 11,
+        "fileName": "院落",
+        "materialKey": "scene",
+        "materialType": "image",
+        "materialUrl": "https://cdn.example.test/courtyard.png",
+        "sortOrder": 1,
+        "official": true,
+        "asset_status": "confirmed"
+      }
+    ]
+  },
+  "nextAction": "核对 preview 的项目、主体、配置、预计费用与已有任务。用户最新请求若为只预览或先看，到此展示结果，不沿用此前制作授权提交；本次请求包含已授权生成时才调用 submit_video。prepare 本身不 PUT、不创建任务、不收费。"
+}

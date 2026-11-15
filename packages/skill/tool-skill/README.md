@@ -139,7 +139,7 @@ A user may also invoke a skill directly; its <skill_content> block then appears 
 
 #### Token effect
 
-Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no initial catalog tokens are sent when discovery is complete and empty or the tool is hidden or shadowed. Each entry or completeness change adds one retained replacement message; incomplete discovery adds a warning.
+Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no initial catalog tokens are sent when discovery is complete and empty or the tool is hidden or shadowed. Each published entry change adds one retained replacement message; incomplete discovery adds no catalog tokens. Restored incomplete catalogs remain readable and are replaced after complete discovery.
 
 #### KV Cache effect
 

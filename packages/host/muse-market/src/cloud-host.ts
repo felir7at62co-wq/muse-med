@@ -90,7 +90,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         }
         let assertion: MarketActor | null
         try { assertion = actor(request.headers['x-muse-market-actor']) }
-        catch (error) { request.resume(); reject(response, 400, error instanceof MarketCloudError ? error.code : 'invalid-actor'); return }
+        catch (_error) { request.resume(); reject(response, 400, 'invalid-actor'); return }
         requests.add(request)
         const work = handleMarket(catalog, request, response, assertion, resolved.catalog)
         pending.add(work)

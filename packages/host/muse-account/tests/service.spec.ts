@@ -16,6 +16,26 @@ import type { MuseAccountStatus } from '../src/types.ts'
 const contexts: Context[] = []
 const homes: string[] = []
 
+it('contains an account observer failure after recording the current identity', async () => {
+  const context = new Context()
+  contexts.push(context)
+  const failure = new Error('observer failed')
+  const observer = vi.fn(() => { throw failure })
+  const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
+  context.on('muse-account/session-changed', observer)
+  const status = { state: 'signed-out' } as const
+  await context.plugin(MuseAccountService, { controller: {
+    status: async () => status,
+    logout: async () => status,
+    login: async () => { throw new Error('unused') },
+  } })
+  const service = context.get('museAccount') as MuseAccountService
+  await expect(service.status({ verify: false })).resolves.toEqual(status)
+  await expect(service.status({ verify: false })).resolves.toEqual(status)
+  expect(observer).toHaveBeenCalledTimes(1)
+  expect(warn).toHaveBeenCalledExactlyOnceWith('Muse account observer failed', failure)
+})
+
 it('keeps browser redemption private, refreshes consumers after commit and cancels before manual authentication', async () => {
   const context = new Context(), operations: string[] = []
   contexts.push(context)

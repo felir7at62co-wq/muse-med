@@ -35,9 +35,13 @@ export interface MuseMarketCloudConfig {
   readonly catalogLimit: number
 }
 
+type CloudPath = '/api/market/v1/me' | '/api/market/v1/uploads' | `/api/market/v1/catalog?${string}`
+  | `/api/market/v1/releases/${MarketPublicationId}` | `/api/market/v1/releases/${MarketPublicationId}/download`
+  | `/api/market/v1/releases/${MarketPublicationId}/review`
+
 interface CloudRequest {
-  json(path: string, init?: RequestInit): Promise<unknown>
-  archive(path: string, publication: MarketPublication): Promise<Buffer>
+  json(path: CloudPath, init?: RequestInit): Promise<unknown>
+  archive(path: CloudPath, publication: MarketPublication): Promise<Buffer>
   assertCurrent(): Promise<void>
 }
 
@@ -82,9 +86,8 @@ class AccountTransport {
       catch (_error) { throw new MarketCloudError('account-unavailable', 503) }
       if (current?.revision !== session.revision || current.cookie !== session.cookie) throw new MarketCloudError('account-changed', 409)
     }
-    const bytes = async (path: string, init: RequestInit, maximum: number, publication?: MarketPublication): Promise<Buffer> => {
+    const bytes = async (path: CloudPath, init: RequestInit, maximum: number, publication?: MarketPublication): Promise<Buffer> => {
       await assertCurrent()
-      if (!path.startsWith('/api/market/v1/') || /[\\\r\n]/u.test(path)) throw new MarketCloudError('invalid-cloud-path', 400)
       const headers = new Headers(init.headers)
       headers.set('origin', this.origin)
       if (session !== null) headers.set('cookie', session.cookie)
@@ -204,7 +207,7 @@ export default class MuseMarketCloud extends TypertRemoteService {
   async catalog(q: string, mine: boolean): Promise<MarketPublication[]> {
     return await this.run(() => this.transport.account(mine, async (request) => {
       if (q.length > 200) throw new MarketCloudError('invalid-query', 400)
-      const value = await request.json('/api/market/v1/catalog?' + new URLSearchParams({ q, mine: String(mine) }).toString())
+      const value = await request.json(`/api/market/v1/catalog?${new URLSearchParams({ q, mine: String(mine) }).toString()}`)
       if (!marketRecord(value) || Object.keys(value).length !== 1 || !Array.isArray(value.items)
         || value.items.length > this.config.catalogLimit) throw new MarketCloudError('invalid-response', 502)
       const publications = value.items.map((item: unknown) => parseMarketPublication(item, this.limits))

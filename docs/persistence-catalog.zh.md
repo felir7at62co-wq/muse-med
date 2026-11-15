@@ -5356,7 +5356,7 @@ SHA-256: `30d5a537b296685770b1241c4b4bbde19d5a31ff81aa23df73fab5e90b8fc65f`
 
 <a id="persistence-type-sha256-34ffea2b49d0fb384aefb364d8d0e9e6121a1ae40dccacb77c61bb1bb08df8a0"></a>
 
-<a id="persistence-type-packagesjubiantool-jubianlibtypesvideo-session-typesdtssessionvideoselection"></a>
+<a id="persistence-type-packagesjubiantool-jubiansrcvideo-session-typestssessionvideoselection"></a>
 
 <a id="persistence-type-sessionvideoselection"></a>
 
@@ -5364,7 +5364,7 @@ SHA-256: `30d5a537b296685770b1241c4b4bbde19d5a31ff81aa23df73fab5e90b8fc65f`
 
 SHA-256: `34ffea2b49d0fb384aefb364d8d0e9e6121a1ae40dccacb77c61bb1bb08df8a0`
 
-来源：[`packages/jubian/tool-jubian/lib/types/video-session-types.d.ts:19`](../packages/jubian/tool-jubian/lib/types/video-session-types.d.ts)
+来源：[`packages/jubian/tool-jubian/src/video-session-types.ts:25`](../packages/jubian/tool-jubian/src/video-session-types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -7927,7 +7927,7 @@ SHA-256: `3194254408aef09a9b01fab22f1e22f471120c65b432770992a2f445f74cb9fe`
 
 SHA-256: `5c1fd4488e18d2a6cd8737d89021084c190456659371ce4e909b8f9fc741d1d9`
 
-来源：[`packages/jubian/tool-jubian/lib/types/video-session-types.d.ts:61`](../packages/jubian/tool-jubian/lib/types/video-session-types.d.ts)
+来源：[`packages/jubian/tool-jubian/src/video-session-types.ts:68`](../packages/jubian/tool-jubian/src/video-session-types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -9155,7 +9155,7 @@ SHA-256: `9a2a9029f8d7ede05336980d8342737557f487b913bfd28853d0ab5214600ab5`
 
 SHA-256: `be95d182aef39a3613e14a7fe8e5bcb9c87ea67fe74883764a6754e63772629e`
 
-来源：[`packages/jubian/tool-jubian/lib/types/video-session-types.d.ts:37`](../packages/jubian/tool-jubian/lib/types/video-session-types.d.ts)
+来源：[`packages/jubian/tool-jubian/src/video-session-types.ts:47`](../packages/jubian/tool-jubian/src/video-session-types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

@@ -27,6 +27,7 @@ jobs:
   # Observational checks reuse the successful build and remain non-blocking.
   # Dependabot PRs are excluded from the self-hosted pool and stay queued for
   # the hosted runner.
+  # Default hosted labels are enterprise upstream and windows-2025 on forks.
   # Blacksmith uses 2 vCPU for file-serial native tests and 16 for coverage
   # and the shared build/observational workspace.
   windows-build:
@@ -36,7 +37,8 @@ jobs:
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
-          || 'dsh-windows-2025-16core' }}
+          || github.repository == 'deepseek-harness/deepseek-harness' && 'dsh-windows-2025-16core'
+          || 'windows-2025' }}
     name: windows node 24 / build & observational
     timeout-minutes: 60
     env:
@@ -119,7 +121,8 @@ jobs:
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
-          || 'dsh-windows-2025-16core' }}
+          || github.repository == 'deepseek-harness/deepseek-harness' && 'dsh-windows-2025-16core'
+          || 'windows-2025' }}
     name: windows node 24 / coverage
     timeout-minutes: 120
     env:
@@ -172,11 +175,19 @@ jobs:
           } else {
             pnpm install --frozen-lockfile
           }
-      # No build before coverage, matching the Linux lane: workspace imports
-      # resolve to src through the tsconfig paths map, and the lib-consuming
-      # suites (webworker-packer image-loadable, webworker-runtime
-      # transform-corpus, client ui-trajectory client-bundle) self-skip on
-      # unbuilt checkouts.
+      - name: Prepare media test executables
+        shell: pwsh
+        run: pnpm exec tsx scripts/prepare-ci-ffmpeg.ts
+      - name: Verify media test executables
+        shell: pwsh
+        run: |
+          foreach ($name in @('ffmpeg', 'ffprobe')) {
+            $binary = (Get-Command $name -CommandType Application -ErrorAction Stop).Source
+            & $binary -version
+            if ($LASTEXITCODE -ne 0) { throw "$name version probe failed: $LASTEXITCODE" }
+          }
+      # The coverage gate builds its required artifacts before starting readers,
+      # including compiled CLI loader smokes and the real Web scaffold tests.
       - name: Run Windows coverage
         shell: pwsh
         run: pnpm run check:ci:coverage
@@ -197,7 +208,8 @@ jobs:
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
-          || 'dsh-windows-2025-16core' }}
+          || github.repository == 'deepseek-harness/deepseek-harness' && 'dsh-windows-2025-16core'
+          || 'windows-2025' }}
     name: windows node 24 / native tests
     timeout-minutes: 60
     steps:

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SessionFormatEventCollector, type SessionFormatEvent } from '@deepseek-ai/dsh-session-format'
 import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
-import { releasedV4SessionFormatCodec, restoreReleasedV4Artifact } from '../src/index.ts'
+import { assertV4RowAdmission, releasedV4SessionFormatCodec, restoreReleasedV4Artifact } from '../src/index.ts'
 
 const header = { version: 4, id: 'native-syntax', createdAt: 1, delegationDepth: 0, isSeeded: false }
 const physical = { type: 'session', ...header }
@@ -9,6 +9,11 @@ const request = (data: unknown): SessionFormatEvent => ({ type: 'request/header'
 const turn: SessionFormatEvent = { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }
 
 describe('native retired syntax admission', () => {
+  it('refuses retired request system text at the native row admission entry', () => {
+    expect(() => { assertV4RowAdmission({ type: 'request/header', data: { header: { system: 'retired text' } } }) })
+      .toThrow('format v4 request/header rejects retired header.system')
+  })
+
   it('rejects retired headers and PTC tags in strict reads, encoding, and recoverable suffixes', () => {
     const invalid = [
       request(null), request({ header: null }), request({ header: { config: { provider: 'mock', model: 'mock' }, system: '' } }),

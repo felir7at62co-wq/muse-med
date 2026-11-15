@@ -3,8 +3,8 @@
  * its child log and confines a real write under a wider deployment default.
  */
 
-import { readFile, readdir, realpath, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import {
@@ -25,8 +25,9 @@ const replayOverride = join(fixtureDir, 'replay.override.json')
 // The released V3 child fixture replays through the V3-to-V4 migration, so its
 // tool results lift and its plugin sources move onto producer kinds.
 const childReplay = join(fixtureDir, 'child.replay.v3.jsonl')
-const parentExpected = join(fixtureDir, 'parent.expected.jsonl')
-const childExpected = join(fixtureDir, 'child.expected.jsonl')
+const platformExpected = process.platform === 'win32' ? join(fixtureDir, 'win32') : fixtureDir
+const parentExpected = join(platformExpected, 'parent.expected.jsonl')
+const childExpected = join(platformExpected, 'child.expected.jsonl')
 const configPath = fileURLToPath(new URL('../subagent-inheritance-snapshot.patch.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../../../../packages/test-support/loader-smoke/tests/fixtures/headless-driver.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../../../../tsconfig.json', import.meta.url))
@@ -160,10 +161,13 @@ describe('parent-only override inheritance snapshot', () => {
           expect(context).not.toContain('terminal sessions')
         }
 
-        const context: NormalizeContext = { sessionIds: [sessionId, String(headerOf(child).id)], cwd }
+        const context: NormalizeContext = { sessionIds: [sessionId, String(headerOf(child).id)], cwd,
+          cwdAliases: [cwd.replaceAll('\\', '/'), JSON.stringify(cwd).slice(1, -1)],
+        }
         const normalizedParent = normalizeSessionSnapshot(parent, context)
         const normalizedChild = normalizeSessionSnapshot(child, context)
         if (refreshing) {
+          await mkdir(dirname(parentExpected), { recursive: true })
           await writeFile(parentExpected, normalizedParent)
           await writeFile(childExpected, normalizedChild)
         }

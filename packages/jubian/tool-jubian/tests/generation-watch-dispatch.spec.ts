@@ -148,6 +148,21 @@ it.each([0, 3])('leaves a batch of %s previews to normal preflight without enrol
   expect(f.requests.every(row => row.method === 'GET')).toBe(true)
 })
 
+it('refuses a submission from a Session that has not recorded a request header yet', async () => {
+  const f = await host()
+  // A real Agent created by the same Host whose first turn never reached a model:
+  // requestHeader() stays undefined, so the submission has no original selection to bind.
+  const unrequested = await f.ctx.agentLoop.create(SessionId('no-request-header-owner'), selection, { cwd: f.root })
+  const result = await executeToolFixture(f.ctx, { callId: ToolCallId('no-request-header-submit'), name: 'jubian_storyboard',
+    arguments: { method: 'submit_video', preview_path: f.plan.preview_path, idempotency_key: f.plan.idempotencyKey },
+    signal: new AbortController().signal, agent: unrequested })
+  expect(result.isError).toBe(true)
+  expect(result.content).toMatchObject([{ type: 'text',
+    text: 'Error: Video submission requires the original native Session, model and owned Workspace' }])
+  expect(await f.store.listActive()).toEqual([])
+  expect(f.requests.every(row => row.method === 'GET')).toBe(true)
+})
+
 it('refuses a session that the Host cannot resolve before enrolling or dispatching', async () => {
   const f = await host()
   const resolve = vi.spyOn(f.ctx.sessionController, 'resolveAgent').mockResolvedValueOnce({

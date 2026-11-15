@@ -79,6 +79,8 @@ parent agent 委托给进程内 subagent 的场景会为每个 Session 记录一
 
 有两种失败模式无法仅根据持久 Assistant settlement 重建：任何 chunk 之前的纯 throw 没有携带异常的 stream member，而 cancel/hang 需要的是不终止语义，不能用有限前缀回放。需要这些行为的场景可提供可选伴随文件（`<scenario>/replay.override.json`）：它用裸 `ReplayEntry[]` 替换派生脚本，或用 `{ patches: [{ at, entry }] }` 增补——保留所有派生调用，只替换指定的从 0 开始计数的调用索引；当 `at` 等于派生长度时，则在注入瞬态异常后的重试位置追加。有前缀分片的 `throw` 条目会接受 DeepSeek 请求扩展；零分片 throw 默认表示 2xx 前未接受，也可设 `accepted: true` 表示 2xx 后无分片失败。`hang` 条目可以指定 `readyFile`，回放在等待取消前写入它，使外部 driver 可以确定性取消。
 
+`{{fromRequest:<regex>}}` 插入从实时请求捕获的文本。在工具调用参数的带引号 JSON 字符串中，回放会转义捕获值，使 Windows 路径、引号和控制字符经 JSON 解码后保持原值。同一分片块的参数增量会跨分片保留 JSON 字符串位置。普通文本与未加引号的 JSON 位置仍按字面替换；回放不修复格式错误的参数模板，也不递归解析捕获内容中的占位符。
+
 ### 可能出什么问题
 
 - **fixture 未被完全消费**——在测试中直接安装回放时调用 `assertConsumed()`，它会把场景静默驱动的模型调用少于记录数转换为明确诊断。

@@ -1,4 +1,5 @@
 /** Desktop Workspace routing retains the user's actual original backend. */
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { workspaceStorageLayer } from '../src/workspace-storage-composition.ts'
 import { generationLoopLayer } from '../src/generation-loop-composition.ts'
@@ -8,7 +9,7 @@ describe('Desktop Workspace successor routing', () => {
     const config = { backend: 'json-custom', routes: { workspace: 'json-workspace', credentials: 'private' } }
     const result = workspaceStorageLayer([{ id: 'storage-domain', config }], '/private/muse/storages')
     expect(result).toEqual([{ insert: [{ id: 'muse-workspace-owned-storage', name: 'muse-workspace-owned-storage',
-      config: { sourceBackend: 'json-workspace', root: '/private/muse/storages/workspace-owned-v1' } }] },
+      config: { sourceBackend: 'json-workspace', root: join('/private/muse/storages', 'workspace-owned-v1') } }] },
     { id: 'storage-domain', config: { backend: 'json-custom', routes: { workspace: 'muse-workspace-owned', credentials: 'private' } } }])
     expect(config.routes.workspace).toBe('json-workspace')
   })

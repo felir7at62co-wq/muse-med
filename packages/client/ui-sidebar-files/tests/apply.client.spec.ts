@@ -134,6 +134,7 @@ describe('ui-sidebar-files apply', () => {
     const instance = store.create(session)
     const makeFace = body.inject as (id: SessionId, actions: typeof instance.actions) => FilesInjected
     const face = makeFace(session, instance.actions).workspaceReferences!
+    expect(makeFace(session, instance.actions).workspaceReferences).toBe(face)
     expect(face.type).toBe(references.dragType)
     expect(face.start('/work', ['/work/report.mp4'])).toBe(ticket)
     expect(startDrag).toHaveBeenCalledExactlyOnceWith(session, '/work', ['/work/report.mp4'])

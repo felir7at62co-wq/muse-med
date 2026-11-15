@@ -4,6 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { importSnapshotModule, importSnapshotPackage } from '../../../../../snapshots/session/muse-fixture-import.mjs'
 import { evidence, DRAFT, SOURCE, ASR, SELECTION, ROWS } from './evidence.mjs'
+import { parsePtcJsonResult, PARTIAL_SANDBOX_NOTICE } from '../ptc-json-result.mjs'
 
 const owner = new URL('../../../package.json', import.meta.url)
 const { LlmAdapter, ToolCallId } = await importSnapshotPackage('@deepseek-ai/dsh-llm', owner)
@@ -228,7 +229,8 @@ export async function apply(ctx) {
         assert.equal(result.toolCallId, `binding-program-${index + 1}`)
         const text = result.content.filter(block => block.type === 'text').map(block => block.text).join('')
         assert.equal(result.isError, false, `${planned.kind}: ${text}`)
-        const value = JSON.parse(text)
+        const { value, notices } = parsePtcJsonResult(result.content)
+        assert.deepEqual(notices, notices.length === 0 ? [] : [PARTIAL_SANDBOX_NOTICE])
         if (planned.error) { assert.equal(value.blocked, true); assert.equal(value.error, planned.error) }
         else {
           assert.equal(value.label, LABEL)

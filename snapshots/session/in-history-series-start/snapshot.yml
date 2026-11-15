@@ -1,4 +1,5 @@
 version: 1
+writerOutput: true
 scenario: in-history-series-start
 profile: headless
 composition: in-history-series-start

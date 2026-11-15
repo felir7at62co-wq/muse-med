@@ -214,6 +214,8 @@ export interface FilesInjected {
    * so does focus that hiding the covered content left on the document body,
    * unless the reader moved the keyboard or pointer or the window lost focus
    * before the width was reported.
+   * Its direct DOM parent owns the covering stylesheet scope while at least
+   * one navigator is drawn there; removing the last drawing restores the parent.
    * @param paneId - the pane being drawn.
    * @param navigator - the navigator element, or `null` once it is removed.
    * @param closable - whether Escape closes this drawing; the `files` page's tree stays shown.
@@ -348,6 +350,24 @@ export function filesFace(
   return (sessionId, store, place): FilesInjected => {
     const { actions } = store
     const panes = new Map<PaneId, PaneRecord>()
+    const navigatorHosts = new Map<HTMLElement, { count: number; readonly previous: string | null }>()
+    // Scope the navigator's covering rules to its direct DOM parent, including
+    // slot wrappers without a layout box. Several drawings may share that parent.
+    const markNavigatorHost = (parent: HTMLElement): (() => void) => {
+      const host = navigatorHosts.get(parent) ?? { count: 0, previous: parent.getAttribute('data-files-navigator-host') }
+      if (host.count === 0) {
+        navigatorHosts.set(parent, host)
+        if (host.previous === null) parent.setAttribute('data-files-navigator-host', '')
+      }
+      host.count++
+      return () => {
+        host.count--
+        if (host.count !== 0) return
+        navigatorHosts.delete(parent)
+        if (host.previous === null) parent.removeAttribute('data-files-navigator-host')
+        else parent.setAttribute('data-files-navigator-host', host.previous)
+      }
+    }
     const record = (paneId: PaneId): PaneRecord => {
       let pane = panes.get(paneId)
       if (pane === undefined) {
@@ -668,6 +688,10 @@ export function filesFace(
           drop(paneId)
           return
         }
+        const parent = navigator.parentElement
+        if (parent === null) return
+        const unmarkHost = markNavigatorHost(parent)
+        pane.unobserve = unmarkHost
         const row = layoutParent(navigator)
         if (row === null) return
         const document = row.ownerDocument
@@ -766,6 +790,7 @@ export function filesFace(
           window.removeEventListener('blur', forget)
           navigator.removeEventListener('focusin', focusin)
           navigator.removeEventListener('focusout', focusout)
+          unmarkHost()
         }
       },
       toggleDrawn(paneId, toggle) {
