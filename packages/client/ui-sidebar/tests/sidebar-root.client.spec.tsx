@@ -467,7 +467,7 @@ describe('SidebarRoot shell', () => {
     { drawer: true, expected: '320px' },
   ])('uses the target content width before paint (drawer: $drawer)', ({ drawer, expected }) => {
     const shell = mountShell({ drawer })
-    const column = screen.getByTestId('region').parentElement!.parentElement!
+    const column = screen.getByTestId('region').closest<HTMLElement>(`.${css.root}`)!
     const outer = column.parentElement!
     outer.style.borderLeft = '2px solid transparent'
     outer.style.borderRight = '1px solid transparent'
@@ -477,14 +477,14 @@ describe('SidebarRoot shell', () => {
 
   it('keeps an independent fragment composition at its supplied content width', () => {
     const shell = mountShell({ fragment: true })
-    const column = shell.container.querySelector('[data-testid="region"]')!.parentElement!.parentElement!
+    const column = shell.container.querySelector('[data-testid="region"]')!.closest<HTMLElement>(`.${css.root}`)!
     expect(column.parentElement).toBeNull()
     expect(column.style.getPropertyValue('--dsh-sidebar-expanded-width')).toBe('300px')
   })
 
   it('reads the enclosing column border through a boxless slot anchor', () => {
     const shell = mountShell({ anchor: true })
-    const column = screen.getByTestId('region').parentElement!.parentElement!
+    const column = screen.getByTestId('region').closest<HTMLElement>(`.${css.root}`)!
     const anchor = column.parentElement!
     expect(anchor.style.display).toBe('contents')
     anchor.parentElement!.style.borderRight = '1px solid transparent'

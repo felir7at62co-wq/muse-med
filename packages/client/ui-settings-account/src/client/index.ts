@@ -226,8 +226,8 @@ export function apply(ctx: Context): void {
       }).__DSH_TRANSPORT__
       const request = async () => {
         const result = await ctx.remote.account.startSignIn(client(ctx.locale.getSnapshot().active),
-          desktop && transport?.streamBaseUrl !== undefined ? new URL(transport.streamBaseUrl).origin : window.location.origin,
-          desktop ? 'desktop' : 'web')
+          transport?.streamBaseUrl !== undefined ? new URL(transport.streamBaseUrl).origin : window.location.origin,
+          'desktop')
         if (!result.ok) throw new Error('account start failed')
         return result.value
       }

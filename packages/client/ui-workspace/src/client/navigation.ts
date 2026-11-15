@@ -382,6 +382,8 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       navigation.addEventListener('abort', cancelled, { once: true })
       if (navigation.aborted) cancelled()
     })
+    // `navigation.aborted` can change across awaits, which TypeScript's narrowing from the earlier check cannot see.
+    const superseded = (): boolean => navigation.aborted
     try {
       const target = await Promise.race([resolve(navigation), cancellation])
       if (navigation.aborted) return
@@ -391,7 +393,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
         // An existing list pull may predate creation; the next pull starts after it settles.
         for (let pull = 0; pull < 2 && this.sessions.list.getSnapshot().byId[target] === undefined; pull++) {
           await Promise.race([this.sessions.refresh(), cancellation])
-          if (navigation.aborted) return
+          if (superseded()) return
         }
         if (this.sessions.list.getSnapshot().byId[target] === undefined) {
           throw new Error('Initial Session is unavailable in the Session list')

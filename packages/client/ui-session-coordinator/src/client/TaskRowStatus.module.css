@@ -6,7 +6,7 @@
   max-width: 112px;
   margin-inline: 4px;
   padding: 2px 5px 2px 3px;
-  border-radius: 10px;
+  border-radius: var(--dsw-radius-sm);
   color: var(--dsw-alias-state-business-primary);
   background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent);
 }

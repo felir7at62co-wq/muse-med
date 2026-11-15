@@ -86,7 +86,10 @@ export interface ComposerAttachmentsOwnerProps {
    * @param directories - members of `files` the drop source identified as directories.
    */
   onAddFiles: (files: readonly File[], directories?: ReadonlySet<File>) => void
-  /** Same-connection workspace drag intake; absent without a Session. A drop without a Host workspace-file namespace inserts no references. */
+  /**
+   * Same-connection workspace drag intake; absent without a Session.
+   * A drop without a Host workspace-file namespace inserts no references.
+   */
   workspaceDrop?: {
     readonly type: string
     readonly canAccept: boolean

@@ -57,7 +57,9 @@ function RawReport({ phase, block, t, inspect }: Props) {
   </div>
 }
 
-function VerifiedReport({ model, useResource, useSessions, t, openExecution, openDelivery }: Props & { readonly model: CoordinationReport }) {
+function VerifiedReport(
+  { model, useResource, useSessions, t, openExecution, openDelivery }: Props & { readonly model: CoordinationReport },
+) {
   const resource = useResource<'muse-tasks'>(`dsh-resource://muse-tasks/${encodeURIComponent(model.owner)}`)
   return <section className={css.report} aria-label={t('reportTitle')} data-muse-coordination-report>
     <div className={css.header}><h3>{t('reportTitle')}</h3></div>

@@ -91,7 +91,7 @@ it('keeps native sign-in from opening a second renderer authorization tab', asyn
   await actions.start()
   expect(mock.remote.account.startSignIn).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }),
     window.location.origin, 'desktop')
-  c.mock.streams.push('account/watch', waiting)
+  c.mock.streams.push('account/watch', { type: 'snapshot', state: waiting })
   await vi.waitFor(() => { expect(actions.hooks.account.getSnapshot().view).toEqual(waiting) })
   expect(actions.hooks.account.getSnapshot().loginVisible).toBe(true)
   expect(open).not.toHaveBeenCalled()

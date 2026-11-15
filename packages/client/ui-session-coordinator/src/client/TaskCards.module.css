@@ -11,10 +11,10 @@
   pointer-events: auto;
 }
 .list { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 2px; }
-.card { width: 100%; border: 1px solid var(--dsw-alias-border-l1); border-radius: 20px; background: var(--dsw-alias-bg-layer-1); box-shadow: var(--dsw-elevation-panel); }
+.card { width: 100%; border-radius: var(--dsw-radius-xl); background: var(--dsw-alias-bg-layer-1); box-shadow: var(--dsw-elevation-panel); }
 .heading { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 8px 12px 8px 8px; cursor: pointer; list-style: none; }
 .heading::-webkit-details-marker { display: none; }
-.heading:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; border-radius: 20px; }
+.heading:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; border-radius: var(--dsw-radius-xl); }
 .spider { flex: none; width: 38px; height: 32px; background: url('./assets/muse-spider.svg') center / contain no-repeat; filter: hue-rotate(110deg) saturate(.9); transform-origin: center bottom; }
 .card[data-working] .spider { animation: working 1.8s ease-in-out infinite; }
 .headingText { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }

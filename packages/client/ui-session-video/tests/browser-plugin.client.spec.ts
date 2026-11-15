@@ -4,8 +4,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { OwnerOf, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
-import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { RemoteError, TestRoot, TestSessions, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
+import { RemoteError, TestRoot, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-session-video/remote'
@@ -63,11 +62,6 @@ async function setup(accepted: boolean | 'loading' = false, bootstrap = true) {
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   locale.setLocale('en')
-  const sessions = new TestSessions(async (action) => { await action() }, ctx)
-  onTestFinished(() => sessions.disposeScopes())
-  ctx.provide('sessions', sessions)
-  new UiConversation(ctx, sessions)
-  ctx.uiConversation.headerPresentations.register({ id: 'prior', presentation: 'standard' })
   const form = stubConfigForm<{ enabled: boolean }>()
   if (accepted !== 'loading') form.publish({ status: 'ready', writable: true, value: { enabled: accepted } })
   const getForm = vi.fn(() => form.scope)
@@ -85,7 +79,7 @@ async function setup(accepted: boolean | 'loading' = false, bootstrap = true) {
   await root.declare({
     'settings.general.item': { kind: 'list', scope: 'root' },
     'conversation.chat.pinned': { kind: 'list', scope: 'session' },
-    'conversation.content.overlay': { kind: 'list', scope: 'session' },
+    'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
     'deliverables.video': { kind: 'chain', scope: 'session' },
     'conversation.chat.turnTail': { kind: 'list', scope: 'session' },
   }, () => null)
@@ -95,14 +89,27 @@ async function setup(accepted: boolean | 'loading' = false, bootstrap = true) {
     return dispose
   }
   const setting = () => injected(slots.entries('settings.general.item')[0]!) as PresentationSettingFace
-  const face = () => injected(slots.entries('conversation.content.overlay')[0]!) as VideoInjected
-  const counts = () => (['conversation.chat.pinned', 'conversation.content.overlay', 'deliverables.video', 'conversation.chat.turnTail'] as const)
+  const face = () => injected(slots.entries('conversation.chat.pinned')[0]!) as VideoInjected
+  const counts = () => (['conversation.chat.pinned', 'conversation.session.header.utilities', 'deliverables.video', 'conversation.chat.turnTail'] as const)
     .map(key => slots.entries(key).length)
   return { ctx, slots, locale, form, getForm, remote, list, detect, id, source, inventory, analysis, mount, setting, face, counts }
 }
 
-it('keeps settings available while disabled, switches the four real contributions and restores prior header ownership', async () => {
-  expect(inject).toEqual(['slots', 'locale', 'remote', 'configForms', 'uiConversation'])
+/** Make the next Session header utility registration throw after the pinned registration has succeeded. */
+function failNextHeaderRegistration(slots: SlotRegistry, failure: Error) {
+  const register = slots.register.bind(slots)
+  let armed = true
+  return vi.spyOn(slots, 'register').mockImplementation((...args: Parameters<SlotRegistry['register']>) => {
+    if (armed && args[0].name === 'conversation.session.header.utilities') {
+      armed = false
+      throw failure
+    }
+    return register(...args)
+  })
+}
+
+it('keeps settings available while disabled and switches the four real contributions', async () => {
+  expect(inject).toEqual(['slots', 'locale', 'remote', 'configForms'])
   const h = await setup(), dispose = await h.mount()
   expect(h.getForm).toHaveBeenCalledExactlyOnceWith(SETTINGS_ENTRY)
   expect(h.counts()).toEqual([0, 0, 0, 0])
@@ -112,8 +119,7 @@ it('keeps settings available while disabled, switches the four real contribution
   await h.setting().setEnabled(true)
   expect(h.form.set).toHaveBeenCalledWith('enabled', true)
   expect(h.counts()).toEqual([1, 1, 1, 1])
-  expect(h.ctx.uiConversation.headerPresentations.getSnapshot()).toBe('floating')
-  const store = h.slots.entries('conversation.content.overlay')[0]?.store
+  const store = h.slots.entries('conversation.chat.pinned')[0]?.store
   // StoredEntry erases selector input to never; this contribution accepts the slot's declared owner.
   const select = h.slots.entries('deliverables.video')[0]?.select as ((owner: OwnerOf<'deliverables.video'>) => unknown) | undefined
   expect(select?.({ sourceUrl: '/api/video', label: 'Actual video', path: '/work/actual.mp4', seq: 4, index: 0 })).toBe(true)
@@ -122,15 +128,13 @@ it('keeps settings available while disabled, switches the four real contribution
   h.form.publish({ value: { enabled: true } })
   await h.setting().setEnabled(false)
   expect(h.counts()).toEqual([0, 0, 0, 0])
-  expect(h.ctx.uiConversation.headerPresentations.getSnapshot()).toBe('standard')
   await h.setting().setEnabled(true)
   expect(h.counts()).toEqual([1, 1, 1, 1])
-  expect(h.slots.entries('conversation.content.overlay')[0]?.store).not.toBe(store)
+  expect(h.slots.entries('conversation.chat.pinned')[0]?.store).not.toBe(store)
   await dispose()
   expect(h.counts()).toEqual([0, 0, 0, 0])
   expect(h.slots.entries('settings.general.item')).toHaveLength(0)
   expect(h.form.listenerCount()).toBe(0)
-  expect(h.ctx.uiConversation.headerPresentations.getSnapshot()).toBe('standard')
   expect(h.ctx.get('remote.sessionVideo')).toBeUndefined()
   expect(h.remote.trace).toEqual(['mount', 'remote-dispose'])
   expect(h.locale.bind(NS)('settingTitle')).toBe('settingTitle')
@@ -159,14 +163,12 @@ it('keeps the presentation unchanged when a saved write is refused', async () =>
   h.form.set.mockResolvedValueOnce(false)
   await expect(h.setting().setEnabled(true)).rejects.toThrow('Session video setting was refused')
   expect(h.counts()).toEqual([0, 0, 0, 0])
-  expect(h.ctx.uiConversation.headerPresentations.getSnapshot()).toBe('standard')
   await dispose()
 })
 
 it('unwinds a failed optional provider and permits a later accepted enable to create a fresh scope', async () => {
   const h = await setup(), dispose = await h.mount()
-  const registration = vi.spyOn(h.ctx.uiConversation.headerPresentations, 'register')
-    .mockImplementationOnce(() => { throw new Error('Header provider unavailable') })
+  const registration = failNextHeaderRegistration(h.slots, new Error('Header provider unavailable'))
   await expect(h.setting().setEnabled(true)).rejects.toThrow('Header provider unavailable')
   expect(h.counts()).toEqual([0, 0, 0, 0])
   expect(h.slots.entries('settings.general.item')).toHaveLength(1)
@@ -188,7 +190,7 @@ it('releases its generated Remote namespace if outer locale initialization fails
 it('reports an initial optional provider failure while retaining the setting for an explicit retry', async () => {
   const h = await setup('loading'), failure = new Error('Initial header provider unavailable')
   const errors = vi.spyOn(h.ctx.logger, 'error').mockImplementation(() => {})
-  const registration = vi.spyOn(h.ctx.uiConversation.headerPresentations, 'register').mockImplementationOnce(() => { throw failure })
+  const registration = failNextHeaderRegistration(h.slots, failure)
   const dispose = await h.mount()
   await vi.waitFor(() => { expect(errors).toHaveBeenCalledWith(failure) })
   expect(h.counts()).toEqual([0, 0, 0, 0])
