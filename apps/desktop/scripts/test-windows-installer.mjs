@@ -56,6 +56,8 @@ try {
   })
   const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
   const childOptions = { env: scrubWindowsSigningEnvironment(process.env), windowsHide: true, maxBuffer: 8 * 1024 * 1024 }
+  const fixtureSource = createInstallerTestSource(await readFile(join(appRoot, 'scripts', 'installer.nsh'), 'utf8'), appRoot)
+  const fixturePages = createInstallerTestPagesSource(await readFile(join(appRoot, 'installer', 'pages.nsh'), 'utf8'))
   const prerequisiteDirectory = join(payload, 'resources', 'runtime', 'media', 'prerequisites')
   await execute(process.execPath, ['--import', 'tsx/esm', join(appRoot, 'scripts', 'prepare-media-runtime.ts'),
     '--vc-redist-only', '--output', prerequisiteDirectory, '--cache', join(outputRoot, 'vc-redist-cache')], childOptions)
