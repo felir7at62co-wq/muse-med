@@ -9,7 +9,7 @@ import { isAgentLoopRequest, IMAGE_OFFLOAD_REQUIRED_CODE } from '@deepseek-ai/ds
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import { probeVideo, runMedia } from './media.ts'
 import { scanReviewFrames } from './review-scan.ts'
-import { installFrameImageState, offloadObservedFrameImages } from './frame-images.ts'
+import { installFrameImageState, offloadFrameImages } from './frame-images.ts'
 import { installReviewState, reviewsOf, saveReview, reviewImage, pendingReview, hasReviewUncertainty, reviewEvidenceJson,
   reviewFrameSchema, VideoReviewId, type VideoReview } from './review-state.ts'
 import type { Config } from './index.ts'
@@ -129,16 +129,19 @@ export async function applyCompleteReview(ctx: Context, config: Config,
   await installSourceQaState(ctx)
   const sessions = new Map<SessionId, Session>()
   const batchLimits = new Map<SessionId, number>()
+  // Log length when the latest successful request began, per Session; frame images logged before it were sent in it.
+  const shownBefore = new Map<SessionId, number>()
   let active = true
   ctx.on('session/event', (session) => { sessions.set(session.id, session) })
-  ctx.on('session/disposed', (session) => { sessions.delete(session.id); batchLimits.delete(session.id) })
-  ctx.effect(() => () => { active = false; sessions.clear(); batchLimits.clear() })
+  ctx.on('session/disposed', (session) => { sessions.delete(session.id); batchLimits.delete(session.id); shownBefore.delete(session.id) })
+  ctx.effect(() => () => { active = false; sessions.clear(); batchLimits.clear(); shownBefore.clear() })
 
   ctx.on('llm/stream', async function* (options, next) {
     const session = options.sessionId === undefined ? undefined : sessions.get(options.sessionId)
     const model = session === undefined || !isAgentLoopRequest(options) ? undefined
       : await llm.resolveModelInfo(options.provider, options.model, options.signal)
     const delivered = new Map<string, string>()
+    const requestStart: number = session?.seq ?? 0
     const retained: { label: string | undefined; attachment: string }[] = []
     for (const message of options.messages) {
       let label: string | undefined
@@ -174,6 +177,12 @@ export async function applyCompleteReview(ctx: Context, config: Config,
       yield chunk
     }
     if (!active || !successful || options.signal?.aborted || session === undefined) return
+    if (readFrameImages !== undefined && isAgentLoopRequest(options)) {
+      // An image logged before the previous successful request was sent in it and again in this one; later requests omit it.
+      const previous = shownBefore.get(session.id)
+      if (previous !== undefined) offloadFrameImages(session, readFrameImages, (_label, seq) => seq < previous)
+      shownBefore.set(session.id, requestStart)
+    }
     for (const path of new Set(admitted.map(frame => frame.path))) {
       // Review projections retain source keys until their owning plugin is disposed.
       const current = reviewsOf(readReviews, session)[path] as VideoReview
@@ -554,7 +563,8 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           saveReview(readReviews, session, review)
           if (readFrameImages !== undefined) {
             const reviewId = review.id
-            offloadObservedFrameImages(session, readFrameImages, [...notes.keys()].map(id => `${reviewId}/${id}`))
+            const labels = new Set([...notes.keys()].map(id => `${reviewId}/${id}`))
+            offloadFrameImages(session, readFrameImages, label => labels.has(label))
           }
           return describe(review)
         }

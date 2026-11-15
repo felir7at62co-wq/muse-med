@@ -5975,8 +5975,9 @@ export interface Config {
   /** Maximum images per observation batch. */
   reviewBatchFrames: number
   /**
-   * After `observe` records frames, log an `image/offload` decision for their retained images so later requests send
-   * placeholder text; requires the `image/offload` projection of `@deepseek-ai/dsh-compaction-image-offload`.
+   * Omit frame images once the model has seen them: `observe` offloads the recorded frames' images, and each successful
+   * agent-loop request offloads labelled frame images, including Host-attached evidence, logged before the previous
+   * successful request; requires the `image/offload` projection of `@deepseek-ai/dsh-compaction-image-offload`.
    */
   offloadObservedFrames: boolean
   /** Thumbnail rate for cumulative appearance changes. */

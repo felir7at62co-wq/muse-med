@@ -260,6 +260,8 @@
   config:
     requireCompleteReview: true
     offloadObservedFrames: true
+    frameFormat: jpeg
+    frameJpegQuality: 3
     ocrEngine: rapidocr
     ocrPythonPath: !!js process.env.MUSE_OCR_PYTHON_PATH || 'python3'
     ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
