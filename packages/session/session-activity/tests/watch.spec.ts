@@ -8,7 +8,9 @@ import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-jobs'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import SessionActivityDigests, { type Config } from '../src/index.ts'
 
 type Entry = ConstructorParameters<typeof MockAdapter>[0][number]
@@ -20,7 +22,18 @@ class PendingRequests extends Service {
   getPendingRemoteEvents(): readonly { event: string; agentId: string }[] { return this.events }
 }
 
-async function fixture(config: Config, script: Entry[] = Array.from({ length: 20 }, () => textResponse('ok')), gateway = true) {
+/** `hold` and `block` user messages call a tool that waits until the test releases it; everything else answers with text. */
+function scripted(options: GenerateOptions): StreamChunk[] {
+  const latest: string[] = []
+  for (const message of options.messages.toReversed()) {
+    if (message.role !== 'user') break
+    latest.push(textOf(message))
+  }
+  const name = latest.find(text => text === 'hold' || text === 'block')
+  return name === undefined ? textResponse('ok') : toolCallResponse(`${name}-call`, name, {})
+}
+
+async function fixture(config: Config, script: Entry[] = Array.from({ length: 30 }, () => scripted), gateway = true) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await mountAgentLoopTestDependencies(ctx)
@@ -28,6 +41,15 @@ async function fixture(config: Config, script: Entry[] = Array.from({ length: 20
   provideWorkingDirectoryFixture(ctx, '/work')
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
   if (gateway) await ctx.plugin(PendingRequests)
+  const gates = new Map<string, () => void>()
+  for (const name of ['hold', 'block']) {
+    ctx.tools.register(defineTool({
+      name, description: `Wait until the test releases ${name}.`, parameters: {},
+      output: { schema: { type: 'string' }, render: (_args: unknown, text: string) => [{ type: 'text' as const, text }] },
+      execute: () => new Promise<string>((resolve) => { gates.set(name, () => { resolve('released') }) }),
+    }))
+  }
+  const release = (name: string): void => { gates.get(name)?.() }
   const fiber = await ctx.plugin(SessionActivityDigests, { coalesceMs: 0, stallMs: 0, ...config })
   const make = async (id: string): Promise<Agent> => (await ctx.agents.create({
     sessionId: SessionId(id), meta: { cwd: '/work' }, agentOptions: { provider: 'mock', model: 'mock' },
@@ -38,7 +60,7 @@ async function fixture(config: Config, script: Entry[] = Array.from({ length: 20
   ctx.on('session/event', (session, event) => {
     if (session.id === parent.id && event.type === 'user/message' && event.data.source.kind === 'session-activity') digests.push(textOf(event.data))
   }, { global: true })
-  return { ctx, fiber, parent, child, digests }
+  return { ctx, fiber, parent, child, digests, make, release }
 }
 
 function textOf(message: UserMessage | undefined): string {
@@ -77,34 +99,48 @@ describe('session status digests', () => {
     await vi.waitFor(() => { expect(digests.some(text => text.includes('waiting for an approval'))).toBe(true) })
   })
 
-  it('keeps one replaceable status digest pending until something else wakes the parent', async () => {
-    const { ctx, parent, child, digests } = await fixture({ subagents: false }, undefined, false)
+  it('replaces a pending digest, defers one while the parent is busy and leaves idle Sessions out', async () => {
+    const { ctx, parent, child, digests, make, release: open } = await fixture({ subagents: false }, undefined, false)
+    let jobs: string[] = []
     ctx.on('workspace/session-activity', async ({ sessionId }, next) => {
       const rest = await next()
-      return sessionId === child.id ? [{ kind: 'job', items: [{ id: 'j1', label: 'ffmpeg cut' }, { id: 'j2' }] }, { kind: 'job' }, { kind: 'turn' }, ...rest] : rest
+      const families = [{ kind: 'job' as const, items: jobs.map(label => ({ id: label, label })) }, { kind: 'job' as const, items: [{ id: 'j2' }] },
+        { kind: 'job' as const }, { kind: 'turn' as const }]
+      return sessionId === child.id ? [...families, ...rest] : rest
     })
-    const release = ctx.sessionActivity.watch(parent.id, child.id, 'episode 1')
-    say(child, 'first')
-    await child.whenIdle()
-    await vi.waitFor(() => { expect(pendingDigests(parent)).toHaveLength(1) })
-    say(child, 'second')
-    await child.whenIdle()
+    const other = await make('other')
+    const releaseChild = ctx.sessionActivity.watch(parent.id, child.id, 'episode 1')
+    const releaseOther = ctx.sessionActivity.watch(parent.id, other.id, 'episode 2')
+    say(child, 'hold')
+    await vi.waitFor(() => { expect(textOf(pendingDigests(parent)[0])).toContain('- episode 1 [child] running for under 1 min') })
+    expect(textOf(pendingDigests(parent)[0])).toContain('· job · job: j2 · job')
+    jobs = ['ffmpeg cut']
+    say(other, 'quick')
+    await other.whenIdle()
     await settle()
+    await vi.waitFor(() => { expect(textOf(pendingDigests(parent)[0])).toContain('job: ffmpeg cut') })
     expect(pendingDigests(parent)).toHaveLength(1)
-    expect(textOf(pendingDigests(parent)[0])).toContain('- episode 1 [child] idle for under 1 min · job: ffmpeg cut, j2 · job')
-    expect(digests).toEqual([])
+    expect(textOf(pendingDigests(parent)[0])).not.toContain('episode 2')
+    say(parent, 'block')
+    await vi.waitFor(() => { expect(digests).toHaveLength(1) })
+    expect(parent.status).toBe('running')
+    jobs = ['ffmpeg cut', 'asr']
+    say(other, 'quick again')
+    await other.whenIdle()
+    await settle()
+    expect(pendingDigests(parent)).toHaveLength(0)
+    open('block')
+    await parent.whenIdle()
+    await vi.waitFor(() => { expect(textOf(pendingDigests(parent)[0])).toContain('job: ffmpeg cut, asr') })
+    releaseChild()
+    releaseOther()
+    open('hold')
+    await child.whenIdle()
     say(parent, 'status?')
     await parent.whenIdle()
-    expect(digests).toHaveLength(1)
+    expect(digests).toHaveLength(2)
     expect(pendingDigests(parent)).toHaveLength(0)
-    release()
-    release()
-    await settle()
-    say(child, 'third')
-    await child.whenIdle()
-    await settle()
-    expect(pendingDigests(parent)).toHaveLength(0)
-    expect(await ctx.sessionActivity.describe(child.id)).toBe('idle for under 1 min · job: ffmpeg cut, j2 · job')
+    expect(await ctx.sessionActivity.describe(child.id)).toBe('idle for under 1 min · last tool hold · job: ffmpeg cut, asr · job: j2 · job')
     expect(await ctx.sessionActivity.describe(SessionId('never-created'))).toBe('not open')
   })
 
@@ -123,22 +159,15 @@ describe('session status digests', () => {
     expect(digests.filter(text => text.includes('no new activity'))).toHaveLength(1)
   })
 
-  it('flushes on release, keeps a pair watched again meanwhile and stops after unload', async () => {
-    const { ctx, fiber, parent, child } = await fixture({ coalesceMs: 60_000 })
-    const release = ctx.sessionActivity.watch(parent.id, child.id, 'episode 1')
+  it('releases without a digest, counts references and stops after unload', async () => {
+    const { ctx, fiber, parent, child } = await fixture({})
+    const first = ctx.sessionActivity.watch(parent.id, child.id, 'episode 1')
     ctx.sessionActivity.watch(parent.id, child.id, 'episode 1')()
+    first()
+    first()
     say(child, 'done quickly')
     await child.whenIdle()
-    expect(pendingDigests(parent)).toHaveLength(0)
-    release()
-    const again = ctx.sessionActivity.watch(parent.id, child.id, 'episode 1 again')
     await settle()
-    expect(pendingDigests(parent)).toHaveLength(1)
-    ctx.sessionActivity.watch(parent.id, SessionId('other'), 'other')()
-    again()
-    await settle()
-    say(parent, 'status?')
-    await parent.whenIdle()
     expect(pendingDigests(parent)).toHaveLength(0)
     let open!: () => void
     const gate = new Promise<void>((resolve) => { open = resolve })
@@ -146,10 +175,12 @@ describe('session status digests', () => {
       await gate
       throw new Error('provider down')
     })
-    ctx.sessionActivity.watch(SessionId('absent-parent'), child.id, 'nobody')()
+    ctx.sessionActivity.watch(SessionId('absent-parent'), child.id, 'nobody')
     const service = ctx.sessionActivity
-    service.watch(parent.id, child.id, 'blocked')()
-    service.watch(parent.id, child.id, 'queued behind it')()
+    service.watch(parent.id, child.id, 'blocked')
+    await settle()
+    service.watch(parent.id, SessionId('second'), 'queued behind it')
+    await settle()
     const late = service.watch(parent.id, child.id, 'late')
     await fiber.dispose()
     open()

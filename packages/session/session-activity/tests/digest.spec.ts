@@ -58,7 +58,7 @@ describe('digests', () => {
   it('renders only changed Sessions within line and character bounds', () => {
     const idle = status({})
     expect(renderDigest([entry('quiet', idle, statusKey(idle)), entry('new', status({ kind: 'not-open' })),
-      entry('closed', status({ kind: 'not-open' }), statusKey(running))], options, 0)).toBeUndefined()
+      entry('closed', status({ kind: 'not-open' }), statusKey(running)), entry('finished', idle, statusKey(running))], options, 0)).toBeUndefined()
     const progressed = renderDigest([entry('ep1', running), entry('ep2', running), entry('ep3', running)], { ...options, maxLines: 2 }, minute)
     expect(progressed).toEqual({
       wake: false, summary: '3 Session status change(s)',

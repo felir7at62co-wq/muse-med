@@ -134,8 +134,8 @@ export function wakeReasons(entry: DigestEntry): string[] {
  */
 export function renderDigest(entries: readonly DigestEntry[], options: { readonly maxLines: number; readonly maxChars: number },
   now: number): RenderedDigest | undefined {
-  // A Session that is not open has nothing to report; a subagent's own closing notice reports its end.
-  const changed = entries.filter(entry => entry.status.kind !== 'not-open'
+  // Idle and closed Sessions are left out: a receipt or closing notice reports the end of their work.
+  const changed = entries.filter(entry => entry.status.kind !== 'not-open' && entry.status.kind !== 'idle'
     && (entry.stalledMs !== undefined || statusKey(entry.status) !== entry.delivered))
   if (changed.length === 0) return undefined
   const reasons = changed.flatMap(wakeReasons)

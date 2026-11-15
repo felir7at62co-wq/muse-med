@@ -64,7 +64,9 @@ interface ParentWatch {
   readonly children: Map<SessionId, ChildWatch>
   pending: PendingDigest | undefined
   evaluation: ReturnType<typeof setTimeout> | undefined
-  /** Serializes this parent's evaluations and releases. */
+  /** A digest without a wake reason waits until the parent's turn ends instead of extending it. */
+  deferred: boolean
+  /** Serializes this parent's evaluations. */
   chain: Promise<void>
 }
 
@@ -121,6 +123,12 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
         this.schedule(parentId, watch)
       }
     }, { global: true })
+    this.ctx.on('agent/status', ({ agent, status }) => {
+      const watch = this.parents.get(agent.id)
+      if (status !== 'idle' || watch?.deferred !== true) return
+      watch.deferred = false
+      this.schedule(agent.id, watch)
+    }, { global: true })
     if (this.config.subagents) this.watchSubagents()
   }
 
@@ -140,7 +148,7 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
     if (this.disposed) return () => {}
     let watch = this.parents.get(parent)
     if (watch === undefined) {
-      watch = { children: new Map(), pending: undefined, evaluation: undefined, chain: Promise.resolve() }
+      watch = { children: new Map(), pending: undefined, evaluation: undefined, deferred: false, chain: Promise.resolve() }
       this.parents.set(parent, watch)
     }
     const existing = watch.children.get(child)
@@ -172,18 +180,13 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
     const child = parent?.children.get(childId)
     if (parent === undefined || child === undefined) return
     if (--child.references > 0) return
+    // The end of the watched work is reported by its receipt or closing notice, not by a digest.
     clearTimeout(child.stallTimer)
-    child.stallTimer = undefined
-    // One last evaluation reports a change the coalescing delay has not reached yet.
-    this.enqueue(parentId, parent, async () => {
-      await this.deliver(parentId, parent)
-      if (child.references > 0) return
-      parent.children.delete(childId)
-      if (parent.children.size > 0) return
-      clearTimeout(parent.evaluation)
-      parent.evaluation = undefined
-      if (parent.pending === undefined) this.parents.delete(parentId)
-    })
+    parent.children.delete(childId)
+    if (parent.children.size > 0) return
+    clearTimeout(parent.evaluation)
+    parent.evaluation = undefined
+    if (parent.pending === undefined) this.parents.delete(parentId)
   }
 
   /** Restart the stall timer of a running child; release and unload clear it. */
@@ -208,7 +211,7 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
     }, this.config.coalesceMs)
   }
 
-  /** Run one evaluation or release after the parent's earlier ones; a failure is logged and skipped. */
+  /** Run one evaluation after the parent's earlier ones; a failure is logged and skipped. */
   private enqueue(parentId: SessionId, watch: ParentWatch, task: () => Promise<void>): void {
     watch.chain = watch.chain.then(async () => { if (!this.disposed) await task() }).catch((error: unknown) => {
       this.ctx.logger.warn('session-activity: status digest for %s failed: %s', parentId, String(error))
@@ -246,7 +249,7 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
     }
   }
 
-  /** Render the parent's changed children and queue, replace, or wake with one digest. */
+  /** Render the parent's changed children and queue, replace, defer until the parent is idle, or wake with one digest. */
   private async deliver(parentId: SessionId, watch: ParentWatch): Promise<void> {
     const agent = this.ctx.agents.get(parentId)
     if (agent === undefined) return
@@ -266,6 +269,10 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
     }
     const digest = renderDigest(entries, this.config, Date.now())
     if (digest === undefined) return
+    if (!digest.wake && agent.status !== 'idle') {
+      watch.deferred = true
+      return
+    }
     const message = createUserMessage({
       content: [{ type: 'text', text: digest.text }],
       source: { kind: 'session-activity', form: 'notice', summary: boundContextSummary(digest.summary) },

@@ -62,10 +62,10 @@ The duration counts from the open turn's start for running and waiting states an
 
 ### Watches and digests
 
-With `subagents` on, a Session that starts a subagent receives that subagent's line in the same digests, labelled `name: task` from its own subagent catalog, until the subagent settles; the subagent's closing notice still arrives separately. `watch(parent, child, label)` returns a disposer. Watching the same pair again adds a reference and replaces the label; the watch ends when every reference is released, after one last evaluation delivers a change the coalescing delay has not reached yet.
+With `subagents` on, a Session that starts a subagent receives that subagent's line in the same digests, labelled `name: task` from its own subagent catalog, until the subagent settles; the subagent's closing notice still arrives separately. `watch(parent, child, label)` returns a disposer. Watching the same pair again adds a reference and replaces the label; the watch ends when every reference is released, without a closing digest: the receipt or closing notice reports the end of the work.
 
-- A digest lists each watched Session whose state, running work or failure changed; the duration and the latest tool are shown but change nothing on their own, so a busy Session does not produce a digest per step. Sessions that are not open are left out; a subagent's closing notice reports its end.
-- A digest that reports no state needing the parent is injected: it waits in the parent's inbox until the parent's next step and never opens a turn by itself.
+- A digest lists each watched Session that is running, waiting for input or failed and whose state, running work or failure changed; the duration and the latest tool are shown but change nothing on their own, so a busy Session does not produce a digest per step. Idle and closed Sessions are left out; a receipt or closing notice reports the end of their work.
+- A digest that reports no state needing the parent waits until the parent is idle, so it never extends a turn the parent is still running. It is then injected: it waits in the parent's inbox until the parent's next step and never opens a turn by itself.
 - While a digest is still pending, a newer digest replaces it in place.
 - Entering a waiting or failed state, or a stall, adds a `Needs your attention` section and wakes an idle parent. Each state wakes the parent once until it changes.
 - When the parent logs the digest, its lines become the baseline for the next digest.
@@ -97,7 +97,7 @@ The unit folds `turn/start`, `turn/end`, `tool/call` and `subagent/catalog` into
 
 ### Delivery state
 
-Per parent the service keeps the watched children with their reference count, label, logged status key, last sent state and stall timer, the id and keys of the digest still pending, and a promise chain that serializes evaluations and releases. A `user/message` with the pending id in the parent's log commits the captured keys as baselines. A digest that should wake removes the pending digest and queues itself as a follow-up.
+Per parent the service keeps the watched children with their reference count, label, logged status key, last sent state and stall timer, the id and keys of the digest still pending, whether a digest waits for the parent to become idle, and a promise chain that serializes evaluations. An `agent/status` change to idle re-evaluates a parent with a waiting digest. A `user/message` with the pending id in the parent's log commits the captured keys as baselines. A digest that should wake removes the pending digest and queues itself as a follow-up.
 
 </details>
 
@@ -123,7 +123,7 @@ The parent model receives a user message with source `session-activity` and form
 
 #### Token effect
 
-Each logged digest adds at most `maxChars` characters, about 600 tokens at the default. Replacement keeps at most one pending digest per parent, and digests without a waiting, failed or stalled Session never start a model request. A wake starts one parent request.
+Each logged digest adds at most `maxChars` characters, about 600 tokens at the default. Replacement keeps at most one pending digest per parent, and digests without a waiting, failed or stalled Session never start a model request or add a step to a running turn. A wake starts one parent request.
 
 #### KV Cache effect
 
