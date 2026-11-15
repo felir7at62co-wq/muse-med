@@ -67,8 +67,9 @@ it.runIf(process.platform === 'win32' && Boolean(mediaPython && mediaFfmpeg && n
         graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536,
         ffmpegPath: mediaFfmpeg, ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
         maxBgmGain: 1, windowsCliPath: nativeCli })
-      const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
-        callId: ToolCallId('native-bgm-real'), signal: f.signal })
+      const batch = await f.ctx.tools.execute({ calls: [{ type: 'tool-call', id: ToolCallId('native-bgm-real'),
+        name: 'jianying_draft', arguments: JSON.stringify(f.input) }], signal: f.signal })
+      const response = batch.results[0]!.result
       expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
       const cliHash = createHash('sha256').update(await readFile(nativeCli)).digest('hex')
       expect(response.value).toMatchObject({ success: true, backend: 'aa-jianying', editor_open_verified: false,

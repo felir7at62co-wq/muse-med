@@ -8,7 +8,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
 import Llm, { createUserMessage, LlmError, MessageId, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId, type SessionEvent, type SessionEventMap, type SessionEventType, type SurfaceEventType, type SurfaceIntent } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
@@ -1013,11 +1013,11 @@ it('reports a native parking failure when the Session refuses the receipt and it
     expect(await f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved)).toBe('pending')
     const before = f.agent.session.snapshotEvents().filter(event => event.type === 'jubian/generation-notice-parked').length
     const append = f.agent.session.append.bind(f.agent.session)
-    f.agent.session.append = <T extends SessionEventType>(type: T, data: SessionEventMap[T],
-      ...options: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : []): SessionEvent<T> => {
-      if (type === 'jubian/generation-notice-parked') throw new Error('Injected parked-receipt write failure')
-      return append(type, data, ...options)
-    }
+    // Preserve both native append overloads while failing the parked receipt.
+    f.agent.session.append = new Proxy(append, { apply(target, receiver, args: unknown[]): unknown {
+      if (args[0] === 'jubian/generation-notice-parked') throw new Error('Injected parked-receipt write failure')
+      return Reflect.apply(target, receiver, args)
+    } })
     const flushing = vi.spyOn(f.host.sessions, 'flush').mockResolvedValue(false)
     try {
       const disposal = f.host.fiber.dispose()

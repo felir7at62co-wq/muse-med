@@ -22,7 +22,7 @@ it('withdraws a stale offer after a silent check failure and allows a user check
   const events = new EventEmitter()
   const downloadUpdate = vi.fn(async () => { events.emit('update-downloaded', { version }); return ['verified'] })
   const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall: vi.fn(),
-    setFeedURL: vi.fn(), autoDownload: false, autoInstallOnAppQuit: false,
+    setFeedURL: vi.fn(), channel: 'nightly', autoDownload: false, autoInstallOnAppQuit: false,
     allowPrerelease: false, allowDowngrade: false }) as DesktopUpdater
   const published: DesktopUpdateState[] = []
   const coordinator = new DesktopUpdateCoordinator((state) => { published.push(state); return state },
