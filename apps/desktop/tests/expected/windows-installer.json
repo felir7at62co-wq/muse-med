@@ -2,6 +2,7 @@
   "launchCheckboxState": 1,
   "nativeProgressVisible": false,
   "cases": [
+    "canonical-drive-roots-rejected-before-ownership-check",
     "enter-validates-current-path-and-unchecked-launch",
     "completion-preserves-window-position",
     "welcome-ready-before-first-show",
@@ -9,6 +10,7 @@
     "native-observer-exact-installer-and-quiescent-return",
     "successful-install-paints-100-before-finish",
     "pristine-checked-launch-before-failure-retry",
+    "locked-directory-shows-error-and-copy-control-and-preserves-installation",
     "registered-directory-with-trailing-separators",
     "registered-directory-and-checked-launch",
     "launch-failure-retry-and-prompt-dismissal",

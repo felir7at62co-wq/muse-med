@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import { c } from 'tar'
 import { afterEach, describe, expect, it } from 'vitest'
-import { prepareDevelopmentProject } from '../scripts/development-project.ts'
+import { copyDevelopmentUserPatch, prepareDevelopmentProject } from '../scripts/development-project.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { DesktopProjectManager } from '../src/project-manager.ts'
 import { resolveDesktopPaths } from '../src/paths.ts'
@@ -44,6 +44,38 @@ afterEach(() => {
 })
 
 describe('desktop development project', () => {
+  it.each([false, true])('excludes archived Bot pins and tarballs from the ordinary project, archive present=%s', (archivePresent) => {
+    const root = temporaryRoot()
+    const { repositoryRoot, communityArtifactsDir } = communityFixture(root)
+    const cliDir = join(root, 'cli'), hostDir = join(root, 'host'), dependencyDir = join(root, 'dependencies')
+    mkdirSync(cliDir)
+    mkdirSync(join(hostDir, 'lib'), { recursive: true })
+    mkdirSync(dependencyDir)
+    writeFileSync(join(cliDir, 'package.json'), '{"name":"@deepseek-ai/dsh","version":"1.2.3"}\n')
+    writeFileSync(join(hostDir, 'package.json'), '{"name":"@deepseek-ai/dsh-desktop-host","version":"1.2.3"}\n')
+    writeFileSync(join(hostDir, 'lib/index.js'), '')
+    const sources = join(repositoryRoot, 'third_party/plugins')
+    writeFileSync(join(sources, 'sources.json'), JSON.stringify({ 'ds-bot': { version: '0.2.4' } }))
+    const archived = join(root, 'archived/package')
+    mkdirSync(join(archived, 'lib'), { recursive: true })
+    writeFileSync(join(archived, 'package.json'), '{"name":"ds-bot","version":"0.2.4","main":"lib/index.js"}')
+    writeFileSync(join(archived, 'lib/index.js'), 'throw new Error("Archived Bot must not load")\n')
+    writeFileSync(join(archived, 'SOURCE.json'), '{"hostVersion":"old-core"}')
+    if (archivePresent) c({ sync: true, gzip: true, cwd: join(root, 'archived'),
+      file: join(communityArtifactsDir, 'ds-bot-0.2.4.tgz') }, ['package'])
+    const project = prepareDevelopmentProject({ repositoryRoot, communityArtifactsDir,
+      projectDir: join(root, 'project'), cliDir, hostDir, dependencyDir, release: release(), target: 'mac-arm64' })
+    const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>
+      dsh: { profile: { bundles: string[] } }
+    }
+    expect(manifest.dsh.profile.bundles).toEqual(expect.arrayContaining(['deep-view', '@nagi-ovo/dsh-visualize']))
+    expect(manifest.dependencies).not.toHaveProperty('ds-bot')
+    expect(manifest.dsh.profile.bundles.filter(bundle => bundle === 'muse-skill-evolution')).toHaveLength(1)
+    expect(existsSync(join(project, 'node_modules/ds-bot'))).toBe(false)
+    expect(readFileSync(join(archived, 'lib/index.js'), 'utf8')).toContain('Archived Bot must not load')
+  })
+
   it.each([
     ['^5.1.0', 'links a forward community dependency to the verified batch instead of the toolchain'],
     ['^6.0.0', 'rejects an incompatible batch dependency before replacing the existing project'],
@@ -102,6 +134,7 @@ describe('desktop development project', () => {
       return
     }
     prepareDevelopmentProject(options)
+    if (process.platform !== 'win32') expect(statSync(projectDir).mode & 0o777).toBe(0o700)
     const modules = join(projectDir, 'node_modules')
     expect(realpathSync(join(modules, '@wenbin_wb/dsh-bridge/node_modules/@xmanrui/dsh-im')))
       .toBe(realpathSync(join(modules, '@xmanrui/dsh-im')))
@@ -138,6 +171,9 @@ describe('desktop development project', () => {
     ['muse-douyin-download', 'owned-downloads.json'],
     ['muse-reverse-tools', 'owned-downloads.json'],
     ['muse-fanqie-download', 'owned-downloads.json'],
+    ['muse-qimao-data', 'owned-downloads.json'],
+    ['muse-source-research', 'owned-downloads.json'],
+    ['muse-skill-evolution', 'owned-downloads.json'],
     ['muse-lvpaopao', 'owned-downloads.json'],
   ])('manages %s without modifying the linked workspace packages', async (pluginName, pinFile) => {
     const root = temporaryRoot()
@@ -216,8 +252,7 @@ describe('desktop development project', () => {
     const descriptor = JSON.parse(readFileSync(join(project, 'desktop-runtime.json'), 'utf8')) as { platform: string; arch: string }
     expect(descriptor).toMatchObject({ platform: 'win32', arch: 'x64' })
     const manager = new DesktopProjectManager(resolveDesktopPaths(join(root, 'home')), {
-      // This project carries no installed plugins, so neither executable runs.
-      node: process.execPath, pnpm: join(root, 'pnpm.cjs'), dsh: project,
+      dsh: project,
     })
     await manager.applyRelease()
     await manager.disableAllPlugins()
@@ -246,5 +281,85 @@ describe('desktop development project', () => {
       release: release(),
       target: 'mac-x64',
     })).toThrow(/must be @deepseek-ai\/dsh@1\.2\.3/u)
+  })
+})
+
+describe('desktop development user patch', () => {
+  it('copies only the selected file with private permissions and preserves its source', () => {
+    const root = temporaryRoot()
+    const project = join(root, 'project')
+    const source = join(root, 'selected.yml')
+    const target = join(project, 'cordis.patch.yml')
+    mkdirSync(project, { mode: 0o755 })
+    const contents = Buffer.from('- id: selected\n  config:\n    value: "private fixture"\n')
+    writeFileSync(source, contents, { mode: 0o640 })
+    chmodSync(source, 0o640)
+    chmodSync(project, 0o755)
+    writeFileSync(target, 'previous patch\n', { mode: 0o644 })
+    const before = statSync(source)
+    copyDevelopmentUserPatch(project, source)
+    expect(readFileSync(target)).toEqual(contents)
+    expect(readFileSync(source)).toEqual(contents)
+    expect(statSync(source).mtimeMs).toBe(before.mtimeMs)
+    expect(statSync(source).ino).toBe(before.ino)
+    if (process.platform !== 'win32') {
+      expect(statSync(source).mode & 0o777).toBe(0o640)
+      expect(statSync(project).mode & 0o777).toBe(0o700)
+      expect(statSync(target).mode & 0o777).toBe(0o600)
+    }
+  })
+
+  it('does not inspect paths when no user patch was selected', () => {
+    const project = join(temporaryRoot(), 'absent')
+    copyDevelopmentUserPatch(project, undefined)
+    expect(existsSync(project)).toBe(false)
+  })
+
+  it.each(['missing', 'directory'])('refuses a %s source before creating a patch', (kind) => {
+    const root = temporaryRoot()
+    const project = join(root, 'project')
+    const source = join(root, 'selected.yml')
+    mkdirSync(project)
+    if (kind === 'directory') mkdirSync(source)
+    expect(() => { copyDevelopmentUserPatch(project, source) }).toThrow()
+    expect(existsSync(join(project, 'cordis.patch.yml'))).toBe(false)
+  })
+
+  it.each(['directory', 'link'])('refuses a %s target without changing its referent', (kind) => {
+    const root = temporaryRoot()
+    const project = join(root, 'project')
+    const source = join(root, 'selected.yml')
+    const outside = join(root, 'outside')
+    const target = join(project, 'cordis.patch.yml')
+    mkdirSync(project)
+    mkdirSync(outside)
+    writeFileSync(source, 'selected\n')
+    writeFileSync(join(outside, 'retained'), 'unchanged\n')
+    if (kind === 'directory') mkdirSync(target)
+    else symlinkSync(outside, target, process.platform === 'win32' ? 'junction' : 'dir')
+    expect(() => { copyDevelopmentUserPatch(project, source) }).toThrow(/target must be a regular file/u)
+    expect(readFileSync(join(outside, 'retained'), 'utf8')).toBe('unchanged\n')
+    expect(readFileSync(source, 'utf8')).toBe('selected\n')
+  })
+
+  it('refuses a linked source and a linked project directory', () => {
+    const root = temporaryRoot()
+    const project = join(root, 'project')
+    const source = join(root, 'selected.yml')
+    const linked = join(root, 'linked')
+    mkdirSync(project)
+    writeFileSync(source, 'selected\n')
+    symlinkSync(project, linked, process.platform === 'win32' ? 'junction' : 'dir')
+    expect(() => { copyDevelopmentUserPatch(project, linked) }).toThrow(/source must be a regular file/u)
+    expect(() => { copyDevelopmentUserPatch(linked, source) }).toThrow(/project must be a directory/u)
+    expect(existsSync(join(project, 'cordis.patch.yml'))).toBe(false)
+  })
+
+  it('refuses to replace its source file in place', () => {
+    const project = temporaryRoot()
+    const source = join(project, 'cordis.patch.yml')
+    writeFileSync(source, 'selected\n')
+    expect(() => { copyDevelopmentUserPatch(project, source) }).toThrow(/source must differ/u)
+    expect(readFileSync(source, 'utf8')).toBe('selected\n')
   })
 })

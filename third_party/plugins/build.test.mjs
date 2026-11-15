@@ -5,6 +5,8 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
+import { selectCommunitySources } from './source-selection.mjs'
+import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs'
 import { hostRuntimeCompatibility, reviewedHostPackageVersion, reviewedHostVersion } from './compatibility/host-runtime.mjs'
 
 const sha256 = buffer => createHash('sha256').update(buffer).digest('hex')
@@ -86,6 +88,21 @@ test('rejects an unknown source', () => {
   assert.match(result.stderr, /unknown source/)
 })
 
+test('builds the current subscriptions artifact through native Node preloads', () => {
+  const output = mkdtempSync(join(tmpdir(), 'muse-subscriptions-preload-'))
+  try {
+    const pnpm = resolvePnpmEntrypoint(join(root, 'node_modules/pnpm/package.json'))
+    const result = spawnSync(process.execPath,
+      [pnpm, '--dir', join(root, 'third_party/plugins/toolchain'), 'run', 'build',
+        '--only', 'dsh-plugin-subscriptions', '--out', output],
+      { cwd: root, stdio: 'inherit' })
+    assert.equal(result.status, 0)
+    assert.deepEqual(readdirSync(output).filter(file => file.endsWith('.tgz')), ['dsh-plugin-subscriptions-0.9.12.tgz'])
+  } finally {
+    rmSync(output, { recursive: true, force: true })
+  }
+})
+
 test('builds every desktop plugin with its declared runtime entries and notices', () => {
   const [first, second] = sameDepthOutputs('muse-all-plugins')
   try {
@@ -94,8 +111,10 @@ test('builds every desktop plugin with its declared runtime entries and notices'
     const repeated = spawnSync(process.execPath, [join(root, 'third_party/plugins/build.mjs'), '--out', second], { cwd: root, stdio: 'inherit' })
     assert.equal(repeated.status, 0)
     const tarballs = readdirSync(first).filter(file => file.endsWith('.tgz'))
-    assert.equal(tarballs.length, Object.values(pins).filter(pin => pin.desktop !== false).length)
-    assert.ok(tarballs.some(file => file.startsWith('dsh-codex-subscription-')))
+    assert.equal(tarballs.length, selectCommunitySources(pins).length)
+    assert.ok(tarballs.every(name => !name.startsWith('ds-bot-')), 'default output excludes archived Bot')
+    assert.ok(tarballs.some(file => file.startsWith('dsh-plugin-subscriptions-')))
+    assert.ok(tarballs.every(file => !file.startsWith('dsh-codex-subscription-')), 'default output excludes retired Codex source')
     for (const tarball of tarballs) assertSameBytes(readFileSync(join(second, tarball)), readFileSync(join(first, tarball)), `${tarball} must reproduce from clean source`)
     for (const tarball of tarballs) {
       const list = spawnSync('tar', ['-tzf', join(first, tarball)], { encoding: 'utf8' })
@@ -128,7 +147,7 @@ test('builds every desktop plugin with its declared runtime entries and notices'
           continue
         }
         const version = reviewedHostPackageVersion(dependency)
-        const expected = dependency === '@earendil-works/pi-ai' ? '0.87.1'
+        const expected = dependency === '@earendil-works/pi-ai' ? '1.3.0'
           : version && !range.split(' || ').includes(version) ? `${range} || ${version}` : range
         assert.equal(manifest.peerDependencies[dependency], expected)
       }
@@ -139,7 +158,10 @@ test('builds every desktop plugin with its declared runtime entries and notices'
       assert.equal(sourceMetadata.status, 0)
       assert.deepEqual(JSON.parse(sourceMetadata.stdout).hostRuntimeCompatibility, hostRuntimeCompatibility)
       if (manifest.name === 'dsh-skill-mcp-panel') {
-        assert.deepEqual(JSON.parse(sourceMetadata.stdout).compatibilityOverlay, { builtInConnections: 1, globalCliShim: false, sharedAgentSkills: false })
+        assert.deepEqual(JSON.parse(sourceMetadata.stdout).compatibilityOverlay, {
+          builtInConnections: 1, globalCliShim: false, sharedAgentSkills: false,
+          preserveSavedSkills: true, pluginUpdateChecks: false, pluginUpdateNotices: false,
+        })
       }
       const entries = value => typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(entries) : []
       for (const entry of entries(manifest.exports).filter(entry => !entry.includes('*'))) {
@@ -159,7 +181,7 @@ test('builds every desktop plugin with its declared runtime entries and notices'
         const metadata = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/SOURCE.json'], { encoding: 'utf8' })
         assert.equal(metadata.status, 0)
         assert.deepEqual(JSON.parse(metadata.stdout).compatibilityOverlay, {
-          subagentRuntimeVersion: reviewedHostVersion, piAiVersion: '0.87.1', piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true, opaqueModelMenus: true, viewportAnchoredModelMenus: true,
+          subagentRuntimeVersion: reviewedHostVersion, piAiVersion: '1.3.0', piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true, opaqueModelMenus: true, viewportAnchoredModelMenus: true,
         })
       }
     }
@@ -212,14 +234,14 @@ test('builds ffmpeg twice from source into identical licensed tarballs', () => {
   }
 })
 
-test('builds opaque Codex picker surfaces and records their reviewed overlay in the tarball', () => {
+test('builds opaque Codex picker surfaces without inheriting workspace module lookup', () => {
   const output = mkdtempSync(join(tmpdir(), 'muse-codex-menu-build-'))
   const retainedStylesPath = join(import.meta.dirname, 'dsh-codex-subscription/src/client-styles.js')
   const retainedStyles = readFileSync(retainedStylesPath, 'utf8')
   try {
     const result = spawnSync(process.execPath,
       [join(import.meta.dirname, 'build.mjs'), '--only', 'dsh-codex-subscription', '--out', output],
-      { cwd: root, stdio: 'inherit' })
+      { cwd: root, stdio: 'inherit', env: { ...process.env, NODE_PATH: join(root, 'node_modules') } })
     assert.equal(result.signal, null, 'Codex staging build finishes without a signal')
     assert.equal(result.status, 0, 'Codex staging build succeeds')
     const tarball = join(output, readdirSync(output).find(file => file.endsWith('.tgz')))

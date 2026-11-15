@@ -2,7 +2,8 @@
 
 import { readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { episodePaths, episodeNumberOf, pathExists, shotFileName } from '../src/paths.ts'
 import {
@@ -10,14 +11,30 @@ import {
   masterAudioFilter,
   parseShotManifest,
   prepareEpisode,
+  preparedSubtitleClockInputs,
   resolveShots,
+  verifyPreparedSubtitleClock,
 } from '../src/prepare.ts'
+import { subtitleClockPath, writeSubtitleClock } from '../src/subtitle-clock.ts'
+import { formatTimelineDocument, readTimeline } from '../src/timeline.ts'
 import type { SubtitleCue } from '../src/types.ts'
 import { cleanup, probeHandler, sizeOf, srtDocument, stubChannel, tempProject, writePlaceholder, type StubHandler } from './harness.ts'
 
 const temporary: string[] = []
+const copying = vi.hoisted(() => ({ target: '' }))
+vi.mock('node:fs/promises', async (load) => {
+  const actual = await load<typeof import('node:fs/promises')>()
+  return { ...actual, copyFile: async (...args: Parameters<typeof actual.copyFile>) => {
+    if (args[1] === copying.target) {
+      copying.target = ''
+      await actual.writeFile(args[0], 'replacement picture during copy')
+    }
+    await actual.copyFile(...args)
+  } }
+})
 
 afterEach(async () => {
+  copying.target = ''
   await Promise.all(temporary.splice(0).map(async (dir) => { await cleanup(dir) }))
 })
 
@@ -91,6 +108,7 @@ describe('resolveShots', () => {
       toolkit([probeHandler({ [join(project, 'media/02/p1-clean.mp4')]: { durationSeconds: 5.05, video: {}, audio: {} } })]),
       project,
       [{ shot: 1, video: 'media/02/p1-clean.mp4', audio: 'media/02/p1-clean.mp4' }],
+      24,
     )
     expect(shots).toEqual([{
       source: { shot: 1, video: 'media/02/p1-clean.mp4', audio: 'media/02/p1-clean.mp4' },
@@ -105,34 +123,72 @@ describe('resolveShots', () => {
       toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { durationSeconds: 5, video: {}, audio: false } })]),
       project,
       [{ shot: 1, video: 'media/02/p1.mp4', audio: join(project, 'media/02/p1.wav') }],
+      24,
     )
     expect(shots[0]?.audio).toBe(join(project, 'media/02/p1.wav'))
   })
 
+  it.each([
+    { fps: 24, container: 6.08, start: 0, frames: 145, expected: 6_041_667 },
+    { fps: 60, container: 6.08, start: 0, frames: 145, expected: 6_080_000 },
+    { fps: 24, container: 6.08, start: 0.1, frames: 145, expected: 6_080_000 },
+    { fps: 24, container: 6.08, start: 0, frames: 144, expected: 6_080_000 },
+    { fps: 24, container: 6.3, start: 0, frames: 145, expected: 6_300_000 },
+  ])('uses whole picture frames only for a proven short mux tail ($fps fps, $container s, start $start, $frames frames)',
+    async ({ fps, container, start, frames, expected }) => {
+      const video = 'p1.mp4'
+      const shots = await resolveShots(toolkit([probeHandler({ [join(project, video)]: {
+        durationSeconds: container,
+        video: { fps: 24, startSeconds: start, durationSeconds: 6.041667, frameCount: frames },
+        audio: {},
+      } })]), project, [{ shot: 1, video, audio: video }], fps)
+      expect(shots[0]?.durationUs).toBe(expected)
+    })
+
+  it('rounds each absolute cut once so a Jianying boundary does not advance to the next frame', async () => {
+    const video = 'p1.mp4'
+    const shots = await resolveShots(toolkit([probeHandler({ [join(project, video)]: {
+      durationSeconds: 6.08,
+      video: { fps: 24, startSeconds: 0, durationSeconds: 6.041667, frameCount: 145 },
+      audio: {},
+    } })]), project, [{ shot: 1, video, audio: video }, { shot: 2, video, audio: video }], 24)
+    expect(shots.map(shot => shot.durationUs)).toEqual([6_041_667, 6_041_666])
+  })
+
+  it('uses the draft frame planner tie rule when a boundary is exactly between microseconds', async () => {
+    const video = 'p1.mp4'
+    const shots = await resolveShots(toolkit([probeHandler({ [join(project, video)]: {
+      durationSeconds: 0.04,
+      video: { fps: 128, startSeconds: 0, durationSeconds: 0.039063, frameCount: 5 },
+      audio: {},
+    } })]), project, [{ shot: 1, video, audio: video }], 128)
+    expect(shots[0]?.durationUs).toBe(39_062)
+  })
+
   it('fails loud when the source is missing', async () => {
     await expect(resolveShots(toolkit([probeHandler({})]), project,
-      [{ shot: 3, video: 'media/02/p3.mp4', audio: 'media/02/p3.mp4' }]))
+      [{ shot: 3, video: 'media/02/p3.mp4', audio: 'media/02/p3.mp4' }], 24))
       .rejects.toThrow('镜头 3 的成片无法探测')
   })
 
   it('fails loud when the source has no picture', async () => {
     await expect(resolveShots(
       toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { video: undefined, audio: {} } })]), project,
-      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }]))
+      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }], 24))
       .rejects.toThrow('没有视频流')
   })
 
   it('fails loud when the picture has no sound and none was declared', async () => {
     await expect(resolveShots(
       toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { video: {}, audio: false } })]), project,
-      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }]))
+      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }], 24))
       .rejects.toThrow('没有音轨')
   })
 
   it('fails loud when the source reports no duration', async () => {
     await expect(resolveShots(
       toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { durationSeconds: 0, video: {}, audio: {} } })]), project,
-      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }]))
+      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }], 24))
       .rejects.toThrow('时长为 0')
   })
 })
@@ -164,6 +220,90 @@ describe('cueOverrunWarnings', () => {
 })
 
 describe('prepareEpisode', () => {
+  it.each(['review changed', 'picture changed during copy'] as const)
+  ('rejects an approved source changed while preparing: %s', async (defect) => {
+    const project = await tempProject()
+    temporary.push(project)
+    const paths = episodePaths(project, '41')
+    const video = join(project, 'selected.mp4'), audio = join(project, 'selected.wav')
+    const packagePath = join(project, 'episode_packages', '41', 'package.json')
+    const reviewPath = join(project, 'reviews', 'ep41-p01.json')
+    const shotsPath = join(project, 'shots.json'), subtitle = join(project, 'source.srt')
+    await Promise.all([writePlaceholder(video, 'approved picture'), writePlaceholder(audio, 'approved audio'),
+      writePlaceholder(packagePath, JSON.stringify({ episode: '41', video_tasks: [{ shots: [1] }] })),
+      writePlaceholder(shotsPath, JSON.stringify({ shots: [{ shot: 1, package: 1, video, audio }] })),
+      writePlaceholder(subtitle, ''), writePlaceholder(paths.timeline, 'prior timeline')])
+    const review = { episode: '41', package: 1, package_sha256: await fileSha256(packagePath), status: 'approved',
+      subtitle_cleanup: 'clean', video_path: video, video_sha256: await fileSha256(video),
+      audio_path: audio, audio_sha256: await fileSha256(audio) }
+    await writePlaceholder(reviewPath, JSON.stringify(review))
+    const probe = probeHandler({ [video]: { durationSeconds: 1, video: {}, audio: {} } })
+    const channel = stubChannel([(call) => {
+      const result = probe(call)
+      return result === undefined ? undefined : { ...result, after: async () => {
+        if (defect === 'review changed') await writeFile(reviewPath, JSON.stringify({ ...review, note: 'updated review' }))
+      } }
+    }])
+    if (defect === 'picture changed during copy') copying.target = join(paths.videoDir, 'shot_001.mp4')
+    await expect(prepareEpisode({ project, episode: '41', shotsPath, subtitleSrt: subtitle,
+      toolkit: createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }) }))
+      .rejects.toThrow(defect === 'review changed' ? '审核选源变化' : '复制期间已审核画面变化')
+    expect(await readFile(paths.timeline, 'utf8')).toBe('prior timeline')
+    expect(await pathExists(paths.sources)).toBe(false)
+    expect(channel.calls.every(call => call.command === 'ffprobe')).toBe(true)
+  })
+  it.each(['wrong picture', 'wrong audio', 'wrong episode', 'omitted package',
+    'approved original audio', 'legacy picture review preview'] as const)
+  ('checks the current approved package before preparing equal-duration sources: %s', async (defect) => {
+    const project = await tempProject()
+    temporary.push(project)
+    const paths = episodePaths(project, '41')
+    const packagePath = join(project, 'episode_packages', '41', 'package.json')
+    const clean = join(project, 'ep41-clean.mp4')
+    const audio = join(project, 'ep41-original.mp4')
+    const foreign = join(project, 'ep40-same-length.mp4')
+    const shotsPath = join(project, 'shots.json')
+    await Promise.all([
+      writePlaceholder(packagePath, JSON.stringify({ episode: defect === 'wrong episode' ? '40' : '41', video_tasks: [{ shots: [1] }] })),
+      writePlaceholder(clean, 'approved picture'),
+      writePlaceholder(audio, 'approved original audio'),
+      writePlaceholder(foreign, 'foreign picture'),
+      writePlaceholder(paths.subtitle, ''),
+      writePlaceholder(paths.timeline, 'previous timeline'),
+    ])
+    const audioHash = await fileSha256(audio)
+    await writePlaceholder(join(project, 'reviews', 'ep41-p01.json'), JSON.stringify({
+      episode: '41', package: 1, package_sha256: await fileSha256(packagePath), status: 'approved',
+      subtitle_cleanup: 'clean', video_path: clean, video_sha256: await fileSha256(clean),
+      ...(defect === 'legacy picture review preview' ? {} : { audio_path: audio, audio_sha256: audioHash }),
+    }))
+    const video = defect === 'wrong picture' ? foreign : clean
+    await writePlaceholder(shotsPath, JSON.stringify({ shots: [{ shot: 1,
+      package: defect === 'omitted package' ? undefined : 1, video, audio: defect === 'wrong audio' ? foreign : audio }] }))
+    const media = { durationSeconds: 5.056, video: {}, audio: false } as const
+    const channel = stubChannel([probeHandler({ [clean]: media, [foreign]: media }), call => ({
+      after: async () => { await writeFile(call.args.at(-1)!, 'generated master', 'utf8') },
+    })])
+    const input = { toolkit: createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }),
+      project, episode: '41', shotsPath, subtitleSrt: join(project, 'source.srt') }
+    await writePlaceholder(input.subtitleSrt, '')
+    if (defect === 'approved original audio' || defect === 'legacy picture review preview') {
+      const result = await prepareEpisode(input)
+      expect(result.timeline.clips[0]?.durationUs).toBe(5_056_000)
+      expect(JSON.parse(await readFile(paths.sources, 'utf8'))).toMatchObject({
+        master_audio_sha256: await fileSha256(paths.masterAudio),
+        timeline_clips: [{ shot: 1, start_us: 0, duration_us: 5_056_000 }],
+        shots: [{ package: 1, video: clean, audio }],
+      })
+      const saved = JSON.parse(await readFile(paths.sources, 'utf8')) as { shots: { audio_sha256?: string }[] }
+      expect(saved.shots[0]?.audio_sha256).toBe(defect === 'approved original audio' ? audioHash : undefined)
+    } else {
+      await expect(prepareEpisode(input)).rejects.toThrow(/画面路径|原声音频|集号|编译分包/)
+      expect(channel.calls).toEqual([])
+      expect(await readFile(paths.timeline, 'utf8')).toBe('previous timeline')
+    }
+  })
+
   it('rejects a copied banned selection before probing or changing the prepared layout, and unban restores preparation', async () => {
     const project = await tempProject()
     temporary.push(project)
@@ -360,6 +500,218 @@ describe('prepareEpisode', () => {
       shotsPath,
       subtitleSrt: join(project, 'absent.srt'),
     })).rejects.toThrow('Invalid argument')
+  })
+})
+
+describe('prepared subtitle source clock', () => {
+  it.each(['matching external audio', 'missing shot', 'wrong shot', 'noncontiguous cut'] as const)
+  ('checks generated subtitle sources before trusting their clock: %s', async (defect) => {
+    const project = await tempProject()
+    temporary.push(project)
+    const paths = episodePaths(project, '02')
+    const original = join(project, 'source.mp4'), audio = join(project, 'source.wav')
+    const video = join(paths.videoDir, 'shot_001.mp4')
+    const text = srtDocument([{ start: '00:00:00,100', end: '00:00:00,500', text: '台词' }])
+    await Promise.all([writePlaceholder(original, 'picture'), writePlaceholder(video, 'picture'),
+      writePlaceholder(audio, 'separate audio'), writePlaceholder(paths.subtitle, text),
+      writePlaceholder(paths.timeline, '{"clips":[{"shot":1,"start_us":0,"duration_us":1000000}],"body_end":1}')])
+    const source = { shot: 1, video: original, audio }
+    await writeSubtitleClock(paths.subtitle, text, '02', [{ source, video: original, audio, durationUs: 1_000_000 }])
+    const timeline = await readTimeline(paths.timeline)
+    await writePlaceholder(paths.sources, JSON.stringify({ shots: [source] }))
+    if (defect === 'missing shot') {
+      const withExtra = { ...timeline, clips: [...timeline.clips, { shot: 2, startUs: 1_000_000, durationUs: 1_000_000 }] }
+      await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, withExtra)).rejects.toThrow('准备清单或时间线')
+    } else if (defect === 'wrong shot') {
+      const reordered = { ...timeline, clips: [{ shot: 2, startUs: 0, durationUs: 1_000_000 }] }
+      await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, reordered)).rejects.toThrow('准备清单或时间线')
+    } else if (defect === 'noncontiguous cut') {
+      const shifted = { ...timeline, clips: [{ shot: 1, startUs: 1, durationUs: 1_000_000 }] }
+      await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, shifted)).rejects.toThrow('准备清单或时间线')
+    } else await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, timeline)).resolves.toBeUndefined()
+  })
+
+  async function preparedClockProject(generatedClock = true) {
+    const project = await tempProject()
+    temporary.push(project)
+    const paths = episodePaths(project, '02'), sourceSubtitle = join(project, 'source.srt')
+    const firstVideo = join(project, 'media', 'first.mp4'), secondVideo = join(project, 'media', 'second-clean.mp4')
+    const secondAudio = join(project, 'media', 'second-original.wav'), shotsPath = join(project, 'shots.json')
+    const manifest = { shots: [{ shot: 1, video: firstVideo }, { shot: 2, video: secondVideo, audio: secondAudio }] }
+    const text = srtDocument([
+      { start: '00:00:00,100', end: '00:00:00,500', text: '第一句' },
+      { start: '00:00:01,100', end: '00:00:01,500', text: '第二句' },
+    ])
+    await Promise.all([
+      writePlaceholder(firstVideo, 'first picture and original sound'),
+      writePlaceholder(secondVideo, 'second cleaned picture'),
+      writePlaceholder(secondAudio, 'second original sound'),
+      writePlaceholder(sourceSubtitle, text), writePlaceholder(shotsPath, JSON.stringify(manifest)),
+    ])
+    const probe = probeHandler({
+      [firstVideo]: { durationSeconds: 1, video: {}, audio: {} },
+      [secondVideo]: { durationSeconds: 1, video: {}, audio: false },
+    })
+    const channel = stubChannel([probe, call => ({ after: async () => {
+      await writeFile(call.args.at(-1)!, 'prepared original master audio', 'utf8')
+    } })])
+    const toolkit = createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel })
+    if (generatedClock) {
+      const shots = await resolveShots(toolkit, project, parseShotManifest(manifest, shotsPath), 60)
+      await writeSubtitleClock(sourceSubtitle, text, '02', shots)
+    }
+    const prepared = await prepareEpisode({ toolkit, project, episode: '02', shotsPath, subtitleSrt: sourceSubtitle })
+    const files = [...new Set([firstVideo, secondVideo, secondAudio, sourceSubtitle, shotsPath,
+      ...(generatedClock ? [subtitleClockPath(sourceSubtitle)] : []), ...prepared.written])]
+    return { project, paths, secondAudio, files, channel }
+  }
+
+  it('captures the real prepared picture, voice, master and generated subtitle identities without rendering', async () => {
+    const fixture = await preparedClockProject()
+    const { project, paths, secondAudio, files, channel } = fixture
+    const before = await Promise.all(files.map(async path => ({ path, bytes: await readFile(path) })))
+    const callsBefore = [...channel.calls]
+    const captured = await preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined)
+    expect(captured).toEqual({
+      clockPath: subtitleClockPath(paths.subtitle), manifestPath: paths.sources,
+      manifestSha256: await fileSha256(paths.sources), manifestBytes: (await readFile(paths.sources)).length,
+      clockPresent: true, masterPath: paths.masterAudio,
+      shots: [
+        { shot: 1, video: join(paths.videoDir, 'shot_001.mp4'), audio: join(paths.videoDir, 'shot_001.mp4') },
+        { shot: 2, video: join(paths.videoDir, 'shot_002.mp4'), audio: secondAudio },
+      ],
+    })
+    for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each(['same-length master replacement', 'changed cut', 'old subtitle'] as const)
+  ('refuses to capture a prepared subtitle clock after %s without changing its input files', async (change) => {
+    const { project, paths, files, channel } = await preparedClockProject()
+    await expect(preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined))
+      .resolves.toMatchObject({ clockPresent: true, masterPath: paths.masterAudio })
+    if (change === 'same-length master replacement') {
+      const original = await readFile(paths.masterAudio), replacement = Buffer.from(original)
+      replacement[0] = replacement[0]! ^ 1
+      await writeFile(paths.masterAudio, replacement)
+      expect(await sizeOf(paths.masterAudio)).toBe(original.length)
+      expect(await readFile(paths.masterAudio)).not.toEqual(original)
+    } else if (change === 'changed cut') {
+      const timeline = JSON.parse(await readFile(paths.timeline, 'utf8')) as { clips: { start_us: number; duration_us: number }[] }
+      timeline.clips[0]!.duration_us += 100_000
+      timeline.clips[1]!.start_us += 100_000
+      timeline.clips[1]!.duration_us -= 100_000
+      await writeFile(paths.timeline, JSON.stringify(timeline), 'utf8')
+      expect((await readTimeline(paths.timeline)).bodyEndSeconds).toBe(2)
+    } else {
+      const subtitle = await readFile(paths.subtitle, 'utf8')
+      await writeFile(paths.subtitle, subtitle.replace('00:00:00,100', '00:00:00,050'), 'utf8')
+      expect(await readFile(paths.subtitle, 'utf8')).not.toBe(subtitle)
+    }
+    const before = await Promise.all(files.map(async path => ({ path, bytes: await readFile(path) })))
+    const callsBefore = [...channel.calls]
+    await expect(preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined))
+      .rejects.toThrow(change === 'old subtitle' ? '生成字幕与当前集、分包素材或切点不一致' : '生成字幕缺少与当前音轨及时间线一致的准备记录')
+    for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('captures a BOM-prefixed prepared manifest using its actual saved byte identity', async () => {
+    const { project, paths, files, channel } = await preparedClockProject()
+    const original = await readFile(paths.sources), bom = Buffer.from([0xef, 0xbb, 0xbf])
+    await writeFile(paths.sources, Buffer.concat([bom, original]))
+    const before = await Promise.all(files.map(async path => ({ path, bytes: await readFile(path) })))
+    const callsBefore = [...channel.calls]
+    const captured = await preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined)
+    expect(captured).toMatchObject({ clockPresent: true, masterPath: paths.masterAudio,
+      manifestBytes: original.length + bom.length, manifestSha256: await fileSha256(paths.sources) })
+    expect((await readFile(paths.sources)).subarray(0, 3)).toEqual(bom)
+    for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('rejects truncated prepared-manifest JSON without rewriting its evidence', async () => {
+    const { project, paths, files, channel } = await preparedClockProject()
+    await writeFile(paths.sources, '{"shots":[', 'utf8')
+    const before = await Promise.all(files.map(async path => ({ path, bytes: await readFile(path) })))
+    const callsBefore = [...channel.calls]
+    const capture = preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined)
+    await expect(capture).rejects.toThrow('已准备分包清单不是合法 JSON')
+    const cause = await capture.then(() => undefined, (error: unknown) => error instanceof Error ? error.cause : undefined)
+    expect(cause).toBeInstanceOf(SyntaxError)
+    for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each([null, 'not a manifest', [], {}])
+  ('rejects a non-manifest JSON document before reading prepared metadata: %j', async (document) => {
+    const { project, paths, channel } = await preparedClockProject(false)
+    const bytes = JSON.stringify(document)
+    await writeFile(paths.sources, bytes, 'utf8')
+    const callsBefore = [...channel.calls]
+    await expect(preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined))
+      .rejects.toThrow('成片清单必须是')
+    expect(await readFile(paths.sources, 'utf8')).toBe(bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('rejects a prepared shot manifest that no longer matches the complete timeline', async () => {
+    const { project, paths, channel } = await preparedClockProject(false)
+    const timeline = await readTimeline(paths.timeline)
+    const first = timeline.clips[0]
+    if (first === undefined) throw new Error('Fixture timeline has no first shot')
+    const firstEndSeconds = (first.startUs + first.durationUs) / 1_000_000
+    await writeFile(paths.timeline, formatTimelineDocument({ ...timeline, clips: [first],
+      bodyEndSeconds: firstEndSeconds, declaredBodyEndSeconds: firstEndSeconds }))
+    const before = await readFile(paths.sources)
+    const calls = [...channel.calls]
+    await expect(preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined))
+      .rejects.toThrow('字幕来源清单与当前时间线不一致')
+    expect(await readFile(paths.sources)).toEqual(before)
+    expect(channel.calls).toEqual(calls)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('captures a legacy manual subtitle without requiring generated clock metadata', async () => {
+    const { project, paths, files, secondAudio, channel } = await preparedClockProject(false)
+    expect(await pathExists(subtitleClockPath(paths.subtitle))).toBe(false)
+    expect(JSON.parse(await readFile(paths.sources, 'utf8'))).not.toHaveProperty('master_audio_sha256')
+    expect(JSON.parse(await readFile(paths.sources, 'utf8'))).not.toHaveProperty('timeline_clips')
+    const before = await Promise.all(files.map(async path => ({ path, bytes: await readFile(path) })))
+    const callsBefore = [...channel.calls]
+    const captured = await preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined)
+    expect(captured).toEqual({ clockPath: subtitleClockPath(paths.subtitle), manifestPath: paths.sources,
+      manifestBytes: (await readFile(paths.sources)).length, manifestSha256: await fileSha256(paths.sources), clockPresent: false,
+      shots: [
+        { shot: 1, video: join(paths.videoDir, 'shot_001.mp4'), audio: join(paths.videoDir, 'shot_001.mp4') },
+        { shot: 2, video: join(paths.videoDir, 'shot_002.mp4'), audio: secondAudio },
+      ],
+    })
+    expect(captured).not.toHaveProperty('masterPath')
+    for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('rejects a generated subtitle whose clock remains but prepared metadata is missing', async () => {
+    const { project, paths, files, channel } = await preparedClockProject()
+    expect(await pathExists(subtitleClockPath(paths.subtitle))).toBe(true)
+    const manifest = JSON.parse(await readFile(paths.sources, 'utf8')) as { master_audio_sha256?: string; timeline_clips?: object[] }
+    delete manifest.master_audio_sha256
+    delete manifest.timeline_clips
+    await writeFile(paths.sources, JSON.stringify(manifest), 'utf8')
+    const before = await Promise.all(files.map(async path => ({ path, bytes: await readFile(path) })))
+    const callsBefore = [...channel.calls]
+    await expect(preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined))
+      .rejects.toThrow('生成字幕缺少与当前音轨及时间线一致的准备记录')
+    for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })
 

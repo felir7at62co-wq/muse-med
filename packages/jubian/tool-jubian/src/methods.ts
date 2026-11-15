@@ -14,7 +14,8 @@
  * return only the original ledger record without querying the provider.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, extname, resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
+import { downloadedMediaPath, resumeMediaDownload } from './media-download.ts'
 import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import {
@@ -25,10 +26,10 @@ import {
   validateImageRequestInput, responseRecords, wireText,
   withGenerationDisabled,
 } from '@deepseek-ai/dsh-jubian-api'
-import { resolvePostProcessModel, VIDEO_UPSCALE_MODEL, SUBTITLE_ERASE_MODELS } from '@deepseek-ai/dsh-jubian-api'
+import { AUTOMATIC_ERASE_MODEL, resolvePostProcessModel, VIDEO_UPSCALE_MODEL, SUBTITLE_ERASE_MODELS } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, ImageStyle, MediaKind,
   SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
-import { positiveInteger, prepareVideoMethod, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
+import { positiveInteger, prepareVideoMethod, recoverVideoSubmission, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
 import type { VideoBatchItem, VideoBatchOptions } from './native.ts'
 import { createFolderMethod, moveMethod, renameMethod } from './folders.ts'
 import { composedAssetName, resolveNaming, taskPrefix } from './naming.ts'
@@ -88,6 +89,7 @@ export interface MethodArgs {
   episode_ids?: number[]
   changes?: Record<string, unknown>
   idempotency_key?: string
+  /** Required catalogue category for models; optional positive task-type filter for tasks. */
   task_type?: number
   standard_id?: number
   script_id?: number
@@ -133,6 +135,8 @@ export interface MethodArgs {
   platform_id?: string
   resolution?: string
   erase_mode?: 'automatic' | 'region'
+  /** `erase_subtitle`: require the exact live zero-price route before submission. */
+  only_if_verified_free?: boolean
   task_name?: string
   first_result_id?: number
   parent_result_id?: number
@@ -147,6 +151,8 @@ export interface MethodArgs {
   media_url?: string
   media_kind?: MediaKind
   output_path?: string
+  /** Reuse a SHA-verified local download of the exact same URL. */
+  resume?: boolean
   /** The resolution the caller intends to deliver, e.g. `1080p`; drives the needs_upscale verdict. */
   delivery_resolution?: string
   /** `upload_reference`: the local image file to normalize and upload. */
@@ -304,6 +310,8 @@ export interface MethodDeps {
   promptRiskReview?: PromptRiskReviewOptions
   /** Check the current conversation choice immediately before reserving new video charges. */
   assertVideoModel?: (model: Record<string, unknown>) => void
+  /** Host watch fence before a native paid video PUT. */
+  beforeVideoSend?: (key: string) => Promise<void>
   /** Current Muse account's exclusive shared voice-registration provider. */
   voiceCoordinator?: VoiceCoordinator
   /** Resolved complete-reference inspection limits before deleting audio assets. */
@@ -968,7 +976,7 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
   }
 }
 
-/** Explicit coverage for one page; an inferred total cannot establish the absence of other tasks. */
+/** Coverage for the requested page and filters; an inferred total cannot establish absence. */
 function videoPageEvidence(data: unknown, total: number, returned: number, num: number, size: number) {
   const reported = data !== null && typeof data === 'object' && !Array.isArray(data) && 'total' in data
     && typeof data.total === 'number' && Number.isSafeInteger(data.total) && data.total >= 0
@@ -1027,12 +1035,22 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     case 'tasks': {
       const scriptId = need(args.script_id)
       const { num, size } = pageSelection(args)
+      const taskType = args.task_type
+      if (taskType !== undefined && (!Number.isSafeInteger(taskType) || taskType < 1)) {
+        throw new JubianError('INVALID_ARGUMENT', 'task_type must be a positive integer when filtering tasks')
+      }
       const result = await client.request({
-        method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${scriptId}&taskType=1&pageNum=${num}&pageSize=${size}`,
+        method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${scriptId}`
+          + (taskType === undefined ? '' : `&taskType=${taskType}`) + `&pageNum=${num}&pageSize=${size}`,
         ...(deps.signal === undefined ? {} : { signal: deps.signal }) })
       const tasks = readTaskList(result.data)
-      return { tasks: { ...tasks, ...videoPageEvidence(result.data, tasks.total, tasks.rows.length, num, size) },
-        guidance: 'tasks.rows 仅是本页；未读完所有页前，不能把未找到某集或某卡当作从未生成。'
+      const evidence = videoPageEvidence(result.data, tasks.total, tasks.rows.length, num, size)
+      const scope = { script_id: scriptId, task_type: taskType ?? null }
+      return { tasks: { ...tasks, ...evidence, scope, project_complete: taskType === undefined && evidence.complete },
+        guidance: 'tasks.rows 仅是本页；scope.task_type=null 表示没有按任务类型筛选。'
+          + 'total_verified 和 complete 仅说明 scope 范围内的提供方列表；按类型筛选时 project_complete 恒为 false，'
+          + '该类型为空不能说明项目没有任务。未按类型筛选且本次完整，也仅覆盖提供方本次返回的项目列表，不保证保留全部历史；已知任务 ID 仍须单独回读。'
+          + '未读完所有页前，不能把未找到某集或某卡当作从未生成。'
           + '提取现有视频请用 sources(script_id,storyboard_id) 查询原卡来源；已有任务继续按原 task_id 回读。' }
     }
     case 'subtasks': {
@@ -1390,11 +1408,31 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
   }
 }
 
-/** Reject reuse of an existing card identity in a creation request. */
+/** Reject existing card IDs and unverified material bindings before creation. */
 function assertNewStoryboard(body: Record<string, unknown>): void {
   for (const field of ['id', 'storyboardId']) {
     if (body[field] !== undefined && body[field] !== null && body[field] !== '' && body[field] !== 0) {
       throw new JubianError('INVALID_ARGUMENT', 'Existing card IDs cannot be created again; use edit_preview → edit_apply')
+    }
+  }
+  let config: unknown = body.modelConfig
+  if (typeof config === 'string') {
+    try { config = JSON.parse(config) }
+    catch { throw new JubianError('INVALID_ARGUMENT', 'Invalid modelConfig JSON') }
+  }
+  const modelMaterials = config && typeof config === 'object' && !Array.isArray(config)
+    ? (config as Record<string, unknown>).materialList : undefined
+  for (const raw of [body.storyboardMaterialList, modelMaterials]) {
+    let materials: unknown = raw
+    if (typeof materials === 'string') {
+      try { materials = JSON.parse(materials) }
+      catch { throw new JubianError('INVALID_ARGUMENT', 'Invalid storyboard material list JSON') }
+    }
+    if (materials === undefined || materials === null) continue
+    if (!Array.isArray(materials) || materials.length > 0) {
+      throw new JubianError('INVALID_ARGUMENT',
+        'UNVERIFIED_STORYBOARD_MATERIALS: create the card with empty material lists, read back its ID, '
+        + 'then use select_assets with official project asset IDs; bind audio with audio_preview → audio_apply; no POST sent')
     }
   }
 }
@@ -1414,6 +1452,10 @@ function assertNewStoryboard(body: Record<string, unknown>): void {
  */
 export async function storyboardMethod(client: JubianClient, ledger: JubianLedger,
   args: MethodArgs, deps: MethodDeps = {}): Promise<Record<string, unknown>> {
+  if (args.only_if_verified_free !== undefined
+    && (args.method !== 'erase_subtitle' || typeof args.only_if_verified_free !== 'boolean')) {
+    throw new JubianError('INVALID_ARGUMENT', 'only_if_verified_free must be a boolean for erase_subtitle')
+  }
   const storyboardId = (): number => need(args.storyboard_id)
   switch (args.method) {
     case 'audio_preview': case 'audio_apply':
@@ -1553,7 +1595,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
       return { ...await submitVideoMethod(client, ledger, { preview_path: args.preview_path,
         project_dir: args.project_dir, storyboard_id: args.storyboard_id,
         idempotency_key: args.idempotency_key, estimated_cost_cny: args.estimated_cost_cny,
-        estimate_basis: args.estimate_basis }, deps.assertVideoModel), canonical_method: method }
+        estimate_basis: args.estimate_basis }, deps.assertVideoModel, false, deps.signal, deps.beforeVideoSend), canonical_method: method }
     }
     case 'select_assets': {
       requireKey(args.idempotency_key)
@@ -1570,19 +1612,29 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
       return await submitVideoMethod(client, ledger, { preview_path: args.preview_path,
         project_dir: args.project_dir, storyboard_id: args.storyboard_id,
         idempotency_key: args.idempotency_key, estimated_cost_cny: args.estimated_cost_cny,
-        estimate_basis: args.estimate_basis }, deps.assertVideoModel)
+        estimate_basis: args.estimate_basis }, deps.assertVideoModel, false, deps.signal, deps.beforeVideoSend)
     }
     case 'submit_video_batch':
-      return await submitVideoBatchMethod(client, ledger, { items: args.video_previews }, deps.videoBatch, deps.assertVideoModel)
+      return { ...await submitVideoBatchMethod(client, ledger, { items: args.video_previews },
+        deps.videoBatch, deps.assertVideoModel, deps.beforeVideoSend) }
+    case 'reconcile_video':
+      return await recoverVideoSubmission(client, ledger, need(args.project_dir, 'project_dir'),
+        requireKey(args.idempotency_key), deps.signal) ?? { status: 'reconcile_required', task_id: null }
     case 'erase_subtitle': {
-      requireKey(args.idempotency_key)
+      const key = requireKey(args.idempotency_key)
       const taskId = need(args.task_id)
+      const onlyIfVerifiedFree = args.only_if_verified_free === true
+      const hasCallerEstimate = args.estimated_cost_cny !== undefined || args.estimate_basis !== undefined
+      if (onlyIfVerifiedFree && hasCallerEstimate) {
+        throw new JubianError('INVALID_ARGUMENT', 'only_if_verified_free requires omitting estimated_cost_cny and estimate_basis')
+      }
+      const freePriceRequired = 'only_if_verified_free requires a unique live 0.00 CNY erasure quote on the verified route; no erasure was submitted'
       // Read from the task row by the body below; the quote thunk passes it to the
       // budget gate, which cannot ask for a project the caller never states.
       let projectId: number | undefined
       let estimate: ReturnType<typeof estimatedCostReservation>
       let catalogueQuote: ReturnType<typeof readSubtitleEraseQuote> | undefined
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'erase_subtitle',
+      const result = await writeUnderLedger(ledger, key, 'erase_subtitle',
         async () => {
           // Identities come from the provider, split across two reads. The
           // rectangle is derived from the source frame rather than drawn by the
@@ -1591,25 +1643,36 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           const { task, media } = await taskMediaRequest(client, taskId, args.script_id, 'original')
           projectId = media.scriptId
           const modelId = need(args.model_id, 'model_id')
-          const hasCallerEstimate = args.estimated_cost_cny !== undefined || args.estimate_basis !== undefined
           const knownModel = SUBTITLE_ERASE_MODELS.some(id => id === modelId)
           const needsCatalogue = !knownModel || args.platform_id !== undefined || !hasCallerEstimate
-          let catalogue: unknown
-          if (needsCatalogue) {
-            try { catalogue = (await client.request({ method: 'GET',
-              path: '/model/charge/getSelectList?taskType=10' })).data }
-            catch (error) {
-              // A known route can retain its older operator-approved estimate when
-              // catalogue access is denied. Unknown routes still need live selectors.
-              if (!knownModel || args.platform_id !== undefined || !(error instanceof JubianError)
-                || (error.code !== 'PERMISSION_DENIED' && error.code !== 'AUTHENTICATION_REQUIRED')) throw error
+          let selected: ReturnType<typeof resolvePostProcessModel> | undefined
+          try {
+            let catalogue: unknown
+            if (needsCatalogue) {
+              try { catalogue = (await client.request({ method: 'GET',
+                path: '/model/charge/getSelectList?taskType=10' })).data }
+              catch (error) {
+                // A known route can retain its older operator-approved estimate when
+                // catalogue access is denied. Unknown routes still need live selectors.
+                if (onlyIfVerifiedFree || !knownModel || args.platform_id !== undefined || !(error instanceof JubianError)
+                  || (error.code !== 'PERMISSION_DENIED' && error.code !== 'AUTHENTICATION_REQUIRED')) throw error
+              }
             }
+            if (catalogue !== undefined) {
+              selected = resolvePostProcessModel(catalogue, { modelId,
+                ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
+              })
+              if (!hasCallerEstimate && knownModel) catalogueQuote = readSubtitleEraseQuote(catalogue, selected, media.duration)
+            }
+          } catch (error) {
+            if (onlyIfVerifiedFree && error instanceof JubianError) {
+              const code = error.code === 'CONTRACT_CHANGED' ? 'BUDGET_EXCEEDED' : error.code
+              throw new JubianError(code, freePriceRequired, error.responseEvidence)
+            }
+            throw error
           }
-          const selected = catalogue === undefined ? undefined : resolvePostProcessModel(catalogue, { modelId,
-            ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
-          })
-          if (!hasCallerEstimate && selected !== undefined && knownModel) {
-            catalogueQuote = readSubtitleEraseQuote(catalogue, selected, media.duration)
+          if (onlyIfVerifiedFree && catalogueQuote?.verifiedFreeSubtitleErase !== true) {
+            throw new JubianError('BUDGET_EXCEEDED', freePriceRequired)
           }
           return buildSubtitleEraseRequest(modelId, {
             ...media,
@@ -1627,7 +1690,18 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
             ...catalogueQuote?.verifiedFreeSubtitleErase === true
               ? { standardId: 67, observedAt: new Date().toISOString() } : {} }
         })
+      if (onlyIfVerifiedFree && result.replayed) {
+        const prior = await ledger.find(key)
+        if (prior?.quoted_amount !== '0.00' || prior.quote_unit !== 'CNY'
+          || prior.quote_standard_id !== 67 || !prior.quote_observed_at
+          || args.model_id !== AUTOMATIC_ERASE_MODEL
+          || (args.platform_id !== undefined && args.platform_id !== 'AI_MEDIA_KIT')
+          || (args.script_id !== undefined && prior.script_id !== args.script_id)) {
+          throw new JubianError('CONTRACT_CHANGED', 'The recorded erasure key has no matching verified free quote; reconcile the original attempt')
+        }
+      }
       return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
+        ...(onlyIfVerifiedFree ? { verified_free: true } : {}),
         next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。'
           + (!result.replayed && estimate !== undefined
             ? ` 本次按调用方声明的估算 ${estimate.amount} CNY 预留，不是供应商报价或实际结算金额；依据为本次 estimate_basis，实际费用仍待供应商结算。` : '')
@@ -1652,17 +1726,16 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
  * which exposes only `writeText` and has no binary write. Jubian's CDN needs no
  * credential, so this sends none.
  * @param args - `media_url`, `media_kind` and `output_path` are required.
- * @returns The written file's path, kind, media type, byte length and digest.
+ * @param signal - Caller cancellation for the transfer or local verification.
+ * @returns The verified local file metadata and, for resumable downloads, its receipt path.
  */
-export async function mediaMethod(args: MethodArgs): Promise<Record<string, unknown>> {
+export async function mediaMethod(args: MethodArgs, signal?: AbortSignal): Promise<Record<string, unknown>> {
   const kind = need(args.media_kind)
-  const downloaded = await downloadMedia(need(args.media_url), { kind })
+  const source = need(args.media_url)
   const requested = resolve(need(args.output_path))
-  const extension = extname(requested)
-  const decodedExtension = `.${downloaded.media_type.replace(/^[^/]+\//u, '')}`
-  const compatible = extension.toLowerCase() === decodedExtension
-    || extension.toLowerCase() === '.jpg' && decodedExtension === '.jpeg'
-  const target = compatible ? requested : requested.slice(0, requested.length - extension.length) + decodedExtension
+  if (args.resume === true) return await resumeMediaDownload(source, kind, requested, signal)
+  const downloaded = await downloadMedia(source, { kind, ...(signal ? { signal } : {}) })
+  const target = downloadedMediaPath(requested, downloaded.media_type)
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, downloaded.bytes)
   return { path: target, kind: downloaded.kind, media_type: downloaded.media_type,

@@ -1,5 +1,5 @@
 ---
-description: "DeepSeek Harness 主目录与用户数据路径的共享解析，供需要统一根目录、波浪号展开与稳定监听路径的包使用。"
+description: "DeepSeek Harness 主目录与共享 agent 配置根目录的共享解析，以及用户数据路径、波浪号展开与稳定监听路径。"
 kind: "package-library"
 ---
 
@@ -44,6 +44,17 @@ const cache = dshCachePath('models')         // <home>/cache/models
 
 `dshCachePath(...segments)` 从解析出的主目录下的 `cache` 目录派生路径。不传路径段时返回缓存目录本身。传入首个选项对象 `dshCachePath({ dshHome: home }, ...segments)` 可使用显式配置的主目录，遵循相同的优先级与波浪号展开规则。它返回绝对路径，不会创建目录。
 
+### 解析共享 agents 根目录
+
+```ts
+import { resolveAgentsHome, agentsHomeDisplay } from '@deepseek-ai/dsh-home-paths'
+
+const agents = resolveAgentsHome()   // configured path, else $DSH_AGENTS_HOME, else ~/.agents
+agentsHomeDisplay(agents)            // ~/.agents, or $DSH_AGENTS_HOME for any configured root
+```
+
+`resolveAgentsHome` 采用与 `resolveDshHome` 相同的优先级、空白值处理与波浪号展开。该根目录刻意位于 `$DSH_HOME` 之外，因为其他 agent 工具也会共享它：`dsh-agent-instructions` 读取其中的用户全局 `AGENTS.md`，`dsh-skill-filesystem` 扫描其中的 `skills/` 目录。
+
 ### 展示主目录
 
 面向用户的路径请以符号形式渲染根目录，而不是机器路径：两个默认主目录分别显示为 `~/.muse` 或 `~/.dsh`，任何已配置的主目录显示为 `$DSH_HOME`。展示形式绝不会泄露机器的绝对路径。
@@ -64,7 +75,7 @@ const cache = dshCachePath('models')         // <home>/cache/models
 <details>
 <summary>实现细节——点击展开</summary>
 
-本包建立在一个原则上：harness 的所有用户数据都位于同一个根目录下，其他每个辅助函数都由该决策派生。
+本包建立在一个原则上：harness 的用户数据位于同一个根目录下，而共享 agent 配置根目录保持独立，因为其他 agent 工具也会读取它。`resolveRoot` 与 `rootDisplay` 负责两个根目录的优先级与展示规则，因此两者不会彼此漂移。
 
 ### 源码地图
 
@@ -94,6 +105,8 @@ const cache = dshCachePath('models')         // <home>/cache/models
 - [匿名用户 id](../../identity/anonymous-user-id/README.zh.md)——位于解析后主目录下的存储身份文件。
 
 -----
+
+`resolveAgentsHome()` 独立解析共享配置目录，依次选择显式路径、`$DSH_AGENTS_HOME`、`~/.agents`；`agentsHomeDisplay()` 将该目录显示为 `~/.agents` 或 `$DSH_AGENTS_HOME`，不改变 Muse 或 harness 主目录的优先级。
 
 ## 已知限制与延期工作
 

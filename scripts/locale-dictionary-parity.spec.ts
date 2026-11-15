@@ -1,6 +1,7 @@
 /**
  * Gate for the invariant `FALLBACK_LOCALE` rests on: every shipped dictionary
- * declares the same keys in `zh` and `en`.
+ * declares the same keys in every shipped language; translations also
+ * preserve the English placeholders, command examples, and API field names.
  *
  * The locale runtime resolves a key through the active locale, then through
  * the single fallback locale (`en`), then surfaces the key itself. With
@@ -17,14 +18,24 @@
  * pairs `zh`/`en` across sibling files as well as within one module. A `zh`
  * dictionary whose `en` counterpart cannot be found anywhere is an error, not
  * a skip.
+ *
+ * Fixed const-object spreads expand statically in object override order,
+ * including relative named imports inside the repository. Unknown, dynamic,
+ * or cyclic shared copy is rejected. A runtime English-base spread is not an
+ * explicit translation declaration; fixed English members retain token checks.
+ * The gate never executes package code.
  */
 
 import type { Dirent } from 'node:fs'
-import { readdirSync, readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
+
+import { SHIPPED_LOCALE_IDS, localeTokens, hasInvisibleLocaleCharacters, type ShippedLocaleId } from './shipped-locales.ts'
+import { localeLiteralReader } from './locale-literal.ts'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
@@ -33,7 +44,7 @@ function relative(file: string): string {
   return file.slice(root.length).replaceAll('\\', '/')
 }
 
-/** Every `.ts` source file under each workspace package's `src`, excluding declarations. */
+/** Every TypeScript source file under each workspace package's `src`, excluding declarations. */
 function sourceFiles(): string[] {
   const files: string[] = []
   const packagesRoot = resolve(root, 'packages')
@@ -70,7 +81,7 @@ function walk(dir: string, out: string[]): void {
   for (const entry of readEntries(dir)) {
     const full = resolve(dir, entry.name)
     if (entry.isDirectory()) walk(full, out)
-    else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) out.push(full)
+    else if ((/\.tsx?$/u.test(entry.name)) && !entry.name.endsWith('.d.ts')) out.push(full)
   }
 }
 
@@ -82,6 +93,8 @@ interface Dictionary {
   name: string
   /** Declared keys, sorted. */
   keys: string[]
+  /** Literal templates used to compare named placeholders. */
+  templates: Readonly<Record<string, string>>
 }
 
 /**
@@ -91,15 +104,16 @@ interface Dictionary {
  * @param file - absolute path of a candidate module.
  * @returns discovered dictionaries, keyed by locale-bearing name.
  */
-function dictionariesIn(file: string): Dictionary[] {
+function dictionariesIn(file: string, repositoryRoot = root): Dictionary[] {
   const text = readFileSync(file, 'utf8')
   // Cheap pre-filter: parsing every package source is wasteful. The pattern
   // must admit every shape `localeOf` accepts, or a file would be skipped
   // before parsing — the silent narrowing this gate exists to prevent. A bare
   // `\b(zh|en)\b` misses `zhSettings`/`accessZh`, because `\b` does not hold
   // between `h` and an uppercase letter.
-  if (!/\b(zh|en)\b|\b(zh|en)[A-Z]|(Zh|En)\b/.test(text)) return []
+  if (!/\b(zh|en|ja|es|fr|de|ru|pt)\b|\b(zh|en|ja|es|fr|de|ru|pt)[A-Z]|(Zh|En|Ja|Es|Fr|De|Ru|Pt)\b/.test(text)) return []
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true)
+  const inspect = localeLiteralReader(repositoryRoot, source)
   const found: Dictionary[] = []
   const rel = relative(file)
 
@@ -124,8 +138,9 @@ function dictionariesIn(file: string): Dictionary[] {
       if (!ts.isIdentifier(decl.name)) continue
       const literal = unwrap(decl.initializer)
       if (literal === undefined || !ts.isObjectLiteralExpression(literal)) continue
-      if (localeOf(decl.name.text) === undefined) continue
-      found.push({ file: rel, name: decl.name.text, keys: keysOf(literal) })
+      const naming = localeOf(decl.name.text)
+      if (naming === undefined) continue
+      found.push({ file: rel, name: decl.name.text, ...inspect(literal, naming.locale === 'en') })
     }
   }
 
@@ -150,7 +165,7 @@ function dictionariesIn(file: string): Dictionary[] {
       if (name === 'register' && node.arguments.length >= 3) {
         const [ns, tag, dict] = node.arguments
         if (ns === undefined || tag === undefined || !ts.isStringLiteral(tag)) return
-        if (tag.text !== 'zh' && tag.text !== 'en') return
+        if (!SHIPPED_LOCALE_IDS.some(id => id === tag.text)) return
         const raw = unwrap(dict)
         const literal = raw !== undefined && ts.isIdentifier(raw)
           ? (() => {
@@ -171,10 +186,10 @@ function dictionariesIn(file: string): Dictionary[] {
         // The namespace expression's source text identifies the pair, so the
         // zh and en calls for one namespace meet and calls for different
         // namespaces stay apart.
-        found.push({ file: rel, name: `${tag.text}@register:${ns.getText(source)}`, keys: keysOf(dictionary) })
+        found.push({ file: rel, name: `${tag.text}@register:${ns.getText(source)}`, ...inspect(dictionary, tag.text === 'en') })
       }
     }
-    if (ts.isArrayLiteralExpression(node) && node.elements.length === 2) {
+    if (ts.isArrayLiteralExpression(node) && node.elements.length >= 2) {
       const site = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
       for (const element of node.elements) {
         if (!ts.isArrayLiteralExpression(element) || element.elements.length !== 2) continue
@@ -182,24 +197,14 @@ function dictionariesIn(file: string): Dictionary[] {
         const literal = unwrap(dict)
         if (tag === undefined || !ts.isStringLiteral(tag)) continue
         if (literal === undefined || !ts.isObjectLiteralExpression(literal)) continue
-        if (tag.text !== 'zh' && tag.text !== 'en') continue
-        found.push({ file: rel, name: `${tag.text}@inline:${site}`, keys: keysOf(literal) })
+        if (!SHIPPED_LOCALE_IDS.some(id => id === tag.text)) continue
+        found.push({ file: rel, name: `${tag.text}@inline:${site}`, ...inspect(literal, tag.text === 'en') })
       }
     }
     ts.forEachChild(node, visit)
   }
   visit(source)
   return found
-}
-
-/** Declared property names of an object literal, sorted. */
-function keysOf(literal: ts.ObjectLiteralExpression): string[] {
-  const keys: string[] = []
-  for (const prop of literal.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue
-    if (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) keys.push(prop.name.text)
-  }
-  return keys.sort()
 }
 
 /** Look through `satisfies`/`as`/parenthesized wrappers to the literal. */
@@ -224,9 +229,9 @@ function unwrap(node: ts.Expression | undefined): ts.Expression | undefined {
  * @param name - export name or synthetic inline name.
  * @returns locale plus pair key, or undefined when the name names no locale.
  */
-function localeOf(name: string): { locale: 'zh' | 'en'; pair: string } | undefined {
-  for (const locale of ['zh', 'en'] as const) {
-    const other = locale === 'zh' ? 'Zh' : 'En'
+function localeOf(name: string): { locale: ShippedLocaleId; pair: string } | undefined {
+  for (const locale of SHIPPED_LOCALE_IDS) {
+    const other = locale[0]!.toUpperCase() + locale.slice(1)
     if (name === locale) return { locale, pair: '' }
     // Synthetic names for inline shapes carry their own pair key after the
     // first ':' (the enclosing array's line, or the namespace expression).
@@ -239,8 +244,189 @@ function localeOf(name: string): { locale: 'zh' | 'en'; pair: string } | undefin
   return undefined
 }
 
+/**
+ * Check that each object-form registration supplies every shipped-language dictionary.
+ * @param file - absolute source path.
+ * @returns registration sites missing a shipped language, or using an unresolved local identifier.
+ */
+function registrationProblems(file: string): string[] {
+  const text = readFileSync(file, 'utf8')
+  if (!text.includes('.register(')) return []
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true)
+  const locals = new Map<string, ts.Expression>()
+  const imported = new Set<string>()
+  const collect = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
+      locals.set(node.name.text, node.initializer)
+    }
+    if (ts.isImportSpecifier(node)) imported.add(node.name.text)
+    ts.forEachChild(node, collect)
+  }
+  collect(source)
+  const problems: string[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === 'register' && node.arguments.length === 2) {
+      const argument = unwrap(node.arguments[1])
+      const dicts = argument !== undefined && ts.isIdentifier(argument)
+        ? unwrap(locals.get(argument.text)) : argument
+      if (dicts !== undefined && ts.isObjectLiteralExpression(dicts)) {
+        const entries = new Map<string, ts.Expression>()
+        for (const prop of dicts.properties) {
+          if (ts.isShorthandPropertyAssignment(prop)) entries.set(prop.name.text, prop.name)
+          else if (ts.isPropertyAssignment(prop) && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))) {
+            entries.set(prop.name.text, prop.initializer)
+          }
+        }
+        if (entries.has('zh') && entries.has('en')) {
+          const site = `${relative(file)}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`
+          for (const language of SHIPPED_LOCALE_IDS) {
+            const dictionary = entries.get(language)
+            if (dictionary === undefined) problems.push(`${site}: registration has no ${language} dictionary`)
+            else if (ts.isIdentifier(dictionary) && !imported.has(dictionary.text) && !locals.has(dictionary.text)) {
+              problems.push(`${site}: ${language} dictionary ${dictionary.text} is not imported or declared`)
+            }
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return problems
+}
+
+function translationProblems(en: Dictionary, translated: Dictionary): string[] {
+  const problems: string[] = []
+  const missing = en.keys.filter(key => !translated.keys.includes(key))
+  const extra = translated.keys.filter(key => !en.keys.includes(key))
+  if (missing.length > 0 || extra.length > 0) {
+    problems.push(`${translated.file} ${translated.name}: missing [${missing.join(', ')}], extra [${extra.join(', ')}]`)
+  }
+  for (const [name, text] of Object.entries(en.templates)) {
+    const value = translated.templates[name]
+    if (value === undefined) continue
+    if (localeTokens(text).join(', ') !== localeTokens(value).join(', ')) {
+      problems.push(`${translated.file} ${translated.name}.${name} changes placeholders or literal tokens from ${en.name}`)
+    }
+  }
+  return problems
+}
+
+function literalFixture(text: string, otherFiles: Readonly<Record<string, string>> = {}, boundary = '') {
+  const directory = mkdtempSync(join(tmpdir(), 'dsh-locale-literal-'))
+  const repositoryRoot = join(directory, boundary)
+  mkdirSync(repositoryRoot, { recursive: true })
+  const file = join(repositoryRoot, 'locales.ts')
+  writeFileSync(file, text)
+  for (const [name, contents] of Object.entries(otherFiles)) writeFileSync(resolve(repositoryRoot, name), contents)
+  onTestFinished(() => { rmSync(directory, { recursive: true, force: true }) })
+  return { file, repositoryRoot }
+}
+
+describe('static locale literal spreads', () => {
+  it('expands fixed local and named imported literals in object override order', () => {
+    const { file, repositoryRoot } = literalFixture(`
+      import { shared as imported } from './shared.ts'
+      export const en = { known: 'Value {n}', title: 'last', ...imported }
+      const fixed = { known: en['known'], title: 'first' } as const
+      export const ja = { ...fixed, ...imported, title: 'last' }
+    `, { 'shared.ts': 'export const shared = { borrowed: \'File {name}\', long: [\'first\', \'second\'].join(\'\\n\') }' })
+    const dictionaries = dictionariesIn(file, repositoryRoot)
+    const en = dictionaries.find(dictionary => dictionary.name === 'en')!
+    const ja = dictionaries.find(dictionary => dictionary.name === 'ja')!
+    expect(en.keys).toEqual(['borrowed', 'known', 'long', 'title'])
+    expect(ja.templates).toEqual({ known: 'Value {n}', title: 'last', borrowed: 'File {name}', long: 'first\nsecond' })
+    expect(translationProblems(en, ja)).toEqual([])
+  })
+
+  it.each([
+    ['export const en = { ...missing }', 'cannot resolve static const missing'],
+    ['const fixed = makeCopy(); export const en = { ...fixed }', 'static const object literal'],
+    ['let fixed = { key: \'value\' }; export const en = { ...fixed }', 'cannot resolve static const fixed'],
+    ['const a = { ...b }; const b = { ...a }; export const en = { ...a }', 'cyclic literal reference'],
+    ['export const en = { ...makeCopy() }', 'static const object literal'],
+    ['const fixed = { key: unknownCopy() }; export const en = { ...fixed }', 'shared template is not a fixed string'],
+    ['export const en = { key: \'value\' }; const fixed = { key: en[dynamic] }; export const ja = { ...fixed }', 'shared template is not a fixed string'],
+    ['const fixed = { [dynamicKey()]: \'value\' }; export const en = { ...fixed }', 'fixed literal keys'],
+  ])('rejects uninspectable shared source %s', (text, reason) => {
+    const { file, repositoryRoot } = literalFixture(text)
+    expect(() => dictionariesIn(file, repositoryRoot)).toThrow(reason)
+  })
+
+  it('rejects an imported cycle and an import that escapes the source boundary', () => {
+    const cycle = literalFixture('import { shared } from \'./shared.ts\'; export const en = { ...shared }', {
+      'shared.ts': 'import { en } from \'./locales.ts\'; export const shared = { ...en }',
+    })
+    expect(() => dictionariesIn(cycle.file, cycle.repositoryRoot)).toThrow('cyclic literal reference')
+    const escape = literalFixture('import { shared } from \'../outside.ts\'; export const en = { ...shared }', {
+      '../outside.ts': 'export const shared = { key: \'outside\' }',
+    }, 'repository')
+    expect(() => dictionariesIn(escape.file, escape.repositoryRoot)).toThrow('escapes repository')
+  })
+
+  it('still rejects a missing shared key and an English key added after the fixed fallback list', () => {
+    const { file, repositoryRoot } = literalFixture(`
+      export const en = { known: 'Value {n}', required: 'Required', future: 'Added later' }
+      const fallbackCopy = { known: en['known'], required: en['required'] }
+      export const ja = { ...fallbackCopy }
+      export const fr = { known: en['known'] }
+    `)
+    const dictionaries = dictionariesIn(file, repositoryRoot)
+    const en = dictionaries.find(dictionary => dictionary.name === 'en')!
+    const ja = dictionaries.find(dictionary => dictionary.name === 'ja')!
+    const fr = dictionaries.find(dictionary => dictionary.name === 'fr')!
+    expect(translationProblems(en, ja)).toEqual([expect.stringContaining('missing [future]')])
+    expect(translationProblems(en, fr)).toEqual([expect.stringContaining('missing [future, required]')])
+  })
+
+  it('still rejects changed placeholders inside a shared literal', () => {
+    const { file, repositoryRoot } = literalFixture(`
+      export const en = { known: 'Value {n}' }
+      const fallbackCopy = { known: 'Value {wrong}' }
+      export const ja = { ...fallbackCopy }
+    `)
+    const dictionaries = dictionariesIn(file, repositoryRoot)
+    const en = dictionaries.find(dictionary => dictionary.name === 'en')!
+    const ja = dictionaries.find(dictionary => dictionary.name === 'ja')!
+    expect(translationProblems(en, ja)).toEqual([expect.stringContaining('changes placeholders or literal tokens')])
+  })
+
+  it.each(['en', 'englishAlias', 'importedEnglish'])(
+    'keeps a future English key missing despite a runtime %s spread', (base) => {
+      const { file, repositoryRoot } = literalFixture(`
+        import { en as importedEnglish } from './shared.ts'
+        export const en = { known: 'Value {n}', required: 'Required', future: 'Added later' }
+        const englishAlias = en
+        const fallbackCopy = { known: en['known'], required: en['required'] }
+        export const ja = { ...fallbackCopy, ...${base}, known: 'Value {n}' }
+      `, { 'shared.ts': "export const en = { known: 'Value {n}', required: 'Required', future: 'Added later' }" })
+      const dictionaries = dictionariesIn(file, repositoryRoot)
+      const english = dictionaries.find(dictionary => dictionary.name === 'en')
+      const japanese = dictionaries.find(dictionary => dictionary.name === 'ja')
+      if (english === undefined || japanese === undefined) throw new Error('Missing locale fixture dictionaries')
+      expect(translationProblems(english, japanese)).toEqual([expect.stringContaining('missing [future]')])
+    },
+  )
+
+  it('retains a complete English dictionary assembled from a fixed English base', () => {
+    const { file, repositoryRoot } = literalFixture(`
+      const enBase = { known: 'Value {n}' }
+      export const en = { ...enBase, required: 'Required' }
+      export const ja = { ...enBase, required: 'Required' }
+    `)
+    const dictionaries = dictionariesIn(file, repositoryRoot)
+    expect(dictionaries.find(dictionary => dictionary.name === 'en')?.keys).toEqual(['known', 'required'])
+    expect(dictionaries.find(dictionary => dictionary.name === 'ja')?.keys).toEqual(['known', 'required'])
+  })
+})
+
 describe('shipped locale dictionaries', () => {
-  it('declares the same keys in zh and en, so the single fallback locale always resolves', () => {
+  it('registers every shipped language alongside every object-form bilingual dictionary', () => {
+    expect(sourceFiles().flatMap(registrationProblems)).toEqual([])
+  })
+
+  it('keeps bilingual keys aligned and shipped-language keys and placeholders complete', () => {
     const files = sourceFiles()
     // Guard the discovery itself: an empty or narrowed sweep would pass every
     // assertion below while checking nothing.
@@ -253,12 +439,18 @@ describe('shipped locale dictionaries', () => {
     const perFile = new Map<string, Dictionary[]>()
     for (const file of files) {
       const dicts = dictionariesIn(file)
-      if (dicts.length > 0) perFile.set(relative(file), dicts)
+      if (dicts.length > 0) {
+        expect(hasInvisibleLocaleCharacters(readFileSync(file, 'utf8')), relative(file)).toBe(false)
+        for (const dictionary of dicts) {
+          for (const text of Object.values(dictionary.templates)) expect(hasInvisibleLocaleCharacters(text), relative(file)).toBe(false)
+        }
+        perFile.set(relative(file), dicts)
+      }
     }
 
-    const groups = new Map<string, Map<'zh' | 'en', Dictionary>>()
-    const place = (key: string, locale: 'zh' | 'en', dict: Dictionary): void => {
-      const slot = groups.get(key) ?? new Map<'zh' | 'en', Dictionary>()
+    const groups = new Map<string, Map<ShippedLocaleId, Dictionary>>()
+    const place = (key: string, locale: ShippedLocaleId, dict: Dictionary): void => {
+      const slot = groups.get(key) ?? new Map<ShippedLocaleId, Dictionary>()
       if (slot.has(locale)) {
         throw new Error(`two ${locale} dictionaries claim pair ${key}: ${slot.get(locale)?.file} and ${dict.file}`)
       }
@@ -298,6 +490,14 @@ describe('shipped locale dictionaries', () => {
       const enOnly = en.keys.filter(k => !zh.keys.includes(k))
       if (zhOnly.length > 0) problems.push(`${zh.file} ${zh.name} has keys absent from ${en.name}: ${zhOnly.join(', ')}`)
       if (enOnly.length > 0) problems.push(`${en.file} ${en.name} has keys absent from ${zh.name}: ${enOnly.join(', ')}`)
+      for (const language of SHIPPED_LOCALE_IDS.filter(id => id !== 'en' && id !== 'zh')) {
+        const translatedDictionary = slot.get(language)
+        if (translatedDictionary === undefined) {
+          problems.push(`${key} has no ${language} dictionary`)
+        } else {
+          problems.push(...translationProblems(en, translatedDictionary))
+        }
+      }
     }
 
     // The shipped dictionary count only grows; a collapse means discovery or

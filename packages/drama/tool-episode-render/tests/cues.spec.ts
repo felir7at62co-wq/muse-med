@@ -10,6 +10,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveSettings, runDramaRender } from '../src/index.ts'
+import { fileSha256 } from '../src/cache.ts'
+import { episodePaths } from '../src/paths.ts'
+import { verifyPreparedSubtitleClock } from '../src/prepare.ts'
+import { readTimeline } from '../src/timeline.ts'
 import {
   cueRateFindings,
   effectiveCharacterCount,
@@ -21,6 +25,7 @@ import { formatSrtTime } from '../src/subtitles.ts'
 import type { ProcessChannel, RenderSettings } from '../src/types.ts'
 import {
   cleanup,
+  placeholderHandler,
   probeHandler,
   stubChannel,
   tempProject,
@@ -223,6 +228,8 @@ async function cueProject(lines: unknown, alignment: unknown = ALIGNMENT): Promi
   ] }))
   await writePlaceholder(plan, JSON.stringify(lines))
   await writePlaceholder(aligned, JSON.stringify(alignment))
+  await writePlaceholder(join(project, 'media', 'p1.mp4'), 'selected shot one')
+  await writePlaceholder(join(project, 'media', 'p2.mp4'), 'selected shot two')
   return { project, shots, plan, aligned, subtitle: join(project, 'editing', '02.srt') }
 }
 
@@ -235,6 +242,37 @@ function cueProbes(project: string): StubHandler {
 }
 
 describe('drama_render subtitles', () => {
+  it('does not publish new cues as source-bound when alignment explicitly identifies another selected sound', async () => {
+    const { project, shots, plan, aligned, subtitle } = await cueProject(LINES)
+    const selectedAudio = join(project, 'media', 'p1-original.wav')
+    await writePlaceholder(selectedAudio, 'different selected audio')
+    await writeFile(shots, JSON.stringify({ shots: [
+      { shot: 1, video: 'media/p1.mp4', audio: selectedAudio }, { shot: 2, video: 'media/p2.mp4' },
+    ] }))
+    const firstSource = await fileSha256(join(project, 'media', 'p1.mp4'))
+    const secondSource = await fileSha256(join(project, 'media', 'p2.mp4'))
+    const alignment = (source: string) => JSON.stringify({ shots: ALIGNMENT.shots.map(row => ({
+      ...row, source_sha256: row.shot === 1 ? source : secondSource,
+    })) })
+    await writeFile(aligned, alignment(firstSource))
+    await writePlaceholder(subtitle, '保留旧字幕')
+    const build = () => runDramaRender({ method: 'subtitles', project, episode: 2, shots,
+      lines: plan, alignment: aligned, subtitleSrt: subtitle },
+    settingsWith(stubChannel([cueProbes(project)]).channel))
+    const reviewed = await build()
+    expect(reviewed.written).not.toContain(subtitle)
+    expect(reviewed.checks).toContainEqual(expect.objectContaining({
+      id: 'subtitle_line_coverage', detail: expect.stringContaining('对齐来源与当前所选声音不一致') as string,
+    }))
+    expect(await readFile(subtitle, 'utf8')).toBe('保留旧字幕')
+    const draft = await readFile(`${subtitle}.draft.srt`, 'utf8')
+    expect(draft).toContain('第三句')
+    expect(draft).not.toContain('第一句')
+    await writeFile(aligned, alignment(await fileSha256(selectedAudio)))
+    expect((await build()).written).toContain(subtitle)
+    expect(await readFile(subtitle, 'utf8')).toContain('第一句')
+  })
+
   it('keeps silent shots empty, warns about unused alignment and readable fast speech', async () => {
     const fast = '甲'.repeat(13)
     const { project, shots, plan, aligned, subtitle } = await cueProject({ shots: [
@@ -262,13 +300,139 @@ describe('drama_render subtitles', () => {
 
     expect(report.method).toBe('subtitles')
     expect(report.ok).toBe(true)
-    expect(report.written).toEqual([subtitle, `${subtitle}.review.txt`])
+    expect(report.written).toEqual([subtitle, `${subtitle}.clock.json`, `${subtitle}.review.txt`])
     expect(report.failures).toEqual([])
     expect(await readFile(subtitle, 'utf8')).toBe([
       '1', '00:00:00,400 --> 00:00:01,200', '第一句', '',
       '2', '00:00:01,800 --> 00:00:02,600', '第二句', '',
       '3', '00:00:04,300 --> 00:00:05,600', '第三句', '',
     ].join('\n'))
+  })
+
+  it('refuses a substituted prepared master even when the generated subtitle and per-shot sources still match', async () => {
+    const { project, shots, plan, aligned } = await cueProject(LINES)
+    const subtitleSrt = join(project, 'selected.srt')
+    const paths = episodePaths(project, '02')
+    const stub = stubChannel([cueProbes(project), placeholderHandler('audio')])
+    const settings = settingsWith(stub.channel)
+    const input = { project, episode: 2, shots, subtitleSrt }
+    await runDramaRender({ ...input, method: 'subtitles', lines: plan, alignment: aligned }, settings)
+    await runDramaRender({ ...input, method: 'prepare' }, settings)
+    const timeline = await readTimeline(paths.timeline)
+    const original = await readFile(paths.masterAudio)
+    await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, timeline)).resolves.toBeUndefined()
+    await writeFile(paths.masterAudio, 'other')
+    expect((await readFile(paths.masterAudio)).length).toBe(original.length)
+    for (const subtitle of [subtitleSrt, paths.subtitle]) {
+      await expect(verifyPreparedSubtitleClock(subtitle, paths, timeline)).rejects.toThrow('整集原声')
+    }
+    await writeFile(paths.masterAudio, original)
+    await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, timeline)).resolves.toBeUndefined()
+  })
+
+  it('binds the master and cut even when strict speech coverage uses a manually authored SRT', async () => {
+    const { project, shots } = await cueProject(LINES)
+    const subtitleSrt = join(project, 'manual.srt')
+    const paths = episodePaths(project, '02')
+    await writePlaceholder(subtitleSrt, '1\n00:00:00,400 --> 00:00:01,200\n第一句\n')
+    await writePlaceholder(join(project, 'project_config.json'), JSON.stringify({
+      project_bible: { delivery: { subtitle: { require_speech_coverage: true } } },
+    }))
+    const stub = stubChannel([cueProbes(project), placeholderHandler('audio')])
+    await runDramaRender({ method: 'prepare', project, episode: 2, shots, subtitleSrt }, settingsWith(stub.channel))
+    const timeline = await readTimeline(paths.timeline)
+    expect(timeline.delivery?.subtitle?.require_speech_coverage).toBe(true)
+    await expect(verifyPreparedSubtitleClock(subtitleSrt, paths, timeline)).resolves.toBeUndefined()
+    const shifted = { ...timeline, clips: [{ shot: 1, startUs: 0, durationUs: 3_000_000 },
+      { shot: 2, startUs: 3_000_000, durationUs: 3_000_000 }] }
+    await expect(verifyPreparedSubtitleClock(subtitleSrt, paths, shifted)).rejects.toThrow('准备切点')
+    await writeFile(paths.masterAudio, 'other')
+    await expect(verifyPreparedSubtitleClock(subtitleSrt, paths, timeline)).rejects.toThrow('整集原声')
+  })
+
+  it('keeps the prepared cut until a stale subtitle is rebuilt after inserting a shot', async () => {
+    const { project, shots, plan, aligned, subtitle: preparedSubtitle } = await cueProject(LINES)
+    const subtitleSrt = join(project, 'selected.srt')
+    const prefix = join(project, 'media', 'prefix.mp4')
+    await writePlaceholder(prefix, 'selected silent prefix')
+    const stub = stubChannel([probeHandler({
+      [prefix]: { durationSeconds: 3, video: {} },
+      [join(project, 'media', 'p1.mp4')]: { durationSeconds: 4, video: {} },
+      [join(project, 'media', 'p2.mp4')]: { durationSeconds: 2, video: {} },
+    }), placeholderHandler()])
+    const settings = settingsWith(stub.channel)
+    const input = { project, episode: 2, shots, subtitleSrt }
+    const build = () => runDramaRender({ ...input, method: 'subtitles', lines: plan, alignment: aligned }, settings)
+    const prepare = () => runDramaRender({ ...input, method: 'prepare' }, settings)
+
+    await build()
+    const original = await prepare()
+    expect(original.written).toContain(`${preparedSubtitle}.clock.json`)
+    const originalClock = await readFile(`${preparedSubtitle}.clock.json`, 'utf8')
+    const originalSrt = await readFile(preparedSubtitle, 'utf8')
+    expect(originalClock).toBe(await readFile(`${subtitleSrt}.clock.json`, 'utf8'))
+    const previousCut = await readFile(join(project, 'editing', '02-timeline.json'), 'utf8')
+
+    await writeFile(shots, JSON.stringify({ shots: [
+      { shot: 1, video: prefix }, { shot: 2, video: 'media/p1.mp4' }, { shot: 3, video: 'media/p2.mp4' },
+    ] }))
+    await expect(prepare()).rejects.toThrow('生成字幕与当前集、分包素材或切点不一致')
+    expect(await readFile(join(project, 'editing', '02-timeline.json'), 'utf8')).toBe(previousCut)
+    expect(await readFile(`${preparedSubtitle}.clock.json`, 'utf8')).toBe(originalClock)
+
+    await writeFile(plan, JSON.stringify({ shots: [
+      { shot: 1, lines: [] }, ...LINES.shots.map(row => ({ ...row, shot: row.shot + 1 })),
+    ] }))
+    await writeFile(aligned, JSON.stringify({ shots: [
+      { shot: 1, strategy: 'no_lines', cues: [] }, ...ALIGNMENT.shots.map(row => ({ ...row, shot: row.shot + 1 })),
+    ] }))
+    const repair = (source = preparedSubtitle) => runDramaRender({ ...input, method: 'prepare',
+      subtitleSrt: source, lines: plan, alignment: aligned }, settings)
+    await expect(repair()).rejects.toThrow('当前声音文件一致的对齐证据')
+    expect(await readFile(preparedSubtitle, 'utf8')).toBe(originalSrt)
+    expect(await readFile(join(project, 'editing', '02-timeline.json'), 'utf8')).toBe(previousCut)
+
+    const sources = [prefix, join(project, 'media', 'p1.mp4'), join(project, 'media', 'p2.mp4')]
+    const hashes = await Promise.all(sources.map(source => fileSha256(source)))
+    await writeFile(aligned, JSON.stringify({ shots: [
+      { shot: 1, strategy: 'no_lines', cues: [], source_sha256: hashes[0] },
+      ...ALIGNMENT.shots.map((row, i) => ({ ...row, shot: row.shot + 1, source_sha256: hashes[i + 1] })),
+    ] }))
+    const currentAlignment = await readFile(aligned, 'utf8')
+    await writeFile(aligned, JSON.stringify({ shots: [
+      { shot: 1, strategy: 'no_lines', cues: [], source_sha256: hashes[0] },
+      ...ALIGNMENT.shots.map((row, i) => ({ ...row, shot: row.shot + 1, source_sha256: hashes[i + 1],
+        cues: row.cues.map(cue => ({ ...cue, text: '无法对应当前台词' })) })),
+    ] }))
+    await expect(repair()).rejects.toThrow('字幕自动修复未通过对齐复验')
+    expect(await readFile(preparedSubtitle, 'utf8')).toBe(originalSrt)
+    expect(await readFile(join(project, 'editing', '02-timeline.json'), 'utf8')).toBe(previousCut)
+    await writeFile(aligned, currentAlignment)
+    const editedSrt = join(project, 'manually-edited.srt')
+    await writeFile(editedSrt, originalSrt.replace('第三句', '人工改字'))
+    await writeFile(editedSrt + '.clock.json', originalClock)
+    await expect(repair(editedSrt)).rejects.toThrow('生成字幕与当前集、分包素材或切点不一致')
+    expect(await readFile(preparedSubtitle, 'utf8')).toBe(originalSrt)
+
+    const boundPlan = await readFile(plan, 'utf8')
+    const boundAlignment = await readFile(aligned, 'utf8')
+    await writeFile(plan, boundPlan.replace('第三句', '新台词'))
+    await writeFile(aligned, boundAlignment.replace('第三句', '新台词'))
+    await expect(repair()).rejects.toThrow('会改变字幕文字或顺序')
+    expect(await readFile(preparedSubtitle, 'utf8')).toBe(originalSrt)
+    await writeFile(plan, boundPlan)
+    await writeFile(aligned, boundAlignment)
+
+    const repaired = await repair()
+    expect(repaired.ok).toBe(true)
+    expect(repaired.warnings).toEqual(expect.arrayContaining([expect.stringContaining('重建生成字幕并复验')]))
+    const savedOriginal = repaired.written.find(path => path.endsWith('original.srt'))
+    if (!savedOriginal) throw new Error('Missing original subtitle backup')
+    expect(await readFile(savedOriginal, 'utf8')).toBe(originalSrt)
+    expect(await readFile(savedOriginal + '.clock.json', 'utf8')).toBe(originalClock)
+    expect(await readFile(preparedSubtitle, 'utf8')).toContain('00:00:07,300 --> 00:00:08,600\n第三句')
+    expect((await repair()).warnings.some(warning => warning.includes('重建生成字幕并复验'))).toBe(false)
+    expect(await readFile(`${preparedSubtitle}.clock.json`, 'utf8')).not.toBe(originalClock)
   })
 
   it.each([false, true])('does not publish an empty candidate when all alignment is unverified (existing: %s)', async (existing) => {
@@ -300,7 +464,7 @@ describe('drama_render subtitles', () => {
       expect(await readFile(`${candidate}.review.txt`, 'utf8')).toBe('原候选说明\n')
       expect(await readFile(`${subtitle}.blocked`, 'utf8')).toBe('原待核标记\n')
     } else {
-      for (const path of [subtitle, candidate, `${candidate}.review.txt`]) {
+      for (const path of [subtitle, `${subtitle}.clock.json`, candidate, `${candidate}.clock.json`, `${candidate}.review.txt`]) {
         await expect(readFile(path)).rejects.toMatchObject({ code: 'ENOENT' })
       }
     }
@@ -316,7 +480,7 @@ describe('drama_render subtitles', () => {
       shots, lines: plan, alignment: aligned, subtitleSrt: subtitle },
     settingsWith(stubChannel([cueProbes(project)]).channel))
     expect(report.ok).toBe(true)
-    expect(report.written).toEqual([subtitle, `${subtitle}.review.txt`])
+    expect(report.written).toEqual([subtitle, `${subtitle}.clock.json`, `${subtitle}.review.txt`])
     expect(await readFile(subtitle, 'utf8')).toBe('\n')
     expect(report.warnings.join('\n')).not.toContain('未生成字幕候选')
     await expect(readFile(`${subtitle}.draft.srt`)).rejects.toMatchObject({ code: 'ENOENT' })
@@ -331,7 +495,8 @@ describe('drama_render subtitles', () => {
     const failed = await runDramaRender({ method: 'subtitles', project, episode: 2,
       shots, lines: plan, alignment: aligned, subtitleSrt: subtitle }, settings)
     expect(failed.ok).toBe(true)
-    expect(failed.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
+    expect(failed.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.draft.srt.clock.json`,
+      `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
     expect(await readFile(subtitle, 'utf8')).toBe(oldSrt)
     expect((await subtitleReviewWarnings(subtitle)).join(' ')).toContain('字幕对齐待核')
     expect(await readFile(`${subtitle}.draft.srt`, 'utf8')).toContain('第一句')
@@ -359,7 +524,8 @@ describe('drama_render subtitles', () => {
     expect(report.ok).toBe(true)
     expect(report.warnings.join('\n')).toContain('对齐文档里没有这一镜的时间')
     expect(report.warnings.join('\n')).toContain('重跑一次语音识别')
-    expect(report.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
+    expect(report.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.draft.srt.clock.json`,
+      `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
     expect(await readFile(`${subtitle}.draft.srt`, 'utf8')).toContain('第一句')
     await expect(readFile(subtitle, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
@@ -494,7 +660,8 @@ describe('drama_render subtitles', () => {
 
     expect(report.ok).toBe(true)
     expect(report.warnings.join('\n')).toContain(defect)
-    expect(report.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
+    expect(report.written).toEqual([`${subtitle}.draft.srt`, `${subtitle}.draft.srt.clock.json`,
+      `${subtitle}.review.txt`, `${subtitle}.draft.srt.review.txt`])
     await expect(readFile(subtitle, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 

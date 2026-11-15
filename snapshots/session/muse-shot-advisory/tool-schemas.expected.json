@@ -1,6 +1,34 @@
 {
   "initial": [
     {
+      "name": "apply_patch",
+      "description": "Create, update, delete, or move UTF-8 text files with one Codex-style patch; prefer it over multiple edit calls when a change spans several files or separated regions.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Codex patch text: start with *** Begin Patch and end with *** End Patch. Use *** Add File: path with + lines; *** Update File: path, optionally followed by *** Move to: path, with @@ or @@ context and space-prefixed context, + added, or - removed lines; *** End of File anchors the last hunk to the file end. Use *** Delete File: path to delete. Paths are relative to the Session working directory."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
       "name": "create_goal",
       "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
       "parameters": {
@@ -22,7 +50,7 @@
     },
     {
       "name": "drama_shot",
-      "description": "镜头脚本检查与分包建议（提示模式）。validate=只读检查，返回镜号、行号、时长估算、资产匹配与具体建议；preview=只读分包草案；compile=只保存原文与检查报告到 shot_reviews/<集号>/shot_script.txt 和 review.json。所有创作、格式、资产匹配和时长问题均为 warning，不硬性拦截，也不要求全部清零。以用户要求、原剧本和已读取的创作 Skill 为准，自行判断建议是否适用，不为满足旧格式重写创作内容。保留原台词、说话人、镜头正文和时长；不自动补资产、不替换素材、不截断超长镜头。完整的动作预算、发声预算、反应预算与表演顺序用于同步/串行时间核算；缺项、算术冲突仍报告warning，不能据ok=true判断可行。已确认且身份完整的素材才列为绑定；无法确认的引用保留原文并提醒核对，不能编造素材身份。估算与结构化字段可能不完整，多条发声时 text 仅首条，完整台词以原文为准。ok=true 只表示检查完成，不是成片质量、素材绑定、费用或生成准备的验收结论。分包建议可以调整，不必采用；不覆盖 prompts/、matches/、episode_packages/。部署启用会话视频选择时，直接读取当前会话模型、分辨率及上限，并在 duration_budget 中报告；max_submit_seconds 旧参数会忽略。切换模型会把最近一次分包时长复核追加为普通上下文；仅核对已记录的包时长，不自动改卡、重写或提交。未知上限不借用其他模型的能力，此时只检查原镜头。参数缺失、文件无法读取、资产清单 JSON 无效或草稿无法安全写入仍会报执行错误。",
+      "description": "镜头脚本检查与分包建议；创作、格式、资产匹配和时长问题均作 warning，不硬拦截、不要求清零。返回镜号、行号、时长估算、资产匹配与建议；compile 仅保存原文及检查报告为 shot_reviews/<集号>/shot_script.txt、review.json。以用户要求、原剧本和已读创作 Skill 为准，不为旧格式重写内容；保留台词、说话人、镜头正文和时长，不补资产、不替换素材、不截断超长镜头。动作/发声/反应预算及表演顺序用于同步或串行核算；缺项、算术冲突仍警告。只绑定已确认且身份完整的素材；未确认引用保留原文并提示核对，不编造身份。估算与结构化字段可能不完整，多条发声的 text 仅为首条，以原文完整台词为准。ok=true 仅代表检查完成，不是可行性、成片质量、素材绑定、费用或生成准备的验收。分包建议可调整；不覆盖 prompts/、matches/、episode_packages/。启用会话视频选择时读取当前模型、分辨率和时长上限，在 duration_budget 报告并忽略 max_submit_seconds；未知上限不借用其他模型能力，只检查原镜头。切换模型会追加最近分包时长复核的普通上下文，只核对已记录包，不自动改卡、重写或提交。必需参数缺失、文件不可读、资产 JSON 无效或草稿无法安全写入仍为执行错误。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -105,22 +133,6 @@
       }
     },
     {
-      "name": "exit_plan_mode",
-      "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "plan": {
-            "type": "string",
-            "description": "The complete plan, as markdown, starting with a # heading that names it."
-          }
-        },
-        "required": [
-          "plan"
-        ]
-      }
-    },
-    {
       "name": "get_goal",
       "description": "Read the current session goal, including the id and revision that update_goal requires.",
       "parameters": {
@@ -174,7 +186,7 @@
     },
     {
       "name": "interrupt_agent",
-      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
+      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a local direct child's conversation later with send_message. External executions stop permanently and cannot receive follow-ups. Subagents it started will keep running.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -340,10 +352,14 @@
     },
     {
       "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
+          },
           "description": {
             "type": "string",
             "description": "A short (3-5 word) description of the delegated task, for display."
@@ -351,10 +367,6 @@
           "prompt": {
             "type": "string",
             "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
-          },
-          "run_in_background": {
-            "type": "boolean",
-            "description": "Defaults to true. Set false only when your next action depends on the result."
           }
         },
         "required": [
@@ -365,10 +377,14 @@
     },
     {
       "name": "subagent_fork",
-      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This call waits for the subagent and returns its result.",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
+          },
           "description": {
             "type": "string",
             "description": "A short (3-5 word) description of the delegated task, for display."
@@ -622,6 +638,19 @@
           "script",
           "meta"
         ]
+      }
+    },
+    {
+      "name": "working_directory",
+      "description": "Read the current working directory, or change it with cd. Relative paths use the current directory. Existing shells and running processes keep their own directories.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "cd": {
+            "type": "string",
+            "description": "Existing directory to enter. Omit to read the current directory."
+          }
+        }
       }
     },
     {

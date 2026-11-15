@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Secrets: keys the user types into a card for a Bot. A value lives only in
 // secrets.json (mode 600) and in this process; Bots use it as $DSH_SECRET_<NAME> in
 // their shell, tool results lose it before they are saved, and every model request

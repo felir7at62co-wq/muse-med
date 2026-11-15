@@ -1,0 +1,27 @@
+- id: agent-default-model
+  config:
+    provider: hongguo-public-download-fixture
+    model: public-download-test-model
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: subprocess
+  disabled: true
+- insert:
+    - id: hongguo-public-download-fixture
+      name: ./download-fixture.mjs
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: hongguo-public-download-fixture
+            name: Hongguo public download fixture
+            models:
+              - id: public-download-test-model

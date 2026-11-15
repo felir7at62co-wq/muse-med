@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-skill-market-bounded-catalog
+profile: headless
+composition: muse-skill-market-bounded-catalog
+recording: authored
+writerOutput: true
+header:
+  class: muse-skill-market-bounded-catalog
+  pin: true
+workspace:
+  final: true

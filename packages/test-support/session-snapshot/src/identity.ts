@@ -1,6 +1,7 @@
 /** Relationship-preserving identity redaction for committed session snapshots. */
 
 const UUID_FRAGMENT_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+const SHORT_JOB_ID_RE = /-[0-9a-f]{16}$/i
 const LEGACY_TOKEN_RE = /^\{\{(?:sessionId|messageId)\}\}$/
 const CANONICAL_TOKEN_RE = /^\{\{(session|message|approval|workflow|command|rpc|retry|id):([1-9]\d*)\}\}$/
 const ID_KEY_RE = /(?:^id$|Id$|Ids$)/
@@ -35,7 +36,8 @@ function messageId(value: unknown): string | undefined {
 }
 
 function redactedCandidate(value: string): boolean {
-  return UUID_FRAGMENT_RE.test(value) || LEGACY_TOKEN_RE.test(value) || CANONICAL_TOKEN_RE.test(value)
+  return UUID_FRAGMENT_RE.test(value) || SHORT_JOB_ID_RE.test(value)
+    || LEGACY_TOKEN_RE.test(value) || CANONICAL_TOKEN_RE.test(value)
 }
 
 /**
@@ -104,6 +106,14 @@ export function redactSessionSnapshotIds(logs: readonly string[]): string[] {
     for (const record of log.records) {
       if (record.type === 'feedback/message-put' && isRecord(record.data) && isRecord(record.data.item)) {
         claim(record.data.item.version, 'id')
+      }
+      if (record.type === 'tool/call' && isRecord(record.data)
+        && (record.data.name === 'job_output' || record.data.name === 'job_cancel')
+        && typeof record.data.arguments === 'string') {
+        let args: unknown
+        try { args = JSON.parse(record.data.arguments) }
+        catch (error) { if (!(error instanceof SyntaxError)) throw error }
+        if (isRecord(args)) claim(args.job_id, 'id')
       }
       collect(record, record.type)
     }

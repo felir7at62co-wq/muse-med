@@ -1,0 +1,61 @@
+{
+  "parentRequests": 3,
+  "childRequests": [
+    1,
+    1
+  ],
+  "childTools": [
+    "structured_output"
+  ],
+  "results": [
+    {
+      "call_id": "cross-episode-valid",
+      "status": "issues",
+      "reason": "reviewed",
+      "planned_pairs": [
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          3
+        ]
+      ],
+      "checked_pairs": [
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          3
+        ]
+      ],
+      "finding_categories": [
+        "object_state"
+      ],
+      "file_verification": "verified"
+    },
+    {
+      "call_id": "cross-episode-duplicated-pair",
+      "status": "unknown",
+      "reason": "invalid_evidence",
+      "planned_pairs": [
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          3
+        ]
+      ],
+      "checked_pairs": [],
+      "finding_categories": [],
+      "file_verification": "verified"
+    }
+  ],
+  "currentUnchanged": true,
+  "candidateUnchanged": true
+}

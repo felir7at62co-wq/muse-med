@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-skill-market-bounded-catalog-ptc
+profile: headless
+composition: muse-skill-market-bounded-catalog-ptc
+recording: authored
+writerOutput: true
+header:
+  class: muse-skill-market-bounded-catalog-ptc
+  pin: true
+workspace:
+  final: true

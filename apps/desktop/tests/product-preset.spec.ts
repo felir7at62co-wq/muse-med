@@ -9,7 +9,10 @@ import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import AgentPresetRegistry from '@deepseek-ai/dsh-agent-preset-registry'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import Tools, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import Agents from '@deepseek-ai/dsh-agent'
+import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import Tools from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture, executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as DramaGate from '@deepseek-ai/dsh-guard-drama'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import * as yaml from 'js-yaml'
@@ -19,13 +22,13 @@ import NativePreset from '../../desktop-host/src/native-preset.ts'
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/defaults.cordis.patch.yml', import.meta.url))
 
-it('offers short-drama and coordinator presets while keeping recorded editing sessions recoverable', async () => {
+it('offers only short-drama while retaining historical coordinator and editing compositions', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
     const patch = loadOverlayPatches('muse-med', patchPath).find(row => row.id === 'agent-preset-registry')
     const presetConfig = patch?.config as Record<string, unknown> | undefined
-    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama', 'bot-coordinator'] })
+    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama'] })
     const productRows = yaml.load(await readFile(join(productRoot, 'short-drama', 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema }) as Array<{ id: string; name: string }>
     const guard = productRows.find(row => row.id === 'drama-gate')
@@ -39,6 +42,8 @@ it('offers short-drama and coordinator presets while keeping recorded editing se
     await writeFile(config, yaml.dump([
       { id: 'system-prompt', name: 'test:prompt' },
       { id: 'tools', name: 'test:tools' },
+      { id: 'native-executor', name: 'test:native-executor' },
+      { id: 'agents', name: 'test:agents' },
       guard,
       { id: 'session-projections', name: 'test:projections' },
       { id: 'agent-preset-registry', name: 'test:registry', config: presetConfig },
@@ -49,7 +54,7 @@ it('offers short-drama and coordinator presets while keeping recorded editing se
     ctx.loader.builtins.include = Include
     const modules = new Map<string, unknown>([
       ['test:projections', SessionProjections], ['test:registry', AgentPresetRegistry], ['test:native', NativePreset],
-      ['test:prompt', SystemPrompt], ['test:tools', Tools], ['@deepseek-ai/dsh-guard-drama', DramaGate],
+      ['test:prompt', SystemPrompt], ['test:tools', Tools], ['test:agents', Agents], ['test:native-executor', NativeExecutor], ['@deepseek-ai/dsh-guard-drama', DramaGate],
     ])
     ctx.loader.internal = { version: 'v2', loadCache: new Map(),
       register() { throw new Error('Unexpected loader hooks') },
@@ -64,8 +69,17 @@ it('offers short-drama and coordinator presets while keeping recorded editing se
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['bot-coordinator', 'cordis', 'creation', 'minimal', 'ptc', 'short-drama', 'standard'])
     expect(ctx.agentPresets.defaultId).toBe('short-drama')
-    expect((await ctx.agentPresets.resolveForCreation('bot-coordinator')).id).toBe('bot-coordinator')
-    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama', 'bot-coordinator'])
+    await expect(ctx.agentPresets.resolveForCreation('bot-coordinator')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
+    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama'])
+    expect(await ctx.agentPresets.resolve('bot-coordinator')).toMatchObject({ id: 'bot-coordinator' })
+    const recovery = (await ctx.agentPresets.readDocument('bot-coordinator')).content
+    expect(recovery).not.toMatch(/name: (?:ds-bot|['"]ds-bot['"])/)
+    for (const name of ['@deepseek-ai/dsh-tool-jobs', '@deepseek-ai/dsh-tool-subagent', 'muse-qimao-data', 'muse-source-research', 'muse-douyin-download']) {
+      expect(recovery).toContain(name)
+    }
+    expect((await ctx.agentPresets.list()).find(row => row.id === 'bot-coordinator')).toMatchObject({
+      name: '历史会话恢复', description: '读取既有主控会话并使用通用工具继续工作；不恢复 Bot 团队或自动编排。',
+    })
     await expect(ctx.agentPresets.resolveForCreation('creation')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
     expect(await ctx.agentPresets.resolve('creation')).toMatchObject({ id: 'creation' })
     const creation = (await ctx.agentPresets.list()).find(row => row.id === 'creation')
@@ -111,9 +125,9 @@ it('offers short-drama and coordinator presets while keeping recorded editing se
     expect(prompt).toContain('禁止改写、删减或替换整段台词')
     expect(prompt).toContain('技术性失败不构成修改台词的理由')
     expect(prompt).toContain('按项目已定画幅设计镜头')
-    expect(prompt).toContain('人物角色资产图优先遵循当前项目已定画幅与交付用途')
-    expect(prompt).toContain('项目要求竖幅或单人全身图时，按该画幅安排清晰面容与完整体态')
-    expect(prompt).toContain('右侧是同一角色的无面容全身三视图')
+    expect(prompt).toContain('所有资产图默认16:9横版；用户明确指定其他比例时按指定执行，资产图比例与视频成片比例分别处理')
+    expect(prompt).toContain('人物角色资产图：16:9横版白底，左侧为完整保留头顶与发型、五官清晰的面部特写')
+    expect(prompt).toContain('右侧为同一人物正面、侧面、背面全身三视图，完整保留头部、发型和双脚，仅将右侧可见脸部覆盖为纯白')
     expect(prompt).toContain('人物面部同样不写“脸红”“面部发红”')
     expect(prompt).toContain('依据实际成图和成片判断吸引力、情绪与叙事效果')
     expect(prompt).toContain('不凭提示词、参数或任务成功就宣称艺术效果达标')
@@ -152,17 +166,17 @@ it('offers short-drama and coordinator presets while keeping recorded editing se
       parameters: { method: { type: 'string' }, preview_path: { type: 'string' } },
       async execute() { calls++; return [{ type: 'text', text: 'provider reached' }] },
     }))
-    const denied = await ctx.tools.execute({ name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
+    const denied = await executeModelToolFixture(ctx, { name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
       callId: ToolCallId('product-guard-denied'), signal: new AbortController().signal })
     expect(denied.isError).toBe(true)
     expect(JSON.stringify(denied.content)).toContain('idempotency_key')
     expect(calls).toBe(0)
-    const allowed = await ctx.tools.execute({ name: 'jubian_storyboard', arguments: { method: 'get' },
+    const allowed = await executeModelToolFixture(ctx, { name: 'jubian_storyboard', arguments: { method: 'get' },
       callId: ToolCallId('product-read-allowed'), signal: new AbortController().signal })
     expect(allowed.isError).toBe(false)
     expect(calls).toBe(1)
     await [...ctx.loader.entries()].find(row => row.options.id === 'drama-gate')?.fiber?.dispose()
-    await ctx.tools.execute({ name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
+    await executeModelToolFixture(ctx, { name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
       callId: ToolCallId('product-guard-disposed'), signal: new AbortController().signal })
     expect(calls).toBe(2)
   } finally {

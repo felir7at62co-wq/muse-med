@@ -25,7 +25,7 @@ Use this package to learn immediately when a running session silently loses the 
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin once on the host plane. There is nothing to learn: it watches, and stays silent until a composition change withdraws tools from a session that is already running.
+This optional diagnostic plugin is maintained for deployments that explicitly enable profile-reload monitoring; shipped profiles do not load it by default. Mount it once on the host plane to report tools withdrawn from an existing Agent scope. It does not restore tools or widen permissions.
 
 ### When to choose it
 
@@ -33,7 +33,7 @@ Choose it when a deployment reloads composition while sessions are live — the 
 
 ### Setting it up
 
-Mount it in the host composition, beside the guards that already ship there:
+Add this row explicitly to the Host composition:
 
 ```yaml
 - name: '@deepseek-ai/dsh-composition-guard'
@@ -45,7 +45,7 @@ Mount it in the host composition, beside the guards that already ship there:
 | Field | Default | Meaning |
 |---|---|---|
 | `announceInSession` | `true` | Whether the affected session also receives the notice in its own conversation; the log line is always written |
-| `maxAgentsPerUpdate` | `64` | How many live agents one loader update inspects; agents beyond the cap are inspected by the next update |
+| `maxAgentsPerUpdate` | `64` | Inspect the first N live agents in registry order on every loader update; updates do not rotate through agents beyond the cap |
 
 An invalid `maxAgentsPerUpdate` fails at load with a clear error rather than falling back to a default. Both fields carry JSDoc on {@link Config}, which is what the generated configuration catalog reads from.
 
@@ -77,7 +77,7 @@ The guard is built on five commitments:
 
 ### How a scope's visible tools are read
 
-One agent's visible names come from `ctx.tools.schemas(scope)`, the registry's documented enumeration of a scope's visible tools — one schema per visible name, after restrictions, scoped shadowing, and the PTC transport, which is exactly what the model would be offered. Its argument is a `ScopeKey`, not an Agent: the guard passes `scopeOf(agent.ctx)`, the agent's own key, so it reads the view that agent sees rather than the process-global one. An agent with no scope has no agent view to compare, so it is skipped rather than judged against the global layer.
+One Agent's baseline comes from `ctx.tools.schemas(scope)`: the authorized tool registrations after restrictions and scoped shadowing. This enumeration includes registrations omitted from a prepared model request by presentation filters or step-time activation; it is not the model's resolved tool set or an executor's transport catalog. The guard passes `scopeOf(agent.ctx)` to read that Agent's authorization scope. An Agent without a scope is skipped.
 
 ### When the comparison runs
 

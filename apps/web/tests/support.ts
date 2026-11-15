@@ -1,5 +1,5 @@
 // Shared plumbing for the web smoke tests (dist location, free port, failure shots).
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
@@ -11,6 +11,17 @@ import { expect, vi, type MockInstance } from 'vitest'
 export const DIST_INDEX = fileURLToPath(new URL('../dist/index.html', import.meta.url))
 
 export const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+
+/**
+ * Read the `meta.description` an experimental bundle's plugin page shows for one locale.
+ * @param bundle - Package directory under `packages/experimental`.
+ * @param locale - Locale resource name, such as `en` or `zh`.
+ * @returns The description text from `locale/<locale>.json`.
+ */
+export function experimentalBundleDescription(bundle: string, locale: string): string {
+  const resource = JSON.parse(readFileSync(join(REPO_ROOT, 'packages/experimental', bundle, 'locale', `${locale}.json`), 'utf8')) as { meta: { description: string } }
+  return resource.meta.description
+}
 
 const installationRequire = createRequire(join(REPO_ROOT, 'apps/cli/package.json'))
 
@@ -42,6 +53,15 @@ export const ZH_BROWSER_LOCALE = 'zh-CN'
 export const WEB_FIXTURE_TIME = Date.parse('2026-01-15T12:00:00+08:00')
 
 /**
+ * Budget for a plugin-manager switch to republish its state after a click: the
+ * click starts a Host profile write, and the store's follow-up `load()` re-reads
+ * its inventory before the switch shows the new value. That chain measured
+ * 0.5-0.8 s on an idle host and 2.0-4.8 s across 32 samples in a 16-worker lane,
+ * so Vitest's 1-second `expect.poll` default expires first.
+ */
+export const PLUGIN_TOGGLE_SETTLE_MS = 10_000
+
+/**
  * Pin the Host clock to the shared fixture day for one scenario suite.
  *
  * A rendered message clock gains a `clock.md` / `clock.ymd` date prefix as soon
@@ -53,16 +73,22 @@ export const WEB_FIXTURE_TIME = Date.parse('2026-01-15T12:00:00+08:00')
  *
  * The pinned clock advances with real elapsed time, so turn deadlines, session
  * ordering, and durations keep running.
+ * @param sharedOrigin - optional native `performance.timeOrigin + performance.now()`
+ * anchor shared with a browser; without it, this call starts its own fixture clock.
  * @returns the installed `Date.now` spy, restored by the caller in teardown.
  */
-export function pinHostClock(): MockInstance<typeof Date.now> {
+export function pinHostClock(sharedOrigin?: number): MockInstance<typeof Date.now> {
+  if (sharedOrigin !== undefined) {
+    return vi.spyOn(Date, 'now').mockImplementation(() =>
+      WEB_FIXTURE_TIME + Math.floor(performance.timeOrigin + performance.now() - sharedOrigin))
+  }
   const startedAt = performance.now()
   return vi.spyOn(Date, 'now').mockImplementation(() =>
     WEB_FIXTURE_TIME + Math.floor(performance.now() - startedAt))
 }
 
 /**
- * Pin a scenario page's clock to the shared fixture day, advancing with real
+ * Pin a scenario page's calendar to the shared fixture day, advancing with real
  * time. Pair it with {@link pinHostClock} for a scenario that stamps its own
  * message times, and with `seedSession`'s `createdAt` for a seeded one.
  *
@@ -70,17 +96,21 @@ export function pinHostClock(): MockInstance<typeof Date.now> {
  * keep running even when the Host's Date.now is also pinned; Playwright's full
  * clock derives timer history from that Host clock and cannot provide this isolation.
  * @param page - page whose clock is pinned.
+ * @param sharedOrigin - optional native epoch anchor shared with the Host; it
+ * preserves elapsed time across reloads. Without it, each document starts its own clock.
  * @returns the disposer that restores the current document's native Date. Page
  * closure releases the navigation initializer; call the disposer in teardown.
  */
-export async function pinBrowserClock(page: Page): Promise<() => Promise<void>> {
-  const install = (time: number): void => {
+export async function pinBrowserClock(page: Page, sharedOrigin?: number): Promise<() => Promise<void>> {
+  const install = ({ time, origin }: { time: number; origin?: number }): void => {
     const state = globalThis as typeof globalThis & { __dshFixtureNativeDate?: DateConstructor }
     if (state.__dshFixtureNativeDate !== undefined) return
     const NativeDate = Date
     state.__dshFixtureNativeDate = NativeDate
     const startedAt = performance.now()
-    const now = (): number => time + Math.floor(performance.now() - startedAt)
+    const now = origin === undefined
+      ? (): number => time + Math.floor(performance.now() - startedAt)
+      : (): number => time + Math.floor(performance.timeOrigin + performance.now() - origin)
     globalThis.Date = new Proxy(NativeDate, {
       construct: (target, args, newTarget) => Reflect.construct(target, args.length === 0 ? [now()] : args, newTarget) as Date,
       apply: () => new NativeDate(now()).toString(),
@@ -91,8 +121,9 @@ export async function pinBrowserClock(page: Page): Promise<() => Promise<void>> 
       },
     })
   }
-  await page.addInitScript(install, WEB_FIXTURE_TIME)
-  await page.evaluate(install, WEB_FIXTURE_TIME)
+  const clock = { time: WEB_FIXTURE_TIME, ...sharedOrigin === undefined ? {} : { origin: sharedOrigin } }
+  await page.addInitScript(install, clock)
+  await page.evaluate(install, clock)
   return async () => {
     if (page.isClosed()) return
     try {
@@ -196,6 +227,23 @@ export function probeFreePort(): Promise<number> {
 }
 
 /**
+ * Open collapsed mobile navigation before using a sidebar action.
+ * @param page - browser page with the mounted sidebar.
+ * @param locale - current UI language.
+ */
+export async function revealNavigationDrawer(page: Page, locale: 'en' | 'zh' | 'ja'): Promise<void> {
+  const drawer = await page.evaluate(() => window.innerWidth < 768
+    && !document.documentElement.hasAttribute('data-windows-titlebar'))
+  await page.waitForFunction(expected => Boolean(document.querySelector('[data-sidebar-drawer]')) === expected, drawer)
+  const closed = page.locator('[data-sidebar-drawer][data-sidebar-collapsed]')
+  if (await closed.count() === 0) return
+  await page.locator('[data-shell-leading]').getByRole('button', {
+    name: { en: 'Open sidebar', zh: '打开侧边栏', ja: 'サイドバーを開く' }[locale], exact: true,
+  }).click()
+  await closed.waitFor({ state: 'detached' })
+}
+
+/**
  * Drive the hero's workspace picker through the composed directory dialog
  * until the live composer unlocks. A fresh world has no Workspace, so the boot
  * lands in the Workspace-trigger view state (startup auto-selection has nothing to
@@ -214,7 +262,8 @@ export function probeFreePort(): Promise<number> {
  */
 export async function connectFreshWorkspace(page: Page, root: string, name = 'workspace'): Promise<void> {
   mkdirSync(join(root, name), { recursive: true })
-  await page.getByRole('textbox', { name: 'Choose workspace' }).click()
+  await revealNavigationDrawer(page, 'en')
+  await page.getByRole('button', { name: 'Add workspace', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
   await dialog.waitFor({ timeout: 10_000 })
   await dialog.getByRole('button', { name: 'Edit path' }).click()
@@ -240,7 +289,8 @@ export async function connectFreshWorkspace(page: Page, root: string, name = 'wo
  */
 export async function connectFreshWorkspaceZh(page: Page, root: string, name = 'workspace', modelAvailable = true): Promise<void> {
   mkdirSync(join(root, name), { recursive: true })
-  await page.getByRole('textbox', { name: '选择工作区' }).click()
+  await revealNavigationDrawer(page, 'zh')
+  await page.getByRole('button', { name: '添加工作区', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '选择工作区目录' })
   await dialog.waitFor({ timeout: 10_000 })
   await dialog.getByRole('button', { name: '编辑路径' }).click()
@@ -335,16 +385,37 @@ export function conversationContextKey(kind: string, id: string): string {
   return `${kind.length}:${kind}${id}`
 }
 
-/** Open Settings through the Web gear or Desktop account menu.
+/** Locate the current Settings entry without assuming an account menu is mounted.
+ * @param page - browser page with the mounted sidebar.
+ * @param locale - current UI language.
+ * @returns The registered account-menu trigger or the direct Settings button.
+ */
+export function settingsLauncher(page: Page, locale: 'en' | 'zh' | 'ja'): Locator {
+  const labels = { en: ['Account menu', 'Settings'], zh: ['账号菜单', '设置'], ja: ['アカウントメニュー', '設定'] } as const
+  const account = page.getByRole('button', {
+    name: labels[locale][0], exact: true, includeHidden: true,
+  })
+  const settings = page.getByRole('button', {
+    name: labels[locale][1], exact: true, includeHidden: true,
+  })
+  return account.or(settings)
+}
+
+/** Open Settings through the registered sidebar launcher.
  * @param page - browser page with the mounted sidebar.
  * @param locale - current UI language.
  */
-export async function openSettings(page: Page, locale: 'en' | 'zh'): Promise<void> {
-  const label = locale === 'zh' ? '设置' : 'Settings'
-  if (await page.evaluate(() => 'dshDesktop' in globalThis)) {
-    await page.getByRole('button', { name: locale === 'zh' ? '账号菜单' : 'Account menu', exact: true }).click()
-    await page.getByRole('menuitem', { name: label, exact: true }).click()
-  } else {
-    await page.getByRole('button', { name: label, exact: true }).click()
+export async function openSettings(page: Page, locale: 'en' | 'zh' | 'ja'): Promise<void> {
+  const labels = { en: ['Account menu', 'Settings'], zh: ['账号菜单', '设置'], ja: ['アカウントメニュー', '設定'] } as const
+  const account = page.getByRole('button', { name: labels[locale][0], exact: true, includeHidden: true })
+  const trigger = settingsLauncher(page, locale)
+  await trigger.waitFor({ state: 'attached' })
+  await revealNavigationDrawer(page, locale)
+  if (!await trigger.isVisible()) {
+    await page.getByRole('button', { name: { en: 'Open sidebar', zh: '打开侧边栏', ja: 'サイドバーを開く' }[locale], exact: true }).click()
+  }
+  await trigger.click()
+  if (await account.count() > 0) {
+    await page.getByRole('menuitem', { name: labels[locale][1], exact: true }).click()
   }
 }

@@ -500,8 +500,50 @@ interface LlmConfigurableProvider {
    * from outside.
    */
   declared?: boolean
+  /**
+   * Route endpoint the adapter uses when the profile sets no `baseURL`; the
+   * adapter may still send an individual model to that model's own endpoint.
+   * Absent when the route has no fixed endpoint.
+   */
+  defaultBaseURL?: string
+  /** Environment variables used to construct a provider endpoint; absent when none are reported. */
+  baseURLEnv?: readonly string[]
+  /** Authentication the adapter performs when the profile names no credential reference; absent when it reports none. */
+  nativeAuth?: LlmNativeAuth
   /** Configuration diagnostic for repair; unaffected models may remain serviceable. */
   error?: string
+}
+```
+
+A settings editor shows `defaultBaseURL`, endpoint configuration variables from `baseURLEnv`, and `nativeAuth` for a profile that leaves the endpoint or the credential reference unset. Both variable lists contain names, never values.
+
+```ts type-equiv
+/** Authentication a provider route performs without a credential reference in its profile. */
+interface LlmNativeAuth {
+  /** Environment variables the route's authentication reads, in lookup order; empty when it reads none. */
+  env: readonly string[]
+  /** Whether a stored OAuth sign-in can authenticate the route. */
+  oauth: boolean
+}
+```
+
+A catalog entry may carry a provider-authored `badge` that selectors show beside the model name. It is display data: `resolveModelInfo` omits it, and no model request carries it.
+
+```ts type-equiv
+/**
+ * Emphasis of a model badge: `neutral` states a plain fact, `info` highlights
+ * the model, `success` marks a benefit, and `warning` asks for attention.
+ */
+type LlmModelBadgeTone = 'neutral' | 'info' | 'success' | 'warning'
+```
+
+```ts type-equiv
+/** Short provider-authored label a selector shows beside one advertised model name. */
+interface LlmModelBadge {
+  /** One literal, or translations keyed by lowercase language id with a required English entry. */
+  text: LocalizedText
+  /** Emphasis of the label. */
+  tone: LlmModelBadgeTone
 }
 ```
 
@@ -520,6 +562,11 @@ interface LlmModelInfo {
   selectable?: boolean
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
+  /**
+   * Selector label advertised by catalog discovery; exact-route resolution
+   * omits it, and no model request or Session event carries it.
+   */
+  badge?: LlmModelBadge
 }
 ```
 
@@ -533,7 +580,7 @@ interface LlmModelContext {
 }
 ```
 
-Reasoning effort is another exact-route capability. The core brands identifiers but does not enumerate their values; each adapter owns the ordered set, display names, and optional deployment default.
+Reasoning effort is another exact-route capability. The core brands identifiers but does not enumerate their values; each adapter owns the choices in increasing effort order, display names, and optional deployment default. Ordering compares selectable controls, not predicted token use, cost, or latency.
 
 ```ts type-equiv
 /** Adapter-owned identifier for one model's selectable reasoning effort. */
@@ -555,7 +602,7 @@ interface LlmReasoningEffortInfo {
 ```ts type-equiv
 /** Selectable reasoning efforts for one exact provider/model route. */
 interface LlmModelReasoningInfo {
-  /** Supported efforts in adapter-preferred display order. */
+  /** Supported efforts from least to greatest selectable reasoning effort, not predicted token use or latency. */
   efforts: readonly LlmReasoningEffortInfo[]
   /**
    * Adapter-configured default materialized into requests when callers omit
@@ -599,8 +646,21 @@ type RequestMessage = Message | RequestUserInput
 ```
 
 ```ts type-equiv
-/** A single model request, fully assembled. */
-interface GenerateOptions {
+/** Auxiliary request purposes declared by their producer packages. */
+interface LlmRequestPurposeMap {}
+```
+
+```ts type-equiv
+/** Declared auxiliary request purpose; ordinary conversation requests leave it absent. */
+type LlmRequestPurpose = Extract<keyof LlmRequestPurposeMap, string>
+```
+
+```ts type-equiv
+/**
+ * A single model request, fully assembled.
+ * @typeParam Purpose - declared purpose keys for callers; forwarding adapters may accept `string`.
+ */
+interface GenerateOptions<Purpose extends string = LlmRequestPurpose> {
   /** Host-only awaited hook over the exact provider payload immediately before SDK dispatch. */
   onPayload?: (payload: unknown, route: { provider: string; model: string }, images?: readonly {
     attachmentId: string
@@ -650,10 +710,10 @@ interface GenerateOptions {
   sessionId?: Branded<'SessionId'>
   /**
    * Provider-neutral classification for an auxiliary model call. Adapters may
-   * map the purpose to model-hidden transport metadata or purpose-specific
-   * generation policy. Ordinary conversation requests leave it unset.
+   * map the purpose to model-hidden transport metadata. Ordinary conversation
+   * requests leave it unset.
    */
-  purpose?: 'compaction' | 'session-title'
+  purpose?: Purpose
   /** Provider response format requested for strict JSON model calls. */
   responseFormat?: { readonly type: 'json_object' }
 }
@@ -756,11 +816,23 @@ interface LlmDiscoveredModel {
 
 The loop builds each request from logged state. `EpochHeader` records call config, marks the fields supplied by adapter defaults, and records the authoritative returned tool order (configured by `toolOrder`, or lexicographic when unset) through full `request/header` snapshots. The rendered prompt is derived history — the `system/message` at surface node 0, plus any later system node an `in-history` route appended — so the header and the derived history together make the request reconstructable from the session log. See [session.md](session.md#the-request-header-event-requestheader) and the [reconstructability Agent Note](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
-`agent/request` receives a frozen call-config seed and may return a replacement to switch provider, model, reasoning effort, or sampling. Before the waterfall, the loop removes values marked as adapter defaults so exact-model preparation materializes the selected route's current values; unmarked explicit settings remain in the proposal. After the waterfall, preparation rejects unsupported explicit effort ids without clamping and logs the effective config plus the fields supplied by adapter defaults under the turn signal. On step admission, this waterfall and preparation run after assembly and `step/start` but before the system prompt and accepted user batch are committed; cancellation during either commits neither. The prepared capability governs prompt reconciliation, and the call keeps one adapter registration through dispatch. Requests reaching `llm/stream` are deep-frozen, so mutation throws, and carry a process-local loop identity so observers do not confuse separately logged frozen auxiliary calls with conversation requests.
+The deprecated `agent/request` hook remains available to existing listeners. New code selects models and reasoning effort through [Session model selection](../../packages/core/agent/README.md#use-this-package). The hook receives a frozen call-config seed based on the step's captured model selection and may replace controls such as sampling. A replacement must preserve provider, model, and the optional explicit reasoning effort; record a new Session selection before the next step to change them. Before the waterfall, the loop removes values marked as adapter defaults so exact-model preparation materializes the selected route's current values; unmarked explicit settings remain in the proposal. After the waterfall, preparation rejects unsupported explicit effort ids without clamping and logs the effective config plus the fields supplied by adapter defaults under the turn signal. On step admission, this waterfall and preparation run after assembly and `step/start` but before the system prompt and accepted user batch are committed; cancellation during either commits neither. The prepared capability governs prompt reconciliation, and the call keeps one adapter registration through dispatch. Requests reaching `llm/stream` are deep-frozen, so mutation throws, and carry a process-local loop identity so observers do not confuse separately logged frozen auxiliary calls with conversation requests.
 
 On the wire, a loop-built request is the derived history alone: the rendered prompt travels as the leading `system`-role message (surface node 0, a `system/message` event) and, when the prepared call declares `systemPromptUpdate: 'in-history'`, a non-empty changed prompt may follow the cached history as a later `system`-role message that the model reads as the effective prompt; the request's `system` field is unset — `GenerateOptions.system` serves direct one-shot callers such as title providers. An empty rendering leaves no system messages in derived history, even when earlier requests retained several prompt versions. The logged request ends with the newest `user/message` on a turn's first step and the previous step's tool results on later steps.
 
 FIXME(call-config-shape): revisit which remaining fields are genuinely epoch-level for cache purposes (`model` and the model-owned reasoning effort are explicit; the sampling scalars sit here out of caution).
+
+```ts type-equiv
+/** Concrete generation settings; omitted controls use the selected route's defaults. */
+interface LlmCallControls {
+  reasoningEffort?: ReasoningEffortId
+  temperature?: number
+  maxTokens?: number
+  stop?: string[]
+  /** Provider response format requested for strict JSON model calls. */
+  responseFormat?: { readonly type: 'json_object' }
+}
+```
 
 ```ts type-equiv
 /**
@@ -769,15 +841,26 @@ FIXME(call-config-shape): revisit which remaining fields are genuinely epoch-lev
  * the loop builds requests from the logged header rather than accepting these
  * per call.
  */
-interface LlmCallConfig {
+interface LlmCallConfig extends LlmCallControls {
   provider: string
   model: string
-  reasoningEffort?: ReasoningEffortId
-  temperature?: number
-  maxTokens?: number
-  stop?: string[]
-  responseFormat?: { readonly type: 'json_object' }
 }
+```
+
+```ts type-equiv
+/**
+ * Synchronous, pure configuration of one call before defaults and validation.
+ * Compose functions in the desired order; later writes replace earlier ones.
+ * The returned controls cannot change the captured route. Errors reject
+ * preparation before dispatch; only the resolved configuration is recordable.
+ * @param controls - detached, deeply frozen proposed controls, without defaults.
+ * @param model - detached, deeply frozen metadata from the captured adapter generation.
+ * @returns concrete controls; omitted fields receive the route's defaults.
+ */
+type ConfigureCall = (
+  controls: Readonly<LlmCallControls>,
+  model: Readonly<LlmResolvedModelInfo>,
+) => LlmCallControls
 ```
 
 ```ts type-equiv
@@ -793,9 +876,13 @@ interface LlmCallConfigAdapterDefaults {
 
 ## Official DeepSeek request extensions
 
-`ctx.deepseekLlmApiExtensions` is the provider-specific registry for additive top-level fields on `deepseek-official` requests. Contributor plugins use `register(field, provider)` to claim one field; the adapter calls `prepare(request)` after serializing its base body and merges the returned fields before HTTP. The prepared `accept()` transaction runs after 2xx, so a contributor can commit delivery state without treating a transport or provider rejection as acceptance. Preparation, collision, and acceptance failures use `REQUEST_EXTENSION` and fail the model request. A merged body that fails to serialize is sent without extension fields; acceptance is skipped and the provider plugin logs the omitted field names.
+`ctx.deepseekLlmApiExtensions` is the provider-specific registry for additive top-level fields on `deepseek-official` requests. Contributor plugins use `register(field, provider)` to claim one field; the adapter calls `prepare(request)` after serializing its base body and merges the returned fields before HTTP. The prepared `accept()` transaction runs after 2xx, so a contributor can commit delivery state without treating a transport or provider rejection as acceptance. A contributor whose preparation throws is logged and omitted from that request, and an acceptance failure is logged without failing the request; a base-field collision uses `REQUEST_EXTENSION` and fails the model request. A merged body that fails to serialize is sent without extension fields; acceptance is skipped and the provider plugin logs the omitted field names.
 
 The [wire reference](../deepseek-llm-api-wire-extensions.md) defines the exact request headers, extension transaction, field versions, and receiver obligations. The shipped composition registers [`dsh_session_log`](../../packages/session/session-log-deepseek/README.md) as a lossless incremental canonical-log suffix and [`dsh_plugin_packages`](../../packages/llm/plugin-package-inventory-deepseek/README.md) as the complete active Loader-backed package set. These fields remain outside model messages and are absent from the pi-ai adapter path.
+
+## Pi-ai request headers
+
+`PiAiRequestHeaderContext` contains the prepared call's provider, model, resolved model `baseURL`, and optional Session id and auxiliary purpose. It is immutable, contains no messages or authentication fields, and accompanies a request-owned `Headers` object in the synchronous `llm-pi-ai/request-headers` waterfall. The [adapter's request-header documentation](../../packages/llm/llm-pi-ai/README.md#request-headers) defines contribution ownership, attribution precedence, and failure behavior. This extension point is specific to pi-ai inference requests.
 
 ## Service and provider contracts
 
@@ -840,65 +927,74 @@ declare abstract class LlmAdapter {
   /** Whether this adapter verifies required images remain in its final provider request, including fallback paths. */
   readonly supportsRequiredImageInput: boolean;
   /**
-   * Describe one provider route owned by this adapter.
-   * @param provider - a route passed to `registerAdapter()` for this instance.
-   * @returns detached display metadata whose id must equal `provider`.
-   */
+     * Describe one provider route owned by this adapter.
+     * @param provider - a route passed to `registerAdapter()` for this instance.
+     * @returns detached display metadata whose id must equal `provider`.
+     */
   providerInfo(provider: string): LlmProviderInfo;
   /**
-   * Return the provider-owned retry policy captured with this route.
-   * @param _provider - a route passed to `registerAdapter()` for this instance.
-   * @returns a resolved policy, or `undefined` to use the normal defaults.
-   */
+     * Return the provider-owned retry policy captured with this route.
+     * @param _provider - a route passed to `registerAdapter()` for this instance.
+     * @returns a resolved policy, or `undefined` to use the normal defaults.
+     */
   providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;
   /**
-   * Resolve provider-side request-image pricing for one exact model route.
-   * The default declares none, so consumers fall back to their own neutral
-   * estimate. Implementations must answer synchronously without I/O; the
-   * token meter resolves this per measurement.
-   * @param _provider - a route passed to `registerAdapter()` for this instance.
-   * @param _model - exact model id passed to {@link GenerateOptions.model}.
-   * @returns route-owned image pricing, or `undefined` when the route declares none.
-   */
+     * Resolve provider-side request-image pricing for one exact model route.
+     * The default declares none, so consumers fall back to their own neutral
+     * estimate. Implementations must answer synchronously without I/O; the
+     * token meter resolves this per measurement.
+     * @param _provider - a route passed to `registerAdapter()` for this instance.
+     * @param _model - exact model id passed to {@link GenerateOptions.model}.
+     * @returns route-owned image pricing, or `undefined` when the route declares none.
+     */
   imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;
   /**
-   * List models this adapter can currently advertise for one owned provider.
-   * Core routing accepts unlisted model ids; catalog-driven entry points such
-   * as the GUI may require membership. Adapters used there must advertise
-   * their available models; the base empty catalog offers no GUI selection.
-   * @param _provider - one provider route owned by this adapter.
-   * @returns discoverable models in adapter-preferred order.
-   */
+     * Resolve the image dimensions and byte target this adapter sends to the model.
+     * The default preserves normalized images; adapters that resize must override it.
+     * @param _provider - registered provider route.
+     * @param _model - exact model id.
+     * @param image - normalized image whose request projection is being resolved.
+     * @returns the same target used by request serialization, before provider-internal processing.
+     */
+  imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;
+  /**
+     * List models this adapter can currently advertise for one owned provider.
+     * Core routing accepts unlisted model ids; catalog-driven entry points such
+     * as the GUI may require membership. Adapters used there must advertise
+     * their available models; the base empty catalog offers no GUI selection.
+     * @param _provider - one provider route owned by this adapter.
+     * @returns discoverable models in adapter-preferred order.
+     */
   listModels(_provider: string): Promise<readonly LlmModelInfo[]>;
   /**
-   * Resolve all metadata available for one exact model. This query is
-   * independent of the advisory catalog and does not validate request routing.
-   * @param provider - one provider route owned by this adapter.
-   * @param model - exact model id passed to {@link GenerateOptions.model}.
-   * @param _signal - cancellation for this exact-model lookup; asynchronous
-   *   implementations must settle promptly after it aborts.
-   * @returns provider/model identity plus any context, call-default, and reasoning metadata.
-   */
+     * Resolve all metadata available for one exact model. This query is
+     * independent of the advisory catalog and does not validate request routing.
+     * @param provider - one provider route owned by this adapter.
+     * @param model - exact model id passed to {@link GenerateOptions.model}.
+     * @param _signal - cancellation for this exact-model lookup; asynchronous
+     *   implementations must settle promptly after it aborts.
+     * @returns provider/model identity plus any context, call-default, and reasoning metadata.
+     */
   resolveModel(
-    provider: string,
-    model: string,
-    _signal?: AbortSignal,
-  ): Promise<LlmResolvedModelInfo>;
+      provider: string,
+      model: string,
+      _signal?: AbortSignal,
+    ): Promise<LlmResolvedModelInfo>;
   /**
-   * Bind exact model metadata and the eventual request dispatch to one adapter generation.
-   * Dynamic adapters override this so settings changes between preparation and
-   * dispatch cannot combine one generation's capabilities with another's endpoint.
-   * @param provider - registered provider route.
-   * @param model - exact model id.
-   * @param signal - cancellation for model resolution.
-   * @returns model metadata and a one-generation stream entry point.
-   */
+     * Bind exact model metadata and the eventual request dispatch to one adapter generation.
+     * Dynamic adapters override this so settings changes between preparation and
+     * dispatch cannot combine one generation's capabilities with another's endpoint.
+     * @param provider - registered provider route.
+     * @param model - exact model id.
+     * @param signal - cancellation for model resolution.
+     * @returns model metadata and a one-generation stream entry point.
+     */
   async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall>;
   /**
-   * Stream one model call as raw chunks. The only required method.
-   * @param options - the fully-assembled request; implementations must honor `options.signal`.
-   * @returns the chunk stream, obeying the adapter contract documented on `StreamChunk`.
-   */
+     * Stream one model call as raw chunks. The only required method.
+     * @param options - the fully-assembled request; implementations must honor `options.signal`.
+     * @returns the chunk stream, obeying the adapter contract documented on `StreamChunk`.
+     */
   abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
 }
 ```
@@ -930,8 +1026,9 @@ register<K extends keyof DeepSeekLlmApiExtensionMap>( field: K, provider: DeepSe
 
 /**
  * Prepare every currently registered field from one immutable base request.
- * Preparation failures reject before HTTP dispatch. Field values are cloned and frozen;
- * providers retain no mutable alias to the outgoing request.
+ * A provider whose preparation throws, or whose value cannot be cloned, is omitted
+ * from this request; the first such failure per field is logged. Only cancellation rejects. Field values are cloned
+ * and frozen; providers retain no mutable alias to the outgoing request.
  * @param request - exact serialized request facts before extension fields.
  * @returns detached fields and their idempotent joint acceptance transaction.
  */
@@ -1032,6 +1129,15 @@ providerRetryPolicy(provider: string): ResolvedRetryPolicy
 imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined
 
 /**
+ * Resolve the image projection for an exact registered model route.
+ * @param provider - registered provider route.
+ * @param model - exact model id.
+ * @param image - normalized image reference.
+ * @returns dimensions and byte target used by the adapter's request serializer.
+ */
+imageRequestTarget(provider: string, model: string, image: ImageAttachmentRef): ImageRequestTarget
+
+/**
  * Resolve the exact text one durable file occurrence contributes to every
  * provider request in the current execution environment.
  * @param ref - durable verbatim file reference from model history.
@@ -1075,11 +1181,15 @@ async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<Ll
  * Resolve one call under its current adapter registration. The returned
  * one-shot handle keeps that registration across header logging and dispatch,
  * so HMR cannot combine one adapter's capability result with another adapter.
- * @param config - provider/model route and optional request controls.
+ * An optional synchronous callback selects concrete controls using captured
+ * model metadata. Defaults and validation apply to its result. Callback
+ * failures and cancellation reject preparation before dispatch.
+ * @param config - provider/model route and optional concrete request controls.
  * @param signal - optional cancellation for adapter-owned capability lookup.
+ * @param configure - pure control selection, called once before defaults and validation.
  * @returns a prepared config and its registration-bound stream entry point.
  */
-async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>
+async prepareCall( config: LlmCallConfig, signal?: AbortSignal, configure?: ConfigureCall, ): Promise<PreparedLlmCall>
 
 /**
  * Stream one model call as raw chunks (token-level deltas). Replay state is
@@ -1095,7 +1205,7 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [FileAttachmentRef](attachment.md)
+Types: [FileAttachmentRef](attachment.md) · [ImageAttachmentRef](attachment.md) · [ImageRequestTarget](attachment.md)
 
 Source: [`packages/llm/llm/src/index.ts`](../../packages/llm/llm/src/index.ts)
 
@@ -1124,6 +1234,23 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
+<a id="llmmodels-updated--emit"></a>
+
+#### `llm/models-updated` — emit
+
+A provider's advertised models or display metadata changed; consumers reload `listModels()`.
+
+```ts cordis-catalog
+/**
+ * A provider's advertised models or display metadata changed; consumers reload `listModels()`.
+ * @mode emit
+ * @param provider - route whose model catalog changed.
+ */
+'llm/models-updated'(provider: string): void
+```
+
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
 <a id="llmstream--waterfall"></a>
 
 #### `llm/stream` — waterfall
@@ -1147,4 +1274,33 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 ```
 
 Source: [`packages/llm/llm/src/index.ts`](../../packages/llm/llm/src/index.ts)
+
+<a id="llm-pi-ai-events"></a>
+
+### `llm-pi-ai/*` events
+
+<a id="llm-pi-airequest-headers--waterfall"></a>
+
+#### `llm-pi-ai/request-headers` — waterfall
+
+Prepare headers for one pi-ai inference call, excluding model discovery. Listeners run synchronously and must call next(); they may edit only the request-owned headers and must not retain them. Throws fail the call with REQUEST_HEADERS before inference I/O. Harness attribution wins afterward. Non-TypeError messages are user-visible and must exclude secrets. TypeError details and non-Error values are replaced with safe guidance.
+
+```ts cordis-catalog
+/**
+ * Prepare headers for one pi-ai inference call, excluding model discovery.
+ * Listeners run synchronously and must call next(); they may edit only the
+ * request-owned headers and must not retain them. Throws fail the call with
+ * REQUEST_HEADERS before inference I/O. Harness attribution wins afterward.
+ * Non-TypeError messages are user-visible and must exclude secrets. TypeError
+ * details and non-Error values are replaced with safe guidance.
+ * @mode waterfall
+ * @param request - immutable routing metadata from the exact prepared call.
+ * @param headers - fresh profile headers, shared only within this dispatch.
+ * @param next - continue header preparation through the remaining listeners.
+ * @returns headers passed to pi-ai after Harness attribution is applied.
+ */
+'llm-pi-ai/request-headers'(request: PiAiRequestHeaderContext, headers: Headers, next: () => Headers): Headers
+```
+
+Source: [`packages/llm/llm-pi-ai/src/index.ts`](../../packages/llm/llm-pi-ai/src/index.ts)
 <!-- END GENERATED cordis-surface -->

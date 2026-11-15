@@ -1,0 +1,11 @@
+version: 1
+scenario: compaction-summary-failure-recovery
+profile: headless
+composition: compaction-summary-failure-recovery
+recording: authored
+header:
+  class: compaction-summary-failure-recovery
+  pin: true
+  changes: 0
+  promptChanges: 1
+writerOutput: true

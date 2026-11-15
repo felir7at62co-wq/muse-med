@@ -2,9 +2,9 @@ import { mkdtemp, readFile, stat, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, expect, it, vi, type MockInstance } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createToolResultMessage, createUserMessage, LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createAssistantMessage, createToolResultMessage, createUserMessage, LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { MuseModels } from '../src/models.ts'
@@ -17,6 +17,7 @@ import { assemble } from '../../../llm/llm-pi-ai/tests/assemble.ts'
 import { writeMuseSession, readMuseSession, clearMuseSessionIfUnchanged } from '../src/session.ts'
 import { buildModelCatalog, modelAvailable } from '../../../api/session-controller/src/catalog.ts'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { directProviderFixture, oldSessionFixture as routingFixture, waitForIdle } from './model-routing-fixture.ts'
 
 const suppliedCatalog = { providers: [
@@ -467,6 +468,32 @@ it('hides exact Yunying model IDs while retaining other Yunying, Zhipu, and pers
   } finally { personal() }
 })
 
+it('makes the two allowed Yunying models selectable without hiding the same subscription model', async () => {
+  await login()
+  class SubscriptionAdapter extends PersonalAdapter {
+    override async listModels(provider: string) { return [{ provider, id: 'gpt-6.1-sol', name: 'GPT-6.1-Sol' }] }
+  }
+  const disposeSubscription = ctx.llm.registerAdapter(['chatgpt-subscription'], new SubscriptionAdapter())
+  const entry = suppliedCatalog.providers[0]!.models[0]!
+  try {
+    models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      hiddenProviderIds: ['yunying'], visibleModels: [
+        { providerId: 'yunying', modelId: 'gemini-3.1-pro' },
+        { providerId: 'yunying', modelId: 'gpt-6.1-sol' },
+      ], fetcher: async () => Response.json({ providers: [{ id: 'yunying', name: '云映',
+        models: ['gemini-3.1-pro', 'gpt-6.1-sol', 'gpt-6-astra'].map(id => ({ ...entry, id, name: id })) }] }) })
+    await models.refresh()
+    const browser = await buildModelCatalog(ctx, { provider: 'chatgpt-subscription', model: 'gpt-6.1-sol' })
+    expect(browser.groups.find(group => group.id === 'muse-cloud-yunying')?.models.map(model => model.id))
+      .toEqual(['gemini-3.1-pro', 'gpt-6.1-sol'])
+    expect(browser.groups.find(group => group.id === 'chatgpt-subscription')?.models.map(model => model.id))
+      .toEqual(['gpt-6.1-sol'])
+    expect(await modelAvailable(ctx, { provider: 'muse-cloud-yunying', model: 'gpt-6-astra' })).toBe(false)
+    await expect(ctx.llm.resolveModelInfo('muse-cloud-yunying', 'gpt-6-astra'))
+      .resolves.toMatchObject({ provider: 'muse-cloud-yunying', id: 'gpt-6-astra' })
+  } finally { disposeSubscription() }
+})
+
 it('hides Yunying from new selections while retaining its route and the visible DeepSeek and GLM providers', async () => {
   await login()
   const entry = suppliedCatalog.providers[0]!.models[0]!
@@ -573,7 +600,7 @@ it.each(['plugin', 'desktop'] as const)('routes an existing unconfigured direct 
   if (!Array.isArray(desktopRow?.inject)) throw new Error('Muse Desktop model injections are not an array')
   const inject = composition === 'plugin' ? accountInject
     : desktopRow.inject.filter((key: unknown): key is string => typeof key === 'string'
-      && ['tools', 'llm', 'sessionProjections', 'agentDefaultModel'].includes(key))
+      && ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'sessions'].includes(key))
   const mounted = fixture.ctx.plugin({ inject, apply: (scope: Context) => {
     const owned = new MuseModels(scope, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
       fetcher: async () => Response.json(suppliedCatalog) })
@@ -625,22 +652,16 @@ it('preserves an existing direct session with its own configured key', async () 
   expect(fixture.agent.session.snapshotEvents()).toHaveLength(count)
 })
 
-it('does not replace an existing session with a different supplied model', async () => {
+it('leaves an existing direct selection unchanged when Muse supplies a different model', async () => {
   const fixture = await oldSessionFixture(false)
   await login()
   models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     fetcher: async () => Response.json({ providers: [{ ...suppliedCatalog.providers[1],
       models: [{ ...suppliedCatalog.providers[1]!.models[0], id: 'other-model' }] }] }) })
+  const events = fixture.agent.session.snapshotEvents().length
   await models.refresh()
-  const count = fixture.agent.session.snapshotEvents().length
-  await expect(agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
-    turn: 1, step: 1, signal: new AbortController().signal,
-  }, () => Promise.resolve({ provider: 'deepseek-official', model: 'deepseek-flash',
-    ...(fixture.initialSelection.reasoningEffort === undefined ? {}
-      : { reasoningEffort: ReasoningEffortId(fixture.initialSelection.reasoningEffort) }) }))).rejects.toMatchObject({
-    code: 'UNKNOWN_MODEL', message: 'The saved direct model is not in the Muse catalog. Select an available Muse model in the conversation model picker.',
-  })
-  expect(fixture.agent.session.snapshotEvents()).toHaveLength(count)
+  expect(fixture.agent.model.current()).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-flash' })
+  expect(fixture.agent.session.snapshotEvents()).toHaveLength(events)
 })
 
 it.each(['provider', 'reasoning'] as const)('retains a newer explicit %s selection when an account-route repair reaches the Session queue', async (change) => {
@@ -650,7 +671,7 @@ it.each(['provider', 'reasoning'] as const)('retains a newer explicit %s selecti
     fetcher: async () => Response.json(suppliedCatalog) })
   await models.refresh()
   const wanted = change === 'provider' ? { provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' }
-    : { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
+    : { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
   const userChange = fixture.controller.selectModel({ sessionId: fixture.agent.id, ...wanted })
   const repair = fixture.controller.selectModelIfCurrent({ sessionId: fixture.agent.id,
     provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }, fixture.initialSelection)
@@ -660,14 +681,14 @@ it.each(['provider', 'reasoning'] as const)('retains a newer explicit %s selecti
     .toMatchObject(wanted)
 })
 
-it.each(['provider', 'reasoning'] as const)('does not replace a newer %s choice when the Muse request router resumes an older request', async (change) => {
+it.each(['provider', 'reasoning'] as const)('keeps an assembled request unchanged when a newer %s selection is recorded', async (change) => {
   const fixture = await oldSessionFixture(false)
   await login()
   models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     fetcher: async () => Response.json(suppliedCatalog) })
   await models.refresh()
   const wanted = change === 'provider' ? { provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' }
-    : { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
+    : { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
   const assembled = { provider: fixture.initialSelection.provider, model: fixture.initialSelection.model,
     ...(fixture.initialSelection.reasoningEffort === undefined ? {}
       : { reasoningEffort: ReasoningEffortId(fixture.initialSelection.reasoningEffort) }) }
@@ -752,7 +773,7 @@ it('loads Muse GLM models through Loader and retains reasoning on a tool continu
   await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
   fixture.ctx.loader.builtins['glm-models'] = {
     inject: accountInject,
-    apply: async (scope: Context) => {
+    apply: (scope: Context) => {
       const owned = new MuseModels(scope, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
         fetcher: async () => Response.json({ providers: [{ id: 'yunying', name: 'Yunying', models: [{
           id: 'glm-5.3-flash', name: 'GLM-5.3 Flash', contextWindow: 200000, maxTokens: 32768,
@@ -760,12 +781,12 @@ it('loads Muse GLM models through Loader and retains reasoning on a tool continu
         }] }] }) })
       models = owned
       scope.effect(() => () => owned.dispose())
-      await owned.refresh()
     },
   }
   const id = await fixture.ctx.loader.create({ name: 'cordis:glm-models' })
   await fixture.ctx.loader.await()
   await fixture.ctx.loader.resolve(id).fiber?.await()
+  await models.refresh()
   const request = { provider: 'muse-cloud-yunying', model: 'glm-5.3-flash' }
   const first = await assemble(fixture.ctx, { ...request, messages: [] })
   expect(first.finish).toEqual({ kind: 'tool-calls' })
@@ -1024,48 +1045,42 @@ it('retains an assembled direct request whose own credential is configured', asy
   }, async () => config)).toEqual(config)
 })
 
-it.each(['credential', 'catalog', 'session'] as const)('retains an assembled route when %s changes during repair', async (boundary) => {
+it.each(['credential', 'login', 'dispose'] as const)('retains a direct selection when %s changes while catalog repair is pending', async (boundary) => {
   const fixture = await oldSessionFixture(false)
   await login()
   models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     fetcher: async () => Response.json(suppliedCatalog) })
-  await models.refresh()
-  let entered!: () => void, release!: () => void
-  const started = new Promise<void>((resolve) => { entered = resolve })
-  const gate = new Promise<void>((resolve) => { release = resolve })
-  let credentialReads: MockInstance<typeof fixture.ctx.credentials.describe> | undefined
-  if (boundary === 'credential') {
-    await fixture.ctx.settings.replace('agent-default-model', { provider: 'deepseek-official', model: 'deepseek-flash' })
-    const original = fixture.ctx.credentials.describe.bind(fixture.ctx.credentials)
-    // Refresh also reads the default route's credential; pause only the assembled request.
-    credentialReads = vi.spyOn(fixture.ctx.credentials, 'describe').mockImplementationOnce(async (ref) => { entered(); await gate; return await original(ref) })
-  } else {
-    const original = fixture.ctx.llm.listModels.bind(fixture.ctx.llm)
-    vi.spyOn(fixture.ctx.llm, 'listModels').mockImplementationOnce(async (provider) => { entered(); await gate; return await original(provider) })
-  }
-  const config = { provider: fixture.initialSelection.provider, model: fixture.initialSelection.model,
-    ...(fixture.initialSelection.reasoningEffort === undefined ? {}
-      : { reasoningEffort: ReasoningEffortId(fixture.initialSelection.reasoningEffort) }) }
-  const routed = agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
-    turn: 1, step: 1, signal: new AbortController().signal,
-  }, async () => config)
+  const entered = Promise.withResolvers<undefined>()
+  const gate = Promise.withResolvers<undefined>()
+  const original = fixture.ctx.llm.listModels.bind(fixture.ctx.llm)
+  vi.spyOn(fixture.ctx.llm, 'listModels').mockImplementationOnce(async (provider) => {
+    entered.resolve(undefined)
+    await gate.promise
+    return original(provider)
+  })
+  const refreshed = models.refresh()
+  await entered.promise
+  let disposed: Promise<void> | undefined
   try {
-    await started
-    await login('bob')
-    if (boundary !== 'session') await models.refresh()
-    if (credentialReads) expect(credentialReads).toHaveBeenCalledTimes(2)
-  } finally {
-    release()
-    await routed
-  }
-  expect(await routed).toEqual(config)
+    if (boundary === 'credential') await fixture.ctx.credentials.set(credentialRef('OWN_DEEPSEEK_KEY'), 'new-personal-key')
+    else if (boundary === 'login') await login('bob')
+    else disposed = models.dispose()
+  } finally { gate.resolve(undefined) }
+  await refreshed
+  await disposed
+  expect(fixture.agent.model.current()).toEqual(fixture.initialSelection)
 })
 
-it.each(['default', 'header', 'adapter-default', 'header-effort'] as const)('repairs a session without a pending model selection from its %s', async (baseline) => {
+it.each(['default', 'header', 'adapter-default', 'header-effort'] as const)('repairs a future selection from its %s before request assembly', async (baseline) => {
   const fixture = await oldSessionFixture(false)
   const agent = await fixture.driver.create(SessionId(`unselected-${baseline}`), {
     provider: 'deepseek-official', model: 'deepseek-flash',
   }, { cwd: root })
+  if (baseline !== 'default') agent.session.append('request/header', { reason: 'initial', header: {
+    config: { provider: 'deepseek-official', model: 'deepseek-flash',
+      ...(['adapter-default', 'header-effort'].includes(baseline) ? { reasoningEffort: ReasoningEffortId('low') } : {}) },
+    ...(baseline === 'adapter-default' ? { adapterDefaults: { reasoningEffort: true } } : {}),
+  } })
   await login()
   const noReasoning = { providers: [{ ...suppliedCatalog.providers[1], models: [{
     ...suppliedCatalog.providers[1]!.models[0], reasoningEfforts: false,
@@ -1073,49 +1088,64 @@ it.each(['default', 'header', 'adapter-default', 'header-effort'] as const)('rep
   models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     fetcher: async () => Response.json(baseline === 'header-effort' ? suppliedCatalog : noReasoning) })
   await models.refresh()
-  await fixture.ctx.settings.replace('agent-default-model', { provider: 'deepseek-official', model: 'deepseek-flash' })
-  if (baseline !== 'default') agent.session.append('request/header', { reason: 'initial', header: {
-    config: { provider: 'deepseek-official', model: 'deepseek-flash',
-      ...(['adapter-default', 'header-effort'].includes(baseline) ? { reasoningEffort: ReasoningEffortId('low') } : {}) },
-    ...(baseline === 'adapter-default' ? { adapterDefaults: { reasoningEffort: true } } : {}),
-  } })
-  const routed = await agentEvents(fixture.ctx, agent).waterfall('agent/request', {
-    turn: 1, step: 1, signal: new AbortController().signal,
-  }, async () => ({ provider: 'deepseek-official', model: 'deepseek-flash',
-    ...(baseline === 'header-effort' ? { reasoningEffort: ReasoningEffortId('low') } : {}) }))
-  expect(routed).toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash',
-    ...(baseline === 'header-effort' ? { reasoningEffort: ReasoningEffortId('low') } : {}) })
-  expect(agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data)
-    .toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash',
-      ...(baseline === 'header-effort' ? { reasoningEffort: 'low' } : {}) })
+  const expected = { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash',
+    ...(baseline === 'header-effort' ? { reasoningEffort: ReasoningEffortId('low') } : {}) }
+  expect(agent.model.current()).toEqual(expected)
+  expect(agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data).toEqual(expected)
+  if (baseline !== 'header-effort') expect(fixture.agent.model.current()).toEqual(fixture.initialSelection)
 })
 
-it('resolves the older request without replacing a newer choice committed before its queued route repair', async () => {
+it.each(['provider', 'reasoning'] as const)('retains a newer explicit %s selection across pending catalog repair', async (change) => {
+  const fixture = await oldSessionFixture(false)
+  await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  const entered = Promise.withResolvers<undefined>()
+  const gate = Promise.withResolvers<undefined>()
+  const original = fixture.ctx.llm.listModels.bind(fixture.ctx.llm)
+  vi.spyOn(fixture.ctx.llm, 'listModels').mockImplementationOnce(async (provider) => {
+    entered.resolve(undefined)
+    await gate.promise
+    return original(provider)
+  })
+  const refreshed = models.refresh()
+  await entered.promise
+  const wanted = change === 'provider' ? { provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' }
+    : { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: ReasoningEffortId('off') }
+  try { fixture.agent.model.select(wanted) }
+  finally { gate.resolve(undefined) }
+  await refreshed
+  expect(fixture.agent.model.current()).toEqual(wanted)
+  expect(fixture.agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data).toEqual(wanted)
+})
+
+it('repairs a newly created Agent before its first request and keeps omitted effort as an adapter default', async () => {
   const fixture = await oldSessionFixture(false)
   await login()
   models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     fetcher: async () => Response.json(suppliedCatalog) })
   await models.refresh()
-  let entered!: () => void, release!: () => void
-  const started = new Promise<void>((resolve) => { entered = resolve })
-  const gate = new Promise<void>((resolve) => { release = resolve })
-  const select = fixture.controller.selectModelIfCurrent.bind(fixture.controller)
-  vi.spyOn(fixture.controller, 'selectModelIfCurrent').mockImplementation(async (wanted, expected) => {
-    entered(); await gate; return await select(wanted, expected)
-  })
-  const routed = agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
-    turn: 1, step: 1, signal: new AbortController().signal,
-  }, async () => ({ provider: fixture.initialSelection.provider, model: fixture.initialSelection.model,
-    ...(fixture.initialSelection.reasoningEffort === undefined ? {}
-      : { reasoningEffort: ReasoningEffortId(fixture.initialSelection.reasoningEffort) }) }))
-  await started
-  await fixture.controller.selectModel({ sessionId: fixture.agent.id, provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' })
-  release()
-  expect(await routed).toMatchObject({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
-  expect(fixture.ctx.sessionProjections.snapshot(fixture.agent.session).values.modelSelection?.next)
-    .toEqual({ provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' })
+  const fresh = await fixture.driver.create(SessionId('new-direct-after-login'), {
+    provider: 'deepseek-official', model: 'deepseek-flash',
+  }, { cwd: root })
+  expect(fresh.model.current()).toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+  expect(fresh.session.requestHeader()).toBeUndefined()
+  expect(fresh.session.snapshotEvents().filter(event => event.type === 'model/selection').map(event => event.data))
+    .toEqual([{ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }])
 })
 
+it('repairs only Agents covered by the account plugin scope', async () => {
+  const fixture = await oldSessionFixture(false)
+  const other = await fixture.driver.create(SessionId('outside-account-scope'), {
+    provider: 'deepseek-official', model: 'deepseek-flash',
+  }, { cwd: root })
+  await login()
+  models = new MuseModels(fixture.agent.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  expect(fixture.agent.model.current()).toMatchObject({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+  expect(other.model.current()).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
+})
 
 it('routes a pooled provider through Muse while another provider streams directly', async () => {
   const server = await mockServer([{ events: textEvents }, { events: textEvents }])
@@ -1191,4 +1221,218 @@ it('refuses a leased route assigned to a supplier other than official Zhipu', as
     fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
       ? { ...catalog, transport: 'direct' } : { transport: 'direct', providers: [{ ...catalog.providers[0], transport: 'leased' }] }) })
   await expect(models.refresh()).rejects.toThrow()
+})
+
+it('requests Google thought summaries only for the exact Yunying Gemini route', async () => {
+  const events = [
+    '{"choices":[{"delta":{"role":"assistant"},"index":0,"finish_reason":null}]}',
+    '{"choices":[{"delta":{"reasoning_content":"plan"},"index":0,"finish_reason":null}]}',
+    '{"choices":[{"delta":{"content":"answer"},"index":0,"finish_reason":null}]}',
+    '{"choices":[{"delta":{},"index":0,"finish_reason":"stop"}]}',
+    '[DONE]',
+  ]
+  const toolEvents = [
+    JSON.stringify({ choices: [{ index: 0, delta: { reasoning_content: 'plan',
+      reasoning_details: [{ type: 'reasoning.encrypted', data: 'opaque-test-signature' }] }, finish_reason: null }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call-1',
+      type: 'function', function: { name: 'lookup', arguments: '{}' } }] }, finish_reason: null }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      usage: { prompt_tokens: 268, completion_tokens: 252, total_tokens: 520 } }),
+    JSON.stringify({ choices: [], usage: { balance_rmb: 10, cost_currency: 'CNY', cost_rmb: 0.01 } }), '[DONE]',
+  ]
+  const server = await mockServer([{ events }, { events }, { events }, { events }, { events: toolEvents }, { events }])
+  await login()
+  const base = suppliedCatalog.providers[0]!.models[0]!
+  const providers = [
+    { id: 'yunying', name: '云映', models: ['gemini-3.1-pro', 'gpt-6.1-sol'].map(id => ({ ...base, id, name: id })) },
+    { id: 'deepseek-official', name: 'DeepSeek', models: [{ ...base, id: 'deepseek-flash', name: 'DeepSeek Flash' }] },
+    { id: 'volcengine', name: '火山', models: [{ ...base, id: 'glm-5.3-flash', name: 'GLM Flash' }] },
+  ]
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
+      ? { providers, transport: 'direct' }
+      : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
+        access: { baseURL: server.url, apiKey: 'fake-test-key' } })) }) })
+  await models.refresh()
+  const gemini = await assemble(ctx, { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro', messages: [] })
+  expect(gemini.finish).toEqual({ kind: 'stop' })
+  expect(gemini.message.content).toEqual(expect.arrayContaining([{ type: 'reasoning', text: 'plan' }, { type: 'text', text: 'answer' }]))
+  await assemble(ctx, { provider: 'muse-cloud-yunying', model: 'gpt-6.1-sol', messages: [] })
+  await assemble(ctx, { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash', messages: [] })
+  await assemble(ctx, { provider: 'muse-cloud-volcengine', model: 'glm-5.3-flash', messages: [] })
+  expect(server.requests[0]).toMatchObject({ extra_body: { google: { thinking_config: { include_thoughts: true } } } })
+  for (const request of server.requests.slice(1, 4)) expect(request).not.toHaveProperty('extra_body')
+  const called = await assemble(ctx, { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro', messages: [] })
+  expect(called.finish).toEqual({ kind: 'tool-calls' })
+  expect(called.usage).toMatchObject({ inputTokens: 268, outputTokens: 252, totalTokens: 520 })
+  const continued = await assemble(ctx, { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro', messages: [
+    called.message, createToolResultMessage({ callId: ToolCallId('call-1'), isError: false,
+      content: [{ type: 'text', text: 'found' }] }),
+  ] })
+  expect(continued.finish).toEqual({ kind: 'stop' })
+  expect(server.requests[5]).toMatchObject({ extra_body: { google: { thinking_config: { include_thoughts: true } } },
+    messages: [{ role: 'assistant',
+      reasoning_details: [{ type: 'reasoning.encrypted', data: 'opaque-test-signature' }],
+      tool_calls: [{ id: 'call-1' }] }, { role: 'tool' }] })
+})
+
+it('keeps the Yunying Sol high reasoning default through tool continuation and scopes its output limit field', async () => {
+  const reasoning = 'Check the inputs before using the lookup result.'
+  const events = [
+    JSON.stringify({ choices: [{ index: 0, delta: { reasoning_content: reasoning }, finish_reason: null }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'sol-lookup',
+      type: 'function', function: { name: 'lookup', arguments: '{"query":"note"}' } }] }, finish_reason: null }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      usage: { prompt_tokens: 30, completion_tokens: 12, total_tokens: 42 } }), '[DONE]',
+  ]
+  const server = await mockServer([{ events }, ...Array.from({ length: 5 }, () => ({ events: textEvents }))])
+  await login()
+  const base = { contextWindow: 128000, maxTokens: 8192, input: ['text'] }
+  const sol = { ...base, id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol',
+    reasoningEfforts: { high: 'high' }, defaultReasoningEffort: 'high' }
+  const providers = [
+    { id: 'yunying', name: '云映', models: [sol,
+      { ...base, id: 'gemini-3.1-pro', name: 'Gemini', reasoningEfforts: false }] },
+    { id: 'deepseek-official', name: 'DeepSeek', models: [{ ...base, id: 'deepseek-flash', name: 'DeepSeek Flash',
+      reasoningEfforts: { low: 'low', high: 'high', max: 'max' }, defaultReasoningEffort: 'low' }] },
+    { id: 'zhipu-official', name: '智谱官方', models: [{ ...base, id: 'glm-5.3-flash', name: 'GLM Flash',
+      reasoningEfforts: { low: 'low', high: 'high', max: 'max' }, defaultReasoningEffort: 'max' }] },
+    { id: 'studio', name: 'Studio', models: [sol] },
+  ]
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
+      ? { providers, transport: 'direct' }
+      : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
+        access: { baseURL: server.url, apiKey: 'sol-reasoning-fixture-key' } })) }) })
+  await models.refresh()
+  const request = { provider: 'muse-cloud-yunying', model: 'gpt-6.1-sol' }
+  const prepared = await ctx.llm.prepareCall(request)
+  expect(prepared.config).toEqual({ ...request, maxTokens: 8192, reasoningEffort: 'high' })
+  expect(prepared.adapterDefaults).toEqual({ maxTokens: true, reasoningEffort: true })
+  const called = await assemble(ctx, { ...prepared.config, messages: [] })
+  expect(called.finish).toEqual({ kind: 'tool-calls' })
+  expect(called.message.content).toEqual([
+    { type: 'reasoning', text: reasoning },
+    { type: 'tool-call', id: 'sol-lookup', name: 'lookup', arguments: '{"query":"note"}' },
+  ])
+  expect(called.usage).toMatchObject({ inputTokens: 30, outputTokens: 12, totalTokens: 42 })
+  const continued = await assemble(ctx, { ...request, messages: [called.message,
+    createToolResultMessage({ callId: ToolCallId('sol-lookup'), isError: false, content: [{ type: 'text', text: 'found' }] }),
+  ] })
+  expect(continued.finish).toEqual({ kind: 'stop' })
+  expect(continued.message.content).toEqual([{ type: 'text', text: 'hello' }])
+  for (const wire of server.requests.slice(0, 2)) {
+    expect(wire).toMatchObject({ model: 'gpt-6.1-sol', reasoning_effort: 'high', max_completion_tokens: 8192,
+      stream_options: { include_usage: true } })
+    expect(wire).not.toHaveProperty('max_tokens')
+    expect(wire).not.toHaveProperty('extra_body')
+    expect(wire).not.toHaveProperty('thinking')
+  }
+  expect(server.requests[1]).toMatchObject({ messages: [
+    { role: 'assistant', reasoning_content: reasoning, tool_calls: [{ id: 'sol-lookup' }] },
+    { role: 'tool', tool_call_id: 'sol-lookup', content: 'found' },
+  ] })
+  for (const [provider, model] of [
+    ['yunying', 'gemini-3.1-pro'], ['deepseek-official', 'deepseek-flash'],
+    ['zhipu-official', 'glm-5.3-flash'], ['studio', 'gpt-6.1-sol'],
+  ] as const) expect((await assemble(ctx, { provider: `muse-cloud-${provider}`, model, messages: [] })).finish).toEqual({ kind: 'stop' })
+  for (const wire of server.requests.slice(2)) {
+    expect(wire).toHaveProperty('max_tokens', 8192)
+    expect(wire).not.toHaveProperty('max_completion_tokens')
+  }
+  expect(server.requests[2]).toMatchObject({ extra_body: { google: { thinking_config: { include_thoughts: true } } } })
+  expect(server.requests[2]).not.toHaveProperty('reasoning_effort')
+  expect(server.requests[3]).toMatchObject({ reasoning_effort: 'low', thinking: { type: 'enabled' } })
+  expect(server.requests[4]).toMatchObject({ reasoning_effort: 'max', thinking: { type: 'enabled', clear_thinking: false } })
+  for (const wire of server.requests.slice(3)) expect(wire).not.toHaveProperty('extra_body')
+  expect(server.paths).toEqual(Array.from({ length: 6 }, () => '/chat/completions'))
+})
+
+it.each([
+  ['gpt-6.1-sol', 'low'],
+  ['gpt-6.1-sol', 'medium'],
+  ['gpt-6.1-sol', 'high'],
+  ['gpt-6.1-sol', 'xhigh'],
+  ['gpt-6.1-sol', 'max'],
+  ['gemini-3.1-pro', 'low'],
+  ['gemini-3.1-pro', 'medium'],
+  ['gemini-3.1-pro', 'high'],
+] as const)('sends selected Yunying %s effort %s without changing the model default', async (model, effort) => {
+  const server = await mockServer([{ events: textEvents }])
+  await login()
+  const base = { contextWindow: 128000, maxTokens: 8192, input: ['text'] }
+  const providers = [{ id: 'yunying', name: '云映', models: [
+    { ...base, id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol',
+      reasoningEfforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' } },
+    { ...base, id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro',
+      reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' } },
+  ] }]
+  const originalProviders = structuredClone(providers)
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
+      ? { providers, transport: 'direct' }
+      : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
+        access: { baseURL: server.url, apiKey: 'yunying-effort-fixture-key' } })) }) })
+  await models.refresh()
+  const request = { provider: 'muse-cloud-yunying', model }
+  const defaultBefore = await ctx.llm.prepareCall(request)
+  expect(defaultBefore.config).not.toHaveProperty('reasoningEffort')
+  const prepared = await ctx.llm.prepareCall({ ...request, reasoningEffort: ReasoningEffortId(effort) })
+  expect(prepared.config).toEqual({ ...request, maxTokens: 8192, reasoningEffort: effort })
+  expect(prepared.adapterDefaults).toEqual({ maxTokens: true })
+  expect((await assemble(ctx, { ...prepared.config, messages: [] })).finish).toEqual({ kind: 'stop' })
+
+  expect(server.requests).toHaveLength(1)
+  const wire = server.requests[0]
+  expect(wire).toMatchObject({ model, reasoning_effort: effort })
+  if (model === 'gpt-6.1-sol') {
+    expect(wire).toHaveProperty('max_completion_tokens', 8192)
+    expect(wire).not.toHaveProperty('max_tokens')
+  } else {
+    expect(wire).toHaveProperty('max_tokens', 8192)
+    expect(wire).not.toHaveProperty('max_completion_tokens')
+    expect(wire).toHaveProperty('extra_body.google.thinking_config.include_thoughts', true)
+    expect(wire).not.toHaveProperty('extra_body.google.thinking_config.thinking_level')
+    expect(wire).not.toHaveProperty('thinking_level')
+  }
+  const defaultAfter = await ctx.llm.prepareCall(request)
+  expect(defaultAfter.config).not.toHaveProperty('reasoningEffort')
+  expect(defaultAfter.config).toEqual(defaultBefore.config)
+  expect(providers).toEqual(originalProviders)
+})
+
+it.each([
+  ['volcengine-ark', 'deepseek-v4-1-flash-260910', 'deepseek'],
+  ['volcengine-ark', 'vendor/deepseek-v4.1-flash-261017', 'deepseek'],
+  ['alibaba-bailian', 'deepseek-v4.1-flash-1017', 'qwen'],
+  ['volcengine-ark', 'deepseek-v4-1-flash-other', 'default'],
+  ['alibaba-bailian', 'deepseek-v4.1-flash-other', 'default'],
+] as const)('uses the exact %s %s reasoning dialect without changing neighboring models', async (provider, model, dialect) => {
+  const server = await mockServer([{ events: textEvents }])
+  await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
+  models = new MuseModels(ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json({ providers: [{ id: provider, name: provider, models: [{
+      id: model, name: model, contextWindow: 128000, maxTokens: 8192,
+      input: ['text'], reasoningEfforts: { high: 'high' },
+    }] }] }) })
+  await models.refresh()
+  const route = `muse-cloud-${provider}`
+  const history = createAssistantMessage({ content: [{ type: 'text', text: 'Earlier answer' }],
+    source: { provider: route, model } })
+  expect((await assemble(ctx, { provider: route, model, reasoningEffort: ReasoningEffortId('high'), messages: [history] })).finish)
+    .toEqual({ kind: 'stop' })
+  expect(server.requests).toHaveLength(1)
+  const wire = server.requests[0]
+  expect(wire).toMatchObject({ model, max_tokens: 8192 })
+  if (dialect === 'deepseek') expect(wire).toHaveProperty('thinking.type', 'enabled')
+  else if (dialect === 'qwen') expect(wire).toHaveProperty('enable_thinking', true)
+  else {
+    expect(wire).not.toHaveProperty('thinking')
+    expect(wire).not.toHaveProperty('enable_thinking')
+  }
+  expect(wire).toHaveProperty('messages', expect.arrayContaining([expect.objectContaining({
+    role: 'assistant', content: 'Earlier answer', ...(dialect === 'default' ? {} : { reasoning_content: '' }),
+  })]))
+  expect(server.headers[0]?.authorization).toBe('Bearer alice-session')
+  expect(server.paths).toEqual([`/api/desktop-models/${provider}/chat/completions`])
 })

@@ -3,26 +3,38 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/README.md
 /community-plugin-source-and-builds:
-  en: 04bd99afb4a7fc79
-  zh: 5ae91f5b263363a1
+  en: 1680ca1481a8b391
+  zh: 3b035ce27b13afb2
 /community-plugin-source-and-builds/build:
-  en: 4505d961891e1300
-  zh: 5b2adce0a51bb83d
+  en: 541ffc49c8fb9165
+  zh: 9db6b77bccb9240d
 /community-plugin-source-and-builds/compatibility-and-desktop-integration:
-  en: b9f9f74aa78a0a1a
-  zh: 6a118cba746175c7
+  en: b09e75fe38733964
+  zh: 1acabf5dcf0f7e53
+/community-plugin-source-and-builds/compatibility-and-desktop-integration/subscription-providers:
+  en: dbff3a4f11cc7302
+  zh: 2b192a0c39e3bd7a
 /community-plugin-source-and-builds/compatibility-and-desktop-integration/muse-remote-desktop-and-feishu:
-  en: 9d561e4eef12e2c7
-  zh: cc41ab167c532a45
-/community-plugin-source-and-builds/compatibility-and-desktop-integration/muse-bot:
-  en: 303b30e65630dc68
-  zh: 3a159deff8bc686d
+  en: f5ea1a6a8ea5671e
+  zh: 61f1adfcf8be3478
+/community-plugin-source-and-builds/compatibility-and-desktop-integration/ordinary-session-cards:
+  en: b15017a84faa129e
+  zh: 2cdbd5dcc8922b7b
+/community-plugin-source-and-builds/compatibility-and-desktop-integration/archived-muse-bot:
+  en: c1449bb2d6676caf
+  zh: a161b639fcf9a97e
 /community-plugin-source-and-builds/compatibility-and-desktop-integration/hongguo-public-metadata:
-  en: bb23ebad1ebbcb86
-  zh: bfe5b1ed488fbf5b
+  en: 62cd7e2ff33d63ec
+  zh: 7daaac5455bfa978
+/community-plugin-source-and-builds/compatibility-and-desktop-integration/qimao-public-metadata:
+  en: f7a700fe2b4f5501
+  zh: 4acabe2fb456a58f
+/community-plugin-source-and-builds/compatibility-and-desktop-integration/selection-snapshots-and-reports:
+  en: bc6c866c7b0265d2
+  zh: 3e54a633315c0f67
 /community-plugin-source-and-builds/compatibility-and-desktop-integration/muse-local-tools:
-  en: 1bb08a603fb0ce7b
-  zh: 5b425b50ff780300
+  en: 799eafb72596fc91
+  zh: 9bb247d59ccd7725
 /community-plugin-source-and-builds/licenses:
   en: c3b3d30f0293f569
   zh: 4e82b1878b25ec0a

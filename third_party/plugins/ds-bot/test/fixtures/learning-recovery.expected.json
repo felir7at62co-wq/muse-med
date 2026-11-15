@@ -1,0 +1,103 @@
+{
+  "open": [
+    {
+      "role": "group",
+      "title": "Dialogue notes",
+      "kind": "New skill",
+      "detail": "Keep character voices distinct.",
+      "file": "SKILL.md",
+      "path": "skills/Dialogue notes",
+      "lines": [
+        "Preserve the established voice."
+      ],
+      "error": null,
+      "busy": "false",
+      "buttons": [
+        {
+          "label": "Decline",
+          "disabled": false
+        },
+        {
+          "label": "Approve",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "answering": [
+    {
+      "role": "group",
+      "title": "Dialogue notes",
+      "kind": "New skill",
+      "detail": "Keep character voices distinct.",
+      "file": "SKILL.md",
+      "path": "skills/Dialogue notes",
+      "lines": [
+        "Preserve the established voice."
+      ],
+      "error": null,
+      "busy": "true",
+      "buttons": [
+        {
+          "label": "Decline",
+          "disabled": true
+        },
+        {
+          "label": "Approve",
+          "disabled": true
+        }
+      ]
+    }
+  ],
+  "failed": [
+    {
+      "role": "group",
+      "title": "Dialogue notes",
+      "kind": "New skill",
+      "detail": "Keep character voices distinct.",
+      "file": "SKILL.md",
+      "path": "skills/Dialogue notes",
+      "lines": [
+        "Preserve the established voice."
+      ],
+      "error": "Could not write SKILL.md",
+      "busy": "false",
+      "buttons": [
+        {
+          "label": "Decline",
+          "disabled": false
+        },
+        {
+          "label": "Approve",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "remounted": [
+    {
+      "role": "group",
+      "title": "Dialogue notes",
+      "kind": "New skill",
+      "detail": "Keep character voices distinct.",
+      "file": "SKILL.md",
+      "path": "skills/Dialogue notes",
+      "lines": [
+        "Preserve the established voice."
+      ],
+      "error": "Could not write SKILL.md",
+      "busy": "false",
+      "buttons": [
+        {
+          "label": "Decline",
+          "disabled": false
+        },
+        {
+          "label": "Approve",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "closed": []
+}

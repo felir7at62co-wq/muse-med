@@ -1,4 +1,4 @@
-/** Offline provider for a cast-list dialogue preview without a bound voice reference. */
+/** Offline provider for dialogue inside a numbered shot without a bound voice reference. */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 export const name = 'duration-fixture'
@@ -20,7 +20,7 @@ export function apply(ctx) {
       storyboardName: 'Offline horizontal test', modelConfig: JSON.stringify({
         standardId: 61, modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU',
         genType: 3, modelGenerationTypeId: 71, videoStandardId: 337, duration: '10',
-        ratio: '16:9', resolution: '480p', genNum: 1, prompt: '@[Existing CG actor](lead)\n人物：张三、李四\n李四：雨停了。',
+        ratio: '16:9', resolution: '480p', genNum: 1, prompt: '@[Existing CG actor](lead)\n人物：张三、李四\n镜头17：近景，李四保持侧脸，问出最后一句：李四：还想走吗？',
       }), storyboardMaterialList: [] }
     let writes = 0
     globalThis.fetch = async (input, init) => {

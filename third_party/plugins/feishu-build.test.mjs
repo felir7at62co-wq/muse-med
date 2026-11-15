@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
+import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const source = join(import.meta.dirname, 'dsh-feishu')
@@ -35,7 +36,7 @@ test('explicitly packs the retired Feishu source with its retained cards and no 
     const archives = outputs.map(output => {
       const result = spawnSync(process.execPath, [join(import.meta.dirname, 'build.mjs'), '--only', 'dsh-feishu', '--out', output], {
         cwd: root,
-        env: { ...process.env, npm_execpath: join(root, 'node_modules/pnpm/bin/pnpm.cjs') },
+        env: { ...process.env, npm_execpath: resolvePnpmEntrypoint(join(root, 'node_modules/pnpm/package.json')) },
         encoding: 'utf8',
         timeout: 80_000,
         maxBuffer: 8 * 1024 * 1024,

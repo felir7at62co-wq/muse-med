@@ -3,6 +3,7 @@
 import json
 import logging
 import math
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,49 @@ def _geometry(value, label: str) -> dict:
     return {**dimensions, 'fps': int(fps)}
 
 
+def _subtitle(value, label: str, height: int) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError(f'{label} must be an object')
+    for field, upper, zero in (('font_size_px', 9_007_199_254_740_991, False),
+                               ('margin_bottom_px', height, True)):
+        if field in value:
+            number = value[field]
+            if (isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number)
+                    or number > upper or (number < 0 if zero else number <= 0)):
+                raise ValueError(f'{label}.{field} is out of range')
+    if 'font_family' in value and (not isinstance(value['font_family'], str)
+                                   or not value['font_family'].strip()
+                                   or any(c in value['font_family'] for c in ',\r\n')):
+        raise ValueError(f'{label}.font_family must be a nonempty ASS family without delimiters')
+    return {key: value[key] for key in ('font_family', 'font_size_px', 'margin_bottom_px') if key in value}
+
+
+def _subtitle_visual(value, label: str) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError(f'{label} must be an object')
+    if not value:
+        return {}
+    if type(value.get('schema_version')) is not int or value['schema_version'] != 1:
+        raise ValueError(f'{label}.schema_version must be 1')
+    ranges = {'reference_width': (16384, False), 'reference_height': (16384, False),
+              'font_size_px': (16384, False), 'outline_px': (100, True),
+              'center_y_ratio': (1, True), 'max_width_ratio': (1, False)}
+    result = {'schema_version': 1}
+    for field, (upper, zero) in ranges.items():
+        number = value.get(field)
+        if (isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number)
+                or number > upper or (number < 0 if zero else number <= 0)):
+            raise ValueError(f'{label}.{field} is out of range')
+        result[field] = number
+    if 'font_family' in value:
+        family = value['font_family']
+        if (not isinstance(family, str) or not family.strip() or len(family.strip()) > 128
+                or any(c == ',' or ord(c) < 32 or ord(c) == 127 for c in family)):
+            raise ValueError(f'{label}.font_family is invalid')
+        result['font_family'] = family.strip()
+    return result
+
+
 def resolve_delivery(timeline: dict, project: Path | None = None) -> dict:
     """Validate persisted choices; missing medium keeps the marked legacy ending with a warning.
 
@@ -56,6 +100,7 @@ def resolve_delivery(timeline: dict, project: Path | None = None) -> dict:
         raise ValueError('timeline.delivery must be an object')
     timeline_medium = _medium(snapshot, 'timeline.delivery')
     project_medium = None
+    project_delivery = {}
     if project is not None:
         config_path = Path(project) / 'project_config.json'
         if config_path.exists():
@@ -68,6 +113,7 @@ def resolve_delivery(timeline: dict, project: Path | None = None) -> dict:
                 if not isinstance(bible['delivery'], dict):
                     raise ValueError('project_bible.delivery must be an object')
                 _geometry({**DEFAULT_GEOMETRY, **bible['delivery']}, 'project_bible.delivery')
+                project_delivery = bible['delivery']
     if timeline_medium and project_medium and timeline_medium != project_medium:
         raise ValueError('timeline.delivery.visual_medium conflicts with project_bible.visual_medium; '
                          'rerun prepare (重新 prepare) before delivery')
@@ -85,7 +131,24 @@ def resolve_delivery(timeline: dict, project: Path | None = None) -> dict:
             raise ValueError('timeline.canvas conflicts with timeline.delivery dimensions; rerun prepare')
     else:
         dimensions, fps = canvas or {'width': 1440, 'height': 2560}, 60
-    return {'visual_medium': medium, **dimensions, 'fps': fps,
+    selected = {}
+    default_visual = os.environ.get('MUSE_DEFAULT_SUBTITLE_VISUAL')
+    # In the packaged Muse short-drama product's portrait output, stale project/timeline
+    # visual snapshots must not override the accepted style. Do not change persisted choices.
+    # Other deployments (and environments without a configured product visual) keep their
+    # existing explicit-style inheritance and fallback behaviour.
+    product_visual_enabled = os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1'
+    force_product_visual = (product_visual_enabled and default_visual
+                            and dimensions['height'] > dimensions['width'])
+    if not force_product_visual:
+        for key in ('subtitle', 'subtitle_visual'):
+            source = snapshot if key in snapshot else project_delivery
+            if key in source:
+                selected[key] = (_subtitle(source[key], f'delivery.{key}', dimensions['height']) if key == 'subtitle'
+                                 else _subtitle_visual(source[key], f'delivery.{key}'))
+    if default_visual and (force_product_visual or (not product_visual_enabled and not selected)):
+        selected['subtitle_visual'] = _subtitle_visual(json.loads(default_visual), 'MUSE_DEFAULT_SUBTITLE_VISUAL')
+    return {'visual_medium': medium, **dimensions, 'fps': fps, **selected,
             'ending_duration_us': 0 if medium == 'animation_3d' else 2_000_000,
             'add_watermark': medium != 'animation_3d', 'warnings': warnings}
 
@@ -102,8 +165,8 @@ def reject_animation_ending(timeline: dict, end_us: int, policy: dict) -> None:
 
 
 def ending_effect_fit(timeline: dict) -> str:
-    """Read only the explicit timeline fit; omission keeps original-speed playback."""
-    fit = timeline.get('ending_effect_fit', 'source_once')
+    """Use the timeline selection before the optional product deployment fallback."""
+    fit = timeline.get('ending_effect_fit', os.environ.get('MUSE_DEFAULT_ENDING_EFFECT_FIT', 'source_once'))
     if fit not in ('source_once', 'stretch_to_window'):
         raise ValueError('ending_effect_fit must be source_once or stretch_to_window')
     return fit

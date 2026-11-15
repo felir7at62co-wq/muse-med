@@ -17,6 +17,7 @@
 
 import { declaredBodyStates } from './state.ts'
 import { reviewShotQuality } from './quality.ts'
+import { offscreenCharacterIssues } from './visibility.ts'
 import type { DurationSource, IssueCode, IssueSeverity, ParsedShot, ShotIssue, VoiceType } from './types.ts'
 
 /** Han characters, Latin letters, and digits: punctuation and spaces never count. */
@@ -530,6 +531,7 @@ export function parseShotScript(text: string, options: ParseOptions): ParseResul
     }
 
     const charactersField = field(blockText, '出镜人物')
+    issues.push(...offscreenCharacterIssues(blockText, charactersField, block.number, markerLine))
     if (CHARACTERS_PLACEHOLDER.test(charactersField)) {
       const line = lineAt(text, block.start + fieldOffset(blockText, '出镜人物'))
       issues.push(issue('failure', 'characters_placeholder', block.number, line,

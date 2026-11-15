@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-drama-settings",
   "description": "Short-drama settings and Web UI for delivery, media and the automatic per-drama paid-call budget",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.2-rc.1",
   "publishConfig": {
     "access": "public"
   },
@@ -24,9 +24,11 @@
     },
     "./src/*": "./src/*",
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
+    "locale/*.json",
     "lib/index.js",
     "lib/client.js",
     "cordis.patch.yml",
@@ -53,15 +55,14 @@
     "watch": "tsdown --watch"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-atomic-write": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-atomic-write": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-tools": "workspace:*"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-atomic-write": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-api-remotes": "workspace:*",
     "@deepseek-ai/dsh-client-locale": "workspace:*",
@@ -75,10 +76,11 @@
     "@deepseek-ai/dsh-typert-protocol": "workspace:*",
     "@deepseek-ai/dsh-util-values": "workspace:*",
     "@testing-library/react": "^16.1.0",
-    "@types/react": "~18.3.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "@deepseek-ai/dsh-jubian": "workspace:*",
-    "@deepseek-ai/dsh-tools": "workspace:*"
+    "@deepseek-ai/dsh-tools": "workspace:*",
+    "@deepseek-ai/dsh-tool-testkit": "workspace:*",
+    "@deepseek-ai/dsh-tool-executor-native": "workspace:*"
   }
 }

@@ -7,8 +7,10 @@ export const STORAGE = {
   seen: 'ds-bot:seen',
   prefs: 'ds-bot:prefs',
   surface: 'ds-bot:surface',
+  surfaceSelections: 'ds-bot:surface-selections',
   agentSessions: 'ds-bot:agent-sessions',
   browserWidth: 'ds-bot:browser-width',
+  sidebar: 'ds-bot:sidebar',
   browsers: 'ds-bot.browser.v2',
 }
 

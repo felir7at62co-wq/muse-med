@@ -15,6 +15,9 @@ import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import Tools from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import LocalFs from '@deepseek-ai/dsh-fs-local'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import { configurationFixture } from '../../../packages/settings/settings/tests/configuration-fixture.ts'
 
@@ -42,7 +45,10 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     persona: Persona, 'skill-tool': ToolSkill } })
   try {
     await ctx.plugin(Llm); await ctx.plugin(Sessions); await ctx.plugin(SessionProjections)
-    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(LocalFs, { cwd: home })
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: home }).await()
+    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] }).await()
     await ctx.plugin(AgentPresets, { default: 'short-drama-aesthetics' })
     const remove = await ctx.agentPresets.register({ id: 'short-drama-aesthetics', plugins: [{ name: 'cordis:persona', config: persona }] })
     ctx.effect(() => remove)
@@ -73,11 +79,23 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(system).toContain('语言选择是创作指导，不拦截生图')
     expect(system).not.toContain('适合短剧的形象、妆造、配色、用光和氛围')
     expect(system).toContain('视频包提示词默认不写时间轴')
+    expect(system).toContain('不要把计划或“开始做”当作完成')
+    expect(system).toContain('后文创作、精简、补空间或默认不写时间轴的建议不授权改稿')
+    expect(system).toContain('正文、对白、回忆或否定句提到某人不等于该人物出镜')
+    expect(system).toContain('“先看提示词”“只预览”“先不生成”收窄此前批量制作或费用授权')
+    expect(system).toContain('不为每包增设确认或审批门禁')
     expect(system).toContain('视频包之间不共享上下文')
     expect(system).toContain('同一时空内衔接清楚的连续段落')
     expect(system).toContain('符合题材的上镜效果、角色魅力、辨识度和情绪表现')
-    expect(system).toContain('人物角色资产图优先遵循当前项目已定画幅与交付用途')
-    expect(system).not.toContain('人物角色资产图固定为16:9横版')
+    expect(system).toContain('所有资产图默认16:9横版')
+    expect(system).toContain('用户明确指定其他比例时按指定执行')
+    expect(system).toContain('资产图比例与视频成片比例分别处理')
+    for (const requirement of ['人物角色资产图：16:9横版白底', '五官清晰的面部特写',
+      '完整保留头部、发型和双脚', '仅将右侧可见脸部覆盖为纯白', '背面保留后脑与发型', '严禁无头、截头']) {
+      expect(system).toContain(requirement)
+    }
+    expect(system).not.toContain('未指定时可用16:9横版白底设定板')
+    expect(system).not.toContain('不强套横版拼贴和三视图')
     expect(system).toContain('不凭提示词、参数或任务成功就宣称艺术效果达标')
     expect(system).not.toContain('drama_shot')
     const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
@@ -94,6 +112,13 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(bodies[1]).toContain('保留人物身份、物种、关键形态、剧情尺度、动作、道具功能与原台词')
     expect(bodies.join('\n')).not.toContain('土得帅')
     expect(bodies[0]).not.toContain('每次生成前必读')
+    expect(bodies[0]).toContain('左侧为正面平视的面部特写')
+    for (const requirement of ['完整保留头部、发型和从头到脚的身体', '右侧可见的脸部区域覆盖纯白',
+      '只遮脸，不覆盖整个头或头发', '背面保留完整后脑与发型', '严禁无头、截头或裁掉脚部']) {
+      expect(bodies[0]).toContain(requirement)
+    }
+    expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('preflight <集号> --script <本集镜头脚本>')
+    expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('重复短句按出现次数核对')
     const summaries = await ctx.skills.list()
     for (const name of ['shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
       const summary = summaries.find(skill => skill.name === name)
@@ -105,7 +130,11 @@ it('keeps shot requirements resident and loads creative direction with skills', 
       expect(summary?.whenToUse).toContain('不用于仅整理普通分场剧本')
       const content = await readFile(new URL(`${name}/SKILL.md`, `file://${skillRoot}`))
       expect(bodies[names.indexOf(name)]).toContain(content.toString('utf8').replace(/^---\n[\s\S]*?\n---\n/u, '').trim())
-      expect(bodies[names.indexOf(name)]).not.toContain('drama_shot')
+      if (name === 'shot-script-creator-9-16') {
+        expect(bodies[names.indexOf(name)]).toContain('drama_shot validate` 只检查格式与建议，不能代替原文逐字预检')
+      } else {
+        expect(bodies[names.indexOf(name)]).not.toContain('drama_shot')
+      }
       expect(bodies[names.indexOf(name)]).not.toContain('15秒信息密度')
       expect(bodies[names.indexOf(name)]).toContain('写卡使用 `jubian_storyboard` 的预览、保存和真实回读')
       expect(bodies[names.indexOf(name)]).toContain('分辨率以当前会话的视频选择为准')

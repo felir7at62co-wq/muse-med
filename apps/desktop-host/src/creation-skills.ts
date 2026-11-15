@@ -15,11 +15,14 @@ export const CREATION_SKILL_NAMES: readonly string[] = [
   'douyin-download',
   'jubian-snatch',
   'media-link-import',
-  'muse-llm-wiki',
-  'muse-project-participation',
+  'muse-dialogue-polish',
+  'muse-episode-design',
+  'muse-script-doctor',
+  'novel-to-script',
   'office-docx',
   'office-pptx',
   'office-xlsx',
+  'screenplay-format',
   'shot-script-creator-16-9-3d',
   'shot-script-creator-9-16',
   'tweet-drama-asset-vision-check',
@@ -34,6 +37,8 @@ export const CREATION_SKILL_NAMES: readonly string[] = [
   'tweet-drama-shot-asset-match',
   'tweet-drama-voice-continuity',
   'video-review',
+  'video-to-screenplay',
+  'visualize',
   'wechat-shortdrama-harvest',
 ]
 const allowed = new Set(CREATION_SKILL_NAMES)
@@ -46,7 +51,7 @@ function available(skill: Pick<SkillSummary, 'name' | 'source'>): boolean {
 }
 
 /**
- * Forward approved built-in resources and user-configured skills into the isolated creation registry.
+ * Forward approved global Skills and exact Agent-selected market releases into the isolated creation registry.
  * @param ctx - Context in the creation-skills isolated realm.
  */
 export function apply(ctx: Context): void {
@@ -62,15 +67,19 @@ export function apply(ctx: Context): void {
       name: 'muse-creation',
       async list(options) {
         const catalog = await source.snapshot({ cwd: options.cwd, signal: options.signal })
-        const candidates: SkillCandidate[] = catalog.skills.filter(available).map(skill => ({
+        const scoped = await source.snapshot(options)
+        const selected = new Map(catalog.skills.filter(available).map(skill => [skill.name, skill]))
+        for (const skill of scoped.skills) if (skill.source === 'muse-market') selected.set(skill.name, skill)
+        const candidates: SkillCandidate[] = [...selected.values()].map(skill => ({
           ...skill, provider: 'muse-creation', rank: BUNDLED_SKILL_RANK, locator: skill.name,
         }))
-        return { candidates, complete: catalog.complete }
+        return { candidates, complete: catalog.complete && scoped.complete }
       },
       async get(candidate, options) {
-        if (!available(candidate)) return undefined
-        const skill = await source.get(candidate.name, { cwd: options.cwd, signal: options.signal })
-        if (skill === undefined || !available(skill)) return undefined
+        const market = candidate.source === 'muse-market'
+        if (!market && !available(candidate)) return undefined
+        const skill = await source.get(candidate.name, market ? options : { cwd: options.cwd, signal: options.signal })
+        if (skill === undefined || (market ? skill.source !== 'muse-market' : !available(skill))) return undefined
         return { ...skill, provider: 'muse-creation' }
       },
     }

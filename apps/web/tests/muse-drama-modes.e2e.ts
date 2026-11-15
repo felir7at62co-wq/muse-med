@@ -1,4 +1,4 @@
-/** Muse exposes one creative Agent without preset or plugin-management navigation. */
+/** Muse keeps creative and coordinator presets out of mode and plugin-management navigation. */
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -26,7 +26,7 @@ beforeAll(async () => {
   }
   expect(policy).toEqual({ default: 'short-drama', selectablePresets: ['short-drama'] })
   const definitions: PresetDefinition[] = []
-  for (const id of ['short-drama', 'creation', 'standard', 'ptc', 'cordis', 'minimal']) {
+  for (const id of ['short-drama', 'creation', 'standard', 'ptc', 'cordis', 'minimal', 'bot-coordinator']) {
     const meta = load(await readFile(join(root, 'presets', id, 'preset.yml'), 'utf8')) as {
       name?: string
       description?: string

@@ -1,3 +1,4 @@
+import type {} from '@deepseek-ai/dsh-client-ui-context-menu/client'
 /**
  * Deliverables plugin, browser half: registers the changed-files card and
  * delivery cards into the chat view's turn-tail list, the `changes-review`
@@ -9,6 +10,7 @@
  * surface; the owning view renders an empty list and inert prose at zero cost.
  */
 import './file-actions.ts'
+import './video-slot.ts'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
@@ -27,10 +29,12 @@ import { DeliverablesTail, type DeliverablesInjected } from './Deliverables.tsx'
 import { ReviewTab, type ReviewInjected } from './ReviewTab.tsx'
 import { CHANGES_REVIEW_ID, changesReviewDefinition } from './review-definition.ts'
 import { createReviewStore } from './review-store.ts'
-import { en, NS, zh, type DeliverablesKey } from './locales.ts'
+import { en, ja, es, fr, de, ru, pt, NS, zh, type DeliverablesKey } from './locales.ts'
 import {
   deliverablesDefinition, presentedForClosing, producedFileMentions, selectProducedFiles,
 } from './turn-deliverables.ts'
+
+export type { PresentedOpenOutcome, PresentedOpenFailure } from './present-open.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -57,14 +61,14 @@ export function apply(ctx: ClientContext): void {
     diffs.reset()
   })
   ctx.uiConversation.events.register(deliverablesDefinition)
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-deliverables: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-deliverables: dictionaries')
   ctx.slots.inject(
     'conversation.chat.turnTail',
     () => ctx.slots.register({
       name: 'conversation.chat.turnTail',
       id: '@deepseek-ai/dsh-client-ui-deliverables',
       locale: NS,
-      children: { 'deliverables.file.actions': { kind: 'list', scope: 'session' } },
+      children: { 'deliverables.file.actions': { kind: 'list', scope: 'session' }, 'deliverables.video': { kind: 'chain', scope: 'session' } },
       inject: (): DeliverablesInjected => ({
         hooks: { changesDiff: diffs.state, presentedOpen: opener.state, presentedHost: opener.host, changesSummary: summaries.state,
           showCodeDiff: ctx.configForms.developerTools.enabled },
@@ -108,12 +112,14 @@ export function apply(ctx: ClientContext): void {
   // The prose side of the same vocabulary: the chat view reaches this face
   // via ctx.get, so its absence — this plugin composed out — is the off state.
   const mentions: ChatFileMentions = {
-    forClosing(owner) {
+    forClosing(owner, _sessionId, getFileTriggerProps) {
       const paths = selectProducedFiles(owner)
       const presented = presentedForClosing(owner)
       if (paths === null && presented.length === 0) return undefined
       return producedFileMentions([...new Set([...paths ?? [], ...presented.map(file => file.path)])], owner.openFile,
-        path => t('presented.previewButton', { name: path }))
+        path => t('presented.previewButton', { name: path }),
+        owner.turn.data.get('deliverables')?.produced,
+        getFileTriggerProps)
     },
   }
   ctx.provide('chatFileMentions', mentions)

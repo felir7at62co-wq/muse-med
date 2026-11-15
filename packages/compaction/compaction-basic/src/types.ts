@@ -4,12 +4,26 @@
  * @module @deepseek-ai/dsh-compaction-basic/types
  */
 
+declare module '@deepseek-ai/dsh-llm/types' {
+  interface LlmRequestPurposeMap {
+    'compaction': true
+  }
+}
+
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 
 /** Policy fields shared by the default policy and exact model overrides. */
 export interface CompactionPolicyConfig {
+  /** Adapt headroom, retained tail and summary output to smaller model windows; defaults to false. */
+  adaptiveBudget?: boolean
   /** Window fraction for pressure; capped at context window minus reserved output and `headroomTokens`. Defaults to `0.8`. */
   thresholdRatio?: number
+  /**
+   * Optional positive estimated compaction target; also caps the pressure
+   * threshold. Retained context may continue below the calibrated safe input
+   * budget without changing model capacity.
+   */
+  workingTokenLimit?: number
   /** Additional pressure headroom beyond the routed output reservation. Non-negative integer; defaults to `65536`. */
   headroomTokens?: number
   /**
@@ -28,7 +42,7 @@ export interface CompactionPolicyConfig {
   maxTokens?: number
   /** Extra attempts after the first compaction when pressure remains above threshold. Defaults to `1`. */
   compactionRetries?: number
-  /** Maximum retries after canonical context overflow; `0` disables recovery. Defaults to `1`. */
+  /** Maximum recovery retries after canonical overflow or local working-budget rejection; `0` disables recovery. Defaults to `1`. */
   maxOverflowRetries?: number
 }
 
@@ -44,7 +58,7 @@ export interface ModelCompactPolicyConfig extends CompactionPolicyConfig {
 export interface BasicCompactionConfig extends CompactionPolicyConfig {
   /** Exact provider/model overrides; duplicate targets fail plugin load. */
   modelPolicies?: ModelCompactPolicyConfig[]
-  /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
+  /** Enable automatic pressure, working-budget checks and overflow recovery. Defaults to `true`. */
   auto?: boolean
 }
 
@@ -55,7 +69,9 @@ export type ResolvedRetention =
 
 /** Validated policy fields shared before and after exact-target matching. */
 interface ResolvedPolicyFields {
+  readonly adaptiveBudget: boolean
   readonly thresholdRatio: number
+  readonly workingTokenLimit?: number
   readonly headroomTokens: number
   readonly summarizationProvider: string
   readonly summarizationModel: string

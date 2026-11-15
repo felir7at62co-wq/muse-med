@@ -6,14 +6,20 @@
   en: f9eb74f0e5b657ac
   zh: 745355e39822c5a3
 /muse-bot/desktop-use:
-  en: e7ee539f682cebbd
-  zh: c6c0643babbae918
+  en: 64b873239daf3c20
+  zh: 8231c8efc61fffe0
+/muse-bot/phone-browser-access:
+  en: 4a56ee984715750b
+  zh: eb75810fb302b54e
+/muse-bot/browser-message-receipts:
+  en: 0c00a643c153b775
+  zh: 0ae9c512378e4482
 /muse-bot/native-configuration:
-  en: 12733dc4f94b24e5
-  zh: e297f75ddc18790c
+  en: 4000ef22179e308e
+  zh: 9ae5bbe5fd6deeb1
 /muse-bot/source-packaging-and-checks:
-  en: 65ad42f08b65ead8
-  zh: 81bb655a52e9ef1f
+  en: 913b2a58155b1e35
+  zh: 21bf2dca31dd113e
 /muse-bot/license-and-attribution:
   en: c96e15896ea84a61
   zh: 2e99a2576dc8b686

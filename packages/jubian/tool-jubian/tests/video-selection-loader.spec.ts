@@ -9,6 +9,8 @@ import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import UserQuestions from '@deepseek-ai/dsh-user-questions'
 import Tools from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { mountWorkingDirectoryFixture } from '../../../subagent/subagent/tests/working-directory-fixture.ts'
 import Subagents from '@deepseek-ai/dsh-subagent'
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -32,6 +34,8 @@ it('delivers a fresh subagent the parent video selection through the loaded serv
   })
   try {
     await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
+    await ctx.plugin(NativeToolExecutor)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(Subagents); await ctx.plugin(Spawn, { providerName: 'spawn' })
     const entry = await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot: home, workspaceSecrets: false,
@@ -46,10 +50,12 @@ it('delivers a fresh subagent the parent video selection through the loaded serv
     const choice = (await service.catalogue()).find(option => option.maxDurationSeconds === 15)!
     const selected = await service.select(parent, choice.key, 0)
     const before = requests.length
-    const run = await ctx.subagents.start('spawn', { parent, prompt: [{ type: 'text', text: '核对当前模型与时长。' }], signal: new AbortController().signal })
+    const run = await ctx.subagents.startActivation({ provider: 'spawn', label: 'video model inheritance', delivery: 'caller',
+      request: { parent, prompt: [{ type: 'text', text: '核对当前模型与时长。' }] }, signal: new AbortController().signal })
+    const child = ctx.agents.get(run.childId)
+    if (child === undefined) throw new Error('Fresh loaded video-choice child was not published')
     try {
       await run.result
-      const child = ctx.agents.get(run.id)!
       expect(service.current(child)).toEqual(selected)
       expect(requests).toHaveLength(before)
       const contexts = adapter.requests[0]!.messages.filter(message => message.role === 'user'
@@ -81,6 +87,8 @@ it('asks about shorter duration, applies the human answer and appends context wi
   })
   try {
     await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
+    await ctx.plugin(NativeToolExecutor)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] }); await ctx.plugin(UserQuestions)
     await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot: home, workspaceSecrets: false,
       sessionVideoSelection: true, imageAllowedStandardIds: [76, 66, 86],

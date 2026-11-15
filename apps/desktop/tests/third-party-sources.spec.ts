@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
@@ -5,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../third_party/plugins')
+const repository = resolve(root, '../..')
 
 it('exports the maintained catalog loader only in the product build overlay', async () => {
   const builder = await readFile(join(root, 'build.mjs'), 'utf8')
@@ -14,7 +16,11 @@ it('exports the maintained catalog loader only in the product build overlay', as
   expect(upstream.exports['./catalog']).toBeUndefined()
 })
 
-it('retains pinned community source and licenses without installed runtime data', async () => {
+it('retains pinned community source and licenses without tracking installed runtime data', async () => {
+  const trackedRuntime = execFileSync('git', [
+    'ls-files', '-z', '--', ':(glob)*/node_modules', ':(glob)*/node_modules/**',
+  ], { cwd: root, encoding: 'utf8' })
+  expect(trackedRuntime.split('\0').filter(Boolean)).toEqual([])
   const pins = JSON.parse(await readFile(join(root, 'sources.json'), 'utf8')) as Record<string, {
     repository: string
     version: string
@@ -22,11 +28,13 @@ it('retains pinned community source and licenses without installed runtime data'
     archiveSha256?: string
     license: string
     desktop?: boolean
+    localModifications?: { files: Record<string, { sha256: string }> }
   }>
   expect(Object.keys(pins).sort()).toEqual([
-    'ds-bot', 'dsh-bridge', 'dsh-codex-subscription', 'dsh-feishu', 'dsh-ffmpeg', 'dsh-im', 'dsh-skill-mcp-panel', 'dshmarket', 'muse-hongguo-search',
+    'deep-view', 'ds-bot', 'dsh-bridge', 'dsh-codex-subscription', 'dsh-feishu', 'dsh-ffmpeg', 'dsh-im', 'dsh-plugin-subscriptions', 'dsh-skill-mcp-panel', 'dsh-visualize', 'dshmarket', 'muse-hongguo-search',
   ])
-  expect(pins['dsh-codex-subscription']?.desktop).not.toBe(false)
+  expect(pins['dsh-codex-subscription']?.desktop).toBe(false)
+  expect(pins['dsh-plugin-subscriptions']?.desktop).not.toBe(false)
   expect(pins['dsh-feishu']?.desktop).toBe(false)
   expect(pins['dsh-im']?.desktop).not.toBe(false)
   for (const [directory, pin] of Object.entries(pins)) {
@@ -46,8 +54,23 @@ it('retains pinned community source and licenses without installed runtime data'
     expect(pin.repository, directory).toMatch(/^https:\/\/github\.com\//)
     expect((await stat(join(sourceDir, directory === 'dsh-bridge' ? 'lib' : 'src'))).isDirectory(), directory).toBe(true)
     expect((await readFile(join(sourceDir, 'LICENSE'), 'utf8')).length, directory).toBeGreaterThan(0)
-    expect(await readdir(sourceDir), directory).not.toContain('node_modules')
-    if (directory !== 'dsh-bridge' && directory !== 'dsh-im') expect(await readdir(sourceDir), directory).not.toContain('lib')
+    expect(execFileSync('git', ['ls-files', '--', `third_party/plugins/${directory}/node_modules`], {
+      cwd: repository,
+      encoding: 'utf8',
+    }), directory).toBe('')
+    if (directory === 'dsh-visualize') {
+      const tracked = execFileSync('git', ['ls-files', '--', 'third_party/plugins/dsh-visualize/lib'], {
+        cwd: repository, encoding: 'utf8',
+      }).trim().split(/\r?\n/)
+      expect(tracked).toEqual(['client.js', 'index.d.ts', 'index.js'].map(file => `third_party/plugins/dsh-visualize/lib/${file}`))
+      const entries = ['client.js', 'index.d.ts', 'index.js']
+      expect((await readdir(join(sourceDir, 'lib'))).sort()).toEqual(entries)
+      for (const entry of entries) {
+        const expected = pin.localModifications?.files[`lib/${entry}`]?.sha256
+        expect(expected, entry).toMatch(/^[a-f0-9]{64}$/)
+        expect(createHash('sha256').update(await readFile(join(sourceDir, 'lib', entry))).digest('hex'), entry).toBe(expected)
+      }
+    } else if (directory !== 'dsh-bridge' && directory !== 'dsh-im') expect(await readdir(sourceDir), directory).not.toContain('lib')
     expect(await readdir(sourceDir), directory).not.toContain('.git')
   }
   expect((await readFile(join(root, 'dsh-codex-subscription', 'THIRD_PARTY_NOTICES.md'), 'utf8')))

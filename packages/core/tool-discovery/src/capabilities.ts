@@ -46,3 +46,21 @@ export function capabilitySummaries(
 export function capabilityMemberships(name: string, definitions: readonly CapabilityDefinition[]): string[] {
   return definitions.filter(definition => matches(name, definition)).map(definition => definition.id)
 }
+
+/** Reserved category for authorized tools with no configured membership. */
+export const UNCATEGORIZED_CAPABILITY = 'uncategorized'
+
+/**
+ * Add a browsable category for authorized tools absent from configured groups.
+ * @param definitions - Deployment categories; the reserved id cannot be configured.
+ * @param toolNames - Current authorized tools eligible for discovery.
+ * @param residentNames - Constant tools whose definitions are already visible.
+ * @returns Configured groups and, when needed, a category containing only unassigned deferred tools.
+ */
+export function discoverableCapabilities(
+  definitions: readonly CapabilityDefinition[], toolNames: readonly string[], residentNames: ReadonlySet<string>,
+): readonly CapabilityDefinition[] {
+  const unassigned = toolNames.filter(name => !residentNames.has(name) && !definitions.some(definition => matches(name, definition)))
+  return unassigned.length ? [...definitions, { id: UNCATEGORIZED_CAPABILITY, title: 'Other authorized tools',
+    description: 'Browse authorized tools not assigned to another capability.', tools: unassigned }] : definitions
+}

@@ -1,0 +1,15 @@
+version: 1
+scenario: muse-douyin-cwd-retarget
+profile: headless
+composition: muse-douyin-cwd-retarget
+recording: authored
+writerOutput: true
+platform: posix
+permission: workspace-write
+header:
+  class: muse-douyin-cwd-retarget
+  pin: true
+  childSystemPrompts: [1]
+  childToolSchemas: [1]
+workspace:
+  final: true

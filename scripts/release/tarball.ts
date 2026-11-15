@@ -74,8 +74,8 @@ export function packedManifest(tarball: string): Record<string, unknown> {
 }
 
 /**
- * Read a packed tarball's own manifest.
- * @param tarball - absolute tarball path.
+ * Read a packed tarball's own identity.
+ * @param tarball - Absolute tarball path.
  * @returns The name and version the tarball declares.
  */
 export function packedIdentity(tarball: string): PackedIdentity {

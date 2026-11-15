@@ -125,6 +125,7 @@ export class MuseAccountService extends TypertRemoteService {
   async status(request: MuseAccountStatusRequest): Promise<MuseAccountStatus> {
     try {
       const status = await this.controller.status(request)
+      this.accountChanged(status)
       await this.refreshConsumers('status')
       return status
     } catch (error) {
@@ -142,6 +143,7 @@ export class MuseAccountService extends TypertRemoteService {
     try {
       await this.browserLogin?.cancel()
       const result = await this.controller.login(request)
+      this.accountChanged(result.status, true)
       await this.refreshConsumers('login')
       return result
     } catch (error) {
@@ -159,11 +161,22 @@ export class MuseAccountService extends TypertRemoteService {
       await this.browserLogin?.cancel()
       await this.remote?.pause()
       const status = await this.controller.logout()
+      this.accountChanged(status, true)
       await this.models?.refresh()
       return status
     } catch (error) {
       throw remoteFailure(error)
     }
+  }
+
+  private accountIdentity: string | undefined
+
+  private accountChanged(status: MuseAccountStatus, force = false): void {
+    const identity = status.state === 'signed-in' ? status.username : ''
+    if (!force && identity === this.accountIdentity) return
+    this.accountIdentity = identity
+    try { this.ctx.emit('muse-account/session-changed') }
+    catch (error) { this.logger.warn('Muse account observer failed', error) }
   }
 
   private async refreshConsumers(phase: 'status' | 'login'): Promise<void> {
@@ -198,7 +211,7 @@ export class MuseAccountService extends TypertRemoteService {
     try {
       if (this.browserLogin === undefined) throw new MuseGatewayError('gateway-unavailable')
       const result = await this.browserLogin.check(id)
-      if (result.state === 'signed-in') await this.refreshConsumers('login')
+      if (result.state === 'signed-in') { this.accountChanged(result.status, true); await this.refreshConsumers('login') }
       return result
     } catch (error) { throw remoteFailure(error) }
   }

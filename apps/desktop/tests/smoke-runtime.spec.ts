@@ -2,26 +2,65 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync,
 import { join, dirname, relative, isAbsolute } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runInNewContext } from 'node:vm'
+import { getCallSites, inspect } from 'node:util'
+import { EventEmitter } from 'node:events'
+import { pathToFileURL } from 'node:url'
+import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import type { ToolBatchInput, ToolBatchResult, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { afterEach, expect, it, vi } from 'vitest'
-import { desktopSmokePluginSource, smokeDesktopRuntime } from '../scripts/smoke-runtime.ts'
+import { desktopSmokePluginSource, smokeDesktopRuntime, prepareDesktopSmokeSkills } from '../scripts/smoke-runtime.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
 const editingModelInput = JSON.parse(readFileSync(new URL('./expected/editing-model-input.json', import.meta.url), 'utf8')) as {
   personaPrefix: string
   tools: Record<string, string>
+  retiredAccountTools: string[]
 }
 
-vi.mock('../src/profile-packages.ts', () => ({ recordDesktopRuntimeProfile: vi.fn(), validateDesktopPluginGraph: vi.fn() }))
+function contextArguments(input: Pick<ToolBatchInput, 'calls'>): { operation: string; tools: string[] } {
+  const call = input.calls[0]
+  if (input.calls.length !== 1 || call?.name !== 'tool_context') throw new Error('Expected one tool_context model call')
+  const args: unknown = JSON.parse(call.arguments)
+  if (typeof args !== 'object' || args === null || !('operation' in args) || typeof args.operation !== 'string'
+    || !('tools' in args) || !Array.isArray(args.tools)
+    || !args.tools.every((value: unknown): value is string => typeof value === 'string')) {
+    throw new Error('Invalid tool_context smoke arguments')
+  }
+  return { operation: args.operation, tools: args.tools }
+}
+
 
 // External interpreter calls are isolated; the Office fixture writes the three
 // documents consumed by the Host checks, while downloader help needs no files.
-const { payload } = vi.hoisted(() => ({ payload: vi.fn(async (_file: string, args: string[]) => {
-  if (args.at(-1) === '--help') return { stdout: 'usage: download.py' }
-  const home = args[args.length - 1]!
-  for (const extension of ['docx', 'xlsx', 'pptx']) writeFileSync(join(home, `input.${extension}`), Buffer.from('fixture'))
-  return { stdout: '' }
-}) }))
+const { payload, payloadFailure } = vi.hoisted(() => {
+  const payloadFailure: { downloader?: Error } = {}
+  return { payloadFailure, payload: vi.fn(async (_file: string, args: string[], options?: { cwd?: string }) => {
+    if (args[2] === 'plugin') {
+      const { cp, mkdir, rm } = await import('node:fs/promises')
+      const { basename, dirname, join } = await import('node:path')
+      if (!options?.cwd) throw new Error('Missing CLI fixture cwd')
+      if (args[5] === 'add') {
+        const source = args[6]!.slice('file:'.length)
+        const target = join(options.cwd, 'profiles', 'desktop', 'node_modules', basename(source))
+        await mkdir(dirname(target), { recursive: true })
+        await cp(source, target, { recursive: true })
+      } else if (args[5] === 'remove') {
+        await rm(join(options.cwd, 'profiles', 'desktop', 'node_modules', args[6]!), { recursive: true })
+      }
+      return { stdout: '' }
+    }
+    if (args.at(-1) === '--help') {
+      const failure = payloadFailure.downloader
+      delete payloadFailure.downloader
+      if (failure) throw failure
+      return { stdout: 'usage: download.py' }
+    }
+    const home = args[args.length - 1]!
+    for (const extension of ['docx', 'xlsx', 'pptx']) writeFileSync(join(home, `input.${extension}`), Buffer.from('fixture'))
+    return { stdout: '' }
+  }) }
+})
 vi.mock('node:child_process', async (importOriginal) => {
   const { promisify } = await import('node:util')
   return { ...await importOriginal<typeof import('node:child_process')>(),
@@ -33,9 +72,10 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 const retiredHostSkills = ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
   'muse-llm-wiki', 'muse-project-participation',
-  'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design', 'reviewing-micro-drama-scripts', 'screenplay-format', 'muse-creation',
-  'novel-to-script', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
-  'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']
+  'reviewing-micro-drama-scripts', 'muse-creation', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
+  'trope-adaptation', 'wechat-shortdrama-harvest']
+const defaultHostSkills = ['audio-transcribe', 'muse-script-doctor', 'novel-to-script',
+  'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format', 'video-review']
 
 /**
  * Write the primary-runtime payload the smoke reads before it starts the Host.
@@ -60,12 +100,17 @@ function fixture(packaged = false) {
   const unpacked = (path: string) => path.replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   const home = join(temporaryRoot, 'home')
   mkdirSync(home)
-  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'creation']
+  const layout = prepareDesktopSmokeSkills(home)
+  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'bot-coordinator', 'creation']
+  const reviewerId = 'muse-manuscript-continuity-reviewer'
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
     mkdirSync(dirname(presetPath(id)), { recursive: true })
     writeFileSync(presetPath(id), '[]')
   }
+  const reviewerModule = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/lib/manuscript-continuity-preset.js')
+  mkdirSync(dirname(reviewerModule), { recursive: true })
+  writeFileSync(reviewerModule, '// private reviewer fixture\n')
   const skillRoot = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-drama-skills/skills'))
   const skillNames = ['tweet-drama-core', 'tweet-drama-script-convert',
     'tweet-drama-script-split', 'tweet-drama-asset-vision-check',
@@ -76,24 +121,22 @@ function fixture(packaged = false) {
     const path = join(skillRoot, name, 'SKILL.md')
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
-    return { name, path, invocation: { modelInvocable: true } }
+    return { name, path, source: 'bundled', invocation: { modelInvocable: true } }
   })
-  const customPath = join(home, 'skills/desktop-user-skill/SKILL.md')
-  mkdirSync(dirname(customPath), { recursive: true })
-  writeFileSync(customPath, '# fixture')
-  skills.push({ name: 'desktop-user-skill', path: customPath, invocation: { modelInvocable: true } })
+  skills.push(...layout.selected.map(skill => ({ ...skill, invocation: { modelInvocable: true } })))
   const cordisSkill = {
     name: 'editing-cordis-compositions',
     path: unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/editing-cordis-compositions/SKILL.md')),
+    source: 'bundled',
     invocation: { modelInvocable: true },
   }
   mkdirSync(dirname(cordisSkill.path), { recursive: true })
   writeFileSync(cordisSkill.path, '# fixture')
-  for (const name of ['audio-transcribe']) {
+  for (const name of defaultHostSkills) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
-    skills.push({ name, path, invocation: { modelInvocable: true } })
+    skills.push({ name, path, source: 'bundled', invocation: { modelInvocable: true } })
   }
   const exporter = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills/office-support/export_docx.py'))
   mkdirSync(dirname(exporter), { recursive: true })
@@ -121,28 +164,81 @@ function fixture(packaged = false) {
     const path = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md'))
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
-    skills.push({ name, path, invocation: { modelInvocable: true } })
+    skills.push({ name, path, source: 'bundled', invocation: { modelInvocable: true } })
   }
-  const creationSkills = skills.filter(skill => skill.name !== 'desktop-user-skill')
-  const agent = { preset: 'short-drama' }
-  const agentCtx = {}
+  const creationSkills = [...skills]
+  const selected = new Set<string>()
+  const agentFiber = { uid: 101 as number | null, state: 2, runtime: { name: 'scope' } }
+  const agentCtx = { fiber: agentFiber }
+  const ownerFiber = { uid: 100 as number | null, state: 2, runtime: { name: 'desktop-runtime-product-smoke-plugin' } }
+  type LifecycleListener = (fiber: typeof agentFiber, oldState?: number) => void
+  const lifecycleListeners = new Map<string, Set<LifecycleListener>>()
+  const observerDisposers: ReturnType<typeof vi.fn>[] = []
+  const emitLifecycle = (event: string, fiber: typeof agentFiber, oldState?: number) => {
+    for (const listener of lifecycleListeners.get(event) ?? []) listener(fiber, oldState)
+  }
+  type CreatedPayload = { agent: { session: { id: string }; ctx: { fiber: typeof agentFiber } }; signal?: AbortSignal }
+  type CreatedListener = (payload: CreatedPayload) => void
+  type FixtureEvents = { 'internal/plugin': LifecycleListener; 'internal/status': LifecycleListener; 'agent/created': CreatedListener }
+  const createdListeners = new Set<CreatedListener>(), createdDisposers: ReturnType<typeof vi.fn>[] = []
+  const creationController = new AbortController()
+  const eventListeners: { [K in keyof FixtureEvents]: Set<FixtureEvents[K]> } = {
+    'internal/plugin': new Set(), 'internal/status': new Set(), 'agent/created': createdListeners,
+  }
+  lifecycleListeners.set('internal/plugin', eventListeners['internal/plugin'])
+  lifecycleListeners.set('internal/status', eventListeners['internal/status'])
+  const agent = { preset: 'short-drama', id: 'smoke-agent', ctx: agentCtx, session: {
+    id: 'smoke-session',
+    append: vi.fn((type: string, data: {
+      turn?: number
+      step?: number
+      callId?: ToolCallId
+      name?: string
+      arguments?: string
+      message?: { content: readonly { type: string; text?: string }[] }
+    }, _options?: { surfaceOp: string; sourceEventSeqs: number[] }) => {
+      if (type === 'tool/result') {
+        const result = JSON.parse(data.message!.content.map(block => block.text ?? '').join('')) as {
+          operation: string
+          tools: string[]
+        }
+        for (const name of result.tools) {
+          if (result.operation === 'load') selected.add(name)
+          else if (result.operation === 'release') selected.delete(name)
+        }
+      }
+      return { seq: 1 }
+    }),
+  } }
   const dispose = vi.fn(async () => {})
   const mount = vi.fn(async (_context: object, _id: string) => {})
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
-    'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'hindsight_memory',
+    'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
     'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'read', 'present', 'audio_transcribe', 'video_inspect', 'video_ocr',
     process.platform === 'win32' ? 'pwsh' : 'bash']
   type SmokeResponse = { statusCode: number; end(text: string): void }
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
-  const accountMcpNames = ['jubian_find', 'jubian_claim', 'jubian_snatch', ...Object.keys(editingModelInput.tools)]
+  const sourceCapabilityNames = ['jubian_find', 'jubian_claim', 'jubian_snatch', ...Object.keys(editingModelInput.tools)]
   const standardCapabilityNames = ['subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'workflow',
     'ask_user_question', 'todo_write', 'todo_update', 'jubian_video', 'audio_transcribe']
+  const coordinatorCapabilityNames = ['write', 'edit', 'glob', 'grep', 'present', 'web_search', 'web_fetch',
+    'ask_user_question', 'todo_write', 'todo_update', 'subagent', 'audio_transcribe', 'tool_search', 'tool_context']
   const editingCapabilityNames = ['ask_user_question', 'todo_write', 'todo_update', 'jubian_video', 'audio_transcribe']
   const loadSkill = (catalog: typeof skills, name: string) => {
     const skill = catalog.find(value => value.name === name)
     return skill === undefined ? undefined : { ...skill, content: readFileSync(skill.path, 'utf8') }
   }
   class TestContext {
+    root = this
+    fiber = ownerFiber
+    on<K extends keyof FixtureEvents>(event: K, listener: FixtureEvents[K]) {
+      const listeners = eventListeners[event]
+      listeners.add(listener)
+      const release = vi.fn(() => { listeners.delete(listener) })
+      if (event === 'agent/created') createdDisposers.push(release)
+      else observerDisposers.push(release)
+      return release
+    }
     museAccount: { feedback?: () => void } = { feedback: () => {} }
     webServer = { register: vi.fn((value: NonNullable<typeof route>) => {
       route = value
@@ -151,27 +247,50 @@ function fixture(packaged = false) {
     effect(acquire: () => () => void) { return acquire() }
     agentPresets = {
       defaultId: 'short-drama',
-      list: vi.fn(async () => ids.map(id => ({ id }))),
+      list: vi.fn(async () => [...ids, reviewerId].map(id => ({ id }))),
       resolve: vi.fn(async (id: string) => ({ id: id === 'editing' ? 'short-drama' : id })),
-      compositionInventory: vi.fn(async () => ids.map(id => ({ id, isDefault: id === 'short-drama', rows: [{ id: 'persona' }] }))),
+      compositionInventory: vi.fn(async () => [...ids, reviewerId].map(id => ({ id, isDefault: id === 'short-drama', rows: [{ id: 'persona' }] }))),
       mount,
       serviceFor: vi.fn((agent: { preset: string }, name: string) => agent.preset === 'creation' && name === 'skills'
         ? { list: vi.fn(async () => creationSkills), get: vi.fn(async (name: string) => loadSkill(creationSkills, name)) } : undefined),
     }
-    agents = { create: vi.fn(async (options: { setup: (context: object) => Promise<void>; meta: { agentPreset: string } }) => {
+    agents = { get: vi.fn((id: string) => id === agent.id ? agent : undefined), create: vi.fn(async (options: {
+      setup: (context: object) => Promise<void>
+      meta: { agentPreset: string }
+    }) => {
       await options.setup(agentCtx)
+      if (options.meta.agentPreset === 'short-drama') {
+        for (const listener of createdListeners) listener({ agent, signal: creationController.signal })
+      }
       return { agent: options.meta.agentPreset === 'short-drama' ? agent : { preset: options.meta.agentPreset }, dispose }
     }) }
-    tools = { schemas: vi.fn((key?: { preset: string }) => {
+    toolDiscovery = { state: vi.fn(() => ({ loaded: [...selected], pinned: [] })) }
+    tools = { execute: vi.fn(async (input: Pick<ToolBatchInput, 'calls' | 'signal' | 'log'> & {
+      agent: typeof agent
+    }): Promise<ToolBatchResult> => {
+      const args = contextArguments(input)
+      const call = input.calls[0]!
+      if (input.log === undefined) throw new Error('Smoke tool batch must commit its context receipts')
+      const result: ToolExecutionResult = {
+        isError: false, value: args, content: [{ type: 'text', text: JSON.stringify(args) }],
+      }
+      const event = input.agent.session.append('tool/call', { ...input.log, callId: call.id,
+        name: call.name, arguments: call.arguments })
+      input.agent.session.append('tool/result', { ...input.log,
+        message: createToolResultMessage({ callId: call.id, content: result.content, isError: result.isError }),
+      }, { surfaceOp: 'append', sourceEventSeqs: [event.seq] })
+      return { results: [{ callId: call.id, result }], additionalContexts: [], concluded: false }
+    }), schemas: vi.fn((key?: { preset: string }): { name: string; description?: string }[] => {
       if (key === undefined) return []
+      if (key.preset === reviewerId) return []
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-      return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames]
+      return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames, ...sourceCapabilityNames, 'tool_search', 'tool_context']
         : key.preset === 'minimal' ? [shell]
-          : key.preset === 'short-drama' ? ['read', 'skill', shell, 'present', ...editingCapabilityNames, ...accountMcpNames]
-            : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
-              'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...accountMcpNames]
-              : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...accountMcpNames]
-                : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
+          : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
+            'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...sourceCapabilityNames]
+            : key.preset === 'bot-coordinator' ? ['read', 'skill', shell, ...coordinatorCapabilityNames]
+              : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...sourceCapabilityNames]
+                : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? [] : ['workflow'])]).map(name => ({ name, description: editingModelInput.tools[name] ?? 'Fixture capability.' }))
     }) }
     systemPrompt = { assemble: vi.fn(async (context: { agent: { preset: string }; scope: { preset: string } }) => ({
       sections: context.scope.preset === 'short-drama'
@@ -179,13 +298,15 @@ function fixture(packaged = false) {
           { name: 'editing:delivery', text: '文字稿默认使用 Word（.docx），通过 screenplay_export_docx 转换。' }]
         : [],
       tools: context.scope.preset === 'short-drama'
-        ? Object.entries(editingModelInput.tools).map(([name, description]) => ({ name, description }))
-        : [],
+        ? this.tools.schemas(context.scope).filter(tool => ['read', 'skill', 'tool_search', 'tool_context'].includes(tool.name) || selected.has(tool.name))
+        : ['ptc', 'creation', 'cordis'].includes(context.scope.preset)
+          ? [{ name: 'run_code' }] : this.tools.schemas(context.scope),
     })) }
     skills = {
       list: vi.fn(async (options: { scope: { preset: string } }): Promise<{
         name: string
         path?: string
+        source?: string
         invocation: { modelInvocable: boolean }
       }[]> =>
         options.scope.preset === 'cordis' ? [...skills, cordisSkill] : skills),
@@ -193,23 +314,31 @@ function fixture(packaged = false) {
     }
   }
   // Execute exactly the emitted plugin body; fixture services never impersonate a real prepared-runtime smoke.
+  const collectCallSites = vi.fn((frames: number, options: { sourceMap: boolean }) => getCallSites(frames, options))
+  const rejectionEvents = Object.assign(new EventEmitter(), { platform: process.platform })
+  const diagnosticLog = vi.fn((_line: string) => {})
   const source = desktopSmokePluginSource(root, home)
   expect(source).toMatch(/export const inject = \[[^\]]*'credentials'/u)
   const body = source.replace(/^import .*$/gmu, '').replace(/^export /gmu, '')
   const register = runInNewContext(`${body}\napply`, {
-    Context: TestContext, existsSync, realpathSync, writeFileSync, join, relative, isAbsolute, process: { platform: process.platform },
+    Context: TestContext, ToolCallId, createToolResultMessage, AbortSignal, existsSync, realpathSync, writeFileSync,
+    join, relative, isAbsolute, inspect, getCallSites: collectCallSites, process: rejectionEvents, console: { log: diagnosticLog },
   }) as (ctx: TestContext) => void
+  let responseText = ''
   const request = async () => {
     if (route === undefined) throw new Error('smoke route was not registered')
     expect(route.path).toBe('/desktop-product-smoke')
     let text = ''
     const response = { statusCode: 200, end(value: string) { text = value } }
     await route.handler({}, response)
+    responseText = text
     if (response.statusCode !== 200) throw new Error(text)
   }
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
-    accountMcpNames, editingCapabilityNames, skills, creationSkills, cordisSkill, skillRoot, home, root }
+    sourceCapabilityNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, layout, home, root,
+    agentFiber, ownerFiber, emitLifecycle, observerDisposers, lifecycleListeners, collectCallSites,
+    creationController, createdListeners, createdDisposers, rejectionEvents, diagnosticLog, responseText: () => responseText }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -218,7 +347,7 @@ it('defers preset checks until the Host-ready caller requests them', async () =>
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
   await f.request()
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(15)
 })
 
 it('rejects a product runtime without the Muse inbox feedback entry', async () => {
@@ -232,12 +361,429 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   await f.apply(f.ctx)
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
-  expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: { preset: 'short-drama' }, scope: { preset: 'short-drama' } })
-  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
+  expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: f.agent, scope: f.agent })
+  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.layout.cwd })
   expect(f.ctx.agentPresets.serviceFor).toHaveBeenCalledWith({ preset: 'creation' }, 'skills')
-  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.home })
-  expect(f.dispose).toHaveBeenCalledTimes(12)
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
+  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.layout.cwd })
+  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(15)
+  expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'bot-coordinator')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+})
+
+it.each([
+  { call: 0, index: 0, phase: 'assemble-initial' },
+  { call: 1, index: 0, phase: 'assemble-loaded' },
+  { call: 2, index: 0, phase: 'assemble-released' },
+  { call: 3, index: 1, phase: 'assemble-initial' },
+])('reports preset, instance $index and $phase with the original foreign-realm stack', async ({ call, index, phase }) => {
+  const f = fixture()
+  const failure = runInNewContext("new Error('foreign assembly failure')") as Error
+  failure.stack = 'Error: foreign assembly failure\n    at foreign-owner.mjs:41:7'
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  let calls = 0
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    if (calls++ === call) throw failure
+    return assemble(context)
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('preset=short-drama index=' + String(index) + ' phase=' + phase)
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(report).toContain(failure.stack)
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('reports a second-instance creation failure and disposes the first instance', async () => {
+  const f = fixture()
+  const failure = new Error('second instance could not mount')
+  const create = f.ctx.agents.create.getMockImplementation()!
+  f.ctx.agents.create.mockImplementationOnce(create).mockRejectedValueOnce(failure)
+  await expect(f.apply(f.ctx)).rejects.toThrow('preset=short-drama index=1 phase=create')
+  expect(readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')).toContain(failure.stack)
+  expect(f.dispose).toHaveBeenCalledTimes(1)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('awaits every reverse-order disposal and reports all cleanup failures', async () => {
+  const f = fixture()
+  const firstEntered = Promise.withResolvers<undefined>()
+  const firstRelease = Promise.withResolvers<undefined>()
+  const secondEntered = Promise.withResolvers<undefined>()
+  const secondRelease = Promise.withResolvers<undefined>()
+  const order: number[] = []
+  const failures = [new Error('cleanup instance zero'), new Error('cleanup instance one')]
+  const create = f.ctx.agents.create.getMockImplementation()!
+  let created = 0
+  f.ctx.agents.create.mockImplementation(async (options) => {
+    const index = created++
+    const handle = await create(options)
+    return { ...handle, dispose: vi.fn(async (): Promise<void> => {
+      order.push(index)
+      if (index === 1) {
+        firstEntered.resolve(undefined)
+        await firstRelease.promise
+      } else {
+        secondEntered.resolve(undefined)
+        await secondRelease.promise
+      }
+      throw failures[index]
+    }) }
+  })
+  const run = f.apply(f.ctx)
+  const rejected = expect(run).rejects.toThrow('preset checks or cleanup failed')
+  await firstEntered.promise
+  expect(order).toEqual([1])
+  expect(existsSync(join(f.home, '.desktop-product-smoke-error'))).toBe(false)
+  firstRelease.resolve(undefined)
+  await secondEntered.promise
+  expect(order).toEqual([1, 0])
+  expect(existsSync(join(f.home, '.desktop-product-smoke-error'))).toBe(false)
+  secondRelease.resolve(undefined)
+  await rejected
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(report).toContain('preset=short-drama index=1 phase=dispose')
+  expect(report).toContain('preset=short-drama index=0 phase=dispose')
+  for (const failure of failures) expect(report).toContain(failure.stack)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('retains the primary failure before both disposal failures', async () => {
+  const f = fixture()
+  const primary = new Error('primary assembly failure')
+  const lastCleanup = new Error('last instance cleanup failure')
+  const firstCleanup = new Error('first instance cleanup failure')
+  f.ctx.systemPrompt.assemble.mockRejectedValueOnce(primary)
+  f.dispose.mockRejectedValueOnce(lastCleanup).mockRejectedValueOnce(firstCleanup)
+  await expect(f.apply(f.ctx)).rejects.toThrow('preset checks or cleanup failed')
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  for (const failure of [primary, lastCleanup, firstCleanup]) expect(report).toContain(failure.stack)
+  const primaryPosition = report.indexOf('preset=short-drama index=0 phase=assemble-initial')
+  const lastCleanupPosition = report.indexOf('preset=short-drama index=1 phase=dispose')
+  const firstCleanupPosition = report.indexOf('preset=short-drama index=0 phase=dispose')
+  expect(primaryPosition).toBeGreaterThanOrEqual(0)
+  expect(lastCleanupPosition).toBeGreaterThan(primaryPosition)
+  expect(firstCleanupPosition).toBeGreaterThan(lastCleanupPosition)
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('records synchronous retirement during assembly before explicit cleanup and retains its original cause', async () => {
+  const f = fixture()
+  const entered = Promise.withResolvers<undefined>()
+  const release = Promise.withResolvers<never>()
+  const primary = new Error('working directory owner retired during inspection')
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async () => { entered.resolve(undefined); return release.promise })
+  const run = f.apply(f.ctx)
+  const rejected = expect(run).rejects.toThrow(primary.message)
+  await entered.promise
+  f.agentFiber.uid = null
+  f.emitLifecycle('internal/plugin', f.agentFiber)
+  f.agentFiber.state = 5
+  f.emitLifecycle('internal/status', f.agentFiber, 2)
+  release.reject(primary)
+  await rejected
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(report).toContain(primary.stack)
+  expect(report).toContain('preset=short-drama index=0 phase=assemble-initial')
+  expect(report).toContain('\nDesktop lifecycle diagnostics: ')
+  const diagnostic = JSON.parse(report.split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: {
+      sequence: number
+      event: string
+      phase: string
+      fiber?: { birthUID: number; uid: number | null; state: number }
+      stack?: string
+    }[]
+  }
+  const retired = diagnostic.records.find(record => record.event === 'internal/plugin' && record.fiber?.uid === null)
+  expect(retired).toMatchObject({ phase: 'assemble-initial', fiber: { birthUID: 101, uid: null, state: 2 } })
+  expect(retired?.stack).toContain('emitLifecycle')
+  const status = diagnostic.records.find(record => record.event === 'internal/status')
+  expect(status).toMatchObject({ fiber: { birthUID: 101, uid: null, state: 5 } })
+  const cleanup = diagnostic.records.find(record => record.event === 'before-dispose')
+  expect(cleanup?.sequence).toBeGreaterThan(retired!.sequence)
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.observerDisposers).toHaveLength(2)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+  for (const listeners of f.lifecycleListeners.values()) expect(listeners.size).toBe(0)
+})
+
+it('bounds lifecycle observations and isolates observer failures without changing successful checks', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    const unreadable = { state: 2, runtime: { name: 'unreadable-observer-fixture' } }
+    Object.defineProperty(unreadable, 'uid', { get() { throw new Error('observer-only getter failure') } })
+    f.emitLifecycle('internal/plugin', unreadable as typeof f.agentFiber)
+    for (let index = 0; index < 600; index++) f.emitLifecycle('internal/status', f.agentFiber, 1)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const response = f.responseText()
+  expect(response).toContain('\nDesktop lifecycle diagnostics: ')
+  const diagnostic = JSON.parse(response.split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: object[]
+    droppedRecords: number
+    observerErrors: { message: string }[]
+  }
+  expect(diagnostic.records).toHaveLength(512)
+  expect(diagnostic.droppedRecords).toBeGreaterThan(0)
+  expect(diagnostic.observerErrors.some(error => error.message.includes('observer-only getter failure'))).toBe(true)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+  expect(f.dispose).toHaveBeenCalledTimes(15)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+  for (const listeners of f.lifecycleListeners.values()) expect(listeners.size).toBe(0)
+})
+
+it('retains a disposal initiator beyond the default Error stack without changing global stack settings', async () => {
+  const f = fixture(), stackLimit = Error.stackTraceLimit, prepareStack = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace')
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    function descend(depth: number): void {
+      if (depth > 0) { descend(depth - 1); return }
+      f.agentFiber.uid = null
+      f.emitLifecycle('internal/plugin', f.agentFiber)
+    }
+    function smokeDisposalInitiator(): void { descend(24) }
+    smokeDisposalInitiator()
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; disposalCallSites?: { fn: string; file: string; line: number; column: number }[] }[]
+  }
+  const sites = diagnostic.records.find(record => record.event === 'internal/plugin' && record.disposalCallSites)?.disposalCallSites
+  expect(sites?.length).toBeGreaterThan(10)
+  expect(sites?.length).toBeLessThanOrEqual(48)
+  expect(sites?.findIndex(site => site.fn === 'smokeDisposalInitiator')).toBeGreaterThan(10)
+  expect(f.collectCallSites).toHaveBeenCalledExactlyOnceWith(48, { sourceMap: false })
+  expect(Error.stackTraceLimit).toBe(stackLimit)
+  expect(Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace')).toEqual(prepareStack)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('abbreviates disposal frame roots and bounds each function and script name', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.collectCallSites.mockReturnValueOnce([
+    { functionName: 'f'.repeat(200), scriptName: pathToFileURL(join(f.root, 'r'.repeat(400))).href,
+      lineNumber: 17, columnNumber: 23, scriptId: '1' },
+    { functionName: 'homeFrame', scriptName: pathToFileURL(join(f.home, 'plugin.js')).href,
+      lineNumber: 31, columnNumber: 7, scriptId: '2' },
+  ])
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.agentFiber.uid = null
+    f.emitLifecycle('internal/plugin', f.agentFiber)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { disposalCallSites?: { fn: string; file: string; line: number; column: number }[] }[]
+  }
+  const sites = diagnostic.records.find(record => record.disposalCallSites)?.disposalCallSites
+  expect(sites).toEqual([
+    { fn: 'f'.repeat(96), file: ('<runtime>/' + 'r'.repeat(400)).slice(0, 320), line: 17, column: 23 },
+    { fn: 'homeFrame', file: '<home>/plugin.js', line: 31, column: 7 },
+  ])
+})
+
+it('retains the disposal event when native call-site collection fails', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.collectCallSites.mockImplementationOnce(() => { throw new Error('call-site collection unavailable') })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.agentFiber.uid = null
+    f.emitLifecycle('internal/plugin', f.agentFiber)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; fiber?: { uid: number | null }; disposalCallSites?: object[] }[]
+    observerErrors: { event: string; message: string }[]
+  }
+  expect(diagnostic.records.find(record => record.event === 'internal/plugin' && record.fiber?.uid === null))
+    .toMatchObject({ disposalCallSites: [] })
+  expect(diagnostic.observerErrors).toHaveLength(1)
+  expect(diagnostic.observerErrors[0]?.event).toBe('getCallSites')
+  expect(diagnostic.observerErrors[0]?.message).toContain('call-site collection unavailable')
+  expect(f.dispose).toHaveBeenCalledTimes(15)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('records the owned creation abort synchronously before scope retirement and retains the original failure', async () => {
+  const f = fixture(), primary = new Error('assembly rejected after owned abort')
+  f.agent.session.id = 'desktop-product-smoke-short-drama-0'
+  const reason = new Error('agent setup aborted: owner disposed during setup')
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async () => {
+    f.creationController.abort(reason)
+    f.agentFiber.uid = null
+    f.emitLifecycle('internal/plugin', f.agentFiber)
+    throw primary
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow(primary.message)
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  const diagnostic = JSON.parse(report.split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: {
+      sequence: number
+      event: string
+      fiber?: { uid: number | null }
+      reason?: { summary: string; stack?: string }
+      callSites?: object[]
+    }[]
+  }
+  const aborted = diagnostic.records.find(record => record.event === 'agent-abort')
+  const retired = diagnostic.records.find(record => record.event === 'internal/plugin' && record.fiber?.uid === null)
+  expect(aborted).toMatchObject({ fiber: { uid: 101 }, reason: { summary: reason.message, stack: reason.stack } })
+  expect(aborted?.callSites?.length).toBeGreaterThan(0)
+  expect(aborted!.sequence).toBeLessThan(retired!.sequence)
+  expect(report).toContain(primary.stack)
+  expect(f.createdListeners.size).toBe(0)
+  for (const dispose of f.createdDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('removes owned abort listeners after success and ignores unrelated sessions', async () => {
+  const ignored = fixture(), ignoredAdd = vi.spyOn(ignored.creationController.signal, 'addEventListener')
+  await ignored.apply(ignored.ctx)
+  expect(ignoredAdd).not.toHaveBeenCalled()
+  const f = fixture()
+  f.agent.session.id = 'desktop-product-smoke-short-drama-0'
+  const added = vi.spyOn(f.creationController.signal, 'addEventListener')
+  const removed = vi.spyOn(f.creationController.signal, 'removeEventListener')
+  await f.apply(f.ctx)
+  expect(added).toHaveBeenCalledExactlyOnceWith('abort', expect.any(Function), { once: true })
+  expect(removed).toHaveBeenCalledExactlyOnceWith('abort', added.mock.calls[0]![1])
+  const before = f.responseText()
+  f.creationController.abort(new Error('late abort after smoke cleanup'))
+  expect(f.responseText()).toBe(before)
+  expect(f.collectCallSites).not.toHaveBeenCalled()
+  expect(f.createdListeners.size).toBe(0)
+  for (const dispose of f.createdDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('contains throwing abort reason access without changing successful smoke checks', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.agent.session.id = 'desktop-product-smoke-short-drama-0'
+  const reason = Object.defineProperties({}, {
+    message: { get() { throw new Error('abort reason message unreadable') } },
+    stack: { get() { throw new Error('abort reason stack unreadable') } },
+  })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.creationController.abort(reason)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; reason?: { summary: string } }[]
+    observerErrors: { event: string }[]
+  }
+  expect(diagnostic.records.find(record => record.event === 'agent-abort')?.reason?.summary).toBe('Abort reason unavailable')
+  expect(diagnostic.observerErrors.map(error => error.event)).toEqual(['abort-reason-summary', 'abort-reason-stack'])
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+  expect(f.createdListeners.size).toBe(0)
+})
+
+it('observes only the first unhandled rejection before the existing handlers and retains the original failure', async () => {
+  const f = fixture(), order: string[] = []
+  const reason = new Error('first fixture rejection'), promise = Promise.resolve()
+  const later = new Error('second fixture rejection'), laterPromise = Promise.resolve()
+  const firstHandler = vi.fn(() => { order.push('first handler') })
+  const secondHandler = vi.fn(() => { order.push('second handler') })
+  f.rejectionEvents.on('unhandledRejection', firstHandler).on('unhandledRejection', secondHandler)
+  const original = f.rejectionEvents.rawListeners('unhandledRejection')
+  f.diagnosticLog.mockImplementation(() => { order.push('diagnostic') })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async () => {
+    f.rejectionEvents.emit('unhandledRejection', reason, promise)
+    f.rejectionEvents.emit('unhandledRejection', later, laterPromise)
+    throw reason
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow(reason.message)
+  expect(order).toEqual(['diagnostic', 'first handler', 'second handler', 'first handler', 'second handler'])
+  for (const handler of [firstHandler, secondHandler]) {
+    expect(handler).toHaveBeenNthCalledWith(1, reason, promise)
+    expect(handler).toHaveBeenNthCalledWith(2, later, laterPromise)
+  }
+  expect(f.rejectionEvents.rawListeners('unhandledRejection')).toEqual(original)
+  expect(f.diagnosticLog).toHaveBeenCalledOnce()
+  const line = f.diagnosticLog.mock.calls[0]![0]
+  const record = JSON.parse(line.slice('Desktop unhandled rejection: '.length)) as {
+    event: string
+    phase: string
+    reason: { message: string; stack: string }
+    callSites: object[]
+  }
+  expect(record).toMatchObject({ event: 'unhandled-rejection', phase: 'assemble-initial',
+    reason: { message: reason.message, stack: reason.stack!.slice(0, 4096) } })
+  expect(record.callSites.length).toBeGreaterThan(0)
+  expect(record.callSites.length).toBeLessThanOrEqual(48)
+  expect(readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')).toContain(reason.stack)
+})
+
+it('does not install an unhandled rejection handler where Node has none', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    expect(f.rejectionEvents.listenerCount('unhandledRejection')).toBe(0)
+    expect(f.rejectionEvents.emit('unhandledRejection', new Error('unobserved fixture value'), Promise.resolve())).toBe(false)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  expect(f.diagnosticLog).not.toHaveBeenCalled()
+  expect(f.rejectionEvents.listenerCount('unhandledRejection')).toBe(0)
+})
+
+it('limits rejection diagnostics to bounded safe fields and removes its listener after success', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  const reason = Object.assign(new Error('request failed https://example.invalid/path?token=fixture-private\nAuthorization: Bearer fixture-private'), {
+    code: 'E_FIXTURE', configuration: { password: 'fixture-private' },
+  })
+  reason.stack = 'Error: private request https://example.invalid/?key=fixture-private\nCookie: sid=fixture-private\n' + 'x'.repeat(5000)
+  const handler = vi.fn()
+  f.rejectionEvents.on('unhandledRejection', handler)
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.rejectionEvents.emit('unhandledRejection', reason, Promise.resolve())
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const line = f.diagnosticLog.mock.calls[0]![0]
+  expect(line).not.toContain('fixture-private')
+  expect(line).not.toContain('configuration')
+  const record = JSON.parse(line.slice('Desktop unhandled rejection: '.length)) as {
+    reason: { message: string; code: string; stack: string }
+  }
+  expect(record.reason.message).toContain('request failed [URL omitted]')
+  expect(record.reason.code).toBe('E_FIXTURE')
+  expect(record.reason.message.length).toBeLessThanOrEqual(512)
+  expect(record.reason.stack.length).toBeLessThanOrEqual(4096)
+  expect(f.rejectionEvents.rawListeners('unhandledRejection')).toEqual([handler])
+  f.rejectionEvents.emit('unhandledRejection', new Error('after cleanup'), Promise.resolve())
+  expect(handler).toHaveBeenCalledTimes(2)
+  expect(f.diagnosticLog).toHaveBeenCalledOnce()
+})
+
+it('contains rejection diagnostic getter and output failures without suppressing existing handlers', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  const reason = Object.defineProperties({}, {
+    message: { get() { throw new Error('do not invoke message getter') } },
+    stack: { get() { throw new Error('do not invoke stack getter') } },
+  })
+  const handler = vi.fn()
+  f.rejectionEvents.on('unhandledRejection', handler)
+  f.diagnosticLog.mockImplementationOnce(() => { throw new Error('fixture output failure') })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    expect(() => f.rejectionEvents.emit('unhandledRejection', reason, Promise.resolve())).not.toThrow()
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  expect(handler).toHaveBeenCalledOnce()
+  expect(f.rejectionEvents.rawListeners('unhandledRejection')).toEqual([handler])
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; reason: { kind: string; unreadable?: boolean } }[]
+    observerErrors: { event: string }[]
+  }
+  expect(diagnostic.records.find(record => record.event === 'unhandled-rejection')?.reason)
+    .toEqual({ kind: 'object', unreadable: true })
+  expect(diagnostic.observerErrors.map(error => error.event)).toContain('unhandled-rejection-output')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
@@ -256,15 +802,15 @@ it('rejects a Cordis authoring skill served from the virtual ASAR path', async (
   await expect(f.apply(f.ctx)).rejects.toThrow('cordis authoring skill is not mounted')
 })
 
-it('rejects a shared Muse skill missing from the packaged Host', async () => {
+it.each(defaultHostSkills)('rejects shared Muse skill %s missing from the packaged Host', async (name) => {
   const f = fixture()
-  const index = f.skills.findIndex(skill => skill.name === 'audio-transcribe')
+  const index = f.skills.findIndex(skill => skill.name === name)
   if (index >= 0) f.skills.splice(index, 1)
-  await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse skill audio-transcribe')
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing shared Muse skill ' + name)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'jubian_budget', 'video_inspect', 'video_ocr', 'hindsight_memory'])('rejects a missing project tool %s', async (name) => {
+it.each(['drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'jubian_budget', 'video_inspect', 'video_ocr'])('rejects a missing project tool %s', async (name) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'short-drama'
@@ -335,7 +881,7 @@ it('rejects extra agent-local tools in the minimal preset', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['short-drama', 'ptc', 'standard', 'cordis', 'creation'])('rejects missing transcription in %s', async (preset) => {
+it.each(['short-drama', 'ptc', 'standard', 'cordis', 'bot-coordinator', 'creation'])('rejects missing transcription in %s', async (preset) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === preset
@@ -345,13 +891,23 @@ it.each(['short-drama', 'ptc', 'standard', 'cordis', 'creation'])('rejects missi
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['run_code', 'drama_assets', 'mcp__muse-account__muse_kb_read_opening', 'video_contact_sheet', 'video_ocr'])('rejects creation without %s', async (name) => {
+it.each(['run_code', 'drama_assets', 'source_snapshot', 'video_contact_sheet', 'video_ocr'])('rejects creation without %s', async (name) => {
   const f = fixture()
-  const schemas = f.ctx.tools.schemas.getMockImplementation()!
-  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'creation'
-    ? schemas(key).filter(tool => tool.name !== name)
-    : schemas(key))
-  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool ' + name + ' in creation')
+  if (name === 'run_code') {
+    const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+    f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+      const result = await assemble(context)
+      if (context.scope.preset === 'creation') result.tools = []
+      return result
+    })
+  } else {
+    const schemas = f.ctx.tools.schemas.getMockImplementation()!
+    f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'creation'
+      ? schemas(key).filter(tool => tool.name !== name)
+      : schemas(key))
+  }
+  await expect(f.apply(f.ctx)).rejects.toThrow(name === 'run_code'
+    ? 'PTC preset must expose only run_code: creation' : 'missing product tool ' + name + ' in creation')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
@@ -386,9 +942,16 @@ it.each(['office-docx', 'office-xlsx', 'office-pptx'])('rejects creation without
   await expect(f.apply(f.ctx)).rejects.toThrow('missing creation skill ' + name)
 })
 
+it.each(['custom', 'user-muse', 'user-dsh', 'user-agents', 'project-muse', 'project-dsh', 'project-agents'])
+('accepts additional creation skills from supported source %s', async (source) => {
+  const f = fixture()
+  f.creationSkills.push({ name: 'additional-user-skill', path: '', source, invocation: { modelInvocable: true } })
+  await expect(f.apply(f.ctx)).resolves.toBeUndefined()
+})
+
 it.each(['desktop-user-skill', 'editing-cordis-compositions', 'unreviewed-runtime-skill'])('rejects creation exposing %s', async (name) => {
   const f = fixture()
-  f.creationSkills.push({ name, path: '', invocation: { modelInvocable: true } })
+  f.creationSkills.push({ name, path: '', source: 'runtime', invocation: { modelInvocable: true } })
   await expect(f.apply(f.ctx)).rejects.toThrow('creation skill registry exposes unreviewed skills')
 })
 
@@ -402,10 +965,24 @@ it('rejects transcription in the minimal preset', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it('rejects Host readiness when the private preset smoke never completes', async () => {
+it.each(['strict', 'development'] as const)('rejects incomplete smoke in %s mode while isolating its homes', async (mode) => {
   let packageManager: unknown
+  let smokeEnvironment: unknown
+  let inspectPort: unknown
+  let cliEntry: string | undefined
+  let cliSource: string | undefined
+  const execute = payload.getMockImplementation()!
+  payload.mockImplementation(async (...args) => {
+    if (args[1][2] === 'plugin') {
+      cliEntry = args[1][1]
+      if (mode === 'development') cliSource = readFileSync(cliEntry!, 'utf8')
+    }
+    return execute(...args)
+  })
   const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockImplementation(async function (this: DesktopHostProcess) {
     packageManager = Reflect.get(this, 'packageManager')
+    smokeEnvironment = Reflect.get(this, 'environment')
+    inspectPort = Reflect.get(this, 'inspectPort')
     return { pid: 2468, url: 'http://127.0.0.1:1/' }
   })
   const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html></html>'))
@@ -414,9 +991,25 @@ it('rejects Host readiness when the private preset smoke never completes', async
     const root = fixture().home
     const runtime = runtimeFixture(root)
     const resources = primaryRuntimeFixture(root)
-    await expect(smokeDesktopRuntime(root, process.execPath, runtime, {}, resources))
+    const environment = { DSH_HOME: '/must-not-read', MUSE_HOME: '/must-not-read' }
+    const checking = mode === 'strict' ? smokeDesktopRuntime(root, process.execPath, runtime, environment, resources)
+      : smokeDesktopRuntime(root, process.execPath, runtime, environment, resources, 'development')
+    await expect(checking)
       .rejects.toThrow('product preset smoke did not complete')
-    expect(packageManager).toEqual({ pnpm: join(resources, 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resources, 'bin') })
+    expect(inspectPort).toBe(mode === 'strict' ? undefined : 0)
+    if (typeof smokeEnvironment !== 'object' || smokeEnvironment === null || !('DSH_HOME' in smokeEnvironment)
+      || typeof smokeEnvironment.DSH_HOME !== 'string') throw new Error('Missing private smoke home')
+    if (mode === 'development') {
+      expect(cliEntry).toBe(join(smokeEnvironment.DSH_HOME, 'desktop-cli.mjs'))
+      expect(cliSource).toContain('import { runDesktopCli } from ')
+      expect(cliSource).toContain(`await runDesktopCli(${JSON.stringify(root)}, ${JSON.stringify(resources)})`)
+    } else {
+      expect(cliEntry).toBe(join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js'))
+      expect(cliSource).toBeUndefined()
+    }
+    expect(smokeEnvironment).toMatchObject({ MUSE_HOME: smokeEnvironment.DSH_HOME, HOME: smokeEnvironment.DSH_HOME })
+    expect(smokeEnvironment.DSH_HOME).not.toBe('/must-not-read')
+    expect(packageManager).toEqual({ pnpm: join(resources, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resources, 'bin') })
     expect(stop).toHaveBeenCalledOnce()
   } finally {
     start.mockRestore()
@@ -432,7 +1025,7 @@ it.each([false, true])('runs downloader help from the native filesystem before H
     const f = fixture(archived)
     const root = f.root
     const runtime = runtimeFixture(root)
-    payload.mockRejectedValueOnce(new Error('Python cannot read download script'))
+    payloadFailure.downloader = new Error('Python cannot read download script')
     await expect(smokeDesktopRuntime(root, process.execPath, runtime, {}, primaryRuntimeFixture(f.home)))
       .rejects.toThrow('Python cannot read download script')
     const invocation = payload.mock.calls.at(-1)
@@ -487,22 +1080,120 @@ it.each(['missing', 'legacy-only', 'shadow'])('rejects %s custom skill isolation
   const f = fixture()
   const custom = f.skills.find(skill => skill.name === 'desktop-user-skill')!
   if (kind === 'missing') f.skills.splice(f.skills.indexOf(custom), 1)
-  else if (kind === 'legacy-only') f.skills.push({ ...custom, name: 'desktop-legacy-only' })
+  else if (kind === 'legacy-only') f.skills.push({ ...custom, name: 'desktop-shared-only' })
   else {
     const path = join(f.home, '.agents/skills/desktop-user-skill/SKILL.md')
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# legacy')
     custom.path = path
   }
-  await expect(f.apply(f.ctx)).rejects.toThrow('product custom skills missing or legacy skills discovered')
+  await expect(f.apply(f.ctx)).rejects.toThrow(kind === 'legacy-only'
+    ? 'excluded shared user skill was discovered' : 'custom or project skill selection differs')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(['short-drama', 'creation'])('rejects missing or unreadable custom/project skills in %s', async (preset) => {
+  const f = fixture()
+  if (preset === 'creation') f.creationSkills.splice(f.creationSkills.findIndex(skill => skill.name === 'desktop-project-muse'), 1)
+  else {
+    const get = f.ctx.skills.get.getMockImplementation()!
+    f.ctx.skills.get.mockImplementation(async name => name === 'desktop-project-muse' ? undefined : get(name))
+  }
+  await expect(f.apply(f.ctx)).rejects.toThrow(preset === 'creation'
+    ? 'custom or project skill selection differs in creation: desktop-project-muse'
+    : 'custom or project skill could not load in short-drama: desktop-project-muse')
+})
+
+it.each(['source', 'priority'])('rejects incorrect project skill %s', async (change) => {
+  const f = fixture()
+  const skill = f.skills.find(skill => skill.name === 'desktop-project-priority')!
+  if (change === 'source') skill.source = 'custom'
+  else skill.path = join(f.layout.cwd, '.dsh/skills/desktop-project-priority/SKILL.md')
+  await expect(f.apply(f.ctx)).rejects.toThrow('custom or project skill selection differs in short-drama: desktop-project-priority')
 })
 
 it('refuses a roster with additional presets before creating an agent', async () => {
   const f = fixture()
-  f.ctx.agentPresets.list.mockResolvedValue([{ id: 'short-drama' }, { id: 'personal' }])
-  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the six product presets')
+  f.ctx.agentPresets.list.mockResolvedValue([...(await f.ctx.agentPresets.list()), { id: 'personal' }])
+  await expect(f.apply(f.ctx)).rejects.toThrow('product preset roster differs')
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
+})
+
+it.each(['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation', 'muse-manuscript-continuity-reviewer'])
+('refuses a roster missing product preset %s before creating an agent', async (missing) => {
+  const f = fixture()
+  f.ctx.agentPresets.list.mockResolvedValue((await f.ctx.agentPresets.list()).filter(preset => preset.id !== missing))
+  await expect(f.apply(f.ctx)).rejects.toThrow('product preset roster differs')
+  expect(f.ctx.agents.create).not.toHaveBeenCalled()
+})
+
+it('refuses a same-sized roster that replaces the coordinator with a personal preset', async () => {
+  const f = fixture()
+  f.ctx.agentPresets.list.mockResolvedValue((await f.ctx.agentPresets.list())
+    .map(preset => preset.id === 'bot-coordinator' ? { id: 'personal' } : preset))
+  await expect(f.apply(f.ctx)).rejects.toThrow('product preset roster differs')
+  expect(f.ctx.agents.create).not.toHaveBeenCalled()
+})
+
+it('rejects a missing private reviewer module without recording smoke completion', async () => {
+  const f = fixture()
+  rmSync(join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/lib/manuscript-continuity-preset.js'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('private continuity reviewer is broken or missing')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('rejects ordinary tools in the private reviewer and awaits its disposal', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'muse-manuscript-continuity-reviewer'
+    ? [{ name: 'write' }] : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('private continuity reviewer exposes ordinary tools')
+  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('rejects changing the default product preset to the coordinator', async () => {
+  const f = fixture()
+  f.ctx.agentPresets.defaultId = 'bot-coordinator'
+  await expect(f.apply(f.ctx)).rejects.toThrow('product default preset changed')
+  expect(f.ctx.agents.create).not.toHaveBeenCalled()
+})
+
+it.each(['read', 'tool_search', 'tool_context'])
+('rejects recovery coordinator missing its standard or discovery tool %s', async (missing) => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'bot-coordinator'
+    ? schemas(key).filter(tool => tool.name !== missing) : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool ' + missing + ' in bot-coordinator')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user'])
+('rejects archived Bot tool %s leaking into a registered composition', async (name) => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => [...schemas(key), { name }])
+  await expect(f.apply(f.ctx)).rejects.toThrow('archived Bot tool remains active: ' + name)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(editingModelInput.retiredAccountTools)('rejects retired built-in account MCP %s', async (name) => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => [...schemas(key), { name }])
+  await expect(f.apply(f.ctx)).rejects.toThrow('retired built-in account MCP remains active: ' + name)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation'])
+('rejects an unlisted built-in account MCP in %s', async (preset) => {
+  const f = fixture()
+  const name = 'mcp__muse-account__unlisted_tool'
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === preset ? [...schemas(key), { name }] : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('retired built-in account MCP remains active: ' + name + ' in ' + preset)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
 it('fails missing tools and still disposes the created agent', async () => {
@@ -513,23 +1204,23 @@ it('fails missing tools and still disposes the created agent', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it('rejects an editing mode without its account-scoped source reader', async () => {
+it('rejects a short-drama preset without its source snapshot tool', async () => {
   const f = fixture()
-  f.accountMcpNames.splice(f.accountMcpNames.indexOf('mcp__muse-account__muse_kb_read_opening'), 1)
-  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool mcp__muse-account__muse_kb_read_opening')
+  f.sourceCapabilityNames.splice(f.sourceCapabilityNames.indexOf('source_snapshot'), 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool source_snapshot')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it('rejects an editing mode without private script ingestion', async () => {
+it('rejects a short-drama preset without its source report tool', async () => {
   const f = fixture()
-  f.accountMcpNames.splice(f.accountMcpNames.indexOf('mcp__muse-account__muse_kb_ingest_script'), 1)
-  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool mcp__muse-account__muse_kb_ingest_script')
+  f.sourceCapabilityNames.splice(f.sourceCapabilityNames.indexOf('source_report'), 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool source_report')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
 it('rejects an editing mode without its script-pool reader', async () => {
   const f = fixture()
-  f.accountMcpNames.splice(f.accountMcpNames.indexOf('jubian_find'), 1)
+  f.sourceCapabilityNames.splice(f.sourceCapabilityNames.indexOf('jubian_find'), 1)
   await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool jubian_find')
 })
 
@@ -578,15 +1269,123 @@ it.each(['missing', 'without Word', 'without export'])('rejects editing delivery
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
+it('loads deferred source definitions through committed context receipts and restores initial visibility', async () => {
+  const f = fixture()
+  await f.apply(f.ctx)
+  expect(f.ctx.tools.execute.mock.calls.map(([call]) => contextArguments(call).operation)).toEqual(['load', 'release', 'load', 'release'])
+  for (const [batch] of f.ctx.tools.execute.mock.calls) {
+    expect(batch.agent).toBe(f.agent)
+    expect(batch.log).toEqual({ turn: 1, step: 1 })
+    expect(batch.calls[0]?.type).toBe('tool-call')
+  }
+  expect(f.agent.session.append.mock.calls.map(([type]) => type)).toEqual([
+    'tool/call', 'tool/result', 'tool/call', 'tool/result',
+    'tool/call', 'tool/result', 'tool/call', 'tool/result',
+  ])
+  expect([...f.selected]).toEqual([])
+  expect(f.dispose).toHaveBeenCalledTimes(15)
+})
+
+it.each(Object.keys(editingModelInput.tools))('rejects a missing authorized source definition %s', async (missing) => {
+  const f = fixture()
+  f.sourceCapabilityNames.splice(f.sourceCapabilityNames.indexOf(missing), 1)
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool ' + missing)
+})
+
+it.each(Object.keys(editingModelInput.tools))('rejects a changed authorized description for %s', async (name) => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => schemas(key).map(tool => tool.name === name
+    ? { ...tool, description: 'Generic read.' } : tool))
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing authorized tool description changed: ' + name)
+})
+
+it('rejects source definitions exposed before discovery', async () => {
+  const f = fixture()
+  f.selected.add('source_snapshot')
+  await expect(f.apply(f.ctx)).rejects.toThrow('source tools must remain deferred before discovery')
+})
+
+it.each(['read', 'skill', 'tool_search', 'tool_context'])('rejects missing initial resident definition %s', async (name) => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    result.tools = result.tools.filter(tool => tool.name !== name)
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing resident tool ' + name)
+})
+
+it.each(['load', 'release'])('rejects unsuccessful tool_context %s', async (operation) => {
+  const f = fixture()
+  const execute = f.ctx.tools.execute.getMockImplementation()!
+  f.ctx.tools.execute.mockImplementation(async (input) => {
+    if (contextArguments(input).operation !== operation) return execute(input)
+    return { results: [{ callId: input.calls[0]!.id, result: { isError: true,
+      error: { message: 'context rejected' }, content: [{ type: 'text', text: 'context rejected' }] } }],
+    additionalContexts: [], concluded: false }
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('tool_context ' + operation + ' failed')
+})
+
+it.each(['missing', 'different-call'])('rejects an uncorrelated tool_context batch result: %s', async (kind) => {
+  const f = fixture()
+  const execute = f.ctx.tools.execute.getMockImplementation()!
+  f.ctx.tools.execute.mockImplementationOnce(async (input) => {
+    const batch = await execute(input)
+    return { ...batch, results: kind === 'missing' ? [] : batch.results.map(outcome => ({ ...outcome,
+      callId: ToolCallId('unrelated-smoke-call'),
+    })) }
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('invalid tool_context batch result')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it.each(['load', 'release'])('rejects successful %s without an applied context receipt', async (operation) => {
+  const f = fixture()
+  const append = f.agent.session.append.getMockImplementation()!
+  f.agent.session.append.mockImplementation((type, data) => {
+    if (type === 'tool/result' && data.message!.content.some(block => block.text?.includes('"operation":"' + operation + '"'))) return { seq: 1 }
+    return append(type, data)
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow(operation === 'load'
+    ? 'editing model tool description changed after loading:' : 'releasing source tools did not restore initial model tools')
+})
+
+it('rejects a loaded definition omitted from the assembled model request', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    result.tools = result.tools.filter(tool => tool.name !== 'source_snapshot')
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing model tool description changed after loading: source_snapshot')
+})
+
+it('rejects a released definition that remains in model input despite cleared selections', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  let count = 0
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    if (++count === 3) result.tools.push({ name: 'source_snapshot', description: editingModelInput.tools['source_snapshot']! })
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('releasing source tools did not restore initial model tools')
+})
+
 it.each(Object.keys(editingModelInput.tools))('rejects a changed model-visible description for %s', async (name) => {
   const f = fixture()
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
   f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
     const result = await assemble(context)
-    if (context.scope.preset === 'short-drama') result.tools.find(tool => tool.name === name)!.description = 'Generic read.'
+    const tool = result.tools.find(tool => tool.name === name)
+    if (context.scope.preset === 'short-drama' && tool) tool.description = 'Generic read.'
     return result
   })
-  await expect(f.apply(f.ctx)).rejects.toThrow('editing model tool description changed: ' + name)
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing model tool description changed after loading: ' + name)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
@@ -600,7 +1399,7 @@ it('rejects an editing mode that loses a standard video tool', async () => {
 it.each(['directory', 'registry'])('rejects XHS in the product %s and disposes the created agent', async (source) => {
   const f = fixture()
   if (source === 'directory') mkdirSync(join(f.skillRoot, 'xiaohongshu-reference'))
-  else f.skills.push({ name: 'xiaohongshu-reference', path: '', invocation: { modelInvocable: false } })
+  else f.skills.push({ name: 'xiaohongshu-reference', path: '', source: 'runtime', invocation: { modelInvocable: false } })
   await expect(f.apply(f.ctx)).rejects.toThrow('XHS must not ship')
   expect(f.dispose).toHaveBeenCalledTimes(2)
 })
@@ -637,10 +1436,10 @@ it('accepts an additional model-invocable virtual skill without a filesystem pat
   }])
   await f.apply(f.ctx)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
-  expect(f.dispose).toHaveBeenCalledTimes(12)
+  expect(f.dispose).toHaveBeenCalledTimes(15)
 })
 
-it.each(['audio-transcribe',
+it.each([...defaultHostSkills,
   'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects required packaged skill %s without a filesystem path', async (name) => {
   const f = fixture()
   const list = f.ctx.skills.list.getMockImplementation()!
@@ -650,14 +1449,14 @@ it.each(['audio-transcribe',
     ? 'missing product skill ' + name : 'missing shared Muse skill ' + name)
 })
 
-it.each(['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import', 'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format'])('rejects re-enabling retired Host skill %s', async (name) => {
+it.each(['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import'])('rejects re-enabling retired Host skill %s', async (name) => {
   const f = fixture()
   const path = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name, 'SKILL.md')
   writeFileSync(path, '# enabled old resource')
   await expect(f.apply(f.ctx)).rejects.toThrow('retired Host skill is enabled: ' + name)
 })
 
-it.each(['audio-transcribe',
+it.each([...defaultHostSkills,
   'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects a disabled file pretending to be active skill %s', async (name) => {
   const f = fixture()
   const skill = f.skills.find(value => value.name === name)!
@@ -667,25 +1466,75 @@ it.each(['audio-transcribe',
   await expect(f.apply(f.ctx)).rejects.toThrow('disabled skill is model-invocable')
 })
 
-it.each(['audio-transcribe', 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects %s whose full content cannot be loaded', async (name) => {
+it.each([...defaultHostSkills, 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects %s whose full content cannot be loaded', async (name) => {
   const f = fixture()
   const get = f.ctx.skills.get.getMockImplementation()!
   f.ctx.skills.get.mockImplementation(async target => target === name ? undefined : get(target))
-  await expect(f.apply(f.ctx)).rejects.toThrow(name === 'audio-transcribe'
-    ? 'shared skill did not load from the packaged Host: ' + name
-    : 'shot-writing skill did not load from its packaged resource: ' + name)
+  await expect(f.apply(f.ctx)).rejects.toThrow(name.startsWith('shot-script-creator-')
+    ? 'shot-writing skill did not load from its packaged resource: ' + name
+    : 'shared skill did not load from the packaged Host: ' + name)
 })
 
-it('loads the transcription and shot-writing skills through the scoped registry', async () => {
+it('loads default transcription, writing and shot-writing skills through the scoped registry', async () => {
   const f = fixture()
   await f.apply(f.ctx)
-  for (const name of ['audio-transcribe',
+  for (const name of [...defaultHostSkills,
     'shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
-    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.home })
+    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.layout.cwd })
   }
   for (const name of ['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import']) {
     const directory = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name)
     expect(existsSync(join(directory, 'SKILL.md'))).toBe(false)
     expect(existsSync(join(directory, 'SKILL.md.disabled'))).toBe(true)
+  }
+})
+
+it('retains the failing preset, Agent and primary cause when teardown also rejects', async () => {
+  const f = fixture()
+  f.ctx.systemPrompt.assemble.mockRejectedValueOnce(new Error('PRIMARY_ASSEMBLY_FAILURE'))
+  f.dispose.mockRejectedValueOnce(new Error('SECONDARY_DISPOSAL_FAILURE'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('PRIMARY_ASSEMBLY_FAILURE')
+  const failure = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(failure).toContain('preset short-drama, agent 1 (smoke-agent), assemble initial prompt failed')
+  expect(failure).toContain('SECONDARY_DISPOSAL_FAILURE')
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('attempts every owned disposal before rejecting a cleanup failure', async () => {
+  const f = fixture()
+  f.dispose.mockRejectedValueOnce(new Error('FIRST_DISPOSAL_FAILURE'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('FIRST_DISPOSAL_FAILURE')
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('identifies second-Agent creation failures and releases the first Agent', async () => {
+  const f = fixture()
+  const create = f.ctx.agents.create.getMockImplementation()!
+  f.ctx.agents.create.mockImplementationOnce(create).mockRejectedValueOnce(new Error('SECOND_AGENT_CREATION_FAILURE'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('SECOND_AGENT_CREATION_FAILURE')
+  const failure = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(failure).toContain('preset short-drama, agent 2 (desktop-product-smoke-short-drama-1), create and mount failed')
+  expect(f.dispose).toHaveBeenCalledOnce()
+})
+
+it('waits for Agent teardown before checking later presets or marking completion', async () => {
+  const f = fixture()
+  const entered = Promise.withResolvers<undefined>()
+  const release = Promise.withResolvers<undefined>()
+  f.dispose.mockImplementationOnce(async () => { entered.resolve(undefined); await release.promise })
+  const request = f.apply(f.ctx)
+  try {
+    await entered.promise
+    expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+    expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+    release.resolve(undefined)
+    await request
+    expect(f.dispose).toHaveBeenCalledTimes(15)
+  } finally {
+    release.resolve(undefined)
+    await request
   }
 })

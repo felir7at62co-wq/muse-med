@@ -28,16 +28,25 @@ const clientEnvironment = resolveClientBuildEnvironment(process.env.DSH_CLIENT_V
   : process.env)
 const clientVersion = clientEnvironment.DSH_CLIENT_VERSION
 if (clientVersion === undefined) throw new Error('desktop build: the client environment carries no DSH_CLIENT_VERSION')
+const productVersion = clientEnvironment.DSH_CLIENT_PRODUCT_VERSION
+if (productVersion === undefined) throw new Error('desktop build: the client environment carries no DSH_CLIENT_PRODUCT_VERSION')
 const clientCommitHash = clientEnvironment.DSH_CLIENT_COMMIT_HASH
 if (clientCommitHash === undefined) throw new Error('desktop build: the client environment carries no DSH_CLIENT_COMMIT_HASH')
 
 /** Inline the public version and commit used by runtime binding and diagnostics. */
 const clientVersionDefine = {
   'process.env.DSH_CLIENT_VERSION': JSON.stringify(clientVersion),
+  'process.env.DSH_CLIENT_PRODUCT_VERSION': JSON.stringify(productVersion),
   'process.env.DSH_CLIENT_COMMIT_HASH': JSON.stringify(clientCommitHash),
 }
 
 export default defineConfig([
+  {
+    entry: ['lib/types/operation-report-worker.js'],
+    plugins: [packagedImportsPlugin({ packages: new Set(), nodeBuiltins: true })],
+    outDir: 'lib', format: ['esm'], platform: 'node', target: 'es2024',
+    fixedExtension: false, dts: false, clean: false, codeSplitting: false,
+  },
   {
     entry: ['lib/types/command-manager-entry.js'],
     plugins: [packagedImportsPlugin({ packages: new Set(), nodeBuiltins: true })],
@@ -62,9 +71,9 @@ export default defineConfig([
       await build({
         configFile: false,
         plugins: [{
-          name: 'desktop-brand-font',
+          name: 'desktop-shell-assets',
           async generateBundle() {
-            for (const name of ['brand-font.css', 'montserrat-regular.woff2', 'montserrat-light.woff2', 'montserrat-medium.woff2', 'Montserrat-OFL.txt']) {
+            for (const name of ['design-platform.css', 'brand-font.css', 'montserrat-regular.woff2', 'montserrat-light.woff2', 'montserrat-medium.woff2', 'Montserrat-OFL.txt']) {
               this.emitFile({
                 type: 'asset',
                 fileName: name,

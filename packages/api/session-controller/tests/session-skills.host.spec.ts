@@ -1,15 +1,19 @@
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
+import { scopeChainOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import type {} from '@deepseek-ai/dsh-skill'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionSkillCatalog } from '../src/skill-catalog.ts'
+import { scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
 
 function observation(
   sessionId: SessionId,
-  options: { readonly cwd?: string; readonly agentPreset?: string } = {},
+  options: { readonly cwd?: string; readonly workingDirectory?: string | null; readonly agentPreset?: string } = {},
 ): SessionObservation {
   const events = Object.freeze([])
   const lease = (): SessionObservation => ({
@@ -28,6 +32,7 @@ function observation(
       asOfSeq: -1,
       values: {
         ...options.agentPreset === undefined ? {} : { agentPreset: options.agentPreset },
+        ...options.workingDirectory === undefined ? {} : { workingDirectory: options.workingDirectory },
       },
     },
     retain: lease,
@@ -39,19 +44,73 @@ function observation(
 async function context(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
+  provideWorkingDirectoryFixture(ctx, '/catalog/default')
   return ctx
 }
 
 describe('SessionSkillCatalog', () => {
-  it('reads a cold Session catalog without resuming an Agent', async () => {
+  it.each([
+    { fails: false, preset: false }, { fails: true, preset: false },
+    { fails: false, preset: true }, { fails: true, preset: true },
+  ])('disposes a cold temporary view with preset=$preset and listing failure=$fails', async ({ fails, preset }) => {
+    const ctx = await context()
+    try {
+      const sessionId = SessionId('cold-temporary-skills')
+      const parent = { preset: 'cold-catalog' }
+      const releasePreset = vi.fn(async () => {})
+      if (preset) ctx.provide('agentPresets', {
+        acquireScope: async () => ({ key: parent, [Symbol.asyncDispose]: releasePreset }),
+      } as never)
+      ctx.provide('sessionQuery', {
+        observeSession: () => Promise.resolve(observation(sessionId, {
+          cwd: '/cold/project', ...preset ? { agentPreset: 'cold-catalog' } : {},
+        })),
+      } as never)
+      let registered = false
+      ctx.on('session-skills/prepare-view', async (view) => {
+        const owned = view.context()
+        expect(view.context()).toBe(owned)
+        const key = scopeOf(owned)
+        if (key === undefined) throw new Error('Expected a temporary catalog scope')
+        expect(scopeParentOf(key)).toBe(preset ? parent : undefined)
+        owned.effect(() => {
+          registered = true
+          return () => { registered = false }
+        })
+      })
+      const list = vi.fn(async (options: { cwd: string; scope?: unknown; signal?: AbortSignal }) => {
+        expect(registered).toBe(true)
+        expect(options.cwd).toBe('/cold/project')
+        expect(options.signal).toBeInstanceOf(AbortSignal)
+        expect(options.scope).toBeDefined()
+        if (fails) throw new Error('temporary catalog unavailable')
+        return [{ name: 'temporary', description: 'Cold view skill.',
+          invocation: { modelInvocable: true, userInvocable: true } }]
+      })
+      ctx.provide('skills', { list } as never)
+      const request = new SessionSkillCatalog(ctx).list({ sessionId }, new AbortController().signal)
+      if (fails) await expect(request).rejects.toThrow('temporary catalog unavailable')
+      else await expect(request).resolves.toEqual({ skills: [{
+        name: 'temporary', description: 'Cold view skill.', modelInvocable: true,
+      }] })
+      expect(list).toHaveBeenCalledOnce()
+      expect(registered).toBe(false)
+      expect(releasePreset).toHaveBeenCalledTimes(preset ? 1 : 0)
+      expect(ctx.agents.list()).toEqual([])
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('reads a moved cold Session catalog from its recorded current directory without resuming an Agent', async () => {
     const ctx = await context()
     const sessionId = SessionId('cold-skills')
-    const observed = observation(sessionId, { cwd: '/cold/project' })
+    const observed = observation(sessionId, { cwd: '/cold/original', workingDirectory: '/cold/project' })
     const dispose = vi.spyOn(observed, Symbol.dispose)
     const observeSession = vi.fn(() => Promise.resolve(observed))
     ctx.provide('sessionQuery', { observeSession } as never)
     const resume = vi.spyOn(ctx.agents, 'resume')
+    const ensureDirectory = vi.spyOn(ctx.workingDirectory, 'ensure')
     const list = vi.fn(() => Promise.resolve([
       {
         name: 'review',
@@ -81,8 +140,38 @@ describe('SessionSkillCatalog', () => {
     expect(observeSession).toHaveBeenCalledWith(sessionId)
     expect(dispose).toHaveBeenCalledOnce()
     expect(resume).not.toHaveBeenCalled()
+    expect(ensureDirectory).not.toHaveBeenCalled()
     expect(ctx.agents.list()).toEqual([])
     expect(list).toHaveBeenCalledWith({ cwd: '/cold/project', scope: undefined })
+  })
+
+  it.each([
+    { cwd: undefined, workingDirectory: '/cold/current', expected: '/cold/current' },
+    { cwd: '/cold/original', workingDirectory: null, expected: '/cold/original' },
+    { cwd: undefined, workingDirectory: null, expected: '/catalog/default' },
+    { cwd: undefined, workingDirectory: undefined, expected: '/catalog/default' },
+  ])('resolves cold directory metadata $cwd / $workingDirectory to $expected without filesystem checks', async ({ cwd, workingDirectory, expected }) => {
+    const ctx = await context()
+    try {
+      const sessionId = SessionId('cold-directory-fallback')
+      ctx.provide('sessionQuery', {
+        observeSession: () => Promise.resolve(observation(sessionId, {
+          ...cwd === undefined ? {} : { cwd },
+          ...workingDirectory === undefined ? {} : { workingDirectory },
+        })),
+      } as never)
+      const list = vi.fn(() => Promise.resolve([]))
+      ctx.provide('skills', { list } as never)
+      const ensure = vi.spyOn(ctx.workingDirectory, 'ensure')
+      const resume = vi.spyOn(ctx.agents, 'resume')
+      await expect(new SessionSkillCatalog(ctx).list({ sessionId }, new AbortController().signal))
+        .resolves.toEqual({ skills: [] })
+      expect(list).toHaveBeenCalledWith({ cwd: expected, scope: undefined })
+      expect(ensure).not.toHaveBeenCalled()
+      expect(resume).not.toHaveBeenCalled()
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 
   it('uses a live Agent to address a preset-owned registry', async () => {
@@ -91,6 +180,7 @@ describe('SessionSkillCatalog', () => {
     const session = ctx.sessions.create(sessionId, { meta: { cwd: '/live/project' } })
     const agent = { id: sessionId, session, status: 'idle', ctx } as Agent
     await ctx.agents.register(agent)
+    const ensureDirectory = vi.spyOn(ctx.workingDirectory, 'ensure').mockResolvedValue('/live/current')
     ctx.provide('sessionQuery', {
       observeSession: () => Promise.resolve(observation(sessionId, { cwd: '/live/project' })),
     } as never)
@@ -113,7 +203,9 @@ describe('SessionSkillCatalog', () => {
         modelInvocable: false,
       }],
     })
-    expect(scopedList).toHaveBeenCalledWith({ cwd: '/live/project', scope: agent })
+    expect(scopedList).toHaveBeenCalledWith({ cwd: '/live/current', scope: agent })
+    expect(ensureDirectory).toHaveBeenCalledWith(agent, expect.any(AbortSignal))
+    expect(session.header.cwd).toBe('/live/project')
     expect(acquireScope).not.toHaveBeenCalled()
   })
 
@@ -137,6 +229,59 @@ describe('SessionSkillCatalog', () => {
     expect(acquireScope).toHaveBeenCalledWith('minimal')
     expect(list).toHaveBeenCalledWith({ cwd: '/cold/project', scope })
     expect(ctx.agents.list()).toEqual([])
+  })
+
+  it.each([
+    { withPreset: true, listingFails: false }, { withPreset: false, listingFails: false },
+    { withPreset: true, listingFails: true }, { withPreset: false, listingFails: true },
+  ])('isolates prepared cold views with preset=$withPreset and listingFails=$listingFails', async ({ withPreset, listingFails }) => {
+    const ctx = await context()
+    try {
+      const sessionId = SessionId('prepared-preset-skills'), preset = { agentPreset: 'minimal' }
+      ctx.provide('sessionQuery', {
+        observeSession: () => Promise.resolve(observation(sessionId, { cwd: '/cold/project',
+          ...withPreset ? { agentPreset: 'minimal' } : {} })),
+      } as never)
+      let active = false
+      const release = vi.fn(async () => { expect(active).toBe(false) })
+      if (withPreset) ctx.provide('agentPresets', {
+        acquireScope: () => Promise.resolve({ key: preset, [Symbol.asyncDispose]: release }),
+      } as never)
+      ctx.on('session-skills/prepare-view', async (view) => {
+        const prepared = view.context()
+        expect(view.context()).toBe(prepared)
+        prepared.effect(() => {
+          active = true
+          return () => { active = false }
+        })
+      })
+      const keys: ScopeKey[] = []
+      const list = vi.fn(async ({ scope }: { scope: ScopeKey }) => {
+        keys.push(scope)
+        const chain = scopeChainOf(scope)
+        if (!active || !(withPreset ? chain.includes(preset) : chain.length === 1)) return []
+        if (listingFails) throw new Error('prepared view provider unavailable')
+        return [{ name: 'prepared-preset', description: 'Visible through its cold preset.',
+          invocation: { modelInvocable: true, userInvocable: true } }]
+      })
+      ctx.provide('skills', { list } as never)
+      const catalog = new SessionSkillCatalog(ctx), signal = new AbortController().signal
+      for (let index = 0; index < 2; index++) {
+        const result = catalog.list({ sessionId }, signal)
+        if (listingFails) await expect(result).rejects.toMatchObject({ code: 'gateway/internal',
+          message: 'skill listing failed: Error: prepared view provider unavailable' })
+        else await expect(result).resolves.toEqual({
+          skills: [{ name: 'prepared-preset', description: 'Visible through its cold preset.', modelInvocable: true }],
+        })
+        expect(active).toBe(false)
+      }
+      expect(keys).toHaveLength(2)
+      expect(keys[0]).not.toBe(keys[1])
+      expect(release).toHaveBeenCalledTimes(withPreset ? 2 : 0)
+      expect(ctx.agents.list()).toEqual([])
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 
   it('falls back to the global registry when the recorded preset is unavailable', async () => {
@@ -192,22 +337,18 @@ describe('SessionSkillCatalog', () => {
     await expect(failed).rejects.toThrow('skill registry is absent')
   })
 
-  it('rejects observations without projections or a project cwd', async () => {
+  it('rejects observations without projections', async () => {
     const ctx = await context()
     const sessionId = SessionId('incomplete-skills')
     const withoutProjections = { ...observation(sessionId, { cwd: '/project' }), projections: undefined }
     const observeSession = vi.fn()
       .mockResolvedValueOnce(withoutProjections)
-      .mockResolvedValueOnce(observation(sessionId))
     ctx.provide('sessionQuery', { observeSession } as never)
     const catalog = new SessionSkillCatalog(ctx)
 
     const unprojected = catalog.list({ sessionId }, new AbortController().signal)
     await expect(unprojected).rejects.toMatchObject({ code: 'gateway/internal' })
     await expect(unprojected).rejects.toThrow('projected Session observation')
-    const cwdless = catalog.list({ sessionId }, new AbortController().signal)
-    await expect(cwdless).rejects.toMatchObject({ code: 'gateway/internal' })
-    await expect(cwdless).rejects.toThrow('has no project cwd')
   })
 
   it('classifies a provider listing failure', async () => {

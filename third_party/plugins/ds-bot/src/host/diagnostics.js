@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Diagnostics: what went wrong on this host, kept where the user can see it and report it.
 // DSH mounts no exporter for ctx.logger once it has started, so warnings would otherwise
 // reach only stderr. Entries are kept in memory and in <home>/logs/diagnostics.jsonl, so

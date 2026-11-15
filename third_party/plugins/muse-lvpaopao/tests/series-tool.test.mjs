@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeTool } from '../../checks/tool-call.mjs'
 /** Offline real-Cordis integration with synthetic native receipts and actual local copies; no video service or decode runs. */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -6,9 +8,10 @@ import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node
 import { dirname, join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
-import Agents from '@deepseek-ai/dsh-agent'
-import Sessions from '@deepseek-ai/dsh-session'
-import Projections from '@deepseek-ai/dsh-session-projection'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
+import Jobs from '@deepseek-ai/dsh-jobs-local'
+import * as ToolJobs from '@deepseek-ai/dsh-tool-jobs'
 import Policy, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import Tools, { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -27,7 +30,7 @@ async function fixture(t, options = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'lvpaopao-series-tool-')))
   const previousHome = process.env.MUSE_HOME
   process.env.MUSE_HOME = join(root, 'private-home')
-  const ctx = new Context(), calls = [], acquisitions = [], records = new Map()
+  const ctx = new Context(), handles = [], calls = [], acquisitions = [], records = new Map()
   const control = { offline: false, reconciliation: 'saved' }
   let resolutions = 0, bridgeDisposed = 0, subprocessCalls = 0
   const nativeDirectory = join(root, 'synthetic-native'), helperPath = join(nativeDirectory, 'helper.py')
@@ -38,10 +41,11 @@ async function fixture(t, options = {}) {
     localHelper: helperPath, helperSha256: hash(helperBytes), cwd: root, downloadEnabled: true,
     outputDir: '/ignored-native-output', maxMediaBytes: 100000, copyTimeoutMs: 1000 }))
   t.after(async () => {
-    try { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) }
+    try { for (const handle of handles) await handle.dispose(); await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) }
     finally { if (previousHome === undefined) delete process.env.MUSE_HOME; else process.env.MUSE_HOME = previousHome }
   })
-  await ctx.plugin(Agents); await ctx.plugin(Sessions); await ctx.plugin(Projections)
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(Jobs); await ctx.plugin(ToolJobs, { completionDelivery: 'quiet' }); await mountAgentLoopTestHarness(ctx)
   await ctx.plugin(Policy, { mode: 'workspace-write', workspaceRoot: root })
   const episodeCount = options.episodeCount ?? 3
   const candidates = options.candidates ?? [{ title: TITLE, srcAppId: SOURCE, originDramaId: DRAMA }]
@@ -97,7 +101,7 @@ async function fixture(t, options = {}) {
   await ctx.plugin(Bridge); await ctx.plugin(Subprocess)
   async function mount() {
     const scope = ctx.isolate('tools').isolate('systemPrompt')
-    await scope.plugin(SystemPrompt); await scope.plugin(Tools)
+    await scope.plugin(SystemPrompt); await scope.plugin(Tools); await scope.plugin(NativeToolExecutor)
     const fiber = scope.plugin(consumer, consumer.Config({ maxEpisodeCount: 2, maxSeriesEpisodes: 20,
       maxAttempts: 2, retryDelayMs: 0, seriesLockWaitMs: 100, copyChunkBytes: 11 }))
     await fiber.await()
@@ -106,11 +110,12 @@ async function fixture(t, options = {}) {
   let mounted = await mount(), sequence = 0
   async function session(name = 'workspace') {
     const cwd = join(root, name); await mkdir(cwd, { recursive: true })
-    return ctx.sessions.create(undefined, { meta: { cwd } })
+    const handle = await ctx.agents.create({ sessionId: SessionId('legacy-series-' + (handles.length + 1)), meta: { cwd } })
+    handles.push(handle); return handle.agent.session
   }
   async function invoke(session, args = { action: 'download_series', query: TITLE }, signal = new AbortController().signal) {
-    return ctx.agents.withInitiator({ session, ctx: mounted.scope }, async () => {
-      const result = await mounted.scope.tools.execute({ callId: `synthetic-series-${++sequence}`, name: 'lvpaopao', arguments: args, signal })
+    return ctx.agents.withInitiator(ctx.agents.get(session.id), async () => {
+      const result = await executeTool(mounted.scope, { callId: `synthetic-series-${++sequence}`, name: 'lvpaopao', arguments: args, signal })
       if (signal.aborted) {
         assert.equal(result.isError, true)
         assert.equal(result.error.info.code, TOOL_ABORTED)

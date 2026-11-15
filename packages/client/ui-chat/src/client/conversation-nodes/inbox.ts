@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ConversationNodeDefinition, ConversationPreviousContext,
+  ConversationNodeDefinitionInput, ConversationPreviousContext,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 interface InboxIdentity {
@@ -37,7 +37,12 @@ export interface InboxState {
   /** Message ids in the current claim, shared until the next claim. */
   readonly currentClaimed: ReadonlySet<string>
   readonly claimSeq: number
-  readonly claimedHuman: boolean
+  /**
+   * First human message id of the current claim in Inbox order; undefined
+   * when the claim took no human message. The AgentLoop logs a claim's
+   * messages in this order, so this message is the claim's first steering row.
+   */
+  readonly firstClaimedHuman: string | undefined
 }
 
 const EMPTY_PENDING: PendingState = { kind: 'snapshot', ids: [] }
@@ -91,7 +96,7 @@ function applySplice(
       pending: { kind: 'snapshot', ids: pending },
       currentClaimed: new Set(removed.map(message => message.id)),
       claimSeq: seq,
-      claimedHuman: removed.some(message => message.source.kind === 'user'),
+      firstClaimedHuman: removed.find(message => message.source.kind === 'user')?.id,
     }
   }
   const currentClaimed = withoutInserted(
@@ -108,16 +113,18 @@ function applySplice(
     },
     currentClaimed,
     claimSeq: previous?.state.claimSeq ?? -1,
-    claimedHuman: previous?.state.claimedHuman ?? false,
+    firstClaimedHuman: previous?.state.firstClaimedHuman,
   }
 }
 
-function inboxDefinition(target: 'next-step' | 'next-turn'): ConversationNodeDefinition<InboxState> {
+function inboxDefinition(target: 'next-step' | 'next-turn'): ConversationNodeDefinitionInput<InboxState> {
   const kind = `inbox-${target}`
   return {
     kind,
-    match: event => event.type === 'agent/inbox/spliced' && event.data.target === target
-      ? { id: String(event.seq), role: 'start' } : null,
+    match: {
+      'agent/inbox/spliced': event => event.type === 'agent/inbox/spliced' && event.data.target === target
+        ? { id: String(event.seq), role: 'start' } : null,
+    },
     start: (_context, match, reader) => {
       if (match.event.type !== 'agent/inbox/spliced') throw new Error('inbox start requires agent/inbox/spliced')
       return applySplice(reader.previous<InboxState>(kind), match.event.data, match.event.seq)

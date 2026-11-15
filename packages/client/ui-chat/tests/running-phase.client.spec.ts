@@ -53,18 +53,37 @@ describe('running phase from the Chat timeline', () => {
     assembler.append(chunk(2.5, { type: 'block-start', index: 0, blockType: 'reasoning' }))
     expect(phase()).toBe('waiting')
     assembler.append(chunk(2.6, { type: 'reasoning-delta', index: 0, text: 'Checking the request' }))
+    expect(phase()).toBe('reasoning')
+  })
+
+  it.each<{ value: StreamChunk; expected: string }>([
+    { value: { type: 'text-delta', index: 0, text: 'Hello' }, expected: 'responding' },
+    { value: { type: 'tool-call-delta', index: 0, id: ToolCallId('call'), name: 'read', argumentsDelta: '{}' }, expected: 'working' },
+  ])('shows $expected after a visible chunk', ({ value, expected }) => {
+    const { assembler, phase } = assembly([boundary(1, 'turn/start'), boundary(2, 'step/start')])
+    assembler.append(chunk(2.5, value))
+    expect(phase()).toBe(expected)
+    assembler.append(boundary(3, 'step/end'))
     expect(phase()).toBe('working')
   })
 
-  it.each<StreamChunk>([
-    { type: 'text-delta', index: 0, text: 'Hello' },
-    { type: 'tool-call-delta', index: 0, id: ToolCallId('call'), name: 'read', argumentsDelta: '{}' },
-  ])('keeps existing activity after $type', (value) => {
+  it('waits on the next step instead of reusing the preceding reasoning', () => {
     const { assembler, phase } = assembly([boundary(1, 'turn/start'), boundary(2, 'step/start')])
-    assembler.append(chunk(2.5, value))
-    expect(phase()).toBe('working')
+    assembler.append(chunk(2.5, { type: 'reasoning-delta', index: 0, text: 'A visible summary' }))
+    expect(phase()).toBe('reasoning')
     assembler.append(boundary(3, 'step/end'))
-    expect(phase()).toBe('working')
+    assembler.append({ type: 'event', event: {
+      seq: SessionSeq(4), time: 4_000, type: 'step/start', data: { turn: 1, step: 2 },
+    } })
+    expect(phase()).toBe('waiting')
+  })
+
+  it('does not invent a reasoning phase for an empty block', () => {
+    const { assembler, phase } = assembly([boundary(1, 'turn/start'), boundary(2, 'step/start')])
+    assembler.append(chunk(2.5, { type: 'reasoning-delta', index: 0, text: '  ' }))
+    expect(phase()).toBe('waiting')
+    assembler.append(chunk(2.6, { type: 'text-delta', index: 1, text: 'Answer' }))
+    expect(phase()).toBe('responding')
   })
 
   it('clears preparation on cancellation and starts it afresh on another Turn', () => {

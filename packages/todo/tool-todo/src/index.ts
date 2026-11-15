@@ -161,14 +161,15 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = zod.union([
  * Register the planning tools and the visible and host-only list projections.
  * @param ctx - registrant context carrying the tool and session-projection registries.
  * @param config - deployment's explicit todo policy.
+ * @returns when the plugin is ready.
  */
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
   const allowParallel = config.allowParallelInProgress
   // Standing-plan fold: latest whole todo/write list, cleared by the next
   // turn/start (turn/end keeps the finished checklist visible); null before the
   // first write or after a later turn begins; every other event returns the
   // same state reference.
-  ctx.sessionProjections.register<'todos', TodoItem[] | null>({
+  await ctx.sessionProjections.register<'todos', TodoItem[] | null>({
     key: 'todos',
     stateSchema: todosProjectionSchema,
     init: () => null,
@@ -177,10 +178,10 @@ export function apply(ctx: Context, config: Config): void {
       if (event.type === 'turn/start') return null
       return state
     },
-    wire: { viewSchema: todosProjectionSchema, view: state => state },
+    wire: { viewSchema: todosProjectionSchema, view: state => state, summary: false },
     stateVersion: 2,
   })
-  ctx.sessionProjections.register<'latestTodos', TodoItem[] | null>({
+  const latestTodos = await ctx.sessionProjections.register<'latestTodos', TodoItem[] | null>({
     key: 'latestTodos',
     stateSchema: todosProjectionSchema,
     init: () => null,
@@ -252,8 +253,7 @@ export function apply(ctx: Context, config: Config): void {
       }
       const task = args.task.trim()
       if (!task) throw new Error('invalid todo_update: task must be a non-empty string')
-      const previous = ctx.sessionProjections.stateOf(exec.agent.session, 'latestTodos')
-      if (previous === undefined) throw new Error('todo_update requires the latestTodos projection')
+      const previous = latestTodos.stateOf(exec.agent.session)
       if (previous === null) throw new Error('no todo list: create one with todo_write first')
       const target = previous.find(todo => todo.content === task)
       if (!target) throw new Error(`unknown todo task ${JSON.stringify(task)}; use its exact content from the task list`)

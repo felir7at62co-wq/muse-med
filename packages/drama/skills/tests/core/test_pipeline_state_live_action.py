@@ -151,6 +151,17 @@ class EpisodeProjectionTests(unittest.TestCase):
         self.assertEqual(stages["video_tasks"]["projected"], "review")
         self.assertEqual(stages["video_tasks"]["note"]["coverage_pending"], ["01"])
 
+    def test_upstream_invalidation_preserves_manual_episode_video_hold(self):
+        state = PipelineState(self.project)
+        state.set("video_tasks", "blocked", "1", error="operator hold",
+                  metadata={"script_id": 2708, "provider_episode_id": 130221})
+        state.set("draft", "completed", "1")
+        held = state.data["episodes"]["01"]["video_tasks"].copy()
+        state.stale_from("shots_and_matches", "1")
+        state = PipelineState(self.project)
+        self.assertEqual(state.data["episodes"]["01"]["video_tasks"], held)
+        self.assertEqual(state.data["episodes"]["01"]["draft"]["status"], "stale")
+
     def test_legacy_single_manifest_keeps_exact_episode_projection(self):
         self.split(("01",))
         self.products(("01",))
@@ -158,6 +169,56 @@ class EpisodeProjectionTests(unittest.TestCase):
         for stage in ("shots_and_matches", "video_tasks", "draft", "export"):
             self.assertEqual(stages[stage]["projected"], "completed")
             self.assertTrue(stages[stage]["note"]["legacy_single_without_coverage"])
+
+    def test_compiled_episode_delivery_requires_all_prepared_packages(self):
+        episode = "01"
+        self.split((episode,))
+        package = f"episode_packages/{episode}/package.json"
+        plan = json.dumps({"episode": episode, "video_tasks": [{"shots": [n]} for n in range(1, 8)]})
+        self.put(package, plan)
+        plan_hash = hashlib.sha256(plan.encode()).hexdigest()
+        shots, clips = [], []
+        for number in range(1, 8):
+            video = f"media/ep{episode}/p{number:02}.mp4"
+            prepared = f"video/{episode}/shot_{number:03}.mp4"
+            content = f"original video {number}"
+            self.put(video, content)
+            self.put(prepared, content)
+            shots.append({"shot": number, "package": number, "video": video,
+                          "sha256": hashlib.sha256(content.encode()).hexdigest(), "package_sha256": plan_hash})
+            clips.append({"shot": number, "start_us": (number - 1) * 1_000_000, "duration_us": 1_000_000})
+        self.put(f"export/delivery-ep{episode}.mp4", "existing delivery")
+
+        def project_with(selected, timeline):
+            self.put(f"editing/{episode}-sources.json", json.dumps({"shots": selected}))
+            self.put(f"editing/{episode}-timeline.json", json.dumps({"clips": timeline}))
+            return self.projected((episode,), (episode,))
+
+        partial = project_with(shots[:6], clips[:6])
+        for stage in ("draft", "export"):
+            self.assertEqual(partial[stage]["projected"], "review")
+            self.assertIn("P7", " ".join(partial[stage]["note"]["missing_evidence"]))
+        complete = project_with(shots, clips)
+        self.assertEqual(complete["draft"]["projected"], "completed")
+        self.assertEqual(complete["export"]["projected"], "completed")
+        self.assertFalse(complete["draft"]["note"]["editable_draft_verified"])
+
+        self.put(package, json.dumps({"episode": episode, "timing_source": "integer_shot_script"}))
+        malformed = self.projected((episode,), (episode,))
+        for stage in ("draft", "export"):
+            self.assertEqual(malformed[stage]["projected"], "review")
+            self.assertIn("video_tasks", " ".join(malformed[stage]["note"]["missing_evidence"]))
+        self.put(package, plan)
+
+        self.put(f"video/{episode}/shot_007.mp4", "changed prepared video")
+        changed = self.projected((episode,), (episode,))
+        for stage in ("draft", "export"):
+            self.assertEqual(changed[stage]["projected"], "review")
+            self.assertIn("P7", " ".join(changed[stage]["note"]["missing_evidence"]))
+        self.assertEqual((self.project / f"media/ep{episode}/p07.mp4").read_text(encoding="utf-8"),
+                         "original video 7")
+        self.assertEqual((self.project / f"export/delivery-ep{episode}.mp4").read_text(encoding="utf-8"),
+                         "existing delivery")
 
     def test_multi_episode_without_coverage_does_not_use_legacy_projection(self):
         self.split(("01", "02"))

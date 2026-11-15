@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-feedback-tools
+profile: headless
+composition: muse-feedback-tools
+recording: authored
+header:
+  class: muse-feedback-tools
+  pin: true
+workspace:
+  final: true

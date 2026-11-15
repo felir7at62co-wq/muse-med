@@ -1,0 +1,154 @@
+{
+  "selectedModel": {
+    "provider": "manuscript-final-delivery-fixture",
+    "model": "selected-creative-model"
+  },
+  "reviewerRequests": [
+    1,
+    1,
+    1,
+    1
+  ],
+  "finalWordReadIndependently": true,
+  "actualPartialCoveragePreserved": true,
+  "loggedDeliveryNotices": 1,
+  "noticeReceivedByModel": true,
+  "presentedFiles": [
+    "final.md",
+    "final.md",
+    "partial.md",
+    "final.docx",
+    "unpresented.md"
+  ],
+  "results": [
+    {
+      "id": "word-without-history",
+      "name": "present",
+      "error": "MANUSCRIPT_DELIVERY_REQUIRED"
+    },
+    {
+      "id": "write-final",
+      "name": "write",
+      "error": null
+    },
+    {
+      "id": "without-review",
+      "name": "present",
+      "error": "MANUSCRIPT_DELIVERY_REQUIRED"
+    },
+    {
+      "id": "review-full",
+      "name": "manuscript_revision",
+      "error": null,
+      "status": "consistent"
+    },
+    {
+      "id": "declare-full",
+      "name": "manuscript_revision",
+      "error": null,
+      "mode": "reviewed"
+    },
+    {
+      "id": "present-full",
+      "name": "present",
+      "error": null
+    },
+    {
+      "id": "rewrite-final",
+      "name": "write",
+      "error": null
+    },
+    {
+      "id": "present-stale",
+      "name": "present",
+      "error": "MANUSCRIPT_DELIVERY_STALE"
+    },
+    {
+      "id": "declare-stale",
+      "name": "manuscript_revision",
+      "error": "MANUSCRIPT_DELIVERY_REVIEW_REQUIRED"
+    },
+    {
+      "id": "review-issues",
+      "name": "manuscript_revision",
+      "error": null,
+      "status": "issues"
+    },
+    {
+      "id": "issues-are-not-reviewed",
+      "name": "manuscript_revision",
+      "error": "MANUSCRIPT_DELIVERY_REVIEW_REQUIRED"
+    },
+    {
+      "id": "declare-draft",
+      "name": "manuscript_revision",
+      "error": null,
+      "mode": "draft"
+    },
+    {
+      "id": "draft-needs-label",
+      "name": "present",
+      "error": "MANUSCRIPT_DELIVERY_LABEL_REQUIRED"
+    },
+    {
+      "id": "present-draft",
+      "name": "present",
+      "error": null
+    },
+    {
+      "id": "review-partial",
+      "name": "manuscript_revision",
+      "error": null,
+      "status": "consistent"
+    },
+    {
+      "id": "declare-partial",
+      "name": "manuscript_revision",
+      "error": null,
+      "mode": "reviewed"
+    },
+    {
+      "id": "partial-is-not-whole-play",
+      "name": "present",
+      "error": "MANUSCRIPT_DELIVERY_LABEL_REQUIRED"
+    },
+    {
+      "id": "present-partial",
+      "name": "present",
+      "error": null
+    },
+    {
+      "id": "review-word",
+      "name": "manuscript_revision",
+      "error": null,
+      "status": "consistent"
+    },
+    {
+      "id": "declare-word",
+      "name": "manuscript_revision",
+      "error": null,
+      "mode": "reviewed"
+    },
+    {
+      "id": "present-word",
+      "name": "present",
+      "error": null
+    },
+    {
+      "id": "write-unpresented",
+      "name": "write",
+      "error": null
+    },
+    {
+      "id": "declare-after-notice",
+      "name": "manuscript_revision",
+      "error": null,
+      "mode": "draft"
+    },
+    {
+      "id": "present-after-notice",
+      "name": "present",
+      "error": null
+    }
+  ]
+}

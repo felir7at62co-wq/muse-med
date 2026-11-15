@@ -15,7 +15,7 @@ import type {} from '@deepseek-ai/dsh-feishu-settings/remote'
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import { FeishuSection } from './FeishuSection.tsx'
 import type { FeishuOutcome, FeishuSetupInjected } from './FeishuSection.tsx'
-import { en, zh, type FeishuLocaleKey } from './locales.ts'
+import { en, zh, ja, es, fr, de, ru, pt, type FeishuLocaleKey } from './locales.ts'
 
 export type { FeishuOutcome, FeishuSectionProps, FeishuSetupInjected } from './FeishuSection.tsx'
 export type { FeishuLocaleKey } from './locales.ts'
@@ -51,7 +51,7 @@ function outcomeOf<T>(result: RemoteResult<T>): FeishuOutcome<T> {
 
 /** Contribute the Feishu page to Settings. */
 function registerSection(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'feishu-settings: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'feishu-settings: dictionaries')
 
   const t = ctx.locale.bind(NS)
   const injected = (): FeishuSetupInjected => ({

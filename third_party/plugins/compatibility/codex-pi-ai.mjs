@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** Exact pi-ai dependency exercised by the staged provider and Host adapter checks. */
-export const codexPiAiVersion = '0.87.1'
+export const codexPiAiVersion = '1.3.0'
 
 /**
  * Update the copied provider's runtime admission and peer declaration together.
@@ -44,8 +44,9 @@ export function applyCodexPiAiCompatibility(directory) {
     { key: 'gpt-6-astra', label: 'GPT-6 Astra', maximum: 872_000 },
     { key: 'gpt-6-luna', label: 'GPT-6 Luna', maximum: 272_000, default: 272_000 },
     { key: 'gpt-6-sol', label: 'GPT-6 Sol', maximum: 272_000, default: 272_000 },
+    { key: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', maximum: 500_000, default: 500_000 },
   ])`)
     .replace("assert.partialDeepStrictEqual(verbosityModels, ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra'])",
-      "assert.deepEqual(verbosityModels, ['gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-astra', 'gpt-6-luna', 'gpt-6-sol'])"))
+      "assert.deepEqual(verbosityModels, ['gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-astra', 'gpt-6-luna', 'gpt-6-sol', 'gpt-6.1-sol'])"))
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }

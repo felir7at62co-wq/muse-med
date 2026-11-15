@@ -22,6 +22,7 @@ export function applyFeishuDesktopCompatibility(directory) {
     'src/index.ts': '6d6a43399a7ea4ed202a53918e1358c0b2d3d52d240ff2b728937759e4638f63',
     'src/bridge.ts': 'dd36ebe93ce09249c06c81079976660aa7a41658377e17fcd90c3bd8dd05ac0c',
     'src/commands.ts': 'bc2c5b02be04b7d6638e178de659d4598c0b0d0a60e87765d501ebeb5ff4a015',
+    'src/model-switch.ts': '368bf89152994bdbc5622b9e92d280fd95183669afa41483de3db35f1c5d0ac8',
     'src/session-map.ts': '6574c74263116425d080af8f4b66832662f028df094ed8af9d0649e3613455f8',
   }
   for (const [path, digest] of Object.entries(expected)) {
@@ -125,6 +126,7 @@ export async function finishChannelShutdown(stop: () => Promise<void>, drain: ()
       }
     }`)
   writeFileSync(mapPath, text)
+  writeFileSync(join(directory, 'src/model-switch.ts'), "/** Session model selection uses the live Agent API; no request hook rewrites the route. */\nimport type { Context } from '@deepseek-ai/cordis';\nimport type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent';\nimport { scopeOf } from '@deepseek-ai/dsh-scope';\n\nexport interface ModelSelectionRef {\n  current: Readonly<ModelSelection> | undefined;\n  readonly assembled: { provider: string; model: string } | undefined;\n}\n\nfunction liveAgent(agentCtx: Context): Agent | undefined {\n  const scope = scopeOf(agentCtx);\n  return agentCtx.agents.list().find(agent => agent === scope);\n}\n\n/** Expose the Agent-owned selection to retained command and panel consumers. */\nexport function sessionSelectionFor(agentCtx: Context): ModelSelectionRef {\n  const agent = liveAgent(agentCtx);\n  if (agent === undefined) throw new Error('Feishu model selection requires its live Agent');\n  return {\n    get current() { return agent.model.current(); },\n    set current(value) {\n      if (value === undefined) throw new Error('Feishu model selection requires a provider and model');\n      agent.model.select(value);\n    },\n    get assembled() {\n      const config = agent.session.requestHeader()?.config;\n      return config === undefined ? undefined : { provider: config.provider, model: config.model };\n    },\n  };\n}\n\n/** Read the selection only when the requested scoped Agent is live. */\nexport function sessionSelection(agentCtx: Context | undefined): ModelSelectionRef | undefined {\n  return agentCtx === undefined || liveAgent(agentCtx) === undefined ? undefined : sessionSelectionFor(agentCtx);\n}\n\n/** Record an explicit model change for the next prepared step. */\nexport function applySessionModelSwitch(\n  agentCtx: Context | undefined,\n  selection: { provider: string; model: string },\n  logger?: { debug: (message: string) => void },\n): void {\n  if (agentCtx === undefined) return;\n  sessionSelectionFor(agentCtx).current = selection;\n  logger?.debug('[feishu] model selection updated');\n}\n")
   applyFeishuReliability(directory)
 }
 
@@ -155,7 +157,8 @@ export function apply(ctx, config) {
   manifest.main = 'lib/index.js'
   manifest.exports = { '.': './lib/index.js', './package.json': './package.json' }
   manifest.files = ['lib', 'cordis.patch.yml', 'LICENSE', 'SOURCE.json']
-  manifest.peerDependencies['@deepseek-ai/dsh-home-paths'] = '0.2.1-alpha.1'
+  manifest.peerDependencies['@deepseek-ai/dsh-home-paths'] = '0.2.2-rc.1'
+  manifest.peerDependencies['@deepseek-ai/dsh-scope'] = '0.2.2-rc.1'
   delete manifest.types
   delete manifest.bin
   manifest.scripts = {}

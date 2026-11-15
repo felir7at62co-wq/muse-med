@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-hongguo-rendered-unknown
+profile: headless
+composition: muse-hongguo-rendered-unknown
+recording: authored
+writerOutput: true
+header:
+  class: muse-hongguo-rendered-unknown
+  pin: true

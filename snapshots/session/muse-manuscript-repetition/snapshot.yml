@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-manuscript-repetition
+profile: headless
+composition: muse-manuscript-repetition
+recording: authored
+header:
+  class: muse-manuscript-repetition
+  pin: true
+  childSystemPrompts: [1, 2, 3]
+  childToolSchemas: [1, 2, 3]
+workspace:
+  final: true

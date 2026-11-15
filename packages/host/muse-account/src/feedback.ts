@@ -4,12 +4,13 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session'
+import { z } from 'zod'
 import { readMuseSession } from './session.ts'
-import type { MuseFeedbackId, MuseFeedbackReceipt, MuseFeedbackRequest } from './types.ts'
+import type { MuseFeedbackId, MuseFeedbackReceipt, MuseFeedbackRequest, MuseFeedbackStatus } from './types.ts'
 
 /** Bounded failures; uncertain POST outcomes must be checked in the inbox before another submission. */
 export class MuseFeedbackError extends Error {
-  constructor(readonly code: 'sign-in-required' | 'account-changed' | 'unconfirmed' | 'rejected' | 'rate-limited' | 'unavailable' | 'invalid-input') {
+  constructor(readonly code: 'sign-in-required' | 'account-changed' | 'unconfirmed' | 'rejected' | 'rate-limited' | 'unavailable' | 'invalid-input' | 'request-conflict' | 'not-found') {
     super(`MUSE feedback: ${code}`)
   }
 }
@@ -32,6 +33,13 @@ export interface MuseFeedbackOptions {
 }
 
 const CATEGORIES = new Set(['task-result', 'instruction-following', 'product-interaction', 'service-stability', 'resource-cost', 'security-privacy-permission', 'other'])
+const feedbackStatus = z.object({
+  id: z.string().regex(/^[a-f0-9]{32}$/u), username: z.string().min(1).max(200),
+  title: z.string().min(1).max(120), category: z.enum(['bug', 'suggestion', 'other']),
+  status: z.enum(['new', 'reviewing', 'planned', 'resolved', 'closed']), reply: z.string().max(2000),
+  revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
+})
 
 function redact(text: string, secrets: readonly string[]): string {
   let result = text
@@ -64,6 +72,9 @@ export class MuseFeedbackClient {
     if (typeof request.sessionId !== 'string' || request.sessionId.length > 200 || request.sessionId.length === 0
       || typeof request.includeDiagnostics !== 'boolean' || (request.text !== undefined && (typeof request.text !== 'string' || request.text.length > 5000))
       || (request.category !== undefined && !CATEGORIES.has(request.category))
+      || (request.title !== undefined && (typeof request.title !== 'string' || !request.title.trim() || request.title.length > 120 || request.title.includes('\0')))
+      || (request.kind !== undefined && !['bug', 'suggestion', 'other'].includes(request.kind))
+      || (request.requestId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(request.requestId))
       || !['message', 'session'].includes(request.target.kind)) throw new MuseFeedbackError('invalid-input')
     const messages = this.options.readMessages(request)
     if (!messages) throw new MuseFeedbackError('invalid-input')
@@ -81,12 +92,13 @@ export class MuseFeedbackClient {
     let secrets: readonly string[]
     try { secrets = await this.options.secrets() } catch { throw new MuseFeedbackError('unavailable') }
     const scrub = (text: string): string => redact(text, [session.cookie, session.cookie.slice('__Host-muse='.length), ...secrets])
-    const category = request.category === 'other' || (request.target.kind === 'message' && request.target.rating === 'positive') ? 'other' : 'bug'
-    const title = request.target.kind === 'message' ? 'Muse Desktop · Message feedback' : 'Muse Desktop · Task feedback'
+    const category = request.kind ?? (request.category === 'other' || (request.target.kind === 'message' && request.target.rating === 'positive') ? 'other' : 'bug')
+    const title = scrub(request.title ?? (request.target.kind === 'message' ? 'Muse Desktop · Message feedback' : 'Muse Desktop · Task feedback'))
     const body = [
       `Source: Muse Desktop\nTarget: ${request.target.kind}\nSession: ${request.sessionId}`,
+      ...(request.kind === undefined ? [] : [`Product version: ${process.env.DSH_CLIENT_PRODUCT_VERSION ?? 'unavailable'}\nBuild version: ${process.env.DSH_CLIENT_VERSION ?? 'unavailable'}`]),
       ...(request.target.kind === 'message' ? [`Message: ${request.target.messageId}\nRating: ${request.target.rating}`] : []),
-      `Category: ${request.category ?? 'unspecified'}\nFeedback:\n${scrub(request.text?.trim() ?? '')}`,
+      `Category: ${request.category ?? request.kind ?? 'unspecified'}\nFeedback:\n${scrub(request.text?.trim() ?? '')}`,
       ...(request.includeDiagnostics ? [
         `Related user request (excerpt, up to ${this.options.excerptChars} characters):\n${scrub(visibleText(messages[userIndex])).slice(0, this.options.excerptChars)}`,
         `Related assistant answer (excerpt, up to ${this.options.excerptChars} characters):\n${scrub(visibleText(answer)).slice(0, this.options.excerptChars)}`,
@@ -98,25 +110,62 @@ export class MuseFeedbackClient {
     try {
       response = await (this.options.fetcher ?? fetch)(new URL('/api/muse.feedback', this.options.baseUrl), {
         method: 'POST', headers: { cookie: session.cookie, origin: this.options.baseUrl, 'content-type': 'application/json' },
-        body: JSON.stringify({ title, body, category }), redirect: 'manual', signal: AbortSignal.timeout(this.options.requestTimeoutMs),
+        body: JSON.stringify({ title, body, category, ...(request.requestId === undefined ? {} : { requestId: request.requestId }) }), redirect: 'manual', signal: AbortSignal.timeout(this.options.requestTimeoutMs),
       })
     } catch { throw new MuseFeedbackError('unconfirmed') }
     if (response.status === 303 || response.status === 401) throw new MuseFeedbackError('sign-in-required')
     if (response.status === 429) throw new MuseFeedbackError('rate-limited')
+    if (response.status === 409) throw new MuseFeedbackError('request-conflict')
     if (response.status !== 201) throw new MuseFeedbackError(response.status >= 500 ? 'unconfirmed' : 'rejected')
     let value: unknown
     try { value = await response.json() } catch { throw new MuseFeedbackError('unconfirmed') }
     if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new MuseFeedbackError('unconfirmed')
     const receipt = value as Record<string, unknown>
-    if (typeof receipt.id !== 'string' || !/^[a-f0-9]{32}$/u.test(receipt.id) || receipt.revision !== 1
+    if (typeof receipt.id !== 'string' || !/^[a-f0-9]{32}$/u.test(receipt.id) || !Number.isSafeInteger(receipt.revision) || typeof receipt.revision !== 'number' || receipt.revision < 1
+      || (request.requestId === undefined && receipt.revision !== 1)
       || receipt.username !== session.username || receipt.title !== title || receipt.body !== body || receipt.category !== category) throw new MuseFeedbackError('unconfirmed')
+    if (request.requestId !== undefined && receipt.requestId !== undefined && receipt.requestId !== request.requestId) throw new MuseFeedbackError('unconfirmed')
     try {
       if ((await readMuseSession(this.options.sessionFile, this.options.baseUrl))?.revision !== session.revision) throw new MuseFeedbackError('account-changed')
     } catch (error) {
       if (error instanceof MuseFeedbackError) throw error
       throw new MuseFeedbackError('unconfirmed')
     }
-    return { id: brandString<MuseFeedbackId>(receipt.id), revision: receipt.revision }
+    return { id: brandString<MuseFeedbackId>(receipt.id), revision: receipt.revision,
+      ...(request.requestId === undefined ? {} : { deduplication: receipt.requestId === request.requestId ? 'available' : 'unavailable' }) }
+  }
+
+  /**
+   * Read a receipt only when its owner matches the current saved account, including administrator logins.
+   * @param id - Durable feedback receipt ID.
+   * @returns Validated status and reply without private submission contents.
+   */
+  async get(id: MuseFeedbackId): Promise<MuseFeedbackStatus> {
+    if (!/^[a-f0-9]{32}$/u.test(id)) throw new MuseFeedbackError('invalid-input')
+    const session = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
+    if (!session) throw new MuseFeedbackError('sign-in-required')
+    let response: Response
+    try {
+      response = await (this.options.fetcher ?? fetch)(new URL(`/api/muse.feedback/${id}`, this.options.baseUrl), {
+        method: 'GET', headers: { cookie: session.cookie, accept: 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(this.options.requestTimeoutMs),
+      })
+    } catch { throw new MuseFeedbackError('unavailable') }
+    if (response.status === 303 || response.status === 401) throw new MuseFeedbackError('sign-in-required')
+    if (response.status === 404 || response.status === 403) throw new MuseFeedbackError('not-found')
+    if (response.status === 429) throw new MuseFeedbackError('rate-limited')
+    if (response.status !== 200) throw new MuseFeedbackError('unavailable')
+    let value: unknown
+    try { value = await response.json() } catch { throw new MuseFeedbackError('unavailable') }
+    const parsed = feedbackStatus.safeParse(value)
+    if (!parsed.success || parsed.data.id !== id) throw new MuseFeedbackError('unavailable')
+    if (parsed.data.username !== session.username) throw new MuseFeedbackError('not-found')
+    if ((await readMuseSession(this.options.sessionFile, this.options.baseUrl))?.revision !== session.revision) throw new MuseFeedbackError('account-changed')
+    let secrets: readonly string[]
+    try { secrets = await this.options.secrets() } catch { throw new MuseFeedbackError('unavailable') }
+    if ((await readMuseSession(this.options.sessionFile, this.options.baseUrl))?.revision !== session.revision) throw new MuseFeedbackError('account-changed')
+    const { username: _username, ...status } = parsed.data
+    const privateValues = [session.cookie, session.cookie.slice('__Host-muse='.length), ...secrets]
+    return { ...status, id, title: redact(status.title, privateValues), reply: redact(status.reply, privateValues) }
   }
 }
 

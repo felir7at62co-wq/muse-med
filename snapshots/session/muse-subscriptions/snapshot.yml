@@ -1,0 +1,8 @@
+version: 1
+scenario: muse-subscriptions
+profile: headless
+composition: muse-subscriptions
+recording: authored
+header:
+  class: muse-subscriptions
+  pin: true

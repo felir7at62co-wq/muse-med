@@ -18,7 +18,7 @@ import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
 import z from '@deepseek-ai/schemastery'
 import type Schema from '@deepseek-ai/schemastery'
 
-const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+import { isSkillName } from './name.ts'
 const DEFAULT_COLLECT_CACHE_ENTRIES = 128
 const MAX_COLLECT_ATTEMPTS = 2
 const RUNTIME_PROVIDER = 'runtime'
@@ -27,14 +27,7 @@ const RUNTIME_RANK = 250
 /** Standard precedence rank for packaged skill providers and local bundled roots. */
 export const BUNDLED_SKILL_RANK = 600
 
-/**
- * Return whether a string is a valid kebab-case skill name.
- * @param name - candidate skill name to validate.
- * @returns whether the name matches the public skill-name grammar.
- */
-export function isSkillName(name: string): boolean {
-  return SKILL_NAME.test(name)
-}
+export { isSkillName } from './name.ts'
 
 /** Origin bucket for a skill contribution. The value is prompt-visible metadata, not precedence by itself. */
 export type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | 'bundled' | (string & {})
@@ -708,7 +701,7 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
   if (typeof candidate.name !== 'string') {
     throw new TypeError(`skill provider "${providerName}" returned a non-string skill name`)
   }
-  if (!SKILL_NAME.test(candidate.name)) {
+  if (!isSkillName(candidate.name)) {
     throw new Error(`skill provider "${providerName}" returned invalid skill name "${candidate.name}"`)
   }
   if (typeof candidate.description !== 'string') {
@@ -739,7 +732,7 @@ function validateCandidate(candidate: SkillCandidate, providerName: string): voi
 }
 
 function validateRuntimeSkill(skill: SkillRegistration): void {
-  if (!SKILL_NAME.test(skill.name)) throw new Error(`invalid skill name "${skill.name}"`)
+  if (!isSkillName(skill.name)) throw new Error(`invalid skill name "${skill.name}"`)
   if (skill.description.length === 0) throw new Error(`skill "${skill.name}" requires a description`)
   validateInvocation(skill.invocation, `runtime skill "${skill.name}"`)
 }
@@ -755,7 +748,7 @@ function validateDefinition(skill: SkillDefinition): void {
   const content = skill.content
   const path = skill.path
   if (typeof name !== 'string') throw new TypeError('loaded skill name must be a string')
-  if (!SKILL_NAME.test(name)) throw new Error(`loaded skill has invalid name "${name}"`)
+  if (!isSkillName(name)) throw new Error(`loaded skill has invalid name "${name}"`)
   if (typeof description !== 'string') throw new TypeError(`loaded skill "${name}" description must be a string`)
   if (description.length === 0) throw new Error(`loaded skill "${name}" requires a description`)
   validateInvocation(invocation, `loaded skill "${name}"`)

@@ -19,11 +19,12 @@ function surface({ language = 'en', panelDelay = 0, mounted = false } = {}) {
   const frames = []
   const requestAnimationFrame = callback => { frames.push(callback); return frames.length }
   const h = (type, props, ...children) => ({ type, props: { ...props, children: children.flat(Infinity) } })
+  const react = { createElement: h, createContext: value => ({ value }), useContext: ctx => ctx.value, useCallback: fn => fn, useSyncExternalStore: (_, get) => get() }
   const module = { exports: {} }
   runInNewContext(outputFiles[0].text, {
     module, exports: module.exports, window, document, URL, URLSearchParams, setTimeout, clearTimeout,
-    React: { createElement: h }, requestAnimationFrame, KeyboardEvent: window.KeyboardEvent,
-    require: name => name === 'react' ? { createElement: h }
+    React: react, requestAnimationFrame, KeyboardEvent: window.KeyboardEvent,
+    require: name => name === 'react' ? react
       : name === '@deepseek-ai/dsh-client-ui-primitives' ? { Tooltip: props => props.children, IconUserOutlineMedium: () => null, IconPaperPlaneOutlineMedium: () => null } : {},
   })
   const ui = module.exports

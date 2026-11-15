@@ -69,6 +69,7 @@ function accountsForClaim(reason: TurnEndReason): boolean {
 export function foldConsumedWork(events: readonly SessionEvent[]): ConsumedWork {
   const stepped = new Set<number>()
   const claimed = new Set<number>()
+  const durableClaims = new Map<number, Set<string>>()
   let open: number | undefined
   let end: SessionEvent<'turn/end'> | undefined
   let droppedUnrun = false
@@ -79,6 +80,19 @@ export function foldConsumedWork(events: readonly SessionEvent[]): ConsumedWork 
         break
       case 'step/start':
         stepped.add(event.data.turn)
+        break
+      case 'agent/inbox/claim':
+        if (open === event.data.turn) durableClaims.set(event.data.turn, new Set([...event.data.nextStep, ...event.data.nextTurn]))
+        break
+      case 'agent/inbox/claim-filtered': {
+        const pending = durableClaims.get(event.data.turn)
+        if (pending !== undefined) {
+          for (const id of event.data.discarded) if (pending.delete(id)) claimed.add(event.data.turn)
+        }
+        break
+      }
+      case 'user/message':
+        if (open !== undefined && durableClaims.get(open)?.delete(event.data.id) === true) claimed.add(open)
         break
       case 'agent/inbox/spliced': {
         const { removedCount, outcome, inserted } = event.data
@@ -93,6 +107,9 @@ export function foldConsumedWork(events: readonly SessionEvent[]): ConsumedWork 
       case 'turn/end': {
         const { turn, reason } = event.data
         open = undefined
+        const pending = durableClaims.get(turn)
+        if (pending !== undefined && pending.size > 0 && reason.kind === 'aborted' && reason.reason.kind === 'user') claimed.add(turn)
+        durableClaims.delete(turn)
         if (stepped.delete(turn) || (claimed.delete(turn) && accountsForClaim(reason))) {
           end = event
           // Anything dropped before this turn closed is what its own ending

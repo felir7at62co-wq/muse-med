@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, RequestPromptInspector,
+  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, ConversationNodeDefinitionInput, RequestPromptInspector,
   SystemPromptState, SystemPromptInspector,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatNode } from '../contract/chat-nodes.ts'
@@ -56,6 +56,8 @@ function stableRequestPromptAnchor(
  * their step's input; in-history updates stay at their own positions. The
  * request-prompt Definition owns replacement and later-series cards. Positional
  * replacements advance the effective prompt without changing historical cards.
+ * A published node becomes `hidden` under the same key while a prepended replacement
+ * leaves its prompt order unknown, and `visible` again once older history resolves it.
  * @param inspect - Pure surface interpretation supplied by uiConversation.
  * @returns The Chat system-prompt Definition.
  */
@@ -75,7 +77,11 @@ export function systemMessageDefinition(inspect: SystemPromptInspector): Convers
     buildViewNode: (context) => {
       const state = context.state?.introduced
       if (state === undefined || state.text === ''
-        || context.start?.event.type !== 'system/message' || context.start.event.surfaceOp !== 'append') return null
+        || context.start?.event.type !== 'system/message' || context.start.event.surfaceOp !== 'append') {
+        const current = context.current.get('chat') as ChatNode | null | undefined
+        if (current?.kind !== 'system-prompt') return null
+        return chatNode(context, 'system-prompt', current.anchorSeq, current.data, { visibility: 'hidden' })
+      }
       const anchor = state.update ? state.seq : requestPromptAnchor(context.start, undefined, true)
       return chatNode(context, 'system-prompt', anchor, { text: state.text, ...state.update ? { update: true } : {} })
     },
@@ -89,13 +95,15 @@ export function systemMessageDefinition(inspect: SystemPromptInspector): Convers
  * uiConversation service (a client bundle cannot value-import it).
  * @returns the Chat request-prompt Definition.
  */
-export function requestPromptDefinition(inspect: RequestPromptInspector): ConversationNodeDefinition<RequestPromptState> {
+export function requestPromptDefinition(inspect: RequestPromptInspector): ConversationNodeDefinitionInput<RequestPromptState> {
   return {
     kind: 'request-prompt',
     target: 'chat',
-    match: event => event.type === 'request/header'
-      ? { id: String(event.seq), role: 'start' }
-      : null,
+    match: {
+      'request/header': event => event.type === 'request/header'
+        ? { id: String(event.seq), role: 'start' }
+        : null,
+    },
     start: (context, match, reader) => {
       if (match.event.type !== 'request/header') {
         throw new Error('request-prompt start requires request/header')

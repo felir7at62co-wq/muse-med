@@ -13,15 +13,18 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
+import { resolveDshHome } from "./host-paths.js";
 import chokidar from "chokidar";
 import { buildRoots, collectSkillEntries, parseFrontmatter } from "./skill-files.js";
 
 /** 嵌套技能的 rank（custom 带；低于用户根 400/500，高于项目根 100/200）。 */
 export const NESTED_SKILL_RANK = 300;
 
+/** 注册表里的提供方名字；面板据此区分「文件技能」与「插件自带技能」。 */
+export const NESTED_PROVIDER_NAME = "nested";
+
 export class NestedSkillProvider {
-  readonly name = "nested";
+  readonly name = NESTED_PROVIDER_NAME;
 
   constructor(
     private readonly rank: number,

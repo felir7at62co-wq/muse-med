@@ -3,12 +3,15 @@
 // and the inline key write lands in an isolated harness home without a reload
 // or model call.
 import { randomBytes } from 'node:crypto'
+import { createServer, type Server } from 'node:http'
 import { assertModelInputLayout } from './model-input-layout.ts'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
@@ -30,10 +33,30 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
+  let fixtureRoot: string | undefined
+  let modelDirectory: Server | undefined
+  let modelOrigin: string
+  const modelRequests: string[] = []
   const browserConsole: string[] = []
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({ deepSeekMissingCredential: true, welcomeNoticePending: true })
+    fixtureRoot = await mkdtemp(join(tmpdir(), 'dsh-web-onboarding-models-'))
+    const directory = createServer((request, response) => {
+      modelRequests.push(`${request.method ?? ''} ${request.url ?? ''}`)
+      // This UI-only scenario refuses any accidental model request locally.
+      response.writeHead(401, { 'content-type': 'application/json' }).end('{"error":"fixture credential"}')
+    })
+    modelDirectory = directory
+    await new Promise<void>((resolve, reject) => {
+      directory.once('error', reject)
+      directory.listen(0, '127.0.0.1', () => { directory.off('error', reject); resolve() })
+    })
+    const address = directory.address()
+    if (address === null || typeof address === 'string') throw new Error('onboarding model directory listener is missing')
+    modelOrigin = `http://127.0.0.1:${address.port}`
+    const overlay = join(fixtureRoot, 'model-directory.overlay.json')
+    await writeFile(overlay, JSON.stringify([{ id: 'llm-deepseek', config: { baseURL: modelOrigin } }]))
+    scaffold = await launchWebScaffold({ deepSeekMissingCredential: true, welcomeNoticePending: true, extraOverlayPath: overlay })
     browser = await chromium.launch()
     // The scenario asserts the shipped Chinese copy, so the browser asks for it.
     page = await browser.newPage({ viewport: { width: 1440, height: 960 }, locale: ZH_BROWSER_LOCALE })
@@ -44,8 +67,19 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
   }, 120_000)
 
   afterAll(async () => {
-    await browser?.close()
-    await scaffold?.close()
+    try { await browser?.close() } finally {
+      try { await scaffold?.close() } finally {
+        try {
+          const directory = modelDirectory
+          if (directory?.listening) await new Promise<void>((resolve, reject) => {
+            directory.close((error) => { if (error === undefined) resolve(); else reject(error) })
+            directory.closeAllConnections()
+          })
+        } finally {
+          if (fixtureRoot !== undefined) await rm(fixtureRoot, { recursive: true, force: true })
+        }
+      }
+    }
   })
 
   it('stores a key write-only and observes configured state without restarting', async () => {
@@ -72,10 +106,11 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     await welcome.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel }).click()
     await welcome.waitFor({ state: 'detached', timeout: 15_000 })
 
+    // Plain Web enters the explicit API-key editor without Desktop account UI.
+    expect(await page.evaluate(() => 'dshDesktop' in globalThis)).toBe(false)
+    expect(await page.getByRole('dialog', { name: '开始使用', exact: true }).count()).toBe(0)
     const credentialStep = page.getByRole('dialog', { name: '添加一个 API Key 开始使用' })
     await credentialStep.waitFor({ timeout: 15_000 })
-    expect(await page.getByRole('dialog', { name: '开始你的创作' }).count()).toBe(0)
-    expect(await page.getByRole('button', { name: '账号菜单', exact: true }).count()).toBe(0)
     const keyInput = credentialStep.getByLabel('API 密钥', { exact: true })
     await keyInput.waitFor({ timeout: 10_000 })
     const initial = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
@@ -110,7 +145,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     await expect.poll(
       () => configuredInput.getAttribute('placeholder'),
       { timeout: 10_000 },
-    ).toBe('已配置——输入新值可替换')
+    ).toBe('留空使用已保存凭据')
 
     const secondReloadWarnings = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
@@ -158,7 +193,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
       setInterval(() => {
         if (document.querySelector(
           '[role="dialog"][aria-label="预览版说明"], '
-          + '[role="dialog"][aria-label="开始你的创作"], '
+          + '[role="dialog"][aria-label="开始使用"], '
           + '[role="dialog"][aria-label="添加一个 API Key 开始使用"]',
         ) !== null) {
           sightings.push('chrome')
@@ -208,7 +243,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     await deepSeek.locator('xpath=ancestor::li').getByRole('button', { name: '编辑' }).click()
     await settings.getByText('自定义设置').click()
     expect(await settings.getByLabel('模型 ID 1').inputValue()).toBe('deepseek-flash')
-    expect(await settings.getByLabel('显示名称 1').inputValue()).toBe('DeepSeek-V41-Flash')
+    expect(await settings.getByLabel('显示名称 1').inputValue()).toBe('DeepSeek-V4.1-Flash')
     expect(await settings.getByLabel('模型 ID 2').inputValue()).toBe('deepseek-v4-pro')
     expect(await settings.getByRole('button', { name: /删除模型/ }).count()).toBe(2)
     await settings.getByRole('button', { name: '模型选项 1' }).click()
@@ -239,21 +274,23 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
       await settings.getByRole('button', { name: /删除模型/ }).first().click()
     }
     await settings.getByRole('button', { name: '添加模型', exact: true }).click()
-    const customModelId = settings.getByLabel('模型 ID 1')
+    const model = settings.locator('[data-row-key]')
+    const customModelId = model.getByLabel('模型 ID 1')
     await customModelId.fill('private-preview')
-    await settings.getByLabel('显示名称 1').fill('Private Preview')
-    await settings.getByRole('button', { name: '模型选项 1' }).click()
-    await settings.getByLabel('上下文窗口 1').fill('131072')
-    await settings.getByLabel('最大输出 token 数 1').fill('64K')
+    await model.getByLabel('显示名称 1').fill('Private Preview')
+    expect(await settings.getByRole('button', { name: '模型选项 1' }).getAttribute('aria-expanded')).toBe('true')
+    await model.getByLabel('上下文窗口 1').fill('131072')
+    await model.getByLabel('最大输出 token 数 1').fill('64K')
     expect(await settings.getByRole('group', { name: '输入类型 1' }).getByRole('checkbox', { name: '图片' }).isChecked()).toBe(false)
     await settings.getByRole('group', { name: '输入类型 1' }).getByRole('checkbox', { name: '图片' }).check()
 
     await expect.poll(
       () => settings.getByLabel('API 密钥', { exact: true }).getAttribute('placeholder'),
       { timeout: 10_000 },
-    ).toBe('已配置——输入新值可替换')
+    ).toBe('留空使用已保存凭据')
     const modelEditor = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(MODELS_EXPECTED, modelEditor, MODE)
+    expect(await settings.getByLabel('API 地址', { exact: true }).inputValue()).toBe(modelOrigin)
+    await compareOrRefreshGolden(MODELS_EXPECTED, modelEditor.replaceAll(modelOrigin, '{{modelDirectory}}'), MODE)
     await settings.getByRole('button', { name: '保存', exact: true }).click()
     await customModelId.waitFor({ state: 'detached', timeout: 15_000 })
     await settings.getByText('已保存 DeepSeek (deepseek-official)。', { exact: true }).waitFor({ timeout: 15_000 })
@@ -278,20 +315,40 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     // trigger — on the page; the scaffold boots without one.
     await connectFreshWorkspaceZh(page, scaffold.workspaceCwd, 'model-fallback-e2e', false)
 
-    const modelTrigger = page.getByRole('button', { name: /^选择模型.*deepseek-official\// })
+    const modelTrigger = page.getByRole('button', { name: '请选择模型', exact: true })
     await modelTrigger.waitFor({ timeout: 10_000 })
     await modelTrigger.click()
-    await page.getByRole('menuitem', { name: /模型/ }).click()
     expect(await page.getByText('Configured Flash', { exact: true }).count()).toBe(0)
     await page.getByRole('menuitemradio', { name: 'Private Preview' }).waitFor({ timeout: 10_000 })
     expect(tripwire.warnings).toEqual([])
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
+  it('shows an empty model list after removing the API key without replacing the saved default', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-model-catalog-empty'))
+    await page.keyboard.press('Escape')
+    const selection = scaffold.ctx.agentDefaultModel.currentSelection()
+    await scaffold.ctx.credentials.unset(credentialRef('DEEPSEEK_API_KEY'))
+    const seat = page.getByRole('button', { name: '请选择模型', exact: true })
+    await seat.waitFor()
+    await seat.click()
+    const picker = page.getByRole('group', { name: '模型与推理等级' })
+    await picker.getByText('此会话保存的模型已不在可选列表。请先选择其他可用模型。', { exact: true }).waitFor()
+    await picker.getByText('暂无可用模型', { exact: true }).waitFor()
+    expect(await picker.getByRole('menuitemradio').count()).toBe(0)
+    expect(scaffold.ctx.agentDefaultModel.currentSelection()).toEqual(selection)
+    expect(await picker.getByRole('menu', { name: '模型', exact: true }).count()).toBe(0)
+    await compareOrRefreshGolden(join(SNAPSHOT_DIR, 'empty.expected.md'), await picker.ariaSnapshot(), MODE)
+    await seat.press('Escape')
+    await picker.waitFor({ state: 'hidden' })
+    expect(tripwire.pageErrors).toEqual([])
+  })
+
   it('keeps the fixture inventory closed', async () => {
+    expect(modelRequests).toEqual([])
     await assertFixtureInventory(
       SNAPSHOT_DIR,
-      ['welcome.expected.md', 'missing.expected.md', 'models.expected.md', 'default-models.expected.md'],
+      ['welcome.expected.md', 'missing.expected.md', 'models.expected.md', 'default-models.expected.md', 'empty.expected.md'],
     )
   })
 })

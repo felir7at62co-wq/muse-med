@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-manuscript-notes
+profile: headless
+composition: muse-manuscript-notes
+recording: authored
+header:
+  class: muse-manuscript-notes
+  pin: true
+  childSystemPrompts: [1, 2]
+  childToolSchemas: [1, 2]
+workspace:
+  final: true

@@ -230,6 +230,9 @@ describe('bounded local request recovery', () => {
     })
     const run = test.run()
     await entered.promise
+    const unrelated = await test.ctx.agents.create({ sessionId: SessionId('unrelated-recovery-disposal'),
+      agentOptions: { provider: 'mock', model: 'mock' } })
+    await unrelated.dispose()
     const disposal = test.fiber.dispose()
     release.resolve(null)
     await Promise.all([run, disposal])

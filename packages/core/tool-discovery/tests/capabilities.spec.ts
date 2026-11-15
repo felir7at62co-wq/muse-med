@@ -1,6 +1,6 @@
 /** Capability browsing reflects authorized tools and configured category order. */
 import { describe, expect, it } from 'vitest'
-import { capabilityMemberships, capabilitySummaries } from '../src/capabilities.ts'
+import { capabilityMemberships, capabilitySummaries, discoverableCapabilities } from '../src/capabilities.ts'
 import type { CapabilityDefinition } from '../src/capabilities.ts'
 
 const definitions: CapabilityDefinition[] = [
@@ -42,5 +42,21 @@ describe('authorized capability categories', () => {
     expect(capabilitySummaries([], ['read'])).toEqual([])
     expect(capabilityMemberships('read', [])).toEqual([])
     expect(capabilityMemberships('unclassified', definitions)).toEqual([])
+  })
+
+  it('adds unassigned authorized deferred tools to a browsable category', () => {
+    const names = ['video_inspect', 'late_mcp', 'base_read']
+    const groups = discoverableCapabilities(definitions, names, new Set(['base_read']))
+    expect(capabilitySummaries(groups, names).at(-1)).toEqual({ id: 'uncategorized', title: 'Other authorized tools',
+      description: 'Browse authorized tools not assigned to another capability.', tool_count: 1 })
+    expect(capabilityMemberships('late_mcp', groups)).toEqual(['uncategorized'])
+    expect(capabilityMemberships('base_read', groups)).toEqual([])
+    expect(capabilityMemberships('secret_delete', groups)).toEqual(['private'])
+  })
+
+  it('omits the fallback category when every authorized deferred tool is classified', () => {
+    expect(discoverableCapabilities(definitions, ['base_read', 'video_inspect'], new Set(['base_read'])))
+      .toBe(definitions)
+    expect(discoverableCapabilities([], [], new Set())).toEqual([])
   })
 })

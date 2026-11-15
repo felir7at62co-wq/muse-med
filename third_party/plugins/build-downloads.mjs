@@ -4,11 +4,15 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { spawnSync } from 'node:child_process';
+import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const { values } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } });
 const pins = JSON.parse(readFileSync(join(root, 'owned-downloads.json'), 'utf8'));
 const output = resolve(values.out || join(root, '../../.artifacts/download-plugins'));
+const lifecycle = process.env.npm_execpath;
+const packageManager = lifecycle && !/\.[cm]?js$/iu.test(lifecycle)
+  ? resolvePnpmEntrypoint(join(root, '../../node_modules/pnpm/package.json')) : lifecycle;
 if (values.only && !Object.hasOwn(pins, values.only)) throw new Error('Unknown Muse download tool');
 mkdirSync(output, { recursive: true });
 for (const [name, pin] of Object.entries(pins)) {
@@ -19,7 +23,7 @@ for (const [name, pin] of Object.entries(pins)) {
     throw new Error(`Invalid Muse download bundle: ${name}`);
   }
   const result = spawnSync(process.execPath, [join(directory, 'scripts/pack.mjs'), '--out', output], {
-    cwd: directory, stdio: 'inherit',
+    cwd: directory, stdio: 'inherit', env: { ...process.env, ...(packageManager ? { npm_execpath: packageManager } : {}) },
   });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`Packing ${name} failed`);

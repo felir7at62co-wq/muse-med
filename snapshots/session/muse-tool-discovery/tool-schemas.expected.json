@@ -30,13 +30,13 @@
     },
     {
       "name": "tool_context",
-      "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+      "description": "Manage tool definitions for your current session. status lists loaded and pinned tools. load exposes exact tools for this session. pin also marks them as preferred; a configured preference provider can retain them for future sessions. release removes session loading and the preference; unpin removes only the preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other agents.",
       "parameters": {
         "type": "object",
         "properties": {
           "operation": {
             "type": "string",
-            "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+            "description": "Read status, load for this session, pin preferred tools, release, or cancel a preference.",
             "enum": [
               "status",
               "load",
@@ -60,7 +60,7 @@
     },
     {
       "name": "tool_search",
-      "description": "Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. If results are omitted, narrow the query. Search does not execute tools.",
+      "description": "Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. A category query with no matches also searches globally. If results are omitted, use next_offset or narrow the query. No match does not establish that a capability is unavailable. Search does not execute tools.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -71,6 +71,10 @@
           "capability": {
             "type": "string",
             "description": "Optional capability id from the directory. Omit to search across groups."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Zero-based result offset for the same query or capability; use next_offset from an earlier result. Defaults to zero."
           },
           "limit": {
             "type": "integer",
@@ -120,13 +124,13 @@
       },
       {
         "name": "tool_context",
-        "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+        "description": "Manage tool definitions for your current session. status lists loaded and pinned tools. load exposes exact tools for this session. pin also marks them as preferred; a configured preference provider can retain them for future sessions. release removes session loading and the preference; unpin removes only the preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other agents.",
         "parameters": {
           "type": "object",
           "properties": {
             "operation": {
               "type": "string",
-              "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+              "description": "Read status, load for this session, pin preferred tools, release, or cancel a preference.",
               "enum": [
                 "status",
                 "load",
@@ -150,7 +154,7 @@
       },
       {
         "name": "tool_search",
-        "description": "Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. If results are omitted, narrow the query. Search does not execute tools.",
+        "description": "Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. A category query with no matches also searches globally. If results are omitted, use next_offset or narrow the query. No match does not establish that a capability is unavailable. Search does not execute tools.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -161,6 +165,10 @@
             "capability": {
               "type": "string",
               "description": "Optional capability id from the directory. Omit to search across groups."
+            },
+            "offset": {
+              "type": "integer",
+              "description": "Zero-based result offset for the same query or capability; use next_offset from an earlier result. Defaults to zero."
             },
             "limit": {
               "type": "integer",
@@ -201,13 +209,13 @@
       },
       {
         "name": "tool_context",
-        "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+        "description": "Manage tool definitions for your current session. status lists loaded and pinned tools. load exposes exact tools for this session. pin also marks them as preferred; a configured preference provider can retain them for future sessions. release removes session loading and the preference; unpin removes only the preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other agents.",
         "parameters": {
           "type": "object",
           "properties": {
             "operation": {
               "type": "string",
-              "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+              "description": "Read status, load for this session, pin preferred tools, release, or cancel a preference.",
               "enum": [
                 "status",
                 "load",
@@ -231,7 +239,7 @@
       },
       {
         "name": "tool_search",
-        "description": "Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. If results are omitted, narrow the query. Search does not execute tools.",
+        "description": "Find authorized tools not loaded upfront by task or exact name; matching full definitions load next step. With no arguments, list capability groups without loading tools. Supply capability alone to browse and load a group, or combine it with query to narrow a search. A category query with no matches also searches globally. If results are omitted, use next_offset or narrow the query. No match does not establish that a capability is unavailable. Search does not execute tools.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -242,6 +250,10 @@
             "capability": {
               "type": "string",
               "description": "Optional capability id from the directory. Omit to search across groups."
+            },
+            "offset": {
+              "type": "integer",
+              "description": "Zero-based result offset for the same query or capability; use next_offset from an earlier result. Defaults to zero."
             },
             "limit": {
               "type": "integer",

@@ -156,8 +156,7 @@ async function harness(): Promise<Harness> {
     async loaderUpdate(reload?: () => void, fail = false): Promise<void> {
       // The runtime value IS the update's restart promise, while the
       // `internal/update` declaration types this waterfall's return as void.
-      // oxlint-disable-next-line typescript/no-confusing-void-expression -- see above
-      const settled = ctx.waterfall(ctx.fiber, 'internal/update', {}, false, () => {
+      const settled = ctx.waterfall(ctx.fiber, 'internal/update', {}, () => {
         reload?.()
         return fail ? Promise.reject(new Error('the row failed to restart')) : Promise.resolve()
       })
@@ -559,8 +558,10 @@ describe('containment and ownership', () => {
     ctx.provide('agents', { list: () => { throw new Error('registry gone') } })
     await ctx.plugin(CompositionGuard, {})
 
-    ctx.waterfall(ctx.fiber, 'internal/update', {}, false, () => Promise.resolve())
-    ctx.waterfall(ctx.fiber, 'internal/update', {}, false, () => Promise.resolve())
+    await Promise.all([
+      ctx.waterfall(ctx.fiber, 'internal/update', {}, () => Promise.resolve()),
+      ctx.waterfall(ctx.fiber, 'internal/update', {}, () => Promise.resolve()),
+    ])
     await new Promise((resolve) => { setTimeout(resolve, 0) })
 
     const failures = warnings.filter(line => line.includes('the composition sweep failed'))

@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-manuscript-ptc-delivery
+profile: headless
+composition: muse-manuscript-ptc-delivery
+recording: authored
+header:
+  class: muse-manuscript-ptc-delivery
+  pin: true
+  childSystemPrompts: [1]
+  childToolSchemas: [1]
+workspace:
+  final: true

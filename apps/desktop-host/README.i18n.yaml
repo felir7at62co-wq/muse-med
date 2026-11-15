@@ -6,35 +6,41 @@
   en: 4432549966fadce9
   zh: 36f16eee1317c778
 /muse-desktop-host:
-  en: ac8e55e840a87eba
-  zh: ec39e4f4b77da62a
-/muse-desktop-host/local-hindsight-memory:
-  en: d7b0a37efa4464e4
-  zh: 87383550d918c933
+  en: c6843e339b786c54
+  zh: d2ea42feff9ece27
+/muse-desktop-host/ordinary-sessions-and-retained-data:
+  en: 7179526bfa2744cc
+  zh: 32fd5e8bcafe4d5f
 /muse-desktop-host/returned-manuscript-comparisons:
-  en: faecf4b347704911
-  zh: ff28b0a12f597c68
+  en: 6331bc8dbcffa72e
+  zh: f72e7a52acac9d4a
 /muse-desktop-host/user-skill-directories:
-  en: e70e4873e9a0c871
-  zh: 8935123c5f039a11
+  en: 34e974f515418dc6
+  zh: fe3bc6bf8574717a
 /muse-desktop-host/bundled-bridge-selection:
   en: c066c96538781f87
   zh: fe8db08d76e8f5e0
-/muse-desktop-host/bot-tool-discovery:
-  en: 98c0cfa9377eae1b
-  zh: 74698121683cebf8
+/muse-desktop-host/session-tool-discovery:
+  en: 22c6581d84ee626e
+  zh: 97b1ba59e459ea4d
 /muse-desktop-host/short-drama-identity:
-  en: 5e2127bc5fdab40a
-  zh: f18e750f68324aa8
+  en: 9d597ae216e1905c
+  zh: 1fed0105826f1cac
 /muse-desktop-host/unified-creative-agent:
-  en: 25baf28273bb6608
-  zh: ca24152874a2664d
+  en: 8b9d83ad5f99ee8e
+  zh: 25f1f8bfb579ae3c
 /muse-desktop-host/creation-mode:
-  en: d1290459d6448c0f
-  zh: 59304c9bc614ae18
+  en: a679cbceef46be19
+  zh: 337a51af4dc36c24
 /muse-desktop-host/compaction-defaults:
-  en: db05203fbac26017
-  zh: 7686d8ac1b15ce14
+  en: 3f47772f19a03732
+  zh: 421eb0e6ddd2c582
 /muse-desktop-host/video-screenplay-delivery:
-  en: 271fe557520eca87
-  zh: 8766d0f85c0618ee
+  en: d503ad2b800b6e93
+  zh: b2e2354051a252c8
+/muse-desktop-host/episode-execution-supervision:
+  en: 49193fea13d7cd91
+  zh: 6565c67cd9ba4b1c
+/muse-desktop-host/desktop-computer-use:
+  en: 7d4e3b05996ae389
+  zh: e046461c4a9445bb

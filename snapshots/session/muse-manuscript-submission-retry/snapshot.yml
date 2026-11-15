@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-manuscript-submission-retry
+profile: headless
+composition: muse-manuscript-submission-retry
+recording: authored
+header:
+  class: muse-manuscript-submission-retry
+  pin: true
+  childSystemPrompts: [1]
+  childToolSchemas: [1]
+workspace:
+  final: true

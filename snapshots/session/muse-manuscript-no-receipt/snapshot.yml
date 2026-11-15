@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-manuscript-no-receipt
+profile: headless
+composition: muse-manuscript-no-receipt
+recording: authored
+header:
+  class: muse-manuscript-no-receipt
+  pin: true
+  childSystemPrompts: [1]
+  childToolSchemas: [1]
+workspace:
+  final: true

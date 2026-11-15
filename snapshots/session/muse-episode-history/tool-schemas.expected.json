@@ -1,0 +1,13 @@
+{
+  "initial": [
+    {
+      "name": "snapshot_episode_history",
+      "description": "Test-only bridge to discover an original episode after service restart and repair its receipt offline.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "changes": []
+}

@@ -1,0 +1,12 @@
+{
+  "method": "prepare",
+  "displayText": "做 饭 好",
+  "startSeconds": 1,
+  "endSeconds": 1.7,
+  "rawSrtUnchanged": true,
+  "wordTimesUnchanged": true,
+  "createdDisplaySrt": true,
+  "mediaCommandCount": 2,
+  "glyphMeasured": false,
+  "seenInNextModelRequest": true
+}

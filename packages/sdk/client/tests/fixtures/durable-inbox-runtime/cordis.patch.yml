@@ -1,0 +1,24 @@
+# Exercise durable admission through the ordinary SDK profile's loop configuration.
+- id: agent-loop
+  config:
+    agents: []
+    durableInboxClaims: true
+- id: llm-deepseek
+  disabled: true
+- id: time-context
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- insert:
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: sdk-claim-replay
+            name: SDK claim replay
+            models:
+              - id: claim-model
+                contextWindow: 1000000
+                defaultMaxTokens: 1000
+    - id: sdk-durable-inbox-runtime
+      name: ./runtime.mjs

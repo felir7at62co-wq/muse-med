@@ -170,7 +170,7 @@ async function downloadVideo(row: VideoSubtask) {
 
 ### 视频阶段词表
 
-`buildNativeVideoPreview()` 只裁去提示词首尾空白，冻结载荷保留内部换行与空格。指纹覆盖这一完整载荷；用于提供方任务对账的提示词比较仍压平空白。已有预览校验和原提交key保持不变。多行卡片的未提交预览参见[格式升级指南](../../../docs/upgrade-guide/v0.2.1-alpha.1/native-video-prompt-formatting/guide.zh.md)。
+`buildNativeVideoPreview()` 保留完整已存提示词，包括冻结载荷中的首尾空白、换行与空格。指纹覆盖这一完整载荷；用于提供方任务对账的提示词比较仍压平空白。已记录的裁边或压平版本仍参与对账，不允许再次付费提交。多行卡片的未提交预览参见[格式升级指南](../../../docs/upgrade-guide/v0.2.2-rc.1/native-video-exact-prompt/guide.zh.md)。
 
 `buildNativeVideoPreview()` 保留显式的 `backupModelList`，缺失或为 null 时补为 `[]`，使冻结的模型配置包含列表字段，但不代选备用模型。非列表值在提交前被拒绝。此字段参与指纹；缺少它的未提交预览需要重新准备。已有账本记录的键仍只做对账，不再次发送付费请求。
 
@@ -178,7 +178,7 @@ async function downloadVideo(row: VideoSubtask) {
 
 原生素材按 `materialKey` 和数字父资产 ID 关联，不依赖数组位置。缺失、多余或重复 key，以及身份、URL、类型或组内顺序冲突均拒绝。主体选源回读比较各 key 对应的字段；仅改变数组物理顺序不会要求再次保存选择。
 
-`assertImageReferenceConsistency()` 在准备流程规范任何来源前，比较 `modelConfig.materialList` 与 `storyboardMaterialList` 中已保存的图片。key、主体身份、父资产 ID 或 URL 冲突时报告 `IMAGE_REFERENCE_CONFLICT`；诊断标明两份来源，并对 URL 作哈希，不暴露查询参数。历史配置列表缺失或为空不能证明此前图片版本。明确选源会同步两份列表，其无需写入判定和回读检查都要求两份一致。这些检查保留引用身份，不判断视觉相似度。
+`assertImageReferenceConsistency()` 在准备流程规范任何来源前，比较 `modelConfig.materialList` 与 `storyboardMaterialList` 中已保存的图片。key、主体身份、父资产 ID 或 URL 冲突时报告 `IMAGE_REFERENCE_CONFLICT`；诊断标明两份来源，并对 URL 作哈希，不暴露查询参数。历史配置列表缺失或为空不能证明此前图片版本。明确选源会同步两份列表，其无需写入判定和回读检查都要求两份一致。更换选定图片时，已有 `assetName` 和 `materialName` 名称字段也按正式记录同步，避免残留上一次引用的名称。这些检查保留引用身份，不判断视觉相似度。
 
 原生主体视频准备至少需要一张已选定的图片主体。`buildNativeVideoPreview()` 对空主体或仅有音频的选择返回 `INVALID_ARGUMENT`，不生成 prepared 预览。`validateNativeVideoPreview()` 对历史空主体预览返回明确的本地参数错误；本次提交调用尚未进入账本，也尚未发出远端付费请求。现有身份校验和提交指纹规则仍然适用。
 

@@ -20,7 +20,7 @@ Session fixture 保留 header 与 payload，但省略正文 seq/time envelope；
 
 ## spec 如何被执行
 
-fork 出的 worker 会同时运行多个 spec 文件，coverage gate 会拆成并发的 partition，与同一个 job 中的其它 gate 并排运行，而自托管 runner 共用同一台宿主机和同一个卷。被隔离的只有进程：端口、可预测路径、外部命名空间和继承而来的子进程都不隔离。为每个占用的资源负责到它的 teardown，并把「只有单独运行时才通过」的 spec 读作该 spec 的缺陷，而不是 runner 不稳定。[dsh-ci-test-reliability](../.agents/skills/dsh-ci-test-reliability/SKILL.md) 负责资源分配、状态恢复、同步、超时预算、平台差异与 teardown 规则；它的 [flake 诊断流程](../.agents/skills/dsh-ci-test-reliability/references/ci-flake-diagnosis.md)用于归类已经存在的概率性失败。
+fork 出的 worker 会同时运行多个 spec 文件，coverage gate 会拆成[并发的 partition](../scripts/coverage-partitions.ts)，与同一个 job 中的其它 gate 并排运行，而自托管 runner 共用同一台宿主机和同一个卷。被隔离的只有进程：端口、可预测路径、外部命名空间和继承而来的子进程都不隔离。为每个占用的资源负责到 teardown。只在单独运行时通过的 spec 存在测试缺陷，而非 runner 不稳定。[dsh-ci-test-reliability](../.agents/skills/dsh-ci-test-reliability/SKILL.md) 负责资源分配、状态恢复、同步、超时预算、平台差异与 teardown 规则；它的 [flake 诊断流程](../.agents/skills/dsh-ci-test-reliability/references/ci-flake-diagnosis.md)用于归类已经存在的概率性失败。 [fork 意外退出](../scripts/coverage-fork-diagnostics.ts)时会报告 PID、文件、退出码和信号。
 
 ## 带密钥策略：推理（inference）在这里很便宜
 
@@ -46,11 +46,11 @@ Windows 覆盖率检查[验证 FFmpeg/ffprobe](../scripts/prepare-ci-ffmpeg.ts)�
 
 ## 测试解析：仅限源码
 
-- Vitest 通过 `tsconfig.base.json` 将工作区包的裸导入解析到 `src`；构建后的 `lib/` 可能重复加载单例（[布局](development.zh.md#typescript-project-layout)）。只有显式的 `lib` 子进程和构建产物冒烟测试使用产物。仓库本地 JavaScript 插件在根开发依赖中声明构建后的 peer 包，不会激活它们。工作区构建后，`test:snapshot:built` 会重新编译绿泡泡再回放。
+- Vitest 通过 `tsconfig.base.json` 将工作区导入解析到 `src`；构建后的 `lib/` 可能重复加载单例（[布局](development.zh.md#typescript-project-layout)）。只有显式的 `lib` 子进程和构建产物冒烟测试使用产物。本地 JavaScript 插件在根开发依赖中声明构建后的 peer 包，不会激活它们。`test:snapshot:built` 准备编译后的绿泡泡、订阅插件和 Skill/MCP 面板包，供普通 Node 回放。
 
 ## 测试子进程启动模式
 
-- CI 与已有构建产物的测试通道通过共享双模式启动器，从构建后的 `lib/` 运行每个 profile 或 Cordis 配置子进程。不要为这些子进程手写 `--import tsx`。
+- 构建产物测试通道通过共享启动器从 `lib/` 启动 profile 与 Cordis 配置子进程，不手写 `--import tsx`。Desktop Host 在 `test` 中选择 `src`，在 `test:expected` 中选择 `lib`。
 - 不加载 Cordis 的协议与操作系统 fixture 直接通过 Node 运行使用可擦除语法的 `.ts` 文件，不经过 tsx 或根路径映射。
 - 只有测试对象本身是源码路径解析时，才可以选择 `src`；在测试中写明这一约定。
 

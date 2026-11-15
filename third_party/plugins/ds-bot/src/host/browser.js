@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Bot browsers (DSH Desktop and the desktop app). Every Bot owns a browser panel there: an
 // Electron webview in its own storage partition, which the user steers. The page lives in
 // the app window, not here, so `read_browser` reaches it through the window: the client
@@ -133,7 +133,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
 
   function setHold(botId, hold) {
     if (hold === null) holds.delete(botId)
-    else holds.set(botId, { by: hold.by, reason: hold.reason, note: hold.note })
+    else holds.set(botId, { by: hold.by, reason: hold.reason, note: hold.note, ...(typeof hold.callId === 'string' ? { callId: hold.callId.slice(0, 200) } : {}) })
     holdVersion += 1
     for (const client of clients.values()) client.wake?.()
     for (const listener of holdListeners) {

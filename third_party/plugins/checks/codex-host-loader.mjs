@@ -14,6 +14,12 @@ import Llm from '@deepseek-ai/dsh-llm'
 import Web from '@deepseek-ai/dsh-web'
 import Tools from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
+import Subagents from '@deepseek-ai/dsh-subagent'
+import Subprocess from '@deepseek-ai/dsh-subprocess'
+import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 
 test('loads the subscription account settings and authenticated RPC through the real Host without requiring a CLI', async () => {
   const home = mkdtempSync(join(tmpdir(), 'muse-codex-host-'))
@@ -38,6 +44,12 @@ test('loads the subscription account settings and authenticated RPC through the 
       { id: 'web', name: 'cordis:web' },
       { id: 'prompt', name: 'cordis:prompt' },
       { id: 'tools', name: 'cordis:tools' },
+      { id: 'fs', name: 'cordis:fs' },
+      { id: 'session-projections', name: 'cordis:sessionProjections' },
+      { id: 'working-directory', name: 'cordis:workingDirectory', config: { defaultDirectory: home } },
+      { id: 'subagents', name: 'cordis:subagents' },
+      { id: 'subprocess', name: 'cordis:subprocess' },
+      { id: 'sandbox-policy', name: 'cordis:sandboxPolicy' },
       { id: 'codex-subscription', name: 'dsh-codex-subscription' },
     ] }]))
     writeFileSync(join(dir, 'cordis.yml'), '[]\n')
@@ -54,12 +66,18 @@ test('loads the subscription account settings and authenticated RPC through the 
           return () => routes.delete(route.path)
         } } })
         Object.assign(host.loader.builtins, { editor: ConfigEditor, settings: Settings, credentials: Credentials,
-          attachments: AttachmentLocal, llm: Llm, web: Web, tools: Tools, prompt: SystemPrompt })
+          attachments: AttachmentLocal, llm: Llm, web: Web, tools: Tools, prompt: SystemPrompt,
+          fs: LocalFileSystem, sessionProjections: SessionProjections, workingDirectory: WorkingDirectory,
+          subagents: Subagents, subprocess: Subprocess, sandboxPolicy: SandboxPolicy })
       }, undefined, { 'dsh-codex-subscription': pathToFileURL(join(process.cwd(), 'lib/index.js')).href })
       await ctx.loader.await()
       const entry = [...ctx.loader.entries()].find(row => row.options.id === 'codex-subscription')
       assert.ok(entry?.fiber)
       assert.ok(ctx.settings.describe().find(row => row.ns === 'codex-subscription'))
+      assert.ok(ctx.subagents.getProvider('codex-subscription-subagent'))
+      // Real candidate resolution dispatches the global Cordis hook without a `this` carrier.
+      const candidate = { speedMode: 'fast' }
+      assert.equal(entry.fiber.resolveConfig(candidate).speedMode.get(), 'fast')
     }
     const rpc = async (endpoint, payload = {}) => {
       const method = `codex-subscription/${endpoint}`

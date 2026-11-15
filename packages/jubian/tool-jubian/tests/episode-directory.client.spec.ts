@@ -1,0 +1,310 @@
+/** Explicit original-task actions reject retired queries and uncertain-response retries. */
+import { expect, it, vi } from 'vitest'
+import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import type { EpisodeClient } from '../src/client/episode-directory.ts'
+import type { EpisodeDeliveryStatus, EpisodeReadiness } from '../src/types.ts'
+import { RecoveryDirectory } from '../src/client/recovery-directory.ts'
+import { episodeClientFixture, input, original, ready } from './fixtures/episode-client.client.ts'
+
+it('does not check or admit on connect, typing or an unselected refresh', () => {
+  const f = episodeClientFixture()
+  f.directory.retireSelection('2'); f.directory.refresh()
+  expect(f.api.episodeReadiness).not.toHaveBeenCalled()
+  expect(f.api.episodeHistory).not.toHaveBeenCalled()
+  expect(f.api.episodeStatus).not.toHaveBeenCalled()
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+})
+
+it('rejects a retired check result and waits for the replacement before enabling admission', async () => {
+  const old = Promise.withResolvers<RemoteResult<EpisodeReadiness>>()
+  const current = Promise.withResolvers<RemoteResult<EpisodeReadiness>>()
+  const f = episodeClientFixture({ episodeReadiness: vi.fn<EpisodeClient['episodeReadiness']>().mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise) })
+  f.directory.check(input); f.directory.check(input)
+  old.resolve({ ok: true, value: ready }); await old.promise
+  await f.directory.admit()
+  expect(f.api.episodeStatus).not.toHaveBeenCalled(); expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  current.resolve({ ok: true, value: ready })
+  await vi.waitFor(() => { expect(f.api.episodeStatus).toHaveBeenCalledTimes(1) })
+  await vi.waitFor(async () => { await f.directory.admit(); expect(f.api.admitEpisode).toHaveBeenCalledTimes(1) })
+})
+
+it.each(['remote error', 'lost reply'] as const)('only looks up the original after a %s and rejects an early old status permission', async (fault) => {
+  const response = Promise.withResolvers<RemoteResult<EpisodeDeliveryStatus>>()
+  const f = episodeClientFixture({ admitEpisode: vi.fn<EpisodeClient['admitEpisode']>(() => response.promise) })
+  await f.waitReady()
+  const early = f.directory.state.getSnapshot().statusAddress, admission = f.directory.admit()
+  f.directory.acceptStatus(early, { ...original, canResume: true })
+  if (fault === 'remote error') response.resolve({ ok: false, error: new RemoteError('jubian-video-recovery/rejected', 'acknowledgement lost', {}) })
+  else response.reject(new Error('connection ended after commit'))
+  await admission
+  await f.directory.admit(); await f.directory.admit(true)
+  expect(f.api.admitEpisode).toHaveBeenCalledTimes(1)
+  expect(f.api.admitEpisode).toHaveBeenCalledWith(input)
+  await vi.waitFor(() => { expect(f.api.episodeStatus).toHaveBeenCalledTimes(2) })
+  expect(f.directory.state.getSnapshot().target).toEqual(input)
+  expect(f.api.episodeReadiness).toHaveBeenCalledTimes(1)
+})
+
+it('reconnects with the original digest but cannot use old resume permission', async () => {
+  const f = episodeClientFixture({ episodeStatus: vi.fn<EpisodeClient['episodeStatus']>(async () => ({ ok: true, value: { ...original, canResume: true } })) })
+  f.directory.history(input)
+  await vi.waitFor(() => { expect(f.api.episodeHistory).toHaveBeenCalledTimes(1) })
+  f.directory.selectOriginal(input, f.directory.state.getSnapshot().historyAddress)
+  await vi.waitFor(() => { expect(f.api.episodeStatus).toHaveBeenCalledTimes(1) })
+  f.disconnect()
+  const held = Promise.withResolvers<RemoteResult<EpisodeDeliveryStatus>>()
+  const fresh = { ...f.api, episodeStatus: vi.fn<EpisodeClient['episodeStatus']>(() => held.promise) }
+  f.connect(fresh); await f.directory.admit(true)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  expect(f.directory.state.getSnapshot().target).toEqual(input)
+  held.resolve({ ok: true, value: { ...original, canResume: true } })
+  await vi.waitFor(async () => { await f.directory.admit(true); expect(f.api.admitEpisode).toHaveBeenCalledTimes(1) })
+  expect(f.api.admitEpisode).toHaveBeenCalledWith({ ...input, resume: true })
+  expect(f.api.episodeReadiness).not.toHaveBeenCalled()
+})
+
+it.each(['selection', 'dispose'] as const)('ignores an old admission outcome after %s retires its UI owner', async (retire) => {
+  const pending = Promise.withResolvers<RemoteResult<EpisodeDeliveryStatus>>()
+  const f = episodeClientFixture({ admitEpisode: vi.fn<EpisodeClient['admitEpisode']>(() => pending.promise) })
+  await f.waitReady(); const admission = f.directory.admit()
+  if (retire === 'selection') f.directory.retireSelection('2')
+  else f.directory.dispose()
+  pending.resolve({ ok: true, value: original }); await admission
+  expect(f.notices).not.toHaveBeenCalled()
+  expect(f.api.episodeStatus).toHaveBeenCalledTimes(1)
+})
+
+it('retains a submitted original target instead of posting a second ordinary admission', async () => {
+  const f = episodeClientFixture()
+  await f.waitReady(); await f.directory.admit()
+  await vi.waitFor(() => { expect(f.api.episodeStatus).toHaveBeenCalledTimes(2) })
+  await f.directory.admit(); f.directory.refresh()
+  expect(f.api.admitEpisode).toHaveBeenCalledTimes(1)
+  expect(f.api.episodeReadiness).toHaveBeenCalledTimes(1)
+  expect(f.directory.state.getSnapshot().target).toEqual(input)
+})
+
+it('retires the episode child when the A project draft changes and disposes it with A', () => {
+  const recovery = new RecoveryDirectory(), child = recovery.episodes
+  const f = episodeClientFixture()
+  child.connect(f.api, (address, signal) => { f.resources.pin(address, signal) })
+  child.check(input); recovery.setProjectDir('/other')
+  expect(child.state.getSnapshot()).toMatchObject({ target: null, readinessAddress: '', statusAddress: '' })
+  recovery.dispose(); child.check(input)
+  expect(child.state.getSnapshot().readinessAddress).toBe('')
+})
+
+it('retires loaded episode facts when A accepts a different saved project after refresh', async () => {
+  const recovery = new RecoveryDirectory(), f = episodeClientFixture()
+  const api = {
+    status: vi.fn(async () => ({ ok: true as const, value: { projectDir: '/project', enabled: false,
+      configurable: true, decoderAvailable: true, reports: [] } })),
+    configure: async () => { throw new Error('Not used by this query fixture') },
+    review: async () => { throw new Error('Not used by this query fixture') },
+    adopt: async () => { throw new Error('Not used by this query fixture') },
+    deliverApprovedMp4: async () => { throw new Error('Not used by this query fixture') },
+  }
+  recovery.connect(api)
+  await vi.waitFor(() => { expect(recovery.state.getSnapshot().status?.projectDir).toBe('/project') })
+  const child = recovery.episodes
+  child.connect(f.api, () => {})
+  child.check(input)
+  child.acceptReadiness(child.state.getSnapshot().readinessAddress, ready)
+  expect(child.state.getSnapshot().displayedReadiness).not.toBeNull()
+  api.status.mockResolvedValueOnce({ ok: true, value: { projectDir: '/other', enabled: false,
+    configurable: true, decoderAvailable: true, reports: [] } })
+  await recovery.refresh()
+  expect(child.state.getSnapshot()).toMatchObject({ target: null, displayedReadiness: null, displayedHistory: null, displayedStatus: null })
+  recovery.dispose()
+})
+
+it('requires the replacement status after a matching recheck even when an earlier query finishes during that check', async () => {
+  const prior = Promise.withResolvers<RemoteResult<EpisodeDeliveryStatus>>()
+  const replacement = Promise.withResolvers<RemoteResult<EpisodeDeliveryStatus>>()
+  const recheck = Promise.withResolvers<RemoteResult<EpisodeReadiness>>()
+  const api = vi.fn<EpisodeClient['episodeStatus']>().mockResolvedValueOnce({ ok: true, value: { ...original, state: 'not-admitted', attempt: null } })
+    .mockReturnValueOnce(prior.promise).mockReturnValueOnce(replacement.promise)
+  const f = episodeClientFixture({ episodeStatus: api,
+    episodeReadiness: vi.fn<EpisodeClient['episodeReadiness']>().mockResolvedValueOnce({ ok: true, value: ready }).mockReturnValueOnce(recheck.promise),
+    admitEpisode: vi.fn<EpisodeClient['admitEpisode']>(async () => ({ ok: false,
+      error: new RemoteError('jubian-video-recovery/rejected', 'admission paused', {}) })) })
+  await f.waitReady(); await f.directory.admit()
+  await vi.waitFor(() => { expect(api).toHaveBeenCalledTimes(2) })
+  f.directory.check(input)
+  prior.resolve({ ok: true, value: { ...original, state: 'not-admitted', attempt: null } })
+  await vi.waitFor(() => { expect(f.resources.source(f.directory.state.getSnapshot().statusAddress).getSnapshot().status).toBe('live') })
+  recheck.resolve({ ok: true, value: ready })
+  await vi.waitFor(() => { expect(api).toHaveBeenCalledTimes(3) })
+  await f.directory.admit()
+  expect(f.api.admitEpisode).toHaveBeenCalledTimes(1)
+  replacement.resolve({ ok: true, value: { ...original, state: 'not-admitted', attempt: null } })
+  await vi.waitFor(() => { expect(f.resources.source(f.directory.state.getSnapshot().statusAddress).getSnapshot().status).toBe('live') })
+  await f.directory.admit()
+  expect(f.api.admitEpisode).toHaveBeenCalledTimes(2)
+  expect(vi.mocked(f.api.admitEpisode).mock.calls.map((args: Parameters<EpisodeClient['admitEpisode']>) => args[0])).toEqual([input, input])
+})
+
+it('retains a blocked readiness report without looking up or admitting an original task', async () => {
+  const blocked: EpisodeReadiness = { ...ready, ready: false, digest: null, issues: ['No approved video source'] }
+  const f = episodeClientFixture({ episodeReadiness: vi.fn<EpisodeClient['episodeReadiness']>(async () => ({ ok: true, value: blocked })) })
+  f.directory.check(input)
+  await vi.waitFor(() => { expect(f.directory.state.getSnapshot().displayedReadiness).toEqual(blocked) })
+  await f.directory.admit(); await f.directory.admit(true); f.directory.refresh()
+  expect(f.directory.state.getSnapshot().checked).toBe(false)
+  expect(f.api.episodeStatus).not.toHaveBeenCalled()
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+})
+
+it('announces a completed selected original once across repeated status refreshes', async () => {
+  const completed: EpisodeDeliveryStatus = { ...original, state: 'completed',
+    output: { path: 'exports/original.mp4', sha256: input.digest, bytes: 26 } }
+  const f = episodeClientFixture({ episodeStatus: vi.fn<EpisodeClient['episodeStatus']>(async () => ({ ok: true, value: completed })) })
+  f.directory.history(input)
+  await vi.waitFor(() => { expect(f.directory.state.getSnapshot().displayedHistory?.entries).toHaveLength(1) })
+  f.directory.selectOriginal(input, f.directory.state.getSnapshot().historyAddress)
+  await vi.waitFor(() => { expect(f.notices).toHaveBeenCalledExactlyOnceWith('episodeCompleted') })
+  f.directory.refresh()
+  await vi.waitFor(() => { expect(f.api.episodeStatus).toHaveBeenCalledTimes(2) })
+  await vi.waitFor(() => {
+    expect(f.resources.source(f.directory.state.getSnapshot().statusAddress).getSnapshot().status).toBe('live')
+  })
+  expect(f.notices).toHaveBeenCalledOnce()
+  expect(f.directory.state.getSnapshot().displayedStatus?.output).toEqual(completed.output)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+})
+
+it.each(['empty diagnostic', 'plain rejection'] as const)('keeps an uncertain admission identifiable after an %s', async (failure) => {
+  const f = episodeClientFixture({ admitEpisode: vi.fn<EpisodeClient['admitEpisode']>(async () => {
+    if (failure === 'plain rejection') throw 'Reply lost after submission'
+    return { ok: false, error: new RemoteError('jubian-video-recovery/rejected', '', {}) }
+  }) })
+  await f.waitReady(); await f.directory.admit()
+  expect(f.notices).toHaveBeenCalledExactlyOnceWith({ failed: failure === 'plain rejection'
+    ? 'Reply lost after submission' : 'jubian-video-recovery/rejected' })
+  expect(f.directory.state.getSnapshot()).toMatchObject({ target: input, busy: false, checked: false })
+  await f.directory.admit()
+  expect(f.api.admitEpisode).toHaveBeenCalledTimes(1)
+})
+
+it('keeps disconnected actions inert and ignores a retired connection release after reconnect', async () => {
+  const f = episodeClientFixture()
+  f.disconnect()
+  f.directory.check(input); f.directory.history(input); f.directory.selectOriginal(input, ''); f.directory.refresh()
+  await f.directory.admit()
+  expect(f.api.episodeReadiness).not.toHaveBeenCalled()
+  expect(f.api.episodeHistory).not.toHaveBeenCalled()
+  expect(f.api.episodeStatus).not.toHaveBeenCalled()
+  const release = f.connect()
+  f.disconnect()
+  expect(f.directory.state.getSnapshot().connected).toBe(true)
+  release()
+  f.directory.dispose()
+  const retired = f.directory.state.getSnapshot()
+  f.directory.retireSelection('9')
+  expect(f.directory.state.getSnapshot()).toBe(retired)
+  f.connect()()
+  expect(f.directory.state.getSnapshot().connected).toBe(false)
+})
+
+it('does not restore a retired readiness observation through the public acceptance method', async () => {
+  const f = episodeClientFixture()
+  await f.waitReady()
+  const address = f.directory.state.getSnapshot().readinessAddress
+  const value = f.directory.state.getSnapshot().displayedReadiness
+  if (value === null) throw new Error('Expected an observed readiness reply')
+  expect(address).not.toBe('')
+  f.directory.retireSelection('2')
+  const retired = f.directory.state.getSnapshot()
+  f.directory.acceptReadiness(address, value)
+  await f.directory.admit(); await f.directory.admit(true)
+  expect(f.directory.state.getSnapshot()).toBe(retired)
+  expect(retired).toMatchObject({ episodeText: '2', checked: false, target: null, displayedReadiness: null, statusAddress: '' })
+  expect(f.api.episodeStatus).toHaveBeenCalledTimes(1)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  expect(f.notices).not.toHaveBeenCalled()
+  f.directory.retireSelection('1')
+  await f.waitReady()
+  expect(f.directory.state.getSnapshot().displayedReadiness).toEqual(ready)
+  expect(f.directory.state.getSnapshot().readinessAddress).not.toBe(address)
+  expect(f.api.episodeReadiness).toHaveBeenCalledTimes(2)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+})
+
+it('does not restore retired history or select its original through the public acceptance method', async () => {
+  const f = episodeClientFixture()
+  f.directory.history(input)
+  await vi.waitFor(() => { expect(f.directory.state.getSnapshot().displayedHistory?.entries).toHaveLength(1) })
+  const address = f.directory.state.getSnapshot().historyAddress
+  const value = f.directory.state.getSnapshot().displayedHistory
+  if (value === null) throw new Error('Expected an observed history reply')
+  f.directory.retireSelection('2')
+  const retired = f.directory.state.getSnapshot()
+  f.directory.acceptHistory(address, value)
+  f.directory.selectOriginal(input, address)
+  await f.directory.admit(); await f.directory.admit(true)
+  expect(f.directory.state.getSnapshot()).toBe(retired)
+  expect(retired).toMatchObject({ episodeText: '2', target: null, displayedHistory: null, historyAddress: '', statusAddress: '' })
+  expect(f.api.episodeStatus).not.toHaveBeenCalled()
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  expect(f.notices).not.toHaveBeenCalled()
+  f.directory.retireSelection('1')
+  f.directory.history(input)
+  await vi.waitFor(() => { expect(f.directory.state.getSnapshot().displayedHistory).toEqual(value) })
+  expect(f.directory.state.getSnapshot().historyAddress).not.toBe(address)
+  expect(f.api.episodeHistory).toHaveBeenCalledTimes(2)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+})
+
+it('suppresses a rejected admission reply after selection retirement without another submission', async () => {
+  const pending = Promise.withResolvers<RemoteResult<EpisodeDeliveryStatus>>()
+  const f = episodeClientFixture({ admitEpisode: vi.fn<EpisodeClient['admitEpisode']>(() => pending.promise) })
+  await f.waitReady()
+  const admission = f.directory.admit()
+  try {
+    expect(f.api.admitEpisode).toHaveBeenCalledExactlyOnceWith(input)
+    expect(f.directory.state.getSnapshot().busy).toBe(true)
+    f.directory.retireSelection('2')
+    const retired = f.directory.state.getSnapshot()
+    pending.reject(new Error('Old connection failed after admission'))
+    await admission
+    await f.directory.admit(); await f.directory.admit(true); f.directory.refresh()
+    expect(f.directory.state.getSnapshot()).toBe(retired)
+    expect(retired).toMatchObject({ episodeText: '2', busy: false, checked: false, target: null, statusAddress: '' })
+    expect(f.notices).not.toHaveBeenCalled()
+    expect(f.api.episodeStatus).toHaveBeenCalledTimes(1)
+    expect(f.api.episodeReadiness).toHaveBeenCalledTimes(1)
+    expect(f.api.admitEpisode).toHaveBeenCalledExactlyOnceWith(input)
+  } finally {
+    pending.resolve({ ok: true, value: original })
+    await admission
+  }
+})
+
+it('does not pin a new check after a synchronous state observer disconnects its connection', async () => {
+  const f = episodeClientFixture()
+  await f.waitReady()
+  let disconnected = 0
+  const unsubscribe = f.directory.state.subscribe(() => {
+    const state = f.directory.state.getSnapshot()
+    if (disconnected !== 0 || state.checked || !state.connected) return
+    disconnected++
+    f.disconnect()
+  })
+  try {
+    f.directory.check(input)
+    expect(disconnected).toBe(1)
+    expect(f.directory.state.getSnapshot()).toMatchObject({ connected: false, checked: false, readinessAddress: '', statusAddress: '' })
+    expect(f.api.episodeReadiness).toHaveBeenCalledTimes(1)
+    expect(f.api.episodeStatus).toHaveBeenCalledTimes(1)
+    await f.directory.admit()
+    expect(f.api.admitEpisode).not.toHaveBeenCalled()
+    expect(f.notices).not.toHaveBeenCalled()
+  } finally { unsubscribe() }
+  const disconnect = f.connect()
+  try {
+    await f.waitReady()
+    expect(f.api.episodeReadiness).toHaveBeenCalledTimes(2)
+    expect(f.directory.state.getSnapshot()).toMatchObject({ connected: true, checked: true })
+    expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  } finally { disconnect() }
+})

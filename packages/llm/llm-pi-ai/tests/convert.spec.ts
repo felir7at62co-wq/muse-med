@@ -84,17 +84,16 @@ describe('toPiContext', () => {
       })],
       tools: [{ name: 'f', description: 'F', parameters: { type: 'object', properties: {} } }],
     })
-    expect(context.systemPrompt).toBe('be helpful')
-    expect(context.messages).toEqual([{ role: 'user', content: 'hi', timestamp: 0 }])
-    expect(context.tools).toEqual([
-      { name: 'f', description: 'F', parameters: { type: 'object', properties: {} } },
-    ])
+    expect(context).toEqual({
+      systemPrompt: 'be helpful',
+      tools: [{ name: 'f', description: 'F', parameters: { type: 'object', properties: {} } }],
+      messages: [{ role: 'user', content: 'hi', timestamp: 0 }],
+    })
   })
 
   it('omits empty tools and absent system prompt', () => {
     const context = toPiContext({ provider: 'deepseek', model: 'm', messages: [], tools: [] })
-    expect(context.systemPrompt).toBeUndefined()
-    expect(context.tools).toBeUndefined()
+    expect(context).toEqual({ messages: [] })
   })
 
   it('resolves durable image references into native pi-ai image content', async () => {
@@ -317,7 +316,7 @@ describe('toPiContext', () => {
     })
   })
 
-  it('splits mixed user text + tool results and lifts a leading system message into systemPrompt', () => {
+  it('preserves the leading system message ahead of user text and tool results', () => {
     const context = toPiContext({
       provider: 'deepseek',
       model: 'm',
@@ -368,7 +367,7 @@ describe('toPiContext', () => {
       content: [
         { type: 'thinking', thinking: 'private reasoning', thinkingSignature: 'think-sig', redacted: true },
         { type: 'text', text: 'calling', textSignature: 'text-sig' },
-        { type: 'toolCall', id: 'c1', name: 'f', arguments: { a: 1 }, thoughtSignature: 'tool-sig' },
+        { type: 'toolCall', id: 'c1', name: 'f', arguments: { a: 1 }, thoughtSignature: 'tool-sig', namespace: 'functions' },
       ],
     }))
     const context = toPiContext({
@@ -399,7 +398,7 @@ describe('toPiContext', () => {
       content: [
         { type: 'thinking', thinking: 'private reasoning', thinkingSignature: 'think-sig', redacted: true },
         { type: 'text', text: 'calling', textSignature: 'text-sig' },
-        { type: 'toolCall', id: 'c1', name: 'f', arguments: { a: 1 }, thoughtSignature: 'tool-sig' },
+        { type: 'toolCall', id: 'c1', name: 'f', arguments: { a: 1 }, thoughtSignature: 'tool-sig', namespace: 'functions' },
       ],
     })
   })
@@ -677,6 +676,7 @@ describe('toPiContext', () => {
     ['null block', { ...validReplay, blocks: [null] }, 'block 0 must be an object'],
     ['array block', { ...validReplay, blocks: [[]] }, 'block 0 must be an object'],
     ['unknown block type', { ...validReplay, blocks: [{ type: 'audio' }] }, 'block 0 has an unknown type'],
+    ['non-string namespace', { ...validReplay, blocks: [{ type: 'tool-call', namespace: 1 }] }, 'namespace must be a string'],
     ['non-string signature', { ...validReplay, blocks: [{ type: 'text', textSignature: 1 }] }, 'textSignature must be a string'],
     ['non-boolean redaction', { ...validReplay, blocks: [{ type: 'reasoning', redacted: 'yes' }] }, 'redacted must be boolean'],
   ])('degrades malformed replay state: %s', (_name, replayState, message) => {
@@ -724,7 +724,7 @@ describe('toStreamChunks', () => {
     if (requested === undefined) throw new Error('missing Anthropic catalog model')
     expect(transformMessages(context.messages, requested)[0]).toMatchObject({ content: native.content })
     expect(transformMessages(context.messages, { ...requested, id: 'other-model' })[0]).toMatchObject({
-      content: [{ type: 'text', text: 'reason' }],
+      content: [],
     })
   })
 
@@ -985,11 +985,21 @@ describe('mapStopReason / mapUsage', () => {
     }))).toMatchObject({ kind: 'error', failure: { code: 'RATE_LIMIT' } })
   })
 
-  it('uses the resolved context window for silent and length-stop overflows', () => {
-    // Non-empty content keeps the no-window branch on the successful stop path
-    // (an empty stop is EMPTY_RESPONSE, covered above); overflow wins over both.
-    const silent = assistant({ stopReason: 'stop', usage: usage(101, 0), content: [{ type: 'text', text: 'x' }] })
-    expect(mapStopReason(silent)).toEqual({ kind: 'stop' })
+  it.each([
+    usage(230, 537, 490_240),
+    usage(172, 577, 596_480),
+  ])('preserves completed responses above stale catalog capacity: %j', (reportedUsage) => {
+    const completed = assistant({
+      stopReason: 'stop', usage: reportedUsage,
+      content: [{ type: 'text', text: 'Completed successfully.' }],
+    })
+    expect(mapStopReason(completed, 475_000)).toEqual({ kind: 'stop' })
+    expect(mapUsage(reportedUsage).totalTokens).toBeGreaterThan(475_000)
+  })
+
+  it('uses the resolved context window for empty and length-stop overflows', () => {
+    const silent = assistant({ stopReason: 'stop', usage: usage(101, 0) })
+    expect(mapStopReason(silent)).toMatchObject({ kind: 'error', failure: { code: EMPTY_RESPONSE_CODE } })
     expect(mapStopReason(silent, 100)).toEqual({
       kind: 'error',
       failure: {

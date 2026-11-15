@@ -1,0 +1,486 @@
+{
+  "formatVersion": 2,
+  "roots": [
+    {
+      "key": "event:video/review",
+      "kind": "event",
+      "event": "video/review",
+      "surface": false,
+      "digest": "5781c389fbe44583fcaa6b8e6e8194163bc90a27b241f5cb0efc1c7af428bdbd",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 28,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 29,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              2,
+              25
+            ]
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "event_groups",
+                "type": 3,
+                "optional": true
+              },
+              {
+                "name": "follow_up",
+                "type": 8,
+                "optional": true
+              },
+              {
+                "name": "frame_count",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "frames",
+                "type": 12,
+                "optional": false
+              },
+              {
+                "name": "id",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "kind",
+                "type": 23,
+                "optional": false
+              },
+              {
+                "name": "path",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "scan_complete",
+                "type": 15,
+                "optional": false
+              },
+              {
+                "name": "scanned_until",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "transcript_reference",
+                "type": 24,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 4
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "action",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "actor",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "after",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "before",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "end_seconds",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "event_id",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "frame_ids",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "object",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "observation_digest",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "start_seconds",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "uncertainty",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "array",
+            "element": 5
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "reason",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "status",
+                "type": 9,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              10,
+              11
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "closed"
+          },
+          {
+            "kind": "literal",
+            "value": "active"
+          },
+          {
+            "kind": "array",
+            "element": 13
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "decode",
+                "type": 14,
+                "optional": true
+              },
+              {
+                "name": "decoded_time",
+                "type": 6,
+                "optional": true
+              },
+              {
+                "name": "exposed",
+                "type": 15,
+                "optional": false
+              },
+              {
+                "name": "id",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "image",
+                "type": 16,
+                "optional": true
+              },
+              {
+                "name": "observation",
+                "type": 22,
+                "optional": true
+              },
+              {
+                "name": "reasons",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "frame_index",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "start_seconds",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "boolean"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "attachmentId",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "bytes",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "height",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "mediaType",
+                "type": 17,
+                "optional": false
+              },
+              {
+                "name": "name",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "width",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              18,
+              19,
+              20,
+              21
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "image/gif"
+          },
+          {
+            "kind": "literal",
+            "value": "image/jpeg"
+          },
+          {
+            "kind": "literal",
+            "value": "image/png"
+          },
+          {
+            "kind": "literal",
+            "value": "image/webp"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "change",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "uncertainty",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "visible",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "update"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "path",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "sha256",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "version",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "kind",
+                "type": 26,
+                "optional": false
+              },
+              {
+                "name": "review",
+                "type": 27,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "start"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "duration",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "episode",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "event_groups",
+                "type": 3,
+                "optional": true
+              },
+              {
+                "name": "follow_up",
+                "type": 8,
+                "optional": true
+              },
+              {
+                "name": "frames",
+                "type": 12,
+                "optional": false
+              },
+              {
+                "name": "id",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "path",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "scan_complete",
+                "type": 15,
+                "optional": false
+              },
+              {
+                "name": "scanned_until",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "source_version",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "transcript_reference",
+                "type": 24,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "literal",
+            "value": "video/review"
+          }
+        ]
+      }
+    }
+  ],
+  "types": []
+}

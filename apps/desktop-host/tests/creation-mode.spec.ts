@@ -1,5 +1,8 @@
 /** Creation's actual Loader-owned policy, persona and isolated skill contribution. */
-import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
+import { mkdtemp, readFile, rm, writeFile, mkdir, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
@@ -15,6 +18,8 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm, { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
+import LocalFs from '@deepseek-ai/dsh-fs-local'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -29,6 +34,16 @@ import * as ManuscriptRevisions from '../src/manuscript-revisions.ts'
 import * as CreationSkills from '../src/creation-skills.ts'
 import { CREATION_GUIDANCE, CREATION_GUIDANCE_SECTION } from '../src/creation-guidance.ts'
 import { SHORT_DRAMA_GUIDANCE, SHORT_DRAMA_GUIDANCE_SECTION } from '../src/short-drama-guidance.ts'
+
+import MuseMarket from '@deepseek-ai/dsh-muse-market'
+import MuseMarketActivation from '@deepseek-ai/dsh-muse-market/activation'
+import { createMarketPackage } from '@deepseek-ai/dsh-muse-market/package'
+import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
+
+class MarketPointQuery extends SessionQueryEngine {
+  override searchSessions(): Promise<never> { return Promise.reject(new Error('Search is not used')) }
+  override searchEvents(): Promise<never> { return Promise.reject(new Error('Search is not used')) }
+}
 
 class RuntimeProbe extends PtcRuntime {
   readonly language = 'typescript'
@@ -62,9 +77,12 @@ async function fixture() {
     await ctx.plugin(SessionProjections)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(LocalFs, { cwd: root })
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: root }).await()
     await ctx.plugin(RuntimeProbe)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(AgentLoop, { agents: [] }).await()
     await ctx.plugin(SkillRegistry)
     await mkdir(join(root, '.git'))
     for (const [directory, name] of [[join(root, 'user-skills'), 'user-creative'], [join(root, '.dsh/skills'), 'project-creative']] as const) {
@@ -79,7 +97,7 @@ async function fixture() {
     await ctx.plugin(AgentPresets, { default: 'creation' })
     const raw = await readFile(new URL('../presets/creation/agent.cordis.yml', import.meta.url), 'utf8')
     const rows = yaml.load(raw, { schema: entryListSchema }) as Array<{ id: string; name: string }>
-    const chosen = rows.filter(row => ['persona', 'creation-policy', 'tool-presentation', 'creation-skills'].includes(row.id))
+    const chosen = rows.filter(row => ['persona', 'creation-policy', 'tool-executor-ptc', 'tool-presentation', 'creation-skills'].includes(row.id))
     const directory = join(root, 'creation')
     await mkdir(directory)
     await writeFile(join(directory, 'agent.cordis.yml'), yaml.dump(chosen))
@@ -87,6 +105,7 @@ async function fixture() {
     const modules = new Map<string, unknown>([
       ['@deepseek-ai/dsh-desktop-host/creation-policy', CreationPolicy],
       ['@deepseek-ai/dsh-desktop-host/creation-skills', CreationSkills],
+      ['@deepseek-ai/dsh-tool-executor-ptc', PtcToolExecutor],
       ['@deepseek-ai/dsh-skill', SkillRegistry], ['@deepseek-ai/dsh-tool-skill', ToolSkill],
       ['@deepseek-ai/dsh-persona', Persona], ['@deepseek-ai/dsh-agent-tool-presentation', ToolPresentation],
     ])
@@ -99,7 +118,8 @@ async function fixture() {
         return modules.get(specifier)
       } }
     await ctx.plugin(NativePreset, { id: 'creation', directory })
-    const handle = await ctx.agents.create({ sessionId: SessionId('creation-fixture'), meta: { cwd: root, agentPreset: 'creation' },
+    const handle = await ctx.agents.create({ sessionId: SessionId('creation-fixture'), agentOptions: { provider: 'fixture', model: 'fixture' },
+      meta: { cwd: root, agentPreset: 'creation' },
       setup: async (agentCtx) => { await ctx.agentPresets.mount(agentCtx, 'creation') } })
     return { root, ctx, agent: handle.agent, raw, rows, runtime: ctx.ptcRuntime as RuntimeProbe }
   } catch (error) {
@@ -113,6 +133,8 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
   const f = await fixture()
   try {
     expect(f.raw).toContain('trustedEvidence: true')
+    expect(f.raw).toContain('sourceReviewCompanion: true')
+    expect(f.raw).not.toContain('requireCompleteReview: true')
     expect(f.raw).not.toContain('本模式由你独立完成模型判断，不启动其他模型会话或团队，不使用委派、工作流模型编排、持续循环代理或借终端、HTTP、插件绕过模式限制。')
     expect(f.raw).not.toContain('先加载 muse-creation')
     expect(f.raw).not.toContain('tools.skill({name: "muse-creation"})')
@@ -131,8 +153,10 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     f.agent.ctx.systemPrompt.section({ name: 'team:policy', order: 2, text: 'Hidden team policy' })
     const assembly = await f.ctx.systemPrompt.assemble({ agent: f.agent, scope: f.agent })
     expect(f.agent.session.deriveMessages()).toEqual([])
+    const modelSelection = f.agent.model.current()
+    if (modelSelection === undefined) throw new Error('Creation fixture did not configure its model selection')
     const initial = await agentEvents(f.ctx, f.agent).waterfall('agent/pre-step', {
-      messages: [], turn: 1, step: 1, signal: new AbortController().signal,
+      messages: [], turn: 1, step: 1, signal: new AbortController().signal, modelSelection,
     }, () => Promise.resolve({ kind: 'enter' as const, messages: [] }))
     expect(initial.kind).toBe('enter')
     if (initial.kind === 'reject') throw new Error('The initial creation model step was rejected')
@@ -142,7 +166,8 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     for (const removed of ['jubian-asset-library', 'muse-creation', 'tweet-drama-asset-extract', 'xiaohongshu-reference']) {
       expect(initialNames).not.toContain(removed)
     }
-    for (const name of ['audio-transcribe', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d']) {
+    for (const name of ['audio-transcribe', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d',
+      'muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']) {
       expect(initialNames).toContain(name)
     }
     expect(JSON.stringify(catalog.content)).toContain("task clearly matches a skill's description")
@@ -153,6 +178,11 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(SHORT_DRAMA_GUIDANCE).toContain('中文项目默认中文；用户指定语言时遵循指定')
     expect(SHORT_DRAMA_GUIDANCE).toContain('用户要求原文作为提示词时保留原文')
     expect(SHORT_DRAMA_GUIDANCE).toContain('语言选择是创作指导，不拦截生图')
+    expect(SHORT_DRAMA_GUIDANCE).toContain('优先使用 drama_render 的 subtitles → prepare → render')
+    expect(SHORT_DRAMA_GUIDANCE).toContain('手写 ASS、FFmpeg 命令或旧脚本')
+    expect(SHORT_DRAMA_GUIDANCE).toContain('同一时间线和 prepare 返回的实际字幕候选')
+    expect(SHORT_DRAMA_GUIDANCE).toContain('只需草稿时不额外编码整集')
+    expect(SHORT_DRAMA_GUIDANCE).toContain('不新增用户审批或拦截任意手写命令')
     const sectionNames = assembly.sections.map(section => section.name)
     expect(sectionNames.indexOf('deployment:persona-prefix')).toBeLessThan(sectionNames.indexOf(CREATION_GUIDANCE_SECTION))
     expect(sectionNames.indexOf(CREATION_GUIDANCE_SECTION)).toBeLessThan(sectionNames.indexOf('tools:ptc-only'))
@@ -165,6 +195,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).toContain('tools.skill')
     expect(text).not.toContain('再加载 muse-creation')
     expect(CreationPolicy.CREATION_TOOL_NAMES).toContain('video_ocr')
+    expect(CreationPolicy.CREATION_TOOL_NAMES).toContain('video_source_review')
     expect(text).toContain('按8个有效字/秒计算预算')
     expect(text).toContain('配速指视频包内部的对白、动作、停顿与切镜快慢')
     expect(text).toContain('单集目标、最低集长或汇总差额不授权重新分配视频包时长')
@@ -221,9 +252,12 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).not.toContain('Hidden team policy')
     expect(text).not.toContain('spawn_teammate')
     expect(text).not.toContain('late-agent-alias')
-    expect(f.ctx.tools.schemas(f.agent).map(entry => entry.name).sort()).toEqual(['read', 'run_code', 'skill'])
+    const admitted = await f.ctx.tools.resolve({ agent: f.agent, modelSelection, signal: new AbortController().signal })
+    try {
+      expect(f.ctx.tools.schemas(f.agent, admitted).map(entry => entry.name).sort()).toEqual(['read', 'skill'])
+    } finally { admitted.dispose() }
     for (const name of ['spawn_teammate', 'late-agent-alias']) {
-      const result = await f.ctx.tools.execute({ agent: f.agent, name, arguments: {},
+      const result = await executeModelToolFixture(f.ctx, { agent: f.agent, name, arguments: {},
         callId: ToolCallId(name), signal: new AbortController().signal })
       expect(result.isError).toBe(true)
     }
@@ -266,7 +300,8 @@ it('serves approved resources and user skills from an isolated Host-forwarded re
     expect(loaded?.content).not.toContain('Unapproved scoped instructions')
     expect(loaded?.content).not.toContain('当前创作模式的执行限制')
     expect(loaded?.content).toContain('音视频语音转写')
-    for (const name of ['audio-transcribe']) {
+    for (const name of ['audio-transcribe', 'video-to-screenplay', 'muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']) {
+      expect(CreationSkills.CREATION_SKILL_NAMES).toContain(name)
       expect(names).toContain(name)
       const specialized = await skills.get(name, { scope: f.agent })
       const bundled = await f.ctx.skills.get(name)
@@ -292,7 +327,7 @@ it('serves approved resources and user skills from an isolated Host-forwarded re
       value = resultValue
       return { logs: [], value: resultValue }
     }
-    const result = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
+    const result = await executeModelToolFixture(f.ctx, { agent: f.agent, name: 'run_code', arguments: {
       description: 'Read the screenplay revision guide', code: 'return await tools.skill({name:"audio-transcribe"})',
     }, callId: ToolCallId('creation-skill'), signal: new AbortController().signal })
     expect(result.isError).toBe(false)
@@ -308,7 +343,7 @@ it('serves approved resources and user skills from an isolated Host-forwarded re
       value = resultValue
       return { logs: [], value: resultValue }
     }
-    const cgResult = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
+    const cgResult = await executeModelToolFixture(f.ctx, { agent: f.agent, name: 'run_code', arguments: {
       description: 'Read the bundled 3D asset guide', code: 'return await tools.skill({name:"anime-3d-assets"})',
     }, callId: ToolCallId('creation-cg-skill'), signal: new AbortController().signal })
     expect(cgResult.isError).toBe(false)
@@ -327,7 +362,7 @@ it('permits manuscript revision comparison through the real creation PTC policy'
       if (!binding) throw Error('Missing manuscript revision SDK binding')
       return { logs: [], value: await binding({ action: 'status' }) }
     }
-    const result = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
+    const result = await executeModelToolFixture(f.ctx, { agent: f.agent, name: 'run_code', arguments: {
       description: 'Read manuscript protection', code: 'return await tools.manuscript_revision({action:"status"})',
     }, callId: ToolCallId('creation-manuscript'), signal: new AbortController().signal })
     expect(result.isError).toBe(false)
@@ -335,28 +370,78 @@ it('permits manuscript revision comparison through the real creation PTC policy'
   } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
 })
 
-it('permits the scoped IM file binding through the real creation PTC policy', async () => {
+it.each(['dsh_im_return_file', 'muse_media_data', 'muse_media_download', 'muse_media_task', 'muse_media_import'])(
+  'permits the scoped %s binding through the real creation PTC policy', async (name) => {
+    const f = await fixture()
+    try {
+      expect(CreationPolicy.CREATION_TOOL_NAMES).toContain(name)
+      expect(f.ctx.tools.schemas(f.agent).some(entry => entry.name === name)).toBe(false)
+      let deliveries = 0
+      f.agent.ctx.tools.register(tool(name, () => {
+        deliveries++
+        return Promise.resolve('queued')
+      }))
+      f.agent.ctx.tools.register(tool('unreviewed_im_upload'))
+      f.runtime.behavior = async (spec) => {
+        const bindings = spec.bindings?.find(namespace => namespace.global === 'tools')?.functions
+        expect(bindings?.unreviewed_im_upload).toBeUndefined()
+        const approved = bindings?.[name]
+        if (approved === undefined) throw new Error('Missing approved tool SDK binding')
+        return { logs: [], value: await approved({}) }
+      }
+      const result = await executeModelToolFixture(f.ctx, { agent: f.agent, name: 'run_code', arguments: {
+        description: 'Use an approved scoped tool', code: `return await tools[${JSON.stringify(name)}]({})`,
+      }, callId: ToolCallId('creation-im-file'), signal: new AbortController().signal })
+      expect(result.isError).toBe(false)
+      expect(deliveries).toBe(1)
+      expect(JSON.stringify(result.content)).toContain('queued')
+    } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
+  })
+
+it('creation forwards exact per-Agent market releases and retains user-directory and disposal rules', async () => {
   const f = await fixture()
   try {
-    expect(CreationPolicy.CREATION_TOOL_NAMES).toContain('dsh_im_return_file')
-    expect(f.ctx.tools.schemas(f.agent).some(entry => entry.name === 'dsh_im_return_file')).toBe(false)
-    let deliveries = 0
-    f.agent.ctx.tools.register(tool('dsh_im_return_file', () => {
-      deliveries++
-      return Promise.resolve('queued')
-    }))
-    f.agent.ctx.tools.register(tool('unreviewed_im_upload'))
-    f.runtime.behavior = async (spec) => {
-      const bindings = spec.bindings?.find(namespace => namespace.global === 'tools')?.functions
-      expect(bindings?.unreviewed_im_upload).toBeUndefined()
-      if (bindings?.dsh_im_return_file === undefined) throw new Error('Missing approved IM file SDK binding')
-      return { logs: [], value: await bindings.dsh_im_return_file({}) }
-    }
-    const result = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
-      description: 'Return an approved IM file', code: 'return await tools.dsh_im_return_file({})',
-    }, callId: ToolCallId('creation-im-file'), signal: new AbortController().signal })
-    expect(result.isError).toBe(false)
-    expect(deliveries).toBe(1)
-    expect(JSON.stringify(result.content)).toContain('queued')
+    const originalPath = join(f.root, 'user-skills', 'market-review', 'SKILL.md')
+    await mkdir(join(originalPath, '..'), { recursive: true })
+    await writeFile(originalPath, '---\nname: market-review\ndescription: Mutable original review.\n---\nOriginal mutable body.\n')
+    expect((await f.ctx.skills.get('market-review', { cwd: f.root }))?.source).toBe('custom')
+    const limits = { archiveBytes: 1024 * 1024, expandedBytes: 2 * 1024 * 1024, fileCount: 64, recordBytes: 1024 * 1024 }
+    await f.ctx.plugin(MarketPointQuery).await()
+    await f.ctx.plugin(MuseMarket, { root: join(f.root, 'market'), ...limits }).await()
+    const activation = f.ctx.plugin(MuseMarketActivation); await activation.await()
+    const manifest = { name: 'market-review-release', title: 'Market review', description: 'Review test scenes.',
+      version: '1.0.0', license: 'MIT', category: 'writing', examples: [], requirements: [],
+      formatVersion: 1 as const, kind: 'skill' as const,
+      skills: [{ name: 'market-review', path: 'skills/market-review/SKILL.md' }] }
+    const pack = (version: string) => Buffer.from(createMarketPackage({ ...manifest, version }, {
+      'skills/market-review/SKILL.md': Buffer.from(`---\nname: market-review\ndescription: Review test scenes.\n---\nBody version ${version}.\n`),
+    }, limits)).toString('base64')
+    const first = await f.ctx.museMarket.importPackage(pack('1.0.0'))
+    const second = await f.ctx.museMarket.importPackage(pack('2.0.0'))
+    await f.ctx.museMarketActivation.setDefault({ skillName: 'market-review', expected: null, target: first.release.id })
+    const create = (name: string) => f.ctx.agents.create({ sessionId: SessionId(name),
+      agentOptions: { provider: 'fixture', model: 'fixture' }, meta: { cwd: f.root, agentPreset: 'creation' },
+      setup: async (agentCtx) => { await f.ctx.agentPresets.mount(agentCtx, 'creation') } })
+    const old = await create('creation-market-v1')
+    const selected = await f.ctx.museMarketActivation.binding({ sessionId: old.agent.id })
+    old.agent.session.append('muse-market/bound', { releases: selected.releases })
+    await f.ctx.museMarketActivation.setDefault({ skillName: 'market-review', expected: first.release.id, target: second.release.id })
+    const fresh = await create('creation-market-v2')
+    const oldSkills = f.ctx.agentPresets.serviceFor(old.agent, 'skills')
+    const newSkills = f.ctx.agentPresets.serviceFor(fresh.agent, 'skills')
+    if (oldSkills === undefined || newSkills === undefined) throw new Error('Missing actual creation registry')
+    expect((await oldSkills.get('market-review', { cwd: f.root, scope: old.agent }))?.content).toContain('Body version 1.0.0.')
+    expect((await newSkills.get('market-review', { cwd: f.root, scope: fresh.agent }))?.content).toContain('Body version 2.0.0.')
+    await writeFile(originalPath, '---\nname: market-review\ndescription: Mutable original review.\n---\nChanged mutable original.\n')
+    expect((await f.ctx.skills.get('market-review', { cwd: f.root }))?.content).toContain('Changed mutable original.')
+    expect((await oldSkills.get('market-review', { cwd: f.root, scope: old.agent }))?.content).toContain('Body version 1.0.0.')
+    expect((await oldSkills.get('user-creative', { cwd: f.root, scope: old.agent }))?.content).toContain('user-creative instructions')
+    expect(await oldSkills.get('hidden-authoring', { cwd: f.root, scope: old.agent })).toBeUndefined()
+    await rename(join(f.root, 'market', 'packages', first.release.id), join(f.root, 'missing-market-cache'))
+    expect((await oldSkills.list({ cwd: f.root, scope: old.agent })).some(skill => skill.name === 'market-review')).toBe(true)
+    await expect(oldSkills.get('market-review', { cwd: f.root, scope: old.agent })).rejects.toMatchObject({ code: 'ENOENT' })
+    await activation.dispose()
+    expect((await oldSkills.get('market-review', { cwd: f.root, scope: old.agent }))?.content).toContain('Changed mutable original.')
+    expect((await oldSkills.get('user-creative', { cwd: f.root, scope: old.agent }))?.content).toContain('user-creative instructions')
   } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
 })

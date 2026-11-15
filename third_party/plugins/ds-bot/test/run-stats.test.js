@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { runStatsOf } from '../src/client/text.js'
+import { DICTIONARY, installLocale } from '../src/client/i18n.js'
 
 const texts = values => runStatsOf(values).map(entry => entry.text)
 
@@ -33,4 +34,35 @@ test('nothing to count leaves the line empty', () => {
   assert.deepEqual(runStatsOf(null), [])
   assert.deepEqual(runStatsOf({ sessionStats: { turns: 0, decodeMs: 0, decodeTokens: 0 }, tokenUsage: { uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } }), [])
   assert.deepEqual(texts({ contextPressure: { contextWindow: 100 } }), [])
+})
+
+
+test('the working figure uses the calibrated prepared estimate and lists physical capacity separately', () => {
+  const values = { contextPressure: {
+    projectedTokens: 449_000, workingContextTokens: 534_000, workingTokenLimit: 475_000, contextWindow: 1_000_000,
+  } }
+  assert.deepEqual(texts(values), ['Working context 112%'])
+  assert.equal(runStatsOf(values)[0].title, 'Last request estimate: 534.0K / 475.0K tokens; model window 1.0M')
+  assert.deepEqual(texts({ contextPressure: { workingContextTokens: 0, workingTokenLimit: 475_000, contextWindow: 1_000_000 } }), ['Working context 0%'])
+})
+
+test('missing paired working metadata retains the existing context display', () => {
+  for (const extra of [{ workingTokenLimit: 475_000 }, { workingContextTokens: 534_000 }]) {
+    const values = { contextPressure: { projectedTokens: 449_000, contextWindow: 1_000_000, ...extra } }
+    assert.deepEqual(texts(values), ['Context 45%'])
+    assert.equal(runStatsOf(values)[0].title, '449.0K of 1.0M tokens of context in use')
+  }
+})
+
+test('the prepared working estimate and model capacity follow the interface language', () => {
+  const off = installLocale({
+    register: () => () => {},
+    bind: () => key => DICTIONARY.zh[key] ?? key,
+    getLocale: () => ({ active: 'zh' }),
+  })
+  try {
+    const values = { contextPressure: { workingContextTokens: 498_000, workingTokenLimit: 475_000, contextWindow: 1_000_000 } }
+    assert.deepEqual(texts(values), ['工作上下文 105%'])
+    assert.equal(runStatsOf(values)[0].title, '最近一次请求的上下文估算：498.0K / 475.0K tokens；模型总窗口 1.0M')
+  } finally { off() }
 })

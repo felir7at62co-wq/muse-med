@@ -1,4 +1,4 @@
-/** Bind each native Feishu chat to one named Muse Bot without replaying its Session. */
+/** Preserve Feishu Session routing and retain the archived Muse Bot adapter. */
 import { createHash, randomUUID } from 'node:crypto'
 import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -83,6 +83,44 @@ function bindingStore(path, identity, limits) {
       privateJson(path, value)
     },
   }
+}
+
+/**
+ * Keep the existing chat keys and durable delivery records without activating Muse Bot.
+ * @param {object} scope Native workspace-scoped Harness and state.
+ * @param {object} options Registered app identity, private home, claim limits and imported admission.
+ * @returns {object} Unchanged native Harness and state with post-authorization admission callbacks.
+ */
+export function createMuseImSessionScope(scope, options) {
+  const { imBotId, appId, dshHome, legacyAdmission, retentionMs, maxEntries } = options
+  if (!identifier(imBotId) || !identifier(appId)
+    || !Number.isSafeInteger(retentionMs) || retentionMs <= 0 || !Number.isSafeInteger(maxEntries) || maxEntries <= 0) {
+    throw new TypeError('Muse IM Session routing requires the registered app identity and positive claim limits')
+  }
+  const identity = { imBotId, appId }
+  const hash = createHash('sha256').update(JSON.stringify([imBotId, appId])).digest('hex')
+  const directory = join(dshHome, 'integrations', 'muse-team', hash)
+  const store = bindingStore(join(directory, 'bindings.json'), identity, { retentionMs, maxEntries })
+  const claims = createInboundClaims(join(directory, 'requests.json'), { retentionMs, maxEntries })
+  const admission = {
+    conversationKey(event) {
+      if (!chatIdentifier(event?.message?.chat_id)) return undefined
+      if (event.message.chat_type === 'group') return `group:${event.message.chat_id}`
+      const key = `p2p:${event?.sender?.sender_id?.open_id}`
+      return event.message.chat_type === 'p2p' && directKey(key) ? key : undefined
+    },
+    async message(event, nativeState, reply = {}) {
+      const id = event?.message?.message_id
+      if (!identifier(id) || claims.has(id)) return false
+      if (legacyAdmission?.allowed && !legacyAdmission.allowed(event, nativeState)) return false
+      store.rememberReply(id, reply.replyInThread === true)
+      if (legacyAdmission && !await legacyAdmission.message(event, nativeState)) return false
+      return claims.claim(id)
+    },
+    rememberReply(messageId, inThread) { if (identifier(messageId)) store.rememberReply(messageId, inThread) },
+    replyInThreadFor(messageId) { return store.read().replies[messageId]?.thread },
+  }
+  return { harness: scope.harness, state: scope.state, admission }
 }
 
 /**

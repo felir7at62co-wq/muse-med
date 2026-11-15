@@ -1,0 +1,116 @@
+// Deep View's browser half: the turn-tail views, the answer bubble, labels and
+// the stylesheet. The host half lives in ../host.
+import { createElement as h } from 'react'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ViewUi } from '../react/ui.js'
+import { DEEP_VIEW_CSS } from '../react/index.js'
+import { viewsDefinition } from './views-definition.js'
+import { ViewsTail } from './tail.js'
+import { ViewReplyNode, viewReplyDefinition } from './reply-node.js'
+
+const NS = 'deep-view'
+
+const en = {
+  'Cancel': 'Cancel',
+  'Confirm': 'Confirm',
+  'Submit': 'Submit',
+  'Send': 'Send',
+  'Selected': 'Selected',
+  'Dismiss': 'Dismiss',
+  'Dismiss view': 'Dismiss view',
+  'View': 'View',
+  'View as chart': 'View as chart',
+  'View as table': 'View as table',
+  'Copy data': 'Copy data',
+  'Download image': 'Download image',
+  'Chart options': 'Chart options',
+  'Chart': 'Chart',
+  'Chart {n}': 'Chart {n}',
+  'Copied': 'Copied',
+  'Copy': 'Copy',
+  'Value': 'Value',
+  'Series': 'Series',
+  'Sources': 'Sources',
+  'Progress': 'Progress',
+  'Your answer': 'Your answer',
+  'This view tried to open a page and was stopped.': 'This view tried to open a page and was stopped.',
+  '(skipped)': '(skipped)',
+  'Refresh status': 'Refresh status',
+  'Could not load this view. Refresh its status to try again.': 'Could not load this view. Refresh its status to try again.',
+  'Could not confirm this answer. Refresh the view status before trying again.': 'Could not confirm this answer. Refresh the view status before trying again.',
+  'Could not close this view. Refresh its status to try again.': 'Could not close this view. Refresh its status to try again.',
+  'An answer is awaiting confirmation. Refresh its status; do not submit a different answer.': 'An answer is awaiting confirmation. Refresh its status; do not submit a different answer.',
+}
+const zh = {
+  'Cancel': '取消',
+  'Confirm': '确认',
+  'Submit': '提交',
+  'Send': '发送',
+  'Selected': '已选择',
+  'Dismiss': '关闭',
+  'Dismiss view': '关闭视图',
+  'View': '视图',
+  'View as chart': '以图表查看',
+  'View as table': '以表格查看',
+  'Copy data': '复制数据',
+  'Download image': '下载图片',
+  'Chart options': '图表选项',
+  'Chart': '图表',
+  'Chart {n}': '图表 {n}',
+  'Copied': '已复制',
+  'Copy': '复制',
+  'Value': '值',
+  'Series': '系列',
+  'Sources': '来源',
+  'Progress': '进度',
+  'Your answer': '你的回答',
+  'This view tried to open a page and was stopped.': '此视图试图打开页面，已被停止。',
+  '(skipped)': '（已跳过）',
+  'Refresh status': '刷新状态',
+  'Could not load this view. Refresh its status to try again.': '无法读取视图，请刷新状态重试',
+  'Could not confirm this answer. Refresh the view status before trying again.': '暂无法确认回答是否已提交，请先刷新视图状态',
+  'Could not close this view. Refresh its status to try again.': '未能关闭视图，请刷新状态重试',
+  'An answer is awaiting confirmation. Refresh its status; do not submit a different answer.': '回答正在等待确认，请刷新状态，不要改答',
+}
+
+// Slot components get `t` from the locale seat; the shared widgets read it and
+// the Markdown primitive through the ViewUi context.
+const withUi = Component => function DeepUiView(props) {
+  return h(ViewUi.Provider, { value: { t: props.t ?? (key => key), Markdown: MarkdownText } }, h(Component, props))
+}
+
+export const inject = ['slots', 'uiConversation', 'locale']
+
+export function apply(ctx) {
+  const step = (label, run) => {
+    try { run() } catch (error) { console.error(`deep-view: ${label} failed`, error) }
+  }
+  step('labels and styles', () => ctx.effect(() => {
+    const dispose = typeof ctx.locale?.register === 'function' ? ctx.locale.register(NS, { zh, en }) : () => {}
+    const tag = document.createElement('style')
+    tag.dataset.plugin = 'deep-view'
+    tag.dataset.pluginCss = 'deep-view/views'
+    tag.textContent = DEEP_VIEW_CSS
+    document.head.appendChild(tag)
+    return () => { dispose(); tag.remove() }
+  }, 'deep-view: labels and styles'))
+
+  // Successful show_view calls publish `deep-view-views` data on their turn…
+  step('views definition', () => ctx.effect(() => ctx.uiConversation.events.register(viewsDefinition), 'deep-view: views definition'))
+  // …and the tail under the turn's closing message draws them.
+  step('turn tail', () => ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
+    name: 'conversation.chat.turnTail',
+    id: 'deep-view-views',
+    locale: NS,
+  }, withUi(ViewsTail))))
+
+  // The reply message carries source kind 'deep-view-reply'; the Definition
+  // claims it into its own chat node and the node draws the compact answer
+  // summary, so the raw reply JSON never renders as a plain user bubble.
+  step('reply definition', () => ctx.effect(() => ctx.uiConversation.events.register(viewReplyDefinition), 'deep-view: reply definition'))
+  step('reply node', () => ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
+    name: 'conversation.chat.node',
+    key: 'deep-view-reply',
+    locale: NS,
+  }, withUi(ViewReplyNode))))
+}

@@ -76,6 +76,14 @@ interface CompactionEntryState {
  */
 class SurfaceChangedError extends Error {}
 
+/** Automatic transaction failure that cannot authorize unchanged-context admission. */
+export class CompactionCommitError extends Error {
+  /** @param cause - Opening or committing the log-recorded transaction failed. */
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'compaction transaction could not be committed', { cause })
+  }
+}
+
 /** Whether the summary may still replace the span it was built from. */
 type StabilityCheck = (
   dependencies: RegionDependencies,
@@ -207,7 +215,12 @@ export async function compactSurfaceRegion(
     ...options.sourceCommandId === undefined ? {} : { sourceCommandId: options.sourceCommandId },
     turn: owner,
   }
-  const startEvent = session.append('compaction/start', lifecycle)
+  let startEvent: SessionEvent<'compaction/start'>
+  try { startEvent = session.append('compaction/start', lifecycle) }
+  catch (error: unknown) {
+    if (options.owner !== null) throw new CompactionCommitError(error)
+    throw error
+  }
   const assertStable: StabilityCheck = options.stability === 'whole-surface'
     ? assertWholeSurfaceUnchanged
     : assertSelectedSpanStable
@@ -261,6 +274,7 @@ export async function compactSurfaceRegion(
   if (options.owner === null) signal?.throwIfAborted()
   if (failure !== undefined) {
     if (options.owner === null) throwManualFailure(failure)
+    if (failure.stage === 'commit') throw new CompactionCommitError(failure.error)
     throw failure.error
   }
   if (flushFailure !== undefined) {
@@ -363,7 +377,7 @@ function prepareCompaction(
   session: Session,
   selection: SurfaceSelection,
 ): PreparedCompaction {
-  const measurement = dependencies.meter.measure(session)
+  const measurement = dependencies.meter.measureWorkingContext(session)
   const selectedNodes = measurement.nodes.slice(selection.startIdx, selection.endIdx + 1)
   if (selectedNodes.length !== selection.shadowedSeqs.length
     || selectedNodes.some((node, index) => node.seq !== selection.shadowedSeqs[index])) {
@@ -433,7 +447,7 @@ function assertWholeSurfaceUnchanged(
   session: Session,
   prepared: PreparedCompaction,
 ): void {
-  const current = dependencies.meter.measure(session)
+  const current = dependencies.meter.measureWorkingContext(session)
   if (!isDeepStrictEqual(current.nodes, prepared.measurement.nodes)) {
     throw new SurfaceChangedError('compaction: session surface changed during summarization')
   }
@@ -461,7 +475,7 @@ function assertSelectedSpanStable(
   if (!isDeepStrictEqual([...current.shadowedSeqs], [...prepared.shadowedSeqs])) {
     throw new SurfaceChangedError('compaction: the selected span changed during summarization')
   }
-  const measured = dependencies.meter.measure(session).nodes.slice(current.startIdx, current.endIdx + 1)
+  const measured = dependencies.meter.measureWorkingContext(session).nodes.slice(current.startIdx, current.endIdx + 1)
   if (!isDeepStrictEqual(measured, prepared.selectedNodes)) {
     throw new SurfaceChangedError('compaction: the selected span was rewritten during summarization')
   }

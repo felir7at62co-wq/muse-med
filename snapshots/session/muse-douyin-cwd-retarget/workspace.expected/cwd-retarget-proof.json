@@ -1,0 +1,12 @@
+{
+  "acceptedProject": "project-a",
+  "changedProject": "project-b",
+  "targetWasQueued": true,
+  "state": "interrupted",
+  "errorCode": "DOUYIN_TASK_FORBIDDEN",
+  "targetAcquisitions": 0,
+  "originalProjectFiles": 0,
+  "replacementProjectFiles": 0,
+  "changedOwnerStatusDenied": true,
+  "jobsSettled": true
+}

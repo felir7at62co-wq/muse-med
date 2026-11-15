@@ -3,7 +3,12 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import Agents, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import Llm from '@deepseek-ai/dsh-llm'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import Tools from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import Sessions, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import Approval from '@deepseek-ai/dsh-user-approval'
 import { expect, it, vi } from 'vitest'
@@ -14,6 +19,7 @@ import SandboxPolicy from '../../../packages/sandbox/sandbox-policy/src/index.ts
 import Projections from '../../../packages/session/session-projection/src/index.ts'
 import { configurationFixture } from '../../../packages/settings/settings/tests/configuration-fixture.ts'
 import { unsupportedInbox } from '../../../packages/test-support/agent-loop-testkit/src/inbox.ts'
+import { unsupportedModel } from '../../../packages/test-support/agent-loop-testkit/src/model.ts'
 
 const defaults = loadOverlayPatches('muse-med', join(import.meta.dirname, '../config/defaults.cordis.patch.yml'))
 const product = loadOverlayPatches('muse-med', join(import.meta.dirname, '../config/desktop.cordis.patch.yml'))
@@ -40,6 +46,12 @@ async function bench(userConfig?: Record<string, unknown>) {
     { id: 'settings', name: 'cordis:settings' },
     { id: 'sessions', name: 'cordis:sessions' },
     { id: 'projections', name: 'cordis:projections' },
+    { id: 'agents', name: 'cordis:agents' },
+    { id: 'llm', name: 'cordis:llm' },
+    { id: 'system-prompt', name: 'cordis:prompt' },
+    { id: 'tools', name: 'cordis:tools' },
+    { id: 'native-executor', name: 'cordis:executor' },
+    { id: 'agent-loop', name: 'cordis:loop', config: { agents: [] } },
     { id: 'sandbox-policy', name: 'cordis:sandbox' },
     { id: 'approval', name: 'cordis:approval' },
     { id: 'shell', name: 'cordis:shell' },
@@ -47,7 +59,8 @@ async function bench(userConfig?: Record<string, unknown>) {
     { id: 'permission', name: 'cordis:permission' },
   ] }], permissionDefaults])
   const fixture = await configurationFixture({ hmr: false, rows, builtins: {
-    sessions: Sessions, projections: Projections, sandbox: SandboxPolicy,
+    sessions: Sessions, projections: Projections, agents: Agents, sandbox: SandboxPolicy,
+    llm: Llm, prompt: SystemPrompt, tools: Tools, executor: NativeToolExecutor, loop: AgentLoop,
     approval: Approval, shell: Shell, commands: Commands, permission: PermissionPresets,
   } })
   await fixture.ctx.fiber.dispose()
@@ -63,7 +76,7 @@ async function commandAgent(ctx: Context, session: Session) {
   const inject = vi.fn<Agent['inject']>()
   const unavailable = (): never => { throw new Error('permission command tests do not run an agent loop') }
   const agent: Agent = {
-    id: session.id, session, inject, ctx, options: {}, status: 'idle', inbox: unsupportedInbox(),
+    id: session.id, session, inject, ctx, options: {}, status: 'idle', inbox: unsupportedInbox(), model: unsupportedModel(),
     send: unavailable, followup: unavailable, steer: unavailable, cancel: unavailable,
     runMaintenance: unavailable, whenIdle: unavailable,
   }
@@ -73,7 +86,7 @@ async function commandAgent(ctx: Context, session: Session) {
 
 it('starts new Desktop sessions at Full access and exposes the native permission command', async () => {
   const { ctx } = await bench()
-  const session = ctx.sessions.create(SessionId('desktop-fresh-full'))
+  const session = (await ctx.agents.create({ sessionId: SessionId('desktop-fresh-full') })).agent.session
   const { agent } = await commandAgent(ctx, session)
   expect(ctx.permissionPresets.catalog()).toMatchObject({ defaultPreset: 'danger-full-access' })
   expect(ctx.permissionPresets.names).toEqual(['read-only', 'workspace-write', 'danger-full-access'])
@@ -95,7 +108,7 @@ it('retains an older session until the user switches it, and restores the logged
   legacy.append('permission/preset', { preset: 'workspace-write' })
   legacy.append('sandbox/mode', { mode: 'workspace-write' })
   legacy.append('approval/policy', { policy: 'ask' })
-  const session = ctx.sessions.create(SessionId('desktop-legacy'), { seed: legacy.snapshotEvents() })
+  const session = (await ctx.agents.create({ sessionId: SessionId('desktop-legacy'), seed: legacy.snapshotEvents() })).agent.session
   expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
   expect(ctx.sandboxPolicy.resolve({ session }).mode).toBe('workspace-write')
   const before = session.snapshotEvents()
@@ -114,7 +127,7 @@ it('retains an older session until the user switches it, and restores the logged
   const saved = session.snapshotEvents()
   await ctx.fiber.dispose()
   const restarted = await start()
-  const restored = restarted.sessions.create(SessionId('desktop-legacy-restored'), { seed: saved })
+  const restored = (await restarted.agents.create({ sessionId: SessionId('desktop-legacy-restored'), seed: saved })).agent.session
   expect(restarted.permissionPresets.current(restored)).toBe('danger-full-access')
   expect(restarted.sandboxPolicy.resolve({ session: restored }).mode).toBe('danger-full-access')
   expect(restored.snapshotEvents().filter(event => event.type === 'approval/policy').at(-1)?.data).toEqual({ policy: 'never' })
@@ -122,7 +135,7 @@ it('retains an older session until the user switches it, and restores the logged
 
 it('persists a General default for future sessions without changing current sessions and reads it after restart', async () => {
   const { ctx, profile, start } = await bench()
-  const existing = ctx.sessions.create(SessionId('desktop-before-default-change'))
+  const existing = (await ctx.agents.create({ sessionId: SessionId('desktop-before-default-change') })).agent.session
   const before = existing.snapshotEvents()
   const view = ctx.settings.describe().find(row => row.ns === 'permission')!
   await ctx.settings.mutate('permission', [{ op: 'set', path: ['defaultPreset'], value: 'read-only' }], view.revision)
@@ -130,14 +143,14 @@ it('persists a General default for future sessions without changing current sess
   expect(existing.snapshotEvents()).toEqual(before)
   expect(ctx.permissionPresets.current(existing)).toBe('danger-full-access')
   expect(readFileSync(profile.patchPath, 'utf8')).toContain('defaultPreset: read-only')
-  const later = ctx.sessions.create(SessionId('desktop-after-default-change'))
+  const later = (await ctx.agents.create({ sessionId: SessionId('desktop-after-default-change') })).agent.session
   expect(ctx.permissionPresets.current(later)).toBe('read-only')
   expect(ctx.sandboxPolicy.resolve({ session: later }).mode).toBe('read-only')
   expect(later.snapshotEvents().filter(event => event.type === 'approval/policy').at(-1)?.data).toEqual({ policy: 'ask' })
   await ctx.fiber.dispose()
   const restarted = await start()
   expect(restarted.settings.describe().find(row => row.ns === 'permission')?.value).toMatchObject({ defaultPreset: 'read-only' })
-  const fresh = restarted.sessions.create(SessionId('desktop-restart-fresh'))
+  const fresh = (await restarted.agents.create({ sessionId: SessionId('desktop-restart-fresh') })).agent.session
   expect(restarted.permissionPresets.current(fresh)).toBe('read-only')
   expect(restarted.sandboxPolicy.resolve({ session: fresh }).mode).toBe('read-only')
 })
@@ -150,7 +163,7 @@ it('preserves an explicit saved permission configuration on upgrade and refuses 
   const { ctx, profile } = await bench(saved)
   const before = readFileSync(profile.patchPath, 'utf8')
   expect(ctx.permissionPresets.defaultPreset).toBe('workspace-write')
-  expect(ctx.permissionPresets.current(ctx.sessions.create(SessionId('desktop-upgraded-default')))).toBe('workspace-write')
+  expect(ctx.permissionPresets.current((await ctx.agents.create({ sessionId: SessionId('desktop-upgraded-default') })).agent.session)).toBe('workspace-write')
   expect(readFileSync(profile.patchPath, 'utf8')).toBe(before)
   await expect(ctx.settings.mutate('permission', [{ op: 'set', path: ['defaultPreset'], value: 42 }])).rejects.toThrow()
   expect(readFileSync(profile.patchPath, 'utf8')).toBe(before)

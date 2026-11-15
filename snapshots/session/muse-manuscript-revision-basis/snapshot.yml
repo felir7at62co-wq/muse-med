@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-manuscript-revision-basis
+profile: headless
+composition: muse-manuscript-revision-basis
+recording: authored
+header:
+  class: muse-manuscript-revision-basis
+  pin: true
+  childSystemPrompts: [1, 2]
+  childToolSchemas: [1, 2]
+workspace:
+  final: true

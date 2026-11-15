@@ -5,6 +5,12 @@
     prefix: |-
       你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。
 
+      用户要求生成或修改内容时，在授权范围内实际操作并按范围继续；不要把计划或“开始做”当作完成，也不要承诺轮次结束后会自行继续。汇报已保存或已修改的内容应以实际工具结果或回读为依据；确有阻塞时列明已完成项和未完成项。
+
+      用户提供成稿并要求“只绑定资产”“原文不动”时，保留完整原提示词；后文创作、精简、补空间或默认不写时间轴的建议不授权改稿。只在明确获准的位置机械替换素材占位，保留台词、站位、动作、镜头顺序、时间轴、格式和已有约束；原稿有问题先指出，不暗改。按实际出演和用途绑定现有素材，正文、对白、回忆或否定句提到某人不等于该人物出镜，不能据姓名扫描补“同场参考”、扩绑人物或额外生图。参考编号替换须对应真实选材顺序，并核对完整写入与回读。
+
+      最新请求决定本轮终点：“先看提示词”“只预览”“先不生成”收窄此前批量制作或费用授权，展示后结束，不自动写卡、补图或提交生成。写卡、免费准备和付费提交分别报告；已有预算、预览成功或曾经获准生成不代表最新预览请求仍授权提交。用户已明确要求执行的范围直接做，不为每包增设确认或审批门禁。
+
       以下镜头、素材和视频包要求用于视频制作；写作、改稿与转写按用户的任务要求执行。视频模型能在他上限的时长内发挥优秀的效果，镜头多，时间长不会乱，但不用一定打满时间上限。镜头脚本必须根据场景图写，没有对应的场景图需要先补齐场景图，同理缺少其他资产一样需要补全。
 
       按项目已定画幅设计镜头。转高清默认使用seedvr2。
@@ -37,7 +43,7 @@
 
       用图前实际查看并核对身份、人数、位置、场景与项目风格，不让图中未出镜人物入画；仅在主体、空间布局和环境均适用时跨包复用。新增图会增加生成、看图、绑定的时间与费用，本轮不补资产时不自动生成。没有合适现成图时写清文字空间关系，并说明未使用的原因。
 
-      角色、场景、道具与声音共同构成作品的审美，优先考虑符合题材的上镜效果、角色魅力、辨识度和情绪表现。年代、职业与生活条件提供设计依据，妆造与非关键视觉细节可以做适合短剧的影视化处理；剧情关键设定、人物身份、重要道具功能与原台词保持一致，其余视觉细节由你结合整部作品自主设计。角色资产图、场景资产图、道具资产图和音频，按各自用途准备与引用。人物角色资产图优先遵循当前项目已定画幅与交付用途；未指定时可用16:9横版白底设定板：左侧为正面平视的面部特写，人物正对镜头，镜头与双眼等高，五官清晰可辨；右侧是同一角色的无面容全身三视图（正面、侧面、背面），不绘制五官，清楚展示体态与服装。项目要求竖幅或单人全身图时，按该画幅安排清晰面容与完整体态，不强套横版拼贴和三视图。动物、灵兽与其他非人类资产按其形态和剧情用途展示识别特写与完整体态，不套用人类面部与无面容三视图版式。场景资产图完整、清晰地展示剧情演绎所需的空间与环境信息，不出现人物、共产主义红色象征或现实中存在的标志性建筑。道具资产图使用白底产品图，清楚展示所需道具。
+      角色、场景、道具与声音共同构成作品的审美，优先考虑符合题材的上镜效果、角色魅力、辨识度和情绪表现。年代、职业与生活条件提供设计依据，妆造与非关键视觉细节可以做适合短剧的影视化处理；剧情关键设定、人物身份、重要道具功能与原台词保持一致，其余视觉细节由你结合整部作品自主设计。角色资产图、场景资产图、道具资产图和音频，按各自用途准备与引用。所有资产图默认16:9横版；用户明确指定其他比例时按指定执行，资产图比例与视频成片比例分别处理。人物角色资产图：16:9横版白底，左侧为完整保留头顶与发型、五官清晰的面部特写；右侧为同一人物正面、侧面、背面全身三视图，完整保留头部、发型和双脚，仅将右侧可见脸部覆盖为纯白；背面保留后脑与发型。严禁无头、截头。动物、灵兽与其他非人类资产按其形态和剧情用途展示识别特写与完整体态，不套用人类面部与无面容三视图版式。场景资产图完整、清晰地展示剧情演绎所需的空间与环境信息，不出现人物、共产主义红色象征或现实中存在的标志性建筑。道具资产图使用白底产品图，清楚展示所需道具。
 
       用户明确认可的图片与已有资产，是当前项目的重要审美依据。理解用户喜欢的是形象、妆造、气质、配色还是整体质感，将这种偏好用于后续设计；同一角色的后续资产与视频保持身份连贯，按当前镜头需要选择合适参考。
 
@@ -52,7 +58,7 @@
       5. 生成范围：仅任务包含生成时核对本轮提交清单、授权范围、费用和原幂等key；只写脚本或卡片的任务不自动提交生成。
 
       最终回复提供可核对证据：列出包号、视频卡ID、时长、引用素材和真实回读结果，给出实际保存提示词中的内联引用片段或完整记录路径，并说明站位图使用或未使用的具体原因。包数较多时可提供完整对照文件并在回复汇总。证据来自实际文件和工具回读；未核对项明确列出，不用“全部通过”代替证据。
-    suffix: 你的工作目录是 {{cwd}} ；短剧工作间是其中的 short-drama/。
+    suffix: 短剧工作间是当前工作目录中的 short-drama/。
     complete: false
 - id: editing-policy
   name: '@deepseek-ai/dsh-desktop-host/editing-policy'
@@ -113,6 +119,17 @@
 - id: tool-episode-render
   name: '@deepseek-ai/dsh-tool-episode-render'
   config:
+    defaultEndingEffectFit: !!js process.env.MUSE_DEFAULT_ENDING_EFFECT_FIT || 'stretch_to_window'
+    normalizeSubtitleText: true
+    enforceSubtitleVisual: true
+    defaultSubtitleVisual:
+      schema_version: 1
+      reference_width: 480
+      reference_height: 854
+      font_size_px: 46
+      outline_px: 1.25
+      center_y_ratio: 0.736747073
+      max_width_ratio: 0.9
     maxBgmVolume: 1
     ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
     ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
@@ -167,51 +184,13 @@
     - id: compaction-basic
       name: '@deepseek-ai/dsh-compaction-basic'
       config:
-        modelPolicies:
-          - provider: muse-cloud-deepseek-official
-            model: deepseek-flash
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-deepseek-official
-            model: deepseek-v4-pro
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: gpt-6-sol
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: gpt-6-astra
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: claude-opus-5-5
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: claude-fable-5-1
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: claude-sonnet-5-5
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: gemini-3.1-pro
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: glm-5.3-flash
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-zhipu-official
-            model: glm-5.3-flashx
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-zhipu-official
-            model: glm-5.3-flash
-            headroomTokens: 16384
-            maxTokens: 8192
+        adaptiveBudget: true
+        workingTokenLimit: 475000
+        thresholdRatio: 0.45
+        headroomTokens: 16384
+        retainTokens: 65536
+        maxTokens: 16384
+
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'
     - id: tool-result-pruner
@@ -220,33 +199,27 @@
         thresholdChars: 8192
         headChars: 4096
         tailChars: 1024
-        preserveToolNames: [skill]
+        preserveToolNames: []
 - id: tool-ask-user
   name: '@deepseek-ai/dsh-tool-ask-user'
 - id: delegation
   name: cordis:group
   group: true
   config:
+    - id: delegation-policy
+      name: '@deepseek-ai/dsh-desktop-host/delegation-policy'
     - id: tool-subagent-control
       name: '@deepseek-ai/dsh-tool-subagent-control'
-    - id: tool-subagent-list-agents
-      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
     - id: tool-subagent
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: spawn
         toolName: subagent
-        backgroundMode: continuable
-        toolFilter:
-          deny: [schedule_create, schedule_delete, schedule_list, schedule_update]
     - id: tool-subagent-fork
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: fork
         toolName: subagent_fork
-        backgroundMode: continuable
-        toolFilter:
-          deny: [schedule_create, schedule_delete, schedule_list, schedule_update]
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
   config:
@@ -278,11 +251,20 @@
 - id: muse-hongguo-search
   name: muse-hongguo-search
 
+- id: muse-qimao-data
+  name: muse-qimao-data
+
+- id: muse-source-research
+  name: muse-source-research
+
 # Download tools resolve media output inside the active conversation workspace.
 - id: muse-hongguo-download
   name: muse-hongguo-download
   config:
     sourceMode: legacy
+    legacyBackend: !!js "process.env.MUSE_HONGGUO_V2_RUNTIME_DIR ? 'v2' : 'v1'"
+    v2RuntimeDir: !!js process.env.MUSE_HONGGUO_V2_RUNTIME_DIR || ''
+    v2StateDir: !!js process.env.MUSE_HONGGUO_V2_STATE_DIR || ''
     legacyAppDir: !!js process.env.MUSE_HONGGUO_LEGACY_APP_DIR || ''
     signServer: !!js process.env.MUSE_HONGGUO_SIGN_SERVER || ''
     signTokenEnv: MUSE_HONGGUO_SIGN_TOKEN

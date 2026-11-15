@@ -1,0 +1,7 @@
+{
+  "supersededPause": "desktop update: stream pause was superseded",
+  "resumedStreamStayedOpen": true,
+  "nextPauseWaitedForOldProducer": true,
+  "oldProducerFinishedBeforePauseResolved": true,
+  "observedInNextModelRequest": true
+}

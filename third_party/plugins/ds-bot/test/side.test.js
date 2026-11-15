@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { SIDE_MARKER } from '../src/host/side.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 
 const user = text => ({ role: 'user', content: [{ type: 'text', text }] })
 const assistant = (...blocks) => ({ role: 'assistant', content: blocks })
@@ -132,7 +132,7 @@ async function setup({ state = team(), scripts = [], gate = false, messages, seq
   const gates = []
   const queue = [...scripts]
   const services = {}
-  const ctx = fakeContext({ services })
+  const ctx = legacyContext({ services })
   services.sessionProjections = projectionRegistry(ctx)
   ctx.llm = {
     listProviders: () => [],
@@ -174,7 +174,7 @@ async function setup({ state = team(), scripts = [], gate = false, messages, seq
   let route
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => { route = options; return register(options) }
-  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  const rt = createRuntime(ctx, legacyConfig({ home, github: false, diagnosticsFile: false }))
   let notices = 0
   const saved = rt.stateSaved
   rt.stateSaved = () => { notices += 1; saved?.() }
@@ -488,7 +488,7 @@ test('a restart marks an entry that was still answering as failed', async (t) =>
   t.after(() => env.stop())
   const [live, old] = chatOf(env.rt, 'chat').entries
   assert.equal(live.status, 'failed')
-  assert.equal(live.error, 'DS Bot restarted before this answer finished.')
+  assert.equal(live.error, 'Muse Bot restarted before this answer finished.')
   assert.equal(typeof live.finishedAt, 'number')
   assert.equal(old.status, 'done')
   const file = chatsFile(env.home)
@@ -624,4 +624,43 @@ test('a second host reads chats but never writes or answers', async (t) => {
   assert.equal(asked.error.code, 'bot/read-only')
   assert.equal(env.requests.length, 0)
   assert.equal(existsSync(join(env.home, 'side', 'b1.json')), true)
+})
+
+
+test('an automatic Session Bot side answer uses its pending native route and leaves the saved header intact', async t => {
+  const state = team()
+  Object.assign(state.bots.b1, { autoSessionBot: true, modelSource: 'bot', model: 'yunying/gemini-3.1-pro', effort: 'max' })
+  const f = await setup({ state })
+  t.after(f.stop)
+  const pending = { provider: 'deepseek', model: 'deepseek-v4.1-flash', reasoningEffort: 'low' }
+  const previousGet = f.ctx.get.bind(f.ctx)
+  f.ctx.get = name => name === 'sessionProjections' ? { stateOf: () => ({ pending }) } : previousGet(name)
+  const before = structuredClone(f.header)
+  const started = await f.rt.sideAsk({ sessionId: 'b1', text: 'What changed?' })
+  await f.rt.sideJoin(started.entryId)
+  assert.equal(f.requests.length, 1)
+  assert.equal(f.requests[0].provider, pending.provider)
+  assert.equal(f.requests[0].model, pending.model)
+  assert.equal(f.requests[0].reasoningEffort, pending.reasoningEffort)
+  assert.equal(f.requests[0].maxTokens, undefined)
+  assert.deepEqual(f.header, before)
+  assert.equal(f.rt.state.bots.b1.modelSource, 'session')
+})
+
+
+test('switching an automatic Session side answer to Gemini drops the previous model output cap', async t => {
+  const state = team()
+  Object.assign(state.bots.b1, { autoSessionBot: true, modelSource: 'bot', model: 'deepseek/deepseek-v4.1-flash' })
+  const f = await setup({ state })
+  t.after(f.stop)
+  Object.assign(f.header.config, { provider: 'deepseek', model: 'deepseek-v4.1-flash', maxTokens: 393216 })
+  const pending = { provider: 'yunying', model: 'gemini-3.1-pro', reasoningEffort: 'high' }
+  const previousGet = f.ctx.get.bind(f.ctx)
+  f.ctx.get = name => name === 'sessionProjections' ? { stateOf: () => ({ pending }) } : previousGet(name)
+  const started = await f.rt.sideAsk({ sessionId: 'b1', text: 'What changed?' })
+  await f.rt.sideJoin(started.entryId)
+  assert.equal(f.requests[0].provider, 'yunying')
+  assert.equal(f.requests[0].model, 'gemini-3.1-pro')
+  assert.equal(f.requests[0].maxTokens, undefined)
+  assert.equal(f.header.config.maxTokens, 393216)
 })

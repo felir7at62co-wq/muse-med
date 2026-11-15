@@ -3,6 +3,7 @@ scenario: office-skills-no-renderer
 profile: headless
 composition: office-skills-no-renderer
 recording: live
+# The recorded assistant answer is historical replay data; progressive Office owners cover current instruction delivery.
 header:
   class: office-skills-no-renderer
   pin: true

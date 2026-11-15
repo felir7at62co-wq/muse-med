@@ -3,13 +3,19 @@ import { JobId, JobRegistry } from '@deepseek-ai/dsh-jobs'
 import type { JobStatus, JobView } from '@deepseek-ai/dsh-jobs'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { Readable } from 'node:stream'
+import { createServer } from 'node:http'
+import { once } from 'node:events'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installDesktopUpdateTaskControl } from '../../desktop-host/src/update-tasks.ts'
+import { Peer } from '../../../packages/client/connection/src/peer.ts'
+import { bridge } from '../../../packages/client/connection/src/http-bridge.ts'
 
 type AgentState = { id: SessionId; status: 'idle' | 'running'; inbox: { nextTurn: object[]; nextStep: object[] } }
+type EpisodeInspection = Pick<Context['jubianEpisodeDelivery'], 'pauseAdmission' | 'resumeAdmission' | 'hasActiveWork'>
 
 let ctx: Context
+let peer: Peer
 let inspect: ReturnType<typeof installDesktopUpdateTaskControl>
 const agents: AgentState[] = []
 const jobs = new Map<SessionId | undefined, JobStatus[]>()
@@ -42,6 +48,7 @@ beforeEach(() => {
   agents.length = 0
   jobs.clear()
   ctx = new Context()
+  peer = new Peer(ctx, { principal: { kind: 'owner' } })
   // Narrow service doubles exercise the inspector against a real Cordis event lifecycle.
   ctx.provide('agents', { list: () => agents } as unknown as Context['agents'])
   new RosterOnlyJobRegistry(ctx)
@@ -54,11 +61,114 @@ function idleAgent(): AgentState { return { id: SessionId('update-task-owner'), 
 
 function request(next: () => Promise<void>) {
   const incoming = Readable.from([]) as IncomingMessage
-  const response = { writeHead: vi.fn(), end: vi.fn() }
+  const response = { writeHead: vi.fn(), end: vi.fn(), destroy: vi.fn() }
   return { response, done: ctx.waterfall('connection/request', incoming, response as unknown as ServerResponse, next) }
 }
 
 describe('Desktop Host update task protection', () => {
+  it('counts episode work without an Agent or job and pauses admission without awaiting that work', async () => {
+    let active = true
+    const episode: EpisodeInspection = { pauseAdmission: vi.fn(), resumeAdmission: vi.fn(), hasActiveWork: vi.fn(() => active) }
+    // This inspector only uses the declared admission/inspection members of the service.
+    ctx.provide('jubianEpisodeDelivery', episode as never)
+    expect(await inspect('inspect')).toBe(true)
+    expect(episode.pauseAdmission).not.toHaveBeenCalled()
+    expect(await inspect('lock')).toBe(true)
+    expect(episode.pauseAdmission).toHaveBeenCalledOnce()
+    expect(active).toBe(true)
+    expect(await inspect('unlock')).toBe(true)
+    expect(episode.resumeAdmission).toHaveBeenCalledOnce()
+    active = false
+    expect(await inspect('inspect')).toBe(false)
+  })
+
+  it('pauses and inspects a replacement episode provider after admitted API requests drain', async () => {
+    const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+    const first: EpisodeInspection = { pauseAdmission: vi.fn(), resumeAdmission: vi.fn(), hasActiveWork: () => false }
+    const second: EpisodeInspection = { pauseAdmission: vi.fn(), resumeAdmission: vi.fn(), hasActiveWork: () => true }
+    const withdraw = ctx.provide('jubianEpisodeDelivery', first as never)
+    ctx.on('connection/update-pause', async () => {
+      entered.resolve(undefined); await release.promise
+    })
+    const locking = inspect('lock')
+    try {
+      await entered.promise
+      expect(first.pauseAdmission).toHaveBeenCalledOnce()
+      withdraw()
+      ctx.provide('jubianEpisodeDelivery', second as never)
+      release.resolve(undefined)
+      expect(await locking).toBe(true)
+      expect(second.pauseAdmission).toHaveBeenCalledOnce()
+      expect(second.resumeAdmission).not.toHaveBeenCalled()
+    } finally { release.resolve(undefined); await Promise.allSettled([locking]) }
+  })
+
+  it('does not pause the replacement episode provider when an unlock supersedes the draining lock', async () => {
+    const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+    const first: EpisodeInspection = { pauseAdmission: vi.fn(), resumeAdmission: vi.fn(), hasActiveWork: () => false }
+    const second: EpisodeInspection = { pauseAdmission: vi.fn(), resumeAdmission: vi.fn(), hasActiveWork: () => false }
+    const withdraw = ctx.provide('jubianEpisodeDelivery', first as never)
+    ctx.on('connection/update-pause', async () => { entered.resolve(undefined); await release.promise })
+    const locking = inspect('lock'), rejected = expect(locking).rejects.toThrow('lock was superseded')
+    try {
+      await entered.promise
+      withdraw()
+      ctx.provide('jubianEpisodeDelivery', second as never)
+      expect(await inspect('unlock')).toBe(false)
+      expect(second.resumeAdmission).toHaveBeenCalledOnce()
+      release.resolve(undefined); await rejected
+      expect(second.pauseAdmission).not.toHaveBeenCalled()
+    } finally { release.resolve(undefined); await Promise.allSettled([locking, rejected]) }
+  })
+
+  it('cancels and drains an admitted streaming HTTP read before locking', async () => {
+    const aborted = Promise.withResolvers<undefined>()
+    const releaseDrain = Promise.withResolvers<undefined>()
+    let drained = false
+    const server = createServer((incoming, response) => {
+      void ctx.waterfall('connection/request', incoming, response, async () => {
+        await bridge(incoming, response, {
+          requestBodyMode: () => 'buffered',
+          fetch: async request => new Response(new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('frame'))
+              request.signal.addEventListener('abort', () => { aborted.resolve(undefined) }, { once: true })
+            },
+            async pull(controller) {
+              await releaseDrain.promise
+              controller.close()
+            },
+          })),
+        }, peer)
+        drained = true
+      })
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    if (address === null || typeof address === 'string') throw new Error('missing server address')
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/video`)
+      expect(response.status).toBe(200)
+      if (response.body === null) throw new Error('missing streaming response body')
+      const reader = response.body.getReader()
+      expect(await reader.read()).toEqual({ done: false, value: new TextEncoder().encode('frame') })
+      const disconnected = reader.read().catch((error: unknown) => error)
+      const locking = inspect('lock').then(active => ({ active, drained }))
+      await Promise.race([aborted.promise, locking])
+      expect(drained).toBe(false)
+      releaseDrain.resolve(undefined)
+      expect(await locking).toEqual({ active: false, drained: true })
+      expect(await disconnected).toMatchObject({ cause: { code: 'UND_ERR_SOCKET' } })
+      await inspect('unlock')
+    } finally {
+      releaseDrain.resolve(undefined)
+      const closed = once(server, 'close')
+      server.close()
+      server.closeAllConnections()
+      await closed
+    }
+  })
   it.each(['running', 'nextTurn', 'nextStep'] as const)('counts %s agent work without stopping it', async (kind) => {
     const agent = idleAgent()
     if (kind === 'running') agent.status = 'running'
@@ -92,6 +202,7 @@ describe('Desktop Host update task protection', () => {
       expect(await inspect('inspect')).toBe(false)
       let drained = false
       const locking = inspect('lock').then((active) => { drained = true; return active })
+      expect(pending.response.destroy).toHaveBeenCalledOnce()
       const refused = request(next)
       await refused.done
       expect(refused.response.writeHead).toHaveBeenCalledWith(503)
@@ -125,6 +236,7 @@ describe('Desktop Host update task protection', () => {
       await entered.promise
       expect(await inspect('inspect')).toBe(false)
       const locking = inspect('lock')
+      expect(pending.response.destroy).toHaveBeenCalledOnce()
       finish.resolve(undefined)
       expect(await locking).toBe(true)
     } finally { finish.resolve(undefined); await pending.done }
@@ -143,6 +255,26 @@ describe('Desktop Host update task protection', () => {
       finish.resolve(undefined)
       await rejected
     } finally { finish.resolve(undefined); await pending.done }
+  })
+
+  it('does not reacquire admission when a superseded stream pause finishes late', async () => {
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('connection/update-pause', async () => { entered.resolve(undefined); await release.promise })
+    const locking = inspect('lock')
+    const rejected = expect(locking).rejects.toThrow('lock was superseded')
+    try {
+      await entered.promise
+      await inspect('unlock')
+      const admitted = vi.fn(async () => {})
+      await request(admitted).done
+      expect(admitted).toHaveBeenCalledOnce()
+      release.resolve(undefined)
+      await rejected
+      const after = vi.fn(async () => {})
+      await request(after).done
+      expect(after).toHaveBeenCalledOnce()
+    } finally { release.resolve(undefined); await rejected }
   })
 
   it('releases request accounting when the bridge rejects', async () => {

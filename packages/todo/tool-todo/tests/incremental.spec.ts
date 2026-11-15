@@ -12,8 +12,9 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { afterEach, expect, it, vi } from 'vitest'
+import { defineContentToolFixture, executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { z } from 'zod'
+import { afterEach, expect, it } from 'vitest'
 import * as ToolTodo from '../src/index.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -23,6 +24,11 @@ afterEach(async () => {
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
+
+const savedTodos = z.array(z.object({ content: z.string(), status: z.enum(['pending', 'in_progress', 'completed']) })).nullable()
+function readTodos(ctx: Context, session: Agent['session'], key: 'todos' | 'latestTodos') {
+  return savedTodos.parse(ctx.sessionProjections.checkpoint(session)[key]?.val)
+}
 
 const PLAN = [
   { content: 'generate video', status: 'in_progress' },
@@ -36,6 +42,7 @@ async function harness(allowParallelInProgress = true, throughLoader = false) {
   contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
+  let disposeTodo: () => Promise<void>
   if (throughLoader) {
     const root = await mkdtemp(join(tmpdir(), 'dsh-incremental-todo-'))
     roots.push(root)
@@ -47,7 +54,13 @@ async function harness(allowParallelInProgress = true, throughLoader = false) {
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(file).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-  } else await ctx.plugin(ToolTodo, { allowParallelInProgress })
+    const fiber = [...ctx.loader.entries()].find(entry => entry.options.name === 'cordis:todo')?.fiber
+    if (fiber === undefined) throw new Error('Loader did not mount the todo owner')
+    disposeTodo = () => fiber.dispose()
+  } else {
+    const fiber = await ctx.plugin(ToolTodo, { allowParallelInProgress })
+    disposeTodo = () => fiber.dispose()
+  }
   const events = new Map<SessionId, SessionEvent[]>()
   ctx.on('session/event', (session, event) => {
     const log = events.get(session.id) ?? []
@@ -58,7 +71,7 @@ async function harness(allowParallelInProgress = true, throughLoader = false) {
     name: 'generate', description: 'Return a provider success for the fixture', parameters: {},
     execute: async () => [{ type: 'text', text: 'provider generation succeeded' }],
   }))
-  return { ctx, events }
+  return { ctx, events, disposeTodo }
 }
 
 async function agent(ctx: Context, adapter = new MockAdapter([]), id = 'incremental-todo') {
@@ -73,7 +86,7 @@ async function run(subject: Agent, text = 'continue the episode') {
 
 let call = 0
 function execute(ctx: Context, subject: Agent | undefined, name: string, args: object) {
-  return ctx.tools.execute({ name, arguments: args, callId: ToolCallId(`incremental-${call++}`),
+  return executeModelToolFixture(ctx, { name, arguments: args, callId: ToolCallId(`incremental-${call++}`),
     signal: new AbortController().signal, ...subject === undefined ? {} : { agent: subject } })
 }
 
@@ -101,7 +114,7 @@ it('runs the configured tools through the real loop and exposes current, next, a
   const subject = await agent(ctx, adapter)
   let generationPlan: unknown
   ctx.on('tools/result', (exec) => {
-    if (exec.agent === subject && exec.name === 'generate') generationPlan = ctx.sessionProjections.stateOf(subject.session, 'latestTodos')
+    if (exec.agent === subject && exec.name === 'generate') generationPlan = readTodos(ctx, subject.session, 'latestTodos')
   })
   await run(subject)
   expect(generationPlan).toEqual(PLAN)
@@ -132,15 +145,15 @@ it('continues the saved list in another turn although the visible plan is cleare
   let savedAtStart: unknown
   ctx.on('session/event', (session, event) => {
     if (session === subject.session && event.type === 'turn/start' && event.data.turn === 2) {
-      visibleAtStart = ctx.sessionProjections.stateOf(session, 'todos')
-      savedAtStart = ctx.sessionProjections.stateOf(session, 'latestTodos')
+      visibleAtStart = readTodos(ctx, session, 'todos')
+      savedAtStart = readTodos(ctx, session, 'latestTodos')
     }
   })
   await run(subject, 'generation passed, continue')
   expect(visibleAtStart).toBeNull()
   expect(savedAtStart).toEqual(PLAN)
   expect(writes(events.get(subject.id) ?? [])).toHaveLength(2)
-  expect(ctx.sessionProjections.stateOf(subject.session, 'latestTodos')?.[1]?.status).toBe('in_progress')
+  expect(readTodos(ctx, subject.session, 'latestTodos')?.[1]?.status).toBe('in_progress')
 })
 
 it('replays a serialized real-session log and updates its last saved list in the next turn', async () => {
@@ -160,7 +173,8 @@ it('replays a serialized real-session log and updates its last saved list in the
   const seed = JSON.parse(serialized) as SessionEvent[]
   const handle = await restored.ctx.agents.create({ sessionId: SessionId('restored'), seed,
     agentOptions: { provider: 'restored', model: 'mock' } })
-  expect(restored.ctx.sessionProjections.stateOf(handle.agent.session, 'latestTodos')).toEqual(PLAN)
+  handle.agent.model.select({ provider: 'restored', model: 'mock' })
+  expect(readTodos(restored.ctx, handle.agent.session, 'latestTodos')).toEqual(PLAN)
   await run(handle.agent)
   expect(adapter.requests).toHaveLength(2)
   expect(writes(restored.events.get(handle.agent.id) ?? [])).toEqual([[
@@ -174,11 +188,11 @@ it('starts only the first pending task on a new completion and does not advance 
   await execute(ctx, subject, 'todo_write', { todos: PLAN })
   await execute(ctx, subject, 'todo_update', { task: 'generate video', status: 'completed', start_next: true })
   await execute(ctx, subject, 'todo_update', { task: 'edit episode', status: 'completed' })
-  const before = ctx.sessionProjections.stateOf(subject.session, 'latestTodos')
+  const before = readTodos(ctx, subject.session, 'latestTodos')
   const retry = await execute(ctx, subject, 'todo_update', { task: 'generate video', status: 'completed', start_next: true })
   expect(retry.isError).toBe(false)
-  expect(ctx.sessionProjections.stateOf(subject.session, 'latestTodos')).toEqual(before)
-  expect(ctx.sessionProjections.stateOf(subject.session, 'latestTodos')?.[2]?.status).toBe('pending')
+  expect(readTodos(ctx, subject.session, 'latestTodos')).toEqual(before)
+  expect(readTodos(ctx, subject.session, 'latestTodos')?.[2]?.status).toBe('pending')
   expect(writes(events.get(subject.id) ?? [])).toHaveLength(4)
 })
 
@@ -189,7 +203,7 @@ it('does not start another task while parallel work remains active', async () =>
   await execute(ctx, subject, 'todo_write', { todos: plan })
   const result = await execute(ctx, subject, 'todo_update', { task: 'generate video', status: 'completed', start_next: true })
   expect(result.isError).toBe(false)
-  expect(ctx.sessionProjections.stateOf(subject.session, 'latestTodos')).toEqual([
+  expect(readTodos(ctx, subject.session, 'latestTodos')).toEqual([
     { content: 'generate video', status: 'completed' }, ...plan.slice(1),
   ])
 })
@@ -200,7 +214,7 @@ it('accepts explicit false without starting another task and matches full task t
   await execute(ctx, subject, 'todo_write', { todos: PLAN })
   const result = await execute(ctx, subject, 'todo_update', { task: '  generate video  ', status: 'pending', start_next: false })
   expect(result.isError).toBe(false)
-  expect(ctx.sessionProjections.stateOf(subject.session, 'latestTodos')).toEqual([
+  expect(readTodos(ctx, subject.session, 'latestTodos')).toEqual([
     { content: 'generate video', status: 'pending' }, ...PLAN.slice(1),
   ])
 })
@@ -236,23 +250,21 @@ it('requires an owning list, keeps agents independent, and still replaces the en
   expect((await execute(ctx, undefined, 'todo_update', { task: 'generate video', status: 'completed' })).isError).toBe(true)
   expect(writes(events.get(second.id) ?? [])).toEqual([])
   await execute(ctx, first, 'todo_write', { todos: [] })
-  expect(ctx.sessionProjections.stateOf(first.session, 'latestTodos')).toEqual([])
+  expect(readTodos(ctx, first.session, 'latestTodos')).toEqual([])
   expect((await execute(ctx, first, 'todo_update', { task: 'generate video', status: 'completed' })).isError).toBe(true)
   expect(writes(events.get(first.id) ?? [])).toEqual([PLAN, []])
 })
 
-it('refuses an unavailable latest-list projection without appending a completion', async () => {
-  const { ctx, events } = await harness()
+it('refuses updates after the tool owner unloads while retaining the last saved list', async () => {
+  const { ctx, events, disposeTodo } = await harness()
   const subject = await agent(ctx)
   await execute(ctx, subject, 'todo_write', { todos: PLAN })
-  const projection = vi.spyOn(ctx.sessionProjections, 'stateOf').mockReturnValueOnce(undefined)
-  try {
-    const result = await execute(ctx, subject, 'todo_update', { task: 'generate video', status: 'completed' })
-    expect(result.isError).toBe(true)
-    expect(textOf(result)).toContain('todo_update requires the latestTodos projection')
-    expect(writes(events.get(subject.id) ?? [])).toEqual([PLAN])
-  } finally { projection.mockRestore() }
-  expect(ctx.sessionProjections.stateOf(subject.session, 'latestTodos')).toEqual(PLAN)
+  await disposeTodo()
+  const result = await execute(ctx, subject, 'todo_update', { task: 'generate video', status: 'completed' })
+  expect(result.isError).toBe(true)
+  expect(textOf(result)).toContain('todo_update')
+  expect(writes(events.get(subject.id) ?? [])).toEqual([PLAN])
+  expect(readTodos(ctx, subject.session, 'latestTodos')).toEqual(PLAN)
 })
 
 it('presents the exact incremental change without replacing the task list', async () => {

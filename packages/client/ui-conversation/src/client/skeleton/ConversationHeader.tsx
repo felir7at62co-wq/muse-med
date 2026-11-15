@@ -9,19 +9,25 @@ import css from './ConversationRoot.module.css'
  * @param props - Optional Session sources and authorized header slots.
  * @returns The persistent header with any selected Session's title and views.
  */
-export function ConversationHeader({ sessionId, useSession, useConversation, renderSlot }: ConversationHeaderProps) {
+export function ConversationHeader({ sessionId, useSession, useConversation, renderSlot, useHeaderPresentation }: ConversationHeaderProps) {
+  const headerPresentation = useHeaderPresentation(value => value)
   const session = useSession(s => s)
   const conversation = useConversation(s => s)
   const blank = session === undefined || conversation === undefined
     || (session.blank && conversationPhase(session, conversation) === 'blank')
   return (
-    <header className={clsx(css.header, blank && css.headerBlank, sessionId === undefined && css.headerSessionless)} data-window-drag>
-      <div className={css.headerLeading} data-conversation-header-leading="">
-        {renderSlot('conversation.header.leading', {})}
-      </div>
-      {sessionId === undefined
-        ? <div className={css.titleRow} />
-        : renderSlot('conversation.session.header', { hideChrome: blank })}
-    </header>
+    <>
+      {headerPresentation === 'floating' && <div className={css.headerFade} aria-hidden="true" />}
+      <header className={clsx(css.header, blank && css.headerBlank, headerPresentation === 'floating' && css.headerFloating)} data-window-drag data-conversation-header-presentation={headerPresentation}>
+        <div className={css.headerLeading} data-conversation-header-leading="">
+          {renderSlot('conversation.header.leading', {})}
+        </div>
+        {sessionId === undefined
+        // The empty title row keeps the blank-Session header height, so the
+        // Hero centers its input card at the same offset before a Session exists.
+          ? <div className={css.titleRow} />
+          : renderSlot('conversation.session.header', { hideChrome: blank, presentation: headerPresentation })}
+      </header>
+    </>
   )
 }

@@ -10,7 +10,7 @@ import { copyNativeResources } from './native-resources.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const repository = fileURLToPath(new URL('../../../../', import.meta.url));
-const args = process.argv.slice(2);
+const args = process.argv.slice(process.argv[2] === '--' ? 3 : 2);
 if (args.length && (args.length !== 2 || args[0] !== '--out' || !isAbsolute(args[1]))) throw new Error('Use node scripts/pack.mjs [--out <absolute-directory>]');
 const output = args[1] ?? join(root, 'releases');
 const staging = mkdtempSync(join(tmpdir(), 'muse-lvpaopao-pack-'));
@@ -25,8 +25,11 @@ try {
   const files = { ...copyNativeResources(root, staging), ...Object.fromEntries(readdirSync(join(staging, 'lib')).sort().map(name => [
     `lib/${name}`, createHash('sha256').update(readFileSync(join(staging, 'lib', name))).digest('hex'),
   ])) };
+  const sourceFiles = Object.fromEntries(readdirSync(join(root, 'src')).filter(name => name.endsWith('.ts')).sort().map(name => [
+    `src/${name}`, createHash('sha256').update(readFileSync(join(root, 'src', name))).digest('hex'),
+  ]));
   writeFileSync(join(staging, 'SOURCE.json'), JSON.stringify({ name: manifest.name, hostVersion,
-    source: 'Muse-owned Lvpaopao adapter', files, nativeHelperIncluded: true, connectionConfigurationIncluded: false }, null, 2) + '\n');
+    source: 'Muse-owned Lvpaopao adapter', files, sourceFiles, nativeHelperIncluded: true, connectionConfigurationIncluded: false }, null, 2) + '\n');
   const archives = join(staging, 'packed');
   mkdirSync(archives);
   const cli = process.env.npm_execpath;

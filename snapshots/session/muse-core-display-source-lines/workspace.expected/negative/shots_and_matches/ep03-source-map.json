@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "episode": "03",
+  "source_sha256": "76a8f2ab3e818d0c5b4efaf3aefcef441147f6629e27b61ef81e2024e0d1cda6",
+  "shot_script": "shots/EP03-9x16.md",
+  "entries": [
+    {
+      "source_line": 1,
+      "source_text": "03-1 主厅 日 内",
+      "kind": "scene",
+      "shots": [
+        1
+      ]
+    },
+    {
+      "source_line": 2,
+      "source_text": "人物：甲、乙",
+      "kind": "scene",
+      "shots": [
+        1
+      ]
+    },
+    {
+      "source_line": 3,
+      "source_text": "△光幕亮起。",
+      "kind": "action",
+      "shots": [
+        1
+      ]
+    },
+    {
+      "source_line": 4,
+      "source_text": "【余额：20元】",
+      "kind": "state",
+      "shots": [
+        1
+      ]
+    },
+    {
+      "source_line": 5,
+      "source_text": "【2-1 走廊 日 内】",
+      "kind": "scene",
+      "shots": [
+        2
+      ]
+    },
+    {
+      "source_line": 6,
+      "source_text": "【余额：30元】",
+      "kind": "state",
+      "shots": [
+        2
+      ]
+    },
+    {
+      "source_line": 7,
+      "source_text": "【甲（OS）：先别动。】",
+      "kind": "state",
+      "shots": [
+        2
+      ]
+    },
+    {
+      "source_line": 8,
+      "source_text": "【陌生人：停下。】",
+      "kind": "state",
+      "shots": [
+        2
+      ]
+    },
+    {
+      "source_line": 9,
+      "source_text": "△屏幕写着“通过”，甲喊道“别动”。",
+      "kind": "state",
+      "shots": [
+        2
+      ]
+    },
+    {
+      "source_line": 10,
+      "source_text": "△屏幕亮起。",
+      "kind": "action",
+      "shots": [
+        2
+      ]
+    },
+    {
+      "source_line": 11,
+      "source_text": "【李红大喊快跑】",
+      "kind": "state",
+      "shots": [
+        2
+      ]
+    },
+    {
+      "source_line": 12,
+      "source_text": "【“奖励已到账】",
+      "kind": "state",
+      "shots": [
+        2
+      ]
+    }
+  ]
+}

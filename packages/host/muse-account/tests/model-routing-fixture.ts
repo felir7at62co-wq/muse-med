@@ -1,10 +1,11 @@
 /** Real Loader settings, Session model selection and AgentLoop for account-route regressions. */
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import { mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
@@ -33,15 +34,18 @@ export async function oldSessionFixture(configured: boolean, cwd: string) {
   await fixture.ctx.plugin(SessionProjectionRegistry)
   await fixture.ctx.plugin(SystemPrompt, { personaPrefix: 'You use {{model}}.' })
   await fixture.ctx.plugin(ToolRuntime)
+  await fixture.ctx.plugin(NativeToolExecutor)
   await fixture.ctx.plugin(AgentRegistry)
-  const controller = createSessionTestController(fixture.ctx, {
+  const controller = await createSessionTestController(fixture.ctx, {
     cwd, defaultModelSelection: () => fixture.ctx.agentDefaultModel.currentSelection(),
   })
   const driver = await mountAgentLoopTestHarness(fixture.ctx)
   const agent = await driver.create(SessionId('old-direct-model-session'), {
     provider: 'deepseek-official', model: 'deepseek-flash',
   }, { cwd })
-  const initialSelection = (await controller.selectModel({ sessionId: agent.id, provider: 'deepseek-official', model: 'deepseek-flash' })).selected
+  // A saved choice may outlive its provider credential; the current picker refuses a new unconfigured choice.
+  const initialSelection = { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: ReasoningEffortId('high') }
+  agent.model.select(initialSelection)
   return { ...fixture, controller, driver, agent, initialSelection }
 }
 

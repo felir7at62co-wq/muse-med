@@ -12,7 +12,7 @@
 - id: agent-preset-registry
   config:
     default: short-drama
-    selectablePresets: [short-drama, bot-coordinator]
+    selectablePresets: [short-drama]
 
 - id: sandbox-policy
   config:
@@ -63,6 +63,9 @@
 - id: ui-agent-preset
   disabled: true
 
+- id: entry-customization
+  disabled: true
+
 - id: ui-permission
   disabled: false
 
@@ -84,6 +87,12 @@
 
 - id: web-startup
   disabled: false
+
+# Muse search uses the account gateway; anonymous page fetching keeps its HTTP provider.
+- id: web
+  config:
+    searchProvider: muse
+    fetchProvider: http
 
 # Muse feedback is delivered explicitly to its account inbox.
 - id: session-log-deepseek
@@ -124,11 +133,34 @@
   config: {}
 
 - insert:
+    - id: muse-market
+      name: '@deepseek-ai/dsh-muse-market'
+
+    - id: muse-market-activation
+      name: '@deepseek-ai/dsh-muse-market/activation'
+
+    - id: muse-market-cloud
+      name: '@deepseek-ai/dsh-muse-market/cloud'
+      config:
+        baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
+
+    - id: ui-muse-market
+      name: '@deepseek-ai/dsh-client-ui-muse-market'
+
     - id: muse-lvpaopao-bridge
       name: muse-lvpaopao/bridge
 
-    - id: muse-hindsight
-      name: '@deepseek-ai/dsh-desktop-host/hindsight'
+    # Windows x64 carries the reviewed driver payload in Desktop resources.
+    - id: computer-use
+      disabled: !!js process.platform !== 'win32' || process.arch !== 'x64'
+      name: '@deepseek-ai/dsh-computer-use'
+
+    - id: muse-computer-use
+      disabled: !!js process.platform !== 'win32' || process.arch !== 'x64'
+      name: '@deepseek-ai/dsh-desktop-host/computer-use'
+      config:
+        command: !!js process.env.MUSE_COMPUTER_USE_EXECUTABLE
+        args: [mcp]
 
     - id: directory-picker-native
       name: '@deepseek-ai/dsh-host-directory-picker-native'
@@ -141,6 +173,7 @@
     - id: tool-jubian
       name: '@deepseek-ai/dsh-tool-jubian'
       config:
+        videoRecoverySettings: true
         imagePlatformId: KU_AI
         imageAllowedStandardIds: [76, 66, 86]
         promptRiskReview:
@@ -148,21 +181,27 @@
           contextChars: 24
           maxMatches: 100
         sessionVideoSelection: true
+        generationWatch: true
         defaultVideoModel:
           modelId: doubao-seedance-2-5-260628
           platformId: FANG_ZHOU
           resolution: 480p
 
-    # Account credentials travel through the authenticated Settings Remote call;
-    # the bundled MCP child exposes account-scoped Wiki writes and authorized reads.
+    # Account credentials travel through the authenticated Settings Remote call.
     - id: muse-desktop-bridge
       name: '@wenbin_wb/dsh-bridge/remote'
 
     - id: muse-account
       name: '@deepseek-ai/dsh-muse-account'
-      inject: [tools, llm, sessionProjections, agentDefaultModel, museDesktopBridge, connection, webServer]
+      inject: [tools, llm, sessions, sessionProjections, agentDefaultModel, museDesktopBridge, connection, webServer]
       config:
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
+        webSearch: true
+        feedbackTools: true
+        mediaTools: true
+        mediaNodePath: !!js process.execPath
+        mediaFfmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+        mediaFfprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
         excludedModelPrefixes: []
         excludedModels:
           - { providerId: yunying, modelId: claude-opus-5-5 }
@@ -173,8 +212,15 @@
         hiddenProviderIds: ['yunying']
         visibleModels:
           - { providerId: yunying, modelId: gemini-3.1-pro }
+          - { providerId: yunying, modelId: gpt-6.1-sol }
         requestTimeoutMs: 60000
         remoteAccess: true
+
+    - id: session-video
+      name: '@deepseek-ai/dsh-session-video'
+      config:
+        ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+        ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
 
     - id: ui-muse-account
       name: '@deepseek-ai/dsh-client-ui-muse-account'
@@ -185,42 +231,75 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_delete, schedule_update, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, list_bots, message_bot, create_bot, update_bot, stop_bot]
+        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect]
+        excludeFromSearch: [ask_user_question, show_view, visualize]
         maxResults: 8
         maxDescriptionChars: 320
         maxResultChars: 6000
         k1: 1.2
         b: 0.75
         keywords:
+          mcp__muse-computer__list_windows: [操作电脑, 操作软件, 查找窗口, 桌面操作, 点击按钮, 帮我操作, computer use]
+          mcp__muse-computer__launch_app: [打开软件, 启动应用, 打开程序, launch app]
+          mcp__muse-computer__get_window_state: [查看窗口, 查看屏幕, 屏幕截图, 看界面]
           video_inspect: [抽帧, 看视频, 查看画面, 切镜, 运镜, 动作观察]
+          video_contact_sheet: [视频接触表, 缩略图总览, 视频画面总览, 拼图预览]
           audio_transcribe: [语音识别, 台词转写, 音频转文字, 听视频]
           video_ocr: [字幕识别, 画面文字, 提取字幕]
           drama_shot: [分镜, 镜头脚本, 对白核对, 来源证据]
-          jubian_storyboard: [视频卡, 写卡, 修改分镜卡, 制作卡片]
+          drama_project: [项目设定, 项目圣经, 人物关系, 画幅, 分辨率]
+          manuscript_revision: [稿件版本, 原稿对照, 修改对比, 剧本差异, 精修核对]
+          source_recover: [恢复来源, 原始工具结果, 回读历史工具, 完整读取]
+          skill_catalog: [技能目录, 技能清单, 查找技能, 搜索技能]
+          jubian_storyboard: [视频卡, 写卡, 修改分镜卡, 制作卡片, 去字幕, 擦除烧录字幕]
           jubian_asset: [角色素材, 场景素材, 道具素材, 上传素材, 素材查询]
           jubian_video: [视频生成, 制作视频, 生成任务, 视频任务查询]
-          drama_render: [剪辑, 成片, 渲染, 合成视频]
-          drama_bgm: [配乐, 背景音乐]
-          lvpaopao: [绿泡泡, 短剧选材, 剧目下载]
+          jubian_video_review: [视频质检报告, 查看视频审核, 视频复核, 质检结果]
+          drama_render: [剪辑, 成片, 渲染, 合成视频, 交付检查, 台词覆盖, 字幕布局]
+          muse_production: [制作任务, 制作编排, 资产生成, 生成成本, 制作进度]
+          jubian_catalog: [剧变模型, 模型报价, 剧本目录, 分集列表]
+          jubian_find: [查找剧本, 剧变剧本, 我的项目, 可认领剧本]
+          jubian_organize: [整理成片, 整理素材, 整理项目文件]
+          drama_character_reference_project: [角色参考项目, 人物参考项目, 角色资产规划]
+          drama_character_references: [角色参考图, 人物参考图, 角色三视图]
+          drama_character_reference_view: [查看角色参考图, 预览人物参考图, 检查三视图]
+          drama_draft_dir: [剪映目录, 剪映草稿目录, 草稿位置, 草稿路径]
+          jianying_draft: [剪映草稿, 可编辑草稿, 创建剪映草稿, 导出剪映, 剪映工程]
+          bgm_match: [配乐, 背景音乐, 音乐库, 曲库, 选曲]
+          drama_bgm: [配乐, 背景音乐, 配乐合成, 合成音乐床, 混合音乐]
+          lvpaopao: [绿泡泡, 短剧选材, 剧目下载, 绿泡泡后台下载, 绿泡泡恢复下载, 绿泡泡下载进度, 绿泡泡取消下载]
           fanqie_search: [番茄小说, 搜小说, 搜书, 书名, 作者]
           fanqie_download_info: [番茄小说, 小说详情, 目录, 章节]
           fanqie_download: [番茄小说, 下载小说, 全文下载, 下载全书]
+          qimao_rankings: [七猫小说, 七猫榜单, 七猫排行, 小说选材]
+          qimao_search: [七猫小说, 七猫搜书, 七猫搜索, 书名, 作者]
+          qimao_detail: [七猫详情, 七猫数据, 人气票, 次阅读, 金选, 小说详情]
+          source_snapshot: [选材快照, 数据采集, 榜单观测, 快照对比, 导入旧数据]
+          source_report: [选材日报, 选材报告, 数据报告, 指标缺失, 覆盖率]
+          work_mapping: [作品关系, 作品映射, 同名作品, 同IP, 改编关系, 续作核验, 人工确认]
+          douyin_download: [抖音下载, 下载视频, 抖音后台下载, 下载队列]
+          douyin_download_task: [抖音下载任务, 抖音下载进度, 抖音断点恢复, 恢复抖音下载, 取消抖音下载]
           screenplay_export_docx: [Word, docx, 导出剧本, 剧本文档]
           load_workspace_dependencies: [Word, docx, Office, 文档处理, 工作间依赖]
+          muse_skill_evolution: [技能进化, 技能学习, 经验复盘, 技能提案, 技能版本, 撤回技能]
 
         capabilities:
+          - id: interaction
+            title: 对话交互与反馈
+            description: 展示交互卡片、收集选择与表单，提交和查询本人的产品反馈。
+            tools: [ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status]
           - id: workspace
             title: 文件与工作间
             description: 查找、读取、编辑项目文件并交付文档。
-            tools: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present]
+            tools: [read, read_image, write, edit, apply_patch, glob, grep, bash, pwsh, skill, present, working_directory]
           - id: video-understanding
             title: 视频理解与转写
             description: 查看视频画面、抽帧、识别对白和字幕。
-            tools: [video_inspect, audio_transcribe, video_ocr]
+            tools: [video_inspect, video_contact_sheet, audio_transcribe, video_ocr]
           - id: screenplay
             title: 剧本与分镜
             description: 整理剧本、编写镜头脚本并对照来源证据。
-            tools: [drama_shot, 'manuscript_*', video_inspect, jubian_storyboard]
+            tools: [drama_project, drama_shot, 'manuscript_*', video_inspect, jubian_storyboard]
           - id: assets
             title: 角色场景与素材
             description: 查询、整理和准备角色、场景、道具及参考素材。
@@ -228,23 +307,27 @@
           - id: production
             title: 制作与生成
             description: 处理项目视频卡、模型、预算、生成及任务状态。
-            tools: [muse_production, jubian_storyboard, jubian_video, jubian_video_model, jubian_model, jubian_catalog, jubian_budget, drama_video]
+            tools: [muse_production, jubian_storyboard, jubian_video, jubian_video_review, jubian_video_model, jubian_model, jubian_catalog, jubian_budget, drama_video]
           - id: editing-delivery
             title: 剪辑配乐与交付
-            description: 导出 Word 剧本、处理 Office 文档、匹配配乐、编辑视频与整理成片。
-            tools: [screenplay_export_docx, load_workspace_dependencies, drama_render, drama_bgm, bgm_match, jubian_media, jubian_organize]
+            description: 导出 Word 剧本、处理 Office 文档、创建剪映草稿、查找草稿目录、匹配配乐与整理成片。
+            tools: [screenplay_export_docx, load_workspace_dependencies, jianying_draft, drama_draft_dir, drama_render, drama_bgm, bgm_match, jubian_media, jubian_organize]
           - id: data-sourcing
             title: 数据选材与下载
-            description: 搜索和下载番茄小说、剧目、榜单及视频素材。
-            tools: ['hongguo_*', 'douyin_*', 'fanqie_*', lvpaopao, jubian_find, jubian_snatch, jubian_watch, jubian_claim]
+            description: 采集红果与七猫公开数据，保存观测快照、比较指标、人工核验作品关系并生成选材报告，搜索和下载小说、剧目及视频素材。
+            tools: ['hongguo_*', 'douyin_*', 'fanqie_*', 'qimao_*', source_snapshot, source_report, work_mapping, lvpaopao, jubian_find, jubian_snatch, jubian_watch, jubian_claim]
           - id: knowledge
-            title: 知识与项目资料
-            description: 搜索、读取和整理已连接的知识库与项目资料。
-            tools: ['mcp__muse-account__muse_kb_*', read_mcp_resource, list_mcp_resources, list_mcp_resource_templates]
+            title: 技能、MCP 与项目资料
+            description: 管理学习技能与版本，读取已连接的 MCP 资源与项目资料。
+            tools: [source_recover, skill_catalog, read_mcp_resource, list_mcp_resources, list_mcp_resource_templates, muse_skill_evolution]
           - id: coordination
-            title: 团队任务与跟进
-            description: 分配子任务、查看执行状态、安排定时跟进。
-            tools: ['subagent*', send_message, interrupt_agent, list_agents, 'job_*', 'schedule_*', create_goal, get_goal, update_goal, 'todo_*', list_bots, message_bot, create_bot, update_bot, stop_bot]
+            title: 子任务与跟进
+            description: 委派子任务、查看执行状态、管理后台工作并安排定时跟进。
+            tools: ['subagent*', send_message, interrupt_agent, list_agents, 'job_*', 'schedule_*', create_goal, get_goal, update_goal, 'todo_*', workflow, exit_plan_mode, ask_user_question]
+          - id: computer-use
+            title: 电脑与软件操作
+            description: 查看本机应用窗口与截图，根据任务点击、输入和滚动，再读取实际结果。
+            tools: ['mcp__muse-computer__*']
           - id: research
             title: 搜索与技术分析
             description: 搜索网页资料、读取网页和分析技术问题。

@@ -31,7 +31,7 @@ kind: "package-reference"
 
 ### 最小配置
 
-在已挂载 `fs`、`tools`、`attachments` 和 `llm` 的 `dsh` profile 组合中添加：
+在已挂载 `fs`、`tools`、`attachments`、`llm` 和 `agents` 的 `dsh` profile 组合中添加：
 
 ```yaml
 - id: screenplay-project
@@ -53,6 +53,8 @@ kind: "package-reference"
 [配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-screenplay-project) 维护接受的配置字段。这些预算不限定剧集或章节数量。
 
 ### 审校策略
+
+通过代码组合时，调用工具前须等待 `apply(ctx, config)` 完成。创作授权由等待注册后私有保留的 Session 投影读取，审校轮次通过 `agents.turnBoundaryOf(session)` 取得；投影注册释放不会抹除历史用户授权。
 
 `reviewMode: advisory` 同时适用于新旧项目，使用 `review_policy: advisory`，不修改历史 `review_mode` 或审校上下文摘要。读取旧项目时仅在内存应用该策略，下一次成功的项目修改才将其持久化；只读操作不改写文件或历史审校记录。建议型策略一旦持久化，后续即使配置为 `independent` 或 `self-check` 仍继续生效；配置不会把项目反向转换为严格审校。
 
@@ -107,7 +109,7 @@ Agent 自主决定是否记录 `review_fact`、`review_facts` 或候选 `review`
 `propose_facts` 批量提交保留独立归属的事实；`review_facts` 为每条事实携带独立决定与具体理由。每次批量操作只发布一次并推进一个修订号。空批次、超预算、内容无效或重复审校时整批不写入。批量审校仍须阅读并分类完整来源上下文，不能省略语义核对；单条接口继续可用。
 
 
-本插件需要 `fs`、`tools`、`attachments` 和 `llm`；限制文件操作的文件系统还需要 `sandboxPolicy`。修改采用发起会话的既有沙箱策略。`project` 指向一个 JSON 项目文件，而非目录。`init` 记录用户方向及忠实或改编模式。`import_source` 接受 UTF-8 文本、`audio_transcribe` 原生片段数组包含 `segments` 的账号返回值，或 `video_inspect` 实际生成的抽帧清单。来源 SHA-256 依据原始字节计算。片段从 1 编号，保留原始行或语音片段顺序；可用的发声时间和说话人编号在导入时保留。
+本插件需要 `fs`、`tools`、`attachments`、`llm` 和 `agents`；限制文件操作的文件系统还需要 `sandboxPolicy`。修改采用发起会话的既有沙箱策略。`project` 指向一个 JSON 项目文件，而非目录。`init` 记录用户方向及忠实或改编模式。`import_source` 接受 UTF-8 文本、`audio_transcribe` 原生片段数组包含 `segments` 的账号返回值，或 `video_inspect` 实际生成的抽帧清单。来源 SHA-256 依据原始字节计算。片段从 1 编号，保留原始行或语音片段顺序；可用的发声时间和说话人编号在导入时保留。
 
 事实区分动作、发声、角色心理和作者分析。引用文字必须实际存在于对应片段中。新增改编事实需要项目处于改编模式并明确说明理由，或采用上述明确获准的限定精修。帧读取在时间码旁返回经过验证的原始图像附件，要求当前模型支持图像，并拒绝已变更的视频原件。另一会话审校语义、归属和叙述层。`stage` 接收完整场次，动作、对白、OS、VO 均引用已批准事实。OS 必须属于该人物自己的心理；作者分析属于无角色归属的评论。连续场次保持地点、时间和叙述层；进入闪回及从闪回返回现实须显式标记，`return_present` 也用于梦境或想象场次返回现实。
 

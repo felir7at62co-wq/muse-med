@@ -41,6 +41,11 @@ type RunnerHost = Pick<NodeJS.Process, 'env' | 'exitCode' | 'connected' | 'cwd' 
   send?: NodeJS.Process['send']
 }
 
+function disconnectHost(host: RunnerHost): void {
+  if (host.disconnect === undefined) throw new Error('subprocess runner: connected IPC has no disconnect method')
+  host.disconnect()
+}
+
 /** Injectable operations used by the protocol-owner tests. */
 export interface SpawnRunnerInternals {
   execve(file: string, argv: string[], env: Record<string, string>, control?: 'pipe'): never
@@ -277,6 +282,10 @@ class WindowsJobRunner {
     this.finish(127, false)
   }
 
+  private isTerminationRequested(): boolean {
+    return this.terminateRequested
+  }
+
   private async start(request: WindowsStartRequest): Promise<void> {
     if (this.terminateRequested) {
       await this.publishTerminalResult({ type: 'error', error: windowsStartCancelledError() }, 0)
@@ -285,7 +294,7 @@ class WindowsJobRunner {
     await new Promise<void>((resolveImmediate) => { setImmediate(resolveImmediate) })
     if (this.finished) return
     // IPC may set this field while start() is suspended above.
-    if (this.terminateRequested) {
+    if (this.isTerminationRequested()) {
       await this.publishTerminalResult({ type: 'error', error: windowsStartCancelledError() }, 0)
       return
     }
@@ -434,8 +443,7 @@ class WindowsJobRunner {
     this.host.off('disconnect', this.onDisconnect)
     this.host.exitCode = exitCode
     if (disconnect && this.host.connected) {
-      if (this.host.disconnect === undefined) throw new Error('subprocess runner: connected IPC has no disconnect method')
-      this.host.disconnect()
+      disconnectHost(this.host)
     }
     this.completion.resolve()
   }
@@ -478,8 +486,7 @@ export async function reportSpawnRunnerFailure(
     try { await sendMessage(host, { type: 'error', error: serializeRunnerError(error) }) } catch { /* No transport remains. */ }
     host.exitCode = 127
     if (host.connected) {
-      if (host.disconnect === undefined) throw new Error('subprocess runner: connected IPC has no disconnect method')
-      host.disconnect()
+      disconnectHost(host)
     }
     return
   }

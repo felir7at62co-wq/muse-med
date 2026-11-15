@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-video-review-lifecycle
+profile: headless
+composition: muse-video-review-lifecycle
+recording: authored
+writerOutput: true
+header:
+  class: muse-video-review-lifecycle
+  pin: true
+workspace:
+  setup: muse-video-review-lifecycle

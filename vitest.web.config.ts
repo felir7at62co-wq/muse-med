@@ -26,6 +26,7 @@ export default defineConfig({
     include: [
       'apps/web/tests/**/*.e2e.ts',
       'apps/web/tests/**/*.snapshot.ts',
+      'apps/desktop/tests/douyin-user-action.browser.e2e.ts',
       'packages/experimental/inspector/tests/client-browser.e2e.ts',
     ],
     // Local and record runs stay serial. CI runs workspace-mutating HMR and

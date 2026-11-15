@@ -1,13 +1,21 @@
 /** The plugin entry: its registration, its argument resolution, and one call per method. */
 
-import { copyFile, mkdir, readFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { apply, Config, inject, name, resolveCall, resolveSettings, runDramaRender } from '../src/index.ts'
+import * as Audio from '../src/audio.ts'
+import * as Speech from '../src/speech-coverage.ts'
+import * as Staging from '../src/stage-delivery.ts'
+import * as VideoInspection from '@deepseek-ai/dsh-tool-video-inspect'
+import { episodePaths } from '../src/paths.ts'
+import { verifyPreparedSubtitleClock } from '../src/prepare.ts'
+import { writeSubtitleClock } from '../src/subtitle-clock.ts'
+import { readTimeline } from '../src/timeline.ts'
 import type { DramaRenderReport, ProcessChannel, RenderSettings } from '../src/types.ts'
 import {
   cleanup,
@@ -121,6 +129,7 @@ function callChannel(project: string): ReturnType<typeof stubChannel> {
   const handlers: StubHandler[] = [
     probeHandler({
       [join(project, 'media', 'p1-clean.mp4')]: { durationSeconds: 114.733332, video: {}, audio: {} },
+      [join(project, 'video', '02', 'shot_001.mp4')]: { durationSeconds: 114.733332, video: {}, audio: {} },
       [join(project, 'export', 'ep02.mp4')]: {
         durationSeconds: 116.733332, sizeBytes: 400_000_000, bitRateBps: 27_000_000, video: {}, audio: {},
       },
@@ -137,26 +146,226 @@ function callChannel(project: string): ReturnType<typeof stubChannel> {
   return stubChannel(handlers)
 }
 
+it('rejects listening decisions without their transcript mapping and draft arguments on non-staging calls', () => {
+  expect(() => resolveCall({ method: 'stage_delivery', project: '.', episode: 2, speechDecisions: 'decisions.json' }))
+    .toThrow(/speech_decisions 需要同时提供 speech_transcripts/u)
+  expect(() => resolveCall({ method: 'verify', project: '.', episode: 2, draft: 'draft' }))
+    .toThrow(/draft 仅用于 stage_delivery/u)
+})
+
+it.each([false, true])('carries optional listening artifacts into the real staging entry without accepting an invalid draft: %s', async (speech) => {
+  const files = await preparedProject()
+  const arguments_ = { method: 'stage_delivery' as const, project: files.project, episode: 2,
+    timeline: files.timeline, subtitleSrt: files.subtitle, output: files.output, draft: 'wrong-draft',
+    ...(speech ? { speechTranscripts: 'receipts.json', speechDecisions: 'decisions.json' } : {}) }
+  const call = resolveCall(arguments_)
+  expect(call).toMatchObject({ method: 'stage_delivery', draft: join(files.project, 'wrong-draft') })
+  if (speech) expect(call).toMatchObject({ transcriptsPath: join(files.project, 'receipts.json'), decisionsPath: join(files.project, 'decisions.json') })
+  else expect(call).not.toHaveProperty('decisionsPath')
+  await expect(runDramaRender(arguments_, settingsWith(callChannel(files.project).channel),
+    speech ? async () => {} : undefined)).rejects.toThrow(/02_剪映草稿/u)
+})
+
+it('uses the available Host proof scope and refuses to reuse it after its providers are disposed', async () => {
+  const ctx = new Context(), registered: ToolDefinition[] = []
+  // These services activate the registration scope; the independently tested verifier owns their methods.
+  ctx.provide('tools', { register: (definition: ToolDefinition) => { registered.push(definition); return () => {} } } as never)
+  const binding = { mediaPath: 'source', mediaSha256: 'a'.repeat(64), ocrPath: 'ocr', ocrSha256: 'b'.repeat(64),
+    inspectionPath: 'inspection', inspectionSha256: 'c'.repeat(64), sessionId: 'source-session', reviewId: 'review' }
+  const verify = vi.fn<VideoInspection.VideoSourceQaVerifier>().mockResolvedValue(undefined)
+  const create = vi.spyOn(VideoInspection, 'createVideoSourceQaVerifier').mockResolvedValue(verify)
+  const stage = vi.spyOn(Staging, 'stageEpisodeDelivery').mockImplementation(async (input) => {
+    if (input.sourceQaVerifier === undefined) throw Error('Missing render proof consumer')
+    await input.sourceQaVerifier(binding)
+    throw Error('Host proof delegation completed')
+  })
+  try {
+    apply(ctx)
+    const tool = registered.find(item => item.name === 'drama_render')
+    if (tool === undefined) throw Error('Renderer registration missing')
+    const args = { method: 'stage_delivery', project: '.', episode: 2, timeline: 'timeline.json',
+      subtitle_srt: 'final.srt', output: 'candidate.mp4', draft: '02_剪映草稿/draft' }
+    await expect(tool.execute(args, runContext())).rejects.toThrow('SOURCE_QA_HOST_UNAVAILABLE')
+    const providers = await ctx.plugin({ name: 'source-qa-proof-providers', apply(scope: Context) {
+      scope.provide('fs', {} as never)
+      scope.provide('sandboxPolicy', {} as never)
+      scope.provide('sessionProjections', { register: () => () => {} } as never)
+    } })
+    await vi.waitFor(() => { expect(create).toHaveBeenCalledTimes(1) })
+    await vi.waitFor(async () => {
+      await expect(tool.execute(args, runContext())).rejects.toThrow('Host proof delegation completed')
+    })
+    expect(verify).toHaveBeenCalledExactlyOnceWith(undefined, binding, expect.any(AbortSignal))
+    const entered = Promise.withResolvers<undefined>()
+    verify.mockImplementationOnce(async (_session, _binding, signal) => {
+      entered.resolve(undefined)
+      await new Promise<void>((_resolve, reject) => {
+        const aborted = () => {
+          const reason: unknown = signal.reason
+          reject(reason instanceof Error ? reason : Error('Unexpected proof cancellation', { cause: reason }))
+        }
+        if (signal.aborted) aborted()
+        else signal.addEventListener('abort', aborted, { once: true })
+      })
+    })
+    const pending = tool.execute(args, runContext())
+    const rejected = expect(pending).rejects.toThrow('SOURCE_QA_HOST_UNAVAILABLE')
+    await entered.promise
+    await providers.dispose()
+    await rejected
+    await expect(tool.execute(args, runContext())).rejects.toThrow('SOURCE_QA_HOST_UNAVAILABLE')
+    expect(verify).toHaveBeenCalledTimes(2)
+    const replacement = await ctx.plugin({ name: 'replacement-proof-providers', apply(scope: Context) {
+      scope.provide('fs', {} as never)
+      scope.provide('sandboxPolicy', {} as never)
+      scope.provide('sessionProjections', { register: () => () => {} } as never)
+    } })
+    await vi.waitFor(() => { expect(create).toHaveBeenCalledTimes(2) })
+    await vi.waitFor(async () => {
+      await expect(tool.execute(args, runContext())).rejects.toThrow('Host proof delegation completed')
+    })
+    expect(verify).toHaveBeenCalledTimes(3)
+    await replacement.dispose()
+    await expect(tool.execute(args, runContext())).rejects.toThrow('SOURCE_QA_HOST_UNAVAILABLE')
+  } finally {
+    stage.mockRestore(); create.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
+it('does not publish a source verifier after its provider is removed during registration', async () => {
+  const ctx = new Context(), registered: ToolDefinition[] = []
+  ctx.provide('tools', { register: (definition: ToolDefinition) => { registered.push(definition); return () => {} } } as never)
+  const started = Promise.withResolvers<undefined>()
+  const release = Promise.withResolvers<VideoInspection.VideoSourceQaVerifier>()
+  const verify = vi.fn<VideoInspection.VideoSourceQaVerifier>().mockResolvedValue(undefined)
+  const create = vi.spyOn(VideoInspection, 'createVideoSourceQaVerifier').mockImplementation(async () => {
+    started.resolve(undefined)
+    return release.promise
+  })
+  const stage = vi.spyOn(Staging, 'stageEpisodeDelivery').mockImplementation(async (input) => {
+    if (input.sourceQaVerifier === undefined) throw Error('Missing render proof consumer')
+    await input.sourceQaVerifier({ mediaPath: 'source', mediaSha256: 'a'.repeat(64), ocrPath: 'ocr',
+      ocrSha256: 'b'.repeat(64), inspectionPath: 'inspection', inspectionSha256: 'c'.repeat(64),
+      sessionId: 'source-session', reviewId: 'review' })
+    throw Error('Inactive source verifier was used')
+  })
+  try {
+    apply(ctx)
+    const tool = registered.find(item => item.name === 'drama_render')
+    if (tool === undefined) throw Error('Renderer registration missing')
+    const providers = ctx.plugin({ name: 'delayed-proof-providers', apply(scope: Context) {
+      scope.provide('fs', {} as never)
+      scope.provide('sandboxPolicy', {} as never)
+      scope.provide('sessionProjections', {} as never)
+    } })
+    await started.promise
+    const disposal = providers.dispose()
+    release.resolve(verify)
+    await disposal
+    await expect(tool.execute({ method: 'stage_delivery', project: '.', episode: 2, timeline: 'timeline.json',
+      subtitle_srt: 'final.srt', output: 'candidate.mp4', draft: '02_剪映草稿/draft' }, runContext()))
+      .rejects.toThrow('SOURCE_QA_HOST_UNAVAILABLE')
+    expect(verify).not.toHaveBeenCalled()
+  } finally {
+    release.resolve(verify)
+    stage.mockRestore(); create.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
+it('delegates content review only while its Host proof providers are active', async () => {
+  const ctx = new Context(), registered: ToolDefinition[] = []
+  ctx.provide('tools', { register: (definition: ToolDefinition) => { registered.push(definition); return () => {} } } as never)
+  const binding = { kind: 'video' as const, mediaPath: 'source', mediaSha256: 'a'.repeat(64),
+    inspectionPath: 'inspection', inspectionSha256: 'b'.repeat(64), sessionId: 'source-session', reviewId: 'review' }
+  const verify = vi.fn<VideoInspection.VideoObservationVerifier>().mockResolvedValue(undefined)
+  const create = vi.spyOn(VideoInspection, 'createVideoObservationVerifier').mockResolvedValue(verify)
+  const source = vi.spyOn(VideoInspection, 'createVideoSourceQaVerifier').mockResolvedValue(async () => {})
+  const stage = vi.spyOn(Staging, 'stageEpisodeDelivery').mockImplementation(async (input) => {
+    if (input.contentReviewVerifier === undefined) throw Error('Missing content review consumer')
+    await input.contentReviewVerifier(binding)
+    throw Error('Content review delegation completed')
+  })
+  try {
+    apply(ctx)
+    const tool = registered.find(item => item.name === 'drama_render')
+    if (tool === undefined) throw Error('Renderer registration missing')
+    const args = { method: 'stage_delivery', project: '.', episode: 2, timeline: 'timeline.json',
+      subtitle_srt: 'final.srt', output: 'candidate.mp4', draft: '02_剪映草稿/draft' }
+    const execution = runContext()
+    await expect(tool.execute(args, execution)).rejects.toThrow('CONTENT_REVIEW_HOST')
+    expect(verify).not.toHaveBeenCalled()
+    const register = vi.fn(async () => ({ stateOf: () => ({}) }))
+    const providers = await ctx.plugin({ name: 'content-review-proof-providers', apply(scope: Context) {
+      scope.provide('fs', {} as never)
+      scope.provide('sandboxPolicy', {} as never)
+      scope.provide('sessionProjections', { register } as never)
+    } })
+    await vi.waitFor(() => { expect(register).toHaveBeenCalledWith(expect.objectContaining({ key: 'contentListening', stateVersion: 2 })) })
+    await vi.waitFor(async () => {
+      await expect(tool.execute(args, execution)).rejects.toThrow('Content review delegation completed')
+    })
+    expect(verify).toHaveBeenCalledWith(undefined, binding, expect.any(AbortSignal))
+    await providers.dispose()
+    await expect(tool.execute(args, execution)).rejects.toThrow('CONTENT_REVIEW_HOST')
+    expect(verify).toHaveBeenCalledTimes(1)
+  } finally {
+    stage.mockRestore(); create.mockRestore(); source.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
+it('keeps strict source policies and the generated subtitle clock when product typography normalizes display text', async () => {
+  const prepared = await preparedProject(), channel = callChannel(prepared.project)
+  const source = join(prepared.project, 'media/p1-clean.mp4')
+  const original = srtDocument([{ start: '00:00:01,680', end: '00:00:03,580', text: '你好，世界！' }])
+  await writeFile(prepared.subtitle, original, 'utf8')
+  await writeFile(join(prepared.project, 'project_config.json'), JSON.stringify({ project_bible: { delivery: {
+    width: 480, height: 854, fps: 24, require_source_review: true,
+    subtitle: { font_family: 'obsolete', font_size_px: -1, require_speech_coverage: true, require_no_punctuation: true },
+    audio: { require_music_decision: true },
+  } } }), 'utf8')
+  await writeSubtitleClock(prepared.subtitle, original, '02', [{ source: { shot: 1, video: source, audio: source },
+    video: source, audio: source, durationUs: 114_733_332 }])
+  const result = await runDramaRender({ method: 'prepare', project: prepared.project, episode: 2,
+    shots: prepared.shots, subtitleSrt: prepared.subtitle }, { ...settingsWith(channel.channel), normalizeSubtitleText: true,
+    enforceSubtitleVisual: true, defaultSubtitleVisual: { schema_version: 1, reference_width: 480, reference_height: 854,
+      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 } })
+  const display = result.render_preview?.subtitle.path ?? ''
+  expect(await readFile(display, 'utf8')).toContain('你好 世界')
+  expect(await readFile(prepared.subtitle, 'utf8')).toBe(original)
+  const savedTimeline = await readTimeline(prepared.timeline)
+  expect(savedTimeline.delivery?.subtitle_visual).toMatchObject({ font_size_px: 46 })
+  const timeline = await readTimeline(prepared.timeline, true)
+  expect(timeline.delivery).toMatchObject({ require_source_review: true,
+    subtitle: { require_speech_coverage: true, require_no_punctuation: true },
+    audio: { require_music_decision: true } })
+  expect(timeline.delivery?.subtitle).not.toHaveProperty('font_size_px')
+  await expect(verifyPreparedSubtitleClock(display, episodePaths(prepared.project, '02'), timeline)).resolves.toBeUndefined()
+  await writeFile(join(prepared.project, 'audio/02.wav'), 'wrong', 'utf8')
+  await expect(verifyPreparedSubtitleClock(display, episodePaths(prepared.project, '02'), timeline)).rejects.toThrow('整集原声')
+})
+
 describe('registration', () => {
   it('declares its identity and the registry it needs', () => {
     expect(name).toBe('tool-episode-render')
     expect(inject).toEqual(['tools'])
   })
 
-  it('registers exactly the drama_render tool with the delivery style and both known traps', () => {
+  it('states operation choices, evidence limits and nonblocking findings', () => {
     const tool = dramaRender()
     expect(tool.name).toBe('drama_render')
-    expect(tool.description).toContain('默认 SimHei 40，字体服从部署配置')
-    for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps', 'SimHei 40', '字间距 -2',
+    for (const phrase of ['1440x2560@60', '24M', '30M', '48M', '4.6 Mbps',
       '单行、无标点、每条不超过 14 个有效字', '长句要逐条取得同源字词时间',
-      '黑描边按成片宽度推导（1440px 宽目标 7px）', 'fps=F,setpts=N/(F*TB)', 'F 取时间线 delivery.fps（旧时间线默认 60）',
-      '内容由AI生成', 'drawtext', '-sseof -0.1', 'framemd5', 'h264_nvenc', 'libx264', 'alimiter=0.95', '定格 2 秒']) {
+      '内容由AI生成', 'drawtext', 'framemd5', 'h264_nvenc', 'libx264', 'alimiter=0.95', '定格真实尾帧 2 秒',
+      '不均分句时长', '不做识别、测能量或估算时间', '无可用条目只写检查说明', '不覆盖原字幕',
+    ]) {
       expect(tool.description).toContain(phrase)
     }
-    // The delivery style states the outline as a delivered width, never as the raw
-    // ASS field: the field is derived, and a stale literal here is what let the
-    // value drift away from the 7px the picture must show.
-    expect(tool.description).not.toMatch(/\d+px 黑描边/u)
+    expect(tool.description).toContain('不能只看元数据')
+    expect(tool.description).toContain('不要求审批')
+    expect(tool.description).toContain('成片质量问题保留文件与实测参数')
   })
 
   it('states the shipped ending bytes in the ending parameter descriptions', () => {
@@ -177,16 +386,14 @@ describe('registration', () => {
       required: string[]
     }
     expect(Object.keys(parameters.properties).sort()).toEqual([
-      'alignment', 'audio', 'bgm', 'bgm_generation', 'bgm_plan', 'duration_seconds', 'ending_audio', 'ending_effect', 'episode', 'force',
-      'intended_use', 'last_shot', 'lines', 'method', 'mix_profile', 'output', 'project', 'shots',
+      'alignment', 'audio', 'bgm', 'bgm_generation', 'bgm_plan', 'draft', 'duration_seconds', 'ending_audio', 'ending_effect', 'episode', 'force',
+      'intended_use', 'last_shot', 'lines', 'method', 'mix_profile', 'output', 'project', 'resume', 'shots',
       'speech_decisions', 'speech_transcripts', 'start_seconds', 'subtitle_plan', 'subtitle_srt', 'timeline',
     ])
     expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay',
-      'speech_coverage', 'subtitle_layout'])
-    for (const field of ['shots', 'lines', 'alignment', 'timeline', 'subtitle_srt', 'bgm', 'bgm_plan',
-      'ending_audio', 'ending_effect', 'output']) {
-      expect(parameters.properties[field]?.description).toContain('相对路径以 project 为基准')
-    }
+      'speech_coverage', 'subtitle_layout', 'stage_delivery'])
+    expect(parameters.properties.project?.description).toContain('其余相对路径以 project 为基准')
+    expect(parameters.properties.project?.description).toContain('绝对路径保持不变')
     expect(parameters.properties.bgm?.description).toContain('drama_bgm 返回的绝对 output')
     expect(parameters.properties.bgm_plan?.description).toContain('drama_bgm 返回的绝对 plan')
     expect(parameters.required.sort()).toEqual(['episode', 'method', 'project'])
@@ -209,6 +416,27 @@ describe('registration', () => {
         warnings: ['曲目声明不允许商业使用，与本次商业用途不匹配。'] }] })
     expect(report.warnings).toContain('BGM song：曲目声明不允许商业使用，与本次商业用途不匹配。')
     expect(report.ok).toBe(true)
+  })
+
+  it('forwards public audition options to the registered renderer without changing project-relative paths', async () => {
+    const project = resolve('audio-option-fixture')
+    let captured: unknown
+    const preview = vi.spyOn(Audio, 'previewAudio').mockImplementation(async (input) => {
+      captured = input
+      throw new Error('captured audition options')
+    })
+    try {
+      await expect(dramaRender().execute({ method: 'audio_preview', project, episode: 1,
+        timeline: 'timeline.json', mix_profile: 'mix.json', bgm: 'music.wav',
+        bgm_plan: 'plan.json', bgm_generation: 'generation.json', intended_use: 'commercial',
+        start_seconds: 2, duration_seconds: 3 }, runContext())).rejects.toThrow('captured audition options')
+      expect(captured).toMatchObject({ project, timelinePath: join(project, 'timeline.json'),
+        profilePath: join(project, 'mix.json'), bgm: join(project, 'music.wav'),
+        bgmPlan: join(project, 'plan.json'), bgmGeneration: join(project, 'generation.json'),
+        intendedUse: 'commercial', startSeconds: 2, durationSeconds: 3 })
+    } finally {
+      preview.mockRestore()
+    }
   })
 
   it('renders the canonical value as pretty JSON', () => {
@@ -272,36 +500,117 @@ describe('subtitle overlay application', () => {
   it('allocates an independent subtitle candidate when no output path is supplied', async () => {
     const prepared = await preparedProject(), channel = callChannel(prepared.project)
     const subtitlePlan = await plan(prepared.project, join(prepared.project, 'video/02/shot_001.mp4'))
+    await writeFile(prepared.subtitle, srtDocument([
+      { start: '00:00:01,680', end: '00:00:03,580', text: '台词' },
+      { start: '00:00:04,000', end: '00:00:05,000', text: '补充台词！' },
+    ]))
     const report = await run({ method: 'subtitle_overlay', project: prepared.project, episode: 2,
-      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, subtitlePlan }, settingsWith(channel.channel))
+      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, subtitlePlan },
+    { ...settingsWith(channel.channel), normalizeSubtitleText: true })
     expect(report.subtitle_overlay?.resolved_srt).toContain(join(prepared.project, 'editing/subtitle-overlays/ep02-'))
     expect(report.subtitle_overlay?.retained_cue_indexes).toEqual([1])
     expect(report.written).toHaveLength(2)
     expect(channel.calls).toEqual([])
-    expect(await readFile(prepared.subtitle, 'utf8')).toContain('台词')
+    expect(await readFile(prepared.subtitle, 'utf8')).toContain('补充台词！')
+    expect(await readFile(report.subtitle_overlay?.resolved_srt ?? '', 'utf8')).not.toContain('！')
   })
 
-  it('prepares byte-identical videos before resolving the optional plan while keeping the authored installed SRT', async () => {
+  it('normalizes only the remaining display cues in an overlay export', async () => {
+    const prepared = await preparedProject(), channel = callChannel(prepared.project)
+    const original = srtDocument([
+      { start: '00:00:01,680', end: '00:00:03,580', text: '台词' },
+      { start: '00:00:04,000', end: '00:00:05,000', text: '你好，世界！' },
+    ])
+    await writeFile(prepared.subtitle, original, 'utf8')
+    const subtitlePlan = await plan(prepared.project, join(prepared.project, 'video/02/shot_001.mp4'))
+    const result = await run({ method: 'subtitle_overlay', project: prepared.project, episode: 2,
+      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, subtitlePlan },
+    { ...settingsWith(channel.channel), normalizeSubtitleText: true })
+    const resolved = await readFile(result.subtitle_overlay?.resolved_srt ?? '', 'utf8')
+    expect(resolved).not.toContain('台词')
+    expect(resolved).toContain('你好 世界')
+    expect(await readFile(prepared.subtitle, 'utf8')).toBe(original)
+  })
+
+  it('refuses to create an overlay report from a generated SRT with a stale clock', async () => {
+    const prepared = await preparedProject(), channel = callChannel(prepared.project)
+    const subtitlePlan = await plan(prepared.project, join(prepared.project, 'video/02/shot_001.mp4'))
+    await copyFile(prepared.shots, join(prepared.project, 'editing/02-sources.json'))
+    await writePlaceholder(prepared.subtitle + '.clock.json', JSON.stringify({
+      version: 1, srt_sha256: createHash('sha256').update(await readFile(prepared.subtitle)).digest('hex'),
+      source_clock_sha256: '0'.repeat(64),
+    }))
+    const output = join(prepared.project, 'editing/export-overlay.srt')
+    await expect(run({ method: 'subtitle_overlay', project: prepared.project, episode: 2,
+      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, subtitlePlan, output },
+    settingsWith(channel.channel))).rejects.toThrow('生成字幕与当前集、分包素材或切点不一致')
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(channel.calls).toEqual([])
+  })
+
+  it.each([false, true])('keeps the authored SRT when preparing an overlay with normalizeSubtitleText=%s', async (normalizeSubtitleText) => {
     const prepared = await preparedProject(), channel = callChannel(prepared.project)
     const subtitlePlan = await plan(prepared.project, join(prepared.project, 'media/p1-clean.mp4'))
+    const speechTranscripts = join(prepared.project, 'receipts.json')
+    await writeFile(speechTranscripts, '{"shots":[]}')
+    const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
+      font_size_px: 48, outline_px: 2, center_y_ratio: 0.74, max_width_ratio: 0.9 }
+    await writeFile(join(prepared.project, 'project_config.json'), JSON.stringify({ project_bible: { delivery: {
+      width: 480, height: 854, subtitle: { font_size_px: 20 },
+    } } }))
     const result = await run({ method: 'prepare', project: prepared.project, episode: 2, shots: prepared.shots,
-      subtitleSrt: prepared.subtitle, subtitlePlan }, settingsWith(channel.channel))
+      subtitleSrt: prepared.subtitle, subtitlePlan, speechTranscripts },
+    { ...settingsWith(channel.channel), normalizeSubtitleText, defaultSubtitleVisual: visual, enforceSubtitleVisual: true })
     expect(result.subtitle_overlay?.retained_cue_indexes).toEqual([1])
     expect(result.render_preview?.subtitle.path).toBe(result.subtitle_overlay?.resolved_srt)
+    expect(result.warnings.join('\n')).toContain('已有烧录字幕的覆盖计划未自动重新切分')
+    const timeline: unknown = JSON.parse(await readFile(prepared.timeline, 'utf8'))
+    expect(timeline).toMatchObject({ delivery: { subtitle_visual: visual } })
+    expect(timeline).not.toHaveProperty('delivery.subtitle.font_size_px')
     expect(await readFile(join(prepared.project, 'editing/02.srt'), 'utf8')).toContain('台词')
     expect(await readFile(result.subtitle_overlay?.resolved_srt ?? '', 'utf8')).not.toContain('台词')
+  })
+
+  it('does not resplit an overlay candidate even when recognition receipts and display normalization are supplied', async () => {
+    const prepared = await preparedProject(), channel = callChannel(prepared.project)
+    const subtitlePlan = await plan(prepared.project, join(prepared.project, 'media/p1-clean.mp4'))
+    const receipts = join(prepared.project, 'receipts.json')
+    await writeFile(receipts, JSON.stringify({ shots: [] }), 'utf8')
+    const result = await run({ method: 'prepare', project: prepared.project, episode: 2, shots: prepared.shots,
+      subtitleSrt: prepared.subtitle, subtitlePlan, speechTranscripts: receipts },
+    { ...settingsWith(channel.channel), normalizeSubtitleText: true })
+    expect(result.subtitle_overlay?.retained_cue_indexes).toEqual([1])
+    expect(result.warnings.join(' ')).toContain('已有烧录字幕的覆盖计划未自动重新切分')
+    expect(result.render_preview?.subtitle.path).toBe(result.subtitle_overlay?.resolved_srt)
+    expect(await readFile(prepared.subtitle, 'utf8')).toContain('台词')
   })
 
   it('burns only resolved cues and returns their bound report during final render', async () => {
     const prepared = await preparedProject(), channel = callChannel(prepared.project)
     const subtitlePlan = await plan(prepared.project, join(prepared.project, 'video/02/shot_001.mp4'))
+    await writeFile(prepared.subtitle, srtDocument([
+      { start: '00:00:01,680', end: '00:00:03,580', text: '台词' },
+      { start: '00:00:04,000', end: '00:00:05,000', text: '另一句！' },
+    ]))
     const result = await run({ method: 'render', ...prepared, episode: 2, subtitleSrt: prepared.subtitle,
-      lastShot: 1, subtitlePlan }, settingsWith(channel.channel))
+      lastShot: 1, subtitlePlan }, { ...settingsWith(channel.channel), normalizeSubtitleText: true })
     expect(result.subtitle_overlay?.retained_cue_indexes).toEqual([1])
     expect(result.render_preview?.subtitle.path).toBe(result.subtitle_overlay?.resolved_srt)
-    expect(await readFile(join(prepared.project, 'exports/.render_cache/02/display.ass'), 'utf8')).not.toContain('台词')
-    expect(await readFile(prepared.subtitle, 'utf8')).toContain('台词')
+    const ass = await readFile(join(prepared.project, 'exports/.render_cache/02/display.ass'), 'utf8')
+    expect(ass).not.toContain('台词')
+    expect(ass).toContain('另一句')
+    expect(ass).not.toContain('！')
+    expect(await readFile(prepared.subtitle, 'utf8')).toContain('另一句！')
     expect(result.written).toContain(result.subtitle_overlay?.decision_report)
+  })
+
+  it('passes display normalization into the overlay used by final render', async () => {
+    const prepared = await preparedProject(), channel = callChannel(prepared.project)
+    const subtitlePlan = await plan(prepared.project, join(prepared.project, 'video/02/shot_001.mp4'))
+    const result = await run({ method: 'render', ...prepared, episode: 2, subtitleSrt: prepared.subtitle,
+      lastShot: 1, subtitlePlan }, { ...settingsWith(channel.channel), normalizeSubtitleText: true })
+    expect(result.subtitle_overlay?.retained_cue_indexes).toEqual([1])
+    expect(await readFile(prepared.subtitle, 'utf8')).toContain('台词')
   })
 
   it('does not silently accept the plan on an unsupported operation', () => {
@@ -316,6 +625,21 @@ describe('subtitle overlay application', () => {
     expect(result.ending_effect).toEqual({ fit: 'stretch_to_window', source_duration_seconds: 1.02,
       target_duration_seconds: 2, speed: 0.51 })
     expect(channel.calls.some(call => call.args.some(arg => arg.includes('setpts=(PTS-STARTPTS)/0.51')))).toBe(true)
+  })
+
+  it.each([
+    [undefined, 'stretch_to_window', 0.51],
+    ['source_once', 'source_once', 1],
+  ] as const)('uses configured ending fit only when the timeline omits it: %s', async (explicit, expected, speed) => {
+    const prepared = await preparedProject(), channel = callChannel(prepared.project)
+    if (explicit !== undefined) {
+      await writePlaceholder(prepared.timeline, JSON.stringify({ ...JSON.parse(await readFile(prepared.timeline, 'utf8')),
+        ending_effect_fit: explicit }))
+    }
+    const result = await run({ method: 'render', ...prepared, episode: 2, subtitleSrt: prepared.subtitle, lastShot: 1 },
+      { ...settingsWith(channel.channel), defaultEndingEffectFit: 'stretch_to_window' })
+    expect(result.ending_effect?.fit).toBe(expected)
+    expect(result.ending_effect?.speed).toBe(speed)
   })
 })
 
@@ -343,6 +667,22 @@ describe('Config', () => {
       .toMatchObject({ subtitleFontFamily: 'Noto Sans CJK SC', watermarkFontFamily: '思源黑体', fontsDir: 'C:/Windows/Fonts' })
   })
 
+  it('validates and carries the deployment subtitle target without changing non-product defaults', () => {
+    const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
+      font_size_px: 48, outline_px: 2, center_y_ratio: 0.736747073, max_width_ratio: 0.9 }
+    expect(resolveSettings(Config({ defaultSubtitleVisual: visual, normalizeSubtitleText: true, enforceSubtitleVisual: true })))
+      .toMatchObject({ defaultSubtitleVisual: visual, normalizeSubtitleText: true, enforceSubtitleVisual: true })
+    expect(resolveSettings(Config({})).defaultSubtitleVisual).toBeUndefined()
+    expect(resolveSettings(Config({})).enforceSubtitleVisual).toBeUndefined()
+    expect(() => resolveSettings(Config({ enforceSubtitleVisual: true }))).toThrow('产品字幕视觉配置缺失')
+    expect(() => Config({ defaultSubtitleVisual: { ...visual, font_size_px: -1 } })).toThrow()
+    expect(() => Config({ defaultSubtitleVisual: { ...visual, center_y_ratio: 2 } })).toThrow()
+  })
+
+  it('carries an explicit ending fit into runtime settings', () => {
+    expect(resolveSettings({ defaultEndingEffectFit: 'stretch_to_window' }).defaultEndingEffectFit).toBe('stretch_to_window')
+  })
+
   it('rejects a gain outside the audible range', () => {
     expect(() => Config({ masterVolume: 12 })).toThrow()
   })
@@ -356,6 +696,7 @@ describe('resolveSettings', () => {
       masterVolume: 1.2,
       bgmVolume: 0.3,
       maxBgmVolume: 1,
+      defaultEndingEffectFit: 'source_once',
       preferNvenc: false,
       fontsDir: 'D:/Fonts',
       subtitleFontFamily: 'Noto Sans CJK SC',
@@ -366,6 +707,7 @@ describe('resolveSettings', () => {
       masterVolume: 1.2,
       bgmVolume: 0.3,
       maxBgmVolume: 1,
+      defaultEndingEffectFit: 'source_once',
       preferNvenc: false,
       fontsDir: 'D:/Fonts',
       subtitleFontFamily: 'Noto Sans CJK SC',
@@ -633,6 +975,244 @@ describe('runDramaRender', () => {
     expect(report.written).toContain(join(files.project, 'audio', '02.wav'))
   })
 
+  it('returns a separate normalized subtitle candidate for both delivery consumers without changing the source', async () => {
+    const files = await preparedProject()
+    const source = '1\n00:00:01,000 --> 00:00:02,000\n你好，\n世界！\n'
+    await writeFile(files.subtitle, source, 'utf8')
+    const report = await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle },
+    { ...settingsWith(callChannel(files.project).channel), normalizeSubtitleText: true })
+    const candidate = report.render_preview?.subtitle.path
+    expect(candidate).toBeTruthy()
+    expect(candidate).not.toBe(files.subtitle)
+    expect(report.written).toContain(candidate)
+    expect(await readFile(candidate as string, 'utf8')).toContain('你好 世界')
+    expect(await readFile(files.subtitle, 'utf8')).toBe(source)
+  })
+
+  it('records omitted punctuation-only cue intervals beside the shared candidate without rewriting the source', async () => {
+    const files = await preparedProject()
+    const source = '1\n00:00:01,000 --> 00:00:02,000\n！\n\n2\n00:00:02,000 --> 00:00:03,000\n你好。\n'
+    await writeFile(files.subtitle, source, 'utf8')
+    const report = await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle },
+    { ...settingsWith(callChannel(files.project).channel), normalizeSubtitleText: true })
+    const candidate = report.render_preview?.subtitle.path as string
+    expect(await readFile(candidate, 'utf8')).not.toContain('！')
+    expect(await readFile(candidate, 'utf8')).toContain('你好')
+    expect(await readFile(`${candidate}.review.txt`, 'utf8')).toContain('1.000–2.000 秒')
+    expect(report.warnings.join(' ')).toContain('勿据此认定该时段无对白')
+    expect(report.written).toContain(`${candidate}.review.txt`)
+    expect(await readFile(files.subtitle, 'utf8')).toBe(source)
+  })
+
+  it('keeps a normalized candidate when optional recognition evidence cannot be read', async () => {
+    const files = await preparedProject()
+    const original = '1\n00:00:01,000 --> 00:00:02,000\n你好，世界！\n'
+    await writeFile(files.subtitle, original, 'utf8')
+    const review = vi.spyOn(Speech, 'reviewSpeechCoverage').mockRejectedValueOnce(new Error('recognition unavailable'))
+    let report: DramaRenderReport
+    try {
+      report = await run({ method: 'prepare', project: files.project, episode: 2,
+        shots: files.shots, subtitleSrt: files.subtitle, speechTranscripts: 'receipts.json' },
+      { ...settingsWith(callChannel(files.project).channel), normalizeSubtitleText: true })
+    } finally {
+      review.mockRestore()
+    }
+    expect(report.warnings.join(' ')).toContain('现有词级转写或字形测量不可用')
+    expect(report.warnings.join(' ')).toContain('recognition unavailable')
+    expect(await readFile(report.render_preview?.subtitle.path ?? '', 'utf8')).toContain('你好 世界')
+    expect(await readFile(files.subtitle, 'utf8')).toBe(original)
+  })
+
+  it('reports omitted display intervals when inspecting a normalized subtitle layout', async () => {
+    const files = await preparedProject()
+    const source = srtDocument([{ start: '00:00:01,000', end: '00:00:02,000', text: '！' }])
+    await writeFile(files.subtitle, source)
+    const report = await run({ method: 'subtitle_layout', project: files.project, episode: 2,
+      timeline: files.timeline, subtitleSrt: files.subtitle },
+    { ...settingsWith(callChannel(files.project).channel), normalizeSubtitleText: true })
+    expect(report.subtitle_layout?.status).toBe('not_requested')
+    expect(report.warnings.join('\n')).toContain('勿据此认定该时段无对白')
+    expect(await readFile(files.subtitle, 'utf8')).toBe(source)
+  })
+
+  it('keeps repeated cues and reports unmeasured width when no visual is configured', async () => {
+    const files = await preparedProject()
+    await writeFile(files.subtitle, srtDocument([
+      { start: '00:00:01,000', end: '00:00:02,000', text: '同一句！' },
+      { start: '00:00:03,000', end: '00:00:04,000', text: '同一句！' },
+    ]))
+    const speechTranscripts = join(files.project, 'receipts.json')
+    await writeFile(speechTranscripts, '{"shots":[]}')
+    const report = await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle, speechTranscripts },
+    { ...settingsWith(callChannel(files.project).channel), normalizeSubtitleText: true })
+    expect(report.warnings.filter(warning => warning.includes('宽度未测得'))).toHaveLength(2)
+    const candidate = report.render_preview?.subtitle.path ?? ''
+    expect((await readFile(candidate, 'utf8')).match(/^同一句$/gmu)).toHaveLength(2)
+  })
+
+  it('reports invalid speech comparison timing without discarding the display candidate', async () => {
+    const files = await preparedProject()
+    await writeFile(files.subtitle, srtDocument([{ start: '00:00:01,000', end: '00:00:01,000', text: '台词！' }]))
+    const speechTranscripts = join(files.project, 'receipts.json')
+    await writeFile(speechTranscripts, '{"shots":[]}')
+    const report = await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle, speechTranscripts },
+    { ...settingsWith(callChannel(files.project).channel), normalizeSubtitleText: true })
+    expect(report.warnings.join('\n')).toContain('最终 SRT 含无效时间')
+    expect(await readFile(report.render_preview?.subtitle.path ?? '', 'utf8')).toContain('台词')
+  })
+
+  it('prepares a shared single-line candidate from source-bound word times and measured widths', async () => {
+    const files = await preparedProject()
+    const original = srtDocument([
+      { start: '00:00:01,000', end: '00:00:04,000', text: '今天我们一起去做饭！' },
+      { start: '00:00:05,000', end: '00:00:08,000', text: '今天我们一起去做饭！' },
+    ])
+    await writeFile(files.subtitle, original, 'utf8')
+    const audio = join(files.project, 'media', 'p1-clean.mp4')
+    const hash = createHash('sha256').update(await readFile(audio)).digest('hex')
+    await mkdir(join(files.project, 'transcript', 'jobs'), { recursive: true })
+    await mkdir(join(files.project, 'transcript', 'raw'), { recursive: true })
+    const receipt = join(files.project, 'transcript', 'jobs', 'p1-v1.json')
+    await writeFile(receipt, JSON.stringify({ status: 'complete', source: audio, sourceSha256: hash, stem: 'p1', version: 1 }))
+    const words = ['今天', '我们', '一起', '去', '做饭'].map((text, i) => ({ text, start: 1 + i * 0.5, end: 1.4 + i * 0.5 }))
+    await writeFile(join(files.project, 'transcript', 'raw', 'p1-v1.json'), JSON.stringify([{ start: 1, end: 4,
+      text: words.map(word => word.text).join(''), words }]))
+    const mapping = join(files.project, 'receipts.json')
+    await writeFile(mapping, JSON.stringify({ shots: [{ shot: 1, receipt }] }))
+    const underlying = callChannel(files.project).channel
+    const channel: ProcessChannel = { run: async (command, args) => {
+      const inputIndex = args.findIndex(arg => arg.startsWith('[0:v]'))
+      if (inputIndex < 0) return await underlying.run(command, args)
+      const filter = args[inputIndex] ?? ''
+      const assPath = /ass='([^']+)'/u.exec(filter)?.[1]?.replace(/\\:/gu, ':')
+      if (assPath === undefined) throw new Error(`Missing ASS path: ${filter}`)
+      const document = await readFile(assPath, 'utf8')
+      const text = (document.split('\n').find(line => line.startsWith('Dialogue:'))?.split(',').at(-1) ?? '')
+        .replace(/^.*\}/u, '')
+      const width = Array.from(text).length > 4 ? 2000 : 100
+      for (const path of args.filter(arg => arg.endsWith('.png'))) await writeFile(path, 'fake image')
+      return { code: 0, stdout: '', stderr: `[Parsed_bbox] x1:400 x2:${String(399 + width)} y1:100 y2:119 w:${String(width)} h:20` }
+    } }
+    const report = await run({ method: 'prepare', project: files.project, episode: 2, shots: files.shots,
+      subtitleSrt: files.subtitle, speechTranscripts: mapping }, { ...settingsWith(channel), normalizeSubtitleText: true,
+      defaultSubtitleVisual: { schema_version: 1, reference_width: 480, reference_height: 854,
+        font_size_px: 48, outline_px: 2, center_y_ratio: 0.736747073, max_width_ratio: 0.9 } })
+    const candidate = report.render_preview?.subtitle.path
+    expect(candidate).toBeTruthy()
+    const text = await readFile(candidate as string, 'utf8')
+    expect(text).toContain('今天我们')
+    expect(text).toContain('一起去')
+    expect(text).toContain('做饭')
+    expect(text, report.warnings.join('\n')).toContain('00:00:02,000')
+    expect(text).toContain('00:00:05,000 --> 00:00:08,000\n今天我们一起去做饭')
+    expect(text).not.toContain('！')
+    expect(await readFile(files.subtitle, 'utf8')).toBe(original)
+
+    // Without an explicit visual profile the measurement is unavailable. Repeated
+    // text must reuse that unknown result and preserve both original cue times.
+    await writeFile(files.subtitle, original, 'utf8')
+    const unavailable = await run({ method: 'prepare', project: files.project, episode: 2, shots: files.shots,
+      subtitleSrt: files.subtitle, speechTranscripts: mapping },
+    { ...settingsWith(channel), normalizeSubtitleText: true })
+    expect(unavailable.warnings.filter(warning => warning.includes('宽度未测得'))).toHaveLength(2)
+    const unchanged = await readFile(unavailable.render_preview?.subtitle.path ?? '', 'utf8')
+    expect(unchanged).toContain('00:00:01,000 --> 00:00:04,000')
+    expect(unchanged).toContain('00:00:05,000 --> 00:00:08,000')
+  })
+
+  it.each(['absent', 'missing an ending fit'] as const)('captures the deployment ending fit when the old timeline is %s', async (prior) => {
+    const files = await preparedProject()
+    if (prior === 'absent') await rm(files.timeline)
+    await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle },
+    { ...settingsWith(callChannel(files.project).channel), defaultEndingEffectFit: 'stretch_to_window' })
+    const timeline: unknown = JSON.parse(await readFile(join(files.project, 'editing/02-timeline.json'), 'utf8'))
+    expect(timeline).toMatchObject({ ending_effect_fit: 'stretch_to_window' })
+  })
+
+  it('installs the enforced product subtitle visual into a legacy project timeline', async () => {
+    const files = await preparedProject()
+    const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
+      font_size_px: 48, outline_px: 2, center_y_ratio: 0.736747073, max_width_ratio: 0.9 }
+    await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle },
+    { ...settingsWith(callChannel(files.project).channel), defaultSubtitleVisual: visual, enforceSubtitleVisual: true })
+    expect(JSON.parse(await readFile(files.timeline, 'utf8'))).toMatchObject({
+      delivery: { subtitle_visual: visual },
+    })
+  })
+
+  it.each([
+    ['source_once', 'stretch_to_window'], ['stretch_to_window', 'source_once'],
+  ] as const)('preserves existing ending choice %s when preparing again', async (previous, configured) => {
+    const files = await preparedProject()
+    await writePlaceholder(files.timeline, JSON.stringify({ ...JSON.parse(await readFile(files.timeline, 'utf8')),
+      ending_effect_fit: previous }))
+    await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle },
+    { ...settingsWith(callChannel(files.project).channel), defaultEndingEffectFit: configured })
+    const timeline: unknown = JSON.parse(await readFile(files.timeline, 'utf8'))
+    expect(timeline).toMatchObject({ ending_effect_fit: previous })
+  })
+
+  it.each([
+    ['{"ending_effect_fit":"legacy-fit"}', '旧时间线的片尾适配值无效'],
+    ['{', '旧时间线无法解析'],
+  ])('reports unusable prior ending metadata and writes the deployment fit', async (prior, warning) => {
+    const files = await preparedProject()
+    await writeFile(files.timeline, prior)
+    const report = await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle },
+    { ...settingsWith(callChannel(files.project).channel), defaultEndingEffectFit: 'stretch_to_window' })
+    expect(report.warnings.join('\n')).toContain(warning)
+    expect(JSON.parse(await readFile(files.timeline, 'utf8'))).toMatchObject({ ending_effect_fit: 'stretch_to_window' })
+  })
+
+  it('propagates a timeline read error other than a missing file', async () => {
+    const files = await preparedProject(), channel = callChannel(files.project)
+    await rm(files.timeline)
+    await mkdir(files.timeline)
+    await expect(run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle },
+    { ...settingsWith(channel.channel), defaultEndingEffectFit: 'stretch_to_window' })).rejects.toMatchObject({ code: 'EISDIR' })
+    expect(channel.calls).toEqual([])
+  })
+
+  it.each([
+    ['stretch_to_window', JSON.stringify({ ending_effect_fit: 'stretch_to_window' }), 'stretch_to_window', ''],
+    ['invalid value', JSON.stringify({ ending_effect_fit: 'unknown' }), 'source_once', '旧时间线的片尾适配值无效'],
+    ['malformed JSON', '{', 'source_once', '旧时间线无法解析'],
+    ['unrelated JSON', JSON.stringify({ legacy: true }), 'source_once', ''],
+    ['null JSON', 'null', 'source_once', ''],
+  ] as const)('uses the deployment fit after reading a %s prior timeline', async (_case, previous, fit, warning) => {
+    const files = await preparedProject()
+    await writeFile(files.timeline, previous, 'utf8')
+    const report = await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle },
+    { ...settingsWith(callChannel(files.project).channel), defaultEndingEffectFit: 'source_once' })
+    expect(JSON.parse(await readFile(files.timeline, 'utf8'))).toMatchObject({ ending_effect_fit: fit })
+    if (warning) expect(report.warnings.join(' ')).toContain(warning)
+    else expect(report.warnings.join(' ')).not.toContain('旧时间线')
+  })
+
+  it('ignores a missing prior timeline but surfaces a different read failure', async () => {
+    const files = await preparedProject()
+    await rm(files.timeline)
+    const args = { method: 'prepare' as const, project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle }
+    const settings = { ...settingsWith(callChannel(files.project).channel),
+      defaultEndingEffectFit: 'source_once' as const }
+    await run(args, settings)
+    expect(JSON.parse(await readFile(files.timeline, 'utf8'))).toMatchObject({ ending_effect_fit: 'source_once' })
+    await rm(files.timeline)
+    await mkdir(files.timeline)
+    await expect(runDramaRender(args, settings)).rejects.toMatchObject({ code: 'EISDIR' })
+  })
+
   it('renders the episode and reports the measured delivery', async () => {
     const files = await preparedProject()
     const report = await run({
@@ -652,6 +1232,20 @@ describe('runDramaRender', () => {
     expect(report.expected_duration_seconds).toBe(116.733332)
     expect(report.log_path.length).toBeGreaterThan(0)
     expect(await readFile(report.log_path, 'utf8')).toContain('encoder=h264_nvenc')
+  })
+
+  it('reports the normalized SRT actually burned by the render without modifying the supplied source', async () => {
+    const files = await preparedProject(), channel = callChannel(files.project)
+    const source = '1\n00:00:01,000 --> 00:00:02,000\n你好，\n世界！\n'
+    await writeFile(files.subtitle, source, 'utf8')
+    const report = await run({ method: 'render', ...files, episode: 2, subtitleSrt: files.subtitle, lastShot: 1 },
+      { ...settingsWith(channel.channel), normalizeSubtitleText: true })
+    const candidate = report.render_preview?.subtitle.path
+    expect(candidate).toBeTruthy()
+    expect(report.written).toContain(candidate)
+    expect(await readFile(candidate as string, 'utf8')).toContain('你好 世界')
+    expect(await readFile(join(files.project, 'exports/.render_cache/02/display.ass'), 'utf8')).toContain('你好 世界')
+    expect(await readFile(files.subtitle, 'utf8')).toBe(source)
   })
 
   it('verifies a delivered file and reports every check', async () => {

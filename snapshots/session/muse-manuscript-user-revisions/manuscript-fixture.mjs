@@ -20,7 +20,8 @@ export const inject = ['tools', 'fs', 'attachments', 'sandboxPolicy', 'sessionPr
 export async function apply(ctx, { correctionTool = 'bash' } = {}) {
   assert.ok(correctionTool === 'bash' || correctionTool === 'pwsh', 'correctionTool must be bash or pwsh')
   await ctx.plugin(video, { requireCompleteReview: true })
-  await ctx.plugin(revisions)
+  // Retired-tool input covers revision retention and present baselines without continuity declarations.
+  await ctx.plugin(revisions, { continuityDeliveryChecks: false })
   await ctx.plugin(present)
   const originalStat = ctx.fs.stat.bind(ctx.fs)
   ctx.effect(() => {

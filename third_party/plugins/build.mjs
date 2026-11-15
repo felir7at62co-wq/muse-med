@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { parseArgs } from 'node:util'
+import { pathToFileURL } from 'node:url'
 import { applyMuseBotDesktopCompatibility, museBotDesktopCompatibility } from './compatibility/muse-bot-desktop.mjs'
 import { applyMcpDesktopCompatibility, mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
 import { applyBridgeDesktopCompatibility, bridgeDesktopCompatibility } from './compatibility/bridge-desktop.mjs'
@@ -15,6 +16,10 @@ import { applyCodexModelVisibility } from './compatibility/codex-model-visibilit
 import { applyCodexPiAiCompatibility, codexPiAiVersion } from './compatibility/codex-pi-ai.mjs'
 import { applyHongguoHostCompatibility, hongguoHostCompatibility } from './compatibility/hongguo-host.mjs'
 import { hostRuntimeCompatibility, qualifyCommunityManifest, reviewedHostVersion, reviewedVendorVersions } from './compatibility/host-runtime.mjs'
+import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs'
+import { selectCommunitySources } from './source-selection.mjs'
+import { assertCommunitySourceIntegrity } from './source-integrity.mjs'
+import { applySubscriptionsDesktopCompatibility, finishSubscriptionsDesktopCompatibility, subscriptionsDesktopCompatibility } from './compatibility/subscriptions-desktop.mjs'
 
 const sourceRoot = import.meta.dirname
 const repository = resolve(sourceRoot, '../..')
@@ -23,14 +28,14 @@ const pins = JSON.parse(readFileSync(join(sourceRoot, 'sources.json'), 'utf8'))
 const tools = JSON.parse(readFileSync(join(toolchain, 'package.json'), 'utf8'))
 const { values } = parseArgs({ options: { out: { type: 'string' }, only: { type: 'string' } } })
 if (!values.out) throw new Error('community plugins: --out is required')
-if (values.only && !Object.hasOwn(pins, values.only)) throw new Error(`community plugins: unknown source ${values.only}`)
-const pnpm = process.env.npm_execpath
-if (!pnpm) throw new Error('community plugins: invoke through pnpm --dir third_party/plugins/toolchain run build')
+const selectedSources = selectCommunitySources(pins, values.only)
+if (!process.env.npm_execpath) throw new Error('community plugins: invoke through pnpm --dir third_party/plugins/toolchain run build')
+const pnpm = resolvePnpmEntrypoint(join(repository, 'node_modules/pnpm/package.json'))
 const output = resolve(values.out)
 mkdirSync(output, { recursive: true })
 
 function run(args, cwd, environment = {}) {
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_/iu.test(key)))
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_|^NODE_PATH$/iu.test(key)))
   Reflect.deleteProperty(env, 'MUSE_HOME')
   Reflect.deleteProperty(env, 'MUSE_MED_HOME')
   Object.assign(env, environment)
@@ -79,10 +84,10 @@ for (const entry of readdirSync(join(repository, 'vendor'), { withFileTypes: tru
 const hostPiAi = realpathSync(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai'))
 const hostPiAiVersion = JSON.parse(readFileSync(join(hostPiAi, 'package.json'), 'utf8')).version
 if (hostPiAiVersion !== codexPiAiVersion) throw new Error(`community plugins: pi-ai ${hostPiAiVersion} needs a new compatibility review`)
-run([pnpm, 'install', '--ignore-workspace', '--frozen-lockfile', '--ignore-scripts'], toolchain)
+run([pnpm, 'install', '--frozen-lockfile', '--ignore-scripts'], toolchain)
 
-const desktopSources = Object.keys(pins).filter(name => pins[name].desktop !== false)
-for (const name of values.only ? [values.only] : desktopSources) {
+for (const name of selectedSources) {
+  assertCommunitySourceIntegrity(join(sourceRoot, name), pins[name])
   const staging = mkdtempSync(join(output, '.source-build-'))
   const links = []
   try {
@@ -94,6 +99,7 @@ for (const name of values.only ? [values.only] : desktopSources) {
     if (!readFileSync(join(directory, 'LICENSE'), 'utf8').trim()) throw new Error(`community plugins: ${name} has no license`)
     const modules = join(directory, 'node_modules')
     linkDependencies(modules, links)
+    cpSync(join(sourceRoot, 'checks/tool-call.mjs'), join(directory, '.muse-tool-call.mjs'))
     if (name === 'dsh-bridge') {
       applyBridgeDesktopCompatibility(directory)
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
@@ -117,7 +123,26 @@ for (const name of values.only ? [values.only] : desktopSources) {
     }
     const tsc = join(toolchain, 'node_modules/typescript/bin/tsc')
     const tsdown = join(toolchain, 'node_modules/tsdown/dist/run.mjs')
-    if (name === 'dsh-codex-subscription') {
+    if (name === 'dsh-plugin-subscriptions') {
+      applySubscriptionsDesktopCompatibility(directory)
+      manifest.peerDependencies['@deepseek-ai/dsh-credentials'] = hostVersion
+      delete manifest.types
+      for (const entry of Object.values(manifest.exports)) if (typeof entry === 'object') delete entry.types
+      writeFileSync(join(directory, '.muse-tsdown.ts'), `import configs from './tsdown.prepare.config.ts'\nexport default configs.map((config, index) => ({ ...config, ...(index === 0 ? { entry: { upstream: 'src/index.ts', 'muse-accounts': 'src/providers/accounts.ts', 'muse-image-tool': 'src/tools/image-generate.ts' } } : {}), sourcemap: false, clean: false }))\n`)
+      run([tsdown, '--config', '.muse-tsdown.ts'], directory)
+      finishSubscriptionsDesktopCompatibility(directory)
+      run(['--import', pathToFileURL(join(repository, 'node_modules/tsx/dist/esm/index.mjs')).href, '--test',
+        ...['subscriptions-migration', 'subscriptions-legacy-alias', 'subscriptions-recovery'].map(test => `third_party/plugins/compatibility/${test}.test.mjs`)], repository, {
+        DSH_HOME: join(staging, 'compatibility-home'), TSX_TSCONFIG_PATH: join(repository, 'tsconfig.base.json'),
+      })
+      run(['--import', pathToFileURL(join(repository, 'node_modules/tsx/dist/esm/index.mjs')).href, '--test', '--test-concurrency=1',
+        ...['request-body', 'sse-lifecycle', 'translate', 'store', 'accounts', 'account-replay', 'image-pool', 'tools', 'tool-registration', 'rpc', 'models', 'codex-search'].map(test => `test/${test}.spec.ts`)], directory)
+      cpSync(join(sourceRoot, 'checks/subscriptions-host-loader.mjs'), join(directory, '.muse-subscriptions-host.test.mjs'))
+      run(['--test', '.muse-subscriptions-host.test.mjs'], directory)
+      run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/subscriptions-client.client.spec.tsx'], repository, {
+        MUSE_SUBSCRIPTIONS_CLIENT_BUNDLE: join(directory, 'lib/client.js'), DSH_HOME: join(staging, 'client-test-home'),
+      })
+    } else if (name === 'dsh-codex-subscription') {
       applyCodexPiAiCompatibility(directory)
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
       applyCodexModelVisibility(directory)
@@ -147,8 +172,28 @@ export function codexFilesystemPath(value) {
       run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/codex-subscription-client.client.spec.tsx'], repository, {
         MUSE_CODEX_CLIENT_BUNDLE: join(directory, 'lib/client.js'), DSH_HOME: join(staging, 'client-test-home'),
       })
-    } else if (name === 'ds-bot') {
+    } else if (name === 'dsh-visualize') {
+      for (const index of [0, 1]) {
+        writeFileSync(join(directory, '.muse-tsdown.ts'), `import configs from './tsdown.config.ts'\nexport default { ...configs[${index}], clean: ${index === 0} }\n`)
+        run([tsdown, '--config-loader', 'native', '--config', '.muse-tsdown.ts'], directory)
+      }
+      for (const [path, record] of Object.entries(pins[name].localModifications?.files ?? {})) {
+        if (!path.startsWith('lib/')) continue
+        const hash = createHash('sha256').update(readFileSync(join(directory, path))).digest('hex')
+        if (hash !== record.sha256) throw new Error(`community plugins: rebuilt retained artifact mismatch: ${path}`)
+      }
+      run([join(toolchain, 'node_modules/vitest/vitest.mjs'), 'run', '--config', 'vitest.config.ts'], directory)
+      run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/visualize-client.client.spec.tsx'], repository, {
+        MUSE_VISUALIZE_CLIENT_BUNDLE: join(directory, 'lib/client.js'), DSH_HOME: join(staging, 'client-test-home'),
+      })
+    } else if (name === 'ds-bot' || name === 'deep-view') {
       run(['scripts/build-client.mjs'], directory)
+      if (name === 'deep-view') {
+        run(['--import', './test/harness-resolve.mjs', '--test', '--test-concurrency=1', 'test/*.test.js'], directory, { DSH_HARNESS: repository })
+        run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/deep-view-client.client.spec.tsx'], repository, {
+          MUSE_DEEP_VIEW_CLIENT_BUNDLE: join(directory, 'client.js'), DSH_HOME: join(staging, 'client-test-home'),
+        })
+      }
     } else if (name === 'dsh-im') {
       run(['plugin-src/client/build.mjs'], directory, { NODE_ENV: 'production' })
       run(['plugin-src/host/build.mjs'], directory)
@@ -188,11 +233,11 @@ export function codexFilesystemPath(value) {
     }
     if (name === 'dsh-im') {
       cpSync(join(sourceRoot, 'checks/expected/im-host-transcript.json'), join(directory, 'expected/im-host-transcript.json'))
-      for (const check of ['im-migration', 'im-admission', 'im-host-runtime', 'im-socket', 'im-files', 'im-workspace', 'im-team']) {
+      for (const check of ['im-migration', 'im-admission', 'im-host-runtime', 'im-native-session', 'im-socket', 'im-files', 'im-workspace', 'im-team']) {
         cpSync(join(sourceRoot, 'checks', `${check}.mjs`), join(directory, `.muse-${check}.test.mjs`))
       }
       run(['--test', '--test-concurrency=1', '--test-timeout=30000',
-        '.muse-im-migration.test.mjs', '.muse-im-admission.test.mjs', '.muse-im-host-runtime.test.mjs', '.muse-im-socket.test.mjs', '.muse-im-files.test.mjs', '.muse-im-workspace.test.mjs', '.muse-im-team.test.mjs'], directory)
+        '.muse-im-migration.test.mjs', '.muse-im-admission.test.mjs', '.muse-im-host-runtime.test.mjs', '.muse-im-native-session.test.mjs', '.muse-im-socket.test.mjs', '.muse-im-files.test.mjs', '.muse-im-workspace.test.mjs', '.muse-im-team.test.mjs'], directory)
     }
     if (name === 'dsh-skill-mcp-panel') {
       cpSync(join(sourceRoot, 'checks/mcp-desktop-runtime.mjs'), join(directory, '.muse-mcp.test.mjs'))
@@ -211,10 +256,15 @@ export function codexFilesystemPath(value) {
     if (name === 'dsh-codex-subscription') {
       writeFileSync(join(directory, 'BUNDLED_LICENSES.md'), `# Bundled dependency licenses\n\n## @heroicons/react ${tools.dependencies['@heroicons/react']}\n\n${readFileSync(join(toolchain, 'node_modules/@heroicons/react/LICENSE'), 'utf8')}`)
     }
+    if (name === 'ds-bot') {
+      const licenses = ['deep-view', '@xmldom/xmldom'].map(dependency => `## ${dependency} ${tools.dependencies[dependency]}\n\n${readFileSync(join(toolchain, 'node_modules', dependency, 'LICENSE'), 'utf8')}`)
+      writeFileSync(join(directory, 'BUNDLED_LICENSES.md'), `# Bundled dependency licenses\n\n${licenses.join('\n\n')}`)
+    }
     rmSync(join(directory, 'lib/tsconfig.tsbuildinfo'), { force: true })
     writeFileSync(join(directory, 'SOURCE.json'), `${JSON.stringify({
       upstream: pins[name], hostVersion, hostRuntimeCompatibility,
-      compatibilityOverlay: name === 'dsh-codex-subscription'
+      compatibilityOverlay: name === 'dsh-plugin-subscriptions' ? subscriptionsDesktopCompatibility
+        : name === 'dsh-codex-subscription'
         ? { subagentRuntimeVersion: hostVersion, piAiVersion: codexPiAiVersion, piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true, opaqueModelMenus: true, viewportAnchoredModelMenus: true }
         : name === 'dshmarket' ? { catalogExport: './catalog' }
           : name === 'dsh-bridge' ? bridgeDesktopCompatibility

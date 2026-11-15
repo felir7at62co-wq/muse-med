@@ -1,4 +1,8 @@
+import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { afterEach, describe, expect, it } from 'vitest'
+import { unsupportedModel, provideWorkingDirectoryFixture, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -10,12 +14,12 @@ import {
   SESSION_FORMAT_VERSION, Session, SessionId, type SessionEvent, type UserMessage,
 } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import AgentRegistry, { agentEvents, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
-import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -53,8 +57,11 @@ async function writeSkill(root: string, name: string, description: string, body:
 
 async function setup(home: string, config: toolSkill.Config = {}): Promise<Context> {
   const ctx = new Context()
+  provideWorkingDirectoryFixture(ctx, home)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SkillRegistry)
   await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), museHome: join(home, '.muse'), agentsHome: join(home, '.agents'), watch: false })
@@ -72,6 +79,7 @@ function agentForCwd(cwd: string): Agent {
     id,
     options: {},
     session,
+    model: unsupportedModel(),
     inbox: unsupportedInbox(),
     status: 'idle',
     send: () => {},
@@ -89,6 +97,7 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     id: SessionId(id),
     options: {},
     session,
+    model: unsupportedModel(),
     inbox: unsupportedInbox(),
     status: 'running',
     ctx: new Context(),
@@ -115,7 +124,7 @@ async function fireStep(ctx: Context, agent: Agent, turn: number, step: number):
   const signal = new AbortController().signal
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    { messages: [], turn, step, signal },
+    { modelSelection: { provider: 'mock', model: 'mock' }, messages: [], turn, step, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
   )
   if (decision.kind === 'enter') {
@@ -133,7 +142,7 @@ async function proposeStep(
   const signal = new AbortController().signal
   return await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    { messages, turn: 1, step: 1, signal },
+    { modelSelection: { provider: 'mock', model: 'mock' }, messages, turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages }),
   )
 }
@@ -141,14 +150,6 @@ async function proposeStep(
 function catalogMessages(session: Session): Extract<SessionEvent, { type: 'user/message' }>[] {
   return session.snapshotEvents().filter((event): event is Extract<SessionEvent, { type: 'user/message' }> => event.type === 'user/message'
     && event.data.source.kind === 'skill-catalog')
-}
-
-function readableCatalog(event: Extract<SessionEvent, { type: 'user/message' }>): boolean {
-  const entries = (event.data.source as { entries?: unknown }).entries
-  return Array.isArray(entries)
-    && entries.every(entry => typeof entry === 'object' && entry !== null
-      && typeof (entry as { name?: unknown }).name === 'string'
-      && typeof (entry as { description?: unknown }).description === 'string')
 }
 
 function catalogContent(entries: string[]): Message['content'] {
@@ -165,7 +166,7 @@ async function composePrefix(ctx: Context, cwd: string, signal = new AbortContro
 async function composePrefixForAgent(ctx: Context, agent: Agent, signal = new AbortController().signal): Promise<Message[]> {
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    { messages: [], turn: 1, step: 1, signal },
+    { modelSelection: { provider: 'mock', model: 'mock' }, messages: [], turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
   )
   if (decision.kind === 'enter') {
@@ -188,8 +189,11 @@ async function mintAgentScope(ctx: Context, subject: string | Agent, parent?: Ag
 describe('dsh-tool-skill', () => {
   it('registers the skill tool schema and removes it on dispose', async () => {
     const ctx = new Context()
+    provideWorkingDirectoryFixture(ctx)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     const home = await tempDir('tool-schema')
     await ctx.plugin(SkillRegistry)
@@ -464,6 +468,43 @@ describe('dsh-tool-skill', () => {
     await fireStep(ctx, agent, 1, 1)
 
     expect(catalogMessages(session)).toEqual([])
+    await composePrefixForAgent(ctx, agent)
+    expect(catalogMessages(session)).toEqual([])
+  })
+
+  it('retains the last complete catalog until an empty removal is confirmed', async () => {
+    const home = await tempDir('tool-incomplete-empty-update')
+    const ctx = await setup(home)
+    const definition = { name: 'recovering-skill', description: 'Recovering skill', source: 'runtime' as const, content: 'Recovered body.' }
+    const unregister = ctx.skills.register(definition)
+    const session = Session.create(SessionId('incomplete-empty-update'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await composePrefixForAgent(ctx, agent)
+    unregister()
+    const unregisterFailure = ctx.skills.registerProvider(() => ({
+      name: 'unavailable',
+      async list() { throw new Error('temporarily unavailable') },
+      async get() { return undefined },
+    }))
+
+    await fireStep(ctx, agent, 1, 1)
+    expect(catalogMessages(session)).toHaveLength(1)
+    expect(catalogMessages(session)[0]?.data.source).toMatchObject({
+      entries: [{ name: 'recovering-skill', description: 'Recovering skill' }],
+    })
+    await fireStep(ctx, agent, 1, 2)
+    expect(catalogMessages(session)).toHaveLength(1)
+
+    unregisterFailure()
+    const unregisterRecovered = ctx.skills.register(definition)
+    await fireStep(ctx, agent, 1, 3)
+    expect(catalogMessages(session)).toHaveLength(1)
+    unregisterRecovered()
+    await fireStep(ctx, agent, 1, 4)
+    expect(catalogMessages(session)[1]?.data.source).toEqual({
+      kind: 'skill-catalog', form: 'catalog', update: true, entries: [],
+    })
   })
 
   it('records an empty baseline across repeated step observations', async () => {
@@ -683,6 +724,7 @@ describe('dsh-tool-skill', () => {
       { kind: 'skill-catalog', form: 'catalog', entries: [null] },
       { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'x' }] },
       { kind: 'skill-catalog', form: 'catalog', entries: [{ description: 'no name' }] },
+      { kind: 'skill-catalog', form: 'catalog', bounded: false, entries: [{ name: 'stale', description: 'Unreadable bound flag' }] },
     ]) {
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'unreadable catalog' }],
@@ -690,11 +732,12 @@ describe('dsh-tool-skill', () => {
       }), { surfaceOp: 'append' })
     }
 
+    const beforeStep = session.seq
     await expect(fireStep(ctx, agent, 1, 1)).resolves.toBeUndefined()
 
-    // None of the six counted as published, so the live catalog lands as a
+    // None of the malformed records count as published, so the live catalog lands as a
     // first publication rather than a replacement.
-    const published = catalogMessages(session).filter(event => readableCatalog(event))
+    const published = catalogMessages(session).filter(event => event.seq >= beforeStep)
     expect(published).toHaveLength(1)
     expect(published[0]?.data.source).toMatchObject({ kind: 'skill-catalog', form: 'catalog' })
     expect(published[0]?.data.source).not.toHaveProperty('update')
@@ -756,7 +799,7 @@ describe('dsh-tool-skill', () => {
     await fireStep(ctx, agent, 1, 1)
     expect(catalogMessages(session)).toHaveLength(1)
 
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: ToolCallId('body-refresh'),
       name: 'skill',
@@ -784,7 +827,7 @@ describe('dsh-tool-skill', () => {
     expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('preset-only-skill')
     expect(JSON.stringify(await composePrefix(ctx, '/workspace/other'))).not.toContain('preset-only-skill')
 
-    const scoped = await ctx.tools.execute({
+    const scoped = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: ToolCallId('scoped-load'),
       name: 'skill',
@@ -794,7 +837,7 @@ describe('dsh-tool-skill', () => {
     expect(scoped.isError).toBe(false)
     expect(JSON.stringify(scoped.content)).toContain('Preset-only body.')
 
-    const foreign = await ctx.tools.execute({
+    const foreign = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: ToolCallId('foreign-load'),
       name: 'skill',
@@ -805,7 +848,7 @@ describe('dsh-tool-skill', () => {
     await scope.dispose()
   })
 
-  it('retains the last-good catalog while any provider discovery is incomplete', async () => {
+  it('keeps readable skills loadable while deferring catalog changes until discovery completes', async () => {
     const home = await tempDir('tool-incomplete-catalog')
     const ctx = await setup(home)
     const disposeStable = ctx.skills.register({
@@ -819,7 +862,7 @@ describe('dsh-tool-skill', () => {
     openMessageTurn(session)
     expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('stable-skill')
 
-    ctx.skills.registerProvider(() => ({
+    const unregisterFailure = ctx.skills.registerProvider(() => ({
       name: 'failing',
       async list() {
         throw new Error('temporarily unavailable')
@@ -828,10 +871,46 @@ describe('dsh-tool-skill', () => {
         return undefined
       },
     }))
-    disposeStable()
     await fireStep(ctx, agent, 1, 1)
 
     expect(catalogMessages(session)).toHaveLength(1)
+    expect(catalogMessages(session)[0]?.data.source).toMatchObject({ entries: [{ name: 'stable-skill' }] })
+    const result = await executeToolFixture(ctx, {
+      signal: testToolSignal, callId: ToolCallId('partial-load'),
+      name: 'skill', arguments: { name: 'stable-skill' }, agent,
+    })
+    expect(result.isError).toBe(false)
+    expect(JSON.stringify(result.content)).toContain('Stable body.')
+    ctx.skills.register({ name: 'new-skill', description: 'New skill', source: 'runtime', content: 'New body.' })
+    disposeStable()
+    await fireStep(ctx, agent, 1, 2)
+    expect(catalogMessages(session)).toHaveLength(1)
+    unregisterFailure()
+    await fireStep(ctx, agent, 1, 3)
+    expect(catalogMessages(session)[1]?.data.source).toMatchObject({ entries: [{ name: 'new-skill' }] })
+    expect(catalogMessages(session)).toHaveLength(2)
+  })
+
+  it('requires complete initial discovery even when one readable skill is known', async () => {
+    const home = await tempDir('tool-partial-initial')
+    const ctx = await setup(home)
+    let complete = false
+    ctx.skills.registerProvider(() => ({
+      name: 'partial',
+      async list() { return { candidates: [], complete } },
+      async get() { return undefined },
+    }))
+    ctx.skills.register({ name: 'readable-skill', description: 'Readable', source: 'runtime', content: 'Body.' })
+    const session = Session.create(SessionId('partial-initial'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await expect(composePrefixForAgent(ctx, agent)).rejects.toThrow('Skill preparation did not complete')
+    expect(catalogMessages(session)).toEqual([])
+    complete = true
+    await fireStep(ctx, agent, 1, 2)
+    expect(catalogMessages(session)).toHaveLength(1)
+    expect(catalogMessages(session)[0]?.data.source).toMatchObject({ entries: [{ name: 'readable-skill' }] })
+    expect(catalogMessages(session)[0]?.data.source).not.toHaveProperty('incomplete')
   })
 
   it('keeps default nested-loader catalogs omitted until scoped ownership is enabled', async () => {
@@ -1147,8 +1226,11 @@ describe('dsh-tool-skill', () => {
   it('validates the catalog description cap', async () => {
     const home = await tempDir('tool-invalid-catalog-cap')
     const ctx = new Context()
+    provideWorkingDirectoryFixture(ctx, home)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), museHome: join(home, '.muse'), agentsHome: join(home, '.agents'), watch: false })
@@ -1163,7 +1245,7 @@ describe('dsh-tool-skill', () => {
     await writeSkill(join(project, '.dsh/skills'), 'project-skill', 'Project skill', 'Project instructions.')
     const ctx = await setup(home)
 
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: ToolCallId('c1'),
       name: 'skill',
@@ -1224,9 +1306,9 @@ describe('dsh-tool-skill', () => {
       content: 'Provider instructions.',
     })
 
-    const opaque = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c2'), name: 'skill', arguments: { name: 'opaque-skill' } })
-    const url = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c3'), name: 'skill', arguments: { name: 'url-skill' } })
-    const provider = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c4'), name: 'skill', arguments: { name: 'provider-skill' } })
+    const opaque = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('c2'), name: 'skill', arguments: { name: 'opaque-skill' } })
+    const url = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('c3'), name: 'skill', arguments: { name: 'url-skill' } })
+    const provider = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('c4'), name: 'skill', arguments: { name: 'provider-skill' } })
 
     if (opaque.content[0]?.type !== 'text' || url.content[0]?.type !== 'text' || provider.content[0]?.type !== 'text') {
       throw new Error('expected text tool results')
@@ -1248,7 +1330,7 @@ describe('dsh-tool-skill', () => {
       content: 'Rogue instructions.',
     })
 
-    const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c5'), name: 'skill', arguments: { name: 'rogue-resource-skill' } })
+    const result = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('c5'), name: 'skill', arguments: { name: 'rogue-resource-skill' } })
 
     expect(result.isError).toBe(true)
     expect(result.error?.info?.code).toBe('INVALID_TOOL_OUTPUT')
@@ -1270,10 +1352,10 @@ describe('dsh-tool-skill', () => {
       content: 'Model-only instructions.',
     })
 
-    const unknown = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'skill', arguments: { name: 'missing' } })
-    const invalid = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c2'), name: 'skill', arguments: { name: 'Bad_Name' } })
-    const disabled = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c3'), name: 'skill', arguments: { name: 'hidden-skill' } })
-    const modelOnly = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c4'), name: 'skill', arguments: { name: 'model-only-skill' } })
+    const unknown = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('c1'), name: 'skill', arguments: { name: 'missing' } })
+    const invalid = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('c2'), name: 'skill', arguments: { name: 'Bad_Name' } })
+    const disabled = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('c3'), name: 'skill', arguments: { name: 'hidden-skill' } })
+    const modelOnly = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('c4'), name: 'skill', arguments: { name: 'model-only-skill' } })
 
     expect(unknown.isError).toBe(true)
     expect(invalid.isError).toBe(true)
@@ -1332,9 +1414,9 @@ describe('dsh-tool-skill', () => {
       },
     }))
 
-    const denied = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c6'), name: 'skill', arguments: { name: 'denied-skill' } })
-    const raced = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c7'), name: 'skill', arguments: { name: 'policy-race-skill' } })
-    const vanished = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c8'), name: 'skill', arguments: { name: 'vanishing-skill' } })
+    const denied = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('c6'), name: 'skill', arguments: { name: 'denied-skill' } })
+    const raced = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('c7'), name: 'skill', arguments: { name: 'policy-race-skill' } })
+    const vanished = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('c8'), name: 'skill', arguments: { name: 'vanishing-skill' } })
 
     expect(denied.isError).toBe(true)
     expect(raced.isError).toBe(true)
@@ -1542,7 +1624,7 @@ describe('user-explicit invocation injection', () => {
     const signal = new AbortController().signal
     const decision = await agentEvents(ctx, agent).waterfall(
       'agent/pre-step',
-      { messages: [gesture('/hidden-demo blocked step')], turn: 1, step: 1, signal },
+      { modelSelection: { provider: 'mock', model: 'mock' }, messages: [gesture('/hidden-demo blocked step')], turn: 1, step: 1, signal },
       () => Promise.resolve({ kind: 'reject' as const }),
     )
     expect(decision).toEqual({ kind: 'reject' })

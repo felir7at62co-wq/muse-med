@@ -1,0 +1,39 @@
+- id: llm-deepseek
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: cloud-market-fixture
+      name: ../muse-skill-market-cloud/cloud-fixture.mjs
+      config:
+        executor: ptc
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: deepseek-official
+            name: DeepSeek
+            models:
+              - id: deepseek-v4-flash
+                contextWindow: 1000000
+                defaultMaxTokens: 256000
+                reasoningEfforts: [off, low, high, max]
+                defaultReasoningEffort: max
+- id: tool-executor-native
+  disabled: true
+- id: tool-executor-ptc
+  disabled: false
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'

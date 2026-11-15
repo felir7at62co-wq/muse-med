@@ -1,4 +1,6 @@
 /** Extraction requests reach the model unchanged; historical advice remains readable. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { expect, it } from 'vitest'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -7,7 +9,7 @@ import Llm, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import Tools, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import Tools from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
@@ -15,9 +17,10 @@ import * as Jubian from '../src/index.ts'
 
 async function fixture() {
   const configured = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials' },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   const { ctx, home } = configured
   await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot: home, workspaceSecrets: false } })
   await ctx.loader.await()

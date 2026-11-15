@@ -9,9 +9,10 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { DramaRenderReport } from '../src/types.ts'
 import * as Render from '../src/index.ts'
 import * as Media from '../src/ffmpeg.ts'
-import { cleanup, decodeHandler, framemd5Line, placeholderHandler, probeHandler, runContext,
+import { cleanup, decodeHandler, framemd5Line, placeholderHandler, probeHandler, probeJson, runContext,
   seekHandler, shippedEndingAsset, stubChannel, tempProject, writePlaceholder } from './harness.ts'
 
 /** Load the real renderer contribution through a private test-only Cordis config. */
@@ -66,6 +67,83 @@ async function writePreviewInputs(root: string): Promise<void> {
   await writePlaceholder(join(root, 'shots.json'), JSON.stringify({ shots: [{ shot: 1, video: 'source.mp4' }] }))
   await writePlaceholder(join(root, 'source.srt'), '1\n00:00:01,000 --> 00:00:02,000\n原文\n')
 }
+
+it('prepares strict source-review projects through the Loader without leaking policy flags into public preview geometry', async () => {
+  const root = await tempProject()
+  const ctx = new Context()
+  const channel = stubChannel([
+    probeHandler({ [join(root, 'source.mp4')]: { durationSeconds: 3, video: {}, audio: {} } }),
+    placeholderHandler(),
+  ])
+  const mediaFactory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue(
+    Media.createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }),
+  )
+  try {
+    await writePreviewInputs(root)
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ project_bible: {
+      visual_medium: 'animation_3d', delivery: { width: 480, height: 854, fps: 24,
+        min_bitrate_mbps: 8, max_effective_chars_per_shot: 80, require_source_review: true,
+        subtitle: { require_no_punctuation: true, require_speech_coverage: true },
+        audio: { require_music_decision: true },
+      },
+    } }))
+    await loadRenderer(ctx, root)
+    const tool = ctx.tools.get('drama_render')
+    if (tool === undefined) throw new Error('missing Loader renderer')
+    const report = await invoke(tool, { method: 'prepare', project: root, episode: 1,
+      shots: 'shots.json', subtitle_srt: 'source.srt', bgm: 'approved-bgm.wav' }) as DramaRenderReport
+    expect(report.render_preview?.delivery).toEqual({ visual_medium: 'animation_3d', width: 480, height: 854, fps: 24 })
+    const timeline = JSON.parse(await readFile(join(root, 'editing', '01-timeline.json'), 'utf8')) as { delivery: unknown }
+    expect(timeline.delivery).toMatchObject({ require_source_review: true,
+      subtitle: { require_no_punctuation: true, require_speech_coverage: true }, audio: { require_music_decision: true } })
+    const leaked = { ...report, render_preview: { ...report.render_preview,
+      delivery: { ...report.render_preview?.delivery, require_source_review: true } } }
+    expect(validateJsonSchemaValue(tool.output.schema, leaked, '').length).toBeGreaterThan(0)
+  } finally {
+    mediaFactory.mockRestore()
+    await ctx.fiber.dispose()
+    await cleanup(root)
+  }
+})
+
+it('keeps legacy bound-project working renders available but refuses unreviewed staging through the Loader', async () => {
+  const root = await tempProject(), ctx = new Context()
+  const output = join(root, 'exports', '01.mp4'), draft = join(root, '02_剪映草稿', 'legacy-draft')
+  const channel = stubChannel([
+    call => call.command === 'ffprobe' && call.args.at(-1)?.includes('.drama-render-')
+      ? { stdout: probeJson({ durationSeconds: 3, video: { width: 480, height: 854, fps: 24 }, audio: {} }) } : undefined,
+    probeHandler({
+      [join(root, 'source.mp4')]: { durationSeconds: 3, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+      [join(root, 'video', '01', 'shot_001.mp4')]: { durationSeconds: 3, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+      [output]: { durationSeconds: 3, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+    }), decodeHandler(), placeholderHandler(), () => ({}),
+  ])
+  const factory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue(
+    Media.createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }))
+  try {
+    await writePreviewInputs(root)
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933,
+      project_bible: { schema_version: 1, visual_medium: 'animation_3d', delivery: { width: 480, height: 854, fps: 24 } } }))
+    await loadRenderer(ctx, root)
+    const tool = ctx.tools.get('drama_render')
+    if (tool === undefined) throw new Error('missing Loader renderer')
+    expect(await invoke(tool, { method: 'prepare', project: root, episode: 1,
+      shots: 'shots.json', subtitle_srt: 'source.srt', bgm: 'approved-bgm.wav' })).toMatchObject({ ok: true })
+    expect(await invoke(tool, { method: 'render', project: root, episode: 1,
+      timeline: 'editing/01-timeline.json', subtitle_srt: 'editing/01.srt', last_shot: 1,
+      bgm: 'approved-bgm.wav', output, resume: true })).toMatchObject({ ok: true })
+    await mkdir(draft, { recursive: true })
+    await expect(invoke(tool, { method: 'stage_delivery', project: root, episode: 1,
+      timeline: 'editing/01-timeline.json', subtitle_srt: 'editing/01.srt', output, draft }))
+      .rejects.toThrow(/实测起止时间/u)
+    await expect(readFile(join(root, '01_可交付视频', '第01集.mp4'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(output, 'utf8')).toBe('media')
+  } finally {
+    factory.mockRestore()
+    await ctx.fiber.dispose()
+    await cleanup(root)
+  }
+})
 
 it('loads the renderer, accepts public arguments, and removes its tool on disposal', async () => {
   const root = await tempProject()
@@ -156,6 +234,7 @@ it('reads and writes mixed project-relative and absolute paths through all four 
   const stub = stubChannel([
     probeHandler({
       [video]: { durationSeconds: 5, video: {}, audio: {} },
+      [join(project, 'video', '01', 'shot_001.mp4')]: { durationSeconds: 5, video: {}, audio: {} },
       [endingEffect]: { durationSeconds: 1.02 },
       [outputPath]: { durationSeconds: 7, sizeBytes: 5_000_000, bitRateBps: 8_000_000, video: {}, audio: {} },
     }),
@@ -233,6 +312,7 @@ it('exposes the selected 480p render inputs through Loader prepare, render and t
   const bgm = join(root, 'approved-bgm.wav')
   const stub = stubChannel([
     probeHandler({ [video]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+      [join(root, 'video', '23', 'shot_001.mp4')]: { durationSeconds: 5, video: { fps: 24 } },
       [output]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} } }),
     placeholderHandler(),
   ])
@@ -275,6 +355,7 @@ it('carries project subtitle and gain snapshots through Loader prepare, ASS, mux
   const output = join(root, 'exports', 'configured.mp4')
   const stub = stubChannel([
     probeHandler({ [video]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+      [join(root, 'video', '23', 'shot_001.mp4')]: { durationSeconds: 5, video: { fps: 24 } },
       [output]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} } }),
     placeholderHandler(),
   ])

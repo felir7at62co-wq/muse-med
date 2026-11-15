@@ -18,6 +18,7 @@ import type { ReviewTranscriptReference } from './review-speech.ts'
 
 const imageSchema = z.object({ attachmentId: z.string(), mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
   bytes: z.number(), width: z.number(), height: z.number(), name: z.string().optional() })
+const followUpSchema = z.object({ status: z.enum(['active', 'closed']), reason: z.string().optional() })
 /** Persisted frame, encoded image reference and optional grounded observation. */
 export const reviewFrameSchema = z.object({ id: z.string(), time: z.number(), reasons: z.array(z.string()),
   decode: z.object({ start_seconds: z.number().nonnegative(), frame_index: z.number().int().nonnegative() }).optional(),
@@ -25,6 +26,7 @@ export const reviewFrameSchema = z.object({ id: z.string(), time: z.number(), re
   observation: z.object({ visible: z.string().min(8), change: z.string().min(2), uncertainty: z.string() }).optional() })
 const reviewSchema = z.object({ id: z.string().transform(VideoReviewId), episode: z.string(), path: z.string(), source_version: z.string(),
   duration: z.number(), scanned_until: z.number(), scan_complete: z.boolean(), frames: z.array(reviewFrameSchema),
+  follow_up: followUpSchema.optional(),
   event_groups: z.array(reviewEventSchema).optional(),
   transcript_reference: z.object({ path: z.string(), version: z.string(), sha256: z.string() }).optional() })
 
@@ -34,6 +36,9 @@ export type ReviewFrame = z.infer<typeof reviewFrameSchema>
 export type VideoReview = z.infer<typeof reviewSchema>
 /** Latest review for each source path in this Session. */
 export type VideoReviews = Record<string, VideoReview>
+
+/** Synchronous read of prepared observation progress for one owning Session. */
+export type VideoReviewReader = (session: Session) => VideoReviews
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -49,23 +54,22 @@ declare module '@deepseek-ai/dsh-session/types' {
       frame_count: number
       scanned_until: number
       scan_complete: boolean
+      follow_up?: VideoReview['follow_up']
       event_groups?: ReviewEvent[]
       transcript_reference?: ReviewTranscriptReference
     }
   }
 }
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionStateMap { videoReviews: VideoReviews }
-}
 
 /**
  * Register resume-safe, Host-only observation progress.
- * @param ctx - Session projection registry.
+ * @param ctx - Session projection registration owner.
+ * @returns ready observation reader retained by the calling owner.
  */
-export function installReviewState(ctx: Context): void {
+export async function installReviewState(ctx: Context): Promise<VideoReviewReader> {
   const projections = ctx.get('sessionProjections')
   if (projections === undefined) throw Error('Video observation requires sessionProjections')
-  projections.register<'videoReviews', VideoReviews>({ key: 'videoReviews',
+  const projection = await projections.register<'videoReviews', VideoReviews>({ key: 'videoReviews',
     stateSchema: z.record(z.string(), reviewSchema), init: () => ({}), stateVersion: 1,
     apply: (state, event) => {
       if (event.type !== 'video/review') return state
@@ -80,39 +84,51 @@ export function installReviewState(ctx: Context): void {
         return frame
       })
       return { ...state, [update.path]: { ...old, frames, scanned_until: update.scanned_until, scan_complete: update.scan_complete,
+        ...update.follow_up === undefined ? {} : { follow_up: update.follow_up },
         ...update.event_groups === undefined ? {} : { event_groups: update.event_groups },
         ...update.transcript_reference === undefined ? {} : { transcript_reference: update.transcript_reference } } }
     },
   })
+  return session => projection.stateOf(session)
 }
 
 /**
  * Read the current projected observation tasks without historical log reads.
- * @param ctx - Projection registry.
+ * @param readReviews - Ready observation reader owned by the plugin.
  * @param session - Initiating Session.
  * @returns Latest review by canonical source path.
  */
-export function reviewsOf(ctx: Context, session: Session): VideoReviews {
-  const projections = ctx.get('sessionProjections')
-  if (projections === undefined) throw Error('Video observation requires sessionProjections')
-  return projections.stateOf(session, 'videoReviews') ?? {}
+export function reviewsOf(readReviews: VideoReviewReader, session: Session): VideoReviews {
+  return readReviews(session)
+}
+
+/** Serialize the complete observation artifact without mutable follow-up intent.
+ * @param review - Current Host-owned source revision and observation state.
+ * @returns Exact UTF-8 JSON text used by the saved observation report.
+ */
+export function reviewEvidenceJson(review: VideoReview): string {
+  const { follow_up: _followUp, ...evidence } = review
+  return JSON.stringify(evidence, null, 2) + '\n'
 }
 
 /**
- * Commit changed frames and scan progress before returning them to the model.
- * @param ctx - Projection registry supplying the previous state.
+ * Commit changed evidence and explicit follow-up intent; omitted intent retains the saved value.
+ * @param readReviews - Ready observation reader supplying the previous state.
  * @param session - Owning Session.
  * @param review - New per-video state.
  */
-export function saveReview(ctx: Context, session: Session, review: VideoReview): void {
-  const old = reviewsOf(ctx, session)[review.path]
+export function saveReview(readReviews: VideoReviewReader, session: Session, review: VideoReview): void {
+  const old = readReviews(session)[review.path]
   if (old === undefined || old.id !== review.id) { session.append('video/review', { kind: 'start', review }); return }
+  const followUp = review.follow_up ?? old.follow_up
   const frames = review.frames.filter((frame, index) => JSON.stringify(old.frames[index]) !== JSON.stringify(frame))
   if (!frames.length && old.frames.length === review.frames.length && old.scanned_until === review.scanned_until
     && old.scan_complete === review.scan_complete && JSON.stringify(old.event_groups) === JSON.stringify(review.event_groups)
+    && JSON.stringify(old.follow_up) === JSON.stringify(followUp)
     && JSON.stringify(old.transcript_reference) === JSON.stringify(review.transcript_reference)) return
   session.append('video/review', { kind: 'update', path: review.path, id: review.id, frames,
     frame_count: review.frames.length, scanned_until: review.scanned_until, scan_complete: review.scan_complete,
+    ...followUp === undefined ? {} : { follow_up: followUp },
     ...review.event_groups === undefined ? {} : { event_groups: review.event_groups },
     ...review.transcript_reference === undefined ? {} : { transcript_reference: review.transcript_reference } })
 }

@@ -2,11 +2,15 @@
 
 [English](README.md) | 中文
 
-这些保留的源码快照记录 Muse 社区插件依赖。[sources.json](sources.json) 记录各公开上游仓库、版本、许可证，以及修订或恢复发行包的 SHA-256。快照保留上游源码和清单；部分文本文件将 CRLF 规范为 LF。已安装的用户配置、凭据、用户媒体和生成的运行时均不作为构建输入。翻译检查排除保留的上游目录及经哈希检查的内嵌上游资源；Muse 自有源码与文档仍接受检查。
+这些保留的源码快照记录 Muse 社区插件依赖。[sources.json](sources.json) 记录各公开上游仓库、版本、许可证，以及修订或恢复发行包的 SHA-256。快照保留上游源码和清单；部分文本文件将 CRLF 规范为 LF。声明的本地修改记录原始和维护后文件的哈希；构建器在应用覆盖层前验证维护后的文件字节，并将记录写入产物的 `SOURCE.json`。已安装的用户配置、凭据、用户媒体和生成的运行时均不作为构建输入。翻译检查排除保留的上游目录及经哈希检查的内嵌上游资源；Muse 自有源码与文档仍接受检查。
 
 [owned-downloads.json](owned-downloads.json) 单独固定 Muse 红果和抖音下载 bundle 的版本。清单还包含本地[逆向工具](muse-reverse-tools/README.zh.md)和独立[番茄下载器](muse-fanqie-download/README.zh.md)及[绿泡泡下载器](muse-lvpaopao/README.zh.md)。各包 README 说明配置与验证限制；它们不改变保留的上游清单。
 
-源码清单中 desktop: false 的条目仅保留用于显式兼容工作，默认构建、桌面打包与开发加载均排除。Codex 订阅包含在产品构建中；不会仅因订阅插件而选择可选 Codex CLI peer。--only dsh-codex-subscription 可单独构建其经过审核的产物。
+源码清单中 `desktop: false` 的条目和已归档的 `ds-bot` 源码均不参与默认构建。`dsh-plugin-subscriptions` 提供当前订阅 bundle；旧 Codex 固定版本与源码保留，供显式恢复构建使用。桌面打包独立选择包闭包，不会复制所有可用 tarball。`--only dsh-plugin-subscriptions` 选择当前订阅产物；`--only dsh-codex-subscription` 选择归档兼容路径。
+
+unknown 断言门禁通过[文件来源锁](../../scripts/retained-plugin-origins.json)核验已审阅的上游文件，不采用目录豁免。未修改的文件必须匹配固定内容哈希。维护过的文件还须匹配已登记哈希与精确原文；只有断言操作符和类型能通过未改行一对一映回原文时，才保留上游归属。新增或改动的断言行、未登记文件和自有适配器仍接受检查。五份原文样本保留固定 Visualize 源码的 [BSD-3-Clause 许可证](dsh-visualize/LICENSE)；更新 pin 时须一并审阅源哈希与原文。源文件、pin、锁、原文及许可证路径逐组件校验；即使内容哈希相同，祖先符号链接或 junction、非普通文件及超出 canonical 仓库的路径仍会被拒绝。
+
+原有的飞书和 IM 源码排除规则独立于这套文件来源机制，保持不变。
 
 ## 构建
 
@@ -19,31 +23,45 @@ pnpm --dir third_party/plugins/toolchain run test:build
 pnpm --dir third_party/plugins/toolchain run test:im
 ```
 
-[build.mjs](build.mjs) 按独立的[工具链锁文件](toolchain/pnpm-lock.yaml)执行冻结安装并禁用安装脚本，再在临时目录中逐个编译和打包插件。`--only dsh-ffmpeg` 可选择单个源码目录。临时目录链接当前仓库已构建的 Host 包，不使用在线用户配置。子进程检查使用临时 Harness 主目录，并排除含凭据的环境变量。脚本先移除链接，再删除临时目录；源码目录不会产生构建输出或 `node_modules`。桥接的上游 JavaScript 源码本就位于 `lib`。
+运行保留的 DS Bot 源码测试前，先用 `npm ci --prefix third_party/plugins/ds-bot --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund` 安装其锁定的运行时依赖。测试解析器从当前已构建的仓库提供 Harness peer。
+
+订阅构建器向 Node 传入绝对路径的 TypeScript 预加载模块时使用文件 URL，Windows 上也遵循该规则。测试入口仍使用普通文件系统路径。
+
+[build.mjs](build.mjs) 按独立的[工具链锁文件](toolchain/pnpm-lock.yaml)执行冻结安装并禁用安装脚本，使用自身的工作区配置，避免自动安装由临时构建提供的四个 deep-view Host peer，再在临时目录中逐个编译和打包插件。`--only dsh-ffmpeg` 可选择单个源码目录。临时目录链接当前仓库已构建的 Host 包，不使用在线用户配置。子进程检查使用临时 Harness 主目录，并排除含凭据的环境变量和继承的 `NODE_PATH`，避免包管理器启动脚本将仅存在于工作区的依赖暴露给产物验收。启动器和 preload 选项保持不变。脚本先移除链接，再删除临时目录；源码目录不会产生构建输出或 `node_modules`。桥接的上游 JavaScript 源码本就位于 `lib`。
 
 每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、已审核的 Host/vendor 版本及工具链锁文件摘要。[Host 版本审核](compatibility/host-runtime.mjs)拒绝未审核的 Host 或 vendor 版本。产物清单禁用生命周期脚本、固定运行时依赖，并在 peer 候选中显式允许已审核的 Host 和 vendor 预发行版本。产物移除已退役的 `dsh-invariants` 依赖。构建覆盖不修改保留的清单与源码文件。
 
-Codex 兼容构建在 `SOURCE.json` 记录修改：子任务检查与准备仅接受已审核的 Host provider 版本，CLI 仍固定为 `0.153.4`。provider 与 Host adapter 共用 Host 安装的 pi-ai `0.87.1`；复制后的运行时与产物 peer 仅接受该精确版本。覆盖检查保留的 provider 模块和目录测试的 SHA-256。复制后的检查使用当前模型目录，并通过 GPT-5.6 Luna 验证自定义上下文；不会给已移除的离线模型虚构别名。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
+归档的 Codex 兼容构建在 `SOURCE.json` 记录修改：子任务检查与准备仅接受已审核的 Host provider 版本，CLI 仍固定为 `0.153.4`。provider 与 Host adapter 共用 Host 安装的 pi-ai `1.3.0`；复制后的运行时与产物 peer 仅接受该精确版本。覆盖检查保留的 provider 模块和目录测试的 SHA-256。复制后的检查使用当前模型目录，并通过 GPT-5.6 Luna 验证自定义上下文；不会给已移除的离线模型虚构别名。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
 
-Codex 订阅模型仅在连接了 Codex OAuth 账号时出现在模型选择器中。Muse 登录不授予订阅供应商的访问权限；断开 Codex 后，下次查询列表会隐藏其模型。其模型菜单与固定分组标题在浅色和深色模式下均使用主题的不透明底色。私有构建补丁使用共享的 portal 和视口定位，每次显示一个面板，保留模型、推理等级、速度与输出详略操作，并在 `SOURCE.json` 中记录这些配置。
+归档的 Codex 订阅模型仅在连接了 Codex OAuth 账号时出现在模型选择器中。Muse 登录不授予订阅供应商的访问权限；断开 Codex 后，下次查询列表会隐藏其模型。其模型菜单与固定分组标题在浅色和深色模式下均使用主题的不透明底色。私有构建补丁使用共享的 portal 和视口定位，每次显示一个面板，保留模型、推理等级、速度与输出详略操作，并在 `SOURCE.json` 中记录这些配置。
 
-桌面面板还会把运行时已注册的 MCP 工具列为只读连接。内置 `muse-account` 显示为 Muse 知识库，并展示已注册工具数量。兼容覆盖不会把凭据、环境变量值或私有启动参数复制到列表中。
+桌面面板还会把运行时已注册的 MCP 工具列为只读连接。兼容覆盖不会把凭据、环境变量值或私有启动参数复制到列表中。
 
 ## 兼容性与桌面集成
 
-`dsh-skill-mcp-panel` 固定于上游 2.1.2。它通过 Web 侧栏管理当前 profile 的技能和 MCP 服务配置。随桌面应用打包的产物移除上游 `dsh-panel` 可执行入口，并禁用自动安装全局 CLI：Desktop 只通过 `dsh` profile 启动受支持的 Node 应用。启用时不会调用 npm 或写入应用目录；隔离构建在只读目录下加载生成的面板，并确认技能和 MCP 注册仍然存在。面板网关负责配置 MCP 连接，实际 MCP 客户端仍为 `@deepseek-ai/dsh-mcp-client`。隔离构建会运行保留的模型、网关、插槽与图标检查。
+`dsh-skill-mcp-panel` 固定于上游 2.3.5。它通过 Web 侧栏管理当前 profile 的技能和 MCP 服务配置。随桌面应用打包的产物移除上游 `dsh-panel` 可执行入口，并禁用自动安装全局 CLI：Desktop 只通过 `dsh` profile 启动受支持的 Node 应用。启用时不会调用 npm 或写入应用目录；隔离构建在只读目录下加载生成的面板，并确认技能和 MCP 注册仍然存在。面板网关负责配置 MCP 连接，实际 MCP 客户端仍为 `@deepseek-ai/dsh-mcp-client`。隔离构建会运行保留的模型、网关、插槽与图标检查。
+
+Skill / MCP 面板使用当前内置版本，不检查上游版本，也不显示插件更新提示。兼容更新接口仅返回已安装版本，不发起网络请求。技能和 MCP 管理功能保持可用。
 
 Muse 面板及其嵌套技能提供方排除共享用户目录 `~/.agents/skills`，也不使用 `DSH_AGENTS_HOME` 指定的共享目录。为编程助手安装在其中的技能不会出现在 Muse 的管理列表或嵌套目录中。Muse 自有用户技能和明确引用的工作区技能仍然可用，共享技能文件保持不变。Host 文件系统提供方另行将发现范围限制在产品配置的根目录内。
 
 面板识别工作区的 `.muse/skills`、`.dsh/skills` 与 `.agents/skills` 目录，导入继续使用原有全局或工作区保存位置。格式校验和文件事务成功后，新增的结果字段 `status: saved` 与 `discovery: ready | pending | unavailable` 分别表示文件已保存和当前会话的发现状态。尚未发现或无法检查时，浏览器保留对应的中英文提示，不会误报格式错误或删除已保存文件。真正的写入失败仍只回滚本批新建目标；此改动不能还原旧版本已经删除的文件。
 
-构建脚本导入每个生成的 Host 入口。Codex 构建针对当前 DSH API 和 pi-ai 0.87.1 执行 26 项保留的上游检查，包括模型准备和已认证传输校验；上游注册上下文是测试替身，而非完整桌面 Loader。另有八项 Codex 检查加载真实 provider、Host adapter 和 CLI，通过模拟对端验证订阅 SSE 与子任务认证传输，并拒绝运行时版本偏移及错误的归档路径。FFmpeg 执行 89 项保留的检查。构建测试检查导出产物文件，并验证同一平台下两个全新临时目录生成的所有固定插件压缩包均逐字节一致。这不代表跨平台或整个安装包逐字节一致。
+构建脚本导入每个生成的 Host 入口。归档的 Codex 构建针对当前 DSH API 和 pi-ai 1.3.0 执行 26 项保留的上游检查，包括模型准备和已认证传输校验；上游注册上下文是测试替身，而非完整桌面 Loader。另有八项 Codex 检查加载真实 provider、Host adapter 和 CLI，通过模拟对端验证订阅 SSE 与子任务认证传输，并拒绝运行时版本偏移及错误的归档路径。FFmpeg 执行 89 项保留的检查。构建测试检查导出产物文件，并验证同一平台下两个全新临时目录生成的所有固定插件压缩包均逐字节一致。这不代表跨平台或整个安装包逐字节一致。
 
-Codex 构建还在缺少可选 CLI 的情况下，通过真实 Loader、Settings、本地凭据、LLM、Web 与工具提供方加载产物，检查账号 RPC、重启后的设置保留、卸载和零外网请求。必跑的 Client 产物检查使用当前 Cordis、React、slot 与基础组件挂载账号设置和模型选择器，执行登录命令、模型选择与卸载验证。已记录的 Session 场景覆盖真实订阅图片工具及其未登录账号的拒绝结果。
+归档的 Codex 构建还在缺少可选 CLI 的情况下，通过真实 Loader、Settings、本地凭据、LLM、Web、工具与子代理提供方加载产物，检查实际 Cordis 候选配置回调、账号 RPC、重启后的设置保留、卸载和零外网请求。必跑的 Client 产物检查使用当前 Cordis、React、slot 与基础组件挂载账号设置和模型选择器，执行登录命令、模型选择与卸载验证。已记录的 Session 场景覆盖真实订阅图片工具及其未登录账号的拒绝结果。
 
 [桌面打包入口](../../apps/desktop/scripts/package-target.ts)在 S6 步骤构建两份清单中启用桌面的条目，并将压缩包放在第一方打包输入旁。[包集合准备](../../apps/desktop/scripts/prepare-package-set.ts)将[源码插件包名](../../apps/desktop/src/core-package-set.ts)选为显式根，并拒绝注册表替代。桌面开发启动同样构建并暂存其中启用桌面的条目。打包不等于启用：发布仍须通过真实桌面 Host/Client 烟测。账号登录、收费请求和真实媒体编码不在这些免密构建检查范围内。
 
-Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选的 connection fetch 传输，不要求 Web 服务器。FFmpeg 需要产品配置编码器路径。压缩包存在不代表功能已启用。
+Market 的 HTTP 界面不适用于无端口的桌面传输。归档的 Codex 构建使用可选的 connection fetch 传输，不要求 Web 服务器。FFmpeg 需要产品配置编码器路径。压缩包存在不代表功能已启用。
+
+### 订阅供应商
+
+默认 Desktop 源码清单选择 [dsh-plugin-subscriptions](dsh-plugin-subscriptions/README.md)，其 MIT 发行版固定于 [sources.json](sources.json)。私有构建覆盖层将保留的 Host 和 Client 入口适配到已审核的 DSH 运行时；已安装用户 profile 与凭据不作为构建输入。旧 `dsh-codex-subscription` 源码仍保留，默认 Desktop 构建不选用它。
+
+订阅运行产物仅导出 JavaScript，不发布 TypeScript 声明文件。保留的上游 TypeScript 源码保持不变。归档恢复构建保留旧 Codex native-CLI 子代理路径；替换插件使用普通 DSH 子代理。旧画板、PSD、标注与增强偏好不直接迁移。
+
+[订阅迁移指南](../../docs/upgrade-guide/v0.2.2-rc.1/muse-subscriptions/guide.zh.md)说明账号存储、保留的会话历史，以及旧增强预览与标注数据。导入失败会持久记录 `manual-login-required`，要求用户主动登录；标记无法保存时，状态明确提示重启后可能重试自动导入。新供应商注册、图片附件、真实账号访问和成功推理分别验收；只有压缩包不能证明这些结果。
 
 ### Muse 远程桌面与飞书
 
@@ -53,7 +71,7 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选�
 
 `@xmanrui/dsh-im` 提供原生 IM机器人设置、飞书实时过程卡和通道管理。[sources.json](sources.json) 固定其 MIT 源码。[IM 适配层](compatibility/im-desktop.mjs) 在私有暂存区构建上游 Host 和 Client，并在根入口放置 Muse 导入器。空 bundle patch 避免建立第二个 Host 连接。旧 PGZXB 源码以 `desktop: false` 保留，不再激活。账号远程访问继续使用桥接包独立的 `./remote` 提供方。
 
-导入器通过 Host 凭据服务迁移已启用的旧凭证；只有真实已授权消息证明旧聊天对应的发送者后才导入私聊绑定。原文件和完整旧消息认领记录保留。只有原生 `dsh-im` 接收飞书消息和卡片回调，旧数据迁移不参与这些事件的授权。消息和卡片操作使用原生 IM 设置中保存的访问策略，不再叠加旧群名单或私聊名单限制。群消息仍须精确 @ 当前机器人，已登记的主人保留原生特权访问。已有原生 IM 机器人不会被覆盖。没有旧凭证时仍可使用原生 IM 设置。详见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-im-channel/guide.zh.md)。
+导入器通过 Host 凭据服务迁移已启用的旧凭证；只有真实已授权消息证明旧聊天对应的发送者后才导入私聊绑定。原文件和完整旧消息认领记录保留。只有原生 `dsh-im` 接收飞书消息和卡片回调，旧数据迁移不参与这些事件的授权。消息和卡片操作使用原生 IM 设置中保存的访问策略，不再叠加旧群名单或私聊名单限制。群消息仍须精确 @ 当前机器人，已登记的主人保留原生特权访问。已有原生 IM 机器人不会被覆盖。没有旧凭证时仍可使用原生 IM 设置。飞书消息由普通 Muse Session 处理，无需已归档的 Muse Bot 服务。现有聊天键、Session ID、模型选择、工作区绑定，以及持久化的消息认领和话题回复记录继续使用。详见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-im-channel/guide.zh.md)。
 
 获准发送消息的成员无需命令权限，即可回答自己发起任务的提问，包括自定义答案。其他用户会收到明确提示，不能代答该问题。管理按钮仍要求命令权限。群访问策略设为开放只允许消息接入，不改变 Agent 的工具权限或沙箱设置。
 
@@ -61,19 +79,35 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。Codex 使用可选�
 
 Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence` 依赖，使工作区校验可以读取活跃或已持久化的 Session 头部信息。隔离 IM 检查以离线平台传输验证迁移、真实 Loader 和 Agent API、群提及、控制归属及原 Session 历史恢复。服务访问受限的 Cordis 插件通过真实 Host gateway 新建私聊和群聊 Session，验证两者使用同一所选工作区且历史独立；缺少依赖的反例会在请求模型前拒绝未声明的 Session 访问。构建检查比较两份完整 tarball，核对原生 Client 和许可证，并确认保留的上游文件未被改动。这些检查不认证真实机器人，也不能证明租户权限已配置。
 
-### Muse Bot
+### 普通会话卡片
 
-[Muse Bot](ds-bot/README.zh.md)是固定源码的原生团队工作区。桌面 bundle 只添加一个 Bot 插件，保留 Muse 的模型路由、网页搜索、任务界面、上下文压缩和目标工具。受控构建重建其浏览器模块，并保留 Apache 许可证、上游署名与来源收据；不包含独立插件更新或上游独立应用。
+保留的 [Deep View](deep-view/README.md) 插件为普通 Muse 会话提供 `show_view`，支持表格、图表、选择和表单等结构化视图。交互回答通过所属 Session 返回；简单问题仍可使用原生 `ask_user_question`。源码固定记录公开 fork 与上游修订，构建器使用当前运行时验证其 Host 和浏览器入口。Bot 团队保持归档。
 
-原生飞书群聊和私聊各按已登记应用与聊天 ID 绑定一个 Muse Bot，名称不参与路由。群名通过已认证的群信息接口读取；私聊使用入站发送者姓名，或复用已有消息读取接口，核对原消息、聊天和发送者后再采用姓名。成功取得的名称跨重启缓存；元数据暂不可用时保留 Session 标题，通道重启后再尝试，后续入站发送者姓名也可补齐缺失信息。不申请通讯录权限。团队服务分别保留真实聊天标题和可用于寻址的唯一 Bot 名称，保留用户手工改过的名字。原 Session、工作区、模型和目标保持不变，显式 `/new`、`/use` 延续同一 Bot 身份。第一版绑定记录兼容缺少聊天名称元数据的旧群记录，并原地补充元数据。
+独立的 [Skill 进化插件](muse-skill-evolution/README.zh.md)复盘新完成的工具任务，创建自有技能并保留提案及回退版本。原生持久化复盘会话使用任务所选模型。其 README 说明复盘限制、正常模型用量及文件权限。
 
-工具发现使用 Host 的单一服务：新团队分别配置协调主控和 Muse 专业执行者，各 Bot 独立保存常驻工具。工具选择、历史与缓存行为见[工具发现参考](../../packages/core/tool-discovery/README.zh.md)。
+保留的 [Visualize](dsh-visualize/README.md) 插件展示交互式 HTML 卡片及独立页面。桌面外壳拒绝 Blob 弹窗，因此页面视图在对话内展开；Web 可另开标签页。`visualize`、`show_view` 和原生 `ask_user_question` 保持常驻，并从 Tool Search 中排除。内置编写技能在 Muse 创作目录中可用。卡片按钮可以填入所属会话的输入框，由用户发送草稿；已有草稿和附件会保留。卡片更新限制在所属 Session 内。操作系统主目录下的存储路径使用可跨平台解析的 `~/` 别名。Windows 原子保存仅对 `EPERM` 或 `EBUSY` 重命名错误重试，最多尝试五次，耗尽次数后保留原始错误。若文件提交后保存中断，错误回执分别说明片段和图片清单的状态；再次修改前应读取回执路径，不盲目重复旧替换。
+
+### 已归档的 Muse Bot
+
+[DS Bot 源码](ds-bot/README.zh.md)、固定版本的许可证及兼容覆盖均保留，用于恢复归档。即使上游固定版本仍在清单中，默认构建也会跳过；只有显式 `--only ds-bot` 选择才进入旧构建路径。恢复产物应使用独立输出目录；默认构建不会删除输出目录内已有的旧归档。
+
+归档路径保留浏览器与 Office 构建和 `test:bot` 检查；这些检查不会在普通会话产品中启用 Bot 功能。已有私有 Bot 状态和 Session 文件保持不变。[普通会话升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-session-product/guide.zh.md)说明保留 profile 的备份和归档应用恢复。
 
 ### 红果公开数据
 
-`muse-hongguo-search` 保留恢复的 0.1.0 JavaScript 源码、MIT 许可证、[恢复记录](muse-hongguo-search/RECOVERY.md)及原发行包。原开发提交未恢复；`sources.json` 固定已核实的原包 SHA-256。[Host 覆盖](compatibility/hongguo-host.mjs)依据固定清单检查全部 22 份保留文件，增加经过测试的精确 tools peer，并关闭全局启用。标准、PTC、创造、短剧和编辑预设各自在自己的作用域启用四个工具；极简模式不提供红果工具。
+`muse-hongguo-search` 保留恢复的 0.1.0 MIT 源码、[恢复记录](muse-hongguo-search/RECOVERY.md)及不可变的原发行包。原开发提交未恢复；`sources.json` 固定已核实的原包 SHA-256。[Host 覆盖](compatibility/hongguo-host.mjs)核验已审查的文件清单，记录本地指标处理改动，增加经过测试的精确 tools peer，并关闭全局启用。标准、PTC、创造、短剧和编辑预设各自在自己的作用域启用四个工具；极简模式不提供红果工具。
 
-搜索、详情、榜单与收藏筛选读取官方公开数据页，不需要 key 或 Cookie，也无需用户初始配置。结果区分收藏、点赞、热度、近似数及未完整覆盖的数据。搜索覆盖首屏窗口，榜单覆盖所选公开榜单，不能冒充全平台片库。网站请求保持串行、限速、缓存并支持取消；访问限制明确报错。插件不下载视频。恢复后的 20 项离线测试及真实 Host 注册、规范结果、提示词发现、输入拒绝、取消和卸载检查随打包运行。`test:hongguo` 检查两个全新目录生成的压缩包一致；实站可用性另行只读检查。
+搜索、详情、榜单与收藏筛选读取官方公开数据页，不需要 key 或 Cookie，也无需用户初始配置。榜单卡片的身份经过核验后，即使展示指标缺失也会保留。每次观察分别保留收藏、点赞、热度及字段缺失原因；结果分别报告分页覆盖和指标覆盖。搜索覆盖首屏窗口，榜单覆盖所选公开榜单，不能冒充全平台片库。网站请求保持串行、限速、缓存并支持取消；访问限制明确报错。插件不下载视频。离线回归及真实 Host 注册、规范结果、提示词发现、输入拒绝、取消和卸载检查随打包运行。`test:hongguo` 检查两个全新目录生成的压缩包一致；实站可用性另行只读检查。
+
+### 七猫公开数据
+
+Muse 自有的[七猫插件](muse-qimao-data/README.zh.md)使用 `parse5` 读取公开元数据，不执行网页脚本。作用域内工具提供已核验的榜单窗口、带筛选的书库分页、这些结果范围内的有限搜索及书籍详情；缺失指标保留未知。安装包保留 MIT 参考代码署名，通过自有源码清单进入 Desktop，无需从注册表替换包或全局启用工具。
+
+### 选材快照与报告
+
+Muse 自有的[选材研究插件](muse-source-research/README.zh.md)调用经过审查的元数据 client，将完整结果保存为工作区内不可变的版本化文件。比较保留缺失值、原始观察时间、采集范围及指标名称。报告标明输入快照和覆盖情况；旧文件明确标为导入证据。
+
+作品映射提案将两端来源引用和证据哈希绑定到人审。确认、拒绝和待核实的决定保留版本历史。报告可以引用这些决定，不据此推断全平台不存在改编或续作。
 
 ### Muse 本地工具
 
@@ -85,9 +119,13 @@ node third_party/plugins/build-downloads.mjs --out .artifacts/download-plugins
 
 标准、PTC、创造、短剧和编辑预设在各自的智能体作用域内启用 `hongguo_download_info`、`hongguo_download`、`douyin_download`、`reverse_skill`、`reverse_analyze`、`fanqie_download_info` 和 `fanqie_download`；极简预设不提供这些工具。工具以发起调用的会话工作区为输出位置。通过 `dsh plugin --profile headless add <tarball>` 安装压缩包会在该 profile 启用对应 bundle 补丁；构建新的桌面发行版则通过预设组合内置它们。
 
-下载 bundle 打包支持 npm 与 pnpm 的生命周期入口，在 Windows 上直接运行 JavaScript 入口，并通过包管理器环境禁用生命周期脚本。`node --test third_party/plugins/download-pack.test.mjs` 使用桌面打包采用的 pnpm 入口验证所有自有压缩包，检查凭证文件排除规则，并保持源码清单不变。Node tar 解析器按精确 Unicode 路径读取归档成员。逆向与番茄压缩包必须包含 `SOURCE.json` 声明的文件，且 SHA-256 完全一致；npm 排除的上游 `.gitignore` 元数据除外。
+下载 bundle 打包支持 npm 与 pnpm 的生命周期入口；生命周期入口为原生程序时，解析已安装 pnpm 的 JavaScript bin 或 Corepack 启动器，并通过包管理器环境禁用生命周期脚本。Node 打包器不会将原生 pnpm 程序当成 JavaScript；桌面进程编排可以不经过 shell 直接运行该程序。`node --test third_party/plugins/download-pack.test.mjs` 使用已安装的 JavaScript 启动器和 pnpm 的实际生命周期入口分别验证所有自有压缩包，检查凭证文件排除规则，并保持源码清单不变。Node tar 解析器按精确 Unicode 路径读取归档成员。逆向与番茄压缩包必须包含 `SOURCE.json` 声明的文件，且 SHA-256 完全一致；npm 排除的上游 `.gitignore` 元数据除外。
 
 红果默认使用用户提供源码的原接口，并接受多部系列 ID。操作者必须按包内文档配置原始 `config.json`、`devices.json` 和可用的签名服务。缺少原源配置会明确失败，公开试看集不代表全集可用。抖音接受用户指定的视频链接列表，对每个下载运行 FFmpeg 验证，并报告被拦截或部分完成的批次。视频列表本身不代表已覆盖整部剧；平台登录或验证在 Muse 内置浏览器面板中完成，不使用外部 profile 或 Cookie 文件导入。
+
+抖音下载任务归属到 Session，在 runner 重启后保留。[插件参考](muse-douyin-download/README.zh.md)说明回执核对、显式恢复及未完成状态；[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-download-tasks/guide.zh.md)说明自定义组合及配套 Desktop 协议要求。
+
+绿泡泡整剧 job 保留已有逐集 manifest 和原始对账 key。[插件参考](muse-lvpaopao/README.zh.md)区分本地进度与来源可用性；取得新的播放信息仍需要符合要求且已登录的微信运行环境。
 
 ## 许可证
 

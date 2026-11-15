@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
@@ -11,20 +13,42 @@ import { readProjectBible, previewProjectBible, updateProjectBible } from '../sr
 
 async function bench() {
   return configurationFixture({ rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'config-editor', name: 'cordis:editor' },
     { id: 'settings', name: 'cordis:settings' },
     { id: 'prompt', name: 'cordis:prompt' },
     { id: 'tools', name: 'cordis:tools' },
     { id: 'drama-settings', name: 'cordis:drama' },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
 }
+
+it.each([
+  { delivery: { require_source_review: 'yes' }, message: 'delivery.require_source_review must be a boolean' },
+  { delivery: { audio: { require_music_decision: 'yes' } }, message: 'delivery.audio.require_music_decision must be a boolean' },
+])('refuses non-boolean archive requirements without writing project files: $message', async ({ delivery, message }) => {
+  const { ctx, home } = await bench()
+  await expect(previewProjectBible(ctx.settings, home, { delivery }, 'Invalid archive requirement')).rejects.toThrow(message)
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('initializes separate subtitle and music archive requirements in an unconfigured project', async () => {
+  const { ctx, home } = await bench()
+  const changes = { delivery: { require_source_review: true, audio: { require_music_decision: true },
+    subtitle: { require_no_punctuation: true, require_speech_coverage: true } } }
+  const reason = 'Approved initial archive requirements'
+  const preview = await previewProjectBible(ctx.settings, home, changes, reason)
+  await updateProjectBible(ctx.settings, home, changes, reason, preview.expected_revision, preview.preview_fingerprint)
+  expect((await readProjectBible(ctx.settings, home)).config).toMatchObject({ project_bible: { delivery: {
+    ...changes.delivery, width: 1440, height: 2560, fps: 60, min_bitrate_mbps: 4.6,
+  } } })
+})
 
 it('persists a complete reference visual intent through the Loader and replaces it with an explicit reset', async () => {
   const { ctx, home } = await bench()
   const subtitle_visual = { schema_version: 1, reference_width: 480, reference_height: 854, font_size_px: 42,
     outline_px: 2, center_y_ratio: 0.635, max_width_ratio: 0.9 }
   const execute = async (args: object) => {
-    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('visual'),
+    const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('visual'),
       arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
     expect(outcome.isError).toBe(false)
     const block = outcome.content[0]
@@ -67,7 +91,7 @@ it('exposes project bible reads, previews and guarded updates through the real L
   const tool = ctx.tools.get('drama_project')
   expect(tool).toBeDefined()
   const execute = async (args: object) => {
-    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('bible'),
+    const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('bible'),
       arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
     expect(outcome.isError).toBe(false)
     const rendered = outcome.content[0]
@@ -96,6 +120,38 @@ it('returns Settings defaults for an unconfigured project without creating files
     initial_budget_cents: 400000, delivery: { width: 1440, height: 2560, fps: 60, min_bitrate_mbps: 4.6 },
   } })
   await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('sets independent subtitle archive rules through the Loader and retains existing typography and omitted rules', async () => {
+  const { ctx, home } = await bench()
+  await writeFile(join(home, 'project_config.json'), JSON.stringify({ delivery: {
+    subtitle: { font_size_px: 40 }, audio: { bgm_gain: 0.24 },
+  } }))
+  const execute = async (args: object) => {
+    const result = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('subtitle-archive'),
+      arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
+    expect(result.isError).toBe(false)
+    const content = result.content[0]
+    if (content?.type !== 'text') throw new Error('Expected project JSON')
+    return JSON.parse(content.text) as { expected_revision: string; preview_fingerprint: string }
+  }
+  for (const subtitle of [{ require_no_punctuation: true }, { require_speech_coverage: true }]) {
+    const changes = { delivery: { subtitle } }, reason = 'approved archive requirements'
+    const preview = await execute({ action: 'preview', changes, reason })
+    await execute({ action: 'update', changes, reason, expected_revision: preview.expected_revision,
+      preview_fingerprint: preview.preview_fingerprint })
+  }
+  const changes = { delivery: { require_source_review: true, audio: { require_music_decision: true } } }
+  const reason = 'confirmed content and music archive requirements'
+  const preview = await execute({ action: 'preview', changes, reason })
+  await execute({ action: 'update', changes, reason, expected_revision: preview.expected_revision,
+    preview_fingerprint: preview.preview_fingerprint })
+  expect((await readProjectBible(ctx.settings, home)).config).toMatchObject({ project_bible: { delivery: {
+    subtitle: { font_size_px: 40, require_no_punctuation: true, require_speech_coverage: true },
+    require_source_review: true, audio: { bgm_gain: 0.24, require_music_decision: true },
+  } } })
+  await expect(previewProjectBible(ctx.settings, home, { delivery: { subtitle: { require_speech_coverage: 'yes' } } }, 'bad rule'))
+    .rejects.toThrow('delivery.subtitle.require_speech_coverage')
 })
 
 it('replaces the entire draft-style section while unrelated updates preserve it', async () => {
@@ -524,7 +580,7 @@ it('refuses to reuse old measurements when a bound voice URL changes', async () 
 it('accepts a remote voice binding and explicit reference removal through the loaded project tool', async () => {
   const { ctx, home } = await bench()
   const execute = async (args: object) => {
-    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('voice-bible'),
+    const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('voice-bible'),
       arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
     expect(outcome.isError).toBe(false)
     const rendered = outcome.content[0]
@@ -651,7 +707,7 @@ it('rejects incomplete loaded project-tool mutations before writing', async () =
     { action: 'preview', project_dir: home },
     { action: 'update', project_dir: home, changes: { title: 'Project' }, reason: 'create' },
   ]) {
-    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('incomplete-bible'),
+    const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('incomplete-bible'),
       arguments: arguments_, signal: new AbortController().signal })
     expect(outcome.isError).toBe(true)
   }
@@ -682,7 +738,7 @@ it('saves explicit BGM feedback through the loaded tool and rereads only the own
     characters: [{ character_id: 'lead-1', name: '苏晚', voice_profile: { description: '已认可声线' } }] }
   const preview = await previewProjectBible(ctx.settings, project, changes, '记录用户配乐反馈')
   expect(preview.affected_stages).toEqual(['draft', 'export', 'asset_prompts', 'shots_and_matches', 'video_tasks'])
-  const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('bgm-feedback'),
+  const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('bgm-feedback'),
     arguments: { action: 'update', project_dir: project, changes, reason: '记录用户配乐反馈',
       expected_revision: preview.expected_revision, preview_fingerprint: preview.preview_fingerprint },
     signal: new AbortController().signal })

@@ -23,7 +23,10 @@
     "packages/typert/generator/tests/fixtures/type-model/**", // tsgolint rejects this fixture's preserved project shapes before rules run.
     "website/.generated/**",
     "vendor/**", // Vendored source keeps upstream style and idioms.
+    "third_party/plugins/dsh-plugin-subscriptions/**",
     "third_party/plugins/dsh-codex-subscription/**", // Pinned source snapshots keep upstream bytes; owned sibling build/check scripts remain covered.
+    "third_party/plugins/deep-view/**",
+    "third_party/plugins/dsh-visualize/**",
     "third_party/plugins/dsh-ffmpeg/**",
     "third_party/plugins/dsh-bridge/**",
     "third_party/plugins/dsh-feishu/**",

@@ -1,0 +1,11 @@
+version: 1
+writerOutput: true
+scenario: background-wait-steer
+profile: sdk
+composition: sdk-background-wait
+recording: authored
+header:
+  class: sdk-background-wait
+  pin: true
+replay:
+  override: true

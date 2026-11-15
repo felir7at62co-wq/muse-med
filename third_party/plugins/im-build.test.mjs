@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path'
 import test from 'node:test'
 import { imDesktopCompatibility } from './compatibility/im-desktop.mjs'
 import { hostRuntimeCompatibility, reviewedHostVersion } from './compatibility/host-runtime.mjs'
+import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const source = join(import.meta.dirname, 'dsh-im')
@@ -45,7 +46,7 @@ test('packs a reproducible native IM client and Muse migration entry without mod
   try {
     const archives = outputs.map(output => {
       const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_/iu.test(key)))
-      environment.npm_execpath = join(root, 'node_modules/pnpm/bin/pnpm.cjs')
+      environment.npm_execpath = resolvePnpmEntrypoint(join(root, 'node_modules/pnpm/package.json'))
       const result = spawnSync(process.execPath, [join(import.meta.dirname, 'build.mjs'), '--only', 'dsh-im', '--out', output], {
         cwd: root,
         env: environment,

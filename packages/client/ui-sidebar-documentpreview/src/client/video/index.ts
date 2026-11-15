@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '../index.ts'
 import type { SessionFile } from '../rpc.ts'
 import { VideoBody, type VideoBodyInjected } from './VideoBody.tsx'
-import { en, zh } from './locales.ts'
+import { en, zh, ja, es, fr, de, ru, pt } from './locales.ts'
 
 /** Key shared by video metadata and its document body. */
 export const VIDEO_BODY_ID = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/video'
@@ -28,7 +28,7 @@ export function videoUrl(file: SessionFile, documentBaseUrl: string, version?: s
  * @param ctx - Existing document registry, locale, slots and workspace Remote.
  */
 export function apply(ctx: Context): void {
-  ctx.effect(() => ctx.locale.register('sidebarVideo', { zh, en }), 'document-video: dictionaries')
+  ctx.effect(() => ctx.locale.register('sidebarVideo', { zh, en, ja, es, fr, de, ru, pt }), 'document-video: dictionaries')
   const t = ctx.locale.bind('sidebarVideo')
   const extensions = ['mp4', 'm4v', 'webm', 'mov']
   ctx.effect(() => ctx.documentPreviews.register({ id: VIDEO_BODY_ID, extensions, binaryExtensions: extensions,

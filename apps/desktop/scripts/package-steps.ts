@@ -150,8 +150,11 @@ export function desktopPackageSteps(
     },
     {
       id: 'S3',
-      title: 'pack the Desktop Host tarball',
-      artifacts: [packedTarball('apps/desktop-host', 'Desktop Host')],
+      title: 'pack the Desktop Host and private Skill market tarballs',
+      artifacts: [
+        packedTarball('apps/desktop-host', 'Desktop Host'),
+        packedTarball('packages/host/muse-market', 'Skill market Host'),
+      ],
     },
     {
       id: 'S4',
@@ -551,12 +554,11 @@ export async function runDesktopPackageSteps(options: {
     try {
       await step.run()
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
       log(
         `desktop package: ${step.id} failed; fix the cause, then repeat this command with --from ${step.id}`
         + ' to reuse the artifacts listed above instead of rebuilding from S1\n',
       )
-      throw new Error(detail)
+      throw error
     }
   }
 }

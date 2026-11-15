@@ -5,7 +5,7 @@
  * projections read the product's real sections, its connection control is the
  * roster's Connection, and it survives a Loader rebuild of the declarer.
  */
-import { describe, expect, onTestFinished, vi } from 'vitest'
+import { afterEach, describe, expect, onTestFinished, vi } from 'vitest'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createClientTest, type TestClient, webApp } from '@deepseek-ai/dsh-client-test-runtime/src/assembly/index.ts'
 import { inject } from '../src/client/index.ts'
@@ -14,8 +14,10 @@ import { SettingsRoot } from '../src/client/SettingsRoot.tsx'
 import type { DesktopUpdatePresentation } from '../src/types.ts'
 
 const SELF = '@deepseek-ai/dsh-client-ui-settings-general'
+afterEach(() => { vi.unstubAllGlobals() })
 const SIDEBAR = '@deepseek-ai/dsh-client-ui-sidebar'
 const it = createClientTest({ roster: webApp })
+const withoutSettingsAccess = createClientTest({ roster: webApp }, { access: action => action !== 'settings/describe' })
 /** The whole roster's first boot pays the cold module transform of every plugin package. */
 const COLD_BOOT_TIMEOUT_MS = 60_000
 
@@ -32,6 +34,7 @@ const CHILD_SPECS = {
   'settings.action': { kind: 'list', scope: 'root' },
   'settings.close': { kind: 'single', scope: 'root' },
   'settings.section': { kind: 'list', scope: 'root' },
+  'settings.section.icon': { kind: 'list', scope: 'root', inline: true },
   'settings.onboarding': { kind: 'list', scope: 'root' },
 } as const
 const CHILD_NAMES = Object.keys(CHILD_SPECS) as Array<keyof typeof CHILD_SPECS>
@@ -77,13 +80,18 @@ describe('ui-settings-general shell', () => {
   }, COLD_BOOT_TIMEOUT_MS)
 
   it('declares its services', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'shortcuts'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'shortcuts', 'modules', 'remoteAccess'])
   })
 
   it('occupies sidebar.settings, declared by ui-sidebar, and declares every child slot', async ({ start }) => {
     const c = await start()
     expect(c.ctx.slots.entries('sidebar.settings').map(entry => entry.component)).toEqual([SettingsRoot])
     for (const name of CHILD_NAMES) expect(c.ctx.slots.spec(name)).toEqual(CHILD_SPECS[name])
+  }, COLD_BOOT_TIMEOUT_MS)
+
+  withoutSettingsAccess('leaves sidebar.settings unoccupied while the current Peer may not read the settings description', async ({ start }) => {
+    const c = await start()
+    expect(c.ctx.slots.entries('sidebar.settings')).toEqual([])
   }, COLD_BOOT_TIMEOUT_MS)
 
   it('projects the section ledger: product sections in order, defaults for bare rows, stable snapshots', async ({ start }) => {
@@ -109,9 +117,8 @@ describe('ui-settings-general shell', () => {
     off()
   })
 
-  it('shows Account first in Desktop while signed in and removes it on sign-out', async ({ start }) => {
+  it('shows Account first only while signed in and removes it on sign-out', async ({ start }) => {
     vi.stubGlobal('dshDesktop', {})
-    onTestFinished(() => { vi.unstubAllGlobals() })
     const c = await start()
     const { sections } = injectedOf(c).hooks
     await c.mock.streams.opened('account/watch', 1)

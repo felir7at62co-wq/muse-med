@@ -31,7 +31,7 @@ Use this tool for source-backed novel, video, or trope adaptation projects that 
 
 ### Minimal configuration
 
-In a `dsh` profile composition that already mounts `fs`, `tools`, `attachments`, and `llm`, add:
+In a `dsh` profile composition that already mounts `fs`, `tools`, `attachments`, `llm`, and `agents`, add:
 
 ```yaml
 - id: screenplay-project
@@ -53,6 +53,8 @@ In a `dsh` profile composition that already mounts `fs`, `tools`, `attachments`,
 The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-screenplay-project) owns accepted configuration fields. These budgets do not fix the number of episodes or chapters.
 
 ### Review policies
+
+Programmatic compositions await `apply(ctx, config)` before issuing calls. Creation grants use a privately retained, awaited Session projection; review step checks use `agents.turnBoundaryOf(session)`. Released projection registrations do not erase historical user grants.
 
 `reviewMode: advisory` applies to new and existing projects. It uses `review_policy: advisory` without changing the historical `review_mode` or review-context digests. Reading an existing project applies the policy in memory; the next successful project mutation persists it. A read-only operation does not rewrite the file or its historical review records. Once persisted, the advisory policy remains effective under later `independent` or `self-check` configuration; configuration does not convert the project back to strict review.
 

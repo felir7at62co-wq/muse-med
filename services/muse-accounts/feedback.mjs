@@ -1,7 +1,8 @@
 import {mkdir,readFile,writeFile,rename,readdir,rm,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
-import {randomBytes} from 'node:crypto';
+import {randomBytes,createHash} from 'node:crypto';
 const idOK=id=>typeof id==='string'&&/^[a-f0-9]{32}$/.test(id);
+const requestIdOK=id=>typeof id==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id);
 const states=new Set(['new','reviewing','planned','resolved','closed']);
 const fail=(message,status=400)=>{throw Object.assign(Error(message),{status});};
 function field(value,max,label){if(typeof value!=='string'||!value.trim()||value.length>max||value.includes('\0'))fail(label+'格式不正确');return value;}
@@ -16,9 +17,22 @@ function screenshot(input,index){
  const name=typeof input.name==='string'?input.name.replace(/[\x00-\x1f/\\]/g,'_').slice(0,120):`截图${index+1}.${extension}`;
  return {data,meta:{name:name||`截图${index+1}.${extension}`,type,size:data.length,file:`${index}.${extension}`}};
 }
+function fingerprint(title,body,category,shots){
+ const attachments=shots.map(shot=>({name:shot.meta.name,type:shot.meta.type,digest:createHash('sha256').update(shot.data).digest('hex')}));
+ return createHash('sha256').update(JSON.stringify({title,body,category,attachments})).digest('hex');
+}
 export async function openFeedback(root){
- await mkdir(root,{recursive:true,mode:0o700});const records=new Map();
- for(const entry of await readdir(root,{withFileTypes:true})){if(entry.isDirectory()&&idOK(entry.name)){const item=JSON.parse(await readFile(join(root,entry.name,'record.json'),'utf8'));if(item.id!==entry.name)throw Error('Invalid feedback record');records.set(item.id,item);}}
+ await mkdir(root,{recursive:true,mode:0o700});const records=new Map(),requests=new Map();
+ const requestKey=(ownerId,requestId)=>JSON.stringify([ownerId,requestId]);
+ for(const entry of await readdir(root,{withFileTypes:true})){
+  if(!entry.isDirectory()||!idOK(entry.name))continue;
+  const item=JSON.parse(await readFile(join(root,entry.name,'record.json'),'utf8'));if(item.id!==entry.name)throw Error('Invalid feedback record');
+  if(item.requestId!==undefined||item.requestFingerprint!==undefined){
+   if(!requestIdOK(item.requestId)||typeof item.requestFingerprint!=='string'||!/^[a-f0-9]{64}$/.test(item.requestFingerprint))throw Error('Invalid feedback request record');
+   const key=requestKey(item.ownerId,item.requestId);if(requests.has(key))throw Error('Duplicate feedback request record');requests.set(key,item.id);
+  }
+  records.set(item.id,item);
+ }
  let queue=Promise.resolve();const serial=fn=>{const p=queue.then(fn);queue=p.catch(()=>{});return p;};
  function get(actor,id){if(!idOK(id))fail('意见不存在',404);const item=records.get(id);if(!item||!actor.admin&&item.ownerId!==actor.id)fail('意见不存在',404);return structuredClone(item);}
  return {
@@ -27,13 +41,16 @@ export async function openFeedback(root){
   create:(actor,input)=>serial(async()=>{
    const title=field(input?.title,120,'标题'),body=field(input?.body,8000,'意见内容'),category=input.category;
    if(!['bug','suggestion','other'].includes(category))fail('意见类型无效');const attachments=input.attachments??[];if(!Array.isArray(attachments)||attachments.length>3)fail('最多上传 3 张截图');
-   const shots=attachments.map(screenshot),now=new Date().toISOString(),all=[...records.values()];
+   const requestId=input.requestId;if(requestId!==undefined&&!requestIdOK(requestId))fail('提交编号格式不正确');
+   const shots=attachments.map(screenshot),requestFingerprint=requestId===undefined?undefined:fingerprint(title,body,category,shots);
+   if(requestId!==undefined){const previous=records.get(requests.get(requestKey(actor.id,requestId)));if(previous){if(previous.requestFingerprint!==requestFingerprint)fail('提交编号已用于另一条意见',409);return structuredClone(previous);}}
+   const now=new Date().toISOString(),all=[...records.values()];
    if(all.length>=5000||all.reduce((n,r)=>n+r.attachments.reduce((s,a)=>s+a.size,0),0)+shots.reduce((n,s)=>n+s.data.length,0)>256*1024*1024)fail('意见箱存储已满，请联系管理员',507);
    if(all.filter(x=>x.ownerId===actor.id&&x.createdAt.slice(0,10)===now.slice(0,10)).length>=20)fail('今天已提交 20 条意见，请明天再试',429);
    const id=randomBytes(16).toString('hex'),staging=join(root,'.pending-'+id),target=join(root,id);
-   const item={id,ownerId:actor.id,username:actor.username,title,body,category,status:'new',reply:'',revision:1,createdAt:now,updatedAt:now,attachments:shots.map(s=>s.meta),history:[{at:now,by:actor.username,status:'new',reply:''}]};
+   const item={id,ownerId:actor.id,username:actor.username,title,body,category,status:'new',reply:'',revision:1,createdAt:now,updatedAt:now,attachments:shots.map(s=>s.meta),history:[{at:now,by:actor.username,status:'new',reply:''}],...(requestId===undefined?{}:{requestId,requestFingerprint})};
    await mkdir(staging,{mode:0o700});try{for(const shot of shots)await writeFile(join(staging,shot.meta.file),shot.data,{flag:'wx',mode:0o600});await writeFile(join(staging,'record.json'),JSON.stringify(item),{flag:'wx',mode:0o600});await rename(staging,target);}catch(error){await rm(staging,{recursive:true,force:true});throw error;}
-   records.set(id,item);return structuredClone(item);
+   records.set(id,item);if(requestId!==undefined)requests.set(requestKey(actor.id,requestId),id);return structuredClone(item);
   }),
   update:(actor,id,input)=>serial(async()=>{
    if(!actor.admin)fail('仅管理员可处理意见',403);const item=get(actor,id);if(input?.revision!==item.revision)fail('意见已变化，请刷新重试',409);

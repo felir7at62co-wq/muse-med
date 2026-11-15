@@ -1,0 +1,18 @@
+# The real job registry and a persisted owner execute only deterministic local transports.
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: subprocess
+  disabled: true
+- id: headless-runner
+  inject: [headlessStartup, snapshotDouyinTasksReady]
+  config:
+    task: !!js ctx.headlessStartup.task
+    sessionId: snapshot-douyin-background
+    json: !!js ctx.headlessStartup.json
+- insert:
+    - id: douyin-background-fixture
+      name: './tasks-fixture.mjs'

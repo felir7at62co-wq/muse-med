@@ -370,3 +370,27 @@ describe('JubianLedger', () => {
   })
 
 })
+
+
+it.each([
+  { video_preview_path: 4 }, { video_preview_path: null }, { video_preview_path: 'relative.json' },
+  { before_task_ids: [''] }, { before_task_ids: [4] }, { before_task_ids: 'not-array' },
+])('refuses malformed present recovery metadata instead of treating it as absent: %j', async (metadata) => {
+  const ledger = new JubianLedger({ root })
+  await ledger.begin({ idempotencyKey: 'original', method: 'storyboard_native_submit', requestSha256: 'sha256:request' })
+  const file = (await ledger.files())[0]!
+  const row = JSON.parse((await readFile(file, 'utf8')).trim()) as object
+  await writeFile(file, JSON.stringify({ ...row, ...metadata }) + '\n')
+  await expect(ledger.records()).rejects.toThrow('Jubian ledger: invalid')
+})
+
+it('retains optional original video intent metadata without backfilling old records', async () => {
+  const ledger = new JubianLedger({ root })
+  await ledger.begin({ idempotencyKey: 'old', method: 'storyboard_native_submit', requestSha256: 'old' })
+  await ledger.begin({ idempotencyKey: 'new', method: 'storyboard_native_submit', requestSha256: 'new',
+    beforeTaskIds: ['41'], videoPreviewPath: join(root, 'project', 'video_tasks', 'preview.json') })
+  const records = await ledger.records()
+  expect(records[0]).not.toHaveProperty('video_preview_path')
+  expect(records[0]).not.toHaveProperty('before_task_ids')
+  expect(records[1]).toMatchObject({ before_task_ids: ['41'], video_preview_path: join(root, 'project', 'video_tasks', 'preview.json') })
+})

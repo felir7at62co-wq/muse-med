@@ -1,0 +1,39 @@
+{
+  "source_sha256": "36e52bf7b8e61b8a230f333c8294c64a4fae5235d4cdbfbed324fe1988cdcfed",
+  "assets_sha256": "074441fc27ec48b99deb06e4a4d33cc7add9b70490947e4d813145a25267089f",
+  "warning_shots": [
+    1
+  ],
+  "warning_lines": [
+    9
+  ],
+  "unchanged_rosters": [
+    "林岚 @[林岚](lead)",
+    "林岚 @[林岚](lead)",
+    "林岚 @[林岚](lead)"
+  ],
+  "voice_types": [
+    "vo",
+    "vo",
+    "vo"
+  ],
+  "speakers": [
+    "林岚",
+    "林岚",
+    "林岚"
+  ],
+  "texts": [
+    "设备已经打开。",
+    "先想一想。",
+    "我扶着推车。"
+  ],
+  "material_ids": [
+    "81001",
+    "81001",
+    "81001"
+  ],
+  "source_bytes_preserved": true,
+  "advisory_source_copy_preserved": true,
+  "saved_report_matches_actual": true,
+  "full_report_observed_in_next_model_request": true
+}

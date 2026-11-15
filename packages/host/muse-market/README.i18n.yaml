@@ -1,0 +1,58 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/host/muse-market/README.md
+/:
+  en: da7e4fd09b1a4ad0
+  zh: b23732f2b1e72a9d
+/local-skill-publications:
+  en: 6232dc6b8b3f1d4b
+  zh: 2743238fca92b1df
+/local-skill-publications/summary:
+  en: 60f94d63746c0d35
+  zh: 81d067b80c34d6b8
+/local-skill-publications/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 7b30b973a849247d
+/local-skill-publications/use-this-package:
+  en: 0423308ce1aa5d1b
+  zh: 505acc5c3d492f49
+/local-skill-publications/use-this-package/publication-lifecycle:
+  en: 16f39fb1da988350
+  zh: 19b2f353839c22aa
+/local-skill-publications/use-this-package/default-releases-and-session-binding:
+  en: 51fcd69d4723d647
+  zh: 2c1bf321dab5be7e
+/local-skill-publications/use-this-package/storage-and-configuration:
+  en: 5bbc50710ae581f8
+  zh: 5222b32331cfd062
+/local-skill-publications/use-this-package/account-bound-cloud:
+  en: a9c1b0114eeecb41
+  zh: f5dde48d3ad6c474
+/local-skill-publications/understand-the-implementation:
+  en: 1b01054a5db0f300
+  zh: 9e60987c051e300f
+/local-skill-publications/further-exploration:
+  en: 647f16a597f1e8e5
+  zh: 51c96fea50771024
+/local-skill-publications/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/local-skill-publications/model-experience/publication-results-and-selected-skills:
+  en: 4f6dfcb5234ea888
+  zh: c48c4295eec8c01f
+/local-skill-publications/model-experience/publication-results-and-selected-skills/what-the-model-sees:
+  en: 17fb4c96c11ef62c
+  zh: 0d9e75bb066603bc
+/local-skill-publications/model-experience/publication-results-and-selected-skills/token-effect:
+  en: 6f884d3c923d618a
+  zh: dee62af157c34557
+/local-skill-publications/model-experience/publication-results-and-selected-skills/kv-cache-effect:
+  en: cc39ac11503a39b6
+  zh: 0bddfc06a2725cf6
+/local-skill-publications/known-limitations-and-deferred-work:
+  en: 192228a319da31dd
+  zh: a18a0f5a2b30759a
+/local-skill-publications/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

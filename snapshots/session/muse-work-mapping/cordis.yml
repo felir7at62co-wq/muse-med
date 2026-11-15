@@ -1,0 +1,16 @@
+# A persisted root with a stable identity keeps real reviewer attribution and artifact hashes reproducible.
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: headless-runner
+  inject: [headlessStartup, snapshotWorkMappingReady]
+  config:
+    task: !!js ctx.headlessStartup.task
+    sessionId: snapshot-work-mapping-review
+    json: !!js ctx.headlessStartup.json
+- insert:
+    - id: work-mapping-fixture
+      name: './mapping-fixture.mjs'

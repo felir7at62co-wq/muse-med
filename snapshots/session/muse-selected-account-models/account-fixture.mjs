@@ -12,7 +12,9 @@ import { desktopModelCatalog } from '../../../services/muse-accounts/desktop-mod
 const owner = new URL('../../../packages/host/muse-account/package.json', import.meta.url)
 const account = await importSnapshotModule(new URL('../../../packages/host/muse-account/src/index.ts', import.meta.url),
   new URL('../../../packages/host/muse-account/lib/types/index.js', import.meta.url))
-const { defineContentToolFixture } = await importSnapshotPackage('@deepseek-ai/dsh-tools', owner)
+const { defineContentToolFixture } = await importSnapshotModule(
+  new URL('../../../packages/test-support/tool-testkit/src/index.ts', import.meta.url),
+  new URL('../../../packages/test-support/tool-testkit/lib/index.js', import.meta.url))
 const { LlmAdapter } = await importSnapshotPackage('@deepseek-ai/dsh-llm', owner)
 const { SettingsConflictError } = await importSnapshotPackage('@deepseek-ai/dsh-settings', owner)
 

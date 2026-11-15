@@ -405,3 +405,15 @@ describe('explicitly unused subject history', () => {
     expect(() => buildSubjectSelection({ ...oneSubject(), subjectRows: [old, row], parentAssets: [parent] })).toThrow()
   })
 })
+
+
+it('replaces stale material name aliases when an explicit asset selection changes', () => {
+  const first = buildSubjectSelection({ ...oneSubject(), storyboard: { ...oneSubject().storyboard,
+    storyboardMaterialList: [{ materialKey: 'lead', assetId: 'unrelated-subject', materialAssetId: 1,
+      assetName: '无关大厅', materialName: '无关大厅', fileName: '无关大厅',
+      materialType: 'image', materialUrl: 'https://example.test/hall.jpg', sortOrder: 1 }] } })
+  expect((first.payload.storyboardMaterialList as Record<string, unknown>[])[0]).toMatchObject({
+    assetId: 'asset-lead', materialAssetId: 81285, materialUrl: URL_LEAD,
+    assetName: '陆沉舟｜西装', materialName: '陆沉舟｜西装', fileName: '陆沉舟｜西装',
+  })
+})

@@ -1,0 +1,43 @@
+# This Jobs and MCP fixture runs no shell; keep its unused runner and skill catalog platform-neutral.
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
+
+# Desktop's Web bundle keeps these Host-level tools disabled.
+- id: plan-mode
+  disabled: true
+
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- id: tool-subagent
+  disabled: true
+
+- id: tool-subagent-fork
+  disabled: true
+
+- id: workflow-ptc
+  disabled: true
+
+- id: tool-workflow
+  disabled: true
+
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: short-drama
+        selectablePresets: [short-drama]
+        selectedDefault: bot-coordinator
+    - id: session-product-fixture
+      name: './product-fixture.mjs'

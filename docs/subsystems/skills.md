@@ -2,9 +2,9 @@
 
 English | [中文](skills.zh.md)
 
-The [skill capability family](../../packages/skill) includes the Service Definition ([dsh-skill](../../packages/skill/skill), `ctx.skills`), the local Service Provider ([dsh-skill-filesystem](../../packages/skill/skill-filesystem)), optional packaged providers ([dsh-skill-badge](../../packages/skill/skill-badge), [dsh-skill-office](../../packages/skill/skill-office), and the Windows ACL diagnosis provider in [dsh-sandbox-windows-acl](../../packages/sandbox/sandbox-windows-acl)), and the Consumer ([dsh-tool-skill](../../packages/skill/tool-skill)). The registry merges provider catalogs across its host and per-scope layers; providers contribute local or packaged skills; the Consumer owns the initial and replacement catalogs plus the model-facing `skill` tool. Skills are optional instructions, not session events, so their vocabulary lives here rather than in [core.md](core.md).
+The [skill capability family](../../packages/skill) includes the Service Definition ([dsh-skill](../../packages/skill/skill), `ctx.skills`), the local Service Provider ([dsh-skill-filesystem](../../packages/skill/skill-filesystem)), optional packaged providers ([dsh-skill-badge](../../packages/experimental/skill-badge), [dsh-skill-office](../../packages/skill/skill-office), and the Windows ACL diagnosis provider in [dsh-sandbox-windows-acl](../../packages/sandbox/sandbox-windows-acl)), and the Consumer ([dsh-tool-skill](../../packages/skill/tool-skill)). The registry merges provider catalogs across its host and per-scope layers; providers contribute local or packaged skills; the Consumer owns the initial and replacement catalogs plus the model-facing `skill` tool. Skills are optional instructions, not session events, so their vocabulary lives here rather than in [core.md](core.md).
 
-Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts), [`packages/skill/skill-filesystem/src/index.ts`](../../packages/skill/skill-filesystem/src/index.ts), [`packages/skill/skill-badge/src/index.ts`](../../packages/skill/skill-badge/src/index.ts), [`packages/skill/skill-office/src/index.ts`](../../packages/skill/skill-office/src/index.ts), [`packages/sandbox/sandbox-windows-acl/src/acl-skill.ts`](../../packages/sandbox/sandbox-windows-acl/src/acl-skill.ts), and [`packages/skill/tool-skill/src/index.ts`](../../packages/skill/tool-skill/src/index.ts).
+Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts), [`packages/skill/skill-filesystem/src/index.ts`](../../packages/skill/skill-filesystem/src/index.ts), [`packages/experimental/skill-badge/src/index.ts`](../../packages/experimental/skill-badge/src/index.ts), [`packages/skill/skill-office/src/index.ts`](../../packages/skill/skill-office/src/index.ts), [`packages/sandbox/sandbox-windows-acl/src/acl-skill.ts`](../../packages/sandbox/sandbox-windows-acl/src/acl-skill.ts), and [`packages/skill/tool-skill/src/index.ts`](../../packages/skill/tool-skill/src/index.ts).
 
 ## Provider registry
 
@@ -67,18 +67,14 @@ The shipped local provider scans roots in rank order:
 
 | Rank | Source | Root |
 |---|---|---|
-| 90 | `project-muse` | `<projectRoot>/.muse/skills` |
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
-| 390 | `user-muse` | `<museHome>/skills` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
 | 600 | `bundled` | `Config.bundledSkillDir` when configured |
 
-A muse root ranks one step above its DSH counterpart, so a name present under both resolves to the muse copy while the DSH roots stay scanned. `museHome` defaults to `$MUSE_HOME` or `~/.muse`; `dshHome` defaults to the [resolved harness home](../../packages/util/home-paths/README.md), where `$MUSE_HOME` outranks `$DSH_HOME`. A deployment that sets only `MUSE_HOME` resolves both user roots to one directory, which the provider scans once and reports as `user-muse`.
-
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user muse and DSH roots skip their `.system` child. The local provider does not synthesize built-in system skills; deployments supply packaged skills through configured bundled roots or dedicated providers.
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child. The local provider does not synthesize built-in system skills; deployments supply packaged skills through configured bundled roots or dedicated providers. A failed root contributes no candidates, so a lower-priority same-name skill from another root may supply both the catalog description and loaded body until recovery.
 
 `dsh-skill-badge` registers one immutable `bundled` candidate at `BUNDLED_SKILL_RANK` and exposes its packaged asset directory through `resourceBase`. The shipped CLI declares the plugin disabled, so enabling its composition row is an explicit opt-in.
 
@@ -131,7 +127,7 @@ interface SkillSummary {
 
 `ctx.skills.list()` preserves all four policy combinations. `isModelInvocable(skill)` and `isUserInvocable(skill)` read the corresponding required field. A model-only skill sets `{ modelInvocable: true, userInvocable: false }`, a user-only skill sets `{ modelInvocable: false, userInvocable: true }`, and setting both fields to `false` keeps the skill available only through trusted `ctx.skills.get()` callers. The local provider reads the exact kebab-case frontmatter keys `disable-model-invocation` and `user-invocable`, defaults omitted fields to `true`, and projects every parsed skill into this normalized policy.
 
-`SkillCatalogSnapshot` distinguishes authoritative absence from transient provider failure or a catalog that kept changing during discovery. `skills` contains the sorted invocation-neutral summaries collected in that observation; `complete` is true only when every registered provider completed without a concurrent catalog revision. Incomplete snapshots are not cached, allowing each consumer to retain its last-good filtered catalog and retry.
+`SkillCatalogSnapshot` distinguishes authoritative absence from transient provider failure or a catalog that kept changing during discovery. `skills` contains the sorted invocation-neutral summaries collected in that observation; `complete` is true only when every registered provider completed without a concurrent catalog revision. Incomplete snapshots are not cached, so the next lookup retries discovery; each consumer decides how to present the partial result.
 
 ```ts type-equiv
 /** One catalog observation plus whether discovery completed within a stable catalog revision. */
@@ -230,9 +226,9 @@ interface Config {
 
 ## Session catalog and tool contract
 
-`dsh-tool-skill` injects the initial durable user-role `<system-reminder>` at the first `agent/pre-step` of a live session that observes a non-empty complete view. The catalog contains sorted skill `name` and normalized, XML-escaped `description` only; it omits bodies, paths, sources, providers, and routing hints. Discovery forwards the step's abort signal through `SkillLookupOptions`. `catalogDescriptionMaxLength` is the consumer config for the description bound, with default `500` and integer minimum `3`.
+`dsh-tool-skill` injects the initial durable user-role `<system-reminder>` at the first `agent/pre-step` of a live session that observes available skills or incomplete discovery. The catalog contains sorted skill `name` and normalized, XML-escaped `description` only; it omits bodies, paths, sources, providers, and routing hints. Discovery forwards the step's abort signal through `SkillLookupOptions`. `catalogDescriptionMaxLength` is the consumer config for the description bound, with default `500` and integer minimum `3`.
 
-Before each later model step, the consumer applies exact tool visibility and digests the exact rendered entries between the `<available_skills>` tags from a complete snapshot. It derives the comparison baseline from the same entries in the newest recognizable visible catalog message sourced by the plugin. A changed digest appends a durable full replacement through `agent.inject()`; deleting every skill appends an explicit empty replacement. Incomplete snapshots preserve the last-good model view. If compaction hides every historical catalog message, the next complete snapshot re-establishes the current catalog; an empty view with no prior catalog emits nothing. These catalog messages are session history, not World State.
+Before each later model step, the consumer applies exact tool visibility and compares the entries and completeness with the newest recognizable visible catalog message in the session log. A changed observation contributes a durable replacement to the pre-step decision; deleting every skill appends an explicit empty replacement. Incomplete discovery publishes the available subset with a warning and optional `incomplete: true` source metadata; absence of that flag means complete. Recovery republishes the catalog even when its entries are unchanged. If compaction hides every historical catalog message, the next observation re-establishes the current catalog; a complete empty view with no prior catalog emits nothing. These catalog messages are session history, not World State.
 
 The model-facing `skill({ name })` tool validates the kebab-case name, finds the summary in the invocation-neutral catalog, rejects it before loading unless `isModelInvocable` permits access, then rereads the complete definition for the calling agent cwd and rechecks the policy before returning content. It reports an unresolved skill as unknown or no longer available and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` resolves explicitly referenced scripts, references, and assets only as needed; the loaded result does not enumerate a skill directory. Body-only edits therefore change later tool calls without producing catalog messages or rewriting earlier tool results.
 
@@ -247,6 +243,33 @@ The model-facing `skill({ name })` tool validates the kebab-case name, finds the
 ## Cordis API
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxmusemarketactivation--musemarketactivation"></a>
+
+### `ctx.museMarketActivation` — `MuseMarketActivation`
+
+Activation policy is separate from the local-only publication service.
+
+```ts cordis-catalog
+/** Read the complete committed defaults without rebinding any Session.
+ * @returns Activation revision and exact local archive choices.
+ */
+@Remote('defaults') async defaults(): Promise<MuseMarketDefaults>
+
+/** Explicitly switch or disable one default using the last observed archive identity.
+ * @param input - Skill name, expected current archive and selected target or null.
+ * @returns Complete committed defaults; existing bound Sessions are unchanged.
+ */
+@Remote('setDefault') async setDefault(input: MuseMarketDefaultInput): Promise<MuseMarketDefaults>
+
+/** Inspect a live or cold Session's exact selection without creating an Agent.
+ * @param input - Session identity.
+ * @returns Bound releases, latest blank-session defaults, or the unchanged legacy empty set.
+ */
+@Remote('binding') async binding(input: MuseMarketBindingRequest): Promise<MuseMarketBindingView>
+```
+
+Source: [`packages/host/muse-market/src/activation.ts`](../../packages/host/muse-market/src/activation.ts)
 
 <a id="ctxsessionskillcatalog--sessionskillcatalog"></a>
 
@@ -330,6 +353,78 @@ async get(name: string, options: SkillViewOptions = {}): Promise<SkillDefinition
 ```
 
 Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts)
+
+<a id="muse-market-events"></a>
+
+### `muse-market/*` events
+
+<a id="muse-marketbefore-remove--serial"></a>
+
+#### `muse-market/before-remove` — serial
+
+Refuse removal of a publication retained by an activation consumer.
+
+```ts cordis-catalog
+/** Refuse removal of a publication retained by an activation consumer.
+ * @mode serial
+ * @param releaseId - Exact local archive identity being removed.
+ */
+'muse-market/before-remove'(releaseId: MarketReleaseId): Promise<void>
+```
+
+Source: [`packages/host/muse-market/src/types.ts`](../../packages/host/muse-market/src/types.ts)
+
+<a id="muse-marketdefaults-changed--emit"></a>
+
+#### `muse-market/defaults-changed` — emit
+
+Default publication choices committed; consumers refetch their own Session views.
+
+```ts cordis-catalog
+/** Default publication choices committed; consumers refetch their own Session views.
+ * @mode emit
+ */
+'muse-market/defaults-changed'(): void
+```
+
+Source: [`packages/host/muse-market/src/types.ts`](../../packages/host/muse-market/src/types.ts)
+
+<a id="muse-marketinventory-changed--emit"></a>
+
+#### `muse-market/inventory-changed` — emit
+
+Local publication records changed; observers refetch authoritative inventory.
+
+```ts cordis-catalog
+/** Local publication records changed; observers refetch authoritative inventory.
+ * @mode emit
+ */
+'muse-market/inventory-changed'(): void
+```
+
+Source: [`packages/host/muse-market/src/types.ts`](../../packages/host/muse-market/src/types.ts)
+
+<a id="session-skills-events"></a>
+
+### `session-skills/*` events
+
+<a id="session-skillsprepare-view--serial"></a>
+
+#### `session-skills/prepare-view` — serial
+
+Populate a temporary cold Session Skill view; all contributions end with the read.
+
+```ts cordis-catalog
+/** Populate a temporary cold Session Skill view; all contributions end with the read.
+ * @mode serial
+ * @param view - Exact Session projections and the owned registration context.
+ */
+'session-skills/prepare-view'(view: { readonly sessionId: SessionId readonly projections: ProjectionSnapshot readonly context: () => Context readonly signal: AbortSignal }): Promise<void>
+```
+
+Types: [ProjectionSnapshot](session-projection.md) · [SessionId](core.md)
+
+Source: [`packages/api/session-controller/src/skill-catalog.ts`](../../packages/api/session-controller/src/skill-catalog.ts)
 
 <a id="skills-events"></a>
 

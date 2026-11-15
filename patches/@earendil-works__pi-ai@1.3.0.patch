@@ -1,0 +1,123 @@
+diff --git a/dist/api/anthropic-messages.js b/dist/api/anthropic-messages.js
+index befb18b..7b7da85 100644
+--- a/dist/api/anthropic-messages.js
++++ b/dist/api/anthropic-messages.js
+@@ -588,7 +588,6 @@ export const stream = (model, context, options) => {
+                         const block = blocks[index];
+                         if (block && block.type === "toolCall") {
+                             block.partialJson += event.delta.partial_json;
+-                            block.arguments = parseStreamingJson(block.partialJson);
+                             stream.push({
+                                 type: "toolcall_delta",
+                                 contentIndex: index,
+diff --git a/dist/api/bedrock-converse-stream.js b/dist/api/bedrock-converse-stream.js
+index 6ec62d0..abe5eee 100644
+--- a/dist/api/bedrock-converse-stream.js
++++ b/dist/api/bedrock-converse-stream.js
+@@ -461,7 +461,6 @@ function handleContentBlockDelta(event, blocks, output, stream) {
+     }
+     else if (delta?.toolUse && block?.type === "toolCall") {
+         block.partialJson = (block.partialJson || "") + (delta.toolUse.input || "");
+-        block.arguments = parseStreamingJson(block.partialJson);
+         stream.push({ type: "toolcall_delta", contentIndex: index, delta: delta.toolUse.input || "", partial: output });
+     }
+     else if (delta?.reasoningContent) {
+diff --git a/dist/api/mistral-conversations.js b/dist/api/mistral-conversations.js
+index 9038a1c..afda5ea 100644
+--- a/dist/api/mistral-conversations.js
++++ b/dist/api/mistral-conversations.js
+@@ -570,7 +570,6 @@ async function consumeChatStream(model, output, stream, mistralStream, onProvide
+                 ? toolCall.function.arguments
+                 : JSON.stringify(toolCall.function.arguments || {});
+             block.partialArgs = (block.partialArgs || "") + argsDelta;
+-            block.arguments = parseStreamingJson(block.partialArgs);
+             stream.push({
+                 type: "toolcall_delta",
+                 contentIndex: toolBlocksByKey.get(key),
+diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
+index 0eeaffa..2e13492 100644
+--- a/dist/api/openai-completions.js
++++ b/dist/api/openai-completions.js
+@@ -360,7 +360,10 @@
+                 if (typeof chunk.model === "string" && chunk.model.length > 0 && chunk.model !== model.id) {
+                     output.responseModel ||= chunk.model;
+                 }
+-                if (chunk.usage) {
++                // Billing-only trailers must not erase the preceding token measurement.
++                const tokenValues = [chunk.usage?.prompt_tokens, chunk.usage?.completion_tokens];
++                const hasTokenUsage = tokenValues.some(value => value !== undefined) && tokenValues.every(value => value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0));
++                if (hasTokenUsage) {
+                     output.usage = parseChunkUsage(chunk.usage, model);
+                 }
+                 const choice = Array.isArray(chunk.choices) ? chunk.choices[0] : undefined;
+@@ -368,7 +371,9 @@
+                     continue;
+                 // Fallback: some providers (e.g., Moonshot) return usage
+                 // in choice.usage instead of the standard chunk.usage
+-                if (!chunk.usage && choice.usage) {
++                const choiceTokenValues = [choice.usage?.prompt_tokens, choice.usage?.completion_tokens];
++                const hasChoiceTokenUsage = choiceTokenValues.some(value => value !== undefined) && choiceTokenValues.every(value => value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0));
++                if (!hasTokenUsage && hasChoiceTokenUsage) {
+                     output.usage = parseChunkUsage(choice.usage, model);
+                 }
+                 if (choice.finish_reason) {
+@@ -449,11 +454,15 @@ export const stream = (model, context, options) => {
+                             if (!block.name && name) {
+                                 block.name = name;
+                             }
++                            // Gemini OpenAI-compatible endpoints require this signature on replay.
++                            const geminiThoughtSignature = toolCall.extra_content?.google?.thought_signature;
++                            if (typeof geminiThoughtSignature === "string" && geminiThoughtSignature.length > 0) {
++                                block.thoughtSignature = geminiThoughtSignature;
++                            }
+                             let delta = "";
+                             if (toolCall.function?.arguments) {
+                                 delta = toolCall.function.arguments;
+                                 block.partialArgs = (block.partialArgs ?? "") + toolCall.function.arguments;
+-                                block.arguments = parseStreamingJson(block.partialArgs);
+                             }
+                             else if (toolCall.custom?.input) {
+                                 const nextInput = getCustomToolCallInput(block) + toolCall.custom.input;
+@@ -1033,6 +1042,9 @@ export function convertMessages(model, context, compat, options) {
+                             },
+                         };
+                     }
++                    const geminiThoughtSignature = tc.thoughtSignature && !parseLegacyEncryptedReasoningDetail(tc.thoughtSignature)
++                        ? tc.thoughtSignature
++                        : undefined;
+                     return {
+                         id: tc.id,
+                         type: "function",
+@@ -1040,6 +1052,7 @@ export function convertMessages(model, context, compat, options) {
+                             name: tc.name,
+                             arguments: JSON.stringify(tc.arguments),
+                         },
++                        ...(geminiThoughtSignature && { extra_content: { google: { thought_signature: geminiThoughtSignature } } }),
+                     };
+                 });
+             }
+diff --git a/dist/api/openai-responses-shared.js b/dist/api/openai-responses-shared.js
+index af5f042..b9f00fb 100644
+--- a/dist/api/openai-responses-shared.js
++++ b/dist/api/openai-responses-shared.js
+@@ -561,7 +561,6 @@ export async function processResponsesStream(openaiStream, output, stream, model
+             if (!slot || slot.block.partialJson === undefined)
+                 continue;
+             slot.block.partialJson += event.delta;
+-            slot.block.arguments = parseStreamingJson(slot.block.partialJson);
+             pushToolCallDelta(slot, event.delta);
+         }
+         else if (event.type === "response.function_call_arguments.done") {
+diff --git a/dist/api/pi-messages.js b/dist/api/pi-messages.js
+index 7da1c45..296d131 100644
+--- a/dist/api/pi-messages.js
++++ b/dist/api/pi-messages.js
+@@ -155,8 +155,6 @@ function createEventConverter(model) {
+             case "toolcall_delta": {
+                 const json = `${toolJson.get(event.contentIndex) ?? ""}${event.delta}`;
+                 toolJson.set(event.contentIndex, json);
+-                partial.content[event.contentIndex].arguments =
+-                    parseStreamingJson(json);
+                 break;
+             }
+             case "toolcall_end":

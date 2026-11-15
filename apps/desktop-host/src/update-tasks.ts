@@ -1,9 +1,11 @@
 /** Desktop installation admission and task inspection for the shared Web Host. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { ServerResponse } from 'node:http'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-tool-jubian'
 
 /**
  * Whether stopping the Host now would interrupt work: a generating or tool-running
@@ -23,14 +25,14 @@ export function hasDesktopActiveTasks(liveAgents: ReturnType<Context['agents']['
 /**
  * Register update admission on the owning Host context.
  * @param ctx - Booted Desktop profile context; disposal removes the request listener.
- * @returns Task inspector whose lock refuses new API requests, drains admitted requests, and rechecks work.
+ * @returns Task inspector whose lock pauses episode admission, drains API requests, and reads active work without waiting for media.
  */
 export function installDesktopUpdateTaskControl(ctx: Context): (action: 'inspect' | 'lock' | 'unlock') => Promise<boolean> {
   let locked = false
   let lockGeneration = 0
   let stopped = false
   ctx.effect(() => () => { stopped = true })
-  const pendingRequests = new Set<Promise<void>>()
+  const pendingRequests = new Map<Promise<void>, ServerResponse>()
   ctx.on('connection/request', async (_request, response, next) => {
     if (locked) {
       response.writeHead(503)
@@ -38,25 +40,36 @@ export function installDesktopUpdateTaskControl(ctx: Context): (action: 'inspect
       return
     }
     const finished = Promise.withResolvers<void>()
-    pendingRequests.add(finished.promise)
+    pendingRequests.set(finished.promise, response)
     try { await next() }
     finally { pendingRequests.delete(finished.promise); finished.resolve() }
   })
   return async (action) => {
     if (stopped) throw new Error('desktop update: Host is stopping')
-    if (action === 'unlock') { locked = false; lockGeneration++ }
+    const episode = ctx.get('jubianEpisodeDelivery')
+    if (action === 'unlock') {
+      locked = false
+      lockGeneration++
+      episode?.resumeAdmission()
+      await ctx.serial('connection/update-resume')
+    }
     const agents = ctx.get('agents')
     const jobs = ctx.get('jobs')
     if (agents === undefined || jobs === undefined) throw new Error('desktop update: task services are unavailable')
     if (action === 'lock') {
       locked = true
       const generation = ++lockGeneration
-      // Read requests are not tasks; admitted writes must finish before the final work check.
-      await Promise.all(pendingRequests)
+      episode?.pauseAdmission()
+      const streams = ctx.serial('connection/update-pause')
+      // Cancellation requests cooperation; only the completed handlers release admission.
+      for (const response of pendingRequests.values()) response.destroy()
+      await Promise.all([streams, ...pendingRequests.keys()])
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Disposal can run while admitted requests drain.
       if (stopped) throw new Error('desktop update: Host is stopping')
       if (generation !== lockGeneration) throw new Error('desktop update: admission lock was superseded')
     }
-    return hasDesktopActiveTasks(agents.list(), jobs)
+    const currentEpisode = ctx.get('jubianEpisodeDelivery')
+    if (action === 'lock' && currentEpisode !== episode) currentEpisode?.pauseAdmission()
+    return hasDesktopActiveTasks(agents.list(), jobs) || currentEpisode?.hasActiveWork() === true
   }
 }

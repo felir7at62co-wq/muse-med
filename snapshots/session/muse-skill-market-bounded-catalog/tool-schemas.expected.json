@@ -1,0 +1,68 @@
+{
+  "initial": [
+    {
+      "name": "skill",
+      "description": "Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The exact skill name from the available skills list."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "skill_catalog",
+      "description": "Search or page the complete directory of skills permitted for model invocation. Returns metadata only; load an exact name with skill before following its instructions.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Case-insensitive substring in name, description or when-to-use guidance."
+          },
+          "cursor": {
+            "type": "object",
+            "description": "The unchanged nextCursor from this Session and directory query.",
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "type": "integer",
+                "const": 1
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "digest": {
+                "type": "string"
+              },
+              "query": {
+                "type": "string"
+              },
+              "offset": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "version",
+              "sessionId",
+              "digest",
+              "query",
+              "offset"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum metadata entries in this page."
+          }
+        }
+      }
+    }
+  ],
+  "changes": []
+}

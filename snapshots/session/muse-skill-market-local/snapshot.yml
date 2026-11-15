@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-skill-market-local
+profile: headless
+composition: muse-skill-market-local
+recording: authored
+writerOutput: true
+header:
+  class: muse-skill-market-local
+  pin: true
+workspace:
+  final: true

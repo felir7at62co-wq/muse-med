@@ -9,9 +9,10 @@ import Agents, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
-import JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import Tools, { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { JubianVideoSelection } from '@deepseek-ai/dsh-tool-jubian'
@@ -38,6 +39,7 @@ export async function sessionVideoShot(root: string, config: ShotCompiler.Config
     await ctx.plugin(Projections)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
+    await ctx.plugin(NativeExecutor)
     await ctx.plugin(Agents)
     await ctx.plugin(JsonlPersistence, { root: join(root, 'sessions'), compression: 'none' })
     await ctx.plugin(AgentLoop, { agents: [] })
@@ -58,7 +60,7 @@ export async function sessionVideoShot(root: string, config: ShotCompiler.Config
         ...(useDefault ? { defaultModel: { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU', resolution: '480p' } } : {}) })
     } }
     const compiler = programmatic ? { inject: ShotCompiler.inject,
-      apply: (owner: Context) => { ShotCompiler.apply(owner, config) } } : ShotCompiler
+      apply: async (owner: Context) => { await ShotCompiler.apply(owner, config) } } : ShotCompiler
     Object.assign(ctx.loader.builtins, { include: Include, video, compiler })
     const directory = join(root, 'loader')
     await mkdir(directory, { recursive: true })

@@ -1,0 +1,15 @@
+{
+  "healthCalls": 2,
+  "catalogCalls": 1,
+  "engineDownloads": 0,
+  "licenseRefreshes": 0,
+  "seriesAuthorizations": 0,
+  "spawnedProcesses": 0,
+  "networkCalls": 0,
+  "declaredEpisodes": 2,
+  "authorization": "not_checked",
+  "mediaAvailability": "not_tested",
+  "verifiedDownload": false,
+  "topLevelComplete": false,
+  "confirmedSessionShutdowns": 2
+}

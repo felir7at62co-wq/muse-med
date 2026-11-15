@@ -347,7 +347,7 @@ for (const reason of ['stopped', 'lock lost']) {
       writeFileSync(join(home, 'state.lock'), JSON.stringify({ pid: 1, host: `${hostname()}-other`, token: 'other-writer', since: Date.now() }))
       attempt = host.tool('message_bot', args, 'a')
     }
-    await assert.rejects(attempt, /cannot save|cannot be saved/i)
+    await assert.rejects(attempt, reason === 'stopped' ? /Muse Bot has stopped/ : /cannot save|cannot be saved/i)
     await closing
     assert.equal(host.agentOf('b').calls.length, 0)
     assert.equal(Object.keys(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).requests ?? {}).length, 0)

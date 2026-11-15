@@ -11,7 +11,9 @@
     "src/types.ts"
   ],
   "references": [
-    { "path": "../../client/product-analytics/tsconfig.client.json" },
+    {
+      "path": "../../client/product-analytics/tsconfig.client.json"
+    },
     {
       "path": "../../../vendor/cordis"
     },
@@ -32,6 +34,9 @@
     },
     {
       "path": "../../context/session-reference"
+    },
+    {
+      "path": "../../core/session"
     },
     {
       "path": "../../extensions/cordis-host-runner"
@@ -103,6 +108,9 @@
       "path": "../../boot/plugin-manager"
     },
     {
+      "path": "../../boot/plugin-market"
+    },
+    {
       "path": "../../document/office-to-pdf"
     },
     {
@@ -110,6 +118,15 @@
     },
     {
       "path": "../../credentials/deepseek-account"
+    },
+    {
+      "path": "../../skill/skill"
+    },
+    {
+      "path": "../../host/muse-market"
+    },
+    {
+      "path": "../../host/muse-account/tsconfig.host.json"
     }
   ]
 }

@@ -8,6 +8,7 @@ import { dump, load } from 'js-yaml'
 import type { DesktopPackageTargetName } from './package-target.ts'
 import {
   desktopBuildRecordFilename,
+  desktopLatestInstallerFilename,
   desktopUpdateMetadataFilename,
   resolveDesktopUploadConfig,
 } from './desktop-auto-update-environment.mjs'
@@ -74,6 +75,10 @@ export interface DesktopUploadPlanOptions {
   readonly repositoryRoot?: string
   readonly appRoot?: string
   readonly artifactsRoot?: string
+  /** Original product version from a verified retained build; absent reads the checkout manifests. */
+  readonly packagedProductVersion?: string
+  /** Exact Core version from the verified retained source, independent of the Muse product version. */
+  readonly packagedDshVersion?: string
 }
 
 interface UpdateFileInfo {
@@ -199,13 +204,13 @@ export async function createDesktopUploadPlan(
   const repositoryRoot = options.repositoryRoot ?? REPOSITORY_ROOT
   const appRoot = options.appRoot ?? APP_ROOT
   const artifactsRoot = options.artifactsRoot ?? desktopTargetBuildPaths(targetName).artifacts
-  const dshVersion = await manifestVersion(join(repositoryRoot, 'package.json'), 'dsh package')
-  const desktopVersion = await manifestVersion(join(appRoot, 'package.json'), 'desktop package')
+  const dshVersion = options.packagedDshVersion ?? await manifestVersion(join(repositoryRoot, 'package.json'), 'dsh package')
+  const desktopVersion = options.packagedDshVersion ?? await manifestVersion(join(appRoot, 'package.json'), 'desktop package')
   if (dshVersion !== desktopVersion) {
     throw new Error(`desktop upload: desktop version ${desktopVersion} does not match current dsh version ${dshVersion}`)
   }
   const product = readDesktopProductConfig(appRoot)
-  const productVersion = product.version
+  const productVersion = options.packagedProductVersion ?? product.version
 
   const update = resolveDesktopUploadConfig(environment, target.platform, target.arch)
   const buildRecord = await jsonFile(
@@ -227,12 +232,14 @@ export async function createDesktopUploadPlan(
   }
   if (buildRecord.schemaVersion !== 1
     || buildRecord.target !== targetName
+    || (buildRecord.channel ?? 'nightly') !== update.channel
     || buildRecord.environment !== update.environment
     || buildRecord.publicUrl !== update.publicUrl) {
     throw new Error(`desktop upload: ${targetName} package completion record for ${buildVersion} does not match the ${update.environment} update destination`)
   }
 
-  const metadataFilename = desktopUpdateMetadataFilename(buildVersion, target.platform)
+  if (update.channel === 'latest' && buildVersion.includes('-')) throw new Error('desktop upload: latest requires a stable version')
+  const metadataFilename = desktopUpdateMetadataFilename(buildVersion, target.platform, update.channel)
   const metadataPath = join(artifactsRoot, metadataFilename)
   let metadataValue: unknown
   try {
@@ -293,7 +300,7 @@ export async function createDesktopUploadPlan(
   let githubReleases: readonly DesktopGitHubReleasePlan[] | undefined
   if (product.legacyRcDiscovery) {
     const suffix = target.platform === 'darwin' ? '-mac' : ''
-    const metadataFilenames = [...new Set([metadataFilename, `rc${suffix}.yml`, `latest${suffix}.yml`])]
+    const metadataFilenames = [...new Set([metadataFilename, ...(buildVersion.includes('-beta.') ? [`beta${suffix}.yml`] : []), `rc${suffix}.yml`, `latest${suffix}.yml`])]
     for (const filename of metadataFilenames.slice(1)) {
       artifacts.push({ ...channelArtifact, filename, key: `${update.keyPrefix}/${filename}` })
     }
@@ -308,7 +315,7 @@ export async function createDesktopUploadPlan(
       { ...shared, prerelease: true, tag: `v${release}-rc.muse-${prerelease.join('-') || 'stable'}`, discovery: 'legacy-rc' },
     ]
   }
-  const latestFilename = `dsh-latest-${target.platform === 'darwin' ? 'macos' : 'windows'}-${target.arch}.${target.platform === 'darwin' ? 'dmg' : 'exe'}`
+  const latestFilename = desktopLatestInstallerFilename(targetName)
   const latestKey = `desktop/${latestFilename}`
   return {
     environment: update.environment,

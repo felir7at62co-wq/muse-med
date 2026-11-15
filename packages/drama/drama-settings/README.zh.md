@@ -58,6 +58,10 @@ kind: "package-bundle"
 
 `changes.delivery.subtitle_visual` 通过相同的预览及更新流程，记录已确认的带版本字幕目标。提供时整节替换旧值；`{}` 在重新准备后恢复旧样式，省略则保留当前目标。[渲染器参考](../tool-episode-render/README.zh.md#subtitle-visual)定义参考画布字段及预览边界。正式成片像素与编辑器 UI 值仍相互独立；保存目标不认证输出一致，也不会令烧录字可编辑。
 
+`changes.delivery.subtitle.require_speech_coverage` 和 `require_no_punctuation` 分别启用字幕归档核查。通过预览和更新设置，省略的规则与既有字体样式继续沿用。重新准备时间线以记录选定要求。
+
+`changes.delivery.require_source_review` 要求归档前核对当前分包及选源证据。`changes.delivery.audio.require_music_decision` 要求明确配乐决定并核对实际混音。通过预览和更新设置各项规则，修改音频规则保留已有增益。
+
 `visual_medium` 接受 `animation_3d` 和 `photorealistic`，与自由文本 `style` 独立。3D 漫的草稿和成片不新增片尾或水印；仿真人保留二者。旧项目缺值时保留缺值并明确提示类型未确认，沿用旧版带标识交付，绝不从风格文本或比例猜测。类型变化写入版本记录，并提示复核资产、镜头、视频、草稿和成片阶段，不删除已完成任务。[项目圣经技能](../skills/skills/tweet-drama-project-bible/SKILL.md) 负责明确选择，[渲染器](../tool-episode-render/README.zh.md) 负责时间线快照与交付规则执行。
 
 每个角色的 `voice_profile` 可用 `reference_audio`（HTTPS URL）、`reference_audio_asset_id`、`reference_audio_sha256`（64 位十六进制）和 `reference_audio_duration_seconds`（实测，大于 0 且不超过 15）绑定已认可音频资产。替换已绑定参考须同时提供四项；更换服装或省略声音字段会保留当前声线。在已预览的更新中设 `reference_audio: null` 会删除这四项引用，保留描述和说话人 ID，落盘不存 null。旧的未绑定路径或 ID 参考仍有效。[声音连续性技能](../skills/skills/tweet-drama-voice-continuity/SKILL.md) 负责音频库回读、样本认可和原卡绑定；存储这些字段不验证远端媒体，也不能替代实际听音。

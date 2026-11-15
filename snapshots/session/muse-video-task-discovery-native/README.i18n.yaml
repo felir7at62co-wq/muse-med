@@ -1,0 +1,10 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write snapshots/session/muse-video-task-discovery-native/README.md
+/:
+  en: 727d9f980d15982e
+  zh: a0a446d06fe1a9be
+/video-task-discovery-through-native-tools:
+  en: 020396a0adc2183c
+  zh: 8ed38053c6c5b35b

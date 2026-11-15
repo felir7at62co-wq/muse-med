@@ -7,8 +7,8 @@
         mainAgentPreset: bot-coordinator
         contextManagement: host
         goals: host
-        memoryReview: false
-        autoSessionBots: true
+        memoryReview: true
+        autoSessionBots: false
         sessionBotSyncIntervalMs: 30000
         github: false
         updateCheck: false

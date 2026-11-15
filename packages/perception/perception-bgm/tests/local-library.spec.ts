@@ -1,4 +1,6 @@
 /** Local indexing persists measured audio incrementally and reuses content across metadata changes. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -26,13 +28,14 @@ async function fixture(options: BgmConfig = {}) {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(SystemPrompt).await()
-  await ctx.plugin(ToolRuntime, { mode: 'native' }).await()
+  await ctx.plugin(ToolRuntime, {}).await()
+  await ctx.plugin(NativeToolExecutor)
   const indexPath = join(root, 'state', 'index.json')
   const config = { pythonExecutable: process.execPath, indexPath, dataDir: join(root, 'model-data'), ...options }
   const plugin = ctx.plugin({ name: 'perception-bgm', apply, inject }, config)
   await plugin.await()
   let count = 0
-  return { root, ctx, indexPath, config, plugin, run: (args: Record<string, unknown>) => ctx.tools.execute({
+  return { root, ctx, indexPath, config, plugin, run: (args: Record<string, unknown>) => executeModelToolFixture(ctx, {
     callId: ToolCallId(`bgm-${++count}`), name: 'bgm_match', arguments: args, signal: new AbortController().signal,
   }) }
 }

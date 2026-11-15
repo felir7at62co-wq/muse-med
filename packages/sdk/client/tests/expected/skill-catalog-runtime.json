@@ -1,0 +1,353 @@
+{
+  "finalResponse": "BOUNDED_SKILL_CATALOG_VERIFIED",
+  "finishReason": "completed",
+  "catalogMessages": [
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "<system-reminder>\nThe following are selected skill summaries, not the complete permitted directory. Use skill_catalog to search or page all currently permitted names:\n\n<available_skills>\n- `market-scene-01`: When to use: For scene review. Description: Review a scene using a retained market publication.\n- `market-scene-02`: When to use: For scene review. Description: Review a scene using a retained market publication.\n- `other-control-one`: When to use: For another task. Description: Unconfigured source other-control-one.\n- `other-control-three`: When to use: For another task. Description: Unconfigured source other-control-three.\n- `other-control-two`: When to use: For another task. Description: Unconfigured source other-control-two.\n</available_skills>\n\nIf the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.\nA user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.\n</system-reminder>"
+        }
+      ],
+      "source": {
+        "kind": "skill-catalog",
+        "form": "catalog",
+        "entries": [
+          {
+            "name": "market-scene-01",
+            "description": "When to use: For scene review. Description: Review a scene using a retained market publication."
+          },
+          {
+            "name": "market-scene-02",
+            "description": "When to use: For scene review. Description: Review a scene using a retained market publication."
+          },
+          {
+            "name": "other-control-one",
+            "description": "When to use: For another task. Description: Unconfigured source other-control-one."
+          },
+          {
+            "name": "other-control-three",
+            "description": "When to use: For another task. Description: Unconfigured source other-control-three."
+          },
+          {
+            "name": "other-control-two",
+            "description": "When to use: For another task. Description: Unconfigured source other-control-two."
+          }
+        ],
+        "bounded": true
+      },
+      "role": "user",
+      "id": "{{message:4}}"
+    }
+  ],
+  "toolResults": [
+    {
+      "turn": 1,
+      "step": 1,
+      "message": {
+        "role": "tool",
+        "source": {
+          "kind": "tool",
+          "callId": "call_bounded_page_1"
+        },
+        "toolCallId": "call_bounded_page_1",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"entries\":[{\"name\":\"market-scene-01\",\"description\":\"Review a scene using a retained market publication.\",\"source\":\"muse-market\",\"whenToUse\":\"For scene review.\"},{\"name\":\"market-scene-02\",\"description\":\"Review a scene using a retained market publication.\",\"source\":\"muse-market\",\"whenToUse\":\"For scene review.\"}],\"totalMatched\":6,\"catalogComplete\":true,\"nextCursor\":{\"version\":1,\"sessionId\":\"{{session:1}}\",\"digest\":\"c8a5145754682b58821cd5a130276c7e44195264286e4e0b389a96dbf1a825f4\",\"query\":\"\",\"offset\":2}}"
+          }
+        ],
+        "isError": false,
+        "id": "{{message:6}}"
+      },
+      "meta": {
+        "kind": "skill-catalog",
+        "count": 2,
+        "totalMatched": 6,
+        "hasMore": true
+      }
+    },
+    {
+      "turn": 1,
+      "step": 2,
+      "message": {
+        "role": "tool",
+        "source": {
+          "kind": "tool",
+          "callId": "call_bounded_page_2"
+        },
+        "toolCallId": "call_bounded_page_2",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"entries\":[{\"name\":\"market-scene-03\",\"description\":\"Review a scene using a retained market publication.\",\"source\":\"muse-market\",\"whenToUse\":\"For scene review.\"},{\"name\":\"other-control-one\",\"description\":\"Unconfigured source other-control-one.\",\"source\":\"custom\",\"whenToUse\":\"For another task.\"}],\"totalMatched\":6,\"catalogComplete\":true,\"nextCursor\":{\"version\":1,\"sessionId\":\"{{session:1}}\",\"digest\":\"c8a5145754682b58821cd5a130276c7e44195264286e4e0b389a96dbf1a825f4\",\"query\":\"\",\"offset\":4}}"
+          }
+        ],
+        "isError": false,
+        "id": "{{message:8}}"
+      },
+      "meta": {
+        "kind": "skill-catalog",
+        "count": 2,
+        "totalMatched": 6,
+        "hasMore": true
+      }
+    },
+    {
+      "turn": 1,
+      "step": 3,
+      "message": {
+        "role": "tool",
+        "source": {
+          "kind": "tool",
+          "callId": "call_bounded_page_3"
+        },
+        "toolCallId": "call_bounded_page_3",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"entries\":[{\"name\":\"other-control-three\",\"description\":\"Unconfigured source other-control-three.\",\"source\":\"custom\",\"whenToUse\":\"For another task.\"},{\"name\":\"other-control-two\",\"description\":\"Unconfigured source other-control-two.\",\"source\":\"custom\",\"whenToUse\":\"For another task.\"}],\"totalMatched\":6,\"catalogComplete\":true}"
+          }
+        ],
+        "isError": false,
+        "id": "{{message:10}}"
+      },
+      "meta": {
+        "kind": "skill-catalog",
+        "count": 2,
+        "totalMatched": 6,
+        "hasMore": false
+      }
+    },
+    {
+      "turn": 1,
+      "step": 4,
+      "message": {
+        "role": "tool",
+        "source": {
+          "kind": "tool",
+          "callId": "call_bounded_query"
+        },
+        "toolCallId": "call_bounded_query",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"entries\":[{\"name\":\"market-scene-03\",\"description\":\"Review a scene using a retained market publication.\",\"source\":\"muse-market\",\"whenToUse\":\"For scene review.\"}],\"totalMatched\":1,\"catalogComplete\":true}"
+          }
+        ],
+        "isError": false,
+        "id": "{{message:12}}"
+      },
+      "meta": {
+        "kind": "skill-catalog",
+        "count": 1,
+        "totalMatched": 1,
+        "hasMore": false
+      }
+    },
+    {
+      "turn": 1,
+      "step": 5,
+      "message": {
+        "role": "tool",
+        "source": {
+          "kind": "tool",
+          "callId": "call_bounded_body_query"
+        },
+        "toolCallId": "call_bounded_body_query",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"entries\":[],\"totalMatched\":0,\"catalogComplete\":true}"
+          }
+        ],
+        "isError": false,
+        "id": "{{message:14}}"
+      },
+      "meta": {
+        "kind": "skill-catalog",
+        "count": 0,
+        "totalMatched": 0,
+        "hasMore": false
+      }
+    },
+    {
+      "turn": 1,
+      "step": 6,
+      "message": {
+        "role": "tool",
+        "source": {
+          "kind": "tool",
+          "callId": "call_bounded_disabled_query"
+        },
+        "toolCallId": "call_bounded_disabled_query",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"entries\":[],\"totalMatched\":0,\"catalogComplete\":true}"
+          }
+        ],
+        "isError": false,
+        "id": "{{message:16}}"
+      },
+      "meta": {
+        "kind": "skill-catalog",
+        "count": 0,
+        "totalMatched": 0,
+        "hasMore": false
+      }
+    },
+    {
+      "turn": 1,
+      "step": 7,
+      "message": {
+        "role": "tool",
+        "source": {
+          "kind": "tool",
+          "callId": "call_bounded_foreign"
+        },
+        "toolCallId": "call_bounded_foreign",
+        "content": [
+          {
+            "type": "text",
+            "text": "Error: SKILL_CATALOG_FOREIGN_CURSOR"
+          }
+        ],
+        "isError": true,
+        "id": "{{message:18}}"
+      },
+      "error": {
+        "name": "SkillCatalogError",
+        "code": "SKILL_CATALOG_FOREIGN_CURSOR"
+      }
+    },
+    {
+      "turn": 1,
+      "step": 8,
+      "message": {
+        "role": "tool",
+        "source": {
+          "kind": "tool",
+          "callId": "call_bounded_stale"
+        },
+        "toolCallId": "call_bounded_stale",
+        "content": [
+          {
+            "type": "text",
+            "text": "Error: SKILL_CATALOG_STALE_CURSOR"
+          }
+        ],
+        "isError": true,
+        "id": "{{message:20}}"
+      },
+      "error": {
+        "name": "SkillCatalogError",
+        "code": "SKILL_CATALOG_STALE_CURSOR"
+      }
+    },
+    {
+      "turn": 1,
+      "step": 9,
+      "message": {
+        "role": "tool",
+        "source": {
+          "kind": "tool",
+          "callId": "call_bounded_invalid"
+        },
+        "toolCallId": "call_bounded_invalid",
+        "content": [
+          {
+            "type": "text",
+            "text": "Error: SKILL_CATALOG_INVALID_REQUEST"
+          }
+        ],
+        "isError": true,
+        "id": "{{message:22}}"
+      },
+      "error": {
+        "name": "SkillCatalogError",
+        "code": "SKILL_CATALOG_INVALID_REQUEST"
+      }
+    },
+    {
+      "turn": 1,
+      "step": 10,
+      "message": {
+        "role": "tool",
+        "source": {
+          "kind": "tool",
+          "callId": "call_bounded_load"
+        },
+        "toolCallId": "call_bounded_load",
+        "content": [
+          {
+            "type": "text",
+            "text": "<skill_content name=\"market-scene-03\">\n<skill_resources>\nBase directory for this skill: {{cwd}}/.dsh/bounded-market/packages/ddaf7b37aa81eec633ace6000f72d38a0a474d3a258c352f86762fdef8c5b6b4/skills/market-scene-03\nResolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.\n</skill_resources>\n\n<skill_instructions>\nbody-only-search-marker. Preserve the original scene and dialogue (market-scene-03).\n</skill_instructions>\n</skill_content>"
+          }
+        ],
+        "isError": false,
+        "id": "{{message:24}}"
+      }
+    },
+    {
+      "turn": 1,
+      "step": 11,
+      "message": {
+        "role": "tool",
+        "source": {
+          "kind": "tool",
+          "callId": "call_bounded_disabled_load"
+        },
+        "toolCallId": "call_bounded_disabled_load",
+        "content": [
+          {
+            "type": "text",
+            "text": "Error: skill \"human-only-control\" is not available for model invocation"
+          }
+        ],
+        "isError": true,
+        "id": "{{message:26}}"
+      }
+    }
+  ],
+  "proof": {
+    "executor": "native",
+    "actualCreationPreset": false,
+    "marketArchives": 3,
+    "sourceLimit": 2,
+    "initialVisibleCatalogNames": [
+      "market-scene-01",
+      "market-scene-02",
+      "other-control-one",
+      "other-control-three",
+      "other-control-two"
+    ],
+    "fullEligibleNames": [
+      "market-scene-01",
+      "market-scene-02",
+      "market-scene-03",
+      "other-control-one",
+      "other-control-three",
+      "other-control-two"
+    ],
+    "omittedMarketName": "market-scene-03",
+    "metadataPageCount": 3,
+    "metadataOnly": true,
+    "fullDirectoryComplete": true,
+    "omittedSkillLoaded": true,
+    "modelDisabledNotListed": true,
+    "modelDisabledLoadRefused": true,
+    "completeToolResultsReachedNextModel": true,
+    "bindingEventCount": 1,
+    "boundReleaseCount": 3,
+    "eventAndProjectionIdentityMatch": true,
+    "modelRequests": 12,
+    "ptcDispatchStarts": 0,
+    "ptcDispatchSettles": 0,
+    "directoryRefusals": {
+      "foreign": true,
+      "stale": true,
+      "invalid": true
+    }
+  }
+}

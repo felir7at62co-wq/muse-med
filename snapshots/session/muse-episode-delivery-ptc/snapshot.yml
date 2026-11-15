@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-episode-delivery-ptc
+profile: headless
+composition: muse-episode-delivery-ptc
+recording: authored
+platform: posix
+header:
+  class: muse-episode-delivery-ptc
+  pin: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-episode-fixture

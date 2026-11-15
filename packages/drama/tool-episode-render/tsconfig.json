@@ -9,6 +9,12 @@
   ],
   "references": [
     {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../perception/tool-video-inspect"
+    },
+    {
       "path": "../../util/atomic-write"
     },
     {

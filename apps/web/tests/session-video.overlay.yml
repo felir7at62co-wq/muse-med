@@ -1,0 +1,6 @@
+# Bound media analysis for the independently selected Muse video bundle.
+- id: session-video
+  config:
+    analysisWidth: 64
+    commandTimeoutMs: 15000
+    maxDurationSeconds: 10

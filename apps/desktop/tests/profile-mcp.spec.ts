@@ -62,6 +62,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     // it tests a tree no Desktop launch ever mounts.
     const overlay = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
     expect(profile.skippedBundles).toEqual([])
+    expect(profile.layers.map(layer => layer.packageName)).toEqual(expect.arrayContaining(['deep-view', '@nagi-ovo/dsh-visualize']))
     const warnings: string[] = []
     const rows = composeEntries([
       ...profile.layers.map(layer => layer.patches),
@@ -69,6 +70,9 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       loadOverlayPatches('muse-med', overlay),
     ], message => warnings.push(message))
 
+    for (const [id, name] of [['deep-view', 'deep-view'], ['dsh-visualize', '@nagi-ovo/dsh-visualize']]) {
+      expect(rows.filter(row => row.id === id)).toEqual([{ id, name }])
+    }
     for (const id of ['agent-notes', 'ui-settings-agent-notes']) {
       expect(rows.find(row => row.id === id), id).toMatchObject({ disabled: true })
     }
@@ -84,18 +88,23 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       'experimental-inspector', 'session-inspector', 'speech-to-text', 'ui-voice-input']) {
       expect(rows.find(row => row.id === id), id).toBeUndefined()
     }
-    expect(rows.find(row => row.id === 'codex-subscription')).toMatchObject({ name: 'dsh-codex-subscription' })
-    expect(profile.layers.map(layer => layer.packageName)).toContain('dsh-codex-subscription')
-    expect(readFileSync(join(project, 'package.json'), 'utf8')).toContain('dsh-codex-subscription')
+    expect(rows.find(row => row.id === 'llm-subscriptions')).toMatchObject({ name: 'dsh-plugin-subscriptions' })
+    expect(profile.layers.map(layer => layer.packageName)).toContain('dsh-plugin-subscriptions')
+    expect(readFileSync(join(project, 'package.json'), 'utf8')).toContain('dsh-plugin-subscriptions')
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-resources')).toEqual([
       { id: 'mcp-resources', name: '@deepseek-ai/dsh-mcp-resources' },
     ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-client')).toEqual([])
     expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-muse-account')).toEqual([
-      { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', inject: ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'museDesktopBridge', 'connection', 'webServer'], config: {
-        remoteAccess: true, excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
-        visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' }], requestTimeoutMs: 60000,
+      { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', inject: ['tools', 'llm', 'sessions', 'sessionProjections', 'agentDefaultModel', 'museDesktopBridge', 'connection', 'webServer'], config: {
+        remoteAccess: true, webSearch: true, feedbackTools: true, mediaTools: true,
+        mediaNodePath: { __jsExpr: 'process.execPath' },
+        mediaFfmpegPath: { __jsExpr: "process.env.DSH_FFMPEG_PATH || 'ffmpeg'" },
+        mediaFfprobePath: { __jsExpr: "process.env.DSH_FFPROBE_PATH || 'ffprobe'" },
+        excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
+        visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' },
+          { providerId: 'yunying', modelId: 'gpt-6.1-sol' }], requestTimeoutMs: 60000,
         excludedModels: [
           { providerId: 'yunying', modelId: 'claude-opus-5-5' },
           { providerId: 'yunying', modelId: 'claude-fable-5-1' },
@@ -124,6 +133,8 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
           contextChars: 24, maxMatches: 100,
         },
         sessionVideoSelection: true,
+        videoRecoverySettings: true,
+        generationWatch: true,
         defaultVideoModel: { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU', resolution: '480p' },
       } },
     ])

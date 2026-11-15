@@ -14,7 +14,7 @@ import type {
   ImageRequestTarget,
   RequestImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import type { Context as PiContext, ImageContent, Message as PiMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
+import type { Context as PiContext, ImageContent, Message as PiMessage, SystemMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
 import { toPiAssistant } from './replay.ts'
 import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import { DEFAULT_REQUEST_IMAGE_MAX_BYTES, DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET } from './config.ts'
@@ -46,12 +46,10 @@ function toolResultOf(
   }
 }
 
-/** Reject unsupported roles, tool-change blocks, and image roles before replay or image offloading. */
+/** Reject misplaced tool-change blocks and unsupported image roles before replay or image offloading. */
 function assertSupportedHistory(messages: readonly RequestMessage[]): void {
   for (const message of messages) {
-    // Developer history is persisted for V4; provider serialization is intentionally deferred.
-    if (message.role === 'developer') throw new LlmError('Developer messages are not supported yet', 'UNSUPPORTED_CONTENT')
-    if (message.content.some(block => block.type === 'tool-addition' || block.type === 'tool-removal')) {
+    if (message.role !== 'developer' && message.content.some(block => block.type === 'tool-addition' || block.type === 'tool-removal')) {
       throw new LlmError('Tool-change blocks require developer role', 'UNSUPPORTED_CONTENT')
     }
     if (message.role !== 'user' && message.role !== 'tool' && contentHasImage(message.content)) {
@@ -59,6 +57,9 @@ function assertSupportedHistory(messages: readonly RequestMessage[]): void {
         `pi-ai cannot represent an image in an in-history ${message.role} message`,
         'UNSUPPORTED_CONTENT',
       )
+    }
+    if (message.role === 'system' && message.content.some(block => block.type !== 'text')) {
+      throw new LlmError('pi-ai cannot represent non-text system messages', 'UNSUPPORTED_CONTENT')
     }
   }
 }
@@ -126,21 +127,16 @@ async function prepareRequestImages(
   return versions
 }
 
-function toolsOf(options: GenerateOptions): PiTool[] | undefined {
-  // Deferred definitions are persisted for V4; provider loading is intentionally deferred.
-  if (options.tools?.some(tool => tool.deferLoading === true)) {
-    throw new LlmError('Deferred tool loading is not supported yet', 'UNSUPPORTED_CONTENT')
-  }
-  return options.tools?.map(tool => ({
-    name: tool.name,
-    description: tool.description,
-    // ToolSchema.parameters is a JSON Schema object; pi-ai's TSchema
-    // (TypeBox) is structurally JSON Schema, so it assigns directly.
-    parameters: tool.parameters,
-  }))
+/** Convert a projected declaration without its harness-owned activation marker. */
+function piTool(tool: NonNullable<GenerateOptions['tools']>[number]): PiTool {
+  return { name: tool.name, description: tool.description, parameters: tool.parameters }
 }
 
-/** The request split into pi-ai's single `systemPrompt` slot and the history that converts to `messages`. */
+function toolsOf(options: GenerateOptions): PiTool[] | undefined {
+  return options.tools?.filter(tool => !tool.deferLoading).map(piTool)
+}
+
+/** The request split into pi-ai's initial `systemPrompt` slot and the history that converts to `messages`. */
 interface SystemPromptSplit {
   /** Text for pi-ai's `systemPrompt`; `undefined` sends no system prompt. */
   systemPrompt: string | undefined
@@ -148,27 +144,26 @@ interface SystemPromptSplit {
   messages: readonly RequestMessage[]
 }
 
-/**
- * Select the pi-ai `systemPrompt` source shared by both conversion paths.
- * `options.system` wins when defined and every history message converts,
- * including a leading `system` message, which then folds into a `user`
- * message. Otherwise a leading `system` history message supplies the prompt
- * and leaves the converted history; empty leading text sends no prompt.
- */
+/** Combine request-level text and leading system history into the initial prompt. */
 function splitSystemPrompt(options: GenerateOptions): SystemPromptSplit {
-  if (options.system !== undefined) return { systemPrompt: options.system, messages: options.messages }
-  const [first, ...rest] = options.messages
-  if (first?.role !== 'system') return { systemPrompt: undefined, messages: options.messages }
-  const text = flattenText(first)
-  return { systemPrompt: text.length > 0 ? text : undefined, messages: rest }
+  const text = [options.system]
+  let end = 0
+  for (const message of options.messages) {
+    if (message.role !== 'system') break
+    text.push(flattenText(message))
+    end++
+  }
+  const systemPrompt = text.filter(Boolean).join('\n\n')
+  return { systemPrompt: systemPrompt || undefined, messages: options.messages.slice(end) }
 }
 
 /** Keep a task and its adjacent text context together without crossing role or image boundaries. */
-function mergeTextUsers(messages: PiMessage[]): PiMessage[] {
+function mergeTextUsers(messages: PiMessage[], roleBoundaries: ReadonlySet<PiMessage>): PiMessage[] {
   const merged: PiMessage[] = []
   for (const message of messages) {
     const previous = merged.at(-1)
     if (previous?.role === 'user' && message.role === 'user'
+      && !roleBoundaries.has(previous) && !roleBoundaries.has(message)
       && typeof previous.content === 'string' && typeof message.content === 'string') {
       merged[merged.length - 1] = {
         ...previous,
@@ -182,13 +177,49 @@ function mergeTextUsers(messages: PiMessage[]): PiMessage[] {
 }
 
 /** Assemble the shared context, merging adjacent text-only user messages for gateway compatibility. */
-function piContext(systemPrompt: string | undefined, options: GenerateOptions, messages: PiMessage[]): PiContext {
+function piContext(
+  systemPrompt: string | undefined, options: GenerateOptions,
+  messages: PiMessage[], roleBoundaries: ReadonlySet<PiMessage>,
+): PiContext {
   const tools = toolsOf(options)
   return {
     ...systemPrompt !== undefined ? { systemPrompt } : {},
-    messages: mergeTextUsers(messages),
+    messages: mergeTextUsers(messages, roleBoundaries),
     ...tools !== undefined && tools.length > 0 ? { tools } : {},
   }
+}
+
+/** Keep one developer event in one system update, resolving its projected tool declarations. */
+function appendDeveloper(message: Extract<Message, { role: 'developer' }>, options: GenerateOptions, messages: PiMessage[]): void {
+  const content: TextContent[] = []
+  const toolsAdded: PiTool[] = []
+  const toolsRemoved: NonNullable<SystemMessage['toolsRemoved']> = []
+  for (const block of message.content) {
+    switch (block.type) {
+      case 'text':
+        if (block.text.length > 0) content.push({ type: 'text', text: block.text })
+        break
+      case 'tool-addition': {
+        const tool = options.tools?.find(tool => tool.name === block.toolName)
+        if (tool === undefined) throw new LlmError(`pi-ai tool update references undeclared tool "${block.toolName}"`, 'INVALID_REQUEST')
+        toolsAdded.push(piTool(tool))
+        break
+      }
+      case 'tool-removal':
+        toolsRemoved.push({ name: block.toolName })
+        break
+      default:
+        throw new LlmError(`pi-ai cannot represent developer content ${block.type}`, 'UNSUPPORTED_CONTENT')
+    }
+  }
+  if (content.length === 0 && toolsAdded.length === 0 && toolsRemoved.length === 0) return
+  messages.push({
+    role: 'system',
+    content,
+    timestamp: 0,
+    ...toolsAdded.length === 0 ? {} : { toolsAdded },
+    ...toolsRemoved.length === 0 ? {} : { toolsRemoved },
+  })
 }
 
 function appendAssistant(
@@ -204,17 +235,32 @@ function appendAssistant(
   messages.push(assistant)
 }
 
-/** Append the system and assistant roles both context builders treat identically; true when consumed. */
-function appendSystemOrAssistant(
+/** Append shared system, developer, and assistant roles; true when consumed. */
+function appendSharedHistory(
   message: RequestMessage,
+  options: GenerateOptions,
   messages: PiMessage[],
   toolNames: Map<ToolCallId, string>,
+  supportsMidConvoSystemMessages: boolean,
+  roleBoundaries: Set<PiMessage>,
   onReplayDegrade?: (reason: string) => void,
 ): boolean {
+  if (message.role === 'developer') {
+    appendDeveloper(message, options, messages)
+    return true
+  }
   if (message.role === 'system') {
-    // pi-ai has a single systemPrompt slot; a system message that did not
-    // supply it folds into a user message to preserve order.
-    messages.push({ role: 'user', content: flattenText(message), timestamp: 0 })
+    const content = flattenText(message)
+    if (content.length > 0) {
+      if (supportsMidConvoSystemMessages) {
+        messages.push({ role: 'system', content, timestamp: 0 })
+      } else {
+        const reminder = content.replaceAll('</system-reminder>', '<\\/system-reminder>')
+        const projected: PiMessage = { role: 'user', content: `<system-reminder>\n${reminder}\n</system-reminder>`, timestamp: 0 }
+        messages.push(projected)
+        roleBoundaries.add(projected)
+      }
+    }
     return true
   }
   if (message.role === 'assistant') {
@@ -224,23 +270,30 @@ function appendSystemOrAssistant(
   return false
 }
 
-function textOnlyContext(options: GenerateOptions, onReplayDegrade?: (reason: string) => void): PiContext {
+function textOnlyContext(
+  options: GenerateOptions,
+  supportsMidConvoSystemMessages: boolean,
+  onReplayDegrade?: (reason: string) => void,
+): PiContext {
   assertSupportedHistory(options.messages)
   const split = splitSystemPrompt(options)
   const toolNames = new Map<ToolCallId, string>()
   const messages: PiMessage[] = []
+  const roleBoundaries = new Set<PiMessage>()
   for (const message of split.messages) {
     if (contentHasImage(message.content)) {
       throw new LlmError('pi-ai image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
-    if (appendSystemOrAssistant(message, messages, toolNames, onReplayDegrade)) continue
+    if (appendSharedHistory(
+      message, options, messages, toolNames, supportsMidConvoSystemMessages, roleBoundaries, onReplayDegrade,
+    )) continue
     if (message.role === 'tool') {
       messages.push(toolResultOf(message, toolNames, flattenText(message)))
       continue
     }
     messages.push({ role: 'user', content: flattenText(message), timestamp: 0 })
   }
-  return piContext(split.systemPrompt, options, messages)
+  return piContext(split.systemPrompt, options, messages, roleBoundaries)
 }
 
 /** Inputs that bind deterministic request images to one current tool execution world. */
@@ -251,6 +304,10 @@ export interface PiImageRequestContext {
   resolveImageAccess: ImageAttachmentAccessResolver
   /** Request-level bound on the base64-encoded payload of retained images; omission leaves the bound unchecked. */
   maxRequestImageBytes?: number
+  /** Request-level bound on retained image occurrences; omission leaves the count unchecked. */
+  maxRequestImages?: number
+  /** Oldest occurrences offloaded per count overflow; omission offloads the minimum. */
+  imageOffloadCountQuantum?: number
   /** Route pixel and raw encoded-byte budgets. */
   requestImagePolicy?: PiImageRequestBudget
 }
@@ -263,8 +320,13 @@ export interface PiImageRequestBudget {
   maxBytes: number
 }
 
-/** Deterministic request target for one source under the route budgets. */
-function requestImageTarget(ref: ImageAttachmentRef, budget: PiImageRequestBudget): ImageRequestTarget {
+/**
+ * Resolve the request target for one source under the route budgets.
+ * @param ref - normalized source image.
+ * @param budget - resolved route pixel and byte limits.
+ * @returns dimensions and byte target shared by serialization and screenshot coordinate mapping.
+ */
+export function requestImageTarget(ref: ImageAttachmentRef, budget: PiImageRequestBudget): ImageRequestTarget {
   return { ...requestImageDimensions(ref.width, ref.height, budget.maxPixels), maxBytes: budget.maxBytes }
 }
 
@@ -275,6 +337,7 @@ function requestImageTarget(ref: ImageAttachmentRef, budget: PiImageRequestBudge
  * @param options - the harness request; `options.system`, else a leading `system` message, maps to pi-ai's single `systemPrompt` slot.
  * @param images - absent; selects the synchronous conversion.
  * @param onReplayDegrade - forwarded to {@link toPiAssistant} for each assistant message.
+ * @param supportsMidConvoSystemMessages - native model capability; otherwise later system text becomes a user-role system-reminder.
  * @returns the pi-ai context; `tools` is omitted when the request declares none.
  * @throws {LlmError} `UNSUPPORTED_CONTENT` for images in any history role, including a leading system message.
  */
@@ -282,41 +345,47 @@ export function toPiContext(
   options: GenerateOptions,
   images?: undefined,
   onReplayDegrade?: (reason: string) => void,
+  supportsMidConvoSystemMessages?: boolean,
 ): PiContext
 /**
  * Convert harness history to a pi-ai Context while resolving durable images.
  * Tool result names are recovered from preceding assistant tool calls. Adjacent
  * text-only users join without crossing image messages. Image
  * occurrences the surface marks offloaded become text placeholders; when the
- * retained occurrences' exact base64 payload still exceeds
- * `maxRequestImageBytes`, the call fails with `IMAGE_OFFLOAD_REQUIRED` naming
- * how many more oldest occurrences must be offloaded.
- * @param options - the harness request; `options.system`, else a leading `system` message, maps to pi-ai's single `systemPrompt` slot.
+ * retained occurrences still exceed `maxRequestImages` or their exact base64
+ * payload exceeds `maxRequestImageBytes`, the call fails with
+ * `IMAGE_OFFLOAD_REQUIRED` naming how many more oldest occurrences must be
+ * offloaded, rounded up to `imageOffloadCountQuantum` for a count overflow.
+ * @param options - projected request; one-shot system text precedes the leading history prompt.
  * @param images - attachment provider, current path resolver, and request limits.
  * @param onReplayDegrade - forwarded to {@link toPiAssistant} for each assistant message.
+ * @param supportsMidConvoSystemMessages - native model capability; otherwise later system text becomes a user-role system-reminder.
  * @returns the asynchronously resolved pi-ai context.
  */
 export function toPiContext(
   options: GenerateOptions,
   images: PiImageRequestContext,
   onReplayDegrade?: (reason: string) => void,
+  supportsMidConvoSystemMessages?: boolean,
 ): Promise<PiContext>
 export function toPiContext(
   options: GenerateOptions,
   images?: PiImageRequestContext,
   onReplayDegrade?: (reason: string) => void,
+  supportsMidConvoSystemMessages = false,
 ): PiContext | Promise<PiContext> {
   return images === undefined
-    ? textOnlyContext(options, onReplayDegrade)
-    : toPiContextWithImages(options, images, onReplayDegrade)
+    ? textOnlyContext(options, supportsMidConvoSystemMessages, onReplayDegrade)
+    : toPiContextWithImages(options, images, supportsMidConvoSystemMessages, onReplayDegrade)
 }
 
 async function toPiContextWithImages(
   options: GenerateOptions,
   images: PiImageRequestContext,
+  supportsMidConvoSystemMessages: boolean,
   onReplayDegrade?: (reason: string) => void,
 ): Promise<PiContext> {
-  const { attachments, resolveImageAccess, maxRequestImageBytes } = images
+  const { attachments, resolveImageAccess, maxRequestImageBytes, maxRequestImages, imageOffloadCountQuantum } = images
   const requestImagePolicy = images.requestImagePolicy ?? {
     maxPixels: DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
     maxBytes: DEFAULT_REQUEST_IMAGE_MAX_BYTES,
@@ -324,19 +393,22 @@ async function toPiContextWithImages(
   assertSupportedHistory(options.messages)
   const split = splitSystemPrompt(options)
   const requestImages = await prepareRequestImages(split.messages, attachments, requestImagePolicy, options.signal)
-  if (maxRequestImageBytes !== undefined) {
-    const offloadImages = requiredImageOffload(
-      split.messages,
-      { representation: 'base64', maxBytes: maxRequestImageBytes },
-      block => (requestImages.get(block.attachment.attachmentId) as RequestImageAttachment).bytes,
+  const offloadImages = requiredImageOffload(
+    split.messages,
+    {
+      representation: 'base64',
+      ...maxRequestImageBytes === undefined ? {} : { maxBytes: maxRequestImageBytes },
+      ...maxRequestImages === undefined ? {} : { maxImages: maxRequestImages },
+      ...imageOffloadCountQuantum === undefined ? {} : { countQuantum: imageOffloadCountQuantum },
+    },
+    block => (requestImages.get(block.attachment.attachmentId) as RequestImageAttachment).bytes,
+  )
+  if (offloadImages > 0) {
+    throw new LlmError(
+      `pi-ai request images exceed the route image budget; ${offloadImages} more oldest occurrence(s) must be offloaded.`,
+      IMAGE_OFFLOAD_REQUIRED_CODE,
+      { offloadImages },
     )
-    if (offloadImages > 0) {
-      throw new LlmError(
-        `pi-ai request images exceed the ${maxRequestImageBytes}-byte base64 bound; ${offloadImages} more oldest occurrence(s) must be offloaded.`,
-        IMAGE_OFFLOAD_REQUIRED_CODE,
-        { offloadImages },
-      )
-    }
   }
   const exactMessages = projectOffloadedImages(
     split.messages,
@@ -344,9 +416,12 @@ async function toPiContextWithImages(
   )
   const toolNames = new Map<ToolCallId, string>()
   const messages: PiMessage[] = []
+  const roleBoundaries = new Set<PiMessage>()
 
   for (const message of exactMessages) {
-    if (appendSystemOrAssistant(message, messages, toolNames, onReplayDegrade)) continue
+    if (appendSharedHistory(
+      message, options, messages, toolNames, supportsMidConvoSystemMessages, roleBoundaries, onReplayDegrade,
+    )) continue
     if (message.role === 'tool') {
       messages.push(toolResultOf(message, toolNames, userContent(message.content, requestImages, resolveImageAccess)))
       continue
@@ -355,5 +430,5 @@ async function toPiContextWithImages(
     messages.push({ role: 'user', content, timestamp: 0 })
   }
 
-  return piContext(split.systemPrompt, options, messages)
+  return piContext(split.systemPrompt, options, messages, roleBoundaries)
 }

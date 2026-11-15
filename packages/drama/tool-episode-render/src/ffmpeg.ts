@@ -205,6 +205,9 @@ interface RawProbeStream {
   height?: unknown
   avg_frame_rate?: unknown
   r_frame_rate?: unknown
+  start_time?: unknown
+  duration?: unknown
+  nb_frames?: unknown
   sample_rate?: unknown
   channels?: unknown
 }
@@ -269,6 +272,9 @@ export async function probeMedia(toolkit: MediaToolkit, file: string): Promise<P
     const height = probeNumber(stream.height)
     const avgFrameRate = probeText(stream.avg_frame_rate)
     const rFrameRate = probeText(stream.r_frame_rate)
+    const startSeconds = probeNumber(stream.start_time)
+    const durationSeconds = probeNumber(stream.duration)
+    const frameCount = probeNumber(stream.nb_frames)
     const sampleRate = probeNumber(stream.sample_rate)
     const channels = probeNumber(stream.channels)
     return {
@@ -278,6 +284,9 @@ export async function probeMedia(toolkit: MediaToolkit, file: string): Promise<P
       ...(height === undefined ? {} : { height }),
       ...(avgFrameRate === '' ? {} : { avgFrameRate }),
       ...(rFrameRate === '' ? {} : { rFrameRate }),
+      ...(startSeconds === undefined ? {} : { startSeconds }),
+      ...(durationSeconds === undefined ? {} : { durationSeconds }),
+      ...(frameCount === undefined ? {} : { frameCount }),
       ...(sampleRate === undefined ? {} : { sampleRate }),
       ...(channels === undefined ? {} : { channels }),
     }

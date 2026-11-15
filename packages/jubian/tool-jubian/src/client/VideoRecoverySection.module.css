@@ -1,0 +1,77 @@
+/* Recovery shares the Settings column and its scrolling owner. */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding-top: 20px;
+  margin-top: 8px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-primary);
+}
+
+.title, .reportTitle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+.line, .notice {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.field, .feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.actions, .heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.heading { justify-content: space-between; }
+
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+}
+
+.report code, .feedback code {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+}

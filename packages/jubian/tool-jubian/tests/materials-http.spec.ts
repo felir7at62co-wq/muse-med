@@ -29,8 +29,9 @@ describe('material list through the Jubian HTTP client', () => {
         baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}` })
       const ledger = new JubianLedger({ root })
       const read = async () => await assetMethod(client, ledger, { method: 'materials', script_id: 2708 })
-      expect(await read()).toMatchObject({ materials: { total: 1, total_source: 'page_count', rows: [{ material_id: 3, asset_id: 5 }] },
-        guidance: expect.stringContaining('不能作为全部素材总数') })
+      const first = await read()
+      expect(first).toMatchObject({ materials: { total: 1, total_source: 'page_count', rows: [{ material_id: 3, asset_id: 5 }] } })
+      expect(first.guidance).toEqual(expect.stringContaining('不能作为全部素材总数'))
       body = [ROW, { ...ROW, id: 4 }]
       expect(await read()).toMatchObject({ materials: { total: 2, total_source: 'page_count', rows: [{ material_id: 3 }, { material_id: 4 }] } })
       body = []
@@ -49,7 +50,10 @@ describe('material list through the Jubian HTTP client', () => {
       expect(seen.every(value => value.startsWith('GET /aigc/material/list?'))).toBe(true)
       expect(await ledger.records()).toEqual([])
     } finally {
-      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+      await new Promise<void>((resolve, reject) => server.close((error) => {
+        if (error) reject(error)
+        else resolve()
+      }))
       await rm(root, { recursive: true, force: true })
     }
   })

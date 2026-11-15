@@ -21,3 +21,57 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     sidebarVideo: VideoPreviewKey
   }
 }
+
+/** English fallback for Japanese interface copy. */
+export const ja = {
+  'title': en['title'],
+  'loading': en['loading'],
+  'player': en['player'],
+  'failed': en['failed'],
+  'unavailable': en['unavailable'],
+} satisfies Record<keyof typeof en, string>
+
+/** English fallback for Spanish interface copy. */
+export const es = {
+  'title': en['title'],
+  'loading': en['loading'],
+  'player': en['player'],
+  'failed': en['failed'],
+  'unavailable': en['unavailable'],
+} satisfies Record<keyof typeof en, string>
+
+/** English fallback for French interface copy. */
+export const fr = {
+  'title': en['title'],
+  'loading': en['loading'],
+  'player': en['player'],
+  'failed': en['failed'],
+  'unavailable': en['unavailable'],
+} satisfies Record<keyof typeof en, string>
+
+/** English fallback for German interface copy. */
+export const de = {
+  'title': en['title'],
+  'loading': en['loading'],
+  'player': en['player'],
+  'failed': en['failed'],
+  'unavailable': en['unavailable'],
+} satisfies Record<keyof typeof en, string>
+
+/** English fallback for Russian interface copy. */
+export const ru = {
+  'title': en['title'],
+  'loading': en['loading'],
+  'player': en['player'],
+  'failed': en['failed'],
+  'unavailable': en['unavailable'],
+} satisfies Record<keyof typeof en, string>
+
+/** English fallback for Portuguese interface copy. */
+export const pt = {
+  'title': en['title'],
+  'loading': en['loading'],
+  'player': en['player'],
+  'failed': en['failed'],
+  'unavailable': en['unavailable'],
+} satisfies Record<keyof typeof en, string>

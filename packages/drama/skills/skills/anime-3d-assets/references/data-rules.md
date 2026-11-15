@@ -63,13 +63,13 @@ project/
 时代依据沿用 `style.world_and_era`、`script_evidence`、设定卡和 `review.quality_checks`，按 [时代一致性规则](era-consistency.md) 记录 `era_consistency`。下沉可读性记录 `market_readability`。两项均使用既有检查结构，不改变 schema 2；旧修订未经实际复核不得声称通过新增标准，重新采用时创建候选修订并补充审核。
 
 
-图二对照与人物版式按 [严格交付审查](reference-standard.md) 执行；reference_style_match、delivery_layout、aspect_ratio 沿用 quality_checks 的 result、证据和文件路径，不改变 schema。generation.references 记录可访问的目标图片及实际提交标识，哈希必须实测；旧资产未经新标准复核不得自动标记通过。
+图二风格对照按 [交付参考](reference-standard.md) 执行；reference_style_match、场景 aspect_ratio 沿用 quality_checks 的 result、证据和文件路径，不改变 schema。人物版式是提示词指导，不加入必须通过的检查。generation.references 记录可访问的目标图片及实际提交标识，哈希必须实测；旧资产未经新标准复核不得自动标记通过。
 
 场景环境状态审核 scene_condition 沿用 review.quality_checks，不改变 schema；时代与画风匹配分别沿用 era_consistency、cross_asset_style_consistency。场景默认 16:9，其他比例的使用者明确指定或询问答复记录在设计卡及 generation.prompt_parts 中，最终比例与实际尺寸记入生成参数和文件实测信息；成片比例不能替代该依据。
 
 每次调用的流程证据按 [主技能的完整交付流程](../SKILL.md) 写入既有 review.checks：workflow_01 至 workflow_07 使用维度、result（pass/fail/not_checked）、证据和文件路径。不新增 schema 或第二套状态；适用步骤未完成不得宣布整批交付完成，生成未知和未看图均不能标记通过。
 
-face_design_compliance 使用既有 review.quality_checks 记录脸部设定符合性和图二近似脸污染检查；delivery_layout 的证据分别记录 A 半身与 B/C/D 身体视图，不能以一条整板通过替代逐格无头检查。保持 schema 2。
+face_design_compliance 使用既有 review.quality_checks 记录脸部设定符合性和图二近似脸污染检查；已有 delivery_layout 可记录左侧面部特写和右侧完整头部至鞋底的正、侧、背三视图；右侧仅可见脸部覆盖纯白，后脑与头发保留，不作为生成、导入或采用条件。保持 schema 2。
 
 五官差异方案沿用设定卡、identity 与 generation.prompt_parts 记录，参考分工写入 generation.references；face_design_compliance 的证据包含实际对照过的角色／候选修订及图片路径、结构差异和未能比较的范围。同一已采用身份的连续性与不同身份的差异性分开审核，schema 保持 2。
 

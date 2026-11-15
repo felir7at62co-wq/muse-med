@@ -29,6 +29,8 @@ kind: "package-reference"
 
 ### 挂载它
 
+已准备调用要求使用路由适配器模式。将 `models[].reasoningEfforts` 按可选强度从低到高排列。配置函数在准备期间接收该顺序；`defaultReasoningEffort` 仍独立于首个条目。
+
 配置 `providers` 后，插件会注册仅用于回放的适配器，其模型目录可供测试模型发现功能的场景使用；未配置 `providers` 时，它安装无需模型发现功能的测试所用的 catch-all `llm/stream` waterfall（瀑布式事件）：
 
 ```yaml
@@ -76,6 +78,8 @@ parent agent 委托给进程内 subagent 的场景会为每个 Session 记录一
 当回放在带有 `ctx.deepseekLlmApiExtensions` 的组合中服务 `deepseek-official` 时，它会在选择有效脚本条目后、产生首个分片前准备并接受这些字段。这与实时适配器的 2xx 后提交点一致，因此持久接受水位与 SDK 事件通知在录制和回放中行为相同。回放提供合成 `{ messages: [] }` 基础 body：它证明接受副作用，而非准备后的字段字节。
 
 有两种失败模式无法仅根据持久 Assistant settlement 重建：任何 chunk 之前的纯 throw 没有携带异常的 stream member，而 cancel/hang 需要的是不终止语义，不能用有限前缀回放。需要这些行为的场景可提供可选伴随文件（`<scenario>/replay.override.json`）：它用裸 `ReplayEntry[]` 替换派生脚本，或用 `{ patches: [{ at, entry }] }` 增补——保留所有派生调用，只替换指定的从 0 开始计数的调用索引；当 `at` 等于派生长度时，则在注入瞬态异常后的重试位置追加。有前缀分片的 `throw` 条目会接受 DeepSeek 请求扩展；零分片 throw 默认表示 2xx 前未接受，也可设 `accepted: true` 表示 2xx 后无分片失败。`hang` 条目可以指定 `readyFile`，回放在等待取消前写入它，使外部 driver 可以确定性取消。
+
+`{{fromRequest:<regex>}}` 插入从实时请求捕获的文本。在工具调用参数的带引号 JSON 字符串中，回放会转义捕获值，使 Windows 路径、引号和控制字符经 JSON 解码后保持原值。同一分片块的参数增量会跨分片保留 JSON 字符串位置。普通文本与未加引号的 JSON 位置仍按字面替换；回放不修复格式错误的参数模板，也不递归解析捕获内容中的占位符。
 
 ### 可能出什么问题
 

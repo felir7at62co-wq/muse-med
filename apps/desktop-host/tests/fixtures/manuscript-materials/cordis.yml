@@ -1,0 +1,15 @@
+- id: agent-default-model
+  config:
+    provider: manuscript-materials-fixture
+    model: manuscript-materials-fixture
+- id: llm-deepseek
+  disabled: true
+- id: session-persistence-jsonl
+  config:
+    root: './.sessions'
+    compression: none
+- id: tool-result-pruner
+  disabled: true
+- insert:
+    - id: manuscript-materials-fixture
+      name: './fixture.mjs'

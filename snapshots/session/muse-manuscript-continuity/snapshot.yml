@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-manuscript-continuity
+profile: headless
+composition: muse-manuscript-continuity
+recording: authored
+header:
+  class: muse-manuscript-continuity
+  pin: true
+  childSystemPrompts: [1, 2, 3]
+  childToolSchemas: [1, 2, 3]
+workspace:
+  final: true

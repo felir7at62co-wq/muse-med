@@ -1,8 +1,9 @@
 /** Read-only access to current video evidence for tools and logged manuscript context. */
+import type { VideoReviewReader } from './review-state.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { reviewsOf, reviewImage, type VideoReviewId } from './review-state.ts'
+import { reviewsOf, reviewImage, type VideoReview, type VideoReviewId } from './review-state.ts'
 import type { ReviewTranscriptReference } from './review-speech.ts'
 import { buildVideoSourceTimeline, type VideoSourceTimeline, type VideoTimelineSelection } from './review-timeline.ts'
 import { resolveReviewTranscript, type VideoTranscriptCandidates } from './review-transcript.ts'
@@ -13,6 +14,8 @@ export interface VideoReviewSummary {
   episode: string
   path: string
   source_version: string
+  /** Follow-up activity is separate from source coverage; missing persisted status is active. */
+  follow_up: NonNullable<VideoReview['follow_up']>
   transcript_reference?: ReviewTranscriptReference
 }
 
@@ -38,13 +41,13 @@ export interface VideoSourceTimelineContent {
 
 /**
  * List current logged video revisions without choosing a draft or inferring ASR association.
- * @param ctx - Host projection registry.
+ * @param readReviews - Ready observation reader owned by this consumer.
  * @param session - Owning Session.
- * @returns Current review identities and saved explicit ASR references; no filesystem freshness claim.
+ * @returns All current review identities, including closed follow-ups, and saved ASR references; no filesystem freshness claim.
  */
-export function videoReviewSummaries(ctx: Context, session: Session): VideoReviewSummary[] {
-  return Object.values(reviewsOf(ctx, session)).map(review => ({ review_id: review.id, episode: review.episode,
-    path: review.path, source_version: review.source_version,
+export function videoReviewSummaries(readReviews: VideoReviewReader, session: Session): VideoReviewSummary[] {
+  return Object.values(reviewsOf(readReviews, session)).map(review => ({ review_id: review.id, episode: review.episode,
+    path: review.path, source_version: review.source_version, follow_up: review.follow_up ?? { status: 'active' },
     ...review.transcript_reference === undefined ? {} : { transcript_reference: review.transcript_reference } }))
 }
 
@@ -55,12 +58,13 @@ export function videoReviewSummaries(ctx: Context, session: Session): VideoRevie
  * @param reviewId - Current logged source revision identity.
  * @param options - Explicit range and complete-result budgets; requested images must already be recorded.
  * @param signal - Cancellation for source, ASR and attachment reads.
+ * @param readReviews - Ready observation reader owned by this consumer.
  * @returns Model-ready source evidence; stale optional ASR is reported, while changed video or missing cache rejects the read.
  */
 export async function readVideoSourceTimeline(ctx: Context, session: Session, reviewId: VideoReviewId,
-  options: VideoSourceTimelineReadOptions, signal: AbortSignal): Promise<VideoSourceTimelineContent> {
+  options: VideoSourceTimelineReadOptions, signal: AbortSignal, readReviews: VideoReviewReader): Promise<VideoSourceTimelineContent> {
   signal.throwIfAborted()
-  const review = Object.values(reviewsOf(ctx, session)).find(value => value.id === reviewId)
+  const review = Object.values(reviewsOf(readReviews, session)).find(value => value.id === reviewId)
   if (review === undefined) throw Error('VIDEO_TIMELINE_REVIEW: 当前会话不存在这个视频版本；未选择其他视频。')
   const policy = ctx.sandboxPolicy.resolve({ session })
   const source = await ctx.fs.resolve(review.path, { cwd: policy.workspaceRoot, signal })
@@ -113,7 +117,7 @@ export async function readVideoSourceTimeline(ctx: Context, session: Session, re
     throw Error('VIDEO_TIMELINE_SIZE: 完整时间线与图片引用超出本次返回上限；未返回截断材料，不影响写稿或交付。')
   }
   if ((await ctx.fs.stat(source, signal))?.version !== review.source_version
-    || Object.values(reviewsOf(ctx, session)).find(value => value.id === reviewId) !== review) {
+    || Object.values(reviewsOf(readReviews, session)).find(value => value.id === reviewId) !== review) {
     throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频或观察在读取期间变化，请回读当前时间线。')
   }
   return result

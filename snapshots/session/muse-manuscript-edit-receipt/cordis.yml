@@ -1,0 +1,36 @@
+- id: agent-default-model
+  config:
+    provider: manuscript-edit-receipt-fixture
+    model: selected-creative-model
+- id: llm-deepseek
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: skill
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- insert:
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: delivery-test-parent
+    - id: delivery-test-parent
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: delivery-test-parent
+        name: Delivery test parent
+        description: Parent inherits the shipped headless tools.
+        plugins: []
+    - id: manuscript-edit-receipt-fixture
+      name: ./fixture.mjs

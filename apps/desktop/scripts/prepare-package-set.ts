@@ -20,8 +20,6 @@ import {
   DESKTOP_DRAMA_SKILL_RUNTIME_FILES,
   DESKTOP_CODEX_PACKAGE,
   DESKTOP_CODEX_RUNTIME_FILES,
-  DESKTOP_MUSE_BOT_PACKAGE,
-  DESKTOP_MUSE_BOT_RUNTIME_FILES,
   DESKTOP_FEISHU_PACKAGE,
   DESKTOP_FEISHU_RUNTIME_FILES,
   DESKTOP_HOST_PACKAGE,
@@ -33,7 +31,7 @@ import {
   type DesktopCorePackageRecord,
 } from '../src/core-package-set.ts'
 import { packedManifest, tarballFiles } from '../../../scripts/release/tarball.ts'
-import { resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { desktopTargetPlatform, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 
 const DSH_PACKAGE = '@deepseek-ai/dsh'
 const ROOT_PACKAGES = [DSH_PACKAGE, DESKTOP_HOST_PACKAGE] as const
@@ -47,6 +45,17 @@ const OPTIONAL_DEPENDENCY_SECTION = 'optionalDependencies'
 export interface PackedDesktopPackage {
   readonly tarball: string
   readonly manifest: Readonly<Record<string, unknown>>
+}
+
+function supportsTarget(manifest: Readonly<Record<string, unknown>>, field: 'os' | 'cpu', target: string): boolean {
+  const values = manifest[field]
+  if (values === undefined) return true
+  if (!Array.isArray(values) || !values.every((value): value is string => typeof value === 'string')) {
+    throw new Error(`desktop package set: ${String(manifest.name)} has invalid ${field}`)
+  }
+  if (values.includes(`!${target}`)) return false
+  return values.length === 0 || (values.length === 1 && values[0] === 'any') || values.includes(target)
+    || values.every(value => value.startsWith('!'))
 }
 
 function dependencyNames(manifest: Readonly<Record<string, unknown>>, section: string): string[] {
@@ -77,11 +86,13 @@ function isOptionalPeer(manifest: Readonly<Record<string, unknown>>, name: strin
  * Optional peers need another root; npm resolves external packages.
  * Reads the repository workspace manifest and package manifests to distinguish required local packages from npm-resolved externals.
  * @param available - Packed packages indexed by package name.
+ * @param target - Platform and architecture of the installer payload.
  * @param additionalRoots - Required source-built plugin roots; absent tarballs fail instead of using registry packages.
  * @returns Selected packages sorted by name.
  */
 export function selectDesktopPackageClosure(
   available: ReadonlyMap<string, PackedDesktopPackage>,
+  target: ReturnType<typeof desktopTargetPlatform>,
   additionalRoots: readonly string[] = [],
 ): PackedDesktopPackage[] {
   const workspace = yaml.load(readFileSync(join(REPOSITORY_ROOT, 'pnpm-workspace.yaml'), 'utf8')) as { packages: string[] }
@@ -103,7 +114,9 @@ export function selectDesktopPackageClosure(
       }
     }
     for (const dependency of dependencyNames(packed.manifest, OPTIONAL_DEPENDENCY_SECTION)) {
-      if (available.has(dependency)) visit(dependency)
+      const optional = available.get(dependency)
+      if (optional && supportsTarget(optional.manifest, 'os', target.platform)
+        && supportsTarget(optional.manifest, 'cpu', target.arch)) visit(dependency)
     }
   }
   for (const name of [...ROOT_PACKAGES, ...additionalRoots]) {
@@ -165,14 +178,6 @@ export function assertDesktopFeishuPackageFiles(files: readonly string[]): void 
   assertPackageFiles(DESKTOP_FEISHU_PACKAGE, DESKTOP_FEISHU_RUNTIME_FILES, files)
 }
 
-/** Require the native Muse Bot workspace and retained Apache attribution.
- * @param files - Tarball paths rooted at `package/`.
- * @returns Nothing.
- */
-export function assertDesktopMuseBotPackageFiles(files: readonly string[]): void {
-  assertPackageFiles(DESKTOP_MUSE_BOT_PACKAGE, DESKTOP_MUSE_BOT_RUNTIME_FILES, files)
-}
-
 function assertPackageFiles(name: string, required: readonly string[], files: readonly string[]): void {
   const available = new Set(files)
   const missing = required
@@ -183,9 +188,16 @@ function assertPackageFiles(name: string, required: readonly string[], files: re
   }
 }
 
-/** Prepare a package set from release tarball directories. */
-export function prepareDesktopPackageSet(inputs: readonly string[], output: string): void {
-  const selected = selectDesktopPackageClosure(packedPackages(inputs), DESKTOP_SOURCE_PLUGINS)
+/**
+ * Prepare a package set from release tarball directories.
+ * @param inputs - Release tarball directories.
+ * @param output - Destination package-set directory.
+ * @param target - Platform and architecture of the installer payload.
+ */
+export function prepareDesktopPackageSet(
+  inputs: readonly string[], output: string, target: ReturnType<typeof desktopTargetPlatform>,
+): void {
+  const selected = selectDesktopPackageClosure(packedPackages(inputs), target, DESKTOP_SOURCE_PLUGINS)
   const host = selected.find(packed => packed.manifest.name === DESKTOP_HOST_PACKAGE)
   if (host === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_HOST_PACKAGE}`)
   assertDesktopHostPackageFiles(tarballFiles(host.tarball))
@@ -198,9 +210,6 @@ export function prepareDesktopPackageSet(inputs: readonly string[], output: stri
   const codex = selected.find(packed => packed.manifest.name === DESKTOP_CODEX_PACKAGE)
   if (codex === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_CODEX_PACKAGE}`)
   assertDesktopCodexPackageFiles(tarballFiles(codex.tarball))
-  const museBot = selected.find(packed => packed.manifest.name === DESKTOP_MUSE_BOT_PACKAGE)
-  if (museBot === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_MUSE_BOT_PACKAGE}`)
-  assertDesktopMuseBotPackageFiles(tarballFiles(museBot.tarball))
   rmSync(output, { recursive: true, force: true })
   const packageDir = join(output, DESKTOP_PACKAGES_DIR)
   mkdirSync(packageDir, { recursive: true })
@@ -239,7 +248,7 @@ function main(): void {
   })
   const inputs = (values.from ?? defaultInputs).map(path => resolve(REPOSITORY_ROOT, path))
   const output = values.out === undefined ? buildPaths.packageSet : resolve(REPOSITORY_ROOT, values.out)
-  prepareDesktopPackageSet(inputs, output)
+  prepareDesktopPackageSet(inputs, output, desktopTargetPlatform(resolveDesktopBuildTarget()))
   console.log(`desktop package set: prepared ${output}`)
 }
 

@@ -1,4 +1,5 @@
 /** Keyless Loader/Agent evidence: a provider completion wakes an idle owner. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,6 +27,7 @@ it('registers the watcher without requiring jobs and rejects invalid operation I
   const ctx = new Context()
   try {
     await ctx.plugin(SystemPrompt); await ctx.plugin(Tools)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(MemoryCredentials, { JUBIANAI_ADMIN_TOKEN: 'test-token' })
     const fiber = ctx.plugin(Jubian, { workspaceSecrets: false })
     await fiber
@@ -70,7 +72,7 @@ it('returns immediately, reaches idle, then delivers the jobs notice in a second
   })
   try {
     const modules = new Map<string, unknown>([
-      ['prompt', SystemPrompt], ['tools', Tools], ['credentials', MemoryCredentials], ['jubian', Jubian],
+      ['prompt', SystemPrompt], ['tools', Tools], ['native-executor', NativeToolExecutor], ['credentials', MemoryCredentials], ['jubian', Jubian],
       ['llm', Llm], ['sessions', SessionStore], ['projections', SessionProjections],
       ['agents', AgentRegistry], ['loop', AgentLoop], ['jobs', Jobs], ['tool-jobs', ToolJobs],
     ])
@@ -107,7 +109,11 @@ it('returns immediately, reaches idle, then delivers the jobs notice in a second
     expect(tool).toBeDefined()
     const args = { task_id: 42, stage: 'upscale' }
     const output = await tool.execute(args, { agent } as ToolRunContext) as JsonValue
-    expect(tool.output.render(args, output)).toMatchSnapshot('watch admission output')
+    if (output === null || typeof output !== 'object' || Array.isArray(output)) throw new Error('Invalid job admission')
+    const admitted = ctx.jobs.list(agent.session.id)[0]
+    expect(admitted).toBeDefined()
+    expect(output.job_id).toBe(admitted!.id)
+    expect(tool.output.render(args, { ...output, job_id: 'jubian-1' })).toMatchSnapshot('watch admission output')
     expect(ctx.jobs.list(agent.session.id)).toMatchObject([{ kind: 'jubian', owner: agent.session.id, status: 'running' }])
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Continue independent work.' }], source: { kind: 'user' } }))
     await agent.whenIdle()
@@ -119,11 +125,18 @@ it('returns immediately, reaches idle, then delivers the jobs notice in a second
     expect(adapter.requests).toHaveLength(2)
     const messages = adapter.requests[1]!.messages
     expect(messages.some(message => message.role === 'user' && message.content.some(block =>
-      block.type === 'text' && block.text.includes('background job jubian-1')))).toBe(true)
+      block.type === 'text' && block.text.includes(`background job ${admitted!.id}`)))).toBe(true)
     const notices = agent.session.snapshotEvents().filter(event => event.type === 'user/message')
     expect(notices.some(event => JSON.stringify(event.data).includes('"kind":"tool-jobs"'))).toBe(true)
     const job = ctx.jobs.list(agent.session.id)[0]!
-    expect(JSON.parse(ctx.jobs.read(job.id, agent.session.id).result!)).toMatchSnapshot('verified operation output')
+    expect(job.status).toBe('completed')
+    const completion = messages.flatMap(message => message.role === 'user' ? message.content : [])
+      .find(block => block.type === 'text' && block.text.startsWith(`background job ${job.id}`))
+    if (completion?.type !== 'text') throw new Error('Missing job completion notice')
+    const [, result] = completion.text.split('Output:\n')
+    if (result === undefined) throw new Error('Missing inline job result')
+    expect(JSON.parse(result)).toMatchSnapshot('verified operation output')
+    expect(ctx.jobs.read(job.id, agent.session.id).result).toBeUndefined()
     expect(calls).toHaveLength(2)
   } finally {
     release()

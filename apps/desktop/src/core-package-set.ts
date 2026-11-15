@@ -19,21 +19,25 @@ export const DESKTOP_DRAMA_SKILLS_PACKAGE = '@deepseek-ai/dsh-drama-skills'
 /** Reviewed IM Host and native client installed beside the account's independent remote bridge. */
 export const DESKTOP_FEISHU_PACKAGE = '@xmanrui/dsh-im'
 
-/** Reviewed ChatGPT subscription provider and its local account settings. */
-export const DESKTOP_CODEX_PACKAGE = 'dsh-codex-subscription'
-
-/** Reviewed native team workspace supplied by the Muse application. */
-export const DESKTOP_MUSE_BOT_PACKAGE = 'ds-bot'
+/** Reviewed subscription providers and their local account settings. */
+export const DESKTOP_CODEX_PACKAGE = 'dsh-plugin-subscriptions'
 
 /** Package-relative Desktop Host files required before a profile can boot. */
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
   'lib/cli.js',
+  'lib/workspace-owned-storage.js',
+  'lib/approved-episode-render.js',
+  'lib/episode-render-worker.js',
+  'lib/retired-bot.js',
+  'lib/delegation-policy.js',
   'config/desktop.cordis.patch.yml',
   'config/defaults.cordis.patch.yml',
   'presets/short-drama/agent.cordis.yml',
   'presets/short-drama/preset.yml',
   'lib/native-preset.js',
+  'lib/computer-use.js',
+  'lib/computer-input-worker.js',
   'presets/standard/agent.cordis.yml',
   'presets/standard/preset.yml',
   'presets/ptc/agent.cordis.yml',
@@ -74,23 +78,16 @@ export const DESKTOP_FEISHU_RUNTIME_FILES = [
 
 /** Subscription Host, account settings and retained notices required in every product build. */
 export const DESKTOP_CODEX_RUNTIME_FILES = [
-  'lib/index.js', 'lib/client.js', 'lib/sketch-psd-worker.js',
-  'cordis.patch.yml', 'compatibility.json', 'icon-subscription.webp',
-  'SOURCE.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'BUNDLED_LICENSES.md',
+  'lib/index.js', 'lib/upstream.js', 'lib/client.js', 'lib/muse-migration.mjs', 'lib/muse-recovery.mjs',
+  'cordis.patch.yml', 'SOURCE.json', 'LICENSE',
 ] as const
 
-/** Native team Host, browser module and attribution required from the Muse Bot tarball. */
-export const DESKTOP_MUSE_BOT_RUNTIME_FILES = [
-  'index.js', 'src/host/agents.js', 'src/host/store.js', 'src/host/parts.js', 'src/host/muse-config.js',
-  'client.js', 'cordis.patch.yml', 'SOURCE.json', 'LICENSE', 'NOTICE',
-] as const
-
-/** Source-built community plugins and Muse download tools, with no registry substitution. */
+/** Source-built community plugins and Muse tools, with no registry substitution. */
 export const DESKTOP_SOURCE_PLUGINS = [
-  'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE, DESKTOP_MUSE_BOT_PACKAGE,
-  '@wenbin_wb/dsh-bridge', DESKTOP_FEISHU_PACKAGE, 'dsh-skill-mcp-panel',
+  'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE,
+  '@wenbin_wb/dsh-bridge', DESKTOP_FEISHU_PACKAGE, 'dsh-skill-mcp-panel', 'deep-view', '@nagi-ovo/dsh-visualize',
   'muse-hongguo-search',
-  'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-lvpaopao',
+  'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-qimao-data', 'muse-source-research', 'muse-skill-evolution', 'muse-lvpaopao',
 ] as const
 
 /** One immutable npm tarball in the Desktop core package set. */

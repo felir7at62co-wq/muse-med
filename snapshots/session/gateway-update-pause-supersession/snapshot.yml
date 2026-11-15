@@ -1,0 +1,11 @@
+version: 1
+scenario: gateway-update-pause-supersession
+profile: headless
+composition: gateway-update-pause-supersession
+recording: authored
+writerOutput: true
+header:
+  class: gateway-update-pause-supersession
+  pin: true
+workspace:
+  final: true

@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-qimao-data
+profile: headless
+composition: muse-qimao-data
+recording: authored
+header:
+  class: muse-qimao-data
+  pin: true
+writerOutput: true

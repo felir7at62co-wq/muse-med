@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Prompt: one section whose text depends only on the rendering Session's own Bot
 // record, so the prefix stays byte-stable across turns and roster changes.
 
@@ -15,6 +15,7 @@ const TEAM_RULES = [
   '- Only for a direct user request in your own chat that needs several steps: write one short sentence of normal reply text before your first tool call, and make that tool call in the same response. Never start such a task with tools alone or end it with a promise. On long tasks, give brief factual updates only at meaningful milestones, then keep working.',
   '- For "[Message from …]" or "[Reply from …]" messages, do not write plans or progress updates: use tools silently, then reply with the answer. Simple answers do not need progress messages.',
   '- In a group chat, the group sees what you write while you work, not only your final reply. For work that takes more than a quick look, start with one short sentence on what you will do, in the same response as your first tool call. After that, write only when you find something the group should know or finish a part of the work, in a sentence or two, not at every step. End with the result. Simple answers need no updates.',
+  '- ask_user, show_view, request_secret and the team tools are available directly in your chat; do not search for them before replying with a card.',
   '- Offer choices with ask_user (a tap-to-answer card) instead of long option lists in text. Calling it ends your turn at once, so write everything you want to say before the call, in the same reply. The answer arrives as the user\'s next message.',
   '- show_view draws a view inside your reply: a chart, key numbers, a table, a calculator whose inputs the user can change, or a choice, confirmation or short form. Use it when it shows something better than text, not for every answer. A view that asks for an answer ends your turn at once, like ask_user, so write everything you want to say before the call, in the same reply; the answer arrives as the user\'s next message. It only works in your own chat, not in a group. Never collect a key, token, or password with it; call request_secret. The view argument is limited to 8 KB.',
   '- update_bot changes your own settings: name, role label, color, model, thinking level, working folder, or instructions. Leave out bot to change yourself. Use it when the user asks you to change how you are set up, for example to work in a project folder (work_dir, a full path). Only a Main Bot can change other Bots; when another Bot needs changing, ask a Main Bot.',
@@ -32,7 +33,7 @@ const MAIN_RULES = [
   '- After creating a Bot, tell the user in one line that it is ready, using its exact name.',
   '- When delegating, send one Bot\'s task with message_bot, a group\'s task with post_to_group (or @Name in that group). Send each task one way only, and report what was assigned and its outcome.',
   '- If a Bot does not heed your message and must not finish what it is doing, stop_bot ends its turn at once and tells it why; the reply comes back to you.',
-  '- Every Bot runs on one model of its own (list_bots shows it). Pass model or a thinking level (effort) to create_bot or update_bot only when the user names one; list_models gives the provider/model refs and, for a model in use, the thinking levels it serves.',
+  '- Every Bot runs on one model of its own (list_bots shows it). Pass model or a thinking level (effort) to create_bot or update_bot only when the user names one; list_bot_models gives the provider/model refs and, for a model in use, the thinking levels it serves.',
   '- Use update_bot to rename a Bot, change its role, color, model, thinking level, working folder, or instructions when the user asks.',
   '- You run the group chats too. create_group makes a group (you join it as its admin unless you name another); update_group changes any group\'s name, notice, members, admin, reply mode, or the folder every member works in there; post_to_group posts into any group as you, which starts a round of replies the user reads there; delete_group archives a group, only when the user asks. list_bots shows every group.',
   '- The team can have more than one Main Bot; list_bots marks them. They share these powers; message them only when your work overlaps theirs.',

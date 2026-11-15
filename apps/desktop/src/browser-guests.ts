@@ -1,12 +1,13 @@
 /** Main-process ownership and fixed isolation policy for Sidebar webview guests. */
 import { randomUUID } from 'node:crypto'
-import { app, session, type BrowserWindow, type Session, type WebContents } from 'electron'
+import { session, type BrowserWindow, type Session, type WebContents } from 'electron'
 import type {
   DesktopBrowserLeaseId,
   DesktopBrowserOpenRequest,
   DesktopBrowserReservation,
 } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 import { DESKTOP_IPC } from './ipc.ts'
+import { DesktopDouyinTaskGuests, isolatedBrowserPreferences } from './douyin-task-guests.ts'
 import { DesktopDouyinDownloads } from './douyin-downloads.ts'
 import { DesktopDouyinData } from './douyin-data.ts'
 import type { DouyinDesktopRequest, DouyinDesktopResult, DouyinDesktopDataRequest, DouyinDesktopDataResult } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
@@ -27,9 +28,14 @@ interface GuestLease {
 export class DesktopBrowserGuests {
   private readonly partitions = new Map<string, string>()
   private readonly leases = new Map<DesktopBrowserLeaseId, GuestLease>()
+  private readonly taskGuests = new DesktopDouyinTaskGuests(
+    (workspace, url) => this.storagePartition(workspace, url),
+    url => this.allowedNavigation(url),
+    (lease, code) => { this.downloads.released(lease, code) },
+  )
   readonly downloads = new DesktopDouyinDownloads((owner, sessionId, url) => {
     owner.send(DESKTOP_IPC.browserDownloadPage, { sessionId, url })
-  })
+  }, undefined, (owner, request) => this.taskGuests.open(owner, request))
   readonly observations = new DesktopDouyinData((owner, sessionId, url) => {
     owner.send(DESKTOP_IPC.browserDownloadPage, { sessionId, url })
   }, () => this.downloads.isActive)
@@ -76,13 +82,7 @@ export class DesktopBrowserGuests {
     if (initialUrl !== undefined && (typeof initialUrl !== 'string' || initialUrl.length > 8192))
       throw new Error('Invalid initial browser URL')
     const persistent = douyinStoragePartition(workspace, initialUrl)
-    const storageKey = persistent ?? workspace
-    let partition = this.partitions.get(storageKey)
-    if (partition === undefined) {
-      partition = persistent ?? `dsh-sidebar-browser-${randomUUID()}`
-      this.configureSession(session.fromPartition(partition))
-      this.partitions.set(storageKey, partition)
-    }
+    const partition = this.storagePartition(workspace, initialUrl)
     const lease = randomUUID() as DesktopBrowserLeaseId
     this.leases.set(lease, {
       owner,
@@ -142,21 +142,7 @@ export class DesktopBrowserGuests {
       for (const key of Object.keys(preferences)) {
         if (key !== 'disablePopups') Reflect.deleteProperty(preferences, key)
       }
-      Object.assign(preferences, {
-        partition: lease.partition,
-        nodeIntegration: false,
-        nodeIntegrationInWorker: false,
-        nodeIntegrationInSubFrames: false,
-        contextIsolation: true,
-        sandbox: true,
-        webSecurity: true,
-        allowRunningInsecureContent: false,
-        webviewTag: false,
-        plugins: false,
-        navigateOnDragDrop: false,
-        disableDialogs: true,
-        devTools: !app.isPackaged,
-      })
+      Object.assign(preferences, isolatedBrowserPreferences(lease.partition))
       params.httpreferrer = ''
     })
     owner.on('did-attach-webview', (_event, guest) => {
@@ -232,6 +218,18 @@ export class DesktopBrowserGuests {
     })
     owner.on('render-process-gone', releaseAll)
     owner.once('destroyed', releaseAll)
+  }
+
+  private storagePartition(workspace: string, initialUrl: unknown): string {
+    const persistent = douyinStoragePartition(workspace, initialUrl)
+    const storageKey = persistent ?? workspace
+    let partition = this.partitions.get(storageKey)
+    if (partition === undefined) {
+      partition = persistent ?? `dsh-sidebar-browser-${randomUUID()}`
+      this.configureSession(session.fromPartition(partition))
+      this.partitions.set(storageKey, partition)
+    }
+    return partition
   }
 
   private configureSession(browserSession: Session): void {

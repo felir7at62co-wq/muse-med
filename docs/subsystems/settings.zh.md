@@ -63,6 +63,103 @@ Host Remote file reads and writes for one notes root over the composed filesyste
 
 Source: [`packages/api/agent-notes/src/index.ts`](../../packages/api/agent-notes/src/index.ts)
 
+<a id="ctxapprovedepisoderenderer--approvedepisoderenderer"></a>
+
+### `ctx.approvedEpisodeRenderer` — `ApprovedEpisodeRenderer`
+
+Renderer Definition; the Host supplies the provider and the episode service consumes it.
+
+```ts cordis-catalog
+/**
+ * Capture actual resolved settings, selected media/fonts and code without reading later mutable Settings.
+ * @param input - Canonical project and strict current editing-plan snapshot.
+ * @param signal - Capture cancellation; an admitted capture also retains its provider lifetime.
+ * @returns An immutable identity and render closure belonging to this actual provider instance.
+ */
+capture(input: ApprovedEpisodeCaptureInput, signal: AbortSignal): Promise<ApprovedEpisodeRendererCapture>
+```
+
+Source: [`packages/jubian/tool-jubian/src/episode-delivery.ts`](../../packages/jubian/tool-jubian/src/episode-delivery.ts)
+
+<a id="ctxgenerationworkspaceauthority--generationworkspaceauthority"></a>
+
+### `ctx.generationWorkspaceAuthority` — `GenerationWorkspaceAuthority`
+
+Workspace owner capability supplied only by a process with exclusive durable ownership.
+
+```ts cordis-catalog
+/**
+ * Capture exact non-archived ownership, or return undefined for an unowned Session.
+ * @param sessionId - Native Session whose owner is requested.
+ * @param signal - Cancellation during capture.
+ * @returns the original membership evidence when unambiguous.
+ */
+capture(sessionId: SessionId, signal: AbortSignal): Promise<GenerationWorkspaceIdentity | undefined>
+
+/**
+ * Keep an unchanged membership until the caller releases it.
+ * @param identity - Previously captured durable membership.
+ * @param signal - Owner cancellation releases the lease.
+ * @returns a lease whose assertions cover this authority's current durable state.
+ */
+acquire(identity: GenerationWorkspaceIdentity, signal: AbortSignal): Promise<GenerationWorkspaceLease>
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/jubian/tool-jubian/src/generation-binding.ts`](../../packages/jubian/tool-jubian/src/generation-binding.ts)
+
+<a id="ctxjubianepisodedelivery--jubianepisodedelivery"></a>
+
+### `ctx.jubianEpisodeDelivery` — `JubianEpisodeDelivery`
+
+Service-owned long work; only the exact immutable logical claim is committed by admission RPC.
+
+```ts cordis-catalog
+/** Stop accepting new work without cancelling or awaiting an active encoder. */
+pauseAdmission(): void
+
+/** Resume new admission after an update inspection releases its pause. */
+resumeAdmission(): void
+
+/**
+ * Inspect this instance's owned work and observed unresolved executions without waiting.
+ * @returns Whether preparation, queued/running work or an observed unknown fence remains.
+ */
+hasActiveWork(): boolean
+
+/**
+ * Measure current editing inputs, original approvals and the actual renderer without admitting work.
+ * @param input - Explicit project and episode.
+ * @returns A selection digest excluding random provider generation, or actionable readiness errors.
+ */
+@Remote episodeReadiness(input: EpisodeReadinessInput): Promise<EpisodeReadiness>
+
+/**
+ * Persist a tiny original-attempt claim before returning; media work belongs to the service queue.
+ * @param input - Exact readiness digest, project and episode.
+ * @returns The original admission, including after a lost reply; this method never waits for rendering.
+ */
+@Remote admitEpisode(input: EpisodeAdmissionInput): Promise<EpisodeDeliveryStatus>
+
+/**
+ * Discover bounded original identities without inspecting media, preparing a renderer or resuming work.
+ * Directory order is unspecified and entries carry no recovery permission; select one and query status.
+ * @param input - Explicit project and episode; the current recovery selection is not changed.
+ * @returns Validated original identities, recorded labels and visible scan/read limits or damaged-record counts.
+ */
+@Remote episodeHistory(input: EpisodeHistoryInput): Promise<EpisodeHistory>
+
+/**
+ * Read one original durable admission without preparing, hashing media or admitting another attempt.
+ * @param input - Exact project, episode and original readiness digest.
+ * @returns Persisted publication measurements or targeted state; output is not a current-file verification.
+ */
+@Remote episodeStatus(input: EpisodeStatusInput): Promise<EpisodeDeliveryStatus>
+```
+
+Source: [`packages/jubian/tool-jubian/src/episode-delivery-service.ts`](../../packages/jubian/tool-jubian/src/episode-delivery-service.ts)
+
 <a id="ctxjubianimage--jubianimageroutes"></a>
 
 ### `ctx.jubianImage` — `JubianImageRoutes`
@@ -86,6 +183,78 @@ The namespace reads and never writes, and it carries rows only — the token tha
 
 Source: [`packages/jubian/tool-jubian/src/image.ts`](../../packages/jubian/tool-jubian/src/image.ts)
 
+<a id="ctxjubianvideorecovery--jubianvideorecovery"></a>
+
+### `ctx.jubianVideoRecovery` — `JubianVideoRecovery`
+
+Dynamic project selection, read-only recovery and explicit human decisions.
+
+```ts cordis-catalog
+/**
+ * Read a consistent selected-project view and current artifact checks.
+ * @returns Saved selection and reports without provider URLs or credentials.
+ */
+@Remote status(): Promise<VideoRecoveryStatus>
+
+/**
+ * Persist a selected project and replace its single background worker.
+ * @param input - New switch and optional absolute project path.
+ * @returns Committed selection and reports for that project.
+ */
+@Remote configure(input: VideoRecoveryConfigurationInput): Promise<VideoRecoveryStatus>
+
+/**
+ * Own a verified batch without holding the recovery queue during consumer work.
+ * Consumers must await their work and commit prepared publication once; they must
+ * not call recovery operations from a commit or cancellation-journal callback.
+ * @param input - Original approved keys/digests and the consumer Config's metadata budget.
+ * @param caller - Consumer operation cancellation, never an implicit invocation signal.
+ * @param consume - Long stage/render work with one final short source-owner commit.
+ * @param beforeCancel - Optional durable cancellation-intent write before the consumer signal aborts.
+ * @param admission - Optional readiness generation for already admitted queued work.
+ * @returns The consumer result after all source checks and cancellation IO settle.
+ */
+withApprovedSources<Result>(input: ApprovedVideoSourceRequest, caller: AbortSignal, consume: (lease: ApprovedVideoSourceLease) => Promise<Result>, beforeCancel?: (reason: ApprovedVideoSourceCancellationReason) => Promise<void>, admission?: ApprovedVideoSourceAdmission): Promise<Result>
+
+/**
+ * Serialize a tiny durable admission against the exact readiness generation and current approvals.
+ * @param admission - Same-process facts captured by a completed source lease.
+ * @param signal - Short admission caller cancellation.
+ * @param publish - Prepared small journal IO; no hashing, copying, consumers or recovery calls.
+ * @returns The committed admission; callers must retain any already written records after cancellation.
+ */
+admitApprovedSources<Result>(admission: ApprovedVideoSourceAdmission, signal: AbortSignal, publish: (signal: AbortSignal) => Promise<Result>): Promise<Result>
+
+/**
+ * Read the saved project selection without scanning reports or reading source media.
+ * @returns The saved canonical project path, or null when no selection is saved.
+ */
+selectedProjectDirectory(): string | null
+
+/**
+ * Read, decide or reopen the exact displayed report once.
+ * @param input - Original key, action and current digest for mutations.
+ * @returns Active report and persisted decision.
+ */
+@Remote review(input: VideoRecoveryReviewInput): Promise<VideoRecoveryReview>
+
+/**
+ * Capture and decode a project-local derivative before review.
+ * @param input - Original key, current digest and project-relative MP4 path.
+ * @returns Updated report and actual captured-file checks.
+ */
+@Remote adopt(input: VideoRecoveryAdoptionInput): Promise<VideoRecoveryReview>
+
+/**
+ * Publish exactly the approved MP4 without an editor or new generation.
+ * @param input - Original key and approved report digest.
+ * @returns Current report and verified direct-copy receipt.
+ */
+@Remote deliverApprovedMp4(input: ApprovedClipDeliveryInput): Promise<VideoRecoveryReview>
+```
+
+Source: [`packages/jubian/tool-jubian/src/video-recovery-service.ts`](../../packages/jubian/tool-jubian/src/video-recovery-service.ts)
+
 <a id="ctxjubianvideoselection--jubianvideoselection"></a>
 
 ### `ctx.jubianVideoSelection` — `JubianVideoSelection`
@@ -93,6 +262,13 @@ Source: [`packages/jubian/tool-jubian/src/image.ts`](../../packages/jubian/tool-
 Host owner shared by the composer, model-facing ask tool and paid executors.
 
 ```ts cordis-catalog
+/**
+ * Read a prepared conversation's explicit choice without loading history.
+ * @param session - Conversation prepared by the Session store.
+ * @returns Latest recorded choice, or null before a selection.
+ */
+selectionFor(session: Session): SessionVideoSelection | null
+
 /**
  * Initialize the configured default from the live catalogue once, preserving any human choice made during the read.
  * @param agent - Owning conversation.
@@ -175,7 +351,7 @@ assertCurrent(agent: Agent, saved: Record<string, unknown>): void
 async reconcile(agent: Agent, args: Record<string, unknown>): Promise<void>
 ```
 
-Types: [Agent](core.zh.md)
+Types: [Agent](core.zh.md) · [Session](session.zh.md)
 
 Source: [`packages/jubian/tool-jubian/src/video-session.ts`](../../packages/jubian/tool-jubian/src/video-session.ts)
 

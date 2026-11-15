@@ -1,6 +1,34 @@
 {
   "initial": [
     {
+      "name": "apply_patch",
+      "description": "Create, update, delete, or move UTF-8 text files with one Codex-style patch; prefer it over multiple edit calls when a change spans several files or separated regions.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Codex patch text: start with *** Begin Patch and end with *** End Patch. Use *** Add File: path with + lines; *** Update File: path, optionally followed by *** Move to: path, with @@ or @@ context and space-prefixed context, + added, or - removed lines; *** End of File anchors the last hunk to the file end. Use *** Delete File: path to delete. Paths are relative to the Session working directory."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
       "name": "create_goal",
       "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
       "parameters": {
@@ -84,7 +112,7 @@
     },
     {
       "name": "douyin_download",
-      "description": "Download one or several user-selected Douyin video/share URLs into the current workspace and return file-backed receipts after full decoding. Public playback is tried first, then MUSE opens its internal official page automatically. Complete normal login or verification there if required; workspace-scoped Douyin login survives application restarts. No external browser profiles, Cookie files, DRM or verification bypass. Browser transport requires Desktop Host protocol 6. Report blocked or partial results accurately",
+      "description": "Download selected official Douyin video/share URLs sequentially into this Session workspace, with file-backed decoding/hash receipts. mode:wait (default) waits; mode:background returns an accepted durable downloadTask.id, which is distinct from native browser taskId and in-memory jobId. Use douyin_download_task to inspect/resume/cancel. Public playback is tried first; authorized browser playback can run in an isolated background guest on a matching Host, without depending on the selected Session or sidebar. Login/verification pauses as waiting_user; resume explicitly after normal login. Source failures remain waiting_source, interrupted runs never replay automatically. No Cookie files, signed media URLs or bypass. Read-only refuses before network; blocked/partial is not completed",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -105,6 +133,14 @@
           "publicOnly": {
             "type": "boolean",
             "description": "Try public playback only; do not open the internal browser"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "wait",
+              "background"
+            ],
+            "description": "wait waits for verified results (default); background accepts a durable task and returns immediately"
           }
         },
         "oneOf": [
@@ -119,6 +155,32 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "name": "douyin_download_task",
+      "description": "List this Session’s durable Douyin downloads or status/resume/cancel one downloadTask.id. Never use a native browser taskId or jobs jobId here. Resume explicitly rechecks the live owner, canonical workspace, current write policy and completed files’ hashes/receipt/video identity, skips only verified items, and starts a new owned job. It does not replay at startup or accept another Session/target path/media URL. Cancel waits for actual subprocess/native cleanup and preserves completed receipts. waiting_user/waiting_source/interrupted are unfinished states. Status/list remain read-only.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "status",
+              "resume",
+              "cancel"
+            ]
+          },
+          "taskId": {
+            "type": "string",
+            "description": "The persistent downloadTask.id from douyin_download, required except for list"
+          }
+        }
       }
     },
     {
@@ -160,22 +222,6 @@
           "file_path",
           "old_string",
           "new_string"
-        ]
-      }
-    },
-    {
-      "name": "exit_plan_mode",
-      "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "plan": {
-            "type": "string",
-            "description": "The complete plan, as markdown, starting with a # heading that names it."
-          }
-        },
-        "required": [
-          "plan"
         ]
       }
     },
@@ -302,7 +348,7 @@
     },
     {
       "name": "interrupt_agent",
-      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
+      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a local direct child's conversation later with send_message. External executions stop permanently and cannot receive follow-ups. Subagents it started will keep running.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -468,10 +514,14 @@
     },
     {
       "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
+          },
           "description": {
             "type": "string",
             "description": "A short (3-5 word) description of the delegated task, for display."
@@ -479,10 +529,6 @@
           "prompt": {
             "type": "string",
             "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
-          },
-          "run_in_background": {
-            "type": "boolean",
-            "description": "Defaults to true. Set false only when your next action depends on the result."
           }
         },
         "required": [
@@ -493,10 +539,14 @@
     },
     {
       "name": "subagent_fork",
-      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This call waits for the subagent and returns its result.",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
+          },
           "description": {
             "type": "string",
             "description": "A short (3-5 word) description of the delegated task, for display."
@@ -750,6 +800,19 @@
           "script",
           "meta"
         ]
+      }
+    },
+    {
+      "name": "working_directory",
+      "description": "Read the current working directory, or change it with cd. Relative paths use the current directory. Existing shells and running processes keep their own directories.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "cd": {
+            "type": "string",
+            "description": "Existing directory to enter. Omit to read the current directory."
+          }
+        }
       }
     },
     {

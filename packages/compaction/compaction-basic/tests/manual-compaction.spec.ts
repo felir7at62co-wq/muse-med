@@ -30,6 +30,7 @@ import type {
   SummarizationInput,
   SummaryResult,
 } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
+import { CompactionCommitError } from '../src/region.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -407,6 +408,33 @@ describe('compactNow through the real loop', () => {
 })
 
 describe('compactNow transaction and failure classification', () => {
+  it('retains a non-Error commit cause with a bounded failure message', () => {
+    const cause = { reason: 'fixture rejected transaction' }
+    const error = new CompactionCommitError(cause)
+    expect(error.message).toBe('compaction transaction could not be committed')
+    expect(error.cause).toBe(cause)
+  })
+
+  it('propagates a standalone opening-write failure without committing a bracket', async () => {
+    const { compact, flushes } = detachedService()
+    const session = closedConversation(2)
+    let released = 0
+    const agent = fakeAgent(session, () => () => { released += 1 })
+    const failure = new Error('opening record rejected')
+    const append = session.append.bind(session)
+    const fault = vi.spyOn(session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
+      if (type === 'compaction/start') throw failure
+      return (append as (...args: never[]) => unknown)(type as never, ...rest)
+    }) as never)
+    try {
+      await expect(compact.compactNow(agent, SIGNAL)).rejects.toBe(failure)
+      expect(released).toBe(1)
+      expect(compact.calls).toHaveLength(0)
+      expect(compactEvents(session)).toEqual([])
+      expect(flushes()).toBe(0)
+    } finally { fault.mockRestore() }
+  })
+
   it('returns null without writing a bracket for history that cannot be compacted', async () => {
     const { compact } = detachedService()
     const session = Session.create(SessionId('empty'))
@@ -639,6 +667,28 @@ describe('compactNow transaction and failure classification', () => {
     expect(compact.calls).toHaveLength(calls)
   })
 
+  it('preserves a non-Error automatic commit cause without inventing its message', () => {
+    const error = new CompactionCommitError('storage unavailable')
+    expect(error.message).toBe('compaction transaction could not be committed')
+    expect(error.cause).toBe('storage unavailable')
+  })
+
+  it('propagates a standalone compaction/start append failure', async () => {
+    const { compact } = detachedService()
+    const session = closedConversation(2)
+    const agent = fakeAgent(session, () => () => undefined)
+    const failure = new Error('opening marker rejected')
+    const append = session.append.bind(session)
+    vi.spyOn(session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
+      if (type === 'compaction/start') throw failure
+      return (append as (...args: never[]) => unknown)(type as never, ...rest)
+    }) as never)
+    try {
+      await expect(compact.compactNow(agent, SIGNAL)).rejects.toBe(failure)
+      expect(session.snapshotEvents().some(event => event.type.startsWith('compaction/'))).toBe(false)
+    } finally { vi.restoreAllMocks() }
+  })
+
   it('keeps a failed error-close as the commit failure and does not flush', async () => {
     const { compact, flushes } = detachedService()
     const session = closedConversation(2)
@@ -665,9 +715,9 @@ describe('compactNow transaction and failure classification', () => {
     const session = closedConversation(2)
     const agent = fakeAgent(session, () => () => undefined)
     const meter = ctx.tokenMeter
-    const original = meter.measure.bind(meter)
+    const original = meter.measureWorkingContext.bind(meter)
     compact.duringSummary = () => {
-      vi.spyOn(meter, 'measure').mockImplementationOnce((target) => {
+      vi.spyOn(meter, 'measureWorkingContext').mockImplementationOnce((target) => {
         const measurement = original(target)
         return {
           ...measurement,
@@ -761,7 +811,7 @@ describe('compactNow transaction and failure classification', () => {
     for (const testCase of cases) {
       const { ctx, compact } = detachedService()
       const reserve = vi.fn(() => testCase.release)
-      const measure = vi.spyOn(ctx.tokenMeter, 'measure')
+      const measure = vi.spyOn(ctx.tokenMeter, 'measureWorkingContext')
       const agent = fakeAgent(testCase.session, reserve)
       const before = testCase.session.snapshotEvents()
       const reason = Object.freeze({ kind: 'cancelled', case: testCase.name })
@@ -880,17 +930,23 @@ describe('compactNow transaction and failure classification', () => {
     const { compact } = detachedService()
     const session = closedConversation(2)
     const agent = fakeAgent(session, () => () => undefined)
-    compact.gate = new Promise<undefined>((resolve) => {
-      setTimeout(() => { resolve(undefined) }, 5)
-    })
+    const openedAt = Date.now()
+    const originalNow = Date.now
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(openedAt)
+    try {
+      compact.duringSummary = () => { clock.mockReturnValue(openedAt + 25) }
 
-    await compact.compactNow(agent, SIGNAL)
+      await compact.compactNow(agent, SIGNAL)
 
-    const start = session.snapshotEvents().findLast(event => event.type === 'compaction/start')
-    const end = session.snapshotEvents().findLast(event => event.type === 'compaction/end')
-    expect(start).toBeDefined()
-    expect(end).toBeDefined()
-    expect(end!.time - start!.time).toBeGreaterThan(0)
+      const start = session.snapshotEvents().findLast(event => event.type === 'compaction/start')
+      const end = session.snapshotEvents().findLast(event => event.type === 'compaction/end')
+      expect(start?.time).toBe(openedAt)
+      expect(end?.time).toBe(openedAt + 25)
+      expect(end!.time - start!.time).toBe(25)
+    } finally {
+      clock.mockRestore()
+    }
+    expect(Date.now).toBe(originalNow)
   })
 
   it('excludes concurrent automatic and manual compaction of one session', async () => {

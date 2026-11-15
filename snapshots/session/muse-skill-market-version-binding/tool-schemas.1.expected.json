@@ -1,0 +1,21 @@
+{
+  "initial": [
+    {
+      "name": "skill",
+      "description": "Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The exact skill name from the available skills list."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  ],
+  "changes": []
+}

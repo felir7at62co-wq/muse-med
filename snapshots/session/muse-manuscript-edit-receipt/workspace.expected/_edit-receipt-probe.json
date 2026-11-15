@@ -1,0 +1,49 @@
+{
+  "pipelineOnly": true,
+  "wordExportExercised": false,
+  "originalRequest": "Edit the screenplay and give me a Word file.",
+  "toolResults": [
+    {
+      "id": "undeclared-present",
+      "name": "present",
+      "error": "MANUSCRIPT_DELIVERY_REQUIRED"
+    },
+    {
+      "id": "actual-write",
+      "name": "write",
+      "error": null
+    },
+    {
+      "id": "actual-readback",
+      "name": "read",
+      "error": null
+    },
+    {
+      "id": "actual-review",
+      "name": "manuscript_revision",
+      "error": null
+    },
+    {
+      "id": "actual-declare",
+      "name": "manuscript_revision",
+      "error": null
+    },
+    {
+      "id": "actual-present",
+      "name": "present",
+      "error": null
+    }
+  ],
+  "loggedGenericNotices": 1,
+  "noticeActuallyReceived": true,
+  "reminderAfterDeniedPresentBeforeRecovery": true,
+  "reviewerRequests": 1,
+  "reviewerRoles": [
+    "current",
+    "candidate"
+  ],
+  "originalAndFinalUnchanged": true,
+  "finalSha256": "eabc7d83bde939ae6d8ecead0b08b56daeba6cc2ea3229c13452b819c8571d6d",
+  "finalLabel": "已复核本文件全部提取正文（仅当前版本）",
+  "successfulPresentEvents": 1
+}

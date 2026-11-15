@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-manuscript-materials
+profile: headless
+composition: muse-manuscript-materials
+recording: authored
+header:
+  class: muse-manuscript-materials
+  pin: true
+workspace:
+  final: true

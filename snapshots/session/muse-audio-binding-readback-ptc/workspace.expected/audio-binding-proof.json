@@ -1,0 +1,35 @@
+{
+  "resultsObserved": 5,
+  "statuses": [
+    "ready",
+    "applied",
+    "get",
+    "readback_mismatch",
+    "unknown"
+  ],
+  "providerPutCount": 1,
+  "paidRequests": 0,
+  "isGenerate": 0,
+  "independentGetPhases": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "sameHumanNameDistinctKeys": true,
+  "relationFileNames": [
+    "周海生声线",
+    "周海生-v2.wav"
+  ],
+  "modelMaterialNames": [
+    "周海生声线",
+    "周海生声线"
+  ],
+  "originalImageAndCardModelPreserved": true,
+  "sameOriginalKey": "428a013b43c3042b72fde1d10696444874af2d19dbc5bf66e1663d1aeacee685",
+  "ledgerRequestHash": "sha256:5f4cc21661aa427f45a7d204454495bc306b94ce478e3934dcc57d91d88b1ff0",
+  "ledgerBytesUnchangedAfterFirstApply": true,
+  "fullResultsObservedInNextModelRequests": true,
+  "ptcDispatches": 5
+}

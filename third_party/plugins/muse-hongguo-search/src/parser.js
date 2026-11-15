@@ -1,6 +1,17 @@
 /** Parse only JSON data embedded in public Hongguo pages; never execute page scripts. */
 export const ORIGIN = 'https://hongguoduanju.com';
 export const BOARDS = Object.freeze(['hot-drama', 'hot-real-drama', 'hot-ai-drama', 'hot-comic-drama']);
+/** The official keyword endpoint's first window; later pages are not enumerated by this plugin. */
+export const SEARCH_WINDOW_LIMIT = 10;
+
+/** Public search did not provide a complete, usable response; this is never an empty-result assertion. */
+export class SearchUnavailableError extends Error {
+  constructor(reason) {
+    super(`HONGGUO_SEARCH_UNAVAILABLE: ${reason}`);
+    this.name = 'SearchUnavailableError';
+    this.code = 'HONGGUO_SEARCH_UNAVAILABLE';
+  }
+}
 
 export class IncompletePageError extends Error {
   constructor() { super('Public page ended before its streamed data completed'); this.name = 'IncompletePageError'; }
@@ -115,6 +126,14 @@ function updateDate(data, html) {
   return match ? decodeEntities(match[1]) : null;
 }
 
+/** Preserve the three displayed counts and identify unknown source fields on each observation. */
+function rankingMetrics(collection, likes, heat) {
+  const metrics = { collection, likes, heat };
+  const missingMetrics = Object.entries(metrics).filter(([, count]) => count.value === null)
+    .map(([field, count]) => ({ field, reason: count.raw === null ? 'not_displayed' : 'unparseable' }));
+  return { ...metrics, missingMetrics };
+}
+
 /** Parse one ranking page, rejecting wrong-page/cached or changed responses. */
 export function parseRanking(html, { board, page, sourceUrl, fetchedAt }) {
   if (!BOARDS.includes(board)) throw new Error('Unknown ranking board');
@@ -132,10 +151,10 @@ export function parseRanking(html, { board, page, sourceUrl, fetchedAt }) {
   const updated = updateDate(data, html);
   const items = content.rankList.map(row => {
     if (!record(row) || !Number.isInteger(row.rank) || row.rank < 1) throw new Error('Invalid ranking entry');
-    return { ...baseItem(row), collection: parseCount(row.favoriteText), likes: parseCount(row.likeText, '点赞'),
-      heat: parseCount(row.heatText, '热度'), scoreText: text(row.scoreText) || null,
+    const metrics = rankingMetrics(parseCount(row.favoriteText), parseCount(row.likeText, '点赞'), parseCount(row.heatText, '热度'));
+    return { ...baseItem(row), collection: metrics.collection, likes: metrics.likes, heat: metrics.heat, scoreText: text(row.scoreText) || null,
       episodeCount: Array.isArray(row.episodeVids) ? row.episodeVids.length : null,
-      observation: { board, page, rank: row.rank, sourceUrl, fetchedAt, updateDate: updated, sourceFormat: 'embedded_json', collection: parseCount(row.favoriteText) } };
+      observation: { board, page, rank: row.rank, sourceUrl, fetchedAt, updateDate: updated, sourceFormat: 'embedded_json', ...metrics } };
   });
   if (items.length === 0) throw new Error('Ranking page unexpectedly empty');
   return { items, page, totalPages: pagination.totalPages, updateDate: updated };
@@ -192,19 +211,20 @@ function parseRenderedRanking(html, { board, page, sourceUrl, fetchedAt }) {
     if (!heading || !rankMatch) throw new Error('Rendered ranking title or rank missing');
     const rank = Number(rankMatch[1]);
     const engagement = [...body.matchAll(/<ul\b([^>]*)>([\s\S]*?)<\/ul>/gi)].find(x => attr(x[1], 'aria-label') === '作品互动数据');
-    if (!engagement) throw new Error('Rendered ranking engagement fields missing');
-    const plain = visibleText(engagement[2]);
-    const metric = label => plain.match(new RegExp(`[\\d.,，]+(?:万|亿)?\\+?\\s*${label}`))?.[0] ?? null;
+    const plain = visibleText(engagement?.[2] ?? '');
+    const fields = [...(engagement?.[2] ?? '').matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)].map(row => visibleText(row[1]));
+    const metric = label => fields.find(value => value.includes(label)) ?? null;
     const description = body.match(/<p\b[^>]*class="[^"]*pc-description-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '';
     const categories = body.match(/<p\b[^>]*class="[^"]*pc-categories-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '';
     const tags = [...categories.matchAll(/<span\b[^>]*>([\s\S]*?)<\/span>/gi)].map(x => visibleText(x[1]));
     const imageTag = body.match(/<img\b[^>]*>/)?.[0] ?? '';
-    const collection = parseCount(metric('收藏'));
+    const metrics = rankingMetrics(parseCount(metric('收藏')), parseCount(metric('点赞'), '点赞'),
+      parseCount(visibleText(body.match(/<p\b[^>]*class="[^"]*pc-metrics-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '') || null, '热度'));
     const base = baseItem({ seriesId, title: visibleText(heading[2]), cover: attr(imageTag, 'src'), description: visibleText(description), tags });
     base.watchPageUrl = sourceWatchLink(body, seriesId);
-    items.push({ ...base, collection, likes: parseCount(metric('点赞'), '点赞'), heat: parseCount(visibleText(body.match(/<p\b[^>]*class="[^"]*pc-metrics-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '').match(/[\d.,，]+(?:万|亿)?\+?\s*热度/)?.[0] ?? null, '热度'),
+    items.push({ ...base, collection: metrics.collection, likes: metrics.likes, heat: metrics.heat,
       scoreText: plain.match(/评分\d+(?:\.\d+)?/)?.[0] ?? null, episodeCount: null,
-      observation: { board, page, rank, sourceUrl, fetchedAt, updateDate: updated, sourceFormat: 'rendered_html', collection } });
+      observation: { board, page, rank, sourceUrl, fetchedAt, updateDate: updated, sourceFormat: 'rendered_html', ...metrics } });
   }
   if (items.length === 0) throw new IncompletePageError();
   if (page < totalPages && items.length < 20) throw new IncompletePageError();
@@ -237,18 +257,55 @@ export function parseDetail(html, { seriesId, sourceUrl, fetchedAt }) {
 export function parseSearch(html, { query, sourceUrl, fetchedAt }) {
   const data = routeData(html, 'search_(keyword)/page');
   if (data.isSuccess !== true || !Array.isArray(data.searchList) || data.query !== query) throw new Error('Search data unavailable or query mismatch');
+  return { items: searchItems(data.searchList, { sourceUrl, fetchedAt }, html), sourceReportedTotal: typeof data.totalCount === 'string' ? data.totalCount : null };
+}
+
+function searchItems(rows, { sourceUrl, fetchedAt }, html) {
   const items = [];
-  for (const row of data.searchList) {
+  for (const row of rows) {
     if (!record(row) || row.doc_type !== 23 || !record(row.video_data)) continue;
     const video = row.video_data;
     if (!video.series_id) continue;
     const item = baseItem({ ...video, series_name: video.series_title ?? row.name,
       tags: Array.isArray(video.category_list) ? video.category_list.map(x => typeof x === 'string' ? x : x?.name).filter(x => typeof x === 'string') : [] });
-    item.watchPageUrl = sourceWatchLink(html, item.seriesId);
+    if (html !== undefined) item.watchPageUrl = sourceWatchLink(html, item.seriesId);
     items.push({ ...item, episodeCount: Number.isSafeInteger(video.episode_cnt) ? video.episode_cnt : null,
       episodeStatus: text(video.episode_right_text) || null, collection: parseCount(video.favorite_text),
       likes: parseCount(video.like_text, '点赞'), heat: parseCount(video.hot_score_data?.text, '热度'),
       sourceUrl, fetchedAt });
   }
-  return { items: [...new Map(items.map(item => [item.seriesId, item])).values()], sourceReportedTotal: typeof data.totalCount === 'string' ? data.totalCount : null };
+  return [...new Map(items.map(item => [item.seriesId, item])).values()];
+}
+
+/** Parse only the official unauthenticated keyword JSON; reject shells, restrictions and contradictory empty pages. */
+export function parseSearchResponse(data, { query, sourceUrl, fetchedAt }) {
+  const fail = reason => { throw new SearchUnavailableError(reason); };
+  if (!record(data) || !Array.isArray(data.searchList)) fail('The official keyword response has no searchList; retry later or use the normal official search page.');
+  if (['code', 'Code', 'status_code'].some(key => Object.hasOwn(data, key) && data[key] !== 0 && data[key] !== '0')
+    || record(data.BaseResp) && Object.hasOwn(data.BaseResp, 'StatusCode') && ![0, '0'].includes(data.BaseResp.StatusCode)
+    || ['isSuccess', 'success'].some(key => Object.hasOwn(data, key) && data[key] !== true)) {
+    fail('The official keyword endpoint reported a failure or access restriction; complete any normal website verification outside this tool.');
+  }
+  if (Object.hasOwn(data, 'query') && data.query !== query) fail('The official keyword response belongs to another query.');
+  if (typeof data.totalCount !== 'string' && typeof data.totalCount !== 'number') fail('The official keyword total is absent or unsupported.');
+  const countText = typeof data.totalCount === 'string' ? data.totalCount : String(data.totalCount);
+  const total = /^\d+$/u.test(countText) ? Number(countText) : NaN;
+  if (!Number.isSafeInteger(total) || total < 0 || data.pageNum !== 1 || !Number.isSafeInteger(data.totalPages)
+    || data.totalPages < 0 || typeof data.hasMore !== 'boolean' || data.searchList.length > SEARCH_WINDOW_LIMIT) {
+    fail('The official keyword response has missing, unsafe or unsupported first-page metadata.');
+  }
+  if (total === 0 ? data.searchList.length !== 0 || data.hasMore || data.totalPages > 1
+    : data.searchList.length === 0 || data.searchList.length > total || data.totalPages < 1
+      || data.hasMore !== (data.totalPages > 1) || data.hasMore && total <= data.searchList.length
+      || !data.hasMore && total > data.searchList.length) {
+    fail('The official keyword counts and page contents disagree; missing data cannot be reported as zero results.');
+  }
+  if (data.searchList.some(row => !record(row) || row.doc_type === 23 && (!record(row.video_data) || !row.video_data.series_id))) {
+    fail('The official keyword response contains an incomplete drama record.');
+  }
+  let items;
+  try { items = searchItems(data.searchList, { sourceUrl, fetchedAt }); }
+  catch (error) { void error; fail('The official keyword response contains an invalid drama ID or title.'); }
+  if (total > 0 && items.length === 0) fail('The returned keyword window contains no usable drama records; this does not establish zero matches.');
+  return { items, sourceReportedTotal: countText };
 }

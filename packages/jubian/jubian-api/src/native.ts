@@ -543,7 +543,7 @@ function promptOrderedVideoMaterials(materials: Record<string, unknown>[], promp
  * remains unverified. Submit re-reads the same saved fields before its paid PUT.
  * @param storyboard - The live storyboard snapshot.
  * @param assets - One parent asset per image, in any provider order.
- * @returns The enriched materials in complete prompt order, the trimmed prompt with internal formatting intact, and model config.
+ * @returns The enriched materials in complete prompt order, the exact saved prompt, and model config.
  * @throws {JubianError} `CONTRACT_CHANGED` when a bound identity or material order disagrees.
  * @throws {JubianError} `INVALID_ARGUMENT` when ordered Prompt markers disagree with bound materials.
  */
@@ -556,7 +556,7 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
   if (typeof config.prompt !== 'string') {
     invalid('modelConfig.prompt is absent, so the ordered materials cannot be matched to it')
   }
-  const prompt = config.prompt.trim()
+  const prompt = config.prompt
   const scriptId = integer(storyboard.scriptId)
   const orderedMaterials = promptOrderedVideoMaterials(materials, prompt)
   const imageMaterials = orderedMaterials.filter(material => material.materialType === 'image')
@@ -694,7 +694,7 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
     estimatedSubmissions: 1,
     assetSummary: { count: orderedAssets.length, orderedAssets },
     payload,
-    nextAction: '核对 preview 的项目、主体、配置、预计费用与已有任务；在用户已授权范围内调用 submit_video，超出范围先取得授权。prepare 本身不 PUT、不创建任务、不收费。',
+    nextAction: '核对 preview 的项目、主体、配置、预计费用与已有任务。用户最新请求若为只预览或先看，到此展示结果，不沿用此前制作授权提交；本次请求包含已授权生成时才调用 submit_video。prepare 本身不 PUT、不创建任务、不收费。',
   }
 }
 
@@ -725,7 +725,7 @@ export function validateVideoDuration(modelId: string, duration: unknown): numbe
 /**
  * Re-validate a preview file before it is allowed to cause a paid PUT.
  *
- * A preview is the only artifact that authorizes spending, so it is checked in
+ * A preview freezes the request required for submission, not the user's authorization, so it is checked in
  * full — operation, project binding, fingerprint, absence of any secret field,
  * and the ordered identity it claims — rather than trusted because it parsed.
  * @param value - The parsed preview file.

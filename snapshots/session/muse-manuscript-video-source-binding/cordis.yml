@@ -1,0 +1,29 @@
+- id: agent-default-model
+  config:
+    provider: manuscript-video-binding-fixture
+    model: selected-visual-model
+- id: llm-deepseek
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: skill
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- insert:
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: video-binding-creation
+    - id: manuscript-video-source-binding-fixture
+      name: ../../../apps/desktop-host/tests/fixtures/manuscript-video-source-binding/fixture.mjs

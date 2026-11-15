@@ -315,12 +315,10 @@ export function endingEffectFilter(
  * script canvas is rasterized at twice its declared size; the delivered picture
  * keeps the script's own geometry.
  *
- * `fps` and `setpts` come last, after the burn: the burn runs on the source's own
- * time base, so a frame-rate change placed before it does not survive into the
- * encode — a chain that regularized the rate first still produced a file whose
- * container reported the delivery rate while only a third of its frames decoded.
- * Ending the chain with `fps` plus a timestamp rewrite is what makes the burned
- * stream constant-rate and anchored at zero before the encoder sees it.
+ * `fps` comes last, after the burn, and preserves the concatenated timestamps.
+ * Body and ending color properties can differ, causing FFmpeg to rebuild this
+ * graph. A frame-count-based timestamp rewrite would restart at zero then and
+ * make the encoder discard the ending as frames from the past.
  * One frame of EOF hold preserves the decoded tail; callers must cap the burn
  * to the declared delivery duration and set the output frame rate explicitly.
  * @param assPath - Absolute path of the ASS script to burn.
@@ -333,7 +331,7 @@ export function subtitleBurnFilter(assPath: string, fontsDir: string, delivery: 
     + `ass='${escapeFilterPath(assPath)}':fontsdir='${escapeFilterPath(fontsDir)}',`
     + `scale=${String(delivery.width)}:${String(delivery.height)}:flags=lanczos,`
     + `tpad=stop_mode=clone:stop_duration=${(1 / delivery.fps).toFixed(9)},`
-    + `fps=${String(delivery.fps)},setpts=N/(${String(delivery.fps)}*TB)`
+    + `fps=${String(delivery.fps)}`
 }
 
 /**

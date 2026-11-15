@@ -12,7 +12,15 @@
     "src/client/locales.ts",
     "src/client/mount.ts",
     "src/client/VideoModelSelect.tsx",
-    "src/client/video-directory.ts"
+    "src/client/video-directory.ts",
+    "src/client/recovery-directory.ts",
+    "src/client/VideoRecoverySection.tsx",
+    "src/client/episode-directory.ts",
+    "src/client/episode-resources.ts",
+    "src/client/EpisodeExportSection.tsx",
+    "src/types.ts",
+    "src/episode-ui-config.ts",
+    "src/video-session-types.ts"
   ],
   "references": [
     {
@@ -43,6 +51,9 @@
       "path": "../../client/store"
     },
     {
+      "path": "../../client/resources"
+    },
+    {
       "path": "../../client/ui-conversation/tsconfig.client.json"
     },
     {
@@ -50,6 +61,18 @@
     },
     {
       "path": "../../api/session-controller/tsconfig.client.json"
+    },
+    {
+      "path": "../../api/remote-access/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/connection/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-layout"
+    },
+    {
+      "path": "../../util/brand"
     }
   ]
 }

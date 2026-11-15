@@ -150,7 +150,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
 {
   "properties": {
     "audio_references": {
-      "description": "audio_preview 必填：最终完整、有序的音频引用列表；[] 明确移除全部声音引用，保留原图片。",
+      "description": "audio_preview 必填：最终完整、有序的音频引用列表；每项须有非空 fileName 或 materialName；[] 明确移除全部声音引用，保留原图片。",
       "items": {
         "additionalProperties": false,
         "properties": {
@@ -167,12 +167,14 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
             "type": "string",
           },
           "fileName": {
+            "description": "音频保存与回读使用的名称；缺失或空白时从非空 materialName 补齐。",
             "type": "string",
           },
           "materialKey": {
             "type": "string",
           },
           "materialName": {
+            "description": "可选显示名；保留在模型配置中，音频关系表使用 fileName。",
             "type": "string",
           },
           "materialType": {
@@ -209,7 +211,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
     },
     "body": {
       "additionalProperties": true,
-      "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 \`@[素材名称](material_key)\`，后续镜头再次提及时继续引用，不能只在顶部集中列出。只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
+      "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 \`@[素材名称](material_key)\`，后续镜头再次提及时继续引用，不能只在顶部集中列出。只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。新建的 storyboardMaterialList 和 modelConfig.materialList 必须省略或为空，禁止自填素材身份、名称或 URL；主体素材后续用 select_assets 核验写入，音频用 audio_preview/audio_apply；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
       "type": "object",
     },
     "body_path": {
@@ -328,7 +330,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "type": "boolean",
     },
     "method": {
-      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
+      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；reconcile_video=按project_dir和原idempotency_key只读恢复已有意图，缺证据保持unknown，绝不新建key或重发生成PUT；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）；只有 status=applied 且 verified_readback=true 才可报告音频绑定完成，accepted 不代表完成。",
       "enum": [
         "list",
         "get",
@@ -343,6 +345,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
         "prepare_video",
         "submit_video",
         "submit_video_batch",
+        "reconcile_video",
         "erase_subtitle",
         "delete_preview",
         "delete_apply",
@@ -354,6 +357,10 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
     "model_id": {
       "description": "erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。",
       "type": "string",
+    },
+    "only_if_verified_free": {
+      "description": "仅用于去字幕。为 true 时禁止估算，提交前必须核实本次实时目录精确匹配已知免费路线；无证明时不发送，即使项目仍有预算。",
+      "type": "boolean",
     },
     "package_number": {
       "description": "erase_subtitle / upscale 可选：本集内的包号，配合 episode 生成 \`EP05-P3\` 前缀。",
@@ -372,15 +379,15 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "type": "string",
     },
     "preview_path": {
-      "description": "submit_video / generate 提交阶段：准备结果返回的 preview_path，不要猜测或手写文件名；新 generate 不带此项时仅准备预览。",
+      "description": "audio_apply 必填：audio_preview 返回的 preview_path；submit_video / generate 提交阶段使用 prepare_video 返回的路径。原样传入，不猜测或手写文件名；新 generate 不带此项时仅准备预览。",
       "type": "string",
     },
     "project_dir": {
-      "description": "prepare_video / generate 准备阶段必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。",
+      "description": "audio_preview / audio_apply 必填；prepare_video / generate 准备阶段必填、submit_video 可选：项目目录须含 project_config.json，且 jubian_script_id 必须等于实时 scriptId。",
       "type": "string",
     },
     "prompt": {
-      "description": "audio_preview 必填：完整新提示词，原图片素材标记及其顺序必须保留，声音标记与 audio_references 一一对应。",
+      "description": "audio_preview 必填：完整新提示词，保留原图片素材标记及其顺序；音频标签不能为空，同一 key 的重复标签须一致，首次出现顺序与 audio_references 一致。",
       "type": "string",
     },
     "script_id": {
@@ -427,7 +434,7 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
         "properties": {
           "body": {
             "additionalProperties": true,
-            "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 \`@[素材名称](material_key)\`，后续镜头再次提及时继续引用，不能只在顶部集中列出。只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
+            "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 \`@[素材名称](material_key)\`，后续镜头再次提及时继续引用，不能只在顶部集中列出。只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。新建的 storyboardMaterialList 和 modelConfig.materialList 必须省略或为空，禁止自填素材身份、名称或 URL；主体素材后续用 select_assets 核验写入，音频用 audio_preview/audio_apply；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
             "type": "object",
           },
           "body_path": {

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import electronUpdater, { type AppUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater'
 
-import { gt, prerelease, valid } from 'semver'
+import { gt, valid } from 'semver'
 import type { DesktopUpdateState } from './ipc.ts'
 import { DesktopUpdateHttpExecutor } from './update-http-executor.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
@@ -72,6 +72,7 @@ export class DesktopUpdateCoordinator {
    * @param updater - Process-owned Electron updater, replaceable at the network/platform test boundary.
    * @param enabled - Whether this process has a packaged update source.
    * @param currentVersion - Actual installed application version.
+   * @param channel - Installed package channel; omitted test/local callers retain nightly.
    * @param downloadResult - Once per completed download attempt, including platform preparation failures.
    * @param sources - Sealed primary and fallback feeds; injected only by updater qualification fixtures.
    * @param platform - Native updater platform; Windows uses the visible installer progress window.
@@ -86,6 +87,7 @@ export class DesktopUpdateCoordinator {
     private readonly sources: readonly DesktopUpdateSource[] = updater === autoUpdater && app.isPackaged
       ? loadDesktopUpdateSources(join(process.resourcesPath, 'muse-update-sources.json'), currentVersion()) : [],
     private readonly platform: NodeJS.Platform = process.platform,
+    private readonly channel: 'nightly' | 'latest' = 'nightly',
   ) {
     if (updater === autoUpdater) {
       // electron-updater omits this internal transport property from its public declarations.
@@ -99,7 +101,10 @@ export class DesktopUpdateCoordinator {
     this.updater.autoDownload = false
     this.updater.autoInstallOnAppQuit = false
     // Each sealed source carries the packaged channel; assigning updater.channel overrides it.
-    this.updater.allowPrerelease = prerelease(this.currentVersion()) !== null
+    const source = this.sources[0]
+    const sourceChannel = typeof source === 'object' && 'channel' in source && typeof source.channel === 'string'
+      ? source.channel : this.channel
+    this.updater.allowPrerelease = sourceChannel !== 'latest'
     // Selecting a channel can enable downgrade in electron-updater.
     this.updater.allowDowngrade = false
     this.updater.on('download-progress', this.onProgress)
@@ -238,6 +243,7 @@ export class DesktopUpdateCoordinator {
       if (result === null) throw new Error('desktop update: no check result was returned')
       const version = result.updateInfo.version
       if (valid(version) === null) throw new Error('desktop update: feed version is invalid')
+      if (this.channel === 'latest' && version.includes('-')) throw new Error('desktop update: latest feed contains a prerelease')
       this.identity = this.sources.length > 1 ? desktopUpdateIdentity(result.updateInfo) : undefined
       this.candidate = result.isUpdateAvailable && gt(version, this.currentVersion()) ? version : undefined
       this.sourceValidated = true

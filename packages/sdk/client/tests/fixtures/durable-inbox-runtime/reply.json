@@ -1,0 +1,12 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      { "type": "block-start", "index": 0, "blockType": "text" },
+      { "type": "text-delta", "index": 0, "text": "SDK_DURABLE_CLAIM_OK" },
+      { "type": "block-end", "index": 0, "block": { "type": "text", "text": "SDK_DURABLE_CLAIM_OK" } },
+      { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 3 } },
+      { "type": "finish", "reason": { "kind": "stop" } }
+    ]
+  }
+]

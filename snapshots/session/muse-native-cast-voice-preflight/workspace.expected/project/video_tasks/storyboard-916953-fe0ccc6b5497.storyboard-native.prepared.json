@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "operation": "prepare_storyboard_native_video",
+  "status": "prepared",
+  "createdAt": "2026-09-29T11:40:41.000Z",
+  "scriptId": 2708,
+  "storyboardId": 916953,
+  "idempotencyKey": "fe0ccc6b5497f9296856bf826769c0212d3f04a79ee951de94b17168bf04c31e",
+  "estimatedSubmissions": 1,
+  "assetSummary": {
+    "count": 1,
+    "orderedAssets": [
+      {
+        "assetId": "asset-existing",
+        "materialAssetId": 11,
+        "materialKey": "lead",
+        "materialName": "Existing CG actor",
+        "imageUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/existing.png"
+      }
+    ]
+  },
+  "payload": {
+    "id": 916953,
+    "scriptId": 2708,
+    "episodeId": 9,
+    "isGenerate": 1,
+    "storyboardName": "Offline horizontal test",
+    "modelConfig": "{\"standardId\":61,\"modelId\":\"doubao-seedance-2-5-260628\",\"platformId\":\"FANG_ZHOU\",\"genType\":3,\"modelGenerationTypeId\":71,\"videoStandardId\":337,\"duration\":10,\"ratio\":\"16:9\",\"resolution\":\"480p\",\"genNum\":1,\"prompt\":\"@[Existing CG actor](lead)\\n人物：张三、李四\\n镜头17：近景，李四保持侧脸，问出最后一句：李四：还想走吗？\",\"materialList\":[{\"assetId\":\"asset-existing\",\"materialAssetId\":11,\"fileName\":\"Existing CG actor\",\"materialKey\":\"lead\",\"materialType\":\"image\",\"materialUrl\":\"https://jubian-aigc.tos-cn-beijing.volces.com/fixture/existing.png\",\"sortOrder\":1,\"official\":true,\"asset_status\":\"confirmed\"}],\"backupModelList\":[]}",
+    "storyboardMaterialList": [
+      {
+        "assetId": "asset-existing",
+        "materialAssetId": 11,
+        "fileName": "Existing CG actor",
+        "materialKey": "lead",
+        "materialType": "image",
+        "materialUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/existing.png",
+        "sortOrder": 1,
+        "official": true,
+        "asset_status": "confirmed"
+      }
+    ]
+  },
+  "nextAction": "核对 preview 的项目、主体、配置、预计费用与已有任务。用户最新请求若为只预览或先看，到此展示结果，不沿用此前制作授权提交；本次请求包含已授权生成时才调用 submit_video。prepare 本身不 PUT、不创建任务、不收费。"
+}

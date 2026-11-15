@@ -48,7 +48,7 @@ describe.skipIf(!enabled)('live erasure submission', () => {
     const client = new JubianClient({ credential: storedToken, maxResponseBytes: 32 * 1024 * 1024 })
     const ledger = new JubianLedger({ root })
 
-    const listed = await videoMethod(client, ledger, { method: 'tasks', script_id: SCRIPT_ID, page_num: 1 })
+    const listed = await videoMethod(client, ledger, { method: 'tasks', script_id: SCRIPT_ID, task_type: 1, page_num: 1 })
     const tasks = (listed.tasks as { rows: { task_id: number }[] }).rows
     expect(tasks[0]).toBeDefined()
     const taskId = tasks[0]!.task_id

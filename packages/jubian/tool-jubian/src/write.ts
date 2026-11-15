@@ -69,6 +69,8 @@ export interface WriteOptions {
   readonly beforeReserve?: () => Promise<void> | void
   /** Project the charge belongs to; the budget gate refuses a paid call without it. */
   readonly scriptId?: number | undefined
+  /** Frozen preview and pre-dispatch task IDs attached only to a new native intent. */
+  readonly videoRecovery?: Pick<JubianLedgerBegin, 'beforeTaskIds' | 'videoPreviewPath'>
   /** Authorization file to read instead of the ledger's own; tests set this. */
   readonly authorizationPath?: string | undefined
   /** Rebuild a recorded request and refuse replay when its body or project differs. */
@@ -175,6 +177,7 @@ export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
   'jubian_storyboard.select_assets': ['storyboard_id', 'selections'],
   'jubian_storyboard.prepare_video': ['storyboard_id', 'project_dir'],
   'jubian_storyboard.submit_video_batch': ['video_previews'],
+  'jubian_storyboard.reconcile_video': ['project_dir', 'idempotency_key'],
   'jubian_storyboard.erase_subtitle': ['task_id', 'model_id', 'video_width', 'video_height'],
   'jubian_media.download': ['media_url', 'media_kind', 'output_path'],
   'jubian_organize.index': ['script_id', 'project_dir'],
@@ -290,6 +293,7 @@ export async function writeUnderLedger(
       ...(options?.authorizationPath === undefined ? {} : { authorizationPath: options.authorizationPath }) })
     if (budget.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', budget.reason)
     const intent: JubianLedgerBegin = { idempotencyKey: key, method, requestSha256: bodyHash(payload),
+      ...options?.videoRecovery,
       ...(scriptId === undefined ? {} : { scriptId }),
       ...(budget.chargedAmount === undefined ? {} : { quotedAmount: budget.chargedAmount }),
       ...(budget.chargedUnit === undefined ? {} : { quoteUnit: budget.chargedUnit }),

@@ -13,7 +13,7 @@ import css from './WelcomeNotice.module.css'
 /** Registration-side dependencies of {@link WelcomeNotice}. */
 export interface WelcomeNoticeInjected {
   hooks: {
-    /** Durable or process-local acknowledgement state. */
+    /** Durable acknowledgement state. */
     welcome: SnapshotStore<WelcomeNoticeState>
   }
   /** Welcome acknowledgement controller. */
@@ -57,7 +57,7 @@ export function WelcomeNotice(props: WelcomeNoticeProps): ReactNode {
   const paragraphs = t('welcomeBody').split('\n\n')
 
   return (
-    <OnboardingModal title={t('welcomeTitle')} focusTitle>
+    <OnboardingModal title={t('welcomeTitle')} focusTitle onVisible={props.onVisible}>
       <div className={css.copy}>
         {paragraphs.map(paragraph => <p key={paragraph}>{paragraph}</p>)}
       </div>

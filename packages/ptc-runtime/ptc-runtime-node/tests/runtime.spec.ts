@@ -29,7 +29,7 @@ async function setup(config: Config = {}, mode: 'read-only' | 'workspace-write' 
   await mkdir(cwd)
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) })
-  const runtime = await mountRuntime(ctx, config, { mode, workspaceRoot: cwd })
+  const { runtime } = await mountRuntime(ctx, config, { mode, workspaceRoot: cwd })
   const run = (request: PtcRunRequest) => runtime.run(runtime.resolve(request))
   return { ctx, runtime, root, cwd, run }
 }
@@ -39,6 +39,13 @@ function bindings(functions: Record<string, PtcBindingFunction>): PtcBindingName
 }
 
 describe('Node program process', () => {
+  it('allows function-local process imports with the scrubbed program environment', async () => {
+    const { run } = await setup()
+    const result = await run({ program: 'const process = await import("node:process"); return { platform: process.platform, env: { ...process.env } }', bindings: [] })
+    expect(result.error).toBeUndefined()
+    expect(result.value).toEqual({ platform: process.platform, env: {} })
+  })
+
   it('runs erasable TypeScript in the resolved directory with an empty environment', async () => {
     const { run, cwd } = await setup()
     const result = await run({ program: 'const n: number = 6; console.log("ready"); return { n: n * 7, cwd: process.cwd(), env: { ...process.env } };', bindings: [] })
@@ -112,6 +119,15 @@ describe('Node program process', () => {
     expect(result.value).toEqual({ value: { n: 42 }, rejected: [true, 'ToolCallError', 'fail', 'denied'] })
   })
 
+  it('returns cleanly while an unawaited binding call is still running', async () => {
+    const { run } = await setup()
+    const release = Promise.withResolvers<null>()
+    onTestFinished(() => { release.resolve(null) })
+    const result = await run({ program: 'void tools.slow({}); return 1', bindings: bindings({ slow: () => release.promise }) })
+    expect(result).toMatchObject({ logs: [], value: 1 })
+    expect(result.error).toBeUndefined()
+  })
+
   it('retains raw native stdout and stderr separately from control frames', async () => {
     const { run } = await setup()
     const result = await run({ program: 'const fs = await import("node:fs"); fs.writeSync(1,"native-out你好"); fs.writeSync(2,"native-err🙂"); return 42;', bindings: [] })
@@ -151,7 +167,7 @@ describe('Node program process', () => {
   it('uses the default deadline and caps explicit requests', async () => {
     const { runtime } = await setup()
     expect(runtime.timeout).toEqual({ defaultMs: 120_000, maxMs: 600_000 })
-    expect(runtime.executionInstructions).toBe('Each call runs in a fresh Node process. Node APIs are available through await import(...). Relative paths use the supplied working directory; process.env starts empty. Direct filesystem access follows this execution\'s sandbox policy.')
+    expect(runtime.executionInstructions).toBe('The program is the body of an async TypeScript function; only erasable syntax is accepted, with no enum or namespaces. Type annotations are advisory. Top-level await and return are supported. Emit output with console.log(...) or return a lossless JSON value. Only printed values and the returned value become program output. Each call runs in a fresh Node process. Node APIs are available through await import(...). Relative paths use the supplied working directory; process.env starts empty. Direct filesystem access follows this execution\'s sandbox policy.')
     expect(runtime.resolve({ program: '', bindings: [] }).timeoutMs).toBe(120_000)
     expect(runtime.resolve({ program: '', bindings: [], timeoutMs: 900_000 }).timeoutMs).toBe(600_000)
     expect(runtime.resolve({ program: '', bindings: [], timeoutMs: null }).timeoutMs).toBeNull()
@@ -184,13 +200,49 @@ describe('Node program process', () => {
   })
 
   it.each([{}, { timeoutMs: null }] as const)('cancels a live program and closes its managed process with %j', async (timing) => {
-    const { run } = await setup()
-    const entered = Promise.withResolvers<undefined>()
+    const { ctx, run } = await setup()
+    const spawn = ctx.subprocess.spawn.bind(ctx.subprocess)
+    const entered = Promise.withResolvers<ReturnType<typeof spawn>>()
+    const marker = 'non-yielding program entered\n'
+    let output = ''
+    const spawnObserver = vi.spyOn(ctx.subprocess, 'spawn').mockImplementation((spec) => {
+      const handle = spawn(spec)
+      const observe = (chunk: Buffer | string): void => {
+        output += chunk.toString()
+        if (!output.includes('\n')) return
+        if (output === marker) entered.resolve(handle)
+        else entered.reject(new Error(`unexpected program readiness output: ${JSON.stringify(output)}`))
+      }
+      handle.stdout?.on('data', observe)
+      onTestFinished(async () => {
+        handle.stdout?.off('data', observe)
+        await ctx.fiber.dispose()
+        await handle.done
+        expect(await handle.waitForExit()).toBe(true)
+      })
+      return handle
+    })
+    onTestFinished(() => { spawnObserver.mockRestore() })
     const controller = new AbortController()
-    const active = run({ ...timing, program: 'void tools.enter({}); for (;;) {}', signal: controller.signal, bindings: bindings({ enter: async () => { entered.resolve(undefined); return null } }) })
-    await entered.promise
-    controller.abort('stop')
-    expect((await active).error).toEqual({ kind: 'abort', message: 'stop' })
+    try {
+      // A binding notification can remain queued behind the previous control write
+      // while the hot loop prevents its callback from flushing that queue.
+      const active = run({ ...timing, program: `const { writeSync } = await import('node:fs'); writeSync(1, ${JSON.stringify(marker)}); for (;;) {}`, signal: controller.signal, bindings: [] })
+      const handle = await Promise.race([entered.promise, active.then((result) => {
+        throw new Error(`program completed before entering its hot loop: ${JSON.stringify(result)}`)
+      })])
+      expect(spawnObserver).toHaveBeenCalledTimes(1)
+      controller.abort('stop')
+      expect((await active).error).toEqual({ kind: 'abort', message: 'stop' })
+      await handle.done
+      expect(await handle.waitForExit()).toBe(true)
+      expect(handle.stdout?.readableEnded).toBe(true)
+      expect(handle.stderr?.readableEnded).toBe(true)
+      expect(handle.control?.destroyed).toBe(true)
+      expect(output).toBe(marker)
+    } finally {
+      spawnObserver.mockRestore()
+    }
   })
 
   it('closes a still-running descendant before returning the program result', async () => {
@@ -253,10 +305,10 @@ describe('Node program process', () => {
   })
 
   it.each([
-    'const fs = await import("node:fs"); const b=Buffer.alloc(4); b.writeUInt32BE(4294967295); fs.writeSync(7,b); await new Promise(()=>{});',
-    'const fs = await import("node:fs"); const body=Buffer.from(JSON.stringify({type:"call",id:1,global:"tools",name:"undeclared",args:[]})); const h=Buffer.alloc(4); h.writeUInt32BE(body.length); fs.writeSync(7,Buffer.concat([h,body])); await new Promise(()=>{});',
+    'const fs = await import("node:fs"); fs.writeSync(7,"x".repeat(2048)); await new Promise(()=>{});',
+    'const fs = await import("node:fs"); fs.writeSync(7,JSON.stringify({t:"q",i:"forged",m:"invoke",a:[1,"tools","undeclared",[]]})+"\\n"); await new Promise(()=>{});',
   ])('refuses hostile program control traffic', async (program) => {
-    const { run } = await setup()
+    const { run } = await setup({ maxMessageBytes: 1024 })
     expect((await run({ program, bindings: [] })).error?.kind).toBe('protocol')
   })
 

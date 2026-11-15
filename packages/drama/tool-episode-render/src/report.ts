@@ -206,7 +206,7 @@ export function buildReport(input: ReportInput): DramaRenderReport {
     media: mediaReport(input.media),
     checks: [...input.checks],
     not_checked: [
-      'duration', 'video_stream', 'frame_rate', 'audio_stream', 'bitrate_floor',
+      'duration', 'video_stream', 'frame_rate', 'audio_stream', 'bitrate_floor', 'av_stream_clock',
       'black_frames', 'silence', 'subtitle_bounds', 'subtitle_present',
       'speech_alignment', 'embedded_subtitles', 'content_review', 'bgm_listening', 'bgm_plan_audio_match',
       ...(input.method === 'verify' ? ['output_source_mapping'] : []),

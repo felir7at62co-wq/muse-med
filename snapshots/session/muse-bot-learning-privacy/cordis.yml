@@ -1,0 +1,9 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: snapshot-learning-provider
+      name: './learning-provider.mjs'
+    - id: snapshot-bot-learning-privacy
+      name: './learning-fixture.mjs'

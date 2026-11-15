@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Usage ledger: the tokens each model call in this DSH spent, for the Usage page.
 //
 // A call that a Session logs (one assistant settlement per attempt) is read from that

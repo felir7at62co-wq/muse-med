@@ -1,0 +1,17 @@
+<section id="viz-budget" data-viz-keep>
+  <h3>预算方案 V2</h3>
+  <p>调整数量，查看本地计算的预计费用。</p>
+  <label for="viz-quantity">视频数量</label>
+  <input id="viz-quantity" name="quantity" type="range" min="1" max="10" step="1" value="3">
+  <p>数量：<output data-viz-out="quantity">3</output>；预计费用：<output data-viz-out="total">360</output> 元</p>
+  <button type="button">带入方案</button>
+</section>
+<script>
+(function () {
+  var root = document.getElementById('viz-budget');
+  dshViz.bind(root, function (p) { return { quantity: p.quantity, total: p.quantity * 120 }; });
+  root.querySelector('button').addEventListener('click', function () {
+    dshViz.prompt('按当前预算继续：' + root.querySelector('[name="quantity"]').value + '条视频');
+  });
+})();
+</script>

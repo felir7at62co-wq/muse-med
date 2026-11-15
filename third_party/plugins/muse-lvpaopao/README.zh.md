@@ -25,7 +25,7 @@ Muse 编导 Agent 可按剧名查找绿泡泡剧目、读取实际分集目录�
 <a id="use-this-package"></a>
 ## 使用此包
 
-Desktop 在全局挂载 `muse-lvpaopao/bridge`，在统一编导 Agent 内挂载包根入口。内部预设 ID 保持 `short-drama`；此包不添加可选模式。独立[包补丁](cordis.patch.yml) 只插入 provider，不注册全局工具。Desktop 已提供该 provider，不会再次选择此独立 bundle。consumer 需要 Tools、Agents、subprocess 及共享 provider。
+Desktop 在全局挂载 `muse-lvpaopao/bridge`，在统一编导 Agent 内挂载包根入口。内部预设 ID 保持 `short-drama`；此包不添加可选模式。独立[包补丁](cordis.patch.yml) 只插入 provider，不注册全局工具。Desktop 已提供该 provider，不会再次选择此独立 bundle。consumer 需要 Tools、真实 Agents、Jobs、sandbox policy、subprocess 及共享 provider。
 
 ```yaml
 - insert:
@@ -70,6 +70,11 @@ provider 首先读取 `<Muse home>/lvpaopao/connection.json`。已存在的有�
 | `retryDelayMs` | `1000` | 已归类为可安全重试的失败之间的等待时间。 |
 | `seriesLockWaitMs` | `5000` | 报告任务占用前等待私有任务锁的时间。 |
 | `copyChunkBytes` | `1048576` | 已验证本机文件复制的分块大小。 |
+| `maxSeriesTasks` | `1000` | 保留的外层任务上限，最多 `10000`；容量耗尽时拒绝新任务。 |
+| `maxTaskStateBytes` | `16777216` | 私有注册表字节上限，最多 `67108864`；不静默截断状态。 |
+| `taskLockWaitMs` | `5000` | 私有注册表与目标锁的最长等待时间，最多 `60000` 毫秒。 |
+| `maxSeriesJobOutputBytes` | `65536` | Jobs 保留输出上限，最多 `1048576` 字节。 |
+| `seriesTaskWaitMs` | `86400000` | 同步 Jobs 等待上限，范围为 `1000` 到 `2147483647` 毫秒。 |
 
 ### Read rankings
 
@@ -83,11 +88,26 @@ provider 首先读取 `<Muse home>/lvpaopao/connection.json`。已存在的有�
 
 让编导 Agent 下载指定剧目，或给 `download_series` 传入 `query`。只有搜索完整且规范化后的剧名精确匹配唯一候选时，工具才自动选定来源。否则返回候选及 `selection-required`；选定 `srcAppId` 和 `originDramaId`，再以 `srcAppId` 和 `dramaId` 传入。来源未明确时不开始获取媒体。工具读取详情并分页查询目录，保留实际返回的集号，报告缺失或部分覆盖，不编造集数。
 
+`download_series` 默认使用 `mode:"wait"`，保留已有结果字段，并增加 `data.seriesTask:{id,state,jobId}`。使用 `mode:"background"` 可在绑定所有者并接受任务后立即收到 `series-queued`。任务在本次工具调用结束后继续，已排队不代表下载完成。Jobs 进度展示目录确认及实际集数，`series_status` 读取已验证的逐集清单。后台执行仍归属于真实发起 Session；所有者释放或插件卸载会取消任务，并等待原生请求和本机复制结束。
+
+| 操作 | 参数 | 行为 |
+| --- | --- | --- |
+| `download_series` | `query` 或已选来源 ID；可选 `outputDir`、`mode` | 选择来源、刷新实际目录并运行原整剧写入器；剧名有歧义时不创建媒体任务。 |
+| `series_status` | 单独 `seriesTaskId`，或来源 ID 加可选 `outputDir` | 读取本机进度并验证已保存文件，不发原生请求；两种形式不可混用。 |
+| `series_resume` | 仅 `seriesTaskId` | 重新授权原目标、检查已保存文件、显式通过 `status` 恢复共享桥，再接受新的自有后台 job。 |
+| `series_cancel` | 仅 `seriesTaskId` | 取消所属执行，等待原生请求与复制清理后返回本机进度。 |
+
+`seriesTaskId` 始终指 `data.seriesTask.id`，即 Session 所有的外层 ID。已有 `data.series.taskId` 仍是按来源生成的内层清单 ID。`jobId` 只属于当前 Jobs 注册表，注册表更换后会清空，续跑创建新 job。之后的状态、恢复与取消使用持久外层 ID。只有原始真实 Session，且规范化工作区与目标目录仍匹配，才能控制任务。同所有者的活跃调用会合并；取消后来合并的等待只会停止该次等待。
+
 下载要求已解析的 transport 中有 `downloadEnabled:true`，并有实际请求 Session 的文件权限。自动准备会设置此 transport 标记，显式连接需自行配置。默认目标是该 Session 工作区内的 `downloads/lvpaopao`。相对 `outputDir` 限于工作区内，外部目标需完整文件访问权限。transport 中的目标目录不会覆盖 Session，原生目录或媒体请求前先检查权限。
 
-保存的任务目录包含 `manifest.json`、逐集文件及其回执。以相同的已选来源和目标目录再次调用 `download_series` 即可恢复，已完成文件在复用前会重新检查。每集在重试、取消和作用域替换后都保留原始持久请求 key。目录暂时缺少某集时，已保存的请求 key 和状态仍会保留；目录覆盖不完整时，整剧不会算作完成。已确认的传输失败按 `maxAttempts` 重试；获取结果未知时，必须先用同一个 key 调用 `download_status`，才能再次尝试。下载器仅在前缀已验证且 HTTP 范围校验标识匹配时恢复部分传输，不会拼接已变化资源的字节。
+保存的任务目录包含 `manifest.json`、逐集文件及其回执。以相同的已选来源和目标目录再次调用 `download_series`，可通过健康桥刷新目录并恢复，也会处理新观察到的集。已完成文件在复用前会重新检查。桥代际失败或 Host 重启后，使用 `series_resume` 显式恢复；普通 `download_series` 不会重连失败的代际。每集在重试、取消和作用域替换后都保留原始持久请求 key。目录暂时缺少某集时，已保存的请求 key 和状态仍会保留；目录覆盖不完整时，整剧不会算作完成。已确认的传输失败按 `maxAttempts` 重试；获取结果未知时，必须先用同一个 key 调用 `download_status`，才能再次尝试。下载器仅在前缀已验证且 HTTP 范围校验标识匹配时恢复部分传输，不会拼接已变化资源的字节。
 
 给 `series_status` 传入已选来源 ID 和同一目标目录，可读取已保存进度并验证已完成文件，无需启动 helper 或发出原生请求。结果区分已完成、待处理、进行中、失败、拒绝、未知和缺失的集。只有目录覆盖每一集且所有已保存文件通过验证，整剧才算完成。取消工具调用时，外层运行时可能返回中止结果；之后读取 `series_status` 确认已保存进度。目录响应或单集成功都不代表整剧交付完成。
+
+外层状态区分 `queued`、`running`、`completed`、`waiting_user`、`waiting_source`、`interrupted` 和 `cancelled`。重启只将失去执行者的活跃任务标为中断并清空过期 job ID，不重放原生业务。`series_resume` 先检查当前权限和本机回执，再显式请求桥 `status`。清理确认后，重新确认同一来源目录，并让内层写入器按原 `download_status` key 核对 unknown/downloading 集。清理未确认时阻止继续获取。只有已验证结果、`request-not-found` 或 `resume-available` 才允许原 key 重试；不会用新 key 消除不确定性。
+
+私有外层账本位于 `<Muse home>/lvpaopao/tasks/v1/registry.json`，与所选输出目录内格式不变的 schema-version-1 分集清单分开。它保存所有者、来源和目标元数据，不保存签名播放地址或 cookie。ID 使用 Session、来源及规范化工作区相对目标（外部目标使用绝对路径），每次控制仍核验实际规范化绝对工作区和输出。曾使用或采用的内层清单丢失或损坏时，恢复停止并报告原 key 无法恢复，不创建替代 key。迁移或备份时应保留两份账本和回执。逐集交付已验证但外层状态发布失败时，结果保留内层清单路径并报告中断；下一步操作前先检查该清单。
 
 `status`、`search`、`detail` 和 `episodes` 仍可用于检查。`download_episode` 与 `download_status` 接收实际集号及原始 64 位小写十六进制 key。本机 `download_first_episode` 兼容入口使用同一分集下载和状态查询路径以及稳定首集 key，不使用 SCP。下载剧目 ID 使用 64 字符的字母/数字/下划线/连字符形式，`detail` 和 `episodes` 保留更宽的不透明 ID 校验。返回文件路径不会自动展示视频或发送聊天附件。
 
@@ -102,6 +122,8 @@ provider 首先读取 `<Muse home>/lvpaopao/connection.json`。已存在的有�
 [provider](src/bridge.ts) 管理一个懒创建的本机或显式 SSH 连接，并串行处理 Agent 共享的原生请求。释放 Agent 会等待其拥有的请求和复制结束，不会释放 Host provider。取消已确认时保留仍存活的 transport。`target-not-ready` 结果，或 worker 清理已确认后的 `transfer-failed`，也会保留健康连接；终止错误或清理未确认会关闭该代际。清理确认后，可用显式 `status` 恢复。provider 不会自动重放失败的业务请求。
 
 helper 空闲期间退出后，若所有清理标志及进程成功退出均已确认，显式 `status` 可重建连接，也接受 Mac 的 `hook-stopped` 状态。原生连接仍遵守配置的生命周期；恢复不会重放搜索或媒体请求。清理标志缺失或进程退出失败时仍保持终止状态。
+
+[外层执行器](src/tasks.ts) 将真实 Agent 绑定到 Jobs，按来源与目标串行接收，并在私有锁内原子写入有界注册表。排队执行在访问原生前重新授权。取消等待不会释放前一个任务的执行位置，卸载会等待所属执行结束，不释放借用的共享桥。原整剧写入器仍是逐集清单的唯一写入者。
 
 [整剧引擎](src/series.ts) 为每个来源与目标目录对应的任务加锁，在获取媒体前保存集状态。[分集复制](src/episode-download.ts) 发布回执前会检查来源身份、原始 key、可播放集授权、已解码文件元数据及准确的本机字节。本机复制和原生传输会保留已验证的部分状态以便恢复。[目录解析](src/catalog.ts) 管理剧名选择及实际目录覆盖，工具投影提供有界元数据，不输出签名播放地址或任意 helper 错误。
 
@@ -127,7 +149,7 @@ helper 清理要求 disposal、脚本卸载、detach、服务关闭及受管进�
 
 #### 模型看到什么
 
-编导 Agent 看到一个 `lvpaopao` 声明，用于目录检查、按剧名下载全集、逐集结果核对及已保存进度查询。结果包含有界的就绪状态、候选身份、实际集数覆盖、持久任务路径及已验证本机文件元数据。缺少准备条件或下载不完整都有明确结果，provider 和 consumer 都不增加系统提示词段落。
+编导 Agent 看到一个 `lvpaopao` 声明，用于目录检查、按剧名下载全集、逐集结果核对及已保存进度查询。结果包含有界的就绪状态、候选身份、实际集数覆盖、持久任务路径、已验证本机文件元数据，以及独立绑定所有者的 `seriesTask` 信息。后台接受仅报告排队，最终结果以状态查询和 Jobs 输出为准。缺少准备条件或下载不完整都有明确结果，provider 和 consumer 都不增加系统提示词段落。
 
 #### Token 影响
 
@@ -147,7 +169,7 @@ consumer 贡献一份工具声明，每次调用通过常规已记录工具历�
 - Windows x64 微信 4.1.15.56 / WMPF 25799 已实际通过本地 helper 准备、剧名搜索、完整目录、榜单及条目详情回读、36 集下载与整剧工具交付、完整解码和哈希校验、原请求键恢复，以及从同一保存地址继续 1 MiB 中断传输的测试。验收使用已准备的测试环境，不代表新电脑安装验收通过。
 - Mac arm64 微信 4.1.13 / 269602 使用绑定准确哈希及私有 home 的隔离副本验收。搜索、完整目录、榜单、36 集原生下载、完整解码和哈希检查、1 MiB 中断续传均通过。真实 Session 与共享插件连接核对了全部原请求键、交付整剧，重复调用未新增获取请求。原版签名 Mac 微信、新电脑安装、其他构建及主动取消后继续原生业务，仍未验收。
 - 下载要求账号可播放对应集；插件不购买剧集、不观看广告、不解锁权限。被拒绝或结果未明确的集会使整剧保持未完成。技术可达不赋予内容再利用权。
-- 包清单包含用于资源暂存交付的自有原生源码和锁定依赖文件，不包含微信二进制、提取的目标源码、凭证、私有 attestation 或媒体。本次修订未打包、未发布，安装后的资源交付尚未验收。准备仍要求可用的 Python 依赖、媒体工具、真实的受支持运行时及用户登录。
+- 包清单包含用于资源暂存交付的自有原生源码和锁定依赖文件，不包含微信二进制、提取的目标源码、凭证、私有 attestation 或媒体。打包和离线任务测试不代表安装资源交付或后台生命周期变更已通过新的真实微信验收。准备仍要求可用的 Python 依赖、媒体工具、真实的受支持运行时及用户登录。
 
 <a id="dev-note"></a>
 ### 开发备注
@@ -155,6 +177,6 @@ consumer 贡献一份工具声明，每次调用通过常规已记录工具历�
 <details>
 <summary>维护者工作上下文</summary>
 
-无。
+在本包目录运行 `pnpm run build` 做严格产物编译，`pnpm run test` 跑源码离线回归，`pnpm run package --out /absolute/output-directory` 生成暂存归档。编译要求匹配的 Host peer 已构建；测试使用仓库 TypeScript 源码加载器。`SOURCE.json` 记录编译及原生文件哈希和源码文件身份；打包排除连接文件、私有任务状态和媒体。
 
 </details>

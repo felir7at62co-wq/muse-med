@@ -1,4 +1,6 @@
 /** Offline matching through a Loader-owned composition and the real tool registry. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -81,7 +83,8 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    const invented = await ctx.tools.execute({ signal: new AbortController().signal,
+    await ctx.plugin(NativeToolExecutor)
+    const invented = await executeModelToolFixture(ctx, { signal: new AbortController().signal,
       callId: ToolCallId('bgm-invented-source'), name: 'bgm_match', arguments: { method: 'match',
         project: root, valence: 3, arousal: 2, story: { intent: 'Pretend this is comedy', desired_tags: ['comedy'],
           evidence: [{ kind: 'script', file: 'script.txt', quotes: ['Invented market argument'] }, evidence[1]] } } })
@@ -89,7 +92,7 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
     const inventedContent = invented.content[0]
     if (inventedContent?.type !== 'text') throw new Error('Expected grounding result')
     expect(JSON.parse(inventedContent.text)).toMatchObject({ candidates: [], selection_status: 'needs_source_correction' })
-    const result = await ctx.tools.execute({ signal: new AbortController().signal,
+    const result = await executeModelToolFixture(ctx, { signal: new AbortController().signal,
       callId: ToolCallId('bgm-offline'), name: 'bgm_match',
       arguments: { method: 'match', valence: 3, arousal: 2, limit: 1, intended_use: 'commercial',
         ...(useFeedback ? { project: root, context_tags: ['hall', 'family conflict'] } : {}) } })
@@ -114,7 +117,7 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
       else expect(output.candidates[0]?.path).toBe('bright.mp3')
 
       const match = async (tags: string[]) => {
-        const result = await ctx.tools.execute({ signal: new AbortController().signal,
+        const result = await executeModelToolFixture(ctx, { signal: new AbortController().signal,
           callId: ToolCallId('bgm-fresh-feedback'), name: 'bgm_match',
           arguments: { method: 'match', valence: 3, arousal: 2, limit: 1, project: root, context_tags: tags } })
         expect(result.isError).toBe(false)
@@ -135,7 +138,7 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
         expect(empty).toMatchObject({ evaluated_tracks: 0, candidates: [], music_optional: true })
         expect(empty.recommendation).toContain('without added BGM')
       }
-      const unscoped = await ctx.tools.execute({ signal: new AbortController().signal,
+      const unscoped = await executeModelToolFixture(ctx, { signal: new AbortController().signal,
         callId: ToolCallId('bgm-no-project'), name: 'bgm_match',
         arguments: { method: 'match', valence: 3, arousal: 2, context_tags: ['hall'] } })
       expect(unscoped.isError).toBe(true)
@@ -144,7 +147,7 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
       expect(errorContent.text).toContain('context_tags requires project')
     }
     if (remote) {
-      const storyResult = await ctx.tools.execute({ signal: new AbortController().signal,
+      const storyResult = await executeModelToolFixture(ctx, { signal: new AbortController().signal,
         callId: ToolCallId('bgm-story-loader'), name: 'bgm_match',
         arguments: { method: 'match', valence: 3, arousal: 2, project: root,
           story: { intent: 'Quiet dialogue, no dramatic escalation', desired_tags: ['gentle'], dialogue_density: 'dense', evidence } } })
@@ -158,7 +161,7 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('matches w
         audio_profile: { source_sha256: `sha256:${hash}`, human_reviewed: false, sampled_seconds: 20 },
         story_fit: { audio_matches: ['gentle'] },
       }] })
-      const download = await ctx.tools.execute({ signal: new AbortController().signal,
+      const download = await executeModelToolFixture(ctx, { signal: new AbortController().signal,
         callId: ToolCallId('bgm-download'), name: 'bgm_match',
         arguments: { method: 'download', track_id: `sha256:${hash}`, intended_use: 'commercial' } })
       expect(download.isError).toBe(false)

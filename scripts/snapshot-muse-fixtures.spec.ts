@@ -1,5 +1,5 @@
 import { execFile, type ChildProcess } from 'node:child_process'
-import { access, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, copyFile, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +15,8 @@ import { probeHandler, stubChannel } from '../packages/drama/tool-episode-render
 import * as layoutModule from '../snapshots/session/muse-editing-tool-catalog/source-plugin-layout.mjs'
 // @ts-expect-error The fixture intentionally has no declaration artifact.
 import * as reportModule from '../snapshots/session/drama-subtitle-timing/report-fixture.mjs'
+// @ts-expect-error The fixture intentionally has no declaration artifact.
+import * as draftSeedModule from '../snapshots/session/muse-jianying-draft/draft-seed.mjs'
 
 const { stageSourceMusePlugins } = layoutModule as {
   stageSourceMusePlugins: (sourceRoot: string, nodeModules: string) => Promise<void>
@@ -23,6 +25,7 @@ const { stageSourceMusePlugins } = layoutModule as {
 const { projectSubtitleFixtureReport } = reportModule as {
   projectSubtitleFixtureReport: (report: DramaRenderReport, cwd: string) => Promise<DramaRenderReport>
 }
+const { consumeDraftSeed } = draftSeedModule as { consumeDraftSeed: (workspace: string) => Promise<void> }
 const runFile = promisify(execFile)
 
 async function workspace() {
@@ -55,6 +58,28 @@ async function workspace() {
   }
 }
 
+it('consumes the committed empty draft-directory seed without changing its request', async () => {
+  const fixture = await workspace()
+  const seed = new URL('../snapshots/session/muse-jianying-draft/workspace/', import.meta.url)
+  const request = await readFile(new URL('request.json', seed))
+  await cp(seed, fixture.root, { recursive: true })
+  expect(await readdir(join(fixture.root, 'drafts'))).toEqual(['.keep'])
+  await consumeDraftSeed(fixture.root)
+  expect(await readdir(join(fixture.root, 'drafts'))).toEqual([])
+  expect(await readFile(join(fixture.root, 'request.json'))).toEqual(request)
+  expect(await readFile(new URL('drafts/.keep', seed), 'utf8')).toBe('')
+})
+
+it('rejects missing or nonempty draft-directory seed markers without discarding their contents', async () => {
+  const fixture = await workspace(), directory = join(fixture.root, 'drafts')
+  await mkdir(directory)
+  await expect(consumeDraftSeed(fixture.root)).rejects.toMatchObject({ code: 'ENOENT' })
+  const marker = join(directory, '.keep')
+  await writeFile(marker, 'unexpected seed contents')
+  await expect(consumeDraftSeed(fixture.root)).rejects.toThrow('Expected the empty draft-directory seed marker')
+  expect(await readFile(marker, 'utf8')).toBe('unexpected seed contents')
+})
+
 it('loads the real peer dependency from the installed fixture owner instead of the source symlink', async () => {
   const fixture = await workspace()
   const { root } = fixture
@@ -64,12 +89,15 @@ it('loads the real peer dependency from the installed fixture owner instead of t
   await mkdir(dependency, { recursive: true })
   await writeFile(join(dependency, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-atomic-write', type: 'module', exports: './index.js' }))
   await writeFile(join(dependency, 'index.js'), 'export const fixtureDependency = "installed-peer"\n')
-  for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-lvpaopao']) {
+  for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-qimao-data', 'muse-source-research', 'muse-lvpaopao']) {
     const directory = join(source, plugin)
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, 'package.json'), JSON.stringify({ name: plugin, type: 'module',
-      exports: plugin === 'muse-lvpaopao' ? { '.': { default: './lib/index.js' } } : './index.js' }))
-    await writeFile(join(directory, 'index.js'), 'export { fixtureDependency } from "@deepseek-ai/dsh-atomic-write"\n')
+      exports: plugin === 'muse-lvpaopao' ? { '.': { default: './lib/index.js' } }
+        : plugin === 'muse-qimao-data' || plugin === 'muse-hongguo-search' ? { '.': './index.js', './client': './index.js' } : './index.js' }))
+    await writeFile(join(directory, 'index.js'), plugin === 'muse-source-research'
+      ? 'import { fixtureDependency as qimao } from "muse-qimao-data/client"; import { fixtureDependency as hongguo } from "muse-hongguo-search/client"; if (qimao !== hongguo) throw Error("client owner mismatch"); export const fixtureDependency = qimao\n'
+      : 'export { fixtureDependency } from "@deepseek-ai/dsh-atomic-write"\n')
     if (plugin === 'muse-lvpaopao') {
       await mkdir(join(directory, 'src'))
       await writeFile(join(directory, 'src', 'index.ts'), 'export { fixtureDependency } from "@deepseek-ai/dsh-atomic-write"\n')
@@ -89,13 +117,25 @@ it('loads the real peer dependency from the installed fixture owner instead of t
   expect(await realpath(createRequire(join(installed, 'package.json')).resolve('@deepseek-ai/dsh-atomic-write')))
     .toBe(await realpath(join(dependency, 'index.js')))
   expect(await importPlugin(installed)).toMatchObject({ stdout: 'installed-peer', stderr: '' })
+  const qimaoInstalled = join(nodeModules, 'muse-qimao-data')
+  expect(await realpath(qimaoInstalled)).not.toBe(await realpath(join(source, 'muse-qimao-data')))
+  expect(await importPlugin(qimaoInstalled)).toMatchObject({ stdout: 'installed-peer', stderr: '' })
   const nativeInstalled = join(nodeModules, 'muse-lvpaopao')
   expect(await realpath(nativeInstalled)).not.toBe(await realpath(join(source, 'muse-lvpaopao')))
   const nativeManifest = JSON.parse(await readFile(join(nativeInstalled, 'package.json'), 'utf8')) as {
     exports: { '.': { default: string } }
   }
   expect(nativeManifest.exports['.'].default).toBe(process.env.DSH_EXAMPLE_MODE === 'lib' ? './lib/index.js' : './src/index.ts')
-  expect(await realpath(join(nodeModules, 'muse-hongguo-search'))).toBe(await realpath(join(source, 'muse-hongguo-search')))
+  const hongguoInstalled = join(nodeModules, 'muse-hongguo-search')
+  expect(await realpath(hongguoInstalled)).not.toBe(await realpath(join(source, 'muse-hongguo-search')))
+  expect(await importPlugin(hongguoInstalled)).toMatchObject({ stdout: 'installed-peer', stderr: '' })
+  const researchInstalled = join(nodeModules, 'muse-source-research')
+  expect(await realpath(researchInstalled)).not.toBe(await realpath(join(source, 'muse-source-research')))
+  expect(await importPlugin(researchInstalled)).toMatchObject({ stdout: 'installed-peer', stderr: '' })
+  for (const client of ['muse-hongguo-search', 'muse-qimao-data']) {
+    expect(await realpath(createRequire(join(researchInstalled, 'package.json')).resolve(`${client}/client`)))
+      .toBe(await realpath(join(nodeModules, client, 'index.js')))
+  }
 })
 
 function childReady(child: ChildProcess): Promise<void> {

@@ -1,4 +1,5 @@
 /** Native preview failures report local diagnostics through the Loader and Agent session. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it, onTestFinished, vi } from 'vitest'
@@ -19,9 +20,10 @@ import { bodyHash } from '../src/write.ts'
 
 async function mountedNativeTools() {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   const ledgerRoot = join(home, 'ledger')
   await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot, workspaceSecrets: false } })
   await ctx.loader.await()

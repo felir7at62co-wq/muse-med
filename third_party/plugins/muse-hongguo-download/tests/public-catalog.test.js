@@ -28,7 +28,8 @@ async function fixture(t, details) {
     request: async (url, kind) => {
       calls.push({ url, kind });
       if (kind === 'media') return reply(media);
-      const episode = Number(new URL(url).pathname.split('/')[3] ?? 1);
+      const item = new URL(url).pathname.split('/')[3];
+      const episode = item === undefined ? 1 : (details.vids ?? ['v1']).indexOf(decodeURIComponent(item)) + 1;
       return reply(Buffer.from(page({ ...details, episode })));
     },
     // Container checks use actual bytes; the codec seam supplies a controlled verdict.

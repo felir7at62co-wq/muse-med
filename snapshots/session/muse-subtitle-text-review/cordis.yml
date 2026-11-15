@@ -1,0 +1,11 @@
+# Execute the shipped bash tool and current workspace-only drama skill.
+- id: tool-pwsh
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    includeDefaultRoots: false
+    customSkillDirs: !!js "[process.cwd() + '/.dsh/skills']"
+    watch: false

@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeTool } from '../../checks/tool-call.mjs'
 /** Real Sessions, initiating-Agent attribution and sandbox policy; only Windows IO is mocked. */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -7,6 +9,7 @@ import { join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
 import Agents from '@deepseek-ai/dsh-agent'
+import Jobs from '@deepseek-ai/dsh-jobs-local'
 import Sessions from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import Policy, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
@@ -35,7 +38,7 @@ async function fixture(t, options = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'lvpaopao-session-')))
   const ctx = new Context(); const calls = [], spawns = []; let bridgeDisposed = 0
   t.after(async () => { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) })
-  await ctx.plugin(Agents); await ctx.plugin(Sessions); await ctx.plugin(Projections)
+  await ctx.plugin(Agents); await ctx.plugin(Sessions); await ctx.plugin(Projections); await ctx.plugin(Jobs)
   await ctx.plugin(Policy, { mode: 'workspace-write', workspaceRoot: root })
   class Bridge extends Service {
     constructor(scope) { super(scope, 'lvpaopaoBridge'); this.configuration = options.unconfigured ? undefined : Object.freeze({ ...config }) }
@@ -64,7 +67,7 @@ async function fixture(t, options = {}) {
   await ctx.plugin(Bridge); await ctx.plugin(Subprocess)
   async function mount() {
     const scope = ctx.isolate('tools').isolate('systemPrompt')
-    await scope.plugin(SystemPrompt); await scope.plugin(Tools)
+    await scope.plugin(SystemPrompt); await scope.plugin(Tools); await scope.plugin(NativeToolExecutor)
     const fiber = scope.plugin(consumer, consumer.Config({})); await fiber.await()
     return { scope, fiber }
   }
@@ -76,7 +79,7 @@ async function fixture(t, options = {}) {
   let sequence = 0
   async function invoke(session, args = {}, target = mounted, signal = new AbortController().signal) {
     return await ctx.agents.withInitiator({ session, ctx: target.scope }, async () => {
-      const result = await target.scope.tools.execute({ callId: `lvpaopao-${++sequence}`, name: 'lvpaopao',
+      const result = await executeTool(target.scope, { callId: `lvpaopao-${++sequence}`, name: 'lvpaopao',
         arguments: Object.fromEntries(Object.entries({ action: 'download_first_episode', ...params, ...args }).filter(([, value]) => value !== undefined)), signal })
       assert.equal(result.isError, false)
       return JSON.parse(result.content[0].text)

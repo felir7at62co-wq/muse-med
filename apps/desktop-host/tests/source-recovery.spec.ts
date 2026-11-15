@@ -10,6 +10,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { defineTool } from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import * as Recovery from '../src/source-recovery.ts'
 import * as Pruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
@@ -167,7 +168,10 @@ describe('source recovery', () => {
     const ctx = new Context()
     try {
       await ctx.plugin(Llm); await ctx.plugin(Sessions); await ctx.plugin(SessionProjections); await ctx.plugin(SystemPrompt)
-      await ctx.plugin(Tools); await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+      await ctx.plugin(Tools)
+      await ctx.plugin(NativeToolExecutor)
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(AgentLoop, { agents: [] }).await()
       await ctx.plugin(ExactQuery)
       ctx.tools.register(defineTool({ name: 'read', description: 'Test read', parameters: {},
         output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },

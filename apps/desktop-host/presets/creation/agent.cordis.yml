@@ -7,13 +7,15 @@
       你是 muse-med 的创作助手，由 {{model}} 驱动，用中文交流。专业技能按当前任务需要加载。
       PTC 只直接调用 run_code。加载按需技能时使用 return await tools.skill({name: "audio-transcribe"}) 或输出完整返回值，把 content、provider、resourceBase 送回对话；等下一轮读到正文后再执行，不能只 await 而不返回。引用资源按真实 resourceBase 读取。
       独立工具操作可并发；依赖步骤顺序执行。账号密码不得进入对话或工具参数。
-    suffix: 当前工作目录是 {{cwd}}；短剧项目沿用 short-drama/ 下已有工作间。
+    suffix: 短剧项目沿用当前工作目录的 short-drama/ 下已有工作间。
 - id: creation-policy
   name: '@deepseek-ai/dsh-desktop-host/creation-policy'
-- id: tool-presentation
-  name: '@deepseek-ai/dsh-agent-tool-presentation'
-  config:
-    mode: ptc
+- id: tool-executor-native
+  name: '@deepseek-ai/dsh-tool-executor-native'
+  disabled: true
+
+- id: tool-executor-ptc
+  name: '@deepseek-ai/dsh-tool-executor-ptc'
 - id: creation-skills
   name: cordis:group
   group: true
@@ -28,6 +30,8 @@
       name: '@deepseek-ai/dsh-tool-skill'
       config:
         scopedCatalogOwner: true
+        catalogSourceLimits:
+          muse-market: 12
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
@@ -73,6 +77,17 @@
 - id: tool-episode-render
   name: '@deepseek-ai/dsh-tool-episode-render'
   config:
+    defaultEndingEffectFit: !!js process.env.MUSE_DEFAULT_ENDING_EFFECT_FIT || 'stretch_to_window'
+    normalizeSubtitleText: true
+    enforceSubtitleVisual: true
+    defaultSubtitleVisual:
+      schema_version: 1
+      reference_width: 480
+      reference_height: 854
+      font_size_px: 46
+      outline_px: 1.25
+      center_y_ratio: 0.736747073
+      max_width_ratio: 0.9
     maxBgmVolume: 1
     ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
     ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
@@ -145,51 +160,13 @@
     - id: compaction-basic
       name: '@deepseek-ai/dsh-compaction-basic'
       config:
-        modelPolicies:
-          - provider: muse-cloud-deepseek-official
-            model: deepseek-flash
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-deepseek-official
-            model: deepseek-v4-pro
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: gpt-6-sol
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: gpt-6-astra
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: claude-opus-5-5
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: claude-fable-5-1
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: claude-sonnet-5-5
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: gemini-3.1-pro
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-yunying
-            model: glm-5.3-flash
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-zhipu-official
-            model: glm-5.3-flashx
-            headroomTokens: 16384
-            maxTokens: 8192
-          - provider: muse-cloud-zhipu-official
-            model: glm-5.3-flash
-            headroomTokens: 16384
-            maxTokens: 8192
+        adaptiveBudget: true
+        workingTokenLimit: 475000
+        thresholdRatio: 0.45
+        headroomTokens: 16384
+        retainTokens: 65536
+        maxTokens: 16384
+
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'
     - id: tool-result-pruner
@@ -224,6 +201,7 @@
     ocrEngine: rapidocr
     ocrPythonPath: !!js process.env.MUSE_OCR_PYTHON_PATH || 'python3'
     trustedEvidence: true
+    sourceReviewCompanion: true
     frameFormat: jpeg
     frameJpegQuality: 2
     defaultFrames: 4
@@ -234,11 +212,20 @@
 - id: muse-hongguo-search
   name: muse-hongguo-search
 
+- id: muse-qimao-data
+  name: muse-qimao-data
+
+- id: muse-source-research
+  name: muse-source-research
+
 # Download tools resolve media output inside the active conversation workspace.
 - id: muse-hongguo-download
   name: muse-hongguo-download
   config:
     sourceMode: legacy
+    legacyBackend: !!js "process.env.MUSE_HONGGUO_V2_RUNTIME_DIR ? 'v2' : 'v1'"
+    v2RuntimeDir: !!js process.env.MUSE_HONGGUO_V2_RUNTIME_DIR || ''
+    v2StateDir: !!js process.env.MUSE_HONGGUO_V2_STATE_DIR || ''
     legacyAppDir: !!js process.env.MUSE_HONGGUO_LEGACY_APP_DIR || ''
     signServer: !!js process.env.MUSE_HONGGUO_SIGN_SERVER || ''
     signTokenEnv: MUSE_HONGGUO_SIGN_TOKEN

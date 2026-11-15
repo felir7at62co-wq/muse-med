@@ -21,7 +21,11 @@ export { resolveTrustedVideoEvidence, TRUSTED_VIDEO_INSPECTION_RECEIPT, type Tru
 export { videoReviewSummaries, readVideoSourceTimeline, type VideoReviewSummary,
   type VideoSourceTimelineReadOptions, type VideoSourceTimelineContent } from './review-source.ts'
 export { buildVideoSourceTimeline, type VideoSourceTimeline, type VideoTimelineSelection } from './review-timeline.ts'
-export { VideoReviewId, hasReviewUncertainty } from './review-state.ts'
+export { VideoReviewId, hasReviewUncertainty, installReviewState as createVideoReviewReader } from './review-state.ts'
+export type { VideoReviewReader } from './review-state.ts'
+export { createVideoSourceQaVerifier, createVideoObservationVerifier, type VideoSourceQaVerifier, type VideoObservationVerifier,
+  type VideoObservationEvidenceBinding, type VideoSourceQaEvidenceBinding } from './source-qa-evidence.ts'
+export { normalizeOcrText } from './ocr.ts'
 export type { VideoTranscriptReadReceipt, VideoTranscriptCandidates, VideoTranscriptCandidateDiagnostic,
   VideoTranscriptResolution } from './review-transcript.ts'
 
@@ -35,6 +39,8 @@ export const inject = ['tools', 'fs', 'subprocess', 'attachments', 'sandboxPolic
 export interface Config {
   /** Use complete-episode detection and durable per-frame observations. */
   requireCompleteReview: boolean
+  /** Keep legacy sampling and additionally expose video_source_review for complete source checks. */
+  sourceReviewCompanion: boolean
   /** Maximum images per observation batch. */
   reviewBatchFrames: number
   /** Thumbnail rate for cumulative appearance changes. */
@@ -158,6 +164,7 @@ export interface Config {
 /** Validated deployment knobs; argument defaults are resolved before media work. */
 export const Config: Schema<Partial<Config>, Config> = Schema.object({
   requireCompleteReview: Schema.boolean().default(false),
+  sourceReviewCompanion: Schema.boolean().default(false),
   reviewBatchFrames: Schema.number().step(1).min(1).max(8).default(4),
   reviewAnalysisFps: Schema.number().min(1).max(30).default(4),
   reviewChangeThreshold: Schema.number().min(0.01).max(1).default(0.12),
@@ -303,7 +310,7 @@ async function imageRoute(ctx: Context, exec: ToolExecution): Promise<void> {
  * @param ctx - Media, filesystem, attachment and tool services in one execution world.
  * @param config - Validated media binaries and limits.
  */
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.defaultFrames > config.maxFrames) throw new Error('defaultFrames must not exceed maxFrames')
   if (config.ocrMinFrameIntervalSeconds > config.ocrFrameIntervalSeconds
     || config.ocrFrameIntervalSeconds > config.ocrMaxFrameIntervalSeconds) {
@@ -328,10 +335,11 @@ export function apply(ctx: Context, config: Config): void {
     finally { active.delete(owner); completion.resolve() }
   }
   if (config.requireCompleteReview) {
-    applyCompleteReview(ctx, config, run, imageRoute)
+    await applyCompleteReview(ctx, config, run, imageRoute)
     applyVideoOcr(ctx, config, { run })
     return
   }
+  if (config.sourceReviewCompanion) await applyCompleteReview(ctx, config, run, imageRoute, 'video_source_review')
   applyContactSheets(ctx, config, { run, imageRoute: exec => imageRoute(ctx, exec) })
   applyVideoOcr(ctx, config, { run })
   ctx.effect(() => ctx.tools.register(defineTool({

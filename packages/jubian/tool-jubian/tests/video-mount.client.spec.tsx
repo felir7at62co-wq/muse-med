@@ -54,7 +54,7 @@ async function bench(available: () => Promise<RemoteResult<boolean>>) {
 
 it('shares a directory for a session binding and releases its projection before late reads publish', async () => {
   const b = await bench(async () => ({ ok: true, value: true }))
-  const dispose = await mountJubianTokenSettings(b.ctx, contribution)
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution, 1000)
   await vi.waitFor(() => { expect(b.slots.entries('conversation.input.right')).toHaveLength(1) })
   const entry = b.slots.entries('conversation.input.right')[0]!
   const inject = entry.inject as (id: SessionId) => VideoModelSelectInjected & Record<string, unknown>
@@ -75,10 +75,34 @@ it('shares a directory for a session binding and releases its projection before 
   expect(b.slots.entries('conversation.input.right')).toHaveLength(0)
 })
 
+it('retains the replacement Session directory when its old scope disposes later', async () => {
+  const b = await bench(async () => ({ ok: true, value: true }))
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution, 1000)
+  onTestFinished(dispose)
+  await vi.waitFor(() => { expect(b.slots.entries('conversation.input.right')).toHaveLength(1) })
+  const entry = b.slots.entries('conversation.input.right')[0]
+  if (entry === undefined) throw new Error('Video selector contribution is absent')
+  const inject = entry.inject as (id: SessionId) => VideoModelSelectInjected & Record<string, unknown>
+  const original = inject(SessionId('present'))
+  const replacementScope = new Context()
+  onTestFinished(async () => { await replacementScope.fiber.dispose() })
+  b.sessionScopes.set(SessionId('present'), replacementScope)
+  const replacement = inject(SessionId('present'))
+  expect(replacement.hooks.videoState).not.toBe(original.hooks.videoState)
+  await vi.waitFor(() => {
+    expect(replacement.hooks.videoState.getSnapshot().options).toEqual([option])
+    expect(b.remote.catalogue).toHaveBeenCalledTimes(2)
+  })
+  await b.sessionScope.fiber.dispose()
+  expect(inject(SessionId('present')).hooks.videoState).toBe(replacement.hooks.videoState)
+  expect(b.remote.catalogue).toHaveBeenCalledTimes(2)
+  expect(replacement.hooks.videoState.getSnapshot().options).toEqual([option])
+})
+
 it.each(['disabled', 'refused', 'disposed'] as const)('does not register a composer picker when availability is %s', async (mode) => {
   const pending = Promise.withResolvers<RemoteResult<boolean>>()
   const b = await bench(() => pending.promise)
-  const dispose = await mountJubianTokenSettings(b.ctx, contribution)
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution, 1000)
   await vi.waitFor(() => { expect(b.remote.available).toHaveBeenCalledOnce() })
   const closing = mode === 'disposed' ? dispose() : undefined
   pending.resolve(mode === 'refused' ? { ok: false, error: new RemoteError('gateway/internal', 'video selection unavailable', {}) }
@@ -93,7 +117,7 @@ it.each(['disabled', 'refused', 'disposed'] as const)('does not register a compo
 it('reuses the Session selector in Bot details and survives a missing or replaced Session scope', async () => {
   const b = await bench(async () => ({ ok: true, value: true }))
   onTestFinished(cleanup)
-  const dispose = await mountJubianTokenSettings(b.ctx, contribution)
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution, 1000)
   await vi.waitFor(() => { expect(b.ctx.get('jubianVideoUi')).toBeDefined() })
   const service = b.ctx.jubianVideoUi
   expect(service.render(SessionId('missing'))).toBeNull()
@@ -105,15 +129,19 @@ it('reuses the Session selector in Bot details and survives a missing or replace
   fireEvent.click(await screen.findByText('Fixture'))
   await vi.waitFor(() => { expect(b.remote.select).toHaveBeenCalledWith(SessionId('present'), option.key, 0) })
   view.unmount()
-  await b.sessionScope.fiber.dispose()
   b.sessionScopes.delete(SessionId('present'))
   expect(service.render(SessionId('present'))).toBeNull()
   const replacement = new Context()
   onTestFinished(async () => { await replacement.fiber.dispose() })
   b.sessionScopes.set(SessionId('present'), replacement)
+  const replacementView = service.render(SessionId('present'))
+  await b.sessionScope.fiber.dispose()
+  expect(b.unsubscribe).toHaveBeenCalledOnce()
+  expect(replacementView).not.toBeNull()
+  expect(b.remote.catalogue).toHaveBeenCalledTimes(2)
   render(service.render(SessionId('present')))
   fireEvent.click(screen.getByRole('button', { name: 'Video model' }))
   await screen.findByRole('menuitem', { name: /Model/ })
-  expect(b.remote.catalogue).toHaveBeenCalledTimes(2)
+  expect(b.binding.session.projections.faceOf).toHaveBeenCalledTimes(2)
   await dispose()
 })

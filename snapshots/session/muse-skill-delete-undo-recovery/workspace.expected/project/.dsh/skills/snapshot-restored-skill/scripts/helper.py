@@ -1,0 +1,1 @@
+print("restored resource")

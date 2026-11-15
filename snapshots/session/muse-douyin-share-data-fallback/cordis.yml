@@ -1,0 +1,29 @@
+# Native receipt projection only; no source or media network request is made.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: muse-hongguo-download
+      name: '../../../third_party/plugins/muse-hongguo-download/src/index.js'
+    - id: muse-douyin-download
+      name: '../../../third_party/plugins/muse-douyin-download/src/index.js'
+      config:
+        pythonExecutable: !!js process.execPath
+        ffprobeExecutable: !!js process.execPath
+        ffmpegExecutable: !!js process.execPath
+        settingsHome: !!js process.env.DSH_HOME
+        nativeTimeoutMs: 1800000
+- id: subprocess
+  disabled: true
+- insert:
+    - id: snapshot-douyin-share-data-fallback-transport
+      name: './transport-fixture.mjs'
+
+# Durable task IDs include the real owning Session; the normal runner resumes this fixture-owned header.
+- id: headless-runner
+  inject: [headlessStartup, douyinReplayOwnerReady]
+  config:
+    task: !!js ctx.headlessStartup.task
+    sessionId: snapshot-douyin-share-data-fallback
+    json: !!js ctx.headlessStartup.json

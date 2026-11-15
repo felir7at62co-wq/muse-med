@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/muse-account-kb-removal/guide.md
+/:
+  en: 1732a3777efda8ea
+  zh: 98558157ef79d42c
+/built-in-muse-account-knowledge-base-mcp-is-removed:
+  en: ad18f266703b81ca
+  zh: cea28cd3b761e5e0
+/built-in-muse-account-knowledge-base-mcp-is-removed/change:
+  en: 0ea3d5891acd6733
+  zh: 546bffd3a66e1fa5
+/built-in-muse-account-knowledge-base-mcp-is-removed/migration:
+  en: 9de1217a7be6c9f3
+  zh: 696504148cda030e

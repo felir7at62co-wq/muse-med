@@ -1,4 +1,6 @@
 /** Model settings tool registration, schema, and rendered output through the real Loader. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
@@ -84,6 +86,7 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
+    await ctx.plugin(NativeToolExecutor)
     const tool = ctx.tools.get('jubian_model')
     expect(tool).toBeDefined()
     if (!tool) throw new Error('Missing jubian_model')
@@ -142,7 +145,7 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     expect(storyboard.output.render(editApply, edited)).toMatchSnapshot('in-place edit outcome')
     expect(calls.filter(method => method === 'PUT')).toHaveLength(2)
     const beforeDenied = calls.length
-    const denied = await ctx.tools.execute({ callId: ToolCallId('unreviewed-delete'), name: 'jubian_storyboard',
+    const denied = await executeModelToolFixture(ctx, { callId: ToolCallId('unreviewed-delete'), name: 'jubian_storyboard',
       arguments: { method: 'delete_apply', script_id: 2708, project_dir: root, preview_path: 'unreviewed' },
       signal: new AbortController().signal })
     expect(denied).toMatchObject({ isError: true })
@@ -152,7 +155,7 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
       delete_reason: '删除这张已核对的测试卡', authorization_basis: '用户授权删除测试卡 1', include_generated_media: true }
     unreadableHistory = true
     projectTaskRows = [{ id: 99, scriptId: 2708, taskType: 1 }]
-    const unverified = await ctx.tools.execute({ callId: ToolCallId('unverified-history'), name: 'jubian_storyboard',
+    const unverified = await executeModelToolFixture(ctx, { callId: ToolCallId('unverified-history'), name: 'jubian_storyboard',
       arguments: deleteArgs, signal: new AbortController().signal })
     expect(unverified.isError).toBe(true)
     expect(unverified.content).toMatchSnapshot('empty history with unverified task ownership')

@@ -15,7 +15,7 @@ import type {
   AgentNoteOutcome,
   AgentNoteSaveOutcome,
 } from './AgentNotesSection.tsx'
-import { en, zh, type AgentNotesLocaleKey } from './locales.ts'
+import { en, zh, ja, es, fr, de, ru, pt, type AgentNotesLocaleKey } from './locales.ts'
 
 export type {
   AgentNoteDraft,
@@ -65,7 +65,7 @@ function draftOf(value: {
 
 /** Contribute the Agent Notes page to Settings. */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-settings-agent-notes: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-settings-agent-notes: dictionaries')
 
   const t = ctx.locale.bind(NS)
   const injected = (): AgentNotesSectionInjected => ({

@@ -1,0 +1,5 @@
+- insert:
+    - id: market-browser-stack
+      name: '@fixture/muse-skill-market'
+    - id: ui-muse-market
+      name: '@deepseek-ai/dsh-client-ui-muse-market'

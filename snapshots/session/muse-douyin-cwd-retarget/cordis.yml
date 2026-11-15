@@ -1,0 +1,17 @@
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: subprocess
+  disabled: true
+- id: headless-runner
+  inject: [headlessStartup, snapshotDouyinCwdReady]
+  config:
+    task: !!js ctx.headlessStartup.task
+    sessionId: snapshot-douyin-cwd-retarget
+    json: !!js ctx.headlessStartup.json
+- insert:
+    - id: douyin-cwd-retarget-fixture
+      name: ./fixture.mjs

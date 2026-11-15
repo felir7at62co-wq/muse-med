@@ -1,0 +1,74 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "files": [
+    "src/types.ts",
+    "src/format.ts",
+    "src/package.ts",
+    "src/author.ts",
+    "src/local.ts",
+    "src/index.ts",
+    "src/activation.ts",
+    "src/session.ts",
+    "src/skills.ts",
+    "src/cloud-protocol.ts",
+    "src/cloud.ts",
+    "src/server.ts",
+    "src/cloud-host.ts",
+    "src/format-values.ts",
+    "src/cloud-values.ts"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../util/atomic-write"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../util/home-paths"
+    },
+    {
+      "path": "../../skill/skill"
+    },
+    {
+      "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../core/scope"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../muse-account/tsconfig.host.json"
+    },
+    {
+      "path": "../webserver"
+    },
+    {
+      "path": "../../util/values"
+    }
+  ]
+}

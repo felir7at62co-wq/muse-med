@@ -1,0 +1,22 @@
+{
+  "serviceCalls": 8,
+  "fullResultsObserved": 8,
+  "releaseSha256": "905a725e9350f0c118b7ce9a5d31571b7153e73f361ba1d6b441b86be9901a42",
+  "resourceSha256": {
+    "SKILL.md": "444b62d989e4792465c7f1e467a49179f0b685c66d632259da35656829a13655",
+    "references/checklist.md": "ef398bb109ec1b8b23f61733c25838206c8264bb6d4e075a301f63565a624c21",
+    "scripts/check.py": "09d3de32d8909352439c238d17e70e461d01bb99991e40d2c1161cb977886183",
+    "assets/sample.bin": "a1d8748d0dbe0c9f4f6769346e7b14f8c57cbd636ef40dd40a21b96d7e78aa39"
+  },
+  "originalFrontmatterAndResourcesPreserved": true,
+  "archiveRoundtripSha256": "905a725e9350f0c118b7ce9a5d31571b7153e73f361ba1d6b441b86be9901a42",
+  "duplicateImportKeptIdentityAndResources": true,
+  "installedDefaultsDisabled": true,
+  "corruptImportRefusedWithoutWrites": true,
+  "corruptBusinessCode": "invalid-archive",
+  "removedFromInstalled": true,
+  "archiveRetainedAfterRemoval": true,
+  "sourceUnchanged": true,
+  "ptcDispatchStarts": 8,
+  "ptcDispatchSettles": 8
+}

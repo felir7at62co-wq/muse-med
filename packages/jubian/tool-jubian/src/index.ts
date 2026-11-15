@@ -34,7 +34,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
 import { museVoiceCoordinator } from './voice-coordination.ts'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
-import { validateProjectBinding } from './native.ts'
+import { assertNewNativeDispatchAllowed, resolveGenerateMethod, resolvePreviewPath, validateProjectBinding } from './native.ts'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
 import { findMethod } from './find.ts'
@@ -69,7 +69,20 @@ import type {
   CharacterReferenceQaUploadRequest,
 } from './character-reference-qa-bridge.ts'
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
+import { GenerationWatchRuntime } from './generation-watch.ts'
+import { GenerationWatchStore } from './generation-watch-store.ts'
+import { captureGenerationSessionBinding } from './generation-binding.ts'
+import type { GenerationSessionBinding } from './generation-binding.ts'
+import { registerGenerationWatchDelivery } from './generation-watch-delivery.ts'
+import { createNativeGenerationDelivery } from './generation-watch-native-delivery.ts'
 import { resolveVideoSourceOptions } from './video-sources.ts'
+import { mountVideoRecovery, resolveVideoRecovery, type VideoRecoveryConfig } from './video-recovery-config.ts'
+export { JubianVideoRecovery, ApprovedSourceCancelled, ApprovedSourceCancellationError } from './video-recovery-service.ts'
+import { EPISODE_UI_CONFIG_GLOBAL, EpisodeUiConfig } from './episode-ui-config.ts'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import { JubianEpisodeDelivery, resolveEpisodeDelivery, type EpisodeDeliveryConfig } from './episode-delivery-service.ts'
+export { JubianEpisodeDelivery } from './episode-delivery-service.ts'
+export type { JubianEpisodeDeliveryOptions } from './episode-delivery-service.ts'
 
 export { JubianToken } from './token.ts'
 export { JubianImageRoutes, pinnedImageSelection } from './image.ts'
@@ -79,7 +92,9 @@ export const name = 'tool-jubian'
 export const inject = ['tools', 'credentials']
 
 /** Where the tool row keeps its ledger and which origin it calls. */
-export interface Config extends ImageRouteConfig {
+export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDeliveryConfig {
+  /** Browser pending-episode polling interval; integer 100..60000ms, default 1000. */
+  episodePollIntervalMs?: number
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
   videoSourcePageSize?: number
   /** Maximum pages per existing-video history scan; integer 1..100, default 20. */
@@ -117,6 +132,10 @@ export interface Config extends ImageRouteConfig {
   watchPollIntervalMs?: number
   /** Watch deadline in milliseconds; integer 1..86400000, default 1800000. */
   watchTimeoutMs?: number
+  /** Keep native video submissions under Host observation across session idle and Host restart. */
+  generationWatch?: boolean
+  /** Private directory holding unfinished generation watches and completion notices. */
+  generationWatchRoot?: string
   /** Pool claim watcher interval in milliseconds; integer 1000..60000, default 5000. */
   claimPollIntervalMs?: number
   /** Maximum authorized claim window in milliseconds; integer 1000..86400000, default 7200000. */
@@ -281,7 +300,7 @@ const ARGS = {
       + '提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 `@[素材名称](material_key)`，后续镜头再次提及时继续引用，不能只在顶部集中列出。'
       + '只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。'
       + 'get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。'
-      + '主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。' },
+      + '新建的 storyboardMaterialList 和 modelConfig.materialList 必须省略或为空，禁止自填素材身份、名称或 URL；主体素材后续用 select_assets 核验写入，音频用 audio_preview/audio_apply；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。' },
   body_path: { type: 'string',
     description: 'create 与 body 二选一：按 body 的字段说明生成并检查的本地 UTF-8 JSON 文件路径；一包一份请求体。' },
   media_url: { type: 'string', description: 'media 必填：剧变 CDN 上的媒体 URL（来自其他方法的返回值）。' },
@@ -351,8 +370,9 @@ const OUTPUT = {
 const VIDEO_PAGE_FIELDS = {
   queried_at: { type: 'string', required: true },
   page_num: { type: 'integer', required: true }, page_size: { type: 'integer', required: true },
-  returned: { type: 'integer', required: true }, total_verified: { type: 'boolean', required: true },
-  complete: { type: 'boolean', required: true, description: '仅本次响应覆盖全部结果时为 true；末页不代表已读过前页。' },
+  returned: { type: 'integer', required: true },
+  total_verified: { type: 'boolean', required: true, description: '提供方返回有效数值 total；不是独立核验全部历史。' },
+  complete: { type: 'boolean', required: true, description: '仅本次响应覆盖相应查询范围全部结果时为 true；末页不代表已读过前页。' },
   has_more: { required: true, oneOf: [{ type: 'boolean' }, { type: 'null' }] },
   next_page: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
 } as const
@@ -373,11 +393,12 @@ const VIDEO_SOURCES_SCHEMA = {
 } as const
 
 /** Existing storyboard results retain the original key when serializer changes require reconciliation. */
-const STORYBOARD_OUTPUT = {
+const storyboardOutput = (generationBindings: WeakMap<object, GenerationSessionBinding>) => ({
   schema: { type: 'object', additionalProperties: true, properties: {
+    verified_free: { type: 'boolean', enum: [true], description: '本次仅免费去字幕请求已核实零价，或原 key 已有已核实的零价凭据；完成状态须另行回读。' },
     existing_video_sources: VIDEO_SOURCES_SCHEMA,
     original_idempotency_key: { type: 'string',
-      description: '旧分组提交已经记录时返回原 key；保留原 preview 只读对账，不能用新 key 再付费。' },
+      description: '旧提示词格式或素材顺序已有记录时返回一个已知旧 key；outcome 属于旧 key，不代表本次精确格式已生成。保留原 preview 只读对账，不能用新 key 再付费。' },
     prompt_risk_review: { type: 'object', additionalProperties: false,
       description: '写卡预览或生成准备的字面命中提示，不拦截；逐处对照剧本核实原台词，修正自行描述后保存回读并重新准备。',
       properties: {
@@ -395,7 +416,29 @@ const STORYBOARD_OUTPUT = {
       } },
   } },
   render: OUTPUT.render,
-} as const
+  preserveBodyMeta: true,
+  presentationMeta: (args: unknown, value: Record<string, unknown>) => {
+    if (typeof value.generation_watch_id !== 'string') return undefined
+    /* v8 ignore next -- the tool schema fixes the argument root as an object, so a non-object args
+    value is refused before dispatch and cannot reach this projection. */
+    const binding = args !== null && typeof args === 'object' ? generationBindings.get(args) : undefined
+    if (binding === undefined) return undefined
+    const { reasoningEffort } = binding.model
+    const bindingMetadata = { ...binding, model: { provider: binding.model.provider, model: binding.model.model,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }) } }
+    const input = args as MethodArgs
+    if (input.method === 'submit_video_batch' && input.video_previews !== undefined) {
+      return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission: { method: input.method,
+        video_previews: input.video_previews.map(item => ({ preview_path: item.preview_path, idempotency_key: item.idempotency_key })) } }
+    }
+    if ((input.method === 'submit_video' || input.method === 'generate')
+      && typeof input.preview_path === 'string' && typeof input.idempotency_key === 'string') {
+      return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission: { method: input.method,
+        preview_path: input.preview_path, idempotency_key: input.idempotency_key } }
+    }
+    return undefined
+  },
+} as const)
 
 /** Video methods keep their existing result fields; subtask reads expose the paged rows to PTC callers. */
 const VIDEO_OUTPUT = {
@@ -403,6 +446,13 @@ const VIDEO_OUTPUT = {
     sources: VIDEO_SOURCES_SCHEMA,
     tasks: { type: 'object', additionalProperties: true, properties: {
       ...VIDEO_PAGE_FIELDS,
+      scope: { type: 'object', additionalProperties: false, required: true,
+        description: '本次总数与完整性对应的查询范围；task_type=null 表示不按类型筛选。', properties: {
+          script_id: { type: 'integer', required: true },
+          task_type: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
+        } },
+      project_complete: { type: 'boolean', required: true,
+        description: '仅本次未按任务类型筛选且完整读到提供方项目列表时为 true；不保证提供方保留全部历史。' },
       total: { type: 'number', required: true },
       rows: { type: 'array', required: true, items: { type: 'object', additionalProperties: true } },
     } },
@@ -538,6 +588,8 @@ function characterReferenceAuthorityFor(
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
+  const generationBindings = new WeakMap<object, GenerationSessionBinding>()
+  const episodeUi = EpisodeUiConfig.parse({ episodePollIntervalMs: config.episodePollIntervalMs })
   if (config.sessionVideoSelection !== undefined && typeof config.sessionVideoSelection !== 'boolean') {
     throw new Error('sessionVideoSelection must be a boolean')
   }
@@ -555,6 +607,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     throw new Error('imageAllowedStandardIds must contain distinct positive catalogue row IDs')
   }
   const watchConfig = resolveWatchConfig(config)
+  const recovery = resolveVideoRecovery(config, watchConfig.watchTimeoutMs, process.env.DSH_FFMPEG_PATH)
+  const episodeDelivery = resolveEpisodeDelivery(config)
   const claimConfig: ClaimWatchConfig = resolveClaimWatchConfig(config)
   const imageBatch = resolveImageBatchOptions(config)
   const imageReferenceScan = resolveImageReferenceScanOptions(config)
@@ -571,6 +625,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const naming: Naming = resolveNaming(
     { ...(config.nameSeparator === undefined ? {} : { separator: config.nameSeparator }),
       ...(config.seriesLabel === undefined ? {} : { seriesLabel: config.seriesLabel }) })
+  ctx.on('webserver/index-inject', (table) => {
+    table.push({ kind: 'global', name: EPISODE_UI_CONFIG_GLOBAL, value: episodeUi })
+  })
   const ledger = new JubianLedger({ root: config.ledgerRoot ?? join(home, 'jubian', 'ledger'),
     defaultLimitCents: () => seriesBudgetLimit(ctx) })
   const qaCharacterReferenceStore = await openCharacterReferenceQaAuthorizationStore({
@@ -658,6 +715,33 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   })))
   const storedCredential = async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? ''
   const client = configuredJubianClient(storedCredential, config, process.cwd())
+  await mountVideoRecovery(ctx, recovery, { ledger,
+    settingsPath: join(home, 'jubian', 'video-recovery.json'),
+    clientForProject: directory => configuredJubianClient(storedCredential, config, directory),
+    intervalMs: watchConfig.watchPollIntervalMs })
+  if (recovery.settings) await ctx.plugin(JubianEpisodeDelivery, episodeDelivery).await()
+  let generationWatch: GenerationWatchRuntime | undefined
+  if (config.generationWatch !== undefined && typeof config.generationWatch !== 'boolean') {
+    throw new TypeError('generationWatch must be a boolean')
+  }
+  if (config.generationWatch) ctx.inject(['agents', 'agentLoop', 'tools', 'sessionProjections', 'sessionController', 'sessions', 'sessionPersistence'], async (scope) => {
+    const projection = await registerGenerationWatchDelivery(scope)
+    const deliver = createNativeGenerationDelivery(scope, projection)
+    scope.effect(() => {
+      const watch = new GenerationWatchRuntime({ ...watchConfig, client, ledger,
+        store: new GenerationWatchStore(config.generationWatchRoot ?? join(home, 'jubian', 'generation-watches')),
+        deliver,
+        withoutInitiator: operation => scope.agents.withoutInitiator(operation),
+        warn: (message, error) => { scope.logger.warn(message, error) },
+      })
+      generationWatch = watch
+      watch.start()
+      return async () => {
+        generationWatch = undefined
+        await watch.close()
+      }
+    })
+  })
   const voiceCoordinator = museVoiceCoordinator(ctx, async () => {
     const stored = await storedCredential()
     return stored.trim() || config.workspaceSecrets === false ? stored : await workspacePipelineToken(process.cwd())
@@ -726,51 +810,29 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
 
   registerJubianTool(defineTool({
     name: 'jubian_find',
-    description: '按名字查找剧变（Jubian）剧本。只读、免费，不需要 idempotency_key，也不改变任何远端状态。'
-      + '两个 scope：mine=你自己名下的画布项目（`GET /aigc/script/list`）；'
-      + 'pool=可认领的剧本池（`GET /script/center/pool/list`）。'
-      + 'name 先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再同时匹配 '
-      + 'scriptName 与 manuscriptName 的子串——没有拼音、别名或模糊匹配，差一个字就是没找到。'
-      + 'page_size 只限制单次请求的条数，不是扫描上限：工具会一直翻页，直到读完 total、'
-      + '某一页为空，或达到 scan_page_limit（页数上限，返回值里有）。'
-      + 'complete=false 表示这次没有覆盖 total（或用了页数上限），不要读成"就这些"；'
-      + 'scanned_pages 是实际请求的页数。'
-      + 'returned 是本次返回的匹配数，truncated=true 表示匹配列表被输出上限截断（扫描本身可能已完整）。'
-      + '每条匹配给出 script_id、script_name、manuscript_name、episode_count、status 与 script_style；'
-      + 'scope=pool 时另有 can_claim、claim_leader_name、claim_member_name，但没有 script_style——'
-      + '这个字段只有 mine 的行被实测到。'
-      + '省略 name 就是列出该 scope 的第一页（page_size 条），不是错误。'
-      + 'status 只对 pool 有效，会原样作为查询参数转发；给 mine 传 status 会被拒绝，不会静默忽略。'
-      + 'production_type 与 share_target_type 只对 mine 有效，同样原样转发为 productionType 与 '
-      + 'shareTargetType；控制台打开「漫剧视频」时发的就是 productionType=0 + shareTargetType=1，'
-      + '要列漫剧项目就传这两个值。两个取值都是提供方自己的编码，本工具不解释、不校验、也不设默认值，'
-      + '省略就不出现在查询串里；给 pool 传会被拒绝。'
-      + '它不写账本、不检查预算、不重试。响应读不懂时直接报 CONTRACT_CHANGED，'
-      + '绝不把读不懂的响应当成"没找到"——漏本和没本必须能区分。',
+    description: '按名称查询剧变（Jubian）剧本。只读免费，不改远端状态、不写账本、不检查预算、不重试，无需 idempotency_key。'
+      + '按名称查询时从 page_num 连续翻页，直到覆盖 total、遇到空页或达到 scan_page_limit。'
+      + 'complete=false 表示未覆盖 total，不能当作没有更多结果；scanned_pages 为实际请求页数，returned 为返回的匹配数。'
+      + 'truncated=true 表示匹配列表被输出上限截断，扫描本身可能完整。'
+      + '匹配行含 script_id、script_name、manuscript_name、episode_count、status；'
+      + 'mine 另有 script_style，pool 另有 can_claim、claim_leader_name、claim_member_name，不含 script_style。'
+      + '响应无法识别时抛出 CONTRACT_CHANGED，不按空结果处理。',
     parameters: {
       scope: { type: 'string', required: true, enum: ['mine', 'pool'],
-        description: 'mine=自己名下的画布项目；pool=可认领的剧本池。必填，两者只能选一个。' },
+        description: 'mine=自己名下的画布项目；pool=可认领的剧本池。' },
       name: { type: 'string',
-        description: '可选：要查的名字片段，同时匹配 scriptName 与 manuscriptName 的子串。'
-          + '先去掉首尾空白、内部连续空白并成一个空格、忽略大小写；不支持拼音、别名与模糊匹配。'
-          + '省略就是列出该 scope 的第一页。空白字符串会被拒绝。' },
+        description: '名称子串，同时匹配 scriptName 与 manuscriptName；去首尾空白、合并连续空白、忽略大小写。'
+          + '不支持拼音、别名或模糊匹配，空白字符串被拒绝；省略时只列起始页。' },
       page_num: { type: 'number',
-        description: '可选：从第几页开始扫描，默认 1。它会同时决定 completeness 的起点：'
-          + '第 2 页起要读完的仍是 total 里剩下的部分。' },
+        description: '起始页，默认 1，必须为正整数；complete 按此起点核算到 total。' },
       page_size: { type: 'number',
-        description: '可选：单次请求的条数，默认 20，上限 1000。它只限制一次请求，不限制整次扫描——'
-          + '扫描会翻页读到 total 或达到 scan_page_limit。结果太大时用它调小每次请求。' },
+        description: '每次请求条数，默认 20，整数范围 1..1000；不限制整次扫描的页数。' },
       status: { type: 'string',
-        description: '可选，仅 scope=pool：按池子状态过滤，原样转发（例如 returned、claimed、'
-          + 'pending_leader_claim）。状态名由提供方定义，本工具不解释也不校验。' },
+        description: '仅 pool：提供方状态过滤值，原样转发，不解释或校验状态名（如 returned、claimed、pending_leader_claim）；mine 拒绝此参数。' },
       production_type: { type: 'number',
-        description: '可选，仅 scope=mine：按提供方自己的 productionType 编码过滤，原样转发为查询参数 '
-          + 'productionType。控制台打开「漫剧视频」时发的是 productionType=0，所以要列漫剧项目就传 0；'
-          + '这个编码由提供方定义，本工具不解释也不校验取值，省略就不出现在查询串里。' },
+        description: '仅 mine：整数编码，原样转发为 productionType，不解释业务取值，无默认值；漫剧项目传 0。pool 拒绝此参数。' },
       share_target_type: { type: 'number',
-        description: '可选，仅 scope=mine：按提供方自己的 shareTargetType 编码过滤，原样转发为查询参数 '
-          + 'shareTargetType。控制台打开「漫剧视频」时发的是 shareTargetType=1，所以要列漫剧项目就传 1；'
-          + '这个编码由提供方定义，本工具不解释也不校验取值，省略就不出现在查询串里。' },
+        description: '仅 mine：整数编码，原样转发为 shareTargetType，不解释业务取值，无默认值；漫剧项目传 1。pool 拒绝此参数。' },
     },
     output: OUTPUT,
     execute: guarded<FindArgs>('jubian_find', args => findMethod(client, args)),
@@ -997,6 +1059,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；'
       + 'create_batch 的逐项回执在 results，data 保留供应商原值，数字 data 即新卡 ID，不要假定 data.id 存在。'
       + '写镜头脚本或视频包提示词，先按剧情、对白、表演与节奏确定内容分包，再 list/get 当前项目和分集的已有视频卡并原位填写。'
+      + '用户已给定提示词并要求原样或只替换资产占位时，仅机械替换已核实的占位，保留其余文字、格式、时态、服装和台词；按原参考图映射绑定，不追加人物或用途描述，不因正文提到姓名扩绑未出演的人。'
       + '已有卡数量不决定包数，多余空卡保留不用，不为填满空卡拆包；已有卡不足或用户明确要求新增时，才 create/create_batch。'
       + '单卡用 edit_preview，多卡用 edit_batch_preview 查看 before/after，再 edit_apply；保持分镜 ID，不因本地新建视频包、秒数或提示词变化重复建卡。'
       + STORYBOARD_WRITE_REMINDER + '单卡与批量预览均返回此提醒，由 Agent 自主检查后保存。'
@@ -1007,7 +1070,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + 'list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。'
       + '**submit_video 及 generate 的提交阶段会真实计费且不可撤销；erase_subtitle 按实时目录计价**。'
       + 'generate 是原生生成通道的兼容入口：新调用不带 preview_path 时按 prepare_video 免费准备，'
-      + '必须给 storyboard_id 与 project_dir；先核对返回预览，再带 preview_path、预览 idempotencyKey 原值作为 idempotency_key，以及估价提交，等同 submit_video。'
+      + '必须给 storyboard_id 与 project_dir；用户最新请求若为只预览或先看，到此展示结果，不沿用此前制作授权付费提交。'
+      + '本次请求包含已授权生成时，核对预览后再带 preview_path、预览 idempotencyKey 原值作为 idempotency_key，以及估价提交，等同 submit_video。'
       + '旧 storyboard_generate key 只读返回原账本结果，不重新准备、不重投；unknown 不代表失败，不可换 key 重试。'
       + '**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：'
       + '每镜用到的已有角色、场景、道具、音频，均在相应画面、动作或声音描述处内联引用 `@[素材名称](material_key)` 并明确用途；后续镜头再次提及时继续引用，不以顶部素材清单代替，不引用未用素材，不为补引用新增资产，不修改原文对白。名称/key与实际查询和绑定一致。'
@@ -1031,24 +1095,28 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '不需要也不应该由调用方画框。model_id 没有默认值，'
       + '省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。'
       + '实时目录唯一匹配火山 ark-erase-video-subtitle-pro / AI_MEDIA_KIT / 67 / 0 元/条时，按 0.00 CNY 记账且不占项目额度，仍按原 key 防重；其他零价不推断为免费。'
+      + '只允许免费时须传 only_if_verified_free=true，省略估算字段；本次核价不通过就不提交。'
       + '它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。' + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
         enum: ['list', 'get', 'create', 'create_batch', 'save', 'edit_preview', 'edit_batch_preview', 'edit_apply', 'generate', 'select_assets', 'prepare_video', 'submit_video',
-          'submit_video_batch', 'erase_subtitle', 'delete_preview', 'delete_apply', 'audio_preview', 'audio_apply'],
+          'submit_video_batch', 'reconcile_video', 'erase_subtitle', 'delete_preview', 'delete_apply', 'audio_preview', 'audio_apply'],
         description: 'list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；'
           + 'save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；'
           + 'select_assets=写入选定资产（免费，强制 isGenerate=0）；'
           + 'prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；'
           + 'submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；'
+          + 'reconcile_video=按project_dir和原idempotency_key只读恢复已有意图，缺证据保持unknown，绝不新建key或重发生成PUT；'
           + 'delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；'
-          + 'erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。' },
+          + 'erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）；'
+          + '只有 status=applied 且 verified_readback=true 才可报告音频绑定完成，accepted 不代表完成。' },
       storyboard_id: ARGS.storyboard_id, content_duration_ms: ARGS.content_duration_ms,
       page_num: ARGS.page_num, page_size: ARGS.page_size,
       task_id: ARGS.task_id, script_id: ARGS.script_id,
       model_id: ARGS.model_id, task_name: ARGS.task_name,
       platform_id: { type: 'string', description: '去字幕可选：task_type=10 目录的精确 platformId。' },
       erase_mode: { type: 'string', enum: ['automatic', 'region'], description: '新列出的去字幕模型须显式选自动或区域擦除；已知模型省略时沿用原路由。' },
+      only_if_verified_free: { type: 'boolean', description: '仅用于去字幕。为 true 时禁止估算，提交前必须核实本次实时目录精确匹配已知免费路线；无证明时不发送，即使项目仍有预算。' },
       episode: ARGS.episode, package_number: ARGS.package_number,
       video_width: ARGS.video_width, video_height: ARGS.video_height, subtitle_box: ARGS.subtitle_box,
       storyboards: { type: 'array', description: 'create_batch 必填：仅已有视频卡不足或用户明确要求新增时使用；先写好并检查全部包的提示词与 body，再一次传入整批。每项独立 key、body 或 body_path；默认最多 1000 项，并发 4 项提交，无需等待逐项完成。字段见 body。',
@@ -1059,12 +1127,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       body: ARGS.body, body_path: ARGS.body_path,
       idempotency_key: { ...ARGS.idempotency_key,
         description: `generate 不带预览时可省略；提交须原样使用预览返回的 idempotencyKey（指纹），旧操作对账使用原 key。${WRITE_NOTE}` },
-      prompt: { type: 'string', description: 'audio_preview 必填：完整新提示词，原图片素材标记及其顺序必须保留，声音标记与 audio_references 一一对应。' },
-      audio_references: { type: 'array', description: 'audio_preview 必填：最终完整、有序的音频引用列表；[] 明确移除全部声音引用，保留原图片。', items: {
+      prompt: { type: 'string', description: 'audio_preview 必填：完整新提示词，保留原图片素材标记及其顺序；音频标签不能为空，同一 key 的重复标签须一致，首次出现顺序与 audio_references 一致。' },
+      audio_references: { type: 'array', description: 'audio_preview 必填：最终完整、有序的音频引用列表；每项须有非空 fileName 或 materialName；[] 明确移除全部声音引用，保留原图片。', items: {
         type: 'object', additionalProperties: false, properties: {
           materialType: { type: 'string', enum: ['audio'], required: true },
           materialKey: { type: 'string', required: true }, materialUrl: { type: 'string', required: true },
-          fileName: { type: 'string' }, materialName: { type: 'string' },
+          fileName: { type: 'string', description: '音频保存与回读使用的名称；缺失或空白时从非空 materialName 补齐。' },
+          materialName: { type: 'string', description: '可选显示名；保留在模型配置中，音频关系表使用 fileName。' },
           sortOrder: { type: 'integer', required: true, description: '从 1 开始的音频组内连续顺序。' },
           audioDuration: { type: 'number', description: '实测秒数，大于0且不超过15；未知时省略，不按文件名猜测。' },
           audio_asset_id: { type: 'integer', description: '已登记的真实音频资产 ID；工具复验同项目、类别4与URL，字段不伪造图片父资产 ID。' },
@@ -1090,11 +1159,15 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       delete_reason: { type: 'string', description: 'delete_preview 必填：具体删除原因，如这些 ID 是已被正式包替代的测试卡。' },
       authorization_basis: { type: 'string', description: 'delete_preview 必填：用户对本次精确范围的删除授权；不明确时 ask_user。' },
       include_generated_media: { type: 'boolean', description: 'delete_preview 可选，默认 false；只有用户明确授权删除关联生成媒体时为 true，运行中的任务仍不能删除。' },
-      selections: ARGS.selections, project_dir: ARGS.project_dir, preview_path: ARGS.preview_path,
+      selections: ARGS.selections,
+      project_dir: { ...ARGS.project_dir,
+        description: 'audio_preview / audio_apply 必填；prepare_video / generate 准备阶段必填、submit_video 可选：项目目录须含 project_config.json，且 jubian_script_id 必须等于实时 scriptId。' },
+      preview_path: { ...ARGS.preview_path,
+        description: 'audio_apply 必填：audio_preview 返回的 preview_path；submit_video / generate 提交阶段使用 prepare_video 返回的路径。原样传入，不猜测或手写文件名；新 generate 不带此项时仅准备预览。' },
       video_previews: ARGS.video_previews,
       ...VIDEO_ESTIMATE_ARGS,
     },
-    output: STORYBOARD_OUTPUT,
+    output: storyboardOutput(generationBindings),
     execute: async (args, exec) => {
       requireArguments('jubian_storyboard', args)
       if (config.sessionVideoSelection && ['prepare_video', 'generate', 'submit_video', 'submit_video_batch'].includes(args.method)) {
@@ -1106,11 +1179,61 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       const agent = exec.agent
       const service = config.sessionVideoSelection ? ctx.get('jubianVideoSelection') : undefined
       const assertVideoModel = agent && service ? (model: Record<string, unknown>) =>{  service.assertCurrent(agent, model) } : undefined
-      return await guarded('jubian_storyboard', input => storyboardMethod(client, ledger, input, {
-        naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: exec.signal,
-        ...(promptRiskReview ? { promptRiskReview } : {}),
-        ...(assertVideoModel ? { assertVideoModel } : {}),
-      }))(args)
+      return await guarded('jubian_storyboard', async (input) => {
+        let dispatchSignal = exec.signal
+        const dispatch = async (beforeVideoSend?: (key: string) => Promise<void>) => {
+          const result = await storyboardMethod(client, ledger, input, {
+            naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: dispatchSignal,
+            ...(beforeVideoSend === undefined ? {} : { beforeVideoSend }),
+            ...(promptRiskReview ? { promptRiskReview } : {}),
+            ...(assertVideoModel ? { assertVideoModel } : {}),
+          })
+          // Only this Host's successful watch enrollment may issue these identities.
+          const { generation_watch_id: _watchId, generation_watch_group_exchange_id: _groupId, ...safe } = result
+          return safe
+        }
+        if (!config.generationWatch || !agent) return await dispatch()
+        const method = input.method === 'generate' ? await resolveGenerateMethod(ledger, input) : input.method
+        if (method !== 'submit_video' && method !== 'submit_video_batch') return await dispatch()
+        const watch = generationWatch
+        const sessionController = ctx.get('sessionController')
+        if (!watch || !sessionController) throw new Error('Generation watch requires the Host Session controller and persistence')
+        const owner = await sessionController.resolveAgent(agent.session.id)
+        if ('error' in owner) throw new Error('Submit paid video from the ordinary owning Muse session so it can resume after restart.')
+        exec.signal.throwIfAborted()
+        const packs = method === 'submit_video_batch'
+          ? need(input.video_previews, 'video_previews').map(item => ({
+            previewPath: resolve(item.preview_path), key: requireKey(item.idempotency_key) }))
+          : [{ previewPath: await resolvePreviewPath(input), key: requireKey(input.idempotency_key) }]
+        if (packs.length === 0 || packs.length > videoBatch.maxItems) return await dispatch()
+        const captured = await captureGenerationSessionBinding(ctx, agent, exec.signal)
+        if (captured === undefined) throw new Error('Video submission requires the original native Session, model and owned Workspace')
+        try {
+          dispatchSignal = AbortSignal.any([exec.signal, captured.lease.signal])
+          captured.lease.assertCurrent()
+          await assertNewNativeDispatchAllowed(ledger, packs)
+          captured.lease.assertCurrent()
+          const enrollment = await watch.enroll(agent.session.id, packs, undefined, captured.binding)
+          captured.lease.assertCurrent()
+          const submit = (beforeSend: (key: string) => Promise<void>) => dispatch(async (key) => {
+            captured.lease.assertCurrent()
+            await beforeSend(key)
+            captured.lease.assertCurrent()
+          })
+          /* v8 ignore next 2 -- an already-recorded key returns from the native reconcile path before
+          beforeSend, so this rejection never runs; it stays as the ownership backstop. */
+          const refuseRepeat = (): Promise<never> =>
+            Promise.reject(new Error('The original video dispatch is already owned; reconcile its original key instead of submitting again'))
+          const report = enrollment.initial ? await watch.executeDispatch(enrollment.id, submit) : await dispatch(refuseRepeat)
+          captured.lease.assertCurrent()
+          const result = { ...report, generation_watch_id: enrollment.id,
+            /* v8 ignore next -- enroll() never assigns groupExchangeId: it refuses group origins
+            outright and every return omits the field. */
+            ...(enrollment.groupExchangeId === undefined ? {} : { generation_watch_group_exchange_id: enrollment.groupExchangeId }) }
+          if (enrollment.initial) generationBindings.set(args, captured.binding)
+          return result
+        } finally { captured.lease.release() }
+      })(args)
     },
   }))
 
@@ -1119,6 +1242,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     description: '剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks/sources 只读'
       + '。提取或复用已有视频时，先 sources(script_id,storyboard_id) 查询原卡已生成来源；返回原任务、成片、运行状态与查询完整性，不要求与当前模型配置一致。'
       + '任务分页只说明本页状态，complete=false 或 unknown 不能推断没有成片；缺声线不等于授权重新生成。'
+      + 'tasks 默认不按任务类型筛选；显式 task_type 只查该类型，total_verified/complete 仅对应返回的 scope，'
+      + '筛选结果为空不能推断项目没有任务。project_complete 仅表示本次读全未按类型筛选的提供方列表。'
       + '（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，'
       + 'result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。'
       + '费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。'
@@ -1160,13 +1285,14 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     parameters: {
       method: { type: 'string', required: true,
         enum: ['task', 'tasks', 'subtasks', 'sources', 'unresolved', 'image_generate', 'image_generate_batch', 'upscale', 'retry'],
-        description: 'task=单个任务（含 cost 观测）；tasks=项目任务分页（带查询完整性与下一页）；'
+        description: 'task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；'
           + 'sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；'
           + 'subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；'
           + 'unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；'
           + 'image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；'
           + 'upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。' },
       task_id: ARGS.task_id, script_id: ARGS.script_id, storyboard_id: ARGS.storyboard_id,
+      task_type: { type: 'integer', description: '仅 tasks 可选：按提供方正整数任务类型筛选，如 1=生成、10=去字幕、20=转高清；省略查询全部类型。' },
       page_num: ARGS.page_num, page_size: ARGS.page_size,
       delivery_resolution: ARGS.delivery_resolution,
       asset_name: ARGS.asset_name, asset_type: ARGS.asset_type, prompt: ARGS.prompt,
@@ -1249,8 +1375,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       media_url: { ...ARGS.media_url, required: true },
       media_kind: { ...ARGS.media_kind, required: true },
       output_path: { ...ARGS.output_path, required: true },
+      resume: { type: 'boolean', description: '续跑时设 true：同一 URL 的本地下载回执与字节通过核对后复用；旧文件缺证或已变化时另存候选。' },
     },
-    output: OUTPUT,
-    execute: guarded('jubian_media', args => mediaMethod(args)),
+    output: { ...OUTPUT, schema: { type: 'object', additionalProperties: true, properties: {
+      download_receipt_path: { type: 'string', description: '续跑下载回执的本地路径，包含精确源 URL 的 SHA-256 和保存文件的身份，不保存源 URL。' },
+      source_sha256: { type: 'string', description: '续跑下载所用完整源 URL 的 SHA-256（64 位十六进制），供匹配回执。' },
+    } } },
+    execute: (args, exec) => guarded('jubian_media', input => mediaMethod(input, exec.signal))(args),
   }))
 }

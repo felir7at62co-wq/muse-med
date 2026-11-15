@@ -7,11 +7,19 @@ import { ToolCallId, createMessage, createToolResultMessage } from '@deepseek-ai
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type {} from '../src/session-video.ts'
+import { z } from 'zod'
 import { afterEach, expect, it, vi } from 'vitest'
 import { installSessionReview, reviewPresentationMeta, sessionDurationBudget } from '../src/session-video.ts'
 import type { ShotIssue } from '../src/types.ts'
 import { assetRow, cleanup, manifestDocument, speakingShot, tempDir } from './harness.ts'
 import { sessionVideoShot } from './fixtures/session-video.ts'
+
+const projectedReview = z.object({ pending: z.array(z.object({ call_id: z.string(), packaging: z.boolean() })),
+  latest: z.object({ script: z.string(), packages: z.array(z.object({ submit_seconds: z.number() })),
+    revision: z.number().nullable(), available: z.boolean() }).nullable() })
+function reviewState(ctx: Context, session: Agent['session']) {
+  return projectedReview.parse(ctx.sessionProjections.checkpoint(session)['dramaShotReview']?.val)
+}
 
 const cleanups: Array<() => Promise<unknown>> = []
 const readBarrier = vi.hoisted(() => ({ path: '', beforeRead: undefined as (() => Promise<void>) | undefined }))
@@ -73,7 +81,7 @@ it('fails explicitly when session selection or projection owners are absent', as
   await expect(sessionDurationBudget(ctx, undefined, 30, [])).rejects.toThrow('需要会话视频模型服务')
   const definition = f.ctx.tools.get('drama_shot')
   if (definition === undefined) throw new Error('Missing real compiler definition')
-  expect(() => { installSessionReview(ctx, definition, 2000) }).toThrow('会话分包复核需要')
+  await expect(installSessionReview(ctx, definition, 2000)).rejects.toThrow('会话分包复核需要')
   const issues: ShotIssue[] = []
   expect(await sessionDurationBudget(f.ctx, undefined, undefined, issues)).toEqual({ source: 'session', max_submit_seconds: null, selection: null })
   expect(issues.map(issue => issue.code)).toEqual(['session_video_unavailable'])
@@ -121,7 +129,7 @@ it('rechecks empty, unknown and unreadable latest packages instead of reviving a
 it('folds only matching successful packaging calls and skips non-text or non-report result blocks', async () => {
   const w = await workspace(), f = await fixture(w.root)
   const session = f.ctx.sessions.create(SessionId('session-projection-validation'), {})
-  const state = () => f.ctx.sessionProjections.stateOf(session, 'dramaShotReview')
+  const state = () => reviewState(f.ctx, session)
   const append = (id: string, args: string, content: ContentBlock[], isError = false) => {
     const callId = ToolCallId(id)
     session.append('tool/call', { turn: 1, step: 1, callId, name: 'drama_shot', arguments: args })
@@ -156,7 +164,7 @@ it.each(['arguments', 'result'] as const)('propagates non-syntax decoder failure
       session.append('tool/call', { turn: 1, step: 1, callId, name: 'drama_shot', arguments: target === 'arguments' ? marker : JSON.stringify({ method: 'preview' }) })
       session.append('tool/result', { turn: 1, step: 1, message: createToolResultMessage({ callId,
         content: [{ type: 'text', text: marker }], isError: false }) }, { surfaceOp: 'append' })
-      f.ctx.sessionProjections.stateOf(session, 'dramaShotReview')
+      reviewState(f.ctx, session)
     }).toThrow(failure)
   } finally { spy.mockRestore() }
 })
@@ -337,7 +345,7 @@ it('retains compact result metadata, folds PTC outcomes and invalidates an unrea
   }
   appendResult('pruned-review', 'preview', result.data.meta)
   const state = () => {
-    const value = f.ctx.sessionProjections.stateOf(projected, 'dramaShotReview')
+    const value = reviewState(f.ctx, projected)
     if (value === undefined) throw new Error('Missing registered review projection')
     return value
   }

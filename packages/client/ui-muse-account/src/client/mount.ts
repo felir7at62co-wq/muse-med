@@ -10,7 +10,7 @@ import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-ty
 import { MuseAccountSection, type MuseAccountInjected, type MuseAccountOutcome } from './MuseAccountSection.tsx'
 import { MuseAccountLauncher } from './MuseAccountLauncher.tsx'
 import { MuseAccountOnboarding } from './MuseAccountOnboarding.tsx'
-import { en, zh, type MuseAccountLocaleKey } from './locales.ts'
+import { en, zh, ja, es, fr, de, ru, pt, type MuseAccountLocaleKey } from './locales.ts'
 import { FeedbackConfig, FEEDBACK_CONFIG_GLOBAL } from '../feedback-config.ts'
 
 export type { MuseAccountInjected, MuseAccountOutcome, MuseAccountSectionProps } from './MuseAccountSection.tsx'
@@ -40,7 +40,7 @@ function outcomeOf<T>(result: RemoteResult<T>): MuseAccountOutcome<T> {
 
 /** Register the page after its Remote namespace exists. */
 function registerSection(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'muse-account: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'muse-account: dictionaries')
   const t = ctx.locale.bind(NS)
   const account: MuseAccountInjected = {
     status: async request => outcomeOf(await ctx.remote.museAccount.status(request)),

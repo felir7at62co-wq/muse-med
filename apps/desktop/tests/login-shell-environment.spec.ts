@@ -169,7 +169,7 @@ describe.skipIf(process.platform === 'win32')('readDesktopLoginShellEnvironment 
     const result = await readDesktopLoginShellEnvironment(base, { timeoutMs: 2_000 }, { platform: 'darwin', shells: [hanging] })
     expect(result).toEqual({ environment: base, failures: [{ shell: hanging, reason: 'timeout' }] })
     const child = Number(readFileSync(pidFile, 'utf8'))
-    await vi.waitFor(() => { expect(exited(child)).toBe(true) })
+    await vi.waitFor(() => { expect(exited(child)).toBe(true) }, { timeout: config.timeoutMs })
   })
 
   it('ends the running shell group on abort and skips the remaining candidates', async () => {
@@ -184,9 +184,9 @@ describe.skipIf(process.platform === 'win32')('readDesktopLoginShellEnvironment 
       const pid = Number(readFileSync(pidFile, 'utf8'))
       expect(pid).toBeGreaterThan(0)
       return pid
-    })
+    }, { timeout: config.timeoutMs })
     controller.abort()
     await expect(read).resolves.toEqual({ environment: base, failures: [{ shell: hanging, reason: 'aborted' }] })
-    await vi.waitFor(() => { expect(exited(child)).toBe(true) })
+    await vi.waitFor(() => { expect(exited(child)).toBe(true) }, { timeout: config.timeoutMs })
   })
 })

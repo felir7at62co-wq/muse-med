@@ -81,6 +81,9 @@
       "path": "../../boot/plugin-manager"
     },
     {
+      "path": "../../boot/plugin-market"
+    },
+    {
       "path": "../../host/plugin-inventory"
     },
     {
@@ -88,6 +91,15 @@
     },
     {
       "path": "../../credentials/deepseek-account"
+    },
+    {
+      "path": "../../skill/skill"
+    },
+    {
+      "path": "../../host/muse-market"
+    },
+    {
+      "path": "../../host/muse-account/tsconfig.host.json"
     }
   ]
 }

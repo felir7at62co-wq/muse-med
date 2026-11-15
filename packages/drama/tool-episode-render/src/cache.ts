@@ -7,11 +7,13 @@ import { readFile } from 'node:fs/promises'
 /**
  * Hash a local media file without buffering the whole video.
  * @param path - File whose bytes identify the selected source.
+ * @param signal - Optional owning operation cancellation.
  * @returns Lowercase SHA-256 digest.
  */
-export async function fileSha256(path: string): Promise<string> {
+export async function fileSha256(path: string, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted()
   const hash = createHash('sha256')
-  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer)
+  for await (const chunk of createReadStream(path, signal === undefined ? {} : { signal })) hash.update(chunk as Buffer)
   return hash.digest('hex')
 }
 

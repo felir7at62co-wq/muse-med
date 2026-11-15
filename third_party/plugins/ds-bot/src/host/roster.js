@@ -1,9 +1,9 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
 import { mkdir } from 'node:fs/promises'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
-import { currentColor, isColor, normalize, unquote } from './text.js'
+import { currentColor, isColor, normalize, splitRef, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 import { cleanResidentTools } from './tool-residency.js'
 
@@ -173,12 +173,17 @@ export function install(rt) {
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultModel()
     // A thinking level needs a model to resolve against; with none it would be dropped
     // silently, so the create fails before a Session is made.
-    if (effort !== undefined && effort !== '' && modelRef === undefined) throw new Error('Pick a model before choosing a thinking level')
+    if (effort && modelRef === undefined) throw new Error('Pick a model before choosing a thinking level')
     const inherited = createdBy === undefined ? undefined : rt.botOf(createdBy)
     const defaultEffort = rt.defaultEffort(modelRef)
-    const requestedEffort = effort ?? (inherited !== undefined && inherited.model === modelRef ? inherited.effort : defaultEffort)
-    const effortId = modelRef === undefined ? undefined : await rt.resolveEffort(modelRef, requestedEffort)
+    const requestedEffort = effort === null || effort === '' ? undefined
+      : effort ?? (inherited !== undefined && inherited.model === modelRef ? inherited.effort : defaultEffort)
+    const effortId = modelRef === undefined ? undefined : effort
+      ? await rt.resolveEffort(modelRef, requestedEffort)
+      : await rt.resolveEffort(modelRef, requestedEffort).catch(() => undefined)
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
+    const clash = dir === undefined ? undefined : await rt.privateClash(dir)
+    if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)
     const id = await createSession(cleanName, { dir, agentPreset })
     try {
       state.bots[id] = {
@@ -218,12 +223,16 @@ export function install(rt) {
       const text = !main && language ? `${opener}\nWrite in ${language}.` : opener
       const bot = state.bots[id]
       await rt.applyPermission(bot, id)
+      const scopeTools = () => rt.resolveAgent(id)
+        .catch(error => rt.warn('ds-bot: scoped tools for %s not applied: %s', cleanName, error))
       if (modelRef === undefined) {
         bot.kickoff = { text, from: createdBy ?? null, ...(main ? { main: true } : {}) }
         await rt.save()
+        await scopeTools()
         return bot
       }
       await rt.save()
+      await scopeTools()
       // The greeting runs on the Bot's own model, once its provider is registered.
       void rt.waitForModel(bot)
         .then(() => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)))
@@ -259,6 +268,7 @@ export function install(rt) {
   async function duplicateBot(id) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (bot.private === true) throw new Error(`${bot.name} is private, so it cannot be copied`)
     const served = (await rt.catalog()).some(entry => entry.ref === bot.model)
     // A folder that went away since leaves the copy in the team workspace.
     const workDir = bot.workDir !== undefined && await rt.isFolder(bot.workDir) ? bot.workDir : undefined
@@ -270,7 +280,7 @@ export function install(rt) {
       color: bot.color,
       avatar: bot.avatar,
       model: served ? bot.model : undefined,
-      effort: served ? bot.effort : undefined,
+      effort: served ? (bot.effort ?? null) : undefined,
       workDir,
       copyOf: bot.id,
       preset: bot.agentPreset,
@@ -278,7 +288,7 @@ export function install(rt) {
     })
   }
 
-  async function updateBot(id, patch, actorId) {
+  async function updateBot(id, patch, actorId, fromSessionId) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
     const residentTools = patch.resident_tools === undefined ? undefined : cleanResidentTools(patch.resident_tools)
@@ -289,18 +299,22 @@ export function install(rt) {
     if (patch.browserGrants !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can set what ${bot.name} may do in the browser`)
     }
+    if (patch.private !== undefined && actorId !== undefined) throw new Error(`Only the user can make ${bot.name} private or open`)
     const browserGrants = patch.browserGrants === undefined ? undefined : cleanBrowserGrants(patch.browserGrants)
     // Checked first, so a folder, model or level that does not pass leaves the rest
     // unchanged too.
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    const flag = patch.private === undefined ? undefined : patch.private === true
+    await rt.checkPrivacyChange(bot, { flag, moving, workDir })
     if (moving && workDir !== bot.workDir) await assertFolderChangeAllowed(rt.sessionsOfBot(bot.id))
     const modelRef = patch.model === undefined ? undefined
       : patch.model === null || patch.model === '' ? null
       : await rt.resolveModel(patch.model)
     // A new level resolves against the model the Bot will run on: the new one, the
     // model it keeps, or — the model cleared — the one it last ran on.
-    const effortRef = modelRef === undefined ? nativeRef ?? bot.model ?? bot.appliedModel : modelRef ?? bot.appliedModel
+    const resetRef = bot.autoSessionBot === true && modelRef === null ? await rt.defaultModel() : undefined
+    const effortRef = modelRef === undefined ? nativeRef ?? bot.model ?? bot.appliedModel : modelRef ?? resetRef ?? bot.appliedModel
     let effortId
     if (patch.effort !== undefined) {
       if (patch.effort === null || patch.effort === '') effortId = null
@@ -328,6 +342,8 @@ export function install(rt) {
     }
     if (residentTools !== undefined) bot.resident_tools = residentTools
     if (agentPreset !== undefined) bot.agentPreset = agentPreset
+    const roleBefore = bot.role
+    const instructionsBefore = bot.instructions
     if (patch.role !== undefined) bot.role = String(patch.role).trim().slice(0, 24)
     if (patch.instructions !== undefined) bot.instructions = String(patch.instructions).trim()
     let modelChanged = false
@@ -345,13 +361,13 @@ export function install(rt) {
       else delete bot.avatar
     }
     if (patch.model !== undefined) {
-      bot.modelSource = 'bot'
+      bot.modelSource = bot.autoSessionBot === true ? 'session' : 'bot'
       if (modelRef === null) delete bot.model
       else bot.model = modelRef
       modelChanged = true
     }
     if (patch.effort !== undefined) {
-      bot.modelSource = 'bot'
+      bot.modelSource = bot.autoSessionBot === true ? 'session' : 'bot'
       if (effortId === null) delete bot.effort
       else bot.effort = effortId
       modelChanged = true
@@ -361,14 +377,34 @@ export function install(rt) {
       if (browserGrants === null) delete bot.browserGrants
       else bot.browserGrants = browserGrants
     }
+    if (flag === true) bot.private = true
+    else if (flag === false) delete bot.private
     const moved = moving && workDir !== bot.workDir
     if (moving) {
       if (workDir === undefined) delete bot.workDir
       else bot.workDir = workDir
     }
     await rt.save()
+    const notes = []
+    if (bot.role !== roleBefore) notes.push(`Your role is now "${bot.role || '(none)'}"`)
+    if (bot.instructions !== instructionsBefore) notes.push(`Your instructions now read:\n${bot.instructions || '(none)'}`)
+    const selfEditInChat = actorId === bot.id && fromSessionId === rt.chatOf(bot.id)
+    if (notes.length > 0 && bot.kickoff === undefined && !selfEditInChat) {
+      void rt.deliver({ toId: bot.id, text: notes.join('\n'), role: 'update' })
+        .catch(error => rt.warn('ds-bot: profile update for %s not delivered: %s', bot.name, error?.message ?? error))
+    }
     if (residentTools !== undefined) await rt.refreshResidentTools?.(bot.id)
-    if (modelChanged) await rt.applyModel(bot, { force: true })
+    if (modelChanged) {
+      if (bot.autoSessionBot === true) {
+        const ref = modelRef === undefined ? nativeRef : modelRef ?? resetRef
+        if (ref !== undefined) {
+          const requestedEffort = modelRef === null && patch.effort === undefined ? rt.defaultEffort(ref) : bot.effort
+          const reasoning = await rt.reasoningOf(ref)
+          const effort = reasoning?.efforts?.some(entry => entry.id === requestedEffort) ? requestedEffort : undefined
+          await rt.selectSessionModel(rt.chatOf(id), { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) })
+        }
+      } else await rt.applyModel(bot, { force: true })
+    }
     if (moved) void rt.followFolder(bot.id)
     if (bot.model && bot.kickoff !== undefined) {
       const held = bot.kickoff
@@ -425,6 +461,7 @@ export function install(rt) {
   function checkMembers(members) {
     if (members.length < 2) throw new Error('A group chat needs at least two Bots')
     if (members.length > ROOM_MAX_MEMBERS) throw new Error(`A group chat holds at most ${ROOM_MAX_MEMBERS} Bots`)
+    rt.checkNoPrivate(members)
   }
 
   // A Main Bot leads the groups it makes; a group the user makes is led by a Main Bot
@@ -530,6 +567,8 @@ export function install(rt) {
     planRoomChange(asked, patch, actorId)
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    const clash = workDir === undefined ? undefined : await rt.privateClash(workDir)
+    if (clash) throw new Error(`${workDir} is in or around the folder of ${clash.name}, a private Bot, so a group cannot work there`)
     if (moving && workDir !== asked.workDir) await assertFolderChangeAllowed(Object.values(asked.sessions ?? {}))
     // No await from here until every change is written.
     const room = rt.roomOf(id)
@@ -616,6 +655,7 @@ export function install(rt) {
   async function setMain(id, main, { primary = false, replace } = {}) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (main && bot.private === true) throw new Error(`${bot.name} is private, so it cannot be a Main Bot`)
     const others = state.mainBotIds.filter(other => other !== id)
     let next
     if (!main) {
@@ -650,7 +690,17 @@ export function install(rt) {
     const current = rt.chatOf(id)
     // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
     const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId)])
+    // `archiving` stands until the archive's path is known: the memory may already be
+    // there, and no region of its own closes it yet.
+    const closedArchive = bot.private === true ? {
+      id: bot.id,
+      name: bot.name,
+      ...(bot.workDir === undefined ? {} : { workDir: bot.workDir }),
+      sessionIds: [...parts, ...rt.groupSessionsOf(id)],
+      archiving: true,
+    } : undefined
     await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
+    if (closedArchive !== undefined) state.privateArchives = [...(state.privateArchives ?? []).filter(entry => entry.id !== id), closedArchive]
     delete state.bots[id]
     for (const part of parts) {
       delete state.questions[part]
@@ -668,7 +718,12 @@ export function install(rt) {
     }
     await followMemberNames(touched)
     await rt.forgetBotSecrets(id)
-    await archived
+    const archivePath = await archived
+    if (closedArchive !== undefined) {
+      // No path means nothing was moved: a memory that stayed in place is a region already.
+      if (archivePath !== undefined) closedArchive.archivePath = archivePath
+      delete closedArchive.archiving
+    }
     const failed = await saveForDelete()
     // Same as deleteRoom: stopActivity removes the Session's armed scheduled tasks.
     // Past parts are archived too: a part move can leave tasks on the old Session,

@@ -130,6 +130,7 @@ export function ConversationContent(props: ConversationContentProps) {
         onClose: () => { setPickerOpen(false) },
       })}
       {renderSlot('conversation.hero.agentPreset', {})}
+      {sessionId === undefined ? null : <div className={css.heroOptions}>{renderSlot('conversation.hero.options', {})}</div>}
     </div>
   )
 
@@ -199,6 +200,9 @@ export function ConversationContent(props: ConversationContentProps) {
         {composerSeat}
       </div>
       <WidthControls container={body} phase={phase} />
+      {sessionId !== undefined && !hero && <div className={css.contentOverlays} data-conversation-overlay>
+        {renderSlot('conversation.content.overlayHost', {})}
+      </div>}
     </div>
   )
 }

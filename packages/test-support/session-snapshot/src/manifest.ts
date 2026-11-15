@@ -4,7 +4,7 @@ import { isAbsolute } from 'node:path'
 import * as yaml from 'js-yaml'
 
 /** Public `dsh` profile used to control a recorded-session scenario. */
-export type SnapshotProfile = 'headless' | 'sdk' | 'acp' | 'web'
+export type SnapshotProfile = 'headless' | 'sdk' | 'sdk-minimal' | 'acp' | 'web'
 
 /** How a canonical session may be regenerated. */
 export type SnapshotRecording = 'live' | 'authored'
@@ -122,7 +122,7 @@ export interface SnapshotManifest {
   session?: SnapshotSessionReference
   /** Historical generation retained by an owner instead of tracking the current writer. */
   sessionFormat?: SnapshotSessionFormatManifest
-  /** Headless or SDK owner compares separate writer output while preserving its canonical replay inputs. */
+  /** Headless, SDK, ACP, or root-only Web owner compares separate writer output while preserving canonical replay inputs. */
   writerOutput?: true
 }
 
@@ -146,7 +146,7 @@ export function writesCurrentSessionFixtures(
     && manifest.writerOutput !== true
 }
 
-const PROFILES = new Set<SnapshotProfile>(['headless', 'sdk', 'acp', 'web'])
+const PROFILES = new Set<SnapshotProfile>(['headless', 'sdk', 'sdk-minimal', 'acp', 'web'])
 const RECORDINGS = new Set<SnapshotRecording>(['live', 'authored'])
 const PLATFORMS = new Set<SnapshotPlatform>(['posix', 'pwsh'])
 const PERMISSIONS = new Set<SnapshotPermission>(['read-only', 'workspace-write', 'danger-full-access'])
@@ -231,7 +231,7 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
     if (root.version !== 1) throw new Error('manifest.version must equal 1')
     const scenario = root.scenario === undefined ? undefined : name(root.scenario, 'manifest.scenario')
     if (typeof root.profile !== 'string' || !PROFILES.has(root.profile as SnapshotProfile)) {
-      throw new Error('manifest.profile must be headless, sdk, acp, or web')
+      throw new Error('manifest.profile must be headless, sdk, sdk-minimal, acp, or web')
     }
 
     const composition = root.composition === undefined
@@ -415,8 +415,9 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
 
     if (root.writerOutput !== undefined) {
       if (root.writerOutput !== true) throw new Error('manifest.writerOutput must be true when present')
-      if ((root.profile !== 'headless' && root.profile !== 'sdk') || session !== undefined || sessionFormat !== undefined) {
-        throw new Error('manifest.writerOutput requires a headless or sdk Session owner without sessionFormat')
+      if ((root.profile !== 'headless' && root.profile !== 'sdk' && root.profile !== 'acp' && root.profile !== 'web')
+        || session !== undefined || sessionFormat !== undefined) {
+        throw new Error('manifest.writerOutput requires a headless, sdk, acp, or web Session owner without sessionFormat')
       }
     }
 

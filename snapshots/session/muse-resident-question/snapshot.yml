@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-resident-question
+profile: headless
+composition: muse-resident-question
+recording: authored
+sessionFormat:
+  version: 4
+  coverage: [retired-tools]
+header:
+  class: muse-resident-question
+  pin: true

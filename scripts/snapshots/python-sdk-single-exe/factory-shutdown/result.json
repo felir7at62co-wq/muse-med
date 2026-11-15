@@ -133,8 +133,71 @@
       "payload": {
         "sessionId": "{{child}}",
         "event": {
-          "type": "agent/inbox/spliced",
+          "type": "subagent/descriptor",
+          "seq": 0,
+          "time": 0,
+          "data": {
+            "version": 3,
+            "mode": "continuable",
+            "provider": "spawn",
+            "label": "shutdown-child",
+            "agentProvider": "shutdown-replay",
+            "agentModel": "shutdown"
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child}}",
+        "event": {
+          "type": "sandbox/mode",
+          "seq": 1,
+          "time": 0,
+          "data": {
+            "mode": "danger-full-access",
+            "source": "delegation"
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child}}",
+        "event": {
+          "type": "approval/policy",
+          "seq": 2,
+          "time": 0,
+          "data": {
+            "policy": "never",
+            "source": "delegation"
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child}}",
+        "event": {
+          "type": "permission/preset",
           "seq": 3,
+          "time": 0,
+          "data": {
+            "preset": "danger-full-access"
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{child}}",
+        "event": {
+          "type": "agent/inbox/spliced",
+          "seq": 4,
           "time": 0,
           "data": {
             "target": "next-turn",
@@ -171,7 +234,7 @@
         "sessionId": "{{child}}",
         "event": {
           "type": "turn/start",
-          "seq": 4,
+          "seq": 5,
           "time": 0,
           "data": {
             "turn": 1
@@ -185,7 +248,7 @@
         "sessionId": "{{child}}",
         "event": {
           "type": "agent/inbox/spliced",
-          "seq": 5,
+          "seq": 6,
           "time": 0,
           "data": {
             "target": "next-turn",
@@ -208,24 +271,7 @@
             "version": 0,
             "childId": "{{child}}",
             "childCreatedAt": 0,
-            "mode": "one-shot",
-            "label": "shutdown-child"
-          }
-        }
-      }
-    },
-    {
-      "method": "session.event",
-      "payload": {
-        "sessionId": "{{child}}",
-        "event": {
-          "type": "subagent/descriptor",
-          "seq": 6,
-          "time": 0,
-          "data": {
-            "version": 3,
-            "mode": "one-shot",
-            "provider": "spawn",
+            "mode": "continuable",
             "label": "shutdown-child"
           }
         }
@@ -312,7 +358,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.\n\nApproval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).\n\nYou are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
+                "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent working directory: \"{{cwd}}\".\n\nCurrent DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.\n\nApproval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).\n\nDelegation depth for `subagent`: current 1, maximum 1, remaining levels 0. Do not call `subagent` at this depth; carry out the work directly.\n\nDelegation depth for `subagent_fork`: current 1, maximum 1, remaining levels 0. Do not call `subagent_fork` at this depth; carry out the work directly.\n\nYou are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it."
               }
             ],
             "source": {
@@ -320,12 +366,24 @@
               "form": "snapshot",
               "sections": [
                 {
+                  "name": "working-directory:current",
+                  "text": "Current working directory: \"{{cwd}}\"."
+                },
+                {
                   "name": "sandbox:policy",
                   "text": "Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations."
                 },
                 {
                   "name": "approval:policy",
                   "text": "Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`)."
+                },
+                {
+                  "name": "tool:subagent:depth",
+                  "text": "Delegation depth for `subagent`: current 1, maximum 1, remaining levels 0. Do not call `subagent` at this depth; carry out the work directly."
+                },
+                {
+                  "name": "tool:subagent_fork:depth",
+                  "text": "Delegation depth for `subagent_fork`: current 1, maximum 1, remaining levels 0. Do not call `subagent_fork` at this depth; carry out the work directly."
                 },
                 {
                   "name": "subagent:delegation",
@@ -355,9 +413,9 @@
                 "model": "shutdown"
               },
               "tools": [
+                "ask_user_question",
                 "create_goal",
                 "edit",
-                "exit_plan_mode",
                 "get_goal",
                 "glob",
                 "grep",
@@ -366,8 +424,14 @@
                 "job_list",
                 "job_output",
                 "list_agents",
+                "plugin_manager",
+                "present",
                 "read",
                 "read_image",
+                "schedule_create",
+                "schedule_edit",
+                "schedule_list",
+                "schedule_view",
                 "send_message",
                 "skill",
                 "subagent",
@@ -376,8 +440,8 @@
                 "todo_write",
                 "update_goal",
                 "web_fetch",
-                "web_search",
                 "workflow",
+                "working_directory",
                 "write"
               ]
             },

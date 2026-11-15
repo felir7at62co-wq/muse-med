@@ -1,0 +1,18 @@
+- region "Episode MP4":
+  - heading "Episode MP4" [level=3]
+  - paragraph: Check an authored episode for export, or select an original task to read its current status.
+  - text: Episode number (1–99)
+  - spinbutton "Episode number (1–99)": "1"
+  - button "Check export readiness"
+  - button "Find original tasks"
+  - code: Original task {{original-attempt}}
+  - code: SHA-256 {{original-digest}}
+  - paragraph: Episode MP4 published
+  - button "Select this original task"
+  - status: Episode MP4 published
+  - code: Original task {{original-attempt}}
+  - paragraph: Export file verified at publication
+  - code: {{published-path}}
+  - code: SHA-256 {{output-sha}}
+  - button "Retry this original task" [disabled]
+  - button "Refresh original task status"

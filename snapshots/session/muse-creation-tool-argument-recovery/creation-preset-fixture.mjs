@@ -10,8 +10,8 @@ export async function apply(ctx) {
     for (const result of options.messages.filter(message => message.role === 'tool' && message.isError)) {
       const text = result.content.filter(block => block.type === 'text').map(block => block.text).join('')
       assert.ok(text.includes('ToolCallError:'), text)
-      assert.equal(text.includes('file://'), false)
-      assert.equal(text.includes('node:internal'), false)
+      assert.equal(text.includes('file://'), false, text)
+      assert.equal(text.includes('node:internal'), false, text)
     }
     yield* next()
   })

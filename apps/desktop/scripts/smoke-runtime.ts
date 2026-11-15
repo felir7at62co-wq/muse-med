@@ -1,15 +1,15 @@
 /** Boot the materialized target runtime without access to a user's Harness profile. */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { readPrimaryRuntime, workspaceDependencyPaths } from '../../../packages/skill/tool-workspace-dependencies/src/index.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
 import { createPluginProfile } from '../src/project-manager.ts'
-import { recordDesktopRuntimeProfile, validateDesktopPluginGraph } from '../src/profile-packages.ts'
 import { readDesktopRuntime, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 import { isEntry } from '../../../scripts/release/process.ts'
 import { CREATION_SKILL_NAMES } from '../../desktop-host/src/creation-skills.ts'
@@ -19,31 +19,279 @@ const editingModelInput = JSON.parse(readFileSync(new URL('../tests/expected/edi
   tools: Record<string, string>
 }
 
+/** Isolated smoke roots with product-home skills separate from project discovery. */
+export interface DesktopSmokeSkillLayout {
+  /** Repository-marked workspace used by every mounted Agent. */
+  cwd: string
+  /** Expected winners after product and project root precedence is applied. */
+  selected: Array<{ name: string; path: string; source: string }>
+}
+
+/** Describe product user roots, three project roots and their same-name precedence.
+ * @param home - Private smoke product home.
+ * @returns Expected filesystem selections without creating any files.
+ */
+export function desktopSmokeSkillLayout(home: string): DesktopSmokeSkillLayout {
+  const cwd = join(home, 'workspace')
+  return { cwd, selected: [
+    { name: 'desktop-user-skill', path: join(home, 'skills/desktop-user-skill/SKILL.md'), source: 'custom' },
+    ...(['muse', 'dsh', 'agents'] as const).map(kind => ({
+      name: 'desktop-project-' + kind,
+      path: join(cwd, '.' + kind, 'skills/desktop-project-' + kind + '/SKILL.md'), source: 'project-' + kind,
+    })),
+    { name: 'desktop-project-priority', path: join(cwd, '.muse/skills/desktop-project-priority/SKILL.md'), source: 'project-muse' },
+  ] }
+}
+
+/** Create independent project roots and excluded shared-root sentinels for the real Host smoke.
+ * @param home - Private smoke product home.
+ * @returns Workspace and expected selected skill paths.
+ */
+export function prepareDesktopSmokeSkills(home: string): DesktopSmokeSkillLayout {
+  const layout = desktopSmokeSkillLayout(home)
+  mkdirSync(join(layout.cwd, '.git'), { recursive: true })
+  const files = [...layout.selected,
+    ...['.dsh', '.agents'].flatMap(directory => [
+      { name: 'desktop-user-skill', path: join(home, directory, 'skills/desktop-user-skill/SKILL.md') },
+      { name: 'desktop-shared-only', path: join(home, directory, 'skills/desktop-shared-only/SKILL.md') },
+      { name: 'desktop-project-priority', path: join(layout.cwd, directory, 'skills/desktop-project-priority/SKILL.md') },
+    ]),
+    { name: 'desktop-project-priority', path: join(home, 'skills/desktop-project-priority/SKILL.md') },
+  ]
+  for (const { name, path } of files) {
+    mkdirSync(join(path, '..'), { recursive: true })
+    writeFileSync(path, `---\nname: ${name}\ndescription: Isolated Desktop smoke fixture.\n---\n# ${name}\n`)
+  }
+  return layout
+}
+
 /** Generate the private startup plugin that mounts the complete product preset through Host services.
  * @param root - Prepared product package root.
- * @param home - Disposable smoke home and workspace.
+ * @param home - Disposable smoke product home containing a separate workspace.
  * @returns ESM plugin source checking current product tools, technical skills, retired resources,
- * native skill locations, and completed Agent disposal. Historical editing resolves to short-drama.
+ * native skill locations, the tool-free private reviewer, and completed Agent disposal.
+ * Operation errors retain their preset, Agent identity and cause; teardown preserves prior failures.
+ * Preset/instance/phase diagnostics retain foreign stacks and bounded lifecycle observations.
+ * Historical editing resolves to short-drama; only ordinary presets are mounted in the preset loop.
  */
 export function desktopSmokePluginSource(root: string, home: string): string {
   return `
 import { Context } from '@deepseek-ai/cordis'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { existsSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, relative, isAbsolute } from 'node:path'
-export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer', 'museAccount']
+import { getCallSites, inspect } from 'node:util'
+async function smokeOperation(preset, index, operation, action, sessionId = 'desktop-product-smoke-' + preset + '-' + index) {
+  try {
+    return await action()
+  } catch (error) {
+    throw new Error('desktop runtime: preset ' + preset + ', agent ' + (index + 1) + ' (' + sessionId + '), ' + operation + ' failed', { cause: error })
+  }
+}
+async function disposeSmokeAgents(preset, handles, primaryFailure) {
+  const failures = []
+  for (let index = handles.length - 1; index >= 0; index--) {
+    const handle = handles[index]
+    try {
+      await smokeOperation(preset, index, 'dispose', () => handle.dispose(), handle.agent.id)
+    } catch (error) {
+      failures.push(error)
+    }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(primaryFailure === undefined ? failures : [primaryFailure.error, ...failures],
+      'desktop runtime: preset ' + preset + ' lifecycle failed')
+  }
+}
+export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer', 'museAccount', 'toolDiscovery']
 export function apply(ctx) {
+  const callerFiber = ctx.fiber
+  const callerAgents = ctx.agents
   ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-product-smoke', handler: async (_request, response) => {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
   const root = ${JSON.stringify(root)}
   const home = ${JSON.stringify(home)}
+  const skillLayout = ${JSON.stringify(desktopSmokeSkillLayout(home))}
+  const cwd = skillLayout.cwd
   const editingModelInput = ${JSON.stringify(editingModelInput)}
   const creationSkillNames = new Set(${JSON.stringify(CREATION_SKILL_NAMES)})
+  const creationUserSources = new Set(['custom', 'user-muse', 'user-dsh', 'user-agents', 'project-muse', 'project-dsh', 'project-agents'])
+  const failureText = error => error && error.stack ? error.stack : String(error)
+  const withContext = (error, preset, index, phase, sessionId) => {
+    const operation = { create: 'create and mount', 'assemble-initial': 'assemble initial prompt',
+      'assemble-loaded': 'assemble loaded tools', 'assemble-released': 'assemble released tools',
+      'skills-list': 'list skills' }[phase] ?? (phase.startsWith('skills-get:') ? 'load skill ' + phase.slice(11) : phase)
+    const ownerId = sessionId ?? 'desktop-product-smoke-' + preset + '-' + index
+    const failure = new Error('desktop runtime: preset=' + preset + ' index=' + index + ' phase=' + phase + '; preset ' + preset + ', agent ' + (index + 1) + ' (' + ownerId + '), ' + operation + ' failed', { cause: error })
+    failure.stack += '\\nCaused by: ' + failureText(error)
+    return failure
+  }
+  const identities = new WeakMap()
+  const birthUIDs = new WeakMap()
+  let nextIdentity = 0
+  const identity = value => {
+    if ((typeof value !== 'object' || value === null) && typeof value !== 'function') return null
+    if (!identities.has(value)) identities.set(value, ++nextIdentity)
+    return identities.get(value)
+  }
+  const describeFiber = fiber => {
+    if (fiber === undefined) return null
+    const uid = fiber.uid
+    if (typeof uid === 'number' && !birthUIDs.has(fiber)) birthUIDs.set(fiber, uid)
+    return { identity: identity(fiber), birthUID: birthUIDs.get(fiber) ?? null, uid,
+      state: fiber.state, label: fiber.runtime?.name ?? null }
+  }
+  const tracked = []
+  const firstRecords = []
+  const lastRecords = []
+  const observerErrors = []
+  let droppedRecords = 0, droppedObserverErrors = 0, sequence = 0
+  let location = { preset: null, index: -1, phase: 'request' }
+  const observerError = (event, error) => {
+    let message = 'Observer failure could not be rendered'
+    let renderingFailed = false
+    try { message = String(failureText(error)).slice(0, 4096) } catch { renderingFailed = true }
+    if (observerErrors.length < 8) observerErrors.push({ event, ...location, message, renderingFailed })
+    else droppedObserverErrors++
+  }
+  const disposalCallSites = () => {
+    try {
+      const aliases = ${JSON.stringify([[pathToFileURL(home).href + '/', '<home>/'], [pathToFileURL(root).href + '/', '<runtime>/']])}
+      return getCallSites(48, { sourceMap: false }).map(frame => {
+        let file = frame.scriptName
+        for (const [prefix, alias] of aliases) {
+          if (file.startsWith(prefix)) { file = alias + file.slice(prefix.length); break }
+        }
+        return { fn: frame.functionName.slice(0, 96), file: file.slice(0, 320),
+          line: frame.lineNumber, column: frame.columnNumber }
+      })
+    } catch (error) { observerError('getCallSites', error); return [] }
+  }
+  const abortReason = reason => {
+    let summary = 'Abort reason unavailable', stack
+    try {
+      const message = reason?.message
+      summary = (typeof message === 'string' ? message : String(reason)).slice(0, 512)
+    } catch (error) { observerError('abort-reason-summary', error) }
+    try {
+      const value = reason?.stack
+      if (typeof value === 'string') stack = value.slice(0, 4096)
+    } catch (error) { observerError('abort-reason-stack', error) }
+    return { summary, ...(stack === undefined ? {} : { stack }) }
+  }
+  const appendRecord = record => {
+    record.sequence = ++sequence
+    if (firstRecords.length < 128) firstRecords.push(record)
+    else {
+      lastRecords.push(record)
+      if (lastRecords.length > 384) { lastRecords.shift(); droppedRecords++ }
+    }
+  }
+  const trackedState = (registries, currentAgents) => tracked.map(row => ({
+    preset: row.preset, index: row.index, agentIdentity: identity(row.agent),
+    contextIdentity: identity(row.context), fiber: describeFiber(row.fiber),
+    ...(registries ? {
+      agentRegistryIdentity: identity(callerAgents[Symbol.for('cordis.original')] ?? callerAgents),
+      registeredAgentMatches: callerAgents.get(row.agent.id) === row.agent,
+      currentRegisteredAgentMatches: currentAgents.get(row.agent.id) === row.agent,
+    } : {}),
+  }))
+  const checkpoint = (event, preset, index, phase) => {
+    location = { preset, index, phase }
+    try {
+      const currentAgents = ctx.agents
+      appendRecord({ event, ...location, owner: describeFiber(callerFiber),
+        currentAgentRegistryIdentity: identity(currentAgents[Symbol.for('cordis.original')] ?? currentAgents),
+        tracked: trackedState(true, currentAgents) })
+    } catch (error) { observerError(event, error) }
+  }
+  const observe = (event, fiber, oldState) => {
+    try {
+      const description = describeFiber(fiber)
+      appendRecord({ event, ...location, fiber: description, oldState, owner: describeFiber(callerFiber),
+        tracked: trackedState(false),
+        ...(event === 'internal/plugin' && description.uid === null ? { disposalCallSites: disposalCallSites() } : {}),
+        ...(description.uid === null || event === 'internal/status'
+          ? { stack: new Error('Desktop lifecycle ' + event).stack?.slice(0, 4096) } : {}) })
+    } catch (error) { observerError(event, error) }
+  }
+  const observedAgents = new WeakSet(), signalReleases = []
+  const observeCreated = ({ agent, signal }) => {
+    try {
+      if (!agent.session.id.startsWith('desktop-product-smoke-') || signal === undefined || observedAgents.has(agent)) return
+      // Seven ordinary presets own two Agents each; the private reviewer owns one.
+      if (signalReleases.length >= 15) { observerError('agent-created-capacity', new Error('Smoke Agent observation limit reached')); return }
+      const context = agent.ctx, fiber = context.fiber, agentIdentity = identity(agent), contextIdentity = identity(context)
+      const alreadyAborted = signal.aborted
+      let recorded = false
+      const onAbort = () => {
+        try {
+          if (recorded) return
+          recorded = true
+          appendRecord({ event: 'agent-abort', ...location, agentIdentity, contextIdentity, alreadyAborted,
+            fiber: describeFiber(fiber), owner: describeFiber(callerFiber), reason: abortReason(signal.reason),
+            callSites: disposalCallSites() })
+        } catch (error) { observerError('agent-abort', error) }
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      signalReleases.push(() => signal.removeEventListener('abort', onAbort))
+      observedAgents.add(agent)
+      if (alreadyAborted) onAbort()
+    } catch (error) { observerError('agent-created', error) }
+  }
+  const observerReleases = []
+  for (const event of ['internal/plugin', 'internal/status']) {
+    try { observerReleases.push(ctx.root.on(event, (fiber, oldState) => { observe(event, fiber, oldState) })) }
+    catch (error) { observerError('register-' + event, error) }
+  }
+  try { observerReleases.push(ctx.root.on('agent/created', observeCreated, { global: true })) }
+  catch (error) { observerError('register-agent/created', error) }
+  const rejectionText = (value, limit) => value.slice(0, 16384)
+    .replace(/(?:https?|wss?):[/][/][^\\s"'<>]+/giu, '[URL omitted]')
+    .replace(/[^\\n]*(?:authorization|set-cookie|cookie|password|api[_-]?key|access[_-]?token|refresh[_-]?token|secret)[ \\t]*[:=][^\\n]*/giu,
+      '[credential-bearing line omitted]')
+    .slice(0, limit)
+  const rejectionReason = reason => {
+    const result = { kind: typeof reason }
+    if (typeof reason === 'string') result.message = rejectionText(reason, 512)
+    if (reason === null || (typeof reason !== 'object' && typeof reason !== 'function')) return result
+    // Read only these own fields; V8 may expose Error.stack through an accessor.
+    for (const [key, limit] of [['name', 96], ['code', 96], ['message', 512], ['stack', 4096]]) {
+      try {
+        const field = Object.getOwnPropertyDescriptor(reason, key)
+        const value = key === 'stack' && typeof field?.get === 'function' ? field.get.call(reason) : field?.value
+        if (typeof value === 'string') result[key] = rejectionText(value, limit)
+      } catch { result.unreadable = true }
+    }
+    return result
+  }
+  let rejectionObserved = false, rejectionRegistered = false
+  const onUnhandledRejection = reason => {
+    try {
+      if (rejectionObserved) return
+      rejectionObserved = true
+      const record = { event: 'unhandled-rejection', ...location, reason: rejectionReason(reason), callSites: disposalCallSites() }
+      appendRecord(record)
+      try { console.log('Desktop unhandled rejection: ' + JSON.stringify(record)) }
+      catch { observerError('unhandled-rejection-output', new Error('Rejection diagnostic output failed')) }
+    } catch { observerError('unhandled-rejection', new Error('Rejection diagnostic could not be recorded')) }
+  }
+  try {
+    // The supported profile already owns fatal handling. Do not replace Node's default when it does not.
+    if (process.listenerCount('unhandledRejection') > 0) {
+      process.prependListener('unhandledRejection', onUnhandledRejection)
+      rejectionRegistered = true
+    }
+  } catch { observerError('register-unhandled-rejection', new Error('Rejection observation could not be registered')) }
+  let failed = false, failure
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
-  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'creation']
+  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
+  const reviewerId = 'muse-manuscript-continuity-reviewer'
+  const roster = [...ids, reviewerId]
   const presets = await ctx.agentPresets.list()
-  if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
-    throw new Error('desktop runtime: expected exactly the six product presets; found ' + presets.map(preset => preset.id).join(', '))
+  if (presets.length !== roster.length || roster.some(id => !presets.some(preset => preset.id === id))) {
+    throw new Error('desktop runtime: product preset roster differs; expected ' + roster.join(', ') + '; found ' + presets.map(preset => preset.id).join(', '))
   }
   if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
   if ((await ctx.agentPresets.resolve('editing')).id !== 'short-drama') {
@@ -51,36 +299,68 @@ export function apply(ctx) {
   }
   const inventory = await ctx.agentPresets.compositionInventory()
   for (const id of ids) {
+  const handles = []
+  const failures = []
+  let index = -1
+  let phase = 'resolve'
+  try {
   const preset = await ctx.agentPresets.resolve(id)
   const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'presets', id, 'agent.cordis.yml')
   const composition = inventory.find(row => row.id === id)
   if (preset.broken !== undefined || !existsSync(expected) || composition === undefined || composition.rows.length === 0) {
     throw new Error('desktop runtime: preset is broken or missing from the product package: ' + id + '; ' + (preset.broken ?? 'composition absent'))
   }
-  const handles = []
-  try {
-    for (let index = 0; index < 2; index++) {
+    for (index = 0; index < 2; index++) {
+      phase = 'create'
+      checkpoint('before-create', id, index, phase)
       handles.push(await ctx.agents.create({
-        sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd: home, agentPreset: id },
+        sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd, agentPreset: id },
         setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, id) },
       }))
+      try {
+        const agent = handles[index].agent
+        const context = agent.ctx
+        tracked.push({ preset: id, index, agent, context, fiber: context?.fiber })
+      } catch (error) { observerError('track-created-agent', error) }
+      checkpoint('after-create', id, index, phase)
     }
-    for (const handle of handles) {
+    for (const [handleIndex, handle] of handles.entries()) {
+    index = handleIndex
+    phase = 'tools'
+    checkpoint('before-tools', id, index, phase)
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
+    checkpoint('after-tools', id, index, phase)
+    const retiredTools = ['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user']
+    for (const name of retiredTools) if (names.has(name)) throw new Error('desktop runtime: archived Bot tool remains active: ' + name + ' in ' + id)
+    for (const name of names) if (name.startsWith('mcp__muse-account__')) {
+      throw new Error('desktop runtime: retired built-in account MCP remains active: ' + name + ' in ' + id)
+    }
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
-      'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'hindsight_memory', 'ask_user_question', 'todo_write', 'todo_update',
+      'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'ask_user_question', 'todo_write', 'todo_update',
       'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'read', 'present', 'video_inspect', 'video_ocr',
       process.platform === 'win32' ? 'pwsh' : 'bash']
       : id === 'minimal' ? [shell]
-        : id === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'video_contact_sheet', 'video_ocr',
+        : id === 'creation' ? ['read', 'skill', shell, 'present', 'video_contact_sheet', 'video_ocr',
           'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft',
-          'jubian_find', 'jubian_claim', 'jubian_snatch',
-          'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
-          'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
-          'mcp__muse-account__muse_kb_ingest_script']
-        : ['read', 'skill', shell, 'subagent']
+          'jubian_find', 'jubian_claim', 'jubian_snatch', 'source_snapshot', 'source_report', 'work_mapping']
+        : id === 'bot-coordinator' ? ['read', 'write', 'edit', 'glob', 'grep', 'skill', shell, 'present',
+          'web_search', 'web_fetch', 'ask_user_question', 'todo_write', 'todo_update', 'subagent',
+          'tool_search', 'tool_context']
+          : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
+    phase = 'assemble-initial'
+    checkpoint('before-assemble', id, index, phase)
+    const modelInput = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+    checkpoint('after-assemble', id, index, phase)
+    const modelNames = modelInput.tools.map(tool => tool.name)
+    if (['ptc', 'creation', 'cordis'].includes(id)) {
+      if (modelNames.length !== 1 || modelNames[0] !== 'run_code') {
+        throw new Error('desktop runtime: PTC preset must expose only run_code: ' + id)
+      }
+    } else if (modelNames.includes('run_code')) {
+      throw new Error('desktop runtime: native preset executor differs: ' + id)
+    }
     if (names.has('audio_transcribe') !== (id !== 'minimal')) throw new Error('desktop runtime: transcription availability differs in ' + id)
     if (id === 'minimal') {
       const inherited = new Set(ctx.tools.schemas().map(tool => tool.name))
@@ -88,7 +368,7 @@ export function apply(ctx) {
       if (local.length !== 1 || local[0] !== shell) throw new Error('desktop runtime: minimal must add only its persistent shell; found ' + local.join(', '))
     }
     if (id === 'short-drama') {
-      const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      const assembly = modelInput
       const persona = assembly.sections.find(section => section.name === 'deployment:persona-prefix')?.text
       if (!persona?.startsWith(editingModelInput.personaPrefix)) {
         throw new Error('desktop runtime: unified creative persona changed')
@@ -97,13 +377,60 @@ export function apply(ctx) {
       if (!delivery?.includes('默认使用 Word（.docx）') || !delivery.includes('screenplay_export_docx')) {
         throw new Error('desktop runtime: editing Word delivery guidance is missing')
       }
+      const deferredTools = Object.keys(editingModelInput.tools)
+      const authorized = ctx.tools.schemas(handle.agent)
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
-        if (assembly.tools.find(tool => tool.name === name)?.description !== description) {
-          throw new Error('desktop runtime: editing model tool description changed: ' + name)
+        const tool = authorized.find(tool => tool.name === name)
+        if (!tool) throw new Error('desktop runtime: missing product tool ' + name + ' in short-drama')
+        if (tool.description !== description) {
+          throw new Error('desktop runtime: editing authorized tool description changed: ' + name)
         }
       }
+      for (const name of ['read', 'skill', 'tool_search', 'tool_context']) {
+        if (!assembly.tools.some(tool => tool.name === name)) {
+          throw new Error('desktop runtime: missing resident tool ' + name)
+        }
+      }
+      const initialNames = assembly.tools.map(tool => tool.name).sort()
+      if (deferredTools.some(name => initialNames.includes(name))) {
+        throw new Error('desktop runtime: source tools must remain deferred before discovery')
+      }
+      const manage = async operation => {
+        phase = 'tool-context-' + operation
+        const callId = ToolCallId(handle.agent.id + ':desktop-smoke-' + operation)
+        const args = { operation, tools: deferredTools }
+        const batch = await ctx.tools.execute({
+          calls: [{ type: 'tool-call', id: callId, name: 'tool_context', arguments: JSON.stringify(args) }],
+          agent: handle.agent, signal: AbortSignal.timeout(30_000), log: { turn: 1, step: 1 },
+        })
+        const outcome = batch.results[0]
+        if (batch.results.length !== 1 || outcome?.callId !== callId) {
+          throw new Error('desktop runtime: invalid tool_context batch result')
+        }
+        const result = outcome.result
+        if (result.isError) throw new Error('desktop runtime: tool_context ' + operation + ' failed')
+      }
+      await manage('load')
+      phase = 'assemble-loaded'
+      checkpoint('before-assemble', id, index, phase)
+      const loaded = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      checkpoint('after-assemble', id, index, phase)
+      for (const [name, description] of Object.entries(editingModelInput.tools)) {
+        if (loaded.tools.find(tool => tool.name === name)?.description !== description) {
+          throw new Error('desktop runtime: editing model tool description changed after loading: ' + name)
+        }
+      }
+      await manage('release')
+      phase = 'assemble-released'
+      checkpoint('before-assemble', id, index, phase)
+      const released = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      checkpoint('after-assemble', id, index, phase)
+      if (JSON.stringify(released.tools.map(tool => tool.name).sort()) !== JSON.stringify(initialNames)
+        || deferredTools.some(name => ctx.toolDiscovery.state(handle.agent).loaded.includes(name))) {
+        throw new Error('desktop runtime: releasing source tools did not restore initial model tools')
+      }
     }
-    if ((id === 'ptc' || id === 'creation') && (!names.has('run_code') || names.has('workflow'))) {
+    if ((id === 'ptc' || id === 'creation') && names.has('workflow')) {
       throw new Error('desktop runtime: PTC tool presentation is incomplete in ' + id)
     }
     if (id === 'creation' && ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code'].some(name => names.has(name))) {
@@ -111,14 +438,15 @@ export function apply(ctx) {
     }
     const skillRegistry = id === 'creation' ? ctx.agentPresets.serviceFor(handle.agent, 'skills') : ctx.skills
     if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
-    const skills = await skillRegistry.list({ scope: handle.agent, cwd: home })
+    phase = 'skills-list'
+    const skills = await skillRegistry.list({ scope: handle.agent, cwd })
     if (id === 'creation') {
       for (const name of ['office-docx', 'office-xlsx', 'office-pptx']) {
         if (!skills.some(skill => skill.name === name && skill.invocation.modelInvocable)) {
           throw new Error('desktop runtime: missing creation skill ' + name)
         }
       }
-      if (skills.some(skill => !creationSkillNames.has(skill.name))) {
+      if (skills.some(skill => !creationSkillNames.has(skill.name) && !creationUserSources.has(skill.source))) {
         throw new Error('desktop runtime: creation skill registry exposes unreviewed skills')
       }
     }
@@ -127,9 +455,8 @@ export function apply(ctx) {
         .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2')
       for (const directory of ['douyin-download', 'editing', 'jubian-snatch', 'media-link-import',
         'muse-llm-wiki', 'muse-project-participation',
-        'muse-script-doctor', 'muse-dialogue-polish', 'muse-episode-design', 'reviewing-micro-drama-scripts', 'screenplay-format', 'muse-creation',
-        'novel-to-script', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
-        'trope-adaptation', 'video-review', 'wechat-shortdrama-harvest']) {
+        'reviewing-micro-drama-scripts', 'muse-creation', 'screenplay-project', 'transcript-to-novel', 'transcript-to-script',
+        'trope-adaptation', 'wechat-shortdrama-harvest']) {
         if (existsSync(join(productSkills, directory, 'SKILL.md'))) {
           throw new Error('desktop runtime: retired Host skill is enabled: ' + directory)
         }
@@ -138,14 +465,15 @@ export function apply(ctx) {
         && skill.path.endsWith('SKILL.md.disabled'))) {
         throw new Error('desktop runtime: disabled skill is model-invocable')
       }
-      for (const name of ['audio-transcribe']) {
+      for (const name of ['audio-transcribe', 'muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format', 'video-review']) {
         const skill = skills.find(value => value.name === name)
         const expected = join(productSkills, name, 'SKILL.md')
         if (!skill?.invocation.modelInvocable || !skill.path || !existsSync(expected)
           || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
         }
-        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
+        phase = 'skills-get:' + name
+        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(loaded.path)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: shared skill did not load from the packaged Host: ' + name)
@@ -181,12 +509,21 @@ export function apply(ctx) {
         throw new Error('desktop runtime: cordis authoring skill is not mounted')
       }
     }
-    const custom = skills.find(skill => skill.name === 'desktop-user-skill')
-    if (id !== 'creation' && (!custom || realpathSync.native(custom.path) !== realpathSync.native(join(home, 'skills/desktop-user-skill/SKILL.md'))
-      || skills.some(skill => skill.name === 'desktop-legacy-only'))) {
-      throw new Error('desktop runtime: product custom skills missing or legacy skills discovered in ' + id
-        + '; custom=' + (custom?.path ?? 'missing') + '; expected=' + join(home, 'skills/desktop-user-skill/SKILL.md')
-        + '; legacy=' + skills.some(skill => skill.name === 'desktop-legacy-only'))
+    for (const expected of skillLayout.selected) {
+      const skill = skills.find(skill => skill.name === expected.name)
+      if (!skill?.path || !skill.invocation.modelInvocable || skill.source !== expected.source
+        || realpathSync.native(skill.path) !== realpathSync.native(expected.path)) {
+        throw new Error('desktop runtime: custom or project skill selection differs in ' + id + ': ' + expected.name
+          + '; actual=' + (skill?.path ?? 'missing') + '; expected=' + expected.path)
+      }
+      phase = 'skills-get:' + expected.name
+      const loaded = await skillRegistry.get(expected.name, { scope: handle.agent, cwd })
+      if (!loaded?.path || !loaded.content?.trim() || realpathSync.native(loaded.path) !== realpathSync.native(expected.path)) {
+        throw new Error('desktop runtime: custom or project skill could not load in ' + id + ': ' + expected.name)
+      }
+    }
+    if (skills.some(skill => skill.name === 'desktop-shared-only')) {
+      throw new Error('desktop runtime: excluded shared user skill was discovered in ' + id)
     }
     const bundled = realpathSync.native(join(root, 'node_modules', '@deepseek-ai', 'dsh-drama-skills', 'skills')
       .replace(/([\\\\/])app\\.asar([\\\\/])/u, '$1app.asar.unpacked$2'))
@@ -207,7 +544,8 @@ export function apply(ctx) {
       }
       if (name === 'shot-script-creator-16-9-3d' || name === 'shot-script-creator-9-16') {
         const expected = join(bundled, name, 'SKILL.md')
-        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
+        phase = 'skills-get:' + name
+        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(expected) || !existsSync(loaded.path)
           || realpathSync.native(skill.path) !== realpathSync.native(expected)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
@@ -216,64 +554,159 @@ export function apply(ctx) {
       }
     }
     }
+  } catch (error) {
+    checkpoint('failure', id, index, phase)
+    failures.push(withContext(error, id, index, phase, handles[index]?.agent.id))
   } finally {
-    for (const handle of handles.reverse()) await handle.dispose()
+    checkpoint('before-cleanup', id, index, phase)
+    for (index = handles.length - 1; index >= 0; index--) {
+      checkpoint('before-dispose', id, index, 'dispose')
+      try {
+        await handles[index].dispose()
+        checkpoint('after-dispose', id, index, 'dispose')
+      } catch (error) {
+        checkpoint('dispose-failure', id, index, 'dispose')
+        failures.push(withContext(error, id, index, 'dispose', handles[index].agent.id))
+      }
+    }
   }
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) {
+    const failure = new AggregateError(failures, 'desktop runtime: preset checks or cleanup failed')
+    failure.stack += '\\n' + failures.map(failureText).join('\\n')
+    throw failure
+  }
+  }
+  const reviewer = await ctx.agentPresets.resolve(reviewerId)
+  const reviewerComposition = inventory.find(row => row.id === reviewerId)
+  const reviewerModule = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'manuscript-continuity-preset.js')
+  if (reviewer.broken !== undefined || reviewerComposition === undefined || reviewerComposition.rows.length === 0
+    || !existsSync(reviewerModule)) {
+    throw new Error('desktop runtime: private continuity reviewer is broken or missing from the product package')
+  }
+  const reviewerHandle = await smokeOperation(reviewerId, 0, 'create and mount', () => ctx.agents.create({
+    sessionId: 'desktop-product-smoke-continuity-reviewer', meta: { cwd, agentPreset: reviewerId },
+    setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, reviewerId) },
+  }), 'desktop-product-smoke-continuity-reviewer')
+  let reviewerFailure
+  try {
+    if (ctx.tools.schemas(reviewerHandle.agent).length !== 0) {
+      throw new Error('desktop runtime: private continuity reviewer exposes ordinary tools')
+    }
+  } catch (error) {
+    reviewerFailure = { error }
+    throw error
+  } finally {
+    await disposeSmokeAgents(reviewerId, [reviewerHandle], reviewerFailure)
   }
   writeFileSync(join(home, '.desktop-product-smoke-complete'), 'ok\\n', { flag: 'wx' })
-  response.end('ok')
   } catch (error) {
-    writeFileSync(join(home, '.desktop-product-smoke-error'), String(error && error.stack ? error.stack : error), { flag: 'wx' })
-    response.statusCode = 500
-    response.end(String(error && error.stack ? error.stack : error))
+    failed = true
+    failure = error
+  } finally {
+    if (rejectionRegistered) {
+      try { process.removeListener('unhandledRejection', onUnhandledRejection) }
+      catch { observerError('unregister-unhandled-rejection', new Error('Rejection observation could not be removed')) }
+    }
+    for (const release of signalReleases) {
+      try { release() } catch (error) { observerError('unregister-abort', error) }
+    }
+    for (const release of observerReleases) {
+      try { await release() } catch (error) { observerError('unregister', error) }
+    }
   }
+  const diagnostic = '\\nDesktop lifecycle diagnostics: ' + JSON.stringify({
+    records: [...firstRecords, ...lastRecords], droppedRecords, observerErrors, droppedObserverErrors,
+  })
+  if (failed) {
+    const report = failureText(failure) + '\\n' + inspect(failure, { depth: 10, colors: false }) + diagnostic
+    writeFileSync(join(home, '.desktop-product-smoke-error'), report, { flag: 'wx' })
+    response.statusCode = 500
+    response.end(report)
+  } else response.end('ok' + diagnostic)
   } }))
 }
 `
 }
 
+/** Select immutable package qualification or the linked project used by the local Dev application. */
+export type DesktopSmokeMode = 'strict' | 'development'
+
 /**
- * Check Host startup, its matching frontend, external plugins and real Office-to-PDF conversion.
+ * Check CLI package operations, Host startup, its frontend, external plugins and real Office-to-PDF conversion.
  * @param root - Materialized dsh resources.
  * @param node - Prepared target Electron executable.
  * @param runtime - Verified resource descriptor.
  * @param environment - Credential-scrubbed build environment and private native cache.
  * @param resourcesRuntime - Bundled interpreters outside the application archive.
+ * @param mode - Strict by default; development permits workspace links through the existing local inspector launch.
  * @returns Resolves after checks and teardown; rejects on a check or teardown failure.
  */
 export async function smokeDesktopRuntime(
   root: string, node: string, runtime: DesktopRuntimeDescriptor, environment: NodeJS.ProcessEnv, resourcesRuntime: string,
+  mode: DesktopSmokeMode = 'strict',
 ): Promise<void> {
   const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-smoke-'))
   const profile = join(home, 'profiles', 'desktop')
-  const host = new DesktopHostProcess(node, root, profile, undefined, {
-    ...environment, MUSE_HOME: home, DSH_HOME: home, HOME: home, USERPROFILE: home,
-    APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local'),
-  }, undefined, join(resourcesRuntime, 'primary-runtime'),
-  { pnpm: join(resourcesRuntime, 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') })
+  const hostEnvironment = {
+    ...Object.fromEntries(Object.entries(environment).filter(([name]) => !/^(?:npm|pnpm|corepack)_/iu.test(name))),
+    DSH_HOME: home, MUSE_HOME: home, HOME: home, USERPROFILE: home,
+    XDG_CONFIG_HOME: home, XDG_CACHE_HOME: home, XDG_STATE_HOME: home,
+    APPDATA: home, LOCALAPPDATA: home,
+    npm_config_userconfig: join(home, 'npmrc'), npm_config_globalconfig: join(home, 'npmrc'),
+    npm_config_store_dir: join(home, 'store'), npm_config_enable_global_virtual_store: 'false',
+  }
+  const host = new DesktopHostProcess(node, root, profile, mode === 'development' ? 0 : undefined, hostEnvironment,
+    undefined, join(resourcesRuntime, 'primary-runtime'),
+    { pnpm: join(resourcesRuntime, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') })
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
+    writeFileSync(join(home, 'npmrc'), '')
     createPluginProfile(profile)
-    for (const [directory, name] of [
-      ['skills', 'desktop-user-skill'], ['.agents/skills', 'desktop-user-skill'],
-      ['.agents/skills', 'desktop-legacy-only'], ['.dsh/skills', 'desktop-legacy-only'],
-    ] as const) {
-      const skill = join(home, directory, name)
-      mkdirSync(skill, { recursive: true })
-      writeFileSync(join(skill, 'SKILL.md'), `---\nname: ${name}\ndescription: Isolated Desktop smoke fixture.\n---\n# ${name}\n`)
-    }
+    prepareDesktopSmokeSkills(home)
     const pluginName = 'desktop-runtime-smoke-plugin'
-    const plugin = join(profile, 'node_modules', pluginName)
+    const plugin = join(home, pluginName)
     mkdirSync(plugin, { recursive: true })
+    const installedName = 'desktop-installed-smoke-plugin'
+    const installedPlugin = join(home, installedName)
+    mkdirSync(installedPlugin)
+    writeFileSync(join(installedPlugin, 'package.json'), JSON.stringify({
+      name: installedName, version: '1.0.0', type: 'module', exports: './index.js', dsh: { bundle: { patch: './bundle.yml' } },
+    }))
+    writeFileSync(join(installedPlugin, 'index.js'), `
+export function apply(ctx) {
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-smoke-installed',
+    handler(_request, response) { response.end('installed plugin ready') } }))
+}
+`)
+    writeFileSync(join(installedPlugin, 'bundle.yml'), `- insert:\n    - id: ${installedName}\n      name: ${installedName}\n      inject: [webServer]\n`)
+    appendFileSync(join(profile, 'pnpm-workspace.yaml'), 'offline: true\nupdateNotifier: false\n')
+    const installedCli = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
+    const cli = mode === 'development' ? join(home, 'desktop-cli.mjs') : installedCli
+    if (mode === 'development') {
+      writeFileSync(cli, `import { runDesktopCli } from ${JSON.stringify(pathToFileURL(installedCli).href)}\n`
+        + `await runDesktopCli(${JSON.stringify(root)}, ${JSON.stringify(resourcesRuntime)})\n`, { flag: 'wx' })
+    }
+    const runCli = (args: string[]) => promisify(execFile)(node,
+      ['--expose-internals', cli, 'plugin', '--profile', 'desktop', ...args],
+      { cwd: home, env: { ...hostEnvironment, ELECTRON_RUN_AS_NODE: '1' }, timeout: 120_000, windowsHide: true })
+    await runCli(['add', `file:${installedPlugin}`, '--offline', '--ignore-scripts'])
+    const installedEntry = join(profile, 'node_modules', installedName, 'index.js')
+    if (readFileSync(installedEntry, 'utf8') !== readFileSync(join(installedPlugin, 'index.js'), 'utf8')) {
+      throw new Error('desktop runtime: CLI did not install the local plugin')
+    }
+    await runCli(['remove', installedName])
+    if (existsSync(installedEntry)) throw new Error('desktop runtime: CLI did not remove the local plugin')
+    console.log('desktop runtime: CLI offline plugin installation and removal passed')
     const primary = join(resourcesRuntime, 'primary-runtime')
     const dependencies = workspaceDependencyPaths(primary, await readPrimaryRuntime(primary))
     const downloadScript = join(root, 'node_modules', 'muse-douyin-download', 'python', 'scripts', 'download.py')
       .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
     await promisify(execFile)(dependencies.python, ['-I', '-B', downloadScript, '--help'],
-      { env: environment, timeout: 30_000, windowsHide: true })
+      { env: hostEnvironment, timeout: 30_000, windowsHide: true })
     await promisify(execFile)(dependencies.python, ['-I', '-B',
       fileURLToPath(new URL('../tests/fixtures/office-conversion-inputs.py', import.meta.url)), home],
-    { env: environment, timeout: 120_000, windowsHide: true })
+    { env: hostEnvironment, timeout: 120_000, windowsHide: true })
     const inputs = ['docx', 'xlsx', 'pptx'].map(extension => ({ extension,
       bytes: readFileSync(join(home, `input.${extension}`)).toString('base64') }))
     const cordis = runtime.sharedPackages.find(entry => entry.name === '@deepseek-ai/cordis')
@@ -291,10 +724,19 @@ export function apply(ctx) {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
   ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-smoke',
     handler(_request, response) { response.end('plugin route ready') } }))
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-smoke-install',
+    async handler(_request, response) {
+      try {
+        response.end(JSON.stringify(await ctx.pluginManager.installBundle(${JSON.stringify(installedPlugin)})))
+      } catch (error) {
+        response.statusCode = 500
+        response.end(inspect(error, { depth: 5 }))
+      }
+    } }))
   ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-smoke-office-cli',
     async handler(_request, response) {
       try {
-        const skill = await ctx.skills.get('office-docx')
+        const skill = await ctx.skills.get('office-export-pdf')
         const json = skill?.content.match(/\\n(\\{\\n[\\s\\S]+)$/u)?.[1]
         if (json === undefined) throw new Error('Office skill did not supply CLI paths')
         const { libreofficeKit: { node, cli } } = JSON.parse(json)
@@ -325,34 +767,35 @@ export function apply(ctx) {
   }
 }
 `)
-    writeFileSync(join(plugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-smoke-plugin\n      name: desktop-runtime-smoke-plugin\n      inject: [webServer, officeToPdf, skills]\n')
+    writeFileSync(join(plugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-smoke-plugin\n      name: desktop-runtime-smoke-plugin\n      inject: [webServer, officeToPdf, skills, pluginManager]\n')
     const productPluginName = 'desktop-runtime-product-smoke-plugin'
     const productPlugin = join(profile, 'node_modules', productPluginName)
     mkdirSync(productPlugin, { recursive: true })
     writeFileSync(join(productPlugin, 'package.json'), JSON.stringify({
       name: productPluginName, version: '1.0.0', type: 'module', exports: './index.js',
-      peerDependencies: { '@deepseek-ai/cordis': cordis.version }, dsh: { bundle: { patch: './bundle.yml' } },
+      peerDependencies: { '@deepseek-ai/cordis': cordis.version, '@deepseek-ai/dsh-llm': runtime.release.version },
+      dsh: { bundle: { patch: './bundle.yml' } },
     }))
     writeFileSync(join(productPlugin, 'index.js'), desktopSmokePluginSource(root, home))
     writeFileSync(join(productPlugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-product-smoke-plugin\n      name: desktop-runtime-product-smoke-plugin\n')
+    cpSync(plugin, join(profile, 'node_modules', pluginName), { recursive: true })
     const manifest = JSON.parse(readFileSync(join(profile, 'package.json'), 'utf8')) as {
-      dependencies: Record<string, string>
+      dependencies?: Record<string, string>
       dsh: { profile: { bundles: string[] } }
     }
-    manifest.dependencies[pluginName] = '1.0.0'
-    manifest.dependencies[productPluginName] = '1.0.0'
+    manifest.dependencies = { ...manifest.dependencies, [pluginName]: `file:${plugin}`, [productPluginName]: `file:${productPlugin}` }
     manifest.dsh.profile.bundles.push(pluginName, productPluginName)
     writeFileSync(join(profile, 'package.json'), JSON.stringify(manifest))
     writeFileSync(join(profile, 'cordis.patch.yml'), '- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n')
-    recordDesktopRuntimeProfile(profile, runtime)
-    validateDesktopPluginGraph(profile, root, runtime, [pluginName, productPluginName], 'runtime')
     const ready = await Promise.race([host.start(), new Promise<never>((_, reject) => {
       timer = setTimeout(() => { reject(new Error('desktop runtime: Host readiness exceeded 120 seconds')) }, 120_000)
     })])
     clearTimeout(timer)
     // Preset contributors have settled only after Host readiness, not during fixture activation.
     const productSmoke = await fetch(new URL('/desktop-product-smoke', ready.url), { signal: AbortSignal.timeout(120_000) })
-    await productSmoke.text()
+    const productSmokeText = await productSmoke.text()
+    const diagnosticStart = productSmokeText.indexOf('\nDesktop lifecycle diagnostics: ')
+    if (diagnosticStart >= 0) console.log(productSmokeText.slice(diagnosticStart + 1))
     if (!productSmoke.ok || !existsSync(join(home, '.desktop-product-smoke-complete'))) {
       const failure = existsSync(join(home, '.desktop-product-smoke-error'))
         ? readFileSync(join(home, '.desktop-product-smoke-error'), 'utf8').trim()
@@ -374,6 +817,14 @@ export function apply(ctx) {
     }
     const pluginResponse = await fetch(new URL('/desktop-smoke', ready.url), { headers: { cookie } })
     if (await pluginResponse.text() !== 'plugin route ready') throw new Error('desktop runtime: plugin HTTP route failed')
+    const installation = await fetch(new URL('/desktop-smoke-install', ready.url), {
+      headers: { cookie }, signal: AbortSignal.timeout(120_000),
+    })
+    const installationResult = await installation.text()
+    const installed = await fetch(new URL('/desktop-smoke-installed', ready.url), { headers: { cookie } })
+    if (!installation.ok || !installed.ok || await installed.text() !== 'installed plugin ready') {
+      throw new Error(`desktop runtime: bundled pnpm plugin installation failed: ${installationResult}`)
+    }
     for (const { extension } of inputs) {
       const converted = await fetch(new URL(`/desktop-smoke-office/${extension}`, ready.url), {
         headers: { cookie }, signal: AbortSignal.timeout(120_000),
@@ -396,16 +847,19 @@ export function apply(ctx) {
     console.log('desktop runtime: DOCX, XLSX, PPTX to PDF and skill CLI discovery passed')
   } finally {
     clearTimeout(timer)
-    await host.stop()
-    rmSync(home, { recursive: true, force: true })
+    try { await host.stop() } finally {
+      await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+    }
   }
 }
 
 if (isEntry(import.meta.url)) {
   const args = process.argv.slice(2)
+  const mode = args.at(-1) === '--development' ? 'development' : 'strict'
+  if (mode === 'development') args.pop()
   const [root, node, resourcesRuntime] = args
   if (args.length !== 3 || root === undefined || node === undefined || resourcesRuntime === undefined) {
-    throw new Error('desktop smoke: expected runtime root, Electron executable and external runtime directory')
+    throw new Error('desktop smoke: expected runtime root, Electron executable and external runtime directory, optionally --development')
   }
-  await smokeDesktopRuntime(root, node, readDesktopRuntime(root), process.env, resourcesRuntime)
+  await smokeDesktopRuntime(root, node, readDesktopRuntime(root), process.env, resourcesRuntime, mode)
 }

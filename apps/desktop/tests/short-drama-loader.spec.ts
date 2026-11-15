@@ -1,3 +1,9 @@
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import SubprocessLocal from '@deepseek-ai/dsh-subprocess-local'
+import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,6 +32,9 @@ const bundledSkillDir = fileURLToPath(new URL('../../../packages/drama/skills/sk
 it('loads desktop Jubian on the Host and short-drama skill tools from the bundled source root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-short-drama-loader-'))
   const ctx = new Context()
+  vi.stubEnv('MUSE_HOME', root)
+  vi.stubEnv('DSH_HOME', root)
+  vi.stubEnv('DSH_FFMPEG_PATH', undefined)
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('Unexpected Jubian request') })
   try {
     const presetRows = yaml.load(await readFile(presetPath, 'utf8'), { schema: entryListSchema }) as Array<{ id: string; name: string; config?: Record<string, unknown> }>
@@ -51,14 +60,15 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     expect(presetRows.some(row => row.id === 'planning')).toBe(false)
     expect(presetRows.find(row => row.id === 'delegation')).toMatchObject({
       name: 'cordis:group', group: true, config: [
+        { id: 'delegation-policy', name: '@deepseek-ai/dsh-desktop-host/delegation-policy' },
         { id: 'tool-subagent-control', name: '@deepseek-ai/dsh-tool-subagent-control' },
-        { id: 'tool-subagent-list-agents', name: '@deepseek-ai/dsh-tool-subagent-control/list-agents' },
         { id: 'tool-subagent', name: '@deepseek-ai/dsh-tool-subagent', config: { provider: 'spawn', toolName: 'subagent' } },
         { id: 'tool-subagent-fork', name: '@deepseek-ai/dsh-tool-subagent', config: { provider: 'fork', toolName: 'subagent_fork' } },
       ],
     })
     expect(persona?.prefix).not.toContain('Check the [exit code')
-    expect(persona?.suffix).toContain('{{cwd}}')
+    expect(persona?.suffix).toContain('short-drama/')
+    expect(persona?.suffix).not.toContain('{{cwd}}')
     expect(presetRows.find(row => row.id === 'tool-shot-script')).toMatchObject({
       name: '@deepseek-ai/dsh-tool-shot-script',
       config: { reviewMode: 'advisory', sessionVideoSelection: true },
@@ -76,6 +86,11 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     await writeFile(config, yaml.dump([
       { id: 'system-prompt', name: '@deepseek-ai/dsh-system-prompt' },
       { id: 'tools', name: '@deepseek-ai/dsh-tools' },
+      { id: 'native-executor', name: 'test:native-executor' },
+      { id: 'fs', name: 'test:fs' },
+      { id: 'subprocess', name: 'test:subprocess' },
+      { id: 'projections', name: 'test:projections' },
+      { id: 'working-directory', name: 'test:working-directory' },
       { id: 'agents', name: '@deepseek-ai/dsh-agent' },
       { id: 'skills', name: '@deepseek-ai/dsh-skill' },
       { id: 'credentials', name: 'test:credentials' },
@@ -88,6 +103,9 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
     const modules = new Map<string, unknown>([
+      ['test:native-executor', NativeExecutor],
+      ['test:subprocess', SubprocessLocal],
+      ['test:fs', LocalFileSystem], ['test:projections', SessionProjections], ['test:working-directory', WorkingDirectory],
       ['@deepseek-ai/dsh-system-prompt', SystemPrompt], ['@deepseek-ai/dsh-tools', Tools],
       ['@deepseek-ai/dsh-agent', AgentRegistry], ['@deepseek-ai/dsh-skill', SkillRegistry],
       ['test:credentials', MemoryCredentials], ['@deepseek-ai/dsh-skill-filesystem', SkillFilesystem],
@@ -106,18 +124,19 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
 
     expect(ctx.get('jubianImage')).toBeDefined()
+    expect(await ctx.jubianVideoRecovery.status()).toMatchObject({ enabled: false, projectDir: null })
     expect(ctx.tools.get('jubian_video')?.description).toContain('image_generate 会真实计费')
     const listed = await ctx.skills.list()
     expect(listed.map(row => row.name)).not.toContain('jubian-asset-library')
     expect(listed.map(row => row.name)).toContain('tweet-drama-asset-vision-check')
     expect(listed.find(row => row.name === 'tweet-drama-core')).toMatchObject({ source: 'bundled', provider: 'filesystem' })
-    const loaded = await ctx.tools.execute({ name: 'skill', arguments: { name: 'tweet-drama-core' },
+    const loaded = await executeModelToolFixture(ctx, { name: 'skill', arguments: { name: 'tweet-drama-core' },
       callId: ToolCallId('short-drama-skill'), signal: new AbortController().signal })
     expect(loaded.isError).toBe(false)
     const block = loaded.content[0]
     if (block?.type !== 'text') throw new Error('Expected rendered skill content')
     expect(block.text).toContain('pipeline_state.json')
-    const pipeline = await ctx.tools.execute({ name: 'skill', arguments: { name: 'tweet-drama-pipeline' },
+    const pipeline = await executeModelToolFixture(ctx, { name: 'skill', arguments: { name: 'tweet-drama-pipeline' },
       callId: ToolCallId('short-drama-pipeline'), signal: new AbortController().signal })
     expect(listed.map(row => row.name)).not.toContain('tweet-drama-pipeline')
     expect(pipeline.isError).toBe(true)
@@ -135,5 +154,6 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     fetch.mockRestore()
     await ctx.fiber.dispose()
     await rm(root, { recursive: true, force: true })
+    vi.unstubAllEnvs()
   }
 })

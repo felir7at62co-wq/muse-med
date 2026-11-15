@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,15 +28,16 @@ it('applies the live drama budget before a paid image request without an authori
   })
   try {
     const { ctx } = await configurationFixture({ rows: [
+      { id: 'tool-executor-native', name: 'cordis:native-executor' },
       { id: 'config-editor', name: 'cordis:editor' }, { id: 'settings', name: 'cordis:settings' },
       { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
       { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'token' } },
       { id: 'drama-settings', name: 'cordis:drama' },
       { id: 'jubian', name: 'cordis:jubian', config: { ledgerRoot: root, workspaceSecrets: false,
         baseUrl: 'https://jubian.example.test' } },
-    ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, drama: DramaSettings, jubian: Jubian } })
+    ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, drama: DramaSettings, jubian: Jubian } })
     await ctx.settings.update(DRAMA_SETTINGS_NAMESPACE, { seriesBudgetCents: 0 })
-    const result = await ctx.tools.execute({ callId: ToolCallId('budget-zero'), name: 'jubian_video',
+    const result = await executeModelToolFixture(ctx, { callId: ToolCallId('budget-zero'), name: 'jubian_video',
       arguments: { method: 'image_generate', script_id: 2708, asset_name: 'x', asset_type: 1,
         prompt: 'p', idempotency_key: 'new-paid-image' }, signal: new AbortController().signal })
     expect(result.isError).toBe(true)

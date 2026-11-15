@@ -1,0 +1,32 @@
+{
+  "status": "downloaded",
+  "path": "{{cwd}}/source/media/douyin/7692443246022167851.mp4",
+  "receipt": "{{cwd}}/source/media/douyin/7692443246022167851.mp4.source.json",
+  "source": "https://www.douyin.com/video/7692443246022167851",
+  "bytes": 1545,
+  "sha256": "436c6451776fca6928b2d3b6b1eaca68816d132b9c11bfd8658a23ff21fffb43",
+  "duration_seconds": 1,
+  "width": 16,
+  "height": 16,
+  "full_decode_verified": true,
+  "authentication": "muse-browser",
+  "taskId": "71000000-0000-4000-8000-000000000001",
+  "targetVideoId": "7692443246022167851",
+  "evidence": {
+    "responseStatus": 206,
+    "mediaHost": "v3.douyinvod.com",
+    "mediaUrlHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "association": "player-metadata-verified",
+    "currentSrcMatched": false,
+    "playerMetadata": {
+      "source": "player-parent-awemeInfo",
+      "targetVideoId": "7692443246022167851",
+      "documentEpoch": 1,
+      "sourceField": "video.bitRateList.playAddr",
+      "durationMs": 1012,
+      "width": 32,
+      "height": 32
+    }
+  },
+  "retrieved_at": "2026-10-07T03:00:00.000Z"
+}

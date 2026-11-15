@@ -2,6 +2,7 @@
 import importlib.util
 from copy import deepcopy
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -14,7 +15,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[2] / 'skills/tweet-drama-draft-build/scripts'
 NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 LEGACY_STYLE = {
-    'watermark': {'font_size_ui': 6},
+    'watermark': {'font_size_ui': 7},
     'subtitle': {'font_family': None, 'font_size_ui': 11,
                  'border_width_ui': 20, 'transform_y': -0.465625},
 }
@@ -54,19 +55,145 @@ class DraftStyleResolutionTests(unittest.TestCase):
     def test_project_supplies_style_when_timeline_has_no_style_snapshot(self):
         self.assertEqual(self.inputs.draft_style({'delivery': {}}, self.project), PROJECT_STYLE)
 
+    def test_unconfigured_watermark_defaults_to_seven(self):
+        self.assertEqual(self.inputs.draft_style({})['watermark'], {'font_size_ui': 7})
+
+    def test_subtitle_only_snapshot_inherits_project_watermark(self):
+        (self.project / 'project_config.json').write_text(json.dumps({
+            'project_bible': {'delivery': {'draft_style': {**PROJECT_STYLE,
+                'watermark': {'font_size_ui': 8}}}}}), encoding='utf-8')
+        timeline = {'delivery': {'draft_style': {'subtitle': {'font_size_ui': 13}}}}
+        resolved = self.inputs.draft_style(timeline, self.project)
+        self.assertEqual(resolved['watermark'], {'font_size_ui': 8})
+        self.assertEqual(resolved['subtitle']['font_size_ui'], 13)
+        self.assertIsNone(resolved['subtitle']['font_family'])
+
+    def test_watermark_child_reset_keeps_default_without_inheriting_project_fields(self):
+        timeline = {'delivery': {'draft_style': {'watermark': {}}}}
+        resolved = self.inputs.draft_style(timeline, self.project)
+        self.assertEqual(resolved['watermark'], {'font_size_ui': 7})
+        self.assertIsNone(resolved['subtitle']['font_family'])
+
+    def test_subtitle_only_snapshot_inherits_default_project_watermark(self):
+        timeline = {'delivery': {'draft_style': {'subtitle': {'font_size_ui': 13}}}}
+        resolved = self.inputs.draft_style(timeline, self.project)
+        self.assertEqual(resolved['watermark'], {'font_size_ui': 7})
+        self.assertEqual(resolved['subtitle']['font_size_ui'], 13)
+        self.assertIsNone(resolved['subtitle']['font_family'])
+
+    def test_explicit_custom_watermark_sizes_are_retained(self):
+        for size in (6, 8):
+            with self.subTest(size=size):
+                timeline = {'delivery': {'draft_style': {'watermark': {'font_size_ui': size}}}}
+                self.assertEqual(self.inputs.draft_style(timeline, self.project)['watermark'],
+                                 {'font_size_ui': size})
+
     def test_partial_snapshot_uses_legacy_defaults_instead_of_project_fields(self):
         expected = {**LEGACY_STYLE, 'watermark': {'font_size_ui': 8}}
         timeline = {'delivery': {'draft_style': {'watermark': {'font_size_ui': 8}}}}
         self.assertEqual(self.inputs.draft_style(timeline, self.project), expected)
 
-    def test_empty_snapshot_keeps_legacy_defaults_despite_project_style(self):
+    def test_empty_snapshot_resets_defaults_despite_project_style(self):
         timeline = {'delivery': {'draft_style': {}}}
         self.assertEqual(self.inputs.draft_style(timeline, self.project), LEGACY_STYLE)
 
-    def test_missing_project_style_keeps_legacy_defaults(self):
+    def test_missing_project_style_uses_default_editor_values(self):
         (self.project / 'project_config.json').write_text('{}', encoding='utf-8')
         self.assertEqual(self.inputs.draft_style({}, self.project), LEGACY_STYLE)
 
+    def test_product_policy_replaces_old_subtitle_style_but_preserves_watermark_and_audio(self):
+        visual = {**VISUAL_STYLE, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9,
+                  'font_family': 'Zhuque Fangsong (technical preview)'}
+        timeline = {'delivery': {'draft_style': {
+            'watermark': {'font_size_ui': 8},
+            'subtitle': {'font_family': 'old-font', 'font_size_ui': 40,
+                         'border_width_ui': 1, 'transform_y': 0}},
+            'subtitle_visual': {}, 'audio': {'master_gain': 0.8, 'bgm_gain': 0.35}}}
+        original = deepcopy(timeline)
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}):
+            self.assertEqual(self.inputs.subtitle_visual(timeline, self.project), visual)
+            style = self.inputs.draft_style(timeline, self.project)
+            self.assertEqual(style['watermark'], {'font_size_ui': 8})
+            self.assertEqual(style['subtitle']['font_family'], visual['font_family'])
+            self.assertEqual(style['subtitle']['font_size_ui'], 11)
+            self.assertEqual(style['subtitle']['border_width_ui'], 20)
+            self.assertAlmostEqual(style['subtitle']['transform_y'], 1 - 2 * visual['center_y_ratio'])
+            self.assertFalse(style['subtitle']['auto_wrapping'])
+            self.assertEqual(style['subtitle']['max_line_width'], 0.9)
+            self.assertEqual(self.inputs.audio_gains(timeline, self.project),
+                             {'master_gain': 0.8, 'bgm_gain': 0.35})
+        self.assertEqual(timeline, original)
+        self.assertEqual(self.inputs.draft_style(timeline, self.project)['subtitle']['font_size_ui'], 40)
+
+    def test_forced_subtitle_policy_retains_inherited_watermark_and_explicit_resets(self):
+        config = {'project_bible': {'delivery': {'draft_style': {
+            'watermark': {'font_size_ui': 8}, 'subtitle': {'font_size_ui': 90}}}}}
+        config_path = self.project / 'project_config.json'
+        config_path.write_text(json.dumps(config), encoding='utf-8')
+        original_config = config_path.read_bytes()
+        visual = {**VISUAL_STYLE, 'reference_width': 480, 'reference_height': 854,
+                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.736747073,
+                  'max_width_ratio': 0.9}
+        cases = ((None, 8), ({'subtitle': {'font_size_ui': 33}}, 8), ({}, 7),
+                 ({'watermark': {}}, 7), ({'watermark': {'font_size_ui': 6}}, 6),
+                 ({'watermark': {'font_size_ui': 8}}, 8))
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}, clear=True):
+            self.assertEqual(self.inputs.draft_style({}, enforce_product=True)['watermark'],
+                             {'font_size_ui': 7})
+            for snapshot, expected in cases:
+                timeline = {'delivery': {} if snapshot is None else {'draft_style': snapshot}}
+                before = deepcopy(timeline)
+                with self.subTest(snapshot=snapshot):
+                    selected = self.inputs.draft_style(timeline, self.project, enforce_product=True)
+                    self.assertEqual(selected['watermark'], {'font_size_ui': expected})
+                    self.assertEqual(selected['subtitle']['font_size_ui'], 11)
+                    self.assertEqual(selected['subtitle']['border_width_ui'], 20)
+                    self.assertEqual(selected['subtitle']['max_line_width'], 0.9)
+                    self.assertAlmostEqual(selected['subtitle']['transform_y'], 1 - 2 * visual['center_y_ratio'])
+                    self.assertEqual(timeline, before)
+        self.assertEqual(config_path.read_bytes(), original_config)
+
+    def test_forced_policy_requires_a_valid_product_visual(self):
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1'}, clear=True):
+            with self.assertRaisesRegex(ValueError, 'missing'):
+                self.inputs.draft_style({}, self.project)
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': '{}'}, clear=True):
+            with self.assertRaisesRegex(ValueError, 'complete'):
+                self.inputs.draft_style({}, self.project)
+
+    def test_product_font_inherits_runtime_family_and_visual_family_takes_precedence(self):
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(VISUAL_STYLE),
+                                      'MUSE_SUBTITLE_FONT_FAMILY': 'Zhuque Fangsong (technical preview)'}, clear=True):
+            self.assertEqual(self.inputs.draft_style({}, self.project)['subtitle']['font_family'],
+                             'Zhuque Fangsong (technical preview)')
+            explicit = {**VISUAL_STYLE, 'font_family': 'Configured face'}
+            with patch.dict('os.environ', {'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(explicit)}):
+                self.assertEqual(self.inputs.draft_style({}, self.project)['subtitle']['font_family'],
+                                 'Configured face')
+
+    def test_product_missing_font_is_not_treated_as_verified_system_default(self):
+        with patch.dict('os.environ', {}, clear=True):
+            choice = self.inputs.subtitle_font_request(None, 'backend', required=True)
+        self.assertEqual(choice['status'], 'missingIdentity')
+        self.assertFalse(choice['delivery_ready'])
+        self.assertIsNone(choice['resolved'])
+
+    def test_forced_policy_ignores_invalid_old_subtitle_but_validates_watermark(self):
+        old = {'delivery': {'draft_style': {'subtitle': {'font_size_ui': -1},
+                                            'watermark': {'font_size_ui': 7}},
+                            'subtitle_visual': {'schema_version': 999}}}
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(VISUAL_STYLE)}):
+            style = self.inputs.draft_style(old, self.project)
+            self.assertEqual(style['subtitle']['font_size_ui'], 11)
+            self.assertEqual(style['watermark']['font_size_ui'], 7)
+            old['delivery']['draft_style']['watermark']['font_size_ui'] = -1
+            with self.assertRaisesRegex(ValueError, 'font_size_ui'):
+                self.inputs.draft_style(old, self.project)
     def test_common_center_only_replaces_the_default_editor_position(self):
         self.assertEqual(self.inputs.draft_style({}, self.project, center_y_ratio=0.75), PROJECT_STYLE)
         for snapshot in ({}, {'subtitle': {'font_size_ui': 13.2}},
@@ -254,7 +381,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
 
     def make_candidate(self, style=None, medium='photorealistic', snapshot=None,
                        has_snapshot=False, ending_assets=False, geometry=None, visual=None,
-                       snapshot_visual=None, has_visual_snapshot=False):
+                       snapshot_visual=None, has_visual_snapshot=False, expected_ready=True):
         temporary = tempfile.TemporaryDirectory(prefix='draft-project-style-')
         self.addCleanup(temporary.cleanup)
         project = Path(temporary.name)
@@ -295,8 +422,9 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         with patch.object(sys, 'path', [*sys.path]):
             result = self.generator.generate_draft(str(editor), str(materials),
                                                     name_prefix='样式候选-', project=str(project))
-        self.assertTrue(result['success'], result)
-        self.assertEqual(result['drafts_created'], 1, result)
+        self.assertEqual(result['success'], expected_ready, result)
+        self.assertEqual(result['drafts_created'], int(expected_ready), result)
+        self.assertTrue(result['drafts'][0]['saved'], result)
         draft_path = Path(result['drafts'][0]['path'])
         content = json.loads((draft_path / 'draft_content.json').read_text(encoding='utf-8'))
         review = json.loads((draft_path / 'muse-review.json').read_text(encoding='utf-8'))
@@ -330,20 +458,54 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
             self.assertEqual(material['letter_spacing'], 0.0)
             self.assertEqual(segment['clip']['transform']['y'], transform_y)
 
-    def test_project_style_is_saved_with_missing_font_fallback(self):
-        content, result, review = self.make_candidate(style=PROJECT_STYLE)
+    def test_missing_font_keeps_editable_candidate_but_blocks_delivery(self):
+        content, result, review = self.make_candidate(style=PROJECT_STYLE, expected_ready=False)
         marks = self.text_rows(content, watermark=True)
         self.assertEqual(len(marks), 1)
         self.assertEqual(marks[0][2]['styles'][0]['size'], 7)
         self.assert_subtitle_style(content, transform_y=-0.4)
         self.assertEqual(review['draft_style'], PROJECT_STYLE)
         self.assertEqual(review['subtitle_font']['requested'], '山海经')
-        self.assertEqual(review['subtitle_font']['resolved'], '剪映系统默认字体')
-        self.assertEqual(review['subtitle_font']['status'], 'fallback')
+        self.assertIsNone(review['subtitle_font']['resolved'])
+        self.assertEqual(review['subtitle_font']['status'], 'backendUnsupported')
+        self.assertFalse(review['subtitle_font']['delivery_ready'])
+        self.assertEqual(result['quality'], 'needs_repair')
+        self.assertIn(result['drafts'][0]['path'], result['error'])
+        self.assertIn(result['drafts'][0]['review_path'], result['error'])
         self.assertIsNone(review['subtitle_font']['resource_id'])
         for warnings in (result['warnings'], review['warnings']):
-            self.assertTrue(any('山海经' in warning and '回退剪映系统默认字体' in warning
+            self.assertTrue(any('山海经' in warning and '不能按请求字体交付' in warning
                                  for warning in warnings), warnings)
+
+    def test_product_forced_style_is_saved_as_editable_text_despite_old_snapshot(self):
+        visual = {**VISUAL_STYLE, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9,
+                  'font_family': 'Zhuque Fangsong (technical preview)'}
+        old = {'watermark': {'font_size_ui': 7}, 'subtitle': {
+            'font_family': 'legacy', 'font_size_ui': 31, 'border_width_ui': 2, 'transform_y': 0.2}}
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}):
+            content, _result, review = self.make_candidate(style=PROJECT_STYLE, snapshot=old,
+                                                           has_snapshot=True, visual=VISUAL_STYLE,
+                                                           snapshot_visual={}, has_visual_snapshot=True,
+                                                           geometry={'width': 1440, 'height': 2560}, expected_ready=False)
+        self.assertEqual(self.text_rows(content, watermark=True)[0][2]['styles'][0]['size'], 7)
+        self.assert_subtitle_style(content, transform_y=1 - 2 * visual['center_y_ratio'])
+        self.assertEqual(review['subtitle_font']['status'], 'backendUnsupported')
+        self.assertEqual(review['subtitle_font']['requested'], visual['font_family'])
+        self.assertEqual(review['subtitle_visual_adapter']['typography_source'], 'product_editor_defaults')
+        for _segment, material, _text in self.text_rows(content):
+            self.assertEqual(material['type'], 'text')
+            self.assertEqual(material['line_max_width'], 0.9)
+
+    def test_product_forcing_keeps_legacy_landscape_style(self):
+        visual = {**VISUAL_STYLE, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
+        old = {'watermark': {'font_size_ui': 7}, 'subtitle': {
+            'font_size_ui': 13, 'border_width_ui': 25, 'transform_y': 0.2}}
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}):
+            content, _result, review = self.make_candidate(snapshot=old, has_snapshot=True)
+        self.assert_subtitle_style(content, size=13, transform_y=0.2, stroke_width=0.05)
+        self.assertEqual(review['draft_style']['watermark']['font_size_ui'], 7)
 
     def test_visual_adapter_serializes_a_fixed_size_single_line_without_editor_auto_wrapping(self):
         inputs = load_module('serialized_subtitle_visual_inputs', 'draft_inputs.py')
@@ -372,7 +534,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         self.assertEqual(segment.clip_settings.transform_y, LEGACY_STYLE['subtitle']['transform_y'])
 
     def test_project_visual_style_overrides_only_subtitles_and_reports_unverified_adapter(self):
-        content, result, review = self.make_candidate(style=PROJECT_STYLE, visual=VISUAL_STYLE)
+        content, result, review = self.make_candidate(style=PROJECT_STYLE, visual=VISUAL_STYLE, expected_ready=False)
         self.assertEqual(self.text_rows(content, watermark=True)[0][2]['styles'][0]['size'], 7)
         self.assertEqual(review['subtitle_visual'], VISUAL_STYLE)
         self.assertEqual(review['subtitle_visual_adapter']['status'], 'needs_preview')
@@ -393,7 +555,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
 
     def test_empty_visual_snapshot_keeps_the_existing_draft_style(self):
         content, result, review = self.make_candidate(style=PROJECT_STYLE, visual=VISUAL_STYLE,
-                                                       snapshot_visual={}, has_visual_snapshot=True)
+                                                       snapshot_visual={}, has_visual_snapshot=True, expected_ready=False)
         self.assertEqual(review['draft_style'], PROJECT_STYLE)
         self.assertNotIn('subtitle_visual_adapter', review)
         self.assert_subtitle_style(content, transform_y=-0.4)
@@ -404,7 +566,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         saved = {**VISUAL_STYLE, 'center_y_ratio': 0.6, 'max_width_ratio': 0.9,
                  'font_family': 'Saved reference font'}
         content, result, review = self.make_candidate(style=PROJECT_STYLE, visual=project,
-                                                     snapshot_visual=saved, has_visual_snapshot=True)
+                                                     snapshot_visual=saved, has_visual_snapshot=True, expected_ready=False)
         self.assertEqual(review['subtitle_visual'], saved)
         self.assertEqual(review['subtitle_font']['requested'], '山海经')
         self.assertEqual(review['subtitle_visual_adapter']['reference_font_family'], 'Saved reference font')
@@ -441,7 +603,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         content, result, review = self.make_candidate(visual=VISUAL_STYLE)
         self.assertTrue(result['success'])
         self.assert_subtitle_style(content, transform_y=-0.5)
-        self.assertEqual(review['subtitle_font']['status'], 'default')
+        self.assertEqual(review['subtitle_font']['status'], 'notRequested')
         self.assertTrue(any('旧默认' in warning and '预览' in warning for warning in result['warnings']))
 
     def test_no_visual_section_keeps_the_complete_legacy_subtitle_path(self):
@@ -470,7 +632,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
     def test_empty_snapshot_preserves_legacy_style_and_ignores_project_font(self):
         content, result, _review = self.make_candidate(style=PROJECT_STYLE,
                                                        snapshot={}, has_snapshot=True)
-        self.assertEqual(self.text_rows(content, watermark=True)[0][2]['styles'][0]['size'], 6)
+        self.assertEqual(self.text_rows(content, watermark=True)[0][2]['styles'][0]['size'], 7)
         self.assert_subtitle_style(content)
         self.assertFalse(any('山海经' in warning for warning in result['warnings']))
 
@@ -504,8 +666,9 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
 
     def test_style_verification_observes_changed_font_id_subtitle_size_and_watermark(self):
         font = next(item for item in self.generator.draft.FontType if not item.value.is_vip)
-        content, _result, review = self.make_candidate(style={'subtitle': {'font_family': font.name}})
-        self.assertEqual(review['subtitle_font']['status'], 'reference_unverified')
+        content, _result, review = self.make_candidate(style={'subtitle': {'font_family': font.name}}, expected_ready=False)
+        self.assertEqual(review['subtitle_font']['status'], 'resourceUnverified')
+        self.assertTrue(review['subtitle_font']['saved_reference_matched'])
         self.assertEqual(review['subtitle_font']['resource_id'], font.value.resource_id)
         self.generator.verify_draft_delivery(content, **self.verification)
         cases = ((False, 'font_id', '字体资源引用'),
@@ -525,29 +688,84 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
 
     def test_font_choice_reports_default_unknown_vip_and_free_resource_evidence(self):
         default = self.generator.draft_font_choice(None)
-        self.assertEqual(default, {'requested': None, 'resolved': '剪映系统默认字体',
-                                   'resource_id': None, 'status': 'default', 'warnings': []})
+        self.assertEqual(default['status'], 'notRequested')
+        self.assertTrue(default['delivery_ready'])
+        self.assertIsNone(default['resolved'])
         vip = next(item for item in self.generator.draft.FontType if item.value.is_vip)
-        for name, reason in (('山海经', '不在当前打包字体目录'), (vip.name, '会员资源')):
+        for name, reason, status in (('山海经', '本地字体绑定', 'backendUnsupported'),
+                                     (vip.name, '会员资源', 'resourceUnavailable')):
             with self.subTest(font=name):
                 choice = self.generator.draft_font_choice(name)
                 self.assertEqual(choice['requested'], name)
-                self.assertEqual(choice['resolved'], '剪映系统默认字体')
-                self.assertEqual(choice['status'], 'fallback')
+                self.assertIsNone(choice['resolved'])
+                self.assertEqual(choice['status'], status)
+                self.assertFalse(choice['delivery_ready'])
                 self.assertIsNone(choice['resource_id'])
-                self.assertTrue(any(reason in warning and '回退剪映系统默认字体' in warning
+                self.assertTrue(any(reason in warning and '不能按请求字体交付' in warning
                                     for warning in choice['warnings']), choice)
         free = next(item for item in self.generator.draft.FontType if not item.value.is_vip)
         choice = self.generator.draft_font_choice(free.name)
         self.assertEqual(choice['requested'], free.name)
         self.assertEqual(choice['resolved'], free.value.name)
         self.assertEqual(choice['resource_id'], free.value.resource_id)
-        self.assertEqual(choice['status'], 'reference_unverified')
-        self.assertTrue(any('尚未验证本机资源可用性或使用许可' in warning and '未下载字体' in warning
+        self.assertEqual(choice['status'], 'resourceUnverified')
+        self.assertFalse(choice['delivery_ready'])
+        self.assertTrue(any('尚未验证本机资源可用性' in warning and '未下载字体' in warning
                             for warning in choice['warnings']), choice)
 
+    def test_managed_file_is_retained_and_referenced_by_each_generated_subtitle(self):
+        spec = importlib.util.spec_from_file_location(
+            'managed_font_test_fixture', Path(__file__).with_name('test_draft_fonts.py'))
+        fixtures = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixtures)
+        temporary = tempfile.TemporaryDirectory(prefix='managed-font-runtime-')
+        self.addCleanup(temporary.cleanup)
+        folder = Path(temporary.name) / 'fonts'
+        source, notice = fixtures.managed_font(folder)
+        original = source.read_bytes(), notice.read_bytes()
+        with patch.dict(os.environ, {'MUSE_FONTS_DIR': str(folder)}):
+            content, result, review = self.make_candidate(
+                style={'subtitle': {'font_family': 'Managed Test Font'}})
+        selected = review['subtitle_font']
+        self.assertEqual(selected['status'], 'localFileBound')
+        self.assertTrue(selected['delivery_ready'])
+        self.assertIsNone(selected['resource_id'])
+        self.assertEqual(Path(selected['path']).read_bytes(), original[0])
+        self.assertEqual(Path(selected['license_path']).read_bytes(), original[1])
+        self.assertTrue(Path(selected['path']).is_relative_to(Path(result['drafts'][0]['path'])))
+        for _segment, _material, text in self.text_rows(content):
+            self.assertTrue(text['styles'])
+            self.assertTrue(all(span['font'] == {'id': '', 'path': selected['path']} for span in text['styles']))
+        self.assertEqual((source.read_bytes(), notice.read_bytes()), original)
+        self.verification['ending']['subtitle_font'] = selected
+        self.generator.verify_draft_delivery(content, **self.verification)
+
+    def test_saved_font_checks_every_subtitle_span_and_never_certifies_catalog_availability(self):
+        font = next(item for item in self.generator.draft.FontType if not item.value.is_vip)
+        choice = self.generator.draft_font_choice(font.name)
+        content, _result, _review = self.make_candidate(
+            style={'subtitle': {'font_family': font.name}}, expected_ready=False)
+        checked = self.generator.verify_saved_subtitle_font(content, choice)
+        self.assertTrue(checked['saved_reference_matched'])
+        self.assertFalse(checked['delivery_ready'])
+        missing = deepcopy(content)
+        missing['tracks'] = [track for track in missing['tracks']
+                             if track.get('type') != 'text' or track.get('name') == 'AI内容标识']
+        rejected = self.generator.verify_saved_subtitle_font(missing, choice, expected_subtitle_count=2)
+        self.assertEqual(rejected['status'], 'readbackMismatch')
+        self.assertFalse(rejected['delivery_ready'])
+        for font_field in ({}, {'font': {'id': 'wrong-resource'}}):
+            with self.subTest(font_field=font_field):
+                changed = deepcopy(content)
+                _segment, material, text = self.text_rows(changed)[-1]
+                text['styles'].append({'range': [1, 2], **font_field})
+                material['content'] = json.dumps(text)
+                rejected = self.generator.verify_saved_subtitle_font(changed, choice)
+                self.assertEqual(rejected['status'], 'readbackMismatch')
+                self.assertFalse(rejected['delivery_ready'])
+
     def test_ui7_watermark_uses_estimated_safe_layout_on_landscape_and_portrait_canvases(self):
-        for width, height in ((2560, 1440), (1440, 2560)):
+        for width, height in ((2560, 1440), (1440, 2560), (480, 854)):
             with self.subTest(width=width, height=height):
                 content, result, _review = self.make_candidate(
                     style={'watermark': {'font_size_ui': 7}},
@@ -562,8 +780,31 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
                 self.assertLessEqual(transform['x'] + estimated_width / width, 0.900001)
                 self.assertGreaterEqual(transform['x'] - estimated_width / width, -0.9)
                 self.assertEqual(transform['y'], -0.8625)
+                self.assertAlmostEqual(transform['x'], 0.90 - estimated_width / width)
                 self.assertFalse(any('估算宽度超过画布安全区域' in warning
                                      for warning in result['warnings']))
+
+    def test_saved_watermark_defaults_inheritance_resets_and_custom_sizes(self):
+        cases = (
+            (None, None, False, 7),
+            (PROJECT_STYLE, {'subtitle': {'font_size_ui': 11}}, True, 7),
+            (PROJECT_STYLE, {'watermark': {}}, True, 7),
+            (PROJECT_STYLE, {}, True, 7),
+            (PROJECT_STYLE, {'watermark': {'font_size_ui': 6}}, True, 6),
+            (PROJECT_STYLE, {'watermark': {'font_size_ui': 8}}, True, 8),
+        )
+        for project_style, snapshot, has_snapshot, expected in cases:
+            with self.subTest(snapshot=snapshot, expected=expected):
+                content, _result, review = self.make_candidate(
+                    style=project_style, snapshot=snapshot, has_snapshot=has_snapshot,
+                    geometry={'width': 480, 'height': 854})
+                segment, _material, text = self.text_rows(content, watermark=True)[0]
+                self.assertEqual(text['styles'][0]['size'], expected)
+                self.assertEqual(review['draft_style']['watermark']['font_size_ui'], expected)
+                estimated_width = len(text['text']) * 44 * 854 / 1920 * expected / 6
+                self.assertAlmostEqual(segment['clip']['transform']['x'], 0.90 - estimated_width / 480)
+                self.assertEqual(segment['clip']['transform']['y'], -0.8625)
+                self.assert_subtitle_style(content)
 
     def test_oversized_watermark_is_retained_with_a_review_warning(self):
         content, result, review = self.make_candidate(

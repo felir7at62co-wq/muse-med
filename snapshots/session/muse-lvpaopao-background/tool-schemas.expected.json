@@ -1,0 +1,115 @@
+{
+  "initial": [
+    {
+      "name": "job_output",
+      "description": "Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job id returned by the tool that started the background work."
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Block until the job finishes or the timeout expires; a timed-out wait leaves the job running. Defaults to false."
+          },
+          "timeout_ms": {
+            "type": "number",
+            "description": "Max wait in milliseconds with wait: true. Defaults to and is capped by configuration."
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "lvpaopao",
+      "description": "Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. engagement accepts an exact title or selected source IDs and reads all catalog episodes, returning likes, comments, all-user recommendations and shares with episode rows and observation times. Optional episodeNo selects one episode. Totals are episode sums, not distinct people; missing counts remain null with coverage and knownTotals. It never likes, comments, recommends, shares or downloads. download_series accepts a title (selection-required when ambiguous) or selected source IDs. mode defaults to wait; background returns series-queued with owned data.seriesTask.id/state/jobId and continues after the tool returns. That outer ID differs from data.series.taskId. Repeating download_series refreshes the catalog and rechecks saved files. series_status is local-only: supply either seriesTaskId alone or source IDs with outputDir. series_resume and series_cancel accept only seriesTaskId and only its original live Session can control it. Resume rechecks current file permission and saved receipts, explicitly recovers the shared connection through status, then reconciles unknown episodes with their original download_status keys before safe same-key retries. Restart marks interrupted tasks without replay; use series_resume explicitly. A missing previously used manifest blocks recovery. Background tasks can report waiting_user or waiting_source; queued does not establish completion. Only account-playable episodes are downloaded; no purchases, ads or unlocks. Completion requires every actual catalog episode and verified local files; unknown catalog coverage stays incomplete. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "search",
+              "detail",
+              "episodes",
+              "download_first_episode",
+              "download_episode",
+              "download_status",
+              "download_series",
+              "series_status",
+              "series_resume",
+              "series_cancel",
+              "rankings",
+              "engagement"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "description": "download_series: wait by default; background accepts an owned durable task without binding the finished tool signal.",
+            "enum": [
+              "wait",
+              "background"
+            ]
+          },
+          "seriesTaskId": {
+            "type": "string",
+            "description": "series_resume/series_cancel require only this outer data.seriesTask.id. series_status accepts it instead of source IDs/outputDir; never use data.series.taskId here."
+          },
+          "boardType": {
+            "type": "integer",
+            "description": "rankings: board type from returned boards; defaults to the app reputation board (6)."
+          },
+          "pageIndex": {
+            "type": "integer",
+            "description": "rankings: zero-based page; defaults to 0."
+          },
+          "coldStartTime": {
+            "type": "integer",
+            "description": "rankings: reuse the returned timestamp with the same board and count for subsequent pages."
+          },
+          "query": {
+            "type": "string",
+            "description": "search/download_series/engagement: title. download_series selects only one exact match; otherwise use returned candidates."
+          },
+          "srcAppId": {
+            "type": "string",
+            "description": "Source AppID returned by search; required with dramaId except title lookup."
+          },
+          "dramaId": {
+            "type": "string",
+            "description": "Source drama ID, kept as a string. series_status uses this identity to read saved progress."
+          },
+          "start": {
+            "type": "integer",
+            "description": "episodes: first positive requested number."
+          },
+          "count": {
+            "type": "integer",
+            "description": "episodes/rankings: bounded page width, at most 20. Keep the same width when paging a ranking."
+          },
+          "episodeNo": {
+            "type": "integer",
+            "description": "engagement: omit for full-series totals or select one actual catalog episode. download_episode/download_status: actual catalog episode."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "download_episode/download_status: original durable 64-character lowercase hex key; reuse it for all retries and reconciliation."
+          },
+          "outputDir": {
+            "type": "string",
+            "description": "Downloads/series_status: defaults to downloads/lvpaopao in this Session workspace. Relative paths stay inside it; external paths require full file access. Reuse the same destination when resuming."
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  ],
+  "changes": []
+}

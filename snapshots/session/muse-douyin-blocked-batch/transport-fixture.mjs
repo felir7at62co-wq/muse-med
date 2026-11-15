@@ -1,11 +1,13 @@
 /** No-network acquisition failures passed through the real download tool and agent loop. */
 import { basename } from 'node:path'
 import { importSnapshotPackage } from '../muse-fixture-import.mjs'
+import { persistDouyinReplayOwner } from '../douyin-stable-owner.mjs'
 
 const { Service } = await importSnapshotPackage('@deepseek-ai/cordis',
   new URL('../../../apps/cli/package.json', import.meta.url))
 
 export const name = 'snapshot-douyin-blocked-transport'
+export const inject = ['sessions', 'sessionPersistence']
 
 class PublicFailure extends Service {
   constructor(ctx) { super(ctx, 'subprocess') }
@@ -22,9 +24,11 @@ class PublicFailure extends Service {
 
 class BrowserFailure extends Service {
   version = 4
+  supportsExpectedCwd = true
   constructor(ctx) { super(ctx, 'douyinBrowser') }
-  async download(agent, url, signal, _maxDownloadBytes, nativeTimeoutMs) {
+  async download(agent, url, signal, _maxDownloadBytes, nativeTimeoutMs, options) {
     signal.throwIfAborted()
+    if (options?.expectedCwd !== agent.session.header.cwd) throw new Error('Missing accepted workspace binding')
     if (nativeTimeoutMs !== 1800000) throw new Error('Missing native timeout deployment setting')
     if (agent.session.header.cwd === undefined) throw new Error('Missing initiating workspace')
     const codes = new Map([
@@ -39,6 +43,8 @@ class BrowserFailure extends Service {
 
 /** @param {import('@deepseek-ai/cordis').Context} ctx - Isolated profile context. */
 export async function apply(ctx) {
+  await persistDouyinReplayOwner(ctx, 'snapshot-douyin-blocked-batch')
   await ctx.plugin(PublicFailure)
   await ctx.plugin(BrowserFailure)
+  ctx.effect(() => ctx.provide('douyinReplayOwnerReady', true))
 }

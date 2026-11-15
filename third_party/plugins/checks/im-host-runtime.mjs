@@ -12,13 +12,15 @@ import { boot } from '@deepseek-ai/dsh-app-boot'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
-import Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionQuery from '@deepseek-ai/dsh-session-query'
 import SessionController from '@deepseek-ai/dsh-api-session-controller'
 import WorkspaceController from '@deepseek-ai/dsh-api-workspace-controller'
 import { TYPERT as SESSION_TYPES } from '@deepseek-ai/dsh-api-session-controller/typert'
 import { TYPERT as WORKSPACE_TYPES } from '@deepseek-ai/dsh-api-workspace-controller/typert'
 import Gateway from '@deepseek-ai/dsh-api-gateway'
+import RemoteAccess from '@deepseek-ai/dsh-api-remote-access'
+import { Peer } from '@deepseek-ai/dsh-client-connection'
 import Typert from '@deepseek-ai/dsh-typert-registry'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -137,6 +139,7 @@ ctx.effect(()=>ctx.systemPrompt.section({name:'im-muse-persona',order:1,text:'Mu
     await host.plugin(Typert)
     host.effect(() => host.typert.register(SESSION_TYPES))
     host.effect(() => host.typert.register(WORKSPACE_TYPES))
+    await host.plugin(RemoteAccess)
     await host.plugin(Gateway, Gateway.Config({}))
     await host.plugin(Storage)
     await host.plugin(StorageJson, { root: join(root, 'storage') })
@@ -153,6 +156,7 @@ ctx.effect(()=>ctx.systemPrompt.section({name:'im-muse-persona',order:1,text:'Mu
     await host.plugin(SessionController, { nativeOpen: false })
     await host.plugin(WorkspaceController, { documentsDirectory: root })
     host.provide('connection', {
+      createPeer: options => new Peer(host, options),
       rpc: { intercept: () => () => {} },
       fetch: { register: route => host.effect(() => {
         routes.push(route)
@@ -277,6 +281,13 @@ ctx.effect(()=>ctx.systemPrompt.section({name:'im-muse-persona',order:1,text:'Mu
   }
   const expectedTranscript = JSON.parse(await readFile(new URL('./expected/im-host-transcript.json', import.meta.url), 'utf8'))
   assert.deepEqual(transcript, { continuedMessages: expectedTranscript.continuedMessages, nativeFinalCard: expectedTranscript.nativeFinalCard })
+  const acceptedFeishuEvents = await eventsFor(ctx, sessionId)
+  assert.deepEqual({
+    requestMessages: modelCalls[2].messages.map(({ role, content }) => ({ role, content })),
+    sessionMessages: acceptedFeishuEvents.filter(event => ['user/message', 'assistant/message'].includes(event.type))
+      .map(event => ({ type: event.type, content: event.type === 'assistant/message' ? event.data.message.content : event.data.content })),
+    finalCard: finalCard.content,
+  }, expectedTranscript.acceptedFeishuContinuation)
 
   questionOnNext = true
   const pendingQuestionTurn = bridge.accept(message('ask-style', 'Ask me for the style'))

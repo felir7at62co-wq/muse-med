@@ -1,0 +1,9 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: typert-loader
+  disabled: true
+- insert:
+    - id: skill-undo-fixture
+      name: ./undo-fixture.mjs

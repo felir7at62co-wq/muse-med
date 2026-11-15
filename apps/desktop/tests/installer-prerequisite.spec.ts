@@ -1,5 +1,31 @@
 import { readFile } from 'node:fs/promises'
 import { expect, it } from 'vitest'
+import { readInstallerLocales, renderInstallerStrings } from '../scripts/installer-locales.mjs'
+import { createInstallerTestSource } from '../scripts/windows-installer-test-fixture.mjs'
+
+it('defines one non-nested header hook containing both prerequisite and installer UI setup', async () => {
+  const source = await readFile(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')
+  let current: string | undefined
+  const headers: string[] = []
+  for (const line of source.split(/\r?\n/u)) {
+    const start = /^!macro\s+(\w+)/u.exec(line)
+    if (start) {
+      expect(current, `Nested NSIS macro: ${line}`).toBeUndefined()
+      current = start[1]
+      if (current === 'customHeader') headers.push(current)
+    } else if (/^!macroend\s*$/u.test(line)) {
+      expect(current, 'NSIS macro end without an opener').toBeDefined()
+      current = undefined
+    }
+  }
+  expect(current).toBeUndefined()
+  expect(headers).toEqual(['customHeader'])
+  const headerStart = source.indexOf('!macro customHeader')
+  const header = source.slice(headerStart, source.indexOf('!macroend', headerStart))
+  for (const marker of ['LangString MuseVCMissing', 'Function MuseEnsureVCRuntime',
+    '!include "${INSTALLER_SOURCE_DIR}\\theme.nsh"', '!include "${INSTALLER_SOURCE_DIR}\\pages.nsh"',
+    '!include "${INSTALLER_SOURCE_DIR}\\lifecycle.nsh"']) expect(header).toContain(marker)
+})
 
 it('checks the x64 runtime before any offline elevated installation and fails closed', async () => {
   const source = await readFile(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')
@@ -21,13 +47,17 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
   expect(source).toMatch(/muse_vc_reboot:\s+SetRebootFlag true\s+MessageBox .*"\$\(MuseVCReboot\)"/u)
   const keys = [...source.matchAll(/\$\((MuseVC\w+)\)/gu)].map(match => match[1])
   expect(new Set(keys).size).toBe(7)
+  const fallbackStart = source.indexOf('!macro MuseVCDefaultStrings LANGUAGE')
+  const fallback = source.slice(fallbackStart, source.indexOf('!macroend', fallbackStart))
   for (const key of new Set(keys)) {
-    for (const language of ['ENGLISH', 'SIMPCHINESE']) {
-      expect(source).toContain(`LangString ${key} \${LANG_${language}}`)
-    }
+    expect(fallback).toContain(`LangString ${key} \${LANGUAGE}`)
+    expect(source).toContain(`LangString ${key} \${LANG_SIMPCHINESE}`)
   }
+  expect(source).toContain('!ifdef LANG_ENGLISH\n  !insertmacro MuseVCDefaultStrings ${LANG_ENGLISH}\n  !endif')
   expect(source).toContain('!macro customHeader')
-  const header = source.slice(source.indexOf('!macro customHeader'), source.indexOf('!macroend'))
+  expect(source.match(/^!macro customHeader$/gm)).toHaveLength(1)
+  const headerStart = source.indexOf('!macro customHeader')
+  const header = source.slice(headerStart, source.indexOf('!macroend', headerStart))
   expect(header).toContain('!ifndef BUILD_UNINSTALLER')
   expect(header).toContain('Function MuseEnsureVCRuntime')
   expect(header).toContain('FunctionEnd')
@@ -36,6 +66,26 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
   expect(source).not.toMatch(/https?:\/\/|NSISdl|inetc::|ExecWait|SKIP.*(?:REDIST|PREREQ)/iu)
   expect(source).toContain('!insertmacro dshFinishDirectories')
   expect(source.indexOf('!insertmacro dshFinishDirectories')).toBeLessThan(source.lastIndexOf('Call MuseEnsureVCRuntime'))
+})
+
+it('declares each prerequisite message once per shipped language in production and the actual installer fixture', async () => {
+  const appRoot = new URL('../', import.meta.url)
+  const source = await readFile(new URL('scripts/installer.nsh', appRoot), 'utf8')
+  const keys = [...new Set([...source.matchAll(/\$\((MuseVC\w+)\)/gu)].map(match => match[1]!))]
+  expect(keys).toHaveLength(7)
+  for (const [owner, text] of [['production', source], ['fixture', createInstallerTestSource(source, 'C:\\private-installer')]] as const) {
+    const start = text.indexOf('!macro MuseVCDefaultStrings LANGUAGE')
+    const defaults = text.slice(start, text.indexOf('!macroend', start))
+    for (const locale of readInstallerLocales()) {
+      const language = `\\$\\{LANG_${locale.nsisLanguage}\\}`
+      const fallback = [...text.matchAll(new RegExp(`^\\s*!insertmacro MuseVCDefaultStrings ${language}\\s*$`, 'gmu'))].length
+      for (const key of keys) {
+        const direct = [...text.matchAll(new RegExp(`^\\s*LangString ${key} ${language} `, 'gmu'))].length
+        const defaultDeclarations = [...defaults.matchAll(new RegExp(`^\\s*LangString ${key} \\$\\{LANGUAGE\\} `, 'gmu'))].length
+        expect(direct + fallback * defaultDeclarations, `${owner}: ${locale.id} ${key} must have exactly one declaration`).toBe(1)
+      }
+    }
+  }
 })
 
 it('retains reboot-required guidance and refuses both finish-page launch paths', async () => {
@@ -53,6 +103,24 @@ it('retains reboot-required guidance and refuses both finish-page launch paths',
   )
   for (const language of ['ENGLISH', 'SIMPCHINESE']) {
     expect(strings).toContain(`LangString INSTALLER_REBOOT_REQUIRED \${LANG_${language}}`)
+  }
+})
+
+it('renders every installer page and lifecycle message from all shipped locale sources', async () => {
+  const sources = await Promise.all(['pages.nsh', 'lifecycle.nsh'].map(name =>
+    readFile(new URL(`../installer/${name}`, import.meta.url), 'utf8')))
+  const used = new Set(sources.flatMap(source => [...source.matchAll(/\$\((INSTALLER_[A-Z_]+)\)/gu)].map((match) => {
+    const key = match[1]
+    if (key === undefined) throw new Error('Missing captured installer message key')
+    return key
+  })))
+  expect(used.has('INSTALLER_REBOOT_REQUIRED')).toBe(true)
+  for (const locale of readInstallerLocales()) {
+    const rendered = renderInstallerStrings([locale])
+    for (const key of used) {
+      expect(locale.strings[key], `${locale.id}: ${key}`).toBeTruthy()
+      expect(rendered).toContain(`LangString ${key} \${LANG_${locale.nsisLanguage}} `)
+    }
   }
 })
 

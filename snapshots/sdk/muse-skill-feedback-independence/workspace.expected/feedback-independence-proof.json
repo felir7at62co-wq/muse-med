@@ -1,0 +1,29 @@
+{
+  "chatOnlyReviews": 0,
+  "completedTaskToolCalls": 4,
+  "nativeReviewSessions": 2,
+  "reviewRequests": 2,
+  "reviewTools": 0,
+  "sameRoute": true,
+  "rejectedSkillState": "failed",
+  "validationCode": "invalid-skill-name",
+  "createdSkills": 0,
+  "createdProposals": 0,
+  "createdVersions": 0,
+  "evidenceCounts": [
+    6,
+    6
+  ],
+  "skillRejectionVisibleToModel": true,
+  "feedbackReceiptVisibleToModel": true,
+  "feedbackSubmissions": 1,
+  "feedbackRecords": 1,
+  "receiptId": "82000000000040008000000000000001",
+  "repeatedCandidatePosts": 0,
+  "localFeedbackStates": [
+    "duplicate",
+    "submitted"
+  ],
+  "diagnosticsIncluded": false,
+  "credentialsLogged": false
+}

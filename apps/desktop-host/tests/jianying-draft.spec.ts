@@ -1,4 +1,8 @@
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include from '@deepseek-ai/cordis-plugin-include'
 import Tools from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -9,13 +13,14 @@ import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
+import { pathToFileURL } from 'node:url'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import * as Draft from '../src/jianying-draft.ts'
 
 const fakePython = `
 const fs = require('node:fs'), path = require('node:path');
 const [request, root, failure] = process.argv.slice(1);
-const input = JSON.parse(fs.readFileSync(request, 'utf8'));
+const input = JSON.parse(fs.readFileSync(request, 'utf8').replace(/^\\uFEFF/u, ''));
 if (failure) { console.log(JSON.stringify({ success:false,drafts_created:0,drafts:[],error:'save rejected' })); process.exit(0); }
 const target = path.join(root, input.name_prefix + String(input.episode).padStart(2, '0'));
 fs.mkdirSync(target); fs.writeFileSync(path.join(target,'draft_content.json'),JSON.stringify({})+String.fromCharCode(10));
@@ -28,10 +33,11 @@ const mediaFfmpeg = process.env.DSH_FFMPEG_PATH
 const runFile = promisify(execFile)
 
 it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
-  ['animation_3d', 'utf8'], ['animation_3d', 'utf8-bom'],
-  ['photorealistic', 'utf8'], ['photorealistic', 'utf8-bom'],
+  ['animation_3d', 'utf8', 'project'], ['animation_3d', 'utf8-bom', 'project'],
+  ['photorealistic', 'utf8', 'project'], ['photorealistic', 'utf8-bom', 'project'],
+  ['photorealistic', 'utf8', 'default'], ['photorealistic', 'utf8', 'subtitle-only'],
 ] as const)(
-  'generates separate editable tracks through the native Host tool and packaged Python: %s with %s inputs', async (medium, encoding) => {
+  'generates separate editable tracks through the native Host tool and packaged Python: %s with %s inputs and %s style', async (medium, encoding, styleCase) => {
     if (mediaPython === undefined || mediaFfmpeg === undefined) throw new Error('Configure the packaged media runtime for this test')
     const f = await fixture()
     try {
@@ -50,12 +56,15 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
       }
       await writeFile(subtitles, `${prefix}1\n00:00:00,000 --> 00:00:02,000\n原生草稿回归\n`)
       await writeFile(timeline, `${prefix}${JSON.stringify({ clips: [{ shot: 1, start_us: 0, duration_us: 2000000 }],
-        body_end: 2.032, delivery: { visual_medium: medium, width: 480, height: 854, fps: 24 } })}`)
+        body_end: 2.032, delivery: { visual_medium: medium, width: 480, height: 854, fps: 24,
+          ...(styleCase === 'subtitle-only' ? { draft_style: { subtitle: { font_size_ui: 11 } } } : {}) } })}`)
       const photorealistic = medium === 'photorealistic'
-      if (photorealistic) {
+      const projectStyle = photorealistic && styleCase !== 'default'
+      if (projectStyle) {
         await writeFile(join(f.root, 'project_config.json'), JSON.stringify({ project_bible: {
-          visual_medium: medium, delivery: { draft_style: { watermark: { font_size_ui: 7 },
-            subtitle: { font_family: '山海经', font_size_ui: 11, border_width_ui: 20, transform_y: -0.465625 } } },
+          visual_medium: medium, delivery: { draft_style: { watermark: { font_size_ui: styleCase === 'subtitle-only' ? 8 : 7 },
+            subtitle: { font_family: '山海经', font_size_ui: styleCase === 'subtitle-only' ? 18 : 11,
+              border_width_ui: 20, transform_y: -0.465625 } } },
         } }))
       }
       const request = { project: f.root, episode: 95,
@@ -64,22 +73,48 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
           ending_audio: resolve('packages/drama/skills/skills/tweet-drama-background-render/assets/ending_audio.mp3') } : {}) }
       await writeFile(f.input.request_file, `${prefix}${JSON.stringify(request)}`)
       const inputs = [video, audio, bgm, subtitles, timeline, ...(photorealistic ? [
-        join(f.root, 'project_config.json'),
         resolve('packages/drama/skills/skills/tweet-drama-background-render/assets/ending_audio.mp3'),
-      ] : [])]
+      ] : []), ...(projectStyle ? [join(f.root, 'project_config.json')] : [])]
       const inputBytes = await Promise.all(inputs.map(file => readFile(file)))
       const requestBytes = await readFile(f.input.request_file)
-      await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
+      const config: Draft.Config = { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
         ffmpegPath: mediaFfmpeg, ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
-        graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
-      const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+        graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536,
+        ...(styleCase === 'subtitle-only' ? { enforceSubtitleVisual: true,
+          defaultSubtitleVisual: { schema_version: 1, reference_width: 480, reference_height: 854,
+            font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 } } : {}) }
+      if (styleCase === 'subtitle-only') {
+        const file = join(f.root, 'cordis.yml')
+        await writeFile(file, JSON.stringify([{ name: 'cordis:draft', config }]))
+        await f.ctx.plugin(Loader)
+        f.ctx.loader.builtins.include = Include
+        f.ctx.loader.builtins.draft = Draft
+        await f.ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(file).href } })
+        await f.ctx.loader.await()
+        for (const entry of f.ctx.loader.entries()) await entry.fiber?.await()
+        expect([...f.ctx.loader.entries()].find(entry => entry.options.name === 'cordis:draft')?.fiber).toBeDefined()
+      } else await f.ctx.plugin(Draft, config)
+      const response = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
         callId: ToolCallId('native-draft-runtime'), signal: f.signal })
-      expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
-      expect(response.value).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
-        library: { name: 'pyJianYingDraft' } })
+      if (projectStyle && styleCase === 'project') {
+        expect(response.isError, JSON.stringify(response.content)).toBe(true)
+        expect(JSON.stringify(response.content)).toContain('字体')
+      } else {
+        expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
+        expect(response.value).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
+          library: { name: 'pyJianYingDraft' } })
+      }
       const content = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')) as {
         duration: number
-        tracks: { type: string; name: string; segments: { volume: number; material_id: string }[] }[]
+        tracks: {
+          type: string
+          name: string
+          segments: {
+            volume: number
+            material_id: string
+            clip?: { transform: { x: number; y: number } }
+          }[]
+        }[]
         materials: { texts: { id: string; content: string }[] }
       }
       expect(content.duration).toBe(photorealistic ? 4000000 : 2000000)
@@ -96,15 +131,29 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
         const text = content.materials.texts.find(material => material.id === mark)
         expect(text).toBeDefined()
         const serialized = JSON.parse(text!.content) as { styles: { size: number }[] }
-        expect(serialized.styles[0]?.size).toBe(7)
+        const watermarkSize = styleCase === 'subtitle-only' ? 8 : 7
+        expect(serialized.styles[0]?.size).toBe(watermarkSize)
+        const markSegment = content.tracks.find(track => track.name === 'AI内容标识')?.segments[0]
+        const estimatedWidth = '内容由AI生成'.length * 44 * 854 / 1920 * watermarkSize / 6
+        expect(markSegment?.clip?.transform.x).toBeCloseTo(0.90 - estimatedWidth / 480)
+        expect(markSegment?.clip?.transform.y).toBe(-0.8625)
+        const dialogueText = content.materials.texts.find(material => material.content.includes('原生草稿回归'))
+        expect(dialogueText).toBeDefined()
+        const dialogueStyle = (JSON.parse(dialogueText?.content ?? '{}') as { styles: { size: number }[] }).styles[0]
+        expect(dialogueStyle?.size).toBe(11)
+        if (styleCase === 'subtitle-only') expect(dialogueStyle).not.toHaveProperty('font')
         const review = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-host-95', 'muse-review.json'), 'utf8')) as {
-          subtitle_font: { requested: string; status: string; resolved: string }
+          subtitle_font: { requested: string | null; status: string; resolved: string }
         }
-        expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: '山海经', status: 'fallback', resolved: '剪映系统默认字体' }))
-        expect(JSON.stringify(response.value)).toContain('回退剪映系统默认字体')
+        if (styleCase === 'project') {
+          expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: '山海经', status: 'backendUnsupported', resolved: null }))
+          expect(JSON.stringify(response.content)).toContain('字体')
+        } else {
+          expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: null, status: 'notRequested' }))
+        }
       }
       const saved = await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')
-      const repeated = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+      const repeated = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
         callId: ToolCallId('native-draft-no-overwrite'), signal: f.signal })
       expect(repeated.isError).toBe(true)
       expect(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')).toBe(saved)
@@ -112,11 +161,16 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
       expect(await readFile(f.input.request_file)).toEqual(requestBytes)
       await writeFile(f.input.request_file, `${prefix}${JSON.stringify({ ...request, name_prefix: 'native-mix-', bgm_role: 'dialogue_music_mix' })}`)
       const mixedRequestBytes = await readFile(f.input.request_file)
-      const mixed = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+      const mixed = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
         callId: ToolCallId('native-draft-review-mix'), signal: f.signal })
-      expect(mixed.isError, JSON.stringify(mixed.content)).not.toBe(true)
-      expect(mixed.value).toMatchObject({ success: true })
-      expect(JSON.stringify(mixed.value)).toContain('dialogue_music_mix')
+      if (projectStyle && styleCase === 'project') {
+        expect(mixed.isError, JSON.stringify(mixed.content)).toBe(true)
+        expect(JSON.stringify(mixed.content)).toContain('字体')
+      } else {
+        expect(mixed.isError, JSON.stringify(mixed.content)).not.toBe(true)
+        expect(mixed.value).toMatchObject({ success: true })
+        expect(JSON.stringify(mixed.value)).toContain('dialogue_music_mix')
+      }
       const mixContent = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-mix-95', 'draft_content.json'), 'utf8')) as {
         tracks: { type: string }[]
       }
@@ -161,7 +215,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg))('native-ep10-aac keeps five source
       ffmpegPath: mediaFfmpeg, ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
       graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
     expect(f.ctx.tools.get('jianying_draft')).toBeDefined()
-    const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+    const response = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
       callId: ToolCallId('native-five-source-draft'), signal: f.signal })
     expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
     expect(response.value).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
@@ -178,7 +232,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg))('native-ep10-aac keeps five source
     expect(audioTracks).toHaveLength(1)
     expect(audioTracks[0]).toMatchObject({ name: '主音频轨道', segments: [{ volume: 1 }] })
     expect(await Promise.all(inputs.map(file => readFile(file)))).toEqual(sourceBytes)
-    const repeated = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+    const repeated = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
       callId: ToolCallId('native-five-source-no-overwrite'), signal: f.signal })
     expect(repeated.isError).toBe(true)
     expect(await readFile(savedPath)).toEqual(saved)
@@ -216,13 +270,14 @@ async function fixture(maxInputBytes = 65536, maxBgmGain = 8) {
   try {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(LocalSubprocessRuntime)
     const input = { request_file: join(root, 'request.json'), drafts_dir: join(root, 'drafts') }
     await mkdir(input.drafts_dir)
     await writeFile(input.request_file, JSON.stringify({ episode: 95, name_prefix: 'candidate-' }))
-    const config: Draft.Config = { source: root, pythonPath: process.execPath, timeoutMs: 30000,
+    const config = { source: root, pythonPath: process.execPath, timeoutMs: 30000,
       graceMs: 100, maxInputBytes, maxOutputBytes: 65536, maxBgmGain,
-      ffmpegPath: join(root, 'ffmpeg'), ffprobePath: join(root, 'ffprobe') }
+      ffmpegPath: join(root, 'ffmpeg'), ffprobePath: join(root, 'ffprobe') } satisfies Draft.Config
     return { root, ctx, input, config, signal: controller.signal, startExternal, dispose }
   } catch (error) {
     await dispose()
@@ -290,6 +345,51 @@ it('runs the draft bridge directly with managed argv and removes its tool on dis
     expect(request.argv).not.toContain('pwsh')
     await fiber.dispose()
     expect(f.ctx.tools.get('jianying_draft')).toBeUndefined()
+  } finally {
+    spy.mockRestore()
+    await f.dispose()
+  }
+})
+
+it('forwards forced product visual to the managed editor backend without altering the request', async () => {
+  const f = await fixture()
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  const fontResult = fakePython.replace("success:true,error:''", "success:true,error:'',subtitle_font:{requested:'Zhuque Fangsong (technical preview)',required:true,status:'verified',delivery_ready:true,binding_verified:true}")
+  const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => spawn({ ...spec,
+    argv: [process.execPath, '-e', fontResult, f.input.request_file, f.input.drafts_dir] }))
+  const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
+    font_size_px: 48, outline_px: 2, center_y_ratio: 0.736747073, max_width_ratio: 0.9,
+    font_family: 'Zhuque Fangsong (technical preview)' }
+  try {
+    const before = await readFile(f.input.request_file, 'utf8')
+    await Draft.generateJianyingDraft(f.ctx.subprocess, f.input,
+      { ...f.config, enforceSubtitleVisual: true, defaultSubtitleVisual: visual,
+        fontsDir: join(f.root, 'bundled-fonts'), subtitleFontFamily: visual.font_family })
+    expect(spy.mock.calls[0]![0].env).toMatchObject({ MUSE_FORCE_SUBTITLE_VISUAL: '1',
+      MUSE_DEFAULT_SUBTITLE_VISUAL: JSON.stringify(visual), MUSE_FONTS_DIR: join(f.root, 'bundled-fonts'),
+      MUSE_SUBTITLE_FONT_FAMILY: visual.font_family })
+    expect(await readFile(f.input.request_file, 'utf8')).toBe(before)
+    await expect(Draft.generateJianyingDraft(f.ctx.subprocess, f.input,
+      { ...f.config, enforceSubtitleVisual: true })).rejects.toThrow('requires the product visual')
+  } finally {
+    spy.mockRestore()
+    await f.dispose()
+  }
+})
+
+it.each(['missing', 'unverified'] as const)('rejects a successful save with %s required font evidence', async (kind) => {
+  const f = await fixture()
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  const fontResult = kind === 'missing' ? fakePython : fakePython.replace("success:true,error:''",
+    "success:true,error:'',subtitle_font:{requested:'Zhuque Fangsong',required:true,status:'backendUnsupported',delivery_ready:false,binding_verified:false}")
+  const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => spawn({ ...spec,
+    argv: [process.execPath, '-e', fontResult, f.input.request_file, f.input.drafts_dir] }))
+  try {
+    await expect(Draft.generateJianyingDraft(f.ctx.subprocess, f.input, { ...f.config, enforceSubtitleVisual: true,
+      defaultSubtitleVisual: { schema_version: 1, reference_width: 480, reference_height: 854,
+        font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 } }))
+      .rejects.toThrow('subtitle font was not verified')
+    expect(await readFile(join(f.input.drafts_dir, 'candidate-95', 'draft_content.json'), 'utf8')).toBe('{}\n')
   } finally {
     spy.mockRestore()
     await f.dispose()
@@ -391,7 +491,7 @@ it.runIf(process.platform === 'win32')('runs embedded source audio through the s
     await writeFile(f.input.request_file, '\ufeff' + JSON.stringify({ episode: 95, name_prefix: 'candidate-', audio_mode: 'embedded' }))
     await f.ctx.plugin(Draft, { ...f.config, ffmpegPath: 'C:\\media\\ffmpeg.exe', ffprobePath: 'C:\\media\\ffprobe.exe',
       windowsPowerShellPath: 'C:\\Windows\\powershell.exe' })
-    const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+    const response = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
       callId: ToolCallId('aa-source-audio'), signal: f.signal })
     expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
     expect(response.value).toMatchObject({ backend: 'aa-jianying', library: { name: 'aa-jianying' }, editor_open_verified: false })

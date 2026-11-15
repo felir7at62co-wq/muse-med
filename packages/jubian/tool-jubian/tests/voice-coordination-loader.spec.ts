@@ -1,4 +1,6 @@
 /** Registered tools keep a missing or busy shared voice slot local to its original registration. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -33,9 +35,10 @@ it.each([
     throw new Error('Unexpected provider read')
   })
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-private' } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   await ctx.loader.create({ name: 'cordis:jubian', config: { workspaceSecrets, ledgerRoot: join(home, 'ledger') } })
   await ctx.loader.await()
   for (const entry of ctx.loader.entries()) await entry.fiber?.await()
@@ -56,7 +59,7 @@ it.each([
   } } as never)
   const args = { method: 'register', asset_type: 4, script_id: 2708, character_id: 'zhou', voice_period_id: 'adult',
     asset_name: '周海生', asset_url: 'https://media.example/voice.wav', idempotency_key: 'original-registration' }
-  const result = await ctx.tools.execute({ callId: ToolCallId(`pending-${reason}`), name: 'jubian_asset', arguments: args,
+  const result = await executeModelToolFixture(ctx, { callId: ToolCallId(`pending-${reason}`), name: 'jubian_asset', arguments: args,
     signal: new AbortController().signal })
   expect(result.isError, JSON.stringify(result.content)).toBe(false)
   expect(result.value).toMatchObject({ failure_scope: 'voice_registration', work_can_continue: true, submission_attempted: false,

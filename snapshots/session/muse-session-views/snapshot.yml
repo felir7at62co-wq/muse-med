@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-session-views
+profile: headless
+composition: muse-session-views
+recording: authored
+header:
+  class: muse-session-views
+  pin: true
+workspace:
+  final: true

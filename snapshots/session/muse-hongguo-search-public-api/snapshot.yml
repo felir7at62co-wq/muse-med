@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-hongguo-search-public-api
+profile: headless
+composition: muse-hongguo-search-public-api
+recording: authored
+writerOutput: true
+header:
+  class: muse-hongguo-search-public-api
+  pin: true

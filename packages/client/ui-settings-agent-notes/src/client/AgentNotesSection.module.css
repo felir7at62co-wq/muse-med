@@ -116,8 +116,10 @@
   cursor: pointer;
 }
 
-.row:hover {
-  background: var(--dsw-alias-bg-layer-1);
+@media (hover: hover) {
+  .row:hover {
+    background: var(--dsw-alias-bg-layer-1);
+  }
 }
 
 .row:focus-visible {

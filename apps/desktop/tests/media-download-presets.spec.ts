@@ -1,6 +1,9 @@
 /** Download tools belong to each creative preset and disappear with its scope. */
 import { readFileSync } from 'node:fs'
 import { Context } from '@deepseek-ai/cordis'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
+import JobsLocal from '@deepseek-ai/dsh-jobs-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
@@ -30,6 +33,8 @@ it('bundles one original-source runtime configuration under the standalone patch
   expect(patch[0]?.insert).toHaveLength(1)
   const row = patch[0]?.insert[0]
   expect(row?.config?.javaExecutable).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_JAVA_PATH || ''" })
+  expect(row?.config?.legacyBackend).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_V2_RUNTIME_DIR ? 'v2' : 'v1'" })
+  expect(row?.config?.v2StateDir).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_V2_STATE_DIR || ''" })
   expect(row?.config?.bootstrapDevices).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'" })
   expect(Object.keys(row ?? {}).sort()).toEqual(['config', 'id', 'name'])
 })
@@ -39,7 +44,10 @@ it('registers local analysis and download tools in creative scopes and leaves mi
   try {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
+    await ctx.plugin(SessionProjections)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SandboxPolicy)
+    await ctx.plugin(JobsLocal)
     await ctx.plugin(SubprocessLocal)
     for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'creation', 'minimal']) {
       const rows = yaml.load(readFileSync(new URL(`../../desktop-host/presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), { schema }) as PresetRow[]
@@ -58,6 +66,8 @@ it('registers local analysis and download tools in creative scopes and leaves mi
         } else {
           expect(hongguo?.name, preset).toBe('muse-hongguo-download')
           expect(hongguo?.config?.sourceMode, preset).toBe('legacy')
+          expect(hongguo?.config?.legacyBackend, preset).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_V2_RUNTIME_DIR ? 'v2' : 'v1'" })
+          expect(hongguo?.config?.v2RuntimeDir, preset).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_V2_RUNTIME_DIR || ''" })
           expect(hongguo?.config?.signTokenEnv, preset).toBe('MUSE_HONGGUO_SIGN_TOKEN')
           expect(hongguo?.config?.javaExecutable, preset).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_JAVA_PATH || ''" })
           expect(hongguo?.config?.bootstrapDevices, preset).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'" })
@@ -75,7 +85,7 @@ it('registers local analysis and download tools in creative scopes and leaves mi
           await scope.ctx.plugin(Fanqie)
         }
         expect(ctx.tools.schemas(key).map(tool => tool.name), preset).toEqual(preset === 'minimal' ? [] : [
-          'hongguo_download_info', 'hongguo_download', 'douyin_download', 'douyin_data',
+          'hongguo_download_info', 'hongguo_download', 'douyin_download', 'douyin_download_task', 'douyin_data',
           'reverse_skill', 'reverse_analyze', 'fanqie_search', 'fanqie_download_info', 'fanqie_download',
         ])
         expect(ctx.tools.schemas()).toEqual([])

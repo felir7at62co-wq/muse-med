@@ -1,3 +1,4 @@
+import type {} from '@deepseek-ai/dsh-client-ui-context-menu/client'
 /** Registers the target-neutral Conversation assembly, shell, input, and docks. */
 import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
 import type { Context } from '@deepseek-ai/cordis'
@@ -15,10 +16,13 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ShortcutCommandId, ShortcutFixedCommand } from '@deepseek-ai/dsh-client-shortcuts/client'
 import { UiConversation } from './conversation/assembly.ts'
+import { UserText, PlainUserText, SessionReference } from './user-text/UserText.tsx'
+import { sessionReferenceRule } from './user-text/session-reference-rule.ts'
+import { collapseWhitespaceRule, trimWhitespaceRule } from './user-text/whitespace-rules.ts'
 import type { ViewTab } from './contract/views.ts'
 import type {
-  ComposerBarInjected, ConversationInjected, ConversationSessionHeaderInjected,
-  ConversationSessionInjected, DraftFileUploads,
+  ComposerBarInjected, ConversationHeaderInjected, ConversationInjected, ConversationSessionHeaderInjected,
+  ConversationSessionInjected, DraftFileUploads, UserTextInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './contract/input.ts'
 import type { ReferenceInsert } from './contract/draft-editor.ts'
@@ -37,6 +41,7 @@ import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { ConversationContent } from './skeleton/ConversationContent.tsx'
+import { ConversationOverlays } from './skeleton/ConversationOverlays.tsx'
 import { ConversationPanel } from './skeleton/ConversationPanel.tsx'
 import { ConversationHeader } from './skeleton/ConversationHeader.tsx'
 import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
@@ -44,7 +49,9 @@ import { InputBar } from './skeleton/InputBar.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { installStopShortcut } from './stop-shortcut.ts'
 import { TRAJECTORY_VIEW_ID, resolveActiveView } from './view-selection.ts'
-import { en, NS, zh, type ConversationKey } from './locales.ts'
+import { createViewPins } from './view-pins.ts'
+import { en, ja, es, fr, de, ru, pt, NS, zh, type ConversationKey } from './locales.ts'
+import { readHeaderPresentation } from '../header-presentation.ts'
 import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -152,14 +159,39 @@ function concreteConversation(ctx: Context): ConversationController {
  * @param ctx - Client root context.
  */
 export function apply(ctx: Context, config: Config = Config({})): void {
+  const headerPresentation = readHeaderPresentation()
   const sessions = ctx.sessions
   const slots = ctx.slots
   // Schemastery's field default is materialized before Cordis calls apply.
   const maxConcurrentFileUploads = config.maxConcurrentFileUploads as number
-  const workspaceNavigation = ctx.get('uiWorkspace') as unknown as WorkspaceNavigation
+  const workspaceNavigation = ctx.get('uiWorkspace') as WorkspaceNavigation
   const uiConversation = new UiConversation(ctx, sessions)
+  uiConversation.userText.register(sessionReferenceRule)
+  uiConversation.userText.register(collapseWhitespaceRule)
+  uiConversation.userText.register(trimWhitespaceRule)
+  slots.registerFactory({
+    name: 'conversation.user.text',
+    scope: 'session',
+    children: {
+      'conversation.user.text.node': { kind: 'keyed', scope: 'session', inline: true },
+    },
+    inject: (): UserTextInjected => ({
+      hooks: {
+        userTextRevision: {
+          getSnapshot: () => uiConversation.userText.getSnapshot(),
+          subscribe: listener => uiConversation.userText.subscribe(listener),
+        },
+      },
+      createUserTextEvaluator: () => uiConversation.userText.createEvaluator(),
+      reportTransformFailure: (error) => { console.error('[ui-conversation] user-text transformation failed:', error) },
+    }),
+  }, UserText)
+  slots.inject('conversation.user.text.node', function* () {
+    yield slots.register({ name: 'conversation.user.text.node', key: 'text', priority: 100 }, PlainUserText)
+    yield slots.register({ name: 'conversation.user.text.node', key: 'session', priority: 100 }, SessionReference)
+  })
 
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-conversation: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-conversation: dictionaries')
   const t = ctx.locale.bind(NS)
   const conversationStore = createConversationStore()
   const submissionPolicy = new ComposerSubmissionPolicy(
@@ -200,6 +232,11 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     activateView(sessionId, readConversationViewPreference(sessionId))
   }
   const conversationViews = createSnapshotStore<readonly ViewTab[]>(viewTabs())
+  const viewPins = createViewPins()
+  const viewActions = {
+    getSnapshot: () => slots.entriesOfSlot('conversation.session.header.views.actions').length > 0,
+    subscribe: (listener: () => void) => slots.subscribe('conversation.session.header.views.actions', listener),
+  }
   const bindings = new Set<SessionBinding>()
   const trackedBindings = new WeakSet<SessionBinding>()
   const trackBinding = (binding: SessionBinding): void => {
@@ -324,12 +361,14 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     locale: NS,
     children: {
       'conversation.session': { kind: 'single', scope: 'session' },
+      'conversation.content.overlayHost': { kind: 'single', scope: 'session' },
       'conversation.composer': { kind: 'chain', scope: 'session' },
       'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
       'conversation.input.dock': { kind: 'list', scope: 'session' },
       'conversation.hero.brand.mark': { kind: 'single', scope: 'root' },
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
       'conversation.hero.agentPreset': { kind: 'single', scope: 'session-maybe' },
+      'conversation.hero.options': { kind: 'list', scope: 'session' },
     },
     slots: {
       views: { scope: 'session' },
@@ -342,14 +381,19 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       selectWorkspace: workspaceId => workspaceNavigation.openWorkspace(workspaceId, (nextId) => {
         if (sessionId !== undefined && nextId !== sessionId) {
           const from = inputHub.shell(sessionId)
+          // A draft with a submission in flight stays with the Session that is admitting it.
+          if (from.snapshot.phase !== 'plain' && from.snapshot.phase !== 'claimed') return
           const draft = from.draftSnapshot
           const attachmentIds = from.snapshot.attachmentIds
           const next = inputHub.shell(nextId)
           if (attachmentIds.length === 0 || next.addAttachments(attachmentIds)) {
-            if (sessions.binding(nextId) === undefined) {
+            const binding = sessions.binding(nextId)
+            if (binding === undefined) {
               throw new Error(`ui-conversation: session "${nextId}" resolved no binding`)
             }
-            concreteConversation(ctx).rebindDraftFiles(nextId, attachmentIds)
+            // The same rule as intake: only an ordinary Session stages image uploads.
+            const ordinary = binding.session.getSnapshot().subagent === null
+            concreteConversation(ctx).rebindDraftFiles(nextId, attachmentIds, ordinary)
             if (draft.text !== '') {
               next.setDraft(draft)
               from.setDraft('')
@@ -403,11 +447,22 @@ export function apply(ctx: Context, config: Config = Config({})): void {
 
   const registerHeader = () => slots.register({
     name: 'conversation.header',
+    inject: (): ConversationHeaderInjected => ({ hooks: { headerPresentation: {
+      getSnapshot: () => uiConversation.headerPresentations.getSnapshot() ?? headerPresentation,
+      subscribe: listener => uiConversation.headerPresentations.subscribe(listener),
+    } } }),
     children: {
       'conversation.header.leading': { kind: 'single', scope: 'root' },
       'conversation.session.header': { kind: 'single', scope: 'session' },
     },
   }, ConversationHeader)
+
+  const registerOverlayHost = () => slots.register({
+    name: 'conversation.content.overlayHost',
+    store: conversationStore,
+    inject: () => ({ hooks: { conversationViews } }),
+    children: { 'conversation.content.overlay': { kind: 'list', scope: 'session' } },
+  }, ConversationOverlays)
 
   const registerSessionHeader = () => slots.register({
     name: 'conversation.session.header',
@@ -417,10 +472,12 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       'conversation.session.header.actions': { kind: 'list', scope: 'session' },
       'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
       'conversation.session.header.corner': { kind: 'single', scope: 'session' },
+      'conversation.session.header.views.actions': { kind: 'list', scope: 'root' },
     },
     store: conversationStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof conversationStore>): ConversationSessionHeaderInjected => ({
-      hooks: { conversationViews },
+      hooks: { conversationViews, entryPins: viewPins.unpinned, entryActions: viewActions },
+      setPinned: viewPins.setPinned,
       open: (id) => { workspaceNavigation.openSession(id) },
       selectView: (view) => {
         activateView(sessionId, view)
@@ -478,7 +535,8 @@ export function apply(ctx: Context, config: Config = Config({})): void {
         },
         addFiles: (files, directories = new Set()) => {
           if (sessions.binding(sessionId) === undefined) return t('file.sessionUnavailable')
-          if (shell.snapshot.phase === 'adjudicating' || shell.snapshot.phase === 'submitting') {
+          const { phase } = shell.snapshot
+          if (phase === 'adjudicating' || phase === 'submitting' || phase === 'sending') {
             return t('attachment.dropBlocked')
           }
           const uploads: File[] = []
@@ -504,7 +562,9 @@ export function apply(ctx: Context, config: Config = Config({})): void {
             })
           }
           try {
-            const drafts = conversation.createDrafts(sessionId, uploads)
+            // The Host stages uploads for ordinary Sessions only; a subagent continuation's images travel inline.
+            const ordinary = sessions.binding(sessionId)?.session.getSnapshot().subagent === null
+            const drafts = conversation.createDrafts(sessionId, uploads, ordinary)
             if (!shell.addFiles(references, drafts.map(draft => draft.id))) {
               conversation.releaseDraftAttachments(drafts)
               return t('attachment.dropBlocked')
@@ -559,6 +619,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     yield registerConversationSession()
     yield registerHeader()
     yield registerSessionHeader()
+    yield registerOverlayHost()
     yield registerComposerBar()
   })
 

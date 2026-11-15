@@ -218,3 +218,82 @@ test('a Bot on the default model with its own thinking level leaves the default 
   await rt.applyModel({ id: 'b1', model: 'deepseek/v4-flash', effort: 'low' })
   assert.deepEqual(current(), fallback)
 })
+
+const yunyingModels = ['gpt-6.1-sol', 'gemini-3.1-pro']
+const commonYunyingEfforts = [{ id: 'low', name: 'Low' }, { id: 'medium', name: 'Medium' }, { id: 'high', name: 'High' }]
+const yunyingReasoningByModel = {
+  'gpt-6.1-sol': {
+    efforts: [...commonYunyingEfforts, { id: 'xhigh', name: 'Extra high' }, { id: 'max', name: 'Max' }],
+    defaultEffort: 'high',
+  },
+  'gemini-3.1-pro': { efforts: commonYunyingEfforts, defaultEffort: 'high' },
+}
+
+for (const model of yunyingModels) {
+  test(`Yunying ${model} saves each Bot thinking level without changing another Bot or the default`, async () => {
+    const provider = 'muse-cloud-yunying'
+    const fallback = { provider, model: 'gpt-6.1-sol', reasoningEffort: 'high' }
+    const { rt, selected, current } = bench({
+      providers: { [provider]: yunyingModels },
+      fallback,
+      reasoning: Object.fromEntries(yunyingModels.map(id => [`${provider}/${id}`, { reasoning: yunyingReasoningByModel[id] }])),
+    })
+    const bot = { id: 'selected-bot', model: `${provider}/${model}` }
+    const other = { id: 'other-bot', model: `${provider}/${yunyingModels.find(id => id !== model)}`, effort: 'medium' }
+    const otherBefore = structuredClone(other)
+    rt.state.bots = { [bot.id]: bot, [other.id]: other }
+    const saved = []
+    rt.save = async () => { saved.push(structuredClone(rt.state.bots)) }
+
+    for (const { id: effort } of yunyingReasoningByModel[model].efforts) {
+      bot.effort = await rt.resolveEffort(bot.model, effort)
+      await rt.applyModel(bot)
+      assert.equal(selected.at(-1), `${bot.id}:${provider}/${model}:${effort}`)
+      assert.equal(saved.at(-1)[bot.id].effort, effort)
+      assert.equal(saved.at(-1)[bot.id].appliedEffort, effort)
+      assert.deepEqual(other, otherBefore)
+      assert.deepEqual(saved.at(-1)[other.id], otherBefore)
+      assert.deepEqual(current(), fallback)
+    }
+    assert.equal(saved.length, yunyingReasoningByModel[model].efforts.length)
+  })
+
+  test(`switching a Bot to Yunying ${model} never sends the previous model's unsupported thinking level`, async () => {
+    const provider = 'muse-cloud-yunying'
+    const { rt, selected } = bench({
+      providers: { [provider]: yunyingModels },
+      reasoning: Object.fromEntries(yunyingModels.map(id => [`${provider}/${id}`, { reasoning: yunyingReasoningByModel[id] }])),
+    })
+    const unsupportedEffort = model === 'gpt-6.1-sol' ? 'minimal' : 'max'
+    const bot = { id: 'switched-bot', model: `${provider}/${model}`, effort: unsupportedEffort, appliedModel: 'legacy/reasoner', appliedEffort: unsupportedEffort }
+    await rt.applyModel(bot)
+    assert.deepEqual(selected, [`${bot.id}:${provider}/${model}`])
+    assert.equal(bot.appliedEffort, undefined)
+    await assert.rejects(rt.resolveEffort(bot.model, unsupportedEffort), /not available/)
+  })
+}
+
+
+test('the picker respects selectable metadata without replacing existing hidden Bot models', async () => {
+  const providers = [
+    { id: 'muse-cloud-yunying', name: 'Muse · 云映' },
+    { id: 'chatgpt-subscription', name: 'ChatGPT subscription' },
+    { id: 'hidden-provider', selectable: false },
+  ]
+  const lists = {
+    'muse-cloud-yunying': [{ id: 'gpt-6.1-sol' }, { id: 'gemini-3.1-pro' }, { id: 'hidden', selectable: false }],
+    'chatgpt-subscription': [{ id: 'gpt-6.1-sol' }],
+    'hidden-provider': [{ id: 'legacy' }],
+  }
+  const ctx = { llm: { listProviders: () => providers, listModels: async id => lists[id] } }
+  const rt = { ctx, state: { bots: {} } }
+  install(rt)
+  assert.deepEqual((await rt.catalog()).map(entry => entry.ref), [
+    'muse-cloud-yunying/gpt-6.1-sol', 'muse-cloud-yunying/gemini-3.1-pro', 'chatgpt-subscription/gpt-6.1-sol',
+  ])
+  await assert.rejects(rt.resolveModel('gpt-6.1-sol'), /more than one provider/)
+  assert.equal(await rt.resolveModel('muse-cloud-yunying/gpt-6.1-sol'), 'muse-cloud-yunying/gpt-6.1-sol')
+  assert.equal(await rt.desiredModel({ model: 'muse-cloud-yunying/hidden' }), 'muse-cloud-yunying/hidden')
+  assert.equal(await rt.desiredModel({ model: 'hidden-provider/legacy' }), 'hidden-provider/legacy')
+  assert.equal(await rt.desiredModel({ model: 'missing/model' }), 'muse-cloud-yunying/gpt-6.1-sol')
+})

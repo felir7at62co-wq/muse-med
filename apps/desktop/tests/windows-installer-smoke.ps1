@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$Installer, [Parameter(Mandatory)][string]$ProductName,
     [Parameter(Mandatory)][string]$RegistryKey,
-    [Parameter(Mandatory)][string]$OutputDirectory,
+    [Parameter(Mandatory)][string]$OutputDirectory, [Parameter(Mandatory)][string]$Language,
     [switch]$FailAfterAutomaticRelaunch)
 $ErrorActionPreference = 'Stop'
 $runtimeProcess = [Diagnostics.Process]::GetCurrentProcess()
@@ -38,6 +38,7 @@ $assemblyReceipt = [ordered]@{
 # This source-generated assembly remains in this run's private diagnostic artifacts, outside the installed payload.
 [IO.File]::WriteAllText((Join-Path $OutputDirectory 'diagnostics-assembly.json'),
     $assemblyReceipt + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 [InstallerCapture]::Initialize()
 [InstallerCapture]::ProductName = $ProductName
 $installPath = Join-Path $OutputDirectory 'Installed App'
@@ -54,12 +55,8 @@ $negativeControlReached = $false
 $negativeControlProcessId = $null
 $uninstallExitCode = $null
 $expected = Get-Content (Join-Path $PSScriptRoot 'expected/windows-installer.json') -Raw | ConvertFrom-Json
-$localizedCopy = @{ ENGLISH = @{}; SIMPCHINESE = @{} }
-Get-Content (Join-Path $PSScriptRoot '../installer/strings.nsh') -Encoding UTF8 | ForEach-Object {
-    if ($_ -match '^LangString (INSTALLER_\w+) \$\{LANG_(ENGLISH|SIMPCHINESE)\} "(.*)"$') {
-        $localizedCopy[$Matches[2]][$Matches[1]] = $Matches[3]
-    }
-}
+$resource = Get-Content (Join-Path $PSScriptRoot "../installer/locales/$Language.json") -Encoding UTF8 -Raw | ConvertFrom-Json
+$localizedCopy = @{ $Language = $resource.strings }
 function Start-TestProcess([string]$FilePath, [string]$Arguments = '', [Diagnostics.ProcessWindowStyle]$WindowStyle = 'Hidden') {
     $parameters = @{ FilePath = $FilePath; PassThru = $true; WindowStyle = $WindowStyle }
     if ($Arguments) { $parameters.ArgumentList = $Arguments }
@@ -473,7 +470,7 @@ try {
     }
     $windowsPath = $protectedDirectories.WINDIR.TrimEnd('\')
     $invalidPaths = @((Join-Path $windowsPath 'Harness Installer Test'), [IO.Path]::GetPathRoot($installPath),
-        ([IO.Path]::GetPathRoot($installPath) + '\'), ($windowsPath + '\'), ($windowsPath + '\\Harness Installer Test'))
+        ([IO.Path]::GetPathRoot($installPath) + '\'), ([IO.Path]::GetPathRoot($installPath) + '\\'), ($windowsPath + '\'), ($windowsPath + '\\Harness Installer Test'))
     foreach ($protectedName in @('ProgramFiles(x86)', 'ProgramFiles', 'USERPROFILE', 'LOCALAPPDATA')) {
         $protectedPath = $protectedDirectories[$protectedName].TrimEnd('\')
         $invalidPaths += @($protectedPath, ($protectedPath + '\'))
@@ -484,6 +481,7 @@ try {
         Dismiss $process $copy.INSTALLER_PATH_INVALID
     }
     Set-PathInput $process $window $edit $installPath
+    $results.Add('canonical-drive-roots-rejected-before-ownership-check')
     [InstallerCapture]::MoveBy($window, 73, -41)
     $bounds = [InstallerCapture]::Bounds($window)
     Click-Control $process $copy.INSTALLER_INSTALL
@@ -526,6 +524,27 @@ try {
     if ($pristineWaitFailure) { throw $pristineWaitFailure }
     if (-not $pristineWaitReturned -or $pristineApp.ExitCode -ne 0) { throw 'Pristine launched application did not exit cleanly' }
     $results.Add('pristine-checked-launch-before-failure-retry')
+
+    Set-RegisteredPathForUpdate ($installPath + '\')
+    $lockedFile = [IO.File]::Open($appPath, 'Open', 'Read', 'Read')
+    try {
+        $process = Start-Setup light
+        Click-Control $process $copy.INSTALLER_INSTALL
+        $copyButton = Wait-Control $process $copy.INSTALLER_EXTRACT_COPY
+        $dialog = [InstallerCapture]::TopLevel($copyButton)
+        $automation = [Windows.Automation.AutomationElement]::FromHandle($dialog)
+        $heading = $automation.FindFirst([Windows.Automation.TreeScope]::Descendants,
+            [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::NameProperty, $copy.INSTALLER_DIRECTORY_FAILED))
+        if ($null -eq $heading) { throw 'Directory failure dialog lacks its localized heading' }
+        [void][InstallerCapture]::SaveNative($dialog, (Join-Path $OutputDirectory 'directory-failure.png'), $false)
+        [void][InstallerCapture]::SendMessage($dialog, (0x400 + 102), [IntPtr]1, [IntPtr]::Zero)
+        if (-not $process.WaitForExit(10000) -or $process.ExitCode -ne 2 -or -not (Test-Path -LiteralPath $appPath)) {
+            throw 'Directory failure did not exit with the old installation intact'
+        }
+    } finally {
+        $lockedFile.Dispose()
+    }
+    $results.Add('locked-directory-shows-error-and-copy-control-and-preserves-installation')
 
     Set-RegisteredPathForUpdate ($installPath + '\')
     $process = Start-Setup dark ''
@@ -603,6 +622,7 @@ try {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $observedProgress = $false
     $observedComplete = $false
+    $capturedProgress = $false
     $previous = 0
     while (-not $process.HasExited) {
         if ($timer.Elapsed.TotalSeconds -gt 30) { throw 'Visible automatic update did not complete' }
@@ -613,7 +633,9 @@ try {
             $percent = [int]$Matches[1]
             if ($percent -lt $previous) { throw 'Automatic update progress went backwards' }
             if ($percent -eq 100 -and [InstallerCapture]::GetProp($window, 'HarnessInstaller.Succeeded') -eq [IntPtr]::Zero) { throw 'Automatic update showed completion before installation succeeded' }
-            if (-not $observedProgress) { [void][InstallerCapture]::Save($window, (Join-Path $OutputDirectory 'automatic-update-progress.png')) }
+            if (-not $capturedProgress) {
+                $capturedProgress = [InstallerCapture]::TrySaveAutomaticProgress($process.Id, $window, (Join-Path $OutputDirectory 'automatic-update-progress.png'))
+            }
             $observedProgress = $true
             $previous = $percent
         }
@@ -623,6 +645,7 @@ try {
     if ((Get-ItemProperty ('HKCU:\Software\' + $RegistryKey)).InstallLocation -cne $installPath) {
         throw 'Automatic update did not canonicalize historical InstallLocation'
     }
+    if ($process.ExitCode -ne 0 -or -not $observedProgress -or -not $observedComplete -or -not $capturedProgress) { throw 'Automatic update did not paint verified progress through successful completion' }
     if ($FailAfterAutomaticRelaunch) {
         $timer.Restart()
         $unregisteredApp = $null
@@ -640,7 +663,6 @@ try {
         }
         throw 'Injected automatic update failure after relaunch'
     }
-    if ($process.ExitCode -ne 0 -or -not $observedProgress -or -not $observedComplete) { throw 'Automatic update did not paint verified progress through successful completion' }
     $timer.Restart()
     $app = $null
     while (-not $app -and $timer.Elapsed.TotalSeconds -lt 10) {

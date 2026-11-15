@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -221,7 +223,8 @@ describe('Jubian pool claims', () => {
 it('rejects unsupported model method and scope JSON before any credential or provider work', async () => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt).await()
-  await ctx.plugin(ToolRuntime, { mode: 'native' }).await()
+  await ctx.plugin(ToolRuntime, {}).await()
+  await ctx.plugin(NativeToolExecutor)
   const credential = vi.fn(async () => { throw new Error('credentials must not be read') })
   ctx.provide('credentials', { resolve: credential })
   Object.assign(ctx, { plugin: () => undefined })
@@ -230,7 +233,7 @@ it('rejects unsupported model method and scope JSON before any credential or pro
     for (const [name, args] of [['jubian_claim', { method: 'delete', script_id: 11 }],
       ['jubian_snatch', { scope: 'all', start_at: '2026-09-28T12:00:00.000Z', end_at: '2026-09-28T12:00:01.000Z',
         idempotency_prefix: 'invalid', authorization_basis: 'user authorized bounded claims' }]] as const) {
-      const result = await ctx.tools.execute({ callId: ToolCallId(`invalid-${name}`), name,
+      const result = await executeModelToolFixture(ctx, { callId: ToolCallId(`invalid-${name}`), name,
         arguments: args, signal: new AbortController().signal })
       expect(result.isError).toBe(true)
       expect(result.content.some(block => block.type === 'text' && block.text.includes('invalid arguments'))).toBe(true)

@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 import { ACCENT_INKS, INKS, isHex, luminance } from './inks.js'
 import { SHAPES, markupCache, maskCache } from './characters.js'
 import { createSource } from './sources.js'
@@ -124,6 +124,6 @@ export const allThemes = () => ({ ...THEMES, ...customThemes })
 export const MESSAGE_WIDTH = { min: 50, max: 100, step: 5 }
 const percent = (value, initial) => (Number.isInteger(value) && value >= MESSAGE_WIDTH.min && value <= MESSAGE_WIDTH.max ? value : initial)
 export const layoutOf = prefs => (prefs?.layout === 'flat' ? 'flat' : 'bubble')
-export const thinkingShown = prefs => prefs?.thinking === true
+export const thinkingShown = prefs => prefs?.thinking === undefined || prefs.thinking === true
 export const widthOf = prefs => percent(prefs?.width, 80)
 export const flatWidthOf = prefs => percent(prefs?.flatWidth, 100)

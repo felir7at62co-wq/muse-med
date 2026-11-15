@@ -1,3 +1,6 @@
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -5,7 +8,7 @@ import { join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as DramaGate from '@deepseek-ai/dsh-guard-drama'
 import type { Config } from '@deepseek-ai/dsh-guard-drama'
 import { WORKSPACE } from './harness.ts'
@@ -34,6 +37,7 @@ async function harness(names: readonly string[], config: Config = {}): Promise<{
   contexts.push(ctx)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   const ran: Ran = new Map()
   for (const name of names) {
     ctx.tools.register(defineContentToolFixture({
@@ -70,7 +74,7 @@ describe('the gate intercepts real dispatch', () => {
       await writeFile(join(project, 'assets_manifest.json'), JSON.stringify({ assets: [{ official: true }] }))
     }
     const { ctx, ran } = await harness(['jubian_storyboard'], { workspaceRoot: workspace })
-    const result = await ctx.tools.execute({ signal, callId: ToolCallId('host-project-discovery'),
+    const result = await executeModelToolFixture(ctx, { signal, callId: ToolCallId('host-project-discovery'),
       name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json', script_id: 42, idempotency_key: 'key' } })
     expect(result.isError).toBe(!exists)
     expect(ran.get('jubian_storyboard')).toBe(exists ? 1 : undefined)
@@ -78,7 +82,7 @@ describe('the gate intercepts real dispatch', () => {
   })
   it('refuses a paid method without a key before the body runs', async () => {
     const { ctx, ran } = await harness(['jubian_storyboard'])
-    const result = await ctx.tools.execute({
+    const result = await executeModelToolFixture(ctx, {
       signal,
       callId: ToolCallId('c1'),
       name: 'jubian_storyboard',
@@ -92,7 +96,7 @@ describe('the gate intercepts real dispatch', () => {
 
   it('lets an allowed call reach the body', async () => {
     const { ctx, ran } = await harness(['jubian_storyboard'])
-    const result = await ctx.tools.execute({
+    const result = await executeModelToolFixture(ctx, {
       signal,
       callId: ToolCallId('c2'),
       name: 'jubian_storyboard',
@@ -108,7 +112,7 @@ describe('the gate intercepts real dispatch', () => {
       { method: 'generate', project_dir: WORKSPACE },
       { method: 'generate', idempotency_key: 'legacy-original' },
     ].entries()) {
-      const result = await ctx.tools.execute({ signal, callId: ToolCallId(`generate-free-${index}`),
+      const result = await executeModelToolFixture(ctx, { signal, callId: ToolCallId(`generate-free-${index}`),
         name: 'jubian_storyboard', arguments: args })
       expect(result.isError).toBe(false)
     }
@@ -119,7 +123,7 @@ describe('the gate intercepts real dispatch', () => {
     // A dispatched call carries no session cwd here, so the configured root is what
     // resolves the workshop-relative path the model wrote.
     const { ctx, ran } = await harness(['write'], { workspaceRoot: WORKSPACE })
-    const result = await ctx.tools.execute({
+    const result = await executeModelToolFixture(ctx, {
       signal,
       callId: ToolCallId('c3'),
       name: 'write',
@@ -131,7 +135,7 @@ describe('the gate intercepts real dispatch', () => {
 
   it('leaves an unrelated tool untouched', async () => {
     const { ctx, ran } = await harness(['grep'])
-    const result = await ctx.tools.execute({
+    const result = await executeModelToolFixture(ctx, {
       signal,
       callId: ToolCallId('c4'),
       name: 'grep',
@@ -143,7 +147,7 @@ describe('the gate intercepts real dispatch', () => {
 
   it('explains a retired MUSE tool name instead of returning a bare UNKNOWN_TOOL', async () => {
     const { ctx } = await harness([])
-    const result = await ctx.tools.execute({
+    const result = await executeModelToolFixture(ctx, {
       signal,
       callId: ToolCallId('c5'),
       name: 'timeline',
@@ -157,7 +161,7 @@ describe('the gate intercepts real dispatch', () => {
     // The configured root stands in for the session cwd a dispatched call lacks;
     // `project_dir` is what binds the operation to one project.
     const { ctx, ran } = await harness(['jubian_video'], { workspaceRoot: WORKSPACE })
-    const result = await ctx.tools.execute({
+    const result = await executeModelToolFixture(ctx, {
       signal,
       callId: ToolCallId('c7'),
       name: 'jubian_video',
@@ -183,7 +187,7 @@ describe('the gate intercepts real dispatch', () => {
       ready: true,
     }))
     const { ctx, ran } = await harness(['jubian_video'], { workspaceRoot: workspace })
-    const result = await ctx.tools.execute({
+    const result = await executeModelToolFixture(ctx, {
       signal,
       callId: ToolCallId('root-project-image-generate'),
       name: 'jubian_video',
@@ -195,7 +199,7 @@ describe('the gate intercepts real dispatch', () => {
 
   it('refuses a paid asset creation that names no project at all', async () => {
     const { ctx, ran } = await harness(['jubian_video'], { workspaceRoot: WORKSPACE })
-    const result = await ctx.tools.execute({
+    const result = await executeModelToolFixture(ctx, {
       signal,
       callId: ToolCallId('c8'),
       name: 'jubian_video',
@@ -208,7 +212,7 @@ describe('the gate intercepts real dispatch', () => {
 
   it('honors a switch, letting the same call through when the rule is off', async () => {
     const { ctx, ran } = await harness(['jubian_storyboard'], { idempotencyKey: false })
-    const result = await ctx.tools.execute({
+    const result = await executeModelToolFixture(ctx, {
       signal,
       callId: ToolCallId('c6'),
       name: 'jubian_storyboard',
@@ -234,6 +238,7 @@ describe('config validation', () => {
     contexts.push(ctx)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await expect(ctx.plugin(DramaGate, config)).rejects.toThrow(/drama-gate:/)
   })
 

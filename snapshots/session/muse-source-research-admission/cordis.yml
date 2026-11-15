@@ -1,0 +1,9 @@
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: source-research-admission-fixture
+      name: ../../../apps/desktop-host/tests/fixtures/source-research-admission/fixture.mjs

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-drama-skills",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.2-rc.1",
   "private": true,
   "type": "module",
   "license": "UNLICENSED",
@@ -52,6 +52,7 @@
     "skills/tweet-drama-core/scripts/paths.py",
     "skills/tweet-drama-core/scripts/pipeline_state.py",
     "skills/tweet-drama-core/scripts/style_references.py",
+    "skills/tweet-drama-core/scripts/subtitle_display.py",
     "skills/tweet-drama-core/scripts/validate_live_action_skills.py",
     "skills/tweet-drama-core/scripts/video_bans.py",
     "skills/tweet-drama-delivery/SKILL.md",
@@ -68,6 +69,7 @@
     "skills/tweet-drama-draft-build/scripts/draft_generator.py",
     "skills/tweet-drama-draft-build/scripts/generate_draft_request.py",
     "skills/tweet-drama-draft-build/scripts/draft_inputs.py",
+    "skills/tweet-drama-draft-build/scripts/draft_fonts.py",
     "skills/tweet-drama-draft-build/scripts/jianying_draft.py",
     "skills/tweet-drama-draft-build/scripts/windows_aa_draft.py",
     "skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1",

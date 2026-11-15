@@ -1,0 +1,2 @@
+*.md -text whitespace=cr-at-eol
+LICENSE -text whitespace=cr-at-eol

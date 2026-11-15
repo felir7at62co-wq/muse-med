@@ -10,6 +10,12 @@
   disabled: true
 - id: subprocess
   disabled: true
+- id: headless-runner
+  inject: [headlessStartup, snapshotLvpaopaoSeriesReady]
+  config:
+    task: !!js ctx.headlessStartup.task
+    sessionId: snapshot-lvpaopao-series
+    json: !!js ctx.headlessStartup.json
 - insert:
     - id: offline-lvpaopao-subprocess
       name: './subprocess-fixture.mjs'

@@ -6,7 +6,6 @@ recording: authored
 header:
   class: subagent-acp-diagnostic
   pin: true
-  systemPromptSource: product-subagent-codex
 replay:
   override: true
 writerOutput: true

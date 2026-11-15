@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "taskId": "84817d56f3ed4113d52398c7",
+  "selection": {
+    "srcAppId": "wx0000000000000002",
+    "dramaId": "fixture-series-02",
+    "episodeCount": 2,
+    "actualEpisodeNumbers": [
+      1,
+      2
+    ],
+    "catalogComplete": true,
+    "title": "离线纸灯全集"
+  },
+  "episodes": [
+    {
+      "episodeNo": 1,
+      "state": "complete",
+      "attempts": 2,
+      "requestKey": "1111111111111111111111111111111111111111111111111111111111111111",
+      "media": {
+        "localPath": "{{cwd}}/downloads/lvpaopao/lvpaopao-84817d56f3ed4113d52398c7/episodes/0001/episode-0001.mp4",
+        "receiptPath": "{{cwd}}/downloads/lvpaopao/lvpaopao-84817d56f3ed4113d52398c7/episodes/0001/episode-0001.mp4.receipt.json",
+        "bytes": 1545,
+        "sha256": "436c6451776fca6928b2d3b6b1eaca68816d132b9c11bfd8658a23ff21fffb43",
+        "durationSeconds": 1,
+        "width": 16,
+        "height": 16,
+        "hasAudio": false,
+        "fullDecodePassed": true
+      }
+    },
+    {
+      "episodeNo": 2,
+      "state": "complete",
+      "attempts": 1,
+      "requestKey": "2222222222222222222222222222222222222222222222222222222222222222",
+      "media": {
+        "localPath": "{{cwd}}/downloads/lvpaopao/lvpaopao-84817d56f3ed4113d52398c7/episodes/0002/episode-0002.mp4",
+        "receiptPath": "{{cwd}}/downloads/lvpaopao/lvpaopao-84817d56f3ed4113d52398c7/episodes/0002/episode-0002.mp4.receipt.json",
+        "bytes": 1545,
+        "sha256": "436c6451776fca6928b2d3b6b1eaca68816d132b9c11bfd8658a23ff21fffb43",
+        "durationSeconds": 1,
+        "width": 16,
+        "height": 16,
+        "hasAudio": false,
+        "fullDecodePassed": true
+      }
+    }
+  ]
+}

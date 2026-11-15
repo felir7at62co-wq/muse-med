@@ -70,7 +70,7 @@ test('warnings are kept, cleaned, written to the log, and read back after a rest
   assert.equal(second.code, 'RATE_LIMIT')
 
   const report = await rt.diagnostics.report({ client: { surface: 'Web', language: 'zh-CN', userAgent: 'Test/1' }, clientErrors: [{ time: 1, text: 'state: HTTP 502' }] })
-  assert.match(report.markdown, /\| DS Bot \| \d+\.\d+\.\d+ \|/)
+  assert.match(report.markdown, /\| Muse Bot \| \d+\.\d+\.\d+ \|/)
   assert.match(report.markdown, /\| Surface \| Web \|/)
   assert.match(report.markdown, /\| Models \| deepseek\/deepseek-chat \|/)
   assert.match(report.markdown, /WARN host \[EACCES\] state write failed/)
@@ -265,7 +265,7 @@ test('a failed group turn fails its waiter; a stopped one counts as no answer', 
 
 test('issueUrl fills the issue form, keeps the versions when the errors are too long, and falls back to the clipboard', async () => {
   const { issueUrl } = await import('../src/client/diagnostics.js')
-  const base = 'https://github.com/Fei2411/DeepSeek-Bot/issues/new'
+  const base = 'https://github.com/Fei2411/DS-Bot/issues/new'
   const short = issueUrl(base, { what: 'Writer failed\nin the group', diagnostics: '| DS Bot | 0.1.0 |' })
   assert.equal(short.inline, true)
   const params = new URL(short.url).searchParams

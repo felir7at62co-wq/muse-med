@@ -1,14 +1,7 @@
 /**
- * Which directory is this session working in, and is it one a plugin may produce into?
- *
- * The harness records one absolute working directory per session at creation
- * (`Session.header.cwd`, validated when it enters the store). That value is the only honest answer to
- * "where does this conversation work" — the process's own `cwd` is the deployment's, not the operator's.
- *
- * This module is deliberately read-only. Founding a directory, writing an identity file or creating a
- * layout is the caller's decision, because two products disagree about it: one wants a checked-in identity
- * record, another only wants the path. A resolver that silently created things would impose one on the
- * other, and a *read* that creates a directory is a bug regardless.
+ * Read the initial directory recorded in Session.header.cwd.
+ * Effective directory changes belong to the working-directory service. These
+ * compatibility helpers only inspect header metadata and never create paths.
  */
 import { DomainRecordError, unknownFailureMessage } from './errors.ts'
 
@@ -18,10 +11,10 @@ export type SessionId = string
 export interface SessionLookup {
   get: (id: SessionId) => { readonly header: { readonly cwd?: string } } | undefined
 }
-/** What a caller learns about one session's directory. */
+/** A Session's recorded origin, independent of its effective working directory. */
 export interface SessionDirectory {
   sessionId: SessionId
-  /** Absolute working directory, or undefined when the session was opened without one. */
+  /** Initial header.cwd, or undefined when the Session was opened without one. */
   cwd: string | undefined
 }
 
@@ -39,8 +32,8 @@ export function sessionLookup(ctx: { get?: (name: string, strict?: false) => unk
 /**
  * Resolve the directory a session was opened in.
  * @param sessions - The Host's session lookup, when it has one.
- * @param sessionId - Session whose working directory is wanted.
- * @returns The session and its absolute cwd; an unknown session is an explicit failure, not a fallback.
+ * @param sessionId - Session whose recorded initial directory is wanted.
+ * @returns The Session and its recorded header.cwd; an unknown Session fails instead of selecting a fallback.
  */
 export function sessionDirectory(sessions: SessionLookup | undefined, sessionId: string): SessionDirectory {
   if (typeof sessionId !== 'string' || !sessionId.trim()) {
@@ -58,10 +51,10 @@ export function sessionDirectory(sessions: SessionLookup | undefined, sessionId:
 }
 
 /**
- * Resolve one session's directory without throwing when it cannot be known.
+ * Read one Session's initial recorded directory without throwing when it is unavailable.
  * @param sessions - The Host's session lookup, when it has one.
  * @param sessionId - Session identity, possibly absent or already unknown.
- * @returns The absolute cwd, or undefined; callers use this when a missing answer is a normal case.
+ * @returns Recorded header.cwd, or undefined; effective directory changes are not read.
  */
 export function trySessionDirectory(sessions: SessionLookup | undefined, sessionId: unknown): string | undefined {
   if (sessions === undefined || typeof sessionId !== 'string' || !sessionId.trim()) return undefined

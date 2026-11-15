@@ -3,8 +3,7 @@ scenario: product-subagent-both
 profile: headless
 composition: product-subagent-both
 recording: authored
+writerOutput: true
 header:
   class: product-subagent-both
   pin: true
-  systemPromptSource: product-subagent-codex
-writerOutput: true

@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Model providers and their API keys, for a window that has no DSH Models page of its
 // own. DSH keeps all of it: a provider route in the settings of the adapter that serves
 // it, the route's key in DSH's credential store under the reference the route names.

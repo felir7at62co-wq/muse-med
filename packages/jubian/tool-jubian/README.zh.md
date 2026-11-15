@@ -37,23 +37,26 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 当 agent 需要查询或认领当前账号剧本池里的本、按名字查剧本、整理资产、上传参考图、保存主体选择、准备和提交视频、确认出演、生成图片、擦除字幕、转高清或下载提供方媒体时，选择本包。凭证能解析的地方都可以挂载它；会话不接触剧变时不要挂载，因为这些 schema 在挂载期间始终对模型可见。
 
+<a id="extract-or-reuse-existing-video"></a>
 ### 提取或复用已有视频
 
 提取声线或复用成片前，用 `jubian_video sources` 提供精确 `script_id` 与原 `storyboard_id` 查询已有媒体。它只读核对卡片、任务及子结果身份，在配置范围内翻页读取历史，返回成功视频 URL 和原任务／结果 ID，不要求与当前模型或分辨率一致。原卡已关联的任务即使未出现在完整项目列表中，也会继续核对；两份历史不一致时，查询覆盖标记为不完整。 同一任务的卡片归属冲突时也标记覆盖不完整，来源卡片只能由独立任务详情及子结果证据确认。`available` 表示存在已核实媒体，`pending` 表示原任务或子任务仍在运行，`none_found` 表示完整查询后未找到成功媒体，`unknown` 保留查询不完整或无法读取的状态。这些结论不授权生成，也不证明实际说话人或视频内容合格。
 
-`tasks` 与 `subtasks` 实际传递 `page_num`、`page_size`，并返回查询时间、返回数量、`complete`、`has_more` 与 `next_page`。`complete` 只描述本次响应；读到末页不代表前页已查。部分查询未返回某条记录，不证明该卡从未生成。`prepare_video` 同时返回提示性 `existing_video_sources`，这些观测不写进冻结预览，也不改变生成指纹。历史查询失败时，准备仍可完成，来源覆盖标记为未知。
+`jubian_video` 的 `method: tasks` 默认查询全部任务类型。可传入正整数 `task_type` 筛选；`task_type: 1` 保留生成任务筛选。`tasks.scope` 标明 `script_id` 和选定类型，其中 `task_type: null` 表示未发送类型筛选。某类型的空页不代表项目没有任务。即使项目列表为空，也应使用 `method: task` 与原 `task_id` 单独回读已知任务。缺少记录或查询来源都不授权收费生成。
+
+`tasks` 与 `subtasks` 实际传递 `page_num`、`page_size`，并返回查询时间、返回数量、`total_verified`、`complete`、`has_more` 与 `next_page`。`total_verified` 只表示提供方返回了本次查询的有效数值总数。`complete` 只描述相应查询范围内的本次响应；读到末页不代表前页已查。对于 `tasks`，只有未按类型筛选且本次响应包含提供方报告的完整项目列表时，`project_complete` 才可能为 true；它不证明提供方保留了全部历史任务。部分查询未返回某条记录，不证明该卡从未生成。`prepare_video` 同时返回提示性 `existing_video_sources`，这些观测不写进冻结预览，也不改变生成指纹。历史查询失败时，准备仍可完成，来源覆盖标记为未知。
 
 来源查询使用 `videoSourcePageSize`（100）、`videoSourcePageLimit`（20）、`videoSourceTaskLimit`（50）、`videoSourceResultLimit`（20），四项范围均为 1–100；`videoSourceMaxResultChars` 默认将完整结果限制为 12000 个 JSON 字符，范围 2048–1000000。达到限制时保留能容纳的已核实记录，删除整行而不截断 URL，并明确覆盖不完整。来源查询或缺少声线样本不会发起付费请求。新用户消息不再自动追加提取或复用提示；历史提示仍作为已保存的普通上下文保留。
 
 ### 会话视频模型选择
 
-Bot 模式在 Bot 详情的语言模型下方选择当前 Bot 会话的视频模型和分辨率；经典会话保留聊天框菜单。两个入口使用同一份会话选择。
+通过当前会话聊天框菜单选择视频模型和分辨率。
 
 配置 `sessionVideoSelection: true` 会增加会话视频模型／分辨率菜单与 `jubian_video_model` 提问工具。菜单沿用语言模型选择器的不透明、受窗口高度限制的样式：“模型／分辨率”入口进入同一面板内的可滚动列表，按通道分组并标记当前选择。会话聊天框挂载时提前读取账号模型目录；打开菜单时保留已有选项并刷新，重叠读取共用一个请求。只有尚无目录数据时才在已打开的菜单内部显示加载提示，聊天框与按钮位置保持稳定。可选 `defaultVideoModel` 用 `modelId`、`platformId` 和 `resolution` 指定未保存选择的会话默认值；Muse 配置为 FANG_ZHOU 通道的 Seedance 2.5、480p。读取选择工具或准备新生成时，核对实时目录并只记录一次默认值，已有选择始终保留；默认值不可用时报告错误，用户仍可明确选择其他可用规格。读取项目不替用户选模型，也不修改项目默认值。用户确认后记录 `jubian/video-selection`，在下一个正常模型步骤前注入带来源的上下文消息；不会单独发起模型请求或替换系统提示词。动态上下文在压缩或恢复后重建最新选择。
 
 没有已存选择的全新子代理，在创建时记录父级当前视频选择，并使用自己的修订序号。继承对话的子代理保留已有选择，不重复追加事件；子代理已有选择不会被替换。父级切换只影响新建子代理，子代理后续选择不会修改父级。父级未选择时，子代理沿用正常的配置默认值流程。这些记录和上下文注入不读取目录，也不发起付费请求。
 
-选择服务要求提供 `sessionProjections`，并通过已有选择事件折叠出 `jubianVideoSelection` 投影。聊天框通过投影读取已存选择，不会恢复 Agent 或启动原来的选择订阅。独立的只读 `defaults` 调用返回 `VideoModelDefault`（`modelId`、`platformId`、`resolution`），未配置默认值时返回 `null`。聊天框仅在投影确认没有已存选择后使用该初始显示值，不会记录尚未核对的目录身份。恢复或目录读取失败时，保留当前模型并显示紧凑警告；打开菜单即可重试或展开诊断详情，重连成功后清除错误。
+选择服务要求提供 `sessionProjections`，在发布读取方法前等待注册完成。Host 消费者通过 `current(agent)` 或 `selectionFor(session)` 读取，不扫描历史。服务通过已有选择事件折叠出 `jubianVideoSelection` 投影。聊天框通过投影读取已存选择，不会恢复 Agent 或启动原来的选择订阅。独立的只读 `defaults` 调用返回 `VideoModelDefault`（`modelId`、`platformId`、`resolution`），未配置默认值时返回 `null`。聊天框仅在投影确认没有已存选择后使用该初始显示值，不会记录尚未核对的目录身份。恢复或目录读取失败时，保留当前模型并显示紧凑警告；打开菜单即可重试或展开诊断详情，重连成功后清除错误。
 
 Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到已提交选择的同一条已记录上下文消息。返回的释放函数用于注销检查器。检查器出错时追加重试警告，不拒绝模型选择，也不另发模型请求。Muse 的[镜头脚本检查](../../drama/tool-shot-script/README.zh.md#session-video-settings)通过此扩展点比较最近已检查分包与新的时长上限，不修改系统提示词或平台视频卡。
 
@@ -98,6 +101,8 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
 | `timeoutMs` | 传输层自己的默认值 | 单次调用的中止预算，单位毫秒 |
 | `watchPollIntervalMs` | `15000` | 观察轮询间隔，毫秒；1..60000 范围内的整数 |
 | `watchTimeoutMs` | `1800000` | 观察期限，毫秒；1..86400000 范围内的整数 |
+| `generationWatch` | `false` | 为 Host 会话中的原生视频提交启用可恢复的自动观察 |
+| `generationWatchRoot` | `<DSH_HOME>/jubian/generation-watches` | 保存原生视频提交检查点和待送达通知的私有目录 |
 | `claimPollIntervalMs` | `5000` | 剧本池认领轮询间隔，毫秒；整数 1000..60000 |
 | `claimMaxWindowMs` | `7200000` | 授权认领窗口的最长毫秒数 |
 | `claimMaxLeadMs` | `86400000` | 认领窗口开始前允许的最长等待毫秒数 |
@@ -225,11 +230,13 @@ inherited process environment (read-only, highest)
 | `jubian_media` | `download` | 免费且不需要凭证；写入一个本地文件 |
 | `jubian_watch` | `task_id`, `stage` | 只读后台观察；返回当前进程内的 job ID |
 
-免费 prepare_video 结果的 next 简短提醒按系统提示词的固定自检清单核对本次提交，并保留准备不创建生成任务、不收费及原 fingerprint 提交方式的说明。Agent 自主检查修正后调用 submit_video 或 submit_video_batch；提醒不增加审批令牌或额外工具步骤，原有参数、预算和幂等校验继续生效。
+免费 `prepare_video` 结果让 Agent 按用户最新请求决定后续：只预览时到此展示结果，即使此前已有制作授权。仅当本次请求包含已授权生成时，才按系统提示词的固定自检清单核对后，以原 fingerprint 调用 `submit_video` 或 `submit_video_batch`。准备不创建生成任务、不收费；预算或预览指纹不代表提交授权。提醒不增加审批令牌或额外工具步骤，原有参数、预算和幂等校验继续生效。
+
+旧提示词格式或素材顺序命中时，返回一个已知 `original_idempotency_key` 供只读对账。`outcome` 属于旧 key；本次精确格式请求未发送，结果不代表该请求已生成视频。原预览或远端任务缺失不允许再次收费；存在多个旧版本记录时，也不表示已经唯一认领任务。
 
 - `jubian_catalog` 读取某一任务类型的账户模型目录（`task_type` 1 视频、2 图片、10 去字幕）、用 `standard_id` 读取单个计价标准、用 `script_id` 读取剧本身份，以及它的分集分页。
 - `jubian_character_reference_authorize` 仅在普通 Muse 会话中显示。它核对当前项目、角色与待审核图，再直接请已登录用户声明本人委托生成并上传、拥有本项目一次衍生生图权利；不会批准公共库使用或发出付费请求。
-- `jubian_find` 在不知道 `script_id` 的情况下按名字定位一个剧本，范围二选一：`mine`——调用方自己名下的画布项目（`GET /aigc/script/list`）；`pool`——可认领的剧本池（`GET /script/center/pool/list`）。`name` 可选，先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再匹配 `script_name` 或 `manuscript_name` 的子串；没有拼音、别名或模糊匹配，所以差一个字就是没找到，而不是给出一个看着像的错项目。省略 `name` 就是列出该范围的第一页，而不是报错。`page_size` 只限制单次请求，不限制扫描：工具会一直翻页，直到读完 `total`、某一页为空，或达到 `scan_page_limit`；`complete: false` 表示这次没有覆盖 `total`，不要读成"就这些"，而 `scanned_pages`、`returned` 与 `truncated` 说明实际发生了什么。`status` 原样转发，且只对 `pool` 有效。`production_type` 与 `share_target_type` 原样转发为 `productionType` 与 `shareTargetType`，且只对 `mine` 有效：控制台打开「漫剧视频」时自己发的那次请求，就是在同一个 `/aigc/script/list` 上带 `productionType=0` 与 `shareTargetType=1`，所以这一对参数正是列出漫剧项目的方式。两个取值都是提供方自己的编码——本工具既不解释、也不校验、也不给默认值，因此省略的那个根本不会出现在查询串里。它不写账本、不需要 `idempotency_key`、不改动任何远端，也不会从池子里认领剧本；读不懂的响应直接报 `CONTRACT_CHANGED`，而不是当成"没找到"，因此漏本和没本仍然能区分。
+- `jubian_find` 在调用方的画布项目（`mine`，`GET /aigc/script/list`）或可认领池（`pool`，`GET /script/center/pool/list`）中定位剧本。工具统一空白和大小写，再用 `name` 子串匹配剧本名与原稿名，不支持拼音、别名或模糊匹配。省略 `name` 时只列请求的起始页。按名称查询从 `page_num` 连续读取，直到覆盖 `total`、遇到空页或达到 `scan_page_limit`；`page_size` 限制每次请求。`complete: false` 表示扫描未覆盖总数；`truncated: true` 独立表示匹配结果被输出条数上限截断。`scanned_pages` 和 `returned` 分别记录请求页数与返回匹配数。`status` 是仅供 `pool` 使用的提供方状态字符串；`production_type` 与 `share_target_type` 是仅供 `mine` 使用的提供方整数编码，原样转发为 `productionType` 与 `shareTargetType`，无默认值。两者分别为 `0` 和 `1` 时查询漫剧项目。过滤项用于错误的 scope 会被拒绝。查询免费，不改远端状态、不需要幂等键、不写账本、不检查预算、不重试。无法识别的响应抛出 `CONTRACT_CHANGED`，不会当作空结果。
 - `jubian_asset` 读取单个资产、项目资产分页、已确认的主体设定材质，或某个资产的生成图 URL。`confirm_casting` 接受的是生成材质 ID——不是父资产，也不是任务 ID——并让该材质被本次制作采用。`remove` 发出 `DELETE /aigc/asset/removeAsset/{assetId}?scriptId=<id>&isParent=1`：父资产与其媒体版本被移除，引用它的镜头匹配不会因此重建，已生成的视频也不会重新生成。取消一次选用决定是另一个动作；`remove` 不是它。`upload_reference` 接受本地 `image_path`，检查两条边是否都是 16 的倍数（提供方图片流水线要求的那条规则），上传到实时前端 bundle 配置的目的地，并返回资产请求或 `image_generate` 的 `references` 所需的 `materialUrl`/`materialType`/`sortOrder` 条目。它不收费、不创建任务，但确实会向提供方对象存储写入一个对象。三个资产库写方法见下文「组织资产库」。
 - `jubian_organize` 为一个项目建立一份只读视图：每一集用到哪些角色、场景与道具，各自远端的标识与状态；命名审计；类别审计；以及个人资产库每个类别的文件夹树。它不改动任何远端，只写一个本地索引文件。详见下文「组织视图」。
 - `jubian_storyboard` 无需模型设置或本地项目文件即可列出项目分镜身份、读取单个分镜、用调用方给出的完整请求体新建分镜、保存而不生成、提交生成，或擦除烧录字幕。`generate` 使用下文的分镜原生预览与提交流程，不再有独立的直接生成路径。`erase_subtitle` 需要任务 ID、视频画面尺寸和一个明确的 `model_id`：`quzimuToB`（区域性——擦除矩形按提供方对画面的默认比例推导，所以 `subtitle_box` 可选且通常省略）或 `ark-erase-video-subtitle-pro`（自动，不接受 `subtitle_box`）。它没有默认模型，所以省略 `model_id` 的调用方会被告知缺哪个参数，而不是被替它挑一个。项目、分集与源身份从任务及其子结果读取，因此不需要 `script_id`。三个分镜原生方法见下文「主体视频的分镜原生通道」一节。
@@ -246,9 +253,9 @@ inherited process environment (read-only, highest)
 
 `jubian_storyboard list` 接收 `script_id` 和可选的 `page_num`/`page_size`，返回 `storyboards.rows`、`total`（未提供时为 null）和请求页号。空项目返回空列表。未绑定的分集表示为 `episode_id: null`；来自其他项目的行会被拒绝。按总数分页读取；没有总数时继续到空页。详情用 `get`。模型 `preview` 需要已存设置或明确的 `changes`；缺字段或缺分集归属时会点名受影响分镜。它不是查询入口。
 
-`create` 使用 `scriptId`、从 `jubian_catalog episodes` 获取的真实 `episodeId`、显示集号 `episodeCount`、`scriptName`、`storyboardName`、从零开始的 `sortOrder` 和 `isGenerate: 0`。`modelConfig` 编码为 JSON 字符串，包含完整包提示词和当前目录选择器（`modelId`、`platformId`、`standardId`、`genType`、`modelGenerationTypeId`、`videoStandardId`、`ratio`、`resolution`、`genNum`），以及含收束的整数秒 `duration`。不要复制旧记录 ID、账号字段或任务列表。创建后读取返回 ID，先用 `select_assets` 绑定素材再准备视频。每份请求体可冻结在项目 `video_tasks/`，通过 `body_path` 提交。
+`create` 使用 `scriptId`、从 `jubian_catalog episodes` 获取的真实 `episodeId`、显示集号 `episodeCount`、`scriptName`、`storyboardName`、从零开始的 `sortOrder` 和 `isGenerate: 0`。`modelConfig` 编码为 JSON 字符串，包含完整包提示词和当前目录选择器（`modelId`、`platformId`、`standardId`、`genType`、`modelGenerationTypeId`、`videoStandardId`、`ratio`、`resolution`、`genNum`），以及含收束的整数秒 `duration`。不要复制旧记录 ID、账号字段或任务列表。创建时 `storyboardMaterialList` 和 `modelConfig.materialList` 必须省略、为 null 或空数组；JSON 编码的值也会检查。非空或格式错误的绑定在任何 POST 前拒绝，包括批内后续项。创建后读取返回 ID，用 `select_assets` 核验绑定项目正式图片；音频通过 `audio_preview`/`audio_apply` 绑定后再准备视频。每份请求体可冻结在项目 `video_tasks/`，通过 `body_path` 提交。
 - `jubian_video` 读取单个任务（含观测到的费用）、项目视频任务分页，或某个任务的子结果——子结果带成片 `video_url`、字幕像素框、阶段历史、每个结果的分辨率与 `needs_upscale` 判定。`subtasks` 用 `POST` 请求体承载查询，但仍然只读。`image_generate` 生成一张计费的资产图：必填 `asset_name`、资产类别、`prompt`，可选有序的 `references`；给出 `parent_asset_id` 时用 `PUT` 重生成该资产，否则用 `POST` 新建。写入是异步的：新建父资产时核实本次生成材质后才返回 `material_id` 和 `image_url`；重生现有父资产时先保持未核实，须读回本次新任务和新材质，不能把旧 Active 图片当新图；见下文「计费生图路径」。`upscale` 按实时模型、规格与价格提交一次计费转换，只需 `task_id` 与 `idempotency_key`；其他身份都从父任务与其首个子结果读取。`retry` 重新执行一次已终止且未计费的失败；它先读父任务与子结果，只有在父任务已终止失败、没有任何子结果持有文件或处于活动/成功状态、且任务没有真实费用时才发送请求。
-- `jubian_media` 下载一个提供方媒体，返回路径、探测出的媒体类型、字节数与 sha256。`output_path` 缺少扩展名或与实际格式冲突时，按探测出的格式修正；调用方必须读取返回的 `path`。它绝不把字节放进结果：几十 MB 的 base64 会污染之后每一次请求。
+- `jubian_media` 下载一个提供方媒体，返回路径、探测出的媒体类型、字节数与 SHA-256。`output_path` 缺少扩展名或与实际格式冲突时，按探测出的格式修正。使用返回的 `path`。设置 `resume: true` 时，只有回执对应同一 URL 和媒体种类，且本地文件字节数和 SHA-256 与回执一致，才复用本地文件。否则保留已有候选文件，并下载到未占用的路径。首次下载与复用都返回 `download_receipt_path` 和 `source_sha256`。后者是完整来源 URL 的 SHA-256，以 64 位十六进制表示。回执记录此摘要与保存文件的身份。
 
 ### 账号剧本池认领
 
@@ -257,6 +264,16 @@ inherited process environment (read-only, highest)
 `jubian_snatch` 在明确的 UTC 开止窗口中启动当前进程内的作业。`scope=ids` 要求已授权的 ID 列表；`scope=new_claimable` 启动时先取得完整池子基线，只考虑后来新出现且 `canClaim=1` 的行。每本的 key 由调用方给出的 `idempotency_prefix` 与 ID 构成；作业到窗口或数量上限即停止，逐本结果由 `job_output` 返回。工具不会把列表结果当成授权。随包的 [jubian-snatch skill](../../../packages/drama/skills/skills/jubian-snatch/SKILL.md) 要求 agent 在认领前核对用户原话；工具调用里的授权摘要可供审计，但不是独立的同意证明。Host 重启会结束作业，不会自动恢复。
 
 ### 后台观察操作
+
+生成通知在生产者缺席时仍保留正文、来源元数据与消息身份。本插件不激活已归档的 DS Bot。带旧群组分配的记录保留待核实；来源元数据不能决定其他通知接收者。
+
+启用 `generationWatch` 后，原生 `submit_video`、`submit_video_batch` 及 `generate` 的原生提交阶段在派发前登记原预览 key。可信工具体结果记录原 Session、模型与推理级别、工作目录和带版本的工作区成员关系；工具返回 `generation_watch_id`。Host 观察已有提供方任务，缺少回执时按原 key 只读对账。新视频 PUT 共用账本写锁，并在派发前持久记录发送栅栏。只有已结束的初次派发提供可信未发送证据，才允许显式更正的同 key 后继记录；旧回执保持原样。结果不明不授权重发。
+
+全部视频包取得核实的终态或达到观察期限后，自动续聊解析原普通 Session，并要求原模型、目录及未归档工作区成员关系。Desktop 提供独占的后继工作区存储，保留原 JSON、全部 Session 与 Workspace ID。历史绑定缺失、成员被替换、其他活动所有者或模型变化时，通知保留待复核；不新建替代会话，也不覆盖用户后来选择的模型。作用域租约保护实际模型请求与工具执行；所有者撤销会取消续聊。
+
+原通知 ID 与持久 inbox claim 在重启后区分排队、已领取与已完成的输入。尚未送入模型请求的输入，在重新核实原绑定后可以恢复；已经送入请求但结果不明的输入保留，不自动重放。用户取消和续聊失败需要复核。生产者卸载前先暂停自己排队的自动输入，再释放守卫；重载须重新核实原绑定才能恢复。提供方成功只证明任务与子结果身份，不代表画面、语音内容或交付验收。下载、审查和组装继续沿用原 key。
+
+所有权核实要求项目与预览使用绝对路径，且原普通 Session 仍可读取；子代理 Session 不能提供该模型身份。送达流程在解析 Agent 后及重新核实待续聊绑定后再次检查所有权。恢复通知投影时，持久记录中的领取、结算或 inbox 拼接关系不一致，会阻止继续执行。未取得执行绑定的原生通知保留在队列中，不得进入模型请求。
 
 提交返回已受理的**本次操作**任务 ID 后，调用 `jubian_watch({ task_id, stage })`；不要用源视频任务 ID 代替。`task_id` 必须是正安全整数，`stage` 为 `generate`、`upscale` 或 `erase_subtitle`。接纳后立即返回 `{ job_id, task_id, stage, status: "running" }`。缺少 `jobs` 只会使本工具失败；接纳任务还要求有已挂载的任务控制器。观察器只读同一任务及其分页子结果，不写账本，也不重投收费请求。
 
@@ -333,6 +350,8 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 ### 主体视频的分镜原生通道
 
+冻结预览所属项目的 `pipeline_state.json` 中，人工设为 `blocked` 的本集 `video_tasks` 记录会暂停新的付费视频提交。绑定的暂停记录在阶段元数据中保存剧变项目 `script_id` 和 `provider_episode_id`。Host 在登记新的任务观察前核对对应集，在预留费用前再次核对。状态文件无法读取，或命中的暂停记录缺少可核验的集 ID 时，新提交等待复核。免费准备、原键对账和媒体下载仍可进行。上游变更会保留暂停记录，等待操作者解除。
+
 配置 `promptRiskReview` 后，`edit_preview`、`edit_batch_preview` 和 `prepare_video` 在正常成功结果中返回 `prompt_risk_review`，扫描完整的拟写入或已保存提示词，包括否定清单、备注和引号内文字。每条命中包含 `storyboard_id`、`card_name`、`term`、以 UTF-16 计数的 `offset` 和保留完整 Unicode 字符的 `context`。`total_matches` 包含未展示的命中；共享 `maxMatches` 限制截断明细时，`truncated` 为真。报告不修改提示词、指纹、保存权限或提交权限。字面命中不等于内容违规，也不能确认原台词；Agent 须对照来源，首次保留原台词，仅在确认生成失败与该词有关后最小修改对应词语。修正后重新预览编辑、核对保存回读，再重新准备视频。没有命中不代表完整审核通过。Muse 在 Desktop Host 配置中提供词表，其他部署没有隐含词表。
 
 选材和预检会排除明确标记 `isUsed=0` 的未使用历史记录；待处理、状态未知或多个已使用记录仍视为歧义。身份、项目与 URL 校验照常执行。
@@ -341,9 +360,13 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 主体素材和视频任务列表可读取仅含一条记录的顶层数组，视频模型目录也支持同样格式。素材身份、分页完整性和生成安全校验仍然生效。
 
-`jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
+`jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。分镜音频行缺失 `materialName` 或 `audioDuration` 时，仅当 `modelConfig.materialList` 中同 key、同 URL 的唯一音频行保留完全一致的请求值才接受；有值但矛盾、两处都缺少证据以及图片变化仍判不一致。制作方案发布的最终音频回读也遵循同一规则。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
 
-角色感知引用同时提供 `character_id`，分期声线还须提供 `voice_period_id`。其精确资产 ID 和 URL 必须匹配当前项目角色及人生时期；儿童声线不能替代成年声线，更换服装保留声线时期。已删除资产不能绑定；分期引用还须有提供方明确有效的证据（delFlag=0 且没有矛盾的删除字段）。分期引用的有效状态未知时不保存该卡，其他独立工作可继续。冻结预览保存选定声音配置，并在新保存前复验。提供方材质行不接收本地身份字段。仅 URL 引用保留已有兼容性，但不验证说话人身份。
+新音频引用必须提供非空 `fileName` 或 `materialName`。预览保留明确提供的非空 `fileName`，否则在冻结请求前把 `materialName` 复制为 `fileName`。音频关系表保存 `fileName`，模型配置同时保留提供的 `materialName`。相同显示名不会合并不同 key、URL 或组内位置；音频标签不能为空，同一 key 重复出现时标签须一致。只有 `status=applied` 且 `verified_readback=true` 才能报告绑定完成；`readback_mismatch` 或 `unknown` 必须按原 key 对账，不再发 PUT。已认领旧预览按原快照核对，不补缺失名称、不换 key；不兼容的未认领旧预览需要新的已审预览，原预览文件保持不变。绑定核验不能证明生成角色的实际声音效果。
+
+卡片正文中的音频标记若尚未进入选择列表，保留名称与 key，提供已核对的同项目音频资产 ID，即可补回绑定。旧模型配置已有对应音频行时，也可清除失配标记。任一保存列表中仍属于图片的 key 按图片处理。
+
+角色感知引用同时提供 `character_id`，分期声线还须提供 `voice_period_id`。其精确资产 ID 和 URL 必须匹配当前项目角色及人生时期；儿童声线不能替代成年声线，更换服装保留声线时期。已删除资产不能绑定；分期引用还须有提供方明确有效的证据（delFlag=0 且没有矛盾的删除字段）。分期引用的有效状态未知时不保存该卡，其他独立工作可继续。冻结预览保存选定声音配置，并在新保存前复验。制作方案发布会把共享人物和时期 ID 转交同一核验器，不会代为采纳或认可声线。提供方材质行不接收本地身份字段。带 `audio_asset_id` 且解析到共享槽的引用，以及匹配已采纳分期配置的引用，必须显式提供本地身份字段，不能通过省略字段选择旧式检查。项目圣经尚未采纳声线时会报告本地配置错误与所需修正。未分期旧引用和无关的仅 URL 音频保留已有兼容性，但不验证说话人身份。没有资产 ID、也不匹配本地已采纳配置的 URL 无法证明远端共享身份。
 
 共享声线登记同时提供 character_id 与 voice_period_id。规范音频名称后缀保留精确项目／人物／人生时期，普通名称不能认领声线。完整库存先复用已有候选。首次创建带共享身份的音频需要仅供 Host 使用的 Muse 账号协调器：认领槽、持久化开始状态，再用原账本 key 提交一次。忙碌、不可用或已经提交的状态不会另发 POST。完成时核对真实音频资产，再向协作者发布，客户端还会独立回读资产。coordination_state 与 exclusive_registration 表示协调状态，atomic_registration=false 保留供应商限制。旧客户端和剧变网页不参与协调，重复条目仍如实报告且不自动删除。已提交认领不会到期后放行新创建，未知结果沿原 key 对账。采用录音仍需核对实际说话人与时期。迁移或清理前，用[共享用途查询](../../drama/tool-drama-assets/README.zh.md#shared-project-uses)定位当前绑定。
 
@@ -355,7 +378,7 @@ voice_reference_pending 与协调等待不同，reason_code 为 asset-missing、
 
 统一角色声音时，加载[声线参考技能](../../drama/skills/skills/tweet-drama-voice-continuity/SKILL.md)。`jubian_asset upload_audio` 接受 `audio_path`，测量实际 16 位 PCM WAV 样本，在上传前拒绝超过 15 秒的文件，返回 `materialUrl`、`audioDuration`、SHA-256 和 `duration_verified: true`。它不创建资产或生成任务。`select_assets` 更新图片选源时保留已有上传音频；音频有独立组内顺序，无需图片父资产 ID。原生准备冻结这些参考，分别报告已保存时长与字节验证状态；未知远端时长保持未核实。提交的音频必须在子结果有序 `audioMaterials[].audioUrl` 中回读一致，才能认领任务。参考错误时修复并保存原分镜。
 
-`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。它识别有标签的对白和旁白、引用或声明的说话人台词、明确人物列表中的角色台词，以及角色名下的引号台词；负面要求和空台词占位不算发声。未识别的发声仍须人工核对。这是免费预检提示，不会自动生成、绑定或改写台词。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
+`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。它识别有标签的对白和旁白、引用或声明的说话人台词、明确人物列表中的角色台词，以及角色名下的引号台词。姓名台词支持括号内的表演指示和编号镜头内的句末边界；画外心声即使不动嘴也算发声。有标签的台词字段可以在同一行的非空场景或画面文字值之后用空格分隔。明确不发声的指示、动作描述、嵌套场景、画面文字和负面字段、引号内的道具文字及空台词占位不算发声。句末边界或明确的发声字段可结束动作描述；单独的句末边界不能结束画面文字或负面字段，发声标签也不能结束负面字段。未识别的发声仍须人工核对。这是免费预检提示，不会自动生成、绑定或改写台词，也不批准提交或证明实际录音合格。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
 
 主体视频由提供方从一次 `isGenerate=1` 的分镜 `PUT` 创建；直接的建任务 `POST` 不会保留主体身份。生产证据把这条差异钉死了：任务 `335343` 来自分镜 `PUT`，七项身份全部保留并成功；`335470` 来自 direct `POST /admin/aigc/video/task/create`，丢失 `assetId`/`materialName` 并失败。因此本包不支持那条路径，也没有任何方法调用它。
 
@@ -374,14 +397,14 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 - `select_assets` 保存一次有序的主体设定选择。每个图片 `material_key` 必须按提示词里 `@[名称](key)` 的顺序出现，每个选择必须唯一对应同一项目里的一行有效主体设定与一个非音频父资产，而该行的可信 `hsAssetId` 就是提供方会翻译成子任务身份的那个值。已有音频会保留；音频标记和类别 4 父资产须使用 `audio_preview`/`audio_apply`。请求体永远强制 `isGenerate=0`。这一次 `PUT` 之后，该方法会回读分镜并重新拉取项目任务列表：各 key 对应的身份、名称、URL、类型或组内顺序变化会报错，仅改变数组物理顺序则允许；而一次"仅保存选择"却带来了新视频任务时，会返回 `billing_safety_violation`，让调用方停下来而不是继续往下走。
 - `prepare_video` 免费，启用会话选择时先应用上文的会话选择规则，再用实时 `scriptId` 校验 `project_dir` 里的 `project_config.json`，按素材 key 和数字父资产 ID，从实时分镜、主体设定与父资产补齐图片，保留上传音频、比例、提示词、素材身份与时长，从当前目录解析所选模型／通道／分辨率的精确选择器，要求 `genNum=1`。未启用会话选择时保留已存模型设置。Seedance 2.0（`doubao-seedance-2-0-260128`）接受 4–15 秒总时长；Seedance 2.5（`doubao-seedance-2-5-260628`）接受 4–30 秒。总时长包含至少一秒自然收束；不支持或不唯一的选择直接失败，不用默认值替换。它把一份 preview 通过临时文件加重命名写进 `<project_dir>/video_tasks/storyboard-<id>-<key12>.storyboard-native.prepared.json`。模型同步只执行经回读验证的免费 `isGenerate=0` 保存；准备绝不发送生成 PUT、创建任务或收费。 已保存的十进制时长字符串会在模型校验前规范为数字秒；免费模型编辑允许提供方以等价的数字或字符串回读，冻结请求与重试校验保持不变。其他精确目录型号要求正整数秒，上限保持未知；仅缺少上限信息不会阻止准备或提交。 任务和主体素材清单的每条记录都需要唯一的稳定 ID；ID 缺失或重复，或者 `total` 和布尔型 `hasMore` 相互矛盾时，操作会在新的写入前停止。响应缺少 `total` 时，分页读取直到空页；达到页数上限会使清单无法核实。接口不遵守页码时需要排查，不能把首页直接当作完整清单。
 
-- `submit_video` 接受该 `preview_path` 与一个**必须等于 preview 自带 fingerprint** 的 `idempotency_key`。重建实时状态前先检查原账本；已有记录的 key 只执行只读对账。对于未记录的 key，key 不符、预览无效或实时指纹变化均在付费 PUT 前拒绝；未提交预览的保存指纹与规范化素材请求体不同时，须重新准备预览。同一提交的旧压平提示词或图片后音频分组 key 已有记录时，返回 `reconcile_conflict` 和 `original_idempotency_key`，不以规范化后的 key 再收费；即使原文件或远端任务缺失也如此，批量预检会在预约费用前拒绝整批。它先取一份完整的分页任务快照，若第二次读取同一快照发生漂移就拒绝继续，最多发送一次 `isGenerate=1` 的 `PUT /aigc/storyboard`，再取第二份快照，认领那个有序 `assetId`/`materialName`/`imageUrl` 与模型、提示词证据都与 preview 完全一致的新任务。`PUT` 前后都一样：一条任务行只有在能被证明属于当前分镜时才算认领的候选——行自带 `storyboardId`、任务详情自带，或它的某个子结果自带。一个项目装着它所有分镜的任务，而多数任务行根本不写 `storyboardId`，因此三者都证明不了的行属于别的分镜：它既不是匹配，也不是让判定不安全的证据。
-- `submit_video_batch` 接受同一项目不同分镜的 `video_previews: [{preview_path, idempotency_key}]`。agent 要先准备并审阅用户要求的范围，把拟提交的 preview 全部列入本次提交清单；工具能验证已提供的清单，无法发现漏传的分镜。工具逐项比对实时分镜、查已有任务和两次完整项目快照，再在同一进程的账本队列内一次检查整批估算金额，并在任何 PUT 前登记全部 intent。任一 preview 过期、分镜或 key 重复、任务列表漂移或缺 ID、已有任务冲突、整批预算不足，都会零 PUT。全部预约后，最多同时发送 `videoBatchConcurrency` 个独立分镜 PUT；对账读取也独立受同一并发数限制，不占收费 PUT 的提交槽。每笔返回后尽早读取该任务，再以最终项目快照和各项的分镜、有序主体、模型与提示词证据按输入顺序报告。只有最终身份完整才是 `submitted`；PUT 结果未知或回读身份被剥离时是 `reconcile_required`，不可重发。全部原 key 重放只读对账；新旧 key 混合时拒绝执行，先逐笔核对旧 key，再组织新的授权批次。与单项写入一样，账本队列只覆盖当前进程。
+- `submit_video` 接受该 `preview_path` 与一个**必须等于 preview 自带 fingerprint** 的 `idempotency_key`。重建实时状态前先检查原账本；已有记录的 key 只执行只读对账。对于未记录的 key，key 不符、预览无效或实时指纹变化均在付费 PUT 前拒绝；未提交预览的保存指纹与规范化素材请求体不同时，须重新准备预览。同一提交的旧去除首尾空白／压平提示词或图片后音频分组 key 已有记录时，返回 `reconcile_conflict` 和 `original_idempotency_key`，不以规范化后的 key 再收费；即使原文件或远端任务缺失也如此，批量预检会在预约费用前拒绝整批。它先取一份完整的分页任务快照，若第二次读取同一快照发生漂移就拒绝继续，最多发送一次 `isGenerate=1` 的 `PUT /aigc/storyboard`，再取第二份快照，认领那个有序 `assetId`/`materialName`/`imageUrl` 与模型、提示词证据都与 preview 完全一致的新任务。`PUT` 前后都一样：一条任务行只有在能被证明属于当前分镜时才算认领的候选——行自带 `storyboardId`、任务详情自带，或它的某个子结果自带。一个项目装着它所有分镜的任务，而多数任务行根本不写 `storyboardId`，因此三者都证明不了的行属于别的分镜：它既不是匹配，也不是让判定不安全的证据。
+- `submit_video_batch` 接受同一项目不同分镜的 `video_previews: [{preview_path, idempotency_key}]`。agent 要先准备并审阅用户要求的范围，把拟提交的 preview 全部列入本次提交清单；工具能验证已提供的清单，无法发现漏传的分镜。工具逐项比对实时分镜、查已有任务和两次完整项目快照，再在账本写锁保护下一次检查整批估算金额，并在任何 PUT 前登记全部 intent。任一 preview 过期、分镜或 key 重复、任务列表漂移或缺 ID、已有任务冲突、整批预算不足，都会零 PUT。全部预约后，最多同时发送 `videoBatchConcurrency` 个独立分镜 PUT；对账读取也独立受同一并发数限制，不占收费 PUT 的提交槽。每笔返回后尽早读取该任务，再以最终项目快照和各项的分镜、有序主体、模型与提示词证据按输入顺序报告。只有最终身份完整才是 `submitted`；PUT 结果未知或回读身份被剥离时是 `reconcile_required`，不可重发。若不同分镜回读到相同的父任务 ID，受影响项改为 `reconcile_required`，并在 `ambiguous_task_id` 保留该 ID。其余已核实项保持已提交，原 key 重放也执行相同检查。全部原 key 重放只读对账；新旧 key 混合时拒绝执行，先逐笔核对旧 key，再组织新的授权批次。账本以进程内队列及跨进程写锁串行化预算预留和修改；新视频 PUT 前仍须写入逐 key 的持久发送栅栏。
 
 读取任务详情和子结果前，提交与对账会比较明确的集 ID 与集号（`episodeCount`）；缺失 ID 保持 null，不从集号推断 ID。明确不同的字段会排除该行；缺失字段仍保留为候选。无效别名或相互矛盾的字段报 `VIDEO_TASK_EVIDENCE_INVALID`，详情为 `VIDEO_EPISODE_INVALID` 或 `VIDEO_EPISODE_CONFLICT`。剩余候选超过 100 条时，报 `VIDEO_TASK_SCAN_LIMIT` 并指出分镜与剧集字段。这些只读检查失败不授权重新提交，保留已有账本记录的原 key。完整任务快照和账本最多一次 PUT 的保护保持不变。
 
 冲突诊断与任务匹配共用经过校验的集 ID 别名；两个别名都未提供 ID 时，报告 `episode_id: null`。
 
-判定本身就是契约。`submitted` 表示已认领唯一任务且身份完整；`subject_identity_lost` 是终态——子结果保住了 URL 却丢了身份字段，答案是人工核对，绝不是第二次 `PUT`；`reconcile_conflict` 表示出现多个候选或证据不完整，同样不是重试信号；`reconcile_required` 表示那一次 `PUT` 已经发生但暂时看不到任务，用同一个 preview 与同一个 key 再调一次只会重新对账。任何原因失败的 `PUT`——超时、`5xx`、连接中断——都会被记成 `outcome: unknown` 与 `put_ambiguous: true`：不存在自动重试，同一个 key 也永远不会发出第二次 `PUT`。
+判定本身就是契约。归属核对会读取所有声明的子任务页，拒绝总数不一致或子任务 ID 重复。`submitted` 表示已认领唯一任务且身份完整；`subject_identity_lost` 是终态——子结果保住了 URL 却丢了身份字段，答案是人工核对，绝不是第二次 `PUT`；`reconcile_conflict` 表示出现多个候选或证据不完整，同样不是重试信号；`reconcile_required` 表示那一次 `PUT` 已经发生但暂时看不到任务，用同一个 preview 与同一个 key 再调一次只会重新对账。任何原因失败的 `PUT`——超时、`5xx`、连接中断——都会被记成 `outcome: unknown` 与 `put_ambiguous: true`：不存在自动重试，同一个 key 也永远不会发出第二次 `PUT`。
 
 `submit_video` 及批次中每个已提交项返回 `put_error`，值为 null 或已去除凭据的传输诊断 `{code, message}`；意外的本地异常只显示通用信息。`put_sent: true` 表示已尝试发出 PUT，包括业务拒绝或连接失败，不代表任务已创建或已计费。结果不明的提交保留预约金额，原键仍只做只读对账。
 
@@ -450,6 +473,8 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 
 `erase_subtitle` 未提供显式估算时，会从实时 taskType=10 目录读取所选模型价格。`quzimuToB` 按源片时长向上取整到整分钟，再按目录元/分钟单价计算，并将人民币金额向上取整到分；仅当实时目录唯一匹配 `ark-erase-video-subtitle-pro / AI_MEDIA_KIT / 67`、数值价格为 `0` 且单位为 `元/条` 时，允许不依赖项目额度按 `0.00 CNY` 提交去字幕。提交前记录零价、模型规格和观察时间，原幂等 key 仍防止重复请求。其他零价路线保留正额预留；缺价、身份不唯一或单位不受支持不能证明免费。这些是保守的预算预留，并非实际结算账单。已知模型若无权读取目录，仍可沿用现有可信授权文件中的估算；两者都没有时，没有报价的请求仍被拒绝。调用方也可同时提供 `estimated_cost_cny` 和 `estimate_basis`，据当前价格或可比实际费用作正额人民币预留。估算不发送给提供方、不提高项目预算上限；同一 key 回放不会发出新请求。
 
+只允许免费时，设置 `only_if_verified_free: true`，省略两个估算字段。即使项目还有预算，这次调用也必须在自己的实时报价读取中核实该免费行才会提交。`verified_free: true` 表示本次提交或原 key 有已核实的零价凭据。保存首次返回的 `accepted_task_id` 以便回读。同一 key 回放会返回原结果，不会再次发送。若该 key 缺少已核实的零价凭据，先对账原提交。
+
 <a id="errors"></a>
 ### 错误
 
@@ -490,6 +515,49 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 -----
 
+<a id="original-key-video-recovery"></a>
+### 原 key 视频恢复
+
+`jubian_storyboard(method="reconcile_video", project_dir, idempotency_key)` 只读取原始已记录提交。它核对项目、冻结预览与请求指纹，并排除提交前已经存在的任务。旧记录缺少恢复元数据时保持未知；恢复不会发明 key、发送生成 PUT 或新增预算预留。
+
+两种后台入口默认关闭且互斥。`videoRecoverySettings: true` 提供经过认证的 `jubianVideoRecovery` 方法 `status`、`configure`、`review`、`adopt` 和 `deliverApprovedMp4`。`videoRecovery` 则固定绝对 `projectDir`、绝对 `ffmpegPath` 及可选原始 `keys`；它需要 subprocess 与 working-directory 服务，并增加 `jubian_video_review`。固定入口的复核写入要求当前有效工作目录属于配置项目，且用户最新真实消息完整等于 `approve <key> <digest>` 或 `reject <key> <digest>`。同时配置两种入口会在加载时失败。
+
+Settings 入口可用绝对路径 `videoRecoveryFfmpegPath` 覆盖解码器；省略时使用可用的 Host 启动解码器。`videoRecoveryDecodeTimeoutMs` 独立配置解码期限；省略时使用固定配置的 `decodeTimeoutMs` 或既有 watch 期限，同时指定两种期限覆盖会被拒绝。终止宽限和输出收集上限分别由 `videoRecoveryDecodeGraceMs` 与 `videoRecoveryDecodeMaxOutputBytes` 配置；无效已提供值在工作者启动前拒绝。原生解码只允许捕获的 MOV/MP4 文件，分别检查画面与音轨。解码通过是技术证据，不代表画面审核通过。
+
+启用 Settings 入口后，剧变设置页显示所选项目、恢复报告以及明确的复核、导入和直接交付操作。连接中断或查询失败时保留已加载的报告，并禁用不可用操作；刷新可重试查询。离开设置页后，操作结果仍由应用全局提示显示。关闭等待中的决定窗口不会取消已提交给 Host 的决定。Desktop 可使用已授权的原生目录选择器；其他客户端填写 Host 上的绝对项目路径。
+
+报告与独立决定保存在 `video_tasks/review`。人工决定绑定当前报告 digest；退回后可带理由重新开启一次。导入衍生视频时先捕获项目内普通文件并计算摘要，再执行解码。直接交付把已批准的精确字节复制到 `exports/Muse-approved-<task>-<digest>.mp4`，另存 `.direct-delivery.json` 回执。状态会核验实际输出文件。输出丢失可以修复；已有同字节输出可补回执，保留 inode 且不再次下载；已有不同字节永不覆盖。本地片段捕获使用视频下载大小上限。
+
+每份复核标明预期的项目相对源路径与已捕获 SHA-256。只有 `source.state: "verified"` 证明当前普通文件的实际字节完全相符；丢失、改变或无法读取状态仍保留预期值，不代表当前文件的摘要。源可用性不改变不可变复核 digest。读取与退回只检查本地文件。新批准会核验实际源文件，且可明确下载提供方原片，不会生成视频。提供方缓存不存在不能说明过去是否下载过。已批准成片的实际字节相符时，即使源缓存丢失，仍可离线复用并修复回执。
+
+卸载先停止接收新操作，再取消并等待已接收的初始化、请求、工作者读取、原生进程和文件操作。已经原子写完的设置、已发布的决定或回执不会因响应取消而回滚。原子替换不承诺断电持久性。保存的项目丢失时报告不可用，仍可更换或关闭，不阻断 Host 启动。
+
+<a id="approved-episode-export"></a>
+### 已审批片段整集导出
+
+Settings 恢复入口同时挂载经过认证的独立 `jubianEpisodeDelivery` 命名空间。其 `episodeReadiness`、`admitEpisode`、`episodeStatus` 和 `episodeHistory` 方法分别准备、受理、观察和查找本地整集任务，不增加模型工具或提交提供方生成。Desktop 提供已配置渲染器；其他部署缺少该提供者时，就绪检查会报告不可用。
+
+就绪检查要求为第 1–99 集准备 `editing/NN-episode-delivery.json`，按连续镜号排列唯一的原始已审批片段，并具有对应时间线、SRT，以及明确的混音配置和可选 BGM。它测量这些当前输入并保留项目绑定，不创建计划或批准片段。[计划读取器](src/approved-episode-plan.ts)负责接受字段及其校验。
+
+受理方法先提交原逻辑任务再返回，由服务生命周期持有排队的长时间渲染。重复的普通请求只查找该任务。POSIX 上的状态查询在状态文件持续原子替换时读取完整的有界快照，再核验原任务和发布证据。Windows 保留严格的路径身份读取，并可能拒绝同时发生的替换。其输出描述发布时已测量的字节，不代表再次检查媒体或播放。Host 返回 `canResume` 时，可明确调用带 `resume: true` 的 `admitEpisode` 继续原任务。前次执行已有运行引用时，另起实际执行必须先核对相匹配的退出证据；不能用新 UUID 绕过未确认清空的媒体进程范围。
+
+Settings 子区域只在明确发起检查后执行成本较高的就绪检查。历史查找在所选项目和集数内有界读取本地意图与状态记录，返回原任务和摘要、记录状态、不可读记录数及是否截断。已处理条目数不包括为判断截断而最多额外读取的一个名称；稳定读取记录失败时，按预留字节保守扣除额度。记录状态为 null 时仍保留合法原身份，不授予恢复权限。查找不核验源媒体。选择原记录后才查询其当前状态，界面不会自动挑选最新记录。连接或响应丢失后仍保留原目标，重新连接后须取得新鲜状态才可继续。已有可恢复发布物可以在不重新检查源文件就绪情况的条件下补回执。
+
+私有版本一的意图、状态、取消和交付记录保存在已捕获项目的 `.muse/episode-delivery/<attempt>/` 内。准备发布的元数据把输出绑定到实际已完成的执行。发布拒绝覆盖已有不同字节；恢复可以在不还原已丢失源文件的情况下，为字节相符的已有输出补回执并保留 inode。无效或矛盾记录会拒绝恢复。这些记录与片段审批及直接复制回执分开，技术检查不代表创作验收通过。
+
+`episodeDeliveryMetadataMaxBytes` 限制单个编辑元数据读取，`episodeDeliveryRecordBytes` 限制单个持久化记录，`episodeDeliveryLockWaitMs` 限制锁争用等待。历史查找还通过 `episodeDeliveryHistoryScanLimit`、`episodeDeliveryHistoryResultLimit` 和 `episodeDeliveryHistoryMetadataMaxBytes`，分别限制访问条目数、返回身份数及元数据总字节数。Host 校验 `episodePollIntervalMs` 并在启动时投影给浏览器；该间隔只控制待完成任务的状态轮询，可在工具插件行配置，默认 1000 毫秒，接受 100–60000 毫秒内的整数。插件在注册 effect 前校验这些字段；默认值及限制以[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)为准。
+
+<a id="episode-execution-library"></a>
+### 整集执行库
+
+`@deepseek-ai/dsh-tool-jubian/episode-delivery` 库把一个逻辑任务绑定到不可变的输入与审批身份，并为每次实际执行保留独立身份。严格的版本化记录区分文件缺失与内容无效。登记与渲染共用流式摘要读取，分别保留各自的文件身份和修改检查。登记执行时，先持久化执行引用，再写运行记录或启动首个媒体命令。后续执行必须具有与前次运行相符的退出证据；任务推进后，所有已登记执行 UUID 仍被占用。调用方须在登记前核验当前人工批准，记录中的审批引用不授权新的决定。
+
+`EpisodeExecutionOwner` 将短暂的持久化登记与串行工作分开。相同的重复登记共享同一次完成结果。dispose（资源释放）同步停止接收登记，取消排队及运行中的工作，并等待全部已登记操作结束。队列结束本身不能证明媒体进程已退出，调用方仍须核验守护者证据。该库不注册模型工具、Remote 方法或自动启动扫描。进程所有权由 [Desktop 守护者](../../../apps/desktop-host/README.zh.md#episode-execution-supervision)负责。
+
+Host 调用方通过 `jubianVideoRecovery.withApprovedSources` 在同一所选项目代际下持有一批已批准片段。媒体哈希与调用方工作在恢复队列外执行；`lease.commit` 在一次短暂的已准备发布前，重新核对审批、账本意图、项目配置及当前文件版本。其回调只能发布已准备文件和小型回执，不能复制或计算媒体哈希，也不能调用恢复操作。切换项目或卸载会停止接收新操作，并等待旧调用方结束。可选的调用方 Hook 在取消信号触发前记录取消意图；Hook 失败仍会取消并等待调用方结束。开始新工作前应调用 `lease.assertActive()`，即使取消日志 Hook 尚未完成、信号尚未触发，也能拒绝已取消的工作。调用方断线不会回滚已提交的发布。
+
+就绪检查可以保留 `lease.admission`，稍后通过同一所有者的 `admitApprovedSources` 提交短暂的任务声明。所有者重新核对元数据和已捕获文件版本，不再次计算媒体哈希。复制的令牌、另一恢复所有者、已变化文件和已退休项目代际都会在声明回调运行前被拒绝。令牌只在其所有者进程内使用，并观察所选项目的取消信号；它不拥有资源或 disposer，也不能序列化审批。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
@@ -502,7 +570,7 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 Client TypeScript 项目引用 `dsh-jubian`，由后者拥有生成的 Remote 声明使用的共享项目预算类型。该项目将这些类型编译到自己的 `lib/types` 目录。
 
-Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的调用通过 peer 依赖解析。部署提供共享的传输构造函数和错误构造函数，以及每个已解析账本根目录唯一的队列；安装独立包副本不得拆分同一运行时内的额度预留。
+Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的调用通过 peer 依赖解析。部署提供共享的传输构造函数和错误构造函数，以及每个已解析账本根目录唯一的队列；安装独立包副本不得拆分同一运行时内的额度预留。生成续跑也将 `dsh-llm` 和 `dsh-workspace` 保留为共享 peer，用于路由和工作区身份；会话持久化的类型导入仅列在开发依赖中。
 
 ### 设计理念
 
@@ -609,7 +677,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 
 #### 模型看到的内容
 
-每次调用都按注册的输出 schema 返回一个美化打印的 JSON 对象，按发问的方法命名（`asset`、`assets`、`storyboard`、`subtasks`、`task` 等），并附模型用的指引字段；只有 `jubian_find` 按它扫描的范围命名自己的结果。写结果带 `replayed`、`outcome`、`response_sha256` 与信封数据；`erase_subtitle` 与 `upscale` 另加 `accepted_task_id` 和一句告诉模型不要等待的 `next`。`image_generate` 返回 `parent_asset_id`、`model_selection`、`asset_status`、`material_id`、`image_url`、`observed_asset_status`、`waited_ms`、`readback_error` 与一句 `next`，因此模型从结果里读到这张图的身份，而不是把「受理」当成「已有图」。`create_folder` 返回 `sent`、`status`、`folder_id`、`confirmed` 与一句 `next`；`move` 与 `rename` 返回 `sent`、`status` 与一句 `next`，两种本地拒绝则返回 `status: folder_exists` 或 `status: target_folder_missing` 并带 `sent: false` 与它查找过的 ID。`jubian_organize` 返回 `episodes`、`series`、`unmatched_remote_assets`、`naming_checked`、`naming_violations`、`category_mismatches`、`folders` 与 `index_path`，与它写出的文件内容一致。`jubian_find` 返回它扫描的 `scope` 与 `name`、`total`、`scanned_pages`、`complete`、`returned`、`truncated` 与 `scan_page_limit`，以及 `matches`——每行带 `script_id`、`script_name`、`manuscript_name`、`episode_count`、`status` 与 `script_style`（提供方自己的风格编码，用来区分真人与漫剧），`scope: pool` 时另有 `can_claim`、`claim_leader_name` 与 `claim_member_name`，而 `script_style` 在 pool 下不出现，因为池子的行没有被实测到带这个字段。`prepare_video` 返回整份 preview 及其 `preview_path`；`submit_video` 返回认领判定（`submitted`、`subject_identity_lost`、`reconcile_conflict` 或 `reconcile_required`）、认领到的 `task_id`，以及一句只指出唯一安全动作的 `next`。`jubian_model` 的 preview 返回冻结的 before/after 设置与 fingerprint；apply/重放则逐项目标报告 `applied`、`stale`、`unknown`、`readback_mismatch` 与 `not_attempted`。每个工具结果产生后都会留在会话里。 `image_generate_batch` 返回 `total`、`returned`、`errors` 与按输入顺序排列的 `results`。每项都有自己的键、目标身份与账本结论；`status: returned` 只表示请求已返回，`asset_status: active` 或 `generated` 才确认生成图可供审核。  `jubian_video subtasks` 返回 `{ subtasks: { total, rows }, guidance }`。遍历 `subtasks.rows`；`subtasks` 是分页对象，`total` 是提供方报告的总数。每行保留 `parent_task_id`、`status` 和 `video_url`。指引只统计本页中父任务与查询任务一致、状态为 `succeeded` 或 `completed`、且 URL 非空的行。运行中、失败、身份不明或缺少 URL 的行不计为可下载；继续读取或报告失败前，先检查每行状态。视频输出 schema 在生成的 PTC 返回类型中展示这些字段，同时保留其他视频方法的结果字段。  `jubian_storyboard get` 的已存提示词位于 `storyboard.model_config.prompt`，分集 ID 位于 `storyboard.snapshot.episodeId`。`create_batch` 在 `results` 返回有序的逐项回执，`data` 保留供应商原值；数字 `data` 就是新卡 ID，不能按含 `id` 字段的对象读取。
+每次调用都按注册的输出 schema 返回一个美化打印的 JSON 对象，按发问的方法命名（`asset`、`assets`、`storyboard`、`subtasks`、`task` 等），并附模型用的指引字段；只有 `jubian_find` 按它扫描的范围命名自己的结果。写结果带 `replayed`、`outcome`、`response_sha256` 与信封数据；`erase_subtitle` 与 `upscale` 另加 `accepted_task_id` 和一句告诉模型不要等待的 `next`。`image_generate` 返回 `parent_asset_id`、`model_selection`、`asset_status`、`material_id`、`image_url`、`observed_asset_status`、`waited_ms`、`readback_error` 与一句 `next`，因此模型从结果里读到这张图的身份，而不是把「受理」当成「已有图」。`create_folder` 返回 `sent`、`status`、`folder_id`、`confirmed` 与一句 `next`；`move` 与 `rename` 返回 `sent`、`status` 与一句 `next`，两种本地拒绝则返回 `status: folder_exists` 或 `status: target_folder_missing` 并带 `sent: false` 与它查找过的 ID。`jubian_organize` 返回 `episodes`、`series`、`unmatched_remote_assets`、`naming_checked`、`naming_violations`、`category_mismatches`、`folders` 与 `index_path`，与它写出的文件内容一致。`jubian_find` 返回它扫描的 `scope` 与 `name`、`total`、`scanned_pages`、`complete`、`returned`、`truncated` 与 `scan_page_limit`，以及 `matches`——每行带 `script_id`、`script_name`、`manuscript_name`、`episode_count`、`status` 与 `script_style`（提供方自己的风格编码，用来区分真人与漫剧），`scope: pool` 时另有 `can_claim`、`claim_leader_name` 与 `claim_member_name`，而 `script_style` 在 pool 下不出现，因为池子的行没有被实测到带这个字段。`prepare_video` 返回整份 preview 及其 `preview_path`；`submit_video` 返回认领判定（`submitted`、`subject_identity_lost`、`reconcile_conflict` 或 `reconcile_required`）、认领到的 `task_id`，以及一句只指出唯一安全动作的 `next`。`jubian_model` 的 preview 返回冻结的 before/after 设置与 fingerprint；apply/重放则逐项目标报告 `applied`、`stale`、`unknown`、`readback_mismatch` 与 `not_attempted`。固定恢复入口的 `jubian_video_review` 还会返回已捕获的复核与当前本地源可用性。Settings 恢复操作不会增加模型消息或工具。每个工具结果产生后都会留在会话里。 `image_generate_batch` 返回 `total`、`returned`、`errors` 与按输入顺序排列的 `results`。每项都有自己的键、目标身份与账本结论；`status: returned` 只表示请求已返回，`asset_status: active` 或 `generated` 才确认生成图可供审核。  `jubian_video subtasks` 返回 `{ subtasks: { total, rows }, guidance }`。遍历 `subtasks.rows`；`subtasks` 是分页对象，`total` 是提供方报告的总数。每行保留 `parent_task_id`、`status` 和 `video_url`。指引只统计本页中父任务与查询任务一致、状态为 `succeeded` 或 `completed`、且 URL 非空的行。运行中、失败、身份不明或缺少 URL 的行不计为可下载；继续读取或报告失败前，先检查每行状态。视频输出 schema 在生成的 PTC 返回类型中展示这些字段，同时保留其他视频方法的结果字段。  `jubian_storyboard get` 的已存提示词位于 `storyboard.model_config.prompt`，分集 ID 位于 `storyboard.snapshot.episodeId`。`create_batch` 在 `results` 返回有序的逐项回执，`data` 保留供应商原值；数字 `data` 就是新卡 ID，不能按含 `id` 字段的对象读取。
 
 #### Token 影响
 
@@ -640,8 +708,8 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 
 这些限制说明本包在哪些地方有意不完整，或需要调用方配合。它们是当前约束，不是任务清单。
 
-- **模型配置不是远端事务** —— 同一运行时内、共享规范化根目录的账本实例会串行认领计划，不跨进程互斥。即时回读会检测先前编辑，但提供方没有条件 PUT，无法排除回读之后发生的竞争写入。错误会停止整批但不回滚；保留账本，先对账再创建另一份计划。项目/分集列表超过 40 页时直接失败，不应用不完整范围。
-- **本地项目额度不是由人掌控的批准** —— 账本会拒绝没有匹配手工额度或短剧设置额度的计费调用，并在同一运行时串行预留；但有文件写权限的 agent 可修改这些文档，不同进程也不共享锁。组员部署需要另行强制执行归属人的策略，才可允许计费。`rename`、`create_folder` 与 `move` 等免费资产库写入仍会改变控制台展示；描述会要求先征得同意，但本行不会强制执行。
+- **模型配置不是远端事务** —— 共享同一规范化根目录的账本实例及协作的本地 Host 进程会串行认领计划。即时回读会检测先前编辑，但提供方没有条件 PUT，无法排除回读之后发生的竞争写入。错误会停止整批但不回滚；保留账本，先对账再创建另一份计划。项目/分集列表超过 40 页时直接失败，不应用不完整范围。
+- **本地项目额度不是由人掌控的批准** —— 账本会拒绝没有匹配手工额度或短剧设置额度的计费调用，并以本地跨进程写锁串行预留；但有文件写权限的 agent 可修改这些文档。不使用该锁的旧实现及其他主机不参与协调。组员部署需要另行强制执行归属人的策略，才可允许计费。`rename`、`create_folder` 与 `move` 等免费资产库写入仍会改变控制台展示；描述会要求先征得同意，但本行不会强制执行。
 - **类别错了只能重新生成资产** —— 资产库写方法能改名、能移动，没有一个能改它的 `assetType`。按错类别建出来的资产会一直保持那个类别，索引把它列进 `category_mismatches` 而不是提供一个修复动作。
 - **工作区构建不会重新生成加载器实际导入的那个 bundle** —— `pnpm run build:lib:host` 只把本包的 TypeScript 产出到 `lib/types/`；若部署是从工作副本加载本包，宿主会一直运行旧的 `lib/index.js`，直到运行 `pnpm exec tsdown --config packages/jubian/tool-jubian/tsdown.config.ts` 重写它并重启宿主。只重启不会改变任何东西，而只改 TypeScript 会看起来已经生效、实际宿主仍在执行旧 bundle。
 - **`move` 与 `rename` 收的是材质 ID，不是父资产 ID** —— 控制台自己的改名与移动是 `PUT /aigc/material/reName` 与 `PUT /aigc/material/move`，它们的 `id`／`ids` 是材质行的标识，也就是 `jubian_asset` 的 `materials` 返回的 `material_id`。传父 `asset_id` 会以未知行的身份到达提供方，回来时是某个稳定失败码，而不是可区分的「没有这个材质」。
@@ -656,7 +724,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 - **`retry` 有前置门禁，但看不到尚未写回的费用** —— 它在发送任何请求前先读父任务与子结果，并在任务已有结果文件、有活动或成功的子结果、或已记录真实费用时拒绝。它看不到提供方还没写到任务上的扣费，所以刚失败后的重试仍然是调用方的判断。
 - **端点集合是从抓包转写的** —— 每个路径、查询参数与请求形状都以抓到的证据存在于 `dsh-jubian-api`，而不是已发布的契约。提供方一变，表现出来就是 `CONTRACT_CHANGED` 或某个字段读回 `null`；验证一条新路径需要重新抓包，所以这里没有哪个方法可以当作有 schema 版本。对象存储签名是唯一的例外：它照实时 bundle 里的 SDK 复刻，并对真实 bucket 做过验证。
 - **结果未知要靠账本而不是靠本包来判定** —— 超时后这一行记录 `outcome: unknown` 并抛错。只有调用方能决定要不要用同一个 key 回读，也没有任何东西会自动对账"只有 intent 没有 settle"的那条。`submit_video` 是最严格的一例：它记录这次不明确的 `PUT`、返回对账指引，并且在任何情况下都不会用同一个 key 发出第二次 `PUT`。
-- **`jubian_media` 写入调用方指定的本地路径** —— `output_path` 会被解析，扩展名按下载格式修正，然后按需创建；返回路径上已存在的文件会被直接覆盖而不会询问。它的 origin 白名单刻意排除了某些载荷字段返回的镜像 origin。
+- **`jubian_media` 写入调用方指定的本地路径** —— `output_path` 会被解析，扩展名按下载格式修正，然后按需创建。默认下载方式覆盖该路径上的已有文件。它的 origin 白名单刻意排除了某些载荷字段返回的镜像 origin。
 - **提供方的 `taskExecute` 与 `terminate` 没有实现** —— 流水线自己的客户端从不调用它们，在这里加上就只是没有证据的转写。如果哪天需要中止一个失控任务，`terminate` 就是最明显的缺口。
 - **不注册系统提示词区段** —— 部署方无法在不改包的情况下调整这些工具的模型指引，提供方一旦重命名某个方法，描述会一直过时到包被改动为止。
 

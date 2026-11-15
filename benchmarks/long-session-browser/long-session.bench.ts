@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { chromium, type Page, type CDPSession, type Locator } from 'playwright'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode } from '../../apps/web/tests/scaffold.ts'
 import { newEnglishPage } from '../../apps/web/tests/support.ts'
 import { ciTimeBudget, PERFORMANCE_BUDGET_HEADROOM } from '../support/calibration.ts'
+import { recordTimings, type BenchmarkCase } from '../support/scaling-report.ts'
 import { HISTORY_TURNS, SESSION_ID, FIRST, DONE, DELTAS, PACE_MS, syntheticHistory, syntheticReply } from './synthetic-history.ts'
 
 const SAMPLES = 3
@@ -20,17 +21,42 @@ const OPEN_BUDGET_MS = Math.ceil(EXPECTED_OPEN_CI_MS * PERFORMANCE_BUDGET_HEADRO
 const PAGE_BUDGET_MS = Math.ceil(EXPECTED_PAGE_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
 const TRAJECTORY_BUDGET_MS = Math.ceil(EXPECTED_TRAJECTORY_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
 const REPLAY_DURATION_MS = (DELTAS + 4) * PACE_MS
+/** Endpoints without paced replay waits, so CPU scaling applies to their whole duration. */
+const SCALED_ENDPOINTS = ['open', 'page', 'trajectory', 'streamTask'] as const
+/** Estimated storage wait: the Host reads the seeded Session log, which the page cache usually holds. */
+const IO_SHARE = 0.05
+const CASE: BenchmarkCase = {
+  id: 'long-session-browser',
+  measures: 'Chromium on the built Web GUI: opening a 240-turn Session, the slowest older page, first Trajectory view, and main-thread task time while a reply streams.',
+  affects: 'Everyday Web GUI use with a long Session.',
+}
 
 async function painted(page: Page): Promise<void> {
   // Two rAF callbacks include a rendering opportunity, not a GPU presentation timestamp.
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 }
 
-async function measure(page: Page, action: () => Promise<void>): Promise<number> {
-  const start = performance.now()
+async function measure(page: Page, action: () => Promise<void>, now = () => performance.now()): Promise<number> {
+  const start = now()
   await action()
   await painted(page)
-  return performance.now() - start
+  return now() - start
+}
+
+/** Time one trusted paging action after resolving its unique button. */
+async function measureOlderPage(page: Page, previous: number, now = () => performance.now()): Promise<number> {
+  const locator = page.getByRole('button', { name: 'Load earlier', exact: true })
+  await locator.waitFor({ state: 'attached' })
+  const buttons = await locator.elementHandles()
+  try {
+    expect(buttons).toHaveLength(1)
+    return await measure(page, async () => {
+      await buttons[0]!.click()
+      await page.waitForFunction(({ selector, previous }) => document.querySelectorAll(selector).length > previous, { selector: TAIL, previous })
+    }, now)
+  } finally {
+    await Promise.all(buttons.map(button => button.dispose()))
+  }
 }
 
 async function taskMs(cdp: CDPSession): Promise<number> {
@@ -66,6 +92,25 @@ async function waitForReplyMarker(page: Page, marker: string, timeout = 30000) {
     }
     return false
   }, { marker, first: FIRST, done: DONE }, { polling: 'raf', timeout })
+}
+
+function startFirstReplyObservation(page: Page, timeout = 30000) {
+  // Catch immediately: submission may fail before the caller awaits the observation.
+  return waitForReplyMarker(page, FIRST, timeout).then(
+    value => ({ value }),
+    (error: unknown) => ({ error }),
+  )
+}
+
+async function waitForTrajectory(page: Page, timeout = 30000): Promise<void> {
+  // Selector retry backoff can delay observation after the view is already ready.
+  const ready = await page.waitForFunction(() => {
+    const search = document.querySelector('input[type="search"][aria-label="Search trajectory"]')
+    if (!search?.checkVisibility({ checkVisibilityCSS: true })) return false
+    return Array.from(document.querySelectorAll('[data-trajectory-scroll] [data-trajectory-row-key]'))
+      .some(row => row.checkVisibility({ checkVisibilityCSS: true }))
+  }, undefined, { polling: 'raf', timeout })
+  await ready.dispose()
 }
 
 async function watchInputOverlap(composer: Locator): Promise<void> {
@@ -128,6 +173,219 @@ it('waits for visible marker text in the latest Assistant step', async () => {
   }
 })
 
+it('observes the first visible prefix before a delayed submission response without accepting completed input overlap', async () => {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<div data-chat-flow-kind="assistant-step"></div>')
+    const observed = startFirstReplyObservation(page)
+    await page.evaluate(async ({ first, done }) => {
+      const reply = document.querySelector('[data-chat-flow-kind="assistant-step"]')!
+      reply.textContent = first
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      reply.textContent += done
+    }, { first: FIRST, done: DONE })
+    const early = await observed
+    if ('error' in early) throw early.error
+    expect(await early.value.jsonValue()).toMatchObject({ first: true, done: false })
+    await early.value.dispose()
+    const late = await startFirstReplyObservation(page)
+    if ('error' in late) throw late.error
+    const observation = await late.value.jsonValue()
+    if (observation === false) throw Error('Reply observation did not resolve to a visible marker')
+    expect(observation).toMatchObject({ first: true, done: true })
+    expect(() => expectInputOverlap(observation.first && !observation.done)).toThrow()
+    await late.value.dispose()
+  } finally { await browser.close() }
+})
+
+it('joins a prearmed observation when its page closes before the reply', async () => {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    const observed = startFirstReplyObservation(page)
+    await page.close()
+    const outcome = await observed
+    expect(outcome).toHaveProperty('error')
+  } finally { await browser.close() }
+})
+
+it('waits for visible Trajectory controls and records rather than unrelated table rows', async () => {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<input type="search" aria-label="Search trajectory" style="visibility:hidden"><table><tbody><tr><td>unrelated</td></tr></tbody></table><div data-trajectory-scroll><table><tbody><tr data-trajectory-row-key="record"><td>record</td></tr></tbody></table></div>')
+    await expect(waitForTrajectory(page, 100)).rejects.toThrow('Timeout')
+    await page.locator('[data-trajectory-row-key]').evaluate(element => { element.style.display = 'none' })
+    await page.locator('input').evaluate(element => { element.style.visibility = 'visible' })
+    await expect(waitForTrajectory(page, 100)).rejects.toThrow('Timeout')
+    await page.locator('[data-trajectory-row-key]').evaluate(element => { element.style.display = 'table-row' })
+    await waitForTrajectory(page)
+  } finally {
+    await browser.close()
+  }
+})
+
+it('excludes older-page selector preparation while retaining the trusted click', async () => {
+  const browser = await chromium.launch({ headless: true })
+  const entered = Promise.withResolvers<undefined>()
+  const release = Promise.withResolvers<undefined>()
+  let operation: Promise<{ value: number } | { error: unknown }> | undefined
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<button type="button">Load earlier</button><div data-chat-flow-key="9:turn-tail"></div>')
+    await page.locator('button').evaluate(button => {
+      button.addEventListener('click', event => {
+        button.setAttribute('data-click-trusted', String(event.isTrusted))
+        const tail = document.createElement('div')
+        tail.setAttribute('data-chat-flow-key', '9:turn-tail:next')
+        document.body.append(tail)
+      })
+    })
+    const button = page.getByRole('button', { name: 'Load earlier', exact: true })
+    const click = button.click.bind(button)
+    const elementHandles = button.elementHandles.bind(button)
+    const prepare = async (): Promise<void> => { entered.resolve(undefined); await release.promise }
+    vi.spyOn(page, 'getByRole').mockReturnValue(button)
+    // The Locator spy gates preparation in the original selector-inside-timer control.
+    vi.spyOn(button, 'click').mockImplementation(async options => { await prepare(); await click(options) })
+    vi.spyOn(button, 'elementHandles').mockImplementation(async () => { await prepare(); return elementHandles() })
+    let now = 0
+    operation = measureOlderPage(page, 1, () => now).then(value => ({ value }), (error: unknown) => ({ error }))
+    await Promise.race([
+      entered.promise,
+      operation.then(outcome => {
+        if ('error' in outcome) throw outcome.error
+        throw new Error('Paging completed before the selector preparation barrier')
+      }),
+    ])
+    expect(await page.locator('button').getAttribute('data-click-trusted')).toBeNull()
+    expect(await page.locator(TAIL).count()).toBe(1)
+    now = PAGE_BUDGET_MS + 1
+    release.resolve(undefined)
+    const outcome = await operation
+    if ('error' in outcome) throw outcome.error
+    expectEndpointWithinBudget(outcome.value, PAGE_BUDGET_MS)
+    expect(outcome.value).toBe(0)
+    expect(await page.locator('button').getAttribute('data-click-trusted')).toBe('true')
+    expect(await page.locator(TAIL).count()).toBe(2)
+  } finally {
+    release.resolve(undefined)
+    try { await browser.close() } finally {
+      try { await operation } finally { vi.restoreAllMocks() }
+    }
+  }
+})
+
+it('waits for a named older-page control before starting its clock', async () => {
+  const browser = await chromium.launch({ headless: true })
+  const entered = Promise.withResolvers<undefined>()
+  let operation: Promise<{ value: number } | { error: unknown }> | undefined
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<button type="button" disabled>Loading…</button><div data-chat-flow-key="9:turn-tail"></div>')
+    await page.locator('button').evaluate(button => {
+      button.addEventListener('click', event => {
+        button.setAttribute('data-click-trusted', String(event.isTrusted))
+        const tail = document.createElement('div')
+        tail.setAttribute('data-chat-flow-key', '9:turn-tail:next')
+        document.body.append(tail)
+      })
+    })
+    const locator = page.getByRole('button', { name: 'Load earlier', exact: true })
+    const waitFor = locator.waitFor.bind(locator)
+    vi.spyOn(page, 'getByRole').mockReturnValue(locator)
+    vi.spyOn(locator, 'waitFor').mockImplementation(options => { entered.resolve(undefined); return waitFor(options) })
+    let now = 0
+    operation = measureOlderPage(page, 1, () => now).then(value => ({ value }), (error: unknown) => ({ error }))
+    await Promise.race([
+      entered.promise,
+      operation.then(outcome => {
+        if ('error' in outcome) throw outcome.error
+        throw new Error('Paging completed before control readiness')
+      }),
+    ])
+    expect(await page.locator('button').getAttribute('data-click-trusted')).toBeNull()
+    now = PAGE_BUDGET_MS + 1
+    await page.locator('button').evaluate(button => {
+      button.textContent = 'Load earlier'
+      button.removeAttribute('disabled')
+    })
+    const outcome = await operation
+    if ('error' in outcome) throw outcome.error
+    expect(outcome.value).toBe(0)
+    expect(await page.locator('button').getAttribute('data-click-trusted')).toBe('true')
+    expect(await page.locator(TAIL).count()).toBe(2)
+  } finally {
+    try { await browser.close() } finally {
+      try { await operation } finally { vi.restoreAllMocks() }
+    }
+  }
+})
+
+it('keeps browser deadlines active with a fixed measurement clock', async () => {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await expect(measure(page, async () => {
+      const pending = await page.waitForFunction(() => false, undefined, { timeout: 100 })
+      await pending.dispose()
+    }, () => 0)).rejects.toThrow('Timeout 100ms exceeded')
+  } finally {
+    await browser.close()
+  }
+})
+
+it('rejects older-page rendering beyond the unchanged paging ceiling', async () => {
+  const browser = await chromium.launch({ headless: true })
+  let operation: Promise<{ value: number } | { error: unknown }> | undefined
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<button type="button">Load earlier</button><div data-chat-flow-key="9:turn-tail"></div>')
+    await page.locator('button').evaluate(button => {
+      button.addEventListener('click', event => { button.setAttribute('data-click-trusted', String(event.isTrusted)) })
+    })
+    let now = 0
+    operation = measureOlderPage(page, 1, () => now).then(value => ({ value }), (error: unknown) => ({ error }))
+    await page.waitForFunction(() => document.querySelector('button')?.getAttribute('data-click-trusted') === 'true')
+    now = PAGE_BUDGET_MS + 1
+    await page.evaluate(() => {
+      const tail = document.createElement('div')
+      tail.setAttribute('data-chat-flow-key', '9:turn-tail:next')
+      document.body.append(tail)
+    })
+    const outcome = await operation
+    if ('error' in outcome) throw outcome.error
+    expect(outcome.value).toBe(PAGE_BUDGET_MS + 1)
+    expect(() => expectEndpointWithinBudget(outcome.value, PAGE_BUDGET_MS)).toThrow()
+  } finally {
+    try { await browser.close() } finally {
+      try { await operation } finally { vi.restoreAllMocks() }
+    }
+  }
+})
+
+it('rejects ambiguous or replaced older-page buttons before paging', async () => {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<button type="button">Load earlier</button><button type="button">Load earlier</button>')
+    await expect(measureOlderPage(page, 0)).rejects.toThrow('strict mode violation')
+    await page.setContent('<button type="button">Load earlier</button>')
+    const button = page.getByRole('button', { name: 'Load earlier', exact: true })
+    const elementHandles = button.elementHandles.bind(button)
+    vi.spyOn(page, 'getByRole').mockReturnValue(button)
+    vi.spyOn(button, 'elementHandles').mockImplementation(async () => {
+      const handles = await elementHandles()
+      await button.evaluate(element => { element.replaceWith(element.cloneNode(true)) })
+      return handles
+    })
+    await expect(measureOlderPage(page, 0)).rejects.toThrow('Element is not attached')
+  } finally {
+    try { await browser.close() } finally { vi.restoreAllMocks() }
+  }
+})
+
 it('opens, pages, navigates and streams into a 240-turn browser history', async () => {
   if (webSnapshotMode() !== 'replay') throw new Error('browser benchmarks require keyless replay mode')
   const samples: { open: number; page: number; trajectory: number; first: number; streamTask: number; streamWall: number; input: number; inputOverlapped: boolean; heapMb: number; nodes: number }[] = []
@@ -143,6 +401,7 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
         await seedSession(scaffold, history, SESSION_ID)
         console.log(JSON.stringify({ benchmark: 'long-session-browser/fixture', bytes: Buffer.byteLength(history) }))
         const browser = await chromium.launch({ headless: true })
+        let firstMarkerWaiting: ReturnType<typeof startFirstReplyObservation> | undefined
         try {
           const page = await newEnglishPage(browser)
           const consoleWatch = watchConsole(page)
@@ -165,16 +424,12 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           expect(initialTurns).toBeLessThan(HISTORY_TURNS)
           let count = initialTurns
           while (count < HISTORY_TURNS) {
-            pages.push(await measure(page, async () => {
-              await page.getByRole('button', { name: 'Load earlier', exact: true }).click()
-              await page.waitForFunction(({ selector, previous }) => document.querySelectorAll(selector).length > previous, { selector: TAIL, previous: count })
-            }))
+            pages.push(await measureOlderPage(page, count))
             count = await page.locator(TAIL).count()
           }
           const trajectory = await measure(page, async () => {
             await page.getByRole('tab', { name: 'Trajectory', exact: true }).click()
-            await page.getByRole('searchbox', { name: 'Search trajectory', exact: true }).waitFor()
-            await page.getByRole('row').last().waitFor()
+            await waitForTrajectory(page)
           })
           await page.getByRole('tab', { name: 'Chat', exact: true }).click()
           await page.waitForFunction(({ selector, expected }) => document.querySelectorAll(selector).length === expected, { selector: TAIL, expected: HISTORY_TURNS })
@@ -188,19 +443,33 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
             (error: unknown) => ({ ok: false as const, error }),
           )
           await watchInputOverlap(composer)
+          // Observe before dispatching Enter so an early prefix is not first sampled after completion.
+          firstMarkerWaiting = startFirstReplyObservation(page)
           const started = performance.now()
           await page.keyboard.press('Enter')
-          const firstMarker = await waitForReplyMarker(page, FIRST)
+          const entered = performance.now()
+          const firstWaitStarted = performance.now()
+          const firstMarkerOutcome = await firstMarkerWaiting
+          if ('error' in firstMarkerOutcome) throw firstMarkerOutcome.error
+          const firstMarker = firstMarkerOutcome.value
+          const firstWaitCompleted = performance.now()
           const first = performance.now() - started
+          let typingStarted = 0, typingCompleted = 0
           // Keep focus across submission; mouse actionability must not delay the input probe.
           const input = await measure(page, async () => {
+            typingStarted = performance.now()
             await page.keyboard.type('next synthetic question')
+            typingCompleted = performance.now()
             await expect.poll(() => composer.textContent()).toBe('next synthetic question')
           })
           const inputOverlapped = await composer.getAttribute('data-benchmark-input-overlap') === 'true'
           const firstObservation = await firstMarker.jsonValue()
           await firstMarker.dispose()
-          console.log(JSON.stringify({ benchmark: 'long-session-browser/input', sample, first, input, firstObservation, witness: await composer.getAttribute('data-benchmark-input-witness'), inputTiming: await composer.getAttribute('data-benchmark-input-timing') }))
+          console.log(JSON.stringify({ benchmark: 'long-session-browser/input', sample, first, input, firstObservation,
+            nodeTiming: { started, entered, firstWaitStarted, firstWaitCompleted, typingStarted, typingCompleted,
+              enterMs: entered - started, firstWaitMs: firstWaitCompleted - firstWaitStarted,
+              firstToTypingMs: typingStarted - firstWaitCompleted, typingMs: typingCompleted - typingStarted },
+            witness: await composer.getAttribute('data-benchmark-input-witness'), inputTiming: await composer.getAttribute('data-benchmark-input-timing') }))
           expectInputOverlap(inputOverlapped)
           await (await waitForReplyMarker(page, DONE)).dispose()
           const settlement = await settled
@@ -225,6 +494,8 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           expect(consoleWatch.warnings).toEqual([])
         } catch (error) { failures.push(error) } finally {
           await browser.close().catch((error: unknown) => failures.push(error))
+          // Page closure cancels any outstanding wait and releases its handles; join the caught outcome.
+          await firstMarkerWaiting
         }
       } catch (error) { failures.push(error) } finally {
         await scaffold.close().catch((error: unknown) => failures.push(error))
@@ -240,5 +511,6 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
     open: OPEN_BUDGET_MS, page: PAGE_BUDGET_MS, trajectory: TRAJECTORY_BUDGET_MS,
   }
   console.log(JSON.stringify({ benchmark: 'long-session-browser/median', turns: HISTORY_TURNS, deltas: DELTAS, paceMs: PACE_MS, samples, aggregate, referenceMs: REFERENCE, expectedOpenCiMs: EXPECTED_OPEN_CI_MS, expectedPageCiMs: EXPECTED_PAGE_CI_MS, expectedTrajectoryCiMs: EXPECTED_TRAJECTORY_CI_MS, budgets }))
+  recordTimings(CASE, Object.fromEntries(SCALED_ENDPOINTS.map(key => [key, { ms: aggregate[key]!, ioShare: IO_SHARE }])), budgets)
   for (const [key, value] of Object.entries(aggregate)) expectEndpointWithinBudget(value, budgets[key]!)
 })

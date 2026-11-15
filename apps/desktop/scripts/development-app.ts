@@ -10,15 +10,32 @@ export interface DevelopmentAppOptions {
   readonly appRoot: string
   readonly directory: string
   readonly home: string
+  readonly museHome: string
+  /** Muse product version; Core package identity is recorded separately. */
+  readonly productVersion: string
   readonly userData: string
   readonly primaryRuntime: string
   readonly mainPort: number
   readonly rendererPort: number
   readonly hostPort: number
   readonly openDevtools: string
+  /** Muse service origin retained when Launch Services starts without the parent shell. */
+  readonly museBaseUrl?: string
 }
 
 function quote(value: string): string { return `'${value.replaceAll("'", "'\\''")}'` }
+
+function museOrigin(value: string): string {
+  try {
+    const url = new URL(value)
+    if (value !== value.trim() || url.username || url.password || url.search || url.hash || url.pathname !== '/'
+      || !(url.protocol === 'https:' || url.protocol === 'http:'
+        && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))) throw new Error('Invalid origin')
+    return url.origin
+  } catch {
+    throw new Error('desktop development: MUSE_BASE_URL must be an HTTPS or loopback HTTP origin without credentials, path, query, or fragment')
+  }
+}
 
 /**
  * Prepare and register a disposable .app without changing the installed Electron package.
@@ -27,8 +44,8 @@ function quote(value: string): string { return `'${value.replaceAll("'", "'\\''"
  */
 export function prepareDevelopmentApp(options: DevelopmentAppOptions): string {
   const source = dirname(dirname(dirname(options.electron)))
-  const bundle = join(options.directory, 'Harness Dev.app')
-  const executable = join(bundle, 'Contents', 'MacOS', 'HarnessDev')
+  const bundle = join(options.directory, 'Muse Dev.app')
+  const executable = join(bundle, 'Contents', 'MacOS', 'MuseDev')
   const stamp = join(bundle, 'Contents', 'Resources', 'dsh-development.json')
   const launcher = developmentLauncher(options, bundle)
   const identity = JSON.stringify({ ...options, launcher, plist: readFileSync(join(source, 'Contents', 'Info.plist'), 'utf8') })
@@ -38,9 +55,10 @@ export function prepareDevelopmentApp(options: DevelopmentAppOptions): string {
     const plist = join(bundle, 'Contents', 'Info.plist')
     const values = {
       CFBundleIdentifier: `com.deepseek.harness.dev.${createHash('sha256').update(options.appRoot).digest('hex').slice(0, 12)}`,
-      CFBundleName: 'Harness Dev',
-      CFBundleDisplayName: 'Harness Dev',
-      CFBundleExecutable: 'HarnessDev',
+      CFBundleName: 'Muse Dev',
+      CFBundleDisplayName: 'Muse Dev',
+      CFBundleExecutable: 'MuseDev',
+      CFBundleShortVersionString: options.productVersion,
       CFBundleURLTypes: [{ CFBundleURLName: 'muse-med', CFBundleURLSchemes: ['dsh'], CFBundleTypeRole: 'Viewer' }],
     }
     for (const [key, value] of Object.entries(values)) {
@@ -63,11 +81,13 @@ export function prepareDevelopmentApp(options: DevelopmentAppOptions): string {
 export function developmentLauncher(options: DevelopmentAppOptions, bundle: string): string {
   const environment = {
     DSH_HOME: options.home,
+    MUSE_HOME: options.museHome,
     DSH_DESKTOP_DEV_APP: '1',
     DSH_DESKTOP_HOST_INSPECT_PORT: String(options.hostPort),
     DSH_DESKTOP_OPEN_DEVTOOLS: options.openDevtools,
     DSH_DESKTOP_PRIMARY_RUNTIME_DIR: options.primaryRuntime,
     ELECTRON_ENABLE_LOGGING: '1',
+    ...(options.museBaseUrl === undefined ? {} : { MUSE_BASE_URL: museOrigin(options.museBaseUrl) }),
   }
   const args = [
     join(bundle, 'Contents', 'MacOS', 'Electron'),

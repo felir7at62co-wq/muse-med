@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-storyboard-voice-identity
+profile: headless
+composition: muse-storyboard-voice-identity
+recording: authored
+header:
+  class: muse-storyboard-voice-identity
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-voice-identity-fixture

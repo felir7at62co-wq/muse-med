@@ -245,8 +245,8 @@ export function apply(ctx, config = {}) {
       persist: mode => settings.update({ subagentBackend: mode }),
     })
     // Web presets mount their scoped tool rows lazily, after the settings page.
-    const unconfigure = scoped.on('internal/config', function(_config, next) {
-      return switcher.configure(this, next())
+    const unconfigure = scoped.on('internal/config', (fiber, next) => {
+      return switcher.configure(fiber, next())
     }, { global: true })
     let requested = 'dsh'
     const select = async mode => {

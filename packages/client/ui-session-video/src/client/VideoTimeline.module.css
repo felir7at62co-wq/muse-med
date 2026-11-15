@@ -1,0 +1,168 @@
+.window {
+  position: relative;
+  min-width: 0;
+  isolation: isolate;
+}
+
+.scroll {
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+}
+
+.lane {
+  position: relative;
+  width: var(--video-timeline-width);
+  min-width: 100%;
+  height: 78px;
+  user-select: none;
+}
+
+.ruler {
+  position: absolute;
+  inset: 0 11px auto;
+  height: 28px;
+  pointer-events: none;
+}
+
+.tick {
+  position: absolute;
+  top: 0;
+  left: var(--video-tick-left);
+  width: 0.5px;
+  height: 3px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.tick[data-major='true'] {
+  height: 6px;
+}
+
+.tickLabel {
+  position: absolute;
+  top: 8px;
+  left: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tick[data-end='true'] .tickLabel {
+  left: -4px;
+  transform: translateX(-100%);
+}
+
+.tick:first-child .tickLabel {
+  left: 11px;
+}
+
+.track {
+  position: absolute;
+  top: 30px;
+  left: 11px;
+  height: 42px;
+}
+
+.shot {
+  position: absolute;
+  top: 0;
+  left: var(--video-shot-left);
+  width: var(--video-shot-width);
+  min-width: 0;
+  height: 42px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--dsw-alias-bg-module-platform);
+  background-image: var(--video-shot-thumbnail);
+  background-repeat: repeat-x;
+  background-size: auto 100%;
+  cursor: pointer;
+}
+
+.shot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.shot[aria-pressed='true']::after {
+  box-shadow: inset 0 0 0 2px var(--dsw-alias-state-business-primary);
+}
+
+@media (hover: hover) {
+  .shot:hover::after {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.playhead {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: var(--video-playhead-position);
+  width: 22px;
+  height: 76px;
+  transform: translateX(-50%);
+  color: var(--dsw-alias-label-primary);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.playhead::before {
+  content: '';
+  position: absolute;
+  top: 16px;
+  bottom: 0;
+  left: calc(50% - 1px);
+  width: 2px;
+  background: currentColor;
+  pointer-events: none;
+}
+
+.cap {
+  position: absolute;
+  top: 0;
+  left: calc(50% - 6px);
+  width: 12px;
+  height: 18px;
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  border-radius: 3px 3px var(--dsw-radius-xs) var(--dsw-radius-xs);
+  background: var(--dsw-alias-bg-base);
+}
+
+.scroll:focus-visible,
+.shot:focus-visible,
+.playhead:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
+
+.fadeBefore,
+.fadeAfter {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  width: 32px;
+  pointer-events: none;
+}
+
+.fadeBefore {
+  left: 0;
+  background: linear-gradient(to right, var(--dsw-alias-bg-base), transparent);
+}
+
+.fadeAfter {
+  right: 0;
+  background: linear-gradient(to left, var(--dsw-alias-bg-base), transparent);
+}

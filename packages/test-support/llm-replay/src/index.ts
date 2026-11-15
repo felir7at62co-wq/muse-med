@@ -23,6 +23,8 @@ import type {
   ContentBlock,
   GenerateOptions,
   LlmImageRequestPricing,
+  LlmModelBadge,
+  LlmModelBadgeTone,
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
@@ -38,6 +40,7 @@ import { LlmAdapter, LlmError, ReasoningEffortId, expandAssistantStream, offload
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 
 const PACKED_CHUNK_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool-call-chunks'])
+const BADGE_TONES: readonly unknown[] = ['neutral', 'info', 'success', 'warning'] satisfies readonly LlmModelBadgeTone[]
 
 if (sessionFormatCatalog.currentVersion !== SESSION_FORMAT_VERSION) {
   throw new Error(
@@ -96,7 +99,7 @@ export interface ReplayModelConfig {
    * no image pricing.
    */
   imageRequestTokens?: number
-  /** Optional reasoning-effort ids the replay route accepts, in display order. */
+  /** Optional reasoning-effort ids from least to greatest selectable effort. */
   reasoningEfforts?: string[]
   /**
    * Optional effort materialized when callers omit one; must appear in
@@ -107,6 +110,8 @@ export interface ReplayModelConfig {
   systemPromptUpdate?: SystemPromptUpdate
   /** Optional mid-conversation tool declaration mode for a keyless replay route. */
   toolUpdate?: ToolUpdate
+  /** Optional selector badge the replay catalog advertises, so keyless Web scenarios render one. */
+  badge?: LlmModelBadge
 }
 
 /** One provider route exposed by the replay adapter. */
@@ -568,13 +573,30 @@ function resolveFromRequest(pattern: string, corpus: string): string {
   return last[1] ?? last[0]
 }
 
-/** Replace every `{{fromRequest:<pattern>}}` occurrence in one scripted string. */
-function substituteString(text: string, corpus: string): string {
+interface JsonStringCursor {
+  quoted: boolean
+  escaped: boolean
+}
+
+/** Replace placeholders, escaping captured text only inside a tool-argument JSON string. */
+function substituteString(text: string, corpus: string, json?: JsonStringCursor): string {
   let result = ''
   let cursor = 0
+  const append = (part: string): void => {
+    result += part
+    if (json === undefined) return
+    for (const char of part) {
+      if (json.escaped) json.escaped = false
+      else if (json.quoted && char === '\\') json.escaped = true
+      else if (char === '"') json.quoted = !json.quoted
+    }
+  }
   while (true) {
     const open = text.indexOf(FROM_REQUEST_OPEN, cursor)
-    if (open === -1) return result + text.slice(cursor)
+    if (open === -1) {
+      append(text.slice(cursor))
+      return result
+    }
     let close = text.indexOf(FROM_REQUEST_CLOSE, open + FROM_REQUEST_OPEN.length)
     if (close === -1) {
       throw new Error(`llm-replay: fromRequest placeholder is unterminated in ${JSON.stringify(text)}`)
@@ -583,7 +605,9 @@ function substituteString(text: string, corpus: string): string {
     // so a pattern may end with a brace quantifier like `[0-9a-f]{4}`.
     while (text[close + FROM_REQUEST_CLOSE.length] === '}') close += 1
     const pattern = text.slice(open + FROM_REQUEST_OPEN.length, close)
-    result += text.slice(cursor, open) + resolveFromRequest(pattern, corpus)
+    append(text.slice(cursor, open))
+    const captured = resolveFromRequest(pattern, corpus)
+    append(json?.quoted ? JSON.stringify(captured).slice(1, -1) : captured)
     cursor = close + FROM_REQUEST_CLOSE.length
   }
 }
@@ -600,6 +624,23 @@ function substituteValue(value: unknown, corpus: string): unknown {
   return value
 }
 
+/** Resolve only actual stream argument fields as JSON; opaque replay metadata remains ordinary data. */
+function substituteChunk(chunk: StreamChunk, corpus: string, argumentCursors: Map<number, JsonStringCursor>): StreamChunk {
+  if (chunk.type === 'tool-call-delta') {
+    const { argumentsDelta, ...metadata } = chunk
+    const cursor = argumentCursors.get(chunk.index) ?? { quoted: false, escaped: false }
+    argumentCursors.set(chunk.index, cursor)
+    return { ...substituteValue(metadata, corpus) as typeof metadata,
+      argumentsDelta: substituteString(argumentsDelta, corpus, cursor) }
+  }
+  if (chunk.type === 'block-end' && chunk.block.type === 'tool-call') {
+    const { arguments: args, ...metadata } = chunk.block
+    return { ...chunk, block: { ...substituteValue(metadata, corpus) as typeof metadata,
+      arguments: substituteString(args, corpus, { quoted: false, escaped: false }) } }
+  }
+  return substituteValue(chunk, corpus) as StreamChunk
+}
+
 /**
  * Resolve every `{{fromRequest:<regex>}}` placeholder in one scripted entry
  * against the live request. The corpus is every string leaf of the request
@@ -611,7 +652,10 @@ function substituteValue(value: unknown, corpus: string): unknown {
  * fail loud. The last two braces of a consecutive `}` run terminate the
  * placeholder, so a pattern may end with a brace quantifier but cannot
  * contain `}}` followed by further pattern content. Derived entries pass
- * through the same resolution as sidecar entries.
+ * through the same resolution as sidecar entries. Captures inside quoted JSON
+ * strings in tool-call arguments are JSON-escaped; streamed argument deltas
+ * retain their string cursor by block index. Other text and unquoted positions
+ * keep literal substitution, and malformed argument templates are not repaired.
  * @param entry - the scripted entry about to replay.
  * @param messages - the live request messages searched by the placeholders.
  * @returns the entry itself when no placeholder appears, else a resolved deep copy.
@@ -620,7 +664,12 @@ export function resolveScriptedEntry(entry: ReplayEntry, messages: GenerateOptio
   if (!JSON.stringify(entry).includes(FROM_REQUEST_OPEN)) return entry
   const leaves: string[] = []
   collectStrings(messages, leaves)
-  return substituteValue(entry, leaves.join('\n')) as ReplayEntry
+  const corpus = leaves.join('\n')
+  if (entry.kind === 'hang') return substituteValue(entry, corpus) as ReplayEntry
+  const { chunks, ...metadata } = entry
+  const argumentCursors = new Map<number, JsonStringCursor>()
+  return { ...substituteValue(metadata, corpus) as typeof metadata,
+    chunks: chunks.map(chunk => substituteChunk(chunk, corpus, argumentCursors)) }
 }
 
 /** Replace typed recorded-session tokens with the live sessions bound at the same corpus indexes. */
@@ -856,7 +905,7 @@ class ReplayAdapter extends LlmAdapter {
 
   constructor(
     providers: readonly ReplayProviderConfig[],
-    private readonly replay: (options: GenerateOptions) => AsyncIterable<StreamChunk>,
+    private readonly replay: (options: GenerateOptions<string>) => AsyncIterable<StreamChunk>,
   ) {
     super()
     this.providers = new Map(providers.map(provider => [provider.id, provider]))
@@ -899,6 +948,7 @@ class ReplayAdapter extends LlmAdapter {
       name: model.name ?? model.id,
       ...model.description === undefined ? {} : { description: model.description },
       ...model.inputModalities === undefined ? {} : { inputModalities: [...model.inputModalities] },
+      ...model.badge === undefined ? {} : { badge: model.badge },
     })))
   }
 
@@ -940,7 +990,7 @@ class ReplayAdapter extends LlmAdapter {
     })
   }
 
-  override stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+  override stream(options: GenerateOptions<string>): AsyncIterable<StreamChunk> {
     return this.replay(options)
   }
 }
@@ -1041,7 +1091,7 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
   const liveSessionIds: (string | undefined)[] = Array.from({ length: scripts.length })
   let nextScript = 0
   const ANON = '\0anon\0' // the key for a call that carries no sessionId
-  const replay = (options: GenerateOptions): AsyncIterable<StreamChunk> => {
+  const replay = (options: GenerateOptions<string>): AsyncIterable<StreamChunk> => {
     const key = options.sessionId ?? ANON
     let state = bound.get(key)
     let unrecorded = false
@@ -1101,7 +1151,7 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
   const providers = config.providers ?? []
   const dispose = providers.length > 0
     ? ctx.llm.registerAdapter(providers.map(provider => provider.id), new ReplayAdapter(providers, replay))
-    : ctx.on('llm/stream', (options: GenerateOptions, _next) => replay(options))
+    : ctx.on('llm/stream', (options: GenerateOptions<string>, _next) => replay(options))
   return {
     dispose,
     assertConsumed(): void {
@@ -1141,6 +1191,16 @@ export interface Config {
   providers?: ReplayProviderConfig[]
   /** Optional per-chunk pacing delay in ms (see {@link ReplayConfig.paceMs}); absent keeps burst yield. */
   paceMs?: number
+}
+
+/** Whether a configured badge has non-blank literal or English-keyed text and a known tone. */
+function displayableBadge(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const text: unknown = Reflect.get(value, 'text')
+  const texts: unknown[] = typeof text === 'object' && text !== null ? Object.values(text) : [text]
+  return BADGE_TONES.includes(Reflect.get(value, 'tone'))
+    && (typeof text === 'string' || (typeof text === 'object' && text !== null && Object.hasOwn(text, 'en')))
+    && texts.every(entry => typeof entry === 'string' && entry.trim() !== '')
 }
 
 function validateConfiguredModels(providers: ReplayProviderConfig[] | undefined): void {
@@ -1183,6 +1243,12 @@ function validateConfiguredModels(providers: ReplayProviderConfig[] | undefined)
         throw new Error(
           `llm-replay: provider "${provider.id}" model "${model.id}" toolUpdate `
           + 'must be "in-history" or "addition-only" when present',
+        )
+      }
+      if (model.badge !== undefined && !displayableBadge(model.badge)) {
+        throw new Error(
+          `llm-replay: provider "${provider.id}" model "${model.id}" badge needs non-blank text or translations `
+          + 'with an "en" entry, and a neutral, info, success, or warning tone',
         )
       }
     }

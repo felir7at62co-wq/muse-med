@@ -1,27 +1,47 @@
-// DSH's main view opens only a Session that its client list already holds; any other id
-// throws `sessions.retain: unknown session`. A part the Host made a moment ago, or any part
-// before the first list arrives, waits for the list; a newer navigation — through here or
-// elsewhere — drops the wait.
+/** Wait for listed Sessions and preserve explicit navigation over delayed default landings. */
+
+/**
+ * Open only listed Sessions; newer requests and external navigation cancel a pending wait.
+ * @param {{list: object, open: function, refresh?: function, current?: function}} options Session list and navigation operations.
+ * @returns {function} Opener with guard() for delayed landings and cancel() for disposal.
+ */
 export function listedOpener({ list, open, refresh, current }) {
   let drop = () => {}
-  return (target) => {
+  let version = 0
+  let pending = false
+  const cancel = () => {
     drop()
     drop = () => {}
+    pending = false
+  }
+  const show = (target) => {
+    version += 1
+    cancel()
     const listed = () => list.getSnapshot().byId?.[target] !== undefined
-    if (listed()) { open(target); return }
     const from = current?.()
-    const off = list.subscribe(() => {
-      if (current?.() !== from) {
-        off()
-        drop = () => {}
+    let opening = false
+    pending = true
+    const update = () => {
+      const main = current?.()
+      if (opening) {
+        if (current === undefined || main === target || (main !== from && main !== undefined)) cancel()
         return
       }
+      if (main !== from) { cancel(); return }
       if (!listed()) return
-      off()
-      drop = () => {}
-      open(target)
-    })
-    drop = off
-    refresh?.()
+      opening = true
+      try { open(target) } catch (error) { cancel(); throw error }
+      if (current === undefined || current() === target) cancel()
+    }
+    drop = list.subscribe(update)
+    update()
+    if (!opening && pending) refresh?.()
   }
+  show.guard = () => {
+    const at = version
+    const from = current?.()
+    return () => at === version && !pending && current?.() === from
+  }
+  show.cancel = () => { version += 1; cancel() }
+  return show
 }

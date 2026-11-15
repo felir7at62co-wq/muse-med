@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-web-search-account-proxy
+profile: headless
+composition: muse-web-search-account-proxy
+recording: authored
+header:
+  class: muse-web-search-account-proxy
+  pin: true
+writerOutput: true

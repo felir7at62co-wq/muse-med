@@ -25,7 +25,7 @@ Muse's director Agent can find a Lvpaopao drama by title, read its actual episod
 <a id="use-this-package"></a>
 ## Use this package
 
-Desktop mounts `muse-lvpaopao/bridge` globally and the package root inside the unified director Agent. The internal preset ID remains `short-drama`; this package does not add a selectable mode. The standalone [bundle patch](cordis.patch.yml) inserts only the provider, without a global tool. Desktop already supplies that provider and does not select this standalone bundle again. The consumer requires Tools, Agents, subprocess and the shared provider.
+Desktop mounts `muse-lvpaopao/bridge` globally and the package root inside the unified director Agent. The internal preset ID remains `short-drama`; this package does not add a selectable mode. The standalone [bundle patch](cordis.patch.yml) inserts only the provider, without a global tool. Desktop already supplies that provider and does not select this standalone bundle again. The consumer requires Tools, live Agents, Jobs, sandbox policy, subprocess and the shared provider.
 
 ```yaml
 - insert:
@@ -70,6 +70,11 @@ The provider first reads `<Muse home>/lvpaopao/connection.json`. An existing val
 | `retryDelayMs` | `1000` | Delay between failures classified as safe to retry. |
 | `seriesLockWaitMs` | `5000` | Wait for the private task lock before reporting contention. |
 | `copyChunkBytes` | `1048576` | Chunk size for verified local file copies. |
+| `maxSeriesTasks` | `1000` | Maximum retained outer tasks, up to `10000`; capacity exhaustion rejects new tasks. |
+| `maxTaskStateBytes` | `16777216` | Maximum private registry bytes, up to `67108864`; state is never silently truncated. |
+| `taskLockWaitMs` | `5000` | Maximum private registry/target-lock wait, up to `60000` ms. |
+| `maxSeriesJobOutputBytes` | `65536` | Retained Jobs output limit, up to `1048576` bytes. |
+| `seriesTaskWaitMs` | `86400000` | Maximum synchronous Jobs wait, from `1000` to `2147483647` ms. |
 
 ### Read rankings
 
@@ -83,11 +88,26 @@ Call `engagement` with an exact `query` or selected `srcAppId` and `dramaId` to 
 
 Ask the director Agent to download a named drama, or call `download_series` with `query`. A single normalized exact title match selects the source only when search is complete. Otherwise the tool returns candidates with `selection-required`; select `srcAppId` and `originDramaId`, then pass them as `srcAppId` and `dramaId`. Media acquisition does not start while selection is unresolved. The tool reads details and pages the directory, preserves actual returned episode numbers, and reports missing or partial coverage instead of inventing episodes.
 
+`download_series` defaults to `mode:"wait"` and retains its existing result fields, adding `data.seriesTask:{id,state,jobId}`. Use `mode:"background"` to receive `series-queued` immediately after owner-bound acceptance. The accepted job continues after that tool call ends; queued does not establish download completion. Jobs progress reports the catalog and observed episode count, while `series_status` reads the verified per-episode manifest. Background work is still tied to the live requesting Session; owner disposal or plugin unload cancels it and waits for native requests and local copies to settle.
+
+| Action | Arguments | Behavior |
+| --- | --- | --- |
+| `download_series` | `query` or selected source IDs; optional `outputDir`, `mode` | Select, refresh the actual catalog and run the existing series writer. Ambiguous titles create no media task. |
+| `series_status` | `seriesTaskId` alone, or source IDs with optional `outputDir` | Read local progress and verify saved files without native requests. The two forms cannot be mixed. |
+| `series_resume` | `seriesTaskId` alone | Reauthorize the original output, check saved files, explicitly recover the shared bridge through `status`, then accept a new owned background job. |
+| `series_cancel` | `seriesTaskId` alone | Cancel owned execution and wait for native/copy cleanup before returning local progress. |
+
+`seriesTaskId` always means `data.seriesTask.id`, the Session-owned outer ID. The existing `data.series.taskId` remains the source-derived inner manifest ID. A `jobId` belongs only to the current Jobs registry and is cleared when that registry is replaced; resume creates a new job. Use the durable outer ID for later status, resume and cancel calls. Only the original live Session, with its saved canonical workspace and destination, can control it. Same-owner active calls coalesce; cancelling a later coalesced wait only stops that wait.
+
 Downloads require `downloadEnabled:true` in the resolved transport and the actual requesting Session's file permission. Automatic setup supplies this transport flag; explicit connections must configure it. The default destination is `downloads/lvpaopao` inside that Session's workspace. Relative `outputDir` values stay within the workspace; external destinations require full file access. The transport's destination never overrides the Session, and permission checks precede native catalog or media requests.
 
-The saved task directory contains `manifest.json`, per-episode files and their receipts. Call `download_series` again with the same selected source and destination to resume. Completed files are rechecked before reuse. Each episode retains its original durable request key across retries, cancellation and scope replacement. A temporarily missing directory entry preserves its saved request key and state; incomplete catalog coverage keeps the series incomplete. Known transfer failures retry within `maxAttempts`; unknown acquisition outcomes require `download_status` with that same key before another attempt. The downloader resumes a partial transfer only with a verified prefix and a matching HTTP range validator; it does not append bytes from a changed resource.
+The saved task directory contains `manifest.json`, per-episode files and their receipts. Call `download_series` again with the same selected source and destination to refresh the catalog and resume through a healthy bridge, including newly observed episodes. Completed files are rechecked before reuse. After a failed bridge generation or Host restart, use `series_resume` for explicit recovery; ordinary `download_series` does not reconnect a failed generation. Each episode retains its original durable request key across retries, cancellation and scope replacement. A temporarily missing directory entry preserves its saved request key and state; incomplete catalog coverage keeps the series incomplete. Known transfer failures retry within `maxAttempts`; unknown acquisition outcomes require `download_status` with that same key before another attempt. The downloader resumes a partial transfer only with a verified prefix and a matching HTTP range validator; it does not append bytes from a changed resource.
 
 Use `series_status` with the selected source IDs and the same destination to read saved progress and verify completed files without starting the helper or making native requests. Results distinguish completed, pending, in-progress, failed, denied, unknown and missing episodes. A series is complete only when its catalog covers every episode and every saved file passes verification. A cancelled tool call can return the outer runtime's abort result; read `series_status` afterward for the saved progress. Neither a directory response nor one successful episode establishes complete-series delivery.
+
+Outer state distinguishes `queued`, `running`, `completed`, `waiting_user`, `waiting_source`, `interrupted` and `cancelled`. Restart only classifies orphaned active work as interrupted and clears stale job IDs; it never replays native business. `series_resume` checks current permission and local receipts before explicitly requesting bridge `status`. Once cleanup is confirmed, it confirms the same source catalog and lets the inner writer reconcile unknown/downloading episodes through their original `download_status` key. Unconfirmed cleanup blocks further acquisition. Only verified results, `request-not-found` or `resume-available` permit the original-key retry; a new key never resolves uncertainty.
+
+The private outer ledger is `<Muse home>/lvpaopao/tasks/v1/registry.json`, separate from the unchanged schema-version-1 episode manifest in the chosen output. It contains owner/source/target metadata and no signed playback addresses or cookies. IDs use the Session, source and normalized workspace-relative destination (absolute for external targets); actual canonical absolute workspace and output remain checked on every control. If a previously used or adopted inner manifest is missing or malformed, recovery stops with the original keys unavailable rather than creating replacement keys. Keep both ledgers and receipts when moving or backing up work. If outer-state publication fails after verified episode delivery, the result preserves the inner manifest path and reports interrupted; inspect that manifest before another action.
 
 `status`, `search`, `detail` and `episodes` remain available for inspection. `download_episode` and `download_status` accept an actual episode number and its original 64-character lowercase hexadecimal key. The local `download_first_episode` compatibility entry uses the same episode/download-status path and a stable first-episode key; it does not use SCP. Download drama IDs use the 64-character letter/digit/underscore/hyphen form, while `detail` and `episodes` retain their broader opaque ID validation. A returned file path does not automatically present a video or send a chat attachment.
 
@@ -102,6 +122,8 @@ Use `series_status` with the selected source IDs and the same destination to rea
 The [provider](src/bridge.ts) owns one lazy local or explicit SSH connection and serializes native requests shared by Agents. Agent disposal settles its owned requests and copies without disposing the Host provider. Confirmed cancellation preserves a live transport. A `target-not-ready` result or `transfer-failed` after confirmed worker cleanup also preserves a healthy connection; terminal failures or unconfirmed cleanup retire that generation. After confirmed cleanup, an explicit `status` may recover it. The provider does not replay failed business requests automatically.
 
 An explicit `status` request can renew a helper that exited while idle after all cleanup flags and successful process exit are confirmed, including the Mac `hook-stopped` status. Native connections retain their configured lifetime; recovery never replays search or media requests. Missing cleanup flags or a failed exit remain terminal.
+
+The [outer executor](src/tasks.ts) binds actual Agents to Jobs, serializes source/destination admission, and writes its bounded private registry atomically under a private lock. It reauthorizes a queued run before native access. Waiting cancellation cannot release a predecessor’s admission, and unload waits for owned execution without disposing the borrowed shared bridge. The existing series writer remains the only writer of the per-episode manifest.
 
 The [series engine](src/series.ts) locks each source/destination task and saves episode state before acquisition. The [episode copy](src/episode-download.ts) checks source identity, original key, playable-episode authorization, decoded-file metadata and exact local bytes before publishing a receipt. Local copies and native transfers retain validated partial state for resumption. The [catalog resolver](src/catalog.ts) controls title selection and actual directory coverage; the tool projection exposes bounded metadata instead of signed playback addresses or arbitrary helper errors.
 
@@ -127,7 +149,7 @@ The [plugin build overview](../README.md) describes Desktop package delivery. [P
 
 #### What the model sees
 
-The director Agent sees one `lvpaopao` declaration for catalog inspection, title-based whole-series download, per-episode reconciliation and saved progress. Results contain bounded readiness, candidate identities, actual episode coverage, durable task paths and verified local-file metadata. Missing setup and incomplete downloads remain explicit results. Neither the provider nor the consumer adds a system-prompt section.
+The director Agent sees one `lvpaopao` declaration for catalog inspection, title-based whole-series download, per-episode reconciliation and saved progress. Results contain bounded readiness, candidate identities, actual episode coverage, durable task paths, verified local-file metadata and a separate owner-bound `seriesTask` envelope. Background acceptance reports queued; status and Jobs output establish the eventual outcome. Missing setup and incomplete downloads remain explicit results. Neither the provider nor the consumer adds a system-prompt section.
 
 #### Token effect
 
@@ -147,7 +169,7 @@ The current verification and deployment limits remain explicit:
 - Live qualification on Windows x64 WeChat 4.1.15.56 / WMPF 25799 covers local helper preparation, title search, complete catalog, rankings with source-detail readback, 36 episode downloads and whole-series tool delivery, full decode/hash checks, original-key recovery and a real 1 MiB interrupted transfer resumed from the same saved address. Qualification uses a prepared test environment; it does not establish fresh-install acceptance.
 - Mac arm64 WeChat 4.1.13 / 269602 acceptance uses an exact-hash isolated copy with a private home. Search, full catalog, rankings, all 36 native episode downloads, complete decode/hash checks and 1 MiB interruption/resumption passed. A real Session and shared plugin connection reconciled all original keys, delivered the series and reused it with zero new acquisitions. Ordinary signed Mac WeChat, fresh installation, other builds and continued native business after active cancellation remain unqualified.
 - Downloads require account-playable episodes. The plugin does not purchase episodes, watch ads or unlock access. Denied or unresolved episodes keep the series incomplete. Technical access does not grant content reuse rights.
-- The package manifest includes owned native sources and a pinned dependency file for staged resource delivery; it excludes WeChat binaries, extracted target source, credentials, private attestation and media. This revision has not been packaged or released, and installed-resource delivery has not been accepted. Available Python dependencies, media tools, a genuine supported runtime and user login remain preparation requirements.
+- The package manifest includes owned native sources and a pinned dependency file for staged resource delivery; it excludes WeChat binaries, extracted target source, credentials, private attestation and media. Packaging and offline task tests do not establish installed-resource delivery or fresh live WeChat acceptance of background lifecycle changes. Available Python dependencies, media tools, a genuine supported runtime and user login remain preparation requirements.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -155,6 +177,6 @@ The current verification and deployment limits remain explicit:
 <details>
 <summary>Working context for maintainers</summary>
 
-None.
+From this package directory, run `pnpm run build` for its strict artifact-plane compilation, `pnpm run test` for source-plane offline regressions, and `pnpm run package --out /absolute/output-directory` for a staged archive. Build requires matching Host peers already compiled; tests use the repository TypeScript source loader. `SOURCE.json` records compiled/native file digests and source-file identities; packaging excludes connection files, private task state and media.
 
 </details>

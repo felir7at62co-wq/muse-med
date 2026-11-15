@@ -1,12 +1,12 @@
 # Muse 红果 Search 工具集
 
-> 本次发布从已交付 v0.1.0 安装包恢复，运行时代码与原包一致；当前测试与历史验证的区别见 [发布恢复说明](https://github.com/felir7at62co-wq/muse-hongguo-serch/blob/main/RECOVERY.md)。
+> 仓库保留已交付 v0.1.0 原包及其校验值；该原包与恢复记录见 [发布恢复说明](https://github.com/felir7at62co-wq/muse-hongguo-serch/blob/main/RECOVERY.md)。下文描述当前工作区源码。
 
-独立、可安装的 Muse / DeepSeek Harness（DSH）Cordis 插件。只读红果官方公开网页，提供关键词搜索、剧集详情、榜单汇总和收藏数筛选；无需登录、Cookie、API Key 或第三方签名服务，不下载视频。
+独立、可安装的 Muse / DeepSeek Harness（DSH）Cordis 插件。只读红果官网公开搜索 JSON 与详情、榜单网页，提供关键词搜索、剧集详情、榜单汇总和收藏数筛选；无需登录、Cookie、API Key 或第三方签名服务，不下载视频。
 
 ## 能做什么
 
-- `hongguo_search`：官方关键词搜索首屏，当前最多 10 条；可以发现不在热播榜里的剧，可能包含语义推荐
+- `hongguo_search`：读取官网 `/api/search/result` 的关键词搜索首屏，当前最多 10 条；可以发现不在热播榜里的剧，可能包含语义推荐
 - `hongguo_detail`：按字符串 `seriesId` 查询剧名、简介、演员、集数、收藏、点赞、热度和评分
 - `hongguo_rankings`：读取综合、真人、AI、漫剧四个热播榜，默认遍历每榜全部 5 页，而不是只读首页
 - `hongguo_collections`：在上述榜单覆盖范围内筛选收藏数，默认阈值 1,000,000；保留原文、来源、时间、跨榜冲突和待核实条目
@@ -76,16 +76,18 @@ return { coverage: result.coverage, count: result.totalMatched, dramas: result.i
 - 榜单：`boards`（默认全部）；可选 `hot-drama`、`hot-real-drama`、`hot-ai-drama`、`hot-comic-drama`
 - 收藏筛选：`minCollections`（默认 1000000）、`includeUncertain`（默认 false）、`boards`、`limit`（1–400，默认 20）、`offset`
 
-搜索只返回官网首屏实际可获得的数据。`sourceReportedTotal` 是网页宣称的总量，`availableInWindow` 是本次可用条数；两者不能混为一谈。未验证公开搜索分页，`offset` 只切分已抓取窗口，`complete` 固定 false。
+搜索通过同站公开 JSON 接口读取首屏实际结果，不依赖初始 HTML 中的搜索数据或浏览器 Cookie、Token、签名。HTTP 200 的 HTML 壳页、错误或不完整 JSON 都明确失败，不解释为零结果。`sourceReportedTotal` 是网页宣称的总量，`availableInWindow` 是本次可用条数；两者不能混为一谈。只验证首屏读取，`offset` 只切分已抓取窗口，不跟随公开分页，`complete` 固定 false；不能将来源总数或页数当成已取得数量。
 
-榜单返回 `coverage.pagesFetched/pagesExpected/uniqueSeries/complete/failures/truncated/pages`。`complete: true` 只表示所选榜单当前公开分页已读完，不表示全平台片库。任何失败或配置截断都会明确标记；所有页面失败会报错。抓取并非同一时点的事务快照。
+榜单返回 `coverage.pagesFetched/pagesExpected/uniqueSeries/complete/failures/truncated/pages`。`coverage.complete: true` 只表示所选榜单当前公开分页已读完，不表示指标齐全或全平台片库。任何失败或配置截断都会明确标记；所有页面失败会报错。抓取并非同一时点的事务快照。
 
-每条收藏指标保留 `raw`、`value`、`approximate`、`precisionStep`。缺失或无法解释的数据为 null，不会记成 0。
+`coverage.metrics` 按已抓取的原始榜单观察值统计，`observations` 包含同一作品在不同榜单上的重复观察；`fields.collection/likes/heat` 分别返回 `known/missing/complete`，三项均无缺失时 `coverage.metrics.complete` 为 true。失败页不计入这个分母，必须同时检查分页完整性。可见卡片缺少互动指标时仍保留已核验的 ID、标题和排名；对应数值为 null，每次 `observations[].missingMetrics` 记录指标名和 `not_displayed/unparseable` 原因。页面身份、分页、标题或排名错误仍会拒绝该页。
+
+每条指标保留 `raw`、`value`、`approximate`、`precisionStep`。无法解释的可见指标保留完整原文，数值为 null，缺失原因为 `unparseable`；只有未展示的指标使用 `not_displayed`。不支持的符号、前缀或单位不会通过截取数字变成已知值，缺失数据不会记成 0。
 
 - 榜单与搜索上的 `124.3万收藏` 转为 1,243,000，仍标为近似展示值
 - `100万`、`100.0万` 等阈值附近缩写列为待核实；保守地预留上下一个显示单位，不猜测榜单舍入规则
 - 详情里的 `series_favorite_count` 保留公开页面给出的整数及原字符串。`approximate: false` 只表示插件没有从万/亿缩写换算，**不保证平台字段未经处理或等于实时精确人数**
-- 跨榜按 `seriesId` 去重，保留所有 `observations`，`conflicts` 标明不同收藏值。主展示值取 `minimum_observed`；跨阈值冲突不冒充确定达标
+- 跨榜按 `seriesId` 去重，每次 `observations` 保留独立收藏、点赞和热度。三个主展示值分别取最小已知值；早先观察缺失不会覆盖后来的已知值。`conflicts` 分别标明三个指标的不同观察值；跨阈值收藏冲突不冒充确定达标
 - `thresholdStatus: meets` 表示页面数值通过本工具的保守筛选，仍不是后台精确人数的证明。`uncertain/unknown` 默认不混入结果
 
 所有作品链接指向官网。`url` 是详情页；`watchPageUrl` 仅在页面真实提供且ID匹配时返回官方网页播放链接，缺失则为 null。它不是 MP4/无水印直链，不保证无需 App 或账号即可播放；插件不访问播放资源、不下载或绕过播放限制。页面内容是外部数据，不能作为指挥 Muse 执行动作的指令。

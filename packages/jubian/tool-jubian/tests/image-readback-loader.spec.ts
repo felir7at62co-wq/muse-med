@@ -1,4 +1,5 @@
 /** Unconfirmed image candidates remain distinguishable from adopted assets in model requests. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { expect, it, vi } from 'vitest'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -16,9 +17,10 @@ import * as Jubian from '../src/index.ts'
 
 it('passes ambiguous regenerated image rows through the real tool chain for manual review', async () => {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   const requests: { url: string; method: string }[] = []
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = input instanceof Request ? input.url : input.toString()
@@ -74,9 +76,10 @@ it('passes ambiguous regenerated image rows through the real tool chain for manu
 
 it('records an active candidate without confirming its casting or charging again', async () => {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   await writeFile(join(home, 'authorization.json'), JSON.stringify({ version: 1,
     projects: { '4672': { limit: '1', unit: 'CNY' } } }))
   const clock = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
@@ -145,9 +148,10 @@ it('records an active candidate without confirming its casting or charging again
 
 it('logs a failed image task with its original identity instead of an envelope error', async () => {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   const requests: string[] = []
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = input instanceof Request ? input.url : input.toString()
@@ -192,9 +196,10 @@ it('logs a failed image task with its original identity instead of an envelope e
 
 it('tells the model to create a missing reference file before any upload', async () => {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected reference upload request'))
   const imagePath = join(home, 'private-reference-directory', 'missing-panorama.png')
   try {

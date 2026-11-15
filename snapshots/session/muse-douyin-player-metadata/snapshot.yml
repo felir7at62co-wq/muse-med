@@ -9,3 +9,6 @@ header:
   pin: true
   systemPromptSource: muse-media-download-tool-catalog
   toolSchemasSource: muse-media-download-tool-catalog
+workspace:
+  setup: muse-douyin-media
+  final: true

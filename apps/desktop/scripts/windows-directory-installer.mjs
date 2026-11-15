@@ -14,6 +14,7 @@ function replaceOnce(source, before, after) {
 
 /**
  * Preserve upstream registration and uninstall UI while replacing payload installation.
+ * Registered paths use the preflight's full-path and trailing-separator normalization.
  * @param {string} source - Pinned electron-builder installSection.nsh contents.
  * @returns {string} Section with staging before shutdown and directory promotion before registration.
  */
@@ -27,6 +28,24 @@ export function directoryInstallSection(source) {
 !macroundef uninstallOldVersion
 !macro uninstallOldVersion ROOT_KEY
   !insertmacro readReg $R4 "\${ROOT_KEY}" "\${INSTALL_REGISTRY_KEY}" InstallLocation
+  \${If} $R4 != ""
+    Push $0
+    Push $1
+    Push $2
+    System::Call 'kernel32::GetFullPathNameW(w R4, i \${NSIS_MAX_STRLEN}, w .r2, p 0) i.r1'
+    StrCpy $R4 ""
+    \${If} $1 > 0
+    \${AndIf} $1 < \${NSIS_MAX_STRLEN}
+      !insertmacro InstallerTrimDirectorySeparators $2
+      StrLen $1 $2
+      \${If} $1 > 3
+        StrCpy $R4 $2
+      \${EndIf}
+    \${EndIf}
+    Pop $2
+    Pop $1
+    Pop $0
+  \${EndIf}
   \${If} $R4 == $INSTDIR
     StrCpy $R0 0
     ClearErrors
@@ -37,7 +56,7 @@ export function directoryInstallSection(source) {
 !macroend`)
   result = replaceOnce(result, '!insertmacro setLinkVars', `!insertmacro setLinkVars
 !insertmacro dshStageApplication`)
-  result = replaceOnce(result, '!insertmacro installApplicationFiles', 'Call dshPromoteDirectories\nIfErrors 0 +4\n  SetErrorLevel 2\n  MessageBox MB_OK|MB_ICONEXCLAMATION "$(appCannotBeClosed)" /SD IDOK\n  Quit')
+  result = replaceOnce(result, '!insertmacro installApplicationFiles', 'Call dshPromoteDirectories\nIfErrors 0 +3\n  SetErrorLevel 2\n  Quit')
   result = replaceOnce(result, '!ifdef UNINSTALLER_ICON\n  File /oname=uninstallerIcon.ico "${UNINSTALLER_ICON}"\n!endif\n', '')
   result = replaceOnce(result, '  !insertmacro StartApp', '  IfRebootFlag dsh_skip_upstream_start\n  !insertmacro StartApp\ndsh_skip_upstream_start:')
   // The staging macro uses the upstream installer macro, including its signed uninstaller.

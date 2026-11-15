@@ -1,0 +1,26 @@
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- insert:
+    - id: snapshot-media-present
+      name: '@deepseek-ai/dsh-tool-present'
+    - id: snapshot-muse-media-tools
+      name: './media-fixture.mjs'
+    - id: snapshot-media-discovery
+      name: '@deepseek-ai/dsh-tool-discovery'
+      config:
+        alwaysLoad: [present]
+        capabilities:
+          - id: company-media
+            title: Company media
+            description: Public media data, company downloads, owned tasks and verified local imports.
+            tools: [muse_media_data, muse_media_download, muse_media_task, muse_media_import]

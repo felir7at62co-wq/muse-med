@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseSessionLog, prepareSessionSnapshotFixtureForComparison } from '@deepseek-ai/dsh-llm-replay'
@@ -9,11 +9,38 @@ import {
   recordedSessionFixturePath,
   selectedSessionFixture,
 } from './scaffold.ts'
+import { createWebWriterFixture } from './fixtures/writer-output.ts'
 
 const roots: string[] = []
 
 afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
+})
+
+describe('Web separate writer output', () => {
+  const fixture = () => createWebWriterFixture(roots)
+
+  it('rejects child canonical roles for a Web writer-output owner', async () => {
+    const f = await fixture()
+    await copyFile(f.input, join(f.root, 'session.1.v4.jsonl'))
+    await expect(assertFixtureInventory(f.root, ['session.v4.jsonl', 'session.1.v4.jsonl']))
+      .rejects.toThrow('root-only Session owner')
+  })
+
+  it('requires the root writer oracle in replay while permitting refresh to harvest it later', async () => {
+    const f = await fixture()
+    await expect(assertFixtureInventory(f.root, ['session.v4.jsonl'], 'refresh')).resolves.toBeUndefined()
+    await expect(assertFixtureInventory(f.root, ['session.v4.jsonl'], 'replay')).rejects.toThrow()
+  })
+
+  it('rejects an undeclared writer oracle in an ordinary Web fixture inventory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-web-unexpected-writer-'))
+    roots.push(root)
+    await writeFile(join(root, 'snapshot.yml'), 'version: 1\nprofile: web\n')
+    await writeFile(join(root, 'session.v4.jsonl'), '{}\n')
+    await writeFile(join(root, 'writer.expected.jsonl'), '{}\n')
+    await expect(assertFixtureInventory(root, ['session.v4.jsonl'])).rejects.toThrow()
+  })
 })
 
 describe('Web seed stream timing', () => {

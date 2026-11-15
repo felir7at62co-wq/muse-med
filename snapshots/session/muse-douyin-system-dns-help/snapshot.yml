@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-douyin-system-dns-help
+profile: headless
+composition: muse-douyin-system-dns-help
+recording: authored
+writerOutput: true
+header:
+  class: muse-douyin-system-dns-help
+  pin: true
+  systemPromptSource: muse-media-download-tool-catalog
+  toolSchemasSource: muse-media-download-tool-catalog

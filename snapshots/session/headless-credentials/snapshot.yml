@@ -1,0 +1,8 @@
+version: 1
+writerOutput: true
+scenario: headless-credentials
+profile: headless
+composition: advanced
+recording: authored
+header:
+  class: advanced

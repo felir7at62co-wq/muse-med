@@ -603,7 +603,7 @@ describe('preview construction and validation', () => {
     expect(PREVIEW.operation).toBe('prepare_storyboard_native_video')
     expect(PREVIEW.payload.isGenerate).toBe(1)
     expect(PREVIEW.estimatedSubmissions).toBe(1)
-    expect(PREVIEW.nextAction).toBe('核对 preview 的项目、主体、配置、预计费用与已有任务；在用户已授权范围内调用 submit_video，超出范围先取得授权。prepare 本身不 PUT、不创建任务、不收费。')
+    expect(PREVIEW.nextAction).toBe('核对 preview 的项目、主体、配置、预计费用与已有任务。用户最新请求若为只预览或先看，到此展示结果，不沿用此前制作授权提交；本次请求包含已授权生成时才调用 submit_video。prepare 本身不 PUT、不创建任务、不收费。')
     expect(PREVIEW.assetSummary.orderedAssets[0]).toEqual({ assetId: 'asset-lead', materialAssetId: 81285,
       materialKey: 'lead', materialName: '陆沉舟｜西装', imageUrl: URL_LEAD })
     const config = JSON.parse(String(PREVIEW.payload.modelConfig)) as Record<string, unknown>
@@ -618,7 +618,7 @@ describe('preview construction and validation', () => {
   })
 
   it('preserves authored shot and performance paragraphs in the frozen paid payload', () => {
-    const prompt = `${PROMPT}\n\n【镜头1】\n动作：先放下水桶，再说话。\n台词：苏晚：慢一点。\n\n【镜头2】\n运镜：缓慢推近。`
+    const prompt = `  ${PROMPT}\r\n\r\n【镜头1】\r\n动作：先放下水桶，再说话。\r\n台词：苏晚：慢一点。\r\n\r\n【镜头2】\r\n运镜：缓慢推近。  `
     const preview = buildNativeVideoPreview({ storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) }, assets: ASSETS, models: CATALOGUE, createdAt: 'now' })
     expect((JSON.parse(String(preview.payload.modelConfig)) as Record<string, unknown>).prompt).toBe(prompt)

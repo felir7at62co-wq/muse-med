@@ -1,4 +1,5 @@
 /** Host-issued inspection records, successful model-image delivery, and log-backed recovery. */
+import type {} from '@deepseek-ai/dsh-tool-executor-ptc'
 import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'

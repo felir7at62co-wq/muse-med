@@ -49,3 +49,21 @@ test('copy follows the DSH language and stays English without a locale service',
   assert.equal(t('Model'), 'Model')
   assert.equal(hostText('A Bot named Writer already exists'), 'A Bot named Writer already exists')
 })
+
+test('handoff recovery warning follows Chinese and English interface locales', () => {
+  const message = 'The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.'
+  assert.equal(hostText(message), message)
+  const off = installLocale(fakeLocale('zh'))
+  try {
+    assert.equal(hostText(message), '浏览器交接答复可能已被接收，但尚未确认保存成功。发送新请求前，请先检查会话')
+  } finally {
+    off()
+  }
+  const offEnglish = installLocale(fakeLocale('en'))
+  try {
+    assert.equal(hostText(message), message)
+  } finally {
+    offEnglish()
+  }
+  assert.equal(hostText(message), message)
+})

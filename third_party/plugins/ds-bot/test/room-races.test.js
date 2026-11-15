@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { fakeContext } from './fake-ctx.js'
+import { legacyContext, legacyConfig } from './legacy-ctx.js'
 
 // #200, #205: a group change read the team, waited (for a Session or a folder check), and
 // then wrote what it had read. A Bot deleted, or another change made, in that wait was undone.
@@ -35,7 +35,7 @@ async function start(team = TEAM) {
   const folder = join(root, 'project')
   for (const dir of [home, folder]) mkdirSync(dir)
   writeFileSync(join(home, 'state.json'), JSON.stringify(team))
-  const ctx = fakeContext()
+  const ctx = legacyContext()
   const archived = []
   let sessions = 0
   // While `hold` is set, the next Session waits until it is let go.
@@ -60,7 +60,7 @@ async function start(team = TEAM) {
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
   })
-  const rt = createRuntime(ctx, { home })
+  const rt = createRuntime(ctx, legacyConfig({ home }))
   await rt.load()
   const held = () => {
     let release

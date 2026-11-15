@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Resume: Bot work that DeepSeek Harness dropped when it closed or restarted. DSH closes
 // a turn it never finished as interrupted when the Session next opens, and a clean
 // shutdown also cancels the messages still waiting in a Session's inbox; nothing would

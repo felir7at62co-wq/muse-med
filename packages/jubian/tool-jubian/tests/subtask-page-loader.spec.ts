@@ -1,4 +1,6 @@
 /** Video page paths and readiness reach native model requests and generated PTC output types. */
+import { JubianLedger } from '@deepseek-ai/dsh-jubian'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -6,7 +8,8 @@ import Llm, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import Tools, { jsonSchemaToTs, renderToolsSdk, validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import Tools, { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { jsonSchemaToTs, renderToolsSdk } from '@deepseek-ai/dsh-tool-executor-ptc'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
@@ -14,9 +17,10 @@ import * as Jubian from '../src/index.ts'
 
 async function fixture() {
   const configured = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   await configured.ctx.loader.create({ name: 'cordis:jubian', config: {
     ledgerRoot: configured.home, workspaceSecrets: false } })
   await configured.ctx.loader.await()
@@ -36,6 +40,8 @@ it('exposes subtask rows in PTC output types while accepting other video-method 
     expect(type).toContain('parent_task_id: number | null')
     expect(type).toContain('status: string | null')
     expect(type).toContain('video_url: string | null')
+    expect(type).toContain('project_complete: boolean')
+    expect(type).toContain('task_type: number | null')
     const sdk = renderToolsSdk([{ name: tool.name, description: tool.description, parameters: tool.parameters, output: schema }])
     expect(sdk).toContain('interface ToolOutputMap')
     expect(sdk).toContain('subtasks?: {')
@@ -51,7 +57,69 @@ it('exposes subtask rows in PTC output types while accepting other video-method 
     expect(validateJsonSchemaValue(schema, { subtasks: [] }, '')).not.toEqual([])
     expect(validateJsonSchemaValue(schema, { subtasks: { total: 1 } }, '')).not.toEqual([])
     expect(validateJsonSchemaValue(schema, { subtasks: { total: 1, rows: {} } }, '')).not.toEqual([])
+    const tasks = { total: 0, rows: [], queried_at: '2026-10-28T00:00:00.000Z', page_num: 1,
+      page_size: 20, returned: 0, total_verified: true, complete: true, has_more: false,
+      next_page: null, scope: { script_id: 5933, task_type: null }, project_complete: true }
+    expect(validateJsonSchemaValue(schema, { tasks }, '')).toEqual([])
+    expect(validateJsonSchemaValue(schema, { tasks: { ...tasks, scope: undefined } }, '')).not.toEqual([])
+    expect(validateJsonSchemaValue(schema, { tasks: { ...tasks, project_complete: undefined } }, '')).not.toEqual([])
+    expect(validateJsonSchemaValue(schema, { tasks: { ...tasks, scope: { script_id: 5933, task_type: 'all' } } }, '')).not.toEqual([])
   } finally { await ctx.fiber.dispose() }
+})
+
+it('logs unfiltered legacy task discovery and the narrower empty type-filter scope', async () => {
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-06T06:00:00.000Z') })
+  onTestFinished(() => { vi.useRealTimers() })
+  const requests: string[] = []
+  // Synthetic legacy row: its missing taskType makes the old implicit filter omit a readable task.
+  const legacy = { id: 749810, scriptId: 5933, episodeId: 130172, taskStatus: 'succeeded', taskName: 'EP01-P3' }
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString())
+    expect(init?.method).toBe('GET')
+    requests.push(url.pathname.replace('/prod-api', '') + url.search)
+    if (url.pathname.endsWith('/admin/aigc/video/task/749810')) {
+      return new Response(JSON.stringify({ code: 200, data: legacy }))
+    }
+    if (!url.pathname.endsWith('/admin/aigc/video/task/list') || url.searchParams.get('scriptId') !== '5933') {
+      throw new Error('Unexpected task inventory read')
+    }
+    const rows = url.searchParams.has('taskType') ? [] : [legacy]
+    return new Response(JSON.stringify({ code: 200, data: { total: rows.length, rows } }))
+  })
+  const { ctx, home } = await fixture()
+  try {
+    await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
+    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    const adapter = new MockAdapter([
+      toolCallResponse('known-task', 'jubian_video', { method: 'task', task_id: 749810 }),
+      toolCallResponse('project-tasks', 'jubian_video', { method: 'tasks', script_id: 5933 }),
+      toolCallResponse('generation-only', 'jubian_video', { method: 'tasks', script_id: 5933, task_type: 1 }),
+      textResponse('The known task exists; the empty type-filtered list is not complete project coverage.'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('task-scope-owner'),
+      { provider: 'mock', model: 'mock' }, { cwd: home })
+    agent.followup(createUserMessage({ source: { kind: 'user' },
+      content: [{ type: 'text', text: 'Compare the known task with all project tasks and the generation-only list.' }] }))
+    await agent.whenIdle()
+    const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+      .map(event => ({ isError: event.data.message.isError, content: event.data.message.content }))
+    expect(results).toHaveLength(3)
+    expect(results.every(result => !result.isError)).toBe(true)
+    expect(results).toMatchSnapshot('default project list and explicit empty filter')
+    expect(requests).toEqual(['/admin/aigc/video/task/749810',
+      '/admin/aigc/video/task/list?scriptId=5933&pageNum=1&pageSize=20',
+      '/admin/aigc/video/task/list?scriptId=5933&taskType=1&pageNum=1&pageSize=20'])
+    expect(adapter.requests).toHaveLength(4)
+    expect(adapter.requests[3]!.messages.filter(message => message.role === 'tool')
+      .map(message => message.content)).toEqual(results.map(result => result.content))
+    const tool = ctx.tools.get('jubian_video')!
+    expect(tool.parameters).toHaveProperty('properties.task_type')
+    expect(jsonSchemaToTs(tool.output.schema)).toContain('project_complete: boolean')
+  } finally {
+    fetch.mockRestore()
+    await ctx.fiber.dispose()
+  }
 })
 
 it.each(['succeeded', 'running', 'failed'])('logs the actual %s child page and its download guidance into the next model request', async (status) => {
@@ -106,6 +174,77 @@ it.each(['succeeded', 'running', 'failed'])('logs the actual %s child page and i
     expect(adapter.requests[1]!.messages.filter(message => message.role === 'tool')
       .map(message => message.content)).toEqual(results.map(result => result.content))
     expect(requests).toEqual([{ method: 'POST', path: '/prod-api/admin/aigc/video/task/sub/list', body: { aigcVideoTaskId: 545240 } }])
+  } finally {
+    fetch.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
+it('logs provider-limited empty discovery before reading a known task without changing its original key', async () => {
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-06T06:00:00.000Z') })
+  onTestFinished(() => { vi.useRealTimers() })
+  const requests: { method: string; path: string }[] = []
+  const known = { id: 749810, scriptId: 5933, episodeId: 130172, taskStatus: 'succeeded', taskName: 'EP01-P3' }
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString())
+    const method = String(init?.method)
+    requests.push({ method, path: url.pathname.replace('/prod-api', '') + url.search })
+    if (method !== 'GET') throw new Error('Discovery must not send a paid or state-changing request')
+    if (url.pathname.endsWith('/admin/aigc/video/task/749810')) {
+      return new Response(JSON.stringify({ code: 200, data: known }))
+    }
+    if (!url.pathname.endsWith('/admin/aigc/video/task/list') || url.searchParams.get('scriptId') !== '5933') {
+      throw new Error('Unexpected task discovery read')
+    }
+    return new Response(JSON.stringify({ code: 200, data: { total: 0, rows: [] } }))
+  })
+  onTestFinished(() => { fetch.mockRestore() })
+  const { ctx, home } = await fixture()
+  try {
+    const ledger = new JubianLedger({ root: home })
+    const originalKey = 'known-original-video-key'
+    await ledger.begin({ idempotencyKey: originalKey, method: 'storyboard_generate',
+      scriptId: 5933, requestSha256: 'original-request', beforeTaskIds: [] })
+    const before = await ledger.records()
+    await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
+    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    const adapter = new MockAdapter([
+      toolCallResponse('generation-only', 'jubian_video', { method: 'tasks', script_id: 5933, task_type: 1 }),
+      toolCallResponse('empty-project-list', 'jubian_video', { method: 'tasks', script_id: 5933 }),
+      toolCallResponse('known-original-task', 'jubian_video', { method: 'task', task_id: 749810 }),
+      toolCallResponse('original-key', 'jubian_video', { method: 'unresolved', script_id: 5933 }),
+      textResponse('The provider list is empty, but known task 749810 is readable. Retain known-original-video-key; do not pay for regeneration.'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('empty-provider-known-task-owner'),
+      { provider: 'mock', model: 'mock' }, { cwd: home })
+    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text',
+      text: 'Read project 5933 and known task 749810. Preserve known-original-video-key and do not submit generation.' }] }))
+    await agent.whenIdle()
+    const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+      .map(event => ({ isError: event.data.message.isError, content: event.data.message.content }))
+    expect(results).toHaveLength(4)
+    expect(results.every(result => !result.isError)).toBe(true)
+    const text = (index: number): string => results[index]!.content
+      .filter(block => block.type === 'text').map(block => block.text).join('')
+    const filtered: unknown = JSON.parse(text(0)), unfiltered: unknown = JSON.parse(text(1))
+    expect(filtered).toMatchObject({ tasks: { rows: [], complete: true, project_complete: false,
+      total_verified: true, scope: { script_id: 5933, task_type: 1 } } })
+    expect(unfiltered).toMatchObject({ tasks: { rows: [], complete: true, project_complete: true,
+      total_verified: true, scope: { script_id: 5933, task_type: null } } })
+    expect(text(1)).toContain('不保证保留全部历史')
+    expect(text(2)).toContain('749810')
+    expect(text(3)).toContain(originalKey)
+    expect(results.slice(0, 3)).toMatchSnapshot('empty provider list followed by known original task and key')
+    expect(adapter.requests).toHaveLength(5)
+    expect(adapter.requests[4]!.messages.filter(message => message.role === 'tool')
+      .map(message => message.content)).toEqual(results.map(result => result.content))
+    expect(requests).toEqual([
+      { method: 'GET', path: '/admin/aigc/video/task/list?scriptId=5933&taskType=1&pageNum=1&pageSize=20' },
+      { method: 'GET', path: '/admin/aigc/video/task/list?scriptId=5933&pageNum=1&pageSize=20' },
+      { method: 'GET', path: '/admin/aigc/video/task/749810' },
+    ])
+    expect(await ledger.records()).toEqual(before)
   } finally {
     fetch.mockRestore()
     await ctx.fiber.dispose()

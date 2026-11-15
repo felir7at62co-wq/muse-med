@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-06-generation-watch-attribution.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-06-generation-watch-attribution.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-06-generation-watch-attribution:
+  en: 353e6c20804b9c2b
+  zh: e5a67b7355a34067
+/2026-11-06-generation-watch-attribution/summary:
+  en: 2058c462e01c2d12
+  zh: 025e3454d49ebb6b
+/2026-11-06-generation-watch-attribution/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-06-generation-watch-attribution/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-06-generation-watch-attribution/compatibility:
+  en: 70fac5993a783f3d
+  zh: fe607d1ef5f9b047
+/2026-11-06-generation-watch-attribution/verification:
+  en: 831e63596ab2e58d
+  zh: f063308b782c24bf
+/2026-11-06-generation-watch-attribution/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

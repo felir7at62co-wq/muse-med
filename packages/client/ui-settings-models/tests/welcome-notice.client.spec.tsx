@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
+import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+import { allowAllAccess, bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { Context } from '@deepseek-ai/cordis'
 import { SettingsSchemaService } from '@deepseek-ai/dsh-client-ui-settings/src/client/schema.ts'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
@@ -81,26 +82,29 @@ function mount(
     ctx,
     { namespace: WELCOME_NOTICE_SETTINGS_NAMESPACE, decode: decodeWelcomeSection },
     mirror,
-    'host',
     schemaService,
   )
   const controller = new WelcomeNoticeStore(scope)
   void mirror.load()
   const complete = vi.fn()
+  const onVisible = vi.fn()
   const unusedHook = (() => { throw new Error('unused standard hook') }) as never
   const props: WelcomeNoticeProps = {
     stepId: 'welcome-notice',
     complete,
+    onVisible,
     openSection: vi.fn(),
     useSessions: unusedHook,
     useSessionStatus,
     usePanelInfo, useSessionRetainInfo: () => undefined, useResource,
     useWorkspaces: unusedHook,
+    ...allowAllAccess,
+    useContextMenu: contextMenuHook(),
     controller,
     useWelcome: bindSnapshotSelector(controller.store),
     t: key => zh[key],
   }
-  return { ...render(<WelcomeNotice {...props} />), complete, controller, mirror, mutate, appRoot }
+  return { ...render(<WelcomeNotice {...props} />), complete, onVisible, controller, mirror, mutate, appRoot }
 }
 
 describe('WelcomeNotice', () => {
@@ -117,6 +121,7 @@ describe('WelcomeNotice', () => {
   it('renders one blocking modal action and focuses the title', async () => {
     const h = mount()
     const dialog = await screen.findByRole('dialog', { name: WELCOME_NOTICE_COPY.zh.title })
+    expect(h.onVisible).toHaveBeenCalledOnce()
     for (const paragraph of WELCOME_NOTICE_COPY.zh.body.split('\n\n')) {
       expect(screen.getByText(paragraph, { exact: true })).toBeTruthy()
     }
@@ -149,6 +154,7 @@ describe('WelcomeNotice', () => {
     })
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(h.complete).toHaveBeenCalledOnce()
+    expect(h.onVisible).not.toHaveBeenCalled()
   })
 
   it('keeps the sole action disabled while saving and reports a refused write', async () => {

@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/skill-market-identity/guide.md
+/:
+  en: e2cc3acd0d8efc49
+  zh: ab9c62c8cab6f792
+/skill-market-account-identity-and-ui:
+  en: 56fab7f9e4b2ddbb
+  zh: b7345643863117d1
+/skill-market-account-identity-and-ui/change:
+  en: 511d2b08984b0d56
+  zh: 6854cd3b4c19f922
+/skill-market-account-identity-and-ui/migration:
+  en: 421960298176bda3
+  zh: 5009cd4e567482cb

@@ -17,6 +17,8 @@ const peers = {
   '@deepseek-ai/dsh-sandbox-policy': 'packages/sandbox/sandbox-policy',
   '@deepseek-ai/dsh-home-paths': 'packages/util/home-paths',
   '@deepseek-ai/dsh-atomic-write': 'packages/util/atomic-write',
+  '@deepseek-ai/dsh-jobs': 'packages/jobs/jobs',
+  '@deepseek-ai/dsh-brand': 'packages/util/brand',
 };
 
 /**

@@ -1,0 +1,25 @@
+- id: agent-default-model
+  config:
+    provider: manuscript-materials-fixture
+    model: manuscript-materials-fixture
+- id: llm-deepseek
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: skill
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- insert:
+    - id: manuscript-materials-fixture
+      name: '../../../apps/desktop-host/tests/fixtures/manuscript-materials/fixture.mjs'

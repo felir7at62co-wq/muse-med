@@ -138,16 +138,17 @@ it.skipIf(!hasFfmpeg)('measures energy reduction, pause recovery, LUFS warmup, p
 
   const fullMix = join(f.project, 'full-mix.wav')
   const fullStem = join(f.project, 'full-stem.wav')
-  const sliced = join(f.project, 'slice.wav')
   await f.command(['-n', '-v', 'error', '-i', f.original, '-i', f.music, '-filter_complex', audioMixFilter({
     bodyEndSeconds: 8, totalSeconds: 8, endingSeconds: 0, masterVolume: 1, bgmVolume: 1,
     profile: f.profile, originalInput: 0, musicStem: true }),
   '-map', '[a]', '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', fullMix,
   '-map', '[musicstem]', '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', fullStem])
-  await f.command(['-n', '-v', 'error', '-i', fullStem, '-af', 'atrim=start=3:duration=4,asetpts=PTS-STARTPTS',
-    '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', sliced])
   const previewPcm = waveData(await readFile(preview.music_stem))
-  const fullPcm = waveData(await readFile(sliced))
+  const fullStemPcm = waveData(await readFile(fullStem))
+  const bytesPerSecond = 48_000 * 2 * 2
+  expect(fullStemPcm.length).toBeGreaterThanOrEqual(7 * bytesPerSecond)
+  // Compare the delivered sample clock directly rather than trimming the reference by its timestamps.
+  const fullPcm = fullStemPcm.subarray(3 * bytesPerSecond, 7 * bytesPerSecond)
   expect(previewPcm.length).toBe(fullPcm.length)
   let peakDifference = 0
   for (let index = 0; index < previewPcm.length; index += 2) {

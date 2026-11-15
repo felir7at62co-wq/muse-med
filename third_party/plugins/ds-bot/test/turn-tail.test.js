@@ -16,7 +16,7 @@ runInNewContext(bundle.outputFiles[0].text, {
   module, exports: module.exports, AbortController, fetch,
   require: (name) => {
     const platform = {
-      react: {
+      react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useCallback: fn => fn, useId: () => 'dv-id', useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
         createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
         useState: initial => [initial, () => {}], useEffect: (run) => { effects.push(run) }, useRef: current => ({ current }),
         useLayoutEffect: () => {}, useMemo: make => make(), Fragment: 'fragment',
@@ -117,7 +117,7 @@ test('a Bot reply in its own chat stays whole up to 20,000 characters', () => {
 
 // #465: the thinking row stays a switchable extra, and the one activity row is
 // never given up to it.
-test('the thinking row shows only with its switch on, and the activity row is never yielded to it', () => {
+test('the thinking row defaults on, can be switched off, and never displaces activity', () => {
   const cell = (prefs, blocks, steps) => {
     effects.length = 0
     const noted = []
@@ -133,7 +133,7 @@ test('the thinking row shows only with its switch on, and the activity row is ne
   const reason = [{ kind: 'reasoning', text: 'Weighing it' }]
   const thinking = { turn: 3, step: 1, status: 'running', blocks: reason }
   // Off: a thinking step draws nothing and notes nothing.
-  const off = cell({}, reason, [thinking])
+  const off = cell({ thinking: false }, reason, [thinking])
   assert.equal(off.out, null)
   assert.deepEqual(off.noted, [])
   // On: the live row shows — and still notes nothing, so the activity row stays.
@@ -141,9 +141,10 @@ test('the thinking row shows only with its switch on, and the activity row is ne
   assert.equal(find(on.out, node => node.type === ThinkingRow).length, 1)
   assert.equal(on.noted.filter(id => id.startsWith('think:')).length, 0)
   assert.deepEqual(on.noted, [])
+  assert.equal(find(cell({}, reason, [thinking]).out, node => node.type === ThinkingRow).length, 1)
   // A reply streaming in does give the activity row its one note, on or off.
   const replying = { turn: 3, step: 1, status: 'running', blocks: [{ kind: 'reasoning', text: 'Weighing it' }, { kind: 'text', text: 'Done' }] }
-  for (const prefs of [{}, { thinking: true }]) {
+  for (const prefs of [{}, { thinking: true }, { thinking: false }]) {
     const { noted } = cell(prefs, replying.blocks, [replying])
     assert.ok(noted.every(id => id.startsWith('text:')))
   }

@@ -8,7 +8,8 @@
  * classification is reported. Explicit project subtitle and linear mix settings
  * override the existing delivery defaults; rate control is unchanged.
  *
- * `subtitles`, `prepare`, and `render` write; `verify` only reads. Everything that makes a
+ * `subtitles`, `prepare`, `render`, and `stage_delivery` write; `verify` preserves
+ * its video and SRT but may save glyph evidence. Everything that makes a
  * render impossible throws with a Chinese repair instruction. The delivered
  * file's own properties do not throw: `render` and `verify` report them as
  * checks, so one call tells the operator everything that needs fixing while
@@ -17,11 +18,13 @@
  * @module @deepseek-ai/dsh-tool-episode-render
  */
 
-import { resolve } from 'node:path'
+import { copyFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import { AUDIO_MIX_RESULT_SCHEMA, previewAudio } from './audio.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createVideoSourceQaVerifier, type VideoSourceQaVerifier } from '@deepseek-ai/dsh-tool-video-inspect'
 import z from '@deepseek-ai/schemastery'
 import { FONT_FAMILY_PATTERN, deliveryRenderSettings } from './delivery.ts'
 import { deliveryPolicyFor, resolveDeliveryPolicy } from './delivery-policy.ts'
@@ -31,18 +34,36 @@ import { createMediaToolkit } from './ffmpeg.ts'
 import { buildEpisodeCues } from './cues.ts'
 import type { BuiltCues } from './cues.ts'
 import { episodeNumberOf, episodePaths } from './paths.ts'
-import { parseShotManifest, prepareEpisode, readJsonDocument } from './prepare.ts'
+import { parseShotManifest, prepareEpisode, readJsonDocument, verifyPreparedSubtitleClock } from './prepare.ts'
 import { buildRenderPreview, renderPreviewWarnings } from './preview.ts'
 import { buildReport, NO_MEDIA, NO_TAIL_FRAME, type ReportInput } from './report.ts'
-import { renderEpisode } from './render.ts'
-import type { BgmPlanReport, DramaRenderMethod, DramaRenderReport, RenderCheck, RenderSettings } from './types.ts'
+import { renderEpisode, type RenderInput } from './render.ts'
+import type { BgmPlanReport, DeliverySubtitleVisual, DramaRenderMethod, DramaRenderReport, EndingEffectFit, MediaToolkit, RenderCheck, RenderSettings } from './types.ts'
 import { verifyEpisode } from './verify.ts'
+import { stageEpisodeDelivery } from './stage-delivery.ts'
 import { registerDramaVideo } from './video.ts'
 import { resolveSubtitleOverlay } from './subtitle-plan.ts'
 import { readTimeline } from './timeline.ts'
 import { reviewSpeechCoverage, type SpeechCoverageReport } from './speech-coverage.ts'
 import { measureSubtitleLayout } from './subtitle-layout.ts'
-import { readSubtitleCues } from './subtitles.ts'
+import { fitSubtitleCues } from './subtitle-fit.ts'
+import { formatSrtDocument, normalizeSubtitleDisplay, readSubtitleCues, subtitleDisplayWarnings } from './subtitles.ts'
+import { StaleSubtitleClockError, subtitleClockPath, writeDerivedSubtitleClock } from './subtitle-clock.ts'
+import type { SourceQaVerifier } from './source-qa.ts'
+import { createContentReviewVerifier, type ContentReviewVerifier } from './content-review.ts'
+
+export { findShortDramaProject, isShortDramaProject } from './delivery-policy.ts'
+export { createContentReviewVerifier, verifyEpisodeContentReview, type ContentReviewVerifier } from './content-review.ts'
+export { verifyDraftSubtitleFont } from './draft-font.ts'
+export { parseSrtDocument } from './subtitles.ts'
+
+export type { MediaCommandOutcome, ProcessChannel, RenderSettings } from './types.ts'
+export { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets, preparedSubtitleClockInputs } from './prepare.ts'
+export { captureEpisodeSourceReview } from './episode-source-capture.ts'
+export type { EpisodeSourceCapture } from './episode-source-capture.ts'
+export { createSourceQaStagedAccess } from './source-qa.ts'
+export type { SourceQaStagedAccess } from './source-qa.ts'
+export type { PreparedSubtitleClockInputs } from './prepare.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-episode-render'
@@ -77,6 +98,14 @@ const DEFAULT_WATERMARK_FONT_FAMILY = 'Microsoft YaHei'
  * ending and watermark treatment are selected by the explicit visual medium.
  */
 export interface Config {
+  /** Optional deployment fallback for timelines without an ending-effect fit. */
+  defaultEndingEffectFit?: EndingEffectFit
+  /** Optional deployment fallback for projects without an explicit subtitle style. */
+  defaultSubtitleVisual?: DeliverySubtitleVisual | undefined
+  /** Enforce the product subtitle target for old projects and timelines. */
+  enforceSubtitleVisual?: boolean
+  /** Normalize dialogue display punctuation and line breaks during rendering. */
+  normalizeSubtitleText?: boolean
   /** ffmpeg executable; defaults to `ffmpeg` from `PATH`. */
   ffmpegPath?: string
   /** ffprobe executable; defaults to `ffprobe` from `PATH`. */
@@ -99,6 +128,19 @@ export interface Config {
 
 /** Validated deployment config, including gain ranges and ASS-safe font families. */
 export const Config: z<Config> = z.object({
+  defaultEndingEffectFit: z.union(['source_once', 'stretch_to_window']),
+  normalizeSubtitleText: z.boolean().default(false),
+  enforceSubtitleVisual: z.boolean().default(false),
+  defaultSubtitleVisual: z.union([z.const(undefined), z.object({
+    schema_version: z.const(1).required(),
+    reference_width: z.number().min(1).max(16384).required(),
+    reference_height: z.number().min(1).max(16384).required(),
+    font_size_px: z.number().min(0.001).max(16384).required(),
+    outline_px: z.number().min(0).max(100).required(),
+    center_y_ratio: z.number().min(0).max(1).required(),
+    max_width_ratio: z.number().min(0.001).max(1).required(),
+    font_family: z.string().pattern(FONT_FAMILY_PATTERN),
+  })]),
   ffmpegPath: z.string().default(DEFAULT_FFMPEG),
   ffprobePath: z.string().default(DEFAULT_FFPROBE),
   masterVolume: z.number().min(0).max(8).default(DEFAULT_MASTER_VOLUME),
@@ -140,7 +182,7 @@ interface DramaRenderArguments {
   bgm?: string
   /** Optional episode/segments music plan to report, not a listening verdict. */
   bgmPlan?: string
-  /** Composer receipt for exact-bed gain evidence in audio_preview. */
+  /** Composer receipt for audition evidence or strict render issuance. */
   bgmGeneration?: string
   /** Explicit project-owned audio profile. */
   mixProfile?: string
@@ -156,10 +198,14 @@ interface DramaRenderArguments {
   endingAudio?: string
   /** Ending effect video; required only for photorealistic or legacy marked delivery. */
   endingEffect?: string
-  /** Delivered file; required by `verify`, defaulted for `render`. */
+  /** Delivered file; required by `verify` and `stage_delivery`, defaulted for `render`. */
   output?: string
+  /** Exact saved draft directory for `stage_delivery`. */
+  draft?: string
   /** Whether `render` ignores its per-shot cache. */
   force?: boolean
+  /** Whether `render` resumes from an exact verified candidate and preserves existing outputs. */
+  resume?: boolean
 }
 
 /** What every resolved call carries. */
@@ -178,6 +224,10 @@ interface PrepareCall extends CallBase {
   readonly shotsPath: string
   /** Absolute path of the subtitle to install. */
   readonly subtitleSrt: string
+  /** Optional existing source-bound recognition receipts for measuring and splitting long cues. */
+  readonly transcriptsPath?: string
+  /** Inputs for one source-bound rebuild if the original generated subtitle has a stale clock. */
+  readonly subtitleRepair?: { readonly linesPath: string; readonly alignmentPath: string }
   /** Optional BGM bed selected for the later render preview. */
   readonly bgm?: string
   /** Optional plan selected for the later render preview. */
@@ -201,31 +251,9 @@ interface SubtitlesCall extends CallBase {
 }
 
 /** A resolved `render` call: every input the delivery is built from. */
-interface RenderCall extends CallBase {
+interface RenderCall extends CallBase, Omit<RenderInput, 'toolkit' | 'settings' | 'project' | 'episode' | 'sourceQaVerifier'> {
   /** The operation to run. */
   readonly method: 'render'
-  /** Absolute path of the timeline to render. */
-  readonly timelinePath: string
-  /** Absolute path of the subtitle to burn. */
-  readonly subtitleSrt: string
-  /** Optional absolute authored subtitle-overlay plan. */
-  readonly subtitlePlan?: string
-  /** The last body shot this render delivers. */
-  readonly lastShot: number
-  /** Absolute path of the BGM bed. */
-  readonly bgm?: string
-  /** Optional absolute path of the declared BGM plan. */
-  readonly bgmPlan?: string
-  /** Explicit project-owned audio profile. */
-  readonly mixProfile?: string
-  /** Absolute path of the ending sound. */
-  readonly endingAudio?: string
-  /** Absolute path of the ending effect video. */
-  readonly endingEffect?: string
-  /** Absolute path of the file to write. */
-  readonly output: string
-  /** Whether the per-shot cache is ignored. */
-  readonly force: boolean
 }
 
 /** A resolved `verify` call: the delivered file and the two inputs it claims to follow. */
@@ -238,6 +266,13 @@ interface VerifyCall extends CallBase {
   readonly timelinePath: string
   /** Absolute path of the subtitle the delivery claims to burn. */
   readonly subtitleSrt: string
+}
+
+type StageDeliveryCall = Omit<VerifyCall, 'method'> & {
+  readonly method: 'stage_delivery'
+  readonly draft: string
+  readonly transcriptsPath?: string
+  readonly decisionsPath?: string
 }
 
 /** One call with every path it needs already resolved. */
@@ -279,7 +314,7 @@ interface SubtitleLayoutCall extends CallBase {
 }
 
 type ResolvedCall = PrepareCall | RenderCall | VerifyCall | SubtitlesCall | AudioPreviewCall | SubtitleOverlayCall
-  | SpeechCoverageCall | SubtitleLayoutCall
+  | SpeechCoverageCall | SubtitleLayoutCall | StageDeliveryCall
 
 /**
  * Resolve one call's configuration into the settings every method takes.
@@ -287,7 +322,14 @@ type ResolvedCall = PrepareCall | RenderCall | VerifyCall | SubtitlesCall | Audi
  * @returns The binaries, gains, encoder preference, font directory and families.
  */
 export function resolveSettings(config: Config = {}): RenderSettings {
+  if (config.enforceSubtitleVisual && config.defaultSubtitleVisual === undefined) {
+    throw new Error('产品字幕视觉配置缺失。')
+  }
   return {
+    ...(config.defaultEndingEffectFit === undefined ? {} : { defaultEndingEffectFit: config.defaultEndingEffectFit }),
+    ...(config.normalizeSubtitleText ? { normalizeSubtitleText: true } : {}),
+    ...(config.defaultSubtitleVisual === undefined ? {} : { defaultSubtitleVisual: config.defaultSubtitleVisual }),
+    ...(config.enforceSubtitleVisual ? { enforceSubtitleVisual: true } : {}),
     ffmpeg: config.ffmpegPath ?? DEFAULT_FFMPEG,
     ffprobe: config.ffprobePath ?? DEFAULT_FFPROBE,
     masterVolume: config.masterVolume ?? DEFAULT_MASTER_VOLUME,
@@ -323,8 +365,12 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
   const project = resolve(args.project)
   const episode = episodeNumberOf(args.episode)
   const paths = episodePaths(project, episode)
-  if (args.method !== 'speech_coverage' && (args.speechTranscripts !== undefined || args.speechDecisions !== undefined)) {
-    throw new Error('speech_transcripts/speech_decisions 仅用于 speech_coverage；先对最终完整显示的 SRT 执行独立声文核查。')
+  if ((args.speechTranscripts !== undefined && !['speech_coverage', 'prepare', 'stage_delivery'].includes(args.method))
+    || (args.speechDecisions !== undefined && !['speech_coverage', 'stage_delivery'].includes(args.method))) {
+    throw new Error('speech_transcripts 仅用于 prepare、speech_coverage 或严格 stage_delivery；speech_decisions 仅用于 speech_coverage 或严格 stage_delivery。')
+  }
+  if (args.method === 'stage_delivery' && args.speechDecisions !== undefined && args.speechTranscripts === undefined) {
+    throw new Error('stage_delivery 的 speech_decisions 需要同时提供 speech_transcripts。')
   }
   if (args.method === 'speech_coverage') {
     if (args.subtitlePlan !== undefined) throw new Error('speech_coverage 需要最终完整显示的 SRT，不接受删减外加字幕的 subtitle_plan。')
@@ -336,8 +382,12 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
         '需要现有云转写映射 {"shots":[{"shot":1,"receipt":"transcript/jobs/clip-v1.json"}]}。')),
       ...(args.speechDecisions === undefined ? {} : { decisionsPath: resolve(project, args.speechDecisions) }) }
   }
-  if (args.subtitlePlan !== undefined && (args.method === 'verify' || args.method === 'subtitles' || args.method === 'subtitle_layout')) {
-    throw new Error('subtitle_plan 仅用于 prepare、render 或 subtitle_overlay；verify 请传实际 resolved-overlay.srt。')
+  if (args.draft !== undefined && args.method !== 'stage_delivery') {
+    throw new Error('draft 仅用于 stage_delivery。')
+  }
+  if (args.subtitlePlan !== undefined && (args.method === 'verify' || args.method === 'stage_delivery'
+    || args.method === 'subtitles' || args.method === 'subtitle_layout')) {
+    throw new Error('subtitle_plan 仅用于 prepare、render 或 subtitle_overlay；verify 与 stage_delivery 请传实际 resolved-overlay.srt。')
   }
   if (args.method === 'subtitle_layout') {
     return { method: 'subtitle_layout', project, episode,
@@ -345,6 +395,10 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
       subtitleSrt: resolve(project, required(args.subtitleSrt, 'subtitle_layout', 'subtitle_srt', '需要原始待检查的 SRT，不猜字幕文字。')) }
   }
   if (args.method === 'prepare') {
+    const repair = args.lines === undefined && args.alignment === undefined ? undefined : {
+      linesPath: resolve(project, required(args.lines, 'prepare', 'lines', '自动修复须同时提供台词计划和同源对齐。')),
+      alignmentPath: resolve(project, required(args.alignment, 'prepare', 'alignment', '自动修复须同时提供台词计划和同源对齐。')),
+    }
     return {
       method: 'prepare',
       project,
@@ -353,6 +407,8 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
         '成片清单的路径，内容形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4"}]}。')),
       subtitleSrt: resolve(project, required(args.subtitleSrt, 'prepare', 'subtitleSrt',
         '本集 SRT 字幕的路径，prepare 会把它装到 editing/<集>.srt 供烧录。')),
+      ...(args.speechTranscripts === undefined ? {} : { transcriptsPath: resolve(project, args.speechTranscripts) }),
+      ...(repair === undefined ? {} : { subtitleRepair: repair }),
       ...(args.bgm === undefined ? {} : { bgm: resolve(project, args.bgm) }),
       ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(project, args.bgmPlan) }),
       ...(args.subtitlePlan === undefined ? {} : { subtitlePlan: resolve(project, args.subtitlePlan) }),
@@ -411,10 +467,12 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
       ...(bgm === undefined ? {} : { bgm: resolve(project, bgm) }),
       ...(args.mixProfile === undefined ? {} : { mixProfile: resolve(project, args.mixProfile) }),
       ...(args.bgmPlan === undefined ? {} : { bgmPlan: resolve(project, args.bgmPlan) }),
+      ...(args.bgmGeneration === undefined ? {} : { bgmGeneration: resolve(project, args.bgmGeneration) }),
       ...(args.endingAudio === undefined ? {} : { endingAudio: resolve(project, args.endingAudio) }),
       ...(args.endingEffect === undefined ? {} : { endingEffect: resolve(project, args.endingEffect) }),
       output: resolve(project, args.output ?? paths.output),
       force: args.force ?? false,
+      ...(args.resume === true ? { resume: true } : {}),
     }
   }
   if (args.method === 'subtitle_overlay') {
@@ -424,17 +482,23 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
       subtitlePlan: resolve(project, required(args.subtitlePlan, 'subtitle_overlay', 'subtitle_plan', '需要明确的已有字幕决定文件。')),
       ...(args.output === undefined ? {} : { outputSrt: resolve(project, args.output) }) }
   }
-  return {
-    method: 'verify',
+  const method = args.method === 'stage_delivery' ? args.method : 'verify'
+  const verification = {
     project,
     episode,
-    timelinePath: resolve(project, required(args.timeline, 'verify', 'timeline',
+    timelinePath: resolve(project, required(args.timeline, method, 'timeline',
       '被检查成片所依据的时间线 JSON 路径。')),
-    subtitleSrt: resolve(project, required(args.subtitleSrt, 'verify', 'subtitleSrt',
+    subtitleSrt: resolve(project, required(args.subtitleSrt, method, 'subtitleSrt',
       '被检查成片所烧录的 SRT 字幕路径。')),
-    output: resolve(project, required(args.output, 'verify', 'output',
+    output: resolve(project, required(args.output, method, 'output',
       '要检查的成片文件路径，例如 export/<剧名>_第02集_成片.mp4。')),
   }
+  return method === 'stage_delivery'
+    ? { ...verification, method, draft: resolve(project, required(args.draft, method, 'draft',
+      '本集 02_剪映草稿 下生成的草稿目录。')),
+    ...(args.speechTranscripts === undefined ? {} : { transcriptsPath: resolve(project, args.speechTranscripts) }),
+    ...(args.speechDecisions === undefined ? {} : { decisionsPath: resolve(project, args.speechDecisions) }) }
+    : { ...verification, method }
 }
 
 /** The result of a `prepare` call that wrote nothing but its own layout. */
@@ -442,11 +506,57 @@ async function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typ
   settings: RenderSettings, overlay?: Awaited<ReturnType<typeof resolveSubtitleOverlay>>): Promise<DramaRenderReport> {
   const sources = new Map(prepared.shots.map(shot => [shot.source.shot, shot.video]))
   const policy = deliveryPolicyFor(prepared.timeline.delivery)
+  let subtitle = overlay?.report.resolved_srt ?? episodePaths(call.project, call.episode).subtitle
+  const displayWritten: string[] = []
+  const fitWarnings: string[] = []
+  if (settings.normalizeSubtitleText && overlay === undefined) {
+    const displayWarnings = subtitleDisplayWarnings(prepared.cues)
+    fitWarnings.push(...displayWarnings)
+    let cues = normalizeSubtitleDisplay(prepared.cues)
+    if (call.transcriptsPath !== undefined) {
+      try {
+        const coverage = await reviewSpeechCoverage({ project: call.project, timeline: prepared.timeline,
+          sources: new Map(prepared.shots.map(shot => [shot.source.shot, shot.audio])),
+          subtitleSrt: episodePaths(call.project, call.episode).subtitle, transcriptsPath: call.transcriptsPath })
+        const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
+        const widths = new Map<string, boolean | null>()
+        const fit = await fitSubtitleCues(cues, coverage, async (text) => {
+          if (widths.has(text)) return widths.get(text) ?? null
+          const measured = await measureSubtitleLayout({ toolkit, settings: deliveryRenderSettings(settings, policy.delivery),
+            delivery: policy.delivery, cues: [{ index: 1, startSeconds: 0, endSeconds: 1, text }],
+            directory: episodePaths(call.project, call.episode).cacheDir })
+          displayWritten.push(...measured.written)
+          const value = measured.report.entries[0]?.fits_available_width ?? null
+          widths.set(text, value)
+          return value
+        })
+        cues = fit.cues
+        fitWarnings.push(...fit.warnings)
+      } catch (error) {
+        fitWarnings.push(`现有词级转写或字形测量不可用，未自动拆分长句：${String(error)}；请核对实际发声与字幕宽度。`)
+      }
+    } else {
+      fitWarnings.push('未提供现有词级转写，长句不会猜测时间自动拆分；请测量宽度并按真实发声核对。')
+    }
+    const dir = await mkdtemp(resolve(call.project, 'editing', '.subtitle-display-'))
+    subtitle = resolve(dir, `${call.episode}.srt`)
+    const displayText = formatSrtDocument(cues)
+    const clock = await writeDerivedSubtitleClock(episodePaths(call.project, call.episode).subtitle, subtitle, displayText)
+    await writeFile(subtitle, displayText, 'utf8')
+    displayWritten.push(subtitle)
+    if (clock !== undefined) displayWritten.push(clock)
+    if (displayWarnings.length) {
+      await writeFile(`${subtitle}.review.txt`, displayWarnings.join('\n'), 'utf8')
+      displayWritten.push(`${subtitle}.review.txt`)
+    }
+  } else if (call.transcriptsPath !== undefined && overlay !== undefined) {
+    fitWarnings.push('已有烧录字幕的覆盖计划未自动重新切分；请核对外加字幕的实际宽度及发声时间。')
+  }
   const preview = buildRenderPreview({ settings, delivery: policy.delivery,
-    subtitle: overlay?.report.resolved_srt ?? episodePaths(call.project, call.episode).subtitle,
+    subtitle,
     master: episodePaths(call.project, call.episode).masterAudio,
     ...(call.bgm === undefined ? {} : { bgm: call.bgm }), ...(call.bgmPlan === undefined ? {} : { bgmPlan: call.bgmPlan }) })
-  const warnings = [...prepared.warnings, ...renderPreviewWarnings(preview), ...overlay?.warnings ?? []]
+  const warnings = [...prepared.warnings, ...renderPreviewWarnings(preview), ...overlay?.warnings ?? [], ...fitWarnings]
   let bgmPlan: BgmPlanReport | undefined
   if (call.bgm !== undefined && call.bgmPlan !== undefined) {
     try {
@@ -466,7 +576,7 @@ async function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typ
     expectedDurationSeconds: Number(
       (prepared.timeline.bodyEndSeconds + deliveryPolicyFor(prepared.timeline.delivery).endingSeconds).toFixed(6),
     ),
-    written: [...prepared.written, ...overlay?.written ?? []],
+    written: [...prepared.written, ...overlay?.written ?? [], ...displayWritten],
     ...(overlay === undefined ? {} : { subtitleOverlay: overlay.report }),
     output: '',
     encoder: '',
@@ -527,23 +637,70 @@ function subtitlesReport(call: SubtitlesCall, built: BuiltCues): DramaRenderRepo
   return buildReport(reportInput)
 }
 
+async function prepareWithSubtitleRepair(call: PrepareCall, toolkit: MediaToolkit, settings: RenderSettings) {
+  const input = { toolkit, project: call.project, episode: call.episode, shotsPath: call.shotsPath, subtitleSrt: call.subtitleSrt,
+    ...(settings.defaultEndingEffectFit === undefined ? {} : { defaultEndingEffectFit: settings.defaultEndingEffectFit }),
+    ...(settings.defaultSubtitleVisual === undefined ? {} : { defaultSubtitleVisual: settings.defaultSubtitleVisual }),
+    ...(settings.enforceSubtitleVisual ? { enforceSubtitleVisual: true } : {}) }
+  try {
+    return await prepareEpisode(input)
+  } catch (error) {
+    if (!(error instanceof StaleSubtitleClockError) || call.subtitleRepair === undefined) throw error
+  }
+  const editing = dirname(episodePaths(call.project, call.episode).subtitle)
+  await mkdir(editing, { recursive: true })
+  const directory = await mkdtemp(join(editing, call.episode + '-subtitle-repair-'))
+  const candidate = join(directory, 'rebuilt.srt')
+  const built = await buildEpisodeCues({ ...input, ...call.subtitleRepair, subtitleSrt: candidate, requireSourceHashes: true })
+  if (!built.written.includes(candidate)) {
+    throw new Error('字幕自动修复未通过对齐复验。请查看 ' + candidate + '.review.txt，保留旧字幕和原成片。')
+  }
+  const backup = join(directory, 'original.srt')
+  const backupClock = subtitleClockPath(backup)
+  await copyFile(call.subtitleSrt, backup)
+  await copyFile(subtitleClockPath(call.subtitleSrt), backupClock)
+  const previous = await readSubtitleCues(backup)
+  if (previous.length !== built.cues.length || previous.some((cue, index) => cue.text !== built.cues[index]?.text)) {
+    throw new Error('字幕自动修复会改变字幕文字或顺序。候选保存在 ' + candidate + '，请核对后选择版本。')
+  }
+  const repaired = await prepareEpisode({ ...input, subtitleSrt: candidate })
+  return {
+    ...repaired,
+    written: [...built.written, backup, backupClock, ...repaired.written],
+    warnings: [...repaired.warnings, '已按当前声音来源和切点重建生成字幕并复验。原字幕留在 ' + backup + '。'],
+  }
+}
+
 /**
  * Run one `drama_render` call.
  * @param args - The dispatched arguments.
  * @param settings - The resolved binaries, gains, and encoder preference.
+ * @param sourceQaVerifier - Optional Host-only current-Session issuance check for strict source adoption.
+ * @param stagedSubtitleAudio - Optional Host-verified mapping from original audio references to private stage files.
+ * @param sourceQaStage - Optional Host-captured source evidence in a private stage.
+ * @param sourceQaExpectedSha - Host-verified source review digest for that stage.
+ * @param contentReviewVerifier - Optional Host-only observation and listening-answer validation for delivery.
  * @returns The canonical result; `ok` is false when a delivery check failed.
  * @throws {Error} When an argument is missing, an input is unusable, or a media command fails.
  */
 export async function runDramaRender(
   args: DramaRenderArguments,
   settings: RenderSettings,
+  sourceQaVerifier?: SourceQaVerifier,
+  stagedSubtitleAudio?: (sourceAudio: string) => string,
+  sourceQaStage?: import('./source-qa.ts').SourceQaStagedAccess,
+  sourceQaExpectedSha?: string,
+  contentReviewVerifier?: ContentReviewVerifier,
 ): Promise<DramaRenderReport> {
   const call = resolveCall(args)
   const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
   if (call.method === 'subtitle_layout') {
-    const timeline = await readTimeline(call.timelinePath)
-    const policy = await resolveDeliveryPolicy(call.project, timeline.delivery)
-    const cues = await readSubtitleCues(call.subtitleSrt)
+    const timeline = await readTimeline(call.timelinePath, settings.enforceSubtitleVisual)
+    const policy = await resolveDeliveryPolicy(
+      call.project, timeline.delivery, settings.defaultSubtitleVisual, settings.enforceSubtitleVisual,
+    )
+    const originalCues = await readSubtitleCues(call.subtitleSrt)
+    const cues = settings.normalizeSubtitleText ? normalizeSubtitleDisplay(originalCues) : originalCues
     const layout = await measureSubtitleLayout({ toolkit, settings: deliveryRenderSettings(settings, policy.delivery),
       delivery: policy.delivery, cues, directory: episodePaths(call.project, call.episode).cacheDir })
     return buildReport({ method: 'subtitle_layout', project: call.project, episode: call.episode, timeline,
@@ -551,11 +708,12 @@ export async function runDramaRender(
       subtitleLayout: layout.report, written: layout.written, output: '', encoder: '', gpuRequested: false, gpuUsed: false,
       encoderFallbackReason: '', encodedShots: [], reusedShots: [], tailFrame: NO_TAIL_FRAME, media: NO_MEDIA,
       checks: [], logPath: '', warnings: [...policy.warnings, ...layout.warnings,
+        ...(settings.normalizeSubtitleText ? subtitleDisplayWarnings(originalCues) : []),
         ...(layout.report.status === 'not_requested' ? ['当前交付未启用 subtitle_visual，未生成字形探针；旧样式不变。'] : []),
         '字形探针只测白字与描边估量，不代表剪映外观、字幕同步或人工视觉验收通过。'] })
   }
   if (call.method === 'speech_coverage') {
-    const timeline = await readTimeline(call.timelinePath)
+    const timeline = await readTimeline(call.timelinePath, settings.enforceSubtitleVisual)
     const rows = parseShotManifest(await readJsonDocument(call.shotsPath, '成片清单'), call.shotsPath)
     const sources = new Map(rows.map(row => [row.shot, resolve(call.project, row.audio)]))
     const coverage = await reviewSpeechCoverage({ project: call.project, timeline, sources,
@@ -586,16 +744,11 @@ export async function runDramaRender(
         ...(preview.mix.mode === 'ducking' ? ['压低由原声能量触发，不是语义 VAD 或纯对白分离。'] : [])] })
   }
   if (call.method === 'prepare') {
-    const prepared = await prepareEpisode({
-      toolkit,
-      project: call.project,
-      episode: call.episode,
-      shotsPath: call.shotsPath,
-      subtitleSrt: call.subtitleSrt,
-    })
+    const prepared = await prepareWithSubtitleRepair(call, toolkit, settings)
     const overlay = call.subtitlePlan === undefined ? undefined : await resolveSubtitleOverlay({
       project: call.project, episode: call.episode, timeline: prepared.timeline,
       subtitleSrt: episodePaths(call.project, call.episode).subtitle, planPath: call.subtitlePlan,
+      ...(settings.normalizeSubtitleText ? { normalizeDisplay: true } : {}),
     })
     return await prepareReport(call, prepared, settings, overlay)
   }
@@ -623,16 +776,24 @@ export async function runDramaRender(
       ...(call.bgm === undefined ? {} : { bgm: call.bgm }),
       ...(call.mixProfile === undefined ? {} : { mixProfile: call.mixProfile }),
       ...(call.bgmPlan === undefined ? {} : { bgmPlan: call.bgmPlan }),
+      ...(call.bgmGeneration === undefined ? {} : { bgmGeneration: call.bgmGeneration }),
       ...(call.endingAudio === undefined ? {} : { endingAudio: call.endingAudio }),
       ...(call.endingEffect === undefined ? {} : { endingEffect: call.endingEffect }),
       output: call.output,
       force: call.force,
+      ...(call.resume === true ? { resume: true } : {}),
+      ...(sourceQaVerifier === undefined ? {} : { sourceQaVerifier }),
+      ...(sourceQaStage === undefined ? {} : { sourceQaStage }),
+      ...(sourceQaExpectedSha === undefined ? {} : { sourceQaExpectedSha }),
+      ...(stagedSubtitleAudio === undefined ? {} : { stagedSubtitleAudio }),
     })
   }
   if (call.method === 'subtitle_overlay') {
-    const timeline = await readTimeline(call.timelinePath)
+    const timeline = await readTimeline(call.timelinePath, settings.enforceSubtitleVisual)
+    await verifyPreparedSubtitleClock(call.subtitleSrt, episodePaths(call.project, call.episode), timeline)
     const overlay = await resolveSubtitleOverlay({ project: call.project, episode: call.episode,
       timeline, subtitleSrt: call.subtitleSrt, planPath: call.subtitlePlan,
+      ...(settings.normalizeSubtitleText ? { normalizeDisplay: true } : {}),
       ...(call.outputSrt === undefined ? {} : { outputSrt: call.outputSrt }) })
     return buildReport({ method: 'subtitle_overlay', project: call.project, episode: call.episode,
       timeline, sources: new Map(overlay.report.sources.map(source => [source.shot, source.path])),
@@ -642,7 +803,7 @@ export async function runDramaRender(
       encodedShots: [], reusedShots: [], tailFrame: NO_TAIL_FRAME, media: NO_MEDIA, checks: [], logPath: '',
     })
   }
-  return await verifyEpisode({
+  const verification = {
     toolkit,
     settings,
     project: call.project,
@@ -650,7 +811,15 @@ export async function runDramaRender(
     output: call.output,
     timelinePath: call.timelinePath,
     subtitleSrt: call.subtitleSrt,
-  })
+  }
+  return call.method === 'stage_delivery'
+    ? await stageEpisodeDelivery({ ...verification,
+      ...(sourceQaVerifier === undefined ? {} : { sourceQaVerifier }),
+      ...(contentReviewVerifier === undefined ? {} : { contentReviewVerifier }),
+      ...(call.transcriptsPath === undefined ? {} : { transcriptsPath: call.transcriptsPath }),
+      ...(call.decisionsPath === undefined ? {} : { decisionsPath: call.decisionsPath }),
+    }, call.draft)
+    : await verifyEpisode(verification)
 }
 
 /** One sentence every check field repeats. */
@@ -663,9 +832,19 @@ const RESULT_SCHEMA = {
   properties: {
     method: {
       type: 'string', required: true,
-      enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay', 'speech_coverage', 'subtitle_layout'],
+      enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay', 'speech_coverage', 'subtitle_layout', 'stage_delivery'],
       description: '产生本结果的操作。',
     },
+    delivery_package: { type: 'object', additionalProperties: false,
+      description: '单集归档候选及同集草稿。candidate 表示技术检查和来源核对通过，内容验收仍待确认。',
+      properties: {
+        status: { type: 'string', required: true, enum: ['candidate'] },
+        video: { type: 'string', required: true },
+        draft: { type: 'string', required: true },
+        sha256: { type: 'string', required: true },
+        reused: { type: 'boolean', required: true },
+        receipt: { type: 'string', required: true },
+      } },
     subtitle_layout: { type: 'object', additionalProperties: false,
       description: '显式 subtitle_visual 的真实 libass 字形摘要；逐文本像素、PNG、字体选择与完整错误日志在 report_path，非剪映或人工验收。',
       properties: {
@@ -766,7 +945,7 @@ const RESULT_SCHEMA = {
     expected_duration_seconds: { type: 'number', required: true,
       description: '按明确媒介计算的交付时长：3D 动画等于正片结束；写实或未声明媒介的旧项目再加片尾 2 秒。' },
     written: { type: 'array', required: true, items: { type: 'string' },
-      description: '本次写入的绝对路径；verify 不写任何文件。' },
+      description: '本次写入的绝对路径；verify 不改视频或所选 SRT，启用字幕视觉配置时保存字形测量证据。' },
     output: { type: 'string', required: true,
       description: '成片绝对路径；prepare 与 verify 之外的场合为空串。' },
     encoder: { type: 'string', required: true,
@@ -813,7 +992,7 @@ const RESULT_SCHEMA = {
         additionalProperties: false,
         properties: {
           id: { type: 'string', required: true,
-            description: '稳定的检查名：duration、video_stream、frame_rate、audio_stream、bitrate_floor、'
+            description: '稳定的检查名：duration、video_stream、frame_rate、audio_stream、bitrate_floor、av_stream_clock、'
               + 'decode_probe、black_frames、fade_to_black、silence、long_pauses、subtitle_bounds、subtitle_present。' },
           severity: { type: 'string', required: true, enum: ['failure', 'warning'], description: CHECK_SHAPE },
           ok: { type: 'boolean', required: true, description: '该检查是否通过。' },
@@ -887,63 +1066,44 @@ const RESULT_SCHEMA = {
   },
 } as const
 
-/** What the model reads before calling: the methods, medium-specific delivery, and known traps. */
-const DESCRIPTION = '短剧整集渲染编排（剧变流水线）。'
-  + 'subtitle_layout=按 timeline 与 subtitle_srt 预览已启用的 subtitle_visual：逐种文本用实际字体、libass 和正式烧录链测白字宽高，'
-  + '返回 PNG、完整字体/错误日志路径及超宽 cue；黑描边另作估量。render 在显式启用时也执行同一检查。'
-  + '无显式配置不改变旧字幕；不按字数猜宽、不自动缩字或拆时码，超宽与探针失败均只提醒，不要求用户审批。'
-  + 'speech_coverage=只读双向比较现有同源词级转写与最终完整显示的 SRT（含保留原片烧字对应文字），'
-  + '需要 shots、timeline、subtitle_srt、speech_transcripts；speech_decisions 可记录本次证据绑定的逐项核听理由。'
-  + '包含单字、尾音和剧本外识别内容；不跨时间借词、不重复使用字符、多字词保留整词时间，不猜字级时间。'
-  + '结果是 ASR 待核候选，不是已证实真声或听感通过；不得自动补词、猜时码或把未识别认定为静音。'
-  + '源片可能已烧录文字：先用 video_ocr/video_inspect 预览并作明确决定，不能把无识别结果当作无字幕。'
-  + 'subtitle_overlay=读取 subtitle_plan 的 shot/source_sha256/镜内时间/text/retain_embedded/reason 决定，'
-  + '只对完整覆盖且同文的 cue 导出不重复叠加的新 SRT 与摘要报告；部分重叠或文字不符只提示，不自动切句。'
-  + 'prepare/render 可传同一 subtitle_plan；原始 SRT 不改写，草稿复用返回的 resolved_srt 和 decision_report。'
-  + '原片字不可编辑、无法由外加样式统一字号位置；evidence_paths 只是调用方声明，不是可信验收凭据。'
-  + 'subtitles=按语音识别对齐写出 SRT：对齐文档（alignment）给出每一镜每一句的说话时间，'
-  + '建议单行、无标点、每条不超过 14 个有效字；工具保留传入文字和原台词，样式只作提示。'
-  + '长句要逐条取得同源字词时间，不得把整句时长均分；cue 时间 = 该镜在时间线上的起点 + 镜内偏移。'
-  + '**本工具不做识别、不测能量、不估算时间**：能量门限分不出具体哪句在哪里，'
-  + '估算出来的时间正是字幕压在错句上的原因。'
-  + '缺对齐、段数或声文不符均按 warning 返回（subtitle_line_coverage），保留原字幕；有可用条目时写出独立候选，由你判断下一步。'
-  + '没有可用条目时只写本次检查说明，明确提示未生成字幕候选，不覆盖已有候选及其说明。'
-  + '提示具体镜号与证据缺口；有识别结果却没声明台词，同样返回 warning。'
-  + '时长、重叠、越界和阅读速度问题也作提示；无效时间不编造替代区间，候选不覆盖原字幕。'
-  + '对齐时间本身的准确度不由本工具判断，识别模型与语言选择由调用方负责。'
-  + 'prepare=按成片清单构建渲染输入：把每镜成片复制到 video/<集>/shot_00N.mp4，'
-  + '按 ffprobe 实测时长铺时间线（editing/<集>-timeline.json），把每镜自己的声音按各自起点拼成整集原声 master'
-  + '（audio/<集>.wav，48kHz 无损、不加增益、不逐镜重采样），并安装 SRT 到 editing/<集>.srt；不编码画面。'
-  + 'prepare 将 project_bible 的明确 visual_medium（animation_3d 或 photorealistic）与 delivery 宽高/帧率写入时间线快照。'
-  + 'project_bible.delivery 可显式配置 subtitle.{font_family,font_size_px,margin_bottom_px}（字号和底距为成片像素）'
-  + '与 audio.{master_gain,bgm_gain}（0..8 线性增益，0 为静音）；prepare 同时快照已配 section。'
-  + 'render 按 section 优先用时间线，再用项目显式 section，最后沿用部署/旧样式默认；已快照的 section 不逐字段继承后改项目，更新须重跑 prepare。'
-  + 'prepare/render 的 render_preview 明示最终规格、字幕设计字号与名义输出像素、实际 BGM 路径及增益；'
-  + '请与已认可审查版核对，SRT 不携带审查片的字体样式。prepare 可附 bgm/bgm_plan 预览选曲，未附只提示，不阻塞。'
-  + 'render/verify 优先使用快照，未含媒介时读取项目明确媒介；两者明确值冲突须重跑 prepare，不从 style 或宽高比猜测。'
-  + '3D 动画不加水印、不追加片尾、不读取 ending 素材，只混整集原声与 BGM；未声明媒介的旧项目报警并保留旧样式。'
-  + 'render=出片：按快照宽高/帧率（旧时间线默认 1440x2560@60）、24M 目标码率 / 30M 上限 / 48M 缓冲、H.264 high@5.1。'
-  + '以下片尾与 AI 标记仅适用于 photorealistic 或未声明媒介的旧项目：'
-  + '片尾用最后一镜的真实尾帧定格 2 秒：缺省 source_once 时 ending_effect 按自身原速只播放一次，余下是定格帧；'
-  + '时间线显式 ending_effect_fit=stretch_to_window 时，把完整源特效变速铺满这 2 秒，不循环、不补黑场。'
-  + '只有 ending_audio 的前 2 秒在正片结束处进入混音；'
-  + '这两份素材按 SHA-256 校验，只接受随包字节；source_once 拒绝长于两秒的特效。'
-  + '拼接后烧录 ASS 字幕'
-  + '（未配置项目样式时默认 SimHei 40，字体服从部署配置，40 为设计字号而非成片像素；字间距 -2、黑描边按成片宽度推导（1440px 宽目标 7px）、底部居中，'
-  + '烧录链最后是 fps=F,setpts=N/(F*TB)，F 取时间线 delivery.fps（旧时间线默认 60）；'
-  + '把帧率与时间基准固定在字幕之后，手写链把 fps 放在 subtitles 之前会让成片只剩少量帧；'
-  + '右下角唯一的「内容由AI生成」标记——这条标记由写出的 ASS 携带一次，另加 drawtext 或 overlay 就会重复），'
-  + '再把整集原声（默认增益 1.45）+ BGM（默认增益 0.24，到正片结束）+ 片尾音 amix 后 alimiter=0.95，项目显式增益不改变此混音算法，'
-  + 'AAC 192k/48kHz、+faststart 输出，并回读实测分辨率/帧率/码率/时长/大小/编码器。'
-  + 'GPU 编码先探测 h264_nvenc（用 256x256 探针，太小会被 NVENC 拒绝），失败就按设计回退 libx264，'
-  + '回退原因写进 encoder_fallback_reason 与渲染日志。'
-  + 'verify=渲染后检查：总时长、音视频流、总码率下限 4.6 Mbps、首/中/尾抽帧真实解码、黑帧、静音、字幕 cue 是否越界，'
-  + '逐项给实测值与中文修法。**不许只看元数据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，'
-  + 'decode_probe 会在首、中、尾各解一帧，任何一处解不出画面就按 failure 报出。'
-  + '抽尾帧固定用 -sseof -0.1：-sseof -0.05 在部分片子上不写文件却返回 0，'
-  + '所以每次都用 framemd5 与顺序解码的最后一帧比对，证明抽到的是真实尾帧，比对不上就改用顺序解码取帧。'
-  + '只有让渲染无法进行的问题（缺参数、缺文件、命令失败、尾帧无法证明）才会报错；'
-  + '成片本身的问题按 checks 返回，ok=false 并在 failures 里给出中文修法，成片与实测参数照常返回。'
+/** The operation choices, input obligations and result limits visible to the model. */
+const DESCRIPTION = '处理一集短剧的字幕、渲染准备、成片与检查，方法见 method。'
+  + 'prepare 复制每镜成片到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长写 editing/<集>-timeline.json，'
+  + '按镜头起点拼接 48kHz 无损原声 master 到 audio/<集>.wav（不加增益、不逐镜重采样），安装 SRT，不编码画面。'
+  + '它快照 project_bible 的明确 visual_medium 与 delivery 宽高/帧率、subtitle 和 audio section；'
+  + 'render/verify 优先使用快照，缺媒介时读项目；明确媒介冲突需重跑 prepare，不从 style 或宽高比猜测。'
+  + 'Muse 竖版产品统一使用部署字幕视觉；横版、方形和非产品部署按完整 section 依次取时间线、项目、部署默认，'
+  + '统一视觉仍保留 require_speech_coverage、require_no_punctuation、require_source_review 和 require_music_decision 的验收要求。'
+  + '已快照 section 不逐字段继承后改项目。未声明媒介的旧项目提醒并保留旧样式。'
+  + 'prepare/render 的 render_preview 给出最终规格、字幕设计字号及输出像素、BGM 路径与增益，需与已认可审查版核对；SRT 不含字体样式。'
+  + 'prepare 可选 bgm/bgm_plan 预览，未提供只提醒。传 speech_transcripts 时仅在同源、完整匹配且不重叠的词界拆分超宽字幕；'
+  + '缺证据则保留原句，不猜时码，成片和草稿复用 render_preview.subtitle.path。'
+  + 'subtitles 只用 alignment 给出的逐镜语音时间，显示文字来自 lines；建议单行、无标点、每条不超过 14 个有效字。'
+  + '长句要逐条取得同源字词时间；cue 时间=时间线镜头起点+镜内偏移，不均分句时长，不做识别、测能量或估算时间。'
+  + '缺对齐、段数或声文不符、有识别却无声明台词、时长/重叠/越界/阅读速度问题均提醒具体镜号与证据缺口。'
+  + '有可用条目时写独立字幕候选；无可用条目只写检查说明，不覆盖原字幕、已有候选或其说明。识别模型、语言与时间准确度由调用方负责。'
+  + 'subtitle_layout 用实际字体、libass 与正式烧录链测白字宽高，黑描边另估，返回 PNG、字体/错误日志路径及超宽 cue；'
+  + '按配置选样式，不按字数猜宽或自动缩字。超宽与探针失败只提醒，不要求审批；显式启用时 render 也执行此检查。'
+  + 'speech_coverage 只读双向比较同源词级转写与完整显示 SRT（含保留原片烧字），speech_decisions 可附本次证据绑定的逐项核听理由。'
+  + '包含单字、尾音与剧本外识别内容，不跨时间借词、不重复使用字符，多字词保留整词时间，不猜字级时间。'
+  + '其结果是 ASR 待核候选，不证明真声或听感通过；不得自动补词、猜时码或将未识别当作静音。'
+  + '原片烧字先用 video_ocr/video_inspect 预览并明确决定，无识别结果不等于无字幕。'
+  + 'subtitle_overlay 按 subtitle_plan 只去除完整覆盖且同文的外加 cue，导出新 SRT 与决定报告；部分重叠或文字不符只提醒，不自动切句。'
+  + 'prepare/render 可用同一计划，原 SRT 不改写，草稿复用 resolved_srt 与 decision_report。原片烧字不可编辑或靠外加样式统一；evidence_paths 仅是调用方声明。'
+  + 'render 按快照编码（旧时间线默认 1440x2560@60），24M 目标/30M 上限/48M 缓冲、H.264 high@5.1、AAC 192k/48kHz、+faststart。'
+  + '3D 动画不加水印、片尾或读取 ending 素材，仅混整集原声与 BGM。写实与旧项目定格真实尾帧 2 秒，'
+  + '按 ending_effect_fit 铺片尾特效，仅混 ending_audio 前 2 秒；只接受参数指定的随包素材及 SHA-256。'
+  + '字幕只烧一次，标记类交付的「内容由AI生成」由 ASS 携带，不能另加 drawtext/overlay。'
+  + '混音为原声+BGM（到正片结束）+适用片尾音，amix 后 alimiter=0.95；显式增益不改混音算法。'
+  + 'h264_nvenc 探测失败回退 libx264，原因写入 encoder_fallback_reason 与日志；回读实际分辨率、帧率、码率、时长、大小和编码器。'
+  + 'verify 检查时长、音视频流、4.6 Mbps 总码率下限、首中尾真实解码、黑帧、静音和字幕越界，不能只看元数据。'
+  + '启用字幕视觉配置时，render 在编码正文前检查实际显示文字、宽度和字体，失败保留旧成片与来源记录；'
+  + 'verify 按传入显示 SRT 的原文复测并保存字形证据，不改视频或 SRT，也不证明视频内烧字与 SRT 一致。'
+  + '整段音视频严格解码；av_stream_clock 对比流起止边界，保留一帧容差和核实的无声片尾。'
+  + 'stage_delivery 复验实际烧录 SRT、原声、选片、混音及同集草稿版本，归档唯一 MP4 与同集草稿；'
+  + '启用严格声文检查时须提供本集词级转写、完整显示声明及未决问题的核听决定，保留未通过的工作件供局部修复。'
+  + '尾帧通过 framemd5 与顺序解码末帧核对，失败先顺序重取，仍无法证明则报错。'
+  + '缺参数/文件、命令失败等无法执行的问题报错；成片质量问题保留文件与实测参数，按 checks、ok=false、failures 返回中文修法。'
 
 /** Copy immutable review collections into the tool's mutable JSON output types without changing the internal report. */
 function toolSpeechCoverage(report: SpeechCoverageReport) {
@@ -964,6 +1124,26 @@ function toolSpeechCoverage(report: SpeechCoverageReport) {
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const settings = resolveSettings(config)
+  let sourceQaScope: {
+    readonly verify: VideoSourceQaVerifier
+    readonly signal: AbortSignal
+    readonly contentReview: Awaited<ReturnType<typeof createContentReviewVerifier>> } | undefined
+  ctx.inject(['tools', 'fs', 'sandboxPolicy', 'sessionProjections'], async (scope) => {
+    const verify = await createVideoSourceQaVerifier(scope)
+    const contentReview = await createContentReviewVerifier(scope)
+    scope.fiber.assertActive()
+    scope.effect(() => {
+      const owner = new AbortController()
+      const binding = { verify, contentReview, signal: owner.signal }
+      sourceQaScope = binding
+      return () => {
+        owner.abort(Error('SOURCE_QA_HOST_UNAVAILABLE: 源片复验服务已卸载。'))
+        /* v8 ignore else -- the disposer runs from this scope's own effect while Cordis serializes
+        fiber epochs, so a newer binding cannot be installed before the older disposer finishes. */
+        if (sourceQaScope === binding) sourceQaScope = undefined
+      }
+    })
+  })
   registerDramaVideo(ctx)
   ctx.tools.register(defineTool({
     name: 'drama_render',
@@ -971,21 +1151,21 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       method: {
         type: 'string', required: true,
-        enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay', 'speech_coverage', 'subtitle_layout'],
-        description: 'prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；'
-          + 'subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析；'
-          + 'subtitle_overlay=导出已有烧录字的外加字幕决定；speech_coverage=现有词级转写与最终完整显示 SRT 的只读双向比较（不编码、不做识别）；'
-          + 'subtitle_layout=显式统一样式的真实字形探针与PNG，不渲染整集。',
+        enum: ['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay', 'speech_coverage', 'subtitle_layout', 'stage_delivery'],
+        description: 'prepare=准备输入；render=出片；verify=检查；subtitles=按现有对齐生成字幕；'
+          + 'audio_preview=用最终混音滤镜制作短音频 A/B 并分析 RMS/峰值；'
+          + 'subtitle_overlay=导出外加字幕决定；speech_coverage=只读核对发声与完整字幕；subtitle_layout=测量字形并预览PNG；stage_delivery=复验工作成片及同集草稿并归档待验收候选。',
       },
       project: { type: 'string', required: true,
-        description: '项目根目录（含 video/、audio/、editing/、exports/）；所有方法都必填。优先传绝对路径；相对 project 只按进程工作目录解析一次，其余相对输入与输出都以它为基准。' },
+        description: '项目根目录（含 video/、audio/、editing/、exports/），所有方法必填。相对 project 按进程工作目录解析一次，其余相对路径以 project 为基准；绝对路径保持不变。' },
       episode: { type: 'integer', required: true, description: '集号（正整数，如 2）；写入时补成两位，如 02。' },
       shots: { type: 'string',
         description: '成片清单 JSON 路径，形如 {"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}；'
-          + 'prepare、subtitles 与 speech_coverage 必填。相对路径以 project 为基准，绝对路径保持不变。'
+          + 'prepare、subtitles 与 speech_coverage 必填。'
           + 'video 缺音轨时必须给 audio；speech_coverage 按实际 audio（缺省 video）绑定转写来源。' },
       lines: { type: 'string',
         description: '台词计划 JSON 路径，形如 {"shots":[{"shot":1,"lines":["第一句","第二句"]}]}；subtitles 必填。'
+          + 'prepare 可与 alignment 一起传入，供生成字幕的时间线失效时自动修复一次。'
           + '相对路径以 project 为基准，绝对路径保持不变。每镜按原文顺序去标点并按语义切成单行显示字幕，'
           + '建议每条不超过 14 个有效字；工具不改文字，样式和覆盖问题只作提示。' },
       alignment: { type: 'string',
@@ -993,57 +1173,62 @@ export function apply(ctx: Context, config: Config = {}): void {
           + ' {"shots":[{"shot":1,"cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}（镜内、相对该镜起点，秒）。'
           + '文件相对路径以 project 为基准，绝对路径保持不变。'
           + '只取它的时间：字幕显示文字仍来自 lines，识别文本仅用于核对是不是同一段表演。'
+          + '用于 prepare 自动修复时，每镜的 source_sha256 必须匹配当前选择的声音文件。'
           + '缺某一镜、段数不符或文本对不上只作提示；不会要求清零或用户审批。' },
       timeline: { type: 'string',
-        description: '时间线 JSON 路径；render、verify、subtitle_overlay、speech_coverage、subtitle_layout 必填，相对路径以 project 为基准；'
+        description: '时间线 JSON 路径；render、verify、subtitle_overlay、speech_coverage、subtitle_layout、stage_delivery 必填，相对路径以 project 为基准；'
           + '可显式声明 ending_effect_fit=source_once（旧行为）或 stretch_to_window（完整特效变速铺满两秒）。'
           + '跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。' },
       subtitle_srt: { type: 'string',
         description: '本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），'
-          + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。'
+          + 'prepare 装到 editing/<集>.srt，render 烧录显示字幕；verify 原样读取所选显示 SRT 检查越界，并在启用视觉配置时复测字形，不改它或证明视频内文字一致。'
           + 'speech_coverage 必填最终完整显示的字幕（含保留原片烧字），不能拿删减 overlay 当完整对白；'
           + 'subtitle_layout 必填待预览SRT，不更改其文本和时间。相对路径以 project 为基准。' },
-      speech_transcripts: { type: 'string', description: 'speech_coverage 必填：项目内现有映射 {shots:[{shot,receipt}]}，'
-        + 'receipt 相对映射文件，指向 audio_transcribe 原 transcript/jobs/<stem>-vN.json；读取同源 SHA 与 raw 实际 word 时间，不提交转写。' },
-      speech_decisions: { type: 'string', description: 'speech_coverage 可选：项目内核听声明 JSON，'
+      speech_transcripts: { type: 'string', description: 'prepare 可选、speech_coverage 及启用严格声文检查的 stage_delivery 必填：项目内映射 {shots:[{shot,receipt}]}，'
+        + 'receipt 相对映射文件，指向 audio_transcribe 原 transcript/jobs/<stem>-vN.json；读取同源 SHA 与 raw 实际 word 时间，不提交转写。'
+        + '严格归档另需 display:{embedded:false,subtitle_sha256,video_sha256:[按镜号排列的当前选片摘要]}，声明 SRT 覆盖完整显示且选片无原片烧字。' },
+      speech_decisions: { type: 'string', description: 'speech_coverage 或严格 stage_delivery 可选：项目内核听声明 JSON，'
         + '{schema_version:1,evidence_sha256,decisions:[{item_id,decision,reason,observed_text,reviewed_start_seconds,reviewed_end_seconds}]}。'
         + 'decision=keep|adjust_subtitle|asr_error|unresolved；需本次逐项 id、非空理由及覆盖该项的核听区间；不是 Host 声学证明。' },
       subtitle_plan: { type: 'string', description: 'prepare/render 可选、subtitle_overlay 必填的 JSON 路径。'
         + '{schema_version:1,decisions:[{shot,source_sha256,start_seconds,end_seconds,text,action:"retain_embedded",reason,evidence_paths:[]}]}。'
         + '时间是该 shot 内局部秒，SHA 绑定实际 video/<集>/shot_00N.mp4；只去掉完整覆盖的同文外加 cue，不删除原片字。'
-          + '相对路径以 project 为基准。缺省保持旧叠字行为；不确定只提醒预览，不要求审批或付费去字。' },
+          + '缺省保持旧叠字行为；不确定只提醒预览，不要求审批或付费去字。' },
       last_shot: { type: 'integer',
         description: '本次交付的最后一个镜头号（如 9）；render 必填，时间线里 shot <= last_shot 的镜头数必须正好等于它。' },
-      bgm: { type: 'string', description: '本集实际使用的纯 BGM 文件路径，不是含对白的混音审查件；render 除显式 no_bgm 外必填，prepare 可选用于预览。相对路径以 project 为基准；'
+      bgm: { type: 'string', description: '本集实际使用的纯 BGM 文件路径，不是含对白的混音审查件；render 除显式 no_bgm 外必填，prepare 可选用于预览。'
         + '优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束；工具不从文件名判断内容是否纯音乐。' },
       bgm_plan: { type: 'string', description: 'prepare/render 可选：现有 episodes/segments 配乐计划 JSON；prepare 同时传 bgm 时读取段落，'
         + '读取或校验失败只提示并保留准备成果；render 仍拒绝不可读或与时间线不符的计划。'
-        + '相对路径以 project 为基准，优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，'
+        + '优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，'
         + '校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。' },
       mix_profile: { type: 'string', description: 'render 可选、audio_preview 必填：项目内 schema_version=1 音频配置 JSON。'
         + 'mode=legacy|no_bgm|ducking，analysis_window_ms=10..1000；可选 original_gain/music_gain=0..8。'
         + 'ducking 必须显式给 threshold_db(-60..0)、ratio(1..20)、attack_ms(0.01..2000)、release_ms(0.01..9000)、knee(1..8)。'
         + 'no_bgm 不要求或读取 bgm/bgm_plan，只省略新增配乐，保留源内声音；ducking 由原声能量驱动，不是纯对白分离。'
         + '未传配置保留旧默认；显式配置交付使用新路径，绝不覆盖已有成片或音乐 stem。' },
-      bgm_generation: { type: 'string', description: 'audio_preview 可选：项目内 drama_bgm generation.json，SHA-256 须匹配本次BGM；展示每源曲 source_mean_db/applied_gain_db，缺收据明确标未提供。' },
+      bgm_generation: { type: 'string', description: 'audio_preview 可选，严格配乐 render 采用配乐时必填：drama_bgm 返回的 generation.json，SHA-256 须匹配本次 BGM。试听报告另外显示逐曲源响度和实际增益。' },
       audio: { type: 'string', description: 'audio_preview 可选：项目内原声音频，默认 audio/<集>.wav；可能含源内音乐或音效。' },
       start_seconds: { type: 'number', description: 'audio_preview 必填：正文试听起点，非负秒数。' },
       duration_seconds: { type: 'number', description: 'audio_preview 必填：试听长度，大于 0、最多 60 秒且不越正文结束。输出在新建 audio/previews/ 目录，不覆盖旧试听。' },
       intended_use: { type: 'string', enum: ['commercial', 'non_commercial', 'unknown'], description: 'audio_preview 可选：音乐实际用途，用于许可风险提示；不代表已经获得授权。' },
       ending_audio: { type: 'string',
-        description: '片尾音文件路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3'
+        description: '片尾音文件路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3'
           + '（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：'
           + '只有前 2 秒延迟到正片结束处进入混音，其余不进成片；换成别的文件 render 直接报错。' },
       ending_effect: { type: 'string',
-        description: '片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4'
+        description: '片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4'
           + '（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：'
-          + '缺省按自身原速只播放一次，覆盖开头 1.020 秒，其余 0.980 秒定格；时间线显式 stretch_to_window 时以 speed=0.51 铺满两秒。'
+          + 'timeline 的 ending_effect_fit 优先，缺省使用部署配置；stretch_to_window 时以 speed=0.51 铺满两秒，source_once 按原速播放一次。'
           + '换成别的文件会报错；source_once 拒绝长于两秒的素材，不做截断。' },
       output: { type: 'string',
-        description: 'render 成片输出（省略写 exports/<集>.mp4），verify 必填；subtitle_overlay 可指定项目内全新 SRT 导出路径，'
+        description: 'render 成片输出（省略写 exports/<集>.mp4），verify 与 stage_delivery 必填；subtitle_overlay 可指定项目内全新 SRT 导出路径，'
           + '配套报告为 <output>.decision-report.json，两者不覆盖已有文件；省略则独立唯一目录。相对路径以 project 为基准。' },
       force: { type: 'boolean',
         description: 'render 是否忽略 exports/.render_cache 里的逐镜缓存并全部重编；默认 false。' },
+      resume: { type: 'boolean', description: 'render 可选：仅用于完整单集。独立复核并复用输入完全一致的已有候选。'
+        + '没有可复用收据时保留已有文件并另存候选。以返回的 output 为实际成片路径。' },
+      draft: { type: 'string', description: 'stage_delivery 必填。本集 02_剪映草稿 下由 jianying_draft 返回的实际草稿目录。' },
     },
     output: {
       schema: RESULT_SCHEMA,
@@ -1051,7 +1236,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     execute: async ({ subtitle_srt, subtitle_plan, last_shot, ending_audio, ending_effect, bgm_plan,
       mix_profile, start_seconds, duration_seconds, intended_use, bgm_generation,
-      speech_transcripts, speech_decisions, ...args }) => {
+      speech_transcripts, speech_decisions, ...args }, exec) => {
+      const session = exec.agent?.session
       const { speech_coverage: coverage, ...report } = await runDramaRender({
         ...args,
         ...(subtitle_srt === undefined ? {} : { subtitleSrt: subtitle_srt }),
@@ -1067,8 +1253,22 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...(last_shot === undefined ? {} : { lastShot: last_shot }),
         ...(ending_audio === undefined ? {} : { endingAudio: ending_audio }),
         ...(ending_effect === undefined ? {} : { endingEffect: ending_effect }),
-      }, settings)
+      }, settings, async (binding) => {
+        const scope = sourceQaScope
+        if (scope === undefined) throw Error('SOURCE_QA_HOST_UNAVAILABLE: 当前会话缺少源片复验服务，请恢复文件、沙箱策略和会话审看服务后重试。')
+        const signal = AbortSignal.any([exec.signal, scope.signal])
+        await scope.verify(session, binding, signal)
+        signal.throwIfAborted()
+      }, undefined, undefined, undefined, async (binding) => {
+        const scope = sourceQaScope
+        if (scope === undefined) throw Error('CONTENT_REVIEW_HOST: 缺少实际观察记录服务。')
+        const signal = AbortSignal.any([exec.signal, scope.signal])
+        await scope.contentReview(session, signal)(binding)
+        signal.throwIfAborted()
+      })
       return coverage === undefined ? report : { ...report, speech_coverage: toolSpeechCoverage(coverage) }
     },
   }))
 }
+
+export type { SourceQaEvidenceBinding } from './source-qa.ts'

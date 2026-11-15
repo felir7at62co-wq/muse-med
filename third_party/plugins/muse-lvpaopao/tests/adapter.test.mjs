@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeTool } from '../../checks/tool-call.mjs'
 /** Offline adapter checks against built public Harness modules; no Windows or provider calls. */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -33,9 +35,12 @@ test('setup failures explain the qualified runtime and one explicit status recov
 
 test('scoped consumer configuration exposes model limits without Windows or output coordinates', () => {
   assert.deepEqual(ConsumerConfig({}), { maxQueryChars: 80, maxEpisodeCount: 20, maxResultItems: 50,
-    maxSeriesEpisodes: 400, maxAttempts: 3, retryDelayMs: 1000, seriesLockWaitMs: 5000, copyChunkBytes: 1048576 })
-  assert.deepEqual(Object.keys(ConsumerConfig.dict).sort(), ['copyChunkBytes', 'maxAttempts', 'maxEpisodeCount', 'maxQueryChars', 'maxResultItems', 'maxSeriesEpisodes', 'retryDelayMs', 'seriesLockWaitMs'])
+    maxSeriesEpisodes: 400, maxAttempts: 3, retryDelayMs: 1000, seriesLockWaitMs: 5000, copyChunkBytes: 1048576,
+    maxSeriesTasks: 1000, maxTaskStateBytes: 16777216, taskLockWaitMs: 5000, maxSeriesJobOutputBytes: 65536, seriesTaskWaitMs: 86400000 })
+  assert.deepEqual(Object.keys(ConsumerConfig.dict).sort(), ['copyChunkBytes', 'maxAttempts', 'maxEpisodeCount', 'maxQueryChars', 'maxResultItems', 'maxSeriesEpisodes', 'maxSeriesJobOutputBytes', 'maxSeriesTasks', 'maxTaskStateBytes', 'retryDelayMs', 'seriesLockWaitMs', 'seriesTaskWaitMs', 'taskLockWaitMs'])
   assert.throws(() => ConsumerConfig({ maxEpisodeCount: 21 }))
+  for (const field of ['maxSeriesTasks', 'maxTaskStateBytes', 'maxSeriesJobOutputBytes', 'seriesTaskWaitMs']) assert.throws(() => ConsumerConfig({ [field]: 0 }))
+  assert.throws(() => ConsumerConfig({ taskLockWaitMs: -1 }))
 })
 
 test('configuration rejects host injection and invalid bounds before a process can start', () => {
@@ -131,10 +136,10 @@ test('real Loader registers the typed tool, ToolRuntime exposes safe JSON, and d
   const ctx = new Context()
   try {
     const config = join(directory, 'cordis.yml')
-    await writeFile(config, "- name: prompt\n- name: tools\n- name: adapter\n")
+    await writeFile(config, "- name: prompt\n- name: tools\n- name: native\n- name: adapter\n")
     ctx.baseUrl = pathToFileURL(directory).href + '/'
     await ctx.plugin(Loader); ctx.loader.builtins.include = Include
-    const modules = new Map([['prompt', SystemPrompt], ['tools', Tools], ['adapter', plugin]])
+    const modules = new Map([['prompt', SystemPrompt], ['tools', Tools], ['native', NativeToolExecutor], ['adapter', plugin]])
     ctx.loader.internal = { version: 'v2', loadCache: new Map(),
       register() { throw Error('unused') }, getOrCreateModuleJob() { throw Error('unused') },
       resolveSync() { throw Error('unused') }, load() { throw Error('unused') },
@@ -143,25 +148,25 @@ test('real Loader registers the typed tool, ToolRuntime exposes safe JSON, and d
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await(); for (const row of ctx.loader.entries()) await row.fiber?.await()
     assert.ok(ctx.tools.get('lvpaopao'))
-    const result = await ctx.tools.execute({ callId: 'lvpaopao-call', name: 'lvpaopao',
+    const result = await executeTool(ctx, { callId: 'lvpaopao-call', name: 'lvpaopao',
       arguments: { action: 'search', query: '老手' }, signal: new AbortController().signal })
     assert.equal(result.isError, false)
     const visible = JSON.parse(result.content[0].text)
     assert.equal(visible.ok, true); assert.equal(visible.data.resultCount, 26)
     assert.equal(JSON.stringify(result).includes('never-visible'), false)
-    const invalid = await ctx.tools.execute({ callId: 'lvpaopao-invalid', name: 'lvpaopao',
+    const invalid = await executeTool(ctx, { callId: 'lvpaopao-invalid', name: 'lvpaopao',
       arguments: { action: 'search', query: '老手', srcAppId: 'wx0000000000000000' }, signal: new AbortController().signal })
     assert.equal(JSON.parse(invalid.content[0].text).status, 'invalid-arguments')
     assert.equal(calls.length, 1)
-    const misplacedOutput = await ctx.tools.execute({ callId: 'lvpaopao-read-output', name: 'lvpaopao',
+    const misplacedOutput = await executeTool(ctx, { callId: 'lvpaopao-read-output', name: 'lvpaopao',
       arguments: { action: 'search', query: 'synthetic', outputDir: '/unrelated' }, signal: new AbortController().signal })
     assert.equal(JSON.parse(misplacedOutput.content[0].text).status, 'invalid-arguments')
     assert.equal(calls.length, 1)
-    const mismatch = await ctx.tools.execute({ callId: 'lvpaopao-wrong-source', name: 'lvpaopao',
+    const mismatch = await executeTool(ctx, { callId: 'lvpaopao-wrong-source', name: 'lvpaopao',
       arguments: { action: 'detail', srcAppId: 'wx6522458df7ed3af2', dramaId: '121225' }, signal: new AbortController().signal })
     assert.equal(JSON.parse(mismatch.content[0].text).status, 'response-identity-mismatch')
     for (const [query, nativeErrorCode] of [['diag-null', null], ['diag-int', -7]]) {
-      const diagnostic = await ctx.tools.execute({ callId: `lvpaopao-${query}`, name: 'lvpaopao',
+      const diagnostic = await executeTool(ctx, { callId: `lvpaopao-${query}`, name: 'lvpaopao',
         arguments: { action: 'search', query }, signal: new AbortController().signal })
       assert.equal(diagnostic.isError, false)
       const visibleDiagnostic = JSON.parse(diagnostic.content[0].text)

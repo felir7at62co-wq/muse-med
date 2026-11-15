@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-feishu-settings",
   "description": "Feishu bridge setup for the product home: the feishu switch row, QR app registration, and the Web Settings page that drives the bridge row's activation key",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.2-rc.1",
   "publishConfig": {
     "access": "public"
   },
@@ -36,9 +36,11 @@
     },
     "./src/*": "./src/*",
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
+    "locale/*.json",
     "lib/index.js",
     "lib/client.js",
     "cordis.patch.yml",
@@ -78,7 +80,8 @@
     "@deepseek-ai/dsh-typert-protocol": "workspace:*"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:~"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/cosmokit": "workspace:~"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -98,9 +101,9 @@
     "@deepseek-ai/dsh-settings": "workspace:*",
     "@testing-library/react": "^16.1.0",
     "@types/js-yaml": "^4.0.9",
-    "@types/react": "~18.3.1",
     "js-yaml": "^4.1.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "@deepseek-ai/cosmokit": "workspace:~"
   }
 }

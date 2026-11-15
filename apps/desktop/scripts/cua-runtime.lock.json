@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "driverVersion": "0.28.0",
+  "license": {
+    "filename": "cua-driver-0.28.0-LICENSE.md",
+    "url": "https://raw.githubusercontent.com/trycua/cua/cua-driver-rs-v0.28.0/LICENSE.md",
+    "bytes": 1069,
+    "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
+  },
+  "targets": {
+    "win-x64": {
+      "filename": "cua-driver-rs-0.28.0-windows-x86_64.zip",
+      "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.28.0/cua-driver-rs-0.28.0-windows-x86_64.zip",
+      "bytes": 29006437,
+      "sha256": "dbae495361a3d5862f7ed57cb82dc7a83f46e7a9ab111a6a23a8acaa79ec6265"
+    }
+  }
+}

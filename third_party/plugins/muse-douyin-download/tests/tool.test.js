@@ -5,6 +5,9 @@ import { apply, validateArgs } from '../src/index.js';
 import { downloadCommand, resolveConfig, runDownloader } from '../src/runner.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { mkdir, readdir, symlink, unlink } from 'node:fs/promises';
+import { taskHarness } from './task-harness.js';
+import { mediaReceipt } from './task-fixtures.js';
 
 const workspace = join(tmpdir(), 'douyin-parser-workspace');
 const settings = resolveConfig({ settingsHome: join(tmpdir(), 'muse-own-settings'), pythonExecutable: 'fixture-python', ffprobeExecutable: 'fixture-probe', ffmpegExecutable: 'fixture-decoder' });
@@ -54,7 +57,7 @@ test('bounded blocked output stays a blocked result', async () => {
   assert.deepEqual(await runDownloader(subprocess(result, { exitCode: 1, signal: null }), settings, ['python'], workspace), result);
 });
 
-test('cancellation wins over a child reporting exit zero', async () => {
+test('a successful child receipt survives cancellation for later actual-file verification', async () => {
   const controller = new AbortController();
   let settle;
   const done = new Promise(resolve => { settle = resolve; });
@@ -65,143 +68,253 @@ test('cancellation wins over a child reporting exit zero', async () => {
   await Promise.resolve();
   assert.equal(completed, false);
   settle({ exitCode: 0, signal: null });
-  await assert.rejects(promise, /user cancelled/);
+  assert.deepEqual(await promise, receipt);
 });
 
-test('plugin scope uses the initiating session and unload awaits subprocess exit', async () => {
-  const cleanups = [];
-  let tool;
-  let spec;
-  let settle;
-  const done = new Promise(resolve => { settle = resolve; });
-  const ctx = {
-    agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
-    tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => { tool = undefined; }; } },
-    subprocess: { spawn(value) { spec = value; return { done, collected: { stdout: { readFrom() { return { text: JSON.stringify(receipt) }; } } } }; } },
+
+async function registered(t, options = {}) {
+  const h = await taskHarness(t);
+  const tools = new Map(), cleanups = [];
+  const processCalls = [];
+  const processService = options.subprocess ?? { spawn(spec) {
+    processCalls.push(spec);
+    let output;
+    const url = spec.argv[spec.argv.indexOf('--url') + 1];
+    return { done: (async () => {
+      output = options.result ? await options.result(url, h) : await mediaReceipt(h.owner.agent, url);
+      return { exitCode: output.status === 'downloaded' ? 0 : 1, signal: null };
+    })(), collected: { stdout: { readFrom: () => ({ text: JSON.stringify(output) }) } } };
+  } };
+  const context = { agents: h.ctx.agents, subprocess: processService,
+    tools: { register(tool) { tools.set(tool.name, tool); return () => tools.delete(tool.name); } },
+    get(name) { return name === 'douyinBrowser' ? options.browser : h.ctx.get(name); },
     effect(factory) { cleanups.push(factory()); },
   };
-  apply(ctx, settings);
-  const execute = tool.execute(input, {});
-  assert.equal(spec.cwd, workspace);
-  assert.equal(spec.argv[spec.argv.indexOf('--project') + 1], workspace);
-  const stop = cleanups[0]();
-  assert.equal(spec.signal.aborted, true);
-  let stopped = false;
-  stop.then(() => { stopped = true; });
-  await Promise.resolve();
-  assert.equal(stopped, false);
-  settle({ exitCode: 0, signal: null });
-  await assert.rejects(execute, /unloaded/);
-  await stop;
-  cleanups[1]();
-  assert.equal(tool, undefined);
+  apply(context, h.settings);
+  t.after(async () => { for (const close of cleanups.reverse()) await close(); });
+  return { ...h, tools, processCalls, cleanups,
+    execute(args, exec = {}, agent = h.owner.agent) { return h.ctx.agents.withInitiator(agent, () => tools.get('douyin_download').execute(args, { callId: 'entry-call', ...exec })); },
+  };
+}
+
+test('plugin wait uses the initiating workspace and real files while registering a separate task controller', async t => {
+  const h = await registered(t);
+  const value = await h.execute(input);
+  assert.equal(value.status, 'downloaded');
+  assert.equal(value.downloadTask.state, 'completed');
+  assert.equal(h.processCalls[0].cwd, h.workspace);
+  assert.equal(h.processCalls[0].argv[h.processCalls[0].argv.indexOf('--project') + 1], h.workspace);
+  assert.ok(h.tools.has('douyin_download_task'));
 });
 
-test('batch execution downloads distinct works and preserves a middle failure as partial', async () => {
+test('batch wait preserves link order and a middle source failure as partial', async t => {
   const urls = [receipt.source, 'https://www.douyin.com/video/7690548660732434410', 'https://www.douyin.com/video/7691377127358441866'];
-  const calls = [];
-  const cleanups = [];
-  let tool;
-  const ctx = {
-    agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
-    tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => {}; } },
-    subprocess: { spawn(spec) {
-      const url = spec.argv[spec.argv.indexOf('--url') + 1];
-      calls.push(url);
-      const blocked = url === urls[1];
-      const path = join(workspace, 'source/media/douyin/' + url.split('/').at(-1) + '.mp4');
-      const result = blocked ? { status: 'blocked', message: 'PUBLIC_SHARE_MEDIA_UNAVAILABLE' } : { ...receipt, source: url, path, receipt: path + '.source.json' };
-      return { done: Promise.resolve({ exitCode: blocked ? 1 : 0, signal: null }), collected: { stdout: { readFrom() { return { text: JSON.stringify(result) }; } } } };
-    } },
-    effect(factory) { cleanups.push(factory()); },
-  };
-  apply(ctx, settings);
-  try {
-    const result = await tool.execute({ urls, publicOnly: true }, {});
-    assert.deepEqual(calls, urls);
-    assert.equal(result.status, 'partial');
-    assert.equal(result.requested, 3);
-    assert.equal(result.downloaded, 2);
-    assert.deepEqual(result.items.map(item => [item.index, item.status]), [[1, 'downloaded'], [2, 'blocked'], [3, 'downloaded']]);
-    assert.notEqual(result.items[0].path, result.items[2].path);
-    assert.equal(result.items[0].full_decode_verified, true);
-    assert.equal(result.items[2].full_decode_verified, true);
-    assert.throws(() => validateArgs({ url: urls[0], urls }));
-  } finally { for (const cleanup of cleanups.reverse()) await cleanup(); }
+  const h = await registered(t, { result: (url, h) => url === urls[1] ? { status: 'blocked', message: 'PUBLIC_SHARE_MEDIA_UNAVAILABLE' } : mediaReceipt(h.owner.agent, url) });
+  const value = await h.execute({ urls, publicOnly: true });
+  assert.equal(value.status, 'partial'); assert.equal(value.requested, 3); assert.equal(value.downloaded, 2);
+  assert.deepEqual(h.processCalls.map(spec => spec.argv[spec.argv.indexOf('--url') + 1]), urls);
+  assert.deepEqual(value.items.map(item => [item.index, item.status]), [[1, 'downloaded'], [2, 'blocked'], [3, 'downloaded']]);
+  assert.equal(value.downloadTask.state, 'waiting_source');
 });
 
-test('missing bundled runtime blocks single and multiple videos before accessing credentials or spawning', async () => {
-  const cleanups = [];
-  let tool;
-  let spawns = 0;
-  const ctx = {
-    agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
-    tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => {}; } },
-    subprocess: { spawn() { spawns++; throw new Error('No process should start'); } },
-    effect(factory) { cleanups.push(factory()); },
-  };
-  apply(ctx, { pythonExecutable: null, ffprobeExecutable: null, ffmpegExecutable: null });
+test('missing runtime blocks before private registry or process work', async () => {
+  const tools = new Map(), cleanup = [];
+  apply({ agents: { requireInitiator: () => ({}) }, subprocess: { spawn() { throw new Error('must not spawn'); } },
+    tools: { register(value) { tools.set(value.name, value); return () => {}; } }, effect(factory) { cleanup.push(factory()); } },
+  { pythonExecutable: null, ffmpegExecutable: null, ffprobeExecutable: null, settingsHome: null });
   try {
-    const result = await tool.execute(input, {});
-    assert.equal(result.status, 'blocked');
-    assert.equal(result.code, 'RUNTIME_UNAVAILABLE');
-    const batch = await tool.execute({ urls: [receipt.source, 'https://www.douyin.com/video/7690548660732434410'], publicOnly: true }, {});
-    assert.equal(batch.status, 'blocked');
-    assert.equal(batch.requested, 2);
-    assert.equal(batch.downloaded, 0);
-    assert.deepEqual(batch.items.map(item => item.code), ['RUNTIME_UNAVAILABLE', 'RUNTIME_UNAVAILABLE']);
-    assert.equal(spawns, 0);
-  } finally { for (const cleanup of cleanups.reverse()) await cleanup(); }
-});
-test('plugin forwards its file bound and unload waits for the internal-browser operation to settle', async () => {
-  const cleanups = []; let tool; let settle; let browserSignal; let browserLimit; let browserTimeout; let entered;
-  const started = new Promise(resolve => { entered = resolve; });
-  const native = new Promise(resolve => { settle = resolve; });
-  const ctx = {
-    agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
-    tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => {}; } },
-    subprocess: subprocess({ status: 'blocked', message: 'ACCESS_RESTRICTED' }, { exitCode: 1, signal: null }),
-    get() { return { version: 4, download(_agent, _url, signal, maxDownloadBytes, nativeTimeoutMs) { browserSignal = signal; browserLimit = maxDownloadBytes; browserTimeout = nativeTimeoutMs; entered(); return native; } }; },
-    effect(factory) { cleanups.push(factory()); },
-  };
-  apply(ctx, settings);
-  const operation = tool.execute({ url: input.url }, {});
-  await started;
-  assert.equal(browserLimit, settings.maxDownloadBytes);
-  assert.equal(browserTimeout, settings.nativeTimeoutMs);
-  let stopped = false;
-  const stop = cleanups[0]().then(() => { stopped = true; });
-  assert.equal(browserSignal.aborted, true);
-  await Promise.resolve(); assert.equal(stopped, false);
-  settle({ status: 'blocked', code: 'CANCELLED' });
-  await operation; await stop;
-  assert.equal(stopped, true);
-  await cleanups[1]();
+    assert.equal((await tools.get('douyin_download').execute(input, {})).code, 'RUNTIME_UNAVAILABLE');
+    assert.deepEqual((await tools.get('douyin_download').execute({ urls: [input.url], publicOnly: true }, {})).items.map(item => item.code), ['RUNTIME_UNAVAILABLE']);
+  } finally { for (const close of cleanup.reverse()) await close(); }
 });
 
-for (const version of [1, 2, 3]) test(`browser acquisition version ${version} is rejected before native IPC`, async () => {
-  const cleanups = []; let tool; let nativeCalls = 0;
-  const ctx = {
-    agents: { requireInitiator() { return { session: { header: { cwd: workspace } } }; } },
-    tools: { register(definition) { if (definition.name === 'douyin_download') tool = definition; return () => {}; } },
-    subprocess: subprocess({ status: 'blocked', message: 'ACCESS_RESTRICTED' }, { exitCode: 1, signal: null }),
-    get() { return { version, download() { nativeCalls++; throw new Error('Old transport must not run'); } }; },
-    effect(factory) { cleanups.push(factory()); },
-  };
-  apply(ctx, settings);
-  try {
-    const result = await tool.execute({ url: input.url }, {});
-    assert.equal(result.code, 'DESKTOP_HOST_REQUIRED');
-    assert.equal(result.status, 'blocked');
-    assert.equal(nativeCalls, 0);
-  } finally { for (const cleanup of cleanups.reverse()) await cleanup(); }
+test('unload waits for public subprocess completion before publishing interrupted state', async t => {
+  let enter, release, spec;
+  const entered = new Promise(resolve => { enter = resolve; }), held = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
+  const h = await registered(t, { subprocess: { spawn(value) { spec = value; enter(); return {
+    done: held.then(() => ({ exitCode: 1, signal: 'SIGTERM' })), collected: { stdout: { readFrom: () => ({ text: '{}' }) } },
+  }; } } });
+  const work = h.execute(input);
+  await entered;
+  let settled = false;
+  const stop = h.cleanups[0]().then(() => { settled = true; });
+  assert.equal(spec.signal.aborted, true); await Promise.resolve(); assert.equal(settled, false);
+  release(); await stop;
+  assert.equal((await work).downloadTask.state, 'interrupted');
 });
 
-test('native download and verification budgets are explicit and independent from the public deadline', () => {
+test('foreground fallback forwards independent bounds and preserves verified native task identity', async t => {
+  const nativeId = 'a1234567-1234-1234-1234-123456789abc';
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'ACCESS_RESTRICTED' }), browser: {
+    version: 4, supportsExpectedCwd: true, async download(agent, url, signal, bytes, timeout, options) {
+      assert.equal(signal.aborted, false); assert.equal(bytes, settings.maxDownloadBytes); assert.equal(timeout, settings.nativeTimeoutMs); assert.deepEqual(options, { expectedCwd: h.workspace });
+      return mediaReceipt(agent, url, { taskId: nativeId, targetVideoId: url.split('/').at(-1) });
+    },
+  } });
+  const value = await h.execute({ url: input.url });
+  assert.equal(value.taskId, nativeId); assert.notEqual(value.downloadTask.id, nativeId);
+  assert.equal(value.status, 'downloaded');
+});
+
+test('unsupported public share data falls back to the selected work in the foreground', async t => {
+  const nativeId = 'a1234567-1234-1234-1234-123456789abc';
+  let calls = 0;
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: The official share page returned unsupported video data.' }), browser: {
+    version: 4, supportsExpectedCwd: true, async download(agent, url, signal, bytes, timeout, options) {
+      calls++;
+      assert.equal(url, input.url); assert.equal(signal.aborted, false);
+      assert.equal(bytes, settings.maxDownloadBytes); assert.equal(timeout, settings.nativeTimeoutMs); assert.deepEqual(options, { expectedCwd: h.workspace });
+      return mediaReceipt(agent, url, { taskId: nativeId, targetVideoId: url.split('/').at(-1) });
+    },
+  } });
+  const value = await h.execute({ url: input.url });
+  assert.equal(calls, 1);
+  assert.equal(value.status, 'downloaded');
+  assert.equal(value.taskId, nativeId);
+  assert.equal(value.downloadTask.state, 'completed');
+});
+
+test('unsupported public share data uses the owned background browser and retains its verified receipt', async t => {
+  const nativeId = 'a1234567-1234-1234-1234-123456789abc';
+  let calls = 0;
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }), browser: {
+    version: 4, supportsBackgroundDownload: true, supportsExpectedCwd: true, async download(agent, url, signal, bytes, timeout, options) {
+      calls++;
+      assert.equal(url, input.url); assert.equal(signal.aborted, false);
+      assert.equal(bytes, settings.maxDownloadBytes); assert.equal(timeout, settings.nativeTimeoutMs); assert.deepEqual(options, { background: true, expectedCwd: h.workspace });
+      return mediaReceipt(agent, url, { taskId: nativeId, targetVideoId: url.split('/').at(-1) });
+    },
+  } });
+  const accepted = await h.execute({ url: input.url, mode: 'background' });
+  assert.equal(accepted.status, 'queued');
+  await h.ctx.jobs.wait(accepted.downloadTask.jobId, 30000, h.owner.agent.id);
+  const value = await h.ctx.agents.withInitiator(h.owner.agent, () => h.tools.get('douyin_download_task').execute({ action: 'status', taskId: accepted.downloadTask.id }, {}));
+  assert.equal(calls, 1);
+  assert.equal(value.downloadTask.state, 'completed');
+  assert.equal(value.task.items[0].result.taskId, nativeId);
+  assert.equal(value.task.items[0].result.full_decode_verified, true);
+});
+
+test('public-only does not use a browser when the share data is unsupported', async t => {
+  let calls = 0;
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }), browser: {
+    version: 4, download() { calls++; throw new Error('public-only cannot open the browser'); },
+  } });
+  const value = await h.execute(input);
+  assert.equal(value.status, 'blocked');
+  assert.equal(value.downloadTask.state, 'waiting_source');
+  assert.equal(calls, 0);
+});
+
+test('unsupported public share data reports the missing Desktop Host', async t => {
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }) });
+  const value = await h.execute({ url: input.url });
+  assert.equal(value.status, 'blocked');
+  assert.equal(value.code, 'DESKTOP_HOST_REQUIRED');
+});
+
+test('unsupported public share data preserves browser login requirements', async t => {
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }), browser: {
+    version: 4, supportsExpectedCwd: true, download: async () => ({ status: 'blocked', code: 'LOGIN_OR_VERIFICATION_REQUIRED' }),
+  } });
+  const value = await h.execute({ url: input.url });
+  assert.equal(value.status, 'blocked');
+  assert.equal(value.code, 'LOGIN_OR_VERIFICATION_REQUIRED');
+  assert.equal(value.downloadTask.state, 'waiting_user');
+});
+
+test('local media and filesystem failures do not open a browser', async t => {
+  for (const message of ['The video exceeded the configured download size limit.', 'The downloaded file did not pass the video readability check.', 'The output directory is unavailable.', 'The output filename contains PUBLIC_SHARE_DATA_INVALID.']) {
+    let calls = 0;
+    const h = await registered(t, { result: () => ({ status: 'blocked', message }), browser: {
+      version: 4, download() { calls++; throw new Error('local failures cannot open the browser'); },
+    } });
+    const value = await h.execute({ url: input.url });
+    assert.equal(value.status, 'blocked');
+    assert.equal(calls, 0);
+  }
+});
+
+test('unsupported share data cannot certify a browser result for a different work', async t => {
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }), browser: {
+    version: 4, supportsExpectedCwd: true, async download(agent, url) {
+      return mediaReceipt(agent, url, { targetVideoId: '7100000000000000001' });
+    },
+  } });
+  const value = await h.execute({ url: input.url });
+  assert.notEqual(value.status, 'downloaded');
+  assert.notEqual(value.downloadTask.state, 'completed');
+});
+
+for (const version of [1, 2, 3]) test(`browser acquisition version ${version} stays blocked`, async t => {
+  let nativeCalls = 0;
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'ACCESS_RESTRICTED' }), browser: { version, download() { nativeCalls++; throw new Error('must not run'); } } });
+  const value = await h.execute({ url: input.url });
+  assert.equal(value.status, 'blocked'); assert.equal(value.code, 'DESKTOP_HOST_REQUIRED'); assert.equal(nativeCalls, 0);
+});
+
+test('background fallback refuses an old v4 capability instead of opening foreground playback', async t => {
+  let nativeCalls = 0;
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'ACCESS_RESTRICTED' }), browser: { version: 4, download() { nativeCalls++; } } });
+  const accepted = await h.execute({ url: input.url, mode: 'background' });
+  await h.ctx.jobs.wait(accepted.downloadTask.jobId, 30000, h.owner.agent.id);
+  const value = await h.ctx.agents.withInitiator(h.owner.agent, () => h.tools.get('douyin_download_task').execute({ action: 'status', taskId: accepted.downloadTask.id }, {}));
+  assert.equal(value.task.items[0].result.code, 'DESKTOP_BACKGROUND_UNAVAILABLE'); assert.equal(nativeCalls, 0);
+});
+
+test('native and registry deployment bounds fail before registration', () => {
   assert.equal(settings.nativeTimeoutMs, 1800000);
-  const configured = resolveConfig({ timeoutMs: 1000, nativeTimeoutMs: 7200000 });
-  assert.equal(configured.timeoutMs, 1000);
-  assert.equal(configured.nativeTimeoutMs, 7200000);
-  for (const nativeTimeoutMs of [999, 7200001, 1000.5, NaN, Infinity, "1800000", null]) assert.throws(() => resolveConfig({ nativeTimeoutMs }), /nativeTimeoutMs/);
+  for (const nativeTimeoutMs of [999, 7200001, 1000.5, NaN, Infinity, '1800000', null]) assert.throws(() => resolveConfig({ nativeTimeoutMs }), /nativeTimeoutMs/);
+  assert.throws(() => resolveConfig({ taskMaxTasks: 0 }), /taskMaxTasks/);
   assert.throws(() => resolveConfig({ timeoutMs: 7200000, nativeTimeoutMs: 7200000, maxVideos: 100 }), /timer range/);
+});
+
+
+test('public acquisition uses the accepted canonical output even if the Session link changes while its process runs', async t => {
+  let original, replacement, selected;
+  const calls = [];
+  const h = await registered(t, { subprocess: { spawn(spec) {
+    calls.push(spec);
+    let result;
+    return { done: (async () => {
+      assert.equal(spec.cwd, original);
+      assert.equal(spec.argv[spec.argv.indexOf('--project') + 1], original);
+      await unlink(selected); await symlink(replacement, selected, process.platform === 'win32' ? 'junction' : 'dir');
+      const url = spec.argv[spec.argv.indexOf('--url') + 1];
+      result = await mediaReceipt({ session: { header: { cwd: spec.cwd } } }, url);
+      return { exitCode: 0, signal: null };
+    })(), collected: { stdout: { readFrom: () => ({ text: JSON.stringify(result) }) } } };
+  } } });
+  original = join(h.workspace, 'original'); replacement = join(h.workspace, 'replacement'); selected = join(h.workspace, 'selected');
+  await mkdir(original); await mkdir(replacement); await symlink(original, selected, process.platform === 'win32' ? 'junction' : 'dir');
+  const owner = await h.makeAgent('public-bound-workspace', selected);
+  const result = await h.execute(input, {}, owner.agent);
+  assert.equal(result.status, 'downloaded');
+  assert.equal(result.downloadTask.state, 'completed');
+  assert.equal(result.path, join(original, 'source/media/douyin', input.url.split('/').at(-1) + '.mp4'));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(await readdir(replacement), []);
+});
+
+for (const supportsExpectedCwd of [undefined, false]) test(`rejects a legacy v4 browser with workspace capability ${String(supportsExpectedCwd)} before retargeted native output`, async t => {
+  let original, replacement, selected, nativeCalls = 0;
+  const h = await registered(t, { result: async () => {
+    await unlink(selected); await symlink(replacement, selected, process.platform === 'win32' ? 'junction' : 'dir');
+    return { status: 'blocked', message: 'PUBLIC_SHARE_MEDIA_UNAVAILABLE' };
+  }, browser: {
+    version: 4, supportsBackgroundDownload: true,
+    ...(supportsExpectedCwd === undefined ? {} : { supportsExpectedCwd }),
+    async download(agent, url) { nativeCalls++; return mediaReceipt(agent, url); },
+  } });
+  original = join(h.workspace, 'original'); replacement = join(h.workspace, 'replacement'); selected = join(h.workspace, 'selected');
+  await mkdir(original); await mkdir(replacement);
+  await symlink(original, selected, process.platform === 'win32' ? 'junction' : 'dir');
+  const owner = await h.makeAgent('legacy-native-bound-workspace', selected);
+  const result = await h.execute({ url: input.url }, {}, owner.agent);
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.code, 'DESKTOP_WORKSPACE_BINDING_UNAVAILABLE');
+  assert.equal(nativeCalls, 0);
+  assert.deepEqual(await readdir(original), []);
+  assert.deepEqual(await readdir(replacement), []);
 });

@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-read-continuation-evidence
+profile: headless
+composition: muse-read-continuation-evidence
+recording: authored
+writerOutput: true
+header:
+  class: muse-read-continuation-evidence
+  pin: true
+workspace:
+  final: true

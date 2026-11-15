@@ -34,6 +34,7 @@ Mount this plugin once in the Host composition that provides `tools`, `agents`, 
   name: '@deepseek-ai/dsh-tool-discovery'
   config:
     alwaysLoad: [read, write, edit, skill]
+    excludeFromSearch: [read]
     keywords:
       video_inspect: [抽帧, 人物动作, 切镜]
     capabilities:
@@ -49,9 +50,12 @@ Mount this plugin once in the Host composition that provides `tools`, `agents`, 
 
 `alwaysLoad` contains exact tool names and may name providers that register later. `tool_search` and `tool_context` are always included. Only tools currently authorized for the calling agent are presented or searchable; naming a restricted tool here does not grant access.
 
+`excludeFromSearch` defaults to `[]` and accepts only nonempty exact names from `alwaysLoad`; wildcards, surrounding whitespace, and nonresident names fail activation. Those tools remain available in the first request but are omitted from search indexes, global and scoped results, tool counts, and the initial capability directory. Exclusion changes neither authorization nor the constant-tool protections in `tool_context`.
+
 | Field | Default | Meaning |
 |---|---|---|
 | `alwaysLoad` | required | Definitions presented before a search |
+| `excludeFromSearch` | `[]` | Exact `alwaysLoad` names omitted from discovery metadata and results |
 | `maxResults` | `8` | Maximum tools loaded by one search, from 1 to 32 |
 | `maxDescriptionChars` | `320` | Unicode-character limit for each result description, from 1 to 2048 |
 | `k1` | `1.2` | BM25 term-frequency saturation, from 0.01 to 10 |
@@ -61,28 +65,28 @@ Mount this plugin once in the Host composition that provides `tools`, `agents`, 
 | `maxResultChars` | `6000` | Complete serialized JSON result budget, from 256 to 65536 characters |
 | `maxDirectoryChars` | `2000` | Initial directory JSON budget, excluding fixed guidance, from 256 to 16384 characters |
 
-Each capability has a nonempty unique `id`. Its `tools` entries are exact names or prefixes with one trailing `*`; other wildcard positions are rejected. A tool may belong to several groups, as `video_inspect` does above. Groups describe capabilities rather than permission partitions: global search can cross them, and uncategorized authorized tools remain searchable. The directory omits groups with no currently authorized tools and counts each group's matching tools independently. The initial discovery section lists ids, titles, and first-line description previews without loading tools. It preserves complete category names before sharing the remaining description budget and reports omitted categories. Global search still covers groups missing from a cropped directory.
+Each capability has a nonempty unique `id`; `uncategorized` is reserved for authorized deferred tools without configured membership. Its `tools` entries are exact names or prefixes with one trailing `*`; other wildcard positions are rejected. A tool may belong to several groups, as `video_inspect` does above. Groups describe capabilities rather than permission partitions: global search crosses them. The current authorized registry supplies the directory, including tools registered later; unassigned deferred tools appear under `uncategorized` without requiring deployment classification. Empty groups are omitted and each group's matching tools are counted independently. The initial discovery section lists ids, titles, and first-line description previews without loading tools. It preserves complete category names before sharing the remaining description budget and reports omitted categories. Global search covers groups missing from a cropped directory.
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-discovery) is the exhaustive configuration reference.
 
 ### Browse capabilities or search tools
 
-`tool_search` accepts optional `query`, `capability`, and `limit` arguments. Queries search authorized names, descriptions, parameter names and descriptions, string enum values, configured keywords, and matching capability ids and titles. Exact normalized tool names take priority; other results use lexical relevance with deterministic name ordering for ties. A miss returns no unrelated fallback tools, so the agent can try another query.
+`tool_search` accepts optional `query`, `capability`, `limit`, and zero-based `offset` arguments. Queries search authorized names, descriptions, parameter names and descriptions, string enum values, configured keywords, and matching capability ids and titles. An exact normalized name ranks first, followed by a complete tool name mentioned in a longer request and configured keyword phrases. Other results use lexical relevance with deterministic name ordering for ties. A miss returns no unrelated fallback tools, so the agent can try another query.
 
 | Arguments | Result |
 |---|---|
 | Neither `query` nor `capability` | List capability summaries without loading tools |
 | `capability` only | Browse that group's tools and load up to the configured or requested limit |
-| `query` and `capability` | Search and load matching tools within that group |
-| `query` only | Search across all authorized tools, including uncategorized tools |
+| `query` and `capability` | Search within that group; retry globally for a miss or an explicit name or configured alias in another group |
+| `query` only | Search across all searchable authorized tools, including uncategorized tools |
 
-An unknown capability id returns the available directory without loading tools. Without configured groups, query searches still cover the full authorized catalog. `limit` must be between 1 and `maxResults`, including directory requests.
+An unknown capability id returns the available directory without loading tools. Without configured groups, the directory exposes unassigned tools through `uncategorized` and query searches cover the full authorized catalog. `limit` must be between 1 and `maxResults`, including directory requests. `offset` defaults to zero and must be a nonnegative safe integer. For browsing and queries, continue with `next_offset` using the same query and capability; each page loads only its returned tools. Ordering remains stable while the catalog and configuration remain unchanged.
 
-Results contain `loaded` entries with names, bounded description previews, and all matching capability ids; `capabilities` contains directory entries with `id`, `title`, `description`, and current authorized `tool_count`. `matched` counts matching tools before limits, `omitted` counts matching tools not returned, and `omitted_capabilities` counts directory entries not returned. The complete serialized JSON stays within `maxResultChars`; descriptions may become empty and entries may be omitted to keep names and JSON intact. Narrow a query when results are omitted.
+Results contain `loaded` entries with names, bounded description previews, and all matching capability ids; `capabilities` contains directory entries with `id`, `title`, `description`, and current authorized `tool_count`. `search_scope` identifies `directory`, `capability`, or `global`; `global_fallback` records a global retry caused by a category miss or an explicit name or alias outside that group. Partial lexical overlap alone does not widen a nonempty scoped search. `matched` counts matching tools before limits, `omitted` counts all matching tools outside this page, and `omitted_capabilities` counts directory entries not returned. The complete serialized JSON stays within `maxResultChars`; descriptions may become empty and entries may be omitted to keep names and JSON intact. `next_offset` identifies the next page and is absent after the last match or when the budget cannot fit an entry. Narrow a query or increase the configured budget if no entry fits.
 
 Only names present in a successful result's `loaded` array become selected. The next assembly exposes those tools' current full definitions, including argument schemas. Loading persists for that session instead of expiring after each call. Discovery itself does not execute tools, change existing approvals, or prevent an already-authorized tool from executing before discovery.
 
-### Manage session loading and Bot preferences
+### Manage session loading and persistent preferences
 
 `tool_context` accepts `operation` and optional exact-name `tools`. Constant tools cannot be edited. `load` and `pin` require currently authorized tools; releases can also remove dormant stored names. Changes select definitions for the next request; they do not execute tools or erase earlier definitions and results from model history.
 
@@ -90,15 +94,15 @@ Only names present in a successful result's `loaded` array become selected. The 
 |---|---|
 | `status` | Read selected and preferred names; omit `tools` |
 | `load` | Select names for this session |
-| `pin` | Select names and save the future-session preference |
+| `pin` | Select names and mark them as preferred |
 | `release` | Remove current loading and the preference; search can reload them |
-| `unpin` | Remove the future-session preference and retain current loading |
+| `unpin` | Remove the preference and retain current loading |
 
 Successful receipts identify the applied operation and complete affected names. Bounded `loaded` and `pinned` previews include `omitted_loaded` and `omitted_pinned` counts. When the affected-name receipt itself exceeds `maxResultChars`, the operation fails before saving; submit fewer names. Invalid or unavailable additions and constant-tool edits fail without partial changes.
 
-Without an external owner, pins are session-derived and survive resume or history-seeded forks. To carry them into a Bot's fresh sessions, register `ctx.toolDiscovery.registerResidency({ matches, read, write })`. The provider owns stored-name parsing and durable writes. `read(agent)` returns complete preferred names; `write(agent, names)` saves their replacement. Unavailable stored names remain dormant and survive unrelated edits. Multiple matching owners fail explicitly. Registration is reversible; late registration or external edits require `await ctx.toolDiscovery.refresh(agent)`. Agent creation awaits the initial read before its first assembly. A failed owner write returns a failed tool result and leaves current selection unchanged.
+Without an external owner, pins are session-derived and survive resume or history-seeded forks. To carry them into fresh sessions, register `ctx.toolDiscovery.registerResidency({ matches, read, write })`. The provider owns stored-name parsing and durable writes. `read(agent)` returns complete preferred names; `write(agent, names)` saves their replacement. Unavailable stored names remain dormant and survive unrelated edits. Multiple matching owners fail explicitly. Registration is reversible; late registration or external edits require `await ctx.toolDiscovery.refresh(agent)`. Agent creation awaits the initial read before its first assembly. A failed owner write returns a failed tool result and leaves current selection unchanged.
 
-`ctx.toolDiscovery.state(agent)` reads detached, authorized `loaded` and `pinned` arrays. The service and catalog are shared; selections are per agent, and a provider decides which Bot owns each agent. A role prompt does not grant tools.
+`ctx.toolDiscovery.state(agent)` reads detached, authorized `loaded` and `pinned` arrays. The service and catalog are shared; selections are per agent, and a provider determines which agents share stored preferences. A role prompt does not grant tools.
 
 ### Restore and isolate loading
 
@@ -112,7 +116,7 @@ A session projection derives loading and preferences from successful search and 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The MIT-licensed index independently implements standard BM25 in TypeScript. Chinese word segmentation and identifier normalization support local metadata lookup without an additional language-model request. Search reads the calling agent's authorized registry and reuses an index while that catalog is unchanged. The session projection retains loaded names rather than executable definitions, so current registration and authorization remain authoritative.
+The MIT-licensed index independently implements standard BM25 in TypeScript. The package also includes Apache-2.0-derived discovery guidance, must declare `MIT AND Apache-2.0`, and ships `LICENSE`, `NOTICE`, and `LICENSE-Codex`. The repository license check permits this declaration only for this package with all three non-empty ordinary files, the repository's MIT text, an Apache-2.0 license heading, and the Codex attribution and license reference. Chinese word segmentation and identifier normalization support local metadata lookup without an additional language-model request. Search reads the calling agent's authorized registry and reuses an index while that catalog is unchanged. The session projection retains loaded names rather than executable definitions, so current registration and authorization remain authoritative.
 
 | File | Responsibility |
 |---|---|
@@ -120,7 +124,7 @@ The MIT-licensed index independently implements standard BM25 in TypeScript. Chi
 | [`src/search.ts`](src/search.ts) | Chinese and English tokenization, metadata indexing, and BM25 ranking |
 | [`src/capabilities.ts`](src/capabilities.ts) | Overlapping group membership and authorized directory summaries |
 | [`src/guidance.ts`](src/guidance.ts) | Stable discovery guidance and the bounded initial directory |
-| [`src/residency.ts`](src/residency.ts) | Per-agent preference service and optional Bot-owned persistence |
+| [`src/residency.ts`](src/residency.ts) | Per-agent preference service and optional provider-owned persistence |
 
 </details>
 
@@ -162,7 +166,7 @@ These limits distinguish discovery from access control and semantic task routing
 
 - **Registry projection only:** independently contributed system-prompt sections and tool-schema providers are not filtered, so tool discovery alone does not remove all unrelated guidance.
 - **Lexical retrieval:** Chinese segmentation, names, group metadata, and keywords improve matching but do not establish semantic relevance or task completion; an agent may need another query.
-- **Agent-driven selection:** guidance does not force search, block shell use, or establish task accuracy. Loading persists until the agent releases it; no automatic task-stage classifier chooses tools. Cross-session Bot preferences require a registered persistence owner.
+- **Agent-driven selection:** guidance does not force search, block shell use, or establish task accuracy. Loading persists until the agent releases it; no automatic task-stage classifier chooses tools. Cross-session preferences require a registered persistence owner.
 - **Provider-dependent caching:** smaller initial definitions do not establish lower total cost, latency, or better cache reuse for every model route.
 - **Metadata lifecycle:** restored names use current definitions; the projection does not freeze an older schema or revive removed tools.
 

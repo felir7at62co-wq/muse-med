@@ -85,7 +85,8 @@ export function validateDesktopBuildVersion(buildVersion, productVersion) {
     && required.every((field, index) => build.prerelease[index] === field)
   if (!extendsProduct) {
     throw new Error(`desktop build version: ${buildVersion} must extend ${productVersion} as ${
-      desktopBuildVersionPrefix(productVersion)}<date>.<sequence>`)
+      desktopBuildVersionPrefix(productVersion)}<date>.<sequence> or ${
+      desktopBuildVersionPrefix(productVersion)}<date>.<run>.<attempt>`)
   }
   return build.version
 }

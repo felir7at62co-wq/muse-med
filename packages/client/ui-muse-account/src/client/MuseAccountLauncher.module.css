@@ -31,8 +31,10 @@
   cursor: pointer;
 }
 
-.trigger:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+@media (hover: hover) {
+  .trigger:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .trigger[data-collapsed='true'] {

@@ -4,7 +4,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry/types'
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
-import type { ScopeKey } from '@deepseek-ai/dsh-scope'
+import type {} from '@deepseek-ai/dsh-working-directory'
+import { createScope, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
+import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { SkillListRequest, SkillListValue } from './types.ts'
 
@@ -13,11 +16,23 @@ declare module '@deepseek-ai/cordis' {
     /** Host owner of the Session-addressed `skills` Remote namespace. */
     sessionSkillCatalog: SessionSkillCatalog
   }
+  interface Events {
+    /** Populate a temporary cold Session Skill view; all contributions end with the read.
+     * @mode serial
+     * @param view - Exact Session projections and the owned registration context.
+     */
+    'session-skills/prepare-view'(view: {
+      readonly sessionId: SessionId
+      readonly projections: ProjectionSnapshot
+      readonly context: () => Context
+      readonly signal: AbortSignal
+    }): Promise<void>
+  }
 }
 
 /** Host service backing `ctx.remote.skills` without activating a cold Agent. */
 export class SessionSkillCatalog extends TypertRemoteService {
-  static inject = ['agents', 'sessionQuery', 'typert']
+  static inject = ['agents', 'sessionQuery', 'typert', 'workingDirectory']
 
   /** @param ctx - Host context carrying Session reads and optional skill/preset services. */
   constructor(ctx: Context) {
@@ -33,17 +48,22 @@ export class SessionSkillCatalog extends TypertRemoteService {
    */
   @Remote
   async list(request: SkillListRequest, signal: AbortSignal): Promise<SkillListValue> {
-    void signal
     const { sessionId } = request
-    let cwd: string | undefined
+    let cwd: string
     let agentPreset: string | undefined
+    let projections: ProjectionSnapshot
     try {
       using observation = await this.ctx.sessionQuery.observeSession(sessionId)
       if (observation.projections === undefined) {
         throw new Error('skill catalog requires a projected Session observation')
       }
-      cwd = observation.header.cwd
+      projections = observation.projections
+      cwd = observation.projections.values.workingDirectory
+        ?? observation.header.cwd
+        ?? this.ctx.workingDirectory.defaultDirectory
       agentPreset = observation.projections.values.agentPreset ?? undefined
+      const live = this.ctx.agents.get(sessionId)
+      if (live !== undefined) cwd = await this.ctx.workingDirectory.ensure(live, signal)
     } catch (error: unknown) {
       if (error instanceof SessionQueryError
         && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
@@ -54,9 +74,6 @@ export class SessionSkillCatalog extends TypertRemoteService {
         `session "${sessionId}" could not be inspected: ${String(error)}`,
         {},
       )
-    }
-    if (cwd === undefined) {
-      throw new RemoteError('gateway/internal', `session "${sessionId}" has no project cwd`, {})
     }
 
     const live = this.ctx.agents.get(sessionId)
@@ -73,8 +90,17 @@ export class SessionSkillCatalog extends TypertRemoteService {
 
     await using lease = live === undefined ? await this.scopeFor(agentPreset) : undefined
     const scope = live ?? lease?.key
+    const temporaryKey = {}
+    let temporary: Scope | undefined
     try {
-      const skills = (await skillRegistry.list({ cwd, scope })).filter(isUserInvocable)
+      signal.throwIfAborted()
+      if (live === undefined) await this.ctx.serial('session-skills/prepare-view', {
+        sessionId, projections, signal,
+        context: () => (temporary ??= createScope(this.ctx, temporaryKey, scope === undefined ? undefined : { parent: scope })).ctx,
+      })
+      signal.throwIfAborted()
+      const skills = (await skillRegistry.list(temporary === undefined ? { cwd, scope } : { cwd, signal, scope: temporaryKey }))
+        .filter(isUserInvocable)
       return {
         skills: skills.map(skill => ({
           name: skill.name,
@@ -86,7 +112,7 @@ export class SessionSkillCatalog extends TypertRemoteService {
       }
     } catch (error: unknown) {
       throw new RemoteError('gateway/internal', `skill listing failed: ${String(error)}`, {})
-    }
+    } finally { await temporary?.dispose() }
   }
 
   /** Resolve a live or standing preset scope without creating an Agent. */

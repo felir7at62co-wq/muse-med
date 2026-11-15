@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-douyin-user-action
+profile: headless
+composition: muse-douyin-user-action
+recording: authored
+header:
+  class: muse-douyin-user-action
+  pin: true
+permission: workspace-write
+workspace:
+  setup: muse-douyin-media
+  final: true
+writerOutput: true

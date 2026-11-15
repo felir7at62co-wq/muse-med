@@ -1,11 +1,14 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { createVolatile } from '@deepseek-ai/cosmokit'
 import LlmRuntime, { createUserMessage, ToolCallId, LlmError, StreamChunk, errorChain  } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -29,6 +32,7 @@ async function harness(adapter: MockAdapter) {
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -49,6 +53,23 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 function send(agent: Agent, text: string) {
   agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
+
+describe('early factory shutdown', () => {
+  it('closes a constructed service before initialization and shares repeated shutdown completion', async () => {
+    const ctx = new Context()
+    const loop = new AgentLoop(ctx, { agents: [], maxParallelToolCalls: createVolatile(1) })
+    try {
+      expect(loop.config.durableInboxClaims).toBe(false)
+      const first = loop.shutdown()
+      expect(loop.shutdown()).toBe(first)
+      await expect(first).resolves.toBeUndefined()
+      await expect(loop.shutdown()).resolves.toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+    expect(ctx.get('agentLoop')).toBeUndefined()
+  })
+})
 
 describe('tool JSON parse', () => {
   it('passes through non-JSON arguments string without crashing', async () => {

@@ -1,0 +1,30 @@
+{
+  "viewport": {
+    "width": 412,
+    "height": 915
+  },
+  "originalMessages": 1,
+  "questionAnswers": 1,
+  "tools": [
+    "write",
+    "ask_user",
+    "present"
+  ],
+  "toolErrors": [
+    false,
+    false,
+    false
+  ],
+  "turns": [
+    "completed",
+    "completed"
+  ],
+  "finalReply": true,
+  "requestStages": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "previewHeading": "MOBILE_SESSION_412 执行完成"
+}

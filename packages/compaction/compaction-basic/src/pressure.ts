@@ -26,6 +26,7 @@ export interface PressureRange {
  * @param measurement - unified request and positional token prices.
  * @param spec - routed pressure threshold and configured retention budget.
  * @param meter - singleton estimator for checkpoint framing.
+ * @param protectedNodes - current-step inputs whose earliest position and complete tail must remain verbatim.
  * @returns a feasible balanced range, or null when no useful replacement fits.
  */
 export function selectPressureRange(
@@ -33,13 +34,13 @@ export function selectPressureRange(
   measurement: TokenMeasurement,
   spec: ResolvedCompactSpec,
   meter: TokenMeter,
+  protectedNodes?: ReadonlySet<SessionSeq>,
 ): PressureRange | null {
   const head = measurement.nodes[0]
   // Positional node seqs always refer to committed log events.
   // oxlint-disable-next-line typescript/no-deprecated
-  const systemTokens = head !== undefined && session.eventAt(head.seq)?.type === 'system/message'
-    ? head.tokens
-    : 0
+  const hasSystemHead = head !== undefined && session.eventAt(head.seq)?.type === 'system/message'
+  const systemTokens = hasSystemHead ? head.tokens : 0
   const fixedTokens = Math.max(0, measurement.totalTokens - measurement.surfaceTokens) + systemTokens
   const minimumCheckpointTokens = meter.estimateMessage(createUserMessage({
     content: frameSummary([{ type: 'text', text: 'x' }]),
@@ -47,7 +48,12 @@ export function selectPressureRange(
   }))
   const retainedBudget = Math.min(spec.retainTokens, spec.thresholdTokens - fixedTokens - minimumCheckpointTokens - 1)
   if (retainedBudget < 0) return null
-  for (const retention of [retainedBudget, 0]) {
+  const protectedStart = measurement.nodes.findIndex((node, index) => (
+    !(hasSystemHead && index === 0) && protectedNodes?.has(node.seq)
+  ))
+  const minimumRetention = protectedStart < 0 ? 0
+    : measurement.nodes.slice(protectedStart).reduce((total, node) => total + node.tokens, 0)
+  for (const retention of [Math.max(retainedBudget, minimumRetention), minimumRetention]) {
     const range = selectCompactableRange(session, measurement, retention)
     if (range === null) continue
     const start = measurement.nodes.findIndex(node => node.seq === range.start)

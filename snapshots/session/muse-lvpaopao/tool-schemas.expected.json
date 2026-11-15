@@ -2,7 +2,7 @@
   "initial": [
     {
       "name": "lvpaopao",
-      "description": "Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. engagement accepts an exact title or selected source IDs and reads all catalog episodes, returning likes, comments, all-user recommendations and shares with episode rows and observation times. Optional episodeNo selects one episode. Totals are episode sums, not distinct people; missing counts remain null with coverage and knownTotals. It never likes, comments, recommends, shares or downloads. download_series accepts a title (asks for selection when ambiguous) or selected source IDs, persists each actual episode and resumes the same task. Only account-playable episodes are downloaded; no purchases, ads or unlocks. series_status reads local task progress by source IDs without a native connection. Completion requires every catalog episode and verified local files. Unknown outcomes require original-key download_status, never a fresh acquisition key. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.",
+      "description": "Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. engagement accepts an exact title or selected source IDs and reads all catalog episodes, returning likes, comments, all-user recommendations and shares with episode rows and observation times. Optional episodeNo selects one episode. Totals are episode sums, not distinct people; missing counts remain null with coverage and knownTotals. It never likes, comments, recommends, shares or downloads. download_series accepts a title (selection-required when ambiguous) or selected source IDs. mode defaults to wait; background returns series-queued with owned data.seriesTask.id/state/jobId and continues after the tool returns. That outer ID differs from data.series.taskId. Repeating download_series refreshes the catalog and rechecks saved files. series_status is local-only: supply either seriesTaskId alone or source IDs with outputDir. series_resume and series_cancel accept only seriesTaskId and only its original live Session can control it. Resume rechecks current file permission and saved receipts, explicitly recovers the shared connection through status, then reconciles unknown episodes with their original download_status keys before safe same-key retries. Restart marks interrupted tasks without replay; use series_resume explicitly. A missing previously used manifest blocks recovery. Background tasks can report waiting_user or waiting_source; queued does not establish completion. Only account-playable episodes are downloaded; no purchases, ads or unlocks. Completion requires every actual catalog episode and verified local files; unknown catalog coverage stays incomplete. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -18,9 +18,23 @@
               "download_status",
               "download_series",
               "series_status",
+              "series_resume",
+              "series_cancel",
               "rankings",
               "engagement"
             ]
+          },
+          "mode": {
+            "type": "string",
+            "description": "download_series: wait by default; background accepts an owned durable task without binding the finished tool signal.",
+            "enum": [
+              "wait",
+              "background"
+            ]
+          },
+          "seriesTaskId": {
+            "type": "string",
+            "description": "series_resume/series_cancel require only this outer data.seriesTask.id. series_status accepts it instead of source IDs/outputDir; never use data.series.taskId here."
           },
           "boardType": {
             "type": "integer",

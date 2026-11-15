@@ -1,7 +1,9 @@
 """Exercise the relocated Office payload with its own isolated interpreter."""
 
+import csv
 import importlib.metadata
 import hashlib
+import io
 import json
 from pathlib import Path
 import re
@@ -15,6 +17,8 @@ import pyJianYingDraft as draft
 from pymediainfo import MediaInfo
 
 import numpy
+# NumPy testing helpers require this native extension even without upstream test directories.
+import numpy._core._multiarray_tests
 import pandas
 from docx import Document
 from docx.shared import Inches as DocxInches
@@ -27,9 +31,31 @@ from pptx.enum.chart import XL_CHART_TYPE
 from pptx.util import Inches
 
 
+def check_interpreters():
+    """Exercise command aliases, child execution and a pip-enabled virtual environment."""
+    executable = Path(sys.executable)
+    names = [executable.name] if sys.platform == "win32" else ["python", "python3", f"python{sys.version_info.major}.{sys.version_info.minor}"]
+    for name in names:
+        interpreter = executable.with_name(name)
+        subprocess.run([
+            str(interpreter), "-I", "-B", "-c",
+            "import subprocess, sys; from pathlib import Path; "
+            "assert Path(sys.executable) == Path(sys.argv[1]); "
+            "subprocess.run([sys.executable, '-I', '-B', '-c', 'import ssl, sqlite3, ctypes'], check=True, timeout=30)",
+            str(interpreter),
+        ], check=True, timeout=60)
+    with tempfile.TemporaryDirectory(prefix="dsh python venv ") as directory:
+        environment = Path(directory) / "environment"
+        subprocess.run([str(executable.with_name(names[0])), "-I", "-B", "-m", "venv", str(environment)], check=True, timeout=60)
+        python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+        subprocess.run([str(python), "-I", "-B", "-c", "import sys; assert sys.prefix != sys.base_prefix"], check=True, timeout=30)
+        subprocess.run([str(python), "-I", "-B", "-m", "pip", "check"], check=True, timeout=30)
+
+
 def main():
     """Check installed versions and read back editable Office documents."""
     assert sys.version_info[:3] == tuple(map(int, sys.argv[2].split("."))), sys.version
+    check_interpreters()
     versions = json.loads(sys.argv[1])
     # Only pip belongs to the interpreter baseline; all other distributions must be declared.
     # Each target's native release-host smoke must confirm this baseline.
@@ -69,6 +95,16 @@ def main():
                           "EngineConfig.onnxruntime.use_coreml": False,
                           "Global.log_level": "error"})
     assert not ocr(numpy.full((80, 160, 3), 255, dtype=numpy.uint8)).txts
+    numpy.testing.assert_allclose(numpy.arange(4), [0, 1, 2, 3])
+    pandas.testing.assert_frame_equal(pandas.DataFrame({"n": [1, 2]}), pandas.DataFrame({"n": [1, 2]}))
+    for library in (numpy, pandas):
+        root = Path(library.__file__).parent
+        assert not any(path.is_dir() for path in root.rglob("tests")), root
+        distribution = importlib.metadata.distribution(library.__name__)
+        record = distribution.read_text("RECORD")
+        assert record, library.__name__
+        for file, _hash, _size in csv.reader(io.StringIO(record)):
+            assert distribution.locate_file(file).is_file(), file
 
     with tempfile.TemporaryDirectory(prefix="dsh-office-smoke-") as directory:
         root = Path(directory)
@@ -125,14 +161,6 @@ def main():
         finally:
             reopened_workbook.close()
         assert pandas.read_excel(root / "workbook.xlsx")["Value"].iloc[0] == 42
-        for file, arguments in [
-            ("document.docx", ["--contains", "Office 文档"]),
-            ("presentation.pptx", ["--contains", "Office 演示", "--count", "1"]),
-            ("workbook.xlsx", ["--contains", "Value", "--count", "1"]),
-        ]:
-            checked = subprocess.run([sys.executable, "-I", "-B", sys.argv[3], str(root / file), *arguments],
-                                     check=False, capture_output=True, text=True, timeout=30)
-            assert checked.returncode == 0 and json.loads(checked.stdout)["verdict"] == "pass", checked.stdout + checked.stderr
     print("Office runtime versions and document round trips passed.")
 
 

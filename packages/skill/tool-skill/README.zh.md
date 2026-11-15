@@ -25,6 +25,8 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 <a id="use-this-package"></a>
 ## 使用本包
 
+技能发现、目录更新与显式技能调用均使用 Session 的当前工作目录。
+
 与 skill 注册表一起挂载该插件，即可让 agent 拥有会话 skill 目录和 `skill` 加载工具。它需要 `ctx.agents`、`ctx.tools` 与 `ctx.skills`。
 
 ### 何时选择
@@ -50,6 +52,12 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 
 技能的 `whenToUse` 非空且与描述不同时，路由摘要按 `When to use: <whenToUse> Description: <description>` 发布。两段文字都规范化空白；提示为空或与规范化描述相同时，只保留描述。`catalogDescriptionMaxLength` 限制整个摘要，因此过长的触发条件可以占满预算并省略描述。持久目录条目在原有 `description` 字段中记录同一摘要。
 
+### 按来源选择摘要
+
+`catalogSourceLimits` 默认为空映射。只有完整的、允许模型调用的目录超过配置来源的正整数条目上限时，才缩短该来源；其他来源保留全部摘要。Desktop creation 仅配置 `muse-market: 12`。缩短后的目录独立于发现完整性记录 `bounded: true`，并提示模型使用仅查询元数据的 `skill_catalog` 工具发现全部允许的目录。没有实际裁剪时，既有目录文本、摘要标识和本步可用工具集合保持不变。
+
+`catalogPageSize` 默认为 20，接受 1 至 100 的整数。`skill_catalog` 接受可选的 `query`、`limit`，以及包含 `version`、`sessionId`、`digest`、规范化 `query` 和 `offset` 的透明 `cursor`。响应包含 `entries`、`totalMatched`、`catalogComplete: true` 与可选的 `nextCursor`。条目仅提供名称、描述、来源与可选触发提示，不提供指令正文或资源路径。游标绑定一个 Session 与一次目录观察；过时或属于其他会话的游标会被拒绝，发现不完整时返回明确错误。按精确名称加载 Skill 仍执行既有调用策略。
+
 ### 模型得到什么
 
 - **会话目录。** 当存在模型可调用 skill 且 `skill` 工具可见时，agent 会在首次请求前收到一条持久的用户角色消息，列出每个 skill 的名称与有长度上限的路由摘要；该消息告诉模型在着手任务前先用工具加载 skill，且绝不能仅凭摘要推断指令。
@@ -59,7 +67,7 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 
 ### 可观察的成功与失败
 
-加载列出的 skill 会返回其完整指令；无论加载来自工具还是用户的显式调用，模型看到的都是同一种规范形态。无效名称会报告 `Error: invalid skill name "<name>"`，未知名称会报告该 skill 未知或已不可用，被禁用模型调用的 skill 会报告其不可用于模型调用。如果从未发布过目录，并且不存在模型可调用 skill，或 `skill` 工具被隐藏或遮蔽，则会整体省略目录；目录发布后，无论可见性丧失——`skill` 工具被隐藏或被同名作用域工具遮蔽——还是删除全部 skill，都会改为追加空目录来停用旧名称。
+加载列出的 skill 会返回其完整指令；无论加载来自工具还是用户的显式调用，模型看到的都是同一种规范形态。无效名称会报告 `Error: invalid skill name "<name>"`，未知名称会报告该 skill 未知或已不可用，被禁用模型调用的 skill 会报告其不可用于模型调用。如果从未发布过目录，并且发现完整且不存在模型可调用 skill，或 `skill` 工具被隐藏或遮蔽，则会整体省略目录；目录发布后，无论可见性丧失——`skill` 工具被隐藏或被同名作用域工具遮蔽——还是删除全部 skill，都会改为追加空目录来停用旧名称。
 
 -----
 
@@ -73,7 +81,7 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 
 ### 设计理念
 
-本包建立在两个想法之上。第一，目录是一种持久投影，按已发布条目的 digest 而非渲染后的正文做差异比较，因此 `<system-reminder>` 包装永远不会强制重新发布，消费方也不需要重新解析 `<available_skills>` 块。第二，一条规范渲染服务两条加载路径——工具结果与用户显式注入——经由共享自 `dsh-skill` 的 `renderSkillContent`，因此无论加载由谁发起，模型看到的都是同一种 `<skill_content>` 形态。
+本包建立在两个想法之上。第一，目录是一种持久投影，按已发布条目与完整性的 digest 而非渲染后的正文做差异比较，因此 `<system-reminder>` 包装永远不会强制重新发布，消费方也不需要重新解析 `<available_skills>` 块。第二，一条规范渲染服务两条加载路径——工具结果与用户显式注入——经由共享自 `dsh-skill` 的 `renderSkillContent`，因此无论加载由谁发起，模型看到的都是同一种 `<skill_content>` 形态。
 
 ### 源码地图
 
@@ -131,7 +139,7 @@ A user may also invoke a skill directly; its <skill_content> block then appears 
 
 #### Token 影响
 
-重复输入成本随 skill 数量和 `catalogDescriptionMaxLength` 增长；当列表为空或工具被隐藏或遮蔽时，不会发送初始目录 token。每次实际目录变更都会添加一条保留的完整替换消息。
+重复输入成本随 skill 数量和 `catalogDescriptionMaxLength` 增长；当发现完整且列表为空，或工具被隐藏或遮蔽时，不会发送初始目录 token。每次已发布条目变化都会添加一条保留的替换消息；发现不完整时不添加目录 token。恢复出的不完整目录仍可读取，并在发现完整后被替换。
 
 #### KV Cache 影响
 
@@ -234,6 +242,20 @@ Load referenced resources only as needed.
 #### KV Cache 影响
 
 仅追加；注入落在该步骤的消息批次中、可重用请求前缀之后，不会使现有 KV Cache 条目失效。
+
+### 元数据目录查询
+
+#### 模型看到什么
+
+受来源上限约束的目录明确标记为已选择摘要，并且只有其所属加载器提供 `skill_catalog`。完整元数据分页包含全部允许的匹配项，包括被摘要选择省略的名称；普通 `skill` 调用仍会先检查调用权限，再加载正文。发现不完整时拒绝目录查询；过期、跨会话和无效游标返回结构化 `SkillCatalogError` 错误码。
+
+#### Token 影响
+
+初始选择摘要减少配置来源的目录 token。每次查询增加保留的元数据工具结果 token；只有另外一次被允许的加载才会添加指令正文。
+
+#### KV Cache 影响
+
+选择不变时保留目录前缀；选择变化时追加替换目录。目录结果作为普通工具历史追加。
 
 ## 已知限制与延期工作
 

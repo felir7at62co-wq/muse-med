@@ -12,8 +12,14 @@
   en: 2a25ab611c404ce7
   zh: 2afdad2b7e85393a
 /muse-accounts-gateway/administrator-account-overview:
-  en: 81e689608bddf767
-  zh: deb43d5e4947ba80
+  en: 5e3156e32e6d3645
+  zh: a3033124c7959fee
+/muse-accounts-gateway/feedback-inbox:
+  en: 6b766362eca0b7e3
+  zh: c7804191da7c1e19
+/muse-accounts-gateway/skill-market-proxy:
+  en: 6dc626eff735e247
+  zh: c6d0d7e0f7e3e6d0
 /muse-accounts-gateway/feishu-login:
   en: ce9fd125beeea90b
   zh: 0519988efc718734
@@ -27,17 +33,20 @@
   en: fc1654f0ee713f42
   zh: 5e58dbb2ae81e16b
 /muse-accounts-gateway/release-inputs/account-sessions:
-  en: a43858bf0b65398d
-  zh: 05bf568fa29048b2
+  en: 7c7c2de8cdd54bc9
+  zh: 0a9a330475dbca58
 /muse-accounts-gateway/release-inputs/asr-application-pools:
-  en: 400a972b561bc630
-  zh: 1de77ac69cf5ab87
+  en: ffd6362db9302bb5
+  zh: ea2043484f2600bf
+/muse-accounts-gateway/release-inputs/model-request-diagnostics:
+  en: 9386a54ab336f13a
+  zh: 47b6dfbc0f791a61
 /muse-accounts-gateway/release-inputs/model-key-pools:
   en: 1da02e9291111b92
   zh: 6e68091845c340d1
 /muse-accounts-gateway/desktop-website-access:
-  en: be46fcba84d45a11
-  zh: d2ee59e91d359fa8
+  en: 2adf726fe462c24a
+  zh: 9cf70c332d0a2a07
 /muse-accounts-gateway/muse-llm-wiki:
   en: 0d62ac1e79d43bba
   zh: 03a9df2b47753589

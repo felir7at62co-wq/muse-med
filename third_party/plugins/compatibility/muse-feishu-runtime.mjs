@@ -58,7 +58,7 @@ export async function readWorkspaceFile(cwd, path, maxFileBytes) {
 }
 
 /** Preserve the product preset and persisted model choice when creating or resuming an Agent. */
-export function createMuseAgentStore(ctx, config, selectionFor, owned, setupTools = () => {}) {
+export function createMuseAgentStore(ctx, config, _selectionFor, owned, setupTools = () => {}) {
   const checkHeader = header => {
     if (header?.origin === 'subagent' || header?.parentSession !== undefined) throw new Error('Feishu cannot adopt a delegated Session')
   }
@@ -75,14 +75,8 @@ export function createMuseAgentStore(ctx, config, selectionFor, owned, setupTool
     return {
       id: preset.id,
       setup: async (agentCtx, agent) => {
-        const pending = ctx.sessionProjections.stateOf(agent.session, 'modelSelection')?.pending
-        const logged = agent.session.requestHeader()?.config
-        const defaults = ctx.agentDefaultModel.currentSelection()
-        const model = pending ?? logged ?? defaults
-        selectionFor(agentCtx).current = {
-          provider: model.provider, model: model.model,
-          ...(model.reasoningEffort === undefined ? {} : { reasoningEffort: model.reasoningEffort }),
-        }
+        const current = agent.model.current()
+        if (current === undefined) agent.model.select(ctx.agentDefaultModel.currentSelection())
         await presets.mount(agentCtx, preset.id)
         setupTools(agentCtx, agent)
         const denied = new Set(config.denyTools.filter(tool => tool !== 'ask_user_question'))
@@ -162,7 +156,7 @@ export function mountMuseFeishu(ctx, raw, upstream, dependencies) {
   if (ctx.fiber.entry?.options.id !== 'feishu-channel') throw new Error('The Muse Feishu provider must be mounted as feishu-channel')
   const config = { ...raw, ...Object.fromEntries(['appId', 'appSecret', 'registeredBy', 'allowFrom', 'activeSessionId'].map(key => [key, raw[key].get()])) }
   if (!config.appId || !config.appSecret) throw new Error('Feishu requires an app ID and secret before activation')
-  ctx.inject(['agents', 'sessions', 'sessionPersistence', 'sessionProjections', 'agentPresets', 'agentDefaultModel', 'tools', 'settings'], async scope => {
+  ctx.inject(['agents', 'sessions', 'sessionPersistence', 'agentPresets', 'agentDefaultModel', 'tools', 'settings'], async scope => {
     const identity = createHash('sha256').update(JSON.stringify([config.appId, config.registeredBy])).digest('hex')
     const dataDir = join(config.dataDir ?? dshHomePath('feishu'), 'accounts', identity)
     const defaultCwd = config.defaultCwd ?? dshHomePath('default-workspace')

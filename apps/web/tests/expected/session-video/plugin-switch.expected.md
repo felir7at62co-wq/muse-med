@@ -1,0 +1,9 @@
+- Optional presentation: disabled
+- Native header: standard; Chat tab available
+- Original video player: available
+- Spider, spacer, absorption layers: removed
+- Transcript: same mounted instance
+- Composer draft: preserved
+- Background job: running
+- text: Video bubble and timeline Enable the Muse bubble, shot timeline and video collection animation. Turn off to restore the original interface immediately.
+- switch "Video bubble and timeline"

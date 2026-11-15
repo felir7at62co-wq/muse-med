@@ -1,0 +1,9 @@
+Muse Skill Evolution
+Copyright 2026 Muse contributors
+
+Reusable-experience review criteria are adapted from DS Bot 0.2.4 by Fei2411,
+distributed under the Apache License, Version 2.0.
+https://github.com/Fei2411/DS-Bot
+
+The independent provider, native persisted review Sessions, permission checks,
+transactional Skill storage, tools and packaging are Muse modifications.

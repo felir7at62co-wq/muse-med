@@ -5,8 +5,8 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { promisify } from 'node:util'
+import { dirname, join, resolve } from 'node:path'
+import { parseArgs, promisify } from 'node:util'
 import { readAsar } from 'app-builder-lib/out/asar/asar.js'
 import { getPath7za } from 'app-builder-lib/out/toolsets/7zip.js'
 import { isEntry } from '../../../scripts/release/process.ts'
@@ -24,7 +24,7 @@ interface AcceptanceIdentity {
   readonly sourceCommit: string
 }
 
-const PREVIOUS_VERSION = '1.1.6'
+const PREVIOUS_VERSION = '1.2.5'
 
 /**
  * Resolve the published baseline whose original installer bytes qualify replacement upgrades.
@@ -38,16 +38,16 @@ export function museAcceptancePreviousRelease(target: AcceptanceIdentity['target
   manifestResource: MediaResource
 } {
   const windows = target === 'win-x64'
-  const filename = windows ? 'muse-med-1.1.6-win-x64.exe' : 'muse-med-1.1.6-mac-arm64.dmg'
+  const filename = `muse-med-${PREVIOUS_VERSION}-${windows ? 'win-x64.exe' : 'mac-arm64.dmg'}`
   return { target, version: PREVIOUS_VERSION, resource: {
-    filename, url: `https://github.com/felir7at62co-wq/muse-med/releases/download/v1.1.6/${filename}`,
-    bytes: windows ? 763909506 : 781147422,
-    sha256: windows ? '4a8793c20127134a8f764aa59babe61723f4f89ec2d86580fcf52fc6b4749292'
-      : 'd5485e651dfcc5700c9e978c871dcc48d524d0d37e36fb32695ce1e7904a56ba',
+    filename, url: `https://github.com/felir7at62co-wq/muse-med/releases/download/v${PREVIOUS_VERSION}/${filename}`,
+    bytes: windows ? 817784839 : 872623462,
+    sha256: windows ? '50423c1ec024e7dfc82959ea02039d5f8de238796ddba001ebb9fcfbbd43f7db'
+      : '5b40473d559ad4c7eeff1cf68422c74b6fcd727d08db8510bb4f93a202443e66',
   }, manifestResource: {
     filename: 'muse-desktop-builds.json',
-    url: 'https://github.com/felir7at62co-wq/muse-med/releases/download/v1.1.6/muse-desktop-builds.json',
-    bytes: 2458, sha256: '72bd6cc6f8debe99265d7a3dd3e91d67d66a11d8294c0eece3e695ae4f466c42',
+    url: `https://github.com/felir7at62co-wq/muse-med/releases/download/v${PREVIOUS_VERSION}/muse-desktop-builds.json`,
+    bytes: 2504, sha256: 'c2e4a2c1704ac73d3d8f2cc75e1d004ee11a5daf9fbbaf047232fbc01c47ae82',
   } }
 }
 
@@ -59,14 +59,12 @@ export function museAcceptancePreviousRelease(target: AcceptanceIdentity['target
  */
 export function museAcceptancePreviousIdentity(value: unknown, target: AcceptanceIdentity['target']): AcceptanceIdentity {
   const previous = museAcceptancePreviousRelease(target)
-  assert.ok(record(value) && value.version === previous.version && typeof value.sourceCommit === 'string'
-    && /^[a-f0-9]{40}$/u.test(value.sourceCommit) && Array.isArray(value.builds),
+  assert.ok(record(value) && value.schemaVersion === 1 && value.version === previous.version && typeof value.sourceCommit === 'string'
+    && /^[a-f0-9]{40}$/u.test(value.sourceCommit) && record(value.builds),
   'Installer acceptance: invalid previous release manifest')
-  const builds: unknown[] = value.builds
-  const selected = builds.filter(build => record(build) && build.target === target)
-  assert.equal(selected.length, 1, 'Installer acceptance: missing or duplicate previous target build')
+  assert.ok(Object.hasOwn(value.builds, target), 'Installer acceptance: missing previous target build')
   const identity: AcceptanceIdentity = { target, version: previous.version, sourceCommit: value.sourceCommit }
-  const digest = museAcceptanceArtifact(selected[0], identity, previous.resource.filename)
+  const digest = museAcceptanceArtifact(value.builds[target], identity, previous.resource.filename)
   assert.equal(digest.size, previous.resource.bytes, 'Installer acceptance: previous manifest installer size differs')
   assert.equal(digest.sha256, previous.resource.sha256, 'Installer acceptance: previous manifest installer checksum differs')
   return identity
@@ -204,6 +202,7 @@ export function assertMuseInstalledUnchanged(before: Readonly<Record<string, str
 }
 
 async function main(): Promise<void> {
+  const { values } = parseArgs({ options: { 'previous-release-cache': { type: 'string' } } })
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Installer acceptance requires a disposable GitHub Actions runner')
   const target = process.env.MUSE_RELEASE_TARGET
   assert.ok(target === 'win-x64' || target === 'mac-arm64', 'Installer acceptance: unsupported target')
@@ -298,8 +297,9 @@ async function main(): Promise<void> {
     await persist()
 
     const previousRelease = museAcceptancePreviousRelease(target)
-    const downloads = join(root, 'downloads')
-    await mkdir(downloads)
+    const downloads = values['previous-release-cache'] === undefined
+      ? join(root, 'downloads') : resolve(values['previous-release-cache'])
+    await mkdir(downloads, { recursive: true })
     const previousManifestPath = await obtain(previousRelease.manifestResource, downloads)
     const previous = museAcceptancePreviousIdentity(JSON.parse(await readFile(previousManifestPath, 'utf8')), target)
     const previousInstaller = await obtain(previousRelease.resource, downloads)

@@ -80,7 +80,7 @@ async function fixture(version: string, channel: string, sources: readonly Deskt
   const states: DesktopUpdateState[] = []
   const coordinator = new DesktopUpdateCoordinator((state) => { states.push(state); return state }, async () => {
     throw new Error('Update discovery must not prepare installation')
-  }, updater, () => true, () => version, undefined, sources)
+  }, updater, () => true, () => version, undefined, sources, 'win32', channel === 'latest' ? 'latest' : 'nightly')
   coordinators.push(coordinator)
   return { coordinator, updater, executor, responses, root, states }
 }
@@ -102,9 +102,11 @@ describe('Muse GitHub updater discovery', () => {
   it.each(['rc', 'latest'])('retains legacy RC discovery through packaged %s metadata', async (channel) => {
     const f = await fixture('0.1.7-rc.8', channel)
     expect(await f.coordinator.check(true)).toMatchObject({ phase: 'available', version: stable })
-    expect(f.updater.allowPrerelease).toBe(true)
+    expect(f.updater.allowPrerelease).toBe(channel !== 'latest')
     expect(f.updater.allowDowngrade).toBe(false)
-    expect(f.executor.requests).toEqual([`${base}.atom`, `${base}/download/${rcTag}/rc.yml`])
+    expect(f.executor.requests).toEqual(channel === 'latest'
+      ? [`${base}.atom`, `${base}/latest`, `${base}/download/v${stable}/latest.yml`]
+      : [`${base}.atom`, `${base}/download/${rcTag}/rc.yml`])
   })
 
   it('retains beta discovery and excludes non-semantic runtime tags', async () => {

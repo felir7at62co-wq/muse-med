@@ -180,7 +180,7 @@ try {
   const config = () => {
     const entry = [...ctx.loader.entries()].find(row => row.options.id === 'feishu-channel')
     assert.equal(entry?.fiber?.state, FiberState.ACTIVE)
-    return entry.fiber.config
+    return entry.fiber.effectiveConfig
   }
   await start()
   if (scenario === 'lifecycle') {

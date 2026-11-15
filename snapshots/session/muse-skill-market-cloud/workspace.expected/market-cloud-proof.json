@@ -1,0 +1,19 @@
+{
+  "publicationId": "22222222222222222222222222222222",
+  "publisherId": "11111111111111111111111111111111",
+  "archiveSha256": "3a4b831f9eb10b66235ec1ad5ed659584d0fb444edf51afb19dfb809e48d97f0",
+  "realGatewayAuthentication": true,
+  "privateDraftRefusedToReader": true,
+  "explicitSubmissionAndApproval": true,
+  "publishedRevision": 3,
+  "wholeArchivePreserved": true,
+  "distinctLocalAndCloudIdentities": true,
+  "localInstallDisabled": true,
+  "activationDefaultsUnchanged": true,
+  "completeResultsReachedNextModel": true,
+  "modelRequests": 6,
+  "toolCalls": 5,
+  "ptcDispatchStarts": 0,
+  "ptcDispatchSettles": 0,
+  "tenantStarts": 0
+}

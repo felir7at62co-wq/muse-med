@@ -990,4 +990,13 @@ describe('Windows Job runner protocol owner', () => {
     await reportSpawnRunnerFailure(undefined, new Error('no selector'), hostArgument(noSelection))
     expect(noSelection.exitCode).toBe(127)
   })
+
+  it('rejects a connected reporting transport without its disconnect operation', async () => {
+    const host = new FakeRunnerHost()
+    Object.defineProperty(host, 'disconnect', { value: undefined })
+    await expect(reportSpawnRunnerFailure(WINDOWS_RUNNER_SELECTION, new Error('early'), hostArgument(host)))
+      .rejects.toThrow('connected IPC has no disconnect method')
+    expect(host.exitCode).toBe(127)
+    expect(host.sent).toMatchObject([{ type: 'error' }])
+  })
 })

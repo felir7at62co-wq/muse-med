@@ -83,6 +83,8 @@ export function apply(ctx) {
         throw new Error('Candidate generation cannot confirm casting automatically')
       } else if (url.pathname.endsWith('/aigc/storyboard/916953') && method === 'GET') {
         data = storyboard
+      } else if (url.pathname.endsWith('/aigc/storyboard/byStoryboard/916953') && method === 'GET') {
+        data = []
       } else if (url.pathname.endsWith('/aigc/storyboard') && method === 'PUT') {
         const body = JSON.parse(init.body)
         const config = JSON.parse(body.modelConfig)

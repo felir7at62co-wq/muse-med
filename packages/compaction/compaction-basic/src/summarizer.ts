@@ -5,7 +5,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { contentHasImage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, BlockAssembler, LlmError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type {
   ContentBlock, FinishReason, GenerateOptions, Message, RequestMessage, TokenUsage, ToolSchema,
@@ -13,6 +13,9 @@ import type {
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 interface SummaryConfig {
+  readonly adaptiveBudget: boolean
+  readonly thresholdRatio: number
+  readonly headroomTokens: number
   readonly summarizationProvider: string
   readonly summarizationModel: string
   readonly maxTokens: number
@@ -47,13 +50,13 @@ const COMPACTION_INSTRUCTION = [
   '- [error: how it was resolved, plus any related user feedback]',
   '',
   '## Pending Jobs',
-  '- [explicitly requested work not yet completed]',
+  '- [every requested item not yet completed or verified; delegated items with exact scope, owner, identifiers, progress, pending replies, output locations, and completion checks]',
   '',
   '## Current Work',
   '- [precisely what was in progress at this checkpoint]',
   '',
   '## Next Step',
-  '- [the single next action, directly in line with the most recent request, or "(none)"]',
+  '- [the single next action toward the unfinished objective, incorporating the latest steering, or "(none)" only when nothing remains]',
   '',
   '## Critical Context',
   '- [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]',
@@ -61,6 +64,8 @@ const COMPACTION_INSTRUCTION = [
   'Rules:',
   '- Write concise English engineering prose. Preserve exact file paths, commands, error strings, identifiers, numeric values, function signatures, and syntax fragments.',
   '- Capture user feedback and explicit instructions faithfully, especially corrections.',
+  '- Preserve the full unfinished objective across status questions and corrections unless the user explicitly cancels or replaces it. Distinguish requested scope, assigned scope, reported progress, and verified completion; a finished turn, idle agent, or partial reply does not establish task completion.',
+  '- Preserve the existing todo and active goal state when present, including unfinished items and the next continuation. Treat current files, tool results, and durable session state as evidence to check before repeating work; do not invent completion or perform pending work in this summary.',
   '- Do NOT mention this summarization request or that the context was compacted.',
   '- Output only the checkpoint text: do not call any tool or take any other action.',
   `- If the conversation already contains a ${SUMMARY_OPEN_TAG} block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.`,
@@ -128,17 +133,50 @@ export async function summarizeWithLlm(
   const configured = config.summarizationProvider.length === 0
     ? undefined
     : { provider: config.summarizationProvider, model: config.summarizationModel }
-  const agentTarget = agent.options.provider !== undefined
-    && agent.options.provider.length > 0
-    && agent.options.model !== undefined
-    && agent.options.model.length > 0
-    ? { provider: agent.options.provider, model: agent.options.model }
-    : undefined
+  const agentTarget = agent.model.current()
   const target = configured ?? latest ?? agentTarget
   if (target === undefined) {
     throw new Error(
-      'no provider/model available for summarization: set both BasicCompactionConfig summarization fields, route one request, or set both AgentOptions fields',
+      'no provider/model available for summarization: set both BasicCompactionConfig summarization fields, route one request, or select an Agent model',
     )
+  }
+
+  let maxTokens = config.maxTokens
+  if (config.adaptiveBudget) {
+    const info = await ctx.llm.resolveModelInfo(target.provider, target.model, signal)
+    signal?.throwIfAborted()
+    // The adapter default is not a provider hard limit, but is a conservative cap.
+    if (info.defaultMaxTokens !== undefined) maxTokens = Math.min(maxTokens, info.defaultMaxTokens)
+    if (info.context !== undefined) {
+      const meter = ctx.tokenMeter
+      const current = meter.measure(agent.session)
+      const prices = new Map<Message['id'], number>()
+      for (const node of current.nodes) {
+        // Existing Session history read; migration deferred.
+        // oxlint-disable-next-line typescript/no-deprecated
+        const event = agent.session.eventAt(node.seq)
+        if (event === undefined) continue
+        const message = agent.session.deriveEventMessage(event)
+        if (message !== null) prices.set(message.id, Math.max(node.tokens, node.heuristicTokens))
+      }
+      const instruction = createUserMessage({
+        content: [{ type: 'text', text: COMPACTION_INSTRUCTION }], source: { kind: 'user' },
+      })
+      const tools = input.tools === undefined || input.tools.length === 0 ? 0 : meter.estimateMessage(createUserMessage({
+        content: [{ type: 'text', text: JSON.stringify(input.tools) }], source: { kind: 'user' },
+      }))
+      const estimatedInput = tools + meter.estimateMessage(instruction)
+        + input.messages.reduce((total, message) => total + (prices.get(message.id) ?? meter.estimateMessage(message)), 0)
+      const available = info.context.contextWindow - estimatedInput
+      if (available <= 0) throw new Error('estimated summary input exceeds the summary model context window')
+      const headroom = config.headroomTokens >= available
+        ? Math.floor(available * config.thresholdRatio)
+        : config.headroomTokens
+      if (config.headroomTokens > 0 && headroom === 0) {
+        throw new Error('estimated summary input leaves no safety headroom')
+      }
+      maxTokens = Math.min(maxTokens, available - headroom)
+    }
   }
 
   const assembler = new BlockAssembler()
@@ -155,7 +193,7 @@ export async function summarizeWithLlm(
     messages,
     toolHistory: agent.session.toolHistory(),
     ...input.tools === undefined ? {} : { tools: [...input.tools] },
-    maxTokens: config.maxTokens,
+    maxTokens,
     sessionId: agent.session.id,
     purpose: 'compaction',
     ...signal === undefined ? {} : { signal },
@@ -175,7 +213,7 @@ export async function summarizeWithLlm(
     llmStreamCall: true,
     provider: options.provider,
     model: options.model,
-    maxTokens: config.maxTokens,
+    maxTokens,
     ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
   }
 }

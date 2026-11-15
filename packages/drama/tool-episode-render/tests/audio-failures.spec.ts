@@ -111,6 +111,27 @@ it('returns explicit missing-plan and missing-composer observations through the 
   expect(report.written).toHaveLength(4)
 })
 
+it('omits music warnings for an explicit no-music audition', async () => {
+  const f = await fixture('no_bgm')
+  const report = await runDramaRender({ method: 'audio_preview', project: f.project, episode: 1,
+    timeline: f.timelinePath, audio: f.audio, mixProfile: f.profilePath,
+    startSeconds: 0, durationSeconds: 1 }, f.settings)
+  expect(report.audio_mix).toMatchObject({ mode: 'no_bgm', music_audio: '' })
+  expect(report.warnings.join('\n')).not.toContain('未提供配乐计划')
+  expect(report.warnings.join('\n')).not.toContain('未提供匹配的配乐合成收据')
+})
+
+it('marks semantic limits when auditioning an explicitly ducked music bed', async () => {
+  const f = await fixture()
+  await writeFile(f.profilePath, JSON.stringify({ schema_version: 1, mode: 'ducking', analysis_window_ms: 100,
+    ducking: { threshold_db: -30, ratio: 8, attack_ms: 20, release_ms: 200, knee: 2 } }))
+  const report = await runDramaRender({ method: 'audio_preview', project: f.project, episode: 1,
+    timeline: f.timelinePath, audio: f.audio, mixProfile: f.profilePath, bgm: f.bgm,
+    startSeconds: 0, durationSeconds: 1 }, f.settings)
+  expect(report.audio_mix).toMatchObject({ mode: 'ducking' })
+  expect(report.warnings.join('\n')).toContain('不是语义 VAD')
+})
+
 it('skips non-frame loudness output while retaining a measured full-window row', async () => {
   const toolkit: MediaToolkit = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: { run: async () => ({ code: 0,
     stdout: 'diagnostic\nframe:0 pts:0 pts_time:3\nlavfi.r128.M=-20\nlavfi.r128.S=-22\n', stderr: '' }) } }

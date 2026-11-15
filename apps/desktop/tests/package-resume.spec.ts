@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { attempt } from '../../../scripts/release/process.ts'
 import {
@@ -187,6 +187,23 @@ describe('desktop package reuse inventory', () => {
 })
 
 describe('desktop package step table', () => {
+  it('requires a fresh private Skill-market archive when reusing the Host packaging step', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-market-pack-reuse-'))
+    created.push(root)
+    const host = desktopPackageSteps(process.cwd(), 'mac-arm64', true).find(step => step.id === 'S3')!
+    const market = host.artifacts.find(artifact => artifact.label.includes('Skill market'))
+    expect(market).toBeDefined()
+    for (const artifact of host.artifacts.filter(artifact => artifact !== market)) {
+      const file = join(root, artifact.glob)
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, 'fixture archive')
+    }
+    const baseline = { head: 'a'.repeat(40), committedAtMs: Date.now() - 60_000, treeChanges: [] }
+    const inventory = collectReusedArtifacts(root, [host], 1, baseline)
+    expect(inventory.missing).toHaveLength(1)
+    expect(() => { assertReusableArtifacts(inventory, baseline) }).toThrow(/Skill market/u)
+  })
+
   it('names the thirteen steps in execution order and selects a range from the flags', () => {
     const steps = desktopPackageSteps(process.cwd(), 'win-x64', false)
     expect(steps.map(step => step.id)).toEqual([

@@ -15,3 +15,14 @@ test('feedback HTTP authenticates, fences ownership/CSRF and exports only to adm
  assert.equal((await(await req('/api/muse.feedback/'+item.id,alice)).json()).reply,'已安排');
  const invalid=await req('/api/muse.feedback',alice,{method:'POST',body:'not-json'});assert.equal(invalid.status,400);
 });
+test('feedback HTTP returns one account-owned receipt for retried submissions and rejects changed content',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-feedback-retry-http-'));t.after(()=>rm(dir,{recursive:true,force:true}));const store=await openStore(join(dir,'accounts'));for(const username of ['alice','bob'])await store.create(username,'pw');
+ const feedback=await openFeedback(join(dir,'feedback')),origin='https://muse.test',server=createAccountServer({store,feedback,runtime:{ensure:async()=>{throw Error('feedback independent of model runtime');}},publicOrigin:origin});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>server.close(resolve)));const base='http://127.0.0.1:'+server.address().port;
+ const login=async username=>(await fetch(base+'/login',{method:'POST',headers:{origin},body:new URLSearchParams({username,password:'pw'}),redirect:'manual'})).headers.get('set-cookie').split(';')[0];const alice=await login('alice'),bob=await login('bob');
+ const request=(cookie,input)=>fetch(base+'/api/muse.feedback',{method:'POST',headers:{origin,cookie,'content-type':'application/json'},body:JSON.stringify(input)});const draft={requestId:'feedback-retry-1',title:'功能建议',category:'suggestion',body:'希望支持批量选择'};
+ const responses=await Promise.all([request(alice,draft),request(alice,draft)]);assert.deepEqual(responses.map(response=>response.status),[201,201]);const receipts=await Promise.all(responses.map(response=>response.json()));assert.equal(receipts[0].id,receipts[1].id);
+ assert.equal((await request(alice,{...draft,body:'不同的建议'})).status,409);const other=await request(bob,draft);assert.equal(other.status,201);assert.notEqual((await other.json()).id,receipts[0].id);
+ const own=await fetch(base+'/api/muse.feedback/'+receipts[0].id,{headers:{cookie:alice}});assert.equal(own.status,200);assert.equal((await own.json()).requestId,draft.requestId);
+ assert.equal((await fetch(base+'/api/muse.feedback/'+receipts[0].id,{headers:{cookie:bob}})).status,404);
+ assert.equal((await request(alice,{...draft,requestId:'bad id'})).status,400);
+});

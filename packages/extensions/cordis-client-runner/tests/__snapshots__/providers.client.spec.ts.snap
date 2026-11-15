@@ -1,0 +1,110 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Client inspect providers > reports the resolved View owner field when inspecting Conversation overlays 1`] = `
+{
+  "input": {
+    "root": "conversation.content.overlay",
+  },
+  "provider": "Slots",
+  "query": "listSubTree",
+  "result": {
+    "referencedTypes": [],
+    "requestedRoot": {
+      "available": true,
+      "name": "conversation.content.overlay",
+    },
+    "selected": {
+      "catalog": {
+        "description": "Non-flowing Session overlays outside the Chat stacking context; occupants own their panel rank below dialogs.",
+        "hookContext": "",
+        "keyDomain": "",
+        "ownerProps": [
+          "/** Current View supplied to non-flowing overlays by their owning Conversation. */
+export interface ConversationContentOverlayOwnerProps {
+  /** Resolved registered View, or null while no View is available. */
+  activeView: string | null
+}",
+        ],
+        "ownerPropsReferences": [],
+        "registration": [
+          {
+            "description": "Your cell key. Use an id of your own: a fresh id is added beside the shipped entries, while reusing a shipped id puts you in THAT cell and replaces it. Owners that filter by id address you by it.",
+            "name": "id",
+            "required": true,
+            "type": "string",
+          },
+          {
+            "description": "Position among the entries, ascending (default 0).",
+            "name": "order",
+            "required": false,
+            "type": "number",
+          },
+          {
+            "description": "Display text where the owner projects one (nav rows, tabs). A thunk is re-read on every projection, so localized text follows the active locale without re-registering.",
+            "name": "label",
+            "required": false,
+            "type": "string | (() => string)",
+          },
+        ],
+        "replaceRisk": "none",
+        "slotInject": "",
+        "standardProps": [
+          "useRemoteAccess: (action: RemoteEndpoint) => boolean",
+          "useResource: UseResource",
+          "useContextMenu: UseContextMenu",
+          "useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>",
+          "usePanelInfo: UsePanelInfo",
+          "useSessions: UseSessions",
+          "useSessionStatus: UseSessionStatus",
+          "useSessionRetainInfo: UseSessionRetainInfo",
+          "useSessionAccess: (sessionId: SessionId, action: RemoteEndpoint) => boolean",
+          "useWorkspaceAccess: (workspaceId: WorkspaceId, action: RemoteEndpoint) => boolean",
+          "useChat: UseChat",
+          "useConversation: UseConversation",
+          "useInput: SnapshotSelectorHook<InputState>",
+          "inputActions: InputActions",
+          "useSession: SessionSnapshotSelector",
+          "sessionId: SessionId",
+          "useProjection: UseProjection",
+          "useAccess: (action: RemoteEndpoint) => boolean",
+          "useTrajectory: UseTrajectory",
+        ],
+      },
+      "declaredBy": "factory "provider.conversation-overlay" (root)",
+      "kind": "list",
+      "name": "conversation.content.overlay",
+      "occupants": [],
+      "scope": "session",
+      "type": "slot",
+    },
+    "trees": [
+      {
+        "children": [],
+        "kind": "list",
+        "name": "conversation.content.overlay",
+        "purpose": "Non-flowing Session overlays outside the Chat stacking context; occupants own their panel rank below dialogs.",
+        "registration": [
+          {
+            "name": "id",
+            "required": true,
+            "type": "string",
+          },
+          {
+            "name": "order",
+            "required": false,
+            "type": "number",
+          },
+          {
+            "name": "label",
+            "required": false,
+            "type": "string | (() => string)",
+          },
+        ],
+        "replaceRisk": "none",
+        "scope": "session",
+        "type": "slot",
+      },
+    ],
+  },
+}
+`;

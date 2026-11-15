@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "task": "通读当前稿，核对事件先后、人物和道具状态、知情范围与集间衔接。只根据实际正文给出结论与精确原句依据；明确区分已证实冲突、正常变化及信息不足，不修改文件。",
+  "cases": [
+    { "id": "case-h01", "documents": [{ "role": "current", "path": "case-h01.md" }] },
+    { "id": "case-h02", "documents": [{ "role": "current", "path": "case-h02.md" }] }
+  ]
+}

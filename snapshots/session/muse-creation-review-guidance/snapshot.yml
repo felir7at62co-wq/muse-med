@@ -1,5 +1,5 @@
 version: 1
-# Load workspace-provided writing guides and retain explicit reads of historical references.
+# Load current delivery review guidance alongside the recorded writing guides.
 scenario: muse-creation-review-guidance
 profile: headless
 composition: muse-creation-review-guidance
@@ -11,4 +11,4 @@ header:
   class: muse-creation-review-guidance
   pin: true
 workspace:
-  setup: muse-creation-skills
+  setup: muse-current-delivery-review

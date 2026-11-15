@@ -9,6 +9,7 @@ import json
 import hashlib
 import io
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,6 +34,122 @@ def timeline(text, start, seconds_per_char):
     """One character timeline for a stretch of recognized text."""
     return [(char, start + index * seconds_per_char,
              start + (index + 1) * seconds_per_char) for index, char in enumerate(text)]
+
+
+class ScriptTextReviewTests(unittest.TestCase):
+    def review(self, subtitle):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plan = root / 'lines.json'
+            plan.write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['今晚盲品会。', '带好材料。']}]}), encoding='utf-8')
+            srt = root / 'selected.srt'
+            srt.write_text(subtitle, encoding='utf-8-sig')
+            before = srt.read_bytes()
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '40',
+                    '--lines', 'lines.json', '--review-srt', 'selected.srt']
+            with io.TextIOWrapper(io.BytesIO(), encoding='utf-8') as output:
+                with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output):
+                    ALIGN.main()
+                output.seek(0)
+                report = json.load(output)
+            self.assertEqual(srt.read_bytes(), before)
+            self.assertEqual(set(root.iterdir()), {plan, srt})
+            return report
+
+    def test_selected_srt_reports_a_replaced_character_across_different_splits(self):
+        report = self.review('1\n00:00:09,950 --> 00:00:10,590\n今晚\n\n'
+                             '2\n00:00:10,590 --> 00:00:12,590\n芒品会 带好材料\n')
+        self.assertEqual(report['status'], 'needs_review')
+        self.assertFalse(report['listening_verified'])
+        self.assertEqual(report['episode'], 40)
+        self.assertEqual(report['findings'], [{
+            'kind': 'replace', 'script': '盲', 'subtitle': '芒', 'shots': [1], 'cue_scope': 'changed',
+            'cues': [{'cue': 2, 'start': '00:00:10,590', 'end': '00:00:12,590'}],
+        }])
+
+    def test_matching_words_ignore_punctuation_and_merging(self):
+        report = self.review('1\n00:00:09,950 --> 00:00:12,590\n今晚盲品会，带好材料\n')
+        self.assertEqual(report['status'], 'text_matches')
+        self.assertEqual(report['findings'], [])
+
+    def test_missing_speech_uses_only_adjacent_cue_as_context(self):
+        report = self.review('1\n00:00:09,950 --> 00:00:12,590\n今晚盲品会\n')
+        finding, = report['findings']
+        self.assertEqual((finding['kind'], finding['script'], finding['cue_scope']), ('delete', '带好材料', 'adjacent'))
+
+    def test_rejects_invalid_timing_instead_of_reporting_a_match(self):
+        with self.assertRaisesRegex(SystemExit, '没有有效的时码'):
+            self.review('1\n00:00:12,590 --> 00:00:09,950\n今晚盲品会 带好材料\n')
+
+    def test_combined_recognition_flags_substitution_without_moving_measured_cues(self):
+        lines = ['今晚盲品会的预约函', '带好材料']
+        chars = timeline('今晚芒品会的预约函带好材料', 1.0, 0.2)
+        anchors = ALIGN.anchor(lines, chars)
+        differences = []
+        self.assertEqual(ALIGN.missing_script_speech(lines, anchors, chars, substitutions=differences), [])
+        self.assertEqual(differences, [{'line': 1, 'script': '盲', 'recognized': '芒', 'start': 1.4, 'end': 1.6}])
+        self.assertEqual(ALIGN.place(lines, anchors, 5), (anchors, ALIGN.ALL_ALIGNED))
+
+
+class ReviewCliTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        (self.root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['今晚盲品会。']}]}), encoding='utf-8')
+        (self.root / 'selected.srt').write_text('1\n00:00:00,000 --> 00:00:01,000\n今晚盲品会\n', encoding='utf-8-sig')
+
+    def files(self):
+        return {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+
+    def test_real_cli_rejects_empty_paths_and_every_present_conflict_without_writes(self):
+        common = [str(SCRIPTS / 'align_subtitles.py'), '--project', str(self.root), '--episode', '40']
+        cases = [(['--review-srt', value, '--lines', 'lines.json'], '必须是非空路径') for value in ('', '   ')]
+        cases += [(['--review-srt', 'selected.srt', '--lines', value], '必须是非空路径') for value in ('', '   ')]
+        cases += [(['--review-srt', 'selected.srt'], '必须显式传入 --lines')]
+        for option in ('--shots', '--out', '--cloud-transcripts', '--corrections', '--model-dir',
+                       '--model-url', '--model-sha256', '--cache-dir'):
+            for value in ('', 'must-not-be-used'):
+                cases.append((['--review-srt', 'selected.srt', '--lines', 'lines.json', option, value],
+                              '不接受识别或对齐参数'))
+        cases.append((['--review-srt', 'selected.srt', '--lines', 'lines.json', '--strict'], '不接受识别或对齐参数'))
+        before = self.files()
+        for extra, diagnostic in cases:
+            with self.subTest(arguments=extra):
+                result = subprocess.run([sys.executable, '-I', '-X', 'utf8', '-B', *common, *extra],
+                                        capture_output=True, text=True, encoding='utf-8', check=False)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(diagnostic, result.stderr)
+                self.assertEqual(result.stdout, '')
+                self.assertEqual(self.files(), before)
+
+    def test_review_reaches_no_recognition_media_model_or_download_boundary(self):
+        args = ['align_subtitles.py', '--project', str(self.root), '--episode', '40',
+                '--lines', 'lines.json', '--review-srt', 'selected.srt']
+        with io.TextIOWrapper(io.BytesIO(), encoding='utf-8') as output:
+            with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                    patch.object(ALIGN, 'resolve_model', side_effect=AssertionError('no model')), \
+                    patch.object(ALIGN, 'decode', side_effect=AssertionError('no media')), \
+                    patch.object(ALIGN, 'probe_seconds', side_effect=AssertionError('no probe')), \
+                    patch.object(ALIGN, 'transcribe', side_effect=AssertionError('no ASR')), \
+                    patch.object(ALIGN.subprocess, 'run', side_effect=AssertionError('no child')), \
+                    patch.object(ALIGN.urllib.request, 'urlopen', side_effect=AssertionError('no download')):
+                ALIGN.main()
+            output.seek(0)
+            self.assertEqual(json.load(output)['status'], 'text_matches')
+
+    def test_ordinary_alignment_keeps_omitted_and_explicit_model_hash_values(self):
+        for extra, expected in (([], ''), (['--model-sha256', ''], ''), (['--model-sha256', 'abc'], 'abc')):
+            def reached(args):
+                self.assertEqual(args.model_sha256, expected)
+                raise SystemExit('ordinary model resolution reached')
+            args = ['align_subtitles.py', '--project', str(self.root), '--episode', '40', '--model-dir', 'offline', *extra]
+            with self.subTest(arguments=extra), io.TextIOWrapper(io.BytesIO(), encoding='utf-8') as output:
+                with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                        patch.object(ALIGN, 'load_document', return_value=[]), \
+                        patch.object(ALIGN, 'resolve_model', side_effect=reached), \
+                        self.assertRaisesRegex(SystemExit, 'ordinary model resolution reached'):
+                    ALIGN.main()
 
 
 class NormaliseTests(unittest.TestCase):
@@ -115,14 +232,15 @@ class UnmappedSpeechTests(unittest.TestCase):
             output = io.StringIO()
             output.reconfigure = lambda **_: None
             with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
-                    patch.object(ALIGN, 'cloud_characters',
-                                 return_value=timeline('都怪这个小伙子不让座就算了', 0.0, 0.1)), \
+                    patch.object(ALIGN, '_read_cloud_alignment',
+                                 return_value=(timeline('都怪这个小伙子不让座就算了', 0.0, 0.1), None, 'a' * 64)), \
                     patch.object(ALIGN, 'probe_seconds', return_value=5.0):
                 ALIGN.main()
             self.assertIn('提示', output.getvalue())
             result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))
             self.assertEqual(result['shots'][0]['strategy'], 'missing_script_speech')
             self.assertEqual(result['shots'][0]['missing_script_speech'][0]['text'], '还把人推出去了')
+            self.assertNotIn('source_sha256', result['shots'][0])
 
     def test_exact_line_has_no_unmapped_speech(self):
         chars = timeline('一样的嘴脸', 0.0, 0.1)
@@ -221,13 +339,14 @@ class UnmappedSpeechTests(unittest.TestCase):
             output = io.StringIO()
             output.reconfigure = lambda **_: None
             with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
-                    patch.object(ALIGN, 'cloud_characters',
-                                 return_value=timeline('你怎么能推人呢太过分了一样的嘴脸', 0.0, 0.1)), \
+                    patch.object(ALIGN, '_read_cloud_alignment',
+                                 return_value=(timeline('你怎么能推人呢太过分了一样的嘴脸', 0.0, 0.1), None, 'a' * 64)), \
                     patch.object(ALIGN, 'probe_seconds', return_value=5.0):
                 ALIGN.main()
             self.assertIn('提示', output.getvalue())
             result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))
             self.assertEqual(result['shots'][0]['strategy'], 'unmapped_speech')
+            self.assertNotIn('source_sha256', result['shots'][0])
 
 
 class PlaceTests(unittest.TestCase):
@@ -393,9 +512,39 @@ class OfflineSilentShotTests(unittest.TestCase):
                 self.assertEqual(result['shots'][0]['unmapped_speech'][0]['text'], text)
                 self.assertEqual(result['shots'][0]['cues'], [])
 
+    def test_offline_rejects_video_changed_during_recognition_without_overwriting_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = root / 'shot.mp4'
+            video.write_bytes(b'original')
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': video.name}]}))
+            (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': []}]}))
+            result = root / 'aligned.json'
+            result.write_bytes(b'previous result')
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                    '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                    '--model-dir', str(root), '--out', str(result)]
+            output = io.StringIO()
+            output.reconfigure = lambda **_: None
+            fake_whisper = SimpleNamespace(WhisperModel=lambda *_, **__: object())
+
+            def replace_video(*_args):
+                video.write_bytes(b'changed')
+                return []
+
+            with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                    patch.dict(sys.modules, {'faster_whisper': fake_whisper}), \
+                    patch.object(ALIGN, 'resolve_model', return_value=root), \
+                    patch.object(ALIGN, 'transcribe', side_effect=replace_video), \
+                    patch.object(ALIGN, 'probe_seconds', side_effect=AssertionError('no probe after changed input')):
+                with self.assertRaisesRegex(SystemExit, '离线识别期间变化'):
+                    ALIGN.main()
+            self.assertEqual(result.read_bytes(), b'previous result')
+
     def test_offline_model_checks_a_truly_silent_shot(self):
         result = self.run_silent_shot([])
         self.assertEqual(result['shots'][0]['strategy'], 'no_lines')
+        self.assertEqual(result['shots'][0]['source_sha256'], hashlib.sha256(b'offline-test').hexdigest())
 
 
 class CloudReceiptTests(unittest.TestCase):
@@ -415,6 +564,7 @@ class CloudReceiptTests(unittest.TestCase):
             result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))
             self.assertEqual(result['shots'][0]['strategy'], 'missing_evidence')
             self.assertEqual(result['shots'][0]['cues'], [])
+            self.assertNotIn('source_sha256', result['shots'][0])
             self.assertTrue(result['shots'][0]['warnings'])
 
     def test_matches_words_to_current_source_and_rejects_replaced_video(self):
@@ -514,7 +664,9 @@ class CloudCorrectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             video, receipt, transcript, correction = self.source(root)
-            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': video.name}]}))
+            audio = root / 'replacement.wav'
+            audio.write_bytes(b'distinct audio not transcribed')
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': video.name, 'audio': audio.name}]}))
             (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['程昭宁你回来啦']}]}))
             (root / 'receipts.json').write_text(json.dumps({'shots': [{'shot': 1, 'receipt': str(receipt)}]}))
             (root / 'corrections.json').write_text(json.dumps({'shots': [correction]}))
@@ -532,8 +684,58 @@ class CloudCorrectionTests(unittest.TestCase):
             result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))['shots'][0]
             self.assertEqual(result['strategy'], 'asr_aligned')
             self.assertEqual(result['cues'], [{'start': 0.2, 'end': 2.8, 'text': '程昭宁你回来啦'}])
+            self.assertNotIn('script_text_differences', result)
+            self.assertEqual(result['source_sha256'], correction['source_sha256'])
+            self.assertNotEqual(result['source_sha256'], hashlib.sha256(audio.read_bytes()).hexdigest())
             self.assertEqual(result['correction_evidence']['transcript_sha256'], correction['transcript_sha256'])
             self.assertEqual(transcript.read_bytes(), before)
+
+    def test_cli_retains_script_cues_and_reports_an_unreviewed_cloud_substitution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video, receipt, transcript, _ = self.source(root)
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': video.name}]}))
+            (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['城昭宁你回家拉']}]}))
+            (root / 'receipts.json').write_text(json.dumps({'shots': [{'shot': 1, 'receipt': str(receipt)}]}))
+            before = transcript.read_bytes()
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                    '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                    '--cloud-transcripts', str(root / 'receipts.json'), '--out', str(root / 'aligned.json')]
+            output = io.StringIO()
+            output.reconfigure = lambda **_: None
+            with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                    patch.object(ALIGN, 'probe_seconds', return_value=3.0), \
+                    patch.object(ALIGN, 'transcribe', side_effect=AssertionError('no new recognition')):
+                ALIGN.main()
+            result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))['shots'][0]
+            self.assertEqual(result['strategy'], 'asr_aligned')
+            self.assertEqual(result['cues'], [{'start': 0.2, 'end': 2.8, 'text': '城昭宁你回家拉'}])
+            self.assertEqual(result['script_text_differences'], [
+                {'line': 1, 'script': '家', 'recognized': '来', 'start': 1.4, 'end': 2.1},
+            ])
+            self.assertIn('待核听', output.getvalue())
+            self.assertEqual(transcript.read_bytes(), before)
+
+    def test_cli_does_not_certify_line_boundaries_inside_one_measured_word(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video, receipt, transcript, _ = self.source(root)
+            transcript.write_text(json.dumps([{'start': 0.2, 'end': 1.2, 'text': '大爷',
+                'words': [{'start': 0.2, 'end': 1.2, 'text': '大爷'}]}]), encoding='utf-8')
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': video.name}]}))
+            (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['大', '爷']}]}))
+            (root / 'receipts.json').write_text(json.dumps({'shots': [{'shot': 1, 'receipt': str(receipt)}]}))
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                    '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                    '--cloud-transcripts', str(root / 'receipts.json'), '--out', str(root / 'aligned.json')]
+            output = io.StringIO()
+            output.reconfigure = lambda **_: None
+            with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                    patch.object(ALIGN, 'probe_seconds', return_value=3.0):
+                ALIGN.main()
+            result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))['shots'][0]
+            self.assertNotEqual(result['strategy'], 'asr_aligned')
+            self.assertNotIn('source_sha256', result)
 
     def test_cli_stale_correction_returns_missing_evidence_without_guessing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -558,6 +760,7 @@ class CloudCorrectionTests(unittest.TestCase):
             self.assertEqual(result['strategy'], 'missing_evidence')
             self.assertEqual(result['cues'], [])
             self.assertNotIn('correction_evidence', result)
+            self.assertNotIn('source_sha256', result)
             self.assertEqual(transcript.read_bytes(), before)
 
     def test_corrections_require_cloud_mode_before_loading_a_local_model(self):

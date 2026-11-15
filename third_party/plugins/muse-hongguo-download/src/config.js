@@ -2,6 +2,9 @@
 import { isAbsolute } from 'node:path';
 
 const ranges = {
+  v2PollIntervalMs: [100, 60000], v2RequestTimeoutMs: [100, 300000], v2StartupTimeoutMs: [100, 300000],
+  v2ShutdownTimeoutMs: [100, 60000], v2MaxLineBytes: [1024, 33554432], v2MaxPendingRequests: [2, 64],
+  v2MaxEpisodesPerJob: [1, 10000], v2EpisodesAtOnce: [1, 8], v2ConnectionsPerFile: [1, 4],
   requestTimeoutMs: [100, 120000], downloadTimeoutMs: [100, 3600000], callTimeoutMs: [100, 86400000],
   maxResponseBytes: [1024, 33554432], maxEpisodeBytes: [1024, 8589934592], maxSeries: [1, 20],
   concurrency: [1, 8], retries: [0, 4],
@@ -16,6 +19,9 @@ const ranges = {
   emptySourceCooldownMs: [1000, 600000], resumeSearchDepth: [0, 8], resumeSearchEntries: [1, 100000],
 };
 const defaults = {
+  legacyBackend: 'v1', v2RuntimeDir: '', v2StateDir: '', v2Quality: '720p',
+  v2PollIntervalMs: 1000, v2RequestTimeoutMs: 120000, v2StartupTimeoutMs: 30000,
+  v2ShutdownTimeoutMs: 10000, v2MaxLineBytes: 1048576, v2MaxPendingRequests: 8, v2MaxEpisodesPerJob: 10000, v2EpisodesAtOnce: 1, v2ConnectionsPerFile: 1,
   sourceMode: 'legacy', legacyAppDir: '', signServer: '', signTokenEnv: 'MUSE_HONGGUO_SIGN_TOKEN',
   pythonExecutable: '', ffmpegExecutable: '', ffprobeExecutable: '',
   javaExecutable: '', signerStartupTimeoutMs: 120000, signerHeapMb: 1024,
@@ -54,9 +60,12 @@ export function resolveConfig(value = {}) {
     config[key] = Array.isArray(entry) ? [...entry] : entry;
   }
   if (config.mediaConnectionLimit < config.concurrency) throw new TypeError('mediaConnectionLimit 不能小于 concurrency');
+  if (!['v1', 'v2'].includes(config.legacyBackend)) throw new TypeError('legacyBackend 必须是 v1 或 v2');
+  if (!['1080p', '720p', '540p', '480p', '360p'].includes(config.v2Quality)) throw new TypeError('v2Quality 不是支持的视频清晰度');
+  if (config.legacyBackend === 'v2' && (!config.v2RuntimeDir || !config.v2StateDir)) throw new TypeError('v2 后端必须配置 v2RuntimeDir 和 v2StateDir');
   if (!['legacy', 'manifest', 'public'].includes(config.sourceMode)) throw new TypeError('sourceMode 必须是 legacy、manifest 或 public');
   if (!config.mediaUserAgent || config.mediaUserAgent.length > 1024 || /[\r\n\0]/.test(config.mediaUserAgent)) throw new TypeError('mediaUserAgent 必须是非空有效请求头值');
-  for (const key of ['legacyAppDir', 'catalogPath', 'outputRoot', 'pythonExecutable', 'ffmpegExecutable', 'ffprobeExecutable', 'javaExecutable']) {
+  for (const key of ['v2RuntimeDir', 'v2StateDir', 'legacyAppDir', 'catalogPath', 'outputRoot', 'pythonExecutable', 'ffmpegExecutable', 'ffprobeExecutable', 'javaExecutable']) {
     if (config[key] && !isAbsolute(config[key])) throw new TypeError(`${key} 必须是绝对路径`);
   }
   if (!/^[A-Z_][A-Z0-9_]*$/.test(config.signTokenEnv)) throw new TypeError('signTokenEnv 必须是环境变量名称');

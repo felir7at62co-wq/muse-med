@@ -1,18 +1,25 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
+import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deriveWorkingBudgetExpectations } from './working-budget-oracle.ts'
+import { sessionProductBudgetInput } from './muse-session-product/budget.ts'
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
-import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
+import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
+import { assertAsyncChildOutcome, assertAsyncChildPreset, assertAsyncChildQuestion, assertAsyncChildWithoutMessageTool } from './subagent-child-question-rejection/assertions.ts'
+import { assertAcpSubagentDiagnostics, assertProductSubagentDiagnostics } from './managed-subagent-assertions.ts'
+import { assertVideoObservationReportArtifacts, normalizeVideoObservationReportHashes } from '../../packages/perception/tool-video-inspect/tests/snapshot-reports.ts'
+import { chmod, cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { basename, delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
+import { basename, delimiter, dirname, isAbsolute, join, relative, sep, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import ts from 'typescript'
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import { releasedV0SessionFormatCodec } from '@deepseek-ai/dsh-session-format-v0-to-v1'
 import type { SessionFormatEvent, SessionFormatMigrationContext } from '@deepseek-ai/dsh-session-format'
+import type { PackageReport, ShotReport } from '../../packages/drama/tool-shot-script/src/types.ts'
 import { assertWorkspaceOutsideTemp, outsideTempWorkspaceParent } from '../../scripts/snapshot-workspace-parent.ts'
 import {
   assertPersistedSessionVersion,
@@ -29,9 +36,11 @@ import {
   normalizedSystemPrompts,
   normalizedToolSchemas,
   parseSnapshotManifest,
+  parseSessionFixtureName,
   parseToolSchemasSnapshot,
   redactSessionSnapshotIds,
   refreshFixtureReplacements,
+  REPLAY_CREDENTIAL_ENV,
   restorePinnedToolSchemas,
   scrubSessionSnapshot,
   scrubSystemPrompts,
@@ -51,9 +60,10 @@ import {
   type SnapshotManifest,
   type WorkspaceSnapshotEntry,
 } from '@deepseek-ai/dsh-session-snapshot'
-import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
+import { LOADER_SMOKE_TEST_TIMEOUT_MS, resolveExampleMode, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import { parseSessionLog, prepareSessionSnapshotFixtureForComparison } from '@deepseek-ai/dsh-llm-replay'
+import { renderSkillContent } from '@deepseek-ai/dsh-skill'
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
 const snapshotsRoot = fileURLToPath(new URL('./', import.meta.url))
@@ -63,7 +73,7 @@ const editingCordisSkill = join(
   repoRoot,
   'packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md',
 )
-// Retired guides belong only to these recorded workspaces; current production discovery stays disabled.
+// Legacy guide bodies belong to their recorded workspaces; current discovery uses product resources.
 const museLegacySkills = join(snapshotsRoot, 'muse-video-screenplay-skills/legacy-skills')
 const museEditingSkill = join(museLegacySkills, 'editing.skill.txt')
 const museSharedSkills = [
@@ -117,6 +127,17 @@ interface SessionLog {
   readonly header: JsonObject
 }
 
+/** Keep the cwd text priced by compaction independent of the platform's temporary-root length. */
+async function compactionWorkspaceOptions(): Promise<{ tempDirParent: string; tempDirPrefix: string }> {
+  const tempDirParent = await realpath(tmpdir())
+  const prefix = 'dsh-log-snap-'
+  // mkdtemp appends six characters; JSON quoting is part of the runtime-context text.
+  const unpaddedLength = JSON.stringify(join(tempDirParent, `${prefix}XXXXXX`)).length
+  const paddingLength = 192 - unpaddedLength
+  if (paddingLength < 0) throw new Error('compaction snapshot temporary root exceeds its fixed cwd text length')
+  return { tempDirParent, tempDirPrefix: prefix + '-'.repeat(paddingLength) }
+}
+
 function propertyName(node: ts.PropertyName): string | undefined {
   if (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) return node.text
   return undefined
@@ -126,6 +147,8 @@ function bindsOsAssignedPort(argument: ts.Expression | undefined): boolean {
   if (argument === undefined) return false
   if (ts.isNumericLiteral(argument)) return Number(argument.text) === 0
   if (!ts.isObjectLiteralExpression(argument)) return false
+  if (argument.properties.some(property => !ts.isSpreadAssignment(property) && propertyName(property.name) === 'path')
+    && argument.properties.every(property => !ts.isSpreadAssignment(property) && propertyName(property.name) !== 'port')) return true
   let portIsZero: boolean | undefined
   for (const property of argument.properties) {
     if (ts.isSpreadAssignment(property)) {
@@ -241,6 +264,24 @@ async function fixtureSessions(scenario: HeadlessScenario, selectedFiles?: reado
   }))
 }
 
+/** Check the default generations independently of any explicitly selected historical replay input. */
+async function assertReplayInputsUnchanged(
+  scenario: HeadlessScenario,
+  canonicalBefore: readonly string[],
+  retained?: { readonly file: string; readonly content: string },
+): Promise<void> {
+  expect(await fixtureSessions(scenario), 'historical replay input remains unchanged').toEqual(canonicalBefore)
+  if (retained !== undefined) {
+    expect(await readFile(join(scenario.dir, retained.file), 'utf8'), 'retained replay input bytes').toBe(retained.content)
+  }
+}
+
+/** First live recordings use manifest input and the composition's model until a Session exists. */
+function recordingFixtureNames(names: readonly string[], recordingMode: SnapshotMode): string[] {
+  const hasFixtures = names.some(name => parseSessionFixtureName(name) !== undefined)
+  return recordingMode === 'record' && !hasFixtures ? [] : sessionFixtureNames(names)
+}
+
 async function primaryFixtureFile(dir: string): Promise<string> {
   const [primary] = sessionFixtureNames(await readdir(dir))
   if (primary === undefined) throw new Error(`${dir}: missing parent Session fixture`)
@@ -254,21 +295,32 @@ async function writeSessionFixtures(
   actualLogs: readonly SessionLog[],
   existing: readonly string[],
   ctx: NormalizeContext,
+  writeMode: SnapshotMode = mode,
 ): Promise<string[]> {
   const names = actualLogs.map((log, index) => scenario.manifest.sessionFormat === undefined && scenario.manifest.writerOutput !== true
     ? sessionFixtureName(index, sessionHeaderVersion(log.content, `harvested Session ${index}`))
     : writerSnapshotName(index))
   const prior = names.map((_, index) => existing[index] ?? '')
-  const replacements = mode === 'refresh'
+  const replacements = writeMode === 'refresh'
     ? refreshFixtureReplacements(actualLogs.map(harvested), prior)
     : []
-  const fresh = actualLogs.map((log, index) => {
-    const stable = tokenizeRefreshedFixtureCwd(mode === 'refresh'
-      ? stabilizeRefreshLog(log.content, prior[index] as string, replacements, ctx)
-      : log.content, ctx.cwd)
+  for (const replacement of [...replacements]) {
+    if (replacement.from === ctx.cwd) replacements.push({ from: ctx.cwd.split(sep).join('/'), to: replacement.to })
+  }
+  // Strictly restore complete graphs before shared ids can be replaced by per-record stabilization.
+  const prepared = actualLogs.map(log => prepareSessionSnapshotFixtureForComparison(log.content))
+  const identified = redactSessionSnapshotIds(prepared)
+  const fresh = identified.map((content, index) => {
+    const stable = tokenizeRefreshedFixtureCwd(writeMode === 'refresh'
+      ? stabilizeRefreshLog(content, prior[index] as string, replacements, ctx)
+      : content, ctx.cwd)
     return scrubSessionSnapshot(prepareSessionSnapshotFixtureForComparison(stable))
   })
-  const output = redactSessionSnapshotIds(stabilizeFixtureMessageIds(fresh, prior))
+  const redacted = redactSessionSnapshotIds(stabilizeFixtureMessageIds(fresh, prior))
+  const output = videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(redacted)
+    : scenario.name === 'muse-video-novel-ocr-capability'
+      ? redacted.map(log => capabilityOcrRecords(log, '0'.repeat(64), false).map(row => JSON.stringify(row)).join('\n') + '\n')
+      : redacted
   await Promise.all(output.map((content, index) => writeFile(join(scenario.dir, names[index] as string), content)))
   return output
 }
@@ -517,6 +569,130 @@ async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir:
   return expectedRoot
 }
 
+function expandManuscriptDeliveryLedger(text: string, cwd: string, parentSession: string, owner: 'native' | 'ptc' | 'no-receipt' = 'native'): string {
+  const ledger = JSON.parse(text) as JsonObject
+  if (!Array.isArray(ledger.baselines)) throw new Error('manuscript delivery oracle requires baselines')
+  const files = new Set(owner === 'ptc' ? ['ptc-final.md'] : owner === 'no-receipt' ? ['final.md'] : ['final.md', 'partial.md', 'final.docx', 'unpresented.md'])
+  ledger.baselines = ledger.baselines.map((baseline: JsonObject) => {
+    if (typeof baseline.path !== 'string' || !baseline.path.startsWith('{{cwd}}/')) {
+      throw new Error('manuscript delivery expected path must start with {{cwd}}/')
+    }
+    const filename = baseline.path.slice('{{cwd}}/'.length)
+    if (!files.has(filename)) throw new Error('manuscript delivery expected filename is not owned')
+    if (baseline.session !== '{{session:1}}') throw new Error('manuscript delivery expected owner must be {{session:1}}')
+    return { ...baseline, path: join(cwd, filename), session: parentSession }
+  })
+  return `${JSON.stringify(ledger)}\n`
+}
+
+async function prepareManuscriptDeliveryExpectedWorkspace(cwd: string, scenarioDir: string, parentSession: string, owner: 'native' | 'ptc' | 'no-receipt'): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-manuscript-delivery')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true, verbatimSymlinks: true })
+  const file = join(expectedRoot, '.muse', 'manuscript-revisions', 'ledger.json')
+  await writeFile(file, expandManuscriptDeliveryLedger(await readFile(file, 'utf8'), await realpath(cwd), parentSession, owner))
+  return expectedRoot
+}
+
+async function prepareManuscriptVersionsExpectedWorkspace(cwd: string, scenarioDir: string, parentSession: string): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-manuscript-versions')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+  const file = join(expectedRoot, '.muse', 'manuscript-revisions', 'versions', 'index.json')
+  const index = JSON.parse(await readFile(file, 'utf8')) as JsonObject
+  if (!Array.isArray(index.records)) throw Error('manuscript versions expected records are missing')
+  index.records = index.records.map((record: JsonObject) => {
+    if (record.source_path !== '{{cwd}}/current.md' || record.session_id !== '{{session:1}}') throw Error('manuscript versions expected owner or source is not declared')
+    return { ...record, source_path: join(cwd, 'current.md'), session_id: parentSession }
+  })
+  await writeFile(file, JSON.stringify(index) + '\n')
+  return expectedRoot
+}
+
+async function prepareManuscriptNotesExpectedWorkspace(cwd: string, scenarioDir: string, parentSession: string,
+  humans: readonly { id: string; text: string }[]): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-manuscript-notes')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+  for (const name of ['versions/index.json', 'notes.json']) {
+    const file = join(expectedRoot, '.muse', 'manuscript-revisions', name)
+    const index = JSON.parse(await readFile(file, 'utf8')) as JsonObject
+    const field = name === 'notes.json' ? 'documents' : 'records'
+    const records = index[field]
+    if (!Array.isArray(records)) throw Error('manuscript notes expected records are missing')
+    index[field] = records.map((record: JsonObject) => {
+      if (record.source_path !== '{{cwd}}/current.docx' || record.session_id !== '{{session:1}}') throw Error('manuscript notes expected owner or source is undeclared')
+      const result: JsonObject = { ...record, source_path: join(cwd, 'current.docx'), session_id: parentSession }
+      if (name === 'notes.json') {
+        if (!Array.isArray(result.user_requests)) throw Error('manuscript notes expected human requests are missing')
+        result.user_requests = result.user_requests.map((request: JsonObject, position: number) => {
+          const human = humans[position]
+          if (human === undefined || request.message_id !== `{{human:${position + 1}}}` || request.text !== human.text) throw Error('manuscript notes expected human requirement does not match the actual input')
+          return { ...request, message_id: human.id }
+        })
+      }
+      return result
+    })
+    await writeFile(file, JSON.stringify(index) + '\n')
+  }
+  return expectedRoot
+}
+
+function expandDouyinExpectedReceipt(text: string, cwd: string): string {
+  const receipt = JSON.parse(text) as JsonObject
+  for (const field of ['path', 'receipt']) {
+    const value = receipt[field]
+    if (typeof value !== 'string' || !value.startsWith('{{cwd}}/source/media/douyin/')) {
+      throw new Error('Douyin expected receipt paths must remain under {{cwd}}/source/media/douyin/')
+    }
+    const suffix = value.slice('{{cwd}}/'.length)
+    if (!/^source\/media\/douyin\/\d{10,25}\.mp4(?:\.source\.json)?$/u.test(suffix)) throw new Error('Douyin expected receipt paths require a selected video filename')
+    receipt[field] = join(cwd, ...suffix.split('/'))
+  }
+  return `${JSON.stringify(receipt, null, 2)}\n`
+}
+
+function expandCompanyMediaExpectedReceipt(text: string, cwd: string, selectedName?: 'video (1).mp4'): string {
+  const receipt = JSON.parse(text) as JsonObject
+  if (typeof receipt.path !== 'string'
+    || (selectedName === undefined
+      ? !/^\{\{cwd\}\}\/source\/media\/company\/[a-f0-9-]{36}-[A-Za-z0-9._ -]+$/u.test(receipt.path)
+      : receipt.path !== `{{cwd}}/source/media/company/91000000-0000-4000-8000-000000000001-${selectedName}`)
+    || receipt.path.includes('..')) throw new Error('Company media expected receipt requires a path under {{cwd}}/source/media/company/')
+  receipt.path = join(cwd, ...receipt.path.slice('{{cwd}}/'.length).split('/'))
+  return `${JSON.stringify(receipt)}\n`
+}
+
+async function prepareCompanyMediaExpectedWorkspace(
+  cwd: string, scenarioDir: string, fileName: 'fixture.mp4' | 'video (1).mp4',
+): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-company-media')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+  const receiptPath = `source/media/company/91000000-0000-4000-8000-000000000001-${fileName}.source.json`
+  const expected = join(expectedRoot, receiptPath)
+  await writeFile(expected, expandCompanyMediaExpectedReceipt(
+    await readFile(expected, 'utf8'), await realpath(cwd), fileName === 'fixture.mp4' ? undefined : fileName,
+  ))
+  return expectedRoot
+}
+
+function expandLvpaopaoExpectedMedia(text: string, cwd: string): string {
+  const document = JSON.parse(text) as JsonObject
+  const expand = (media: JsonObject): void => {
+    for (const field of ['localPath', 'receiptPath']) {
+      const value = media[field]
+      if (typeof value !== 'string' || !/^\{\{cwd\}\}\/downloads\/lvpaopao\/lvpaopao-[a-f0-9]{24}\/episodes\/\d{4}\/episode-\d{4}\.mp4(?:\.receipt\.json)?$/u.test(value)) {
+        throw new Error('Lvpaopao expected media paths require a saved series episode under {{cwd}}/downloads/lvpaopao/')
+      }
+      media[field] = join(cwd, ...value.slice('{{cwd}}/'.length).split('/'))
+    }
+  }
+  if (Array.isArray(document.episodes)) {
+    for (const episode of document.episodes as JsonObject[]) {
+      if (episode.media !== undefined) expand(episode.media as JsonObject)
+    }
+  } else if (document.kind === 'verified-episode-copy' && document.media !== undefined) expand(document.media as JsonObject)
+  else throw new Error('Lvpaopao expected JSON must be a series manifest or verified episode receipt')
+  return `${JSON.stringify(document, null, 2)}\n`
+}
+
 async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<PreparedWorkspace> {
   const source = join(scenario.dir, 'workspace')
   if (existsSync(source)) {
@@ -531,7 +707,34 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<P
   return await prepare(cwd, scenario.dir) ?? {}
 }
 
+const WORKTREE_CHECKOUT_FILTER = "printf 'FILTERED CHECKOUT CONTENT\\n'"
+const WORKTREE_CHECKOUT_ATTRIBUTES = 'tracked.txt filter=dsh-snapshot-checkout\n'
+
 const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
+  async 'muse-lvpaopao-series'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('Lvpaopao tasks require their complete expected workspace')
+    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-lvpaopao-tasks')
+    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+    const directory = join(expectedRoot, 'downloads/lvpaopao')
+    for (const relative of await readdir(directory, { recursive: true })) {
+      if (relative.endsWith('manifest.json') || relative.endsWith('.receipt.json')) {
+        const path = join(directory, relative)
+        await writeFile(path, expandLvpaopaoExpectedMedia(await readFile(path, 'utf8'), await realpath(cwd)))
+      }
+    }
+    return { expectedRoot }
+  },
+  async 'muse-douyin-media'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('Douyin tasks require their complete expected workspace')
+    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-douyin-tasks')
+    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+    const directory = join(expectedRoot, 'source/media/douyin')
+    for (const file of await readdir(directory)) if (file.endsWith('.source.json')) {
+      const path = join(directory, file)
+      await writeFile(path, expandDouyinExpectedReceipt(await readFile(path, 'utf8'), await realpath(cwd)))
+    }
+    return { expectedRoot }
+  },
   async 'drama-subtitle-visual-review'(cwd, scenarioDir) {
     if (scenarioDir === undefined) throw new Error('visual review requires its complete expected workspace')
     const expectedRoot = join(cwd, '.snapshot-patches', 'expected-subtitle-visual')
@@ -570,6 +773,27 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
   async 'muse-video-inspect'(cwd) {
     await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
   },
+  async 'muse-video-review-lifecycle'(cwd) {
+    await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
+    await writeFile(join(cwd, 'unrelated.md'), 'A separate document whose delivery does not complete video observations.\n')
+  },
+  async 'readonly-patch-directory'(cwd) {
+    const directory = join(cwd, 'locked')
+    await mkdir(directory)
+    await chmod(directory, 0o555)
+  },
+  async 'cua-script-guidance'(cwd) {
+    // Keep the real prompt's bridge URL under the fixture workspace on every host.
+    const source = join(repoRoot, 'packages/experimental/cua')
+    const target = join(cwd, 'cua-runtime')
+    const face = resolveExampleMode() === 'lib' ? 'lib' : 'src'
+    const extension = face === 'lib' ? 'js' : 'ts'
+    const guidanceDirectory = face === 'lib' ? 'lib/types' : 'src'
+    await cp(join(source, face), join(target, face), { recursive: true })
+    await copyFile(join(source, 'package.json'), join(target, 'package.json'))
+    await symlink(join(source, 'node_modules'), join(target, 'node_modules'), 'dir')
+    await copyFile(join(repoRoot, `packages/experimental/cua-macos/${guidanceDirectory}/guidance.${extension}`), join(target, `guidance.${extension}`))
+  },
   async 'windows-acl-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'diagnose-windows-sandbox-acl', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
@@ -577,13 +801,36 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
   },
   async 'office-skills'(cwd) {
     await cp(join(repoRoot, 'packages/skill/skill-office/assets'), join(cwd, 'office-skills'), { recursive: true })
-    await symlink(process.execPath, join(cwd, 'office-node'))
-    await symlink(join(repoRoot, 'packages/skill/skill-office/node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js'), join(cwd, 'office-cli.js'))
+    // A copied macOS Node binary cannot find its adjacent libnode.dylib.
+    const nodePath = process.execPath.replaceAll("'", "'\\''")
+    await writeFile(join(cwd, 'office-node'), `#!/bin/sh\nexec '${nodePath}' "$@"\n`, { mode: 0o755 })
+    await copyFile(join(repoRoot, 'packages/skill/skill-office/node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js'), join(cwd, 'office-cli.js'))
+  },
+  async 'office-retired-ptc'(cwd) {
+    await workspaceSetups['office-skills']!(cwd)
+    // Keep the removed-tool error without process-specific stack locations.
+    await writeFile(join(cwd, 'office-ptc-node'), '#!/bin/sh\nexec "$(dirname "$0")/office-node" --stack-trace-limit=0 "$@"\n', { mode: 0o755 })
+  },
+  async 'git-worktree'(cwd) {
+    snapshotGit(cwd, ['init', '--initial-branch=main', '--object-format=sha1'])
+    snapshotGit(cwd, ['config', 'core.autocrlf', 'false'])
+    snapshotGit(cwd, ['add', 'tracked.txt'])
+    snapshotGit(cwd, ['commit', '-m', 'Snapshot seed'])
+    await writeFile(join(cwd, '.git', 'info', 'attributes'), WORKTREE_CHECKOUT_ATTRIBUTES)
+    snapshotGit(cwd, ['config', 'filter.dsh-snapshot-checkout.smudge', WORKTREE_CHECKOUT_FILTER])
+    await copyFile(join(cwd, '.git', 'config'), join(cwd, '.git', 'config.before-worktree'))
+    await writeFile(join(cwd, '.git', 'info', 'exclude'), '/.dsh/\n/.snapshot-patches/\n')
+    await writeFile(join(cwd, 'tracked.txt'), 'DIRTY SOURCE\n')
+    await writeFile(join(cwd, 'local.txt'), 'UNTRACKED SOURCE\n')
   },
   async 'editing-cordis-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'editing-cordis-compositions', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
     await copyFile(editingCordisSkill, target)
+  },
+  async 'skill-root-isolation'(cwd) {
+    await workspaceSetups['editing-cordis-skill']!(cwd)
+    // The fixture injects the failing root only after the first complete skill catalog.
   },
   async 'muse-minimal-writing'(cwd) {
     await cp(join(repoRoot, 'apps/desktop-host/skills'), join(cwd, '.dsh/skills'), { recursive: true })
@@ -630,15 +877,27 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     await workspaceSetups['windows-acl-skill']!(cwd)
   },
   async 'muse-current-professional-skills'(cwd) {
-    for (const name of ['muse-dialogue-polish', 'muse-episode-design', 'muse-script-doctor', 'screenplay-format']) {
-      await cp(join(repoRoot, 'apps/desktop-host/tests/fixtures/retired-writing-skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
+    for (const name of ['muse-dialogue-polish', 'muse-episode-design', 'muse-script-doctor', 'novel-to-script', 'screenplay-format']) {
+      await cp(join(repoRoot, 'apps/desktop-host/skills', name), join(cwd, '.dsh', 'skills', name), { recursive: true })
     }
   },
   async 'muse-creation-skills'(cwd) {
     await workspaceSetups['muse-editing-trial-skills']!(cwd)
     await cp(join(repoRoot, 'packages/drama/skills/skills'), join(cwd, '.dsh/skills'), { recursive: true })
-    await cp(join(repoRoot, 'apps/desktop-host/skills'), join(cwd, '.dsh/skills'), { recursive: true })
+    const productSkills = join(repoRoot, 'apps/desktop-host/skills')
+    // Recovery recordings retain their seeded writing guides; current discovery has its own scenario.
+    const legacyWritingSkills = ['muse-dialogue-polish', 'muse-episode-design', 'muse-script-doctor', 'novel-to-script', 'screenplay-format']
+      .map(name => join(productSkills, name))
+    await cp(productSkills, join(cwd, '.dsh/skills'), {
+      recursive: true,
+      filter: source => !legacyWritingSkills.includes(source),
+    })
     await copyFile(join(museLegacySkills, 'video-review.skill.txt'), join(cwd, '.dsh/skills/video-review/SKILL.md'))
+  },
+  async 'muse-current-delivery-review'(cwd) {
+    await workspaceSetups['muse-creation-skills']!(cwd)
+    await copyFile(join(repoRoot, 'apps/desktop-host/skills/video-review/SKILL.md'),
+      join(cwd, '.dsh/skills/video-review/SKILL.md'))
   },
   async 'muse-audio-transcribe-skill-legacy'(cwd) {
     await workspaceSetups['muse-editing-skill']!(cwd)
@@ -710,6 +969,9 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
   async 'muse-drama-explicit-work-scope'(cwd) {
     await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core'),
       join(cwd, '.dsh/skills/tweet-drama-core'), { recursive: true })
+  },
+  async 'muse-core-display-source-lines'(cwd) {
+    await workspaceSetups['muse-drama-explicit-work-scope']!(cwd)
   },
   async 'muse-shot-director-format'(cwd) {
     // The recorded resource belongs to the retired compiler, not the installed skill catalogue.
@@ -839,6 +1101,11 @@ function pinOf(scenario: HeadlessScenario): HeadlessScenario {
   return pin
 }
 
+function supportedHeaderPinFormat(retained: SnapshotManifest['sessionFormat']): boolean {
+  return retained === undefined || (retained.coverage.length === 1 && retained.coverage[0] === 'retired-tools'
+    && Number.isSafeInteger(retained.version) && retained.version >= 0 && retained.version <= SESSION_FORMAT_VERSION)
+}
+
 function spillReferenceSource(events: readonly JsonObject[], label: string): JsonObject {
   const messages = events.filter((event) => {
     const source = (event.data as JsonObject | undefined)?.source as JsonObject | undefined
@@ -864,6 +1131,243 @@ function sessionReferenceSpillExpected(actual: readonly JsonObject[], expectedLo
   return expected
 }
 
+const videoObservationOwners = new Set(['muse-video-observation', 'muse-video-review-lifecycle'])
+
+// These owners derive exact request and compaction-span prices from expected inputs at the replay cwd.
+const workspaceSensitiveBudgetScenarios = new Set([
+  'compaction-summary-failure-recovery',
+  'muse-creation-parse-recovery',
+  'muse-creation-ptc',
+  'muse-creation-review-guidance',
+  'muse-creation-source-id-recovery',
+  'muse-creation-stage-diagnostics',
+  'muse-creation-tool-argument-recovery',
+  'muse-editing-tool-catalog',
+  'muse-resident-view',
+  'muse-script-refinement',
+  'muse-session-product',
+  'muse-short-drama-draft-ending',
+  'muse-small-window-compaction',
+  'muse-time-context',
+  'muse-visualize',
+  'muse-working-budget-stop',
+])
+
+function assertSubtitleReviewSkill(log: string, source: string, baseDirectory: string): void {
+  const events = parseSessionLog(log)
+  const calls = events.flatMap(event => event.type === 'tool/call' && event.data.name === 'skill' ? [event.data] : [])
+  expect(calls).toHaveLength(1)
+  expect(JSON.parse(calls[0]!.arguments)).toEqual({ name: 'tweet-drama-draft-build' })
+  const results = events.flatMap(event => event.type === 'tool/result'
+    && event.data.message.toolCallId === calls[0]!.callId ? [event.data.message] : [])
+  expect(results).toHaveLength(1)
+  expect(results[0]!.isError).toBe(false)
+  expect(results[0]!.content, 'current packaged draft skill body').toEqual([{ type: 'text', text: renderSkillContent({
+    name: 'tweet-drama-draft-build', provider: 'filesystem', resourceBase: { kind: 'directory', path: baseDirectory },
+    content: source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim(),
+  }) }])
+}
+
+function verifyResidentUiReplay(events: ReturnType<typeof parseSessionLog>, tool: 'ask_user' | 'show_view'): void {
+  const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data.name] : [])
+  expect(calls, 'resident UI replay tool calls remain intact').toEqual([tool])
+  const hostOnlyCatalog = events.some(event => event.type === 'user/message'
+    && event.data.source.kind === 'skill-catalog'
+    && event.data.source.entries.some(entry => entry.name === 'diagnose-windows-sandbox-acl'))
+  expect(hostOnlyCatalog, 'resident UI replay keeps a platform-neutral skill catalog').toBe(false)
+}
+
+interface VisualizationBudgetPaths { readonly cwd: string; readonly sessionId: string }
+interface VisualizationRuntimePaths extends VisualizationBudgetPaths { readonly assets: string }
+
+function visualizationAssetDirectory(entry: string): string {
+  return join(dirname(dirname(entry)), 'assets')
+}
+
+function visualizationReceiptOutside(receipt: string, cwd: string, paths = { relative, isAbsolute, sep }): boolean {
+  const path = paths.relative(cwd, receipt)
+  return paths.isAbsolute(receipt) && (paths.isAbsolute(path) || path === '..' || path.startsWith('..' + paths.sep))
+}
+
+/** Read the fixture's pre-mount selection, independently of Session events and measured budgets. */
+async function readVisualizationAssets(receipt: string, cwd: string): Promise<string> {
+  if (!visualizationReceiptOutside(receipt, cwd)) {
+    throw new Error('Visualization layout receipt must stay outside the model workspace')
+  }
+  const value: unknown = JSON.parse(await readFile(receipt, 'utf8'))
+  if (value === null || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).sort().join(',') !== 'assets,entry'
+    || !('entry' in value) || typeof value.entry !== 'string'
+    || !('assets' in value) || typeof value.assets !== 'string') {
+    throw new Error('Visualization layout receipt must contain only entry and assets paths')
+  }
+  const roots = [join(cwd, '.dsh', 'plugins', 'dsh-visualize'),
+    join(cwd, '.dsh', 'profiles', 'headless', 'node_modules', '@nagi-ovo', 'dsh-visualize')]
+  const entries = [join(roots[0]!, 'src', 'index.ts'), join(roots[0]!, 'lib', 'index.js'),
+    join(roots[1]!, 'lib', 'index.js')]
+  if (!entries.includes(value.entry) || value.assets !== visualizationAssetDirectory(value.entry)) {
+    throw new Error('Visualization layout receipt does not identify a supported fixture entry and its assets')
+  }
+  if (await realpath(value.entry) !== value.entry || await realpath(value.assets) !== value.assets) {
+    throw new Error('Visualization layout receipt paths must identify the selected physical files')
+  }
+  for (const path of [value.entry, join(value.assets, 'visualize-skill.md'), join(value.assets, 'styles', 'whale.md')]) {
+    if ((await readFile(path)).length === 0) throw new Error('Visualization selected entry and assets must not be empty')
+  }
+  return value.assets
+}
+
+function normalizedVisualizationAssets(assets: string, cwd: string): string {
+  const path = relative(cwd, assets)
+  if (path === '' || path === '..' || path.startsWith('..' + sep) || isAbsolute(path)) {
+    throw new Error('Visualization assets must belong to the fixture workspace')
+  }
+  return '{{cwd}}/' + path.split(sep).join('/')
+}
+
+function visualizationStyleDescription(description: string): string {
+  return description
+    .replaceAll('<DSH_HOME>/visualize/style.md', join('<DSH_HOME>', 'visualize', 'style.md'))
+    .replaceAll('<workspace>/.dsh/visualize-style.md', join('<workspace>', '.dsh', 'visualize-style.md'))
+}
+
+function visualizationAssetDescription(description: string, assets: string, pathSeparator = sep): string {
+  const prefix = '{{cwd}}/.dsh/plugins/dsh-visualize/assets/'
+  const skill = `from ${prefix}visualize-skill.md`, relative = `(its relative paths resolve against ${prefix})`
+  const style = `read it from ${prefix}styles/whale.md`
+  if (description.split(prefix).length !== 4 || !description.includes(skill) || !description.includes(relative) || !description.includes(style)) {
+    throw new Error('Visualization description must declare exactly its three expected asset references')
+  }
+  return visualizationStyleDescription(description)
+    .replace(skill, `from ${assets}${pathSeparator}visualize-skill.md`)
+    .replace(relative, `(its relative paths resolve against ${assets}${pathSeparator})`)
+    .replace(style, `read it from ${assets}${pathSeparator}styles${pathSeparator}whale.md`)
+}
+
+function visualizationSkillLayout(log: string, assets: string, pathSeparator = sep): string {
+  const prefix = '{{cwd}}/.dsh/plugins/dsh-visualize/assets/'
+  const callId = 'call_visualize_skill', before = `Base directory for this skill: ${prefix}`
+  let calls = 0, results = 0
+  const lines = log.split('\n').map((line) => {
+    if (line.trim() === '') return line
+    const row = JSON.parse(line) as JsonObject, data = row.data as JsonObject | undefined
+    if (row.type === 'tool/call' && data?.callId === callId) {
+      if (data.name !== 'skill' || data.arguments !== '{"name":"visualize"}') throw new Error('Visualization asset path has another Skill call')
+      calls++
+    }
+    if (row.type !== 'tool/result' || (data?.message as JsonObject | undefined)?.toolCallId !== callId) {
+      if (line.includes(prefix)) throw new Error('Visualization asset path appeared outside its declared Skill result')
+      return line
+    }
+    const message = data!.message as JsonObject, content = message.content
+    if (message.isError !== false || !Array.isArray(content) || content.length !== 1) throw new Error('Visualization Skill result must be one successful text block')
+    const block = content[0] as JsonObject
+    if (block.type !== 'text' || typeof block.text !== 'string' || block.text.split(prefix).length !== 2
+      || block.text.split('\n').filter(value => value === before).length !== 1) {
+      throw new Error('Visualization Skill result must declare exactly its Base directory asset reference')
+    }
+    const original = JSON.stringify(block.text)
+    if (line.split(original).length !== 2) throw new Error('Visualization Skill result text must have one canonical JSON spelling')
+    results++
+    return line.replace(original, JSON.stringify(block.text.replace(before, `Base directory for this skill: ${assets}${pathSeparator}`)))
+  })
+  if (calls !== 1 || results !== 1) throw new Error('Visualization asset layout requires its one declared Skill call and result')
+  return lines.join('\n')
+}
+
+function transformVisualizationSchema(tool: unknown, rewrite: (description: string) => string): unknown {
+  if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) {
+    throw new Error('Visualization tool schema must be a JSON object')
+  }
+  if (!('name' in tool) || tool.name !== 'visualize') return tool
+  if (!('description' in tool) || typeof tool.description !== 'string') {
+    throw new Error('Visualization tool description must be a string')
+  }
+  return { ...tool, description: rewrite(tool.description) }
+}
+
+function visualizationBudgetText(value: string, paths: VisualizationBudgetPaths): string {
+  let parsed: unknown
+  try { parsed = JSON.parse(value) } catch (_error) { /* Plain tool text has no JSON quoting layer. */ }
+  if (parsed !== null && typeof parsed === 'object') {
+    return value.replace(/"(?:[^"\\]|\\.)*"/gu, literal => {
+      const text: string = JSON.parse(literal)
+      return JSON.stringify(visualizationBudgetText(text, paths))
+    })
+  }
+  return value.replace(/\{\{cwd\}\}[\\/]+\.dsh[\\/]+visualize[\\/]+sessions[\\/]+\{\{session:1\}\}[\\/]+/gu,
+    join(paths.cwd, '.dsh', 'visualize', 'sessions', paths.sessionId) + sep)
+}
+
+function visualizationBudgetValue(value: unknown, paths: VisualizationBudgetPaths): unknown {
+  if (typeof value === 'string') return visualizationBudgetText(value, paths)
+  if (Array.isArray(value)) return value.map(item => visualizationBudgetValue(item, paths))
+  if (value !== null && typeof value === 'object') return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, visualizationBudgetValue(item, paths)]),
+  )
+  return value
+}
+
+async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: string, cwd: string, visualize?: VisualizationRuntimePaths) {
+  const pin = pinOf(scenario)
+  const promptOwner = scenarioByName.get(pin.manifest.header.systemPromptSource ?? pin.name)
+  const schemaOwner = scenarioByName.get(pin.manifest.header.toolSchemasSource ?? pin.name)
+  if (promptOwner === undefined || schemaOwner === undefined) throw new Error(`${scenario.name}: missing budget sidecar owner`)
+  const [prompt, schemaText] = await Promise.all([
+    readFile(join(promptOwner.dir, 'system-prompt.expected.md'), 'utf8'),
+    readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'),
+  ])
+  const schemas = parseToolSchemasSnapshot(schemaText)
+  const headers = [schemas.initial, ...schemas.changes]
+  if (scenario.name === 'muse-visualize' && visualize === undefined) {
+    throw new Error('Visualization budget requires its independently selected assets, store directory and Session id')
+  }
+  // The committed schema uses canonical slashes, while this native plugin builds
+  // its asset and style paths with node:path. Price the actual platform spelling.
+  const expectedSchemas = scenario.name === 'muse-visualize'
+    ? headers.map(tools => tools.map(tool => transformVisualizationSchema(tool, description =>
+      visualizationAssetDescription(description, visualize!.assets))))
+    : headers
+  if (scenario.name === 'muse-visualize') {
+    expectedLog = visualizationSkillLayout(expectedLog, visualize!.assets)
+      .split('\n').filter(line => line.trim() !== '').map(line =>
+        JSON.stringify(visualizationBudgetValue(JSON.parse(line), visualize!))).join('\n') + '\n'
+  }
+  return { log: expectedLog, prompt, schemas: expectedSchemas, cwd }
+}
+
+async function workspaceBudgetExpected(
+  scenario: HeadlessScenario, actual: readonly JsonObject[], expected: JsonObject[], expectedLog: string, cwd: string, visualize?: VisualizationRuntimePaths,
+): Promise<JsonObject[]> {
+  if (actual.length !== expected.length) return expected
+  const independentInput = await workspaceBudgetInputs(scenario, expectedLog, cwd, visualize)
+  const input = scenario.name === 'muse-session-product' ? sessionProductBudgetInput(independentInput) : independentInput
+  const counts = deriveWorkingBudgetExpectations(input)
+  const shadowed = deriveShadowedBudgetExpectations(input)
+  const measured = new Map<number, unknown>()
+  for (const [index, row] of actual.entries()) {
+    const data = row.data as JsonObject | undefined
+    if (row.type === 'request/context' && data?.workingContextTokens !== undefined) measured.set(index, data.workingContextTokens)
+  }
+  assertWorkingBudgetExpectations(measured, counts)
+  const measuredShadowed = new Map<number, unknown>()
+  for (const [index, row] of actual.entries()) {
+    if (row.type === 'compaction/summary' || row.type === 'compaction/prune') {
+      measuredShadowed.set(index, (row.data as JsonObject).shadowedTokenCount)
+    }
+  }
+  assertWorkingBudgetExpectations(measuredShadowed, shadowed)
+  return expected.map((row, index) => {
+    const derived = counts.get(index)
+    const replaced = shadowed.get(index)
+    if (derived === undefined && replaced === undefined) return row
+    return { ...row, data: { ...row.data as JsonObject,
+      ...derived === undefined ? {} : { workingContextTokens: derived },
+      ...replaced === undefined ? {} : { shadowedTokenCount: replaced },
+    } }
+  })
+}
+
 /** Require successful verification and the complete canonical event before refresh can write a fixture. */
 async function verifySessionQuerySpill(log: string, spillRoot: string, locatorRoot: string): Promise<void> {
   const events = parseSessionLog(log)
@@ -887,6 +1391,67 @@ async function verifySessionQuerySpill(log: string, spillRoot: string, locatorRo
   expect(header).toBeDefined()
   expect(JSON.parse(json![1]!)).toEqual(header)
   expect(full).toContain('session_event_search')
+}
+
+/** Require the live headless credential store to remain inactive before accepting its recorded answer. */
+function assertHeadlessCredentialsInactive(log: string): void {
+  const events = parseSessionLog(log)
+  const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+  expect(calls.map(call => ({ name: call.name, arguments: JSON.parse(call.arguments) }))).toEqual([{
+    name: 'cordis_inspect_query',
+    arguments: { platform: 'host', provider: 'Config', method: 'listConfigs', input: { name: '@deepseek-ai/dsh-credentials-local' } },
+  }])
+  const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  expect(results).toHaveLength(1)
+  const result = results[0]!
+  expect(result.toolCallId).toBe(calls[0]!.callId)
+  expect(result.isError).toBe(false)
+  const text = result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+  expect(JSON.parse(text), 'headless managed credentials remain inactive').toEqual({
+    platform: 'host', provider: 'Config', method: 'listConfigs',
+    data: {
+      entries: [{ id: 'include:credentials', patchId: 'credentials', name: '@deepseek-ai/dsh-credentials-local', status: 'inactive' }],
+      total: 1,
+      nextOffset: null,
+    },
+  })
+  expect(finalTextFromSession(log)).toBe('HEADLESS_CREDENTIALS_INACTIVE')
+}
+
+/** Preserve successful native, program, direct-child, and workflow execution in one flow. */
+function verifyAdvancedToolchain(logs: readonly SessionLog[]): void {
+  expect(logs).toHaveLength(3)
+  const events = parseSessionLog(logs[0]!.content)
+  const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data.name] : [])
+  expect(calls).toEqual(['cordis_inspect_list', 'run_code', 'subagent', 'workflow', 'cordis_inspect_list'])
+  const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  expect(results).toHaveLength(5)
+  expect(results.every(result => result.isError === false)).toBe(true)
+  const dispatches = events.flatMap(event => event.type === 'tool/ptc-dispatch' ? [event.data] : [])
+  expect(dispatches).toEqual([expect.objectContaining({ name: 'cordis_inspect_list', isError: false })])
+  const textOf = (index: number) => results[index]!.content
+    .flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+  expect(JSON.parse(textOf(1))).toEqual(['Service', 'Event', 'Config', 'Tool'])
+  expect(textOf(2)).toBe(`started subagent ${logs[1]!.header.id}`)
+  const completions = events.flatMap(event => event.type === 'user/message'
+    && event.data.source.kind === 'subagent-settled' ? [{
+      sender: event.data.source.senderSessionId,
+      text: event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n'),
+    }] : [])
+  expect(completions).toHaveLength(1)
+  expect(completions[0]?.sender).toBe(logs[1]!.header.id)
+  expect(completions[0]?.text).toContain('DIRECT_CHILD_OK')
+  expect(textOf(3)).toContain('WORKFLOW_CHILD_OK')
+  expect(finalTextFromSession(logs[1]!.content)).toBe('DIRECT_CHILD_OK')
+  expect(finalTextFromSession(logs[2]!.content)).toBe('WORKFLOW_CHILD_OK')
+  const headers = events.flatMap(event => event.type === 'request/header' ? [event.data.header] : [])
+  expect(headers).toHaveLength(3)
+  expect(headers[1]!.tools?.map(tool => tool.name)).toEqual(['run_code'])
+  for (const header of [headers[0]!, headers[2]!]) {
+    const names = header.tools?.map(tool => tool.name) ?? []
+    expect(names).toEqual(expect.arrayContaining(['cordis_inspect_list', 'subagent', 'workflow']))
+    expect(names).not.toContain('run_code')
+  }
 }
 
 /** Require real resource results and literal instructions before recording or replay succeeds. */
@@ -941,15 +1506,84 @@ function verifyNoMcpServers(log: string, ptc: boolean): void {
 
 /** Require an admitted failed job and zero process allocations before updating its recorded oracle. */
 async function verifyBackgroundConfinementFailure(log: string, cwd: string): Promise<void> {
-  const results = parseSessionLog(log).flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  const events = parseSessionLog(log)
+  const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
   const started = results.find(result => result.toolCallId === 'async-confinement-start')
   const inspected = results.find(result => result.toolCallId === 'async-confinement-result')
-  expect(started).toMatchObject({ isError: false, content: [{ type: 'text', text: 'started background job bash-1' }] })
+  const registered = events.find(event => event.type === 'job/registered')
+  if (registered?.type !== 'job/registered') throw new Error('missing registered job')
+  expect(registered.data.jobId).toMatch(/^bash-[0-9a-f]{16}$/)
+  expect(started).toMatchObject({
+    isError: false, content: [{ type: 'text', text: `started background job ${registered.data.jobId}` }],
+  })
   expect(inspected?.isError).toBe(false)
   const text = inspected?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
   expect(text).toContain('[status: failed,')
   expect(text).toContain('fixture asynchronous confinement refused')
   expect(JSON.parse(await readFile(join(cwd, 'confinement-audit.json'), 'utf8'))).toEqual({ confineCalls: 1, spawnCalls: 0 })
+}
+
+/** Directory changes remain user context while relative tools follow the committed directory. */
+function verifyWorkingDirectory(log: string, cwd: string): void {
+  const events = records(log)
+  const directories = events.filter(event => event.type === 'working-directory/change')
+    .map(event => (event.data as JsonObject).cwd)
+  expect(directories).toEqual([join(cwd, 'selected'), join(cwd, 'second'), cwd])
+  expect(events.filter(event => event.type === 'system/message')).toHaveLength(1)
+  const users = events.filter(event => event.type === 'user/message').map(event => event.data as JsonObject)
+  const contexts = users.flatMap(message => {
+    const source = message.source as JsonObject
+    if (source.kind !== 'runtime-context') return []
+    return (source.sections as JsonObject[]).filter(section => section.name === 'working-directory:current')
+      .map(section => section.text)
+  })
+  expect(contexts).toEqual([cwd, join(cwd, 'selected'), join(cwd, 'second'), cwd]
+    .map(directory => `Current working directory: ${JSON.stringify(directory)}.`))
+  const notices = users.filter(message => (message.source as JsonObject).kind === 'working-directory')
+    .map(message => (message.content as JsonObject[]).map(block => block.text).join(''))
+  expect(notices).toEqual([
+    `The working directory changed from ${JSON.stringify(cwd)} to ${JSON.stringify(join(cwd, 'selected'))}.`,
+    `The working directory changed from ${JSON.stringify(join(cwd, 'selected'))} to ${JSON.stringify(join(cwd, 'second'))}.`,
+    `The working directory ${JSON.stringify(join(cwd, 'second'))} is unavailable. The working directory is now ${JSON.stringify(cwd)}.`,
+  ])
+}
+
+/** Run fixture Git with deterministic commit identity and no user hooks or configuration. */
+function snapshotGit(cwd: string, args: string[]): string {
+  const result = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.autocrlf=false', '-c', 'commit.gpgSign=false', ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'))),
+      GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null',
+      GIT_AUTHOR_NAME: 'DSH Snapshot', GIT_COMMITTER_NAME: 'DSH Snapshot',
+      GIT_AUTHOR_EMAIL: 'snapshot@example.invalid', GIT_COMMITTER_EMAIL: 'snapshot@example.invalid',
+      GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
+    },
+  })
+  if (result.status !== 0) throw new Error(`snapshot Git failed: ${result.stderr}`)
+  return result.stdout.trim()
+}
+
+/** Verify Git-owned state independently of the Session and exclude only its volatile administration files from the file oracle. */
+async function verifyWorktree(log: string, cwd: string): Promise<void> {
+  const checkout = join(cwd, '.agents', 'worktrees', 'isolated')
+  expect(await readFile(join(cwd, '.git', 'config'))).toEqual(await readFile(join(cwd, '.git', 'config.before-worktree')))
+  expect(await readFile(join(cwd, '.git', 'info', 'attributes'), 'utf8')).toBe(WORKTREE_CHECKOUT_ATTRIBUTES)
+  expect(snapshotGit(cwd, ['config', 'filter.dsh-snapshot-checkout.smudge'])).toBe(WORKTREE_CHECKOUT_FILTER)
+  expect(await readFile(join(checkout, 'tracked.txt'), 'utf8')).toBe('COMMITTED CONTENT\n')
+  expect(await readFile(join(checkout, 'result.txt'), 'utf8')).toBe('WORKTREE RESULT\n')
+  expect(existsSync(join(checkout, 'local.txt'))).toBe(false)
+  expect(await readFile(join(cwd, '.agents', 'worktrees', '.gitignore'), 'utf8')).toBe('*\n')
+  expect(snapshotGit(cwd, ['branch', '--show-current'])).toBe('main')
+  expect(snapshotGit(checkout, ['branch', '--show-current'])).toBe('isolated')
+  expect(snapshotGit(checkout, ['rev-parse', 'HEAD'])).toBe(snapshotGit(cwd, ['rev-parse', 'HEAD']))
+  expect(snapshotGit(cwd, ['worktree', 'list', '--porcelain'])).toContain(`worktree ${checkout}`)
+  expect(snapshotGit(cwd, ['check-ignore', '.agents/worktrees/isolated/result.txt'])).toBe('.agents/worktrees/isolated/result.txt')
+  const events = records(log)
+  expect(events.filter(event => event.type === 'working-directory/change').map(event => (event.data as JsonObject).cwd))
+    .toEqual([checkout, cwd])
+  expect(events.filter(event => event.type === 'system/message')).toHaveLength(1)
 }
 
 /** Exercise provider-cwd adoption through the shipped launcher without normalizing away the observation. */
@@ -969,6 +1603,7 @@ async function verifyProviderCwdResume(
   expect(primary?.header.cwd).not.toBe(cwd)
   const otherHostCwd = await mkdtemp(join(tmpdir(), 'dsh-provider-resume-'))
   const env = {
+    ...REPLAY_CREDENTIAL_ENV,
     DSH_HOME: join(cwd, '.dsh'),
     DSH_SNAPSHOT: 'replay',
     DSH_SNAPSHOT_FILE: fixture,
@@ -1004,7 +1639,10 @@ async function verifyProviderCwdResume(
     })
     const output = records(resumed.stdout)
     expect(output[0]).toEqual({ type: 'session', sessionId: primary?.header.id, cwd: providerCwd })
-    expect(output.at(-1)).toEqual({ type: 'final', text: finalTextFromSession(primary!.content) })
+    expect(output.at(-1)).toEqual({
+      type: 'final', sessionId: primary?.header.id,
+      reason: { kind: 'completed' }, text: finalTextFromSession(primary!.content),
+    })
     const continued = await persistedSessions(cwd)
     expect(continued).toHaveLength(1)
     expect(continued[0]?.header).toEqual(primary?.header)
@@ -1015,7 +1653,7 @@ async function verifyProviderCwdResume(
   }
 }
 
-async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly SessionLog[], ctx: NormalizeContext): Promise<void> {
+async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly SessionLog[], ctx: NormalizeContext, visualizationAssets?: string): Promise<void> {
   const pin = pinOf(scenario)
   const pinFile = pin.manifest.sessionFormat !== undefined || pin.manifest.writerOutput === true
     ? writerSnapshotName(0) : await primaryFixtureFile(pin.dir)
@@ -1031,7 +1669,11 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
   }
   const prompt = await readFile(join(promptOwner.dir, 'system-prompt.expected.md'), 'utf8')
   const schemas = parseToolSchemasSnapshot(await readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'))
-  const schemaSets = [schemas.initial, ...schemas.changes]
+  if (scenario.name === 'muse-visualize' && visualizationAssets === undefined) throw new Error('Visualization header requires its selected assets')
+  const schemaSets = [schemas.initial, ...schemas.changes].map(set => scenario.name === 'muse-visualize'
+    ? set.map(tool => transformVisualizationSchema(tool, description => visualizationAssetDescription(description,
+      normalizedVisualizationAssets(visualizationAssets!, ctx.cwd), '/')))
+    : set)
   expect(schemaSets, `${scenario.name}: pin tool-schema count`).toHaveLength(pinned.length)
   const reconstructed = pinned.map((header, index) => restorePinnedToolSchemas(
     header,
@@ -1040,17 +1682,29 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 
   const childPrompts = new Map<number, string>()
   const childSchemas = new Map<number, unknown[][]>()
+  const childHeaders = new Map<number, unknown[]>()
   for (const index of scenario.manifest.header.childSystemPrompts ?? []) {
     childPrompts.set(index, await readFile(join(scenario.dir, `system-prompt.${index}.expected.md`), 'utf8'))
   }
   for (const index of scenario.manifest.header.childToolSchemas ?? []) {
     const child = parseToolSchemasSnapshot(await readFile(join(scenario.dir, `tool-schemas.${index}.expected.json`), 'utf8'))
-    childSchemas.set(index, [child.initial, ...child.changes])
+    const schemas = [child.initial, ...child.changes]
+    childSchemas.set(index, schemas)
+    const role = scenario.manifest.sessionFormat !== undefined || scenario.manifest.writerOutput === true
+      ? writerSnapshotName(index) : sessionFixtureNames(await readdir(scenario.dir))[index]
+    if (role === undefined) throw Error(`${scenario.name}: missing recorded child role ${index}`)
+    const fixture = await readFile(join(scenario.dir, role), 'utf8')
+    const headers = normalizedHeaders(fixture, fixtureContext(fixture))
+    expect(schemas, `${scenario.name}: child ${index} pin tool-schema count`).toHaveLength(headers.length)
+    childHeaders.set(index, headers)
   }
 
   for (const [logIndex, log] of actualLogs.entries()) {
     const headers = normalizedHeaders(log.content, ctx)
     const prompts = normalizedSystemPrompts(log.content, ctx)
+    const recordedChild = childHeaders.get(logIndex)
+    if (recordedChild !== undefined) expect(headers, `${scenario.name}: child ${logIndex} pin header count`)
+      .toHaveLength(recordedChild.length)
     if (scenario.name === 'muse-editing-tool-catalog') {
       expect(prompts.join('\n'), 'editing prompt excludes the retired persona').not.toContain('PONYTAIL MODE')
       expect(log.content, 'editing skill catalog excludes retired Ponytail skills')
@@ -1063,7 +1717,7 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
     }
     for (const [index, header] of headers.entries()) {
       const selectedSchemas = childSchemas.get(logIndex)?.[index]
-      const base = reconstructed[index] ?? reconstructed[0]
+      const base = recordedChild?.[index] ?? reconstructed[index] ?? reconstructed[0]
       const expected = selectedSchemas === undefined ? base : { ...base as JsonObject, tools: selectedSchemas }
       expect(header, `${scenario.name}: request header ${index + 1}`).toEqual(expected)
     }
@@ -1076,7 +1730,339 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
   }
 }
 
+/** Reject a changed child output budget against that role's independently recorded Session. */
+async function verifyChildOutputLimitRejection(scenario: HeadlessScenario, actualLogs: readonly SessionLog[],
+  ctx: NormalizeContext): Promise<void> {
+  const child = actualLogs[1]
+  if (child === undefined) throw Error(`${scenario.name}: missing child output-limit control`)
+  let changed = false
+  const content = records(child.content).map(record => {
+    if (record.type !== 'request/header') return record
+    const data = record.data as JsonObject
+    const header = data.header as JsonObject
+    const config = header.config as JsonObject
+    if (typeof config.maxTokens !== 'number') throw Error(`${scenario.name}: child has no explicit output limit`)
+    changed = true
+    return { ...record, data: { ...data, header: { ...header, config: { ...config, maxTokens: config.maxTokens + 1 } } } }
+  }).map(record => JSON.stringify(record)).join('\n') + '\n'
+  expect(changed).toBe(true)
+  await expect(verifyHeaders(scenario, actualLogs.map((log, index) => index === 1 ? { ...log, content } : log), ctx))
+    .rejects.toThrow(`${scenario.name}: request header 1`)
+}
+
 describe('headless recorded-session snapshots', () => {
+  it('materializes the draft directory marker required by the strict replay initializer', async () => {
+    const scenario = scenarioByName.get('muse-jianying-draft')
+    if (scenario === undefined) throw new Error('Missing draft replay owner')
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-draft-seed-materializer-'))
+    try {
+      await seedWorkspace(scenario, cwd)
+      expect(await readdir(join(cwd, 'drafts'))).toEqual(['.keep'])
+      expect(await readFile(join(cwd, 'drafts', '.keep'), 'utf8')).toBe('')
+      expect(await readFile(join(cwd, 'request.json'))).toEqual(await readFile(join(scenario.dir, 'workspace', 'request.json')))
+      expect((await captureExpectedWorkspaceSnapshot(join(scenario.dir, 'workspace.expected'))).map(entry => entry.path))
+        .toEqual(['drafts/candidate-95/draft_content.json', 'drafts/candidate-95/muse-review.json', 'request.json'])
+    } finally { await rm(cwd, { recursive: true, force: true }) }
+  })
+
+  it('binds subtitle review skill output to the current packaged source and rejects stale font guidance', async () => {
+    const [log, source] = await Promise.all([
+      readFile(join(snapshotsRoot, 'muse-subtitle-text-review/writer.expected.jsonl'), 'utf8'),
+      readFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-draft-build/SKILL.md'), 'utf8'),
+    ])
+    const base = '{{cwd}}/.dsh/skills/tweet-drama-draft-build'
+    assertSubtitleReviewSkill(log, source, base)
+    const stale = log.replaceAll('Resources/fonts', 'Resources/obsolete-fonts')
+    expect(stale).not.toBe(log)
+    expect(() => { assertSubtitleReviewSkill(stale, source, base) }).toThrow('current packaged draft skill body')
+  })
+  it('Lvpaopao expected workspace expands only saved media paths and keeps original keys', () => {
+    const cwd = join(tmpdir(), 'lvpaopao-workspace-oracle')
+    const prefix = '{{cwd}}/downloads/lvpaopao/lvpaopao-84817d56f3ed4113d52398c7/episodes/0001/episode-0001.mp4'
+    const media = { localPath: prefix, receiptPath: `${prefix}.receipt.json`, sha256: 'a'.repeat(64) }
+    const document = { schemaVersion: 1, selection: { title: 'Keep {{cwd}} as source text' }, episodes: [
+      { episodeNo: 1, requestKey: '1'.repeat(64), media },
+    ] }
+    const expanded = JSON.parse(expandLvpaopaoExpectedMedia(JSON.stringify(document), cwd)) as JsonObject
+    expect(expanded).toEqual({ ...document, episodes: [{ ...document.episodes[0], media: {
+      ...media, localPath: join(cwd, prefix.slice('{{cwd}}/'.length)), receiptPath: join(cwd, `${prefix.slice('{{cwd}}/'.length)}.receipt.json`),
+    } }] })
+    const receipt = { kind: 'verified-episode-copy', idempotencyKey: '1'.repeat(64), media }
+    expect(JSON.parse(expandLvpaopaoExpectedMedia(JSON.stringify(receipt), cwd)).idempotencyKey).toBe(receipt.idempotencyKey)
+    for (const invalid of ['/unowned/episode.mp4', '{{cwd}}/downloads/lvpaopao/../outside.mp4', '{{cwd}}/downloads/lvpaopao/..\\outside.mp4']) {
+      expect(() => expandLvpaopaoExpectedMedia(JSON.stringify({ ...receipt, media: { ...media, localPath: invalid } }), cwd)).toThrow()
+    }
+  })
+
+  it('Douyin expected workspace expands only the two declared media receipt paths', () => {
+    const cwd = join(tmpdir(), 'douyin-workspace-oracle')
+    const path = '{{cwd}}/source/media/douyin/7100000000000000001.mp4'
+    const document = { path, receipt: `${path}.source.json`, source: 'https://www.douyin.com/video/7100000000000000001', sha256: 'a'.repeat(64), title: '{{cwd}} is source data' }
+    expect(JSON.parse(expandDouyinExpectedReceipt(JSON.stringify(document), cwd))).toEqual({
+      ...document, path: join(cwd, 'source/media/douyin/7100000000000000001.mp4'), receipt: join(cwd, 'source/media/douyin/7100000000000000001.mp4.source.json'),
+    })
+    for (const invalid of ['/unowned/video.mp4', '{{cwd}}/source/media/douyin/../outside.mp4', '{{cwd}}/source/media/douyin/..\\outside.mp4']) {
+      expect(() => expandDouyinExpectedReceipt(JSON.stringify({ ...document, path: invalid }), cwd)).toThrow()
+    }
+  })
+
+  it('company media expected workspace expands only its declared local path', async () => {
+    const template = await readFile(join(snapshotsRoot, 'muse-media-tools/workspace.expected/source/media/company/91000000-0000-4000-8000-000000000001-fixture.mp4.source.json'), 'utf8')
+    const document = JSON.parse(template) as JsonObject
+    const cwd = join(tmpdir(), 'company-media-workspace-oracle')
+    expect(JSON.parse(expandCompanyMediaExpectedReceipt(template, cwd))).toEqual({
+      ...document, path: join(cwd, 'source/media/company/91000000-0000-4000-8000-000000000001-fixture.mp4'),
+    })
+    for (const path of [undefined, '/outside/video.mp4', '{{cwd}}/source/media/company/../outside.mp4', '{{cwd}}/source/media/company/..\\outside.mp4']) {
+      expect(() => expandCompanyMediaExpectedReceipt(JSON.stringify({ ...document, path }), cwd)).toThrow()
+    }
+  })
+
+  it('company media expected workspace retains the exact selected manifest filename', async () => {
+    const template = await readFile(join(snapshotsRoot,
+      'muse-media-tools/workspace.expected/source/media/company/91000000-0000-4000-8000-000000000001-fixture.mp4.source.json'), 'utf8')
+    const document = JSON.parse(template) as JsonObject
+    const path = '{{cwd}}/source/media/company/91000000-0000-4000-8000-000000000001-video (1).mp4'
+    const cwd = join(tmpdir(), 'company-media-named-workspace-oracle')
+    expect(JSON.parse(expandCompanyMediaExpectedReceipt(JSON.stringify({ ...document, path }), cwd, 'video (1).mp4')))
+      .toEqual({ ...document, path: join(cwd, 'source/media/company/91000000-0000-4000-8000-000000000001-video (1).mp4') })
+    for (const invalid of [document.path, `${path}/../outside.mp4`, path.replace('video (1)', 'video_1'),
+      '{{cwd}}/source/media/company/..\\outside.mp4']) {
+      expect(() => expandCompanyMediaExpectedReceipt(JSON.stringify({ ...document, path: invalid }), cwd, 'video (1).mp4')).toThrow()
+    }
+  })
+
+  it.each([
+    ['muse-resident-question', 'ask_user'],
+    ['muse-resident-view', 'show_view'],
+  ] as const)('%s rejects dropped tool calls and an unexpected host-only catalog', async (owner, tool) => {
+    const log = await readFile(join(snapshotsRoot, owner, 'writer.expected.jsonl'), 'utf8')
+    const events = parseSessionLog(log)
+    expect(() => verifyResidentUiReplay(events, tool)).not.toThrow()
+    const droppedCall = events.filter(event => event.type !== 'tool/call')
+    expect(() => verifyResidentUiReplay(droppedCall, tool)).toThrow('tool calls remain intact')
+    const changedCall = log.replaceAll(`"name":"${tool}"`, '"name":"bash"')
+    expect(() => verifyResidentUiReplay(parseSessionLog(changedCall), tool)).toThrow('tool calls remain intact')
+    const unexpectedCatalog = {
+      type: 'user/message',
+      surfaceOp: 'append',
+      data: {
+        content: [{ type: 'text', text: 'Unexpected host-only skill' }],
+        role: 'user',
+        id: 'unexpected-catalog',
+        source: { kind: 'skill-catalog', form: 'catalog', entries: [
+          { name: 'diagnose-windows-sandbox-acl', description: 'Unexpected host-only skill' },
+        ] },
+      },
+    }
+    expect(() => verifyResidentUiReplay(parseSessionLog(log + JSON.stringify(unexpectedCatalog) + '\n'), tool))
+      .toThrow('platform-neutral skill catalog')
+  })
+
+  it('expands visualization store paths without changing runtime-context paths or JSON spacing', () => {
+    const paths = { cwd: join(tmpdir(), 'fixture "store"'), sessionId: 'session-11111111-2222-3333-4444-555555555555' }
+    const target = join(paths.cwd, '.dsh', 'visualize', 'sessions', paths.sessionId, 'visualization-315b444e.whale.html')
+    for (const path of ['{{cwd}}/.dsh/visualize/sessions/{{session:1}}/visualization-315b444e.whale.html',
+      '{{cwd}}\\.dsh\\visualize\\sessions\\{{session:1}}\\visualization-315b444e.whale.html']) {
+      expect(visualizationBudgetText(`Saved at ${path}.`, paths)).toBe(`Saved at ${target}.`)
+      const args = `{ "path" : ${JSON.stringify(path)}, "title" : "Original" }`
+      expect(visualizationBudgetText(args, paths)).toBe(`{ "path" : ${JSON.stringify(target)}, "title" : "Original" }`)
+    }
+    const runtime = 'Current working directory: "{{cwd}}".'
+    expect(visualizationBudgetText(runtime, paths)).toBe(runtime)
+  })
+
+  it('rewrites visualization descriptions while preserving all other schema fields', () => {
+    const tool = { name: 'visualize', description: 'Original style path', parameters: { type: 'object' }, metadata: { version: 2 } }
+    const transformed = transformVisualizationSchema(tool, description => `${description} expanded`)
+    expect(transformed).toEqual({ ...tool, description: 'Original style path expanded' })
+    expect(tool.description).toBe('Original style path')
+    const other = { name: 'read', description: 'Read a file', parameters: { type: 'object' } }
+    expect(transformVisualizationSchema(other, () => { throw new Error('Unrelated descriptions must stay unchanged') })).toBe(other)
+  })
+
+  it('rejects malformed visualization schema objects and descriptions', () => {
+    for (const tool of [null, [], 7, 'visualize']) {
+      expect(() => transformVisualizationSchema(tool, description => description)).toThrow('must be a JSON object')
+    }
+    for (const tool of [{ name: 'visualize' }, { name: 'visualize', description: null }, { name: 'visualize', description: 7 }]) {
+      expect(() => transformVisualizationSchema(tool, description => description)).toThrow('description must be a string')
+    }
+  })
+
+  it('expands only declared visualization asset references for source and installed layouts', async () => {
+    const owner = scenarioByName.get('muse-visualize')
+    if (owner === undefined) throw new Error('Missing visualization owner')
+    const log = await readFile(join(owner.dir, 'writer.expected.jsonl'), 'utf8')
+    const schemas = parseToolSchemasSnapshot(await readFile(join(owner.dir, 'tool-schemas.expected.json'), 'utf8'))
+    const tool = schemas.initial.find(value => (value as JsonObject).name === 'visualize') as JsonObject
+    if (typeof tool.description !== 'string') throw new Error('Missing visualization description')
+    const before = records(log)
+    for (const entry of ['.dsh/plugins/dsh-visualize/src/index.ts', '.dsh/plugins/dsh-visualize/lib/index.js',
+      '.dsh/profiles/headless/node_modules/@nagi-ovo/dsh-visualize/lib/index.js']) {
+      const assets = visualizationAssetDirectory(join('{{cwd}}', entry)).replaceAll('\\', '/')
+      const projected = visualizationSkillLayout(log, assets, '/')
+      const rows = records(projected)
+      expect(rows).toHaveLength(before.length)
+      const changed = rows.flatMap((row, index) => JSON.stringify(row) === JSON.stringify(before[index]) ? [] : [index])
+      const sourceAssets = entry.startsWith('.dsh/plugins/')
+      expect(changed).toEqual(sourceAssets ? [] : [18])
+      if (sourceAssets) expect(projected).toBe(log)
+      const result = (rows[18]!.data as JsonObject).message as JsonObject
+      const original = (before[18]!.data as JsonObject).message as JsonObject
+      const content = result.content as JsonObject[], originalContent = original.content as JsonObject[]
+      expect(String(content[0]!.text).replace(`Base directory for this skill: ${assets}/`,
+        'Base directory for this skill: {{cwd}}/.dsh/plugins/dsh-visualize/assets/')).toBe(originalContent[0]!.text)
+      expect({ ...result, content: original.content }).toEqual(original)
+      const description = visualizationAssetDescription(tool.description, assets, '/')
+      expect(description.split(assets).length).toBe(4)
+      expect(description.split(`${assets}/`).join('{{cwd}}/.dsh/plugins/dsh-visualize/assets/'))
+        .toBe(visualizationStyleDescription(tool.description))
+    }
+    expect(await readFile(join(owner.dir, 'writer.expected.jsonl'), 'utf8')).toBe(log)
+  })
+
+  it('accepts private Windows receipts across volumes while rejecting paths inside the workspace', () => {
+    const cwd = 'C:\\work\\project'
+    for (const [receipt, outside] of [
+      ['D:\\spill\\layout.json', true],
+      ['C:\\spill\\layout.json', true],
+      ['C:\\work\\project-other\\layout.json', true],
+      ['C:\\work\\project', false],
+      ['C:\\work\\project\\layout.json', false],
+      ['layout.json', false],
+    ] as const) expect(visualizationReceiptOutside(receipt, cwd, win32), receipt).toBe(outside)
+    expect(win32.isAbsolute(win32.relative(cwd, 'D:\\spill\\layout.json'))).toBe(true)
+  })
+
+  it('binds visualization budgets to independently selected real entry assets and rejects absent or altered receipts', async () => {
+    const scenario = scenarioByName.get('muse-visualize')
+    if (scenario === undefined) throw new Error('Missing visualization owner')
+    const log = await readFile(join(scenario.dir, 'writer.expected.jsonl'), 'utf8')
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-visualize-layout-'))
+    await mkdir(join(directory, 'workspace'))
+    const cwd = await realpath(join(directory, 'workspace'))
+    const receipt = join(directory, 'layout.json')
+    const sourceRoot = join(repoRoot, 'third_party', 'plugins', 'dsh-visualize')
+    try {
+      await expect(readVisualizationAssets(receipt, cwd)).rejects.toMatchObject({ code: 'ENOENT' })
+      for (const relativeEntry of ['.dsh/plugins/dsh-visualize/src/index.ts', '.dsh/plugins/dsh-visualize/lib/index.js',
+        '.dsh/profiles/headless/node_modules/@nagi-ovo/dsh-visualize/lib/index.js']) {
+        const entry = join(cwd, relativeEntry), assets = visualizationAssetDirectory(entry)
+        const face = relativeEntry.endsWith('.ts') ? 'src' : 'lib'
+        const sourceEntry = join(sourceRoot, face, face === 'src' ? 'index.ts' : 'index.js')
+        await mkdir(dirname(entry), { recursive: true })
+        await copyFile(sourceEntry, entry)
+        await mkdir(join(assets, 'styles'), { recursive: true })
+        for (const part of ['visualize-skill.md', 'styles/whale.md']) await copyFile(join(sourceRoot, 'assets', part), join(assets, part))
+        await writeFile(receipt, JSON.stringify({ entry, assets }))
+        expect(await readVisualizationAssets(receipt, cwd)).toBe(assets)
+        expect(await readFile(entry)).toEqual(await readFile(sourceEntry))
+        const paths = { cwd, sessionId: 'fixture-selected-layout', assets }
+        const inputs = await workspaceBudgetInputs(scenario, log, cwd, paths)
+        const working = deriveWorkingBudgetExpectations(inputs)
+        const expected = records(visualizationSkillLayout(log, normalizedVisualizationAssets(assets, cwd), '/'))
+          .map((row, index) => working.has(index)
+            ? { ...row, data: { ...row.data as JsonObject, workingContextTokens: working.get(index) } } : row)
+        expect(await workspaceBudgetExpected(scenario, expected, expected, log, cwd, paths)).toEqual(expected)
+        const index = expected.findIndex(row => row.type === 'request/context'
+          && typeof (row.data as JsonObject).workingContextTokens === 'number')
+        const data = expected[index]!.data as JsonObject
+        if (typeof data.workingContextTokens !== 'number') throw new Error('Missing selected-layout budget')
+        const estimate = data.workingContextTokens
+        await expect(workspaceBudgetExpected(scenario, expected.map((row, offset) => offset === index
+          ? { ...row, data: { ...data, workingContextTokens: estimate + 1 } } : row), expected, log, cwd, paths))
+          .rejects.toThrow('exact working context estimate')
+        await writeFile(receipt, JSON.stringify({ entry, assets, workingContextTokens: estimate }))
+        await expect(readVisualizationAssets(receipt, cwd)).rejects.toThrow('only entry and assets')
+        await writeFile(receipt, JSON.stringify({ entry, assets: join(assets, 'styles') }))
+        await expect(readVisualizationAssets(receipt, cwd)).rejects.toThrow('supported fixture entry and its assets')
+        await writeFile(receipt, JSON.stringify({ entry: join(cwd, 'unexpected', 'lib', 'index.js'), assets }))
+        await expect(readVisualizationAssets(receipt, cwd)).rejects.toThrow('supported fixture entry and its assets')
+        await writeFile(receipt, JSON.stringify({ entry, assets }))
+        await rm(join(assets, 'styles', 'whale.md'))
+        await expect(readVisualizationAssets(receipt, cwd)).rejects.toMatchObject({ code: 'ENOENT' })
+      }
+      await expect(workspaceBudgetInputs(scenario, log, cwd)).rejects.toThrow('independently selected assets')
+      expect(await readFile(join(scenario.dir, 'writer.expected.jsonl'), 'utf8')).toBe(log)
+    } finally { await rm(directory, { recursive: true, force: true }) }
+  })
+
+  it('matches the retained real visualization description and rejects non-path description changes', async () => {
+    const [{ Context }, { visualizeTool }] = await Promise.all([
+      import('@deepseek-ai/cordis'), import('../../third_party/plugins/dsh-visualize/src/tool.ts'),
+    ])
+    const ctx = new Context()
+    try {
+      const schemaText = await readFile(join(snapshotsRoot, 'muse-visualize/tool-schemas.expected.json'), 'utf8')
+      const schema = parseToolSchemasSnapshot(schemaText).initial.find(value => (value as JsonObject).name === 'visualize') as JsonObject
+      if (typeof schema.description !== 'string') throw new Error('Missing visualization description')
+      const description = schema.description
+      const assets = fileURLToPath(new URL('../../third_party/plugins/dsh-visualize/assets/', import.meta.url)).slice(0, -1)
+      const actual = visualizeTool(ctx, 65536).description
+      expect(actual).toBe(visualizationAssetDescription(description, assets))
+      expect(() => expect(actual).toBe(visualizationAssetDescription(description.replace('interactive HTML', 'unreviewed HTML'), assets)))
+        .toThrow()
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('rejects visualization asset references outside the declared description and Skill result', async () => {
+    const log = await readFile(join(snapshotsRoot, 'muse-visualize/writer.expected.jsonl'), 'utf8')
+    const assets = visualizationAssetDirectory(join('{{cwd}}', '.dsh/profiles/headless/node_modules/@nagi-ovo/dsh-visualize/lib/index.js')).replaceAll('\\', '/')
+    const prefix = '{{cwd}}/.dsh/plugins/dsh-visualize/assets/'
+    const wrongCall = records(log).map(row => row.type === 'tool/call' && (row.data as JsonObject).callId === 'call_visualize_skill'
+      ? { ...row, data: { ...row.data as JsonObject, name: 'another_skill' } } : row).map(row => JSON.stringify(row)).join('\n') + '\n'
+    expect(() => visualizationSkillLayout(wrongCall, assets, '/')).toThrow('another Skill call')
+    expect(() => visualizationSkillLayout(log.replace('Base directory for this skill:', 'A business path:'), assets, '/')).toThrow('Base directory')
+    expect(() => visualizationSkillLayout(log.replace('预算方案 V1更新', `${prefix}business.html 预算方案 V1更新`), assets, '/'))
+      .toThrow('outside its declared Skill result')
+    expect(() => visualizationAssetDescription(`Changed description ${prefix}`, assets, '/')).toThrow('exactly its three')
+    const changed = records(log).map((row) => {
+      if (row.type !== 'tool/result' || ((row.data as JsonObject).message as JsonObject).toolCallId !== 'call_visualize_skill') return row
+      const data = row.data as JsonObject, message = data.message as JsonObject, content = message.content as JsonObject[]
+      return { ...row, data: { ...data, message: { ...message, content: content.map(block => ({ ...block, text: `${block.text}\nUnexpected Skill body.` })) } } }
+    }).map(row => JSON.stringify(row)).join('\n') + '\n'
+    expect(() => expect(visualizationSkillLayout(changed, assets, '/')).toBe(visualizationSkillLayout(log, assets, '/'))).toThrow()
+  })
+
+  it('preserves exact expected-input working estimates and all other context fields', async () => {
+    const scenario = scenarioByName.get('muse-creation-source-id-recovery')
+    if (scenario === undefined) throw new Error('Missing recorded budget owner')
+    const log = await readFile(join(scenario.dir, 'writer.expected.jsonl'), 'utf8')
+    const cwd = '/' + 'x'.repeat(75)
+    const inputs = await workspaceBudgetInputs(scenario, log, cwd)
+    const working = deriveWorkingBudgetExpectations(inputs)
+    const shadowed = deriveShadowedBudgetExpectations(inputs)
+    // Materialize this unit fixture for its cwd and current sidecars. The replay
+    // path independently checks the runtime's measured values against these inputs.
+    const expected = records(log).map((row, index) => {
+      const count = working.get(index) ?? shadowed.get(index)
+      if (count === undefined) return row
+      const field = working.has(index) ? 'workingContextTokens' : 'shadowedTokenCount'
+      return { ...row, data: { ...row.data as JsonObject, [field]: count } }
+    })
+    const retained = structuredClone(expected)
+    const index = expected.findIndex(row => row.type === 'request/context'
+      && typeof (row.data as JsonObject).workingContextTokens === 'number')
+    const data = expected[index]?.data as JsonObject
+    const estimate = data.workingContextTokens
+    const limit = data.workingTokenLimit
+    if (typeof estimate !== 'number' || typeof limit !== 'number') throw new Error('Missing recorded working estimate')
+    const changed = (value: unknown) => expected.map((row, offset) => offset === index ? { ...row, data: value } : row)
+    const compare = (actual: JsonObject[]) => workspaceBudgetExpected(scenario, actual, expected, log, cwd)
+    await expect(compare(changed({ ...data, workingContextTokens: estimate + 1 }))).rejects.toThrow(/exact working context estimate/)
+    await expect(compare(changed({ ...data, workingContextTokens: estimate + 5 }))).rejects.toThrow(/exact working context estimate/)
+    expect(await compare(expected)).toEqual(expected)
+    expect(expected).toEqual(retained)
+    expect(await readFile(join(scenario.dir, 'writer.expected.jsonl'), 'utf8')).toBe(log)
+    await expect(compare(changed({ ...data, workingContextTokens: limit }))).rejects.toThrow(/exact working context estimate/)
+    await expect(compare(changed({ ...data, workingContextTokens: limit + 1 }))).rejects.toThrow(/exact working context estimate/)
+    expect(await compare([])).toEqual(expected)
+    await expect(compare(changed({}))).rejects.toThrow(/must report/)
+    const changedLimit = changed({ ...data, workingTokenLimit: limit + 1 })
+    expect(changedLimit).not.toEqual(await compare(changedLimit))
+  })
+
   it('subtitle overlay workspace expected expands only declared path fields', async () => {
     const template = await readFile(join(snapshotsRoot, 'drama-subtitle-overlay/workspace.expected/editing/review-overlay.srt.decision-report.json'), 'utf8')
     const report = JSON.parse(template) as JsonObject
@@ -1098,6 +2084,25 @@ describe('headless recorded-session snapshots', () => {
     expect(expanded.text).toBe(report.text)
     expect(() => expandSubtitleOverlayExpectedReport(JSON.stringify({ ...report, plan_path: '/unowned/path' }), cwd))
       .toThrow('expected paths must start with {{cwd}}/')
+  })
+
+  it('manuscript delivery oracle expands only owned paths and the independently recorded parent identity', () => {
+    const cwd = join(tmpdir(), 'declared-manuscript-fixture-root')
+    const baseline = { path: '{{cwd}}/final.md', sha256: 'a'.repeat(64), text: 'Keep literal {{cwd}} and {{session:1}} in manuscript text.', session: '{{session:1}}' }
+    const ledger = { version: 1, baselines: [baseline], reviews: {} }
+    expect(JSON.parse(expandManuscriptDeliveryLedger(JSON.stringify(ledger), cwd, 'actual-parent'))).toEqual({
+      ...ledger, baselines: [{ ...baseline, path: join(cwd, 'final.md'), session: 'actual-parent' }],
+    })
+    expect(() => expandManuscriptDeliveryLedger(JSON.stringify({ ...ledger, baselines: [{ ...baseline, path: '{{cwd}}/other.md' }] }), cwd, 'actual-parent'))
+      .toThrow('filename is not owned')
+    expect(() => expandManuscriptDeliveryLedger(JSON.stringify({ ...ledger, baselines: [{ ...baseline, session: '{{session:2}}' }] }), cwd, 'actual-parent'))
+      .toThrow('owner must be {{session:1}}')
+    expect(() => expandManuscriptDeliveryLedger(JSON.stringify(ledger), cwd, 'actual-parent', 'ptc'))
+      .toThrow('filename is not owned')
+    const changedHash = { ...ledger, baselines: [{ ...baseline, sha256: 'b'.repeat(64) }] }
+    const actual = JSON.parse(expandManuscriptDeliveryLedger(JSON.stringify(ledger), cwd, 'actual-parent'))
+    const changedExpected = JSON.parse(expandManuscriptDeliveryLedger(JSON.stringify(changedHash), cwd, 'actual-parent'))
+    expect(() => expect(actual).toEqual(changedExpected)).toThrow()
   })
 
   it('subtitle overlay workspace expected preserves the source oracle and detects changed business fields and extra files', async () => {
@@ -1176,6 +2181,198 @@ describe('headless recorded-session snapshots', () => {
     }
   })
 
+  it('keeps a refreshed job identity shared across persisted events and rendered results', async () => {
+    const owner = scenarios.find(scenario => scenario.name === 'background-confinement-failure')
+    if (owner === undefined) throw new Error('Missing background confinement fixture')
+    const [fixture] = await fixtureSessions(owner)
+    if (fixture === undefined) throw new Error('Missing canonical replay input')
+    const jobId = 'bash-0011223344556677'
+    const content = fixture.replaceAll('{{id:1}}', jobId)
+    const header = headerOf(content)
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-writer-job-identity-'))
+    try {
+      const canonical = join(dir, sessionFixtureName(0, sessionHeaderVersion(fixture, owner.name)))
+      await writeFile(canonical, fixture)
+      const output = await writeSessionFixtures({ ...owner, dir },
+        [{ content, header }], [fixture], contextOf([content]), 'refresh')
+      expect(output[0]).toContain('started background job {{id:1}}')
+      expect(normalizeSessionSnapshots(output, contextOf(output), { nativeWriterOutput: true }))
+        .toEqual(normalizeSessionSnapshots([content], contextOf([content]), { nativeWriterOutput: true }))
+      expect(await readFile(canonical, 'utf8')).toBe(fixture)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps retained V3 and latest V4 replay inputs independent of writer output', async () => {
+    const owner = scenarios.find(scenario => scenario.name === 'tool-call-turn')
+    if (owner === undefined) throw new Error('Missing retained tool-call replay fixture')
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-retained-writer-output-'))
+    try {
+      for (const file of ['session.v3.jsonl', 'session.v4.jsonl']) {
+        await copyFile(join(owner.dir, file), join(dir, file))
+      }
+      const scenario: HeadlessScenario = { ...owner, dir, manifest: { ...owner.manifest, writerOutput: true } }
+      const canonicalBefore = await fixtureSessions(scenario)
+      const retained = { file: 'session.v3.jsonl', content: await readFile(join(dir, 'session.v3.jsonl'), 'utf8') }
+      const current = canonicalBefore[0]
+      if (current === undefined) throw new Error('Missing current tool-call replay fixture')
+      expect(retained.content).not.toBe(current)
+      const header: JsonObject = JSON.parse(current.split('\n')[0] ?? '')
+      await writeSessionFixtures(scenario, [{ content: current, header }], [retained.content], contextOf([current]))
+      expect(existsSync(join(dir, writerSnapshotName(0)))).toBe(true)
+      await assertReplayInputsUnchanged(scenario, canonicalBefore, retained)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('compares the confinement writer and raw log with complete identities across repeated refreshes', async () => {
+    const owner = scenarios.find(scenario => scenario.name === 'background-confinement-failure')
+    if (owner === undefined) throw new Error('Missing background confinement fixture')
+    const [fixture] = await fixtureSessions(owner)
+    if (fixture === undefined) throw new Error('Missing canonical confinement input')
+    const job = 'bash-aaaaaaaaaaaaaaaa'
+    const schemas = parseToolSchemasSnapshot(await readFile(join(owner.dir, 'tool-schemas.expected.json'), 'utf8'))
+    const firstTool = schemas.initial[0]
+    if (firstTool === null || typeof firstTool !== 'object' || Array.isArray(firstTool)
+      || !('description' in firstTool) || typeof firstTool.description !== 'string') throw new Error('Missing confinement tool definition')
+    const tools = [{ ...firstTool, description: `${firstTool.description}\nAnonymous user: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa` }, ...schemas.initial.slice(1)]
+    const actual = fixture.replaceAll('{{id:1}}', job)
+      .replace('"text":"{{system}}"', '"text":"Anonymous user: 99999999-9999-4999-8999-999999999999"')
+      .replace('"tools":"{{tools}}"', `"tools":${JSON.stringify(tools)}`)
+    expect(actual).not.toContain('{{system}}')
+    expect(actual).toContain('Anonymous user: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-confinement-writer-order-'))
+    try {
+      const file = sessionFixtureName(0, sessionHeaderVersion(fixture, owner.name))
+      const canonical = join(dir, file)
+      await writeFile(canonical, fixture)
+      const scenario = { ...owner, dir }
+      const context = contextOf([actual])
+      const header: JsonObject = JSON.parse(actual.split('\n')[0] ?? '')
+      const logs = [{ content: actual, header }]
+      const output = await writeSessionFixtures(scenario, logs, [fixture], context, 'refresh')
+      expect(await readFile(canonical, 'utf8')).toBe(fixture)
+      expect(await readFile(join(dir, writerSnapshotName(0)), 'utf8')).toBe(output[0])
+      expect(output[0]).toContain('background job {{id:3}}')
+      expect(output[0]).toContain('fixture asynchronous confinement refused')
+      expect(normalizeSessionSnapshots([actual], context, { nativeWriterOutput: true }))
+        .toEqual(normalizeSessionSnapshots(output, contextOf(output), { nativeWriterOutput: true }))
+      const refreshed = await writeSessionFixtures(scenario, logs, output, context, 'refresh')
+      expect(refreshed).toEqual(output)
+      expect(normalizeSessionSnapshots(refreshed, contextOf(refreshed), { nativeWriterOutput: true }))
+        .toEqual(normalizeSessionSnapshots([actual], context, { nativeWriterOutput: true }))
+      expect(await readFile(canonical, 'utf8')).toBe(fixture)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(['session.v3.jsonl', 'session.v4.jsonl'])('rejects changed %s replay input beside a writer oracle', async (file) => {
+    const owner = scenarios.find(scenario => scenario.name === 'tool-call-turn')
+    if (owner === undefined) throw new Error('Missing retained tool-call replay fixture')
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-retained-writer-integrity-'))
+    try {
+      for (const input of ['session.v3.jsonl', 'session.v4.jsonl']) {
+        await copyFile(join(owner.dir, input), join(dir, input))
+      }
+      const scenario: HeadlessScenario = { ...owner, dir, manifest: { ...owner.manifest, writerOutput: true } }
+      const canonicalBefore = await fixtureSessions(scenario)
+      const retained = { file: 'session.v3.jsonl', content: await readFile(join(dir, 'session.v3.jsonl'), 'utf8') }
+      const current = canonicalBefore[0]
+      if (current === undefined) throw new Error('Missing current tool-call replay fixture')
+      await writeFile(join(dir, writerSnapshotName(0)), current)
+      await writeFile(join(dir, file), `${await readFile(join(dir, file), 'utf8')}\n`)
+      await expect(assertReplayInputsUnchanged(scenario, canonicalBefore, retained)).rejects.toThrow(
+        file === retained.file ? 'retained replay input bytes' : 'historical replay input remains unchanged',
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(['product-subagent-result-diagnostic', 'subagent-acp-diagnostic'])('checks terminal diagnostics before %s completion', async (name) => {
+    const content = await readFile(join(snapshotsRoot, name, 'session.v4.jsonl'), 'utf8')
+    const assertDiagnostics = name === 'product-subagent-result-diagnostic' ? assertProductSubagentDiagnostics : assertAcpSubagentDiagnostics
+    assertDiagnostics(content)
+    const events = records(content)
+    const settled = (event: JsonObject): boolean => event.type === 'user/message'
+      && (event.data as { source?: { kind: string } } | undefined)?.source?.kind === 'subagent-settled'
+    const notices = events.filter(settled)
+    const reordered = events.filter(event => !settled(event))
+    reordered.splice(reordered.findLastIndex(event => event.type === 'assistant/message'), 0, ...[...notices].reverse())
+    const reorderedSeqs = new Map(reordered.map((event, index) => [event, index]))
+    const reorderedContent = reordered.map((event) => {
+      const ranges = event.sourceEventSeqs as (number | [number, number])[] | undefined
+      if (ranges === undefined) return JSON.stringify(event)
+      const sources = ranges.flatMap(range => typeof range === 'number'
+        ? [range] : Array.from({ length: range[1] - range[0] + 1 }, (_, index) => range[0] + index))
+      const sourceEventSeqs = sources.map((source) => {
+        const original = events[source]
+        const seq = original === undefined ? undefined : reorderedSeqs.get(original)
+        if (seq === undefined) throw new Error('Missing reordered diagnostic source event')
+        return seq
+      })
+      return JSON.stringify({ ...event, sourceEventSeqs })
+    }).join('\n')
+    assertDiagnostics(reorderedContent)
+    const finalIndex = events.findLastIndex(event => event.type === 'assistant/message')
+    const noticeIndex = events.findLastIndex(settled)
+    const premature = [...events]
+    const [completed] = premature.splice(finalIndex, 1)
+    if (completed === undefined) throw new Error('Missing parent diagnostic completion event')
+    premature.splice(noticeIndex, 0, completed)
+    expect(() => assertDiagnostics(premature.map(event => JSON.stringify(event)).join('\n')))
+      .toThrow('child terminal notice precedes parent completion')
+    expect(() => assertDiagnostics(events.filter((_, index) => index !== noticeIndex).map(event => JSON.stringify(event)).join('\n')))
+      .toThrow('delivered child terminal notices')
+    const mismatched = structuredClone(events)
+    const firstNotice = notices[0]
+    const lastNotice = mismatched[noticeIndex]
+    if (firstNotice === undefined || lastNotice === undefined) throw new Error('Missing diagnostic notice fixture')
+    const firstSource = firstNotice.data as { source: { senderSessionId: string } }
+    const lastSource = lastNotice.data as { source: { senderSessionId: string } }
+    lastSource.source.senderSessionId = firstSource.source.senderSessionId
+    expect(() => assertDiagnostics(mismatched.map(event => JSON.stringify(event)).join('\n')))
+      .toThrow('Missing terminal notice for acknowledged child')
+  })
+
+  it.each([
+    ['category: limit', 'category: transport'],
+    ['ANSWER_SURVIVES_CLEANUP_FAILURE', 'ANSWER_WAS_LOST'],
+  ])('rejects changed product diagnostic evidence %s', async (before, after) => {
+    const content = await readFile(join(snapshotsRoot, 'product-subagent-result-diagnostic/session.v4.jsonl'), 'utf8')
+    expect(() => assertProductSubagentDiagnostics(content.replaceAll(before, after))).toThrow()
+  })
+
+  it('rejects an active managed credential store even when the recorded answer claims inactivity', async () => {
+    const content = await readFile(join(snapshotsRoot, 'headless-credentials/session.v4.jsonl'), 'utf8')
+    assertHeadlessCredentialsInactive(content)
+    const changed = content.replace(String.raw`\"status\": \"inactive\"`, String.raw`\"status\": \"schema\"`)
+    expect(changed).not.toBe(content)
+    expect(() => assertHeadlessCredentialsInactive(changed)).toThrow('headless managed credentials remain inactive')
+  })
+
+  it.each(['subagent-agent-preset', 'subagent-no-message-tool'])('rejects premature parent completion in retained %s input', async (name) => {
+    const logs = await Promise.all(['session.v4.jsonl', 'session.1.v4.jsonl'].map(async (file) => {
+      let content = await readFile(join(snapshotsRoot, name, file), 'utf8')
+      if (file === 'session.v4.jsonl') {
+        for (const event of records(content)) {
+          if (event.type !== 'tool/call') continue
+          const data = event.data as { arguments: string }
+          const args: JsonObject = JSON.parse(data.arguments)
+          delete args.run_in_background
+          content = content.replaceAll(JSON.stringify(data.arguments), JSON.stringify(JSON.stringify(args)))
+        }
+      }
+      const header: JsonObject = JSON.parse(content.split('\n')[0] ?? '')
+      return { content, header }
+    }))
+    const assertChild = name === 'subagent-agent-preset' ? assertAsyncChildPreset : assertAsyncChildWithoutMessageTool
+    expect(() => assertChild(logs)).toThrow('parent waits for child terminal notice before completion')
+  })
+
   it('tokenizes a refreshed skill path after the session header retained cwd', () => {
     const cwd = String.raw`C:\Users\runner\AppData\Local\Temp\dsh-log-snap-test`
     const log = [
@@ -1190,10 +2387,34 @@ describe('headless recorded-session snapshots', () => {
     expect(result.text).not.toContain(cwd)
   })
 
+  it('bootstraps only live recordings with no Session files', () => {
+    expect(recordingFixtureNames(['snapshot.yml'], 'record')).toEqual([])
+    expect(() => recordingFixtureNames(['snapshot.yml'], 'replay')).toThrow('missing parent')
+    expect(() => recordingFixtureNames(['snapshot.yml'], 'refresh')).toThrow('missing parent')
+    expect(() => recordingFixtureNames(['session.1.v3.jsonl'], 'record')).toThrow('missing parent')
+    expect(() => recordingFixtureNames(['session.bad.jsonl'], 'record')).toThrow('invalid session')
+    expect(recordingFixtureNames(['session.v3.jsonl', 'session.v4.jsonl'], 'record'))
+      .toEqual(['session.v4.jsonl'])
+  })
+
   it('gives every composition and header class exactly one current-writer pin', () => {
     for (const scenario of scenarios) {
       expect(ownerOf(scenario), `${scenario.name}: composition owner`).toBeDefined()
-      expect(pinOf(scenario).manifest.sessionFormat, `${scenario.name}: current-writer header pin`).toBeUndefined()
+      expect(supportedHeaderPinFormat(pinOf(scenario).manifest.sessionFormat), `${scenario.name}: current-writer header pin`).toBe(true)
+    }
+  })
+
+  it('allows retained header pins only for explicit retired-tool recordings within supported formats', () => {
+    expect(supportedHeaderPinFormat(undefined)).toBe(true)
+    for (const version of [0, SESSION_FORMAT_VERSION]) {
+      expect(supportedHeaderPinFormat({ version, coverage: ['retired-tools'] })).toBe(true)
+    }
+    for (const retained of [
+      { version: SESSION_FORMAT_VERSION - 1, coverage: ['adjacent-migration'] },
+      { version: SESSION_FORMAT_VERSION, coverage: ['retired-tools', 'adjacent-migration'] },
+      { version: SESSION_FORMAT_VERSION + 1, coverage: ['retired-tools'] },
+    ] satisfies NonNullable<SnapshotManifest['sessionFormat']>[]) {
+      expect(supportedHeaderPinFormat(retained)).toBe(false)
     }
   })
 
@@ -1202,12 +2423,16 @@ describe('headless recorded-session snapshots', () => {
       "server.listen(0, '127.0.0.1')",
       "server.listen({ port: 0, host: '127.0.0.1' })",
       'server.listen({ ...options, port: 0 })',
+      'server.listen({ path: socketPath })',
     ].join('\n'))).toEqual([])
     expect(listenerPortViolations('fixed.mjs', 'server.listen(43118)')).toEqual([
       'fixed.mjs:1: listener port 43118 must use listen(0, ...) or listen({ port: 0, ... })',
     ])
     expect(listenerPortViolations('dynamic.mjs', 'server.listen({ port, ...options })')).toEqual([
       'dynamic.mjs:1: listener port { port, ...options } must use listen(0, ...) or listen({ port: 0, ... })',
+    ])
+    expect(listenerPortViolations('mixed.mjs', 'server.listen({ path, port: 43118 })')).toEqual([
+      'mixed.mjs:1: listener port { path, port: 43118 } must use listen(0, ...) or listen({ port: 0, ... })',
     ])
   })
 
@@ -1453,7 +2678,11 @@ describe('headless recorded-session snapshots', () => {
       .toThrow('native tool-result messages match migration output')
   })
 
-  const runs = scenarios.flatMap((scenario): { scenario: HeadlessScenario; retainedToolInput?: string }[] => [
+  // Record header owners before their dependents so a new composition has a readable pin.
+  const ordered = mode === 'record'
+    ? [...scenarios].sort((left, right) => Number(right.manifest.header.pin === true) - Number(left.manifest.header.pin === true))
+    : scenarios
+  const runs = ordered.flatMap((scenario): { scenario: HeadlessScenario; retainedToolInput?: string }[] => [
     { scenario },
     // This comparison retains its own V3 input even after the ordinary scenario records a newer generation.
     ...mode === 'replay' && scenario.name === 'tool-call-turn'
@@ -1462,6 +2691,8 @@ describe('headless recorded-session snapshots', () => {
   for (const { scenario, retainedToolInput } of runs) {
     const skipped = scenario.manifest.platform === 'posix' && process.platform === 'win32'
       || scenario.manifest.platform === 'pwsh' && !hasPwsh
+      // A read-only directory does not deny root, so the recorded refusal cannot replay.
+      || scenario.manifest.workspace?.setup === 'readonly-patch-directory' && process.getuid?.() === 0
       || mode === 'record' && scenario.manifest.recording === 'authored'
       || mode === 'record' && scenario.manifest.sessionFormat !== undefined
       || mode === 'record' && scenario.manifest.writerOutput === true
@@ -1469,18 +2700,23 @@ describe('headless recorded-session snapshots', () => {
     const inputLabel = retainedToolInput === undefined ? '' : ' from retained V3 input'
     scenarioTest(`${mode}s ${scenario.name}${inputLabel} through dsh --profile headless`, async () => {
       let fixtureFiles = retainedToolInput === undefined
-        ? sessionFixtureNames(await readdir(scenario.dir)) : [retainedToolInput]
+        ? recordingFixtureNames(await readdir(scenario.dir), mode) : [retainedToolInput]
       let fixtures = await fixtureSessions(scenario, fixtureFiles)
+      const canonicalBefore = await fixtureSessions(scenario)
       const primaryFixture = fixtures[0]
-      if (primaryFixture === undefined) throw new Error(`${scenario.name}: missing primary session fixture`)
-      const task = taskFromSession(primaryFixture) ?? scenario.manifest.input?.task
+      const task = (primaryFixture === undefined ? undefined : taskFromSession(primaryFixture))
+        ?? scenario.manifest.input?.task
       if (task === undefined) throw new Error(`${scenario.name}: no accepted or exceptional task input`)
       const pin = pinOf(scenario)
-      let model: { provider: string; model: string }
-      try {
-        model = modelFromSession(primaryFixture)
-      } catch {
-        model = modelFromSession(await readFile(join(pin.dir, await primaryFixtureFile(pin.dir)), 'utf8'))
+      const ignoredWorkspaceEntries = scenario.manifest.workspace?.setup === 'git-worktree'
+        ? [...RUNTIME_WORKSPACE_ENTRIES.filter(entry => entry !== '.agents'), '.git'] : RUNTIME_WORKSPACE_ENTRIES
+      let model: { provider: string; model: string } | undefined
+      if (primaryFixture !== undefined) {
+        try {
+          model = modelFromSession(primaryFixture)
+        } catch {
+          model = modelFromSession(await readFile(join(pin.dir, await primaryFixtureFile(pin.dir)), 'utf8'))
+        }
       }
       const composition = ownerOf(scenario)
       const baseComposition = compositionOwners.get('default')
@@ -1490,12 +2726,11 @@ describe('headless recorded-session snapshots', () => {
       const patchSources = [
         join(baseComposition.dir, 'cordis.yml'),
         ...composition === baseComposition && !replaying ? [] : [compositionPatch],
-        join(baseComposition.dir, 'model.cordis.yml'),
+        ...model === undefined ? [] : [join(baseComposition.dir, 'model.cordis.yml')],
+        ...existsSync(join(scenario.dir, 'runtime.cordis.yml')) ? [join(scenario.dir, 'runtime.cordis.yml')] : [],
       ]
       const patchRoot = '.snapshot-patches'
-      const patches = patchSources.map((source, index) => source.endsWith('.snapshot.yml')
-        ? join(patchRoot, `${String(index)}-${basename(source)}`)
-        : source)
+      const patches = patchSources.map((source, index) => join(patchRoot, `${String(index)}-${basename(source)}`))
 
       let actualLogs: SessionLog[] = []
       let initialWorkspace: WorkspaceSnapshotEntry[] | undefined
@@ -1503,14 +2738,21 @@ describe('headless recorded-session snapshots', () => {
       let expectedWorkspaceRoot: string | undefined
       let preparedExpectedWorkspace: WorkspaceSnapshotEntry[] | undefined
       let visualSpeechHash: string | undefined
+      let capabilityOcrHash: string | undefined
+      let generatedCwd: string | undefined
+      let allocatedCwd: string | undefined
+      let visualizationAssets: string | undefined
       const spillRoot = await mkdtemp(join(tmpdir(), 'acp-snap-spill-'))
-      const locatorRoot = snapshotSpillRoot(join(scenario.dir, fixtureFiles[0] as string))
+      const visualizationLayoutReceipt = join(spillRoot, 'visualization-layout.json')
+      const fixturePath = join(scenario.dir, fixtureFiles[0] ?? sessionFixtureName(0, SESSION_FORMAT_VERSION))
+      const locatorRoot = snapshotSpillRoot(fixturePath)
       const mcpDemo = scenario.name === 'plugin-manager-mcp' ? await startHttpMcpFixture() : undefined
       let result: Awaited<ReturnType<typeof runLoaderSmoke>>
       try {
         result = await runLoaderSmoke({
           label: `${scenario.name} headless snapshot`,
           tempDirPrefix: 'dsh-log-snap-',
+          ...(scenario.name === 'compaction-recovery' ? await compactionWorkspaceOptions() : {}),
           ...(scenario.manifest.workspace?.parent === 'outside-temp' ? { tempDirParent: outsideTempWorkspaceParent() } : {}),
           binScript: dshBin,
           sourceImport: 'tsx/esm',
@@ -1521,17 +2763,21 @@ describe('headless recorded-session snapshots', () => {
             task,
           ],
           tsconfigPath,
-          expectedExitCode: turnReasonFromSession(primaryFixture)?.kind === 'completed'
+          expectedExitCode: primaryFixture === undefined
+            || turnReasonFromSession(primaryFixture)?.kind === 'completed'
             || turnReasonFromSession(primaryFixture) === undefined && scenario.manifest.input?.task !== undefined
             ? 0
             : 1,
           env: {
+            ...(replaying ? REPLAY_CREDENTIAL_ENV : {}),
             DSH_SNAPSHOT: replaying ? 'replay' : 'record',
-            DSH_SNAPSHOT_PROVIDER: model.provider,
-            DSH_SNAPSHOT_MODEL: model.model,
+            ...(model === undefined ? {} : {
+              DSH_SNAPSHOT_PROVIDER: model.provider,
+              DSH_SNAPSHOT_MODEL: model.model,
+            }),
             DSH_SNAPSHOT_SPILL_ROOT: spillRoot,
             DSH_SNAPSHOT_SPILL_LOCATOR_ROOT: locatorRoot,
-            DSH_SNAPSHOT_FILE: join(scenario.dir, fixtureFiles[0] as string),
+            DSH_SNAPSHOT_FILE: fixturePath,
             ...(replaying && fixtureFiles.length > 1
               ? { DSH_SNAPSHOT_CHILD_FILES: fixtureFiles.slice(1).map(file => join(scenario.dir, file)).join(delimiter) }
               : {}),
@@ -1542,6 +2788,7 @@ describe('headless recorded-session snapshots', () => {
               ? {}
               : { DSH_PERMISSION_MODE: scenario.manifest.permission }),
             ...scenario.manifest.environment,
+            ...scenario.name === 'muse-visualize' ? { DSH_VISUALIZE_FIXTURE_LAYOUT: visualizationLayoutReceipt } : {},
             ...(scenario.name === 'mcp-resources' || scenario.name === 'mcp-resources-ptc' ? {
               DSH_MCP_RESOURCES_FIXTURE: join(repoRoot, 'packages/mcp/mcp-client/tests/fixtures/resources-server.ts'),
             } : {}),
@@ -1550,12 +2797,12 @@ describe('headless recorded-session snapshots', () => {
             ...(mcpDemo === undefined ? {} : { DSH_MCP_DEMO_URL: mcpDemo.url }),
           },
           prepare: async (cwd) => {
+            allocatedCwd = cwd
+            generatedCwd = await realpath(cwd)
             if (scenario.manifest.workspace?.parent === 'outside-temp') assertWorkspaceOutsideTemp(cwd)
             await mkdir(join(cwd, patchRoot), { recursive: true })
             patchSources.forEach((source, index) => {
-              if (source.endsWith('.snapshot.yml')) {
-                materializeProfilePatch(source, cwd, 'headless', join(cwd, patchRoot), index)
-              }
+              materializeProfilePatch(source, cwd, 'headless', join(cwd, patchRoot), index)
             })
             if (mcpDemo !== undefined) {
               const profileDir = join(cwd, '.dsh/profiles/headless')
@@ -1564,11 +2811,101 @@ describe('headless recorded-session snapshots', () => {
             }
             expectedWorkspaceRoot = (await seedWorkspace(scenario, cwd)).expectedRoot
             initialWorkspace = await captureWorkspaceSnapshot(cwd, {
-              ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
+              ignoredRootEntries: ignoredWorkspaceEntries,
             })
           },
           inspect: async (cwd) => {
+            if (scenario.name === 'muse-visualize') {
+              visualizationAssets = await readVisualizationAssets(visualizationLayoutReceipt, await realpath(cwd))
+            }
             actualLogs = await persistedSessions(cwd)
+            if (scenario.name === 'headless-credentials') assertHeadlessCredentialsInactive(actualLogs[0]!.content)
+            if (scenario.name === 'subagent-child-question-rejection') assertAsyncChildQuestion(actualLogs)
+            if (scenario.name === 'subagent-agent-preset') assertAsyncChildPreset(actualLogs)
+            if (scenario.name === 'subagent-no-message-tool') {
+              assertAsyncChildWithoutMessageTool(actualLogs)
+              expect(existsSync(join(cwd, 'filtered-write.txt'))).toBe(false)
+            }
+            if (scenario.name === 'product-subagent-result-diagnostic') assertProductSubagentDiagnostics(actualLogs[0]!.content)
+            if (scenario.name === 'subagent-acp-diagnostic') assertAcpSubagentDiagnostics(actualLogs[0]!.content)
+            if (scenario.name === 'subagent-max-tokens-partial' || scenario.name === 'subagent-tool-filter') {
+              assertAsyncChildOutcome(actualLogs, scenario.name === 'subagent-max-tokens-partial' ? 'partial' : 'filtered')
+              if (scenario.name === 'subagent-tool-filter') expect(existsSync(join(cwd, 'filtered-write.txt'))).toBe(false)
+            }
+            if (scenario.name === 'muse-subtitle-text-review') {
+              const source = await readFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-draft-build/SKILL.md'), 'utf8')
+              assertSubtitleReviewSkill(actualLogs[0]!.content, source, join(await realpath(cwd), '.dsh/skills/tweet-drama-draft-build'))
+            }
+            if (scenario.name === 'muse-core-display-source-lines') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(['skill', 'bash'])
+              expect(JSON.parse(calls[0]!.arguments)).toEqual({ name: 'tweet-drama-core' })
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
+              expect(results.every(message => message.isError === false)).toBe(true)
+              const skill = results[0]?.content.find(block => block.type === 'text')
+              const output = results[1]?.content.find(block => block.type === 'text')
+              if (skill?.type !== 'text' || output?.type !== 'text') throw new Error('Missing real Core Skill or CLI result')
+              const core = join(await realpath(cwd), '.dsh/skills/tweet-drama-core')
+              expect(skill.text).toContain(`Base directory for this skill: ${core}`)
+              const packagedSkill = await readFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core/SKILL.md'), 'utf8')
+              expect(skill.text).toContain(packagedSkill.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim())
+              const bash = JSON.parse(calls[1]!.arguments) as { command: string }
+              expect(bash.command).toContain(`core = Path('${core}')`)
+              expect(await readFile(join(core, 'scripts/episode_coverage.py')))
+                .toEqual(await readFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core/scripts/episode_coverage.py')))
+              expect(output.text.startsWith('DISPLAY_SOURCE_EVIDENCE '), output.text).toBe(true)
+              const evidenceText = output.text.trim().slice('DISPLAY_SOURCE_EVIDENCE '.length)
+              const evidence = JSON.parse(evidenceText)
+              expect(evidence).toMatchObject({ check: 'display_source_lines', projects: {
+                positive: { exit_codes: [0, 0, 0, 0], audit: 'passed', accept: 'passed', gate: 'passed',
+                  pending_lines: [], changed_os_to_vo_gate: 'blocked', receipt_binds_source_map_shot_manifest: true },
+                negative: { exit_codes: [1, 1, 1, 1], audit: 'pending', accept: 'blocked', gate: 'blocked',
+                  pending_lines: [6, 7, 8, 9, 11, 12], acceptance_absent: true },
+              } })
+              expect(evidence.projects.positive.source_lines.map((row: JsonObject) => row.kind))
+                .toEqual(['scene', 'scene', 'action', 'state', 'action', 'scene', 'action', 'state', 'os', 'vo', 'action'])
+              expect(evidence.projects.negative.source_lines[4]).toMatchObject({ source_line: 5, kind: 'scene' })
+              expect(evidence.projects.negative.source_lines[5]).toMatchObject({ source_line: 6, kind: null, reason: expect.any(String) })
+              for (const name of ['positive', 'negative']) {
+                for (const file of ['episodes/03.txt', 'episodes/manifest.json', 'shots/EP03-9x16.md']) {
+                  expect(await readFile(join(cwd, name, file))).toEqual(await readFile(join(scenario.dir, 'workspace', name, file)))
+                }
+                expect(existsSync(join(cwd, name, 'shots_and_matches/ep03-coverage-acceptance.json'))).toBe(false)
+              }
+              const final = events.findLast(event => event.type === 'assistant/message')
+              if (final?.type !== 'assistant/message') throw new Error('Missing model observation of complete CLI evidence')
+              expect(final.data.message.content).toEqual([{ type: 'text', text: `OBSERVED ${evidenceText}` }])
+              expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+            }
+            if (videoObservationOwners.has(scenario.name)) await assertVideoObservationReportArtifacts(actualLogs.map(log => log.content))
+            if (scenario.name === 'muse-video-novel-ocr-capability') {
+              const expectedHash = await expectedCapabilityOcrHash(cwd)
+              capabilityOcrHash = expectedHash
+              capabilityOcrRecords(actualLogs[0]!.content, expectedHash, true)
+              const tampered = capabilityOcrRecords(actualLogs[0]!.content, '0'.repeat(64), false)
+                .map(row => JSON.stringify(row)).join('\n')
+              expect(() => capabilityOcrRecords(tampered, expectedHash, true))
+                .toThrow('OCR digest differs from independently constructed report bytes')
+              const original = actualLogs[0]!.content
+              for (const target of ['report', 'metadata', 'body-metadata']) {
+                const changed = original.split('\n').filter(Boolean).map(line => {
+                  const row = JSON.parse(line)
+                  if (row.type !== 'tool/result' || row.data?.message?.toolCallId !== 'call_ocr') return line
+                  if (target === 'report') {
+                    const block = row.data.message.content[0]
+                    const report = JSON.parse(block.text)
+                    report.raw_json_sha256 = '0'.repeat(64)
+                    block.text = JSON.stringify(report)
+                  } else if (target === 'metadata') row.data.meta.rawJsonSha256 = '0'.repeat(64)
+                  else row.data.meta.__dsh_tool_body_meta_v1.rawJsonSha256 = '0'.repeat(64)
+                  return JSON.stringify(row)
+                }).join('\n')
+                expect(() => capabilityOcrRecords(changed, expectedHash, true))
+                  .toThrow('OCR result and metadata identity or digest mismatch')
+              }
+            }
             if (scenario.name === 'drama-subtitle-visual-review') {
               const expectedHash = await expectedVisualSpeechHash(cwd, scenario.dir)
               visualSpeechHash = expectedHash
@@ -1578,7 +2915,15 @@ describe('headless recorded-session snapshots', () => {
               expect(() => visualSpeechRecords(tampered, expectedHash, true))
                 .toThrow('Speech evidence digest differs from independently derived inputs')
             }
-            if (retainedToolInput !== undefined) {
+            if (scenario.name === 'empty-response-retry-current') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              expect(events.filter(event => event.type === 'assistant/attempt' || event.type === 'llm/retry'
+                || event.type === 'llm/retry-started' || event.type === 'assistant/message')
+                .map(event => event.type)).toEqual([
+                'assistant/attempt', 'llm/retry', 'llm/retry-started', 'assistant/message',
+              ])
+            }
+            if (retainedToolInput !== undefined && primaryFixture !== undefined) {
               verifyToolResultWriterParity(primaryFixture, actualLogs[0]!.content)
             }
             if (mcpDemo !== undefined) {
@@ -1589,6 +2934,52 @@ describe('headless recorded-session snapshots', () => {
               const saved = await readFile(join(cwd, '.dsh/profiles/headless/cordis.patch.yml'), 'utf8')
               expect(saved).toContain('id: demo')
               expect(saved).toContain('disabled: false')
+            }
+            if (scenario.name === 'muse-resident-question' || scenario.name === 'muse-resident-view') {
+              verifyResidentUiReplay(parseSessionLog(actualLogs[0]!.content), scenario.name === 'muse-resident-question' ? 'ask_user' : 'show_view')
+            }
+            if (scenario.name === 'muse-resident-question') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const initial = events.find(event => event.type === 'request/header')
+              if (initial?.type !== 'request/header') throw Error('Missing initial tool definitions')
+              const names = initial.data.header.tools?.map(tool => tool.name) ?? []
+              expect(names.filter(name => name === 'ask_user')).toHaveLength(1)
+              expect(names).not.toContain('ask_user_question')
+              expect(names).not.toContain('video_inspect')
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data.name] : [])
+              expect(calls).toEqual(['ask_user'])
+              const result = events.find(event => event.type === 'tool/result')
+              expect(result?.data.message.isError).toBe(false)
+              expect(JSON.stringify(result?.data.message.content)).toContain('The card is on screen')
+            }
+            if (scenario.name === 'muse-media-tools' || scenario.name === 'muse-media-import-safe-filename') {
+              expectedWorkspaceRoot = await prepareCompanyMediaExpectedWorkspace(cwd, scenario.dir,
+                scenario.name === 'muse-media-tools' ? 'fixture.mp4' : 'video (1).mp4')
+            }
+            if (scenario.name === 'muse-video-review-lifecycle') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results).toHaveLength(9)
+              expect(results.every(result => !result.isError)).toBe(true)
+              const reports = results.map(result => {
+                const text = result.content.find(block => block.type === 'text')
+                if (text?.type !== 'text') throw Error('Missing lifecycle result')
+                return text.text
+              })
+              const closed = JSON.parse(reports[2]!) as {
+                follow_up: { status: string }; complete: boolean; pending: number; recorded: number; next: string
+              }
+              expect(closed).toMatchObject({ follow_up: { status: 'closed' }, complete: false, pending: 3, recorded: 2, next: 'closed' })
+              expect(JSON.parse(reports[4]!)).toMatchObject({ follow_up: { status: 'closed' }, pending: 3, recorded: 2 })
+              for (const index of [6, 7, 8]) {
+                expect(JSON.parse(reports[index]!)).toMatchObject({ follow_up: { status: 'active' }, pending: 3, recorded: 2 })
+              }
+              const continued = JSON.parse(reports[8]!) as { frames: { id: string }[] }
+              expect(continued.frames.map(frame => frame.id)).toEqual(['F00003', 'F00004'])
+              const changes = events.flatMap(event => event.type === 'video/review' && event.data.kind === 'update'
+                && event.data.follow_up !== undefined ? [event.data.follow_up.status] : [])
+              expect(changes.filter((status, index) => status !== changes[index - 1])).toEqual(['closed', 'active'])
+              expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
             }
             if (scenario.name === 'muse-video-observation') {
               const events = parseSessionLog(actualLogs[0]!.content)
@@ -1792,8 +3183,8 @@ describe('headless recorded-session snapshots', () => {
               expect(preview.shots[2].scene).toBe('办公室窗下外墙')
               expect(preview.packages[3].prompt).not.toContain('场次1-3')
               expect(preview.packages[4].prompt).toContain('场次1-3：门口 次日清晨 外；')
-              expect(preview.packages.every((pack: JsonObject) => !pack.prompt.includes('场次对照') && !pack.prompt.includes('原文出场人物') && !pack.prompt.includes('时长：'))).toBe(true)
-              expect(preview.shots.every((shot: JsonObject) => !shot.bindings.some((asset: JsonObject) => asset.name === '陆沉'))).toBe(true)
+              expect(preview.packages.every((pack: PackageReport) => !pack.prompt.includes('场次对照') && !pack.prompt.includes('原文出场人物') && !pack.prompt.includes('时长：'))).toBe(true)
+              expect(preview.shots.every((shot: ShotReport) => !shot.bindings.some(asset => asset.name === '陆沉'))).toBe(true)
               const refusedInference = JSON.parse(metadataOnly.text)
               expect(refusedInference).toMatchObject({ ok: true, failures: [], written: [], shots: [{ bindings: [] }] })
               expect(refusedInference.warnings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'no_scene_bound' })]))
@@ -1812,10 +3203,10 @@ describe('headless recorded-session snapshots', () => {
               const preview = JSON.parse(positive.text)
               expect(preview).toMatchObject({ method: 'preview', ok: true, failures: [], written: [] })
               expect(preview.shots[1]).toMatchObject({ duration_seconds: 4, duration_source: 'declared' })
-              expect(preview.packages.every((pack: JsonObject) => !/(?:动作预算|发声预算|反应预算|表演顺序)：/.test(pack.prompt))).toBe(true)
+              expect(preview.packages.every((pack: PackageReport) => !/(?:动作预算|发声预算|反应预算|表演顺序)：/.test(pack.prompt))).toBe(true)
               expect(preview.shots.map((shot: JsonObject) => shot.text)).toEqual(['', '慢一点。', '别让孩子摔倒。', ''])
-              expect(preview.shots.map((shot: JsonObject) => shot.bindings.filter((asset: JsonObject) => asset.type === '角色')
-                .map((asset: JsonObject) => asset.asset_id))).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
+              expect(preview.shots.map((shot: ShotReport) => shot.bindings.filter(asset => asset.type === '角色')
+                .map(asset => asset.asset_id))).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
               expect(preview.shots[2]).toMatchObject({ speaker: '谭伯', voice_type: 'vo', offscreen: true })
               expect(preview.packages).toHaveLength(1)
               const pack = preview.packages[0]
@@ -1993,7 +3384,7 @@ describe('headless recorded-session snapshots', () => {
                 timeline: 'editing/24-timeline.json', plan: 'episodes/segments/24.json' })
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
               expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
-              expect(results.every(message => message.isError === false)).toBe(true)
+              expect(results.every(message => message.isError === false), JSON.stringify(results.filter(message => message.isError))).toBe(true)
               const bibleBlock = results[0]?.content.find(block => block.type === 'text')
               const renderBlock = results[1]?.content.find(block => block.type === 'text')
               if (bibleBlock?.type !== 'text' || renderBlock?.type !== 'text') throw new Error('Missing real project/render Skill content')
@@ -2026,6 +3417,35 @@ describe('headless recorded-session snapshots', () => {
               expect(existsSync(join(cwd, 'audio'))).toBe(false)
               expect(existsSync(join(cwd, 'music'))).toBe(false)
               expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+            }
+            if (scenario.name === 'muse-storyboard-voice-identity') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results).toHaveLength(4)
+              for (const [index, message] of results.slice(0, 2).entries()) {
+                expect(message.isError).toBe(true)
+                const block = message.content[0]
+                if (block?.type !== 'text') throw new Error('Missing voice identity refusal')
+                expect(block.text).toContain(index === 0 ? 'Project voice configuration project_bible' : 'Shared character voice requires')
+                expect(block.text).not.toContain('expected envelope')
+              }
+              const statuses = results.slice(2).map(message => {
+                expect(message.isError).toBe(false)
+                const block = message.content.find(item => item.type === 'text')
+                if (block?.type !== 'text') throw new Error('Missing voiceover preparation result')
+                const result = JSON.parse(block.text)
+                expect(result).toMatchObject({ status: 'prepared', content_duration_ms: 25000 })
+                return result.voice_continuity_review.status
+              })
+              expect(statuses).toEqual(['voice_reference_present_unverified', 'dialogue_without_voice_reference'])
+              const evidence = JSON.parse(await readFile(join(cwd, '_probe/voice-identity-fixture.json'), 'utf8'))
+              expect(evidence).toMatchObject({ simulated: true, writes: 0 })
+              expect(evidence.requests.slice(0, 3)).toEqual([
+                { method: 'GET', path: '/prod-api/aigc/storyboard/901' },
+                { method: 'GET', path: '/prod-api/aigc/storyboard/901' },
+                { method: 'GET', path: '/prod-api/aigc/asset/77' },
+              ])
+              expect(evidence.requests.every((row: JsonObject) => row.method === 'GET')).toBe(true)
             }
             if (scenario.name === 'muse-voice-periods') {
               const events = parseSessionLog(actualLogs[0]!.content)
@@ -2091,6 +3511,33 @@ describe('headless recorded-session snapshots', () => {
                 expect(turnReasonFromSession(actualLogs[0]!.content)).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
               }
             }
+            if (scenario.name === 'toolcall-unused-args') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results).toHaveLength(6)
+              expect(results.every(result => !result.isError)).toBe(true)
+              for (const extension of ['ts', 'md']) {
+                const grep = results.find(result => result.toolCallId === `call_grep_${extension}`)
+                const text = grep?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+                expect(text).toContain('Found 1 match')
+                expect(text).toContain(`seed/example.${extension}`)
+                expect(text).toContain('marker')
+              }
+              const changes = records(actualLogs[0]!.content)
+                .filter(event => event.type === 'goal/change').map(event => event.data as JsonObject)
+              expect(changes.map(change => change.operation)).toEqual(['create', 'complete'])
+              const original = changes[0]!.goal as JsonObject
+              expect(original).toMatchObject({ objective: 'Find marker in both seed files.', maxGoalRounds: 4 })
+              expect(changes[1]!.goal).toEqual({ ...original, revision: 2, phase: 'complete' })
+            }
+            if (scenario.name.startsWith('office-progressive-')) {
+              const log = actualLogs[0]!.content
+              const results = parseSessionLog(log).flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results).toHaveLength(4)
+              expect(results.every(result => result.isError === false)).toBe(true)
+              expect(log).toContain('# Office task routing')
+            }
+            if (scenario.name === 'advanced-toolchain') verifyAdvancedToolchain(actualLogs)
             if (scenario.name === 'session-query-spill') {
               await verifySessionQuerySpill(actualLogs[0]!.content, spillRoot, locatorRoot)
             }
@@ -2101,6 +3548,7 @@ describe('headless recorded-session snapshots', () => {
               verifyNoMcpServers(actualLogs[0]!.content, scenario.name === 'mcp-empty-ptc')
             }
             if (scenario.name === 'provider-cwd') {
+              if (model === undefined) throw new Error('provider-cwd resume requires a recorded model')
               await verifyProviderCwdResume(
                 scenario, cwd, actualLogs, patches, model, join(scenario.dir, fixtureFiles[0] as string), task,
               )
@@ -2108,11 +3556,44 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'background-confinement-failure') {
               await verifyBackgroundConfinementFailure(actualLogs[0]!.content, cwd)
             }
+            if (scenario.name === 'working-directory') {
+              verifyWorkingDirectory(actualLogs[0]!.content, await realpath(cwd))
+            }
+            if (scenario.name === 'worktree') {
+              await verifyWorktree(actualLogs[0]!.content, await realpath(cwd))
+            }
+            if (scenario.name === 'muse-manuscript-versions') {
+              const parentId = actualLogs[0]?.header.id
+              if (typeof parentId !== 'string') throw Error('manuscript versions require the actual parent identity')
+              expectedWorkspaceRoot = await prepareManuscriptVersionsExpectedWorkspace(await realpath(cwd), scenario.dir, parentId)
+            }
+            if (scenario.name === 'muse-manuscript-notes') {
+              const parentId = actualLogs[0]?.header.id
+              if (typeof parentId !== 'string') throw Error('manuscript notes require the actual parent identity')
+              const humans = parseSessionLog(actualLogs[0]!.content).flatMap(event => event.type === 'user/message' && event.data.source.kind === 'user'
+                ? [{ id: event.data.id, text: event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n') }] : [])
+              expectedWorkspaceRoot = await prepareManuscriptNotesExpectedWorkspace(await realpath(cwd), scenario.dir, parentId, humans)
+            }
+            if (['muse-manuscript-final-delivery', 'muse-manuscript-ptc-delivery', 'muse-manuscript-no-receipt',
+              'muse-manuscript-revision-basis', 'muse-manuscript-ordinary-revision', 'muse-manuscript-edit-receipt',
+              'muse-manuscript-video-source-binding'].includes(scenario.name)) {
+              const parentId = actualLogs[0]?.header.id
+              if (typeof parentId !== 'string') throw new Error('manuscript delivery requires the independent actual parent identity')
+              expectedWorkspaceRoot = await prepareManuscriptDeliveryExpectedWorkspace(cwd, scenario.dir, parentId,
+                scenario.name === 'muse-manuscript-ptc-delivery' ? 'ptc'
+                  : ['muse-manuscript-no-receipt', 'muse-manuscript-revision-basis',
+                    'muse-manuscript-ordinary-revision', 'muse-manuscript-edit-receipt',
+                    'muse-manuscript-video-source-binding'].includes(scenario.name) ? 'no-receipt' : 'native')
+            }
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
-              ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
+              ignoredRootEntries: ignoredWorkspaceEntries,
             })
             if (expectedWorkspaceRoot !== undefined) {
               preparedExpectedWorkspace = await captureExpectedWorkspaceSnapshot(expectedWorkspaceRoot)
+            }
+            if (scenario.name === 'worktree') {
+              // The linked checkout's .git pointer contains the temporary source path; Git assertions verify it separately.
+              finalWorkspace = finalWorkspace.filter(entry => entry.path !== '.agents/worktrees/isolated/.git')
             }
           },
         })
@@ -2122,6 +3603,13 @@ describe('headless recorded-session snapshots', () => {
       }
 
       const actualContext = contextOf(actualLogs.map(log => log.content))
+      if (scenario.name === 'muse-visualize') {
+        if (generatedCwd === undefined || allocatedCwd === undefined) throw new Error('Visualization replay has no allocated workspace')
+        actualContext.cwd = generatedCwd
+        actualContext.cwdAliases = [...actualContext.cwdAliases ?? [], generatedCwd.replaceAll('\\', '/'),
+          JSON.stringify(generatedCwd).slice(1, -1), allocatedCwd, allocatedCwd.replaceAll('\\', '/'),
+          JSON.stringify(allocatedCwd).slice(1, -1), JSON.stringify(JSON.stringify(allocatedCwd).slice(1, -1)).slice(1, -1)]
+      }
 
       if (writesCurrentSessionFixtures(scenario.manifest, mode)) {
         fixtures = await writeSessionFixtures(
@@ -2143,21 +3631,27 @@ describe('headless recorded-session snapshots', () => {
         expect(writerFiles, 'native writer oracle inventory').toEqual(scenario.manifest.sessionFormat === undefined && scenario.manifest.writerOutput !== true
           ? [] : fixtures.map((_, index) => writerSnapshotName(index)).sort())
       }
-      let expected = fixtures
+      let expected = retainedToolInput === undefined ? fixtures : canonicalBefore
       if (scenario.manifest.sessionFormat !== undefined || scenario.manifest.writerOutput === true) {
         if (mode === 'refresh') await writeSessionFixtures(scenario, actualLogs, fixtures, actualContext)
         expected = await Promise.all(fixtures.map((_, index) => readFile(join(scenario.dir, writerSnapshotName(index)), 'utf8')))
         for (const [index, content] of expected.entries()) {
           expect(sessionHeaderVersion(content, writerSnapshotName(index))).toBeLessThanOrEqual(SESSION_FORMAT_VERSION)
         }
-        expect(await fixtureSessions(scenario), 'historical replay input remains unchanged').toEqual(fixtures)
+      }
+      if (scenario.manifest.sessionFormat !== undefined || scenario.manifest.writerOutput === true || retainedToolInput !== undefined) {
+        if (retainedToolInput !== undefined && primaryFixture === undefined) throw new Error('Missing retained replay input')
+        const retained = retainedToolInput !== undefined && primaryFixture !== undefined
+          ? { file: retainedToolInput, content: primaryFixture } : undefined
+        await assertReplayInputsUnchanged(scenario, canonicalBefore, retained)
       }
       const outputLog = expected[0]
       if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)
       expect(result.stdout).toBe(`${finalTextFromSession(outputLog)}\n`)
       expect(result.stderr).toBe(stderrFromSession(outputLog))
-      const actualSnapshots = normalizeSessionSnapshots(actualLogs.map(log => log.content), actualContext, { nativeWriterOutput: true })
-      const expectedSnapshots = normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true })
+      const normalizeOutput = (logs: string[]) => videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(logs) : logs
+      const actualSnapshots = normalizeOutput(normalizeSessionSnapshots(actualLogs.map(log => log.content), actualContext, { nativeWriterOutput: true }))
+      const expectedSnapshots = normalizeOutput(normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true }))
       for (const [index, actual] of actualSnapshots.entries()) {
         const actualRecords = records(actual)
         let expectedRecords: object[] = scenario.name === 'session-reference-spill' && index === 0
@@ -2166,14 +3660,29 @@ describe('headless recorded-session snapshots', () => {
             expectedSnapshots[index] as string,
             sessionHeaderVersion(expected[index] as string, 'session-reference-spill fixture'),
           )
-          : records(expectedSnapshots[index] as string)
+          : records(scenario.name === 'muse-visualize'
+            ? visualizationSkillLayout(expectedSnapshots[index] as string,
+              normalizedVisualizationAssets(visualizationAssets!, actualContext.cwd), '/') : expectedSnapshots[index] as string)
         if (scenario.name === 'drama-subtitle-visual-review' && index === 0) {
           if (visualSpeechHash === undefined) throw new Error('Visual speech inputs were not checked')
           expectedRecords = visualSpeechRecords(expectedSnapshots[index] as string, visualSpeechHash, false)
         }
+        if (scenario.name === 'muse-video-novel-ocr-capability' && index === 0) {
+          if (capabilityOcrHash === undefined) throw new Error('OCR capability report bytes were not checked')
+          expectedRecords = capabilityOcrRecords(expectedSnapshots[index] as string, capabilityOcrHash, false)
+        }
+        if (index === 0 && workspaceSensitiveBudgetScenarios.has(scenario.name)) {
+          const sessionId = actualContext.sessionIds[0]
+          if (scenario.name === 'muse-visualize' && (allocatedCwd === undefined || sessionId === undefined || visualizationAssets === undefined)) throw new Error('Visualization budget has no store identity or selected assets')
+          expectedRecords = await workspaceBudgetExpected(scenario, actualRecords, expectedRecords as JsonObject[], expected[index] as string, actualContext.cwd,
+            scenario.name === 'muse-visualize' ? { cwd: allocatedCwd!, sessionId: sessionId!, assets: visualizationAssets! } : undefined)
+        }
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }
-      await verifyHeaders(scenario, actualLogs, actualContext)
+      await verifyHeaders(scenario, actualLogs, actualContext, visualizationAssets)
+      if (mode === 'replay' && scenario.name === 'muse-manuscript-continuity') {
+        await verifyChildOutputLimitRejection(scenario, actualLogs, actualContext)
+      }
 
       if (initialWorkspace === undefined || finalWorkspace === undefined) {
         throw new Error(`${scenario.name}: workspace was not captured around the profile run`)

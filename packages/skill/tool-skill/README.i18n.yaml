@@ -15,26 +15,29 @@
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
 /deepseek-ai-dsh-tool-skill/use-this-package:
-  en: 5c21d1ba71c1c3e1
-  zh: 3e2505d4625b57b4
+  en: 633cb494ab14a7ce
+  zh: 8647ccca09bf3e0a
 /deepseek-ai-dsh-tool-skill/use-this-package/when-to-choose-it:
   en: b7d33bd969826ee3
   zh: 4e155a0f14b41541
 /deepseek-ai-dsh-tool-skill/use-this-package/mount-and-configure:
   en: d4c06c102b25ef2c
   zh: f0afab4730703ac3
+/deepseek-ai-dsh-tool-skill/use-this-package/selected-source-summaries:
+  en: 6b026fac9bba3729
+  zh: beea74e76a4caa61
 /deepseek-ai-dsh-tool-skill/use-this-package/what-the-model-gets:
   en: e53a681b72adbf90
   zh: a8432d7dfa128cfe
 /deepseek-ai-dsh-tool-skill/use-this-package/observable-success-and-failures:
-  en: 813f1a7ab04d283e
-  zh: 4adfcffcbb131d54
+  en: e84eb93d1b147fe1
+  zh: 6025da3f7d0009ad
 /deepseek-ai-dsh-tool-skill/understand-the-implementation:
   en: 1aa627255c35178f
   zh: 44d8633ea56765d3
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/design-concept:
-  en: ee4380c98437d699
-  zh: 25f35ec8c8c47c00
+  en: c1faafc87c5bea50
+  zh: a0dc8d1f7365a139
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/source-map:
   en: 509699e3a467df41
   zh: ff7fc30ec4998e5a
@@ -60,8 +63,8 @@
   en: 8ca9241e26124ce3
   zh: d083f87eaae40e15
 /deepseek-ai-dsh-tool-skill/model-experience/session-catalog/token-effect:
-  en: c05d3d46e5139c4d
-  zh: 8acfa475cddaeb18
+  en: aa82b610e7146f7e
+  zh: e83c923edc498084
 /deepseek-ai-dsh-tool-skill/model-experience/session-catalog/kv-cache-effect:
   en: e6e6758c96527e19
   zh: 8f95e36da658c95a
@@ -128,6 +131,18 @@
 /deepseek-ai-dsh-tool-skill/model-experience/user-explicit-invocation-injection/kv-cache-effect:
   en: 127c0139472bfaab
   zh: 805dc2f730c47f40
+/deepseek-ai-dsh-tool-skill/model-experience/metadata-directory-queries:
+  en: 063699f9ac9a15ae
+  zh: 44739260e82c61cf
+/deepseek-ai-dsh-tool-skill/model-experience/metadata-directory-queries/what-the-model-sees:
+  en: 44c78c6dc110efe7
+  zh: 07dd521d1085cd48
+/deepseek-ai-dsh-tool-skill/model-experience/metadata-directory-queries/token-effect:
+  en: 32c0fc1290bc6424
+  zh: e6b2a0fbfbd4dbc6
+/deepseek-ai-dsh-tool-skill/model-experience/metadata-directory-queries/kv-cache-effect:
+  en: 547fac274cbad9c4
+  zh: ae50036e991d9a1c
 /deepseek-ai-dsh-tool-skill/known-limitations-and-deferred-work:
   en: 58820889982d59e1
   zh: 668c5f507f1a0363

@@ -153,9 +153,17 @@ export interface ProbeSpec {
   /** Overall bitrate in bits per second; defaults to 8_000_000. */
   readonly bitRateBps?: number
   /** The video stream, or `undefined` for a file with no picture. */
-  readonly video?: { width?: number; height?: number; codec?: string; fps?: number } | undefined
+  readonly video?: {
+    width?: number
+    height?: number
+    codec?: string
+    fps?: number
+    startSeconds?: number
+    durationSeconds?: number
+    frameCount?: number
+  } | undefined
   /** The audio stream, or `false` for a file with no sound. */
-  readonly audio?: { codec?: string; sampleRate?: number } | false
+  readonly audio?: { codec?: string; sampleRate?: number; startSeconds?: number; durationSeconds?: number } | false
 }
 
 /**
@@ -173,6 +181,9 @@ export function probeJson(spec: ProbeSpec): string {
       height: spec.video.height ?? 2560,
       avg_frame_rate: `${String(spec.video.fps ?? 60)}/1`,
       r_frame_rate: `${String(spec.video.fps ?? 60)}/1`,
+      start_time: spec.video.startSeconds?.toFixed(6),
+      duration: spec.video.durationSeconds?.toFixed(6),
+      nb_frames: spec.video.frameCount?.toString(),
     })
   }
   if (spec.audio !== false) {
@@ -181,6 +192,8 @@ export function probeJson(spec: ProbeSpec): string {
       codec_name: spec.audio?.codec ?? 'aac',
       sample_rate: String(spec.audio?.sampleRate ?? 48000),
       channels: 2,
+      start_time: spec.audio?.startSeconds?.toFixed(6),
+      duration: spec.audio?.durationSeconds?.toFixed(6),
     })
   }
   return JSON.stringify({

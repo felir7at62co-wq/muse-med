@@ -19,9 +19,10 @@
 // Session API and seeded cold; a stray stream would fail loud with
 // NO_ADAPTER.
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
-import { chromium } from 'playwright'
-import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { chromium, webkit } from 'playwright'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed, onTestFinished } from 'vitest'
 import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import {
   SESSION_FORMAT_VERSION,
@@ -216,8 +217,8 @@ async function awaitTableLayout(target: Page): Promise<void> {
     if (element === null) return false
     const tracks = getComputedStyle(element).gridTemplateColumns.split(' ').map(Number.parseFloat)
     const root = element.querySelector<HTMLElement>('div[data-phase]')
-    // Mirrored from ui-layout's SIDEBAR_COLLAPSED; these tests use the Host compiler face.
-    return tracks[0] === 56 && tracks.at(-1) === 0
+    // Desktop retains the rail; the mobile drawer leaves the whole width to the transcript.
+    return tracks[0] === (element.hasAttribute('data-sidebar-drawer') ? 0 : 56) && tracks.at(-1) === 0
       && element.getAnimations().every(animation =>
         animation.playState === 'finished' || animation.playState === 'idle')
       && root !== null
@@ -344,10 +345,10 @@ describe('web e2e: markdown tables fill the column, wide ones break out and scro
         expect(wide!.paddingLeft, `lead at ${String(stop.width)}`).toBeGreaterThan(0)
         expect(Math.abs(wide!.tableLeft - fill!.tableLeft), `alignment at ${String(stop.width)}`).toBeLessThan(1.5)
       } else {
-        // Below the message column there is no spare width: the breakout
-        // clamps to neutral and the wrapper stays the column's width.
-        expect(Math.abs(wide!.clientWidth - columnWidth), `neutral at ${String(stop.width)}`).toBeLessThan(1.5)
-        expect(wide!.paddingLeft, `no lead at ${String(stop.width)}`).toBeLessThan(1.5)
+        // Narrow transcripts have no outer spare width or response inset.
+        expect(Math.abs(wide!.clientWidth - columnWidth), `column width at ${String(stop.width)}`).toBeLessThan(1.5)
+        expect(wide!.paddingLeft, `column lead at ${String(stop.width)}`).toBeLessThan(1.5)
+        expect(Math.abs(wide!.tableLeft - fill!.tableLeft), `column alignment at ${String(stop.width)}`).toBeLessThan(1.5)
       }
     }
     // Wrap-first engaged for real: the filling tables grow taller as the
@@ -373,6 +374,44 @@ describe('web e2e: markdown tables fill the column, wide ones break out and scro
       .toBeGreaterThan(0)
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
+
+  it.each(['chromium', 'webkit'] as const)('keeps wide tables horizontally scrollable without hover in %s', async (engine) => {
+    const touchBrowser = await ({ chromium, webkit })[engine].launch()
+    onTestFinished(() => touchBrowser.close())
+    // Mobile WebKit has no wheel driver; touch emulation also disables hover in its desktop viewport.
+    const context = await touchBrowser.newContext({
+      viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: engine === 'chromium', locale: 'en-US',
+    })
+    const touchPage = await context.newPage()
+    const touchConsole = watchConsole(touchPage)
+    onTestFailed(() => saveFailureShot(touchPage, `markdown-wide-table-touch-${engine}`))
+    await touchPage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    const group = touchPage.getByRole('treeitem').first()
+    await touchPage.getByRole('button', { name: 'Open sidebar', exact: true }).first().click()
+    await group.click()
+    await touchPage.getByRole('treeitem').filter({ hasText: 'Markdown wide tables' }).click()
+    await touchPage.getByText(TAIL_MARKER, { exact: true }).waitFor()
+    expect(await touchPage.evaluate(() => matchMedia('(hover: hover)').matches)).toBe(false)
+    const wide = touchPage.locator('[class*="tableScroll"]', { hasText: WIDE_MARKER })
+    await wide.scrollIntoViewIfNeeded()
+    expect(await wide.evaluate(element => ({
+      overflow: getComputedStyle(element).overflowX,
+      overflowing: element.scrollWidth > element.clientWidth,
+      focused: element.matches(':focus-visible'),
+    }))).toEqual({ overflow: 'auto', overflowing: true, focused: false })
+    const box = await wide.boundingBox()
+    if (box === null) throw new Error('Wide table is not visible')
+    // A wheel input must scroll the native overflow container without hover or focus.
+    // Assigning scrollLeft would also work with overflow:hidden and miss this regression.
+    await touchPage.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await touchPage.mouse.wheel(5_000, 0)
+    await expect.poll(() => wide.evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
+    await expect.poll(() => wide.evaluate((element) => {
+      const last = element.querySelector('thead th:last-child')!
+      return last.getBoundingClientRect().right <= element.getBoundingClientRect().right + 1
+    })).toBe(true)
+    expect(touchConsole.pageErrors).toEqual([])
+  })
 
   it('reveals the wide table scrollbar on hover only', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-markdown-wide-table-scrollbar'))
@@ -532,9 +571,71 @@ describe('web e2e: markdown tables fill the column, wide ones break out and scro
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
 
+  it('keeps the user bubble and open assistant narration readable in both palettes', async () => {
+    const rows: string[] = []
+    const original = scaffold.ctx.settings.describe().find(section => section.ns === 'ui-theme')?.value
+    if (original === null || typeof original !== 'object' || !('preference' in original)) throw new Error('Missing theme preference')
+    const originalPreference = original.preference
+    if (originalPreference !== 'light' && originalPreference !== 'dark' && originalPreference !== 'system') {
+      throw new Error('Unexpected theme preference')
+    }
+    onTestFinished(() => scaffold.ctx.settings.update('ui-theme', { preference: originalPreference }))
+    const luminance = (color: string): number => {
+      const channels = color.match(/[\d.]+/gu)?.slice(0, 3).map(Number)
+      if (channels === undefined || channels.length !== 3) throw new Error(`Unexpected bubble color: ${color}`)
+      return channels.map((channel) => {
+        const value = channel / 255
+        return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4
+      }).reduce((value, channel, index) => value + channel * [0.2126, 0.7152, 0.0722][index]!, 0)
+    }
+    for (const preference of ['light', 'dark'] as const) {
+      await scaffold.ctx.settings.update('ui-theme', { preference })
+      await expect.poll(() => page.locator('body').getAttribute('data-ds-dark-theme')).toBe(preference === 'dark' ? '' : null)
+      await settleAt(1100)
+      const roles = await page.evaluate(() => {
+        const transparent = (color: string) => color === 'rgba(0, 0, 0, 0)' || color === 'transparent'
+        const backdrop = (element: HTMLElement): string => {
+          for (let current: HTMLElement | null = element; current !== null; current = current.parentElement) {
+            const color = getComputedStyle(current).backgroundColor
+            if (!transparent(color)) return color
+          }
+          throw new Error('Missing painted conversation background')
+        }
+        if (document.querySelector('[data-message-bubble="assistant"]') !== null) throw new Error('Unexpected assistant bubble')
+        return ['', 'assistant'].map((role) => {
+          const content = document.querySelector<HTMLElement>(role === '' ? '[data-message-bubble=""]' : '[data-assistant-body]')
+          const column = content?.closest('[class*="column"]')
+          if (content === null || column == null) throw new Error(`Missing ${role || 'user'} content`)
+          const style = getComputedStyle(content), bounds = content.getBoundingClientRect(), parent = column.getBoundingClientRect()
+          const open = transparent(style.backgroundColor) && Number.parseFloat(style.paddingLeft) === 0
+            && Number.parseFloat(style.paddingRight) === 0 && Number.parseFloat(style.borderTopLeftRadius) === 0
+          return { fill: transparent(style.backgroundColor) ? 'none' : style.backgroundColor, backdrop: backdrop(content),
+            ink: style.color, presentation: open ? 'open' : 'bubble', aligned: role === ''
+              ? Math.abs(bounds.right - parent.right) < 1.5 : Math.abs(bounds.left - parent.left) < 1.5,
+            fits: bounds.width <= parent.width + 1.5 }
+        })
+      })
+      expect(roles[0]!.presentation).toBe('bubble')
+      expect(roles[1]!.presentation).toBe('open')
+      for (const [index, role] of roles.entries()) {
+        const ink = luminance(role.ink), fill = luminance(role.backdrop)
+        const readable = (Math.max(ink, fill) + .05) / (Math.min(ink, fill) + .05) >= 4.5
+        expect(readable).toBe(true)
+        expect(role.aligned).toBe(true)
+        expect(role.fits).toBe(true)
+        rows.push(`| ${preference} | ${index === 0 ? 'user' : 'assistant'} | ${role.presentation} | ${role.fill} | ${readable} | ${role.aligned} | ${role.fits} |`)
+      }
+    }
+    await compareOrRefreshGolden(join(SNAPSHOT_DIR, 'bubbles.expected.md'), [
+      '# Chat message layout', '', '| palette | role | presentation | fill | text contrast at least 4.5 | aligned | fits |',
+      '| --- | --- | --- | --- | --- | --- | --- |', ...rows,
+    ].join('\n'), MODE)
+    expect(tripwire.pageErrors).toEqual([])
+  })
+
   it('commits exactly the fixtures it reads', async () => {
     // No model calls, so no replay log: the golden is the whole inventory.
-    await assertFixtureInventory(SNAPSHOT_DIR, ['geometry.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['geometry.expected.md', 'bubbles.expected.md'])
   })
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', () => {

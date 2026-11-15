@@ -1,9 +1,11 @@
 {
-  "name": "muse-med",
-  "short_name": "muse-med",
+  "name": "Muse",
+  "short_name": "Muse",
   "start_url": "./",
   "scope": "./",
-  "display": "fullscreen",
+  "display": "standalone",
+  "background_color": "#fcfcfc",
+  "theme_color": "#fcfcfc",
   "icons": [
     {
       "src": "muse-med-logo.png",

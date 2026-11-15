@@ -1,3 +1,4 @@
+import type { DesktopFileActions } from '@deepseek-ai/dsh-client-ui-file-actions/types'
 /** Typed preload operations exposed only by the Electron shell. */
 
 import type { DesktopPluginRecord, DesktopPluginCatalog, DesktopBackendState } from './ipc-types.ts'
@@ -5,26 +6,29 @@ import type { DesktopLocale } from './locale.ts'
 import type { DesktopKeyboardApi, DesktopShortcutsApi } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import type { IpcMainInvokeEvent } from 'electron'
 import type { DesktopBrowserBridge } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+import type { DesktopFileDrag } from '@deepseek-ai/dsh-util-file-drag'
 
 /** IPC channel names kept private to the desktop application bundle. */
 export const DESKTOP_IPC = {
-  attentionSound: 'dsh-desktop:attention-sound',
-  localeGet: 'dsh-desktop:locale-get',
-  pluginsList: 'dsh-desktop:plugins-list',
-  pluginsCatalog: 'dsh-desktop:plugins-catalog',
-  pluginsAdd: 'dsh-desktop:plugins-add',
-  pluginsRemove: 'dsh-desktop:plugins-remove',
-  pluginsUpdate: 'dsh-desktop:plugins-update',
-  pluginsToggle: 'dsh-desktop:plugins-toggle',
-  pluginsDisableAll: 'dsh-desktop:plugins-disable-all',
-  backendStatus: 'dsh-desktop:backend-status',
-  backendRetry: 'dsh-desktop:backend-retry',
-  applicationRestart: 'dsh-desktop:application-restart',
-  configurationReset: 'dsh-desktop:configuration-reset',
-  backendState: 'dsh-desktop:backend-state',
-  updatesCheck: 'dsh-desktop:updates-check',
-  updatesInstall: 'dsh-desktop:updates-install',
   updatesState: 'dsh-desktop:updates-state',
+  updatesInstall: 'dsh-desktop:updates-install',
+  updatesCheck: 'dsh-desktop:updates-check',
+  backendState: 'dsh-desktop:backend-state',
+  configurationReset: 'dsh-desktop:configuration-reset',
+  applicationRestart: 'dsh-desktop:application-restart',
+  backendRetry: 'dsh-desktop:backend-retry',
+  backendStatus: 'dsh-desktop:backend-status',
+  pluginsDisableAll: 'dsh-desktop:plugins-disable-all',
+  pluginsToggle: 'dsh-desktop:plugins-toggle',
+  pluginsUpdate: 'dsh-desktop:plugins-update',
+  pluginsRemove: 'dsh-desktop:plugins-remove',
+  pluginsAdd: 'dsh-desktop:plugins-add',
+  pluginsCatalog: 'dsh-desktop:plugins-catalog',
+  pluginsList: 'dsh-desktop:plugins-list',
+  localeGet: 'dsh-desktop:locale-get',
+  attentionSound: 'dsh-desktop:attention-sound',
+  fileSave: 'dsh-desktop:file-save',
+  clipboardImageRead: 'dsh-desktop:clipboard-image-read',
   shortcutsInput: 'dsh-desktop:shortcuts-input',
   shortcutsCloseWindow: 'dsh-desktop:shortcuts-close-window',
   shortcutsGet: 'dsh-desktop:shortcuts-get',
@@ -45,7 +49,13 @@ export const DESKTOP_IPC = {
   browserDownloadPage: 'dsh-desktop:browser-download-page',
   browserActiveSession: 'dsh-desktop:browser-active-session',
   directoryPick: 'dsh-desktop:directory-pick',
+  fileDragPrepare: 'dsh-desktop:file-drag-prepare',
+  fileDragCancel: 'dsh-desktop:file-drag-cancel',
+  fileDragStart: 'dsh-desktop:file-drag-start',
+  fileDragRelease: 'dsh-desktop:file-drag-release',
   deviceInfo: 'dsh-desktop:device-info',
+  systemDnsStatus: 'dsh-desktop:system-dns-status',
+  systemDnsSet: 'dsh-desktop:system-dns-set',
   localeBootstrap: 'dsh-desktop:locale-bootstrap',
   localeChanged: 'dsh-desktop:locale-changed',
   updatesStatus: 'dsh-desktop:updates-status',
@@ -58,7 +68,7 @@ export const DESKTOP_IPC = {
 } as const
 
 /** Desktop release update state rendered by desktop-owned UI. */
-export type DesktopUpdatePreparationFailureKind = 'stop-failed' | 'tasks-changed' | 'tasks-unavailable'
+export type DesktopUpdatePreparationFailureKind = 'stop-failed' | 'tasks-changed' | 'tasks-unavailable' | 'fullscreen-timeout'
 
 export interface DesktopUpdateState {
   readonly phase: 'idle' | 'checking' | 'available' | 'downloading' | 'verifying' | 'installing' | 'ready' | 'error'
@@ -83,6 +93,7 @@ export type DesktopUpdateFailureKind =
   | 'stop-failed'
   | 'tasks-changed'
   | 'tasks-unavailable'
+  | 'fullscreen-timeout'
 
 /** Semantic status content; actions open main-process confirmation dialogs only. */
 export interface DesktopUpdatePresentation {
@@ -92,14 +103,27 @@ export interface DesktopUpdatePresentation {
   readonly failure?: DesktopUpdateFailureKind
 }
 
+/** DNS preference saved for the next launch and the value active in this process. */
+export interface DesktopSystemDnsPreference { readonly saved: boolean; readonly active: boolean }
+
+/** A failed write can be verified against disk or remain unknown. */
+export type DesktopSystemDnsSetResult = DesktopSystemDnsPreference & { readonly saveFailed?: true } | { readonly unknown: true }
+
 /** Product documents cannot supply update versions, package URLs, or installation authorization. */
 export interface DshDesktopProductApi {
+  readonly fileActions: DesktopFileActions
   readonly protocolVersion: 1
   /** Product identity for first-run and primary-account browser surfaces. */
   readonly productName: 'muse-med'
   readonly browser: DesktopBrowserBridge
+  readonly fileDrag: DesktopFileDrag
   readonly keyboard: DesktopKeyboardApi
   readonly shortcuts: DesktopShortcutsApi
+  /** Device-local DNS preference; saved changes take effect after restarting Desktop. */
+  readonly systemDns: {
+    status(): Promise<DesktopSystemDnsPreference>
+    set(enabled: boolean): Promise<DesktopSystemDnsSetResult>
+  }
   /**
    * Local machine description for the feedback questionnaire.
    * @returns `name=value` fields separated by `; `, with no hostname, user name, or serial number.

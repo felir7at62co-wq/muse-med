@@ -14,29 +14,59 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 普通场景以没有已登记 Workspace 或 Session、但持久化标记记录默认 Workspace 已被删除的状态启动，使显式文件夹选择场景自行决定 cwd。`launchWebScaffold({ firstUse: true })` 保留初始化资格，供启动场景使用。
 
+普通 Web 在欢迎提示后直接进入凭据设置。相关场景在使用真实设置页、核对凭据持久化的同时，检查账号登录选项、账号菜单和赠金请求均不存在。桌面场景在启动前声明载体，并保留账号菜单几何、登录和赠金通知断言。
+
 工作区文件引用录制将已录制 Session 保留的两个技能描述写入自有临时技能目录，以提供历史技能目录，不依赖个人或内置技能根目录。其键盘操作先选中草稿，再将选区折叠到末尾，使 macOS 和 Windows 都在同一位置插入下一个引用。
 
+[工具详情](tool-details.e2e.ts)逐一核对未改动的已录制 Session 中的历史调用，并通过单独的真实 Host 回合验证当前 Schedule 卡片。已结束的列表行是 UI 前置条件，不表示定时任务已运行。
+
 [Muse 自定义模型](muse-personal-models.e2e.ts)从测试自有的本地端点发现模型，单独保存凭据，并验证设置列表、对话选择、重启持久化与适配器请求。场景加载内置桌面设置覆盖层，不操作已安装的 Muse 应用。
+
+当天消息的 golden 使用共享的 `WEB_FIXTURE_TIME`：预置会话将它传为 `createdAt`，并通过 `pinBrowserClock` 固定浏览器日期；提交实时消息的场景还使用 `pinHostClock`，在清理后恢复。固定后的时钟随真实耗时前进，保留原生定时器，因此跨午夜不会改变场景的日期标签。
+
+消息操作的分叉场景向两个 helper 传入同一个原生 `performance.timeOrigin + performance.now()` 时间锚。Host 摘要与浏览器占位行因此在重载前后使用同一条持续前进的时间线。其他调用方省略此可选时间锚，仍使用每个文档各自起算的浏览器时钟。
+
+只有根会话的记录会话 owner 可以通过 [`writerOutput`](../../../packages/test-support/session-snapshot/README.zh.md) 保留规范 replay 输入。scaffold 将被驱动的根会话与单独的当前 writer 输出比较基准比较，并检查其精确清单；Web 的此选项会拒绝规范子会话角色。refresh 可以在清理阶段收集根会话比较基准之前检查清单；replay 始终要求该文件存在。
+
+构建产物的 jsdom 用例共用 `installAssembledBootEnv`，提供不匹配的媒体查询，并在每项测试后恢复浏览器全局对象；真实媒体查询行为由浏览器用例验证。
+
+[Bot 侧栏夹具](bot-sidebar-rail.e2e.ts)以合成名单和空 Sessions 挂载内置导航，释放时取消其公开导航 guard。窄屏 Web 和 macOS 用例检查可见抽屉、命中、键盘焦点和不占侧栏列的主区；Windows 保留图标栏。这些几何检查不验证原生 Session 操作。
 
 ## 完成状态观察
 
 桌面引导通过[只读账号观察器](fixtures/plugins/fixture-onboarding-account/client.js)等待余额结果发布。暂扣返回充值页后的响应，将请求到达、导航按钮启用与失败结果到达账号订阅区分开；夹具在其 Client 插件停止时释放该订阅。
 
+引导重载检查先等待目标步骤保存到 Host。队列快照在同一次观察中确认标题、条目数量、收起状态与待提交消息，再捕获稳定布局。
+
 依赖状态的用例使用 Workspace、接纳、附件和模型流屏障，区分可见中间状态与已完成操作。模型选择器的持久化断言等待默认设置保存完成，不以菜单关闭作为完成信号。文件卡片的几何断言等待精确的渲染高度，不以 Host Turn 完成或先前观察到可见作为完成信号。详情关闭等待框架过渡结束；归档验证为 seed Session 设置显式标题，并跨重载跟踪该身份。[CI 测试可靠性工作流](../../../.agents/skills/dsh-ci-test-reliability/SKILL.md#synchronize-on-state)负责这些同步规则。
 
 SVG 交付场景在连接警告失败时附带有界的 Host WebSocket 观察结果：Ping 排队与写入完成、Pong 到达、关闭码及调用栈。真实升级钩子必须观察到传输连接，保持安装直到 Host 清理完成，再恢复自己的方法和监听器。它不记录帧正文、请求 URL 或未识别的关闭文本；通过的用例不打印诊断输出。
 
-权限选择器断言先等待选项行渲染，再检查数量或快照。安装生命周期场景独立拥有配置档和浏览器，将 Auto 安装为包，并在保持 HMR 启用的情况下通过插件管理器持久保存启停状态。目录响应完成后再执行原有 DOM 检查；当前权限发生变化，并不表示目录刷新已经完成。
+权限选择器断言先等待选项行渲染，再检查数量或快照。通过权限命令提交选择后，还会等待所选权限发布后的输入框草稿清空。安装生命周期场景独立拥有配置档和浏览器，将 Auto 安装为包，并在保持 HMR 启用的情况下通过插件管理器持久保存启停状态。目录响应完成后再执行原有 DOM 检查；当前权限发生变化，并不表示目录刷新已经完成。
+
+[空闲提交交接](idle-submission-handoff.e2e.ts)对 Host 帧和浏览器中的消息归位的等待使用 scaffold 的 30 秒 Turn 完成预算。Vitest 负责 scaffold 清理，使 replay 消耗检查错误不会覆盖场景中失败的断言。
+
+插件管理器和 HMR 生命周期场景中的开关为 Host 的 profile 写入与 store 随后的 inventory 读取预留 `PLUGIN_TOGGLE_SETTLE_MS`（10 秒），这两步完成后才会重新发布 `aria-checked`；链路的实测值记录在该常量的 JSDoc 中。
+
+[安装取消场景](plugin-install-cancel.e2e.ts)仅在关联的 Host 操作结束后中断浏览器响应，并检查未知结果和已安装文件；清理时先解除路由等待，再等待任务退出。
 
 显式滚动使用 `support.ts` 的 `scrollIntoView`：旧元素脱离 DOM 时重新解析 locator，并在同一个浏览器任务中检查连接状态、执行原生滚动。各场景保留滚动后的可见性与几何断言。
+
+问答输入框的缩放断言等待 CSS 滚动时间线更新，使溢出、裁剪遮罩与展开按钮的可见性一致。
+
+[侧栏窗格关闭后的快照](shortcuts-panels.e2e.ts)在捕获前将指针移出控件，并等待悬停提示关闭。键盘焦点保持在窗格上。
+
+[同源窗口终端用例](sidebar-terminal.e2e.ts)等待 UI 触发的 Host 关闭操作完成后，再检查进程终止。它还检查第一个窗口的进程、保存的绑定以及重载后的布局。
 
 ## 这些是 Host 面的测试
 
 它们在根 `tsconfig.host.json` 中做类型检查，而不在 Client aggregate 中，因为它们直接读取 Host 服务：`ctx.connection`、Host 侧 `SessionStore` 与 `ctx.sessionProjectionCache`。运行时驱动浏览器并不使一个文件成为 Client 程序的一部分——两个 face 在相同的键上以不同服务合并 Cordis `Context`，因此单个程序无法同时看见两者。把这些文件挪进 Client aggregate 会让每一处 Host 服务访问都无法编译。
 
+新增场景要在同一次改动里登记到两份工程清单：根 `tsconfig.host.json` 的 include，以及 Client aggregate `apps/web/tsconfig.json` 的 exclude。该工程包含整个 `tests` 目录，漏登记 exclude 的文件会按 Client 代码编译，`pnpm run typecheck` 的 Client compiler 关卡会一直以 Host 服务错误失败，直到它被列入。
+
 ## 不要在此 import `@deepseek-ai/dsh-client-*`
 
-import 一个 Client 包——无论值还是类型——都会把它整个 TypeScript 工程、以及它引用的每个工程拉进 **Host 构建图**。这已经坑过本 lane 一次：四个 Client 消费方包引用了 `api/remotes` 的 Client face，而该 face 必须等 Host tsdown 生成 `@deepseek-ai/dsh-goal/remote` 之后才能编译，于是 Host 构建阶段变成在等一个由它自己产出的产物。
+import 一个 Client 包——无论值还是类型——都会把它的 TypeScript 工程及其引用的工程拉进 Host 构建图。生成的 Remote 声明在包编译之前就绪，但这并不使 Host 与 Client 的 Cordis `Context` 声明兼容。保留这些测试的 Host face 归属，只使用下文明确的 built-client harness 例外。
 
 当某个场景需要 Client 持有的常量或纯函数时，改为在此处镜像一份，并紧挨着一条注释掉的 import 点明源模块。这样漂移会表现为选择器未命中或镜像值陈旧——是响亮的失败，绝不会是静默通过。`scaffold.ts` 按此规则镜像 welcome-notice 的 namespace、确认字段、版本和被断言的中文文案。
 

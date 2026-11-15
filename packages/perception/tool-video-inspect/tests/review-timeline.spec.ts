@@ -27,6 +27,17 @@ it('keeps boundary frames in one window and preserves silence and unrecorded fra
   expect(timeline).toMatchObject({ advisory: true, semantic_assessment: 'not_performed', scope: { full_episode: true } })
 })
 
+it('separates follow-up closure from observation coverage and material identity', () => {
+  const review = source()
+  const original = buildVideoSourceTimeline(review, { windowSeconds: 2 })
+  expect(original.source.follow_up).toEqual({ status: 'active' })
+  const closed = buildVideoSourceTimeline({ ...review, follow_up: { status: 'closed', reason: '不再跟进。' } },
+    { windowSeconds: 2 })
+  expect(closed.source.follow_up).toEqual({ status: 'closed', reason: '不再跟进。' })
+  expect(closed.windows).toEqual(original.windows)
+  expect(closed.material_sha256).toBe(original.material_sha256)
+})
+
 it('links overlapping original ASR and continuous-speech candidates without splitting or rewriting raw utterances', () => {
   const speech = reviewSpeech({ path: 'transcript.json', version: 'asr-v1', text: JSON.stringify([
     { start: 0.5, end: 1.5, text: '妈，', speaker_id: 1 },

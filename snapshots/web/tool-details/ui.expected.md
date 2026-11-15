@@ -20,7 +20,7 @@
     - img "Added": +
     - text: Review the narrow layout Pending
 - button "Inspect"
-- button "Create reminder Review the build and open the demo" [expanded]
+- button "Create automation task Review the build and open the demo" [expanded]
 - list:
   - listitem:
     - text: Review the build and open the demo
@@ -31,7 +31,7 @@
     - term: Status
     - definition: Scheduled
 - button "Inspect"
-- button "Update reminder Review the build and open the demo" [expanded]
+- button "Update automation task Review the build and open the demo" [expanded]
 - list:
   - listitem:
     - text: Review the build and open the demo
@@ -60,7 +60,7 @@
     - term: Rounds
     - definition: 0 / 8
 - button "Inspect"
-- button "List reminders 4 reminders" [expanded]
+- button "List automation tasks 4 automation tasks" [expanded]
 - list:
   - listitem:
     - text: Review the build and open the demo
@@ -95,7 +95,7 @@
     - term: Status
     - definition: Scheduled
 - button "Inspect"
-- button "Delete reminder details-reminder" [expanded]
+- button "Delete automation task details-reminder" [expanded]
 - list:
   - listitem:
     - text: details-reminder

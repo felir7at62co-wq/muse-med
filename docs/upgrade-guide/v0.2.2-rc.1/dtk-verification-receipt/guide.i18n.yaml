@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/dtk-verification-receipt/guide.md
+/:
+  en: fd426276d5239cea
+  zh: 73a15e68b75a4041
+/dtk-verification-receipts:
+  en: 0bc29e71b190ce98
+  zh: 5ba60e7e20943d74
+/dtk-verification-receipts/change:
+  en: d4eadce497e43e60
+  zh: 9f5a1fcde3aac077
+/dtk-verification-receipts/migration:
+  en: e631dc30ffadf932
+  zh: 2a4f153760647d27

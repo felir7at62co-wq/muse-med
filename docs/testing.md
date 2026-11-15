@@ -20,7 +20,7 @@ Session fixtures retain headers and payloads but omit body sequence/time envelop
 
 ## How specs execute
 
-Forked workers run several spec files at once, the coverage gate splits into concurrent partitions beside the other gates in its job, and the self-hosted runners share one host and one volume. Only the process is isolated: ports, predictable paths, external namespaces, and inherited children are not. Own each acquired resource through its teardown, and read a spec that passes only when it runs alone as a defect in the spec rather than an unstable runner. [dsh-ci-test-reliability](../.agents/skills/dsh-ci-test-reliability/SKILL.md) owns the allocation, restoration, synchronization, timeout-budget, platform, and teardown rules; its [flake diagnosis workflow](../.agents/skills/dsh-ci-test-reliability/references/ci-flake-diagnosis.md) classifies an existing probabilistic failure.
+Forked workers run several spec files at once, the coverage gate splits into [concurrent partitions](../scripts/coverage-partitions.ts) beside the other gates in its job, and the self-hosted runners share one host and one volume. Only the process is isolated: ports, predictable paths, external namespaces, and inherited children are not. Own each acquired resource through teardown. A spec passing only alone has a test defect, not an unstable runner. [dsh-ci-test-reliability](../.agents/skills/dsh-ci-test-reliability/SKILL.md) owns the allocation, restoration, synchronization, timeout-budget, platform, and teardown rules; its [flake diagnosis workflow](../.agents/skills/dsh-ci-test-reliability/references/ci-flake-diagnosis.md) classifies an existing probabilistic failure. [Unexpected fork exits](../scripts/coverage-fork-diagnostics.ts) report PID, file, code, and signal.
 
 ## The with-key policy: inference is cheap here
 
@@ -46,11 +46,11 @@ Windows coverage [qualifies FFmpeg/ffprobe](../scripts/prepare-ci-ffmpeg.ts).
 
 ## Test resolution: source plane only
 
-- Vitest maps bare workspace imports to `src` through `tsconfig.base.json`; built `lib/` can duplicate singletons ([layout](development.md#typescript-project-layout)). Only explicit `lib` subprocesses and built smokes consume artifacts. Repository-local JavaScript plugins declare built peers as root development dependencies without activating them. After workspace builds, `test:snapshot:built` recompiles Lvpaopao for replay.
+- Vitest resolves workspace imports to `src` through `tsconfig.base.json`; built `lib/` may duplicate singletons ([layout](development.md#typescript-project-layout)). Only explicit `lib` subprocesses and built smokes consume artifacts. Local JavaScript plugins declare built peers as root development dependencies without activation. `test:snapshot:built` prepares compiled Lvpaopao, subscription and Skill/MCP panel packages for plain-Node replay.
 
 ## Test subprocess launch modes
 
-- CI and build-having test lanes run every profile or Cordis-config subprocess from built `lib/` through the shared dual-mode launcher. Do not hand-write `--import tsx` for these subprocesses.
+- Built-artifact lanes launch profile and Cordis-config subprocesses from `lib/` through the shared launcher, never hand-written `--import tsx`. Desktop Host selects `src` in `test` and `lib` in `test:expected`.
 - Protocol and operating-system fixtures that do not load Cordis run erasable `.ts` directly with Node, without tsx or the root paths map.
 - Only a test whose subject is source-path resolution may select `src`; state that contract in the test.
 

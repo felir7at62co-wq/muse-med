@@ -246,7 +246,7 @@ export function createMcpToolDefinition(
   }
 }
 
-/** Build the canonical result schema and existing Native text projection. */
+/** Build the canonical result schema and Native text projection. */
 function createOutput(rawName: string, structuredSchema: JsonSchemaNode | undefined): ToolDefinition['output'] {
   return {
     schema: {
@@ -260,7 +260,7 @@ function createOutput(rawName: string, structuredSchema: JsonSchemaNode | undefi
     },
     render(_args: unknown, value: JsonValue) {
       const result = value as McpResult
-      return [{ type: 'text', text: extractText(result.content, rawName) }]
+      return withStructuredContent(result, [{ type: 'text', text: extractText(result.content, rawName) }])
     },
   }
 }
@@ -293,24 +293,46 @@ function createExecutor(
     const content = result.content as unknown as JsonValue[]
     const text = extractText(content, rawName)
 
-    // MCP isError → throw so ToolRuntime produces an isError result for the model.
-    if (result.isError === true) {
-      throw new Error(text)
-    }
-
     const value: McpResult = {
       content,
       ...result.structuredContent !== undefined
         ? { structuredContent: result.structuredContent as JsonValue }
         : {},
     }
+    // Errors retain recovery fields without admitting images as successful content.
+    if (result.isError === true) {
+      const diagnostic = withStructuredContent(value, [{ type: 'text', text }])
+      throw new Error(diagnostic.map(block => block.text).join('\n'))
+    }
     if (containsImage(content)) {
-      const fallback: ContentBlock[] = [{ type: 'text', text: extractText(content, rawName) }]
+      const fallback = withStructuredContent(value, [{ type: 'text', text: extractText(content, rawName) }])
       const projected = await prepareImageProjection(ctx, exec, content, rawName)
-      projections.set(exec, { value, fallback, content: projected })
+      projections.set(exec, { value, fallback, content: withStructuredContent(value, projected) })
     }
     return value
   }
+}
+
+/** Preserve structured fields in Native history without repeating a complete JSON text block. */
+function withStructuredContent<T extends ContentBlock>(
+  result: McpResult,
+  content: T[],
+): Array<T | Extract<ContentBlock, { type: 'text' }>> {
+  if (result.structuredContent === undefined) return content
+  const structured = result.structuredContent
+  const alreadyVisible = result.content.some((block) => {
+    if (!isRecord(block) || block.type !== 'text' || typeof block.text !== 'string') return false
+    try {
+      return isDeepStrictEqual(JSON.parse(block.text), structured)
+    } catch (_error) {
+      return false
+    }
+  })
+  if (alreadyVisible) return content
+  return [
+    ...result.content.length === 0 ? [] : content,
+    { type: 'text', text: JSON.stringify(structured) },
+  ]
 }
 
 /** Whether an untrusted MCP content array contains a declared image block. */

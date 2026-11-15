@@ -116,7 +116,7 @@ test('a public share-resolution failure enters the existing normal browser downl
   const scope = install({ version: 4, async download() { native++; return receipt; } },
     { status: 'blocked', message: 'Share link resolution failed; open it in your browser and provide the final video page.' });
   try {
-    assert.deepEqual(await scope.downloadTool.execute({ url }, {}), receipt);
+    assert.deepEqual((await scope.tool.execute({ url, download: true }, {})).download, receipt);
     assert.equal(native, 1);
   } finally { await scope.dispose(); }
 });
@@ -128,9 +128,22 @@ test('the new bridge retains existing verified internal-browser download fallbac
   } }, { status: 'blocked', message: 'ACCESS_RESTRICTED' });
   try {
     assert.deepEqual((await scope.tool.execute({ url, download: true }, {})).download, receipt);
-    assert.deepEqual(await scope.downloadTool.execute({ url }, {}), receipt);
+    assert.deepEqual((await scope.tool.execute({ url, download: true }, {})).download, receipt);
     assert.equal(native, 2);
     assert.equal(scope.calls.process.length, 2);
+  } finally { await scope.dispose(); }
+});
+
+test('data collection with a blocked media address reports DNS compatibility as optional troubleshooting', async () => {
+  const scope = install({ version: 4, async data() { return snapshot(); },
+    async download() { return { status: 'blocked', code: 'PRIVATE_MEDIA_ADDRESS' }; } },
+  { status: 'blocked', message: 'ACCESS_RESTRICTED' });
+  try {
+    const result = await scope.tool.execute({ url, download: true }, {});
+    assert.equal(result.status, 'partial');
+    assert.equal(result.download.status, 'blocked');
+    assert.equal(result.download.code, 'PRIVATE_MEDIA_ADDRESS');
+    assert.match(result.download.message, /proxy.*system DNS.*Settings.*General.*restart/i);
   } finally { await scope.dispose(); }
 });
 

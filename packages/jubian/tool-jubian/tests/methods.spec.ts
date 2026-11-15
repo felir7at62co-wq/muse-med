@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -5,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from '../src/methods.ts'
 import type { MethodArgs, MethodDeps } from '../src/methods.ts'
+import * as Native from '../src/native.ts'
 import { bodyHash, requireArguments } from '../src/write.ts'
 import { buildImageRequest } from '@deepseek-ai/dsh-jubian-api'
 
@@ -64,6 +66,12 @@ beforeEach(async () => {
   } }))
 })
 afterEach(async () => { await rm(root, { recursive: true, force: true }) })
+
+it('rejects an absent material inventory instead of inferring an empty page', async () => {
+  const { client } = stubClient(() => null)
+  await expect(assetMethod(client, ledger, { method: 'materials', script_id: 2708 }))
+    .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+})
 
 /** A provider stub for the paid image path, with a scripted sequence of asset statuses. */
 function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: (string | null)[] = ['Active']) {
@@ -1035,7 +1043,7 @@ describe('jubian_video', () => {
     const { client, calls } = stubClient(request => request.path.includes('/list') ? { rows: [] } : { id: 42 })
     await videoMethod(client, ledger, { method: 'task', task_id: 42 })
     await videoMethod(client, ledger, { method: 'tasks', script_id: 2708, page_num: 2 })
-    expect(calls[1]?.path).toContain('taskType=1&pageNum=2')
+    expect(calls[1]?.path).toBe('https://web.jubianai.net/prod-api/admin/aigc/video/task/list?scriptId=2708&pageNum=2&pageSize=20')
     expect(await videoMethod(client, ledger, { method: 'unresolved', script_id: 2708 }))
       .toMatchObject({ unresolved: [] })
     await ledger.begin({ idempotencyKey: 'pending-native', method: 'storyboard_native_submit',
@@ -1317,6 +1325,24 @@ describe('jubian_video', () => {
     expect(result.next).toContain('尚未确认出演')
     expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
     expect(calls.some(call => call.path.includes('confirm'))).toBe(false)
+  })
+
+  it('reports a failed active candidate alongside an older selected image', async () => {
+    const candidate = { ...GENERATED_IMAGE[0]!, resultStatus: 'Failed', resultMsg: 'insufficient credits' }
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.path.includes('getGeneratedImageByAssetId')) return [
+        { ...GENERATED_IMAGE[0]!, id: 899, isUsed: 1 }, candidate,
+      ]
+      if (request.method === 'GET') return { id: 83749, hsAssetStatus: null }
+      return 83749
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'failed-candidate-before-parent' },
+    imageDeps({ timeoutMs: 100, pollMs: 100 }))
+    expect(result).toMatchObject({ outcome: 'accepted', parent_asset_id: 83749,
+      asset_status: 'failed', generation_status: 'failed', material_id: null, image_url: null })
+    expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'GET', 'GET'])
   })
 
   it.each(['wrong-parent', 'inactive', 'ambiguous'])
@@ -1893,6 +1919,52 @@ describe('required arguments', () => {
 })
 
 describe('jubian_media', () => {
+  it('passes caller cancellation to an in-flight non-resumable download', async () => {
+    const controller = new AbortController()
+    const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      expect(init?.signal?.aborted).toBe(false)
+      controller.abort(new Error('caller cancelled download'))
+      expect(init?.signal?.aborted).toBe(true)
+      throw new Error('cancelled in-flight transfer')
+    })
+    try {
+      await expect(mediaMethod({ method: 'download', media_kind: 'video',
+        media_url: 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture.mp4', output_path: join(root, 'fresh.mp4') }, controller.signal))
+        .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+      expect(transport).toHaveBeenCalledTimes(1)
+    } finally { transport.mockRestore() }
+  })
+
+  it('reuses a receipt after restart and preserves a same-length file that has changed', async () => {
+    const original = Buffer.from('000000106674797069736f6d00000000', 'hex')
+    const changed = Buffer.from('000000106674797069736f6d00000001', 'hex')
+    const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(original))
+    try {
+      const target = join(root, 'pack.mp4')
+      const args = { method: 'download', media_kind: 'video', resume: true,
+        media_url: 'https://jubian-aigc.tos-cn-beijing.volces.com/verified-pack.mp4?signature=fixture', output_path: target } as const
+      const first = await mediaMethod(args)
+      const sourceHash = createHash('sha256').update(args.media_url).digest('hex')
+      const receiptPath = `${target}.jubian-video-${sourceHash.slice(0, 16)}.json`
+      expect(first).toMatchObject({ path: target, reused: false, download_receipt_path: receiptPath, source_sha256: sourceHash })
+      const receipt = await readFile(receiptPath, 'utf8')
+      expect(receipt).not.toContain('signature=fixture')
+      expect(JSON.parse(receipt)).toMatchObject({ source_sha256: sourceHash, path: target, sha256: first.sha256 })
+      expect(await mediaMethod(args)).toMatchObject({ path: target, reused: true, sha256: first.sha256,
+        download_receipt_path: receiptPath, source_sha256: sourceHash })
+      expect(transport).toHaveBeenCalledTimes(1)
+
+      await writeFile(target, changed)
+      const replacement = await mediaMethod(args)
+      expect(replacement).toMatchObject({ reused: false, sha256: first.sha256, download_receipt_path: receiptPath })
+      expect(replacement.path).not.toBe(target)
+      expect(typeof replacement.path).toBe('string')
+      expect(await readFile(String(replacement.path))).toEqual(original)
+      expect(await readFile(target)).toEqual(changed)
+      expect(await mediaMethod(args)).toMatchObject({ path: replacement.path, reused: true, download_receipt_path: receiptPath })
+      expect(transport).toHaveBeenCalledTimes(2)
+    } finally { transport.mockRestore() }
+  })
   it.each([
     ['cover.jpg', 'cover.png', '89504e470d0a1a0a', 'image', 'image/png'],
     ['cover', 'cover.png', '89504e470d0a1a0a', 'image', 'image/png'],
@@ -1931,6 +2003,13 @@ describe('jubian_media', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+})
+
+it('rejects the free-erasure flag on a different storyboard operation before reading or writing', async () => {
+  const { client, calls } = stubClient(() => { throw new Error('Invalid operation must not reach provider') })
+  await expect(storyboardMethod(client, ledger, { method: 'get', storyboard_id: 1,
+    only_if_verified_free: true })).rejects.toThrow('only_if_verified_free must be a boolean for erase_subtitle')
+  expect(calls).toEqual([])
 })
 
 
@@ -2081,4 +2160,141 @@ it('uses the current video when the original result URL is absent on a returned 
     task_id: 42, model_id: 'quzimuToB', video_width: 1280, video_height: 720,
     estimated_cost_cny: '1.00', estimate_basis: 'Offline source fixture' })
   expect(calls.at(-1)?.body).toMatchObject({ videoUrl: 'https://example.test/current.mp4' })
+})
+
+
+describe('storyboard creation material identity', () => {
+  it.each([
+    ['create', '林子明', 'hall'], ['create_batch', '林子明', 'hall'],
+    ['create', '周慧兰', 'rifle'], ['create_batch', '周慧兰', 'rifle'],
+    ['create', '新闻记者与摄像人员', 'truck'], ['create_batch', '新闻记者与摄像人员', 'truck'],
+  ] as const)('rejects unchecked %s references labelled %s before any creation request', async (method, name, image) => {
+    const { client, calls } = stubClient(() => 916953)
+    const material = { materialKey: 'asset_81285', assetId: 'unrelated-subject', materialAssetId: 83670,
+      assetName: name, fileName: name, materialType: 'image',
+      materialUrl: 'https://example.test/unrelated/' + image + '.jpg', sortOrder: 1 }
+    const body = { scriptId: 2708, episodeId: 1, storyboardName: 'identity-reproduction', sortOrder: 1,
+      modelConfig: JSON.stringify({ prompt: '@[' + name + '](asset_81285) 入画', materialList: [material] }),
+      storyboardMaterialList: [material] }
+    const args: MethodArgs = method === 'create'
+      ? { method, idempotency_key: 'unchecked-' + image, body }
+      : { method, script_id: 2708, storyboards: [{ idempotency_key: 'unchecked-batch-' + image, body }] }
+    await expect(storyboardMethod(client, ledger, args)).rejects.toThrow('UNVERIFIED_STORYBOARD_MATERIALS')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+})
+
+
+it.each([
+  { storyboardMaterialList: [{ materialUrl: 'https://example.test/wrong.jpg' }] },
+  { storyboardMaterialList: '[{"materialUrl":"https://example.test/wrong.jpg"}]' },
+  { modelConfig: { prompt: 'ready', materialList: [{ materialUrl: 'https://example.test/wrong.jpg' }] } },
+  { modelConfig: JSON.stringify({ prompt: 'ready', materialList: [{ materialUrl: 'https://example.test/wrong.jpg' }] }) },
+  { modelConfig: { prompt: 'ready', materialList: '[{"materialUrl":"https://example.test/wrong.jpg"}]' } },
+])('rejects unverified references supplied through a frozen body: %j', async (overrides) => {
+  const bodyPath = join(root, 'unverified-body.json')
+  await writeFile(bodyPath, JSON.stringify({ scriptId: 2708, ...overrides }))
+  const { client, calls } = stubClient(() => 1)
+  await expect(storyboardMethod(client, ledger, { method: 'create', body_path: bodyPath,
+    idempotency_key: 'unchecked-file' })).rejects.toThrow('UNVERIFIED_STORYBOARD_MATERIALS')
+  expect(calls).toEqual([])
+  expect(await ledger.records()).toEqual([])
+})
+
+it('preflights every batch material list before creating the first card', async () => {
+  const { client, calls } = stubClient(() => 1)
+  const base = { scriptId: 2708, episodeId: 1, sortOrder: 0, modelConfig: { prompt: '@[林子明](lead)' } }
+  await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708, storyboards: [
+    { idempotency_key: 'good-before-bad', body: { ...base, storyboardName: 'P1' } },
+    { idempotency_key: 'bad-after-good', body: { ...base, storyboardName: 'P2',
+      storyboardMaterialList: [{ fileName: '林子明', materialUrl: 'https://example.test/hall.jpg' }] } },
+  ] })).rejects.toThrow('UNVERIFIED_STORYBOARD_MATERIALS')
+  expect(calls).toEqual([])
+  expect(await ledger.records()).toEqual([])
+})
+
+it.each([undefined, null, [], '[]', 'null'])('accepts empty creation references without losing the prompt: %j', async (materials) => {
+  const { client, calls } = stubClient(() => 916953)
+  const body = { scriptId: 2708, storyboardMaterialList: materials,
+    modelConfig: JSON.stringify({ prompt: '@[林子明](lead) 入画', materialList: materials }) }
+  await storyboardMethod(client, ledger, { method: 'create', body, idempotency_key: 'empty-bindings' })
+  expect(calls[0]?.body).toEqual({ ...body, isGenerate: 0 })
+})
+
+it.each([
+  { modelConfig: '{' }, { storyboardMaterialList: '{' }, { modelConfig: { materialList: '{' } },
+  { storyboardMaterialList: {} }, { modelConfig: { materialList: false } },
+])('refuses malformed creation reference fields before writing: %j', async (overrides) => {
+  const { client, calls } = stubClient(() => 1)
+  await expect(storyboardMethod(client, ledger, { method: 'create',
+    body: { scriptId: 2708, ...overrides }, idempotency_key: 'malformed-refs' })).rejects.toThrow()
+  expect(calls).toEqual([])
+})
+it('dispatches original-key recovery with its signal and retains unknown when ownership is absent', async () => {
+  const { client, calls } = stubClient(() => { throw new Error('No provider request is allowed') })
+  const signal = new AbortController().signal
+  const args = { method: 'reconcile_video', project_dir: root, idempotency_key: 'original-key' }
+  const reconcile = vi.spyOn(Native, 'recoverVideoSubmission')
+    .mockResolvedValueOnce({ status: 'submitted', task_id: '42', replayed: true })
+    .mockResolvedValueOnce(undefined)
+  try {
+    expect(await storyboardMethod(client, ledger, args, { signal }))
+      .toEqual({ status: 'submitted', task_id: '42', replayed: true })
+    expect(await storyboardMethod(client, ledger, args, { signal }))
+      .toEqual({ status: 'reconcile_required', task_id: null })
+    expect(reconcile).toHaveBeenNthCalledWith(1, client, ledger, root, 'original-key', signal)
+    expect(reconcile).toHaveBeenNthCalledWith(2, client, ledger, root, 'original-key', signal)
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  } finally { reconcile.mockRestore() }
+})
+
+it('passes foreground cancellation into task-list reads without creating an intent', async () => {
+  const { client, calls } = stubClient(() => ({ total: 0, rows: [] }))
+  const request = vi.spyOn(client, 'request')
+  const signal = new AbortController().signal
+  try {
+    expect(await videoMethod(client, ledger, { method: 'tasks', script_id: 2708 }, { signal }))
+      .toMatchObject({ tasks: { total: 0, rows: [], complete: true } })
+    expect(request).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ method: 'GET', signal }))
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.path).toContain('/admin/aigc/video/task/list?scriptId=2708')
+    expect(await ledger.records()).toEqual([])
+  } finally { request.mockRestore() }
+})
+
+it.each([null, 'not-a-page', 7, true])('refuses a primitive material inventory: %j', async (data) => {
+  const { client, calls } = stubClient(() => data)
+  await expect(assetMethod(client, ledger, { method: 'materials', script_id: 2708 }))
+    .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(calls).toHaveLength(1)
+  expect(calls[0]?.method).toBe('GET')
+  expect(await ledger.records()).toEqual([])
+})
+
+it('reports the failed unselected image among older selected rows when the parent has no status', async () => {
+  const { client, calls } = stubClient((request) => {
+    if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+    if (request.method === 'POST') return 83749
+    if (request.path.includes('getGeneratedImageByAssetId')) return [
+      { assetId: 83749, id: 900, assetUrl: 'https://media.example/stale-candidate.png',
+        hsAssetStatus: 'Active', isUsed: 0, taskId: 545217, resultStatus: 'failed',
+        resultMsg: '图片编辑请求失败' },
+      { assetId: 83749, id: 899, assetUrl: 'https://media.example/old-selected.png',
+        hsAssetStatus: 'Active', isUsed: 1, taskId: 545216, resultStatus: 'succeeded' },
+    ]
+    return { id: 83749, hsAssetStatus: null }
+  })
+  const sleep = vi.fn(async (_ms: number) => undefined)
+  const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+    asset_name: 'staging', asset_type: 2, prompt: 'p', idempotency_key: 'failed-unselected-candidate' },
+  { image: { ...imageDeps().image, sleep } })
+  expect(result).toMatchObject({ outcome: 'accepted', asset_status: 'failed',
+    observed_asset_status: 'failed', material_id: null, image_url: null, waited_ms: 0 })
+  expect(JSON.stringify(result)).toContain('545217')
+  expect(sleep).not.toHaveBeenCalled()
+  expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  expect(calls.some(call => call.method === 'PUT')).toBe(false)
+  expect(await ledger.records()).toHaveLength(1)
 })

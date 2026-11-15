@@ -69,6 +69,15 @@ vi.mock('electron', () => ({
     setAppLogsPath: vi.fn(),
     getPreferredSystemLanguages: () => ['en-US'],
     on: (name: string, callback: (...args: unknown[]) => void) => { state.appListeners.set(name, callback) },
+    once: (name: string, callback: (...args: unknown[]) => void) => {
+      const previous = state.appListeners.get(name)
+      state.appListeners.set(name, (...args) => {
+        if (previous === undefined) state.appListeners.delete(name)
+        else state.appListeners.set(name, previous)
+        previous?.(...args)
+        callback(...args)
+      })
+    },
     quit: state.quit,
     exit: vi.fn(),
   },
@@ -94,6 +103,7 @@ vi.mock('electron', () => ({
   net: { fetch: vi.fn() },
   nativeTheme: state.nativeTheme,
   session: { defaultSession: {
+    on: vi.fn(),
     setPermissionCheckHandler: vi.fn(), setPermissionRequestHandler: vi.fn(), webRequest: { onBeforeSendHeaders: vi.fn() },
   } },
   protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
@@ -117,6 +127,12 @@ vi.mock('../src/paths.ts', async (importOriginal) => {
 vi.mock('../src/hongguo-runtime.ts', () => ({
   prepareDesktopHongguoEnvironment: vi.fn<typeof import('../src/hongguo-runtime.ts').prepareDesktopHongguoEnvironment>()
     .mockResolvedValue({}),
+}))
+vi.mock('../src/settings.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/settings.ts')>(),
+  readDesktopSettings: (): import('../src/settings.ts').DesktopSettings => ({
+    updates: { allowTestAuthPopupWindow: false }, network: { useSystemResolver: false },
+  }),
 }))
 vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/login-shell-environment.ts')>(),
@@ -197,7 +213,8 @@ it.each([false, true])('opens the Muse workspace after Host startup without show
   state.accountState.mockResolvedValue({ status: 'signed-out', attempt: null, links: { usageUrl: '', topUpUrl: '' } })
   if (updated) vi.stubGlobal('process', { ...process, platform: 'win32', argv: ['desktop', '--updated'] })
   vi.useFakeTimers()
-  vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
+  vi.stubEnv('DSH_CLIENT_VERSION', '0.2.2-rc.1')
+  vi.stubEnv('DSH_CLIENT_PRODUCT_VERSION', '1.2.3')
   vi.stubEnv('DSH_CLIENT_COMMIT_HASH', 'a'.repeat(40))
   vi.stubEnv('DSH_DESKTOP_DEV_PROJECT_DIR', '/development-profile')
   vi.stubEnv('DSH_DESKTOP_NODE_BINARY', '/runtime/node')

@@ -25,6 +25,8 @@ let renderRefs
 let refIndex = 0
 let layoutEffects
 const react = {
+  createContext: value => ({ value }), useContext: context => context.value,
+  useCallback: fn => fn, useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), Fragment: Symbol('Fragment'),
   useEffect() {}, useLayoutEffect: effect => layoutEffects?.push(effect), useState: initial => [initial, () => {}],
   useMemo: make => make(), useRef: current => renderRefs ? renderRefs[refIndex++] ??= { current } : { current }, useId: () => 'id',
@@ -403,4 +405,47 @@ test('the team view leaves shell footer layout and visibility to the shell', () 
       assert.deepEqual(deciding.map(rule => rule.selector), [], `${platform} ${collapsed ? 'collapsed' : 'open'}`)
     }
   }
+})
+
+test('Bot styles preserve the native retained rail track after sidebar collapse', () => {
+  for (const rightCollapsed of [true, false]) {
+    const dom = new JSDOM(`<div class="x_frame" data-sidebar-collapsed="true" data-sidebar-rail="true"${rightCollapsed ? ' data-rightbar-collapsed="true"' : ''}><div class="x_sidebarCol"><div class="x_root x_collapsed" data-desktop-rail="true"></div></div><div class="x_centerCol"></div></div>`)
+    const frame = dom.window.document.querySelector('.x_frame')
+    const overrides = rulesOf(SHELL_CSS).filter(rule => /grid-template-columns:/.test(rule.body) && frame.matches(rule.selector))
+    assert.deepEqual(overrides, [], 'the Muse shell owns the retained sidebar track width')
+    dom.window.close()
+  }
+})
+
+test('both modes share an accessible footer selector beside the Muse account seat', async () => {
+  const result = await build({
+    stdin: { contents: "export { BotReturn, RETURN_CSS } from './src/client/sidebar.js'", resolveDir: PLUGIN },
+    bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
+    external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+  })
+  const loaded = { exports: {} }
+  function Tooltip() {}
+  runInNewContext(result.outputFiles[0].text, { module: loaded, exports: loaded.exports, require: name => name === 'react' ? react : name === '@deepseek-ai/dsh-client-ui-primitives' ? { Tooltip } : {}, window: viewport })
+  const { BotReturn, RETURN_CSS } = loaded.exports
+  for (const mode of ['agent', 'bot']) for (const wide of [true, false]) {
+    const selected = []
+    const control = BotReturn({ wide, useSurface: pick => pick({ mode }), actions: { setSurface: next => selected.push(next) } })
+    assert.equal(control.props['data-muse-mode-switch'], '')
+    assert.equal(control.props.role, 'group')
+    assert.equal(control.props['data-collapsed'], !wide)
+    const tooltips = control.props.children.flat(Infinity).filter(Boolean)
+    assert.equal(tooltips.length, 2)
+    assert.ok(tooltips.every(node => node.type === Tooltip && node.props.disabled === wide && node.props.portal === true && node.props.label))
+    const buttons = tooltips.map(node => node.props.children[0])
+    assert.equal(buttons.length, 2)
+    assert.equal(buttons.filter(button => button.props['aria-pressed']).length, 1)
+    for (const button of buttons) {
+      assert.ok(button.props['aria-label'])
+      button.props.onClick()
+    }
+    assert.deepEqual(selected, ['agent', 'bot'])
+  }
+  assert.match(RETURN_CSS, /_settingsArea.*grid-column:1;grid-row:1/)
+  assert.match(RETURN_CSS, /_footerActions.*grid-column:2;grid-row:1/)
+  assert.doesNotMatch(RETURN_CSS, /font-weight:600/)
 })

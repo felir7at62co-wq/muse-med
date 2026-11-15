@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { copyFile, mkdtemp, rm } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -96,11 +96,15 @@ it('loads the proxy module where the addon package cannot be resolved', async ()
   // A directory outside every node_modules tree stands in for a checkout whose native/system is unbuilt.
   const root = await mkdtemp(join(tmpdir(), 'flock-entry-test-'))
   try {
+    const scripts = join(root, 'apps', 'desktop', 'scripts')
+    await mkdir(scripts, { recursive: true })
+    await mkdir(join(root, 'scripts'))
+    await copyFile(new URL('../../../scripts/pnpm-invocation.ts', import.meta.url), join(root, 'scripts', 'pnpm-invocation.ts'))
     for (const name of ['macos-notarization-proxy.ts', 'flock-entry.ts']) {
-      await copyFile(new URL(`../scripts/${name}`, import.meta.url), join(root, name))
+      await copyFile(new URL(`../scripts/${name}`, import.meta.url), join(scripts, name))
     }
     const child = spawn(process.execPath, ['--input-type=module', '-e', `
-      const module = await import(${JSON.stringify(pathToFileURL(join(root, 'macos-notarization-proxy.ts')).href)});
+      const module = await import(${JSON.stringify(pathToFileURL(join(scripts, 'macos-notarization-proxy.ts')).href)});
       process.stdout.write(Object.keys(module).sort().join(','));
     `], { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH } })
     let stdout = ''

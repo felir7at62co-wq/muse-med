@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "tweet-drama-core" / "scripts"))
-from episode_coverage import audit_project, paid_ready, write_pass_records
+from episode_coverage import audit_project, classify_source_lines, paid_ready, write_pass_records
 
 
 SOURCE_01 = "第01集\n1-1 公司大厅 日 内\n江屹：我是父亲。\n周桂芳（OS）：真的吗？\n△江屹转身。"
@@ -52,6 +52,176 @@ def put_json(path, data):
 
 
 class CoverageTests(unittest.TestCase):
+    def test_panel_block_requires_adjacent_visual_context(self):
+        source = "人物：小林、系统001\n【积分结算完成：8000积分已到账】\n\n【选项一：离开当前世界】\n▲光幕悬在半空。\n小林：我看见了。"
+        rows = classify_source_lines(source)
+        self.assertEqual([row['kind'] for row in rows], ['scene', 'state', 'state', 'action', 'dialogue'])
+        self.assertEqual([row['source_text'] for row in rows], [line for line in source.splitlines() if line])
+        self.assertIsNone(classify_source_lines("【积分结算完成：8000积分已到账】")[0]['kind'])
+
+    def test_written_labels_colon_and_amount_remain_non_spoken(self):
+        source = ("人物：小林\n▲门牌上刻着一行黑色宋体字：\n【特别事务部·主管】\n"
+                  "▲小林握着新工牌。\n▲原本的“员工”和“观察员”都不见了。\n"
+                  "▲底薪一栏的数字映入眼帘。\n▲基本工资：20000.00元。\n小林：两万。")
+        rows = classify_source_lines(source)
+        self.assertEqual([row['kind'] for row in rows], ['scene', 'action', 'state', 'action', 'action', 'action', 'action', 'dialogue'])
+        self.assertEqual(sum(row['kind'] == 'dialogue' for row in rows), 1)
+
+    def test_quoted_panel_option_is_an_action_without_invented_speech(self):
+        rows = classify_source_lines("▲光幕悬在半空。\n▲小林抓住金色的“选项一”，手指停在空中。")
+        self.assertEqual([row['kind'] for row in rows], ['action', 'action'])
+
+    def test_visual_context_never_hides_spoken_or_unresolved_text(self):
+        for line in ("【小林：快走】", "【系统001：任务完成】", "【OS：我不走】",
+                     "▲小林对着工牌说“快走”。", "▲小林看着屏幕：快走。", "▲小林抓住“选项一。"):
+            with self.subTest(line=line):
+                rows = classify_source_lines("人物：小林、系统001\n▲光幕悬在半空。\n" + line)
+                self.assertIsNone(rows[-1]['kind'])
+        rows = classify_source_lines("▲光幕悬在半空。\n小林：听我说。\n【任务完成】")
+        self.assertIsNone(rows[-1]['kind'])
+        rows = classify_source_lines("▲机械声音响起。\n【任务完成】")
+        self.assertIsNone(rows[-1]['kind'])
+        rows = classify_source_lines("▲光幕亮起。\n【全剧终】\n【任务完成】")
+        self.assertIsNone(rows[-1]['kind'])
+
+    def test_display_context_keeps_unknown_speakers_and_voice_prefixes_pending(self):
+        for content in ("陌生人：快走！", "陌生人：123", "陌生人（低语）：救命。",
+                        "心声：我不能走。", "解说：三年以后。", "男声：回来。",
+                        "管理员：100", "危机排除率：快走", "积分结算完成：快走"):
+            with self.subTest(content=content):
+                rows = classify_source_lines("人物：小林\n▲光幕悬在半空。\n【" + content + "】")
+                self.assertIsNone(rows[-1]['kind'])
+
+    def test_display_literals_do_not_hide_other_quoted_speech(self):
+        for line in ("▲小林脱口而出“救命！”。", "▲小林唱着“啦啦啦”。",
+                     "▲屏幕上显示“紧急出口”，小林脱口而出“快走”。",
+                     "▲屏幕上显示“紧急出口”，小林咕哝“快走”。",
+                     "▲小林抓住“选项一”，小林咕哝“别走”。",
+                     "▲原本的“员工”字样消失了，小林咕哝“终于”。",
+                     "▲小林盯着工牌，“快走！”。"):
+            with self.subTest(line=line):
+                rows = classify_source_lines("人物：小林\n▲屏幕闪烁。\n" + line)
+                self.assertIsNone(rows[-1]['kind'])
+
+    def test_display_grammar_handles_other_labels_and_multiple_written_literals(self):
+        for line in ("▲屏幕上显示“甲”和“乙”。", "▲工牌上写着“项目主管”。",
+                     "▲封套里，原来的“见习者”和“临时主管”均已消失了。",
+                     "▲她点击金色的“选项二”，手指停在原处。"):
+            with self.subTest(line=line):
+                rows = classify_source_lines("▲工牌旁的光幕亮起。\n" + line)
+                self.assertEqual(rows[-1]['kind'], 'action')
+
+    def test_visual_context_cannot_sign_omitted_speech_as_non_speech(self):
+        for line, misleading_kind in (("【陌生人：快走！】", "state"),
+                                      ("【心声：我不能走。】", "state"),
+                                      ("【解说：三年以后。】", "state"),
+                                      ("▲屏幕上显示“紧急出口”，小林咕哝“快走”。", "action"),
+                                      ("▲小林一面说着，一面大嚷救命。", "action"),
+                                      ("▲小林一面说着，一面告诉他快走。", "action")):
+            with self.subTest(line=line):
+                source = "3-1 大厅 日 内\n人物：小林\n▲屏幕闪烁。\n" + line + "\n小林：听见了。"
+                put(self.root / "episodes/03.txt", source)
+                put(self.root / "shots/第03集镜头脚本.md",
+                    "【镜头1】\n画面：屏幕闪烁。\n发声类型：action\n"
+                    "【镜头2】\n发声类型：dialogue\n台词：小林：听见了。\n")
+                entries = [{**row, "shots": [2] if row['kind'] == 'dialogue' else [1]}
+                           for row in classify_source_lines(source)]
+                entries[3]['kind'] = misleading_kind
+                put_json(self.root / "shots_and_matches/ep03-source-map.json", {
+                    "version": 1, "episode": "03", "source_sha256": sha(source),
+                    "shot_script": "shots/第03集镜头脚本.md", "entries": entries})
+                self.manifest({"03": {"sha256": sha(source), "char_count": len(source)}}, 3)
+                original = (self.root / "episodes/03.txt").read_bytes()
+                result = write_pass_records(self.root, ["03"], episode_only=True)
+                self.assertEqual(result['accept_status'], 'blocked', result)
+                self.assertEqual(result['episodes']['03']['status'], 'pending')
+                self.assertEqual(paid_ready(self.root, ["03"], episode_only=True)['status'], 'blocked')
+                self.assertFalse((self.root / "shots_and_matches/ep03-coverage-acceptance.json").exists())
+                self.assertEqual((self.root / "episodes/03.txt").read_bytes(), original)
+
+    def test_simultaneous_speaking_direction_has_no_utterance_payload(self):
+        for action in ("颤巍巍地揭开保温盒的盖子", "拿起茶杯", "放下书本", "缓缓打开箱子", "合上盒盖"):
+            with self.subTest(action=action):
+                rows = classify_source_lines("▲老人一面说着，一面" + action + "。\n老人：你尝尝。")
+                self.assertEqual([row['kind'] for row in rows], ['action', 'dialogue'])
+        for line in ("▲老人一面说着“快走”，一面揭开盖子。", "▲老人一面说着秘密，一面揭开盖子。",
+                     "▲老人一面说着，一面大嚷救命。", "▲老人一面说着，一面告诉他快走。",
+                     "▲老人一面说着，一面拿起茶杯并告诉他快走。", "▲老人一面说着，一面打开话匣子。",
+                     "▲老人告诉孩子一面说着，一面拿起杯子。",
+                     "▲老人一面说着，一面拿起写着“快走”的纸条。"):
+            self.assertIsNone(classify_source_lines(line)[0]['kind'])
+
+    def test_visual_source_acceptance_preserves_source_and_spoken_checks(self):
+        source = ("3-1 办公室 日 内\n人物：小林\n▲门牌上刻着一行字：\n【事务部·主管】\n"
+                  "▲小林握着工牌。\n▲原本的“员工”字样消失了。\n小林：新职位。")
+        shot = "【镜头1】\n画面：门牌上写着事务部·主管，工牌的员工字样消失。\n发声类型：dialogue\n台词：小林：新职位。\n"
+        source_path = self.root / "episodes/03.txt"
+        put(source_path, source)
+        put(self.root / "shots/第03集镜头脚本.md", shot)
+        entries = [{**row, "shots": [1]} for row in classify_source_lines(source)]
+        put_json(self.root / "shots_and_matches/ep03-source-map.json", {
+            "version": 1, "episode": "03", "source_sha256": sha(source),
+            "shot_script": "shots/第03集镜头脚本.md", "entries": entries})
+        put_json(self.root / "episodes/manifest.json", {"version": 1, "expected_episode_count": 3,
+                 "work_scope": {"episode_ids": ["03"]},
+                 "episodes": {"03": {"sha256": sha(source), "char_count": len(source)}}})
+        before = source_path.read_bytes()
+        result = write_pass_records(self.root, ["03"], episode_only=True)
+        self.assertEqual(result["accept_status"], "passed", result)
+        self.assertEqual(paid_ready(self.root, ["03"], episode_only=True)["status"], "passed")
+        self.assertEqual(source_path.read_bytes(), before)
+        put(self.root / "shots/第03集镜头脚本.md", shot.replace("新职位。", "职位。"))
+        self.assertEqual(paid_ready(self.root, ["03"], episode_only=True)["status"], "blocked")
+
+    def test_bracketed_structure_stops_previous_display_context(self):
+        for boundary, kind in (("【2-1 走廊 日 内】", "scene"),
+                               ("【场景：走廊】", "scene"),
+                               ("【第02集】", "heading"),
+                               ("【转场：走廊】", "transition")):
+            with self.subTest(boundary=boundary):
+                source = "人物：小林\n▲光幕悬在半空。\n【余额：10元】\n" + boundary + "\n【余额：20元】"
+                rows = classify_source_lines(source)
+                self.assertEqual(rows[2]["kind"], "state")
+                self.assertEqual(rows[3]["kind"], kind)
+                self.assertIsNone(rows[4]["kind"])
+                self.assertIn("reason", rows[4])
+                self.assertEqual([r["source_text"] for r in rows], source.splitlines())
+                restored = classify_source_lines(source + "\n▲光幕在新场景亮起。")
+                self.assertEqual(restored[4]["kind"], "state")
+
+    def test_real_cli_classification_audit_accept_gate_preserve_source(self):
+        source = ("第03集\n3-1 办公室 日 内\n人物：小林\n"
+                  "▲门牌上写着一行字：\n【事务部·主管】\n小林：新职位。")
+        put(self.root / "episodes/03.txt", source)
+        put(self.root / "shots/第03集镜头脚本.md",
+            "【镜头1】\n画面：门牌显示事务部·主管。\n发声类型：dialogue\n台词：小林：新职位。\n")
+        self.manifest({"03": {"sha256": sha(source), "char_count": len(source)}}, 3)
+        path = self.root / "episodes/manifest.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest["work_scope"] = {"episode_ids": ["03"]}
+        put_json(path, manifest)
+        script = Path(__file__).resolve().parents[2] / "skills/tweet-drama-core/scripts/episode_coverage.py"
+        original = (self.root / "episodes/03.txt").read_bytes()
+        def run(*args):
+            result = subprocess.run([sys.executable, "-B", str(script), str(self.root), *args],
+                                    text=True, capture_output=True, check=False, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return json.loads(result.stdout)
+        lines = run("source-lines", "03")
+        self.assertEqual(lines["source_sha256"], sha(source))
+        self.assertEqual([r["source_text"] for r in lines["entries"]], source.splitlines())
+        self.assertEqual([r["kind"] for r in lines["entries"]],
+                         ["heading", "scene", "scene", "action", "state", "dialogue"])
+        put_json(self.root / "shots_and_matches/ep03-source-map.json", {
+            "version": 1, "episode": "03", "source_sha256": sha(source),
+            "shot_script": "shots/第03集镜头脚本.md",
+            "entries": [{**row, "shots": [1]} for row in lines["entries"]]})
+        self.assertEqual(run("audit")["episodes"]["03"]["status"], "passed")
+        self.assertEqual(run("accept", "03")["accept_status"], "passed")
+        self.assertEqual(run("gate", "03")["status"], "passed")
+        self.assertEqual((self.root / "episodes/03.txt").read_bytes(), original)
+        self.assertEqual(json.loads((self.root / "shots_and_matches/ep03-coverage-acceptance.json").read_text())["source_sha256"], sha(source))
+
     def test_skill_package_includes_coverage_gate(self):
         package = Path(__file__).resolve().parents[2] / "package.json"
         resources = json.loads(package.read_text(encoding="utf-8"))["files"]

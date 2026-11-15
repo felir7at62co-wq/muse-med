@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -42,6 +42,10 @@ async function writeFlatSkill(root: string, name: string, description: string, b
 }
 
 class TestFileSystem extends FileSystem {
+  override async patchText(): Promise<never> { throw new FsError('patch unsupported by test provider', 'FS_IO_ERROR') }
+  override async deleteFile(): Promise<never> { throw new FsError('delete unsupported by test provider', 'FS_IO_ERROR') }
+  override async moveFile(): Promise<never> { throw new FsError('move unsupported by test provider', 'FS_IO_ERROR') }
+
   override watch(): never { throw new Error('Fixture does not support watching') }
   listDirCalls = 0
   listDirPaths: string[] = []
@@ -655,6 +659,106 @@ describe('FileSystemSkillProvider', () => {
     expect((await bundledCtx.skills.get('bundled-host'))?.source).toBe('bundled')
   })
 
+  it.each(['resolve', 'list', 'read'] as const)('isolates a root %s failure and retries without losing readable roots', async (operation) => {
+    const home = await tempDir('skill-root-isolation')
+    const before = join(home, 'before')
+    const broken = join(home, 'broken')
+    const after = join(home, 'after')
+    await writeSkill(before, 'before-skill', 'Readable earlier root')
+    await writeSkill(broken, 'a-readable-sibling', 'Readable sibling in the failed root')
+    await writeSkill(broken, 'recovered-skill', 'Recoverable root')
+    await writeSkill(after, 'after-skill', 'Readable later root')
+    await writeSkill(after, 'before-skill', 'Lower-priority duplicate')
+    const ctx = new Context()
+    const fsFiber = await ctx.plugin(TestFileSystem)
+    onTestFinished(() => fsFiber.dispose())
+    const registryFiber = await ctx.plugin(SkillRegistry)
+    onTestFinished(() => registryFiber.dispose())
+    const providerFiber = await ctx.plugin(SkillFileSystem, {
+      includeDefaultRoots: false,
+      customSkillDirs: [before, broken, after],
+      watch: false,
+    })
+    onTestFinished(() => providerFiber.dispose())
+    const warnings = vi.spyOn(ctx.logger, 'warn')
+    onTestFinished(() => { warnings.mockRestore() })
+    const fs = ctx.fs as TestFileSystem
+    const failures = operation === 'resolve' ? fs.errorResolvePaths
+      : operation === 'list' ? fs.failListDirPaths : fs.errorReadPaths
+    failures.add(operation === 'read' ? join(broken, 'recovered-skill/SKILL.md') : broken)
+
+    expect(await ctx.skills.snapshot()).toMatchObject({
+      complete: false,
+      skills: [{ name: 'after-skill' }, { name: 'before-skill', description: 'Readable earlier root' }],
+    })
+    expect((await ctx.skills.get('after-skill'))?.content).toBe('Use the skill.')
+    expect(warnings).toHaveBeenCalledWith(expect.stringContaining(broken))
+    failures.clear()
+    expect(await ctx.skills.snapshot()).toMatchObject({
+      complete: true,
+      skills: [{ name: 'a-readable-sibling' }, { name: 'after-skill' }, { name: 'before-skill' }, { name: 'recovered-skill' }],
+    })
+  })
+
+  it('propagates a pending root read failure after provider disposal begins', async () => {
+    const root = await tempDir('skill-root-disposed-read')
+    await writeSkill(root, 'waiting-skill', 'Waiting skill')
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    const entered = Promise.withResolvers<undefined>()
+    const read = Promise.withResolvers<string>()
+    fs.readTextOverride = async () => { entered.resolve(undefined); return await read.promise }
+    const provider = new SkillFileSystem.FileSystemSkillProvider(ctx, {
+      signal: new AbortController().signal, invalidate: () => {},
+    }, { includeDefaultRoots: false, customSkillDirs: [root], watch: false })
+    onTestFinished(() => provider.dispose())
+    const failure = new Error('late root read failed')
+    const discovery = provider.list({})
+    const rejected = expect(discovery).rejects.toBe(failure)
+    try {
+      await entered.promise
+      const disposal = provider.dispose()
+      read.reject(failure)
+      await rejected
+      await disposal
+    } finally {
+      read.reject(failure)
+      await Promise.allSettled([discovery, provider.dispose()])
+    }
+  })
+
+  it('selects a readable same-name skill while the preferred root fails and restores priority on recovery', async () => {
+    const home = await tempDir('skill-root-fallback')
+    const preferred = join(home, 'preferred')
+    const fallback = join(home, 'fallback')
+    await writeSkill(preferred, 'shared-skill', 'Preferred description', 'Preferred body.')
+    await writeSkill(fallback, 'shared-skill', 'Fallback description', 'Fallback body.')
+    const ctx = new Context()
+    const fsFiber = await ctx.plugin(TestFileSystem)
+    onTestFinished(() => fsFiber.dispose())
+    const registryFiber = await ctx.plugin(SkillRegistry)
+    onTestFinished(() => registryFiber.dispose())
+    const providerFiber = await ctx.plugin(SkillFileSystem, {
+      includeDefaultRoots: false, customSkillDirs: [preferred, fallback], watch: false,
+    })
+    onTestFinished(() => providerFiber.dispose())
+    const fs = ctx.fs as TestFileSystem
+    fs.failListDirPaths.add(preferred)
+
+    expect(await ctx.skills.snapshot()).toMatchObject({
+      complete: false, skills: [{ name: 'shared-skill', description: 'Fallback description' }],
+    })
+    expect((await ctx.skills.get('shared-skill'))?.content).toBe('Fallback body.')
+
+    fs.failListDirPaths.clear()
+    expect(await ctx.skills.snapshot()).toMatchObject({
+      complete: true, skills: [{ name: 'shared-skill', description: 'Preferred description' }],
+    })
+    expect((await ctx.skills.get('shared-skill'))?.content).toBe('Preferred body.')
+  })
+
   it('reports transient root reads as incomplete without caching an empty catalog', async () => {
     const home = await tempDir('skill-transient-root')
     const root = join(home, '.agents/skills')
@@ -688,6 +792,35 @@ describe('FileSystemSkillProvider', () => {
       skills: [{ name: 'stable-skill' }],
       complete: true,
     })
+  })
+
+  it.each([false, true])('does not turn cancellation into a skipped root (read rejects: %s)', async (rejectRead) => {
+    const home = await tempDir('skill-discovery-abort')
+    const root = join(home, 'skills')
+    await writeSkill(root, 'abortable-skill', 'Abortable skill')
+    const ctx = new Context()
+    const fsFiber = await ctx.plugin(TestFileSystem)
+    onTestFinished(() => fsFiber.dispose())
+    const provider = new SkillFileSystem.FileSystemSkillProvider(ctx, {
+      signal: new AbortController().signal, invalidate: () => {},
+    }, {
+      includeDefaultRoots: false, customSkillDirs: [root, join(home, 'later')], watch: false,
+    })
+    onTestFinished(() => provider.dispose())
+    const warnings = vi.spyOn(ctx.logger, 'warn')
+    onTestFinished(() => { warnings.mockRestore() })
+    const fs = ctx.fs as TestFileSystem
+    const controller = new AbortController()
+    const reason = new Error('discovery cancelled')
+    fs.readTextOverride = async (target) => {
+      const text = await readFile(target.displayPath, 'utf8')
+      controller.abort(reason)
+      if (rejectRead) throw reason
+      return text
+    }
+    await expect(provider.list({ signal: controller.signal })).rejects.toBe(reason)
+    expect(fs.listDirCalls).toBe(1)
+    expect(warnings).not.toHaveBeenCalled()
   })
 
   it('distinguishes transient filesystem entry failures from confirmed disappearance', async () => {
@@ -736,9 +869,38 @@ describe('FileSystemSkillProvider', () => {
     const home = await tempDir('skill-native-read-failure')
     const root = join(home, '.agents/skills')
     await mkdir(join(root, 'broken-skill/SKILL.md'), { recursive: true })
+    await writeSkill(join(home, '.dsh/skills'), 'healthy-skill', 'Healthy native root')
     const ctx = await setupLocal(home)
 
-    expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: false })
+    expect(await ctx.skills.snapshot()).toMatchObject({ skills: [{ name: 'healthy-skill' }], complete: false })
+  })
+
+  it('rejects an in-flight root listing failure after provider disposal', async () => {
+    const root = await tempDir('skill-list-dispose')
+    const listingStarted = Promise.withResolvers<undefined>()
+    const listing = Promise.withResolvers<FsDirEntry[]>()
+    const ctx = new Context()
+    await ctx.plugin(class extends TestFileSystem {
+      override listDir(): Promise<FsDirEntry[]> {
+        listingStarted.resolve(undefined)
+        return listing.promise
+      }
+    })
+    const provider = new SkillFileSystem.FileSystemSkillProvider(ctx, {
+      signal: new AbortController().signal, invalidate() {},
+    }, { includeDefaultRoots: false, customSkillDirs: [root], watch: false })
+    onTestFinished(async () => {
+      listing.resolve([])
+      await provider.dispose()
+      await ctx.fiber.dispose()
+    })
+
+    const failure = new Error('Skill root disappeared during disposal')
+    const discovery = expect(provider.list({})).rejects.toBe(failure)
+    await listingStarted.promise
+    await provider.dispose()
+    listing.reject(failure)
+    await discovery
   })
 
   it.each(['cancelled during root resolution', new Error('cancelled during root resolution')])(

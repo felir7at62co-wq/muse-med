@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { chromium, type Browser } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { openSettings } from './support.ts'
+import { openSettings, settingsLauncher } from './support.ts'
 import { captureStableAria, compareOrRefreshGolden, launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
 
 const expected = fileURLToPath(new URL('./expected/shortcuts', import.meta.url))
@@ -31,11 +31,16 @@ describe('web e2e: shortcut reference', () => {
       const console = watchConsole(page)
       await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
       await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-      const trigger = page.getByRole('button', { name: settings, exact: true })
-      expect(await trigger.getAttribute('aria-keyshortcuts')).toBe(key === 'Meta' ? 'Alt+Meta+,' : 'Control+Alt+,')
-      const settingsHint = `${settings} ${key === 'Meta' ? '⌥ ⌘ ,' : 'Ctrl + Alt + ,'}`
-      await trigger.hover()
-      await page.getByRole('tooltip', { name: settingsHint, exact: true }).waitFor()
+      const trigger = settingsLauncher(page, locale === 'zh-CN' ? 'zh' : 'en')
+      const expectSettingsShortcut = async (aria: string, hint: RegExp): Promise<void> => {
+        expect(await trigger.getAttribute('aria-keyshortcuts')).toBe(aria)
+        await trigger.hover()
+        const tooltip = page.getByRole('tooltip')
+        await tooltip.waitFor()
+        expect(await tooltip.innerText()).toMatch(hint)
+      }
+      await expectSettingsShortcut(key === 'Meta' ? 'Alt+Meta+,' : 'Control+Alt+,',
+        key === 'Meta' ? /⌥\s*⌘\s*,$/ : /Ctrl\s*\+\s*Alt\s*\+\s*,$/)
       await trigger.click()
       await page.getByRole('button', { name: view, exact: true }).click()
       const dialog = page.getByRole('dialog', { name: title, exact: true })
@@ -297,10 +302,10 @@ describe('web e2e: shortcut reference', () => {
       await page.keyboard.press(`${key}+Shift+Comma`)
       await dialog.getByRole('group').waitFor({ state: 'hidden' })
       await page.keyboard.press('Escape')
-      expect(await trigger.getAttribute('aria-keyshortcuts')).toBe(key === 'Meta' ? 'Shift+Meta+,' : 'Control+Shift+,')
-      await trigger.hover()
-      await page.getByRole('tooltip', { name: `${settings} ${key === 'Meta' ? '⇧ ⌘ ,' : 'Ctrl + Shift + ,'}`, exact: true }).waitFor()
+      await expectSettingsShortcut(key === 'Meta' ? 'Shift+Meta+,' : 'Control+Shift+,',
+        key === 'Meta' ? /⇧\s*⌘\s*,$/ : /Ctrl\s*\+?\s*Shift\s*\+?\s*,$/)
       await trigger.click()
+      await page.getByRole('dialog', { name: settings, exact: true }).waitFor()
       await page.keyboard.press('Escape')
       expect(await trigger.evaluate(element => element === document.activeElement)).toBe(true)
       await page.keyboard.press(referenceKey)
@@ -309,8 +314,11 @@ describe('web e2e: shortcut reference', () => {
       await dialog.getByRole('group').waitFor({ state: 'hidden' })
       await page.keyboard.press('Escape')
       expect(await trigger.getAttribute('aria-keyshortcuts')).toBe(key === 'Meta' ? 'Alt+Meta+,' : 'Control+Alt+,')
-      await trigger.hover()
-      await page.getByRole('tooltip', { name: settingsHint, exact: true }).waitFor()
+      await trigger.click()
+      await page.getByRole('dialog', { name: settings, exact: true }).waitFor()
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog', { name: settings, exact: true }).waitFor({ state: 'hidden' })
+      expect(await trigger.getAttribute('aria-expanded')).toBe('false')
       const sidebar = page.getByRole('button', { name: locale === 'zh-CN' ? '收起侧边栏' : 'Collapse sidebar', exact: true })
       expect(await sidebar.getAttribute('aria-keyshortcuts')).toBe(key === 'Meta' ? 'Alt+Meta+B' : 'Control+Alt+B')
       await page.reload({ waitUntil: 'load' })
@@ -390,7 +398,7 @@ describe('web e2e: shortcut reference', () => {
       await context.addInitScript((value) => { Object.defineProperty(navigator, 'platform', { value }) }, platform)
       const page = await context.newPage()
       await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-      await page.getByRole('button', { name: 'Settings', exact: true }).waitFor()
+      await settingsLauncher(page, 'en').waitFor()
       const referenceKey = `${modifier}+Slash`
       const open = async () => {
         await page.keyboard.press(referenceKey)
@@ -412,7 +420,7 @@ describe('web e2e: shortcut reference', () => {
       await page.keyboard.press(sidebarKey)
       await page.getByRole('button', { name: 'Open sidebar', exact: true }).waitFor()
       await page.reload({ waitUntil: 'load' })
-      await page.getByRole('button', { name: 'Settings', exact: true }).waitFor()
+      await settingsLauncher(page, 'en').waitFor()
       const toggleAfterReload = page.getByRole('button', { name: /^(Open|Collapse) sidebar$/ })
       await expect.poll(() => toggleAfterReload.getAttribute('aria-keyshortcuts'))
         .toBe(modifier === 'Meta' ? 'Shift+Meta+.' : 'Control+Shift+.')
@@ -427,7 +435,7 @@ describe('web e2e: shortcut reference', () => {
       await editor.getByRole('button', { name: 'Press a shortcut', exact: true }).focus()
       const other = await context.newPage()
       await other.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-      await other.getByRole('button', { name: 'Settings', exact: true }).waitFor()
+      await settingsLauncher(other, 'en').waitFor()
       await other.keyboard.press(referenceKey)
       await other.getByRole('button', { name: 'Edit shortcut for Toggle left sidebar', exact: true }).click()
       await other.getByRole('button', { name: 'Remove', exact: true }).click()

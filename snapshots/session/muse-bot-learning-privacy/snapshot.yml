@@ -1,0 +1,8 @@
+version: 1
+scenario: muse-bot-learning-privacy
+profile: headless
+composition: muse-bot-learning-privacy
+recording: authored
+header:
+  class: muse-bot-learning-privacy
+  pin: true

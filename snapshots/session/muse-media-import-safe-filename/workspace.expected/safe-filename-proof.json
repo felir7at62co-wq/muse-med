@@ -1,0 +1,16 @@
+{
+  "manifestFileName": "video (1).mp4",
+  "sanitizedAlias": "video_1.mp4",
+  "sanitizedAliasCode": "not-found",
+  "ownedReceiptReads": 3,
+  "authenticatedFileReads": 1,
+  "remoteDownloadSubmissions": 0,
+  "localBytes": 1698,
+  "localSha256": "aedfa3de28fc43ac56699b7c6d184862cd8be4633d1bc838ca17ced8aeaba1cb",
+  "fullDecodeVerified": true,
+  "exactNamePublished": true,
+  "receiptAndBytesVerifiedBeforePresent": true,
+  "stagingFilesRemain": false,
+  "deliveries": 1,
+  "credentialsLogged": false
+}

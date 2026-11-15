@@ -34,7 +34,7 @@ kind: "package-reference"
 
 `read` 分页读取 `matches`、`packages`、`warnings` 或完整 `assets`，保留总数与截断信息。`update` 刷新原稿、库存及模型，合并逐项选择和要求。选择关联镜号、类别及故事身份。`targets` 在重名时指定实际原卡 ID。各包显示当前绑定与建议图片／音频 ID。模型上限未知时保留完整单镜草稿包，不声称其时长已受支持。内容警告不阻止发布草稿，也不要求用户审批。
 
-`apply` 沿用免费原生建卡、编辑、图片选源及音频预览／保存，始终关闭生成。保留原 key 和部分回执，恢复时不重复建卡；逐包返回真实回读。原稿、模型或当前卡内容变化时提示刷新，不覆盖用户当前稿。各独立包分别报告结果。提供方没有跨客户端原子比较写入，其他客户端仍可能在最后读写间竞争。仅当提示词已无图片引用时，空图片选择才清除旧图片；音频走专用替换流程。工具不会删除资产或提交付费生成。
+`apply` 沿用免费原生建卡、编辑、图片选源及音频预览／保存，始终关闭生成。保留原 key 和部分回执，恢复时不重复建卡；逐包返回真实回读。原稿、模型或当前卡内容变化时提示刷新，不覆盖用户当前稿。各独立包分别报告结果。提供方没有跨客户端原子比较写入，其他客户端仍可能在最后读写间竞争。仅当提示词已无图片引用时，空图片选择才清除旧图片。`apply` 保留原卡已有音频，并报告已选但尚未绑定的声线候选。替换或清除音频时，用 `jubian_storyboard` 的 `audio_preview` 和 `audio_apply` 提交完整目标列表。工具不会删除资产或提交付费生成。
 
 声音使用明确角色和人生时期。已采用引用的 ID、URL、哈希和实测时长记录可补充远端声线，不冒称本次已重听或重测。缺身份或时长时先提示核对既有样本。有既有制作与费用授权时，Agent 可先生成首次清晰发声的包，核对并抽取样本，再查共享音频库，沿既有流程登记／复用。换装不新建声音时期，也不替换已认可默认。简明分包复核通过已记录的投影跨裁剪和模型切换恢复；仅作提示，不改变系统提示词。
 
@@ -57,6 +57,8 @@ kind: "package-reference"
 
 <a id="session-video-settings"></a>
 ### 会话视频设置
+
+通过代码组合时，调用工具前须等待 `apply(ctx, config)` 完成。会话视频复核在插件启动期间保留私有投影句柄，后续模型变更依据已记录的分包结果进行复核。
 
 `sessionVideoSelection: true` 时，当前会话选择的模型及已核实的时长上限决定分包建议，项目默认值不会覆盖它们。传入的 `max_submit_seconds` 会被忽略；与会话上限冲突时返回警告。结果的 `duration_budget` 标明 `source`（`session` 或 `argument`）、实际采用的 `max_submit_seconds` 或 `null`，以及 `selection` 或 `null`。选择包含 `model_id`、`model_name`、`platform_id`、`standard_id`、`resolution`、`max_duration_seconds` 和 `revision`。选择不可用或时长未知时返回警告，不给分包建议，保留原脚本；工具不会借用其他模型的 15 秒或 30 秒上限。
 
@@ -108,6 +110,8 @@ kind: "package-reference"
 
 挂载本插件时，原生`jubian_storyboard.prepare_video`及仅准备的`generate`对实际准备的导演提示词返回`first_pass_review`，覆盖直接写卡。它检查发声声明、动作阶段、连续性、缺失时段，以及包含估算镜头和自然收束的表演总时间是否超出实际卡片时长。独立准备包保留从任意原镜号起始的连续编号；整集脚本仍须从1开始。估算须结合自然试读与排演核实。`needs_review`列出问题，`text_checks_passed`仅表示受支持的文本检查未发现问题；两者均保留`media_acceptance: false`，并列明未执行的原文、素材和媒体检查。可释放监听器服从调用者的编译器作用域并保留其他执行后决定，不改变已保存预览、指纹、授权或付费提交，也不强制普通自然语言提示词采用导演格式。
 
+准备回读还保留可选的`镜头类型`、`景别`、`主运镜`、`视线目标`、`情绪触发`、`空镜用途`、`空镜超时依据`、`眼部特效依据`和`镜头设计依据`及原文行号；未写或重复字段保持未知。接受末尾分号和一对`【】`，不修改提示词。`emptyShotMaxSeconds`默认2秒，仅对明确无正式发声的环境空镜超过解析内容预算给建议，不限制无声表演或改变模型最低提交时长。`repetitiveShotThreshold`默认3镜，仅在已知同场、明确连续特写或固定机位且无设计依据时提示。画面指令中的眼部肯定发光描述会产生问题项，区分否定、普通反射及实质的`原文：…`或`剧本：…`特效引用；引用只是调用方声明，未验证原文真伪。`declared_shots`记录`duration_source`，因为编译会去掉原时长字段，估算不证明实际镜头秒数。问题项含原文行号，保留`evidence_kind: plan_text_only`和`media_acceptance: false`，不改提示词、不编造运镜、不拦截付费，也不检测生成画面。
+
 分包报告区分净内容与结尾停留：`content_duration_ms = content_seconds * 1000`、`submit_seconds = max(4, content_seconds + 1)`，`natural_hold_seconds` 为两者的秒数之差。因此，一秒内容会报告 1000 毫秒、四秒提交和三秒停留。准备生成时通常省略可选输入 `content_duration_ms`，不直接透传报告中的同名字段：原生准备核对的是已存卡总时长减一秒，短包补足停留时它与净内容时长不同。
 
 镜头使用连续编号的 `【镜头N】` 块。可选 `时长：N秒` 声明安全正整数时长，优先于估算。未声明时长或完整表演预算时，有发声镜按 `max(1, ceil(有效字 / speechCharsPerSecond))`，且至少满足已声明动作复杂度的估算；无声镜按 `动作复杂度：简单/一般/较复杂/复杂`（1/2/3/4 秒），再回退到配置默认值。复杂度估算不是动作时长上限。发声镜与无声镜都不接受未知复杂度。有效字数汉字、拉丁字母与数字，不数标点与空格。
@@ -128,6 +132,7 @@ kind: "package-reference"
 | 超过 15 或 36 有效字；声明时长偏离估算 | 警告：核对节奏与实际发声，不强制拆镜 |
 | 超过项目 `project_config.json` 里声明的 `delivery.max_effective_chars_per_shot` | 失败（`speech_exceeds_project_limit`）：按原文语义拆句，或改掉该项目的这条要求 |
 | 旁白/心声声明 | 警告；以 `vo` 保留包括冒号在内的完整正文，用 `说话人` 指定发声角色 |
+| 出镜名单中的主体，其自身位置明确声明整个人物在画外 | 两种模式均为警告（`offscreen_character_listed`）；核对实际取景范围，不改动名单、台词或发声方式。可见人物的内心声音、局部可见、位置不确定及阶段性进出不构成此项矛盾 |
 | 缺少建议的写实风格或固定负面词 | 警告；不自动补入任何一句 |
 | 画面正文或台词里的秒数表达 | 警告；保留文字，不从正文推导时长 |
 | 缺少镜头块、编号不连续、明确时长格式错误 | 失败 |
@@ -172,7 +177,7 @@ strict 编译写入 `prompts/<episode>.txt`、`matches/<episode>.matched.json`�
 
 #### 模型看到什么
 
-[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-shot-script)记录方法 schema。结果暴露 `review_mode`、`duration_budget`、`shots`、`packages`、`failures`、`warnings`、`written` 与汇总计数。advisory 模式中，`ok: true` 表示检查完成，`warnings` 保留需要 Agent 考虑的内容问题；它不是生成或质量批准。advisory 的 `material_bindings` 仅列出身份完整、已确认且无歧义的显式引用；未能确定的引用保留在原文中，并附警告。警告带可执行建议，从不要求删改台词原文。`duration_source: declared` 表示明确声明的时长。strict 模式中，同名角色、场景和道具登记保留实际选中的远端 ID；场景和道具版本必须有唯一的集数覆盖，多条登记同时符合时报告 `asset_binding_ambiguous`。
+当前检查模式提供一份工具描述，说明警告与失败规则、资产和时长要求以及写入位置。方法选择与输入要求只在参数描述中列出，测量事实由结果提供。 [工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-shot-script)记录方法 schema。结果暴露 `review_mode`、`duration_budget`、`shots`、`packages`、`failures`、`warnings`、`written` 与汇总计数。advisory 模式中，`ok: true` 表示检查完成，`warnings` 保留需要 Agent 考虑的内容问题；它不是生成或质量批准。advisory 的 `material_bindings` 仅列出身份完整、已确认且无歧义的显式引用；未能确定的引用保留在原文中，并附警告。警告带可执行建议，从不要求删改台词原文。`duration_source: declared` 表示明确声明的时长。strict 模式中，同名角色、场景和道具登记保留实际选中的远端 ID；场景和道具版本必须有唯一的集数覆盖，多条登记同时符合时报告 `asset_binding_ambiguous`。
 
 #### Token 影响
 

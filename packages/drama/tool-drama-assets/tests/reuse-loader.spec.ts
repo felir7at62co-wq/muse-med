@@ -1,4 +1,6 @@
 /** Reuse planning under real Loader composition, with external reads mocked. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { rm } from 'node:fs/promises'
 import { expect, it, vi } from 'vitest'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -21,16 +23,17 @@ it('executes centralized multi-shot preview through Loader with zero writes and 
   const cardsBefore = JSON.stringify([reordered, interleaved]), mock = reuseProvider({ cards: [reordered, interleaved] })
   const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(mock.fetch)
   const loaded = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'offline-test-token' } },
     { id: 'assets', name: 'cordis:assets', config: { workspaceSecrets: false, matchPageSize: 1 } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, assets: Assets } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, assets: Assets } })
   try {
     const definition = loaded.ctx.tools.get('drama_assets')
     if (!definition) throw new Error('Missing drama_assets')
     const args = { method: 'reuse_preview', project_dir: root, requirements_path: 'requirements.json', plan_path: 'reuse.json' }
     expect(validateJsonSchemaValue(definition.parameters, args, '')).toEqual([])
-    const result = await loaded.ctx.tools.execute({ callId: ToolCallId('reuse-preview-loader'), name: 'drama_assets',
+    const result = await executeModelToolFixture(loaded.ctx, { callId: ToolCallId('reuse-preview-loader'), name: 'drama_assets',
       arguments: args, signal: new AbortController().signal })
     expect(result.isError, JSON.stringify(result.content)).not.toBe(true)
     expect(validateJsonSchemaValue(definition.output.schema, result.value, '')).toEqual([])

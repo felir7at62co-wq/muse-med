@@ -56,16 +56,29 @@ export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
  * Deployments behind stricter gateways lower it per route.
  */
 export const DEFAULT_MAX_REQUEST_IMAGE_BYTES = 20 * 1024 * 1024
+/**
+ * Default request-level bound on retained image occurrences: Azure OpenAI's
+ * documented limit of 50 images per GPT-4o and GPT-4.1 request
+ * (https://learn.microsoft.com/azure/foundry/openai/quotas-limits). Routes
+ * whose provider accepts more images raise it.
+ */
+export const DEFAULT_MAX_REQUEST_IMAGES = 50
+/**
+ * Default number of oldest occurrences one count overflow offloads, so a
+ * saturated route rewrites its request prefix once per ten new images rather
+ * than once per image.
+ */
+export const DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM = 10
 /** Default total-pixel budget preserves the complete 2048px normalized attachment. */
 export const DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET = 2048 * 2048
 /** Default raw encoded-byte target before inline base64 expansion; the smallest quality-ladder output is used when no quality fits. */
 export const DEFAULT_REQUEST_IMAGE_MAX_BYTES = 1024 * 1024
 
 /** Context capacity assumed for a model neither configuration nor the catalog sizes. */
-export const DEFAULT_CONTEXT_WINDOW = 262_144
+export const DEFAULT_CONTEXT_WINDOW = 1_000_000
 
 /** Output capability assumed for a model neither configuration nor the catalog sizes. */
-export const DEFAULT_MAX_TOKENS = 32_768
+export const DEFAULT_MAX_TOKENS = 128_000
 
 /**
  * Modalities assumed for a model neither configuration nor the catalog
@@ -127,13 +140,13 @@ export interface PiAiProviderProfile {
   compat?: PiAiCompatProfile
   /**
    * Context capacity for a model this route lists that neither the entry nor
-   * the installed catalog sizes (default 262,144). A guess by construction, so
+   * the installed catalog sizes (default 1,000,000). A guess by construction, so
    * a deployment whose gateway serves smaller models corrects it here.
    */
   defaultContextWindow?: number
   /**
    * Output capability for a model this route lists that neither the entry nor
-   * the installed catalog sizes (default 32,768). This sizes the model; it
+   * the installed catalog sizes (default 128,000). This sizes the model; it
    * never becomes a per-request cap on its own.
    */
   defaultMaxTokens?: number
@@ -171,6 +184,18 @@ export interface PiAiProviderProfile {
    * requests instead of being rejected by a request-size cap.
    */
   maxRequestImageBytes?: number
+  /**
+   * Maximum retained image occurrences per request. A request carrying more
+   * fails with `IMAGE_OFFLOAD_REQUIRED` naming how many of the oldest
+   * occurrences to offload.
+   */
+  maxRequestImages?: number
+  /**
+   * Oldest occurrences offloaded per count overflow (default 10, capped at
+   * {@link maxRequestImages}); an explicit value must not exceed it. Larger
+   * steps rewrite the request prefix less often.
+   */
+  imageOffloadCountQuantum?: number
   /** Total-pixel budget for each deterministic inline request version. */
   requestImagePixelBudget?: number
   /**
@@ -195,6 +220,10 @@ export interface ResolvedPiAiProviderProfile
   streamIdleTimeoutMs: number
   /** Positive request-level base64 image payload bound after defaulting. */
   maxRequestImageBytes: number
+  /** Positive request-level retained image count bound after defaulting. */
+  maxRequestImages: number
+  /** Positive count-overflow offload step, at most {@link maxRequestImages}, after defaulting. */
+  imageOffloadCountQuantum: number
   /** Positive total-pixel request-version budget after defaulting. */
   requestImagePixelBudget: number
   /** Positive raw request-version byte target after defaulting; the smallest quality-ladder output is used when no quality fits. */
@@ -216,6 +245,8 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /** Models opted into Google thought summaries; omission keeps custom provider profiles unchanged. */
+  googleThoughtSummaries?: ReadonlySet<string>
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -313,6 +344,7 @@ const modelFields = {
   // `{}`, and absent must stay distinguishable — it means "inherit the
   // installed catalog's capability", while `false` disables reasoning.
   reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
+  googleThoughtSummaries: z.boolean(),
   compat: compatProfile,
 }
 
@@ -344,6 +376,8 @@ const profile = z.object({
   websocketConnectTimeoutMs: z.natural(),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
   maxRequestImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGE_BYTES),
+  maxRequestImages: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGES),
+  imageOffloadCountQuantum: z.number().step(1).min(1),
   requestImagePixelBudget: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET),
   requestImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_MAX_BYTES),
   retryPolicy: RetryPolicySchema,
@@ -439,6 +473,14 @@ export function resolveProfiles(
     if (!Number.isInteger(maxRequestImageBytes) || maxRequestImageBytes <= 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" maxRequestImageBytes must be a positive integer`)
     }
+    const maxRequestImages = source.maxRequestImages ?? DEFAULT_MAX_REQUEST_IMAGES
+    if (!Number.isSafeInteger(maxRequestImages) || maxRequestImages <= 0) {
+      throw new Error(`llm-pi-ai: provider "${provider}" maxRequestImages must be a positive safe integer`)
+    }
+    const imageOffloadCountQuantum = source.imageOffloadCountQuantum ?? Math.min(DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM, maxRequestImages)
+    if (!Number.isSafeInteger(imageOffloadCountQuantum) || imageOffloadCountQuantum <= 0 || imageOffloadCountQuantum > maxRequestImages) {
+      throw new Error(`llm-pi-ai: provider "${provider}" imageOffloadCountQuantum must be a positive safe integer no greater than maxRequestImages`)
+    }
     const requestImagePixelBudget = source.requestImagePixelBudget ?? DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET
     if (!Number.isSafeInteger(requestImagePixelBudget) || requestImagePixelBudget <= 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" requestImagePixelBudget must be a positive safe integer`)
@@ -488,6 +530,23 @@ export function resolveProfiles(
       if (validation === 'strict' || !(error instanceof PiAiCatalogError)) throw error
       catalogError ??= error.message
     }
+    const modelSettings = source.models?.length
+      ? source.models.map(model => [model.id, model] as const)
+      : Object.entries(source.modelOverrides ?? {})
+    const googleThoughtSummaries = new Set<string>()
+    for (const [id, model] of modelSettings) {
+      /* v8 ignore if -- schema validation rejects non-boolean input before typed profile resolution. */
+      if (model.googleThoughtSummaries !== undefined && typeof model.googleThoughtSummaries !== 'boolean') {
+        throw new Error(`llm-pi-ai: provider "${provider}" model "${id}" googleThoughtSummaries must be a boolean`)
+      }
+      if (model.googleThoughtSummaries === true) {
+        const resolvedModel = catalog?.models.find(entry => entry.id === id)
+        if (resolvedModel !== undefined && resolvedModel.api !== 'openai-completions') {
+          throw new Error(`llm-pi-ai: provider "${provider}" model "${id}" googleThoughtSummaries requires openai-completions`)
+        }
+        googleThoughtSummaries.add(id)
+      }
+    }
     const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
     resolved.set(provider, {
       ...rest,
@@ -496,12 +555,15 @@ export function resolveProfiles(
       ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
       streamIdleTimeoutMs,
       maxRequestImageBytes,
+      maxRequestImages,
+      imageOffloadCountQuantum,
       requestImagePixelBudget,
       requestImageMaxBytes,
       retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog?.configuredMaxTokens ?? new Map(),
+      googleThoughtSummaries,
       modelErrors: catalog?.modelErrors ?? new Map(),
       ...piProvider === undefined ? {} : { piProvider },
       ...catalogError === undefined ? {} : { catalogError },

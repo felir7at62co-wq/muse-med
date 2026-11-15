@@ -4,16 +4,35 @@
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
+import { resolveDshHome } from "../host-paths.js";
+import { loadToolFilter, saveToolFilter } from "../tool-filter.js";
+import {
+  authorizationHeader,
+  buildAuthorizationUrl,
+  createPkce,
+  discoverMetadata,
+  exchangeCode,
+  isExpired,
+  loadOAuthStore,
+  normalizeServerUrl,
+  registerClient,
+  removeOAuthRecord,
+  saveOAuthRecord,
+  startLoopbackServer
+} from "../oauth.js";
 import {
   MCP_PLUGIN_NAME,
-  extractManagedRows,
+  isManagedRow,
   listMcpPatchRows,
+  readManagedBlock,
   readPatchFile,
   writeManagedRows,
+  writeEvacuatedForeign,
   type PatchRow
 } from "../patch-editor.js";
 import {
   applyServerEdit,
+  describeSchemaError,
   inputFromPatchRow,
   mcpServerInputSchema,
   patchRowToView,
@@ -21,7 +40,17 @@ import {
   serverNameFromRowId,
   type McpServerInput
 } from "./model.js";
-import { mcpRemovePayloadSchema, mcpSavePayloadSchema, mcpSetEnabledPayloadSchema, mcpTestPayloadSchema } from "./wire.js";
+import {
+  mcpOAuthPollPayloadSchema,
+  mcpOAuthServerPayloadSchema,
+  mcpOAuthStartPayloadSchema,
+  mcpRemovePayloadSchema,
+  mcpSavePayloadSchema,
+  mcpSetEnabledPayloadSchema,
+  mcpTestPayloadSchema,
+  mcpToolsPayloadSchema,
+  mcpToolFilterPayloadSchema
+} from "./wire.js";
 import { fiberPhaseOf, getLoaderEntry, mcpToolCount, waitForLoaderState } from "./status.js";
 import { probeMcpServer } from "./probe.js";
 
@@ -41,13 +70,64 @@ function stripUndefined(value: any): any {
 
 const MANAGED_ROW_IDS = new Set<string>();
 
-function isManagedRow(row: PatchRow): boolean {
-  return typeof row.id === "string" && row.id.startsWith("panel-mcp-");
+/**
+ * handler 内校验 payload：失败抛「字段：原因」的中文错误。
+ * 网关边界的 codec 是宽松 schema（见 wire.ts），校验必须在这里做，
+ * 否则失败会退化成宿主那句泛化的 `failed boundary validation`。
+ */
+function parseWirePayload(schema: { safeParse: (value: unknown) => any }, raw: unknown, label: string): any {
+  const result = schema.safeParse(raw);
+  if (result.success) return result.data;
+  throw new Error(label + "：" + describeSchemaError(result.error));
 }
 
 export class McpManagerGateway extends TypertRemoteService {
-  constructor(ctx: any) {
+  toolFilter: any;
+  private readonly oauthFlows = new Map<string, any>();
+  private readonly oauthTasks = new Set<Promise<unknown>>();
+  private readonly oauthLifetime = new AbortController();
+
+  constructor(ctx: any, toolFilter?: any) {
     super(ctx, "mcpManager");
+    this.toolFilter = toolFilter;
+    ctx.effect(() => async () => {
+      this.oauthLifetime.abort(new Error("OAuth 登录已取消：面板已卸载，请重新打开面板后登录"));
+      for (const flow of this.oauthFlows.values()) {
+        clearTimeout(flow.expiry);
+        flow.controller?.abort(this.oauthLifetime.signal.reason);
+      }
+      await Promise.allSettled([...this.oauthTasks]);
+      await Promise.allSettled([...this.oauthFlows.values()].map(flow => {
+        clearTimeout(flow.expiry);
+        return flow.loopback?.close();
+      }));
+      this.oauthFlows.clear();
+    }, "dsh-skill-mcp-panel: OAuth flows");
+  }
+
+  private trackOAuth<T>(operation: () => Promise<T>): Promise<T> {
+    this.oauthLifetime.signal.throwIfAborted();
+    const task = operation();
+    this.oauthTasks.add(task);
+    void task.finally(() => this.oauthTasks.delete(task)).catch(() => {});
+    return task;
+  }
+
+  private finishOAuth(flow: any, result: any) {
+    if (flow.result !== undefined) return flow.result;
+    flow.result = result;
+    clearTimeout(flow.expiry);
+    // Keep only a bounded wire receipt; the loopback outcome also retains its resolved code.
+    if (!this.oauthLifetime.signal.aborted) {
+      const flowId = flow.flowId;
+      const receipt: any = { flowId, serverName: flow.serverName, result };
+      receipt.expiry = setTimeout(() => {
+        if (this.oauthFlows.get(flowId) === receipt) this.oauthFlows.delete(flowId);
+      }, flow.timeoutMs);
+      receipt.expiry.unref?.();
+      this.oauthFlows.set(flow.flowId, receipt);
+    }
+    return result;
   }
 
   get C(): any {
@@ -71,11 +151,12 @@ export class McpManagerGateway extends TypertRemoteService {
   async readRows() {
     const path = this.patchPath();
     const raw = await readPatchFile(path);
-    const managed = extractManagedRows(raw);
+    // managed 只含面板自己的行；块内其余条目（外来行）原样保留、面板永不改写。
+    const { managed, foreign } = readManagedBlock(raw);
     const allMcp = listMcpPatchRows(raw);
     const managedIds = new Set(managed.map((row) => row.id).filter((id): id is string => typeof id === "string"));
     const external = allMcp.filter((row) => typeof row.id === "string" && !managedIds.has(row.id));
-    return { path, raw, managed, external };
+    return { path, raw, managed, external, foreign };
   }
 
   decorate(row: PatchRow, managed: boolean, entry: any, enabled: boolean) {
@@ -92,10 +173,10 @@ export class McpManagerGateway extends TypertRemoteService {
   }
 
   async list() {
-    let patch = { path: this.patchPath(), ok: false, error: null as string | null };
+    let patch = { path: this.patchPath(), ok: false, error: null as string | null, foreign: [] as { id?: string; name?: string; managed: boolean }[] };
     try {
-      const { path, managed, external } = await this.readRows();
-      patch = { path, ok: true, error: null };
+      const { path, managed, external, foreign } = await this.readRows();
+      patch = { path, ok: true, error: null, foreign: foreign.entries };
       const servers: any[] = [];
       for (const row of managed) {
         const entry = typeof row.id === "string" ? getLoaderEntry(this.C, row.id) : undefined;
@@ -106,7 +187,10 @@ export class McpManagerGateway extends TypertRemoteService {
       for (const row of external) {
         const entry = typeof row.id === "string" ? getLoaderEntry(this.C, row.id) : undefined;
         const view = this.decorate(row, false, entry, row.disabled !== true);
-        if (view !== undefined) externalServers.push(view);
+        // 面板自己的行落在受管块之外时，行级操作仍然认它（findRowByServerName 用
+        // isManagedRow），但改写只发生在受管块里，所以它在这里只读。标 orphan 让界面
+        // 能说清"这行是面板的，只是不在块内"，而不是笼统的"外部管理"。
+        if (view !== undefined) externalServers.push(isManagedRow(row) ? { ...view, orphan: true } : view);
       }
       return { servers, externalServers, patch };
     } catch (error) {
@@ -123,7 +207,7 @@ export class McpManagerGateway extends TypertRemoteService {
   }
 
   async save(rawPayload: unknown) {
-    const payload = mcpSavePayloadSchema.parse(rawPayload);
+    const payload = parseWirePayload(mcpSavePayloadSchema, rawPayload, "MCP 配置无效");
     const input = payload.input;
     const previousName = payload.previousServerName ?? input.serverName;
     const { managed, external } = await this.readRows();
@@ -161,7 +245,7 @@ export class McpManagerGateway extends TypertRemoteService {
   }
 
   async removeServer(rawPayload: unknown) {
-    const payload = mcpRemovePayloadSchema.parse(rawPayload);
+    const payload = parseWirePayload(mcpRemovePayloadSchema, rawPayload, "删除参数无效");
     const { managed } = await this.readRows();
     const row = managed.find((candidate) => serverNameFromRowId(candidate.id) === payload.serverName || candidate.config?.serverName === payload.serverName);
     if (row === undefined) {
@@ -174,7 +258,7 @@ export class McpManagerGateway extends TypertRemoteService {
   }
 
   async setEnabled(rawPayload: unknown) {
-    const payload = mcpSetEnabledPayloadSchema.parse(rawPayload);
+    const payload = parseWirePayload(mcpSetEnabledPayloadSchema, rawPayload, "启用参数无效");
     const { managed } = await this.readRows();
     const row = managed.find((candidate) => serverNameFromRowId(candidate.id) === payload.serverName || candidate.config?.serverName === payload.serverName);
     if (row === undefined) throw new Error('MCP 行 "' + payload.serverName + '" 不存在或不是面板受管行');
@@ -190,7 +274,7 @@ export class McpManagerGateway extends TypertRemoteService {
   }
 
   async test(rawPayload: unknown) {
-    const payload = mcpTestPayloadSchema.parse(rawPayload);
+    const payload = parseWirePayload(mcpTestPayloadSchema, rawPayload, "测试参数无效");
     if (payload !== null && typeof payload === "object" && !("transport" in payload) && "serverName" in payload) {
       const { managed, external } = await this.readRows();
       const row = [...managed, ...external].find((candidate) => candidate.config?.serverName === payload.serverName || serverNameFromRowId(candidate.id) === payload.serverName);
@@ -198,6 +282,255 @@ export class McpManagerGateway extends TypertRemoteService {
       return probeMcpServer(this.configInputFromRow(row));
     }
     return probeMcpServer(payload);
+  }
+
+  /**
+   * 某个 MCP 服务器当前注册的工具（公开名 `mcp__<serverName>__<原始名>`）。
+   * 只读工具注册表、不启动服务器：服务器还没连上时返回空列表，界面按「未连接」显示。
+   */
+  serverToolRows(serverName: string) {
+    const prefix = "mcp__" + serverName + "__";
+    const rows: any[] = [];
+    try {
+      const view = this.C.tools.view(undefined);
+      for (const name of view.knownNames ?? []) {
+        if (typeof name !== "string" || !name.startsWith(prefix)) continue;
+        const definition = typeof view.visible?.get === "function" ? view.visible.get(name) : undefined;
+        rows.push(stripUndefined({ name, description: typeof definition?.description === "string" ? definition.description : undefined }));
+      }
+    } catch {
+      // 工具注册表不可用：当作「一个都不知道」，界面显示未连接。
+    }
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    return rows;
+  }
+
+  dshHomeOf(): string {
+    return resolveDshHome();
+  }
+
+  /** 运行中控制器的禁用列表；还没挂上（或没有控制器）时返回 undefined，由调用方读盘。 */
+  liveDeny(): string[] | undefined {
+    const names = this.toolFilter?.denyOf?.();
+    return Array.isArray(names) ? [...names] : undefined;
+  }
+
+  /** 列出一个 MCP 服务器的工具，并标出其中已被禁用的（Issue #44）。 */
+  async listTools(rawPayload: unknown) {
+    const payload = parseWirePayload(mcpToolsPayloadSchema, rawPayload, "工具查询参数无效");
+    const tools = this.serverToolRows(payload.serverName);
+    const deny = this.liveDeny() ?? await loadToolFilter(this.dshHomeOf());
+    return {
+      serverName: payload.serverName,
+      tools,
+      disabled: deny.filter((name) => tools.some((row) => row.name === name)),
+      connected: tools.length > 0
+    };
+  }
+
+  /**
+   * 把受管块内**不属于面板**的顶层行原样搬到块外（#46 后续）。
+   * 只搬顶层行；块外内容、面板自己的行都不动，搬完语义与之前一致。
+   */
+  async evacuateForeign() {
+    const result = await writeEvacuatedForeign(this.patchPath());
+    return { moved: result.moved };
+  }
+
+  /** 读取单工具禁用列表。 */
+  async getToolFilter() {
+    const deny = this.liveDeny() ?? await loadToolFilter(this.dshHomeOf());
+    return { deny: [...deny].sort(), applied: this.appliedAgentCount() };
+  }
+
+  /** 写入单工具禁用列表并立刻重新施加到所有 agent（Issue #44）。 */
+  async setToolFilter(rawPayload: unknown) {
+    const payload = parseWirePayload(mcpToolFilterPayloadSchema, rawPayload, "工具过滤参数无效");
+    const deny: string[] = [
+      ...new Set<string>(payload.deny.filter((value: unknown): value is string => typeof value === "string" && value.startsWith("mcp__")))
+    ].sort();
+    await saveToolFilter(this.dshHomeOf(), deny);
+    if (this.toolFilter !== undefined && typeof this.toolFilter.setDeny === "function") this.toolFilter.setDeny(deny);
+    return { deny, applied: this.appliedAgentCount() };
+  }
+
+  appliedAgentCount(): number {
+    return this.toolFilter !== undefined && typeof this.toolFilter.activeCount === "function" ? this.toolFilter.activeCount() : 0;
+  }
+
+  /** 找到某个服务器的受管行（OAuth 要读写它的 headers）。 */
+  managedRow(rows: PatchRow[], serverName: string): PatchRow | undefined {
+    return rows.find((row) => serverNameFromRowId(row.id) === serverName || row.config?.serverName === serverName);
+  }
+
+  /** 把 Authorization 头写进那一行；取消检查先于 patch 写入准入，已准入的写入由卸载等待完成。 */
+  async writeAuthHeader(serverName: string, value: string | undefined, signal?: AbortSignal) {
+    const { managed } = await this.readRows();
+    signal?.throwIfAborted();
+    const row = this.managedRow(managed, serverName);
+    if (row === undefined) throw new Error('MCP 行 "' + serverName + '" 不存在或不是面板受管行');
+    const config: any = row.config ?? {};
+    const headers = config.headers !== null && typeof config.headers === "object" && !Array.isArray(config.headers) ? { ...config.headers } : {};
+    if (value === undefined) delete headers.Authorization;
+    else headers.Authorization = value;
+    const next = managed.map((candidate) => (candidate === row ? { ...row, config: { ...config, headers } } : candidate));
+    await writeManagedRows(this.patchPath(), next);
+  }
+
+  /**
+   * 开始一次 OAuth 登录（Issue #45 的面板入口）。
+   * 返回授权地址：前端交给浏览器打开，然后轮询 `oauthPoll`。
+   */
+  async oauthStart(rawPayload: unknown) {
+    return this.trackOAuth(() => this.startOAuth(rawPayload));
+  }
+
+  private async startOAuth(rawPayload: unknown) {
+    const payload = parseWirePayload(mcpOAuthStartPayloadSchema, rawPayload, "OAuth 参数无效");
+    const { managed, external } = await this.readRows();
+    const row = this.managedRow([...managed, ...external], payload.serverName);
+    if (row === undefined) throw new Error('MCP 行 "' + payload.serverName + '" 不存在');
+    const config: any = row.config ?? {};
+    if (config.transport !== "streamable-http" || typeof config.url !== "string" || config.url === "") {
+      throw new Error("只有 streamable-http 的服务器能用 OAuth 登录（stdio 由本地进程自己管凭据）");
+    }
+    const timeoutMs = Math.max(30, Math.min(900, Number(payload.timeoutSeconds ?? 300))) * 1000;
+    const deadline = Date.now() + timeoutMs;
+    const signal = AbortSignal.any([this.oauthLifetime.signal, AbortSignal.timeout(timeoutMs)]);
+    const metadata = await discoverMetadata(config.url, undefined, signal);
+    if (metadata === undefined) throw new Error("这个地址没有暴露 OAuth 发现文档（/.well-known/oauth-authorization-server），无法自动登录");
+    const state = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    const { verifier, challenge } = createPkce();
+    const controller = new AbortController();
+    const flowSignal = AbortSignal.any([signal, controller.signal]);
+    const loopback = await startLoopbackServer(state, Math.max(1, deadline - Date.now()), flowSignal);
+    try {
+      const previous = (await loadOAuthStore(this.dshHomeOf()))[payload.serverName];
+      flowSignal.throwIfAborted();
+      const clientId = payload.clientId ?? previous?.clientId ?? (await registerClient(metadata, loopback.redirectUri, undefined, flowSignal))?.client_id;
+      if (typeof clientId !== "string" || clientId === "") {
+        await loopback.close();
+        throw new Error("拿不到 client_id：服务器既不支持动态注册，也没有指定 clientId");
+      }
+      const authUrl = buildAuthorizationUrl(metadata, clientId, loopback.redirectUri, challenge, state, payload.scope);
+      flowSignal.throwIfAborted();
+      const flowId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const flow: any = {
+        flowId,
+        serverName: payload.serverName,
+        state,
+        clientId,
+        metadata,
+        redirectUri: loopback.redirectUri,
+        verifier,
+        url: normalizeServerUrl(config.url),
+        status: "pending",
+        error: undefined,
+        startedAt: Date.now(),
+        loopback,
+        controller,
+        signal: flowSignal,
+        timeoutMs
+      };
+      this.oauthFlows.set(flowId, flow);
+      // 后台等回调：失败也记在 flow 上、交给轮询回报，不在这里抛。
+      const waiting = loopback.waitForCode().then(
+        async (result: any) => {
+          if (flow.result !== undefined) return;
+          flow.code = result.code;
+          await loopback.close();
+        },
+        async (error: any) => {
+          await loopback.close();
+          this.finishOAuth(flow, { status: "failed", error: error instanceof Error ? error.message : String(error), serverName: flow.serverName });
+        }
+      );
+      flow.waiting = waiting;
+      this.oauthTasks.add(waiting);
+      void waiting.finally(() => this.oauthTasks.delete(waiting)).catch(() => {});
+      // Callback expiry also bounds an authorized flow whose client stops polling before redemption.
+      flow.expiry = setTimeout(() => {
+        controller.abort(new Error("OAuth 登录已过期，请重新登录"));
+        void loopback.close();
+        if (flow.exchange === undefined) this.finishOAuth(flow, { status: "failed", error: "OAuth 登录已过期，请重新登录", serverName: flow.serverName });
+      }, Math.max(1, deadline - Date.now()));
+      flow.expiry.unref?.();
+      return { flowId, authUrl, redirectUri: loopback.redirectUri, expiresInSeconds: Math.ceil(Math.max(0, deadline - Date.now()) / 1000) };
+    } catch (error) {
+      controller.abort(error);
+      await loopback.close();
+      throw error;
+    }
+  }
+
+  /** 轮询一次 OAuth 流程：pending / done / failed。拿到 code 就换令牌并落盘。 */
+  async oauthPoll(rawPayload: unknown) {
+    return this.trackOAuth(() => this.pollOAuth(rawPayload));
+  }
+
+  private async pollOAuth(rawPayload: unknown) {
+    const payload = parseWirePayload(mcpOAuthPollPayloadSchema, rawPayload, "OAuth 轮询参数无效");
+    const flow = this.oauthFlows.get(payload.flowId);
+    if (flow === undefined) throw new Error("这次登录流程不存在或已经结束，请重新点一次登录");
+    if (flow.result !== undefined) return flow.result;
+    if (flow.exchange !== undefined) return flow.exchange;
+    if (flow.code === undefined) return { status: "pending", serverName: flow.serverName };
+    const exchange = this.exchangeOAuth(flow);
+    flow.exchange = exchange;
+    return exchange;
+  }
+
+  private async exchangeOAuth(flow: any) {
+    try {
+      flow.signal.throwIfAborted();
+      const tokens = await exchangeCode(flow.metadata, flow.clientId, flow.code, flow.verifier, flow.redirectUri, undefined, flow.signal);
+      flow.signal.throwIfAborted();
+      await saveOAuthRecord(this.dshHomeOf(), flow.serverName, {
+        ...tokens,
+        clientId: flow.clientId,
+        serverUrl: flow.url,
+        tokenEndpoint: flow.metadata.token_endpoint
+      });
+      flow.signal.throwIfAborted();
+      const header = authorizationHeader(tokens);
+      await this.writeAuthHeader(flow.serverName, header, flow.signal);
+      flow.signal.throwIfAborted();
+      await flow.loopback.close();
+      const row = this.managedRow((await this.readRows()).managed, flow.serverName);
+      if (row !== undefined && typeof row.id === "string") await waitForLoaderState(this.C, row.id, (entry: any) => entry !== undefined);
+      return this.finishOAuth(flow, { status: "done", serverName: flow.serverName, expiresAt: tokens.expiresAt ?? null, header });
+    } catch (error) {
+      await flow.loopback.close();
+      return this.finishOAuth(flow, { status: "failed", error: error instanceof Error ? error.message : String(error), serverName: flow.serverName });
+    }
+  }
+
+  /** 某个服务器当前的 OAuth 状态（给卡片显示）。 */
+  async oauthStatus(rawPayload: unknown) {
+    const payload = parseWirePayload(mcpOAuthServerPayloadSchema, rawPayload, "OAuth 参数无效");
+    const store = await loadOAuthStore(this.dshHomeOf());
+    const record = store[payload.serverName];
+    if (record === undefined) return { connected: false, headerReady: false, expiresAt: null, expired: false };
+    const { managed, external } = await this.readRows();
+    const row = this.managedRow([...managed, ...external], payload.serverName);
+    const config: any = row?.config ?? {};
+    const headers = config.headers !== null && typeof config.headers === "object" && !Array.isArray(config.headers) ? config.headers : {};
+    return {
+      connected: typeof headers.Authorization === "string" && headers.Authorization.indexOf("Bearer ") === 0,
+      headerReady: typeof record.accessToken === "string",
+      expiresAt: typeof record.expiresAt === "number" ? record.expiresAt : null,
+      expired: isExpired(record)
+    };
+  }
+
+  /** 断开 OAuth：删掉 Authorization 头与本地令牌记录。 */
+  async oauthDisconnect(rawPayload: unknown) {
+    const payload = parseWirePayload(mcpOAuthServerPayloadSchema, rawPayload, "OAuth 参数无效");
+    await this.writeAuthHeader(payload.serverName, undefined);
+    await removeOAuthRecord(this.dshHomeOf(), payload.serverName);
+    const row = this.managedRow((await this.readRows()).managed, payload.serverName);
+    if (row !== undefined && typeof row.id === "string") await waitForLoaderState(this.C, row.id, (entry: any) => entry !== undefined);
+    return { disconnected: true, serverName: payload.serverName };
   }
 
   reload() {

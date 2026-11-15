@@ -1,0 +1,10 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write snapshots/session/muse-skill-market-local/README.md
+/:
+  en: 5d401ee919bb3659
+  zh: 5c295b6c367ab46b
+/local-skill-publication-lifecycle:
+  en: b84eecb4b39cbfe5
+  zh: 3d352dab07bc6cd3

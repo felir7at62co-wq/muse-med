@@ -74,8 +74,8 @@ export async function apply(ctx, config = {}) {
         assert.ok(text.includes('未读取来源'))
         if (stableBindingDiagnostics) {
           assert.ok(text.includes('ToolCallError: missing_source:'))
-          assert.equal(text.includes('file://'), false)
-          assert.equal(text.includes('node:internal'), false)
+          assert.equal(text.includes('file://'), false, text)
+          assert.equal(text.includes('node:internal'), false, text)
         }
       }
     }
@@ -86,7 +86,7 @@ export async function apply(ctx, config = {}) {
     }
     if (requests === expectedRequests - 1) {
       const result = results[argumentDiagnostics ? 2 : 1]
-      assert.equal(result.isError, false)
+      assert.equal(result.isError, false, JSON.stringify(result))
       assert.ok(result.content.some(block => block.type === 'text' && block.text.includes('原文：甲推开门。')))
     }
     requests++

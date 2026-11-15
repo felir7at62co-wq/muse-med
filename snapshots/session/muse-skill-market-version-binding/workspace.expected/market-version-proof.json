@@ -1,0 +1,25 @@
+{
+  "oldReleaseSha256": "36c57f2b809312cd6b4c2f9e4fe9ab7cd98daebb1b1f55ead14e9d1158bbd5d5",
+  "newReleaseSha256": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+  "oldSessionReleaseSha256": "36c57f2b809312cd6b4c2f9e4fe9ab7cd98daebb1b1f55ead14e9d1158bbd5d5",
+  "blankFirstTaskReleaseSha256": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+  "freshFirstTaskReleaseSha256": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+  "oldBindingRetained": true,
+  "blankWasUnboundBeforeFirstTask": true,
+  "bindingEventsPerSession": {
+    "old": 1,
+    "blank": 1,
+    "fresh": 1
+  },
+  "eventProjectionAndProviderIdentityMatch": true,
+  "completeSkillResultsReachedNextModel": true,
+  "completeLifecycleResultsReachedNextModel": true,
+  "modelRequests": {
+    "old": 6,
+    "blank": 2,
+    "fresh": 2
+  },
+  "ptcDispatchStarts": 0,
+  "ptcDispatchSettles": 0,
+  "executor": "native"
+}

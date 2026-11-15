@@ -100,3 +100,12 @@ their ideas; it does not contain their code.
     (packages/experimental/client-ui-voice-input), MIT: the voice chat
     records with the same steps (record, resample to 16 kHz mono, PCM16 WAV)
     before it calls the plugin's speech service.
+
+==============================================================================
+Muse selective updates
+==============================================================================
+
+The show_view Bot-session scoping in src/host/tools.js is adapted from
+DS Bot v0.2.4 (https://github.com/Fei2411/DS-Bot/tree/v0.2.4), Apache-2.0.
+Muse retains its renderer, Host lifecycle, account, model and web-search behavior.
+This is a selective update to the v0.2.2 base, not a full v0.2.4 upgrade.

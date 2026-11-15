@@ -28,7 +28,7 @@ import {
 import { componentStates, type DramaComponentState } from './components.ts'
 import { DramaSettingsSection } from './DramaSettingsSection.tsx'
 import type { DramaSettingsSectionInjected } from './DramaSettingsSection.tsx'
-import { en, zh, type DramaLocaleKey } from './locales.ts'
+import { en, zh, ja, es, fr, de, ru, pt, type DramaLocaleKey } from './locales.ts'
 import { imageRoutesOf, type DramaImageRoutes, type JubianImageFace } from './routes.ts'
 import { defaultOps, draftSection, landed, sectionOps, type DramaWriteOutcome } from './section.ts'
 import type { ProjectBudgetFace } from './ProjectBudgetGroup.tsx'
@@ -118,7 +118,7 @@ async function imageRouteState(ctx: ClientContext): Promise<DramaImageRoutes> {
  * @param ctx - Client context carrying the slot registry, locale, and settings scope.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'drama-settings: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'drama-settings: dictionaries')
   const t = ctx.locale.bind(NS)
   const scope = ctx.configForms.get<DramaSettings>(DRAMA_SETTINGS_NAMESPACE)
 

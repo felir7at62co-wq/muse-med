@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { apply as mountPreset } from '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
 export const name = 'snapshot-creation-preset'
-export const inject = ['agentPresets', 'tools', 'systemPrompt', 'skills', 'llm', 'agents']
+export const inject = ['agentPresets', 'tools', 'systemPrompt', 'workingDirectory', 'skills', 'llm', 'agents']
 /** Mount the current preset and inspect actual model-visible inputs. */
 export async function apply(ctx) {
   await mountPreset(ctx, { presetId: 'creation', hidePlatformShellTools: true })
@@ -16,8 +16,8 @@ export async function apply(ctx) {
     assert.ok(!system.includes('下一模型轮检查'))
     assert.ok(!system.includes('\n  screenplay_project:'))
     const entries = options.messages.flatMap(message => message.source?.kind === 'skill-catalog' ? message.source.entries : [])
-    for (const name of ['muse-dialogue-polish', 'muse-script-doctor', 'muse-episode-design', 'screenplay-format']) {
-      assert.ok(!entries.some(skill => skill.name === name))
+    for (const name of ['muse-dialogue-polish', 'muse-script-doctor', 'muse-episode-design', 'novel-to-script', 'screenplay-format']) {
+      assert.ok(entries.some(skill => skill.name === name), `Missing professional skill ${name}`)
     }
     assert.ok(entries.some(skill => skill.name === 'audio-transcribe'))
     if (requests === 1) {

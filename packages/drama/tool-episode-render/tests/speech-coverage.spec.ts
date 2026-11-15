@@ -13,6 +13,38 @@ const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).
 const cue = (text: string, startSeconds: number, endSeconds: number, index = 1): SubtitleCue =>
   ({ index, text, startSeconds, endSeconds })
 
+it.each(['丙甲乙', '甲乙丙'])('keeps absent phrase edges unresolved instead of extending beyond recognized characters: %s', async (text) => {
+  const f = await fixture([{ text: '甲', start: 0, end: 0.1 }, { text: '乙', start: 0.1, end: 0.2 }])
+  await f.setCues([cue(text, 33.184, 33.384)])
+  const report = await reviewSpeechCoverage(f.input)
+  expect(report.evidence_complete).toBe(true)
+  expect(report.findings.map(item => [item.kind, item.text])).toEqual([['subtitle_without_recognition', '丙']])
+  expect(report.matches.map(item => item.text).join('')).toBe('甲乙')
+})
+
+it.each([
+  { words: [{ text: '甲乙', start: 0, end: 0.2 }, { text: '丙丁', start: 0.2, end: 0.4 }], text: '乙丙丁', start: 33.384, end: 33.584 },
+  { words: [{ text: '甲乙', start: 0, end: 0.2 }, { text: '丙丁', start: 0.2, end: 0.4 }], text: '甲乙丙', start: 33.184, end: 33.384 },
+])('does not infer a shifted phrase by cutting an ASR token at its edge: $text', async ({ words, text, start, end }) => {
+  const f = await fixture(words)
+  await f.setCues([cue(text, start, end)])
+  const report = await reviewSpeechCoverage(f.input)
+  expect(report.evidence_complete).toBe(true)
+  expect(report.findings.some(item => item.kind === 'recognized_without_subtitle')).toBe(true)
+  expect(report.findings.some(item => item.kind === 'subtitle_without_recognition')).toBe(true)
+  expect(report.findings.some(item => item.kind === 'timing_mismatch')).toBe(false)
+})
+
+it('does not assign one missed spoken word to two nearby shifted subtitle phrases', async () => {
+  const f = await fixture(Array.from('甲乙丙丁戊', (text, index) => ({ text, start: index / 10, end: (index + 1) / 10 })))
+  await f.setCues([cue('甲乙丙', 33.184, 33.384), cue('丙丁戊', 33.484, 33.684, 2)])
+  const report = await reviewSpeechCoverage(f.input)
+  expect(report.evidence_complete).toBe(true)
+  expect(report.findings.filter(item => item.kind === 'recognized_without_subtitle').map(item => item.text)).toEqual(['丙'])
+  expect(report.findings.filter(item => item.kind === 'subtitle_without_recognition').map(item => item.text)).toEqual(['丙', '丙'])
+  expect(report.findings.some(item => item.kind === 'timing_mismatch')).toBe(false)
+})
+
 async function fixture(words: Word[] = [{ text: '做', start: 6.670, end: 6.910 }, { text: '饭', start: 6.910, end: 7.150 }]) {
   const project = await mkdtemp(join(tmpdir(), 'muse-speech-coverage-'))
   onTestFinished(() => rm(project, { recursive: true, force: true }))
@@ -56,6 +88,38 @@ it('matches both words to the corrected final SRT without inventing character ti
   expect(report.matches.every(match => match.precision === 'word')).toBe(true)
 })
 
+it.each([
+  { fps: undefined, offsetMs: 1, hasMismatch: false },
+  { fps: undefined, offsetMs: -16, hasMismatch: false },
+  { fps: undefined, offsetMs: -34, hasMismatch: true },
+  { fps: 25, offsetMs: 34, hasMismatch: false },
+  { fps: 25, offsetMs: -40, hasMismatch: false },
+  { fps: 25, offsetMs: 80, hasMismatch: true },
+])('compares complete cues using one frame at delivery fps $fps for $offsetMs ms offset', async ({ fps, offsetMs, hasMismatch }) => {
+  const f = await fixture()
+  const timeline: Timeline = { ...f.timeline, ...(fps === undefined ? {} : { delivery: { width: 1080, height: 1920, fps } }) }
+  await f.setCues([cue('做饭', 39.854 + offsetMs / 1000, 40.334 + offsetMs / 1000)])
+  const report = await reviewSpeechCoverage({ ...f.input, timeline })
+  expect(report.matches.map(match => match.text)).toEqual(['做', '饭'])
+  expect(report.findings.map(finding => finding.kind)).toEqual(hasMismatch ? ['timing_mismatch'] : [])
+})
+
+it('binds the effective delivery frame rate to review evidence without changing the legacy 60fps identity', async () => {
+  const f = await fixture()
+  const report = (fps: number) => reviewSpeechCoverage({ ...f.input,
+    timeline: { ...f.timeline, delivery: { width: 1080, height: 1920, fps } } })
+  const [legacy, explicitDefault, slower] = await Promise.all([reviewSpeechCoverage(f.input), report(60), report(25)])
+  expect(legacy.evidence_sha256).toBe(explicitDefault.evidence_sha256)
+  expect(legacy.evidence_sha256).not.toBe(slower.evidence_sha256)
+})
+
+it('does not use frame tolerance to certify two cue edges inside one briefly recognized word', async () => {
+  const f = await fixture([{ text: '做饭', start: 6.670, end: 6.700 }])
+  await f.setCues([cue('做', 39.854, 39.869), cue('饭', 39.869, 39.884, 2)])
+  const report = await reviewSpeechCoverage(f.input)
+  expect(report.findings.map(finding => finding.kind)).toEqual(['timing_mismatch', 'timing_mismatch'])
+})
+
 it('retains one-character tail sounds and utterances outside the script as ASR candidates', async () => {
   const f = await fixture([{ text: '做饭', start: 6.670, end: 7.150 }, { text: '啦', start: 7.2, end: 7.3 }, { text: '哼', start: 8, end: 8.2 }])
   const report = await reviewSpeechCoverage(f.input)
@@ -68,6 +132,42 @@ it('does not use a later repeated word to cover a subtitle in another time windo
   const report = await reviewSpeechCoverage(f.input)
   expect(report.matches).toEqual([])
   expect(report.findings.map(item => item.kind)).toEqual(['recognized_without_subtitle', 'subtitle_without_recognition'])
+})
+
+it('diagnoses the archived EP34 cue as a timing mismatch when its exact trailing word falls outside the cue', async () => {
+  const f = await fixture([
+    { text: '犟', start: 6.630, end: 6.670 }, { text: '死', start: 6.830, end: 6.990 },
+    { text: '你', start: 6.990, end: 7.190 }, { text: '算', start: 7.190, end: 7.390 },
+    { text: '了', start: 7.390, end: 7.590 },
+  ])
+  const timeline: Timeline = { clips: [{ shot: 4, startUs: 94_000_000, durationUs: 10_000_000 }], bodyEndSeconds: 104 }
+  await f.setCues([cue('犟死你算了', 99.055, 101.344)])
+  const before = await readFile(f.subtitleSrt)
+  const report = await reviewSpeechCoverage({ ...f.input, timeline })
+  expect(report.findings).toEqual([expect.objectContaining({
+    kind: 'timing_mismatch', text: '犟死你算了', start_seconds: 99.055, end_seconds: 101.590,
+    word_ids: ['1:1', '1:2', '1:3', '1:4', '1:5'], cue_indexes: [1],
+  })])
+  expect(report.matches.map(match => match.text).join('')).toBe('犟死你算')
+  expect(report.listening_verified).toBe(false)
+  expect(await readFile(f.subtitleSrt)).toEqual(before)
+  await f.setCues([cue('犟死你算了', 100.630, 101.590)])
+  expect((await reviewSpeechCoverage({ ...f.input, timeline })).findings).toEqual([])
+})
+
+it.each([false, true])('keeps a timing candidate unresolved when the tail belongs to another cue (%s) or follows a long pause', async (claimed) => {
+  const f = await fixture([
+    { text: '犟', start: 6.63, end: 6.67 }, { text: '死', start: 6.83, end: 6.99 },
+    { text: '了', start: claimed ? 7.05 : 8, end: claimed ? 7.2 : 8.2 },
+  ])
+  const cues = [cue('犟死了', 39.7, 40.2)]
+  if (claimed) cues.push(cue('了', 40.234, 40.384, 2))
+  await f.setCues(cues)
+  const report = await reviewSpeechCoverage(f.input)
+  expect(report.findings).toContainEqual(expect.objectContaining({
+    kind: 'subtitle_without_recognition', text: '了', cue_indexes: [1],
+  }))
+  expect(report.findings.some(finding => finding.kind === 'timing_mismatch')).toBe(false)
 })
 
 it('does not let one recognized character cover two repeated subtitle characters', async () => {

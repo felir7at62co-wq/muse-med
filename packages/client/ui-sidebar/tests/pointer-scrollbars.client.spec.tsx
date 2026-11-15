@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 /**
  * Pointer-revealed scrollbars, the shell's half: which class state the column
  * carries as the pointer crosses it. The stylesheet rule that state drives is
@@ -6,8 +7,9 @@
  * has no file: module URL to read the sheet through).
  */
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { allowAllAccess } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SidebarRootComponentProps, SidebarSectionOwnerProps } from '../src/client/contract/slots.ts'
 import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
 import { en } from '../src/client/locales.ts'
@@ -27,7 +29,14 @@ type AttentionSnapshot = Parameters<Parameters<SidebarRootComponentProps['useSes
 const noAttention: AttentionSnapshot = new Map()
 const useSessionStatus: SidebarRootComponentProps['useSessionStatus'] = selector => selector(noAttention)
 
+beforeEach(() => {
+  vi.stubGlobal('matchMedia', (media: string): MediaQueryList => Object.assign(new EventTarget(), {
+    media, matches: false, onchange: null, addListener() {}, removeListener() {},
+  }))
+})
+
 afterEach(() => {
+  vi.unstubAllGlobals()
   cleanup()
   vi.useRealTimers()
 })
@@ -39,11 +48,15 @@ afterEach(() => {
 function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
   const view = render(
     <SidebarRoot
+      drawer={false}
       collapsed={false} width={300}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
-      usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useShortcuts={selector => selector([])}
-      useResource={useResource} useWorkspaces={neverHook}
-      startSession={vi.fn()} toggleSidebar={vi.fn()} t={t}
+      usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
+      useEntryActions={selector => selector(false)} setPinned={vi.fn()}
+      useShortcuts={selector => selector([])}
+      useContextMenu={contextMenuHook()} useResource={useResource} useWorkspaces={neverHook}
+      {...allowAllAccess}
+      startSession={vi.fn()} toggleSidebar={vi.fn()} trackEntryClick={vi.fn()} t={t}
       renderSlot={((_key: string, owner: SidebarSectionOwnerProps) =>
         <div data-testid="region" data-wide={owner.wide} />) as SidebarRootComponentProps['renderSlot']}
     />,

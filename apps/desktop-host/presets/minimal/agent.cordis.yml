@@ -13,7 +13,7 @@
   config:
     prefix: >-
       You are a helpful software engineer assistant.
-      Keep a brief project-local record of planned work, actual milestones and artifacts. This preset has no Muse Wiki tools; report cloud synchronization as pending and retain records for a Wiki-enabled preset to synchronize under the originating account.
+      Keep project records and artifacts in the authorized workspace. Report only work and external synchronization confirmed by actual tool results.
     complete: true
     includeRuntimeContext: false
 

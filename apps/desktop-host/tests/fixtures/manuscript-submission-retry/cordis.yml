@@ -1,0 +1,28 @@
+- id: agent-default-model
+  config:
+    provider: manuscript-submission-retry-fixture
+    model: selected-creative-model
+- id: llm-deepseek
+  disabled: true
+- id: session-persistence-jsonl
+  config:
+    root: './.sessions'
+    compression: none
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- insert:
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: continuity-test-parent
+    - id: continuity-test-parent
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: continuity-test-parent
+        name: Continuity test parent
+        description: Parent inherits the shipped headless tools.
+        plugins: []
+    - id: manuscript-submission-retry-fixture
+      name: './fixture.mjs'

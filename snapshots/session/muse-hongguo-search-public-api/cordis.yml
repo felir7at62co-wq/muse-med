@@ -1,0 +1,17 @@
+- id: agent-default-model
+  config:
+    provider: hongguo-public-search-fixture
+    model: public-search-test-model
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- insert:
+    - id: hongguo-search-public-fixture
+      name: ./search-fixture.mjs

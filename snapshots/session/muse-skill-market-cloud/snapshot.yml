@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-skill-market-cloud
+profile: headless
+composition: muse-skill-market-cloud
+recording: authored
+writerOutput: true
+header:
+  class: muse-skill-market-cloud
+  pin: true
+workspace:
+  final: true

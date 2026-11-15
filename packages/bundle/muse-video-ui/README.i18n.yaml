@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/bundle/muse-video-ui/README.md
+/:
+  en: fe93a06a3bfea56d
+  zh: cca3c1d63ad65cc8
+/deepseek-ai-dsh-muse-video-ui:
+  en: 1684f9d6e89eaddd
+  zh: dc7ce8ab007b4286
+/deepseek-ai-dsh-muse-video-ui/summary:
+  en: b801412971327b35
+  zh: eaf6bb42e6b3a291
+/deepseek-ai-dsh-muse-video-ui/table-of-contents:
+  en: cbfb676bb9a7a2de
+  zh: a04899e8bd90a0c0
+/deepseek-ai-dsh-muse-video-ui/use-this-package:
+  en: 080157b36923e47e
+  zh: f0ac263049cfe0a3
+/deepseek-ai-dsh-muse-video-ui/understand-the-implementation:
+  en: ec69585f481f525e
+  zh: c87f3a97520314ee
+/deepseek-ai-dsh-muse-video-ui/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-muse-video-ui/model-experience/composition:
+  en: 1ff253c3946b4ebe
+  zh: 103f66630a01e5f8
+/deepseek-ai-dsh-muse-video-ui/model-experience/composition/what-the-model-sees:
+  en: 5ede9e8e7592774f
+  zh: 37a8cd5536965ead
+/deepseek-ai-dsh-muse-video-ui/model-experience/composition/token-effect:
+  en: bc59fa783b69fa4a
+  zh: 25b4ef08b649fdeb
+/deepseek-ai-dsh-muse-video-ui/model-experience/composition/kv-cache-effect:
+  en: f41be4265ece234b
+  zh: f1aec5cf5f2417e9
+/deepseek-ai-dsh-muse-video-ui/known-limitations-and-deferred-work:
+  en: 9363e016fcfd7fcf
+  zh: ae8afa8e946d48cd
+/deepseek-ai-dsh-muse-video-ui/known-limitations-and-deferred-work/dev-note:
+  en: 0a1253c6f7b5e8b9
+  zh: 9f56528562c7c914

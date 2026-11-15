@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-perception-bgm",
   "description": "Non-commercial BGM emotion analysis and valence/arousal matching for the DeepSeek Harness",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.2-rc.1",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -13,9 +13,11 @@
     },
     "./src/*": "./src/*",
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
+    "locale/*.json",
     "lib/index.js",
     "cordis.patch.yml",
     "lib/config.js",
@@ -48,6 +50,8 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-tools": "workspace:*",
-    "@deepseek-ai/dsh-bgm-license-info": "workspace:*"
+    "@deepseek-ai/dsh-bgm-license-info": "workspace:*",
+    "@deepseek-ai/dsh-tool-testkit": "workspace:*",
+    "@deepseek-ai/dsh-tool-executor-native": "workspace:*"
   }
 }

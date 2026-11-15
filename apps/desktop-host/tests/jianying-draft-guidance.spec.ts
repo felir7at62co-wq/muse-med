@@ -8,6 +8,9 @@ import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import * as LocalSubprocess from '@deepseek-ai/dsh-subprocess-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import LocalFs from '@deepseek-ai/dsh-fs-local'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { MockAdapter, textResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import { configurationFixture } from '../../../packages/settings/settings/tests/configuration-fixture.ts'
 import * as CreationPolicy from '../src/creation-policy.ts'
@@ -26,7 +29,10 @@ it.each([false, true])('refreshes legacy draft guidance in the same Agent; in-hi
   ], builtins: { prompt: SystemPrompt, tools: Tools, subprocess: LocalSubprocess, 'native-draft': JianyingDraft } })
   try {
     await ctx.plugin(Llm); await ctx.plugin(Sessions); await ctx.plugin(SessionProjections)
-    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(LocalFs, { cwd: home })
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: home }).await()
+    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] }).await()
     const legacy = '历史草稿曾用 E:\\old-build\\.desktop-build\\project\\scripts\\draft_generator.py 的 DraftGenerator。'
     const adapter = new MockAdapter([textResponse(legacy), textResponse('使用当前原生工具。'),
       textResponse('重新挂载后继续。'), textResponse('恢复保存的会话后继续使用原生工具。')])

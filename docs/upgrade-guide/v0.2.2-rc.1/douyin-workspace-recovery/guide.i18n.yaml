@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/douyin-workspace-recovery/guide.md
+/:
+  en: 857c835edfb712cf
+  zh: 4cb96d90c19db9f4
+/persistent-douyin-workspace-binding-and-recovery:
+  en: d1b5fa15b91e0ce2
+  zh: 7a749a07fa428a5c
+/persistent-douyin-workspace-binding-and-recovery/change:
+  en: 68bc7038ef0c8389
+  zh: 70379b580670c8f4
+/persistent-douyin-workspace-binding-and-recovery/migration:
+  en: aa753454f5b07782
+  zh: eeb231dfc9c02e67

@@ -31,7 +31,7 @@ export interface DesktopBrowserBridge {
   onOpenRequested(lease: DesktopBrowserLeaseId, listener: (url: string) => void): () => void
   /** Main-owned request; consumer opens only in the currently selected Session. */
   onDownloadPageRequested?(listener: (request: { sessionId: string; url: string }) => void): () => void
-  /** Revoke pending downloads when the selected Session changes. */
+  /** Revoke visible Sidebar-owned downloads when the selected Session changes. */
   activeSession?(sessionId: string | undefined): void
 }
 
@@ -52,6 +52,8 @@ export interface DouyinDesktopRequest {
   /** Independently bounded native transfer and local verification budgets, in milliseconds. */
   readonly nativeTimeoutMs: number
   readonly targetVideoId?: string
+  /** Authenticated Host opt-in to a Main-owned task guest, independent from Sidebar selection. */
+  readonly background?: true
 }
 
 /** Sanitized answer from the main process. Signed media URLs never cross IPC. */

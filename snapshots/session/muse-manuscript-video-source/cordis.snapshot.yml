@@ -1,0 +1,46 @@
+- id: agent-default-model
+  config:
+    provider: manuscript-video-source-fixture
+    model: selected-visual-model
+- id: llm-deepseek
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: skill
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- insert:
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: manuscript-video-source-fixture
+            name: Video source fixture
+            models:
+              - id: selected-visual-model
+                inputModalities: [text, image]
+- insert:
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: source-test-parent
+    - id: source-test-parent
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: source-test-parent
+        name: Video source test parent
+        description: Parent inherits the shipped headless tools.
+        plugins: []
+    - id: manuscript-video-source-fixture
+      name: ../../../apps/desktop-host/tests/fixtures/manuscript-video-source/fixture.mjs

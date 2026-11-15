@@ -1,6 +1,34 @@
 {
   "initial": [
     {
+      "name": "apply_patch",
+      "description": "Create, update, delete, or move UTF-8 text files with one Codex-style patch; prefer it over multiple edit calls when a change spans several files or separated regions.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Codex patch text: start with *** Begin Patch and end with *** End Patch. Use *** Add File: path with + lines; *** Update File: path, optionally followed by *** Move to: path, with @@ or @@ context and space-prefixed context, + added, or - removed lines; *** End of File anchors the last hunk to the file end. Use *** Delete File: path to delete. Paths are relative to the Session working directory."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
       "name": "create_goal",
       "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
       "parameters": {
@@ -63,22 +91,6 @@
       }
     },
     {
-      "name": "exit_plan_mode",
-      "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "plan": {
-            "type": "string",
-            "description": "The complete plan, as markdown, starting with a # heading that names it."
-          }
-        },
-        "required": [
-          "plan"
-        ]
-      }
-    },
-    {
       "name": "get_goal",
       "description": "Read the current session goal, including the id and revision that update_goal requires.",
       "parameters": {
@@ -132,7 +144,7 @@
     },
     {
       "name": "interrupt_agent",
-      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
+      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a local direct child's conversation later with send_message. External executions stop permanently and cannot receive follow-ups. Subagents it started will keep running.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -541,13 +553,13 @@
     },
     {
       "name": "jubian_find",
-      "description": "按名字查找剧变（Jubian）剧本。只读、免费，不需要 idempotency_key，也不改变任何远端状态。两个 scope：mine=你自己名下的画布项目（`GET /aigc/script/list`）；pool=可认领的剧本池（`GET /script/center/pool/list`）。name 先去掉首尾空白、把内部连续空白并成一个空格、忽略大小写，再同时匹配 scriptName 与 manuscriptName 的子串——没有拼音、别名或模糊匹配，差一个字就是没找到。page_size 只限制单次请求的条数，不是扫描上限：工具会一直翻页，直到读完 total、某一页为空，或达到 scan_page_limit（页数上限，返回值里有）。complete=false 表示这次没有覆盖 total（或用了页数上限），不要读成\"就这些\"；scanned_pages 是实际请求的页数。returned 是本次返回的匹配数，truncated=true 表示匹配列表被输出上限截断（扫描本身可能已完整）。每条匹配给出 script_id、script_name、manuscript_name、episode_count、status 与 script_style；scope=pool 时另有 can_claim、claim_leader_name、claim_member_name，但没有 script_style——这个字段只有 mine 的行被实测到。省略 name 就是列出该 scope 的第一页（page_size 条），不是错误。status 只对 pool 有效，会原样作为查询参数转发；给 mine 传 status 会被拒绝，不会静默忽略。production_type 与 share_target_type 只对 mine 有效，同样原样转发为 productionType 与 shareTargetType；控制台打开「漫剧视频」时发的就是 productionType=0 + shareTargetType=1，要列漫剧项目就传这两个值。两个取值都是提供方自己的编码，本工具不解释、不校验、也不设默认值，省略就不出现在查询串里；给 pool 传会被拒绝。它不写账本、不检查预算、不重试。响应读不懂时直接报 CONTRACT_CHANGED，绝不把读不懂的响应当成\"没找到\"——漏本和没本必须能区分。",
+      "description": "按名称查询剧变（Jubian）剧本。只读免费，不改远端状态、不写账本、不检查预算、不重试，无需 idempotency_key。按名称查询时从 page_num 连续翻页，直到覆盖 total、遇到空页或达到 scan_page_limit。complete=false 表示未覆盖 total，不能当作没有更多结果；scanned_pages 为实际请求页数，returned 为返回的匹配数。truncated=true 表示匹配列表被输出上限截断，扫描本身可能完整。匹配行含 script_id、script_name、manuscript_name、episode_count、status；mine 另有 script_style，pool 另有 can_claim、claim_leader_name、claim_member_name，不含 script_style。响应无法识别时抛出 CONTRACT_CHANGED，不按空结果处理。",
       "parameters": {
         "type": "object",
         "properties": {
           "scope": {
             "type": "string",
-            "description": "mine=自己名下的画布项目；pool=可认领的剧本池。必填，两者只能选一个。",
+            "description": "mine=自己名下的画布项目；pool=可认领的剧本池。",
             "enum": [
               "mine",
               "pool"
@@ -555,27 +567,27 @@
           },
           "name": {
             "type": "string",
-            "description": "可选：要查的名字片段，同时匹配 scriptName 与 manuscriptName 的子串。先去掉首尾空白、内部连续空白并成一个空格、忽略大小写；不支持拼音、别名与模糊匹配。省略就是列出该 scope 的第一页。空白字符串会被拒绝。"
+            "description": "名称子串，同时匹配 scriptName 与 manuscriptName；去首尾空白、合并连续空白、忽略大小写。不支持拼音、别名或模糊匹配，空白字符串被拒绝；省略时只列起始页。"
           },
           "page_num": {
             "type": "number",
-            "description": "可选：从第几页开始扫描，默认 1。它会同时决定 completeness 的起点：第 2 页起要读完的仍是 total 里剩下的部分。"
+            "description": "起始页，默认 1，必须为正整数；complete 按此起点核算到 total。"
           },
           "page_size": {
             "type": "number",
-            "description": "可选：单次请求的条数，默认 20，上限 1000。它只限制一次请求，不限制整次扫描——扫描会翻页读到 total 或达到 scan_page_limit。结果太大时用它调小每次请求。"
+            "description": "每次请求条数，默认 20，整数范围 1..1000；不限制整次扫描的页数。"
           },
           "status": {
             "type": "string",
-            "description": "可选，仅 scope=pool：按池子状态过滤，原样转发（例如 returned、claimed、pending_leader_claim）。状态名由提供方定义，本工具不解释也不校验。"
+            "description": "仅 pool：提供方状态过滤值，原样转发，不解释或校验状态名（如 returned、claimed、pending_leader_claim）；mine 拒绝此参数。"
           },
           "production_type": {
             "type": "number",
-            "description": "可选，仅 scope=mine：按提供方自己的 productionType 编码过滤，原样转发为查询参数 productionType。控制台打开「漫剧视频」时发的是 productionType=0，所以要列漫剧项目就传 0；这个编码由提供方定义，本工具不解释也不校验取值，省略就不出现在查询串里。"
+            "description": "仅 mine：整数编码，原样转发为 productionType，不解释业务取值，无默认值；漫剧项目传 0。pool 拒绝此参数。"
           },
           "share_target_type": {
             "type": "number",
-            "description": "可选，仅 scope=mine：按提供方自己的 shareTargetType 编码过滤，原样转发为查询参数 shareTargetType。控制台打开「漫剧视频」时发的是 shareTargetType=1，所以要列漫剧项目就传 1；这个编码由提供方定义，本工具不解释也不校验取值，省略就不出现在查询串里。"
+            "description": "仅 mine：整数编码，原样转发为 shareTargetType，不解释业务取值，无默认值；漫剧项目传 1。pool 拒绝此参数。"
           }
         },
         "required": [
@@ -611,6 +623,10 @@
           "output_path": {
             "type": "string",
             "description": "media 必填：期望落盘的本地绝对路径。扩展名与实际格式不一致时会修正；后续使用返回的 path。"
+          },
+          "resume": {
+            "type": "boolean",
+            "description": "续跑时设 true：同一 URL 的本地下载回执与字节通过核对后复用；旧文件缺证或已变化时另存候选。"
           }
         },
         "required": [
@@ -795,13 +811,13 @@
     },
     {
       "name": "jubian_storyboard",
-      "description": "剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；create_batch 的逐项回执在 results，data 保留供应商原值，数字 data 即新卡 ID，不要假定 data.id 存在。写镜头脚本或视频包提示词，先按剧情、对白、表演与节奏确定内容分包，再 list/get 当前项目和分集的已有视频卡并原位填写。已有卡数量不决定包数，多余空卡保留不用，不为填满空卡拆包；已有卡不足或用户明确要求新增时，才 create/create_batch。单卡用 edit_preview，多卡用 edit_batch_preview 查看 before/after，再 edit_apply；保持分镜 ID，不因本地新建视频包、秒数或提示词变化重复建卡。写入前请按系统提示词中的固定自检清单自主核对本次修改。单卡与批量预览均返回此提醒，由 Agent 自主检查后保存。配置词表时，写卡预览与 prepare_video 的 prompt_risk_review 返回命中词、卡号和上下文，仅提示、不拦截。命中须对照剧本来源区分原台词与自行描述；修正后重新预览、保存并核对真实回读，生成前重新 prepare_video。支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**submit_video 及 generate 的提交阶段会真实计费且不可撤销；erase_subtitle 按实时目录计价**。generate 是原生生成通道的兼容入口：新调用不带 preview_path 时按 prepare_video 免费准备，必须给 storyboard_id 与 project_dir；先核对返回预览，再带 preview_path、预览 idempotencyKey 原值作为 idempotency_key，以及估价提交，等同 submit_video。旧 storyboard_generate key 只读返回原账本结果，不重新准备、不重投；unknown 不代表失败，不可换 key 重试。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：每镜用到的已有角色、场景、道具、音频，均在相应画面、动作或声音描述处内联引用 `@[素材名称](material_key)` 并明确用途；后续镜头再次提及时继续引用，不以顶部素材清单代替，不引用未用素材，不为补引用新增资产，不修改原文对白。名称/key与实际查询和绑定一致。select_assets 的图片素材按正文 key 首次出现的顺序去重后选一次，重复内联引用不重复绑定。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 读取实时分镜、主体设定与模型目录；启用会话选择时先免费同步本次卡的模型/分辨率，保留比例、时长、提示词与素材，回读后准备预览；无会话选择的部署保留已存模型，缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，同步完成后的预览准备仅在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 idempotencyKey（指纹），PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。启用会话选择时，生成模型与分辨率以当前会话为准，不跟随 project_settings；未启用时沿用已存设置；已知型号按已记录范围校验，其他型号接受正整数秒、上限保持未知，不借用 15/30 秒上限，也不因上限未知自行停工或换模型。Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。实时目录唯一匹配火山 ark-erase-video-subtitle-pro / AI_MEDIA_KIT / 67 / 0 元/条时，按 0.00 CNY 记账且不占项目额度，仍按原 key 防重；其他零价不推断为免费。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
+      "description": "剧变（Jubian）分镜查询、原位修改与提交。list/get/create/save/edit 免费（写入强制 isGenerate=0）。返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；create_batch 的逐项回执在 results，data 保留供应商原值，数字 data 即新卡 ID，不要假定 data.id 存在。写镜头脚本或视频包提示词，先按剧情、对白、表演与节奏确定内容分包，再 list/get 当前项目和分集的已有视频卡并原位填写。用户已给定提示词并要求原样或只替换资产占位时，仅机械替换已核实的占位，保留其余文字、格式、时态、服装和台词；按原参考图映射绑定，不追加人物或用途描述，不因正文提到姓名扩绑未出演的人。已有卡数量不决定包数，多余空卡保留不用，不为填满空卡拆包；已有卡不足或用户明确要求新增时，才 create/create_batch。单卡用 edit_preview，多卡用 edit_batch_preview 查看 before/after，再 edit_apply；保持分镜 ID，不因本地新建视频包、秒数或提示词变化重复建卡。写入前请按系统提示词中的固定自检清单自主核对本次修改。单卡与批量预览均返回此提醒，由 Agent 自主检查后保存。配置词表时，写卡预览与 prepare_video 的 prompt_risk_review 返回命中词、卡号和上下文，仅提示、不拦截。命中须对照剧本来源区分原台词与自行描述；修正后重新预览、保存并核对真实回读，生成前重新 prepare_video。支持修复 episode_id、duration 与提示词；修改素材标记后 needs_reselect，重新 select_assets 再准备视频。delete_preview 只读检查精确目标，delete_apply 不可恢复地删除已检查的卡；删除 Hook 要求核对项目、内容与生成记录是否在用户授权范围。list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。**submit_video 及 generate 的提交阶段会真实计费且不可撤销；erase_subtitle 按实时目录计价**。generate 是原生生成通道的兼容入口：新调用不带 preview_path 时按 prepare_video 免费准备，必须给 storyboard_id 与 project_dir；用户最新请求若为只预览或先看，到此展示结果，不沿用此前制作授权付费提交。本次请求包含已授权生成时，核对预览后再带 preview_path、预览 idempotencyKey 原值作为 idempotency_key，以及估价提交，等同 submit_video。旧 storyboard_generate key 只读返回原账本结果，不重新准备、不重投；unknown 不代表失败，不可换 key 重试。**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：每镜用到的已有角色、场景、道具、音频，均在相应画面、动作或声音描述处内联引用 `@[素材名称](material_key)` 并明确用途；后续镜头再次提及时继续引用，不以顶部素材清单代替，不引用未用素材，不为补引用新增资产，不修改原文对白。名称/key与实际查询和绑定一致。select_assets 的图片素材按正文 key 首次出现的顺序去重后选一次，重复内联引用不重复绑定。选定资产写进分镜，永远强制 isGenerate=0（免费），PUT 后回读身份/URL/名称/顺序；prepare_video 读取实时分镜、主体设定与模型目录；启用会话选择时先免费同步本次卡的模型/分辨率，保留比例、时长、提示词与素材，回读后准备预览；无会话选择的部署保留已存模型，缺少数字 materialAssetId 时只从唯一匹配的正式主体素材读取父资产；映射不明则提示人工核对，绝不把 asset-... 用作数字父资产 ID。按精确模型 ID 解析当前目录；不支持、匹配不唯一或超过该模型时长上限时拒绝，不自动换模型，同步完成后的预览准备仅在 <project_dir>/video_tasks/ 原子写一份 *.storyboard-native.prepared.json，不创建任务、不收费；submit_video 的 idempotency_key 必须等于该 preview 自带的 idempotencyKey（指纹），PUT 前做远端任务全量双快照对账，确认无冲突后最多执行一次 PUT /aigc/storyboard（isGenerate=1），随后第二次快照回读每个子项的 assetId/materialName/imageUrl 与顺序；身份缺失是终态 subject_identity_lost，超时/5xx/连接中断/缺 task ID 只进入对账状态，绝不自动二次 PUT。启用会话选择时，生成模型与分辨率以当前会话为准，不跟随 project_settings；未启用时沿用已存设置；已知型号按已记录范围校验，其他型号接受正整数秒、上限保持未知，不借用 15/30 秒上限，也不因上限未知自行停工或换模型。Agent 按 models 当前价格与用量提供每包 estimated_cost_cny 和 estimate_basis，在项目默认预算内分配，不让用户手填单次估价。submit_video_batch 先核查本次提交清单中的全部 preview 与总预算，任一失败则零 PUT；全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；storyboard PUT 创建的 335343 保留了全部七项身份。**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。model_id 没有默认值，省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。实时目录唯一匹配火山 ark-erase-video-subtitle-pro / AI_MEDIA_KIT / 67 / 0 元/条时，按 0.00 CNY 记账且不占项目额度，仍按原 key 防重；其他零价不推断为免费。只允许免费时须传 only_if_verified_free=true，省略估算字段；本次核价不通过就不提交。它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
       "parameters": {
         "type": "object",
         "properties": {
           "method": {
             "type": "string",
-            "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
+            "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；reconcile_video=按project_dir和原idempotency_key只读恢复已有意图，缺证据保持unknown，绝不新建key或重发生成PUT；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）；只有 status=applied 且 verified_readback=true 才可报告音频绑定完成，accepted 不代表完成。",
             "enum": [
               "list",
               "get",
@@ -816,6 +832,7 @@
               "prepare_video",
               "submit_video",
               "submit_video_batch",
+              "reconcile_video",
               "erase_subtitle",
               "delete_preview",
               "delete_apply",
@@ -867,6 +884,10 @@
               "region"
             ]
           },
+          "only_if_verified_free": {
+            "type": "boolean",
+            "description": "仅用于去字幕。为 true 时禁止估算，提交前必须核实本次实时目录精确匹配已知免费路线；无证明时不发送，即使项目仍有预算。"
+          },
           "episode": {
             "type": "string",
             "description": "可选：集号（`5` 与 `05` 都规范成 `EP05`）或配置的跨集母版标记（默认「全剧」）。给了它，资产名会按规范组合成 `EP05｜角色｜陆沉舟`，处理任务名会加上 `EP05-P3-` 这样的可排序前缀；不给就完全按调用方原样使用 asset_name / task_name。"
@@ -901,7 +922,7 @@
                 },
                 "body": {
                   "type": "object",
-                  "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 `@[素材名称](material_key)`，后续镜头再次提及时继续引用，不能只在顶部集中列出。只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
+                  "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 `@[素材名称](material_key)`，后续镜头再次提及时继续引用，不能只在顶部集中列出。只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。新建的 storyboardMaterialList 和 modelConfig.materialList 必须省略或为空，禁止自填素材身份、名称或 URL；主体素材后续用 select_assets 核验写入，音频用 audio_preview/audio_apply；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
                   "additionalProperties": true
                 },
                 "body_path": {
@@ -916,7 +937,7 @@
           },
           "body": {
             "type": "object",
-            "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 `@[素材名称](material_key)`，后续镜头再次提及时继续引用，不能只在顶部集中列出。只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。主体素材后续用 select_assets 写入；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
+            "description": "create 与 body_path 二选一。创建字段：scriptId=当前项目远端 ID；episodeId=jubian_catalog episodes 返回的真实分集 ID（不是集号）；episodeCount=显示集号；scriptName=项目名；storyboardName=包名，如 EP01-P1；sortOrder=从 0 开始的包序号；isGenerate=0。视频模型、平台、比例、分辨率和风格沿用当前项目；每包 duration 按镜头内容计算，不能照抄项目默认时长。modelConfig 是 JSON 字符串：包含完整包 prompt、duration（整数秒，含收束）、modelId、platformId、ratio、resolution、genType、genNum=1、standardId、modelGenerationTypeId、videoStandardId；模型与选择器取当前 jubian_catalog models(task_type=1)，不要抄历史 ID。提示词必须写入 modelConfig.prompt，不能只放顶层 prompt；用到的已有素材在对应镜头的画面、动作或声音描述中内联使用 `@[素材名称](material_key)`，后续镜头再次提及时继续引用，不能只在顶部集中列出。只引用本包实际用到的现有素材，不为补引用新增资产，不把标记插入原文对白。图片 selections 按正文图片 key 首次出现的顺序去重后各绑定一次，正文重复引用不重复绑定；音频用 audio_preview/audio_apply，不混入图片 selections。get 的 model_config.prompt 是保存的提示词，material_keys 来自已绑定素材；新分镜 material_keys 为空不代表提示词为空。新建的 storyboardMaterialList 和 modelConfig.materialList 必须省略或为空，禁止自填素材身份、名称或 URL；主体素材后续用 select_assets 核验写入，音频用 audio_preview/audio_apply；新建不要复制旧记录的 id、任务列表或账号字段。创建后从响应取 ID 并 get 回读核对提示词，再继续下一批；无需用户先手工创建样本。",
             "additionalProperties": true
           },
           "body_path": {
@@ -929,11 +950,11 @@
           },
           "prompt": {
             "type": "string",
-            "description": "audio_preview 必填：完整新提示词，原图片素材标记及其顺序必须保留，声音标记与 audio_references 一一对应。"
+            "description": "audio_preview 必填：完整新提示词，保留原图片素材标记及其顺序；音频标签不能为空，同一 key 的重复标签须一致，首次出现顺序与 audio_references 一致。"
           },
           "audio_references": {
             "type": "array",
-            "description": "audio_preview 必填：最终完整、有序的音频引用列表；[] 明确移除全部声音引用，保留原图片。",
+            "description": "audio_preview 必填：最终完整、有序的音频引用列表；每项须有非空 fileName 或 materialName；[] 明确移除全部声音引用，保留原图片。",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -951,10 +972,12 @@
                   "type": "string"
                 },
                 "fileName": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "音频保存与回读使用的名称；缺失或空白时从非空 materialName 补齐。"
                 },
                 "materialName": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "可选显示名；保留在模型配置中，音频关系表使用 fileName。"
                 },
                 "sortOrder": {
                   "type": "integer",
@@ -1103,11 +1126,11 @@
           },
           "project_dir": {
             "type": "string",
-            "description": "prepare_video / generate 准备阶段必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。"
+            "description": "audio_preview / audio_apply 必填；prepare_video / generate 准备阶段必填、submit_video 可选：项目目录须含 project_config.json，且 jubian_script_id 必须等于实时 scriptId。"
           },
           "preview_path": {
             "type": "string",
-            "description": "submit_video / generate 提交阶段：准备结果返回的 preview_path，不要猜测或手写文件名；新 generate 不带此项时仅准备预览。"
+            "description": "audio_apply 必填：audio_preview 返回的 preview_path；submit_video / generate 提交阶段使用 prepare_video 返回的路径。原样传入，不猜测或手写文件名；新 generate 不带此项时仅准备预览。"
           },
           "video_previews": {
             "type": "array",
@@ -1155,13 +1178,13 @@
     },
     {
       "name": "jubian_video",
-      "description": "剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks/sources 只读。提取或复用已有视频时，先 sources(script_id,storyboard_id) 查询原卡已生成来源；返回原任务、成片、运行状态与查询完整性，不要求与当前模型配置一致。任务分页只说明本页状态，complete=false 或 unknown 不能推断没有成片；缺声线不等于授权重新生成。（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。ASR 等未返回费用时保持未知，不填零，也不把已知任务行合计称为整集官方总实扣。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；使用人物库参考图时只传 upload_character_reference 返回的 managed_reference_id 及同一组授权身份；Host 会重读当前项目、角色、Catalog 原图、SHA、授权版本和一次性范围，再私下注入参考 URL。本人上传图的逐项目自授权只允许一次项目私有参考生图；结果仍须人工验收，不得自动 confirm_casting、正式绑定、发布或跨项目复用。仅当用户明确要求替换现有资产时给 parent_asset_id 做重生成（PUT）；否则新建候选资产（POST）。它只在同一个 idempotency_key 下发送一次；新建后核实新父资产的生成图，才返回 material_id 与 image_url。重生成旧资产时不以其旧 Active 状态或旧材质认领新图，回显 requested_parent_asset_id 并保持未核实，须只读核对该资产最新任务与新材质。候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理后尚未核实可用图片，不要换 key 重投，稍后用精确资产的 jubian_asset generated_image 续读；failed 表示提供方判失败，先核对实际费用与原因，不自动换 key；unverified 表示本次新图尚未证实，不能用同名资产或旧材质代替。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
+      "description": "剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks/sources 只读。提取或复用已有视频时，先 sources(script_id,storyboard_id) 查询原卡已生成来源；返回原任务、成片、运行状态与查询完整性，不要求与当前模型配置一致。任务分页只说明本页状态，complete=false 或 unknown 不能推断没有成片；缺声线不等于授权重新生成。tasks 默认不按任务类型筛选；显式 task_type 只查该类型，total_verified/complete 仅对应返回的 scope，筛选结果为空不能推断项目没有任务。project_complete 仅表示本次读全未按类型筛选的提供方列表。（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。ASR 等未返回费用时保持未知，不填零，也不把已知任务行合计称为整集官方总实扣。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；使用人物库参考图时只传 upload_character_reference 返回的 managed_reference_id 及同一组授权身份；Host 会重读当前项目、角色、Catalog 原图、SHA、授权版本和一次性范围，再私下注入参考 URL。本人上传图的逐项目自授权只允许一次项目私有参考生图；结果仍须人工验收，不得自动 confirm_casting、正式绑定、发布或跨项目复用。仅当用户明确要求替换现有资产时给 parent_asset_id 做重生成（PUT）；否则新建候选资产（POST）。它只在同一个 idempotency_key 下发送一次；新建后核实新父资产的生成图，才返回 material_id 与 image_url。重生成旧资产时不以其旧 Active 状态或旧材质认领新图，回显 requested_parent_asset_id 并保持未核实，须只读核对该资产最新任务与新材质。候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理后尚未核实可用图片，不要换 key 重投，稍后用精确资产的 jubian_asset generated_image 续读；failed 表示提供方判失败，先核对实际费用与原因，不自动换 key；unverified 表示本次新图尚未证实，不能用同名资产或旧材质代替。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
       "parameters": {
         "type": "object",
         "properties": {
           "method": {
             "type": "string",
-            "description": "task=单个任务（含 cost 观测）；tasks=项目任务分页（带查询完整性与下一页）；sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
+            "description": "task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
             "enum": [
               "task",
               "tasks",
@@ -1185,6 +1208,10 @@
           "storyboard_id": {
             "type": "number",
             "description": "分镜 ID。"
+          },
+          "task_type": {
+            "type": "integer",
+            "description": "仅 tasks 可选：按提供方正整数任务类型筛选，如 1=生成、10=去字幕、20=转高清；省略查询全部类型。"
           },
           "page_num": {
             "type": "number",
@@ -1572,10 +1599,14 @@
     },
     {
       "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
+          },
           "description": {
             "type": "string",
             "description": "A short (3-5 word) description of the delegated task, for display."
@@ -1583,10 +1614,6 @@
           "prompt": {
             "type": "string",
             "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
-          },
-          "run_in_background": {
-            "type": "boolean",
-            "description": "Defaults to true. Set false only when your next action depends on the result."
           }
         },
         "required": [
@@ -1597,10 +1624,14 @@
     },
     {
       "name": "subagent_fork",
-      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This call waits for the subagent and returns its result.",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
+          },
           "description": {
             "type": "string",
             "description": "A short (3-5 word) description of the delegated task, for display."
@@ -1854,6 +1885,19 @@
           "script",
           "meta"
         ]
+      }
+    },
+    {
+      "name": "working_directory",
+      "description": "Read the current working directory, or change it with cd. Relative paths use the current directory. Existing shells and running processes keep their own directories.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "cd": {
+            "type": "string",
+            "description": "Existing directory to enter. Omit to read the current directory."
+          }
+        }
       }
     },
     {

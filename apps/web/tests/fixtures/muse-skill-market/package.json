@@ -1,0 +1,20 @@
+{
+  "name": "@fixture/muse-skill-market",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "stack.mjs",
+  "exports": {
+    ".": "./stack.mjs",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-muse-market": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-muse-market": "workspace:*"
+  }
+}

@@ -13,6 +13,12 @@ export interface ManuscriptDocument {
   text: string
 }
 
+/** Body and original bytes decoded from the same bounded file read. */
+export interface ManuscriptFile {
+  document: ManuscriptDocument
+  bytes: Uint8Array
+}
+
 /** Limits enforced before decompression and comparison. */
 export interface DocumentLimits {
   maxFileBytes: number
@@ -73,6 +79,18 @@ function wordText(xml: string): string {
  */
 export async function readManuscript(path: string, cwd: string, limits: DocumentLimits,
   signal: AbortSignal): Promise<ManuscriptDocument> {
+  return (await readManuscriptFile(path, cwd, limits, signal)).document
+}
+
+/** Read exact original bytes and body together for recoverable version snapshots.
+ * @param path - Explicit manuscript path.
+ * @param cwd - Owning workspace.
+ * @param limits - Byte and extracted-body limits.
+ * @param signal - Operation cancellation.
+ * @returns Original bytes and their corresponding extracted document; comments remain in Word bytes.
+ */
+export async function readManuscriptFile(path: string, cwd: string, limits: DocumentLimits,
+  signal: AbortSignal): Promise<ManuscriptFile> {
   signal.throwIfAborted()
   const absolute = resolve(cwd, path)
   if (!isManuscript(absolute)) throw Error('MANUSCRIPT_FORMAT: 仅支持 .md、.txt 和 .docx。')
@@ -97,5 +115,5 @@ export async function readManuscript(path: string, cwd: string, limits: Document
   } else text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   if (text.length > limits.maxTextChars) throw Error('MANUSCRIPT_SIZE: 文稿过长，请按实际分集比较，不截断检查。')
   signal.throwIfAborted()
-  return { path: await realpath(absolute), sha256: createHash('sha256').update(bytes).digest('hex'), text }
+  return { document: { path: await realpath(absolute), sha256: createHash('sha256').update(bytes).digest('hex'), text }, bytes }
 }

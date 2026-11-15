@@ -1,0 +1,29 @@
+{
+  "assets": [
+    {
+      "name": "林岚",
+      "type": "角色",
+      "id": "fixture-lin",
+      "official": true,
+      "jubian_asset_id": "71001",
+      "jubian_material_id": "81001",
+      "url": "https://example.invalid/lin.png",
+      "episodes": [
+        "all"
+      ],
+      "state_or_costume": "非孕期；青年；白衬衫；长发"
+    },
+    {
+      "name": "后厨",
+      "type": "场景",
+      "id": "fixture-room",
+      "official": true,
+      "jubian_asset_id": "72001",
+      "jubian_material_id": "82001",
+      "url": "https://example.invalid/room.png",
+      "episodes": [
+        "all"
+      ]
+    }
+  ]
+}

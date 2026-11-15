@@ -1,0 +1,105 @@
+{
+  "formatVersion": 2,
+  "roots": [
+    {
+      "key": "event:request/context",
+      "kind": "event",
+      "event": "request/context",
+      "surface": false,
+      "digest": "e6880c6e32739d438c181803047edba233b56f4392753f40217b96b2c1595fe9",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "contextWindow",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "model",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "provider",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "systemPromptUpdate",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "workingContextTokens",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "workingTokenLimit",
+                "type": 2,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "literal",
+            "value": "in-history"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "literal",
+            "value": "request/context"
+          }
+        ]
+      }
+    }
+  ],
+  "types": []
+}

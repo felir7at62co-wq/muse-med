@@ -1,4 +1,5 @@
 /** Real normal-Host composition: an Agent calls the authorization Tool and the Host asks the user. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -47,6 +48,7 @@ it('prompts the live signed-in owner and persists a private grant without a prov
     const fixture = await configurationFixture({
       hmr: false,
       rows: [
+        { id: 'tool-executor-native', name: 'cordis:native-executor' },
         { id: 'prompt', name: 'cordis:prompt' },
         { id: 'tools', name: 'cordis:tools' },
         { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'fixture-token' } },
@@ -54,7 +56,7 @@ it('prompts the live signed-in owner and persists a private grant without a prov
         { id: 'muse-account', name: 'cordis:muse-account' },
         { id: 'tool-jubian', name: 'cordis:jubian', config: { ledgerRoot: join(root, 'ledger'), workspaceSecrets: false } },
       ],
-      builtins: {
+      builtins: { 'native-executor': NativeToolExecutor,
         prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials,
         'character-reference-authority': Authority, 'muse-account': Account, jubian: Jubian,
       },

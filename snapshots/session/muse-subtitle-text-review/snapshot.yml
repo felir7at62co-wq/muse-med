@@ -1,0 +1,14 @@
+version: 1
+scenario: muse-subtitle-text-review
+profile: headless
+composition: muse-subtitle-text-review
+recording: authored
+platform: posix
+header:
+  class: muse-subtitle-text-review
+  pin: true
+writerOutput: true
+workspace:
+  setup: muse-jianying-project-style-skill
+environment:
+  COLUMNS: "80"

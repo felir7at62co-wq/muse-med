@@ -1,0 +1,8 @@
+version: 1
+scenario: cordis-inspect-overlay-owner
+profile: headless
+composition: cordis-inspect-overlay-owner
+recording: authored
+header:
+  class: cordis-inspect-overlay-owner
+  pin: true

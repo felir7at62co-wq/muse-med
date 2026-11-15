@@ -22,7 +22,7 @@ test('packs only authenticated Muse transport and refuses the retired Feishu roo
     assert.equal(manifest.exports['./remote'], './lib/remote.mjs')
     assert.equal(manifest.exports['./client'], undefined)
     assert.deepEqual(manifest.dependencies, {
-      ws: '8.21.3', '@deepseek-ai/dsh-muse-account': '0.2.1-alpha.1', '@xmanrui/dsh-im': '5.1.0',
+      ws: '8.21.3', '@deepseek-ai/dsh-muse-account': '0.2.2-rc.1', '@xmanrui/dsh-im': '5.1.0',
     })
     assert.equal(manifest.devDependencies, undefined)
     assert.equal(manifest.dsh.client, undefined)

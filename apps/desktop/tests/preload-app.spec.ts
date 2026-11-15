@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { DesktopFileDrag, FileDragHandle, FileDragRequestId } from '@deepseek-ai/dsh-util-file-drag'
 import { JSDOM } from 'jsdom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { installMandatoryUpdateOverlay } from '../src/preload-mandatory-overlay.ts'
@@ -52,6 +53,19 @@ it('exposes onboarding size activation to the application document', async () =>
   expect(electron.ipcRenderer.send.mock.calls).toEqual([[DESKTOP_IPC.onboardingActive, true], [DESKTOP_IPC.onboardingActive, false]])
 })
 
+it('routes original-file requests through the trusted application bridge', async () => {
+  vi.stubGlobal('location', new URL('dsh-app://app/'))
+  await import('../src/preload-app.ts')
+  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
+  const request = { url: 'https://images.example/original.gif', name: 'image.gif', mode: 'download' as const }
+  await api.fileActions.save(request)
+  await api.fileActions.readClipboardImage('https://images.example/original.gif')
+  expect(electron.ipcRenderer.invoke.mock.calls).toEqual([
+    [DESKTOP_IPC.fileSave, request],
+    [DESKTOP_IPC.clipboardImageRead, 'https://images.example/original.gif'],
+  ])
+})
+
 it('limits product documents to update status and a native confirmation action', async () => {
   vi.stubGlobal('location', new URL('dsh-app://app/index.html'))
   await import('../src/preload-app.ts')
@@ -71,6 +85,26 @@ it('limits product documents to update status and a native confirmation action',
   expect(listener).toHaveBeenCalledWith({ visible: false })
   dispose()
   expect(electron.ipcRenderer.off).toHaveBeenCalledWith(DESKTOP_IPC.updatesPresentation, handler)
+})
+
+it('exposes only the local DNS preference through the trusted product bridge', async () => {
+  vi.stubGlobal('location', new URL('dsh-app://app/index.html'))
+  electron.ipcRenderer.invoke.mockResolvedValue({ saved: true, active: false })
+  await import('../src/preload-app.ts')
+  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
+  await expect(api.systemDns.status()).resolves.toEqual({ saved: true, active: false })
+  await expect(api.systemDns.set(true)).resolves.toEqual({ saved: true, active: false })
+  expect(electron.ipcRenderer.invoke.mock.calls).toEqual([[DESKTOP_IPC.systemDnsStatus], [DESKTOP_IPC.systemDnsSet, true]])
+})
+
+it('preserves unknown and confirmed failed DNS save outcomes across the preload bridge', async () => {
+  vi.stubGlobal('location', new URL('dsh-app://app/'))
+  electron.ipcRenderer.invoke.mockResolvedValueOnce({ unknown: true })
+    .mockResolvedValueOnce({ saved: false, active: false, saveFailed: true })
+  await import('../src/preload-app.ts')
+  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
+  await expect(api.systemDns.set(true)).resolves.toEqual({ unknown: true })
+  await expect(api.systemDns.set(true)).resolves.toEqual({ saved: false, active: false, saveFailed: true })
 })
 
 it.each(['dsh-app://shell/plugin-manager.html', 'dsh-app://other/index.html', 'https://shell/startup.html', 'http://example.com/'])('exposes only the carrier marker to %s', async (url) => {
@@ -281,3 +315,27 @@ it('forwards browser guest input only for the focused live webview lease', async
   expect(listener).toHaveBeenCalledOnce()
   off()
 })
+
+it('prepares original image bytes and starts native drags without renderer filesystem paths', async () => {
+  vi.stubGlobal('location', new URL('dsh-app://app/'))
+  await import('../src/preload-app.ts')
+  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
+  const bytes = new Uint8Array([137, 80, 78, 71])
+  electron.ipcRenderer.invoke.mockResolvedValueOnce('image-handle').mockResolvedValueOnce(true).mockResolvedValueOnce(undefined)
+  await expect(api.fileDrag.prepare({ kind: 'bytes', bytes, name: 'original.png', mediaType: 'image/png' }, 'request' as FileDragRequestId)).resolves.toBe('image-handle')
+  await expect(api.fileDrag.start('image-handle' as FileDragHandle)).resolves.toBe(true)
+  api.fileDrag.release('image-handle' as FileDragHandle)
+  api.fileDrag.cancel('request' as FileDragRequestId)
+  expect(electron.ipcRenderer.invoke.mock.calls).toEqual([
+    [DESKTOP_IPC.fileDragPrepare, { kind: 'bytes', bytes, name: 'original.png', mediaType: 'image/png' }, 'request'],
+    [DESKTOP_IPC.fileDragStart, 'image-handle'],
+    [DESKTOP_IPC.fileDragRelease, 'image-handle'],
+    [DESKTOP_IPC.fileDragCancel, 'request'],
+  ])
+})
+
+// The Host and Client compiler faces share no runtime entry; this assignment checks their image protocol.
+const imageProtocol = (value: import('../src/ipc.ts').DshDesktopProductApi['fileDrag']): DesktopFileDrag => value
+const imageProtocolBack = (value: DesktopFileDrag): import('../src/ipc.ts').DshDesktopProductApi['fileDrag'] => value
+void imageProtocol
+void imageProtocolBack

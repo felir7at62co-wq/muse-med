@@ -1,4 +1,5 @@
 /** Session model budgets and advisory rechecks of logged packaging results. */
+import type {} from '@deepseek-ai/dsh-tool-executor-ptc'
 import { isAbsolute, relative } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -27,9 +28,6 @@ const reviewStateSchema = z.object({
 type SavedReview = z.infer<typeof savedReviewSchema>
 type ReviewState = z.infer<typeof reviewStateSchema>
 
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionStateMap { dramaShotReview: ReviewState }
-}
 
 /** Decode only the package facts needed for a capability recheck, from a durable tool result. */
 function readReview(content: readonly ContentBlock[]): SavedReview | null {
@@ -153,11 +151,11 @@ export async function sessionDurationBudget(
  * @param definition - Exact scoped tool whose reviews this registration owns.
  * @param maxChars - Maximum characters in each switch-review context.
  */
-export function installSessionReview(ctx: Context, definition: ToolDefinition, maxChars: number): void {
+export async function installSessionReview(ctx: Context, definition: ToolDefinition, maxChars: number): Promise<void> {
   const projections = ctx.get('sessionProjections')
   const service = ctx.get('jubianVideoSelection')
   if (projections === undefined || service === undefined) throw new Error('会话分包复核需要视频模型与会话投影服务。')
-  projections.register({ key: 'dramaShotReview', stateSchema: reviewStateSchema, stateVersion: 1,
+  const projection = await projections.register<'dramaShotReview', ReviewState>({ key: 'dramaShotReview', stateSchema: reviewStateSchema, stateVersion: 1,
     init: () => ({ pending: [], latest: null }),
     apply: (state, event) => {
       if (event.type === 'tool/call' && ['drama_shot', 'muse_production'].includes(event.data.name)) {
@@ -177,7 +175,7 @@ export function installSessionReview(ctx: Context, definition: ToolDefinition, m
     } })
   ctx.effect(() => service.registerContextReviewer((agent: Agent, selection: SessionVideoSelection) => {
     if (ctx.tools.get('drama_shot', agent) !== definition) return ''
-    const review = projections.stateOf(agent.session, 'dramaShotReview')?.latest ?? null
+    const review = projection.stateOf(agent.session).latest
     return review === null ? '' : boundContext(recheck(review, selection, maxChars, agent.session.header.cwd)
       + (ctx.tools.get('muse_production', agent) ? 'Muse批量制作方案请用muse_production update刷新当前模型分包和素材候选，再自主复核。' : ''), maxChars)
   }))

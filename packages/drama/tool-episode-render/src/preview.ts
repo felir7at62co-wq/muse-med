@@ -16,12 +16,10 @@ export function buildRenderPreview(input: {
   readonly bgmPlan?: string
 }): RenderPreview {
   const settings = deliveryRenderSettings(input.settings, input.delivery)
-  // Keep the public geometry schema stable; resolved style/gains have dedicated fields.
-  const delivery = { ...input.delivery }
-  delete delivery.subtitle
-  delete delivery.audio
-  delete delivery.draft_style
-  delete delivery.subtitle_visual
+  const delivery: RenderPreview['delivery'] = {
+    ...(input.delivery.visual_medium === undefined ? {} : { visual_medium: input.delivery.visual_medium }),
+    width: input.delivery.width, height: input.delivery.height, fps: input.delivery.fps,
+  }
   return {
     delivery,
     subtitle: { path: input.subtitle, font_family: settings.subtitleFontFamily, ...subtitleRenderStyle(input.delivery) },

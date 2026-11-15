@@ -3,12 +3,14 @@
 import { delimiter, join, sep } from 'node:path'
 import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { inspect } from 'node:util'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadLayeredEnv, loadOverlayPatches, loadProfileDirectory, reportSkippedBundles, type Profile } from '@deepseek-ai/dsh-app-boot'
 import { bundledSkillDirectory, productSkillDirectory, desktopSkillDirectories } from './bundled-skills.ts'
 import { bundledBridgeModules, verifyBundledImClient } from './bundled-bridge.ts'
 import { feishuGateLayer, migrateFeishuProfileName } from './feishu-gate.ts'
+import { randomUUID } from 'node:crypto'
+import type { PluginOperationRunId } from '@deepseek-ai/dsh-plugin-manager/diagnostic'
+import { formatFatalDiagnostic } from './fatal-diagnostic.ts'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -16,15 +18,21 @@ import type {} from '@deepseek-ai/dsh-deepseek-account'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import * as desktopOffice from './office.ts'
 import { readPrimaryRuntime, workspaceDependencyPaths } from '@deepseek-ai/dsh-tool-workspace-dependencies'
+import { localDragResource } from './file-drag.ts'
 
+import * as approvedEpisodeRender from './approved-episode-render.ts'
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
+import { shutdownDesktopHost } from './shutdown.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
 import { installPlatformSessionPublisher } from './platform-session.ts'
 import { attentionSoundForEvent } from './attention-sound.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
+import { installOperationDiagnostics } from './operation-diagnostics.ts'
 import { desktopDownloadEnvironment } from './download-runtime.ts'
 import { installDesktopDouyinBrowser } from './douyin-browser.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION, DESKTOP_HOST_SHUTDOWN_GRACE_MS } from './host-protocol.ts'
+import { workspaceStorageLayer } from './workspace-storage-composition.ts'
+import { generationLoopLayer } from './generation-loop-composition.ts'
 
 const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
 
@@ -65,7 +73,10 @@ async function desktopComposition(
     profile.patches,
     loadOverlayPatches('muse-med', DESKTOP_PATCH),
   ]
-  const configuredSkillFilesystem = composeEntries(layers.slice(0, -1)).find(row => row.id === 'skill-filesystem')
+  const inheritedEntries = composeEntries(layers.slice(0, -1))
+  const configuredSkillFilesystem = inheritedEntries.find(row => row.id === 'skill-filesystem')
+  layers.push(workspaceStorageLayer(inheritedEntries, dshHomePath('storages')))
+  layers.push(generationLoopLayer(composeEntries(layers)))
   const rows = new Map(composeEntries(layers).flatMap(row => typeof row.id === 'string' ? [[row.id, row] as const] : []))
   if (rows.get('agent-preset-registry') === undefined) {
     throw new Error('muse-med: profile has no agent-preset-registry row')
@@ -115,10 +126,12 @@ async function desktopComposition(
   }])
   // Resolve bridge Config only after the setup service installs its startup hook.
   layers.push(feishuGateLayer([...rows.values()]))
-  return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: bundledBridgeModules(runtimeDir) }
+  return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: { ...bundledBridgeModules(runtimeDir), 'muse-workspace-owned-storage': fileURLToPath(new URL('./workspace-owned-storage.js', import.meta.url)), 'ds-bot': fileURLToPath(new URL('./retired-bot.js', import.meta.url)), 'muse-bot': fileURLToPath(new URL('./retired-bot.js', import.meta.url)) } }
 }
 
 async function main(): Promise<void> {
+  const runId = randomUUID() as PluginOperationRunId
+  if (process.connected) process.send?.({ type: 'starting', runId }, (error) => { if (error !== null) console.error(error) })
   const args = process.argv.slice(2)
   const allowLinkedPackages = args.at(-1) === '--allow-linked-profile'
   if (allowLinkedPackages) args.pop()
@@ -136,6 +149,8 @@ async function main(): Promise<void> {
     if (value === undefined) Reflect.deleteProperty(process.env, field)
     else process.env[field] = value
   }
+  // The shipped driver runs in its own process; no PATH lookup or user installation is needed.
+  process.env.MUSE_COMPUTER_USE_EXECUTABLE = join(primarySource, '..', 'cua', process.platform === 'win32' ? 'cua-driver.exe' : 'cua-driver')
   installOfficeEngineResolution(runtimeDir)
   const installAnchor = join(runtimeDir, 'package.json')
   const { profile, patches, moduleOverrides } = await desktopComposition(runtimeDir, projectDir, allowLinkedPackages)
@@ -163,6 +178,8 @@ async function main(): Promise<void> {
     }),
   })
   let stopping: Promise<void> | undefined
+  const dragReads = new Map<number, AbortController>()
+  const dragTasks = new Set<Promise<void>>()
   const control: {
     updateTasks?: ReturnType<typeof installDesktopUpdateTaskControl>
     quitInspection?: ReturnType<typeof installDesktopQuitInspection>
@@ -172,18 +189,38 @@ async function main(): Promise<void> {
     process.send(message, (error) => { if (error === null) resolve(); else reject(error) })
   })
   const stop = (): Promise<void> => stopping ??= (async () => {
-    // Startup failure is reported by main; shutdown only owns a tree that booted.
-    const running = await application.catch(() => undefined)
-    await running?.shutdown.shutdown(0)
-    await send({ type: 'shutdown-complete' })
-    if (process.connected) {
-      if (process.disconnect === undefined) throw new Error('desktop host: connected IPC has no disconnect method')
-      process.disconnect()
-    }
+    for (const abort of dragReads.values()) abort.abort()
+    await Promise.allSettled(dragTasks)
+    await shutdownDesktopHost(application, () => send({ type: 'shutdown-complete' }))
   })()
   process.on('message', (message: unknown) => {
     if (typeof message !== 'object' || message === null || !('type' in message)) return
     if (message.type === 'shutdown') { void stop(); return }
+    if (message.type === 'file-drag-cancel') {
+      if ('requestId' in message && typeof message.requestId === 'number') dragReads.get(message.requestId)?.abort()
+      return
+    }
+    if (message.type === 'file-drag-resource') {
+      if (!('requestId' in message) || typeof message.requestId !== 'number' || !Number.isSafeInteger(message.requestId)
+        || !('address' in message) || typeof message.address !== 'string') return
+      const { requestId, address } = message
+      const abort = new AbortController()
+      dragReads.set(requestId, abort)
+      const task = (async () => {
+        try {
+          if (stopping !== undefined) throw new Error('Host stopping')
+          const { ctx } = await application
+          const resource = await localDragResource(ctx, address, abort.signal)
+          await send({ type: 'file-drag-resource', requestId, resource })
+        } catch (error) {
+          if (!abort.signal.aborted) console.error(error)
+          await send({ type: 'file-drag-resource', requestId, resource: null, error: 'File drag resource unavailable' })
+        } finally { dragReads.delete(requestId) }
+      })().catch((error: unknown) => { console.error(error) })
+      dragTasks.add(task)
+      void task.finally(() => { dragTasks.delete(task) })
+      return
+    }
     if (message.type === 'quit-inspection') {
       if (!('requestId' in message) || !Number.isSafeInteger(message.requestId)) return
       const requestId = message.requestId
@@ -220,23 +257,34 @@ async function main(): Promise<void> {
     const kind = attentionSoundForEvent(session.header, event)
     if (kind !== undefined && process.connected) process.send?.({ type: 'attention-sound', kind })
   })
+  installOperationDiagnostics(ctx, record => send({ type: 'plugin-operation', record }), 32, runId)
+  await ctx.plugin(approvedEpisodeRender, approvedEpisodeRender.Config.parse({ runtimeDir, allowLinkedProfile: allowLinkedPackages,
+    endingAssetRoot: join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh-drama-skills', 'skills') })).await()
   control.updateTasks = installDesktopUpdateTaskControl(ctx)
   control.quitInspection = installDesktopQuitInspection(ctx)
+  const forceDraftSubtitleVisual = process.env.MUSE_FORCE_SUBTITLE_VISUAL === '1'
+  const productSubtitleVisual = process.env.MUSE_DEFAULT_SUBTITLE_VISUAL
+  if (forceDraftSubtitleVisual && productSubtitleVisual === undefined) {
+    throw new Error('Forced product subtitle visual is missing from the Desktop environment')
+  }
   await ctx.plugin(desktopOffice, {
     runtimeDir,
     source: primarySource,
     root: join(resolveDshHome(), 'dsh-runtimes', 'dsh-primary-runtime'),
     docxReviewMode: 'advisory',
+    ...(forceDraftSubtitleVisual && productSubtitleVisual !== undefined ? { jianyingDraft: {
+      enforceSubtitleVisual: true,
+      defaultSubtitleVisual: JSON.parse(productSubtitleVisual) as NonNullable<NonNullable<desktopOffice.Config['jianyingDraft']>['defaultSubtitleVisual']>,
+      ...(process.env.MUSE_FONTS_DIR === undefined ? {} : { fontsDir: process.env.MUSE_FONTS_DIR }),
+      ...(process.env.MUSE_SUBTITLE_FONT_FAMILY === undefined ? {} : { subtitleFontFamily: process.env.MUSE_SUBTITLE_FONT_FAMILY }),
+    } } : {}),
   })
   installPlatformSessionPublisher(ctx, (session) => {
     if (process.connected) process.send?.({ type: 'platform-session', session })
   })
-  const url = ctx.connection.authenticatedUrl(`http://127.0.0.1:${String(ctx.webServer.port)}`)
-  if (process.connected) process.send({ type: 'ready', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION, url, injections: ctx.webServer.collectIndexInjections() }, (error) => { if (error !== null) console.error(error) })
+  const url = ctx.connection.authenticatedUrl(`${ctx.webServer.protocol}//127.0.0.1:${String(ctx.webServer.port)}`)
+  if (process.connected) process.send({ type: 'ready', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION, url, injections: ctx.webServer.collectIndexInjections(ctx.connection.browserPeer) }, (error) => { if (error !== null) console.error(error) })
 }
-
-/** Upper bound of the startup diagnostic carried over IPC; the head holds the message and stack. */
-const MAX_FATAL_DIAGNOSTIC_CHARS = 64 * 1024
 
 if (import.meta.main) {
   main().catch((error: unknown) => {
@@ -244,7 +292,7 @@ if (import.meta.main) {
     // The shell receives the complete inspected error here, not through stderr:
     // stderr bytes and this IPC message race, and the shell reports the first
     // failure it sees.
-    const diagnostic = inspect(error, { depth: 4, maxArrayLength: 50 }).slice(0, MAX_FATAL_DIAGNOSTIC_CHARS)
+    const diagnostic = formatFatalDiagnostic(error)
     if (process.connected) process.send?.({ type: 'fatal', message, diagnostic }, (error) => { if (error !== null) console.error(error) })
     console.error(error)
     process.exitCode = 1

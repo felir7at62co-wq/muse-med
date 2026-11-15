@@ -90,7 +90,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
         type: 'object',
         additionalProperties: false,
         properties: {
-          path: { type: 'string', required: true },
+          path: { type: 'string', required: true, description: 'Canonical absolute path in the filesystem execution world.' },
           offset: { type: 'integer', required: true },
           column: { type: 'integer' },
           lines: {
@@ -179,7 +179,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       const reportVersion = input.offset > 1 || input.column > 1 || window.continuation !== undefined
         || (window.lines.at(-1)?.number ?? 0) < window.totalLines || after?.version !== info.version
       const outcome = {
-        path: target.displayPath,
+        path: ctx.fs.processPath(target),
         offset: input.offset,
         ...input.column === 1 ? {} : { column: input.column },
         lines: window.lines,

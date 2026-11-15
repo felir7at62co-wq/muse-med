@@ -17,7 +17,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
-import type { RenderCheck } from './types.ts'
+import type { DeliverySubtitleVisual, RenderCheck } from './types.ts'
 
 /** Format version; only 1 is read. */
 export const SOURCE_RECORD_VERSION = 1
@@ -44,6 +44,37 @@ export interface SourceRecordCheck {
   readonly severity: string
 }
 
+/** Body inputs shared with the editable draft. */
+export interface DeliveryRenderInputs {
+  readonly timeline_sha256: string
+  readonly subtitle_sha256: string
+  /** Actual OCR, observed picture versions and source-content decisions checked for this render. */
+  readonly source_qa_sha256?: string
+  /** Actual final-display text, glyph-width and selected-face checks run before encoding. */
+  readonly subtitle_visual_verification?: {
+    readonly version: 1
+    readonly subtitle_sha256: string
+    readonly report_path: string
+    readonly report_sha256: string
+    readonly requested_font: string
+    readonly delivery: { readonly width: number; readonly height: number; readonly fps: number }
+    readonly visual: DeliverySubtitleVisual
+    readonly checks: readonly { readonly id: string; readonly ok: true }[]
+  }
+  /** Whether this strict-coverage render processed a retained-subtitle overlay plan. */
+  readonly subtitle_display?: 'external' | 'overlay'
+  /** Actual render music inputs and gain for projects requiring a music decision. */
+  readonly music?: {
+    readonly mode: 'music' | 'none'
+    readonly gain: number
+    readonly plan_path?: string
+    readonly bed_path?: string
+    readonly generation_path?: string
+  }
+  readonly master_audio_sha256: string
+  readonly videos: readonly { readonly shot: number; readonly sha256: string }[]
+}
+
 /** What one delivery was made from, and what was checked on it. */
 export interface DeliverySourceRecord {
   /** Format version. */
@@ -56,6 +87,14 @@ export interface DeliverySourceRecord {
   readonly output: SourceRecordOutput
   /** Digest of every source byte this render consumed, in consumption order. */
   readonly inputs: readonly string[]
+  /** Exact input and settings fingerprint for an opt-in resumable render. */
+  readonly request_sha256?: string
+  /** Effective timeline, burned subtitle and selected body media of a full resumable render. */
+  readonly delivery_inputs?: DeliveryRenderInputs
+  /** Absolute paths and captured digests of the full resumable render's inputs. */
+  readonly input_files?: readonly { readonly path: string; readonly sha256: string | null }[]
+  /** Independently hashed music output when this render emitted one. */
+  readonly music_stem_sha256?: string
   /** Encoder that produced the file. */
   readonly encoder: string
   /** The verdicts this delivery was given. */
@@ -83,6 +122,10 @@ export function buildSourceRecord(input: {
   readonly sizeBytes: number
   readonly durationSeconds: number
   readonly inputs: readonly string[]
+  readonly requestSha256?: string
+  readonly deliveryInputs?: DeliveryRenderInputs
+  readonly inputFiles?: DeliverySourceRecord['input_files']
+  readonly musicStemSha256?: string
   readonly encoder: string
   readonly checks: readonly RenderCheck[]
   readonly now: Date
@@ -94,6 +137,10 @@ export function buildSourceRecord(input: {
     output: { path: input.output, sha256: input.outputSha256, size_bytes: input.sizeBytes,
       duration_seconds: input.durationSeconds },
     inputs: [...input.inputs],
+    ...(input.requestSha256 === undefined ? {} : { request_sha256: input.requestSha256 }),
+    ...(input.deliveryInputs === undefined ? {} : { delivery_inputs: input.deliveryInputs }),
+    ...(input.inputFiles === undefined ? {} : { input_files: input.inputFiles }),
+    ...(input.musicStemSha256 === undefined ? {} : { music_stem_sha256: input.musicStemSha256 }),
     encoder: input.encoder,
     checks: input.checks.map(check => ({ id: check.id, ok: check.ok, severity: check.severity })),
   }

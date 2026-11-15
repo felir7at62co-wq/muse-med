@@ -1,0 +1,13 @@
+{
+  "initial": [
+    {
+      "name": "snapshot_episode_delivery",
+      "description": "Test-only bridge to actual local episode readiness, admission and targeted status.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "changes": []
+}

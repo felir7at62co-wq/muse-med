@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-skill-feedback
+profile: sdk
+composition: sdk-muse-skill-feedback
+recording: authored
+header:
+  class: sdk-muse-skill-feedback
+  pin: true
+  childSystemPrompts: [1, 2]
+workspace:
+  final: true

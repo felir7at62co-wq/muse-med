@@ -62,7 +62,7 @@ describe('packaged runtime verification', () => {
     expect(await requiredRuntimeVersion('/qualification/dsh', '0.1.6-alpha.2.20260921.1')).toBe('0.1.6-alpha.2.20260921.1')
   })
 
-  it('does not let a build version change what the bundled runtime must declare', async () => {
+  it('verifies the Core runtime independently from the Muse product build', async () => {
     const harnessVersion = (JSON.parse(
       await import('node:fs/promises').then(async fs => fs.readFile(new URL('../package.json', import.meta.url), 'utf8')),
     ) as { version: string }).version
@@ -70,8 +70,9 @@ describe('packaged runtime verification', () => {
     const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
     verifyDesktopRuntime.mockClear()
     const config = createElectronBuilderConfig(
-      { ...ENVIRONMENT, DSH_DESKTOP_BUILD_VERSION: `${productVersion}-test.20260921.1` }, 'win32', 'x64')
-    expect(config.extraMetadata).toMatchObject({ version: `${productVersion}-test.20260921.1` })
+      { ...ENVIRONMENT, DSH_DESKTOP_BUILD_VERSION: productVersion }, 'win32', 'x64')
+    expect(productVersion).not.toBe(harnessVersion)
+    expect(config.extraMetadata).toMatchObject({ version: productVersion })
     await verifyWithResources(config)
     expect(verifyDesktopRuntime.mock.calls[0]?.[1]).toBe(harnessVersion)
   })

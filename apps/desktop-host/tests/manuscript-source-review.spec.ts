@@ -1,4 +1,6 @@
 /** Exact source materials and revision hints stay in the calling author session. */
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { afterEach, expect, it, vi } from 'vitest'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -28,8 +30,10 @@ async function fixture(options: Partial<Review.Config> = {}) {
   const root = await mkdtemp(join(tmpdir(), 'muse-current-source-')); roots.push(root)
   const ctx = new Context(); contexts.push(ctx)
   await ctx.plugin(Llm); await ctx.plugin(Sessions); await ctx.plugin(SessionProjections)
-  await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentLoop, { agents: [] }); await ctx.plugin(LocalFs, { cwd: root })
+  await ctx.plugin(SystemPrompt); await ctx.plugin(Tools)
+  await ctx.plugin(NativeToolExecutor)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentLoop, { agents: [] }).await(); await ctx.plugin(LocalFs, { cwd: root })
   const adapter = new MockAdapter([textResponse('收到。'), textResponse('继续。')], { efforts: [{ id: ReasoningEffortId('high'), name: 'High' }] })
   ctx.llm.registerAdapter(['mock'], adapter)
   const agent = await ctx.agentLoop.create(SessionId('source-material-author'), {
@@ -151,13 +155,13 @@ it('requires matching baseline counts and an explicit author workspace', async (
 it('rejects empty selections and agentless calls without changing the tool registry', async () => {
   const f = await fixture()
   for (const input of [{ source_paths: [], draft_paths: ['draft.md'] }, { source_paths: ['source.txt'], draft_paths: [] }]) {
-    const value = await f.ctx.tools.execute({ name: 'manuscript_source_review', arguments: input, callId: ToolCallId('empty'), agent: f.agent, signal }); expect(value.isError).toBe(true)
+    const value = await executeModelToolFixture(f.ctx, { name: 'manuscript_source_review', arguments: input, callId: ToolCallId('empty'), agent: f.agent, signal }); expect(value.isError).toBe(true)
   }
-  const value = await f.ctx.tools.execute({ name: 'manuscript_source_review', arguments: f.input, callId: ToolCallId('agentless'), signal })
+  const value = await executeModelToolFixture(f.ctx, { name: 'manuscript_source_review', arguments: f.input, callId: ToolCallId('agentless'), signal })
   expect(value.isError).toBe(true); expect(f.ctx.tools.get('manuscript_source_review')).toBeDefined()
 })
 it('logs serializable read-only materials through the ordinary calling tool', async () => {
-  const f = await fixture(); const value = await f.ctx.tools.execute({ name: 'manuscript_source_review', arguments: f.input, callId: ToolCallId('materials'), agent: f.agent, signal })
+  const f = await fixture(); const value = await executeModelToolFixture(f.ctx, { name: 'manuscript_source_review', arguments: f.input, callId: ToolCallId('materials'), agent: f.agent, signal })
   expect(value.isError).toBe(false); expect(JSON.stringify(value.content)).toContain('not_performed_by_tool')
   expect(f.ctx.tools.get('manuscript_source_review')?.presentCall?.(f.input)).toMatchObject({ title: 'Source comparison', kind: 'read' })
   expect(f.adapter.requests).toHaveLength(0)
@@ -175,7 +179,7 @@ it('adds one factual source-comparison hint after saved text changes without run
     output: { schema: { type: 'object', properties: {}, additionalProperties: true }, render: () => [{ type: 'text', text: 'saved' }] },
     execute: async () => ({ path: 'episodes.md', before: '改前', after: '改后' }),
   }))
-  const run = () => f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('edit-test'), agent: f.agent, signal })
+  const run = () => executeModelToolFixture(f.ctx, { name: 'edit', arguments: {}, callId: ToolCallId('edit-test'), agent: f.agent, signal })
   const first = await run(), second = await run()
   expect(first.isError).toBe(false)
   expect(first.content).toHaveLength(2)
@@ -197,14 +201,14 @@ it.each([
   { message: 'different output' },
 ])('leaves unrelated or unchanged mutation outcomes intact: %j', async (value) => {
   const f = await fixture(); registerEdit(f.ctx, value)
-  const result = await f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('unrelated'), agent: f.agent, signal })
+  const result = await executeModelToolFixture(f.ctx, { name: 'edit', arguments: {}, callId: ToolCallId('unrelated'), agent: f.agent, signal })
   expect(result.content).toHaveLength(1)
 })
 
 it('can disable saved-revision hints without removing the optional review tool', async () => {
   const f = await fixture({ revisionHints: false })
   registerEdit(f.ctx, { path: 'episodes.md', before: null, after: '创建' })
-  const result = await f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('disabled-hints'), agent: f.agent, signal })
+  const result = await executeModelToolFixture(f.ctx, { name: 'edit', arguments: {}, callId: ToolCallId('disabled-hints'), agent: f.agent, signal })
   expect(result.content).toHaveLength(1)
   expect(f.ctx.tools.get('manuscript_source_review')).toBeDefined()
 })
@@ -216,7 +220,7 @@ it('renews a single revision hint on a new user request and preserves downstream
     const decision = await next()
     return decision.kind === 'accept' ? { kind: 'accept', content: [{ type: 'text', text: 'downstream-content' }] } : decision
   })
-  const run = () => f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('new-turn-hint'), agent: f.agent, signal })
+  const run = () => executeModelToolFixture(f.ctx, { name: 'edit', arguments: {}, callId: ToolCallId('new-turn-hint'), agent: f.agent, signal })
   expect((await run()).content).toHaveLength(2)
   f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '继续修改。' }] }))
   await f.agent.whenIdle()
@@ -228,15 +232,15 @@ it('renews a single revision hint on a new user request and preserves downstream
 it('does not replace failed saves, agentless outcomes or downstream value replacements with a hint', async () => {
   const f = await fixture()
   registerEdit(f.ctx, { path: 'episodes.md', before: null, after: '创建' })
-  const agentless = await f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('agentless-save'), signal })
+  const agentless = await executeModelToolFixture(f.ctx, { name: 'edit', arguments: {}, callId: ToolCallId('agentless-save'), signal })
   expect(agentless.content).toHaveLength(1)
   f.ctx.on('tools/post-execute', async (_exec, _result, next) => {
     await next()
     return { kind: 'accept', value: { path: 'different.md', before: '', after: 'policy replacement' } }
   })
-  const replaced = await f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('replaced'), agent: f.agent, signal })
+  const replaced = await executeModelToolFixture(f.ctx, { name: 'edit', arguments: {}, callId: ToolCallId('replaced'), agent: f.agent, signal })
   expect(JSON.stringify(replaced.content)).not.toContain('manuscript_revision')
-  const failed = await f.ctx.tools.execute({ name: 'absent-tool', arguments: {}, callId: ToolCallId('failed-save'), agent: f.agent, signal })
+  const failed = await executeModelToolFixture(f.ctx, { name: 'absent-tool', arguments: {}, callId: ToolCallId('failed-save'), agent: f.agent, signal })
   expect(failed.isError).toBe(true)
 })
 
@@ -248,7 +252,7 @@ it('preserves sibling policy contexts when adding a revision status', async () =
     await next()
     return { kind: 'accept', additionalContexts: [context] }
   })
-  const result = await f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('policy-context'), agent: f.agent, signal })
+  const result = await executeModelToolFixture(f.ctx, { name: 'edit', arguments: {}, callId: ToolCallId('policy-context'), agent: f.agent, signal })
   expect(result.additionalContexts).toEqual([context])
   expect(result.content).toHaveLength(2)
 })

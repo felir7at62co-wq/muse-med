@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "mode": "dry-run",
+  "interval_seconds": 300,
+  "maximum_gap_seconds": 600,
+  "preview_seconds": 86400,
+  "release_days": 14,
+  "log_days": 14,
+  "rollback_count": 2,
+  "quarantine_seconds": 86400,
+  "max_delete_bytes": 1073741824,
+  "max_delete_objects": 10,
+  "max_tree_entries": 1000000,
+  "release_groups": [
+    {
+      "name": "cloud-pilot",
+      "root": "/opt/muse/cloud-pilot/releases",
+      "pattern": "[0-9]{8}T[0-9]{6}-r[0-9]+",
+      "required_files": [
+        "package.json",
+        "apps/cli/lib/bin.js"
+      ]
+    },
+    {
+      "name": "accounts",
+      "root": "/opt/muse/market/releases",
+      "pattern": "[0-9]{8}-r[0-9]+",
+      "required_files": [
+        "deployment-receipt.json",
+        "gateway/services/muse-accounts/gateway.mjs"
+      ]
+    },
+    {
+      "name": "web-ui",
+      "root": "/opt/muse/market/releases",
+      "pattern": "[0-9]{8}-ui-r[0-9]+",
+      "required_files": [
+        "web/index.html"
+      ]
+    },
+    {
+      "name": "market-skill-ui",
+      "root": "/opt/muse/market/releases",
+      "pattern": "[0-9]{8}-skill-[a-f0-9]{10}-[a-f0-9]{8}",
+      "required_files": [
+        "deployment.json",
+        "web/index.html",
+        "gateway/index.html"
+      ]
+    },
+    {
+      "name": "media-gateway",
+      "root": "/opt/muse/media-gateway/releases",
+      "pattern": "(?:[a-f0-9]{16}|frozen-retention-[0-9]{8})",
+      "required_files": [
+        "bundle-inputs.json",
+        "gateway/app.py",
+        "ops/compose.yml"
+      ]
+    },
+    {
+      "name": "host-retention",
+      "root": "/opt/muse/host-retention/releases",
+      "pattern": "[a-f0-9]{16}",
+      "required_files": [
+        "inventory.py",
+        "policy.py",
+        "engine.py",
+        "cli.py"
+      ]
+    }
+  ],
+  "log_roots": [
+    "/var/log/nginx",
+    "/var/log/journal"
+  ],
+  "pins": [],
+  "state_dir": "/var/lib/muse-host-retention"
+}

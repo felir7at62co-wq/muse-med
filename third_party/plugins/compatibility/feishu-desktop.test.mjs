@@ -9,17 +9,16 @@ import { createMuseAgentStore, drainMuseOperations, mountMuseFeishu, readWorkspa
 
 test('new and restored native Agents mount their Muse preset and current model with reasoning', async () => {
   const calls = []
-  const selections = new WeakMap()
   const owned = new Set()
   const agentCtx = { tools: { guard: guard => { calls.push(['guard', guard]); return () => {} } }, effect: effect => effect() }
-  const agent = { session: { requestHeader: () => undefined } }
+  let selected
+  const agent = { session: { requestHeader: () => undefined }, model: { current: () => selected, select: value => { selected = value } } }
   const ctx = {
     agentPresets: {
       resolveForCreation: async id => { calls.push(['create-preset', id]); return { id } },
       resolve: async id => { calls.push(['resume-preset', id]); return { id } },
       mount: async (_scope, id) => { calls.push(['mount', id]) },
     },
-    sessionProjections: { stateOf: () => ({ pending: null }) },
     agentDefaultModel: { currentSelection: () => ({ provider: 'muse', model: 'flash', reasoningEffort: 'high' }) },
     sessionPersistence: { stat: async id => ({ header: { id, agentPreset: 'preserved-preset' } }) },
     agents: {
@@ -28,11 +27,11 @@ test('new and restored native Agents mount their Muse preset and current model w
       resume: async options => { calls.push(['resume', options]); await options.setup(agentCtx, agent); return { agent, dispose: async () => {} } },
     },
   }
-  const selectionFor = scope => { const ref = { current: undefined }; selections.set(scope, ref); return ref }
+  const selectionFor = () => { throw new Error('Legacy selection references must not be installed') }
   const store = createMuseAgentStore(ctx, { agentPreset: 'short-drama', denyTools: ['ask_user_question', 'exit_plan_mode', 'custom_denied'] }, selectionFor, owned)
   assert.equal(await store.create('created', '/workspace'), agent)
   assert.deepEqual(calls.find(([name]) => name === 'create')[1].meta, { cwd: '/workspace', agentPreset: 'short-drama' })
-  assert.deepEqual(selections.get(agentCtx).current, { provider: 'muse', model: 'flash', reasoningEffort: 'high' })
+  assert.deepEqual(selected, { provider: 'muse', model: 'flash', reasoningEffort: 'high' })
   assert.equal(calls.find(([name]) => name === 'guard')[1]({ name: 'ask_user_question' }), undefined)
   assert.match(calls.find(([name]) => name === 'guard')[1]({ name: 'exit_plan_mode' }), /unavailable/u)
   assert.match(calls.find(([name]) => name === 'guard')[1]({ name: 'custom_denied' }), /unavailable/u)

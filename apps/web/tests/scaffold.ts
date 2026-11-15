@@ -48,6 +48,7 @@ import {
   redactSessionSnapshotIds,
   normalizeSessionSnapshots,
   parseSessionFixtureName,
+  REPLAY_CREDENTIAL_ENV,
   scrubModelRequestBulk,
   scrubSessionSnapshot,
   sessionFixtureFiles,
@@ -55,9 +56,11 @@ import {
   stabilizeFixtureMessageIds,
   stabilizeRefreshLog,
   writesCurrentSessionFixtures,
+  writerSnapshotName,
   type NormalizeContext,
 } from '@deepseek-ai/dsh-session-snapshot'
 import type { Profile, ProfileContext } from '@deepseek-ai/dsh-app-boot'
+import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type {
@@ -78,7 +81,7 @@ import {
   type SessionEvent,
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 // Empty type imports carry the webServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -312,6 +315,8 @@ export interface LaunchOptions {
   openInAppEnvironment?: LaunchEnvironmentSnapshot
   /** Compare the replayed root Session; `read-only` also forbids refresh writes to a borrowed fixture. */
   compareReplaySession?: boolean | 'read-only'
+  /** Fixed JSON-quoted workspace path length for compaction estimates; omitted values use the ordinary prefix. */
+  workspacePathLength?: number
   /**
    * Optional product overlay applied after the shipped Web surface and before
    * the scaffold's hermetic test patches, matching the launcher's `--patch`
@@ -385,13 +390,6 @@ export interface LaunchOptions {
   /** Synthetic model capacity for UI scenarios whose seeded history must remain uncompacted. */
   replayContextWindow?: number
   /**
-   * Tool presentation mode patched onto the shipped `tools` row (`code`
-   * collapses the wire to run_code + the SDK prompt section). Omit for the
-   * yml default. The PTC runtime row is always in the tree, so no extra
-   * insertion is needed.
-   */
-  toolsMode?: 'native' | 'ptc' | 'both'
-  /**
    * Keep the shipped DeepSeek adapter mounted while masking the process
    * environment's DEEPSEEK_API_KEY for this scaffold lifetime. This is the
    * keyless first-run configuration lane; the default disables the adapter.
@@ -408,9 +406,22 @@ export interface LaunchOptions {
    */
   deepSeekSearch?: {
     /** Anthropic-compatible base URL; the provider appends `/messages`. */
-    baseURL: string
+    baseURL?: string
     /** Credential reference resolved by the shipped search provider. */
     apiKeyEnv: string
+  }
+  /**
+   * Patch the shipped DeepSeek Search and Fetch API row to a deterministic
+   * endpoint and credential reference, optionally selecting both providers as
+   * the settings switch does.
+   */
+  deepSeekWebApi?: {
+    /** Search and Fetch API base URL; omitted uses the provider default. The providers append `/search` or `/fetch`. */
+    baseURL?: string
+    /** Credential reference resolved by both providers. */
+    apiKeyEnv: string
+    /** Select `deepseek-search-api` and `deepseek-fetch-api` in place of the shipped selection. */
+    select?: boolean
   }
   /** Preset selection default and additional declarative definitions for this scenario. */
   agentPresets?: {
@@ -495,10 +506,15 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     throw new Error('deepSeekMissingCredential is a keyless replay/refresh option')
   }
   const maskDeepSeekCredential = mode !== 'record' && options.deepSeekMissingCredential === true
+  // A keyless run that replays recorded model calls pins the snapshot replay placeholder: shipped
+  // compositions offer web_search only while a DeepSeek search key is configured, and recordings
+  // ran with a real key. Other runs keep the launching environment, as their goldens do.
+  const pinDeepSeekCredential = mode !== 'record' && !maskDeepSeekCredential
+    && options.replayFixture !== undefined && options.replayProvidersOnly !== true
   const originalDeepSeekCredential = process.env.DEEPSEEK_API_KEY
   let credentialEnvironmentRestored = false
   const restoreCredentialEnvironment = (): void => {
-    if (credentialEnvironmentRestored || !maskDeepSeekCredential) return
+    if (credentialEnvironmentRestored || (!maskDeepSeekCredential && !pinDeepSeekCredential)) return
     credentialEnvironmentRestored = true
     if (originalDeepSeekCredential === undefined) {
       Reflect.deleteProperty(process.env, 'DEEPSEEK_API_KEY')
@@ -506,7 +522,15 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       process.env.DEEPSEEK_API_KEY = originalDeepSeekCredential
     }
   }
-  const workspaceCwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-')))
+  const workspaceParent = await realpath(tmpdir())
+  let workspacePrefix = 'dsh-web-e2e-ws-'
+  if (options.workspacePathLength !== undefined) {
+    // mkdtemp appends six characters; JSON quoting is part of the runtime-context text.
+    const paddingLength = options.workspacePathLength - JSON.stringify(join(workspaceParent, `${workspacePrefix}XXXXXX`)).length
+    if (paddingLength < 0) throw new Error('compaction snapshot temporary root exceeds its fixed cwd text length')
+    workspacePrefix += '-'.repeat(paddingLength)
+  }
+  const workspaceCwd = await realpath(await mkdtemp(join(workspaceParent, workspacePrefix)))
   // Isolated harness home: the settings/credentials rows resolve $DSH_HOME
   // paths at load, and an in-process boot must NEVER touch the developer's
   // real ~/.dsh document or credential file.
@@ -551,6 +575,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     throw error
   }
   if (maskDeepSeekCredential) Reflect.deleteProperty(process.env, 'DEEPSEEK_API_KEY')
+  if (pinDeepSeekCredential) Object.assign(process.env, REPLAY_CREDENTIAL_ENV)
 
   // The include patch set — the same layer stack the profile boot composes
   // (bundle patches in dsh.profile.bundles order), applied over the SAME empty root (a
@@ -675,22 +700,47 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       { id: 'agent-preset-registry', config: { default: options.agentPresets.default, selectablePresets: options.agentPresets.selectablePresets } },
       { insert: (options.agentPresets.definitions ?? []).map(config => ({ id: `preset-${config.id}`, name: '@deepseek-ai/dsh-agent-preset', config })) },
     ],
-    ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
     ...options.deepSeekSearch === undefined
       ? []
       : [{
         id: 'web-search-deepseek',
         config: {
           apiKeyEnv: options.deepSeekSearch.apiKeyEnv,
-          baseURL: options.deepSeekSearch.baseURL,
+          ...options.deepSeekSearch.baseURL === undefined ? {} : { baseURL: options.deepSeekSearch.baseURL },
         },
       }],
+    ...options.deepSeekWebApi === undefined ? [] : [
+      {
+        id: 'web-deepseek-api',
+        config: {
+          apiKeyEnv: options.deepSeekWebApi.apiKeyEnv,
+          ...options.deepSeekWebApi.baseURL === undefined ? {} : { baseURL: options.deepSeekWebApi.baseURL },
+        },
+      },
+      ...options.deepSeekWebApi.select === true
+        ? [{ id: 'web', config: { searchProvider: 'deepseek-search-api', fetchProvider: 'deepseek-fetch-api' } }]
+        : [],
+    ],
     { id: 'llm-deepseek', disabled: mode !== 'record' && !maskDeepSeekCredential },
   ]
 
+  // Recorded standard sessions pin the optional patch tool in their request headers.
+  if (options.replayFixture !== undefined || options.compareReplaySession === true) {
+    const config = composedRows.find(row => row.id === 'preset-standard')!.config as PresetDefinition
+    overlayPatches.push({
+      id: 'preset-standard',
+      config: {
+        ...config,
+        plugins: config.plugins.map(plugin => plugin.id === 'tool-fs'
+          ? { ...plugin, config: { ...plugin.config, applyPatch: true } }
+          : plugin),
+      },
+    })
+  }
+
   // Live fields use a shared deployment layer; process-specific ports and roots stay in CLI overlays.
   const formEntries = new Set(['agent-default-model', 'agent-preset-registry', 'llm-deepseek', 'llm-pi-ai',
-    'web-search-deepseek', 'agent-loop', 'subagent', 'bash-sandbox', 'pwsh-sandbox',
+    'web', 'web-search-deepseek', 'web-deepseek-api', 'agent-loop', 'subagent', 'bash-sandbox', 'pwsh-sandbox',
     'session-log-deepseek', 'ui-theme', 'locale', 'ui-chat', 'ui-conversation', 'ui-settings', 'ui-settings-general', 'permission'])
   const formDefaults: PatchOptions[] = []
   const processOverlays = overlayPatches.map((patch) => {
@@ -896,10 +946,10 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       baseUrl = `http://${publicHost}:${String(publicProxy.port)}${publicPrefix}`
     }
     authenticatedUrl = ctx.connection.authenticatedUrl(baseUrl)
-    // Chromium resolves *.localhost itself; Node may not, so a mounted scaffold
-    // posts the exchange to loopback, the authority the Host fence always trusts.
+    // Chromium resolves *.localhost itself; Node may not. Both scaffold
+    // listeners bind loopback, including the optional prefix proxy.
     const loginUrl = new URL(authenticatedUrl)
-    if (publicPrefix !== undefined) loginUrl.hostname = '127.0.0.1'
+    loginUrl.hostname = '127.0.0.1'
     const login = await fetch(loginUrl, { redirect: 'manual' })
     const setCookie = login.headers.get('set-cookie')
     if (login.status !== 303 || login.headers.get('location') !== './' || setCookie === null) {
@@ -1007,8 +1057,10 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
 /**
  * Serialize a live session to the canonical raw session-JSONL layout — the
  * in-memory record-mode harvest, so the on-disk zstd default never matters.
+ * @param session - Captured live Session, including any inherited fork prefix.
+ * @returns Current-writer Session JSONL.
  */
-function rawSessionLog(session: Session): string {
+export function rawSessionLog(session: Session): string {
   const encodedEvents = (session.snapshotEvents() as unknown as readonly SessionFormatEvent[])
     .map(event => sessionFormatCatalog.encodeCurrentEvent(event))
   const header = sessionFormatCatalog.encodeCurrentHeader({
@@ -1135,6 +1187,9 @@ export function normalizeWebSessionVolatiles(log: string, workspaceCwd?: string)
     let record = normalizeClientTimeZones(mapJsonStringValues(JSON.parse(line), (value) => {
       let normalized = value
         .replace(/Anonymous user: [0-9a-f-]{36}(?=\.$)/gi, 'Anonymous user: {{anonymousUserId}}')
+        // The checkout path and listener port differ per machine and run.
+        .replace(/Current DeepSeek Harness implementation checkout: "(?:[^"\\]|\\.)*"\./g, 'Current DeepSeek Harness implementation checkout: "{{sourceRoot}}".')
+        .replace(/Current DeepSeek Harness Web GUI URL: "(?:[^"\\]|\\.)*"\./g, 'Current DeepSeek Harness Web GUI URL: "{{webUrl}}".')
       for (const cwd of cwdSpellings) normalized = replaceWebCwd(normalized, cwd)
       return normalized
     })) as { type?: unknown; data?: { endpoint?: unknown } }
@@ -1171,6 +1226,23 @@ function stableSessionFixture(
   return stable
 }
 
+/** The Web scaffold compares one driven root Session and exactly one writer oracle. */
+function assertRootWriterRoles(entries: readonly string[]): void {
+  if (sessionFixtureFiles(entries).some(fixture => fixture.index !== 0)) {
+    throw new Error('Web writerOutput requires a root-only Session owner; child Session fixtures are not supported')
+  }
+  const extra = entries.filter(name => name.startsWith('writer') && name.endsWith('.expected.jsonl') && name !== writerSnapshotName(0))
+  if (extra.length > 0) throw new Error(`Web writerOutput has an unexpected writer oracle: ${extra.join(', ')}`)
+}
+
+/**
+ * Compare the driven root Session with its canonical input or separate writer oracle.
+ * @param sessions - Sessions observed by this scaffold.
+ * @param fixturePath - Selected canonical replay input owned by the scenario.
+ * @param mode - Replay compares; refresh updates only the declared output target.
+ * @param webUrl - Run-local Web URL for header sidecar normalization.
+ * @param harnessHome - Run-local Harness home replaced by its stable token.
+ */
 async function assertReplaySession(
   sessions: readonly Session[],
   fixturePath: string,
@@ -1178,14 +1250,18 @@ async function assertReplaySession(
   webUrl: string,
   harnessHome: string,
 ): Promise<void> {
-  let expected = await readFile(fixturePath, 'utf8')
+  const canonical = await readFile(fixturePath, 'utf8')
   const fixtureDir = dirname(fixturePath)
   const manifestPath = join(fixtureDir, 'snapshot.yml')
   const manifest = parseSnapshotManifest(await readFile(manifestPath, 'utf8'), manifestPath)
-  let expectedPath = fixturePath
-  const userPrompts = fixtureUserPrompts(expected)
+  if (manifest.writerOutput === true) assertRootWriterRoles(await readdir(fixtureDir))
+  const writerPath = join(fixtureDir, writerSnapshotName(0))
+  let expectedPath = manifest.writerOutput === true ? writerPath : fixturePath
+  let expected = manifest.writerOutput === true && mode !== 'refresh'
+    ? await readFile(writerPath, 'utf8') : canonical
+  const userPrompts = fixtureUserPrompts(canonical)
   const candidates = sessions.filter((session) => {
-    if (session.header.parentSession !== undefined) return false
+    if (session.header.origin === 'subagent' || session.header.isSeeded) return false
     const actual = session.snapshotEvents().flatMap((event) => {
       if (event.type !== 'user/message' || event.data.source.kind !== 'user') return []
       const text = event.data.content.filter(block => block.type === 'text').map(block => block.text).join('')
@@ -1198,9 +1274,10 @@ async function assertReplaySession(
   const sessionCwd = session.header.cwd
   if (sessionCwd === undefined) throw new Error(`${fixturePath}: replayed session has no cwd`)
   const actual = rawSessionLog(session)
-  if (mode === 'refresh' && writesCurrentSessionFixtures(manifest, mode)) {
-    expected = stableSessionFixture(session, expected, sessionCwd, harnessHome)
-    expectedPath = recordedSessionFixturePath(fixturePath, session.header.version)
+  if (mode === 'refresh' && (manifest.writerOutput === true || writesCurrentSessionFixtures(manifest, mode))) {
+    const existing = existsSync(expectedPath) ? await readFile(expectedPath, 'utf8') : canonical
+    expected = stableSessionFixture(session, existing, sessionCwd, harnessHome)
+    if (manifest.writerOutput !== true) expectedPath = recordedSessionFixturePath(fixturePath, session.header.version)
     await writeFile(expectedPath, expected)
   }
   const expectedHeader = JSON.parse(expected.split('\n').find(line => line.trim() !== '') ?? '{}') as {
@@ -1216,7 +1293,7 @@ async function assertReplaySession(
     ?.split(harnessHome).join('{{harnessHome}}')
   const expectedSnapshot = normalizeSessionSnapshots([normalizeWebSessionVolatiles(expected)], expectedContext)[0]
     ?.split(harnessHome).join('{{harnessHome}}')
-  expect(actualSnapshot, `${fixturePath}: persisted replay`).toBe(expectedSnapshot)
+  expect(actualSnapshot, `${expectedPath}: persisted replay`).toBe(expectedSnapshot)
 
   if (manifest.header?.pin !== true) return
   const normalizePrompt = (value: string): string => value
@@ -1554,6 +1631,7 @@ function normalizeAria(snapshot: string, workspaceCwd: string, age: boolean): st
     .split(workspaceCwd).join('{{cwd}}')
     .split(base).join('{{workspace}}')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{{uuid}}')
+    .replace(/(?<=-)[0-9a-f]{16}(?![0-9a-f])/gi, '{{uuid}}')
     // The optional space in `\d+m ?\d+s` covers both minute spellings: the
     // stats line's compact `2m42s` and the message-chrome template's `2m 42s`.
     .replace(
@@ -1698,8 +1776,9 @@ export async function compareOrRefreshGolden(goldenPath: string, actual: string,
  * files and every committed JSONL is a header-scrubbed, typed-redaction fixed point.
  * @param dir - the scenario snapshot directory.
  * @param expected - the exact expected file inventory.
+ * @param mode - Refresh may inspect before the root writer oracle is harvested; replay requires it.
  */
-export async function assertFixtureInventory(dir: string, expected: string[]): Promise<void> {
+export async function assertFixtureInventory(dir: string, expected: string[], mode = webSnapshotMode()): Promise<void> {
   const entries = (await readdir(dir)).sort()
   const ownsManifest = entries.includes('snapshot.yml')
   const artifacts = entries.filter(name => name !== 'snapshot.yml')
@@ -1707,11 +1786,15 @@ export async function assertFixtureInventory(dir: string, expected: string[]): P
     const fixture = parseSessionFixtureName(name)
     return fixture === undefined ? name : sessionFixtureName(fixture.index, 0)
   }))].sort()
-  expect(roleInventory(artifacts)).toEqual(roleInventory(expected))
+  let expectedArtifacts = expected
   if (ownsManifest) {
     const manifestPath = join(dir, 'snapshot.yml')
     const manifest = parseSnapshotManifest(await readFile(manifestPath, 'utf8'), manifestPath)
     expect(manifest.profile).toBe('web')
+    if (manifest.writerOutput === true) {
+      assertRootWriterRoles(artifacts)
+      if (mode !== 'refresh' || artifacts.includes(writerSnapshotName(0))) expectedArtifacts = [...expected, writerSnapshotName(0)]
+    }
     if (manifest.session === undefined) {
       expect(
         artifacts.some(name => parseSessionFixtureName(name)?.index === 0),
@@ -1721,6 +1804,7 @@ export async function assertFixtureInventory(dir: string, expected: string[]): P
       expect(existsSync(resolve(dir, manifest.session.source)), `${dir}: session source`).toBe(true)
     }
   }
+  expect(roleInventory(artifacts)).toEqual(roleInventory(expectedArtifacts))
   for (const entry of artifacts.filter(name => name.endsWith('.jsonl'))) {
     const content = await readFile(join(dir, entry), 'utf8')
     expect(scrubModelRequestBulk(content), `${dir}/${entry} carries prompt text or tool-schema bulk`).toBe(content)

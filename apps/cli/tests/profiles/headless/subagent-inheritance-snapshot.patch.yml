@@ -14,6 +14,7 @@
     includeDefaultRoots: false
 
 - id: sandbox-policy
+  inject: []
   config:
     mode: workspace-write
     workspaceRoot: !!js process.cwd()
@@ -33,6 +34,9 @@
     - id: replay
       name: '@deepseek-ai/dsh-llm-replay'
 
+    - id: await-subagents
+      name: '../../../../../packages/test-support/session-snapshot/tests/fixtures/subagent-settlement-barrier.ts'
+
     # Publish the persisted agent before the driver selects the single root.
     - id: resumed-agent
       name: './tests/fixtures/subagent-inheritance-agent.ts'
@@ -40,3 +44,8 @@
 - id: session-log-deepseek
   config:
     enabled: false
+
+# The recorded tool catalog includes the optional patch tool.
+- id: tool-fs
+  config:
+    applyPatch: true

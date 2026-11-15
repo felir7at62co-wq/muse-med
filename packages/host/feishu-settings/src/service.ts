@@ -37,7 +37,7 @@ interface FeishuLoaderView {
    */
   entries(): Iterable<{
     readonly options: { readonly id?: string }
-    readonly fiber?: { readonly config?: unknown } | undefined
+    readonly fiber?: { readonly effectiveConfig?: unknown } | undefined
   }>
 }
 
@@ -285,7 +285,7 @@ export class FeishuSetupService extends TypertRemoteService {
    */
   private credentialView(section: SettingsDescriptor | undefined): BridgeCredentialView {
     const entry = [...this.loader.entries()].find(candidate => candidate.options.id === FEISHU_CHANNEL_ROW_ID)
-    return credentialViewOf(section, entry?.fiber?.config)
+    return credentialViewOf(section, entry?.fiber?.effectiveConfig)
   }
 
   /**
@@ -303,7 +303,7 @@ export class FeishuSetupService extends TypertRemoteService {
    */
   private probe(): FeishuRowProbe {
     const entry = [...this.loader.entries()].find(candidate => candidate.options.id === FEISHU_CHANNEL_ROW_ID)
-    const config = entry?.fiber?.config
+    const config = entry?.fiber?.effectiveConfig
     const enabled = isRecord(config) ? config['enabled'] : undefined
     return {
       composed: entry !== undefined,

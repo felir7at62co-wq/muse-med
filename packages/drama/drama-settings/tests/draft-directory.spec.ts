@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, sep } from 'node:path'
 import Tools from '../../../core/tools/src/index.ts'
@@ -21,12 +23,13 @@ afterEach(() => { accessFailure.path = '' })
 
 async function bench() {
   return configurationFixture({ rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'config-editor', name: 'cordis:editor' },
     { id: 'settings', name: 'cordis:settings' },
     { id: 'prompt', name: 'cordis:prompt' },
     { id: 'tools', name: 'cordis:tools' },
     { id: 'drama-settings', name: 'cordis:drama' },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
 }
 
 it('reports an unconfigured draft root without inventing a machine path', async () => {
@@ -119,7 +122,7 @@ it('reports a write that did not persist instead of returning a ready root', asy
 
 it('saves the supplied root through the loaded tool and renders its actual readback', async () => {
   const { ctx, home } = await bench()
-  const result = await ctx.tools.execute({ name: 'drama_draft_dir', callId: ToolCallId('save-draft-root'),
+  const result = await executeModelToolFixture(ctx, { name: 'drama_draft_dir', callId: ToolCallId('save-draft-root'),
     arguments: { path: home }, signal: new AbortController().signal })
   expect(result.isError).toBe(false)
   expect(result.content).toEqual([{ type: 'text', text: JSON.stringify({ status: 'ready', path: home }) }])

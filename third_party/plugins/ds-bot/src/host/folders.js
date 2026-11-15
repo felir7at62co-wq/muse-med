@@ -1,4 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
+// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Working folders: where a Bot's Sessions run. A group's folder holds for every member
 // there, else a Bot works in its own folder, else in the team workspace. A Session's
 // folder is fixed when it is made, so a change moves the conversation on to a fresh
@@ -125,6 +125,8 @@ export function install(rt) {
     if (!(await isFolder(path))) throw new Error(`${text} is a file, not a folder`)
     if (await holdsData(path)) throw new Error(`${text} holds DeepSeek Harness data, so it cannot be the team workspace`)
     if (path === await realTeam()) return path
+    const clash = await rt.privateClash(path)
+    if (clash) throw new Error(`${text} is in or around the folder of ${clash.name}, a private Bot, so it cannot be the team workspace`)
     const workspace = await ctx.workspaceRegistry.resolveByPath(path) ?? await ctx.workspaceRegistry.create(path, 'Muse Bot')
     state.workspaceId = workspace.id
     await rt.save()
@@ -225,5 +227,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, sessionsOfBot, attachCurrentToWorkspace, approveFolder, folderEndpoint })
+  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, sessionsOfBot, attachCurrentToWorkspace, approveFolder, folderEndpoint })
 }

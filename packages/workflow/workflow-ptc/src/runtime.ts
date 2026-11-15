@@ -204,11 +204,9 @@ export class WorkflowExecution {
           this.observer.agentEnd({ ...info, outcome: 'failed', reason: { kind: 'infrastructure-fault' } })
           throw new WorkflowError(`child agent run failed: ${renderThrown(error)}`, 'AGENT_RESULT', { cause: error })
         }
-        // A provider that honors outputSchema reports a clean turn without a
-        // committed value as `structured-output-missing`, keeping "the child
-        // finished but skipped its return channel" distinct from "the child
-        // failed". Name it: the script's `null` and the observer's event must
-        // both say the promised structured result never arrived.
+        // Historical providers can name an absent structured return directly. A
+        // completed result without its declared value is the same missing return;
+        // a failed child retains the ordinary child-failed outcome below.
         if (result.stopReason === 'structured-output-missing'
           || (result.stopReason === 'completed' && opts.schema !== undefined && result.structured === undefined)) {
           this.observer.agentEnd({ ...info, outcome: 'failed', reason: { kind: 'missing-structured-output' } })

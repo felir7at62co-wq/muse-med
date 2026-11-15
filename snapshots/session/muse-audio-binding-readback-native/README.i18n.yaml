@@ -1,0 +1,10 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write snapshots/session/muse-audio-binding-readback-native/README.md
+/:
+  en: 1292e690e91444c5
+  zh: a37402f6142d42ea
+/audio-binding-and-readback:
+  en: 1a4161f1de1eefed
+  zh: 5ba3ea114c7f559e

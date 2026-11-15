@@ -42,6 +42,14 @@ export const PROJECT_BIBLE_CHANGES = {
   delivery: { type: 'object', additionalProperties: false, description: 'Delivery target; omitted numeric fields inherit the current project or Settings.', properties: {
     width: { type: 'integer' }, height: { type: 'integer' }, fps: { type: 'integer' },
     min_bitrate_mbps: { type: 'number' }, max_effective_chars_per_shot: { type: 'integer' },
+    require_source_review: { type: 'boolean', description: 'Require approved content review of all current package sources before staging.' },
+    audio: { type: 'object', additionalProperties: false, description: 'Optional music archive requirement. Existing mix gains are preserved.', properties: {
+      require_music_decision: { type: 'boolean', description: 'Require a recorded music decision and verify the actual composer bed before staging.' },
+    } },
+    subtitle: { type: 'object', additionalProperties: false, description: 'Optional archive requirements. Updates preserve omitted rules and the existing subtitle typography.', properties: {
+      require_no_punctuation: { type: 'boolean', description: 'Refuse punctuation in the bound burned SRT before staging delivery.' },
+      require_speech_coverage: { type: 'boolean', description: 'Require complete same-source word timing and resolve speech/subtitle findings before staging delivery.' },
+    } },
     subtitle_visual: { type: 'object', additionalProperties: false,
       description: 'Optional shared reference-raster subtitle intent. Replaces this whole section; {} restores legacy per-engine styling. Approve real MP4/editor previews, not these nominal numbers.', properties: {
         schema_version: { type: 'integer', enum: [1] },
@@ -367,6 +375,23 @@ function validateBible(bible: JsonObject): void {
     throw new Error('visual_medium must be animation_3d or photorealistic; preserve custom creative guidance in style.')
   }
   const delivery = object(bible.delivery, 'delivery')
+  if (Object.hasOwn(delivery, 'require_source_review') && typeof delivery.require_source_review !== 'boolean') {
+    throw new Error('delivery.require_source_review must be a boolean.')
+  }
+  if (delivery.audio !== undefined) {
+    const audio = object(delivery.audio, 'delivery.audio')
+    if (Object.hasOwn(audio, 'require_music_decision') && typeof audio.require_music_decision !== 'boolean') {
+      throw new Error('delivery.audio.require_music_decision must be a boolean.')
+    }
+  }
+  if (delivery.subtitle !== undefined) {
+    const subtitle = object(delivery.subtitle, 'delivery.subtitle')
+    for (const key of ['require_no_punctuation', 'require_speech_coverage']) {
+      if (Object.hasOwn(subtitle, key) && typeof subtitle[key] !== 'boolean') {
+        throw new Error(`delivery.subtitle.${key} must be a boolean.`)
+      }
+    }
+  }
   if (delivery.draft_style !== undefined) validateDraftStyle(delivery.draft_style)
   if (delivery.subtitle_visual !== undefined) validateSubtitleVisual(delivery.subtitle_visual)
   for (const key of ['width', 'height', 'fps', 'max_effective_chars_per_shot']) {
@@ -503,8 +528,18 @@ function candidate(config: JsonObject, initial: JsonObject, changes: JsonObject,
     ...(previous.delivery === undefined ? {} : object(previous.delivery, 'delivery')) }
   for (const [key, value] of Object.entries(changes)) {
     if (key === 'jubian_script_id') continue
-    if (key === 'delivery' || key === 'episode_plan') bible[key] = {
-      ...(bible[key] === undefined ? {} : object(bible[key], key)), ...object(value, key),
+    if (key === 'delivery' || key === 'episode_plan') {
+      const current = bible[key] === undefined ? {} : object(bible[key], key)
+      const update = object(value, key)
+      const merged = { ...current, ...update }
+      if (key === 'delivery') for (const section of ['subtitle', 'audio']) {
+        if (update[section] === undefined) continue
+        merged[section] = {
+          ...(current[section] === undefined ? {} : object(current[section], `delivery.${section}`)),
+          ...object(update[section], `delivery.${section}`),
+        }
+      }
+      bible[key] = merged
     }
     else if (key === 'characters') {
       const characters = records(previous.characters, 'characters')

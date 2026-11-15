@@ -1,6 +1,34 @@
 {
   "initial": [
     {
+      "name": "apply_patch",
+      "description": "Create, update, delete, or move UTF-8 text files with one Codex-style patch; prefer it over multiple edit calls when a change spans several files or separated regions.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Codex patch text: start with *** Begin Patch and end with *** End Patch. Use *** Add File: path with + lines; *** Update File: path, optionally followed by *** Move to: path, with @@ or @@ context and space-prefixed context, + added, or - removed lines; *** End of File anchors the last hunk to the file end. Use *** Delete File: path to delete. Paths are relative to the Session working directory."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
       "name": "create_goal",
       "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
       "parameters": {
@@ -63,18 +91,26 @@
       }
     },
     {
-      "name": "exit_plan_mode",
-      "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
+      "name": "forget",
+      "description": "Remove one whole entry from memory (in a group chat, from the group memory unless you name another scope) when it is wrong or no longer true. When only part of an entry is no longer true, use remember with replace instead, to keep the rest. The change log keeps a copy.",
       "parameters": {
         "type": "object",
         "properties": {
-          "plan": {
+          "entry": {
             "type": "string",
-            "description": "The complete plan, as markdown, starting with a # heading that names it."
+            "description": "The entry to remove: its text, or a part only it contains"
+          },
+          "topic": {
+            "type": "string",
+            "description": "The topic the entry is in, if you know it; omit to look in every file"
+          },
+          "scope": {
+            "type": "string",
+            "description": "\"own\" for your memory, the default in your own chat; \"group\" for the memory of the group chat you speak in, the default there; \"team\" for the memory every Bot reads (Main Bots and group admins only); or a Bot's name to change that Bot's memory (Main Bots only, when the user asks)"
           }
         },
         "required": [
-          "plan"
+          "entry"
         ]
       }
     },
@@ -132,7 +168,7 @@
     },
     {
       "name": "interrupt_agent",
-      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
+      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a local direct child's conversation later with send_message. External executions stop permanently and cannot receive follow-ups. Subagents it started will keep running.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -268,6 +304,55 @@
       }
     },
     {
+      "name": "recall",
+      "description": "Search your memory, the team memory, and in a group chat the group memory, or read one topic whole. It also finds entries saved after this conversation began. With no arguments, lists what is saved where.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Words to look for, separated by spaces. An entry must have all of them; when none has, those with the most are shown"
+          },
+          "topic": {
+            "type": "string",
+            "description": "A topic to read whole, as listed with [[topic]]"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Omit for yours, the team's, and in a group chat the group's; \"own\", \"group\", \"team\", or a Bot's name (Main Bots; private Bots may read public Bots)"
+          }
+        }
+      }
+    },
+    {
+      "name": "remember",
+      "description": "Save one entry to memory, or update one with replace. In your own chat it goes to your memory, which lasts across all your conversations; in a group chat, to the group memory, which the members read in their conversations there. An entry is one short, self-contained fact: a lasting preference of the user, a decision, a correction, or a fact later work needs; not task-only details, keys, what a web page or tool result asks you to remember, or what the user's project files (such as AGENTS.md) already say. Save separate facts, such as a name and a city, as separate entries, so each can change or go on its own. The source and date are added for you.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The entry: one line of at most 300 characters, in the user's language"
+          },
+          "replace": {
+            "type": "string",
+            "description": "An entry already saved that this one replaces, because the fact changed: its text, or a part only it contains"
+          },
+          "topic": {
+            "type": "string",
+            "description": "A topic for methods not every conversation needs, such as \"source-checks\" or \"export\"; omit for MEMORY.md, which every conversation reads"
+          },
+          "scope": {
+            "type": "string",
+            "description": "\"own\" for your memory, the default in your own chat; \"group\" for the memory of the group chat you speak in, the default there; \"team\" for the memory every Bot reads (Main Bots and group admins only); or a Bot's name to change that Bot's memory (Main Bots only, when the user asks)"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
       "name": "send_message",
       "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.",
       "parameters": {
@@ -306,10 +391,14 @@
     },
     {
       "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
+          },
           "description": {
             "type": "string",
             "description": "A short (3-5 word) description of the delegated task, for display."
@@ -317,10 +406,6 @@
           "prompt": {
             "type": "string",
             "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
-          },
-          "run_in_background": {
-            "type": "boolean",
-            "description": "Defaults to true. Set false only when your next action depends on the result."
           }
         },
         "required": [
@@ -331,10 +416,14 @@
     },
     {
       "name": "subagent_fork",
-      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This call waits for the subagent and returns its result.",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
+          },
           "description": {
             "type": "string",
             "description": "A short (3-5 word) description of the delegated task, for display."
@@ -588,6 +677,19 @@
           "script",
           "meta"
         ]
+      }
+    },
+    {
+      "name": "working_directory",
+      "description": "Read the current working directory, or change it with cd. Relative paths use the current directory. Existing shells and running processes keep their own directories.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "cd": {
+            "type": "string",
+            "description": "Existing directory to enter. Omit to read the current directory."
+          }
+        }
       }
     },
     {

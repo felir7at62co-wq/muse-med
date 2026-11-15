@@ -1,4 +1,5 @@
 /** Removed remote references stop selection before a write and remain visible to the next model request. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { expect, it, vi } from 'vitest'
 import { join } from 'node:path'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -16,9 +17,10 @@ import * as Jubian from '../src/index.ts'
 
 it('records the removed-asset cause without writing or charging', async () => {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   const requests: { path: string; method: string }[] = []
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input.toString())

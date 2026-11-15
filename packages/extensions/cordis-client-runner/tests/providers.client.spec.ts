@@ -7,6 +7,29 @@ import { clientInspectProviders } from '../src/client/providers.ts'
 const Component = () => null
 
 describe('Client inspect providers', () => {
+  it('reports the resolved View owner field when inspecting Conversation overlays', async () => {
+    const ctx = new Context()
+    const fiber = ctx.plugin(SlotRegistry)
+    try {
+      await fiber
+      const slots = ctx.slots as { registerFactory(options: object, component: unknown): () => void }
+      slots.registerFactory({
+        name: 'provider.conversation-overlay', scope: 'session',
+        children: { 'conversation.content.overlay': { kind: 'list', scope: 'session' } },
+      }, Component)
+      const provider = clientInspectProviders(ctx).find(item => item.manifest.id === 'Slots')!
+      const input = { root: 'conversation.content.overlay' }
+      const result = await provider.query('listSubTree', input, {} as never)
+      const selected = result as { selected: { catalog: { ownerProps: string[] } } }
+      const owner = selected.selected.catalog.ownerProps.join('\n')
+      expect(owner).toMatch(/\bactiveView: string \| null/)
+      expect(owner).toContain('Resolved registered View, or null while no View is available.')
+      expect({ provider: 'Slots', query: 'listSubTree', input, result }).toMatchSnapshot()
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('exposes Tool owner fields and phases through the live slot lookup', async () => {
     const ctx = new Context()
     const fiber = ctx.plugin(SlotRegistry)

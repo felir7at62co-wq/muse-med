@@ -1,4 +1,5 @@
 /** Advisory findings travel through the loaded tools, durable log and next model request. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -26,9 +27,10 @@ function lastResult(options: GenerateOptions): { fingerprint: string; preview_pa
 
 it('keeps dirty previews actionable, reports saved prompt findings and clears them after a verified free edit', async () => {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   const config = { modelId: 'doubao-seedance-2-0-260128', platformId: 'YU_DIAN', standardId: 11,
     genType: 3, modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, genNum: 1,
     ratio: '9:16', resolution: '720p', prompt: '@[主角](lead)', materialList: [] }
@@ -90,12 +92,14 @@ it('keeps dirty previews actionable, reports saved prompt findings and clears th
     for (const result of results) expect(result.data.message.isError).toBeFalsy()
     const values = results.map(result => JSON.parse(result.data.message.content.filter(part => part.type === 'text').map(part => part.text).join('')) as {
       status: string
+      next?: string
       prompt_risk_review?: { total_matches: number }
       storyboard?: { model_config: { prompt: string } }
     })
     expect(values[0]).toMatchObject({ status: 'ready', prompt_risk_review: { total_matches: 3 } })
     expect(values[1]).toMatchObject({ status: 'applied', items: [{ verified_readback: true }, { verified_readback: true }] })
     expect(values[2]).toMatchObject({ status: 'prepared', prompt_risk_review: { total_matches: 2 } })
+    expect(values[2]?.next).toContain('不沿用此前制作授权进入付费提交')
     expect(values[4]).toMatchObject({ status: 'applied', items: [{ verified_readback: true }] })
     expect(values[5]).toMatchObject({ status: 'prepared', prompt_risk_review: { total_matches: 0 } })
     expect(values[6]?.storyboard?.model_config.prompt).toBe(clean)
@@ -103,7 +107,8 @@ it('keeps dirty previews actionable, reports saved prompt findings and clears th
       .toMatchSnapshot('advisory findings before and after readback')
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('prompt_risk_review')
     expect(JSON.stringify(adapter.requests[3]!.messages)).toContain('不凭引号认定原台词')
+    expect(JSON.stringify(adapter.requests[3]!.messages)).toContain('用户最新请求若为只预览或先看，到此展示结果')
     expect(boards.get(2)?.modelConfig).toContain('国旗')
     expect(writes).toHaveLength(3)
-  } finally { transport.mockRestore(); await ctx.fiber.dispose() }
+  } finally { try { await ctx.fiber.dispose() } finally { transport.mockRestore() } }
 })

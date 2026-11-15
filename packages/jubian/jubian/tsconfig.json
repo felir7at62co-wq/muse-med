@@ -10,6 +10,9 @@
   "references": [
     {
       "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../util/atomic-write"
     }
   ]
 }

@@ -1,11 +1,9 @@
-/** Muse Desktop account service, session-authorized models, and bundled knowledge-base MCP server. */
+/** Muse Desktop account service, session-authorized models, and cloud speech access. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import * as McpClient from '@deepseek-ai/dsh-mcp-client'
 import { isAbsolute, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { MuseAccountController } from './account.ts'
 import { MuseBrowserLogin } from './browser-login.ts'
 import { MuseAsrClient } from './asr.ts'
@@ -14,8 +12,13 @@ import { MuseModels } from './models.ts'
 import { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 import { MuseAccountService } from './service.ts'
 import { MuseFeedbackClient, feedbackSecrets } from './feedback.ts'
+import { mountMuseFeedbackTools } from './feedback-tools.ts'
 import { MuseDesktopRemote } from './desktop-remote.ts'
 import { mountMuseActivity } from './activity.ts'
+import { mountMuseWebSearch } from './web-search.ts'
+import { MuseMediaClient } from './media.ts'
+import { MuseMediaImporter } from './media-import.ts'
+import { mountMuseMediaTools } from './media-tools.ts'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -27,17 +30,20 @@ export { MuseVoiceSlotsClient, MuseVoiceSlotError } from './voice-slots.ts'
 export type { MuseVoiceLeaseId, MuseVoiceSlotRequest, MuseVoiceSlotsOptions } from './voice-slots.ts'
 export type { MuseAsrJob, MuseAsrSegment, MuseAsrPurpose, MuseAsrMetadata } from './asr.ts'
 export { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
+/** Host-only origin-bound credential reader; callers own the configured origin and private session-file path. */
+export { readMuseSession } from './session.ts'
 export type * from './types.ts'
+export { mountMuseFeedbackTools } from './feedback-tools.ts'
 
 /** Cordis plugin name used by Loader diagnostics. */
 export const name = 'muse-account'
 
 /** Registries, Session model state and default selection used by account-authorized requests. */
-export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel']
+export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'sessions']
 
 /** Product-configured gateway and optional account storage directory. */
 export interface Config {
-  /** MUSE website origin serving account and knowledge-base access endpoints. */
+  /** MUSE website origin serving account-authorized services. */
   readonly baseUrl: string
   /** Interval for refreshing the account model catalog, in milliseconds. */
   readonly modelRefreshMs: number
@@ -63,14 +69,48 @@ export interface Config {
   }[]
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
-  /** Timeout for account and knowledge-base gateway requests in milliseconds. */
+  /** Timeout for account gateway requests in milliseconds. */
   readonly requestTimeoutMs: number
+  /** Register account-authorized search when a web service is present. Muse Desktop enables it. */
+  readonly webSearch: boolean
+  /** Maximum lifetime of one account-authorized web search, in milliseconds. */
+  readonly searchRequestTimeoutMs: number
   /** Optional base64 image-byte budget per model request; omission keeps the adapter default. */
   readonly modelRequestImageMaxBytes?: number
   /** Maximum time for one compressed-audio upload and gateway response. */
   readonly asrRequestTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
   readonly feedbackExcerptChars: number
+  /** Register explicit feedback submission and owner-scoped status tools. */
+  readonly feedbackTools: boolean
+  /** Register deferred company media tools using the current private Muse login. */
+  readonly mediaTools: boolean
+  /** Deadline for a company media metadata or receipt request. */
+  readonly mediaRequestTimeoutMs: number
+  /** Deadline for one account-owned media stream and its consumer. */
+  readonly mediaFileTimeoutMs: number
+  /** Deadline for local import, including complete media decoding. */
+  readonly mediaVerifyTimeoutMs: number
+  /** Maximum complete JSON reply accepted from the company media service. */
+  readonly mediaMaxReplyBytes: number
+  /** Maximum bytes in one imported media file. */
+  readonly mediaMaxFileBytes: number
+  /** Relative destination directory inside the initiating Session workspace. */
+  readonly mediaDirectory: string
+  /** Node executable used only for the confined private binary-file helper. */
+  readonly mediaNodePath: string
+  /** FFmpeg executable used for complete local media decoding. */
+  readonly mediaFfmpegPath: string
+  /** FFprobe executable used to verify local media dimensions and duration. */
+  readonly mediaFfprobePath: string
+  /** Grace period for termination of the import helper and its descendants. */
+  readonly mediaCommandGraceMs: number
+  /** Maximum complete helper report and child diagnostics, in bytes. */
+  readonly mediaCommandMaxOutputBytes: number
+  /** Maximum width multiplied by height accepted for imported media. */
+  readonly mediaMaxPixels: number
+  /** Maximum complete video duration accepted by the local importer. */
+  readonly mediaMaxDurationSeconds: number
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
@@ -102,9 +142,26 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   })).default([]),
   accountHome: Schema.string(),
   requestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(15_000),
+  webSearch: Schema.boolean().default(false),
+  searchRequestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(60_000),
   modelRequestImageMaxBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
   asrRequestTimeoutMs: Schema.number().step(1).min(10_000).max(1_800_000).default(300_000),
   feedbackExcerptChars: Schema.number().step(1).min(100).max(1_200).default(1_000),
+  feedbackTools: Schema.boolean().default(false),
+  mediaTools: Schema.boolean().default(false),
+  mediaRequestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(60_000),
+  mediaFileTimeoutMs: Schema.number().step(1).min(10_000).max(3_600_000).default(1_800_000),
+  mediaVerifyTimeoutMs: Schema.number().step(1).min(10_000).max(3_600_000).default(1_800_000),
+  mediaMaxReplyBytes: Schema.number().step(1).min(1024).max(16_777_216).default(1_048_576),
+  mediaMaxFileBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(536_870_912),
+  mediaDirectory: Schema.string().pattern(/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/u).default('source/media/company'),
+  mediaNodePath: Schema.string().min(1).default('node'),
+  mediaFfmpegPath: Schema.string().min(1).default('ffmpeg'),
+  mediaFfprobePath: Schema.string().min(1).default('ffprobe'),
+  mediaCommandGraceMs: Schema.number().step(1).min(100).max(30_000).default(1_000),
+  mediaCommandMaxOutputBytes: Schema.number().step(1).min(1024).max(1_048_576).default(65_536),
+  mediaMaxPixels: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(67_108_864),
+  mediaMaxDurationSeconds: Schema.number().min(1).max(86_400).default(7_200),
   activityReportIntervalMs: Schema.number().step(1).min(1_000).max(3_600_000).default(30_000),
   activityRequestTimeoutMs: Schema.number().step(1).min(100).max(30_000).default(5_000),
   remoteAccess: Schema.boolean().default(false),
@@ -114,11 +171,10 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
 })
 
 /**
- * Mount the Host account service and await the bundled stdio MCP discovery.
- * The MCP child requires the package's built files, including for source profile launches.
+ * Mount the Host account service with account-authorized models, speech and feedback.
  * @param ctx - Product Host context.
  * @param config - Gateway origin and optional product-home storage directory.
- * @returns Completion after the MCP tools have registered.
+ * @returns Completion after the account service has activated.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const baseUrl = museGatewayOrigin(config.baseUrl)
@@ -131,6 +187,27 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   mountMuseActivity(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'),
     reportIntervalMs: config.activityReportIntervalMs, requestTimeoutMs: config.activityRequestTimeoutMs })
+  if (config.webSearch) {
+    mountMuseWebSearch(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.searchRequestTimeoutMs })
+  }
+  if (config.mediaTools) {
+    if (ctx.get('fs') === undefined || ctx.get('subprocess') === undefined || ctx.get('sandboxPolicy') === undefined) {
+      throw Error('muse-account: mediaTools requires fs, subprocess and sandboxPolicy providers')
+    }
+    const mediaDependencies = ['fs', 'subprocess', 'sandboxPolicy', 'tools']
+    if (ctx.get('sandbox') !== undefined) mediaDependencies.push('sandbox')
+    await ctx.inject(mediaDependencies, (scope) => {
+      const media = new MuseMediaClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
+        requestTimeoutMs: config.mediaRequestTimeoutMs, fileTimeoutMs: config.mediaFileTimeoutMs,
+        maxReplyBytes: config.mediaMaxReplyBytes, maxFileBytes: config.mediaMaxFileBytes })
+      const importer = new MuseMediaImporter(scope, media, { directory: config.mediaDirectory, nodePath: config.mediaNodePath,
+        ffmpegPath: config.mediaFfmpegPath, ffprobePath: config.mediaFfprobePath, timeoutMs: config.mediaVerifyTimeoutMs,
+        graceMs: config.mediaCommandGraceMs, maxBytes: config.mediaMaxFileBytes, maxOutputBytes: config.mediaCommandMaxOutputBytes,
+        maxPixels: config.mediaMaxPixels, maxDurationSeconds: config.mediaMaxDurationSeconds })
+      scope.effect(() => async () => { await importer.dispose(); await media.dispose() }, 'muse-account: settle company media')
+      mountMuseMediaTools(scope, media, importer)
+    }).await()
+  }
   const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs })
   const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,
     excludedModelPrefixes: config.excludedModelPrefixes, excludedModels: config.excludedModels,
@@ -151,6 +228,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       reconnectMaxIntervalMs: config.remoteReconnectMaxIntervalMs,
       localAuthorization: async () => {
         const port = webServer.port
+        if (port === undefined) throw Error('muse-account: local Host is not listening')
         const bootstrap = connection.authenticatedUrl(`http://127.0.0.1:${port}`)
         const response = await fetch(bootstrap, { redirect: 'manual', signal: AbortSignal.timeout(config.requestTimeoutMs) })
         const cookie = response.headers.getSetCookie().map(header => header.split(';', 1)[0]).join('; ')
@@ -178,8 +256,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   const feedback = new MuseFeedbackClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
     requestTimeoutMs: config.requestTimeoutMs, excerptChars: config.feedbackExcerptChars,
-    readMessages: request => ctx.get('sessions')?.get(request.sessionId)?.deriveMessages(),
+    readMessages: request => ctx.sessions.get(request.sessionId)?.deriveMessages(),
     secrets: () => feedbackSecrets(ctx) })
+  if (config.feedbackTools) mountMuseFeedbackTools(ctx, feedback)
   const voiceSlots = new MuseVoiceSlotsClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
     requestTimeoutMs: config.requestTimeoutMs })
   const browserLogin = new MuseBrowserLogin({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs })
@@ -187,15 +266,4 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const service = ctx.plugin(MuseAccountService, { controller, browserLogin, asr, models, feedback, voiceSlots,
     ...(remote === undefined ? {} : { remote }) })
   await service.await()
-
-  const server = fileURLToPath(new URL('./lib/types/mcp-server.js', import.meta.resolve('@deepseek-ai/dsh-muse-account/package.json')))
-  const child = ctx.plugin(McpClient, McpClient.Config({
-    serverName: 'muse-account',
-    transport: 'stdio',
-    command: process.execPath,
-    args: [server],
-    env: { MUSE_ACCOUNT_CONFIG: JSON.stringify({ baseUrl, accountHome, requestTimeoutMs: config.requestTimeoutMs }) },
-    failOnStartupError: true,
-  }))
-  await child.await()
 }

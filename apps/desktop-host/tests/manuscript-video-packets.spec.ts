@@ -80,7 +80,7 @@ function sourceTailFixture() {
   const { scene } = fixture()
   const timeline: VideoSourceTimeline = { advisory: true, semantic_assessment: 'not_performed',
     source: { review_id: VideoReviewId('review-tail'), episode: '1', path: '/source.mp4', source_version: 'tail-v1',
-      duration_seconds: 86, scan_complete: true, scanned_until: 86 },
+      follow_up: { status: 'active' }, duration_seconds: 86, scan_complete: true, scanned_until: 86 },
     scope: { start_seconds: 0, end_seconds: 86, full_episode: true, window_seconds: 8 }, material_sha256: 'tail-material',
     windows: [{ window_id: 'tail', start_seconds: 80, end_seconds: 86,
       frames: [frame('cut-before', 80.88), frame('cut', 81, true), frame('cut-after', 81.12),
@@ -225,7 +225,7 @@ describe('saved manuscript temporal packets', () => {
     expect(shared.sampling_lines?.map(line => line.line)).toEqual([secondLine])
     const timeline: VideoSourceTimeline = { advisory: true, semantic_assessment: 'not_performed',
       source: { review_id: VideoReviewId('review-test'), episode: '1', path: '/source.mp4', source_version: 'v1', duration_seconds: 24,
-        scan_complete: true, scanned_until: 24 }, scope: { start_seconds: 0, end_seconds: 24, full_episode: true, window_seconds: 8 },
+        follow_up: { status: 'active' }, scan_complete: true, scanned_until: 24 }, scope: { start_seconds: 0, end_seconds: 24, full_episode: true, window_seconds: 8 },
       material_sha256: 'material', windows: location.windows, notice: '候选材料。' }
     const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'document-hash', plans: [plan], images: new Map(), indexRows: 9 })
     const raw: unknown = JSON.parse(blocks[0]?.type === 'text' ? blocks[0].text : '{}')
@@ -270,7 +270,7 @@ describe('saved manuscript temporal packets', () => {
     const { scene, location, windows } = fixture()
     const timeline: VideoSourceTimeline = { advisory: true, semantic_assessment: 'not_performed',
       source: { review_id: VideoReviewId('review-test'), episode: '1', path: '/source.mp4', source_version: 'v1', duration_seconds: 24,
-        scan_complete: true, scanned_until: 24 }, scope: { start_seconds: 0, end_seconds: 24, full_episode: true, window_seconds: 8 },
+        follow_up: { status: 'active' }, scan_complete: true, scanned_until: 24 }, scope: { start_seconds: 0, end_seconds: 24, full_episode: true, window_seconds: 8 },
       material_sha256: 'material', windows, notice: '候选材料。' }
     const plan = planManuscriptVideoPackets(scene, { ...location, visual_queries: [], line_candidates: [] }, 0, new Set())
     const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'document-hash', plans: [plan], images: new Map(), indexRows: 9 })
@@ -428,7 +428,7 @@ it('does not refill with excluded cache identities or manufacture frames when on
 
 function packetTimeline(windows: VideoSourceTimeline['windows']): VideoSourceTimeline {
   return { advisory: true, semantic_assessment: 'not_performed', source: { review_id: VideoReviewId('event-review'),
-    episode: '1', path: '/source.mp4', source_version: 'event-v1', duration_seconds: 24, scanned_until: 24, scan_complete: true },
+    episode: '1', path: '/source.mp4', source_version: 'event-v1', follow_up: { status: 'active' }, duration_seconds: 24, scanned_until: 24, scan_complete: true },
   scope: { start_seconds: 0, end_seconds: 24, full_episode: true, window_seconds: 8 }, material_sha256: 'event-material',
   windows, notice: '仅为候选材料。' }
 }

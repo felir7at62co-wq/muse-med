@@ -3,80 +3,89 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /muse-desktop:
-  en: 9e4f913ceb827cb0
-  zh: 4cce87b45de4f4b6
+  en: 75689124fd0491c5
+  zh: 9da81c554bde6503
+/muse-desktop/summary:
+  en: cbb82a974c5eb177
+  zh: 77fa78d1579e25aa
+/muse-desktop/table-of-contents:
+  en: 127ea90553cb6af7
+  zh: 7b1c5aec8558c684
+/muse-desktop/application-overview:
+  en: 802ec1e3073a1b97
+  zh: bd1ddf852c2e7f27
 /muse-desktop/terminal-command:
-  en: bef92953c237363f
-  zh: d21d6effd21b8c00
+  en: 5f2d25a1d8472647
+  zh: 2acb5c5d7d1917e2
 /muse-desktop/closing-the-window-and-quitting:
   en: 84e687d7e5533d36
   zh: be1298cba9940d16
 /muse-desktop/key-technical-decisions:
-  en: 8068346eccc0af07
+  en: fab9b5e3ee69367b
   zh: a91982455452a30c
 /muse-desktop/key-technical-decisions/bundled-workspace-dependencies:
-  en: 5e51951bea5eb7ba
-  zh: c8ee6969b9bfe49f
+  en: 1f9cabb1c582b3c6
+  zh: ed8c70f8fc89ccf3
 /muse-desktop/bundled-command-runtime:
-  en: 312049a0aafdedb3
-  zh: 571507f4c89dc9f5
+  en: 72a17219edaaf28a
+  zh: e91c96f0040bacd9
 /muse-desktop/installation-ownership:
-  en: 9d1bb3c239da79b4
-  zh: af3a1d2e609a0906
+  en: f4276ef2ca08949d
+  zh: 5ef519e891a70d4a
 /muse-desktop/installation-ownership/short-drama-resources-and-limits:
-  en: 8468aa3f6929566a
-  zh: 6c1f5be9a8b57c6f
+  en: 9afd050c33b669fd
+  zh: 88a83df173773767
 /muse-desktop/installation-ownership/runtime-and-plugin-activation:
-  en: bee942f921f07228
-  zh: 0c0a4954b8890b74
+  en: 9f6e4438b1216b48
+  zh: 7b13586c6482177e
 /muse-desktop/installation-ownership/host-environment:
-  en: cb3c06f2fcc235c2
-  zh: c2a5c9a46ded324f
+  en: 63302fe3d9be440a
+  zh: 760e4c9f482e03cf
 /muse-desktop/develop:
-  en: 4828ebf79374cbcf
-  zh: e8b4854b5f1c2d45
+  en: 2d21f4fd88d6cf14
+  zh: 4fe30f16bf913f31
 /muse-desktop/develop/startup-onboarding:
-  en: dda0650862725702
-  zh: 6f9bf0c7c70fb18e
+  en: 06fa9c7d776280de
+  zh: 7e7ba3e9fae83708
 /muse-desktop/package:
   en: 4cd8a8da6977928d
   zh: 9f624855a2edac37
 /muse-desktop/package/release-versions:
-  en: 67dc491a5211f7bf
-  zh: 6e0d3ec6ce898114
+  en: da114c5d19cd89a6
+  zh: 3c8df7d1c0a3e277
 /muse-desktop/package/resuming-a-failed-run:
   en: 548a53cda22d92c5
   zh: 062a662b6ecdb8a0
 /muse-desktop/package/runtime-file-selection:
-  en: d376850bc4d3e6f3
-  zh: 5398069cd5e964ed
-/muse-desktop/package/upload-updates:
-  en: a292bf149aef540a
-  zh: 4328f47bbd0cc979
+  en: acf4b25373f00c4d
+  zh: 7b5a451938d40201
 /muse-desktop/package/unsigned-installers:
-  en: 8620b9d44e3058a2
-  zh: 13ce3b2ea0d81fb5
+  en: a519f3d5bf152624
+  zh: 29122fcf68800506
 /muse-desktop/package/windows-installer-interface:
-  en: e5952120794f0f49
-  zh: 28d59be682c52ca8
+  en: 3aeba55580d4c0d7
+  zh: 2a14fd5ea472d726
 /muse-desktop/package/windows-ev-signing:
   en: 67ce5a22d029c969
   zh: 4129236adbe47010
 /muse-desktop/updates:
-  en: 28e0e0bd0bad3097
-  zh: bb494916177a0eb6
+  en: 82e4353dee3cb8e2
+  zh: 0d738d6d03d6e427
+/muse-desktop/updates/local-desktop-settings:
+  en: 5df85f5a8bb879ef
+  zh: a27a6112243167fb
 /muse-desktop/updates/mandatory-update-policy:
-  en: c00a0e7d32056ba9
-  zh: a76dae44cb513d6f
+  en: 84a95845b359f21c
+  zh: b6bc9d9e60d71dbd
 /muse-desktop/updates/local-updater-qualification:
-  en: c7f8808e321712a7
-  zh: 85c0aedd9a30ca47
+  en: 0d428d55dbf8fe02
+  zh: 9f101954243521df
 /muse-desktop/low-level-development-overrides:
-  en: 0b225f914142ef0b
-  zh: 9ffd07768d37824e
+  en: 8264b135871e8978
+  zh: 0939aafb1b2961fc
 /muse-desktop/known-limitations:
-  en: e9714f4acccdf755
-  zh: 26ba3e47f90e31d6
+  en: 5574dd4fef5e9ed9
+  zh: b87c6fddb0b18cb0
 /muse-desktop/dev-note:
-  en: a74a845cc2436620
-  zh: db4da6fb30287c5b
+  en: ad904f2889e2fe53
+  zh: 33820242bc69c7d4
