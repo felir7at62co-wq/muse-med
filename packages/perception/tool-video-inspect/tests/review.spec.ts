@@ -2185,6 +2185,15 @@ it.each([true, false])('omits unobserved frame images after a second successful 
     expect(h.review().frames.every(frame => frame.observation === undefined)).toBe(true)
   })
 
+it.each([true, false])('tells the model how seen frame images leave context only when offloadObservedFrames is %s', async (enabled) => {
+  const h = await fixture({ offload: true, config: { offloadObservedFrames: enabled } })
+  await h.run(h.call('scan'), h.call('status'), undefined)
+  const note = (index: number) => h.results()[index]!.content.some(block => block.type === 'text' && block.text.startsWith('帧图说明：'))
+  expect(note(0)).toBe(enabled)
+  expect(note(1)).toBe(false)
+  expect(h.ctx.tools.get('video_inspect')!.description.includes('image omitted')).toBe(enabled)
+})
+
 it('omits a labelled frame image in a Host user message after a second successful request', async () => {
   const h = await fixture({ offload: true, config: { offloadObservedFrames: true } })
   await h.run(h.call('scan'), undefined)

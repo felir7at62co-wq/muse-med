@@ -93,7 +93,10 @@ const resultSchema = z.object({ review_id: z.string(), episode: z.string(), tota
   complete: z.boolean(), follow_up: z.object({ status: z.enum(['active', 'closed']), reason: z.string().optional() }).default({ status: 'active' }),
   frames: z.array(reviewFrameSchema.extend({ status: z.string(), revisited: z.boolean().optional() })) }).loose()
 
-function content(serialized: string): ContentBlock[] {
+/** Model-facing note on frame images that later requests omit once seen. */
+const FRAME_IMAGE_NOTE = '帧图说明：本批帧图在你observe记录后、或你看过它再回复一轮后，会从之后的上下文移除，历史里显示为“image omitted”占位。占位只表示为节省上下文已移除，不表示当时没看到；当时写下的observe仍有效，不需要另行导出图片复核。需要再看某帧时用revisit。'
+
+function content(serialized: string, note: string | undefined): ContentBlock[] {
   const value = resultSchema.parse(JSON.parse(serialized))
   const text = { ...value, frames: value.frames.map(({ image: _image, ...frame }) => frame) }
   const result: ContentBlock[] = [{ type: 'text', text: JSON.stringify(text) }]
@@ -105,6 +108,7 @@ function content(serialized: string): ContentBlock[] {
       { type: 'image', attachment: image })
     }
   }
+  if (note !== undefined && result.length > 1) result.push({ type: 'text', text: note })
   return result
 }
 
@@ -201,7 +205,8 @@ export async function applyCompleteReview(ctx: Context, config: Config,
       + 'events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。'
       + 'timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。'
       + 'compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。'
-      + '待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。',
+      + '待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。'
+      + (config.offloadObservedFrames ? '已看过的帧图之后会从上下文移除，显示为image omitted占位；当时的observe仍有效，再看用revisit。' : ''),
     parameters: { file_path: { type: 'string', description: '当前集实际完整视频路径；与review_id至少提供一项，同时提供时须指向同一记录。' },
       review_id: { type: 'string', description: '本会话已保存的review_id；不按集号或其他来源回退。status和close可仅凭此ID操作保存状态。' },
       reason: { type: 'string', description: 'close或reopen的可选原因；不改变未查看、未记录帧。' },
@@ -226,7 +231,7 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           change: { type: 'string', required: true, description: '与邻近画面的变化；无变化也需据实说明。' },
           uncertainty: { type: 'string', description: '需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。' },
         } } },
-    }, output: { schema: { type: 'string' }, preserveBodyMeta: true, render: (_args, value) => content(value),
+    }, output: { schema: { type: 'string' }, preserveBodyMeta: true, render: (_args, value) => content(value, config.offloadObservedFrames ? FRAME_IMAGE_NOTE : undefined),
       presentationMeta: (_args, serialized) => {
         const value = resultSchema.parse(JSON.parse(serialized))
         return { episode: value.episode, total: value.total, recorded: value.recorded, pending: value.pending,
