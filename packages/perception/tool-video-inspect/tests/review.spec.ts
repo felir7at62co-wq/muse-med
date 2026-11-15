@@ -2155,6 +2155,24 @@ it.each(['offload', 'offload-throw'] as const)('keeps transport batches after %s
   expect(h.review().frames.filter(frame => frame.observation !== undefined)).toHaveLength(2)
 })
 
+it.each([true, false])('offloads the images of observed frames only when offloadObservedFrames is %s', async (enabled) => {
+  const h = await fixture({ offload: true, config: { offloadObservedFrames: enabled } })
+  await h.run(h.call('scan'), h.record, h.call('next'), undefined)
+  const review = h.review()
+  const observed = new Set(review.frames.filter(frame => frame.observation !== undefined).map(frame => `${review.id}/${frame.id}`))
+  const images: { label: string | undefined; offloaded: boolean }[] = []
+  for (const message of h.agent.session.deriveMessages()) {
+    let label: string | undefined
+    for (const block of message.content) {
+      if (block.type === 'text') label = /^VIDEO_FRAME (\S+) /u.exec(block.text)?.[1] ?? label
+      if (block.type === 'image') images.push({ label, offloaded: block.offloaded === true })
+    }
+  }
+  expect(observed.size).toBeGreaterThan(0)
+  expect(images.some(image => image.label !== undefined && !observed.has(image.label))).toBe(true)
+  for (const image of images) expect(image.offloaded).toBe(enabled && image.label !== undefined && observed.has(image.label))
+})
+
 it('shrinks a partially oversized new batch to its retained pending count rather than always to one', async () => {
   const h = await fixture({ offload: true, config: { reviewBatchFrames: 3 } })
   await h.run(h.call('scan'), 'offload', undefined)

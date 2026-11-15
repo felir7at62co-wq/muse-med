@@ -259,6 +259,7 @@
   name: '@deepseek-ai/dsh-tool-video-inspect'
   config:
     requireCompleteReview: true
+    offloadObservedFrames: true
     ocrEngine: rapidocr
     ocrPythonPath: !!js process.env.MUSE_OCR_PYTHON_PATH || 'python3'
     ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
