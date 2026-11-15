@@ -205,6 +205,8 @@ Host 默认值和 `standard`、`ptc`、`cordis`、`short-drama`、`main-session`
 
 视频稿件通过 `manuscript_revision delivery` 显式声明 `source_mode: "video"`。已复核交付将已通过的来源凭据与既有文字审校绑定到实际稿件；Host 在登记时及 `present` 前后复验依据与版本。成功加载 `video-to-screenplay` 或调用明确来源审校动作，会保留本轮已知来源要求，省略字段不能绕过。来源与文字问题互不清除；证据未知或问题未解决时可用明确草稿并说明缺口，不能宣称已修复。同版本、同实际范围的凭据可复用；材料变化时核对受影响范围，不主动重跑整剧。导出后的最终文件字节仍须绑定，不能假定 Markdown 凭据自动转给 Word。标签只标注实际正文行和原片秒范围内抽样原帧、保存 ASR 的核对，不认证全片或原音。
 
+草稿工具的已记录提示会提醒新建与恢复的 Agent，在导入同一集剪映草稿前完成有剧情依据的 BGM。缺少配乐或误传对白／音乐审查混音时，返回的候选会增加配乐待完成提示，不删除候选也不增加审批。确实不加音乐时，请求写 `music_decision: "none"` 和非空 `decision_reason`，并省略 `bgm`；旧渲染配置不能代替本次决定。Windows 适配器在创建项目之前用 .NET 计算 CLI 摘要，不依赖 PowerShell 可选的文件哈希命令。实际轨道回读和听校仍分别核验。
+
 受管视频剧本项目通过 [screenplay-project](../../packages/drama/screenplay-project/README.zh.md) 整理视觉事实并保存各集版本。Muse 为新旧项目选择建议型审校，不要求独立批准、A/B/C 分轮或先采用前集，才可起草或采用指定集。受管视频项目使用 `workflow: video_to_screenplay` 和 `qa/screenplay-project.json`；正式文件位于同级 `final/` 目录。分块场景文件和持久化覆盖清单支持恢复，不依赖压缩后的对话摘要。
 
 Muse 建议型 Word 导出固定本次实际 Markdown 输入，通过内置 Python 转换，并逐段核对生成的 Word 正文与实际输入，不要求项目、候选批准或 `.docx.screenplay.json` 收据。建议型交付检查预算内实际可读的 Markdown、文本或 Word，用户返稿保护继续独立生效。导出或呈现草稿不会自动采用，也不代表创作审校通过。

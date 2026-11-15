@@ -11,6 +11,8 @@ Windows 原声草稿按画幅选择片尾：只有 `9:16` 在整集末尾追加�
 
 ## 剪映草稿目录
 
+**生成剪映文件时一并完成 BGM**：先读取相邻 `tweet-drama-background-render/references/story-bgm-selection.md`，根据实际剧本、对白、剧情发展和采用画面选曲，执行 `bgm_match match/download → drama_bgm preview/compose/verify`，再把合成的纯音乐 WAV 绝对路径写入请求 `bgm`，声明 `bgm_role: "music_only"`。音乐底轨与原视频分别入轨，不为此先合成整集 MP4，不把对白＋音乐审查混音当 BGM。源曲至少衰减 10 dB，已衰减底轨导入时增益不大于 1。剧情不需换曲可用一首，相邻两集尽量不重复。回读实际 BGM 轨道、正文覆盖和音量，片尾音不能替代正文配乐；未试听时如实标记。旧 `audio-mix.json` 的 `no_bgm` 不自动继承为本次不配乐决定；用户明确只要原声或剧情确需不加音乐时，在请求写 `music_decision: "none"`、`decision_reason`，不要伪造静音 BGM。缺 BGM 的旧请求仍保留草稿候选并返回待完成提醒，Muse 应修正后用新名称保存，不把提醒当成请用户手工配乐的理由，也不把保存成功写成配乐交付完成。
+
 仅在准备生成剪映草稿时调用 `drama_draft_dir {}`，读取 Settings 的 `jianyingDraftDir`。返回 `ready` 就使用返回的 `path`，不再询问用户；返回 `unconfigured` 或路径失效时，用 `ask_user_question` 询问“请提供本机剪映专业版设置里的草稿保存根目录”。不要猜测其他机器的路径，也不要替用户创建一个假定的编辑器根目录。把用户回答传给 `drama_draft_dir {path: ...}`；工具验证已有绝对目录可读写、保存同一 Settings 字段并回读，成功后才能生成草稿。工具或保存失败时说明原因并修正，不改写其他设置，不用另一份配置文件绕过。这个步骤不阻塞写作、分镜或视频生成。
 
 生成剪映草稿统一调用 `jianying_draft`，将 `drama_draft_dir` 成功结果的 `path` 原样作为 `drafts_dir`，不用让用户手写 PowerShell 或另装 Python。先用 `write` 保存[单集请求文件](references/io-contract.md#desktop-request)，再传其绝对路径为 `request_file`。Windows 原声模式用 aa剪映调用已安装剪映的 CLI；独立音轨请求沿用打包的 `GuanYixuan/pyJianYingDraft`。工具只处理指定一集，返回草稿路径、保留素材目录与实际实现身份。`editor_open_verified=false` 表示尚未在本机剪映打开验证；不能因已有草稿是密文就断言新草稿无法打开，也不能宣称任意版本均兼容。工具失败时按实际错误调查，不静默换引擎。当前实例缺少此工具时，核查 Muse 版本与安装状态。
