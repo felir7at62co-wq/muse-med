@@ -20,6 +20,8 @@ export interface Config {
   readonly docxMaxProjectBytes?: number
   /** Creative review policy for screenplay export and final delivery; omission retains strict approval. */
   readonly docxReviewMode?: screenplayDocx.Config['reviewMode']
+  /** Word layout of episode headings; omission selects continuous episodes. */
+  readonly docxEpisodeLayout?: screenplayDocx.Config['episodeLayout']
   /** Optional manuscript revision budgets; source snapshots remain workspace-local. */
   readonly manuscriptRevisions?: Partial<manuscriptRevisions.Config>
   /** Optional historical read recovery limits; false disables the recovery tool and notices. */
@@ -40,7 +42,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ffmpegPath: process.env.DSH_FFMPEG_PATH ?? 'ffmpeg', ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
     maxInputBytes: 1024 * 1024, maxOutputBytes: 1024 * 1024, maxBgmGain: 1, ...config.jianyingDraft })
   await ctx.plugin(screenplayDocx, { source: config.source,
-    reviewMode: config.docxReviewMode ?? 'strict',
+    reviewMode: config.docxReviewMode ?? 'strict', episodeLayout: config.docxEpisodeLayout ?? 'continuous',
     maxInputBytes: config.docxMaxInputBytes ?? 16 * 1024 * 1024, timeoutMs: config.docxTimeoutMs ?? 120_000,
     maxProjectBytes: config.docxMaxProjectBytes ?? 32 * 1024 * 1024 })
 }
