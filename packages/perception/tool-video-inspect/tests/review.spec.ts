@@ -645,6 +645,28 @@ it('ignores an unresolvable saved source while selecting one exact provider alia
   } finally { resolve.mockRestore() }
 })
 
+it('requires one saved review when portable provider aliases resolve to the same source', async () => {
+  const h = await fixture(), alias = relative(h.root, h.input), secondPath = `./${alias}`
+  const fields = { episode: 'episode-1', source_version: 'recorded-source', duration: 80,
+    scanned_until: 0, scan_complete: false, frames: [] }
+  const first = { ...fields, id: VideoReviewId('first-portable-alias'), path: alias }
+  const second = { ...fields, id: VideoReviewId('second-portable-alias'), path: secondPath }
+  saveReview(h.readReviews, h.agent.session, first)
+  saveReview(h.readReviews, h.agent.session, second)
+  const other = join(h.root, 'other-source.mp4')
+  await copyFile(h.input, other)
+  await h.run({ name: 'video_inspect', args: { method: 'close', review_id: first.id, file_path: other } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+  expect(reviewsOf(h.readReviews, h.agent.session)[alias]?.follow_up).toBeUndefined()
+  expect(reviewsOf(h.readReviews, h.agent.session)[secondPath]?.follow_up).toBeUndefined()
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input, review_id: first.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)[alias]?.follow_up?.status).toBe('closed')
+  expect(reviewsOf(h.readReviews, h.agent.session)[secondPath]?.follow_up).toBeUndefined()
+})
+
 it.skipIf(process.platform === 'win32')('passes symlink-parent traversal to the filesystem provider before probing the source', async () => {
   const h = await fixture(), physical = join(h.root, 'physical', 'episode-80.mp4')
   await mkdir(join(h.root, 'physical', 'nested'), { recursive: true })
