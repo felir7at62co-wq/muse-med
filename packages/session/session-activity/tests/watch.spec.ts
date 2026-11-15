@@ -63,7 +63,7 @@ async function fixture(config: Config, script: Entry[] = Array.from({ length: 30
   return { ctx, fiber, parent, child, digests, make, release }
 }
 
-function textOf(message: UserMessage | undefined): string {
+function textOf(message: { readonly content: UserMessage['content'] } | undefined): string {
   return message?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('') ?? ''
 }
 

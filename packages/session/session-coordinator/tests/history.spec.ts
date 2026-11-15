@@ -12,6 +12,7 @@ import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { SessionQueryError, SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { imageAt, outlineTurns, scanSteps, stepItems } from '../src/history-views.ts'
+import type { TurnOutline } from '../src/history-views.ts'
 import { setup, textResponse } from './fixture.ts'
 
 const frame = { type: 'image' as const, attachment: { attachmentId: AttachmentId('frame-1'), mediaType: 'image/png' as const, bytes: 10, width: 4, height: 3 } }
@@ -66,11 +67,12 @@ async function fixture(readChars?: number) {
 it('outlines each turn and pages compact steps without runtime context', async () => {
   const test = await fixture()
   const events = (await test.ctx.sessionQuery.readSession(test.worker.id)).events
-  expect(outlineTurns(events)).toEqual([
+  const expected: TurnOutline[] = [
     { turn: 1, startSeq: test.firstTurnSeq, input: '转写第 1 集 保留旁白', tools: { video_inspect: 1, write: 1 }, images: 2, errors: 1,
       end: 'error: model down', reply: '第 1 集写不进去' },
     { turn: 2, startSeq: test.secondTurnSeq, input: '', tools: { constructor: 1 }, images: 0, errors: 0, end: 'completed', reply: '' },
-  ])
+  ]
+  expect(outlineTurns(events)).toEqual(expected)
   const steps = stepItems(events, 0)
   expect(steps.map(step => step.type)).toEqual(['turn', 'input', 'call', 'result', 'call', 'result', 'result', 'reply', 'turn-end', 'turn', 'call', 'turn-end'])
   expect(steps[3]).toMatchObject({ type: 'result', tool: 'video_inspect', error: false, text: 'frames', images: 1 })
