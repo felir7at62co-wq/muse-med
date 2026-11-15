@@ -117,7 +117,8 @@ it('rejects invalid model retry policies before activation', async () => {
     [{ mode: 'normal', backoff: { initialDelayMs: 70000, maxDelayMs: 60000 } },
       'muse-account: modelRetryPolicy.backoff.initialDelayMs must be less than or equal to maxDelayMs'],
     [{ mode: 'normal', maxRetry: 8 }, 'muse-account: modelRetryPolicy: unknown key "maxRetry"'],
-  ] as const) {
+    // Assertions skip excess-property checks, so these invalid policies reach the runtime validator.
+  ] as Array<[NonNullable<Config['modelRetryPolicy']>, string]>) {
     const { ctx, home, sessionFile } = await fixture()
     await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
     const config = Config({ baseUrl, accountHome: home, modelRetryPolicy })
