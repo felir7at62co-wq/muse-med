@@ -55,7 +55,10 @@ declare module '@deepseek-ai/dsh-session/types' {
       | {
         /** Complete provider output before the backend's safe summary projection. */
         rawOutput: ContentBlock[]
-        /** Identifies the successful call through this context's `ctx.llm.stream()` that produced `rawOutput`; transient failures before it may have been retried. */
+        /**
+         * Identifies the successful call through this context's `ctx.llm.stream()` that produced `rawOutput`;
+         * transient failures before it may have been retried.
+         */
         llmStreamCall: true
       }
       | {

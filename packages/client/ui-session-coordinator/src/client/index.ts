@@ -22,7 +22,7 @@ import { ReportCardNode, type ReportCardActions } from './ReportCard.tsx'
 import { reportDefinition } from './report-definition.ts'
 import { openRetainedMain } from './open-main.ts'
 import { followInitialMain } from './initial-main.ts'
-import { NS, zh, en, type CoordinationKey } from './locales.ts'
+import { NS, de, en, es, fr, ja, pt, ru, zh, type CoordinationKey } from './locales.ts'
 
 export type { TaskActions, TaskCardsProps } from './TaskCards.tsx'
 
@@ -44,7 +44,7 @@ export const inject = ['slots', 'locale', 'remote', 'resources', 'uiWorkspace', 
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const disposeRemote = await ctx.remote.$mount(remote)
   const fiber = ctx.inject(['remote.sessionCoordinator', 'remote.session'], (scope) => {
-    scope.effect(() => scope.locale.register(NS, { zh, en, ja: en, es: en, fr: en, de: en, ru: en, pt: en }), 'coordination: dictionaries')
+    scope.effect(() => scope.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'coordination: dictionaries')
     const lifetime = new AbortController()
     scope.effect(() => () => { lifetime.abort() })
     let mainId: SessionId | null = null

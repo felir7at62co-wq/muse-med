@@ -256,6 +256,7 @@ External packages **directly declared** for development, tests, types, or toolin
 | [`@xmldom/xmldom`](https://github.com/xmldom/xmldom) | MIT |
 | [`@yao-pkg/pkg`](https://github.com/yao-pkg/pkg) | MIT |
 | [`@yarnpkg/cli-dist`](https://github.com/yarnpkg/berry) | BSD-2-Clause |
+| [`7zip-bin`](https://github.com/develar/7zip-bin) | MIT |
 | [`app-builder-lib`](https://github.com/electron-userland/electron-builder) | MIT |
 | [`cos-nodejs-sdk-v5`](https://github.com/tencentyun/cos-nodejs-sdk-v5) | ISC |
 | [`cytoscape`](https://github.com/cytoscape/cytoscape.js) | MIT |

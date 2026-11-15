@@ -345,12 +345,13 @@ describe('product identifiers', () => {
     ['packages/client/ui-entry-customization/tests/menu.client.spec.tsx', 1],
     ['packages/client/ui-workspace/tests/workspaces-service.client.spec.ts', 1],
     ['packages/extensions/cordis-host-runner/tests/inspect-registry.spec.ts', 2],
-    ['scripts/gen-tool-catalog.ts', 1],
+    ['scripts/gen-tool-catalog.ts', 2],
     ['snapshots/session/cordis-inspect-liveness/client-fixture.mjs', 1],
     ['snapshots/session/cordis-inspect-timeout/client-fixture.mjs', 2],
   ] as const)('reverses real package references in %s and restores them', (file, lines) => {
     const scoped = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
     const text = scoped.replaceAll("'@deepseek-ai/cordis'", "'cordis'")
+      .replaceAll("'@deepseek-ai/cordis-plugin-loader'", "'@cordisjs/plugin-loader'")
     expect(text).not.toBe(scoped)
     expectRoundTrip(file, text, scoped, lines)
     expect(rescopeText(text, file, true)).toEqual({ text, lines: 0 })

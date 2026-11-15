@@ -1066,7 +1066,10 @@ export class SessionCoordinator extends TypertRemoteService {
     return this.waiting()[0]?.id === task.id && this.occupied() < this.config.maxWorkers
   }
 
-  /** Deliver the oldest waiting fresh worker when a slot is free; a delivery failure publishes interrupted with the stop-then-dispatch step. */
+  /**
+   * Deliver the oldest waiting fresh worker when a slot is free; a delivery failure publishes
+   * interrupted with the stop-then-dispatch step.
+   */
   private async startNext(): Promise<void> {
     const head = this.waiting()[0]
     if (head === undefined || this.occupied() >= this.config.maxWorkers) return

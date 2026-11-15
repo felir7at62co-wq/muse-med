@@ -219,9 +219,10 @@ describe('ReactLoopInbox', () => {
 
   it('omits absent claims from JSON wire views', () => {
     const pending = { 'next-turn': [], 'next-step': [] }
-    const view = inboxProjectionDefinition.wire.viewSchema.parse({ ...pending, activeClaim: undefined })
+    const view = inboxProjectionDefinition.wire.viewSchema.parse(pending)
     expect(view).toEqual(pending)
     expect(Object.hasOwn(view, 'activeClaim')).toBe(false)
+    expect(inboxProjectionDefinition.wire.viewSchema.safeParse({ ...pending, activeClaim: undefined }).success).toBe(false)
   })
 
   it('rejects non-JSON values at the inbox wire boundary without projecting lossy replacements', () => {

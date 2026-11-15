@@ -483,9 +483,9 @@ it('restores only uncommitted inputs after a protected AgentLoop batch partly ap
     agent.inbox.append('next-step', b)
     const append = agent.session.append.bind(agent.session)
     // Preserve both native append overloads while failing one single-event commit.
-    agent.session.append = new Proxy(append, { apply(target, receiver, args) {
+    agent.session.append = new Proxy(append, { apply(target, receiver, args: unknown[]): unknown {
       const [type, data] = args
-      if (type === 'user/message' && data.id === b.id) throw new Error('Injected partial write failure')
+      if (type === 'user/message' && typeof data === 'object' && data !== null && 'id' in data && data.id === b.id) throw new Error('Injected partial write failure')
       return Reflect.apply(target, receiver, args)
     } })
     agent.followup(c)

@@ -34,7 +34,7 @@ function fixture() {
 
 function copyHelperScripts(root: string): void {
   for (const file of ['scripts/cua-helper/build-inputs.ts', 'scripts/cua-helper/select-artifact.ts',
-    'apps/desktop/scripts/desktop-file-settings.mjs', 'apps/desktop/scripts/desktop-release-environment.mjs', 'scripts/release/process.ts']) {
+    'apps/desktop/scripts/desktop-file-settings.mjs', 'apps/desktop/scripts/desktop-release-environment.mjs', 'scripts/release/process.ts', 'scripts/pnpm-entrypoint.mjs']) {
     mkdirSync(dirname(join(root, file)), { recursive: true })
     copyFileSync(resolve(file), join(root, file))
   }

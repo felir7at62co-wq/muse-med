@@ -316,8 +316,10 @@ it('does not restart silent-stop recovery after cancellation', async () => {
   expect(end(agent)?.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
 })
 
-it.each([{ maxContinuations: 0 }, { maxContinuations: -1 }, { maxContinuations: 1.5 }, { maxNoProgressResponses: 0 }, { repeatWindowChars: 0 }, { continuationTailChars: 0 },
-  { maxSilentStopRecoveries: -1 }, { maxSilentStopRecoveries: 1.5 }])('rejects invalid continuation configuration %j', (value) => {
+it.each([
+  { maxContinuations: 0 }, { maxContinuations: -1 }, { maxContinuations: 1.5 }, { maxNoProgressResponses: 0 },
+  { repeatWindowChars: 0 }, { continuationTailChars: 0 }, { maxSilentStopRecoveries: -1 }, { maxSilentStopRecoveries: 1.5 },
+])('rejects invalid continuation configuration %j', (value) => {
   expect(() => continuation.Config.parse(value)).toThrow()
 })
 

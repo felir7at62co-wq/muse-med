@@ -120,7 +120,7 @@ it('rejects invalid model retry policies before activation', async () => {
   ] as const) {
     const { ctx, home, sessionFile } = await fixture()
     await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
-    const config: Config = Reflect.apply(Config, undefined, [{ baseUrl, accountHome: home, modelRetryPolicy }])
+    const config = Config({ baseUrl, accountHome: home, modelRetryPolicy })
     await expect(apply(ctx, config)).rejects.toThrow(message)
     expect(ctx.llm.listProviders().some(provider => provider.id.startsWith('muse-cloud-'))).toBe(false)
   }

@@ -5,7 +5,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
  * project tree the pipeline writes into.
  */
 
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -297,7 +297,8 @@ export async function writePlaceholder(path: string, contents: string): Promise<
 
 /** Create a temporary project root the caller removes. */
 export async function tempProject(): Promise<string> {
-  return await mkdtemp(join(tmpdir(), 'drama-render-'))
+  // Delivery staging rejects any link in a path's parents; macOS temp roots sit behind the /var link.
+  return await realpath(await mkdtemp(join(tmpdir(), 'drama-render-')))
 }
 
 /** Remove a temporary directory tree, ignoring an already-removed tree. */
