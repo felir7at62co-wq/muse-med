@@ -22,12 +22,13 @@ import type {} from '@deepseek-ai/dsh-session-activity'
 import { createUserMessage, boundContextSummary } from '@deepseek-ai/dsh-llm'
 import type { MessageId, UserMessage } from '@deepseek-ai/dsh-llm'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { coordinationDomain, latest, reportTask, reservesWorker, revise, routingTask } from './ledger.ts'
-import { imageAt, outlineTurns, stepItems } from './history-views.ts'
+import { imageAt, outlineTurns, scanSteps, stepItems } from './history-views.ts'
+import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import type { ImageBlock } from '@deepseek-ai/dsh-llm'
 import type { Assignment, AssignmentStatus, CoordinationTask, CoordinationTaskId, CoordinationReport, DispatchRequest, ReconcileRequest, RoutingMode, RoutingTaskList, WorkerReport } from './types.ts'
 import { ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
@@ -424,27 +425,37 @@ export class SessionCoordinator extends TypertRemoteService {
   }
 
   /**
-   * Find events of one Session that match a full-text query.
+   * Find events of one Session that match a query: full-text search when the deployment has an index,
+   * otherwise a case-insensitive scan of the Session's step items.
    * @param main - Exact routing Agent.
    * @param sessionId - Session or subagent in the same local owner profile.
-   * @param query - Full-text query.
-   * @returns JSON hits with sequence, event type and snippet, at most `searchLimit` within `readChars`.
+   * @param query - Full-text query, or plain text for the scan.
+   * @returns JSON hits with sequence, event or step type and snippet, at most `searchLimit` within `readChars`.
    */
   async searchEvents(main: Agent, sessionId: SessionId, query: string): Promise<string> {
     await this.requireMain(main)
     if (query.trim() === '') throw new ToolArgsError(['view=search requires a nonempty query'])
     const request = { sessionId, query, limit: this.config.searchLimit }
-    const page = await this.ctx.sessionQuery.searchEvents(request, { signal: this.lifetime.signal })
+    let found: { session: SessionHeader; items: readonly { seq: number; type: string; snippet: string }[]; more: boolean }
+    try {
+      const page = await this.ctx.sessionQuery.searchEvents(request, { signal: this.lifetime.signal })
+      found = { session: page.session, items: page.items, more: page.nextCursor !== undefined }
+    } catch (error) {
+      if (!(error instanceof SessionQueryError) || error.code !== 'SESSION_QUERY_SEARCH_DISABLED') throw error
+      const snapshot = await this.ctx.sessionQuery.readSession(sessionId)
+      const items = scanSteps(snapshot.events, query, this.config.searchLimit + 1)
+      found = { session: snapshot.session, items: items.slice(0, this.config.searchLimit), more: items.length > this.config.searchLimit }
+    }
     const hits = []
     let chars = 0
-    for (const hit of page.items) {
+    for (const hit of found.items) {
       const row = { seq: hit.seq, type: hit.type, snippet: hit.snippet }
       const length = JSON.stringify(row).length
       if (chars + length > this.config.readChars && hits.length > 0) break
       hits.push(row)
       chars += length
     }
-    return JSON.stringify({ session: page.session, hits, more: hits.length < page.items.length || page.nextCursor !== undefined,
+    return JSON.stringify({ session: found.session, hits, more: hits.length < found.items.length || found.more,
       guidance: 'Read around a hit with view=steps and from_seq at or before its seq.' })
   }
 

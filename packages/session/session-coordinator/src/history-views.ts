@@ -173,6 +173,34 @@ export function stepItems(events: readonly SessionEvent[], fromSeq: number): Ste
   return items
 }
 
+/** One search hit within a Session, as `coordinator_read` view `search` lists it. */
+export interface SearchHit {
+  readonly seq: number
+  readonly type: string
+  readonly snippet: string
+}
+
+/**
+ * Find step items whose text contains a query, for deployments without a full-text index.
+ * @param events - Complete Session log in sequence order.
+ * @param query - Case-insensitive text to find.
+ * @param limit - Maximum hits.
+ * @returns Hits in sequence order with up to 60 characters of context on each side.
+ */
+export function scanSteps(events: readonly SessionEvent[], query: string, limit: number): SearchHit[] {
+  const needle = query.trim().toLowerCase()
+  const hits: SearchHit[] = []
+  for (const item of stepItems(events, 0)) {
+    const text = item.type === 'call' ? `${item.tool} ${item.arguments}` : item.type === 'result' ? `${item.tool} ${item.text}`
+      : item.type === 'input' || item.type === 'reply' ? item.text : ''
+    const at = text.toLowerCase().indexOf(needle)
+    if (at < 0) continue
+    hits.push({ seq: item.seq, type: item.type, snippet: text.slice(Math.max(0, at - 60), at + needle.length + 60) })
+    if (hits.length === limit) break
+  }
+  return hits
+}
+
 /**
  * Find one image a Session's model received.
  * @param events - Complete Session log.

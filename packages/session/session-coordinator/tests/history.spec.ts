@@ -9,9 +9,9 @@ import { createMessage, createToolResultMessage, createUserMessage, ToolCallId }
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import { SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
+import { SessionQueryError, SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { imageAt, outlineTurns, stepItems } from '../src/history-views.ts'
+import { imageAt, outlineTurns, scanSteps, stepItems } from '../src/history-views.ts'
 import { setup, textResponse } from './fixture.ts'
 
 const frame = { type: 'image' as const, attachment: { attachmentId: AttachmentId('frame-1'), mediaType: 'image/png' as const, bytes: 10, width: 4, height: 3 } }
@@ -82,6 +82,10 @@ it('outlines each turn and pages compact steps without runtime context', async (
   expect(imageAt(events, -1, 0)).toBeUndefined()
   expect(imageAt(events, test.firstTurnSeq, 0)).toBeUndefined()
   expect(imageAt(events, test.inputSeq, 0)).toEqual(frame)
+  expect(scanSteps(events, 'PERMISSION', 5)).toEqual([{ seq: steps[5]?.seq, type: 'result', snippet: 'write permission denied' }])
+  expect(scanSteps(events, '集', 5).map(hit => hit.type)).toEqual(['input', 'reply'])
+  expect(scanSteps(events, 'video_inspect', 1).map(hit => hit.type)).toEqual(['call'])
+  expect(scanSteps(events, 'nothing like this', 5)).toEqual([])
   await test.ctx.plugin(SettingsFixture)
   expect(JSON.parse(await test.service.settings(test.main))).toMatchObject({ namespaces: [{ namespace: 'model' }, { namespace: 'muse' }] })
 })
@@ -134,6 +138,13 @@ it('searches one Session, lists and reads its jobs, and reads redacted settings 
   search.mockResolvedValueOnce({ session: header, items: records.slice(0, 1).map(record => ({ ...record, snippet: 'one' })), nextCursor: SessionSearchCursor('next') })
   expect(JSON.parse(await test.service.searchEvents(test.main, test.worker.id, 'one'))).toMatchObject({ more: true })
   expect((await test.invoke('coordinator_read', { session_id: test.worker.id, view: 'search' })).isError).toBe(true)
+  search.mockRejectedValueOnce(new SessionQueryError('session search is disabled', 'SESSION_QUERY_SEARCH_DISABLED'))
+  const scanned = JSON.parse(text(await test.invoke('coordinator_read', { session_id: test.worker.id, view: 'search', query: 'denied' }))) as { hits: { type: string; snippet: string }[]; more: boolean }
+  expect(scanned).toMatchObject({ hits: [{ type: 'result', snippet: 'write permission denied' }], more: false })
+  search.mockRejectedValueOnce(new SessionQueryError('session search is disabled', 'SESSION_QUERY_SEARCH_DISABLED'))
+  expect(JSON.parse(await test.service.searchEvents(test.main, test.worker.id, 'e'))).toMatchObject({ more: true })
+  search.mockRejectedValueOnce(new Error('index broken'))
+  expect((await test.invoke('coordinator_read', { session_id: test.worker.id, view: 'search', query: 'denied' })).isError).toBe(true)
 
   const running = Promise.withResolvers<{ status: 'killed' }>()
   const asr = test.ctx.jobs.start({ kind: 'bash', label: 'asr', owner: test.worker.id, run: (job) => {
