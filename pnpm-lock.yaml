@@ -17235,6 +17235,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-schedule':
+        specifier: workspace:*
+        version: link:../../schedule/schedule
       '@deepseek-ai/dsh-scope':
         specifier: workspace:*
         version: link:../../core/scope

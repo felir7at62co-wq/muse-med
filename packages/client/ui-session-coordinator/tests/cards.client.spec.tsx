@@ -72,6 +72,16 @@ it('offers no execution chat for a waiting task whose worker does not exist yet'
   expect(screen.queryByText('打开执行会话')).toBeNull()
 })
 
+it('shows an unattended attention mark with its reason', () => {
+  const marked = { ...task, attempts: [{ ...task.attempts[0]!, status: 'failed' as const,
+    report: { outcome: 'failed' as const, summary: '下载失败', files: [], throughSeq: 20 }, attention: { reason: 'failed: 下载失败', at: 2 } }] }
+  const view = render(<TaskCards {...props('main-session', marked)} />)
+  fireEvent.click(view.container.querySelector('summary')!)
+  expect(screen.getByText('需要人工处理：自动处理已停止')).toBeTruthy()
+  expect(screen.getByText('failed: 下载失败')).toBeTruthy()
+  expect(view.container.querySelectorAll('[data-coordination-attention]')).toHaveLength(1)
+})
+
 it('opens task details and dismisses them with Escape or an outside click', () => {
   const view = render(<TaskCards {...props()} />)
   const bubble = view.container.querySelector('details')!

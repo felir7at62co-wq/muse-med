@@ -122,6 +122,7 @@
     "@deepseek-ai/dsh-working-directory": "workspace:*",
     "@deepseek-ai/dsh-client-file-upload": "workspace:*",
     "@deepseek-ai/dsh-client-connection": "workspace:*",
-    "@deepseek-ai/dsh-agent-preset": "workspace:*"
+    "@deepseek-ai/dsh-agent-preset": "workspace:*",
+    "@deepseek-ai/dsh-schedule": "workspace:*"
   }
 }

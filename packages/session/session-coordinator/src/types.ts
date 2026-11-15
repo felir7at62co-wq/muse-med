@@ -58,6 +58,30 @@ export interface Assignment {
   readonly changedInputSeq?: number | undefined
   /** Input-change notification already durably delivered to Main. */
   readonly notifiedInputSeq?: number | undefined
+  /** Present on a revision the unattended policy created; it forwards no new Main input of its own. */
+  readonly redispatch?: {
+    /** Status of the previous revision that triggered the re-dispatch. */
+    readonly after: AssignmentStatus
+  } | undefined
+  /** Present once the unattended policy stops resolving this revision automatically. */
+  readonly attention?: TaskAttention | undefined
+}
+
+/** Why an unattended task needs a person, and when the coordinator recorded it. */
+export interface TaskAttention {
+  readonly reason: string
+  /** Epoch milliseconds. */
+  readonly at: number
+}
+
+/** Deployment facts that change Main's routing instructions and tool list. */
+export interface RoutingMode {
+  /** Nobody answers questions; unresolved tasks are re-dispatched or marked for attention. */
+  readonly unattended: boolean
+  /** Each task runs in its own folder under the configured task root. */
+  readonly taskFolders: boolean
+  /** Tools that wait for a human answer, denied to Main and to assigned workers when unattended. */
+  readonly humanTools: readonly string[]
 }
 
 /** Persisted task with the complete assignment history retained for routing and retry checks. */
@@ -95,6 +119,8 @@ export interface RoutingTask {
     readonly summary: string
     readonly fileCount: number
   } | null
+  /** Present only after the unattended policy marked the latest revision for attention. */
+  readonly attention?: TaskAttention
 }
 
 /** Main's bounded task list; `truncated` reports rows beyond the row limit or the character budget. */

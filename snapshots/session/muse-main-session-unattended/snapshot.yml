@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-main-session-unattended
+profile: headless
+composition: muse-main-session-unattended
+recording: authored
+header:
+  class: muse-main-session-unattended
+  pin: true
+workspace:
+  final: true
+writerOutput: true

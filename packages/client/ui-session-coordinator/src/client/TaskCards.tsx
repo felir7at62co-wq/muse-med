@@ -66,6 +66,9 @@ function TaskCard({ task, useSessions, openSession, stop, openFile, t }: Pick<Ta
         {canStop && <button type="button" disabled={pending} onClick={() => { void stopTask() }}>{t('stop')}</button>}
       </div>
       {attempt.report !== null && <p>{attempt.report.summary}</p>}
+      {attempt.attention !== undefined && <div className={css.issue} data-coordination-attention>
+        <p>{t('unattendedAttention')}</p><details><summary>{t('details')}</summary><p>{attempt.attention.reason}</p></details>
+      </div>}
       {attempt.issue !== null && <div className={css.issue}><p>{t('attention')}</p><details><summary>{t('details')}</summary><p>{attempt.issue}</p></details></div>}
       {attempt.report !== null && attempt.report.files.length > 0 && <div className={css.files} aria-label={t('files')}>
         {attempt.report.files.map(file => <button type="button" key={file.path} onClick={() => { void openFile(file.path) }}>
