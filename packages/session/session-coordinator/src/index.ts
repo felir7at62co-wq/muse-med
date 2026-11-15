@@ -13,7 +13,9 @@ import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
-import type {} from '@deepseek-ai/dsh-jobs'
+import { JobId } from '@deepseek-ai/dsh-jobs'
+import type { JobView } from '@deepseek-ai/dsh-jobs'
+import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-tool-present/types'
 import type {} from '@deepseek-ai/dsh-tool-jubian'
 import type {} from '@deepseek-ai/dsh-session-activity'
@@ -419,6 +421,88 @@ export class SessionCoordinator extends TypertRemoteService {
       chars += length
     }
     return JSON.stringify({ session: snapshot.session, items, nextSeq, complete: nextSeq === null })
+  }
+
+  /**
+   * Find events of one Session that match a full-text query.
+   * @param main - Exact routing Agent.
+   * @param sessionId - Session or subagent in the same local owner profile.
+   * @param query - Full-text query.
+   * @returns JSON hits with sequence, event type and snippet, at most `searchLimit` within `readChars`.
+   */
+  async searchEvents(main: Agent, sessionId: SessionId, query: string): Promise<string> {
+    await this.requireMain(main)
+    if (query.trim() === '') throw new ToolArgsError(['view=search requires a nonempty query'])
+    const request = { sessionId, query, limit: this.config.searchLimit }
+    const page = await this.ctx.sessionQuery.searchEvents(request, { signal: this.lifetime.signal })
+    const hits = []
+    let chars = 0
+    for (const hit of page.items) {
+      const row = { seq: hit.seq, type: hit.type, snippet: hit.snippet }
+      const length = JSON.stringify(row).length
+      if (chars + length > this.config.readChars && hits.length > 0) break
+      hits.push(row)
+      chars += length
+    }
+    return JSON.stringify({ session: page.session, hits, more: hits.length < page.items.length || page.nextCursor !== undefined,
+      guidance: 'Read around a hit with view=steps and from_seq at or before its seq.' })
+  }
+
+  /**
+   * List one Session's background jobs, or read one job's output without consuming the Session's own unread output.
+   * @param main - Exact routing Agent.
+   * @param sessionId - Owner Session of the jobs.
+   * @param jobId - Job to read; omitted lists the Session's jobs.
+   * @param from - Byte offset to read from; omitted reads the last `readChars` bytes.
+   * @returns JSON job rows, or one job row with its output text, resume offset and loss flag.
+   */
+  async jobs(main: Agent, sessionId: SessionId, jobId?: string, from?: number): Promise<string> {
+    await this.requireMain(main)
+    const row = (job: JobView) => ({ id: job.id, kind: job.kind, label: job.label.replace(/\s+/g, ' ').slice(0, 120), status: job.status,
+      ...job.progress === undefined ? {} : { progress: job.progress }, ...job.detail === undefined ? {} : { detail: job.detail },
+      startedAt: job.startedAt, ...job.finishedAt === undefined ? {} : { finishedAt: job.finishedAt }, outputBytes: job.output.total })
+    if (jobId === undefined) {
+      const jobs = this.ctx.jobs.list(sessionId).map(row)
+      const kept = []
+      let chars = 0
+      for (const job of jobs.toReversed()) {
+        const length = JSON.stringify(job).length
+        if (chars + length > this.config.readChars && kept.length > 0) break
+        kept.push(job)
+        chars += length
+      }
+      return JSON.stringify({ sessionId, jobs: kept.toReversed(), omittedEarlier: jobs.length - kept.length })
+    }
+    if (from !== undefined && (!Number.isSafeInteger(from) || from < 0)) throw new ToolArgsError(['from must be a nonnegative integer'])
+    const id = JobId(jobId)
+    const view = this.ctx.jobs.get(id, sessionId)
+    const read = this.ctx.jobs.readAt(id, from ?? Math.max(view.output.earliest, view.output.total - this.config.readChars), sessionId)
+    const text = read.chunks.map(chunk => chunk.text).join('')
+    return JSON.stringify({ job: row(view), text: text.length > this.config.readChars ? text.slice(-this.config.readChars) : text,
+      next: read.next, lossy: read.lossy || text.length > this.config.readChars })
+  }
+
+  /**
+   * Read the current settings with secrets redacted.
+   * @param main - Exact routing Agent.
+   * @param namespace - Namespace to read; omitted reads every namespace that fits `readChars`.
+   * @returns JSON effective values per namespace, or the namespace names when all values do not fit.
+   */
+  async settings(main: Agent, namespace?: string): Promise<string> {
+    await this.requireMain(main)
+    const settings = this.ctx.get('settings')
+    if (settings === undefined) throw new Error('Settings are not available in this deployment')
+    const all = settings.describe({ redactSecrets: true }).map(item => ({ namespace: String(item.ns), value: item.value }))
+    if (namespace === undefined) {
+      const text = JSON.stringify({ namespaces: all })
+      return text.length <= this.config.readChars ? text
+        : JSON.stringify({ names: all.map(item => item.namespace), guidance: 'Pass namespace to read one namespace.' })
+    }
+    const selected = all.find(item => item.namespace === namespace)
+    if (selected === undefined) throw new ToolArgsError([`Unknown settings namespace ${namespace}`])
+    const text = JSON.stringify(selected.value)
+    return text.length <= this.config.readChars ? JSON.stringify(selected)
+      : JSON.stringify({ namespace, value: text.slice(0, this.config.readChars), truncated: true })
   }
 
   /**

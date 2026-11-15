@@ -66,6 +66,9 @@
       "path": "../../util/values"
     },
     {
+      "path": "../../settings/settings"
+    },
+    {
       "path": "../../preset/agent-preset-registry"
     },
     {

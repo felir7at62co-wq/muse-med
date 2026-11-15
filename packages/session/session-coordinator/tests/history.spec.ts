@@ -2,11 +2,14 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it, onTestFinished } from 'vitest'
+import { expect, it, onTestFinished, vi } from 'vitest'
+import { Service } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { createMessage, createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { imageAt, outlineTurns, stepItems } from '../src/history-views.ts'
 import { setup, textResponse } from './fixture.ts'
@@ -79,6 +82,8 @@ it('outlines each turn and pages compact steps without runtime context', async (
   expect(imageAt(events, -1, 0)).toBeUndefined()
   expect(imageAt(events, test.firstTurnSeq, 0)).toBeUndefined()
   expect(imageAt(events, test.inputSeq, 0)).toEqual(frame)
+  await test.ctx.plugin(SettingsFixture)
+  expect(JSON.parse(await test.service.settings(test.main))).toMatchObject({ namespaces: [{ namespace: 'model' }, { namespace: 'muse' }] })
 })
 
 it('serves every read view and one image through Main tools within the character budget', async () => {
@@ -103,4 +108,64 @@ it('serves every read view and one image through Main tools within the character
   const missing = await test.invoke('coordinator_view_image', { session_id: test.worker.id, seq: test.resultSeq, index: 3 })
   expect(missing.isError).toBe(true)
   expect(text(missing)).toContain('has no image 3')
+})
+
+/** Redacted settings as the settings service describes them. */
+class SettingsFixture extends Service {
+  constructor(ctx: Context) { super(ctx, 'settings') }
+  describe(): { ns: string; value: unknown }[] {
+    return [{ ns: 'model', value: { default: 'deepseek-v4-flash' } }, { ns: 'muse', value: { note: 'x'.repeat(300) } }]
+  }
+}
+
+it('searches one Session, lists and reads its jobs, and reads redacted settings through Main tools', async () => {
+  const test = await fixture(200)
+  const text = (result: Awaited<ReturnType<typeof test.invoke>>) => result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+  const records = await test.ctx.sessionQuery.listEvents(test.worker.id)
+  const header = (await test.ctx.sessionQuery.readSession(test.worker.id)).session
+  const search = vi.spyOn(test.ctx.sessionQuery, 'searchEvents')
+  search.mockResolvedValueOnce({ session: header, items: records.slice(0, 2).map(record => ({ ...record, snippet: '写不进去' })) })
+  const found = JSON.parse(text(await test.invoke('coordinator_read', { session_id: test.worker.id, view: 'search', query: '写不进去' }))) as { hits: { seq: number }[]; more: boolean }
+  expect(found.hits.map(hit => hit.seq)).toEqual(records.slice(0, 2).map(record => record.seq))
+  expect(found.more).toBe(false)
+  search.mockResolvedValueOnce({ session: header, items: records.map(record => ({ ...record, snippet: 'x'.repeat(60) })) })
+  const bounded = JSON.parse(text(await test.invoke('coordinator_read', { session_id: test.worker.id, view: 'search', query: 'x' }))) as { hits: unknown[]; more: boolean }
+  expect(bounded.more).toBe(true)
+  search.mockResolvedValueOnce({ session: header, items: records.slice(0, 1).map(record => ({ ...record, snippet: 'one' })), nextCursor: SessionSearchCursor('next') })
+  expect(JSON.parse(await test.service.searchEvents(test.main, test.worker.id, 'one'))).toMatchObject({ more: true })
+  expect((await test.invoke('coordinator_read', { session_id: test.worker.id, view: 'search' })).isError).toBe(true)
+
+  const running = Promise.withResolvers<{ status: 'killed' }>()
+  const asr = test.ctx.jobs.start({ kind: 'bash', label: 'asr', owner: test.worker.id, run: (job) => {
+    job.updateProgress('50%')
+    return { cancel: () => { running.resolve({ status: 'killed' }) }, done: running.promise }
+  } })
+  for (let index = 0; index < 3; index++) {
+    test.ctx.jobs.start({ kind: 'bash', label: `ffmpeg\n cut ${index}`, owner: test.worker.id, run: (job) => {
+      job.append('x'.repeat(300))
+      job.append('tail-line')
+      return { cancel: () => {}, done: Promise.resolve({ status: 'completed', detail: 'exit code: 0' }) }
+    } })
+  }
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(JSON.parse(await test.service.jobs(test.main, test.worker.id, asr))).toMatchObject({ job: { label: 'asr', status: 'running', progress: '50%' } })
+  const listed = JSON.parse(text(await test.invoke('coordinator_jobs', { session_id: test.worker.id }))) as { jobs: { id: string; label: string; outputBytes: number }[]; omittedEarlier: number }
+  expect(listed.omittedEarlier).toBeGreaterThan(0)
+  const latestJob = listed.jobs.at(-1)
+  expect(latestJob?.label).toBe('ffmpeg cut 2')
+  expect(latestJob?.outputBytes).toBe(309)
+  const tail = JSON.parse(text(await test.invoke('coordinator_jobs', { session_id: test.worker.id, job_id: latestJob?.id }))) as { text: string; next: number; lossy: boolean }
+  expect(tail.text.endsWith('tail-line')).toBe(true)
+  expect(tail.text.length).toBeLessThanOrEqual(200)
+  expect(tail.next).toBe(309)
+  const head = JSON.parse(text(await test.invoke('coordinator_jobs', { session_id: test.worker.id, job_id: latestJob?.id, from: 0 }))) as { text: string; lossy: boolean }
+  expect(head.lossy).toBe(true)
+  expect((await test.invoke('coordinator_jobs', { session_id: test.worker.id, job_id: latestJob?.id, from: -1 })).isError).toBe(true)
+
+  expect((await test.invoke('coordinator_settings', {})).isError).toBe(true)
+  await test.ctx.plugin(SettingsFixture)
+  expect(JSON.parse(text(await test.invoke('coordinator_settings', {})))).toEqual({ names: ['model', 'muse'], guidance: 'Pass namespace to read one namespace.' })
+  expect(JSON.parse(text(await test.invoke('coordinator_settings', { namespace: 'model' })))).toEqual({ namespace: 'model', value: { default: 'deepseek-v4-flash' } })
+  expect(JSON.parse(text(await test.invoke('coordinator_settings', { namespace: 'muse' })))).toMatchObject({ namespace: 'muse', truncated: true })
+  expect((await test.invoke('coordinator_settings', { namespace: 'missing' })).isError).toBe(true)
 })
