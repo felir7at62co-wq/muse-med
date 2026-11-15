@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Discard a tool-less agent reply when the provider reports a prompt below both the request's tool definitions and its working-context estimate. Such a reply was produced from an incomplete request: a relay lane that dropped the tool definitions and tool history answers from the system prompt alone. The guard replaces the reply's terminal `stop` with a `PROMPT_USAGE_SHORTFALL` failure before the loop commits it, so the discarded text never becomes model-visible; the route's retry policy resends the same request when its `retryableCodes` list the code. Only listed provider/model routes are judged, and a reply without reported usage always passes.
+Discard a tool-less agent reply when the provider reports a prompt below both the request's tool definitions and its working-context estimate. Such a reply was produced from an incomplete request: a relay lane that dropped the tool definitions and tool history answers from the system prompt alone. The guard replaces the reply's terminal `stop` with a `PROMPT_USAGE_SHORTFALL` failure before the loop commits it, so the discarded text never becomes model-visible; the route's retry policy resends the same request when its `retryableCodes` list the code. Only listed provider/model routes are judged, and a reply without reported usage, always passes.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ Mount this plugin through a Cordis configuration row; it is not an installable p
 
 ### When to choose it
 
-Choose it for a route whose provider sometimes answers a request it received only in part and reports usage for what it received. Muse lists `muse-cloud-yunying`/`gemini-3.1-pro`: on 2026-11-13 and 2026-11-14 that relay answered about 7–9% of large requests from a lane that dropped the tool definitions and tool history, and the model then claimed it was not running in the client. Replies that lose content but keep calling tools, and failures without usage, are outside this guard.
+Choose it for a route whose provider sometimes answers a request it received only in part and reports usage for what it received. Muse lists `muse-cloud-yunying`/`gemini-3.1-pro`: on 2026-11-13 and 2026-11-14 that relay answered about 7–9% of large requests from a lane that dropped the tool definitions and tool history, and the model then claimed it was not running in the client. Replies that lose content but keep calling tools, and failures without usage, are outside this guard. Another exit, BB6, reports a small fixed prompt and exactly 0 completion tokens on about 40% of replies that were generated from the complete context; the guard treats such usage as unreliable and keeps the reply.
 
 ### Minimal configuration
 
@@ -77,7 +77,7 @@ Derive a route's thresholds from its logs. The reported prompt is the attempt's 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The `llm/stream` listener, registered with `prepend`, judges only requests that the agent loop marked, that carry no auxiliary `purpose`, that name a live Session, and whose provider/model pair is listed. When the stream starts, before the adapter is pulled, it measures the tool-schema estimate of the request's non-deferred tools and the token meter's working estimate of the Session; both describe exactly the dispatched request. Every chunk is forwarded live. At the terminal finish it judges a `stop` reply that carried no tool-call chunk and reported a positive prompt. Below both thresholds it leaves its loop, which closes the inner stream so inner listeners never observe a completed `stop`, and yields an error finish instead. Below only one threshold it keeps the reply and logs one content-free warning, the evidence channel for partial drops.
+The `llm/stream` listener, registered with `prepend`, judges only requests that the agent loop marked, that carry no auxiliary `purpose`, that name a live Session, and whose provider/model pair is listed. When the stream starts, before the adapter is pulled, it measures the tool-schema estimate of the request's non-deferred tools and the token meter's working estimate of the Session; both describe exactly the dispatched request. Every chunk is forwarded live. At the terminal finish it judges a `stop` reply that carried no tool-call chunk and reported a positive prompt. A reply that streamed non-empty text or reasoning but reports `outputTokens` of 0 contradicts its own usage, so the guard does not judge its prompt and keeps it; a reply with no generated content and 0 output tokens is still judged. Below both thresholds it leaves its loop, which closes the inner stream so inner listeners never observe a completed `stop`, and yields an error finish instead. Below only one threshold it keeps the reply and logs one content-free warning, the evidence channel for partial drops.
 
 The loop records the discarded reply as a log-only `assistant/attempt`, then the route's retry policy records `llm/retry` and resends the same logged context. A discarded reply's usage never becomes a token-meter anchor, so later estimates stay calibrated. After disposal no reply is judged; a stream already running forwards its original finish.
 
@@ -114,7 +114,7 @@ No request prefix changes; the discarded reply is a log-only attempt, so the res
 
 The guard recognizes one narrow failure class from usage alone.
 
-- A lane that reports no usage, or zero usage, is not caught, and neither is a bad reply that ends in `max-tokens` or calls a tool.
+- A lane that reports no usage, or zero usage, is not caught, nor is one that reports zero output tokens for a reply with text (the prompt figure of such a report is unreliable), and neither is a bad reply that ends in `max-tokens` or calls a tool.
 - A lane that keeps the tool definitions, or keeps more content than they amount to, passes; small tool sets lower the guard's sensitivity.
 - A false positive repeats on every retry of the same request, because the request and its estimates do not change; with Muse's policy it costs nine requests and then a goal resume.
 - The discarded text streams live before it is retired, the context meter briefly shows the small prompt, and a chat turn that exhausts retries shows no continue button.

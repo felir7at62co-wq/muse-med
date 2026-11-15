@@ -14,9 +14,10 @@ const route = ROUTE
 const stop: FinishReason = { kind: 'stop' }
 
 function judge(
-  usage: TokenUsage | undefined, toolSchemaTokens: number, estimateTokens: number, finish: FinishReason = stop, toolCall = false,
+  usage: TokenUsage | undefined, toolSchemaTokens: number, estimateTokens: number,
+  finish: FinishReason = stop, toolCall = false, generatedText = true,
 ) {
-  return assess({ finish, toolCall, usage, toolSchemaTokens, estimateTokens, route })
+  return assess({ finish, toolCall, generatedText, usage, toolSchemaTokens, estimateTokens, route })
 }
 
 describe('assess', () => {
@@ -59,6 +60,19 @@ describe('assess', () => {
     ['aborted', { inputTokens: 10, outputTokens: 1 }, 24235, 52798, { kind: 'aborted', failure: { code: 'ABORTED', message: 'stop' } }, false],
   ])('passes %s', (_case, usage, toolSchemaTokens, estimateTokens, finish, toolCall) => {
     expect(judge(usage, toolSchemaTokens, estimateTokens, finish, toolCall)).toEqual({ kind: 'pass' })
+  })
+
+  it('passes a zero-completion report for a reply that streamed text, as BB6 sends it', () => {
+    expect(judge({ inputTokens: 5008, outputTokens: 0 }, 24235, 120000)).toEqual({ kind: 'pass' })
+    expect(judge({ inputTokens: 12436, outputTokens: 0 }, 32935, 190000)).toEqual({ kind: 'pass' })
+  })
+
+  it('still judges a zero-completion report for a reply without generated content', () => {
+    expect(judge({ inputTokens: 5008, outputTokens: 0 }, 24235, 120000, stop, false, false).kind).toBe('reject')
+  })
+
+  it('still rejects the GEE incident shape with a nonzero completion count', () => {
+    expect(judge({ inputTokens: 5008, outputTokens: 1 }, 24235, 120000).kind).toBe('reject')
   })
 
   it('passes a merge-extended finish kind', () => {
