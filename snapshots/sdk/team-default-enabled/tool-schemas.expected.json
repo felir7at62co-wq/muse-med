@@ -1,5 +1,4 @@
 {
-  "changes": [],
   "initial": [
     {
       "name": "ask_user_question",
@@ -1093,5 +1092,6 @@
         ]
       }
     }
-  ]
+  ],
+  "changes": []
 }

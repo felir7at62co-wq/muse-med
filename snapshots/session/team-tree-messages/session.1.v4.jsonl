@@ -18,7 +18,7 @@
 {"type":"tool-workflow/run-start","data":{"runId":"{{workflow:2}}","name":"leaf"}}
 {"type":"subagent/catalog","data":{"version":3,"childId":"{{session:3}}","childCreatedAt":1792144778283,"mode":"continuable","label":"leaf child 1","name":"agent-1"}}
 {"type":"tool-workflow/agent-start","data":{"runId":"{{workflow:2}}","seq":1,"label":"List the entire Team, send the Lead a message, …","childId":"{{session:3}}"}}
-{"type":"tool-workflow/agent-end","data":{"runId":"{{workflow:2}}","seq":1,"outcome":"completed"}}
+{"type":"tool-workflow/agent-end","data":{"runId":"{{workflow:2}}","seq":1,"outcome":"completed","label":"List the entire Team, send the Lead a message, …","childId":"{{session:3}}"}}
 {"type":"tool-workflow/run-end","data":{"runId":"{{workflow:2}}","stopReason":"completed"}}
 {"type":"tool/result","data":{"turn":1,"step":1,"message":{"role":"tool","source":{"kind":"tool","callId":"desc-2-1"},"toolCallId":"desc-2-1","content":[{"type":"text","text":"workflow \"leaf\" completed (1 agent).\nReturn value:\n\"LEAF_READY\""}],"isError":false,"id":"{{message:16}}"}},"sourceEventSeqs":[15],"surfaceOp":"append"}
 {"type":"step/end","data":{"turn":1,"step":1}}

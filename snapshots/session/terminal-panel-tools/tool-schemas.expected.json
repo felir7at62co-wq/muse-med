@@ -1,5 +1,4 @@
 {
-  "changes": [],
   "initial": [
     {
       "name": "apply_patch",
@@ -843,5 +842,6 @@
         ]
       }
     }
-  ]
+  ],
+  "changes": []
 }
