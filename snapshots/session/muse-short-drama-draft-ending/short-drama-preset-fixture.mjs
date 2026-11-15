@@ -27,7 +27,7 @@ export async function apply(ctx) {
     const system = options.messages.filter(message => message.role === 'system')
       .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
       .join('\n')
-    assert.ok(system.includes('你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。\n\n'), 'short-drama identity')
+    assert.ok(system.includes('你是 muse-med 短剧编导 Agent。\n\n'), 'short-drama identity')
     assert.ok(system.includes('时长在所选模型能力内'), 'current model determines package duration')
     assert.ok(!system.includes('Seedance 2.0 的视频时长上限为15秒，Seedance 2.5 为30秒'), 'no fixed model duration table')
     assert.ok(system.includes('不因提示词长、镜头多、固定秒数或已有空卡数量机械拆包'), 'content determines package planning')

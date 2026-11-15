@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
 
 const { createContentReviewVerifier } = await importSnapshotModule(
-  new URL('../../../packages/drama/tool-episode-render/src/index.ts', import.meta.url),
-  new URL('../../../packages/drama/tool-episode-render/lib/index.js', import.meta.url),
+  new URL('../../../packages/drama/tool-episode-render/src/delivery-api.ts', import.meta.url),
+  new URL('../../../packages/drama/tool-episode-render/lib/delivery.js', import.meta.url),
 )
 
 export const name = 'content-listening-fixture'
