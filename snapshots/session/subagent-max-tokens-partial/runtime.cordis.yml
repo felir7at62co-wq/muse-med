@@ -1,0 +1,3 @@
+- insert:
+    - id: partial-child-settlement-order
+      name: '../subagent-spawn-in-process/settlement-order.mjs'

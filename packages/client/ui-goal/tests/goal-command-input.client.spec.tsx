@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, render, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { afterEach, describe, expect, it, onTestFinished } from 'vitest'
 import type { SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {
-  ConversationNodeDefinition, ConversationViewDefinition, UserTextInput,
+  ConversationViewDefinition, UserTextInput,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { ConversationNodeAssembler } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { ConversationEventRegistry, ConversationNodeAssembler } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   ChatConversationViewNode, ChatSnapshot,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -33,14 +34,13 @@ function textFactories(onInput?: (input: UserTextInput) => void): PropsRenderFac
   }
 }
 
-class TestEventDefinitions {
-  entries(): readonly ConversationNodeDefinition[] {
-    return [commandDefinition, goalCommandInputDefinition]
-  }
-
-  fallbackEntry(): undefined {
-    return undefined
-  }
+function eventDefinitions(): ConversationEventRegistry {
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  const registry = new ConversationEventRegistry(ctx)
+  registry.register(commandDefinition)
+  registry.register(goalCommandInputDefinition)
+  return registry
 }
 
 class TestViewDefinitions {
@@ -57,7 +57,7 @@ function entry(seq: number, type: string, data: unknown): SessionLiveEventEntry 
 }
 
 function snapshot(entries: readonly SessionLiveEventEntry[], hasMore = false): ChatSnapshot {
-  const assembler = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
+  const assembler = new ConversationNodeAssembler(eventDefinitions(), new TestViewDefinitions())
   assembler.replaceWindow(entries, hasMore)
   assembler.activateTarget('chat')
   const value = assembler.snapshot('chat') as ChatSnapshot | undefined

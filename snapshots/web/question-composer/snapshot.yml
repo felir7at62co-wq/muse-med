@@ -3,5 +3,6 @@ scenario: question-composer
 profile: web
 composition: web-default
 recording: live
+writerOutput: true
 header:
   class: web-default

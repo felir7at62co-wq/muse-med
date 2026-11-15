@@ -179,6 +179,8 @@ export class GenerationWatchStore {
           try {
             if (!entry.isFile()) throw new Error('Generation watch checkpoint must be a regular file')
             const run = await this.load(id)
+            /* v8 ignore if -- needs the checkpoint to disappear between readdir and load; writes are
+            atomic rename-over and nothing in this store unlinks a checkpoint. */
             if (run === undefined) throw new Error('Generation watch checkpoint disappeared during enumeration')
             return run
           } catch (error) {
@@ -447,6 +449,8 @@ export class GenerationWatchStore {
     attest: GenerationWatchOwnerAttestor): Promise<GenerationWatchVerifiedOwner | undefined> {
     runId.parse(key)
     if (!isAbsolute(previewPath) || !isAbsolute(projectDir)) throw new Error('Expected absolute project and preview paths')
+    /* v8 ignore if -- answers a JS caller that violates this exported signature; the parameter is
+    typed as a function and every in-repo caller passes its own closure. */
     if (typeof attest !== 'function') throw new Error('A Host ownership attestor is required')
     const snapshot = async (): Promise<GenerationWatchVerifiedOwner | undefined> => {
       const path = join(this.root, 'ownership.v1.json')
@@ -495,6 +499,8 @@ export class GenerationWatchStore {
     this.reservedHere.delete(run.id)
     await this.finishInitialDispatch(run.id)
     const created = await this.load(run.id)
+    /* v8 ignore if -- needs the checkpoint written by claimAndCreate to vanish before this read;
+    nothing unlinks a checkpoint. */
     if (created === undefined) throw new GenerationWatchOwnershipConflict()
     return created
   }
@@ -505,12 +511,17 @@ export class GenerationWatchStore {
     const path = this.path(candidate.id)
     return await withFileLock(path, async () => {
       const prior = await this.load(candidate.id)
+      /* v8 ignore else -- the existing-checkpoint arm needs a second createCheckpoint inside one
+      ownership.v1.json critical section; assignOwnership and put both hold that lock, so prior is
+      always undefined for a create that got this far. */
       if (prior === undefined) {
         await this.write(path, candidate)
         return candidate
       }
+      /* v8 ignore start -- only reachable with the existing-checkpoint arm ignored just above. */
       if (!sameInputs(prior, candidate)) throw new Error('Generation watch run inputs changed')
       return prior
+      /* v8 ignore stop */
     })
   }
 

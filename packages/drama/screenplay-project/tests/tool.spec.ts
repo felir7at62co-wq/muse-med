@@ -440,3 +440,17 @@ it('creates a story from decoded original frames and verifies final C approval i
   expect(project.sources.some(source => source.trusted_video_receipt !== undefined)).toBe(true)
   expect(project.candidates.at(-1)?.review?.story_acceptance?.sha256).toMatch(/^[a-f0-9]{64}$/u)
 }, 60_000)
+
+it('refuses creation extension methods this deployment never enabled before any authorization capture', async () => {
+  const { call } = await fixture({ reviewMode: 'advisory', refinementMode: 'disabled', storyFaithfulMode: 'disabled' })
+  for (const request of [
+    { method: 'fork_refinement', destination: 'fork', baseline_candidate_ids: [], scope_instructions: 'scope',
+      authorization_quote: '只补最小动作。', consent_assessment: 'assessment', allowed_categories: [] },
+    { method: 'init_story_faithful', project: 'p', request: 'r' },
+    { method: 'fork_story_faithful', destination: 'd', before_episode: 1 },
+  ]) {
+    const outcome = await call(request)
+    expect(outcome).toMatchObject({ isError: true, content: [{ type: 'text',
+      text: 'Error: invalid arguments: "request" must match exactly one oneOf branch (matched 0)' }] })
+  }
+})

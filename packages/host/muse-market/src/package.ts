@@ -14,11 +14,12 @@ export function marketDigest(bytes: Uint8Array): string { return createHash('sha
 /** Decode an archive only after validating every declared file and digest.
  * @param archive - Complete publication ZIP.
  * @param limits - Resolved deployment limits.
- * @returns Manifest and exact resource bytes.
+ * @returns Validated singleton manifest, exact resource bytes and the required Skill instructions.
  */
 export function readMarketPackage(archive: Uint8Array, limits: MarketLimits): {
-  manifest: MarketManifest
+  manifest: ReturnType<typeof marketManifest>
   files: Readonly<Record<string, Uint8Array>>
+  skillInstructions: Uint8Array
 } {
   if (!archive.byteLength || archive.byteLength > limits.archiveBytes) throw new MarketError('archive-too-large')
   let expanded = 0, count = 0
@@ -58,13 +59,12 @@ export function readMarketPackage(archive: Uint8Array, limits: MarketLimits): {
   }
   if (Object.values(entries).reduce((sum, bytes) => sum + bytes.byteLength, 0) > limits.expandedBytes) throw new MarketError('expanded-limit')
   const skill = manifest.skills[0]
-  if (skill === undefined) throw new MarketError('invalid-manifest')
   if (Object.keys(files).some(path => !path.startsWith(`skills/${skill.name}/`))) throw new MarketError('undeclared-skill')
   const instructions = files[skill.path]
   if (!instructions) throw new MarketError('missing-skill')
   try { marketSkill(new TextDecoder('utf-8', { fatal: true }).decode(instructions), skill.name) }
   catch (_error) { throw new MarketError('invalid-skill') }
-  return { manifest, files }
+  return { manifest, files, skillInstructions: instructions }
 }
 
 /** Create a deterministic publication over an explicit resource set.
@@ -76,7 +76,8 @@ export function readMarketPackage(archive: Uint8Array, limits: MarketLimits): {
 export function createMarketPackage(
   manifest: MarketManifest, files: Readonly<Record<string, Uint8Array>>, limits: MarketLimits,
 ): Uint8Array {
-  const ordered = Object.entries(files).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+  const captured = new Map(Object.entries(files))
+  const ordered = [...captured.keys()].sort().map(path => [path, captured.get(path) as Uint8Array] as const)
   const rows = ordered
     .map(([path, bytes]) => ({ path, bytes: bytes.byteLength, sha256: marketDigest(bytes) }))
   const archive = zipSync({ ...Object.fromEntries(ordered),

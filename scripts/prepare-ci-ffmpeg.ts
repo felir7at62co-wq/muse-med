@@ -29,11 +29,17 @@ function requireMediaStreams(stdout: string): void {
  * @param parent - Existing runner-owned temporary directory; preparation allocates a private child.
  * @param pathFile - GitHub Actions path file, appended only after both executables and media smoke pass.
  * @param resource - Validated desktop FFmpeg resource with exact archive size and SHA-256.
+ * @param environmentFile - Optional existing Actions environment file receiving the qualified recovery-test decoder.
  * @returns Qualified executable directory retained under runner cleanup; failures remove its private child.
  */
-export async function prepareCiFfmpeg(parent: string, pathFile: string, resource: MediaResource): Promise<string> {
+export async function prepareCiFfmpeg(
+  parent: string, pathFile: string, resource: MediaResource, environmentFile?: string,
+): Promise<string> {
   const root = await mkdtemp(join(parent, 'dsh-ci-ffmpeg-'))
   try {
+    if (environmentFile !== undefined && !(await stat(environmentFile)).isFile()) {
+      throw new Error('CI recovery decoder environment destination is not a regular file')
+    }
     const archive = await obtain(resource, root)
     await unzip(archive, join(root, 'runtime'))
     const bin = join(root, 'runtime', 'ffmpeg', 'bin')
@@ -50,6 +56,9 @@ export async function prepareCiFfmpeg(parent: string, pathFile: string, resource
     requireMediaStreams(await execute(join(bin, 'ffprobe.exe'), ['-v', 'error', '-show_entries',
       'stream=codec_name', '-of', 'json', 'smoke.mp4'], root))
     await appendFile(pathFile, `${bin}\n`, 'utf8')
+    if (environmentFile !== undefined) {
+      await appendFile(environmentFile, `MUSE_RECOVERY_TEST_FFMPEG=${resolve(bin, 'ffmpeg.exe')}\n`, 'utf8')
+    }
     return bin
   } catch (error) {
     await rm(root, { recursive: true, force: true })
@@ -58,12 +67,12 @@ export async function prepareCiFfmpeg(parent: string, pathFile: string, resource
 }
 
 async function main(): Promise<void> {
-  const { RUNNER_TEMP, GITHUB_PATH } = process.env
-  if (!RUNNER_TEMP || !GITHUB_PATH) throw new Error('CI FFmpeg preparation requires RUNNER_TEMP and GITHUB_PATH')
+  const { RUNNER_TEMP, GITHUB_PATH, GITHUB_ENV } = process.env
+  if (!RUNNER_TEMP || !GITHUB_PATH || !GITHUB_ENV) throw new Error('CI FFmpeg preparation requires RUNNER_TEMP, GITHUB_PATH and GITHUB_ENV')
   if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('CI FFmpeg preparation requires Windows x64')
   const lock = validateMediaLock(JSON.parse(await readFile(
     new URL('../apps/desktop/scripts/media-runtime.lock.json', import.meta.url), 'utf8')))
-  const bin = await prepareCiFfmpeg(RUNNER_TEMP, GITHUB_PATH, lock.ffmpeg)
+  const bin = await prepareCiFfmpeg(RUNNER_TEMP, GITHUB_PATH, lock.ffmpeg, GITHUB_ENV)
   console.log(`CI FFmpeg/ffprobe, H264/AAC, subtitles and loudnorm qualified: ${bin}`)
 }
 

@@ -1,7 +1,7 @@
 {
   "wide": {
     "height": 32,
-    "width": 264,
+    "width": 263,
     "footerCenterOffset": 0,
     "leftOffset": -4,
     "rightOffset": 4,

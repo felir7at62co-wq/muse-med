@@ -1,0 +1,6 @@
+# This owner replaces subprocesses with local transports and never calls a shell.
+# Keep the unrelated Windows sandbox diagnostic catalog out of its recorded run.
+- id: sandbox
+  config:
+    runnerCommand: !!js "process.platform === 'win32' ? ['snapshot-unused-runner'] : []"
+    runnerFailureSignatures: !!js "process.platform === 'win32' ? ['snapshot-unused-runner-failure'] : []"

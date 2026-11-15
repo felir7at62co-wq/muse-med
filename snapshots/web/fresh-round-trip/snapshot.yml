@@ -3,6 +3,7 @@ scenario: fresh-round-trip
 profile: web
 composition: web-default
 recording: live
+writerOutput: true
 header:
   class: web-default
   pin: true

@@ -1,5 +1,6 @@
 /** Conditional metadata discovery uses the same admitted owner as the recorded catalog. */
 import { afterEach, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { Context } from '@deepseek-ai/cordis'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness, provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -7,6 +8,7 @@ import { LlmAdapter, createUserMessage, ToolCallId, type GenerateOptions, type S
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SkillRegistry, { type SkillProviderControl } from '@deepseek-ai/dsh-skill'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
 import * as ToolSkill from '../src/index.ts'
 
 const contexts: Context[] = []
@@ -61,6 +63,92 @@ async function invoke(ctx: Context, agent: Agent, args: object, name = 'skill_ca
 }
 
 describe('conditional bounded catalog ownership', () => {
+  it('rejects an oversized direct registration before altering the existing loader', async () => {
+    const f = await fixture()
+    const existing = f.ctx.tools.get('skill', f.agent)
+    expect(() => { ToolSkill.apply(f.ctx, { catalogPageSize: 101 }) }).toThrow('catalogPageSize must not exceed 100')
+    expect(f.ctx.tools.get('skill', f.agent)).toBe(existing)
+  })
+
+  it('refuses directory execution without an admitted Agent and validates result presentation metadata', async () => {
+    const f = await fixture(); f.add('first'); f.add('second'); f.add('third')
+    const directory = f.ctx.tools.get('skill_catalog', f.agent)
+    if (directory === undefined) throw new Error('Directory definition is missing')
+    const pipeline = new ToolExecutionPipeline(f.ctx, { get: () => directory })
+    const prepared = await pipeline.prepare({
+      name: 'skill_catalog', callId: ToolCallId('unadmitted-catalog'), arguments: {}, signal: new AbortController().signal,
+    })
+    const outcome = prepared.kind === 'dispatch' ? await pipeline.dispatch(prepared.exec) : prepared
+    const result = await pipeline.complete(prepared.exec, outcome)
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('requires an admitted Agent step')
+    expect(directory?.presentCall?.({})).toMatchObject({ rawInput: '' })
+    expect(directory?.presentResult?.({}, result)).toEqual({ card: 'generic', title: 'Skill directory unavailable' })
+    const { meta: _meta, ...withoutMeta } = result
+    expect(directory?.presentResult?.({}, { ...withoutMeta, isError: false })).toBeUndefined()
+    for (const meta of [null, [], 'wrong', {}, { kind: 'skill-catalog', count: 1 }]) {
+      expect(directory?.presentResult?.({}, { ...result, isError: false, meta })).toBeUndefined()
+    }
+    expect(directory?.presentResult?.({}, { ...result, isError: false,
+      meta: { kind: 'skill-catalog', count: 1, totalMatched: 1, hasMore: false } }))
+      .toMatchObject({ content: [{ type: 'text', text: '1 of 1 matching skills' }] })
+  })
+
+  it('keeps full model catalog prose stable for initial, replacement, bounded, and cleared catalogs', async () => {
+    const text = (agent: Agent, adapter: ObservingAdapter): string => {
+      const message = agent.session.snapshotEvents().filter(event => event.type === 'user/message')
+        .findLast(event => event.data.source.kind === 'skill-catalog')
+      if (message?.type !== 'user/message') throw new Error('Expected a durable catalog message')
+      const body = message.data.content.map(block => block.type === 'text' ? block.text : '').join('')
+      const requested = adapter.requests.at(-1)?.messages.findLast(candidate => candidate.content.some(block =>
+        block.type === 'text' && block.text.startsWith('<system-reminder>\n')))
+      expect(requested?.content).toEqual([{ type: 'text', text: body }])
+      return body
+    }
+    const full = await fixture({})
+    await run(full.agent)
+    expect(full.agent.session.snapshotEvents().some(event => event.type === 'user/message' && event.data.source.kind === 'skill-catalog')).toBe(false)
+    const removeFirst = full.add('first')
+    await run(full.agent)
+    const initial = text(full.agent, full.adapter)
+    const removeSecond = full.add('second')
+    await run(full.agent)
+    const replacement = text(full.agent, full.adapter)
+    removeFirst(); removeSecond()
+    await run(full.agent)
+    const cleared = text(full.agent, full.adapter)
+    const bounded = await fixture()
+    const removeBoundedFirst = bounded.add('first'); bounded.add('second'); bounded.add('third')
+    await run(bounded.agent)
+    const selected = text(bounded.agent, bounded.adapter)
+    removeBoundedFirst(); bounded.add('fourth')
+    await run(bounded.agent)
+    const selectionChanged = text(bounded.agent, bounded.adapter)
+    const actual = { initial, replacement, cleared, selected, selectionChanged }
+    expect(actual).toEqual(JSON.parse(readFileSync(new URL('./expected/catalog-prose.json', import.meta.url), 'utf8')))
+    expect(catalog(full.agent).entries).toEqual([])
+    expect(catalog(bounded.agent).bounded).toBe(true)
+  })
+
+  it('replaces a restored incomplete catalog with a complete catalog even when entries match', async () => {
+    const f = await fixture({}); f.add('first')
+    f.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'Legacy partial discovery warning' }],
+      source: { kind: 'skill-catalog', form: 'catalog', incomplete: true,
+        entries: [{ name: 'first', description: 'first summary' }] },
+    }), { surfaceOp: 'append' })
+    await run(f.agent)
+    expect(f.adapter.requests).toHaveLength(1)
+    expect(catalog(f.agent)).toEqual({ kind: 'skill-catalog', form: 'catalog', update: true,
+      entries: [{ name: 'first', description: 'first summary' }] })
+    const messages = f.adapter.requests[0]?.messages
+    const body = messages?.at(-1)?.content
+    expect(body).toHaveLength(1)
+    const block = body?.[0]
+    if (block?.type !== 'text') throw new Error('Expected catalog text in the actual request')
+    expect(block.text).toContain('This complete catalog replaces every earlier available-skills list')
+  })
+
   it('keeps the untrimmed request tool set and catalog complete when a source meets its limit', async () => {
     const f = await fixture()
     f.add('first'); f.add('second'); f.add('custom', 'custom')
