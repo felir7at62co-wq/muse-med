@@ -403,6 +403,10 @@ it('labels video-sourced format problems in both modes and lists each line to fi
   expect(draft.files[0]?.video_check?.format_errors.join('\n')).toMatch(/下一行不是「人物：」行[\s\S]*占位名[\s\S]*最后一行/u)
   expect(draft.files[0]?.video_check?.episodes[0]?.format_errors).toBe(3)
 })
+it('labels an unreviewed video delivery as a finished transcription once every frame is recorded and the format is clean', async () => {
+  const f = await runtime()
+  expect((await f.declare('draft', 'video')).files[0]?.label).toBe('转写完成：第1集画面已逐帧记录，格式检查无误；未做独立来源与语义复核')
+})
 it('labels per-episode frame facts in draft and reviewed video delivery without refusing either', async () => {
   const f = await runtime()
   const state = (frames: 'not_viewed' | 'incomplete') => ({ video_dir: '/videos', videos: 1,

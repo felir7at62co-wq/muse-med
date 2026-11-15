@@ -506,7 +506,8 @@ export class ManuscriptContinuity {
         Object.assign(result, unknown('task_context_missing', 'The continued human requirement is unavailable; restate it before reviewing.'))
       } else if (selection !== undefined && userRequest !== undefined) {
         let info: LlmResolvedModelInfo | undefined
-        try { info = await sourceCtx.llm.resolveModelInfo(selection.provider, selection.model, signal) }
+        // The source scope injects only file and projection services, so the model service comes from the service store.
+        try { info = await sourceCtx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal) }
         catch (error) { signal.throwIfAborted(); void error }
         if (!info?.inputModalities?.includes('image')) {
           Object.assign(result, unknown('source_image_unsupported', 'The selected model cannot be verified to accept images; select an image-capable model and review again.'))

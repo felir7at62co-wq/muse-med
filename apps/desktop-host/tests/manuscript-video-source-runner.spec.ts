@@ -104,7 +104,8 @@ async function runtime(options: { imageCapable?: boolean; content?: ContentBlock
   ctx.on('session/created', (session) => { if (session.header.parentSession === parent.id) children.push(session) })
   const service = new ManuscriptContinuity(ctx, limits)
   ctx.effect(() => () => service.dispose())
-  const review = () => service.reviewVideoSource([{ role: 'current', path: 'draft.md' }], '核对选区', sources, parent, signal, ctx)
+  const review = (sourceCtx: Context = ctx) => service.reviewVideoSource([{ role: 'current', path: 'draft.md' }], '核对选区',
+    sources, parent, signal, sourceCtx)
   return { root, ctx, parent, adapter, service, review, bundle, report, target, materials, read, unchanged, children }
 }
 
@@ -130,6 +131,15 @@ it('logs original image blocks and returns a separate, narrowly scoped source as
   expect(fixture.children[0]?.snapshotEvents().some(event => event.type === 'user/message'
     && JSON.stringify(event.data).includes(image.attachmentId))).toBe(true)
   expect(validateContinuityAssessment(fixture.report, fixture.materials, fixture.target, 8)).toMatchObject({ status: 'unknown', reason: 'invalid_result' })
+})
+
+it('resolves the selected model from a source scope that does not inject the model service', async () => {
+  const fixture = await runtime()
+  await new ManuscriptNotes(limits).capture(['draft.md'], fixture.parent, signal)
+  let scope: Context | undefined
+  await fixture.ctx.plugin({ name: 'source-scope', inject: ['agents'], apply: (inner: Context) => { scope = inner } })
+  expect(() => scope!.llm).toThrow()
+  expect(await fixture.review(scope)).toMatchObject({ status: 'consistent', reason: 'reviewed', reviewer: { requests: 1 } })
 })
 
 it('rejects an image-incapable selected model before spawning a child or spending a reviewer request', async () => {

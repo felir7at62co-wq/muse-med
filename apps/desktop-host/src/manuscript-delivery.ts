@@ -710,8 +710,10 @@ export class ManuscriptDelivery {
         const row = state.rows.find(item => item.path === current.path)
         const review = row?.sha === current.sha256 ? row.review : null
         const videoCheck = sourceRequired ? await this.videoCheck(current, agent, videoDir, checkSignal) : undefined
-        let label = videoCheck !== undefined ? `草稿：${videoLabel(videoCheck)}；当前版本尚未完成来源与语义复核`
-          : sourceRequired ? '草稿：当前版本尚未完成来源与语义复核' : '草稿：当前版本未完成语义复核'
+        const videoComplete = videoCheck !== undefined && formatGaps(videoCheck).length === 0 && frameGaps(videoCheck).length === 0
+        let label = videoComplete ? `转写完成：${videoLabel(videoCheck)}，格式检查无误；未做独立来源与语义复核`
+          : videoCheck !== undefined ? `草稿：${videoLabel(videoCheck)}；当前版本尚未完成来源与语义复核`
+            : sourceRequired ? '草稿：当前版本尚未完成来源与语义复核' : '草稿：当前版本未完成语义复核'
         let reviewScope: ManuscriptDeliveryScope | null = null
         let dependencies: DeliveryFile['dependencies'] = []
         let sourceBindings: SourceBinding[] | undefined
