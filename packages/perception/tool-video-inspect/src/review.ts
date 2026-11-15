@@ -9,6 +9,7 @@ import { isAgentLoopRequest, IMAGE_OFFLOAD_REQUIRED_CODE } from '@deepseek-ai/ds
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import { probeVideo, runMedia } from './media.ts'
 import { scanReviewFrames } from './review-scan.ts'
+import { installFrameImageState, offloadObservedFrameImages } from './frame-images.ts'
 import { installReviewState, reviewsOf, saveReview, reviewImage, pendingReview, hasReviewUncertainty, reviewEvidenceJson,
   reviewFrameSchema, VideoReviewId, type VideoReview } from './review-state.ts'
 import type { Config } from './index.ts'
@@ -124,6 +125,7 @@ export async function applyCompleteReview(ctx: Context, config: Config,
     throw Error('Complete video observation requires sessionProjections and llm')
   }
   const readReviews = await installReviewState(ctx)
+  const readFrameImages = config.offloadObservedFrames ? await installFrameImageState(ctx) : undefined
   await installSourceQaState(ctx)
   const sessions = new Map<SessionId, Session>()
   const batchLimits = new Map<SessionId, number>()
@@ -550,6 +552,10 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           }
           review = { ...review, frames }
           saveReview(readReviews, session, review)
+          if (readFrameImages !== undefined) {
+            const reviewId = review.id
+            offloadObservedFrameImages(session, readFrameImages, [...notes.keys()].map(id => `${reviewId}/${id}`))
+          }
           return describe(review)
         }
         if (args.method === 'status') return describe(review)

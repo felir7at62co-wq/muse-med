@@ -5949,6 +5949,11 @@ export interface Config {
   sourceReviewCompanion: boolean
   /** Maximum images per observation batch. */
   reviewBatchFrames: number
+  /**
+   * After `observe` records frames, log an `image/offload` decision for their retained images so later requests send
+   * placeholder text; requires the `image/offload` projection of `@deepseek-ai/dsh-compaction-image-offload`.
+   */
+  offloadObservedFrames: boolean
   /** Thumbnail rate for cumulative appearance changes. */
   reviewAnalysisFps: number
   /** Normalized RGB difference against the last retained thumbnail. */

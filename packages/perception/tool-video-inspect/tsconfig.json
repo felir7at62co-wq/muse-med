@@ -52,6 +52,9 @@
     },
     {
       "path": "../../core/tool-executor-ptc"
+    },
+    {
+      "path": "../../compaction/compaction-image-offload"
     }
   ]
 }
