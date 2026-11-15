@@ -46,6 +46,7 @@ export const ja: Record<keyof typeof en, string> = {
   attention: 'このタスクを続ける前に実行チャットを確認してください', details: '診断情報', files: 'ファイル', dispatching: '開始待ち', reconciling: '照合を準備中', accepted: '配信済み', running: '実行中', finishing: '終了処理中',
   'needs-report': '報告待ち', interrupted: '対応が必要', stopped: '停止済み', completed: '実行が完了しました',
   blocked: 'ブロック中', 'needs-input': '入力が必要です', failed: '失敗', receipt: '実行の報告。承認待ちです',
+  unattendedAttention: '対応が必要です：自動処理は停止しました',
 }
 /** Spanish task labels. */
 export const es: Record<keyof typeof en, string> = {
@@ -58,6 +59,7 @@ export const es: Record<keyof typeof en, string> = {
   attention: 'Revisa el chat de ejecución antes de continuar con esta tarea', details: 'Diagnóstico', files: 'Archivos', dispatching: 'Esperando para empezar', reconciling: 'Preparando la conciliación', accepted: 'Entregado', running: 'En ejecución', finishing: 'Finalizando',
   'needs-report': 'Esperando el informe', interrupted: 'Requiere atención', stopped: 'Detenida', completed: 'Ejecución completada',
   blocked: 'Bloqueada', 'needs-input': 'Necesita tu información', failed: 'Falló', receipt: 'Informe de la ejecución; pendiente de tu aceptación',
+  unattendedAttention: 'Requiere una persona: el manejo automático se detuvo',
 }
 /** French task labels. */
 export const fr: Record<keyof typeof en, string> = {
@@ -70,6 +72,7 @@ export const fr: Record<keyof typeof en, string> = {
   attention: 'Consultez la conversation d’exécution avant de poursuivre cette tâche', details: 'Diagnostics', files: 'Fichiers', dispatching: 'En attente de démarrage', reconciling: 'Préparation du rapprochement', accepted: 'Livré', running: 'En cours', finishing: 'Finalisation',
   'needs-report': 'En attente du rapport', interrupted: 'Attention requise', stopped: 'Arrêtée', completed: 'Exécution terminée',
   blocked: 'Bloquée', 'needs-input': 'Votre saisie est requise', failed: 'Échec', receipt: 'Rapport d’exécution ; en attente de votre validation',
+  unattendedAttention: 'Intervention requise : le traitement automatique s’est arrêté',
 }
 /** German task labels. */
 export const de: Record<keyof typeof en, string> = {
@@ -82,6 +85,7 @@ export const de: Record<keyof typeof en, string> = {
   attention: 'Vor dem Fortsetzen dieser Aufgabe den Ausführungschat prüfen', details: 'Diagnose', files: 'Dateien', dispatching: 'Wartet auf den Start', reconciling: 'Abgleich wird vorbereitet', accepted: 'Zugestellt', running: 'Läuft', finishing: 'Wird abgeschlossen',
   'needs-report': 'Bericht ausstehend', interrupted: 'Benötigt Aufmerksamkeit', stopped: 'Gestoppt', completed: 'Ausführung abgeschlossen',
   blocked: 'Blockiert', 'needs-input': 'Eingabe erforderlich', failed: 'Fehlgeschlagen', receipt: 'Ausführungsbericht; wartet auf Abnahme',
+  unattendedAttention: 'Benötigt eine Person: Die automatische Bearbeitung wurde gestoppt',
 }
 /** Russian task labels. */
 export const ru: Record<keyof typeof en, string> = {
@@ -94,6 +98,7 @@ export const ru: Record<keyof typeof en, string> = {
   attention: 'Проверьте чат выполнения, прежде чем продолжить эту задачу', details: 'Диагностика', files: 'Файлы', dispatching: 'Ожидает запуска', reconciling: 'Подготовка сверки', accepted: 'Доставлено', running: 'Выполняется', finishing: 'Завершается',
   'needs-report': 'Ожидает отчёта', interrupted: 'Требует внимания', stopped: 'Остановлено', completed: 'Выполнение завершено',
   blocked: 'Заблокировано', 'needs-input': 'Нужны ваши данные', failed: 'Ошибка', receipt: 'Отчёт о выполнении; ожидает вашей приёмки',
+  unattendedAttention: 'Требуется человек: автоматическая обработка остановлена',
 }
 /** Portuguese task labels. */
 export const pt: Record<keyof typeof en, string> = {
@@ -106,6 +111,7 @@ export const pt: Record<keyof typeof en, string> = {
   attention: 'Verifique o chat de execução antes de continuar esta tarefa', details: 'Diagnóstico', files: 'Arquivos', dispatching: 'Aguardando início', reconciling: 'Preparando a conciliação', accepted: 'Entregue', running: 'Em execução', finishing: 'Finalizando',
   'needs-report': 'Aguardando relatório', interrupted: 'Precisa de atenção', stopped: 'Parada', completed: 'Execução concluída',
   blocked: 'Bloqueada', 'needs-input': 'Precisa da sua informação', failed: 'Falhou', receipt: 'Relatório da execução; aguardando sua aceitação',
+  unattendedAttention: 'Precisa de uma pessoa: o tratamento automático parou',
 }
 /** Owned translation keys. */
 export type CoordinationKey = keyof typeof en

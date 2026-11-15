@@ -72,11 +72,11 @@
   en: 880f15be2fc5852a
   zh: 880f15be2fc5852a
 /session-persistence-event-catalog/events/compaction/compaction-end-log-only:
-  en: ece48ed752df3e98
-  zh: 3143dd8ca601b918
+  en: 080a2c3078f7e6b2
+  zh: 8b11d8cce4fb8fa5
 /session-persistence-event-catalog/events/compaction/compaction-prune-log-only:
-  en: 4c30767cbce7c15a
-  zh: 3a4acbcb0e0eb85f
+  en: eca48fcb46e7bce5
+  zh: a34ae722cd761388
 /session-persistence-event-catalog/events/compaction/compaction-start-log-only:
   en: 5050e06fc9816475
   zh: 06ac4a38fb30c287
@@ -1677,8 +1677,8 @@
   en: 87b03e1c73d2a326
   zh: d7b9f06863cad891
 /session-persistence-event-catalog/resolved-persistence-types/compactionid-error-sourcecommandid-turn:
-  en: 96152fe81878819f
-  zh: 4500b4175f1a75f1
+  en: 9435aee192c0cf88
+  zh: 5c1122e846a08e74
 /session-persistence-event-catalog/resolved-persistence-types/compactionid-llmstreamcall-maxtokens-model:
   en: e09878c92be35a9e
   zh: cfae949bc46d026a
@@ -1722,8 +1722,8 @@
   en: cc0470d67a4b8745
   zh: b7d54c9b9a89feef
 /session-persistence-event-catalog/resolved-persistence-types/end-start:
-  en: 4b7a8793663d3fef
-  zh: 249459c825d330c3
+  en: 365bd4070ab70ba0
+  zh: de720a3ebe24e18b
 /session-persistence-event-catalog/resolved-persistence-types/endseq-op-startseq:
   en: 1b7de272fcc24627
   zh: 1464f7df891db98b
@@ -2289,8 +2289,8 @@
   en: 8063597183ef767f
   zh: b064698c54089f07
 /session-persistence-event-catalog/resolved-persistence-types/shadowedrange-shadowedseqs-shadowedtokencount:
-  en: 7a2ab7b62244f43b
-  zh: 1084e3f8876feebc
+  en: 263334929df7bc5c
+  zh: f3f303886685192d
 /session-persistence-event-catalog/resolved-persistence-types/step-stream-turn:
   en: 034511416374bd90
   zh: baa4945de30bb0f5
