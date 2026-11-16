@@ -3,7 +3,6 @@
   "strings": {
     "INSTALLER_INSTALL": "Instale agora",
     "INSTALLER_FINISH": "Concluir",
-    "INSTALLER_REBOOT_REQUIRED": "Instalação concluída. Reinicie o Windows antes de abrir o Muse.",
     "INSTALLER_VC_MISSING": "O Microsoft Visual C++ x64 Runtime não está no pacote. Não é possível concluir a instalação. Obtenha um instalador completo do muse-med.",
     "INSTALLER_VC_CONSENT": "O muse-med requer Microsoft Visual C++ x64 Runtime 14.51.36247.0 ou posterior. Instalar agora a versão incluída? Isso altera componentes do sistema e exige autorização de administrador. Nenhum download será realizado. Recusar interrompe a instalação.",
     "INSTALLER_VC_DENIED": "A instalação do Microsoft Visual C++ x64 Runtime não foi autorizada. Não é possível concluir a instalação do muse-med.",

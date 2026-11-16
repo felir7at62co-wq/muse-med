@@ -3,7 +3,6 @@
   "strings": {
     "INSTALLER_INSTALL": "今すぐインストール",
     "INSTALLER_FINISH": "完了",
-    "INSTALLER_REBOOT_REQUIRED": "インストールが完了しました。Muse を開く前に Windows を再起動してください。",
     "INSTALLER_VC_MISSING": "同梱の Microsoft Visual C++ x64 Runtime がありません。インストールを完了できません。完全な muse-med インストーラーを入手してください。",
     "INSTALLER_VC_CONSENT": "muse-med には Microsoft Visual C++ x64 Runtime 14.51.36247.0 以降が必要です。同梱版を今すぐインストールしますか？システムコンポーネントが変更され、管理者の承認が必要です。ダウンロードは行いません。拒否するとインストールを中止します。",
     "INSTALLER_VC_DENIED": "Microsoft Visual C++ x64 Runtime のインストールが承認されませんでした。muse-med のインストールを完了できません。",

@@ -2789,6 +2789,9 @@ describe('headless recorded-session snapshots', () => {
               : { DSH_PERMISSION_MODE: scenario.manifest.permission }),
             ...scenario.manifest.environment,
             ...scenario.name === 'muse-visualize' ? { DSH_VISUALIZE_FIXTURE_LAYOUT: visualizationLayoutReceipt } : {},
+            ...(scenario.name === 'subagent-acp-diagnostic' ? {
+              DSH_ACP_DIAGNOSTIC_SERVER: join(repoRoot, 'packages/subagent/subagent-acp/tests/mock-acp-server.ts'),
+            } : {}),
             ...(scenario.name === 'mcp-resources' || scenario.name === 'mcp-resources-ptc' ? {
               DSH_MCP_RESOURCES_FIXTURE: join(repoRoot, 'packages/mcp/mcp-client/tests/fixtures/resources-server.ts'),
             } : {}),
