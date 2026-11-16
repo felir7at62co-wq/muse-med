@@ -48,6 +48,9 @@ const scheduleSource: string = 'schedule'
 /** Latest statuses that the unattended policy resolves without a human. */
 const unresolvedStatuses: ReadonlySet<AssignmentStatus> = new Set(['needs-report', 'interrupted', 'blocked', 'needs-input', 'failed'])
 
+/** Worker input and log position recorded by a reconciliation revision. */
+type Reconciliation = NonNullable<Assignment['reconciliation']>
+
 /** Unattended decision for one task's latest revision. */
 type FollowUp = { readonly kind: 'none' | 'redispatch' } | { readonly kind: 'attention'; readonly reason: string }
 
@@ -207,12 +210,11 @@ export class SessionCoordinator extends TypertRemoteService {
           return attempt.sessionId === session.id && reservesWorker(attempt) && attempt.status !== 'stopping'
             && attempt.messageId !== input.id && !attempt.forwardedIds.includes(input.id)
             && event.seq > (attempt.reconciliation?.throughSeq ?? -1)
-            ? [{ id, revision: attempt.revision }] : []
+            ? [{ id, owner: task.owner, revision: attempt.revision }] : []
         })
         this.background(async () => {
           for (const captured of affected) {
-            const task = this.table.get(captured.id)
-            if (task === undefined) continue
+            const task = this.owned(captured.owner, captured.id)
             const attempt = latest(task)
             if (attempt.revision !== captured.revision || attempt.status === 'stopping' || attempt.status === 'stopped') continue
             const log = await this.ctx.sessionQuery.readSession(session.id)
@@ -542,14 +544,13 @@ export class SessionCoordinator extends TypertRemoteService {
         sessionId: request.sessionId ?? null, cwd: request.cwd ?? null, taskId: request.taskId ?? null,
         expectedRevision: request.expectedRevision ?? null,
       })).digest('hex')
-      const existing = [...this.table.entries()].map(([, task]) => task)
-        .find(task => task.owner === main.id && task.attempts.some(attempt => attempt.key === request.key))
+      const existing = [...this.table.entries()].flatMap(([, task]) => task.attempts
+        .filter(attempt => task.owner === main.id && attempt.key === request.key).map(attempt => ({ task, attempt }))).at(0)
       if (existing !== undefined) {
-        const attempt = existing.attempts.find(item => item.key === request.key)
-        if (attempt === undefined) throw new Error('Dispatch key has no matching assignment')
-        if (attempt.requestHash !== requestHash) throw new Error('Dispatch key already names different work')
-        if (latest(existing).status !== 'dispatching' || (latest(existing).createSession && !this.startsNow(existing))) return existing
-        return this.deliver(existing)
+        if (existing.attempt.requestHash !== requestHash) throw new Error('Dispatch key already names different work')
+        const current = latest(existing.task)
+        if (current.status !== 'dispatching' || (current.createSession && !this.startsNow(existing.task))) return existing.task
+        return this.deliver(existing.task)
       }
       this.requireNotes(request)
       const source = (await this.ctx.sessionQuery.readSession(main.id)).events.findLast(event => this.dispatchSource(event))
@@ -628,7 +629,9 @@ export class SessionCoordinator extends TypertRemoteService {
         if (existing.attempts.find(attempt => attempt.key === request.key)?.requestHash !== requestHash) {
           throw new ToolArgsError(['Request key already names different work'])
         }
-        return latest(existing).status === 'reconciling' ? this.deliverReconciliation(existing) : existing
+        const pending = latest(existing)
+        return pending.status === 'reconciling' && pending.reconciliation !== undefined
+          ? this.deliverReconciliation(existing, pending.reconciliation) : existing
       }
       this.requireNotes(request)
       const previous = this.owned(main.id, request.taskId)
@@ -653,18 +656,18 @@ export class SessionCoordinator extends TypertRemoteService {
       }
       const source = (await this.ctx.sessionQuery.readSession(main.id)).events.findLast(event => this.dispatchSource(event))
       if (source === undefined) throw new ToolContextUnavailableError('A retained Main owner request is required')
+      const reconciliation = { throughSeq, humanSeq: human.seq, humanMessageId: human.data.id }
       let task: CoordinationTask = { ...previous, attempts: [...previous.attempts, {
         revision: attempt.revision + 1, key: request.key, requestHash, instructions: request.instructions, reason: request.reason,
         sourceSeq: source.seq, messageId: human.data.id, forwardedIds: [],
         briefId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
         noticeId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
         sessionId: attempt.sessionId, createSession: false, cwd: attempt.cwd, sourceCwd: main.session.header.cwd ?? null,
-        videoKey: attempt.videoKey, status: 'reconciling', report: null, issue: null, notifiedStatus: null,
-        reconciliation: { throughSeq, humanSeq: human.seq, humanMessageId: human.data.id },
+        videoKey: attempt.videoKey, status: 'reconciling', report: null, issue: null, notifiedStatus: null, reconciliation,
       }] }
       await this.humanInputs(task)
       await this.save(task)
-      try { task = await this.deliverReconciliation(task) }
+      try { task = await this.deliverReconciliation(task, reconciliation) }
       catch (error) {
         await this.save(revise(task, { status: 'interrupted', issue: String(error) }))
         throw error
@@ -1051,10 +1054,9 @@ export class SessionCoordinator extends TypertRemoteService {
     return { reason: error.message, info: { name: error.name, code: error.code } }
   }
 
-  private async deliverReconciliation(task: CoordinationTask): Promise<CoordinationTask> {
+  /** @param reconciliation - The latest revision's recorded worker input and log position. */
+  private async deliverReconciliation(task: CoordinationTask, reconciliation: Reconciliation): Promise<CoordinationTask> {
     const attempt = latest(task)
-    const reconciliation = attempt.reconciliation
-    if (reconciliation === undefined) throw new ToolContextUnavailableError('Reconciliation input metadata is unavailable')
     const resolved = await this.ctx.sessionController.resolveAgent(attempt.sessionId)
     if ('error' in resolved) throw resolved.error
     const worker = resolved.agent
@@ -1361,7 +1363,6 @@ export class SessionCoordinator extends TypertRemoteService {
     if (resolution.kind === 'aborted') return
     const resolved = resolution.value
     if ('error' in resolved) throw resolved.error
-    if (this.unloading()) return
     const owner = resolved.agent
     const noticeId = brandString<MessageId>(`${attempt.noticeId}-${attempt.status}${attempt.changedInputSeq === undefined ? '' : `-${attempt.changedInputSeq}`}`)
     const pending = [...owner.inbox.nextTurn, ...owner.inbox.nextStep].some(message => message.id === noticeId)
@@ -1375,6 +1376,7 @@ export class SessionCoordinator extends TypertRemoteService {
         return
       }
     }
+    let durable = true
     if (!pending && !logged) {
       owner.followup({ ...createUserMessage({
         source: { kind: 'muse-coordination', form: 'notice', summary: boundContextSummary(`${task.title}: ${attempt.status}`),
@@ -1386,9 +1388,9 @@ export class SessionCoordinator extends TypertRemoteService {
             : 'Relay the verified outcome and files to the user. For needs-input, relay the summary question verbatim as plain text, not a card, and dispatch the revision after the user replies. Worker completion is not human acceptance. Route further work to execution Sessions.' }) }],
       }), id: noticeId })
       const checkpoint = await this.optional(this.ctx.sessions.flush(owner.session))
-      if (checkpoint.kind === 'aborted' || !checkpoint.value) return
+      durable = checkpoint.kind === 'value' && checkpoint.value
     }
-    if (this.unloading()) return
+    if (!durable || this.unloading()) return
     await this.save(revise(task, { notifiedStatus: attempt.status,
       ...(attempt.changedInputSeq === undefined ? {} : { notifiedInputSeq: attempt.changedInputSeq }) }))
   }
@@ -1402,7 +1404,7 @@ export class SessionCoordinator extends TypertRemoteService {
   private waiting(): CoordinationTask[] {
     return [...this.table.entries()].map(([, task]) => task)
       .filter(task => latest(task).status === 'dispatching' && latest(task).createSession)
-      .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .sort((a, b) => a.createdAt - b.createdAt || Number(a.id > b.id) - Number(a.id < b.id))
   }
 
   private startsNow(task: CoordinationTask): boolean {
@@ -1448,7 +1450,8 @@ export class SessionCoordinator extends TypertRemoteService {
       && !(await this.ctx.sessionQuery.listSessions(this.lifetime.signal)).some(row => row.header.id === attempt.sessionId)) return
     if (attempt.status === 'dispatching' || attempt.status === 'reconciling') {
       try {
-        const delivered = attempt.status === 'reconciling' ? await this.deliverReconciliation(task) : await this.deliver(task)
+        const delivered = await (attempt.reconciliation === undefined
+          ? this.deliver(task) : this.deliverReconciliation(task, attempt.reconciliation))
         const worker = this.ctx.agents.get(latest(delivered).sessionId)
         if (worker !== undefined) await this.settleWorker(worker)
       }

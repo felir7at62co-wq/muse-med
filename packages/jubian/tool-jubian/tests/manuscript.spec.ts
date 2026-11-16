@@ -37,10 +37,12 @@ function fixture(options: {
   tags?: () => Record<string, unknown[]>
   bindable?: unknown
   existingProjects?: unknown
+  makeClient?: (clientOptions: ConstructorParameters<typeof JubianClient>[0]) => JubianClient
 } = {}) {
   const calls: { method: string; path: string; body: unknown }[] = []
   const credential = vi.fn(async () => 'unit-test-credential')
-  const client = new JubianClient({ credential, fetch: async (url, init) => {
+  const makeClient = options.makeClient ?? (clientOptions => new JubianClient(clientOptions))
+  const client = makeClient({ credential, fetch: async (url, init) => {
     const absolute = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url
     const path = absolute.replace('https://web.jubianai.net/prod-api', '')
     const method = init?.method ?? 'GET'
@@ -129,6 +131,16 @@ describe('manuscript reads', () => {
       .rejects.toThrow('object upload unavailable')
     expect(uploadDocumentMethod).toHaveBeenCalledTimes(1)
     expect(f.calls).toEqual([])
+  })
+})
+
+describe('manuscript upload evidence', () => {
+  it('reports no file identity when the upload outcome is unknown', async () => {
+    vi.mocked(uploadDocumentMethod).mockResolvedValueOnce({ uploaded: false, outcome: 'unknown', replayed: true })
+    const f = fixture()
+    expect(await manuscriptMethod(f.client, f.ledger, { method: 'upload_document', document_path: '/tmp/source.docx',
+      idempotency_key: 'upload-unknown' }, UPLOAD_OPTIONS))
+      .toMatchObject({ uploaded: false, outcome: 'unknown', file: null, registered: false })
   })
 })
 
@@ -237,6 +249,20 @@ describe('manual production start', () => {
       .toMatchObject({ outcome: 'accepted', readback: { status: 'unavailable', content_reviewed: false } })
   })
 
+  it('reports a generic readback reason when the project read fails with a non-Jubian error', async () => {
+    class ReadbackFailure extends JubianClient {
+      override async request(request: Parameters<JubianClient['request']>[0]) {
+        if (request.path === '/aigc/script/91') throw new TypeError('socket reset')
+        return await super.request(request)
+      }
+    }
+    const f = fixture({ makeClient: clientOptions => new ReadbackFailure(clientOptions) })
+    expect(await manuscriptMethod(f.client, f.ledger, { method: 'start_produce', manuscript_id: 73,
+      project: PROJECT, idempotency_key: 'readback-failure' }, UPLOAD_OPTIONS))
+      .toMatchObject({ outcome: 'accepted', script_id: 91,
+        readback: { status: 'unavailable', reason: 'Project readback failed', content_reviewed: false } })
+  })
+
   it('keeps a mismatched manuscript binding unverified', async () => {
     const wrongBinding = fixture({ project: () => ({ id: 91, manuscriptId: 74, produceType: 1 }) })
     expect(await manuscriptMethod(wrongBinding.client, wrongBinding.ledger, { method: 'start_produce', manuscript_id: 73,
@@ -273,6 +299,14 @@ describe('manual production start', () => {
 
 })
 
+
+it('refuses an unsupported method name before any provider request', async () => {
+  const f = fixture()
+  // @ts-expect-error Model-supplied JSON can carry a method outside the declared union.
+  await expect(manuscriptMethod(f.client, f.ledger, { method: 'delete' }, UPLOAD_OPTIONS))
+    .rejects.toMatchObject({ code: 'INVALID_ARGUMENT', detail: 'Unsupported jubian_manuscript method' })
+  expect(f.calls).toEqual([])
+})
 
 it.each<ManuscriptArgs>([
   { method: 'get' }, { method: 'file', manuscript_id: 0 }, { method: 'bindable', page_size: 1001 },

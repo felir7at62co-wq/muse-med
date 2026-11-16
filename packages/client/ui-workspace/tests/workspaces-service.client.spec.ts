@@ -349,6 +349,57 @@ describe('UiWorkspaceService', () => {
     expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('main')])
   })
 
+  it('resumes ordinary restoration when the feature has no initial Session and opens the restored Session once', async () => {
+    const created = Promise.withResolvers<SessionId>()
+    const b = bench({ workspaces: workspaceState([workspace('home')]), sessions: sessionState([summary('main')]),
+      configureSessions: (sessions) => { sessions.create.mockReturnValueOnce(created.promise) } })
+    await vi.waitFor(() => { expect(b.sessions.create).toHaveBeenCalledOnce() })
+    await b.uiWorkspace.openInitialSession(async () => undefined, new AbortController().signal)
+    created.resolve(sid('restored'))
+    await vi.waitFor(() => { expect(b.sessions.retain).toHaveBeenCalledWith(sid('restored'), { source: 'mainView' }) })
+    await setImmediate()
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('restored')])
+  })
+
+  it('does not open an initial Session when the conversation service is unavailable for the open main view', async () => {
+    persistSelection({ sessionId: sid('ordinary') })
+    const b = bench({ conversation: false, workspaces: workspaceState([workspace('home', [sid('ordinary')])]),
+      sessions: sessionState([summary('ordinary')]) })
+    const resolve = vi.fn(async () => sid('main'))
+    await b.uiWorkspace.openInitialSession(resolve, new AbortController().signal)
+    expect(resolve).not.toHaveBeenCalled()
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('ordinary')])
+  })
+
+  it('does not open an initial Session after the layout invalidated the navigation before it began', async () => {
+    const b = bench()
+    vi.spyOn(b.layout, 'beginNavigation').mockReturnValue(AbortSignal.abort())
+    b.sessions.list.set(sessionState([summary('main')]))
+    await b.uiWorkspace.openInitialSession(async () => sid('main'), new AbortController().signal)
+    expect(b.sessions.retain).not.toHaveBeenCalled()
+  })
+
+  it('does not open the initial Session when a draft is entered while waiting for the catalog', async () => {
+    persistSelection({ sessionId: sid('ordinary') })
+    const b = bench({ workspaces: workspaceState([workspace('home', [sid('ordinary')])]), sessions: sessionState([summary('ordinary')]) })
+    b.sessions.refresh.mockImplementationOnce(async () => {
+      b.sessions.list.set(sessionState([summary('ordinary'), summary('main')]))
+      b.inputState.set({ draft: 'typed meanwhile', attachmentIds: [], phase: 'plain' })
+    })
+    await b.uiWorkspace.openInitialSession(async () => sid('main'), new AbortController().signal)
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('ordinary')])
+  })
+
+  it('swallows a synchronous resolver failure raised after the feature lost access', async () => {
+    const b = bench()
+    const feature = new AbortController()
+    await expect(b.uiWorkspace.openInitialSession(() => {
+      feature.abort()
+      throw new Error('resolver failed after revocation')
+    }, feature.signal)).resolves.toBeUndefined()
+    expect(b.sessions.retain).not.toHaveBeenCalled()
+  })
+
   it('waits for the new Session in the refreshed catalog before opening it', async () => {
     const b = bench()
     const first = Promise.withResolvers<undefined>()

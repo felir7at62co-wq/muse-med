@@ -444,6 +444,23 @@ describe('Loader-composed tool discovery', () => {
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
+  it('answers each agent from its own authorized tools after more distinct tool sets than the search index retains', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-index-sets-'))
+    const f = await fixture(root)
+    try {
+      const denials = [[], ['secret_delete'], ['video_inspect'], ['video_inspect', 'secret_delete'], ['export_word']]
+      const agents: Agent[] = []
+      for (const [index, deny] of denials.entries()) {
+        agents.push(await f.create(`discovery-index-set-${index}`, { setup: (scope) => { scope.tools.restrict({ deny }) } }))
+      }
+      const loaded = async (agent: Agent) => (await discover(f, agent, { query: 'export_word', limit: 1 })).value.loaded.map(tool => tool.name)
+      for (const agent of agents.slice(0, 4)) expect(await loaded(agent)).toEqual(['export_word'])
+      expect(await loaded(agents[4]!)).toEqual([])
+      expect(await loaded(agents[0]!)).toEqual(['export_word'])
+      expect(await shown(f.ctx, agents[4]!)).not.toContain('export_word')
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
   it('keeps late authorized unclassified tools browsable without exposing denied or constant tools', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-unclassified-'))
     const f = await fixture(root)

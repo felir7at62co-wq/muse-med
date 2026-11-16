@@ -174,6 +174,7 @@ describe('SubagentRuntime', () => {
 
   it('has no owned child work before the Agent service is mounted', async () => {
     const { subagents } = await service(false)
+    expect(subagents.hasTreeWork(fakeParent())).toBe(false)
     await expect(subagents.waitForTreeWork(fakeParent())).resolves.toBe(false)
   })
 

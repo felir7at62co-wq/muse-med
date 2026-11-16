@@ -360,3 +360,13 @@ it('does not restart a player hidden by a suspended parent', () => {
   fireEvent.click(play)
   expect(playVideo).not.toHaveBeenCalled()
 })
+
+it('reports a user interaction when the viewer presses the picture or uses the keyboard on it', () => {
+  const onUserInteract = vi.fn()
+  const view = render(<VideoPlayer {...props()} onUserInteract={onUserInteract} />)
+  const video = view.getByLabelText('Actual source')
+  fireEvent.pointerDown(video)
+  expect(onUserInteract).toHaveBeenCalledTimes(1)
+  fireEvent.keyDown(video, { key: ' ' })
+  expect(onUserInteract).toHaveBeenCalledTimes(2)
+})

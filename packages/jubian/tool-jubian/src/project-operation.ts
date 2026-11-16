@@ -48,7 +48,7 @@ function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical)
   if (object(value)) {
     return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)
-      .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => [key, canonical(item)]))
+      .sort(([a], [b]) => a < b ? -1 : 1).map(([key, item]) => [key, canonical(item)]))
   }
   return value
 }

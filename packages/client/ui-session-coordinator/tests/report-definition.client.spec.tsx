@@ -9,6 +9,7 @@ import { SessionSeq } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { SessionListState, SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ConversationNodeContext } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ConversationNodeAssembler } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatNode, ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { chatViewDefinition } from '@deepseek-ai/dsh-client-ui-chat/src/client/conversation-nodes/chat-snapshot-builder.ts'
@@ -118,5 +119,27 @@ describe('visible report conversation nodes', () => {
     expect(css).toContain('border-radius: var(--dsw-radius-xl)')
     expect(css).toContain('@media (hover: hover)')
     expect(css).toContain('.action:focus-visible')
+  })
+})
+
+describe('report definition lifecycle guards', () => {
+  type State = { argsRaw: string; callTime: number; result: null }
+  const context = (state?: State): ConversationNodeContext<State> =>
+    ({ key: 'k', kind: 'muse-coordination-report', id: '1:call', matches: [], start: undefined, state, current: new Map() })
+  const location = { kind: 'unresolved' } as const
+
+  it('rejects a start match that is not a tool call', () => {
+    const { event } = events()[3]!
+    expect(() => reportDefinition.start(context(), { event, role: 'start', location }, { previous: () => undefined }))
+      .toThrow('report start requires tool/call')
+  })
+
+  it('keeps the report state when a tool call, a failed result or an unrecorded result arrives as an update', () => {
+    const state = { argsRaw: '{}', callTime: 3, result: null }
+    const update = ({ event }: SessionLiveEventEntry): unknown =>
+      reportDefinition.update({ ...context(state), state }, { event, role: 'update', location })
+    expect(update(events()[2]!)).toBe(state)
+    expect(update(events(1, 1, 'coordinator_show_report', { museCoordinationReport: receipt }, true)[3]!)).toBe(state)
+    expect(update(events(1, 1, 'coordinator_show_report', {})[3]!)).toBe(state)
   })
 })

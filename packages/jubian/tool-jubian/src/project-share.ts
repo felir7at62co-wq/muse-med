@@ -199,11 +199,10 @@ async function makePreview(client: JubianClient, account: Actor, args: ProjectSh
   })
   const query = buildProjectShareBatchRequest({ scriptId, project: source, shareType: selected.kind, shareTargetType: selected.target,
     ...(selected.kind === 2 ? { userIds: expected } : { departmentId: id(expected[0]) }) })
-  if (query.body === undefined) return changed('Sharing request has no checked body')
   const value: Omit<Preview, 'fingerprint'> = { version: 1, preview_id: randomBytes(24).toString('hex'), actor_id: account.id,
     script_id: scriptId, share_type: selected.kind, share_target_type: selected.target, project: source,
     shares: baseline.map(item => item.snapshot), requested_ids: selected.ids, expected_ids: expected,
-    additions: expectedTargets.filter(item => !before.includes(item.id)), expected_targets: expectedTargets, request_body: query.body }
+    additions: expectedTargets.filter(item => !before.includes(item.id)), expected_targets: expectedTargets, request_body: row(query.body) }
   return { ...value, fingerprint: fingerprint(value) }
 }
 function previewPath(ledger: JubianLedger, previewId: string): string {

@@ -107,6 +107,23 @@ describe('existing manuscript registration', () => {
       .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
   })
 
+  it.each([[{ scriptFormat: 99 as never }, 'scriptFormat'], [{ producerType: 99 as never }, 'producerType'],
+    [{ hasCopyright: '2' as never }, 'hasCopyright']] as const)
+  ('rejects an unknown script format, producer type or copyright declaration %j', (change, detail) => {
+    expect(() => buildManuscriptUploadRequest('produce', { ...INPUT, ...change }, OPTIONS))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT', detail }))
+  })
+
+  it('rejects an upload owner other than production or editor registration', () => {
+    expect(() => buildManuscriptUploadRequest('admin' as never, INPUT, OPTIONS))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT', detail: 'owner' }))
+  })
+
+  it('rejects a tag lookup for a category the workbench does not offer', () => {
+    expect(() => buildManuscriptTagOptionsRequest('mood' as never))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT', detail: 'tag category' }))
+  })
+
   it('rejects a creation tag returned under the wrong category', () => {
     const wrong = { ...OPTIONS, creationType: [{ ...OPTIONS.creationType[0]!, category: 'genre' as const }] }
     expect(() => buildManuscriptUploadRequest('produce', INPUT, wrong)).toThrow()
@@ -191,6 +208,11 @@ describe('manuscript lookup requests and readers', () => {
     expect(readManuscriptDetail({ manuscript: { id: 73 } })).toMatchObject({ manuscript_id: 73,
       has_copyright: null, copyright_owner: null, can_modify: null, can_distribute: null,
       manuscript_file: { file_name: null, file_url: null, object_key: null } })
+  })
+
+  it('reads numeric 0 permission flags as false and other numbers as unknown', () => {
+    expect(readManuscriptDetail({ manuscript: { id: 73 }, canModify: 0, canDistribute: 1, canClaim: 2 }))
+      .toMatchObject({ can_modify: false, can_distribute: true, can_claim: null })
   })
 
   it.each([null, {}, { id: 73 }, { manuscript: {} }, { manuscript: { id: 0 } }])

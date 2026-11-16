@@ -125,6 +125,7 @@ it('keeps settings available while disabled and switches the four real contribut
   expect(select?.({ sourceUrl: '/api/video', label: 'Actual video', path: '/work/actual.mp4', seq: 4, index: 0 })).toBe(true)
   expect(injected(h.slots.entries('deliverables.video')[0]!)).toEqual(h.face())
   expect(injected(h.slots.entries('conversation.chat.turnTail')[0]!)).toEqual(h.face())
+  expect(injected(h.slots.entries('conversation.session.header.utilities')[0]!)).toEqual(h.face())
   h.form.publish({ value: { enabled: true } })
   await h.setting().setEnabled(false)
   expect(h.counts()).toEqual([0, 0, 0, 0])

@@ -110,6 +110,54 @@ describe('completion around parked child inboxes', () => {
     }
   })
 
+  it('leaves another root\'s admitted and running children untouched when one root interrupts its tree', async () => {
+    const harness = await setup()
+    const { ctx, parent, gate } = harness
+    try {
+      const { agent: other } = await ctx.agents.create({
+        sessionId: SessionId('parked-wait-other-root'),
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      const entered = gate()
+      const releaseTurn = gate()
+      ctx.on('agent/pre-step', async ({ agent }, next) => {
+        if (agent !== parent && agent !== other) {
+          entered.resolve(undefined)
+          await releaseTurn.promise
+        }
+        return next()
+      })
+      const running = await harness.start(other)
+      await entered.promise
+      const preparing = gate()
+      const releasePrepare = gate()
+      ctx.subagents.registerProvider({
+        name: 'preparing',
+        capabilities: NO_START_CAPABILITIES,
+        inheritsParentContext: false,
+        prepareContinuable: async () => {
+          preparing.resolve(undefined)
+          await releasePrepare.promise
+          return {}
+        },
+      })
+      const admitted = harness.start(other, 'preparing')
+      await preparing.promise
+      expect(ctx.subagents.hasTreeWork(parent)).toBe(false)
+      expect(ctx.subagents.hasTreeWork(other)).toBe(true)
+
+      ctx.subagents.interruptTree(parent)
+      releasePrepare.resolve(undefined)
+      releaseTurn.resolve(undefined)
+
+      const published = await admitted
+      await expect(running.result).resolves.toMatchObject({ stopReason: 'completed' })
+      await expect(published.result).resolves.toMatchObject({ stopReason: 'completed' })
+    } finally {
+      await harness.dispose()
+    }
+  })
+
   it('rechecks a revived sibling after another parked child finishes maintenance', async () => {
     const harness = await setup()
     const { ctx, parent, gate, track } = harness

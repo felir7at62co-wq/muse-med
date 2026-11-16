@@ -567,6 +567,15 @@ it.each([
   await expect(mount({ config: JSON.parse(JSON.stringify(raw)) as Partial<Config> })).rejects.toThrow()
 })
 
+it.each([
+  [{ documentUploadMaxBytes: 0 }, 'documentUploadMaxBytes must be a positive safe integer'],
+  [{ documentUploadMaxBytes: 1.5 }, 'documentUploadMaxBytes must be a positive safe integer'],
+  [{ documentUploadTimeoutMs: 0 }, 'documentUploadTimeoutMs must be a positive integer within 1..2147483647'],
+  [{ documentUploadTimeoutMs: 2147483648 }, 'documentUploadTimeoutMs must be a positive integer within 1..2147483647'],
+] satisfies [Partial<Config>, string][])('rejects document upload limits %j before registering tools', async (config, message) => {
+  await expect(mount({ config })).rejects.toThrow(message)
+})
+
 it('keeps reads and preparation outside paid-watch enrollment and refuses submission without a Host controller', async () => {
   const executor = vi.spyOn(Methods, 'storyboardMethod').mockResolvedValue({ status: 'prepared' })
   onTestFinished(() => { executor.mockRestore() })

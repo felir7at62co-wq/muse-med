@@ -1694,6 +1694,35 @@ describe('transient error resume', () => {
     expect(test.adapter.requests).toHaveLength(4)
   })
 
+  it('keeps a model-recorded wait instead of the limit notice when the last automatic resume fails', async () => {
+    const test = await harness([
+      new LlmError('upstream 502', 'SERVER'),
+      callResponse('defer'),
+      new LlmError('tool-result request 502', 'SERVER'),
+    ], 'quiet', { transientErrorResume: { maxAttempts: 1, delayMs: 20 } })
+    test.ctx.tools.register(defineTool({
+      name: 'defer', description: 'Defer the goal for a long time.', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: () => {
+        const goal = test.ctx.goals.get(test.agent)
+        if (goal === undefined) throw new Error('missing goal while deferring')
+        test.ctx.goals.wait(test.agent, goal, { reason: 'timer', wakeAt: Date.now() + 60_000, message: 'defer' })
+        return Promise.resolve('deferred')
+      },
+    }))
+    test.ctx.goals.create(test.agent, { objective: 'defer before the outage returns', maxGoalRounds: 8 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.roundsStarted === 2 && current.activation === 'disarmed')
+    await test.agent.whenIdle()
+
+    expect(goal).toMatchObject({ phase: 'active', wait: { reason: 'timer', message: 'defer' } })
+    expect(recordedWaits(test.agent).map(wait => [wait.reason, wait.message])).toEqual([
+      ['timer', 'Goal round failed with model error SERVER; automatic resume 1/1 in 1 s.'],
+      ['timer', 'defer'],
+    ])
+    expect(test.adapter.requests).toHaveLength(3)
+  })
+
   it.each([
     ['a non-transient code', new LlmError('denied', 'AUTH')],
     ['an adapter failure normalized to UNKNOWN', new Error('round one broke')],

@@ -12,6 +12,7 @@ import type { CoordinationTask, CoordinationTaskId } from '@deepseek-ai/dsh-sess
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 
 afterEach(cleanup)
 
@@ -117,4 +118,80 @@ it('shows the dedicated Muse entry for owners and hides it when coordination is 
   expect(openMain).toHaveBeenCalledTimes(1)
   view.rerender(<MainEntry wide openMain={openMain} t={t} useRemoteAccess={() => false} />)
   expect(screen.queryByRole('button', { name: 'Muse 主会话' })).toBeNull()
+})
+
+it('renders no card for a task that has no execution attempt yet', () => {
+  const view = render(<TaskCards {...props('main-session', { ...task, attempts: [] })} />)
+  expect(view.container.querySelector('[data-muse-coordination-cards]')).toBeTruthy()
+  expect(view.container.querySelector('[data-coordination-task]')).toBeNull()
+})
+
+it('keeps task details open for other keys and presses inside, and ignores presses while closed', () => {
+  const view = render(<TaskCards {...props()} />)
+  const bubble = view.container.querySelector('details')!
+  const summary = bubble.querySelector('summary')!
+  fireEvent.keyDown(document, { key: 'Escape' })
+  fireEvent.pointerDown(document.body)
+  expect(bubble.open).toBe(false)
+  fireEvent.click(summary)
+  fireEvent.keyDown(document, { key: 'a' })
+  fireEvent.pointerDown(summary)
+  expect(bubble.open).toBe(true)
+})
+
+it('sends one stop request when the stop button is pressed twice before the Host settles', async () => {
+  const current = { ...task, attempts: [{ ...task.attempts[0]!, status: 'running' as const, report: null, notifiedStatus: null }] }
+  const actions = props('main-session', current)
+  const settle = Promise.withResolvers<undefined>()
+  actions.stop.mockReturnValue(settle.promise)
+  const view = render(<TaskCards {...actions} />)
+  fireEvent.click(view.container.querySelector('summary')!)
+  const button = screen.getByText('停止任务') as HTMLButtonElement
+  act(() => { fireEvent.click(button); fireEvent.click(button) })
+  expect(actions.stop).toHaveBeenCalledTimes(1)
+  expect(button.disabled).toBe(true)
+  await act(async () => { settle.resolve(undefined) })
+  expect(button.disabled).toBe(false)
+})
+
+it('shows the recorded issue of a failed attempt under diagnostics', () => {
+  const failed = { ...task, attempts: [{ ...task.attempts[0]!, status: 'failed' as const, report: null, issue: '磁盘空间不足' }] }
+  const view = render(<TaskCards {...props('main-session', failed)} />)
+  fireEvent.click(view.container.querySelector('summary')!)
+  expect(screen.getByText('请先检查执行会话，再决定如何续做')).toBeTruthy()
+  expect(screen.getByText('磁盘空间不足')).toBeTruthy()
+})
+
+it('renders nothing while no task has been read and no read has failed', () => {
+  const bindings = { ...props(), useResource: () => ({ status: 'none' as const, value: undefined, failure: undefined }) }
+  expect(render(<TaskCards {...bindings} />).container.innerHTML).toBe('')
+  const empty = { ...props(), useResource: () => ({ status: 'live' as const, value: [], failure: undefined }) }
+  expect(render(<TaskCards {...empty} />).container.innerHTML).toBe('')
+})
+
+it('reports a failed task read even when there are no cards to show', () => {
+  const bindings = { ...props(), useResource: () => ({ status: 'failed' as const, value: undefined,
+    failure: new RemoteError('gateway/internal', 'unavailable', {}) }) }
+  render(<TaskCards {...bindings} />)
+  expect(screen.getByRole('alert').textContent).toBe('暂时无法读取任务状态')
+})
+
+it('shows the compact Muse entry in the sidebar rail without a visible label', () => {
+  const view = render(<MainEntry wide={false} openMain={async () => {}} t={makeTranslate(zh, commonZh)} useRemoteAccess={() => true} />)
+  const entry = screen.getByRole('button', { name: 'Muse 主会话' })
+  expect(entry.textContent).toBe('')
+  view.rerender(<MainEntry wide openMain={async () => {}} t={makeTranslate(zh, commonZh)} useRemoteAccess={() => true} />)
+  expect(entry.textContent).toBe('Muse 主会话')
+})
+
+it('opens the Muse main conversation once when the entry is pressed twice before it settles', async () => {
+  const settle = Promise.withResolvers<undefined>()
+  const openMain = vi.fn(() => settle.promise)
+  render(<MainEntry wide openMain={openMain} t={makeTranslate(zh, commonZh)} useRemoteAccess={() => true} />)
+  const entry = screen.getByRole('button', { name: 'Muse 主会话' }) as HTMLButtonElement
+  act(() => { fireEvent.click(entry); fireEvent.click(entry) })
+  expect(openMain).toHaveBeenCalledTimes(1)
+  expect(entry.disabled).toBe(true)
+  await act(async () => { settle.resolve(undefined) })
+  expect(entry.disabled).toBe(false)
 })

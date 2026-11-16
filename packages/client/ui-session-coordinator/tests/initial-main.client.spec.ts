@@ -35,3 +35,14 @@ it('reports active failures and retries when connection returns', async () => {
   await vi.waitFor(() => { expect(start).toHaveBeenCalledTimes(2) })
   stop()
 })
+
+it('starts no attempt when the feature lifetime has already ended', () => {
+  const lifetime = new AbortController()
+  lifetime.abort()
+  const start = vi.fn(async () => {})
+  const remove = vi.fn()
+  const stop = followInitialMain(lifetime.signal, () => remove, start, vi.fn())
+  expect(start).not.toHaveBeenCalled()
+  stop()
+  expect(remove).toHaveBeenCalledOnce()
+})

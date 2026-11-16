@@ -47,19 +47,17 @@ function describeFormat(path: string, bytes: Uint8Array): DocumentFormat {
     }
     return { format: 'docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', extension }
   }
-  if (extension === '.txt') {
-    let text: string
-    try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-    } catch (error) {
-      // Invalid UTF-8 would change the screenplay if silently decoded with replacement characters.
-      if (error instanceof TypeError) return invalid('TXT documents must contain valid UTF-8 text; no upload was attempted')
-      throw error
-    }
-    if (!text.trim() || text.includes('\0')) return invalid('TXT documents must contain nonempty text without NUL characters; no upload was attempted')
-    return { format: 'txt', contentType: 'text/plain; charset=utf-8', extension }
+  // readDocument admits only .doc, .docx and .txt suffixes, so any other suffix here is .txt.
+  let text: string
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch (error) {
+    // Invalid UTF-8 would change the screenplay if silently decoded with replacement characters.
+    if (error instanceof TypeError) return invalid('TXT documents must contain valid UTF-8 text; no upload was attempted')
+    throw error
   }
-  return invalid('document_path must name a .doc, .docx or UTF-8 .txt file; no upload was attempted')
+  if (!text.trim() || text.includes('\0')) return invalid('TXT documents must contain nonempty text without NUL characters; no upload was attempted')
+  return { format: 'txt', contentType: 'text/plain; charset=utf-8', extension }
 }
 
 interface DocumentReceipt {
@@ -119,7 +117,8 @@ async function originalUpload(ledger: JubianLedger, key: string, source?: string
     status: accepted ? 'accepted' : 'unknown',
     outcome: accepted ? 'accepted' : 'unknown', original_idempotency_key: key, receipt_path: receiptPath(ledger, key),
     receipt_status: receipt === null ? 'missing' : 'recorded', paidRequests: 0,
-    request_sha256: receipt?.request_sha256 ?? record?.request_sha256 ?? null,
+    // A missing receipt implies a ledger record here, because both missing returned null above.
+    request_sha256: receipt?.request_sha256 ?? record?.request_sha256,
     original_file_sha256: receipt?.document.sha256 ?? null,
     ...(accepted && record.outcome !== 'accepted' ? { settlement_pending: true } : {}),
     original_source: receipt?.source ?? null, source_reread: false,

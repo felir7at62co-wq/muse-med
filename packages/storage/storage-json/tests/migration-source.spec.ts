@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { JsonStorageBackend } from '../src/index.ts'
 
@@ -42,5 +42,15 @@ describe('explicit JSON migration source', () => {
     await expect(h.backend.readSource(descriptor)).rejects.toThrow('not valid JSON')
     await writeFile(path, JSON.stringify({ unit: { name: 'workspace', version: 99 }, global: null, tables: {} }))
     await expect(h.backend.readSource(descriptor)).rejects.toThrow('not accepted')
+  })
+
+  it('resolves a relative root that does not exist yet to its absolute spelling and reports no unit', async () => {
+    const h = await harness()
+    const missing = join(h.root, 'not-created')
+    const backend = new JsonStorageBackend(relative(process.cwd(), missing))
+    onTestFinished(() => backend.close())
+    const path = join(missing, 'workspace.json')
+    expect(await backend.sourcePath(descriptor)).toBe(path)
+    expect(await backend.readSource(descriptor)).toEqual({ path, text: undefined })
   })
 })

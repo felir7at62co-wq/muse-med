@@ -50,6 +50,27 @@ it('captures only Host receipt facts and native file declarations in the tool me
   expect(test.ctx.tools.get('coordinator_report', test.main)).toBeUndefined()
 })
 
+it('shows an unreported task and an undescribed worker file without inventing report fields', async () => {
+  const test = await fixture()
+  const pending = await test.service.dispatch(test.main, request)
+  const delivered = await test.service.dispatch(test.main, { ...request, key: 'delivered-goal' })
+  const worker = test.ctx.agents.get(latest(delivered).sessionId)!
+  await worker.whenIdle()
+  worker.session.append('deliverables/presented', { turn: 1, callId: ToolCallId('present-plain'), files: [{ path: '/worker/plain.md' }] })
+  await test.service.report(worker, delivered.id, 1, 'completed', 'Plain file written')
+  const report = await test.service.displayReport(test.main, [pending.id, delivered.id])
+  expect(report.tasks.find(task => task.id === pending.id)?.report).toBeNull()
+  expect(report.tasks.find(task => task.id === delivered.id)?.report?.files).toStrictEqual([{ path: '/worker/plain.md' }])
+  const args = { task_ids: [pending.id, delivered.id] }
+  const result = await test.invoke('coordinator_show_report', args)
+  expect(result.isError).not.toBe(true)
+  expect(result.meta).toStrictEqual({ museCoordinationReport: report })
+  const definition = test.ctx.tools.get('coordinator_show_report', test.main)
+  expect(definition?.presentCall?.(args)).toEqual({ card: 'generic', title: 'Task report', kind: 'read' })
+  const content = result.content
+  expect(definition?.presentResult?.(args, { content, isError: false })).toEqual({ card: 'generic', title: 'Task report', content, kind: 'read' })
+})
+
 it('rejects foreign, missing, duplicate and excessive task references through actual execution', async () => {
   const test = await fixture()
   const task = await test.service.dispatch(test.main, request)

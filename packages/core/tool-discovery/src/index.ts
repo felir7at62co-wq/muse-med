@@ -230,8 +230,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     })), ranking)
     cache.set(fingerprint, index)
     if (cache.size > INDEX_CACHE_SIZE) {
-      const oldest = cache.keys().next()
-      if (!oldest.done) cache.delete(oldest.value)
+      const oldest = cache.keys().next() as IteratorYieldResult<string>
+      cache.delete(oldest.value)
     }
     return index
   }

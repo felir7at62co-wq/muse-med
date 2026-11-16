@@ -216,6 +216,25 @@ describe('bounded local request recovery', () => {
     expect(test.effects.forbidden).toBe(0)
   })
 
+  it('reports the loop failure instead of resampling when unload cancellation has not reached the settling request', async () => {
+    const test = await harness([loop()], true)
+    const cancelled = Promise.withResolvers<null>()
+    const cancel = vi.spyOn(test.agent, 'cancel').mockImplementation(() => { cancelled.resolve(null) })
+    let disposal: Promise<unknown> | undefined
+    test.ctx.on('agent/request-error', async (_payload, next) => {
+      disposal ??= test.fiber.dispose()
+      await cancelled.promise
+      return next()
+    }, { prepend: true })
+    await test.run()
+    await disposal
+    expect(cancel).toHaveBeenCalledWith({ kind: 'parent' })
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(test.effects.forbidden).toBe(0)
+    expect(test.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason)
+      .toMatchObject({ kind: 'error', error: { code: guard.TOOL_ARGUMENT_LOOP } })
+  })
+
   it('cancels recovery admitted before unload but not yet sent to the provider', async () => {
     const test = await harness([loop()], true)
     const entered = Promise.withResolvers<null>()

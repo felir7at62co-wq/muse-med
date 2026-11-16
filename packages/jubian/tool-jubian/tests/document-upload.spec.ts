@@ -275,4 +275,61 @@ describe('upload_document', () => {
     expect(stub.calls).toHaveLength(3)
   })
 
+  it('surfaces a TXT decoding failure other than invalid UTF-8 unchanged without uploading', async () => {
+    const stub = transport(), path = await file('oversized.txt', Buffer.from('剧本'))
+    const tooLong = Object.assign(new Error('Cannot create a string longer than 0x1fffffe8 characters'), { code: 'ERR_STRING_TOO_LONG' })
+    class OversizedTextDecoder extends TextDecoder {
+      override decode(...args: Parameters<TextDecoder['decode']>): string {
+        if (this.fatal) throw tooLong
+        return super.decode(...args)
+      }
+    }
+    vi.stubGlobal('TextDecoder', OversizedTextDecoder)
+    try {
+      await expect(upload({ document_path: path }, LIMIT, { fetch: stub.fetch })).rejects.toBe(tooLong)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(stub.calls).toHaveLength(0)
+  })
+
+  it.each([0, -1, 1.5, Number.NaN, 2147483648])('rejects timeoutMs %s before reading the source or sending requests', async (timeoutMs) => {
+    const stub = transport()
+    await expect(uploadDocumentMethod(new JubianLedger({ root }), { document_path: join(root, 'missing.txt'),
+      idempotency_key: 'invalid-timeout' }, { ...LIMIT, timeoutMs }, { fetch: stub.fetch }))
+      .rejects.toMatchObject({ code: 'INVALID_ARGUMENT', detail: 'document upload timeoutMs must be an integer within 1..2147483647' })
+    expect(stub.calls).toHaveLength(0)
+  })
+
+  it('surfaces a receipt location that cannot be read instead of treating it as a missing receipt', async () => {
+    const stub = transport(), key = 'unreadable-receipt'
+    await mkdir(join(root, 'document-upload-receipts', `${createHash('sha256').update(key).digest('hex')}.json`), { recursive: true })
+    await expect(upload({ document_path: await file('script.txt', Buffer.from('剧本')), idempotency_key: key }, LIMIT,
+      { fetch: stub.fetch })).rejects.toMatchObject({ code: 'EISDIR' })
+    expect(stub.calls).toHaveLength(0)
+  })
+
+  it('refuses a replay whose ledger record has a different request hash than the saved receipt', async () => {
+    const stub = transport(), path = await file('mismatch.txt', Buffer.from('剧本')), ledger = new JubianLedger({ root })
+    const args = { document_path: path, idempotency_key: 'ledger-mismatch' }
+    await uploadDocumentMethod(ledger, args, LIMIT, { fetch: stub.fetch })
+    const record = await ledger.find('ledger-mismatch')
+    if (record === undefined) throw new Error('Fixture upload did not create a ledger record')
+    vi.spyOn(ledger, 'find').mockResolvedValue({ ...record, request_sha256: 'sha256:another-request' })
+    await expect(uploadDocumentMethod(ledger, args, LIMIT, { fetch: stub.fetch }))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED', detail: 'Document upload receipt differs from the ledger' })
+    expect(stub.calls).toHaveLength(3)
+  })
+
+  it('returns the unknown receipt without a PUT when another writer claims the key before this upload begins', async () => {
+    const stub = transport(), path = await file('raced.txt', Buffer.from('剧本')), ledger = new JubianLedger({ root })
+    const begin = ledger.begin.bind(ledger)
+    vi.spyOn(ledger, 'begin').mockImplementationOnce(async (intent) => {
+      await begin(intent)
+      return await begin(intent)
+    })
+    expect(await uploadDocumentMethod(ledger, { document_path: path, idempotency_key: 'raced-key' }, LIMIT,
+      { fetch: stub.fetch })).toMatchObject({ uploaded: false, outcome: 'unknown', replayed: true, receipt_status: 'recorded' })
+    expect(stub.calls.some(call => call.init?.method === 'PUT')).toBe(false)
+  })
 })

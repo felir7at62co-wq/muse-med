@@ -5,7 +5,7 @@ import { MANUSCRIPT_PRODUCER_TYPES, MANUSCRIPT_SCRIPT_FORMATS, MANUSCRIPT_TAG_CA
   buildManuscriptStartProduceRequest, buildManuscriptTagOptionsRequest,
   buildManuscriptUploadRequest, readBindableManuscripts, readCreatedProjectId, readManuscriptDetail,
   readManuscriptFile, readManuscriptTagOptions, readProjectDetail } from '@deepseek-ai/dsh-jubian-api'
-import type { ManuscriptDetail, ManuscriptOwner, ManuscriptTagOptions, ManuscriptUploadInput,
+import type { ManuscriptDetail, ManuscriptOwner, ManuscriptTagCategory, ManuscriptTagOptions, ManuscriptUploadInput,
   ProjectCreateInput } from '@deepseek-ai/dsh-jubian-api'
 import { uploadDocumentMethod, type DocumentUploadOptions } from './document-upload.ts'
 import { projectOperation, type ProjectOperationOutcome } from './project-operation.ts'
@@ -47,14 +47,12 @@ async function manuscriptAt(client: JubianClient, manuscriptId: number): Promise
 }
 
 async function tagOptions(client: JubianClient): Promise<ManuscriptTagOptions> {
-  const lists = await Promise.all(MANUSCRIPT_TAG_CATEGORIES.map(async (category) => {
+  const read = async (category: ManuscriptTagCategory) => {
     const response = await client.request(buildManuscriptTagOptionsRequest(category))
     return readManuscriptTagOptions(response.data, category)
-  }))
-  const [creationType, genre, era, audience] = lists
-  if (creationType === undefined || genre === undefined || era === undefined || audience === undefined) {
-    throw new JubianError('CONTRACT_CHANGED', 'A manuscript tag category was not read')
   }
+  const [creationType, genre, era, audience] = await Promise.all([
+    read('creationType'), read('genre'), read('era'), read('audience')])
   return { creationType, genre, era, audience }
 }
 

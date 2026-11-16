@@ -18,15 +18,16 @@ export function VideoHeader(props: PropsRuntime<'conversation.session.header.uti
   const [open, setOpen] = useState(false)
   const [loadError, setLoadError] = useState<boolean | null>(null)
   const ordered = [...sources].sort((a, b) => b.eventSeq - a.eventSeq || (b.presentedIndex ?? -1) - (a.presentedIndex ?? -1))
+  const close = () => { setOpen(false) }
   return <>
     <VideoController {...props} onLoadError={setLoadError} />
     <span data-muse-session-video-menu>
-      <Menu open={open} onClose={() => { setOpen(false) }} portal autoFocus align="end"
+      <Menu open={open} onClose={close} portal autoFocus align="end"
         anchor={<Tooltip label={t('library')} portal><Button size="sm" aria-label={t('library')} aria-haspopup="menu"
           aria-expanded={open} onClick={() => { setOpen(value => !value) }}><IconPlayOutlineRegular /></Button></Tooltip>}>
         {ordered.map(source => <MenuItemButton key={source.id} disabled={source.playbackUrl === null}
           onSelect={() => { actions.openSource(source.id); props.selectView('chat'); setOpen(false) }}>{source.label}</MenuItemButton>)}
-        {sources.length === 0 && loadError !== true && <MenuItemButton disabled onSelect={() => {}}>
+        {sources.length === 0 && loadError !== true && <MenuItemButton disabled onSelect={close}>
           {t(loadError === null ? 'loading' : 'empty')}
         </MenuItemButton>}
         {(loadError === true || issue !== null) && <MenuItemButton onSelect={() => { actions.refreshInventory() }}>

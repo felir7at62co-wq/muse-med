@@ -54,10 +54,11 @@ export function InlineVideoCard({ source: original, sourceUrl, label, useStore, 
   const canUseTimeline = hasBoundSource && pendingUrl === null && failedVersion !== binding
   const shot = canUseTimeline ? timeline.shots.find(value => value.id === selection) : undefined
   const selectShot = (id: string) => {
-    const target = timeline.shots.find(value => value.id === id)
-    if (!target) return
-    setPendingUrl(null); setSelectedSource(target.source.id === original?.id ? null : target.source.id); setSelection(id)
-    setSeek({ time: target.localStart, revision: ++revision.current })
+    // The timeline reports ids of rendered shots, so exactly one shot matches.
+    for (const target of timeline.shots.filter(value => value.id === id)) {
+      setPendingUrl(null); setSelectedSource(target.source.id === original?.id ? null : target.source.id); setSelection(id)
+      setSeek({ time: target.localStart, revision: ++revision.current })
+    }
   }
   const seekTo = (time: number) => {
     const target = timeline.shots.find((value, index) => time >= value.startSeconds
@@ -73,6 +74,13 @@ export function InlineVideoCard({ source: original, sourceUrl, label, useStore, 
     ? { id: `original:${originalIdentity.current}`, label: source?.label ?? label,
       playbackUrl: pendingUrl ?? (hasBoundSource ? source.playbackUrl : sourceUrl) }
     : source === undefined ? undefined : { id: source.id, label: source.label, playbackUrl: pendingUrl ?? source.playbackUrl }
+  // Only inventory sources have offset entries, so a card without a resolved source starts at zero.
+  const offset = timeline.offsets[source?.id ?? ''] ?? 0
+  const redo = shot === undefined ? undefined : () => {
+    const prompt = t('redoPrompt', { name: shot.source.label, source: shot.source.path ?? shot.source.id,
+      id: shot.id, start: shot.localStart.toFixed(3), end: shot.localEnd.toFixed(3) })
+    if (inputActions.insertText(`\n\n${prompt}`, { start: draftLength, end: draftLength, draftRev })) inputActions.persistDraft()
+  }
   const changeSource = (id: string) => {
     setPendingUrl(null); setSelectedSource(id === original?.id ? null : id); setSelection(null); setSeek(null)
   }
@@ -86,12 +94,7 @@ export function InlineVideoCard({ source: original, sourceUrl, label, useStore, 
           {sources.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
         </select><Button size="sm" onClick={() => { setPendingUrl(null); setSelectedSource(null); setSelection(null); setSeek(null) }}>{t('originalVideo')}</Button></>}
       {source !== undefined && <Tooltip label={t('selectShotToRedo')} disabled={shot !== undefined} portal>
-        <span><Button size="sm" disabled={shot === undefined} onClick={() => {
-          if (shot === undefined) return
-          const prompt = t('redoPrompt', { name: shot.source.label, source: shot.source.path ?? shot.source.id,
-            id: shot.id, start: shot.localStart.toFixed(3), end: shot.localEnd.toFixed(3) })
-          if (inputActions.insertText(`\n\n${prompt}`, { start: draftLength, end: draftLength, draftRev })) inputActions.persistDraft()
-        }}><IconRefreshOutlineRegular /><span>{t('redo')}</span></Button></span>
+        <span><Button size="sm" disabled={shot === undefined} onClick={redo}><IconRefreshOutlineRegular /><span>{t('redo')}</span></Button></span>
       </Tooltip>}
     </div>
     <div className={css.inlineContents}>
@@ -99,7 +102,7 @@ export function InlineVideoCard({ source: original, sourceUrl, label, useStore, 
         active={visible} nativeControls source={playbackSource} analysis={canUseTimeline ? currentAnalysis : undefined} t={t}
         onUserInteract={() => { if (!hasBoundSource && playbackSource.playbackUrl !== null) setPendingUrl(playbackSource.playbackUrl) }}
         onPlaybackFailureChange={(value) => { setFailedVersion(value ? binding : null) }}
-        shots={canUseTimeline ? timeline.shots : []} offset={source === undefined ? 0 : timeline.offsets[source.id] ?? 0}
+        shots={canUseTimeline ? timeline.shots : []} offset={offset}
         duration={timeline.duration} pixelsPerSecond={pixelsPerSecond} zoom={zoom} onZoom={setZoom}
         selectedShot={selection} seekRequest={seek} onSeek={seekTo} onSelectShot={selectShot} />
         : <p className={css.status} role="alert">{t('unavailable')}</p>}

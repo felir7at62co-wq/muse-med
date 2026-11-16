@@ -80,7 +80,8 @@ class ToolCallIndexes {
   /** Return replacement event data, or undefined when the event needs no change. */
   rewrite(data: string): string | undefined {
     let event: unknown
-    try { event = JSON.parse(data) } catch (error) { if (error instanceof SyntaxError) return undefined; throw error }
+    // JSON.parse of a string throws only SyntaxError; malformed event data is forwarded unchanged.
+    try { event = JSON.parse(data) } catch (_syntaxError) { return undefined }
     const choices = record(event)?.['choices']
     if (!Array.isArray(choices)) return undefined
     let changed = false
@@ -168,14 +169,15 @@ class ToolCallEventRewriter {
     if (!contains(bytes, TOOL_CALLS)) return bytes
     const text = this.decoder.decode(bytes)
     const lines = text.split(/(\r\n|\r|\n)/u)
-    const dataLines = lines.flatMap((line, index) => index % 2 === 0 && /^data: ?/u.test(line) ? [index] : [])
-    const only = dataLines[0]
-    if (dataLines.length !== 1 || only === undefined) return bytes
-    const line = lines[only] ?? ''
-    const prefix = /^data: ?/u.exec(line)?.[0] ?? 'data:'
-    const replacement = this.indexes.rewrite(line.slice(prefix.length))
+    const dataLines = lines.flatMap((line, index) => {
+      const prefix = index % 2 === 0 ? /^data: ?/u.exec(line)?.[0] : undefined
+      return prefix === undefined ? [] : [{ index, line, prefix }]
+    })
+    const only = dataLines.length === 1 ? dataLines[0] : undefined
+    if (only === undefined) return bytes
+    const replacement = this.indexes.rewrite(only.line.slice(only.prefix.length))
     if (replacement === undefined) return bytes
-    lines[only] = prefix + replacement
+    lines[only.index] = only.prefix + replacement
     return this.encoder.encode(lines.join(''))
   }
 }

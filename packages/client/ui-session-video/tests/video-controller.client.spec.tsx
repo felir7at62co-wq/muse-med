@@ -133,3 +133,88 @@ it('reports an inventory error so the user can retry', async () => {
   render(<VideoController {...props} />)
   await waitFor(() => { expect(onLoadError.mock.calls).toEqual([[null], [true]]) })
 })
+
+// A timer task runs only after every queued promise reaction, so late async chains have settled.
+const nextTask = () => new Promise<void>((resolve) => { setTimeout(resolve, 0) })
+
+function detectionHarness(source: SessionVideoSource, queries: Pick<Props, 'detectShots'> & Partial<Pick<Props, 'listVideos'>>) {
+  const state: VideoState = { sources: [source], analyses: {}, detectErrors: {}, open: false, selected: id,
+    observed: { [id]: 1 }, issue: null, inventoryRevision: 0 }
+  const actions = { inventory: vi.fn(), analysis: vi.fn(), detectionFailed: vi.fn(), retryFailed: vi.fn(), toggle: vi.fn(),
+    openSource: vi.fn(), observe: vi.fn(), refreshInventory: vi.fn() }
+  const inventory = { sources: [source], complete: true, issues: [] }
+  const props = { activeView: 'chat', selectView: vi.fn(), sessionId: 'session',
+    useStore: (selector: (value: VideoState) => unknown) => selector(state),
+    useSession: (selector: (value: { running: boolean }) => unknown) => selector({ running: false }),
+    useChat: (selector: (value: { order: string[] }) => unknown) => selector({ order: [] }),
+    useInput: (selector: (value: { draft: string; draftRev: number }) => unknown) => selector({ draft: '', draftRev: 1 }),
+    inputActions: {}, actions, listVideos: queries.listVideos ?? vi.fn().mockResolvedValue(inventory),
+    detectShots: queries.detectShots, pixelsPerSecond: 48, t: makeTranslate(en), onLoadError: vi.fn() } as Props
+  return { props, actions }
+}
+
+it('publishes shot analysis for a locally bound source without refreshing the inventory again', async () => {
+  const { props, actions } = detectionHarness(local, { detectShots: vi.fn().mockResolvedValue(analysis('file:v2')) })
+  render(<VideoController {...props} />)
+  await waitFor(() => { expect(actions.analysis).toHaveBeenCalledWith(analysis('file:v2')) })
+  expect(props.listVideos).toHaveBeenCalledOnce()
+  expect(actions.detectionFailed).not.toHaveBeenCalled()
+})
+
+it('marks the source version failed when cut detection rejects', async () => {
+  const { props, actions } = detectionHarness(local, { detectShots: vi.fn().mockRejectedValue(new Error('ffmpeg failed')) })
+  render(<VideoController {...props} />)
+  await waitFor(() => { expect(actions.detectionFailed).toHaveBeenCalledWith(id, 'file:v2') })
+  expect(actions.analysis).not.toHaveBeenCalled()
+})
+
+it('marks a downloaded source failed when the refreshed inventory no longer holds it as a local file', async () => {
+  const { props, actions } = detectionHarness(remote, { detectShots: vi.fn().mockResolvedValue(analysis('url:v1')) })
+  render(<VideoController {...props} />)
+  await waitFor(() => { expect(actions.detectionFailed).toHaveBeenCalledWith(id, 'url:v1') })
+  expect(actions.inventory).toHaveBeenCalledTimes(1)
+})
+
+it('drops detection results and failures that arrive after the controller unmounts', async () => {
+  let finish: (value: SessionVideoAnalysis) => void = () => {}
+  const resolved = detectionHarness(local, {
+    detectShots: vi.fn().mockReturnValue(new Promise<SessionVideoAnalysis>((done) => { finish = done })) })
+  const first = render(<VideoController {...resolved.props} />)
+  await waitFor(() => { expect(resolved.props.detectShots).toHaveBeenCalledOnce() })
+  first.unmount()
+  await act(async () => { finish(analysis('file:v2')); await nextTask() })
+  expect(resolved.actions.analysis).not.toHaveBeenCalled()
+
+  let fail: (error: Error) => void = () => {}
+  const rejected = detectionHarness(local, {
+    detectShots: vi.fn().mockReturnValue(new Promise<SessionVideoAnalysis>((_done, reject) => { fail = reject })) })
+  const second = render(<VideoController {...rejected.props} />)
+  await waitFor(() => { expect(rejected.props.detectShots).toHaveBeenCalledOnce() })
+  second.unmount()
+  await act(async () => { fail(new Error('late')); await nextTask() })
+  expect(rejected.actions.detectionFailed).not.toHaveBeenCalled()
+})
+
+it('does not report a failure when the controller unmounts during the post-download inventory refresh', async () => {
+  let release: (value: { sources: SessionVideoSource[]; complete: boolean; issues: never[] }) => void = () => {}
+  const { props, actions } = detectionHarness(remote, { detectShots: vi.fn().mockResolvedValue(analysis('url:v1')),
+    listVideos: vi.fn().mockResolvedValueOnce({ sources: [remote], complete: true, issues: [] })
+      .mockReturnValueOnce(new Promise((done) => { release = done })) })
+  const view = render(<VideoController {...props} />)
+  await waitFor(() => { expect(props.listVideos).toHaveBeenCalledTimes(2) })
+  view.unmount()
+  await act(async () => { release({ sources: [local], complete: true, issues: [] }); await nextTask() })
+  expect(actions.detectionFailed).not.toHaveBeenCalled()
+  expect(actions.analysis).not.toHaveBeenCalled()
+})
+
+it('does not report an inventory error that arrives after the controller unmounts', async () => {
+  let fail: (error: Error) => void = () => {}
+  const { props } = detectionHarness(local, { detectShots: vi.fn().mockReturnValue(new Promise(() => {})),
+    listVideos: vi.fn().mockReturnValue(new Promise((_done, reject) => { fail = reject })) })
+  const view = render(<VideoController {...props} />)
+  view.unmount()
+  await act(async () => { fail(new Error('late offline')); await nextTask() })
+  expect(props.onLoadError).toHaveBeenCalledTimes(1)
+  expect(props.onLoadError).toHaveBeenCalledWith(null)
+})

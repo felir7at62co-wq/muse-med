@@ -82,3 +82,10 @@ it('hides stale status on failed resource or lost owner access and leaves row cl
   expect(view.container.innerHTML).toBe('')
   expect(bindings.useResource).not.toHaveBeenCalled()
 })
+
+it('orders tasks of equal priority by newest creation time', () => {
+  const newer: CoordinationTask = { ...task, id: brandString<CoordinationTaskId>('task-2'), title: '第三集', createdAt: 2 }
+  render(<TaskRowStatus {...props({ status: 'live', value: [task, newer], failure: undefined })} />)
+  expect(screen.getByText('执行任务: 第三集: 执行中; 第二集: 执行中')).toBeTruthy()
+  expect(screen.getByText('执行中 +1')).toBeTruthy()
+})

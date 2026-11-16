@@ -91,6 +91,27 @@ describe('Chat Completions transport completion', () => {
     expect(text).toBe(compliant)
   })
 
+  it.each([
+    'data: {"tool_calls": oops\n\n',
+    'data: "tool_calls"\n\n',
+    'data: ["tool_calls"]\n\n',
+    'data: {"choices":"tool_calls"}\n\n',
+    ': "tool_calls"\n\n',
+    'data: {"choices":[]}\ndata: "tool_calls"\n\n',
+    'data: {"choices":[null,{"delta":{"tool_calls":"none"}}]}\n\n',
+  ])('forwards a tool_calls event it cannot interpret unchanged: %j', async (event) => {
+    const input = event + 'data: [DONE]\n\n'
+    expect(await completeCompletionsResponse(responseOf([encoder.encode(input)]).response).text()).toBe(input)
+  })
+
+  it('moves a relay call that omits its tool_calls index to the next free index, continues it there, and keeps non-object entries', async () => {
+    const event = (calls: unknown[]) => 'data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: calls } }] }) + '\n\n'
+    const first = ': keepalive\n' + event([{ id: 'a', function: { name: 'f', arguments: '{}' } }])
+    const input = first + event([{ id: 'b' }, null]) + event([{ function: { arguments: '{}' } }]) + 'data: [DONE]\n\n'
+    expect(await completeCompletionsResponse(responseOf([encoder.encode(input)]).response).text()).toBe(first
+      + event([{ id: 'b', index: 1 }, null]) + event([{ function: { arguments: '{}' }, index: 1 }]) + 'data: [DONE]\n\n')
+  })
+
   it('preserves status and headers', async () => {
     const response = new Response('data: [DONE]\n\n', {
       status: 201,

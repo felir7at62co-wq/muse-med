@@ -61,6 +61,17 @@ describe('buildProjectCreateRequest', () => {
       .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
   })
 
+  it.each([null, [], 'text'])('rejects project settings that are not an object %j', (globalConfig) => {
+    expect(() => buildProjectCreateRequest({ ...CREATE, globalConfig: globalConfig as never }))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT', detail: 'globalConfig' }))
+  })
+
+  it('rejects a manuscript binding on a pre-roll material project', () => {
+    expect(() => buildProjectCreateRequest({ scriptName: '前贴素材', createType: 1, productionType: 0,
+      produceType: 2, manuscriptId: 42 as never }))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT', detail: 'manuscriptId' }))
+  })
+
   it('refuses cyclic settings instead of producing a partial serialized configuration', () => {
     const cyclic: Record<string, unknown> = {}
     cyclic.self = cyclic

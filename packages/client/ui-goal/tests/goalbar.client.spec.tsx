@@ -40,6 +40,13 @@ describe('GoalBar', () => {
     expect(view.getByText('等待新情况')).toBeTruthy()
     expect(view.getByRole('button', { name: '恢复目标' })).toBeTruthy()
   })
+  it('pauses an armed waiting goal from the pause action beside resume', () => {
+    const actions = makeActions()
+    render(<GoalBar goal={makeGoal()} activation="armed" wait={{ sequence: 1, reason: 'input', message: 'Waiting for new work' }} {...actions} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '暂停目标' }))
+    expect(actions.onPause).toHaveBeenCalledTimes(1)
+    expect(actions.onResume).not.toHaveBeenCalled()
+  })
   it('renders nothing while loading, absent, or when the goal is complete', () => {
     const actions = makeActions()
     const loading = render(<GoalBar goal={undefined} {...actions} t={t} />)
