@@ -1,5 +1,5 @@
 /** Revision-fenced cloud review; local installation and defaults are separate actions. */
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarketActions, MarketIdentity, MarketInjected, MarketPublication, MarketTranslate } from './market-actions.ts'
 import css from './MarketSection.module.css'
@@ -25,10 +25,12 @@ export function MarketPublications({
   const [selection, setSelection] = useState<{ item: MarketPublication; action: ReviewAction }>()
   const [note, setNote] = useState('')
   const [pending, setPending] = useState(false)
+  const reviewPending = useRef(false)
   const review = async (): Promise<void> => {
-    if (!isCurrentAccess(accessRevision)) return
+    if (reviewPending.current || !isCurrentAccess(accessRevision)) return
     // oxlint-disable-next-line typescript/no-non-null-assertion -- Only the selected form submits, with a disabled pending button.
     const { item, action } = selection!
+    reviewPending.current = true
     setPending(true)
     try {
       const returned = await actions.review(item.id, item.revision, action, note.trim())
@@ -41,7 +43,7 @@ export function MarketPublications({
       try { const observed = await actions.getPublication(item.id); if (isCurrentAccess(accessRevision)) onReplace(observed) }
       catch (_readError) { /* The existing row remains visible if original-identity readback also fails. */ }
       if (isCurrentAccess(accessRevision)) { setSelection(undefined); reportOutcome('reviewUnconfirmed', true) }
-    } finally { setPending(false) }
+    } finally { reviewPending.current = false; setPending(false) }
   }
   return <><div className={css.grid}>{items.map((item) => {
     const owned = identity.admin || identity.publishers.some(row => row.id === item.publisherId)

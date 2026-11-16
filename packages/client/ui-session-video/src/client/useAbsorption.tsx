@@ -163,7 +163,9 @@ export function useAbsorption(ref: RefObject<HTMLElement | null>, options: Absor
       const label = source.getAttribute('aria-label')
       hit.hidden = result.progress >= 0.86 || label === null
       if (label !== null) hit.setAttribute('aria-label', label)
-      const ratio = Math.min(window.devicePixelRatio, 2)
+      const devicePixelRatio = window.devicePixelRatio
+      const ratio = typeof devicePixelRatio === 'number' && Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
+        ? Math.min(devicePixelRatio, 2) : 1
       canvas.width = Math.max(1, Math.ceil(frameRect.width * ratio))
       canvas.height = Math.max(1, Math.ceil(height * ratio))
       const context = canvas.getContext('2d')

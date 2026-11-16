@@ -104,8 +104,8 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
     </div>
     <div className={css.controls} data-muse-video-controls>
       <Button className={css.play} aria-label={t(playing ? 'pause' : 'play')} onClick={() => {
-        // oxlint-disable-next-line typescript/no-non-null-assertion -- This mounted control shares the component's attached video ref.
-        const video = player.current!
+        const video = player.current
+        if (video === null) return
         const attempt = ++playAttempt.current
         if (!video.paused) video.pause()
         else void video.play().catch((_error: unknown) => { if (playAttempt.current === attempt) updatePlayback({ failed: true }) })
