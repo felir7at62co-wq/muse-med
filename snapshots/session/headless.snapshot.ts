@@ -2840,9 +2840,12 @@ describe('headless recorded-session snapshots', () => {
       ]
       const patchRoot = '.snapshot-patches'
       const patches = patchSources.map((source, index) => join(patchRoot, `${String(index)}-${basename(source)}`))
-      const deepViewPackage = scenario.name === 'muse-session-views' ? process.env.MUSE_MAIN_DEEP_VIEW_PACKAGE : undefined
+      // `test:snapshot:built` prepares this directory; MUSE_MAIN_DEEP_VIEW_PACKAGE names another unpacked artifact.
+      const preparedDeepView = join(repoRoot, '.artifacts/snapshot-deep-view/package')
+      const deepViewPackage = scenario.name !== 'muse-session-views' ? undefined
+        : process.env.MUSE_MAIN_DEEP_VIEW_PACKAGE || (existsSync(join(preparedDeepView, 'package.json')) ? preparedDeepView : undefined)
       if (scenario.name === 'muse-session-views' && !deepViewPackage) {
-        throw new Error('muse-session-views requires MUSE_MAIN_DEEP_VIEW_PACKAGE pointing to the reviewed unpacked Deep View artifact; see its README.md')
+        throw new Error('muse-session-views requires the reviewed unpacked Deep View artifact from scripts/prepare-deep-view-snapshot.mjs or MUSE_MAIN_DEEP_VIEW_PACKAGE; see its README.md')
       }
       const deepViewPatch = deepViewPackage === undefined ? undefined : join(patchRoot, 'deep-view.package.yml')
       if (deepViewPatch !== undefined) patches.push(deepViewPatch)

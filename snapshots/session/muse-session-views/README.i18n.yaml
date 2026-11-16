@@ -3,5 +3,5 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write snapshots/session/muse-session-views/README.md
 /packaged-session-views:
-  en: 7ce71efd6ba7aefe
-  zh: cc3bea846556aa52
+  en: bca91de2989d87b3
+  zh: 66641420ac57c686
