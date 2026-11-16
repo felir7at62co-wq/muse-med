@@ -129,10 +129,8 @@ export interface SessionSnapshotComparisonOptions extends Omit<NormalizeOptions,
 
 /** Return every known spelling of the generated cwd, most specific first. */
 function cwdSpellings(ctx: NormalizeContext): string[] {
-  const spellings = [...new Set([ctx.cwd, ...ctx.cwdAliases ?? []].flatMap((path) => {
-    const jsonPath = JSON.stringify(path).slice(1, -1)
-    return [path, jsonPath, JSON.stringify(jsonPath).slice(1, -1)]
-  }))]
+  const nestedJsonCwd = JSON.stringify(JSON.stringify(ctx.cwd).slice(1, -1)).slice(1, -1)
+  const spellings = [...new Set([ctx.cwd, ...ctx.cwdAliases ?? [], nestedJsonCwd])]
     .filter(spelling => spelling.length > 0)
   const macAliases = spellings
     .filter(spelling => spelling.startsWith('/') && !spelling.startsWith('/private/'))
@@ -494,6 +492,7 @@ export function normalizeSessionSnapshot(
 /**
  * Normalize one scenario's primary and child logs with shared typed identity redaction.
  * Native-writer comparison strictly restores each input before tokenizing its own delivery generation.
+ * Complete validated graphs share identity allocation before prompt and schema bulk is removed.
  * @param rawLogs - primary-first persisted or projected session JSONL.
  * @param ctx - generated cwd spellings and other volatile run facts.
  * @param options - separator and native-writer comparison controls; identity relationships are preserved.

@@ -1,6 +1,6 @@
 /** Desktop Workspace routing retains the user's actual original backend. */
-import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
 import { workspaceStorageLayer } from '../src/workspace-storage-composition.ts'
 import { generationLoopLayer } from '../src/generation-loop-composition.ts'
 

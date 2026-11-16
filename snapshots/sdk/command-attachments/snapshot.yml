@@ -3,7 +3,6 @@ scenario: command-attachments
 profile: sdk
 composition: sdk-desktop
 recording: authored
-writerOutput: true
 header:
   class: sdk-command-attachments
   pin: true
@@ -12,3 +11,4 @@ input:
     - id: sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640
       mediaType: image/png
       data: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC
+writerOutput: true

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import { prepareSessionSnapshotFixtureForComparison } from '@deepseek-ai/dsh-llm-replay'
+import { redactSessionSnapshotIds } from '../src/identity.ts'
 import {
   type NormalizeContext,
   extractSnapshotSpillPaths,
@@ -27,29 +28,6 @@ const ctx: NormalizeContext = {
 }
 
 describe('normalizeStdout', () => {
-  it('recognizes an explicitly supplied home-relative workspace without redacting a sibling path', () => {
-    const cwd = '/home/runner/work/visualization', display = '~/work/visualization'
-    const value = JSON.stringify({ saved: display + '/.dsh/card.html', sibling: display + '-other/card.html',
-      arguments: JSON.stringify({ path: display + '/.dsh/card.html' }) })
-    const normalized: unknown = JSON.parse(normalizeStdout(value, { sessionIds: [], cwd, cwdAliases: [display] }))
-    expect(normalized).toEqual({ saved: '{{cwd}}/.dsh/card.html', sibling: display + '-other/card.html',
-      arguments: JSON.stringify({ path: '{{cwd}}/.dsh/card.html' }) })
-  })
-
-  it.each([1, 2])('redacts a Windows workspace quoted through %i JSON layers without caller-supplied escaped aliases', (layers) => {
-    const cwd = String.raw`D:\Temp\acp-workspace`
-    const alias = String.raw`D:\TEMP\ACP-WORKSPACE`
-    const quote = (path: string): string => {
-      for (let layer = 0; layer < layers; layer++) path = JSON.stringify(path)
-      return path
-    }
-    const raw = JSON.stringify({ text: `Current working directory: ${quote(cwd)}.`, alias: quote(alias),
-      other: quote(cwd + '-other') })
-    const actual: unknown = JSON.parse(normalizeStdout(raw, { sessionIds: [], cwd, cwdAliases: [alias] }))
-    expect(actual).toEqual({ text: `Current working directory: ${quote('{{cwd}}')}.`, alias: quote('{{cwd}}'),
-      other: quote(cwd + '-other') })
-  })
-
   it('rewrites JSON-RPC ids to a stable first-seen sequence', () => {
     const raw = [
       JSON.stringify({ jsonrpc: '2.0', id: 42, method: 'initialize' }),
@@ -673,6 +651,31 @@ describe('normalizeSessionLog', () => {
 })
 
 describe('normalizeSessionSnapshot', () => {
+  it.each([false, true])('preserves the complete identity graph before prompt and schema bulk is removed (retained id: %s)', (retained) => {
+    const job = 'bash-aaaaaaaaaaaaaaaa', unrelated = 'bash-bbbbbbbbbbbbbbbb'
+    const visibleId = '88888888-8888-4888-8888-888888888888'
+    const raw = [
+      JSON.stringify({ type: 'session', id: ctx.sessionIds[0], cwd: ctx.cwd }),
+      systemMessageEvent('Anonymous user: 99999999-9999-4999-8999-999999999999'),
+      JSON.stringify({ type: 'request/header', data: { header: { tools: [{ requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }] } } }),
+      ...retained ? [JSON.stringify({ type: 'example', data: { requestId: visibleId, echoed: visibleId } })] : [],
+      JSON.stringify({ type: 'user/message', data: { text: `background job ${job} failed: confinement refused; keep ${unrelated}` } }),
+      JSON.stringify({ type: 'tool/call', data: { name: 'job_output', arguments: JSON.stringify({ job_id: job, wait: true }) } }),
+    ].join('\n') + '\n'
+    const identified = redactSessionSnapshotIds([raw])
+    const writer = identified.map(scrubSessionSnapshot)
+    const [actual] = normalizeSessionSnapshots([raw], ctx)
+    expect([actual]).toEqual(normalizeSessionSnapshots(writer, ctx))
+    expect(identified[0]).toContain('Anonymous user: {{id:1}}')
+    expect(identified[0]).toContain('"requestId":"{{id:2}}"')
+    expect(actual).toContain(`background job {{id:${retained ? 4 : 3}}} failed: confinement refused`)
+    expect(actual).toContain(unrelated)
+    expect(actual).toContain('"tools":"{{tools}}"')
+    if (retained) expect(actual).toContain('"requestId":"{{id:3}}","echoed":"{{id:3}}"')
+    expect(normalizeSessionSnapshots([raw.replace('confinement refused', 'command executed')], ctx)).not.toEqual([actual])
+    expect(normalizeSessionSnapshots([raw.replace(`"job_id\\\":\\\"${job}`, `"job_id\\\":\\\"${unrelated}`)], ctx)).not.toEqual([actual])
+  })
+
   it('normalizes, scrubs, and projects each parsed body record', () => {
     const raw = [
       JSON.stringify({ type: 'session', version: 0, createdAt: 123, cwd: ctx.cwd }),

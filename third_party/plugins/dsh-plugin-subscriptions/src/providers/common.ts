@@ -6,7 +6,6 @@
  * promise (`inflight`), so a rotating refresh token is never spent twice.
  */
 
-import type { FetchInit, FetchResponse } from '../http.js'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   CONTEXT_WINDOW_EXCEEDED_CODE,
@@ -109,7 +108,7 @@ export interface HttpLlmErrorOptions {
  * @returns the classified error.
  */
 export async function httpLlmError(
-  response: FetchResponse,
+  response: Response,
   label: string,
   options: HttpLlmErrorOptions = {},
 ): Promise<LlmError> {
@@ -188,7 +187,7 @@ function googleQuotaReset(body: string, now: number): number | undefined {
  * @param response - the failed response.
  * @returns the delay in ms, or undefined when absent/unusable.
  */
-function parseRetryAfterMs(response: FetchResponse): number | undefined {
+function parseRetryAfterMs(response: Response): number | undefined {
   const retryAfter = response.headers.get('retry-after')
   if (retryAfter === null) return undefined
   const seconds = Number(retryAfter)
@@ -297,7 +296,7 @@ export class OAuthEndpointError extends Error {
  * @param label - diagnostic prefix naming the provider.
  * @returns the error to throw.
  */
-export async function oauthEndpointError(response: FetchResponse, label: string): Promise<OAuthEndpointError> {
+export async function oauthEndpointError(response: Response, label: string): Promise<OAuthEndpointError> {
   let oauthCode: string | undefined
   let detail = ''
   try {
@@ -446,8 +445,8 @@ export class TokenManager<S extends TimedSession> {
   }
 }
 
-/** HTTP operation used by subscription providers and tools, injectable for tests. */
-export type FetchFn = (input: string | URL, init?: FetchInit) => Promise<FetchResponse>
+/** Fetch signature adapters accept for discovery calls (injectable for tests). */
+export type FetchFn = typeof fetch
 
 /** Bound on one account catalog fetch or usage poll — a hang must not block the picker. */
 export const DISCOVERY_TIMEOUT_MS = 10_000

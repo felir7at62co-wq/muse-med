@@ -20,7 +20,7 @@ describe('Session video page configuration', () => {
     expect(readSessionVideoConfig()).toEqual({ enabled: false, pixelsPerSecond: 80 })
   })
 
-  it('retains the schema timeline scale when the Host supplies only the saved presentation switch', () => {
+  it('retains the default timeline scale when only the presentation switch is saved', () => {
     vi.stubGlobal(SESSION_VIDEO_CONFIG_GLOBAL, { enabled: false })
     expect(readSessionVideoConfig()).toEqual({ enabled: false, pixelsPerSecond: 48 })
   })

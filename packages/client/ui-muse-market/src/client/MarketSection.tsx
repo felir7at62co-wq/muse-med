@@ -63,6 +63,7 @@ export function MarketPage({
     setInstalled(previous => [...previous.filter(row => row.release.id !== item.release.id), item])
   }
   const run = async (operation: () => Promise<void>, success: Parameters<typeof reportOutcome>[0] = 'done'): Promise<void> => {
+    if (busy) return
     setBusy(true); ++generation.current
     try { await operation(); reportOutcome(success, false) }
     catch (error) {
@@ -75,12 +76,10 @@ export function MarketPage({
     }
     finally { if (alive.current) setBusy(false) }
   }
-  const changeDefault = async (): Promise<void> => {
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- Only the rendered confirmation invokes this action.
-    const { item, expected, disable } = selection!
+  const changeDefault = async ({ item, expected, disable }: Selection): Promise<void> => {
     await run(async () => {
-      // oxlint-disable-next-line typescript/no-non-null-assertion -- Host marketManifest accepts exactly one Skill per release.
-      const skillName = item.release.manifest.skills[0]!.name
+      const skillName = item.release.manifest.skills[0]?.name
+      if (skillName === undefined) { reportOutcome('invalidPackage', true); return }
       const confirmed = await actions.setDefault({ skillName,
         expected, target: disable ? null : item.release.id })
       if (alive.current) { setDefaults(confirmed); setSelection(undefined) }
@@ -120,8 +119,7 @@ export function MarketPage({
     {phase === 'loading' && <div role="status" aria-label={t('loading')} className={css.skeletons}><StateDot state="ongoing" /></div>}
     {tab === 'discover' && <div className={css.grid}>{visible.map((item) => {
       const local = installed.find(row => row.release.id === item.sha256)
-      // oxlint-disable-next-line typescript/no-non-null-assertion -- Catalog manifests use the same one-Skill parser as local releases.
-      const skillName = item.manifest.skills[0]!.name
+      const skillName = item.manifest.skills[0]?.name
       const prior = defaults.defaults.find(row => row.skillName === skillName)
       return <article key={item.id} className={css.card} data-market-publication={item.id}>
         <h2>{item.manifest.title}</h2><p>{item.manifest.description}</p><p>{item.publisher} · {item.manifest.version}</p>
@@ -174,7 +172,7 @@ export function MarketPage({
     <Modal open={Boolean(selection)} title={t(selection?.disable ? 'disable' : 'useVersion')} closeLabel={t('close')}
       onClose={() => { if (!busy) setSelection(undefined) }}>
       {selection && <div className={css.form}><p>{selection.item.release.manifest.title} · {selection.item.release.manifest.version}</p>
-        <p>{t('defaultsHint')}</p><Button variant="primary" disabled={busy} onClick={() => { void changeDefault() }}>{t('confirm')}</Button></div>}
+        <p>{t('defaultsHint')}</p><Button variant="primary" disabled={busy} onClick={() => { void changeDefault(selection) }}>{t('confirm')}</Button></div>}
     </Modal>
   </section></div>
 }

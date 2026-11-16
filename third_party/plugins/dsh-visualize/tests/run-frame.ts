@@ -31,7 +31,7 @@ export function runFrame(doc: string, setup?: (window: Window & typeof globalThi
     runScripts: 'dangerously',
     pretendToBeVisual: true,
     beforeParse(window) {
-      Reflect.set(window, 'ResizeObserver', class { observe() {} disconnect() {} })
+      ;(window as unknown as Record<string, unknown>)['ResizeObserver'] = class { observe() {} disconnect() {} }
       window.postMessage = ((message: unknown) => { posted.push(message) }) as typeof window.postMessage
       setup?.(window)
     },

@@ -1,7 +1,7 @@
 /** Independent Loader controls for delivery intent, shell writes and Session/turn isolation. */
 import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { join, sep } from 'node:path'
 import { importSnapshotModule, importSnapshotPackage } from '../../../../../snapshots/session/muse-fixture-import.mjs'
 import { manuscriptDocx } from './docx.mjs'
 
@@ -19,8 +19,8 @@ const faulty = await readFile(new URL('../manuscript-continuity/case-a.md', impo
 const words = { accepted: manuscriptDocx(accepted), faulty: manuscriptDocx(faulty) }
 const PROVIDER = 'manuscript-delivery-controls-fixture'
 const MODEL = 'selected-creative-model'
-const mode = process.env.MUSE_DELIVERY_CONTROL
 const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash'
+const mode = process.env.MUSE_DELIVERY_CONTROL
 const modes = ['report', 'translation', 'format', 'mixed', 'shell', 'session-isolation', 'cancel-followup', 'new-input']
 assert.ok(modes.includes(mode), `Unknown delivery control ${mode}`)
 
@@ -56,11 +56,8 @@ function declare(path, note = '草稿：尚未进行最终剧情复核。') {
 
 function pythonWord(bytes) {
   const payload = Buffer.from(bytes).toString('base64')
-  const script = `import base64; from pathlib import Path; Path('shell.docx').write_bytes(base64.b64decode('${payload}'))`
-  const command = process.platform === 'win32'
-    ? `python -c '${script.replaceAll("'", "''")}'`
-    : `python3 -c "${script}"`
-  return { command,
+  const python = process.platform === 'win32' ? 'python' : 'python3'
+  return { command: `${python} -c "import base64; from pathlib import Path; Path('shell.docx').write_bytes(base64.b64decode('${payload}'))"`,
     description: 'Write the actual Word file through Python, outside filesystem tool hooks' }
 }
 
@@ -119,7 +116,7 @@ class ControlsAdapter extends LlmAdapter {
           try { return JSON.parse(block.text) } catch (error) { assert.ok(error instanceof SyntaxError); return null }
         }).find(value => value?.materials && value.target)
       assert.ok(materialMessage)
-      assert.equal(basename(materialMessage.target.path), 'shell.docx')
+      assert.equal(materialMessage.target.path.endsWith(`${sep}shell.docx`), true)
       yield* call('structured_output', { status: 'consistent', findings: [], unknowns: [] }, 'python-structured-result')
       return
     }

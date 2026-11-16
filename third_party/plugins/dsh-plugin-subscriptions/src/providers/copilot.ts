@@ -14,7 +14,6 @@
  * unchanged.
  */
 
-import type { FetchResponse } from '../http.js'
 import { EMPTY_RESPONSE_CODE, errorChain, LlmAdapter, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
@@ -1026,7 +1025,7 @@ export class CopilotAdapter extends LlmAdapter {
     signal: AbortSignal,
     wire: CopilotWire,
     replayScopeKey: string | undefined,
-  ): Promise<FetchResponse> {
+  ): Promise<Response> {
     const messages = await resolveImages(options.messages, this.options.resolveAttachments?.(), signal)
     const hasVision = messages.some(message => message.content.some(block => block.type === 'image'))
     const body = wire === 'responses'

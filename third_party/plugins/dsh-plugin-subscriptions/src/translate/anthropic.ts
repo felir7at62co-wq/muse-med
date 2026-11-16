@@ -5,7 +5,6 @@
  * ({@link AnthropicStreamTranslator}) so tests need no streams.
  */
 
-import type { FetchBody } from '../http.js'
 import {
   CONTEXT_WINDOW_EXCEEDED_CODE,
   EMPTY_RESPONSE_CODE,
@@ -582,7 +581,7 @@ export class AnthropicStreamTranslator {
  * @returns the chunk stream; throws when the stream ends before `message_stop`.
  */
 export async function* streamAnthropic(
-  stream: FetchBody,
+  stream: ReadableStream<Uint8Array>,
   onActivity?: () => void,
 ): AsyncGenerator<StreamChunk> {
   const translator = new AnthropicStreamTranslator()

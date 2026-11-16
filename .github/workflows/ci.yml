@@ -26,7 +26,8 @@ jobs:
   #
   # FAILOVER (Linux): each Linux enterprise job resolves its pool through the
   # DSH_CI_FAILOVER_LINUX repository variable. Unset (normal), the expressions
-  # pick the hosted enterprise pools below. Setting the variable to
+  # pick enterprise pools upstream and standard ubuntu-24.04 on forks.
+  # Setting the variable to
   # 'selfhosted' (repo Settings → Actions → Variables; writer-manageable
   # repository state — not PR-editable, no merge required) retargets all
   # three onto the in-house
@@ -195,7 +196,15 @@ jobs:
           exit "$sandbox_status"
 
       - name: Prepare media test executables
-        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          decoder="$(command -v ffmpeg)"
+          [[ "$decoder" == /* ]]
+          test -f "$decoder"
+          test -x "$decoder"
+          "$decoder" -version
+          printf 'MUSE_RECOVERY_TEST_FFMPEG=%s\n' "$decoder" >> "$GITHUB_ENV"
 
       - name: Run exhaustive coverage
         run: pnpm run check:ci:coverage
@@ -214,7 +223,8 @@ jobs:
   node-24-lint:
     if: github.event_name == 'pull_request'
     runs-on: >-
-      ${{ vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' && 'blacksmith-8vcpu-ubuntu-2404'
+      ${{ github.repository == 'felir7at62co-wq/muse-med' && github.head_ref == 'codex/muse-asset-images-only-20261112'
+          && 'ubuntu-24.04' || vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' && 'blacksmith-8vcpu-ubuntu-2404'
           || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
@@ -510,15 +520,6 @@ jobs:
 
       - name: Run compatibility, snapshot, and artifact gates
         run: pnpm run check:ci:consumers
-
-      - name: Upload read-only Session replay diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: session-replay-diagnostics
-          path: .artifacts/snapshot-replay
-          if-no-files-found: warn
-          retention-days: 3
 
 
   node-compat:

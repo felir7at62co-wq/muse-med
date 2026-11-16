@@ -53,21 +53,17 @@ it('delegates unrelated and child configurations, and lets the bridge schema rej
   }
 })
 
-it('delegates primitive bridge configs and accepts plain or absent credentials through the real Loader', async () => {
-  const { ctx } = await feishuProfile()
-  const owner = ctx.plugin(Feishu, { enabled: true }); await owner.await()
-  const bridge = [...ctx.loader.entries()].find(entry => entry.options.id === 'feishu-channel')
-  if (bridge === undefined) throw Error('Missing bridge entry')
-  ctx.loader.builtins.rawBridge = { name: 'raw-bridge-fixture', apply: () => {} }
-  const group = bridge.parent, options = { ...bridge.options, name: 'cordis:rawBridge', config: {} }
-  await bridge.fiber?.dispose(); group.remove(bridge.options.id)
-  group.data.push(options); await group.create(options)
-  const fiber = [...ctx.loader.entries()].find(entry => entry.options.id === 'feishu-channel')?.fiber
-  if (fiber === undefined) throw Error('Plain-config bridge did not mount')
-  for (const input of [null, ['unparsed-config'], 12]) {
-    expect(fiber.resolveConfig(input)).toEqual(input)
-  }
-  for (const input of [{}, { appId: 'cli_plain' }, { appSecret: 'private-plain' }, { appId: 'cli_plain', appSecret: 'private-plain' }]) {
-    expect(fiber.resolveConfig(input)).toEqual({ ...input, enabled: false })
-  }
+it.each([
+  { credentials: { appId: 'cli_plain', appSecret: 'private-plain-secret' }, active: true },
+  { credentials: {}, active: false },
+])('accepts plain bridge credentials and delegates schema-free nonobject config ($active)', async ({ credentials, active }) => {
+  const composition = await feishuProfile([
+    { id: 'config-editor', name: 'cordis:editor' },
+    { id: 'settings', name: 'cordis:settings' },
+    { id: 'feishu', name: 'cordis:feishu', config: { enabled: true } },
+    { id: 'feishu-channel', name: 'cordis:rawBridge', config: credentials },
+  ])
+  const bridge = [...composition.ctx.loader.entries()].find(entry => entry.options.id === 'feishu-channel')!.fiber!
+  expect(rowConfig(composition.ctx, 'feishu-channel')).toMatchObject({ ...credentials, enabled: active })
+  for (const input of [null, ['not-a-config'], 12]) expect(bridge.resolveConfig(input)).toEqual(input)
 })

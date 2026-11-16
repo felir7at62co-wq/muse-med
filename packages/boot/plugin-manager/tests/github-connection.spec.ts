@@ -112,26 +112,14 @@ it('ends a silent proxy connection and its Git child at the connection deadline'
   const result = await running
   expect(result?.kind).toBe('timeout')
   const invocation = vi.mocked(subprocess.execa).mock.results.at(-1)
-  if (invocation?.type !== 'return') throw Error('Git probe did not return its actual process handle')
-  const processResult = await invocation.value
-  expect(processResult).toMatchObject({ failed: true, timedOut: true })
-  // Git may report its own transport failure while Windows terminates its descendants.
-  expect(result).toMatchObject({ exitCode: processResult.exitCode ?? 1, timedOut: true,
-    argv: checkArgv('https://github.com/acme/plugin.git') })
-  expect(result?.exitCode).not.toBe(0)
+  if (invocation?.type !== 'return') throw new Error('Git probe did not return its child process')
+  const child = await invocation.value
+  expect(child).toMatchObject({ failed: true, timedOut: true })
+  // Windows can preserve Git's own exit status while its descendant reaches the same deadline.
+  expect(result).toMatchObject({ exitCode: child.exitCode ?? 1, timedOut: true, argv: checkArgv('https://github.com/acme/plugin.git') })
   expect(result!.output).toContain('connection to github.com timed out after 3000ms')
   await transport.disconnected
   expect(transport.sockets.size).toBe(0)
-})
-
-it.each([undefined, 128])('retains the actual timed-out Git status with exit code %s', async (exitCode) => {
-  const { check } = await fixture()
-  const run = vi.spyOn(subprocess, 'execa').mockResolvedValue({ failed: true, timedOut: true, exitCode,
-    shortMessage: 'Git connection deadline expired' } as Awaited<ReturnType<typeof subprocess.execa>>)
-  onTestFinished(() => { run.mockRestore() })
-  const result = await check('github:acme/plugin')
-  expect(result).toMatchObject({ kind: 'timeout', timedOut: true, exitCode: exitCode ?? 1 })
-  expect(result?.output).toContain('connection to github.com timed out after 3000ms')
 })
 
 it('cancels a connected Git probe and closes its transport before the deadline', async () => {

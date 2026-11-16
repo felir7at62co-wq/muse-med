@@ -21,18 +21,18 @@ import MuseMarketCloud, { parseMarketPublicationId, parseMarketPublisherId, pars
 import { createMarketPackage, marketDigest } from '../src/package.ts'
 import { parseMarketPublication } from '../src/cloud-protocol.ts'
 import { bundle, limits, manifest, metadata, resources } from './fixtures.ts'
-import { COVERAGE_TEST_TIMEOUT_ENV, coverageTestTimeoutOptions } from '../../../../scripts/coverage-partitions.ts'
 
 let host: TypertContribution, remote: TypertRemoteInfo
 beforeAll(async () => {
+  // The Host build owns TypeScript diagnostics; this owner validates the source-generated wire codecs.
   const [face] = new WorkspaceAnalyzer({ root: resolve(import.meta.dirname, '../../../..'),
-    packages: ['@deepseek-ai/dsh-muse-market'], faces: ['host'], rejectBuildOutputs: true }).analyze().faces
+    packages: ['@deepseek-ai/dsh-muse-market'], faces: ['host'], checkDiagnostics: false, rejectBuildOutputs: true }).analyze().faces
   if (face === undefined) throw new Error('Missing market Host program')
   const artifact = new FaceModelEmitter(face).emit('@deepseek-ai/dsh-muse-market')
   if (artifact?.remote === undefined) throw new Error('Missing source-generated market Remote')
   host = (await executableRemoteModule<{ TYPERT: TypertContribution }>(artifact.js)).TYPERT
   remote = (await executableRemoteModule<{ TYPERT_REMOTE: TypertRemoteInfo }>(artifact.remote.js)).TYPERT_REMOTE
-}, coverageTestTimeoutOptions(process.env[COVERAGE_TEST_TIMEOUT_ENV]).hookTimeout ?? 60_000)
+}, 60_000)
 
 async function fixture() {
   const source = await bundle(), ctx = new Context()
@@ -125,6 +125,16 @@ it('rejects malformed wire arguments before HTTP and preserves structured domain
   }
   await expect(f.call('getPublication', { id: 'a'.repeat(64) })).rejects.toMatchObject({
     code: 'muse-market/cloud-failed', details: { code: 'invalid-publication', status: 400 },
+  })
+  await expect(f.call('getPublication', { id: '../../outside?query=1\r\n' })).rejects.toMatchObject({
+    code: 'muse-market/cloud-failed', details: { code: 'invalid-publication', status: 400 },
+  })
+  await expect(f.call('publishDraft', { localId: 'not-a-release-digest', publisherId: f.publication.publisherId,
+    requestId: 'invalid-local-release-attempt' })).rejects.toMatchObject({
+    code: 'muse-market/cloud-failed', details: { code: 'invalid-local-release', status: 400 },
+  })
+  await expect(f.call('installPublication', { id: f.publication.id, expectedSha256: 'not-a-digest' })).rejects.toMatchObject({
+    code: 'muse-market/cloud-failed', details: { code: 'invalid-digest', status: 400 },
   })
   expect(f.paths).toEqual([])
 })

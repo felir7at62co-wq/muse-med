@@ -384,11 +384,11 @@ export function correctionMessage(text: string, formatVersion: unknown): Record<
  */
 export function installSelfRepair(ctx: Context): void {
   const turns = new Map<string, TurnState>()
-  const events: {
+  const events = ctx as unknown as {
     on(name: 'session/event', listener: (session: SessionLike, event: EventLike) => void): unknown
     on(name: 'agent/turn-stopping', listener: (payload: { agent?: AgentLike; turn?: unknown; signal?: AbortSignal }) => void): unknown
-  } = ctx
-  const logger = ctx.logger
+  }
+  const logger = (ctx as unknown as { logger?: { warn?: (message: string) => void } }).logger
 
   events.on('session/event', (session, event) => {
     try {

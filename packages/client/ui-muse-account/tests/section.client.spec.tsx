@@ -245,13 +245,14 @@ describe('MuseAccountSection', () => {
 
 it('uses the shared Feishu sign-in to advance the desktop first-run flow', async () => {
   vi.spyOn(window, 'open').mockReturnValue(null)
-  const complete = vi.fn(), login = vi.fn<MuseAccountInjected['login']>()
+  const complete = vi.fn(), onVisible = vi.fn(), login = vi.fn<MuseAccountInjected['login']>()
   const account = props({ login,
     startBrowserLogin: async () => ({ ok: true, value: ATTEMPT }),
     checkBrowserLogin: async () => ({ ok: true, value: { state: 'signed-in', status: SIGNED_IN } }),
   })
-  const page = render(<MuseAccountOnboarding {...account} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+  const page = render(<MuseAccountOnboarding {...account} stepId="muse-account" complete={complete} onVisible={onVisible} openSection={vi.fn()} />)
   expect(await screen.findByRole('dialog', { name: 'onboardingTitle' })).toBeTruthy()
+  expect(onVisible).toHaveBeenCalledOnce()
   fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
   await waitFor(() => { expect(complete).toHaveBeenCalledOnce() })
   expect(login).not.toHaveBeenCalled()
@@ -263,7 +264,7 @@ it('advances onboarding when retry confirms an already saved login', async () =>
   const status = vi.fn<MuseAccountInjected['status']>()
     .mockResolvedValueOnce({ ok: false, code: 'muse-account/gateway-unavailable' })
     .mockResolvedValueOnce({ ok: true, value: SIGNED_IN })
-  render(<MuseAccountOnboarding {...props({ status })} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+  render(<MuseAccountOnboarding {...props({ status })} stepId="muse-account" complete={complete} onVisible={vi.fn()} openSection={vi.fn()} />)
   fireEvent.click(await screen.findByRole('button', { name: 'retry' }))
   await screen.findByText('verified')
   expect(complete).toHaveBeenCalledOnce()
@@ -278,7 +279,7 @@ it('does not advance a dismissed onboarding page when its pending browser login 
   const page = render(<MuseAccountOnboarding {...props({
     startBrowserLogin: async () => ({ ok: true, value: ATTEMPT }),
     checkBrowserLogin: () => pending.promise, cancelBrowserLogin,
-  })} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+  })} stepId="muse-account" complete={complete} onVisible={vi.fn()} openSection={vi.fn()} />)
   fireEvent.click(await screen.findByRole('button', { name: 'browserSignIn' }))
   await screen.findByText('browserWaiting')
   fireEvent.click(screen.getByRole('button', { name: 'onboardingLater' }))
@@ -316,7 +317,7 @@ it.each([false, true])('restores the page inert state after onboarding (previous
   document.body.append(root)
   onTestFinished(() => { root.remove() })
   const complete = vi.fn()
-  const page = render(<MuseAccountOnboarding {...props()} stepId="muse-account" complete={complete} openSection={vi.fn()} />)
+  const page = render(<MuseAccountOnboarding {...props()} stepId="muse-account" complete={complete} onVisible={vi.fn()} openSection={vi.fn()} />)
   expect(root.inert).toBe(true)
   fireEvent.keyDown(await screen.findByRole('dialog'), { key: 'Escape' })
   expect(complete).not.toHaveBeenCalled()

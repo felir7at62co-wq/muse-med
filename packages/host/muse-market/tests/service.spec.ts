@@ -25,29 +25,6 @@ async function fixture() {
 }
 
 describe('local publication service', () => {
-  it('refuses relative storage configuration before acquiring a service', async () => {
-    const ctx = new Context(); cleanups.push(() => ctx.fiber.dispose())
-    expect(() => new MuseMarket(ctx, { root: 'relative', ...limits })).toThrow('invalid-storage')
-  })
-
-  it('rejects noncanonical base64 and preserves storage failures and observer containment', async () => {
-    const f = await fixture()
-    await expect(f.market.importPackage('ZE==')).rejects.toMatchObject({ details: { code: 'invalid-archive' } })
-    const emit = f.ctx.emit.bind(f.ctx)
-    const notification = vi.spyOn(f.ctx, 'emit').mockImplementation((...args) => {
-      if (args[0] === 'muse-market/inventory-changed') throw Error('Observer failed')
-      Reflect.apply(emit, undefined, args)
-    })
-    try { expect(await f.market.prepare(metadata, f.skill.name)).toHaveProperty('enabled', false) }
-    finally { notification.mockRestore() }
-    const snapshot = vi.spyOn(f.skills, 'snapshot').mockRejectedValueOnce(new Error('Registry unavailable'))
-    try { await expect(f.market.sources()).rejects.toMatchObject({ details: { code: 'storage-unavailable' } }) }
-    finally { snapshot.mockRestore() }
-    f.unregister()
-    const unregister = f.skills.register({ name: 'no-hint', description: 'No optional usage hint.', content: 'Content.', source: 'fixture' })
-    try { expect(await f.market.sources()).toEqual({ skills: [{ name: 'no-hint', description: 'No optional usage hint.' }], complete: true }) }
-    finally { unregister() }
-  })
   it('prepares, deduplicates, exports and removes through the actual service while the registry stays unchanged', async () => {
     const value = await fixture(), before = await value.skills.list()
     expect(await value.market.sources()).toEqual({
@@ -93,5 +70,55 @@ describe('local publication service', () => {
       expect(await value.market.sources()).toEqual({ complete: false, skills: [] })
     } finally { undo() }
     expect(await value.market.sources()).toEqual({ complete: true, skills: [] })
+  })
+
+  it('commits inventory changes even when an observer fails, and continues serving later operations', async () => {
+    const value = await fixture(), warn = vi.spyOn(value.ctx.logger, 'warn').mockImplementation(() => {})
+    const off = value.ctx.on('muse-market/inventory-changed', () => { throw new Error('Observer failed') })
+    try {
+      const installed = await value.market.prepare(metadata, value.skill.name)
+      expect(await value.market.installed()).toEqual([installed])
+      expect(warn).toHaveBeenCalled()
+      await value.market.removePackage(installed.release.id)
+      expect(await value.market.installed()).toEqual([])
+      await expect(value.market.exportPackage(installed.release.id)).rejects.toMatchObject({ details: { code: 'not-installed' } })
+    } finally { off(); warn.mockRestore() }
+  })
+
+  it('reports provider failures as unavailable storage and admits the next authoring request', async () => {
+    const value = await fixture()
+    const off = value.skills.registerProvider(() => ({ name: 'failing-author-source',
+      list: async () => [{ name: 'unavailable-skill', description: 'Unavailable instructions.', source: 'fixture',
+        provider: 'failing-author-source', rank: 0, locator: 'unavailable', invocation: { modelInvocable: true, userInvocable: true } }],
+      get: async () => { throw new Error('Provider could not read the instructions') } }))
+    try {
+      await expect(value.market.prepare(metadata, 'unavailable-skill')).rejects.toMatchObject({ details: { code: 'storage-unavailable' } })
+      expect(await value.market.installed()).toEqual([])
+    } finally { off() }
+    expect(await value.market.prepare(metadata, value.skill.name)).toHaveProperty('enabled', false)
+  })
+
+  it('rejects noncanonical archive encodings without changing the inventory', async () => {
+    const value = await fixture()
+    await expect(value.market.importPackage('A')).rejects.toMatchObject({ details: { code: 'invalid-archive' } })
+    await expect(value.market.importPackage('A'.repeat(Math.ceil(limits.archiveBytes / 3) * 4 + 1)))
+      .rejects.toMatchObject({ details: { code: 'invalid-archive' } })
+    expect(await value.market.installed()).toEqual([])
+  })
+
+  it('lists a source without optional routing without synthesizing that field', async () => {
+    const value = await fixture()
+    const off = value.skills.register({ name: 'virtual-review', description: 'Review a short scene.', content: 'Review it.', source: 'fixture' })
+    try {
+      expect((await value.market.sources()).skills.find(skill => skill.name === 'virtual-review'))
+        .toEqual({ name: 'virtual-review', description: 'Review a short scene.' })
+    } finally { off() }
+  })
+
+  it('refuses a relative storage root before creating the publication service', async () => {
+    const ctx = new Context(); cleanups.push(() => ctx.fiber.dispose())
+    await ctx.plugin(SkillRegistry).await()
+    await expect(ctx.plugin(MuseMarket, { root: 'relative-market', ...limits }).await()).rejects.toMatchObject({ code: 'invalid-storage' })
+    expect(ctx.get('museMarket')).toBeUndefined()
   })
 })

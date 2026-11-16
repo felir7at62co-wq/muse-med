@@ -4,15 +4,13 @@
  * error paths — all via injected fetch, no network.
  */
 
-import { afterEach, test } from 'node:test'
+import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
-import { LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
-import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { subscriptionAgent } from './agent-fixture.js'
+import { LlmError } from '@deepseek-ai/dsh-llm'
+import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { codexProfileClaims } from '../src/providers/codex.js'
 import type { FetchFn } from '../src/providers/common.js'
 import { AccountTokenManager } from '../src/providers/accounts.js'
@@ -43,20 +41,10 @@ function unsignedJwt(payload: Record<string, unknown>): string {
   return `h.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.s`
 }
 
-/** Isolated execution identity for direct tool-definition tests. */
+/** Minimal execution context: the tools read only `signal`. */
 function fakeExec(): ToolRunContext {
-  return {
-    callId: ToolCallId('subscription-test'), rootCallId: ToolCallId('subscription-test'),
-    token: Symbol('subscription-test') as ToolExecutionToken, name: 'subscription-test', arguments: {},
-    signal: new AbortController().signal, deferContext: () => {}, concludeTurn: () => {},
-  }
+  return { signal: new AbortController().signal } as unknown as ToolRunContext
 }
-
-const agentContexts = new Set<Context>()
-afterEach(async () => {
-  for (const ctx of agentContexts) await ctx.fiber.dispose()
-  agentContexts.clear()
-})
 
 function memoryTokens<S extends { accessToken: string; refreshToken: string; expiresAt: number }>(
   initial: S | undefined,
@@ -420,14 +408,15 @@ function fakeAttachments() {
 }
 
 /** Fake exec carrying an agent routed at the given provider/model. */
-function routedExec(provider: string, model: string, extra: Partial<ToolRunContext> = {}): ToolRunContext {
-  const ctx = new Context()
-  agentContexts.add(ctx)
+function routedExec(provider: string, model: string, extra: Record<string, unknown> = {}): ToolRunContext {
   return {
-    ...fakeExec(),
-    agent: subscriptionAgent('tool-route', ctx, { provider, model }),
+    signal: new AbortController().signal,
+    agent: {
+      session: { requestHeader: () => ({ config: { provider, model } }) },
+      options: { provider, model },
+    },
     ...extra,
-  }
+  } as unknown as ToolRunContext
 }
 
 /** Fake llm service whose resolveModelInfo reports the given modalities. */
@@ -697,10 +686,10 @@ test('image_generate: nested dispatch defers no context (code mode injects image
     resolveAttachments: () => store as never,
     resolveLlm: () => fakeLlm(['text', 'image']) as never,
   })
-  const deferred: Parameters<ToolRunContext['deferContext']>[0][] = []
+  const deferred: { content: { type: string }[] }[] = []
   const exec = routedExec('codex', 'gpt-5.6-sol', {
-    parent: Symbol('parent') as ToolExecutionToken,
-    deferContext: message => { deferred.push(message) },
+    parent: Symbol('parent'),
+    deferContext: (message: { content: { type: string }[] }) => deferred.push(message),
   })
   const value = await tool.execute({ prompt: 'a square' }, exec) as { images?: unknown[] }
   // The render output carries the image block; the harness's code mode defers
@@ -750,7 +739,7 @@ for (const provider of ['gpt', 'grok'] as const) {
         const rendered = tool.output.render({ prompt: 'change background' }, value as never)
         assert.match((rendered[0] as { text: string }).text, /Image references/)
         // Same structured reference is usable immediately inside a nested Code Mode call.
-        await tool.execute({ prompt: 'make it brighter', provider, referenceImages: value.images }, routedExec('codex', 'm', { parent: Symbol('code') as ToolExecutionToken }))
+        await tool.execute({ prompt: 'make it brighter', provider, referenceImages: value.images }, routedExec('codex', 'm', { parent: Symbol('code') }))
         assert.equal(wire.requests.length, 2)
       } finally { rmSync(dir, { recursive: true, force: true }) }
     })

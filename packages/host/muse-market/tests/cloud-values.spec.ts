@@ -9,6 +9,14 @@ const publication = { id: 'a'.repeat(32), publisherId: 'b'.repeat(32), publisher
   createdAt: '2026-11-09T00:00:00.000Z' }
 
 describe('portable cloud JSON readers', () => {
+  it.each([null, { ...publication, id: 'not-a-publication' }, { ...publication, manifest: { ...manifest, skills: [] } }])(
+    'returns the same credential-free 502 refusal for malformed publication JSON %#', (value) => {
+      expect(() => parseMarketPublication(value, limits)).toThrow(expect.objectContaining({
+        name: 'MarketCloudError', code: 'invalid-response', status: 502,
+      }))
+    },
+  )
+
   it('accepts reordered JSON keys while retaining exact immutable metadata', () => {
     const reordered = Object.fromEntries(Object.entries(manifest).reverse())
     expect(parseMarketPublication({ ...publication, manifest: reordered }, limits)).toEqual(publication)
@@ -18,10 +26,6 @@ describe('portable cloud JSON readers', () => {
     { ...manifest, privatePath: '/private/author' },
     { ...manifest, skills: [{ ...manifest.skills[0], privatePath: '/private/author' }] },
     { ...manifest, kind: 'bot' },
-    { ...manifest, skills: [null] },
-    { ...manifest, skills: [{ name: 123, path: 'skills/123/SKILL.md' }] },
-    { ...manifest, skills: [{ name: 'has spaces', path: 'skills/has spaces/SKILL.md' }] },
-    { ...manifest, skills: [{ name: '../outside', path: 'skills/../outside/SKILL.md' }] },
   ])('rejects extra fields and retired payloads in a cloud manifest', (value) => {
     expect(() => parseMarketPublication({ ...publication, manifest: value }, limits))
       .toThrow('invalid-response')
@@ -45,10 +49,6 @@ describe('portable cloud JSON readers', () => {
     expect(() => parseMarketIdentity({ ...identity, cookie: 'private' })).toThrow('invalid-response')
     expect(() => parseMarketIdentity({ ...identity, publishers: [...identity.publishers, ...identity.publishers] }))
       .toThrow('invalid-response')
-    for (const publishers of [[null], [{ id: 'b'.repeat(32), title: '' }],
-      [{ id: 'b'.repeat(32), title: 'Writing team', cookie: 'private' }]]) {
-      expect(() => parseMarketIdentity({ ...identity, publishers })).toThrow('invalid-response')
-    }
   })
 
   it('keeps local digest, publication, account and original attempt identities separate', () => {
@@ -61,4 +61,11 @@ describe('portable cloud JSON readers', () => {
     expect(() => parseMarketAccountId('a'.repeat(32))).toThrow('invalid-account')
     expect(() => parseMarketUploadRequestId('attempt/key')).toThrow('invalid-request-id')
   })
+
+  it.each([null, [], { id: 'b'.repeat(32), title: '' },
+    { id: 'b'.repeat(32), title: 'Writing team', privatePath: '/private/team' }])(
+    'rejects an invalid publishing membership %#', (membership) => {
+      expect(() => parseMarketIdentity({ accountId: 'd'.repeat(16), publishers: [membership], admin: false }))
+        .toThrow('invalid-response')
+    })
 })

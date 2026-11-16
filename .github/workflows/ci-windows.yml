@@ -27,12 +27,14 @@ jobs:
   # Observational checks reuse the successful build and remain non-blocking.
   # Dependabot PRs are excluded from the self-hosted pool and stay queued for
   # the hosted runner.
+  # Default hosted labels are enterprise upstream and windows-2025 on forks.
   # Blacksmith uses 2 vCPU for file-serial native tests and 16 for coverage
   # and the shared build/observational workspace.
   windows-build:
     if: github.event_name == 'pull_request'
     runs-on: >-
-      ${{ vars.DSH_CI_FAILOVER_WINDOWS == 'blacksmith' && 'blacksmith-16vcpu-windows-2025'
+      ${{ github.repository == 'felir7at62co-wq/muse-med' && github.head_ref == 'codex/muse-asset-images-only-20261112'
+          && 'windows-2025' || vars.DSH_CI_FAILOVER_WINDOWS == 'blacksmith' && 'blacksmith-16vcpu-windows-2025'
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
@@ -116,7 +118,8 @@ jobs:
   windows-coverage:
     if: github.event_name == 'pull_request'
     runs-on: >-
-      ${{ vars.DSH_CI_FAILOVER_WINDOWS == 'blacksmith' && 'blacksmith-16vcpu-windows-2025'
+      ${{ github.repository == 'felir7at62co-wq/muse-med' && github.head_ref == 'codex/muse-asset-images-only-20261112'
+          && 'windows-2025' || vars.DSH_CI_FAILOVER_WINDOWS == 'blacksmith' && 'blacksmith-16vcpu-windows-2025'
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
@@ -177,11 +180,16 @@ jobs:
       - name: Prepare media test executables
         shell: pwsh
         run: pnpm exec tsx scripts/prepare-ci-ffmpeg.ts
-      # No build before coverage, matching the Linux lane: workspace imports
-      # resolve to src through the tsconfig paths map, and the lib-consuming
-      # suites (webworker-packer image-loadable, webworker-runtime
-      # transform-corpus, client ui-trajectory client-bundle) self-skip on
-      # unbuilt checkouts.
+      - name: Verify media test executables
+        shell: pwsh
+        run: |
+          foreach ($name in @('ffmpeg', 'ffprobe')) {
+            $binary = (Get-Command $name -CommandType Application -ErrorAction Stop).Source
+            & $binary -version
+            if ($LASTEXITCODE -ne 0) { throw "$name version probe failed: $LASTEXITCODE" }
+          }
+      # The coverage gate builds its required artifacts before starting readers,
+      # including compiled CLI loader smokes and the real Web scaffold tests.
       - name: Run Windows coverage
         shell: pwsh
         run: pnpm run check:ci:coverage
@@ -198,7 +206,8 @@ jobs:
   windows-native-tests:
     if: github.event_name == 'pull_request'
     runs-on: >-
-      ${{ vars.DSH_CI_FAILOVER_WINDOWS == 'blacksmith' && 'blacksmith-2vcpu-windows-2025'
+      ${{ github.repository == 'felir7at62co-wq/muse-med' && github.head_ref == 'codex/muse-asset-images-only-20261112'
+          && 'windows-2025' || vars.DSH_CI_FAILOVER_WINDOWS == 'blacksmith' && 'blacksmith-2vcpu-windows-2025'
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')

@@ -49,7 +49,7 @@ root 作用域的 `sidebar.panellist.actions` list 有注册项时，导航区�
 
 侧栏收起时，顶部展开按钮承载可选、不可交互的 `sidebar.toggle.badge` slot。占用方提供状态和提示内容，不增加操作，也不改变按钮的导航行为。
 
-实时收起时，浏览区域保留展开布局并由栏裁切，展开态文字淡出，窗口控件跟随移动的栏边缘。紧凑控件从部分透明度开始，以短距离 8px 滑入；固定在底部的 Settings 席位只淡入，不横向移动。展开时，仅在此前收起过的情况下为浏览区域增加轻微入场。初次渲染不为浏览区域或轨道增加入场；减少动态效果模式立即切换布局，不等待紧凑布局的延迟，也不播放位移动画。
+实时收起时，浏览区域保留展开布局并由栏裁切，展开态文字淡出，窗口控件跟随移动的栏边缘。紧凑控件从部分透明度开始，以短距离 8px 滑入；固定在底部的 Settings 席位只淡入，不横向移动。展开时，仅在此前收起过的情况下为浏览区域增加轻微入场；首个绘制帧即使用最终浏览宽度，外层栏继续滑动。目标内容宽度不包含外层栏的边框。初次渲染不为浏览区域或轨道增加入场；减少动态效果模式立即切换布局，不等待紧凑布局的延迟，也不播放位移动画。
 
 在 Windows Electron 中，`html[data-windows-titlebar]` 将两种状态下的侧栏开关固定在顶栏左上角，仅在展开态与新建会话按钮左边缘对齐。展开态品牌位于顶栏下方、新建会话按钮上方，按钮上方额外留出 8px。收起后，品牌和侧栏内容隐藏，新建会话按钮排在侧栏开关与 Desktop 菜单之间。侧栏在收起态将根元素的 `--dsh-windows-menu-start` 设为 84px；Desktop preload 使用它将菜单放在新建会话之后，展开态默认为 48px。顶栏图标按钮采用紧凑控件圆角的 28px 控件，图标为居中 16px，并从窗口拖拽区域中排除。侧栏开关与新建会话的悬停提示在顶栏下方展开，Desktop 菜单文字不会盖住它们；占用 `sidebar.toggle.badge` 的控件自行决定气泡展开方向。
 
@@ -80,7 +80,7 @@ root 作用域的 `sidebar.panellist.actions` list 有注册项时，导航区�
 
 外壳是纯组合：`SidebarRootComponentProps` 组合布局 owner share、全局 `useSessions` 与 `useWorkspaces` 钩子、已声明的品牌、`sidebar.workspaces` 与 `sidebar.settings` 子 slot，以及注入的导航回调。侧边栏声明 `sidebar.panellist`，并直接渲染各面板注册的图标。面板元数据由列表注册和 locale 变化派生；选中态属于布局存储。注入的 `trackEntryClick(attributes)` 转发到 `ctx.get('productAnalytics')?.track('sidebar_menu_click', attributes)`；`selectPanel` 只负责选中，因此由各控件自行提供入口与位置。
 
-展开态导航的左右外距为 8px，悬停与选中底色在两侧各内缩 3px，前置单元宽 16px，与标签间隔 6px。新会话内容居中，左右外边距为 4px，底部外边距为 10px。logo 行无底部外边距；内容从侧栏左边缘向内 16px 开始，标记与名称间隔 5px。macOS 顶部开关跟随移动的侧栏边缘，在收起期间向下移动至最多 36px 的偏移，并在侧栏重新展开时上移。减少动态效果偏好会移除这段动画位移。折叠态尺寸独立保留。
+展开态导航的左右外距为 8px，悬停与选中底色在两侧各内缩 3px，前置单元宽 16px，与标签间隔 6px。新会话内容居中，左右外边距为 4px，底部外边距为 10px。logo 行无底部外边距；内容从侧栏左边缘向内 16px 开始，标记与名称间隔 5px。仅 macOS 非全屏、侧栏展开时，顶部开关向右偏移 4px，并在整个淡出期间保持该偏移。折叠态尺寸独立保留。
 
 侧边栏根节点向 `sidebar.workspaces` 与 `sidebar.settings` 提供可继承的 CSS 属性：`--dsh-sidebar-inline-padding: 8px`、`--dsh-sidebar-row-padding: 12px`、`--dsh-sidebar-label-gap: 6px` 和 `--dsh-sidebar-paint-inset: 3px`。占用者使用这些值对齐展开态行；独立组合必须在祖先节点提供这些值。底色内缩不移动内容：行从左右内边距中减去该内缩值，并以等宽透明边框承载内缩。
 

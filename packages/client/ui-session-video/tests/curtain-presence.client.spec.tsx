@@ -31,11 +31,23 @@ afterEach(() => {
   }
 })
 
-function Fixture({ open, attached = true }: { open: boolean; attached?: boolean }) {
+function Fixture({ open }: { open: boolean }) {
   const owner = useRef<HTMLDivElement | null>(null)
   const present = useCurtainPresence(open, owner)
-  return <div ref={attached ? owner : undefined} data-testid="curtain">{present && <span>Mounted media</span>}</div>
+  return <div ref={owner} data-testid="curtain">{present && <span>Mounted media</span>}</div>
 }
+
+it('clears retained content when the transition owner has been removed', () => {
+  function DetachedFixture({ open }: { open: boolean }) {
+    const owner = useRef<HTMLDivElement | null>(null)
+    const present = useCurtainPresence(open, owner)
+    return present && <span>Detached media</span>
+  }
+  const view = render(<DetachedFixture open />)
+  expect(view.getByText('Detached media')).toBeTruthy()
+  view.rerender(<DetachedFixture open={false} />)
+  expect(view.queryByText('Detached media')).toBeNull()
+})
 
 /** Browser-owned completion controlled without test-clock assumptions. */
 function transition() {
@@ -50,13 +62,6 @@ it('starts closed without briefly mounting media and mounts when opened', () => 
   expect(view.queryByText('Mounted media')).toBeNull()
   view.rerender(<Fixture open />)
   expect(view.getByText('Mounted media')).toBeTruthy()
-})
-
-it('closes immediately when its container has not attached instead of retaining invisible media', () => {
-  const view = render(<Fixture open attached={false} />)
-  expect(view.getByText('Mounted media')).toBeTruthy()
-  view.rerender(<Fixture open={false} attached={false} />)
-  expect(view.queryByText('Mounted media')).toBeNull()
 })
 
 it('retains closing media until every transition settles, including cancellation', async () => {

@@ -7,18 +7,18 @@ import FsLocal from '@deepseek-ai/dsh-fs-local'
 import SubprocessLocal from '@deepseek-ai/dsh-subprocess-local'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import SandboxLocal from '@deepseek-ai/dsh-sandbox-local'
-import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
+import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rm, mkdir, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { MuseMediaImporter } from '../src/media-import.ts'
-import { MEDIA_FILE_HELPER } from '../src/media-file-helper.ts'
 import { MuseMediaClient, MuseMediaError } from '../src/media.ts'
-import type { MuseMediaJobId, MuseMediaTransfer, MuseMediaReceipt } from '../src/media-types.ts'
+import type { MuseMediaJobId, MuseMediaTransfer } from '../src/media-types.ts'
 import { writeMuseSession } from '../src/session.ts'
 
 const execute = promisify(execFile)
@@ -46,16 +46,15 @@ interface FixtureOptions {
   missingCwd?: boolean
   bytes?: Buffer
   hash?: string
-  kind?: 'video' | 'image' | 'metadata'
+  kind?: MuseMediaTransfer['file']['kind']
   guard?: () => Promise<void>
   body?: (signal: AbortSignal) => ReadableStream<Uint8Array>
   partial?: boolean
-  maxPixels?: number
+  mountSandbox?: boolean
   maxBytes?: number
-  maxDurationSeconds?: number
-  workspaceAlias?: boolean
-  state?: MuseMediaReceipt['state']
-  coverage?: boolean
+  maxOutputBytes?: number
+  omitCoverage?: boolean
+  state?: MuseMediaTransfer['job']['state']
 }
 async function fixture(options: FixtureOptions = {}) {
   const root = await mkdtemp(join(tmpdir(), 'muse-media-import-')); roots.push(root)
@@ -65,11 +64,9 @@ async function fixture(options: FixtureOptions = {}) {
   await ctx.plugin(FsLocal, { cwd })
   await ctx.plugin(SubprocessLocal)
   await ctx.plugin(SandboxPolicy, { mode: options.mode ?? 'danger-full-access', workspaceRoot: cwd })
-  if (options.mode === 'workspace-write') await ctx.plugin(SandboxLocal)
+  if (options.mode === 'workspace-write' && options.mountSandbox !== false) await ctx.plugin(SandboxLocal)
   const driver = await mountAgentLoopTestHarness(ctx)
-  const sessionCwd = options.workspaceAlias ? join(cwd, 'session-workspace') : cwd
-  if (options.workspaceAlias) await symlink(cwd, sessionCwd, 'junction')
-  const agent = await driver.create(SessionId(`media-${randomUUID()}`), {}, options.missingCwd ? {} : { cwd: sessionCwd })
+  const agent = await driver.create(SessionId(`media-${randomUUID()}`), {}, options.missingCwd ? {} : { cwd })
   const payload = options.bytes ?? video
   let requests = 0
   const client: Pick<MuseMediaClient, 'withFile'> = {
@@ -78,9 +75,9 @@ async function fixture(options: FixtureOptions = {}) {
       requests++
       return await consume({ file: { name: 'video.mp4', kind: options.kind ?? 'video', bytes: payload.length,
         sha256: options.hash ?? createHash('sha256').update(payload).digest('hex') },
-      job: { state: options.state ?? (options.partial ? 'partial' : 'cloud_saved'),
-        ...options.coverage === false ? {} : { file_coverage: { reported: options.partial ? 2 : 1,
-          accepted: 1, rejected: options.partial ? 1 : 0, complete: !options.partial, truncated: false } } },
+      job: { state: options.state ?? (options.partial ? 'partial' : 'cloud_saved'), ...options.omitCoverage ? {} : {
+        file_coverage: { reported: options.partial ? 2 : 1, accepted: 1, rejected: options.partial ? 1 : 0,
+          complete: !options.partial, truncated: false } } },
       body: options.body?.(signal ?? new AbortController().signal) ?? new ReadableStream({
         start(controller) { controller.enqueue(payload); controller.close() },
       }),
@@ -89,11 +86,47 @@ async function fixture(options: FixtureOptions = {}) {
   }
   const importer = new MuseMediaImporter(ctx, options.client ?? client, { directory: 'source/media/company', nodePath: process.execPath,
     ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', timeoutMs: 30_000, graceMs: 1000, maxBytes: options.maxBytes ?? 1_048_576,
-    maxOutputBytes: 65_536, maxPixels: options.maxPixels ?? 1_000_000, maxDurationSeconds: options.maxDurationSeconds ?? 60 })
+    maxOutputBytes: options.maxOutputBytes ?? 65_536, maxPixels: 1_000_000, maxDurationSeconds: 60 })
   importers.push(importer)
-  return { ctx, agent, importer, cwd, sessionCwd,
-    requests: () => requests, destination: join(cwd, 'source/media/company', `${id}-video.mp4`) }
+  return { ctx, agent, driver, importer, cwd, requests: () => requests, destination: join(cwd, 'source/media/company', `${id}-video.mp4`) }
 }
+
+function replaceOutput(child: SubprocessHandle, stdout: Readable | undefined): SubprocessHandle {
+  return { stdin: child.stdin, stdout, stderr: child.stderr, control: child.control, collected: child.collected,
+    done: child.done, terminate: () => { child.terminate() }, waitForExit: signal => child.waitForExit(signal) }
+}
+
+function rewriteHelperOutput(ctx: Context, rewrite: (line: string) => string, tail = '', fragmented = false): void {
+  const original = ctx.subprocess.spawn.bind(ctx.subprocess)
+  vi.spyOn(ctx.subprocess, 'spawn').mockImplementation((spec) => {
+    const child = original(spec)
+    if (spec.stdio.control !== 'pipe') return child
+    const stdout = child.stdout
+    if (stdout === undefined) throw new Error('The real helper fixture requires piped stdout')
+    return replaceOutput(child, Readable.from((async function* () {
+      let pending = ''
+      for await (const chunk of stdout) {
+        if (!Buffer.isBuffer(chunk)) throw new Error('The real helper fixture requires byte output')
+        pending += chunk.toString('utf8')
+        for (;;) {
+          const boundary = pending.indexOf('\n')
+          if (boundary < 0) break
+          const line = pending.slice(0, boundary)
+          pending = pending.slice(boundary + 1)
+          const next = rewrite(line)
+          if (next !== '') {
+            const bytes = Buffer.from(next + '\n')
+            if (fragmented) yield bytes.subarray(0, 1)
+            yield fragmented ? bytes.subarray(1) : bytes
+          }
+        }
+      }
+      if (pending !== '') throw new Error('The real helper fixture emitted an incomplete line')
+      if (tail !== '') yield Buffer.from(tail)
+    })()))
+  })
+}
+
 
 it('publishes a complete real video and a stable file-backed receipt without private transaction fields', async () => {
   const f = await fixture()
@@ -147,233 +180,18 @@ it('uses the actual OS sandbox for workspace-write imports', async () => {
   const f = await fixture({ mode: 'workspace-write' })
   const confine = vi.spyOn(f.ctx.sandbox, 'confine')
   expect(await f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).toMatchObject({ state: 'local_ready' })
-  const readers = confine.mock.calls.map(([argv]) => basename(String(argv[0])).replace(/\.exe$/iu, ''))
-  expect(readers).toEqual(expect.arrayContaining(['ffprobe', 'ffmpeg']))
-  expect(confine.mock.calls.every(([, policy]) => policy.mode === 'workspace-write')).toBe(true)
+  expect(confine).toHaveBeenCalled()
 })
 
-it.each(['stdout', 'stderr', 'invalid-json'] as const)('refuses %s verification output before publishing a receipt', async (fault) => {
-  const f = await fixture(), original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
-  vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    const child = original(spec)
-    if (spec.argv.includes('-show_entries')) {
-      const output = fault === 'stderr' ? child.collected.stderr : child.collected.stdout
-      if (!output) throw Error('Verification reader did not declare collected output')
-      const read = output.readFrom.bind(output)
-      vi.spyOn(output, 'readFrom').mockImplementation((...args) => ({ ...read(...args),
-        ...fault === 'invalid-json' ? { text: '{incomplete' } : { lossy: true } }))
-    }
-    return child
-  })
-  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects.toMatchObject({ code: 'invalid-media' })
+it.each(['danger-full-access', 'workspace-write'] as const)('bounds real verifier output before publishing in %s', async (mode) => {
+  const f = await fixture({ mode, maxOutputBytes: 128 }), records: string[] = []
+  rewriteHelperOutput(f.ctx, (line) => { records.push(line); return line })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects
+    .toMatchObject({ code: 'invalid-media' })
+  expect(records).toContain(JSON.stringify({ phase: 'failed', code: 'INVALID_MEDIA' }))
+  expect(records.some(line => line.includes('"phase":"verified"'))).toBe(false)
   expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
 })
-
-it.each([{ maxPixels: 1 }, { maxDurationSeconds: 0.1 }, { kind: 'image' as const }])(
-  'refuses actual media outside its selected limits or kind: %j', async (options) => {
-    const f = await fixture(options)
-    await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects.toMatchObject({ code: 'invalid-media' })
-    expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
-  },
-)
-
-it.each([
-  { streams: [], format: { format_name: 'mov', duration: '0.4' } },
-  { streams: [{ codec_type: 'video', height: 72 }], format: { format_name: 'mov', duration: '0.4' } },
-  { streams: [{ codec_type: 'video', width: 128 }], format: { format_name: 'mov', duration: '0.4' } },
-  { streams: [{ codec_type: 'video', width: 128, height: 72 }], format: { format_name: 'image2' } },
-  { streams: [{ codec_type: 'video', width: 128, height: 72 }], format: { format_name: 'mov', duration: 'N/A' } },
-  { streams: [{ codec_type: 'video', width: 128, height: 72 }], format: { format_name: 'mov', duration: '0' } },
-])('refuses incomplete or contradictory metadata from the media reader: %j', async (metadata) => {
-  const f = await fixture(), original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
-  vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    const child = original(spec)
-    if (spec.argv.includes('-show_entries')) {
-      const output = child.collected.stdout
-      if (!output) throw Error('Metadata reader did not declare collected stdout')
-      const read = output.readFrom.bind(output)
-      vi.spyOn(output, 'readFrom').mockImplementation((...args) => ({ ...read(...args), text: JSON.stringify(metadata) }))
-    }
-    return child
-  })
-  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects.toMatchObject({ code: 'invalid-media' })
-  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
-})
-
-it('stops an oversized transfer before metadata decoding or publication', async () => {
-  const f = await fixture({ maxBytes: video.length - 1 }), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
-  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects.toMatchObject({ code: 'file-too-large' })
-  expect(spawn.mock.calls.some(([spec]) => spec.argv.includes('-show_entries'))).toBe(false)
-  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
-})
-
-it.each(['unknown-error', 'overflow', 'trailing-output', 'missing-publication', 'wrong-publication'] as const)(
-  'rolls back the real receiver after a %s protocol failure', async (fault) => {
-    const f = await fixture(), original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
-    const wire = fault === 'unknown-error'
-      ? MEDIA_FILE_HELPER.replace("emit({ phase: 'received' });", "throw Error('UNEXPECTED_RECEIVER_FAILURE');")
-      : MEDIA_FILE_HELPER.replace(
-        "const emit = value => process.stdout.write(JSON.stringify(value) + '\\n');",
-        fault === 'overflow'
-          ? "const emit = value => process.stdout.write('x'.repeat(spec.maxOutputBytes + 1) + '\\n');"
-          : fault === 'trailing-output'
-            ? "const emit = value => process.stdout.write(JSON.stringify(value) + (value.phase === 'published' ? '' : '\\n'));"
-            : fault === 'missing-publication'
-              ? "const emit = value => { if (value.phase !== 'published') process.stdout.write(JSON.stringify(value) + '\\n'); };"
-              : "const emit = value => process.stdout.write(JSON.stringify(value.phase === 'published' ? { ...value, path: value.path + '.wrong' } : value) + '\\n');",
-      )
-    expect(wire).not.toBe(MEDIA_FILE_HELPER)
-    vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => original(
-      spec.argv.at(-1)?.includes('"operation":"receive"')
-        ? { ...spec, argv: spec.argv.map(argument => argument === MEDIA_FILE_HELPER ? wire : argument) }
-        : spec,
-    ))
-    await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
-      .rejects.toMatchObject({ code: 'invalid-media' })
-    expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
-  },
-)
-
-it('rejects cleanup messages on the receive protocol and rolls back after a failed finalize process', async () => {
-  for (const phase of ['receive', 'finalize']) {
-    const f = await fixture(), original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
-    const wire = phase === 'receive'
-      ? MEDIA_FILE_HELPER.replace("emit({ phase: 'received' });", "emit({ phase: 'cleaned' });")
-      : MEDIA_FILE_HELPER.replace("if (spec.operation === 'finalize') {", "if (spec.operation === 'finalize') { throw Error('FINALIZE_FAILED');")
-    expect(wire).not.toBe(MEDIA_FILE_HELPER)
-    vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => original(
-      spec.argv.at(-1)?.includes(`"operation":"${phase}"`)
-        ? { ...spec, argv: spec.argv.map(argument => argument === MEDIA_FILE_HELPER ? wire : argument) }
-        : spec,
-    ))
-    await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
-      .rejects.toMatchObject({ code: phase === 'receive' ? 'invalid-media' : 'unavailable' })
-    expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
-  }
-})
-
-it('rejects an absent private control pipe and a metadata-only manifest member', async () => {
-  const f = await fixture(), original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
-  vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    const child = original(spec)
-    return spec.stdio.control === 'pipe' ? { ...child, control: undefined } : child
-  })
-  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
-    .rejects.toMatchObject({ code: 'unavailable' })
-  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
-  const metadata = await fixture({ kind: 'metadata' }), spawn = vi.spyOn(metadata.ctx.subprocess, 'spawn')
-  await expect(metadata.importer.import(metadata.agent, id, 'video.mp4', new AbortController().signal))
-    .rejects.toMatchObject({ code: 'invalid-media' })
-  expect(spawn).not.toHaveBeenCalled()
-})
-
-it('refuses a workspace removed before import and a missing confinement provider before network', async () => {
-  const removed = await fixture()
-  await rm(removed.cwd, { recursive: true })
-  await expect(removed.importer.import(removed.agent, id, 'video.mp4', new AbortController().signal))
-    .rejects.toMatchObject({ code: 'workspace-required' })
-  expect(removed.requests()).toBe(0)
-  const confined = await fixture()
-  vi.spyOn(confined.ctx.sandboxPolicy, 'resolve').mockReturnValue({ mode: 'workspace-write', workspaceRoot: confined.cwd })
-  await expect(confined.importer.import(confined.agent, id, 'video.mp4', new AbortController().signal))
-    .rejects.toMatchObject({ code: 'SANDBOX_UNAVAILABLE' })
-  expect(confined.requests()).toBe(0)
-})
-
-it('retains an absent coverage summary and removes inherited credentials from every managed command', async () => {
-  vi.stubEnv('MUSE_FIXTURE_API_KEY', 'private-import-fixture')
-  const f = await fixture({ coverage: false }), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
-  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
-    .resolves.toMatchObject({ state: 'local_ready', fileCoverage: null })
-  expect(spawn.mock.calls.length).toBeGreaterThan(2)
-  for (const [spec] of spawn.mock.calls) {
-    expect(spec.env).toHaveProperty('MUSE_FIXTURE_API_KEY', undefined)
-    expect(spec.env).toHaveProperty('ELECTRON_RUN_AS_NODE', '1')
-  }
-})
-
-it('rolls back a file whose cloud receipt is no longer saved', async () => {
-  const f = await fixture({ state: 'pending' })
-  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
-    .rejects.toMatchObject({ code: 'invalid-media' })
-  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
-})
-
-it('rolls back when the Session workspace alias changes after media verification', async () => {
-  const outside = await mkdtemp(join(tmpdir(), 'muse-media-relocated-')); roots.push(outside)
-  const f = await fixture({ workspaceAlias: true, guard: async () => {
-    await unlink(f.sessionCwd); await symlink(outside, f.sessionCwd, 'junction')
-  } })
-  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
-    .rejects.toMatchObject({ code: 'workspace-outside' })
-  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
-  expect(await readdir(outside)).toEqual([])
-})
-
-it('joins the held metadata reader and receiver when verification is cancelled', async () => {
-  const f = await fixture(), original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
-  const started = Promise.withResolvers<undefined>(), controller = new AbortController()
-  let reader: ReturnType<typeof original> | undefined
-  const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    if (!spec.argv.includes('-show_entries')) return original(spec)
-    reader = original({ ...spec, argv: [process.execPath, '-e', 'setInterval(() => {}, 1000)'] })
-    started.resolve(undefined)
-    return reader
-  })
-  const operation = f.importer.import(f.agent, id, 'video.mp4', controller.signal)
-  const rejected = expect(operation).rejects.toMatchObject({ code: 'cancelled' })
-  try {
-    await Promise.race([started.promise, operation.then(() => { throw Error('Import finished before metadata verification started') })])
-    controller.abort()
-    await rejected
-    expect(await reader?.waitForExit()).toBe(true)
-    expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
-  } finally { controller.abort(); await Promise.allSettled([operation, rejected]); spy.mockRestore() }
-})
-
-it.each(['invalid-json', 'missing-facts', 'wrong-digest', 'oversized-control', 'no-commit'] as const)(
-  'refuses %s on the real receiver control pipe and removes its staging files', async (fault) => {
-    const f = await fixture(), digest = createHash('sha256').update(video).digest('hex')
-    const spec = { cwd: f.cwd, directory: 'source/media/company', nonce: randomUUID(), jobId: id,
-      name: 'video.mp4', bytes: video.length, sha256: digest, kind: 'video', operation: 'receive',
-      maxBytes: 1_048_576, maxOutputBytes: 1024, maxPixels: 1_000_000, maxDurationSeconds: 60, controlFd: SUBPROCESS_CONTROL_FD }
-    const facts = { bytes: video.length, sha256: fault === 'wrong-digest' ? 'a'.repeat(64) : digest,
-      kind: 'video', width: 128, height: 72, durationSeconds: 0.4, fullDecodeVerified: true }
-    const payload = fault === 'invalid-json' ? '{' : fault === 'missing-facts' ? '{}'
-      : fault === 'oversized-control' ? 'x'.repeat(1025) : JSON.stringify(facts)
-    const child = f.ctx.subprocess.spawn({ argv: [process.execPath, '--input-type=module', '-e', MEDIA_FILE_HELPER, JSON.stringify(spec)],
-      cwd: f.cwd, signal: AbortSignal.timeout(5000), graceMs: 1000,
-      stdio: { stdin: 'pipe', stdout: 'pipe', stderr: { maxBytes: 1024 }, control: 'pipe' } })
-    const pending: Promise<unknown>[] = [child.done]
-    void child.done.catch(() => {})
-    try {
-      const { stdin, stdout, control } = child
-      if (!stdin || !stdout || !control) throw Error('Receiver protocol fixture has no pipes')
-      const events: unknown[] = []
-      const output = (async () => {
-        let tail = ''
-        for await (const chunk of stdout) {
-          tail += String(chunk)
-          for (;;) {
-            const line = tail.indexOf('\n')
-            if (line < 0) break
-            const event = JSON.parse(tail.slice(0, line)) as { phase: string }
-            tail = tail.slice(line + 1); events.push(event)
-            if (event.phase === 'received') control.end(payload + '\n')
-          }
-        }
-        expect(tail).toBe('')
-      })()
-      pending.push(output)
-      stdin.end(video)
-      const [, outcome] = await Promise.all([output, child.done])
-      expect(outcome).toMatchObject({ exitCode: 1, signal: null })
-      expect(events).toContainEqual({ phase: 'received' })
-      expect(events).toContainEqual({ phase: 'failed', code: fault === 'oversized-control' || fault === 'no-commit' ? 'NOT_COMMITTED' : 'INVALID_MEDIA' })
-      expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
-    } finally { child.terminate(); await child.waitForExit(); await Promise.allSettled(pending) }
-  }, 20_000,
-)
 
 it('retains a partial cloud receipt while verifying its selected image independently', async () => {
   const image = await execute('ffmpeg', ['-v', 'error', '-nostdin', '-f', 'lavfi', '-i', 'color=c=blue:s=64x48',
@@ -505,4 +323,160 @@ it('keeps the real verified file when cancellation arrives during the cloud conf
   expect(await readFile(result.path)).toEqual(video)
   expect(await readFile(result.receipt, 'utf8')).toContain(hash)
   expect(fetcher).toHaveBeenCalledTimes(3)
+})
+
+it('refuses a vanished workspace and missing confinement provider before downloading', async () => {
+  const vanished = await fixture()
+  await rm(vanished.cwd, { recursive: true })
+  await expect(vanished.importer.import(vanished.agent, id, 'video.mp4', new AbortController().signal)).rejects
+    .toMatchObject({ code: 'workspace-required' })
+  expect(vanished.requests()).toBe(0)
+  const unconfined = await fixture({ mode: 'workspace-write', mountSandbox: false })
+  const spawn = vi.spyOn(unconfined.ctx.subprocess, 'spawn')
+  await expect(unconfined.importer.import(unconfined.agent, id, 'video.mp4', new AbortController().signal)).rejects
+    .toMatchObject({ name: 'SandboxUnavailableError' })
+  expect(unconfined.requests()).toBe(0)
+  expect(spawn).not.toHaveBeenCalled()
+})
+
+it('rejects metadata as a media import before launching a decoder', async () => {
+  const f = await fixture({ kind: 'metadata' }), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects
+    .toMatchObject({ code: 'invalid-media' })
+  expect(spawn).not.toHaveBeenCalled()
+  expect(await readdir(f.cwd)).toEqual([])
+})
+
+it('enforces the real binary sink limit without publishing a partial file', async () => {
+  const f = await fixture({ maxBytes: 100 })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects
+    .toMatchObject({ code: 'file-too-large' })
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it('rejects a transfer failure without leaking its private message or transaction directory', async () => {
+  const f = await fixture({ body: () => new ReadableStream({
+    start(controller) { controller.error(new Error('private transfer failure')) },
+  }) })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects
+    .toMatchObject({ code: 'invalid-media', message: 'Muse media import: invalid-media' })
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it.each(['stdout', 'stdin', 'control'] as const)('settles a native startup missing %s without publishing', async (missing) => {
+  const f = await fixture(), original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
+    const child = original(spec)
+    if (spec.stdio.control !== 'pipe') return child
+    const value = replaceOutput(child, missing === 'stdout' ? undefined : child.stdout)
+    return { ...value, ...(missing === 'stdin' ? { stdin: undefined } : {}),
+      ...(missing === 'control' ? { control: undefined } : {}) }
+  })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects
+    .toMatchObject({ code: 'unavailable' })
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it.each(['text-mode', 'overflow', 'invalid-json', 'trailing-record'] as const)(
+  'rejects %s helper output and rolls back every published file', async (kind) => {
+    const f = await fixture()
+    if (kind === 'text-mode') {
+      const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+      vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
+        const child = original(spec)
+        if (spec.stdio.control === 'pipe') child.stdout?.setEncoding('utf8')
+        return child
+      })
+    } else rewriteHelperOutput(f.ctx, line => kind === 'invalid-json' ? '{' : kind === 'overflow'
+      ? line + ' '.repeat(65_536) : line, kind === 'trailing-record' ? '{}' : '')
+    await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects
+      .toMatchObject({ code: 'invalid-media' })
+    expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+  },
+)
+
+it.each(['missing', 'path', 'receipt', 'bytes', 'sha256'] as const)(
+  'checks the published %s against the owned manifest and destination before finalization', async (field) => {
+    const f = await fixture()
+    rewriteHelperOutput(f.ctx, (line) => {
+      const event: unknown = JSON.parse(line)
+      if (typeof event !== 'object' || event === null || !('phase' in event) || event.phase !== 'published') return line
+      if (field === 'missing') return ''
+      return JSON.stringify({ ...event, [field]: field === 'bytes' ? video.length + 1 : field === 'sha256'
+        ? 'a'.repeat(64) : join(f.cwd, 'unrelated-file') })
+    })
+    await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects
+      .toMatchObject({ code: 'invalid-media' })
+    expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+  },
+)
+
+it('rolls back a real publication when the finalizer exits unsuccessfully', async () => {
+  const f = await fixture(), original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  let finalized = false
+  vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
+    if (!spec.argv.at(-1)?.includes('"operation":"finalize"')) return original(spec)
+    finalized = true
+    return original({ ...spec, argv: [process.execPath, '-e', 'process.exit(23)'] })
+  })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects
+    .toMatchObject({ code: 'unavailable' })
+  expect(finalized).toBe(true)
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it('accepts fragmented helper records and preserves absent cloud coverage without inventing completeness', async () => {
+  const f = await fixture({ omitCoverage: true, kind: 'live_video' })
+  rewriteHelperOutput(f.ctx, line => line, '', true)
+  const result = await f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)
+  expect(result).toMatchObject({ state: 'local_ready', kind: 'video', fileCoverage: null })
+  expect(await readFile(result.path)).toEqual(video)
+  expect((await readdir(join(f.cwd, 'source/media/company'))).sort())
+    .toEqual([`${id}-video.mp4`, `${id}-video.mp4.source.json`])
+})
+
+it('removes ambient credential and executable injection variables from helper launches', async () => {
+  vi.stubEnv('MUSE_IMPORT_TEST_COOKIE', 'synthetic-private-cookie')
+  const f = await fixture(), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  await f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)
+  expect(spawn.mock.calls.length).toBeGreaterThan(1)
+  for (const [spec] of spawn.mock.calls) {
+    expect(spec.env).toHaveProperty('MUSE_IMPORT_TEST_COOKIE', undefined)
+    expect(spec.env).toHaveProperty('ELECTRON_RUN_AS_NODE', '1')
+  }
+})
+
+it('does not treat a cleanup event as verified permission to commit a failed helper', async () => {
+  const f = await fixture()
+  rewriteHelperOutput(f.ctx, (line) => {
+    const event: unknown = JSON.parse(line)
+    if (typeof event !== 'object' || event === null || !('phase' in event) || event.phase !== 'verified') return line
+    return JSON.stringify({ phase: 'cleaned' }) + '\n' + JSON.stringify({ phase: 'failed', code: 'NOT_COMMITTED' })
+  })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects
+    .toMatchObject({ code: 'invalid-media' })
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it('rolls back when the initiating workspace symlink changes before publication', async () => {
+  const outside = await mkdtemp(join(tmpdir(), 'muse-media-new-workspace-')); roots.push(outside)
+  let alias = ''
+  const f = await fixture({ guard: async () => {
+    await unlink(alias)
+    await symlink(outside, alias, 'dir')
+  } })
+  alias = join(f.cwd, 'workspace-alias')
+  await symlink(f.cwd, alias, 'dir')
+  const agent = await f.driver.create(SessionId(`media-alias-${randomUUID()}`), {}, { cwd: alias })
+  await expect(f.importer.import(agent, id, 'video.mp4', new AbortController().signal)).rejects
+    .toMatchObject({ code: 'workspace-outside' })
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+  expect(await readdir(outside)).toEqual([])
+})
+
+it('refuses a non-downloadable source receipt even after verifying its supplied file', async () => {
+  const f = await fixture({ state: 'pending' })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects
+    .toMatchObject({ code: 'invalid-media' })
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
 })

@@ -4,7 +4,6 @@
  * Responses-style endpoint.
  */
 
-import type { FetchResponse } from '../http.js'
 import { attributionHeaders, EMPTY_RESPONSE_CODE, errorChain, LlmAdapter, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
@@ -873,7 +872,7 @@ export class GrokAdapter extends LlmAdapter {
     }
   }
 
-  private async request(options: GenerateOptions, session: GrokSession, signal: AbortSignal): Promise<FetchResponse> {
+  private async request(options: GenerateOptions, session: GrokSession, signal: AbortSignal): Promise<Response> {
     const messages = await resolveImages(options.messages, this.options.resolveAttachments?.(), signal)
     const body = grokRequestBody(options, toResponsesInput(messages, options.system))
     return proxiedFetch(GROK_API_URL, {

@@ -21,9 +21,7 @@ const currentModel = async () => {
   document.documentElement.dataset.lastRead = selection.provider
   return selection
 }
-const rpc: SubscriptionUsageBadgeInjected['rpc'] = { call: async (_channel: string, method: string, payload: unknown) => {
-  if (typeof payload !== 'object' || payload === null) throw new Error('Expected RPC object payload')
-  const provider = 'provider' in payload ? payload.provider : undefined
+const rpc = { call: async (_channel: string, method: string, payload: { provider?: string }) => {
   if (method.endsWith('.status')) document.documentElement.dataset.statusCalls = String(++statusCalls)
   if (method.endsWith('.status')) return { ok: true, value: { providers: {
     codex: { accounts: [{ key: 'codex-test', isDefault: true }] },
@@ -31,12 +29,12 @@ const rpc: SubscriptionUsageBadgeInjected['rpc'] = { call: async (_channel: stri
     antigravity: { accounts: [{ key: 'anti-test', isDefault: true }] },
   } } }
   if (method.endsWith('.usage')) return { ok: true, value: {
-    supported: true, windows: provider === 'antigravity'
+    supported: true, windows: payload.provider === 'antigravity'
       ? Array.from({ length: 30 }, (_, i) => ({ kind: 'other', scope: `gemini-model-${i}`, usedPercent: i }))
-      : [{ kind: 'weekly', usedPercent: provider === 'codex' ? 13 : 25 }],
+      : [{ kind: 'weekly', usedPercent: payload.provider === 'codex' ? 13 : 25 }],
   } }
   throw new Error(`Unexpected RPC: ${method}`)
-} }
+} } as unknown as SubscriptionUsageBadgeInjected['rpc']
 
 function App() {
   const [locale, setLocale] = useState<'en' | 'zh'>('en')

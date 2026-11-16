@@ -3,9 +3,9 @@ scenario: plan-review
 profile: sdk
 composition: sdk-desktop
 recording: authored
-writerOutput: true
 header:
   class: sdk-plan-review
   pin: true
   changes: 4
   promptChanges: 4
+writerOutput: true

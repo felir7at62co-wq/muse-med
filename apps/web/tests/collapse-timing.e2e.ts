@@ -173,6 +173,9 @@ describe.skipIf(MODE === 'record')('web e2e: recorded collapse timing', () => {
       { turn: 1, reason: { kind: 'completed' } },
       { turn: 2, reason: { kind: 'completed' } },
     ])
+    const tools = persisted.filter(event => event.type === 'request/header').at(-1)?.data.header.tools?.map(tool => tool.name)
+    expect(tools).toHaveLength(34)
+    expect(tools).toContain('todo_update')
     await capture('next-message.expected.md')
 
     await selectPreference('Work details', 'Verbose')

@@ -41,7 +41,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Services required by account settings. */
 export const inject = ['slots', 'locale', 'remote', 'remote.account', 'remote.session', 'theme', 'configForms', 'remoteAccess']
-/** Register account UI in Desktop clients. @param ctx - client plugin context. */
+/** Register account UI for Desktop; plain Web clients leave it absent. @param ctx - client plugin context. */
 export function apply(ctx: Context): void {
   const desktop = 'dshDesktop' in globalThis
   if (!desktop) return
@@ -121,7 +121,8 @@ export function apply(ctx: Context): void {
     })
     // Read across closures: the disposer ends this grant while the frame loop awaits.
     const grant = { ended: false }
-    // Withdrawing access invalidates the reads this grant started and clears the account view and the sign-in
+    // Withdrawing access invalidates the reads this grant started, closes the
+    // pending authorization tab, and clears the account view and the sign-in
     // dialog state, synchronously, so the next grant starts from no account
     // state. `notices.end()` disposes this generation's notice lifetime, which a
     // frame of this stream begins; the notice controller stays outside and

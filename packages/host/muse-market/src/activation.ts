@@ -61,7 +61,14 @@ export default class MuseMarketActivation extends TypertRemoteService {
       view.signal.throwIfAborted()
       const state = view.projections.values.museMarketBinding
       if (state === undefined) throw new MarketError('binding-projection-unavailable')
-      const entries = state.bound ? state.releases : state.requested ? [] : await this.local.captureDefaults()
+      let entries: readonly MuseMarketBindingEntry[]
+      if (state.bound) {
+        entries = state.releases
+      } else if (state.requested) {
+        entries = []
+      } else {
+        entries = await this.local.captureDefaults()
+      }
       view.signal.throwIfAborted(); this.lifetime.signal.throwIfAborted()
       if (entries.length === 0) return
       const context = view.context(), key = scopeOf(context)
@@ -100,7 +107,7 @@ export default class MuseMarketActivation extends TypertRemoteService {
     await registration.ctx.plugin({ inject: ['skills'], apply: (scope) => {
       scope.effect(() => scope.skills.registerProvider((control) => {
         this.controls.set(agent, control)
-        scope.effect(() => () => { this.controls.delete(agent) })
+        scope.effect(() => () => { if (this.controls.get(agent) === control) this.controls.delete(agent) })
         return createMarketSkillProvider(this.local, this.ctx.museMarket.publicationStorage(), selection, `muse-market-${agent.id}`)
       }))
     } }).await()

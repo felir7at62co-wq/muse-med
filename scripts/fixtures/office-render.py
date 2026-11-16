@@ -6,38 +6,17 @@ import json
 import shutil
 import subprocess
 import tempfile
-import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
-
-def _cleanup_workspace(temporary: tempfile.TemporaryDirectory[str]) -> None:
-    """Bound retries for Windows sharing violations after awaited native process exit."""
-    deadline = time.monotonic() + 5
-    while True:
-        try:
-            temporary.cleanup()
-            return
-        except OSError as error:
-            current: BaseException | None = error
-            while current is not None and getattr(current, "winerror", None) not in (32, 33):
-                current = current.__cause__ or current.__context__
-            remaining = deadline - time.monotonic()
-            if current is None or remaining <= 0:
-                raise
-            # Windows can retain an executable mapping briefly after its process has closed.
-            time.sleep(min(0.05, remaining))
-
-
 @contextmanager
 def workspace(artifacts: Path | None = None, *, prefix: str = "dsh-office-render-") -> Iterator[Path]:
-    """Retain render evidence, then clean; Windows sharing retries fail after five seconds."""
+    """Retain only Office inputs, PNG batches, and errors before cleaning the temporary root."""
     if artifacts is not None:
         artifacts.mkdir(parents=True, exist_ok=False)
-    temporary = tempfile.TemporaryDirectory(prefix=prefix)
-    root = Path(temporary.name).resolve()
-    try:
+    with tempfile.TemporaryDirectory(prefix=prefix) as temporary:
+        root = Path(temporary).resolve()
         try:
             yield root
         except Exception as error:
@@ -60,8 +39,6 @@ def workspace(artifacts: Path | None = None, *, prefix: str = "dsh-office-render
                             for file in batch.iterdir():
                                 if file.is_file() and (file.suffix == ".png" or file.name == "manifest.json"):
                                     shutil.copy2(file, destination / file.name)
-    finally:
-        _cleanup_workspace(temporary)
 
 
 def copy_documents(directory: Path) -> dict[str, Path]:

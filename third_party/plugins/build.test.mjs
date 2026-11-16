@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
 import { selectCommunitySources } from './source-selection.mjs'
+import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs'
 import { hostRuntimeCompatibility, reviewedHostPackageVersion, reviewedHostVersion } from './compatibility/host-runtime.mjs'
 
 const sha256 = buffer => createHash('sha256').update(buffer).digest('hex')
@@ -85,6 +86,21 @@ test('rejects an unknown source', () => {
   const result = spawnSync(process.execPath, [join(import.meta.dirname, 'build.mjs'), '--only', '../unlisted', '--out', 'unused'], { encoding: 'utf8' })
   assert.equal(result.status, 1)
   assert.match(result.stderr, /unknown source/)
+})
+
+test('builds the current subscriptions artifact through native Node preloads', () => {
+  const output = mkdtempSync(join(tmpdir(), 'muse-subscriptions-preload-'))
+  try {
+    const pnpm = resolvePnpmEntrypoint(join(root, 'node_modules/pnpm/package.json'))
+    const result = spawnSync(process.execPath,
+      [pnpm, '--dir', join(root, 'third_party/plugins/toolchain'), 'run', 'build',
+        '--only', 'dsh-plugin-subscriptions', '--out', output],
+      { cwd: root, stdio: 'inherit' })
+    assert.equal(result.status, 0)
+    assert.deepEqual(readdirSync(output).filter(file => file.endsWith('.tgz')), ['dsh-plugin-subscriptions-0.9.12.tgz'])
+  } finally {
+    rmSync(output, { recursive: true, force: true })
+  }
 })
 
 test('builds every desktop plugin with its declared runtime entries and notices', () => {

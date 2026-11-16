@@ -1,8 +1,3 @@
-- id: sandbox
-  config:
-    runnerCommand: [snapshot-unused-runner]
-    runnerFailureSignatures: [snapshot-unused-runner-failure]
-
 - id: tool-bash
   disabled: true
 - id: tool-pwsh

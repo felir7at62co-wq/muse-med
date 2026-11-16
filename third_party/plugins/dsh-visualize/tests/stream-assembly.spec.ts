@@ -17,7 +17,6 @@ import { STREAM_KEY, streamDefinition } from '../src/client/StreamingPreview.tsx
 import { turnCardsDefinition } from '../src/client/TurnCards.tsx'
 
 interface Assembler {
-  readonly locationIndex: { snapshot(): { turns: ReadonlyMap<number, { data: { get(key: string): unknown } }> } }
   replaceWindow(entries: readonly unknown[], hasMore: boolean): unknown
   append(entry: unknown): unknown
   prepend(entries: readonly unknown[], hasMore: boolean): unknown
@@ -44,8 +43,7 @@ function loadAssembler(): AssemblerClass {
     load({ factory }: { factory: (require: (id: string) => unknown) => Record<string, unknown> }) {
       exported = factory((id) => {
         try {
-          const loaded: unknown = require(id)
-          return loaded
+          return require(id) as unknown
         } catch {
           const Stub = function Stub() {}
           return new Proxy({}, { get: (_target, key) => key === '__esModule' ? false : Stub })
@@ -54,6 +52,7 @@ function loadAssembler(): AssemblerClass {
     },
   }
   try {
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval -- evaluating the host bundle is the point
     new Function(readFileSync(bundle, 'utf8'))()
   } finally {
     scope.window = saved.window
@@ -75,7 +74,7 @@ function assemble(): Assembler {
 
 /** The published stream value of a turn, read from the engine's timeline. */
 function streamOf(assembler: Assembler, turn: number): unknown {
-  const index = assembler.locationIndex
+  const index = (assembler as unknown as { locationIndex: { snapshot(): { turns: ReadonlyMap<number, { data: { get(key: string): unknown } }> } } }).locationIndex
   return index.snapshot().turns.get(turn)?.data.get(STREAM_KEY)
 }
 

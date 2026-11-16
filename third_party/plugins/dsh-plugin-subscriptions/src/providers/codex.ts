@@ -4,7 +4,6 @@
  * endpoint.
  */
 
-import type { FetchResponse } from '../http.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { attributionHeaders, EMPTY_RESPONSE_CODE, errorChain, LlmAdapter, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
@@ -1092,7 +1091,7 @@ export class CodexAdapter extends LlmAdapter {
     }
   }
 
-  private async request(options: GenerateOptions, session: CodexSession, signal: AbortSignal): Promise<FetchResponse> {
+  private async request(options: GenerateOptions, session: CodexSession, signal: AbortSignal): Promise<Response> {
     const messages = await resolveImages(projectCodexMessages(options.messages), this.options.resolveAttachments?.(), signal)
     const fast = this.options.speedFor !== undefined
       && await this.options.speedFor(options.sessionId, options.model)

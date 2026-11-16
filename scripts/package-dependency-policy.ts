@@ -100,7 +100,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'verifySubjectSelection', 'wireText', 'withGenerationDisabled',
     'VIDEO_UPSCALE_MODEL', 'SUBTITLE_ERASE_MODELS',
   ],
-  '@deepseek-ai/dsh-llm': ['MessageId', 'ReasoningEffortId', 'createUserMessage', 'freezeMessage'],
+  '@deepseek-ai/dsh-llm': ['MessageId', 'createUserMessage', 'freezeMessage'],
   // Profile settings must match the installed Node provider's configuration schema.
   '@deepseek-ai/dsh-ptc-runtime-node/configuration': ['resolvePersistentExecution'],
   // CUA checks UserQuestionError and preserves AttachmentError from image admission.
@@ -119,8 +119,8 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-session-persistence': ['SessionPersistenceNotFoundError'],
   // Recovery recognizes the subprocess provider's missing-executable class with instanceof.
   '@deepseek-ai/dsh-subprocess': ['SubprocessExecutableNotFoundError'],
-  '@deepseek-ai/dsh-tools': ['TOOL_BODY_META_KEY', 'defineTool'],
-  '@deepseek-ai/dsh-workspace': ['WorkspaceId'],
+  // Tool result metadata shares the protocol version of the installed Tools executor.
+  '@deepseek-ai/dsh-tools': ['defineTool', 'TOOL_BODY_META_KEY'],
   // Readers recognize a deadline's TimeoutReason only by `instanceof` against their own copy.
   '@deepseek-ai/dsh-timeout': ['deadline'],
 } as const satisfies HostDependencyExports

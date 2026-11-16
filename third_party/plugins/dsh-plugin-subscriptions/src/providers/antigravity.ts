@@ -4,7 +4,6 @@
  * the daily-cloudcode-pa v1internal request envelope.
  */
 
-import type { FetchInit, FetchResponse } from '../http.js'
 import { errorChain, EMPTY_RESPONSE_CODE, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
@@ -122,17 +121,17 @@ export function antigravityBaseURL(value?: string): string {
 /** Try the production endpoint only when the default endpoint is unavailable. */
 async function fetchAntigravity(
   method: string,
-  init: FetchInit,
+  init: RequestInit,
   runtime: AntigravityRuntimeConfig,
   fetchFn: FetchFn,
-): Promise<FetchResponse> {
+): Promise<Response> {
   // Explicit origins stay pinned, and onboarding is not repeated across endpoints.
   const endpoints = runtime.baseURL?.trim() || method === 'onboardUser'
     ? [antigravityBaseURL(runtime.baseURL)]
     : [ANTIGRAVITY_DEFAULT_BASE_URL, ANTIGRAVITY_PROD_BASE_URL]
   for (const [index, endpoint] of endpoints.entries()) {
     init.signal?.throwIfAborted()
-    let response: FetchResponse
+    let response: Response
     try {
       response = await fetchFn(`${endpoint}/v1internal:${method}`, init)
     } catch (error) {
@@ -471,7 +470,7 @@ export async function requestAntigravityContent(
   runtime: AntigravityRuntimeConfig = {},
   fetchFn: FetchFn = proxiedFetch,
   signal?: AbortSignal,
-): Promise<FetchResponse> {
+): Promise<Response> {
   return fetchAntigravity(stream ? 'streamGenerateContent?alt=sse' : 'generateContent', {
     method: 'POST',
     headers: {

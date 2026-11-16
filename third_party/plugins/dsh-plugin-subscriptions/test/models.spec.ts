@@ -7,9 +7,8 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import Schema from '@deepseek-ai/schemastery'
 import './keep-alive.js'
-import { MessageId, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { MessageId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import {
   CodexAdapter,
@@ -37,11 +36,11 @@ test('Codex projects current harness tool messages into correlated Responses out
   const messages = projectCodexMessages([{
     id: MessageId('tool-message'),
     role: 'tool',
-    toolCallId: ToolCallId('call-current'),
-    source: { kind: 'tool', callId: ToolCallId('call-current') },
+    toolCallId: 'call-current',
+    source: { kind: 'tool', callId: 'call-current' },
     content: [{ type: 'text', text: 'done' }],
     isError: false,
-  }])
+  } as unknown as Message])
   assert.deepEqual(toResponsesInput(messages).input, [
     { type: 'function_call_output', call_id: 'call-current', output: 'done' },
   ])
@@ -784,7 +783,7 @@ test('claudeRequestBody keeps auxiliary calls (compaction, session titles) on fi
 })
 
 test('the plugin Config accepts 5m and 1h for claudePromptCacheTtl, defaults to 5m, and rejects the rest', () => {
-  const parse = (value: unknown): Config => Schema.resolve(value, Config, {})[0]
+  const parse = Config as unknown as (value: unknown) => { claudePromptCacheTtl?: string }
   assert.equal(parse({}).claudePromptCacheTtl, '5m')
   assert.equal(parse({ claudePromptCacheTtl: '5m' }).claudePromptCacheTtl, '5m')
   assert.equal(parse({ claudePromptCacheTtl: '1h' }).claudePromptCacheTtl, '1h')

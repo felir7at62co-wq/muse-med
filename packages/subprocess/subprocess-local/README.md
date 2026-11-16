@@ -54,6 +54,8 @@ Collected bytes become text through `decodeStreamText`: a read that is well-form
 
 An ordinary spawn can request the [subprocess control pipe](../subprocess/README.md#using-a-control-pipe). A Node target receives fd 7 on every supported host; Windows descriptor numbering requires CRT initialization. POSIX runners preserve that descriptor across `execve`; Windows Job and ACL runners establish it in the child's CRT startup table before Node initializes and close their own carrier copies after spawning. Standard streams and the runner's private management channel remain independent.
 
+Before Linux `execve`, the private runner restores blocking status on standard descriptors 0, 1 and 2 while preserving their other file-status flags. This prevents Node's eager stream initialization from leaving native commands with nonblocking standard input or output. The fd 7 control transport keeps its existing status flags and remains separate from this standard-stream adjustment. A failed descriptor operation rejects startup before the target runs.
+
 <a id="running-terminal-sessions"></a>
 ### Running terminal sessions
 
@@ -108,7 +110,7 @@ Each spawn selects one owner for both signalling and quiescence. Supported Linux
 
 ### Main flow
 
-A spawn synchronously validates the final argv, cwd, and environment, selects containment before the user command can run, and returns a handle while target identity remains private. Linux ordinary and terminal launches use a private one-shot request whose scoped bootstrap restores the target cwd and environment, resolves the executable, clears close-on-exec on fd 0 through fd 2 and optional control fd 7, restores blocking mode on fd 0 through fd 2 while preserving control fd 7 status flags, and enters libc `execve()` with the original argv. Windows ordinary launches isolate runner fd 0 through fd 2, reserve fd 3 for IPC, and carry target stdio on fd 4 through fd 6 plus fd 7 when control is requested; the runner resolves those CRT descriptors to OS handles, creates the target suspended, assigns it to the Job, resumes it, and closes its standard-stream carriers and optional fd-7 carrier. `done` settles the direct command after its stdio barrier, while `waitForExit()` separately waits for the selected scope, Job, process group, or observed session to become empty.
+A spawn synchronously validates the final argv, cwd, and environment, selects containment before the user command can run, and returns a handle while target identity remains private. Linux ordinary and terminal launches use a private one-shot request whose scoped bootstrap restores the target cwd and environment, resolves the executable, clears close-on-exec on fd 0 through fd 2 and optional control fd 7, and enters libc `execve()` with the original argv. Windows ordinary launches isolate runner fd 0 through fd 2, reserve fd 3 for IPC, and carry target stdio on fd 4 through fd 6 plus fd 7 when control is requested; the runner resolves those CRT descriptors to OS handles, creates the target suspended, assigns it to the Job, resumes it, and closes its standard-stream carriers and optional fd-7 carrier. `done` settles the direct command after its stdio barrier, while `waitForExit()` separately waits for the selected scope, Job, process group, or observed session to become empty.
 
 ### Safety invariants
 

@@ -74,7 +74,7 @@ class SkillSuite(unittest.TestCase):
         render = (SKILLS / "tweet-drama-background-render/SKILL.md").read_text(encoding="utf-8")
         draft = (SKILLS / "tweet-drama-draft-build/SKILL.md").read_text(encoding="utf-8")
         for required in ("video_ocr", "video_inspect", "subtitle_plan", "retain_embedded", "source_sha256",
-                         "普通识别疑点只提示", "不能宣称整集字幕均可编辑"):
+                         "局部重叠与文字不符保留提醒", "不能宣称整集字幕均可编辑"):
             self.assertIn(required, render)
         for required in ("resolved_srt", "subtitle_overlay_report", "不可编辑", "不自动付费去字"):
             self.assertIn(required, draft)
@@ -105,6 +105,37 @@ class SkillSuite(unittest.TestCase):
             "依据剧本能明确判断时",
         ):
             self.assertIn(required, skill)
+
+    def test_camera_guidance_keeps_story_exceptions_without_reusing_eye_effect_templates(self):
+        for name in ("shot-script-creator-9-16", "shot-script-creator-16-9-3d"):
+            with self.subTest(skill=name):
+                source = (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
+                for obsolete in ('瞳孔只能写"微光""暗光"', '运动镜头至少占50%',
+                                 '9:16竖屏优先特写', '情绪状态：【眼周泛红',
+                                 '改写为眉心收紧、眼周泛红', '写"肩膀微颤，眼眶泛红"'):
+                    self.assertNotIn(obsolete, source)
+                for required in ("自然眼睛", "原文明示", "来源句", "画外对手", "原文",
+                                 "固定", "摄影与表演复核", "运动比例"):
+                    self.assertIn(required, source)
+        portrait = (SKILLS / "shot-script-creator-9-16/SKILL.md").read_text(encoding="utf-8")
+        self.assertNotIn("近景的目光落点只能是画面内可见的", portrait)
+        self.assertIn("不为凑切镜或运动比例打断表演", portrait)
+        landscape = (SKILLS / "shot-script-creator-16-9-3d/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("不设置统一运动比例", landscape)
+
+    def test_photography_review_distinguishes_empty_shots_and_real_media_from_text_checks(self):
+        reference = SKILLS / "tweet-drama-core/references"
+        quality = (reference / "production-quality.md").read_text(encoding="utf-8")
+        for required in ("默认不超过2秒", "无声人物动作", "不等于纯环境空镜", "可例外",
+                         "不改变生成 API 最短时长", "不要自动剪音画", "不是红眼、视线、情绪、空镜或运镜的专用画面检测器",
+                         "实际准备提示与生成原片", "没有统一特写占比", "有新触发才变化",
+                         "空镜超时依据", "眼部特效依据", "镜头设计依据", "保持未知",
+                         "分开记录内容估算", "文件实测时长", "不增加逐镜人工问答"):
+            self.assertIn(required, quality)
+        first_pass = (reference / "first-pass-production.md").read_text(encoding="utf-8")
+        self.assertIn("production-quality.md#摄影与表演复核", first_pass)
+        self.assertIn("实际准备路径与哈希", first_pass)
+        self.assertIn("不等于九项内容验收通过", first_pass)
 
     def test_shipped_scripts_start_console_children_hidden(self):
         """A windowless parent must pass CREATE_NO_WINDOW, or Windows pops a console."""

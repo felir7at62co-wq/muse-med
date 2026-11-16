@@ -65,7 +65,7 @@ After saving the basic report, the shell attempts to append recent plugin-manage
 
 The Host announces its run ID before profile loading; reported Host errors carry that ID as `hostRunId`, matching operation records from the same lifetime. Failure before this announcement leaves the run identity unknown. Recent operations are context, not proof of cause.
 
-Collection reads only two owned files under `userData/plugin-operations`, at most 64 KiB and 100 records; the complete appended section is limited to 64 KiB.
+Collection reads only two owned files under `userData/plugin-operations`, at most 64 KiB and 100 records; the complete appended section is limited to 64 KiB. File identities and tail positions use exact integers so numeric rounding does not merge distinct segments.
 
 The 500 ms collection budget reserves its final 100 ms for cooperative cancellation before requesting forced Worker termination; completion waits for its exit. Application exit, recovery exit or restart, and confirmed update installation also cancel collection and wait at most 500 ms for Worker exit. A rejected shutdown cleanup is logged without skipping the remaining cleanup waits. Shutdown prevents late basic-report saves from starting another collector. An update installation failure permits future collection again.
 

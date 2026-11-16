@@ -47,6 +47,7 @@ import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-m
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
 import { adoptableSessions } from './session-adoption.js'
+import { closePhoneSidebar } from './phone-navigation.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -400,6 +401,7 @@ export function apply(ctx) {
   const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => {
     expected = target
     ctx.uiWorkspace.openSession(target)
+    closePhoneSidebar(ctx.layout)
   }, current: mainView })
   ctx.effect(() => () => show.cancel(), 'ds-bot: cancel pending conversation navigation')
   const ordinaryStarter = ordinarySessionStarter({

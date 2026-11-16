@@ -125,6 +125,9 @@ export class GenerationWatchRuntime {
       }
       if (prior?.reviewRequired === true) throw new Error('Generation watch ownership requires manual review')
       if (prior?.notice || this.advancing.has(id)) {
+        /* v8 ignore else -- the else arm needs store.load(id) to miss the checkpoint listActive just
+        enumerated; the store never unlinks a checkpoint (writes are atomic rename-over), so only an
+        external delete can produce it. */
         if (prior !== undefined) await this.options.store.claimOwnership(prior, this.controller.signal)
         if (!await this.allRecorded(keys)) {
           throw new Error('Generation observation has an unsettled checkpoint for this request. Reconcile the original request first.')
@@ -148,13 +151,10 @@ export class GenerationWatchRuntime {
       const candidate = { id, sessionId, createdAt,
         ...(binding === undefined ? {} : { binding }),
         deadlineAt: createdAt + this.options.watchTimeoutMs, packs: packs.map(pack => ({ ...pack })) }
-      let initial: boolean
-      if (predecessor === undefined) {
-        initial = await this.options.store.claimAndCreate(candidate, this.controller.signal)
-      } else {
-        initial = await this.options.store.withRecoveryLease(predecessor, this.controller.signal, this.options.watchTimeoutMs,
+      const initial = predecessor === undefined
+        ? await this.options.store.claimAndCreate(candidate, this.controller.signal)
+        : await this.options.store.withRecoveryLease(predecessor, this.controller.signal, this.options.watchTimeoutMs,
           async () => await this.options.store.retryUnsent(predecessor, candidate, this.controller.signal))
-      }
       this.controller.signal.throwIfAborted()
       if (!initial) {
         if (!await this.allRecorded(keys)) {
@@ -212,6 +212,8 @@ export class GenerationWatchRuntime {
               if (!dispatchState.fenced && records.every(record => record === undefined)) {
                 await this.options.store.recordNoSend(id)
                 const run = await this.options.store.load(id)
+                /* v8 ignore if -- needs the checkpoint to disappear between claimAndCreate writing it
+                and this read; the store never unlinks a checkpoint. */
                 if (run === undefined) throw new GenerationWatchOwnershipConflict()
                 const packs = run.packs.map(pack => ({ ...pack, outcome: { status: 'unverified' as const,
                   detail: 'Preflight finished before any paid video request was sent' } }))
@@ -223,7 +225,10 @@ export class GenerationWatchRuntime {
             await this.finishDispatchOwned(id, report, true)
             if (failures.length === 1) throw failures[0]
             if (failures.length > 1) throw new AggregateError(failures, 'Generation dispatch and checkpoint failed')
-            return report as Record<string, unknown>
+            /* v8 ignore if -- needs the caller's operation to resolve without a report; the registered
+            submit always returns the dispatch record, and a throw takes the failures branch above. */
+            if (report === undefined) throw new Error('Generation dispatch returned no result')
+            return report
           })
       } finally {
         this.dispatching.delete(id)
@@ -328,8 +333,10 @@ export class GenerationWatchRuntime {
     }
     if (current.notice) {
       this.controller.signal.throwIfAborted()
+      /* v8 ignore next -- the notice-id arm needs groupOrigin on an advanced run, but tick() returns
+      for groupOrigin before advance() and enroll() refuses to record one. */
       const outcome = await this.options.deliver(current.sessionId, current.recoveryNotice ?? current.notice,
-        this.controller.signal, current.groupOrigin, undefined, current)
+        this.controller.signal, current.groupOrigin, current.groupOrigin === undefined ? undefined : current.notice.id, current)
       if (outcome === 'pending') return
       if (outcome === 'interrupted' && current.recoveryNotice === undefined) {
         await this.options.store.put({ ...current, recoveryNotice: createGenerationWatchNotice(recoveryText(current.notice)) })

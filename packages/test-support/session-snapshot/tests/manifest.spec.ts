@@ -19,12 +19,12 @@ describe('snapshot manifest', () => {
     'profile: sdk-minimal\nwriterOutput: true',
     'profile: headless\nwriterOutput: true\nsession:\n  source: ../owner/session.jsonl',
     'profile: sdk\nwriterOutput: true\nsession:\n  source: ../owner/session.jsonl',
-    'profile: acp\nwriterOutput: true\nsession:\n  source: ../owner/session.jsonl',
     'profile: web\nwriterOutput: true\nsession:\n  source: ../owner/session.jsonl',
+    'profile: acp\nwriterOutput: true\nsession:\n  source: ../owner/session.jsonl',
     'profile: headless\nwriterOutput: true\nsessionFormat:\n  version: 3\n  coverage: [adjacent-migration]',
     'profile: sdk\nwriterOutput: true\nsessionFormat:\n  version: 3\n  coverage: [adjacent-migration]',
-    'profile: acp\nwriterOutput: true\nsessionFormat:\n  version: 3\n  coverage: [adjacent-migration]',
     'profile: web\nwriterOutput: true\nsessionFormat:\n  version: 3\n  coverage: [adjacent-migration]',
+    'profile: acp\nwriterOutput: true\nsessionFormat:\n  version: 3\n  coverage: [adjacent-migration]',
   ])('rejects invalid writer output ownership: %s', (fields) => {
     expect(() => parseSnapshotManifest('version: 1\n' + fields + '\n')).toThrow('manifest.writerOutput')
   })

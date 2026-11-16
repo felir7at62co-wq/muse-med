@@ -35,16 +35,21 @@ function start(client: JubianClient, input = args) {
 }
 
 describe('jubian watcher', () => {
-  it.each([false, true])('reads existing task completion without starting a poller: %s', async (ready) => {
+  it('leaves an unfinished operation unresolved without admitting a background poller', async () => {
+    const { client, calls } = provider(() => task('processing'))
+    expect(await observe(client, args, new AbortController().signal)).toBeUndefined()
+    expect(calls).toEqual([{ path: '/admin/aigc/video/task/42', method: 'GET' }])
+  })
+
+  it('returns verified outputs from a one-shot observation without a background poller', async () => {
     const { client, calls } = provider(path => path.includes('/sub/list')
-      ? { total: 1, rows: [child()] } : task(ready ? 'succeeded' : 'processing'))
+      ? { total: 1, rows: [child()] } : task())
     const result = await observe(client, args, new AbortController().signal)
-    if (ready) expect(result).toMatchObject({ status: 'completed' })
-    else expect(result).toBeUndefined()
-    expect(calls).toEqual([
-      { path: '/admin/aigc/video/task/42', method: 'GET' },
-      ...ready ? [{ path: '/admin/aigc/video/task/sub/list?pageNum=1&pageSize=1000', method: 'POST' }] : [],
-    ])
+    expect(result?.status).toBe('completed')
+    const parsed: unknown = JSON.parse(result!.result!)
+    expect(parsed).toMatchObject({ task_id: 42, stage: 'upscale',
+      outputs: [{ subtask_id: 51, video_url: 'https://cdn.example/51.mp4' }] })
+    expect(calls).toHaveLength(2)
   })
 
   it('accepts a parsed watch identity and refuses a nonobject child page', async () => {

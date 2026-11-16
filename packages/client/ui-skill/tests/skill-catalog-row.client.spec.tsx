@@ -7,7 +7,7 @@ import type { ToolCallOwnerProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import { allowAllAccess, contextMenuHook, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { GlobalStandardProps, SessionStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import { PartialArguments, type JsonValue } from '@deepseek-ai/dsh-util-values'
+import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import { SkillCatalogRow } from '../src/client/SkillCatalogRow.tsx'
 import { zh, en, ja, es, fr, de, ru, pt } from '../src/client/locales.ts'
 
@@ -85,16 +85,21 @@ describe('SkillCatalogRow', () => {
     expect(screen.getByRole('status').textContent).toBe('查询完成')
   })
 
-  const incompleteCounts: readonly JsonValue[] = [
-    { kind: 'skill-catalog' }, { kind: 'skill-catalog', count: 1 },
+  it.each([
+    { kind: 'skill-catalog', totalMatched: 4, hasMore: true },
+    { kind: 'skill-catalog', count: 2, hasMore: true },
+    { kind: 'skill-catalog', count: 2, totalMatched: 4 },
+    { kind: 'skill-catalog' },
+    { kind: 'skill-catalog', count: 1 },
     { kind: 'skill-catalog', count: 1, totalMatched: 1 },
-    { kind: 'skill-catalog', count: 1.5, totalMatched: 2, hasMore: false },
-    { kind: 'skill-catalog', count: 2, totalMatched: 1, hasMore: false },
-    { kind: 'skill-catalog', count: 1, totalMatched: 2, hasMore: 'yes' },
-  ]
-  it.each(incompleteCounts)('keeps incomplete persisted count metadata out of product copy: %j', (meta) => {
-    render(<SkillCatalogRow {...props(settled({ meta }))} />)
+  ])('keeps partial historical metadata %j from inventing page counts or a next page', (meta) => {
+    const view = render(<SkillCatalogRow {...props(settled({ meta }))} />)
     expect(screen.getByRole('status').textContent).toBe('查询完成')
+    expect(view.container.textContent).not.toContain('本页')
+    expect(view.container.textContent).not.toContain('private-session')
+    expect(view.container.textContent).not.toContain('digest')
+    view.rerender(<SkillCatalogRow {...props(settled())} />)
+    expect(screen.getByRole('status').textContent).toBe('本页 2 项，共 4 项 · 还有更多结果')
   })
 
   it('provides the same directory keys in every supported dictionary', () => {

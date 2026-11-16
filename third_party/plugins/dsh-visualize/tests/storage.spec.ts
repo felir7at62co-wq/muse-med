@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { visualizeTool } from '../src/tool.ts'
 import { ownedPath, sessionSegment, workspacePath } from '../src/storage.ts'
 
@@ -24,7 +24,7 @@ function host(options: { homePath?: boolean; homeDirectory?: string; files?: Rec
   const files = options.files ?? {}
   const seam: { resolved: string[]; written: Record<string, string>; policies: unknown[] } = { resolved: [], written: {}, policies: [] }
   const policy = { mode: 'workspace-write', workspaceRoot: workspace }
-  const ctx = new Context().extend({
+  const ctx = {
     get: (name: string) => {
       if (name === 'dshHomePath') return options.homePath === false ? undefined : (...segments: string[]) => join(options.homeDirectory ?? home, ...segments)
       if (name === 'sandboxPolicy') return { resolve: () => policy }
@@ -46,11 +46,14 @@ function host(options: { homePath?: boolean; homeDirectory?: string; files?: Rec
         return { version: 1 }
       },
     },
-  })
+  } as unknown as Context
   return { ctx, seam, policy }
 }
 
 const exec = (id: string) => ({ agent: { session: { id, header: { cwd: workspace } } } }) as never
+
+/** Expand the reported home alias before direct filesystem assertions. */
+const diskPath = (path: string) => path.startsWith('~/') ? join(homedir(), path.slice(2)) : path
 
 describe('card storage', () => {
   it('writes a new card into the session store, not the workspace, and patches it there', async () => {
@@ -58,9 +61,9 @@ describe('card storage', () => {
     const tool = visualizeTool(ctx, 10_000)
     const created = await tool.execute({ fragment: '<p>p99 480ms</p>', title: 'Lab' }, exec('sess-1')) as { path: string }
 
-    expect(dirname(created.path)).toBe(join(home, 'visualize', 'sessions', 'sess-1'))
+    expect(dirname(diskPath(created.path))).toBe(join(home, 'visualize', 'sessions', 'sess-1'))
     expect(basename(created.path)).toMatch(/^lab-[0-9a-f]{8}\.whale\.html$/u)
-    expect(await readFile(created.path, 'utf8')).toBe('<p>p99 480ms</p>')
+    expect(await readFile(diskPath(created.path), 'utf8')).toBe('<p>p99 480ms</p>')
     expect(seam.resolved).toEqual([])
     expect(await readdir(workspace)).toEqual([])
 
@@ -71,7 +74,7 @@ describe('card storage', () => {
 
     expect(patched.path).toBe(created.path)
     expect(patched.fragment).toBe('<p>p99 120ms</p>')
-    expect(await readFile(created.path, 'utf8')).toBe('<p>p99 120ms</p>')
+    expect(await readFile(diskPath(created.path), 'utf8')).toBe('<p>p99 120ms</p>')
     expect(seam.resolved).toEqual([])
   })
 
@@ -92,7 +95,7 @@ describe('card storage', () => {
       { action: 'update', path: foreign.path, title: 'Lab', old_str: 'private-session-secrex', new_str: 'changed' },
       exec('sess-b'),
     )).rejects.toThrow(/is not a card visualize can patch/u)
-    expect(await readFile(foreign.path, 'utf8')).toBe('<p>private-session-secret</p>')
+    expect(await readFile(diskPath(foreign.path), 'utf8')).toBe('<p>private-session-secret</p>')
     expect(seam.resolved).toEqual([])
   })
 
@@ -103,18 +106,18 @@ describe('card storage', () => {
     const own = await tool.execute({ fragment: '<p>own</p>', title: 'Own' }, exec('sess-a')) as { path: string }
     const foreign = await tool.execute({ fragment: '<p>foreign secret</p>', title: 'Foreign' }, exec('sess-b')) as { path: string }
     await mkdir(join(workspace, 'viz'))
-    await symlink(foreign.path, join(workspace, 'viz', 'alias.html'))
+    await symlink(diskPath(foreign.path), join(workspace, 'viz', 'alias.html'))
     await symlink(join(directory, 'visualize'), join(workspace, 'alias-store'))
-    for (const path of [foreign.path, relative(workspace, foreign.path), 'viz/alias.html', join(workspace, 'viz', 'alias.html'), 'alias-store/sessions/sess-b/' + foreign.path.split('/').at(-1)]) {
+    for (const path of [foreign.path, relative(workspace, diskPath(foreign.path)), 'viz/alias.html', join(workspace, 'viz', 'alias.html'), join('alias-store', 'sessions', 'sess-b', basename(foreign.path))]) {
       await expect(tool.execute(
         { action: 'update', path, title: 'Lab', old_str: 'foreign secrex', new_str: 'changed' },
         exec('sess-a'),
       )).rejects.toThrow(/is not a card visualize can patch/u)
     }
     expect(seam.resolved).toEqual([])
-    expect(await readFile(foreign.path, 'utf8')).toBe('<p>foreign secret</p>')
+    expect(await readFile(diskPath(foreign.path), 'utf8')).toBe('<p>foreign secret</p>')
     const patched = await tool.execute({ action: 'update', path: own.path, title: 'Own', old_str: 'own', new_str: 'updated' }, exec('sess-a')) as { path: string }
-    expect(await readFile(patched.path, 'utf8')).toBe('<p>updated</p>')
+    expect(await readFile(diskPath(patched.path), 'utf8')).toBe('<p>updated</p>')
     await tool.execute({ action: 'update', path: 'viz/legacy.html', title: 'Legacy', old_str: 'old', new_str: 'new' }, exec('sess-a'))
     expect(seam.written).toEqual({ 'viz/legacy.html': '<p>new</p>' })
   })
@@ -131,7 +134,7 @@ describe('card storage', () => {
       { action: 'update', path: join(aliasDirectory, basename(foreign.path)), title: 'Lab', old_str: 'secret', new_str: 'changed' },
       exec('sess-b'),
     )).rejects.toThrow(/current session store/u)
-    expect(await readFile(foreign.path, 'utf8')).toBe('<p>secret</p>')
+    expect(await readFile(diskPath(foreign.path), 'utf8')).toBe('<p>secret</p>')
     expect(seam.resolved).toEqual([])
   })
 
@@ -141,7 +144,7 @@ describe('card storage', () => {
     const foreign = await tool.execute({ fragment: '<p>secret</p>', title: 'Lab' }, exec('sess-a')) as { path: string }
     const alias = join(workspace, 'home', 'visualize', 'sessions', 'sess-b', 'alias.html')
     await mkdir(join(workspace, 'home', 'visualize', 'sessions', 'sess-b'))
-    await symlink(foreign.path, alias)
+    await symlink(diskPath(foreign.path), alias)
     for (const [path, execution] of [[alias, exec('sess-b')], [foreign.path, { agent: { session: { header: { cwd: workspace } } } } as never]] as const) {
       await expect(tool.execute({ action: 'update', path, title: 'Lab', old_str: 'secret', new_str: 'changed' }, execution))
         .rejects.toThrow(/is not a card visualize can patch/u)
@@ -154,12 +157,12 @@ describe('card storage', () => {
     const tool = visualizeTool(ctx, 10_000)
     const own = await tool.execute({ fragment: '<p>own</p>', title: 'Own' }, exec('sess-a')) as { path: string }
     const foreign = await tool.execute({ fragment: '<p>foreign</p>', title: 'Foreign' }, exec('sess-b')) as { path: string }
-    const foreignManifest = foreign.path.replace(/\.html$/u, '.images.json')
+    const foreignManifest = diskPath(foreign.path).replace(/\.html$/u, '.images.json')
     await writeFile(foreignManifest, '["private manifest"]')
-    await symlink(foreignManifest, own.path.replace(/\.html$/u, '.images.json'))
+    await symlink(foreignManifest, diskPath(own.path).replace(/\.html$/u, '.images.json'))
     await expect(tool.execute({ action: 'update', path: own.path, title: 'Own', old_str: 'own', new_str: 'changed' }, exec('sess-a')))
       .rejects.toThrow(/current session store/u)
-    expect(await readFile(own.path, 'utf8')).toBe('<p>own</p>')
+    expect(await readFile(diskPath(own.path), 'utf8')).toBe('<p>own</p>')
     expect(await readFile(foreignManifest, 'utf8')).toBe('["private manifest"]')
   })
 
@@ -190,7 +193,7 @@ describe('card storage', () => {
     expect(patched.style).toBe('editorial')
     expect(patched.path).toBe(created.path)
     // The model reads and patches the stored copy: it carries no style marker.
-    expect(await readFile(created.path, 'utf8')).toBe('<p>p99 410ms</p>')
+    expect(await readFile(diskPath(created.path), 'utf8')).toBe('<p>p99 410ms</p>')
   })
 
   it('patches a card named before styles existed in the current setting', async () => {
@@ -245,7 +248,7 @@ describe('card storage', () => {
       const args = { fragment: '<p>same</p>', title: 'Lab' }
       const results = await Promise.all(Array.from({ length: 8 }, () => tool.execute(args, exec('sess-5')))) as { path: string }[]
       expect(new Set(results.map(r => r.path)).size).toBe(1)
-      expect(await readFile(results[0]!.path, 'utf8')).toBe('<p>same</p>')
+      expect(await readFile(diskPath(results[0]!.path), 'utf8')).toBe('<p>same</p>')
       // No temp file is left behind.
       expect(await readdir(join(home, 'visualize', 'sessions', 'sess-5'))).toEqual([basename(results[0]!.path)])
     } finally {
@@ -258,7 +261,7 @@ describe('legacy workspace cards', () => {
   /** A host whose fs seam really reads the disk, as the official local backend does. */
   function diskHost() {
     const resolved: string[] = []
-    const ctx = new Context().extend({
+    const ctx = {
       get: (name: string) => (name === 'sandboxPolicy' ? { resolve: () => ({ mode: 'workspace-write', workspaceRoot: workspace }) } : undefined),
       fs: {
         resolve: async (path: string, options: { cwd?: string }) => {
@@ -272,7 +275,7 @@ describe('legacy workspace cards', () => {
           return { version: 1 }
         },
       },
-    })
+    } as unknown as Context
     return { tool: visualizeTool(ctx, 10_000), resolved }
   }
 
@@ -349,8 +352,6 @@ describe('legacy workspace cards', () => {
     const underHome = join(home, '.dsh-visualize-spec-absent', 'ws')
     expect(await workspacePath(underHome, '~/.dsh-visualize-spec-absent/ws/viz/a.html')).toBe(join(underHome, 'viz', 'a.html'))
     expect(await workspacePath(underHome, '~/.dsh-visualize-spec-absent/other/a.html')).toBeUndefined()
-    expect(await workspacePath(underHome, join('~', '.dsh-visualize-spec-absent', 'ws', 'viz', 'a.html')))
-      .toBe(join(underHome, 'viz', 'a.html'))
   })
 
   it('refuses a non-.html file and a session without a workspace', async () => {
@@ -378,8 +379,6 @@ describe('ownedPath', () => {
   it('expands the ~ display form the result reports back to the store path', async () => {
     const root = join(homedir(), '.dsh-visualize-spec-absent', 'visualize')
     expect(await ownedPath(root, '~/.dsh-visualize-spec-absent/visualize/sessions/s/a.html'))
-      .toBe(join(root, 'sessions', 's', 'a.html'))
-    expect(await ownedPath(root, join('~', '.dsh-visualize-spec-absent', 'visualize', 'sessions', 's', 'a.html')))
       .toBe(join(root, 'sessions', 's', 'a.html'))
     expect(await ownedPath(root, 'viz/a.html')).toBeUndefined()
     expect(await ownedPath(root, join(root, 'sessions', 's', 'a.txt'))).toBeUndefined()

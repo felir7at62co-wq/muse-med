@@ -26,9 +26,8 @@ export function MarketPublications({
   const [note, setNote] = useState('')
   const [pending, setPending] = useState(false)
   const review = async (): Promise<void> => {
-    if (!isCurrentAccess(accessRevision)) return
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- Only the selected form submits, with a disabled pending button.
-    const { item, action } = selection!
+    if (!selection || pending || !isCurrentAccess(accessRevision)) return
+    const { item, action } = selection
     setPending(true)
     try {
       const returned = await actions.review(item.id, item.revision, action, note.trim())

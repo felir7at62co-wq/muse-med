@@ -13,7 +13,6 @@
  * Both answer the OpenAI images shape (`data[].b64_json`).
  */
 
-import type { FetchResponse } from '../http.js'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
@@ -429,7 +428,7 @@ export function createImageGenerateTool(options: ImageGenerateToolOptions): Tool
       const grokReady = grokEnabled && options.grokTokens !== undefined && (await options.grokTokens.list()).length > 0
       const useGrok = preferGrok ? grokReady : grokReady && !codexReady
       const useCodex = !useGrok && codexReady
-      let response: FetchResponse
+      let response: Response
       if (useCodex && options.codexTokens !== undefined) {
         response = await imagePool.request({
           provider: 'codex', tokens: options.codexTokens, signal: exec.signal,

@@ -25,6 +25,9 @@ export interface LiveValue<T> {
 /** The configured style as `apply` receives it. */
 export type StyleSetting = StyleId | LiveValue<StyleId | undefined>
 
+/** The field's schema; its parsed output is a {@link StyleSetting}. */
+type FieldSchema = z<StyleId, StyleSetting>
+
 /**
  * Build the `style` field schema, volatile where the schemastery in use
  * supports it. Without `.volatile()` the field still validates; the settings
@@ -32,11 +35,11 @@ export type StyleSetting = StyleId | LiveValue<StyleId | undefined>
  * @param schema - schemastery's default export, injectable for the fallback test.
  * @returns the field schema.
  */
-export function styleFieldSchema(schema: typeof z = z) {
+export function styleFieldSchema(schema: typeof z = z): FieldSchema {
   const field = schema.union(STYLE_IDS.map(id => schema.const(id).description(STYLES[id].label)))
     .default(DEFAULT_STYLE)
-    .description('Card style · 卡片风格')
-  return typeof field.volatile === 'function' ? field.volatile() : field
+    .description('Card style · 卡片风格') as unknown as { volatile?: () => unknown }
+  return (typeof field.volatile === 'function' ? field.volatile() : field) as FieldSchema
 }
 
 /**
@@ -45,8 +48,8 @@ export function styleFieldSchema(schema: typeof z = z) {
  * @returns a known style id; anything else reads as the default.
  */
 export function readStyle(setting: StyleSetting | undefined): StyleId {
-  if (typeof setting === 'object' && setting !== null && typeof setting.get === 'function') {
-    return styleIdFrom(setting.get())
+  if (typeof setting === 'object' && setting !== null && typeof (setting as LiveValue<unknown>).get === 'function') {
+    return styleIdFrom((setting as LiveValue<unknown>).get())
   }
   return styleIdFrom(setting)
 }

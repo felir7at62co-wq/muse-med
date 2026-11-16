@@ -1,5 +1,5 @@
 import { execFile, type ChildProcess } from 'node:child_process'
-import { access, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, copyFile, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +15,8 @@ import { probeHandler, stubChannel } from '../packages/drama/tool-episode-render
 import * as layoutModule from '../snapshots/session/muse-editing-tool-catalog/source-plugin-layout.mjs'
 // @ts-expect-error The fixture intentionally has no declaration artifact.
 import * as reportModule from '../snapshots/session/drama-subtitle-timing/report-fixture.mjs'
+// @ts-expect-error The fixture intentionally has no declaration artifact.
+import * as draftSeedModule from '../snapshots/session/muse-jianying-draft/draft-seed.mjs'
 
 const { stageSourceMusePlugins } = layoutModule as {
   stageSourceMusePlugins: (sourceRoot: string, nodeModules: string) => Promise<void>
@@ -23,6 +25,7 @@ const { stageSourceMusePlugins } = layoutModule as {
 const { projectSubtitleFixtureReport } = reportModule as {
   projectSubtitleFixtureReport: (report: DramaRenderReport, cwd: string) => Promise<DramaRenderReport>
 }
+const { consumeDraftSeed } = draftSeedModule as { consumeDraftSeed: (workspace: string) => Promise<void> }
 const runFile = promisify(execFile)
 
 async function workspace() {
@@ -54,6 +57,28 @@ async function workspace() {
     },
   }
 }
+
+it('consumes the committed empty draft-directory seed without changing its request', async () => {
+  const fixture = await workspace()
+  const seed = new URL('../snapshots/session/muse-jianying-draft/workspace/', import.meta.url)
+  const request = await readFile(new URL('request.json', seed))
+  await cp(seed, fixture.root, { recursive: true })
+  expect(await readdir(join(fixture.root, 'drafts'))).toEqual(['.keep'])
+  await consumeDraftSeed(fixture.root)
+  expect(await readdir(join(fixture.root, 'drafts'))).toEqual([])
+  expect(await readFile(join(fixture.root, 'request.json'))).toEqual(request)
+  expect(await readFile(new URL('drafts/.keep', seed), 'utf8')).toBe('')
+})
+
+it('rejects missing or nonempty draft-directory seed markers without discarding their contents', async () => {
+  const fixture = await workspace(), directory = join(fixture.root, 'drafts')
+  await mkdir(directory)
+  await expect(consumeDraftSeed(fixture.root)).rejects.toMatchObject({ code: 'ENOENT' })
+  const marker = join(directory, '.keep')
+  await writeFile(marker, 'unexpected seed contents')
+  await expect(consumeDraftSeed(fixture.root)).rejects.toThrow('Expected the empty draft-directory seed marker')
+  expect(await readFile(marker, 'utf8')).toBe('unexpected seed contents')
+})
 
 it('loads the real peer dependency from the installed fixture owner instead of the source symlink', async () => {
   const fixture = await workspace()

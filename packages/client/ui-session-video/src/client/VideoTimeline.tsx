@@ -1,6 +1,6 @@
 /** Proportional shot filmstrips and a keyboard-accessible media playhead. */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { CSSProperties, KeyboardEvent, PointerEvent, ReactElement } from 'react'
+import type { CSSProperties, KeyboardEvent, PointerEvent, ReactElement, RefObject } from 'react'
 import styles from './VideoTimeline.module.css'
 
 /** One ordered shot, with media time in seconds and an optional real thumbnail URL. */
@@ -41,6 +41,12 @@ type TimelineStyle = CSSProperties & {
 }
 
 const PLAYHEAD_HALF_WIDTH = 11
+
+function withMountedRef<T extends HTMLElement, R>(ref: RefObject<T | null>, action: (element: T) => R): R | undefined {
+  const element = ref.current
+  if (element === null) return
+  return action(element)
+}
 
 function timeText(seconds: number): string {
   const whole = Math.floor(seconds)
@@ -88,51 +94,46 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
   if (ticks.at(-1) !== duration) ticks.push(duration)
 
   const updateEdges = useCallback(() => {
-    const scroll = scrollRef.current
-    /* v8 ignore next 2 -- defensive: a queued scroll, resize or observer notification can outlive the unmounted timeline. */
-    if (scroll === null) return
-    const max = Math.max(0, scroll.scrollWidth - scroll.clientWidth)
-    const before = max > 0 && scroll.scrollLeft > 0
-    const after = max > 0 && scroll.scrollLeft < max
-    setEdges(previous => previous.before === before && previous.after === after ? previous : { before, after })
+    withMountedRef(scrollRef, (scroll) => {
+      const max = Math.max(0, scroll.scrollWidth - scroll.clientWidth)
+      const before = max > 0 && scroll.scrollLeft > 0
+      const after = max > 0 && scroll.scrollLeft < max
+      setEdges(previous => previous.before === before && previous.after === after ? previous : { before, after })
+    })
   }, [])
 
   const seekAt = useCallback((clientX: number) => {
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- Pointer and click handlers run while the timeline track is attached.
-    const track = trackRef.current!
-    const bounds = track.getBoundingClientRect()
-    if (bounds.width <= 0) return
-    onSeek(Math.max(0, Math.min(duration, (clientX - bounds.left) / bounds.width * duration)))
+    withMountedRef(trackRef, (track) => {
+      const bounds = track.getBoundingClientRect()
+      if (bounds.width <= 0) return
+      onSeek(Math.max(0, Math.min(duration, (clientX - bounds.left) / bounds.width * duration)))
+    })
   }, [duration, onSeek])
 
   useLayoutEffect(() => {
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- React attaches the always-rendered scroll element before layout effects.
-    const scroll = scrollRef.current!
-    const x = PLAYHEAD_HALF_WIDTH + position * pixelsPerSecond
-    const maximum = Math.max(0, scroll.scrollWidth - scroll.clientWidth)
-    if (x - PLAYHEAD_HALF_WIDTH < scroll.scrollLeft) scroll.scrollLeft = Math.max(0, x - PLAYHEAD_HALF_WIDTH)
-    else if (x + PLAYHEAD_HALF_WIDTH > scroll.scrollLeft + scroll.clientWidth) {
-      scroll.scrollLeft = Math.min(maximum, x + PLAYHEAD_HALF_WIDTH - scroll.clientWidth)
-    }
-    updateEdges()
+    withMountedRef(scrollRef, (scroll) => {
+      const x = PLAYHEAD_HALF_WIDTH + position * pixelsPerSecond
+      const maximum = Math.max(0, scroll.scrollWidth - scroll.clientWidth)
+      if (x - PLAYHEAD_HALF_WIDTH < scroll.scrollLeft) scroll.scrollLeft = Math.max(0, x - PLAYHEAD_HALF_WIDTH)
+      else if (x + PLAYHEAD_HALF_WIDTH > scroll.scrollLeft + scroll.clientWidth) {
+        scroll.scrollLeft = Math.min(maximum, x + PLAYHEAD_HALF_WIDTH - scroll.clientWidth)
+      }
+      updateEdges()
+    })
   }, [position, pixelsPerSecond, width, updateEdges])
 
-  useEffect(() => {
-    // oxlint-disable typescript/no-non-null-assertion -- Both always-rendered elements are attached before this effect.
-    const scroll = scrollRef.current!
-    const lane = laneRef.current!
-    // oxlint-enable typescript/no-non-null-assertion
+  useEffect(() => withMountedRef(scrollRef, scroll => withMountedRef(laneRef, (lane) => {
     const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(updateEdges)
     observer?.observe(scroll)
     observer?.observe(lane)
     window.addEventListener('resize', updateEdges)
     return () => { observer?.disconnect(); window.removeEventListener('resize', updateEdges) }
-  }, [updateEdges])
+  })), [updateEdges])
 
   useLayoutEffect(() => {
     if (dragPointer === null) return
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- A drag captures its owner before publishing its pointer id.
-    const owner = capture.current!.target
+    const owner = capture.current?.target
+    if (owner === undefined) return
     const move = (event: globalThis.PointerEvent) => {
       const drag = capture.current
       if (event.pointerId !== dragPointer || drag?.pointerId !== dragPointer) return

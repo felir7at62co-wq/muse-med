@@ -377,7 +377,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 }
 
-/** Initial catalog publication requires complete discovery and at least one confirmed entry. */
 function renderCatalogMessage(entries: SkillCatalogSource['entries'], bounded = false): UserMessage {
   return createUserMessage({
     content: [{
@@ -406,7 +405,6 @@ function renderCatalogMessage(entries: SkillCatalogSource['entries'], bounded = 
   })
 }
 
-/** Replace a published catalog using the latest complete discovery result. */
 function renderCatalogUpdate(entries: SkillCatalogSource['entries'], bounded = false): UserMessage {
   const availability = entries.length === 0
     ? [

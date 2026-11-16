@@ -126,6 +126,9 @@ function recordedSubmission(events: readonly SessionEvent[], inherited: number,
     if (event.type === 'assistant/message') {
       const { message, turn, step } = event.data
       if (position?.turn !== turn || position.step !== step) {
+        /* v8 ignore next -- a mismatched assistant message carrying a text block needs a position the
+        released v4 reader rejects (session-format-v3-to-v4 relationships.requireStep); a fork tail
+        always starts after a closed turn, so every block here is a tool-call. */
         for (const block of message.content) if (block.type === 'tool-call') unscopedRootIds.add(block.id)
         continue
       }
@@ -197,20 +200,23 @@ function recordedSubmission(events: readonly SessionEvent[], inherited: number,
       }
     }
   }
-  const candidate = found.length === 1 ? found[0] : undefined
-  if (candidate === undefined) return undefined
-  if (advertised.get(candidate.rootKey) !== 1 || calls.get(candidate.rootKey) !== 1
+  if (found.length !== 1) return undefined
+  const candidate = found[0]
+  if (candidate === undefined || advertised.get(candidate.rootKey) !== 1 || calls.get(candidate.rootKey) !== 1
     || unscopedRootIds.has(candidate.rootId)) return undefined
   if (candidate.subKey === undefined) {
     if (results.get(candidate.rootKey) !== 1) return undefined
   } else {
+    /* v8 ignore if -- the reader rejects a second end for one subCallId ("PTC dispatch repeats
+    subCallId") and every found sub-dispatch is counted from its end, so ends is always exactly 1. */
     if (ends.get(candidate.subKey) !== 1) return undefined
     let current: string | undefined = candidate.subKey
+    const seen = new Set<string>()
     while (current !== undefined) {
-      // A unique dispatch start can reference only an earlier registered parent.
-      const start: DispatchStart = ptc.get(current) as DispatchStart
-      if (starts.get(current) !== 1
+      const start = ptc.get(current)
+      if (seen.has(current) || start === undefined || start.rootKey !== candidate.rootKey || starts.get(current) !== 1
         || (ends.get(current) ?? 0) > 1 || invalidDispatches.has(current) || unscopedSubIds.has(start.subId)) return undefined
+      seen.add(current)
       current = start.parentKey
     }
   }
@@ -285,6 +291,9 @@ export function createGenerationWatchSubmissionModelReader(persistence: Generati
  */
 export function createGenerationWatchOwnerAttestor(persistence: GenerationWatchSessionReader,
   ledger: JubianLedger, verifyHost: GenerationWatchHostVerifier): GenerationWatchOwnerAttestor {
+  /* v8 ignore if -- answers a JS caller that violates this exported signature; the parameter is
+  typed as a function and the only callers pass local closures. */
+  if (typeof verifyHost !== 'function') throw new Error('A trusted Host ownership verifier is required')
   return async (owner, projectDir) => {
     if (!isAbsolute(owner.previewPath) || !isAbsolute(projectDir)) return false
     const project = await recoveryProject(projectDir)

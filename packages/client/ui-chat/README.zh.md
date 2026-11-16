@@ -68,6 +68,8 @@ Assistant 尝试结束且没有可见消息时，Chat 隐藏已发布的 Node，
 
 只有包含非空白字符的文本和推理块才计入 Assistant 的可见内容。流式追加复用每个块的可见状态；块替换和最终消息重新计算可见性，同时保留原始文本。
 
+Chat 按声明的事件类型路由 Inbox、用户消息、请求头、命令、压缩、重试和轮次结束提示的 Definition。这些匹配处理函数不对实时 Assistant chunk 执行工作。
+
 <a id="command-and-failure-rows"></a>
 ## 指令与失败行
 
