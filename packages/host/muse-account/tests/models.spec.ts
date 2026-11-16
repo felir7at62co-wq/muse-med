@@ -402,43 +402,52 @@ it('publishes the supplied Gemini and DeepSeek metadata through the browser cata
   expect(browser.failures.filter(group => group.id.startsWith('muse-cloud-'))).toEqual([])
 })
 
-it('keeps DeepSeek Flash system updates in history without enabling that mode for other account routes', async () => {
-  await login()
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async () => Response.json(suppliedCatalog) })
-  await models.refresh()
-  await expect(ctx.llm.resolveModelInfo('muse-cloud-deepseek-official', 'deepseek-flash'))
-    .resolves.toMatchObject({ systemPromptUpdate: 'in-history' })
-  const other = await ctx.llm.resolveModelInfo('muse-cloud-aa', 'gemini-3.8-flash')
-  expect(other.systemPromptUpdate).toBeUndefined()
-})
-
-it('keeps earlier DeepSeek Flash wire messages when the system prompt changes', async () => {
-  const fixture = await oldSessionFixture(false)
-  const server = await mockServer([{ events: textEvents }, { events: textEvents }])
-  await login()
-  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
-      ? { ...suppliedCatalog, transport: 'direct' }
-      : { transport: 'direct', providers: suppliedCatalog.providers.map(provider => ({ ...provider,
-        access: { baseURL: `${server.url}/v1`, apiKey: 'test-only-key' } })) }) })
-  try {
+it.each(['deepseek-flash', 'deepseek-v4.1-flash-261017'])(
+  'keeps %s system updates in history without enabling that mode for other account routes', async (modelId) => {
+    await login()
+    const model = { ...suppliedCatalog.providers[1]!.models[0]!, id: modelId }
+    const providers = [...suppliedCatalog.providers,
+      { id: 'studio', name: 'Studio', models: [model] }]
+      .map(provider => provider.id === 'deepseek-official' ? { ...provider, models: [model] } : provider)
+    models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      fetcher: async () => Response.json({ providers }) })
     await models.refresh()
-    fixture.agent.model.select({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
-    for (const [index, text] of ['first', 'second'].entries()) {
-      if (index === 1) fixture.ctx.systemPrompt.section({ name: 'test:later-guidance',
-        order: fixture.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
-        text: 'Keep the earlier script context.', interpolate: false })
-      const idle = waitForIdle(fixture.ctx, fixture.agent)
-      fixture.agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
-      await idle
-    }
-    const [first, second] = server.requests as { messages: { role: string; content: unknown }[] }[]
-    expect(server.paths).toEqual(['/v1/chat/completions', '/v1/chat/completions'])
-    expect(second!.messages.slice(0, first!.messages.length)).toEqual(first!.messages)
-    expect(second!.messages.filter(message => message.role === 'system')).toHaveLength(2)
-  } finally { await fixture.ctx.fiber.dispose() }
-})
+    await expect(ctx.llm.resolveModelInfo('muse-cloud-deepseek-official', modelId))
+      .resolves.toMatchObject({ systemPromptUpdate: 'in-history' })
+    const other = await ctx.llm.resolveModelInfo('muse-cloud-aa', 'gemini-3.8-flash')
+    expect(other.systemPromptUpdate).toBeUndefined()
+    expect((await ctx.llm.resolveModelInfo('muse-cloud-studio', modelId)).systemPromptUpdate).toBeUndefined()
+  })
+
+it.each(['deepseek-flash', 'deepseek-v4.1-flash-261017'])(
+  'keeps earlier %s wire messages when the system prompt changes', async (modelId) => {
+    const fixture = await oldSessionFixture(false)
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const providers = suppliedCatalog.providers.map(provider => provider.id === 'deepseek-official'
+      ? { ...provider, models: provider.models.map(model => ({ ...model, id: modelId })) } : provider)
+    await login()
+    models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
+        ? { providers, transport: 'direct' }
+        : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
+          access: { baseURL: `${server.url}/v1`, apiKey: 'test-only-key' } })) }) })
+    try {
+      await models.refresh()
+      fixture.agent.model.select({ provider: 'muse-cloud-deepseek-official', model: modelId })
+      for (const [index, text] of ['first', 'second'].entries()) {
+        if (index === 1) fixture.ctx.systemPrompt.section({ name: 'test:later-guidance',
+          order: fixture.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
+          text: 'Keep the earlier script context.', interpolate: false })
+        const idle = waitForIdle(fixture.ctx, fixture.agent)
+        fixture.agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
+        await idle
+      }
+      const [first, second] = server.requests as { messages: { role: string; content: unknown }[] }[]
+      expect(server.paths).toEqual(['/v1/chat/completions', '/v1/chat/completions'])
+      expect(second!.messages.slice(0, first!.messages.length)).toEqual(first!.messages)
+      expect(second!.messages.filter(message => message.role === 'system')).toHaveLength(2)
+    } finally { await fixture.ctx.fiber.dispose() }
+  })
 
 it('excludes only the specified account provider and retains Yunying Gemini and personal adapters', async () => {
   await login()

@@ -49,6 +49,7 @@ function completion(message, cacheHitTokens = 0) {
  */
 export async function apply(ctx) {
   const promptUpdate = process.env.DSH_SNAPSHOT_DEEPSEEK_PROMPT_UPDATE === 'true'
+  const flashModelId = process.env.DSH_SNAPSHOT_DEEPSEEK_DATED_MODEL === 'true' ? 'deepseek-v4.1-flash-261017' : 'deepseek-flash'
   const promptGuidance = 'Keep the signed-in model catalog answer brief.'
   let guidance = ''
   const direct = process.env.DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS === 'true'
@@ -88,6 +89,11 @@ export async function apply(ctx) {
   const home = await mkdtemp(join(tmpdir(), 'muse-selected-snapshot-'))
   ctx.effect(() => () => rm(home, { recursive: true, force: true }))
   const catalog = desktopModelCatalog({ metadata: () => ({ providers: selectedModelProviders('https://wy6688.token6688.com/v1') }) })
+  if (flashModelId !== 'deepseek-flash') {
+    const official = catalog.providers.find(provider => provider.id === 'deepseek-official')
+    assert.ok(official)
+    official.models = official.models.map(model => model.id === 'deepseek-flash' ? { ...model, id: flashModelId } : model)
+  }
   if (excludesStandaloneAa) catalog.providers.unshift({ id: 'aa', name: 'Gemini', models: [{
     id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', contextWindow: 128000, maxTokens: 8192,
     input: ['text', 'image'], reasoningEfforts: false,
@@ -96,7 +102,7 @@ export async function apply(ctx) {
   const selection = recorded.find(event => event.type === 'request/header')?.data.header.config
   const selectedModel = officialGlm ? { provider: 'muse-cloud-zhipu-official', model: 'glm-5.3-flash' } : preservesNewerDefault
     ? { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro' }
-    : { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }
+    : { provider: 'muse-cloud-deepseek-official', model: flashModelId }
   assert.deepEqual({ provider: selection?.provider, model: selection?.model }, selectedModel)
   if (refusal) catalog.providers = catalog.providers.filter(provider => `muse-cloud-${provider.id}` === selectedModel.provider)
   const directCompletion = direct && (!pooledZhipu || leasedZhipu)
@@ -356,9 +362,9 @@ export async function apply(ctx) {
         })) })
       }
       assert.deepEqual(available.flatMap(provider => provider.models.map(model => model.id)), onlyYunyingGemini
-        ? ['deepseek-flash', 'deepseek-v4-pro', 'gemini-3.1-pro', 'glm-5.3-flashx', 'glm-5.3-flash'] : excludesYunyingModels
-        ? ['deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flashx', 'glm-5.3-flash']
-        : ['deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.3-flash'])
+        ? [flashModelId, 'deepseek-v4-pro', 'gemini-3.1-pro', 'glm-5.3-flashx', 'glm-5.3-flash'] : excludesYunyingModels
+        ? [flashModelId, 'deepseek-v4-pro', 'gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flashx', 'glm-5.3-flash']
+        : [flashModelId, 'deepseek-v4-pro', 'gpt-6-sol', 'gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.3-flash'])
       if (excludesStandaloneAa) {
         assert.equal(catalog.providers[0].id, 'aa')
         assert.ok(!providerIds.includes('muse-cloud-aa'))
