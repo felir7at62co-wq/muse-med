@@ -37,7 +37,9 @@ export function apply(ctx) {
     const releaseRail = ctx.layout.retainSidebarRail()
     const style = document.createElement('style')
     style.dataset.plugin = '@fixture/bot-sidebar-rail'
-    style.textContent = SHELL_CSS + SIDEBAR_CSS
+    // The current workspace seat is a max-content grid row; its occupant owns
+    // the bounded viewport used for scrolling its rows.
+    style.textContent = SHELL_CSS + SIDEBAR_CSS + '.bt-side:not(.bt-rail){height:100cqh;flex:none;box-sizing:border-box}'
     document.head.append(style)
     const releaseSlot = ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register({
       name: 'sidebar.workspaces', priority: -100,
