@@ -2287,7 +2287,14 @@ it.each([true, false])('tells the model how seen frame images leave context only
   await h.run(h.call('scan'), h.call('status'), undefined)
   const note = (index: number) => h.results()[index]!.content.some(block => block.type === 'text' && block.text.startsWith('帧图说明：'))
   expect(note(0)).toBe(enabled)
-  expect(note(1)).toBe(false)
+  expect(note(1)).toBe(enabled)
+  if (enabled) {
+    const results = h.results().map(result => result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
+    expect(results[0]).toContain('本次工具结果附带2张图片')
+    expect(results[1]).toContain('本次工具结果仅返回文字，没有新图片')
+    expect(results[1]).toContain('status等进度查询不会重新附图')
+    expect(h.results()[1]!.content.some(block => block.type === 'image')).toBe(false)
+  }
   expect(h.ctx.tools.get('video_inspect')!.description.includes('已在之前的步骤中展示给你')).toBe(enabled)
 })
 
