@@ -87,8 +87,7 @@ export function foldConsumedWork(events: readonly SessionEvent[]): ConsumedWork 
       case 'agent/inbox/claim-filtered': {
         const pending = durableClaims.get(event.data.turn)
         if (pending !== undefined) {
-          // The durable inbox validates discarded identities against the active claim.
-          for (const id of event.data.discarded) { pending.delete(id); claimed.add(event.data.turn) }
+          for (const id of event.data.discarded) if (pending.delete(id)) claimed.add(event.data.turn)
         }
         break
       }

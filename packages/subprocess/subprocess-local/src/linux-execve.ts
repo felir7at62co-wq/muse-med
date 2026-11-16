@@ -79,14 +79,6 @@ export function loadLinuxExecve(): LinuxExecve {
         throw systemError(koffi.errno(), 'fcntl')
       }
     }
-    for (const fd of STANDARD_FILE_DESCRIPTORS) {
-      const flags = nativeFcntl(fd, F_GETFL, 0)
-      if (flags === -1) throw systemError(koffi.errno(), 'fcntl')
-      if ((flags & constants.O_NONBLOCK) === 0) continue
-      if (nativeFcntl(fd, F_SETFL, flags & ~constants.O_NONBLOCK) === -1) {
-        throw systemError(koffi.errno(), 'fcntl')
-      }
-    }
     nativeExecve(
       file,
       [...argv, null],
