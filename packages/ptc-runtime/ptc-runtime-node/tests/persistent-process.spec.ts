@@ -174,10 +174,7 @@ it.each(['repl', 'script'] as const)('rejects a binding result followed by revoc
   const first = h.run('var effects = []; try { await tools.echo({}); effects.push("then") } catch { effects.push("catch") } finally { effects.push("finally") }', [{ global: 'tools', names: ['echo'] }])
   try {
     const id = await request.promise
-    await Promise.all([
-      wire.send({ t: 's', i: id, r: encodePtcJsonWire(42) }),
-      wire.send({ t: 'q', m: 'revoke', a: [] }),
-    ])
+    await wire.sendTogether([{ t: 's', i: id, r: encodePtcJsonWire(42) }, { t: 'q', m: 'revoke', a: [] }])
     expect(await first).toEqual({})
     expect(decodePtcJsonWire((await h.run('effects')).value)).toEqual(['catch', 'finally'])
   } finally {
