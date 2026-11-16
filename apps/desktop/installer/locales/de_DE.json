@@ -3,7 +3,6 @@
   "strings": {
     "INSTALLER_INSTALL": "Jetzt installieren",
     "INSTALLER_FINISH": "Fertigstellen",
-    "INSTALLER_REBOOT_REQUIRED": "Installation abgeschlossen. Starten Sie Windows neu, bevor Sie Muse öffnen.",
     "INSTALLER_VC_MISSING": "Die gebündelte Microsoft Visual C++ x64-Laufzeit fehlt. Die Installation kann nicht abgeschlossen werden. Laden Sie ein vollständiges muse-med-Installationspaket herunter.",
     "INSTALLER_VC_CONSENT": "muse-med benötigt Microsoft Visual C++ x64 Runtime 14.51.36247.0 oder neuer. Die gebündelte Laufzeit jetzt installieren? Dies ändert Systemkomponenten und erfordert Administratorrechte. Es erfolgt kein Download. Bei Ablehnung wird die Installation beendet.",
     "INSTALLER_VC_DENIED": "Die Installation von Microsoft Visual C++ x64 Runtime wurde nicht genehmigt. muse-med kann nicht installiert werden.",
