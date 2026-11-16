@@ -2111,6 +2111,13 @@ describe('Asset branch CI resources', () => {
     })
   })
 
+  it('isolates this branch’s Host heap snapshots in the browser lane', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-consumers')
+    expect(job.env).toMatchObject({
+      DSH_WEB_SNAPSHOT_WORKERS: "${{ github.repository == 'felir7at62co-wq/muse-med' && github.head_ref == 'codex/muse-asset-images-only-20261112' && '1' || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '6' || '' }}",
+    })
+  })
+
   it('gives this branch enough Node heap for Windows site builds', () => {
     const job = workflowJob(loadWorkflow('.github/workflows/ci-windows.yml'), 'windows-build')
     expect(job.steps).toContainEqual(expect.objectContaining({

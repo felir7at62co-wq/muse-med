@@ -1100,6 +1100,17 @@ describe('Node 24 lane ownership', () => {
       ],
     })
   })
+
+  it('uses isolated web snapshot processes when the browser lane selects them', () => {
+    const subject = withEnv('DSH_WEB_SNAPSHOT_WORKERS', '1', () =>
+      withPnpmEntrypoint(() => gatesForMode('ci-consumers')))
+
+    expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
+      displayCommand: 'DSH_SNAPSHOT=replay DSH_WEB_SNAPSHOT_WORKERS=1 pnpm run test:web:ci',
+      env: { DSH_SNAPSHOT: 'replay' },
+      streamOutput: true,
+    })
+  })
 })
 
 describe('Linux primary graph', () => {
