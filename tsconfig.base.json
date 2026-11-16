@@ -33,6 +33,7 @@
       "@deepseek-ai/dsh-muse-market/cloud-host": ["./packages/host/muse-market/src/cloud-host.ts"],
       "@deepseek-ai/dsh-muse-market/types": ["./packages/host/muse-market/src/types.ts"],
       "@deepseek-ai/dsh-muse-market/package": ["./packages/host/muse-market/src/package.ts"],
+      "@deepseek-ai/dsh-muse-market/browser": ["./packages/host/muse-market/src/browser.ts"],
       "@deepseek-ai/dsh-skill/name": ["./packages/skill/skill/src/name.ts"],
       "@deepseek-ai/dsh-muse-market/cloud-values": ["./packages/host/muse-market/src/cloud-values.ts"],
       "@deepseek-ai/dsh-desktop-host": ["./apps/desktop-host/src/index.ts"],

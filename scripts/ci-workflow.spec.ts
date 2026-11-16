@@ -779,6 +779,26 @@ describe('CI workflow', () => {
     })
   })
 
+  it.each([
+    ['ci.yml', 'node-24-lint', 'DSH_CI_FAILOVER_LINUX', 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core', 'blacksmith-8vcpu-ubuntu-2404', ['self-hosted', 'linux', 'x64', 'vm-backup']],
+    ['ci-windows.yml', 'windows-build', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'dsh-windows-2025-16core', 'blacksmith-16vcpu-windows-2025', ['self-hosted', 'dsh-win-ci', 'windows']],
+    ['ci-windows.yml', 'windows-coverage', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'dsh-windows-2025-16core', 'blacksmith-16vcpu-windows-2025', ['self-hosted', 'dsh-win-ci', 'windows']],
+    ['ci-windows.yml', 'windows-native-tests', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'dsh-windows-2025-16core', 'blacksmith-2vcpu-windows-2025', ['self-hosted', 'dsh-win-ci', 'windows']],
+  ] as const)('%s / %s uses public runners in forks and preserves configured pools', (file, name, variable, hosted, upstream, blacksmith, pool) => {
+    const job = workflowJob(loadWorkflow(`.github/workflows/${file}`), name)
+    for (const repository of ['deepseek-harness/deepseek-harness', 'felir7at62co-wq/muse-med', 'contributor/fork']) {
+      const evaluate = (mode: string, login = 'maintainer'): unknown => evaluateRunsOn(job['runs-on'], {
+        vars: { [variable]: mode }, fromJSON: JSON.parse,
+        github: { repository, event: { pull_request: { user: { login } } } },
+      })
+      const fallback = repository === 'deepseek-harness/deepseek-harness' ? upstream : hosted
+      for (const mode of ['', 'hosted', 'unexpected']) expect(evaluate(mode), `${repository} ${mode}`).toBe(fallback)
+      expect(evaluate('blacksmith'), `${repository} Blacksmith`).toBe(blacksmith)
+      expect(evaluate('selfhosted'), `${repository} self-hosted`).toEqual(pool)
+      expect(evaluate('selfhosted', 'dependabot[bot]'), `${repository} Dependabot fallback`).toBe(fallback)
+    }
+  })
+
   it('gates standalone keyless blacksmith jobs and benchmark tiers on the failover variables', () => {
     const expectedFilenames = workflowJob(loadWorkflow('.github/workflows/expected-filenames.yml'), 'expected-filenames')
     const sandbox = workflowJob(loadWorkflow('.github/workflows/sandbox.yml'), 'sandbox-e2e')

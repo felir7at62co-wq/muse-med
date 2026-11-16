@@ -1,0 +1,23 @@
+{
+  "name": "@deepseek-ai/dsh-market-web",
+  "version": "0.2.2-rc.1",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Skill market using the shared Muse market UI and same-origin publication API",
+  "license": "MIT",
+  "files": [],
+  "scripts": { "build": "vite build" },
+  "dependencies": {
+    "@deepseek-ai/dsh-client-ui-muse-market": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-primitives": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-theme": "workspace:*",
+    "@deepseek-ai/dsh-muse-market": "workspace:*",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0",
+    "vite": "8.2.2",
+    "vite-tsconfig-paths": "^6.1.1"
+  }
+}

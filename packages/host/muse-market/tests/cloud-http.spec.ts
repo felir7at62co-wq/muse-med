@@ -292,6 +292,32 @@ it.each(['{', '[]', '{"title":"HTTP team"}'])('refuses an invalid publisher requ
   finally { database.close() }
 })
 
+it('keeps draft downloads private and allows another ordinary account to download after approval', async () => {
+  const f = await fixture(), publisher = await f.invite(), bytes = archive()
+  const uploaded = await f.api('/uploads', author, { method: 'POST', headers: {
+    'content-type': 'application/zip', 'x-market-publisher': publisher, 'idempotency-key': 'ordinary-download',
+  }, body: bytes })
+  const draft = parseMarketPublication(await uploaded.json(), limits)
+  const path = `/releases/${draft.id}/download`
+  const own = await f.api(path, author)
+  expect(own.status).toBe(200)
+  expect(Buffer.from(await own.arrayBuffer())).toEqual(bytes)
+  for (const actor of [reader, null]) {
+    const hidden = await f.api(path, actor)
+    expect(hidden.status).toBe(actor === null ? 401 : 404)
+    await hidden.body?.cancel()
+  }
+  const submitted = await f.api(`/releases/${draft.id}/review`, author, post({ revision: 1, action: 'submit', note: '' }))
+  const pending = parseMarketPublication(await submitted.json(), limits)
+  const approved = await f.api(`/releases/${draft.id}/review`, admin, post({ revision: pending.revision, action: 'approve', note: '' }))
+  expect(approved.status).toBe(200)
+  await approved.body?.cancel()
+  const shared = await f.api(path, reader)
+  expect(shared.status).toBe(200)
+  expect(shared.headers.get('x-content-sha256')).toBe(draft.sha256)
+  expect(Buffer.from(await shared.arrayBuffer())).toEqual(bytes)
+})
+
 it('reconciles a committed upload after its original HTTP response is deliberately unobserved', async () => {
   const f = await fixture(), publisher = await f.invite(), bytes = archive()
   const committed = Promise.withResolvers<Awaited<ReturnType<MuseMarketCatalog['upload']>>>()

@@ -15,6 +15,10 @@
       "types": "./lib/types/package.d.ts",
       "default": "./lib/package.js"
     },
+    "./browser": {
+      "types": "./lib/types/browser.d.ts",
+      "default": "./lib/browser.js"
+    },
     "./format": {
       "types": "./lib/types/format.d.ts",
       "default": "./lib/format.js"
@@ -50,6 +54,10 @@
       "types": "./lib/types/cloud-host.d.ts",
       "default": "./lib/cloud-host.js"
     },
+    "./legacy": {
+      "types": "./lib/types/legacy.d.ts",
+      "default": "./lib/legacy.js"
+    },
     "./cloud-values": {
       "types": "./lib/types/cloud-values.d.ts",
       "default": "./lib/cloud-values.js"
@@ -62,12 +70,14 @@
     "locale/*.json",
     "lib/index.js",
     "lib/package.js",
+    "lib/browser.js",
     "lib/format.js",
     "lib/activation.js",
     "lib/cloud.js",
     "lib/cloud-host.js",
     "lib/shared-*.js",
     "lib/cloud-values.js",
+    "lib/legacy.js",
     "lib/cloud-values.browser.js",
     "lib/types/**/*.js",
     "lib/types/**/*.d.ts",

@@ -11,12 +11,13 @@ it('forwards local, activation and cloud requests without replacing Host error d
   const refuse = async () => ({ ok: false as const, error })
   const remote = {
     museMarket: {
-      sources: vi.fn(refuse), prepare: vi.fn(refuse), installed: vi.fn(refuse),
+      sources: vi.fn(refuse), prepare: vi.fn(refuse), prepareUpload: vi.fn(refuse), installed: vi.fn(refuse),
       importPackage: vi.fn(refuse), exportPackage: vi.fn(refuse), removePackage: vi.fn(refuse),
     },
     museMarketActivation: { defaults: vi.fn(refuse), setDefault: vi.fn(refuse), binding: vi.fn(refuse) },
     museMarketCloud: {
-      catalog: vi.fn(refuse), identity: vi.fn(refuse), getPublication: vi.fn(refuse),
+      catalog: vi.fn(refuse), legacyCatalog: vi.fn(refuse), installLegacy: vi.fn(refuse),
+      identity: vi.fn(refuse), getPublication: vi.fn(refuse),
       publishDraft: vi.fn(refuse), installPublication: vi.fn(refuse), review: vi.fn(refuse),
     },
   }
@@ -58,11 +59,12 @@ it('returns the original successful value and settles successful removal without
   const unused = async (): Promise<never> => { throw new Error('Unexpected operation') }
   const installed: Awaited<ReturnType<ReturnType<typeof createMarketOperations>['installed']>> = []
   const remote = {
-    museMarket: { sources: unused, prepare: unused, importPackage: unused, exportPackage: unused,
+    museMarket: { sources: unused, prepare: unused, prepareUpload: unused, importPackage: unused, exportPackage: unused,
       installed: async () => ({ ok: true as const, value: installed }),
       removePackage: async () => ({ ok: true as const, value: undefined }) },
     museMarketActivation: { defaults: unused, setDefault: unused, binding: unused },
-    museMarketCloud: { catalog: unused, identity: unused, getPublication: unused, publishDraft: unused,
+    museMarketCloud: { catalog: unused, legacyCatalog: unused, installLegacy: unused,
+      identity: unused, getPublication: unused, publishDraft: unused,
       installPublication: unused, review: unused },
   }
   const actions = createMarketOperations(remote)

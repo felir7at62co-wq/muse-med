@@ -25,8 +25,9 @@ export const marketTranslate: MarketTranslate = key => key in marketEn ? marketE
 /** Create strict operation doubles so unexpected interaction fails its test. */
 export function marketActions(overrides: Partial<MarketActions> = {}): MarketActions {
   const unexpected = async (): Promise<never> => { throw new Error('Unexpected market operation') }
-  return { sources: unexpected, prepare: unexpected, installed: unexpected, importPackage: unexpected,
+  return { sources: unexpected, prepare: unexpected, prepareUpload: unexpected, installed: unexpected, importPackage: unexpected,
     exportPackage: unexpected, removePackage: unexpected, defaults: unexpected, setDefault: unexpected,
-    binding: unexpected, catalog: unexpected, identity: unexpected, getPublication: unexpected,
+    binding: unexpected, catalog: unexpected, legacyCatalog: unexpected, installLegacy: unexpected,
+    identity: unexpected, getPublication: unexpected,
     publishDraft: unexpected, installPublication: unexpected, review: unexpected, ...overrides }
 }

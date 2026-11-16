@@ -55,7 +55,7 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:llm/retry` | event | `525254db03b1d1e6b74cf55aced52817568331ac1f96c0818728910b6692e336` | [`{ type: "llm/retry" }`](#persistence-type-sha256-525254db03b1d1e6b74cf55aced52817568331ac1f96c0818728910b6692e336) |
 | `event:llm/retry-started` | event | `48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3` | [`{ type: "llm/retry-started" }`](#persistence-type-sha256-48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3) |
 | `event:model/selection` | event | `35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc` | [`{ type: "model/selection" }`](#persistence-type-sha256-35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc) |
-| `event:muse-market/bound` | event | `5f1e4fe6e8aa242d8c33ece014004d8082b0429eb4bee69a93c0093c30bcac8f` | [`{ type: "muse-market/bound" }`](#persistence-type-sha256-5f1e4fe6e8aa242d8c33ece014004d8082b0429eb4bee69a93c0093c30bcac8f) |
+| `event:muse-market/bound` | event | `40e3ad89ce197a959664a6b2bf0d3de17f76d285b1187e0a778474b856f24552` | [`{ type: "muse-market/bound" }`](#persistence-type-sha256-40e3ad89ce197a959664a6b2bf0d3de17f76d285b1187e0a778474b856f24552) |
 | `event:permission/preset` | event | `5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b` | [`{ type: "permission/preset" }`](#persistence-type-sha256-5c45bf4c544a7211dcd8ba6ba7e5f1bc39b49e7a9df9d5cbdc8e87c22771b37b) |
 | `event:plan/mode` | event | `a7cf43ce7c2a4c038feed1885cd7a00d5c6ee2d90a7e0d56b46f78a3e1ca327f` | [`{ type: "plan/mode" }`](#persistence-type-sha256-a7cf43ce7c2a4c038feed1885cd7a00d5c6ee2d90a7e0d56b46f78a3e1ca327f) |
 | `event:request/context` | event | `e6880c6e32739d438c181803047edba233b56f4392753f40217b96b2c1595fe9` | [`{ type: "request/context" }`](#persistence-type-sha256-e6880c6e32739d438c181803047edba233b56f4392753f40217b96b2c1595fe9) |
@@ -4494,7 +4494,7 @@ Sources: [`packages/llm/llm-retry/src/types.ts:43`](../packages/llm/llm-retry/sr
 | `step` | required | `number` |
 | `turn` | required | `number` |
 
-<a id="persistence-type-sha256-3d3daf0a05ef1c19ad9a085f0ef01e2e7872112c3a5d1da7978a86a261ba31ed"></a>
+<a id="persistence-type-sha256-538c46e10afd0c9fad2c567110793220e354ed93311820d8178f7b3427cf5c06"></a>
 
 <a id="persistence-type-marketmanifest"></a>
 
@@ -4502,9 +4502,9 @@ Sources: [`packages/llm/llm-retry/src/types.ts:43`](../packages/llm/llm-retry/sr
 
 ### `MarketManifest`
 
-SHA-256: `3d3daf0a05ef1c19ad9a085f0ef01e2e7872112c3a5d1da7978a86a261ba31ed`
+SHA-256: `538c46e10afd0c9fad2c567110793220e354ed93311820d8178f7b3427cf5c06`
 
-Sources: [`packages/host/muse-market/src/types.ts:21`](../packages/host/muse-market/src/types.ts)
+Sources: [`packages/host/muse-market/src/types.ts:26`](../packages/host/muse-market/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -4515,12 +4515,13 @@ Sources: [`packages/host/muse-market/src/types.ts:21`](../packages/host/muse-mar
 | `kind` | required | `"skill"` |
 | `license` | required | `string` |
 | `name` | required | `string` |
+| `presetPortrait` | optional | `string` |
 | `requirements` | required | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
 | `skills` | required | [`{ name, path }[]`](#persistence-type-sha256-49a17e7abc039809851e7eebda201ce646b2a65ec74a98d46f979d4d3739a659) |
 | `title` | required | `string` |
 | `version` | required | `string` |
 
-<a id="persistence-type-sha256-9126e1701dbab7a2c33afef1275fafdbf4cc5a9a2121b570f38cbc8bca70b311"></a>
+<a id="persistence-type-sha256-f7426e5dacba9f29122740dd12ddb0d8be1b80a1e12cce7160ef929934609346"></a>
 
 <a id="persistence-type-marketrelease"></a>
 
@@ -4528,15 +4529,15 @@ Sources: [`packages/host/muse-market/src/types.ts:21`](../packages/host/muse-mar
 
 ### `MarketRelease`
 
-SHA-256: `9126e1701dbab7a2c33afef1275fafdbf4cc5a9a2121b570f38cbc8bca70b311`
+SHA-256: `f7426e5dacba9f29122740dd12ddb0d8be1b80a1e12cce7160ef929934609346`
 
-Sources: [`packages/host/muse-market/src/types.ts:28`](../packages/host/muse-market/src/types.ts)
+Sources: [`packages/host/muse-market/src/types.ts:33`](../packages/host/muse-market/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `bytes` | required | `number` |
 | `id` | required | `string` |
-| `manifest` | required | [`MarketManifest`](#persistence-type-sha256-3d3daf0a05ef1c19ad9a085f0ef01e2e7872112c3a5d1da7978a86a261ba31ed) |
+| `manifest` | required | [`MarketManifest`](#persistence-type-sha256-538c46e10afd0c9fad2c567110793220e354ed93311820d8178f7b3427cf5c06) |
 | `sha256` | required | `string` |
 
 <a id="persistence-type-sha256-5bdc80860c04548f1811484d296a58562879f201355e85f123bea6e850d9b52d"></a>
@@ -4828,7 +4829,7 @@ Sources: [`packages/core/agent/src/types.ts:93`](../packages/core/agent/src/type
 | `provider` | required | `string` |
 | `reasoningEffort` | optional | `string` |
 
-<a id="persistence-type-sha256-d213eee83406b01bebc00570e1dffe8002093311e2006dce701f4715fbad307c"></a>
+<a id="persistence-type-sha256-1becbe983c860a0b35ba4b780c590c2287068125b29c514b0cfc9d9d2d0ce48f"></a>
 
 <a id="persistence-type-musemarketbindingentry"></a>
 
@@ -4836,22 +4837,22 @@ Sources: [`packages/core/agent/src/types.ts:93`](../packages/core/agent/src/type
 
 ### `MuseMarketBindingEntry`
 
-SHA-256: `d213eee83406b01bebc00570e1dffe8002093311e2006dce701f4715fbad307c`
+SHA-256: `1becbe983c860a0b35ba4b780c590c2287068125b29c514b0cfc9d9d2d0ce48f`
 
-Sources: [`packages/host/muse-market/src/types.ts:54`](../packages/host/muse-market/src/types.ts)
+Sources: [`packages/host/muse-market/src/types.ts:59`](../packages/host/muse-market/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
-| `release` | required | [`MarketRelease`](#persistence-type-sha256-9126e1701dbab7a2c33afef1275fafdbf4cc5a9a2121b570f38cbc8bca70b311) |
+| `release` | required | [`MarketRelease`](#persistence-type-sha256-f7426e5dacba9f29122740dd12ddb0d8be1b80a1e12cce7160ef929934609346) |
 | `skill` | required | [`{ description, invocation, name, whenToUse? }`](#persistence-type-sha256-d727abbce0452ccaefacf727d5fe5e865633aa8ef892d9c89b0652a3e9683c84) |
 
-<a id="persistence-type-sha256-106361827cb21ef2a945270d1975ec2572f8b30cdf7bb70fc1fc3f0aa93333d0"></a>
+<a id="persistence-type-sha256-bf705e754cccd664a129c8ca9766d3044acd626078f3fcd6068e02a364c52b93"></a>
 
 ### `MuseMarketBindingEntry[]`
 
-SHA-256: `106361827cb21ef2a945270d1975ec2572f8b30cdf7bb70fc1fc3f0aa93333d0`
+SHA-256: `bf705e754cccd664a129c8ca9766d3044acd626078f3fcd6068e02a364c52b93`
 
-Array of [`MuseMarketBindingEntry`](#persistence-type-sha256-d213eee83406b01bebc00570e1dffe8002093311e2006dce701f4715fbad307c).
+Array of [`MuseMarketBindingEntry`](#persistence-type-sha256-1becbe983c860a0b35ba4b780c590c2287068125b29c514b0cfc9d9d2d0ce48f).
 
 <a id="persistence-type-sha256-8e8e91646a5cae3fc78f7532a0013ff2088ae47077642c2edd507a508209b8af"></a>
 
@@ -6922,7 +6923,7 @@ Sources: [`packages/llm/llm-retry/src/types.ts:30`](../packages/llm/llm-retry/sr
 
 SHA-256: `d727abbce0452ccaefacf727d5fe5e865633aa8ef892d9c89b0652a3e9683c84`
 
-Sources: [`packages/host/muse-market/src/types.ts:56`](../packages/host/muse-market/src/types.ts)
+Sources: [`packages/host/muse-market/src/types.ts:61`](../packages/host/muse-market/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -9030,7 +9031,7 @@ Sources: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/
 
 SHA-256: `50b8fd77985dda41092b931206d0f1a60270c7e4d503eed59042e19f18c89acb`
 
-Sources: [`packages/host/muse-market/src/types.ts:60`](../packages/host/muse-market/src/types.ts)
+Sources: [`packages/host/muse-market/src/types.ts:65`](../packages/host/muse-market/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -9043,7 +9044,7 @@ Sources: [`packages/host/muse-market/src/types.ts:60`](../packages/host/muse-mar
 
 SHA-256: `144cc843ba1d6758b09fdedf38ce46c876f6e75f6208d7ccf7aa1439088d50b0`
 
-Sources: [`packages/host/muse-market/src/types.ts:24`](../packages/host/muse-market/src/types.ts)
+Sources: [`packages/host/muse-market/src/types.ts:29`](../packages/host/muse-market/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -9122,17 +9123,17 @@ SHA-256: `8a6f5e3a5b07811520774425ac2dbd89aaaa035f8c155686a9ca212fd5a03848`
 | `reason` | optional | `string` |
 | `status` | required | [`union (2 variants)`](#persistence-type-sha256-6fdf65305cedfa59762ff497c9893db130beea522363c039f3a492e9df971e2a) |
 
-<a id="persistence-type-sha256-dda5e97d7a59dc0b8c29354692c0f1eb3b11b729fa00121d418454ad0997c3ec"></a>
+<a id="persistence-type-sha256-474f374ca1c5b29cf09af1ecf47f77ce2aa46c157273233bb938f9b303eb8496"></a>
 
 ### `{ releases }`
 
-SHA-256: `dda5e97d7a59dc0b8c29354692c0f1eb3b11b729fa00121d418454ad0997c3ec`
+SHA-256: `474f374ca1c5b29cf09af1ecf47f77ce2aa46c157273233bb938f9b303eb8496`
 
 Sources: [`packages/host/muse-market/src/session.ts:13`](../packages/host/muse-market/src/session.ts)
 
 | Property | Presence | Type |
 |---|---|---|
-| `releases` | required | [`MuseMarketBindingEntry[]`](#persistence-type-sha256-106361827cb21ef2a945270d1975ec2572f8b30cdf7bb70fc1fc3f0aa93333d0) |
+| `releases` | required | [`MuseMarketBindingEntry[]`](#persistence-type-sha256-bf705e754cccd664a129c8ca9766d3044acd626078f3fcd6068e02a364c52b93) |
 
 <a id="persistence-type-sha256-9a2a9029f8d7ede05336980d8342737557f487b913bfd28853d0ab5214600ab5"></a>
 
@@ -9875,17 +9876,17 @@ SHA-256: `35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc`
 | `time` | required | `number` |
 | `type` | required | `"model/selection"` |
 
-<a id="persistence-type-sha256-5f1e4fe6e8aa242d8c33ece014004d8082b0429eb4bee69a93c0093c30bcac8f"></a>
+<a id="persistence-type-sha256-40e3ad89ce197a959664a6b2bf0d3de17f76d285b1187e0a778474b856f24552"></a>
 
 <a id="persistence-type-eventmuse-marketbound"></a>
 
 ### `{ type: "muse-market/bound" }`
 
-SHA-256: `5f1e4fe6e8aa242d8c33ece014004d8082b0429eb4bee69a93c0093c30bcac8f`
+SHA-256: `40e3ad89ce197a959664a6b2bf0d3de17f76d285b1187e0a778474b856f24552`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`{ releases }`](#persistence-type-sha256-dda5e97d7a59dc0b8c29354692c0f1eb3b11b729fa00121d418454ad0997c3ec) |
+| `data` | required | [`{ releases }`](#persistence-type-sha256-474f374ca1c5b29cf09af1ecf47f77ce2aa46c157273233bb938f9b303eb8496) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
