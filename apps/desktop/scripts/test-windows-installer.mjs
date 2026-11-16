@@ -17,6 +17,8 @@ if (process.platform !== 'win32' || process.arch !== 'x64') {
 }
 const execute = promisify(execFile)
 const appRoot = fileURLToPath(new URL('..', import.meta.url))
+const fixtureSource = createInstallerTestSource(await readFile(join(appRoot, 'scripts', 'installer.nsh'), 'utf8'), appRoot)
+const fixturePages = createInstallerTestPagesSource(await readFile(join(appRoot, 'installer', 'pages.nsh'), 'utf8'))
 const require = createRequire(import.meta.url)
 const { build, Platform, Arch } = require('electron-builder')
 const { getMakeNsisPath } = require('app-builder-lib/out/toolsets/windows.js')

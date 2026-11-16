@@ -60,8 +60,14 @@ afterEach(() => {
 })
 
 describe('desktop core package set', () => {
-  it('grants build permission only to the reviewed native dependencies', () => {
-    const { root } = packageSetProject()
+  it.each([false, true])('grants build permission only to reviewed native dependencies with an artifact pin: %s', (pinned) => {
+    const { root, dsh, base, host } = packageSetProject()
+    if (pinned) {
+      const body = Buffer.from('subprocess-local')
+      const native = record('@deepseek-ai/dsh-subprocess-local', 'subprocess-local.tgz', body)
+      writeFileSync(join(root, DESKTOP_PACKAGES_DIR, native.file), body)
+      writeFileSync(join(root, DESKTOP_PACKAGE_SET_FILE), JSON.stringify({ schemaVersion: 1, packages: [dsh, base, host, native] }))
+    }
     createRuntimeProjectMetadata(root, { schemaVersion: 1, version: '1.2.3', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
       nodeVersion: '24.17.0', pnpmVersion: '11.7.0' })
     const workspace: unknown = load(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8'))
@@ -70,8 +76,9 @@ describe('desktop core package set', () => {
     expect(workspace).not.toHaveProperty('dangerouslyAllowAllBuilds')
     expect(workspace).toHaveProperty('allowBuilds', {
       'node-pty': true, koffi: true, 'fs-ext': true,
-      '@deepseek-ai/dsh-subprocess-local': true,
+      [pinned ? '@deepseek-ai/dsh-subprocess-local@file:desktop-packages/subprocess-local.tgz' : '@deepseek-ai/dsh-subprocess-local']: true,
       '@google/genai': false, protobufjs: false, 'node-addon-require-builtin': false,
+      '@whiskeysockets/baileys': false, 'tos-crc64-js': false,
     })
   })
 
