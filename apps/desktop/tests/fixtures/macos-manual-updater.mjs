@@ -73,7 +73,7 @@ async function main() {
     const states = []
     const coordinator = new DesktopUpdateCoordinator(state => { states.push(state); return state },
       async () => { inspections++; return authorized }, updater, () => true, () => adapter.version, undefined,
-      [{ provider: 'generic', url: `${origin}/${lane}/`, channel: 'latest', useMultipleRangeRequest: false }])
+      [{ provider: 'generic', url: `${origin}/${lane}/`, channel: 'latest', useMultipleRangeRequest: false }], process.platform, 'latest')
     coordinators.push(coordinator)
     const checked = await coordinator.check(true)
     assert.equal(checked.phase, 'available', checked.message)
