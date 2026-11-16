@@ -1551,6 +1551,28 @@ function verifyAdvancedToolchain(logs: readonly SessionLog[]): void {
   }
 }
 
+/** Require depth rejection and direct-parent-only settlement delivery, independent of parent teardown timing. */
+function verifyDepthTwoRejection(logs: readonly SessionLog[]): void {
+  expect(logs).toHaveLength(3)
+  const [root, parent, leaf] = logs as [SessionLog, SessionLog, SessionLog]
+  const leafEvents = parseSessionLog(leaf.content)
+  const results = leafEvents.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  expect(results).toHaveLength(1)
+  expect(results[0]).toMatchObject({ isError: true, content: [{ type: 'text', text: 'Error: subagent depth 3 exceeds maxDepth 2' }] })
+  expect(leafEvents.filter(event => event.type === 'subagent/catalog')).toEqual([])
+  expect(finalTextFromSession(leaf.content)).toBe('DEPTH_REJECTED')
+  const leafNotices = (log: SessionLog) => parseSessionLog(log.content).filter(event => event.type === 'user/message'
+    && event.data.source.kind === 'subagent-settled' && event.data.source.senderSessionId === leaf.header.id)
+  expect(leafNotices(root)).toEqual([])
+  // The direct parent receives completion only if it is still online when its child settles.
+  const notices = leafNotices(parent)
+  expect(notices.length).toBeLessThanOrEqual(1)
+  for (const notice of notices) {
+    expect(notice).toMatchObject({ data: { source: { stopReason: 'completed' },
+      content: expect.arrayContaining([{ type: 'text', text: 'DEPTH_REJECTED' }]) } })
+  }
+}
+
 /** Require real resource results and literal instructions before recording or replay succeeds. */
 function verifyMcpResources(log: string, ptc: boolean): void {
   const events = parseSessionLog(log)
@@ -1868,6 +1890,27 @@ async function verifyChildOutputLimitRejection(scenario: HeadlessScenario, actua
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('accepts direct-parent depth notices and rejects delivery to the grandparent', async () => {
+    const logs: SessionLog[] = await Promise.all(['session.v4.jsonl', 'session.1.v4.jsonl', 'session.2.v4.jsonl']
+      .map(async name => {
+        const content = await readFile(join(snapshotsRoot, 'subagent-depth-two-rejection', name), 'utf8')
+        return { content, header: records(content)[0]! }
+      }))
+    verifyDepthTwoRejection(logs)
+    const notice = records(logs[0]!.content).find(event => event.type === 'user/message'
+      && (event.data as { source?: { kind: string } }).source?.kind === 'subagent-settled')!
+    const delivered = JSON.stringify({ ...notice, data: { ...notice.data as JsonObject,
+      source: { kind: 'subagent-settled', form: 'notice', senderSessionId: logs[2]!.header.id, stopReason: 'completed' },
+      content: [{ type: 'text', text: 'DEPTH_REJECTED' }] } }) + '\n'
+    const withNotice = (index: number) => logs.map((log, position) => position === index
+      ? { ...log, content: log.content + delivered } : log)
+    verifyDepthTwoRejection(withNotice(1))
+    expect(() => verifyDepthTwoRejection(withNotice(0))).toThrow()
+    const accepted = logs.map((log, index) => index === 2 ? { ...log,
+      content: log.content.replace('"isError":true', '"isError":false') } : log)
+    expect(() => verifyDepthTwoRejection(accepted)).toThrow()
+  })
+
   it('allocates distinct workspaces with a fixed quoted length for budget snapshots', async () => {
     const options = await fixedBudgetWorkspaceOptions()
     const first = await mkdtemp(join(options.tempDirParent, options.tempDirPrefix))
@@ -3761,14 +3804,7 @@ describe('headless recorded-session snapshots', () => {
             }
             if (scenario.name === 'advanced-toolchain') verifyAdvancedToolchain(actualLogs)
             if (scenario.name === 'subagent-depth-two-rejection') {
-              expect(actualLogs).toHaveLength(3)
-              const leaf = actualLogs[2]!
-              expect(leaf.content).toContain('DEPTH_REJECTED')
-              for (const ancestor of actualLogs.slice(0, 2)) {
-                const notices = parseSessionLog(ancestor.content).filter(event => event.type === 'user/message'
-                  && event.data.source.kind === 'subagent-settled' && event.data.source.senderSessionId === leaf.header.id)
-                expect(notices).toEqual([])
-              }
+              verifyDepthTwoRejection(actualLogs)
             }
             if (scenario.name === 'team-tree-messages') verifyTeamTreeMessage(actualLogs)
             if (scenario.name === 'team-task-inbox') verifyTeamTaskInbox(actualLogs)
