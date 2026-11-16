@@ -213,7 +213,8 @@ jobs:
             apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/unsigned-build.json
           if-no-files-found: error
           compression-level: 0
-          retention-days: 30
+          # Read only by this run's upload-drafts job and by manual downloads of dispatched candidates; no job reads pull request builds.
+          retention-days: ${{ github.event_name == 'workflow_dispatch' && 7 || 1 }}
       - name: Retain native installer acceptance evidence
         if: always() && github.event_name == 'workflow_dispatch' && !(inputs.export_candidate_to_tos && matrix.target == 'win-x64')
         uses: actions/upload-artifact@v7.0.1
@@ -244,7 +245,8 @@ jobs:
           name: muse-win-x64-installer-ui-${{ github.sha }}
           path: apps/desktop/.desktop-build/installer-tests/
           if-no-files-found: warn
-          retention-days: 14
+          # Contains installer copies (~150 MB per run) and serves only diagnosis of this run.
+          retention-days: ${{ github.event_name == 'workflow_dispatch' && 7 || 3 }}
   upload-drafts:
     name: Copy verified installers into existing drafts
     needs: build

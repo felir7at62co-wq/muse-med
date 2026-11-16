@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
@@ -93,6 +93,44 @@ describe('CI workflow', () => {
     const gatewayInstall = steps.findIndex(step => step.run === 'npm ci --prefix services/muse-accounts --ignore-scripts')
     expect(gatewayInstall).toBeGreaterThanOrEqual(0)
     expect(steps.indexOf(modelCheck ?? {})).toBeGreaterThan(gatewayInstall)
+  })
+
+  it('expires Muse installer artifacts after their only reader, keeping dispatched candidates for a week', () => {
+    const workflow = loadWorkflow('.github/workflows/muse-desktop.yml')
+    const build = workflowJob(workflow, 'build')
+    if (!Array.isArray(build.steps)) throw new TypeError('Muse packaging must define steps')
+    const uploads = build.steps.filter(isRecord).filter(step => String(step.uses).startsWith('actions/upload-artifact@'))
+    const retention = (name: string, event: string): unknown => {
+      const step = uploads.find(upload => isRecord(upload.with) && upload.with.name === name)
+      if (!step || !isRecord(step.with)) throw new TypeError(`Missing upload ${name}`)
+      const days = step.with['retention-days']
+      return typeof days === 'string' ? evaluateRunsOn(days, { github: { event_name: event } }) : days
+    }
+    const installers = 'muse-${{ matrix.target }}-${{ github.sha }}'
+    const installerUi = 'muse-win-x64-installer-ui-${{ github.sha }}'
+    expect([retention(installers, 'pull_request'), retention(installers, 'workflow_dispatch')]).toEqual([1, 7])
+    expect([retention(installerUi, 'pull_request'), retention(installerUi, 'workflow_dispatch')]).toEqual([3, 7])
+    for (const upload of uploads) {
+      expect(isRecord(upload.with) && upload.with['retention-days']).toBeTruthy()
+    }
+
+    // A cross-run reader would outlive the short retention, so every reader stays inside the producing run.
+    const readers: string[] = []
+    for (const file of readdirSync(resolve(root, '.github/workflows')).filter(name => name.endsWith('.yml'))) {
+      const jobs = loadWorkflow(`.github/workflows/${file}`).jobs
+      if (!isRecord(jobs)) continue
+      for (const [jobName, job] of Object.entries(jobs)) {
+        if (!isRecord(job) || !Array.isArray(job.steps)) continue
+        for (const step of job.steps.filter(isRecord)) {
+          if (!String(step.uses).startsWith('actions/download-artifact@') || !isRecord(step.with)) continue
+          if (!/^muse-(?:mac-arm64|win-x64|\$\{\{ matrix\.target \}\})-/u.test(String(step.with.name))) continue
+          expect(step.with).not.toHaveProperty('run-id')
+          readers.push(`${file}#${jobName}`)
+        }
+      }
+    }
+    expect([...new Set(readers)]).toEqual(['muse-desktop.yml#upload-drafts'])
+    expect(workflowJob(workflow, 'upload-drafts').needs).toBe('build')
   })
 
   it('keeps at most eleven worker jobs active across PR workflows while Python runtime targets follow the SDK suite', () => {
