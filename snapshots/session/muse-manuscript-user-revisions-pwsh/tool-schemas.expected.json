@@ -2,13 +2,13 @@
   "initial": [
     {
       "name": "apply_patch",
-      "description": "Create, update, delete, or move UTF-8 text files with one Codex-style patch; prefer it over multiple edit calls when a change spans several files or separated regions.",
+      "description": "Create, update, delete, or move UTF-8 text files with one patch; prefer it over multiple edit calls when a change spans several files or separated regions.",
       "parameters": {
         "type": "object",
         "properties": {
           "input": {
             "type": "string",
-            "description": "Codex patch text: start with *** Begin Patch and end with *** End Patch. Use *** Add File: path with + lines; *** Update File: path, optionally followed by *** Move to: path, with @@ or @@ context and space-prefixed context, + added, or - removed lines; *** End of File anchors the last hunk to the file end. Use *** Delete File: path to delete. Paths are relative to the Session working directory."
+            "description": "Patch text: start with *** Begin Patch and end with *** End Patch. Use *** Add File: path with + lines; *** Update File: path, optionally followed by *** Move to: path, with @@ or @@ context and space-prefixed context, + added, or - removed lines; *** End of File anchors the last hunk to the file end. Use *** Delete File: path to delete. Paths are relative to the Session working directory."
           },
           "sandbox_permissions": {
             "type": "string",
@@ -143,22 +143,6 @@
       }
     },
     {
-      "name": "interrupt_agent",
-      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a local direct child's conversation later with send_message. External executions stop permanently and cannot receive follow-ups. Subagents it started will keep running.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "agent_id": {
-            "type": "string",
-            "description": "The id of an agent created under you: your direct child or a deeper descendant."
-          }
-        },
-        "required": [
-          "agent_id"
-        ]
-      }
-    },
-    {
       "name": "job_kill",
       "description": "Request cancellation of a running background job.",
       "parameters": {
@@ -212,24 +196,15 @@
     },
     {
       "name": "list_agents",
-      "description": "List subagents you started, with their ids, labels, and status. running means it is working; inactive means it is not currently working. You will be notified when a subagent finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
+      "description": "List your entire subagent tree: the root agent and all reachable continuable descendants, including yourself. Rows carry names, descriptions, and status. A descendant's name is its path from the root, such as reviewer/checker. You can message any other agent in the subagent tree. running means it is working; inactive means no turn is executing; it does not indicate task completion, success, or failure. corrupt, unsupported, or unavailable means this row's own descendants could not be read; the row itself is still a member you can message. While you remain active, you will be notified when a direct child finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
       "parameters": {
         "type": "object",
-        "properties": {
-          "scope": {
-            "type": "string",
-            "description": "children (default) lists direct children, which accept send_message in any status. descendants lists the whole tree below you with each entry's parent session id and depth; entries deeper than 1 accept only interrupt_agent.",
-            "enum": [
-              "children",
-              "descendants"
-            ]
-          }
-        }
+        "properties": {}
       }
     },
     {
       "name": "manuscript_revision",
-      "description": "支持Word/Markdown/文本。snapshot保留完整原件，history查历史；不自动选当前稿。notes用source_paths保留Word批注原文、旧稿定位及本轮完整真人要求，后续精修和独立审校可恢复；仅保留，不宣称批注已解决。materials读取显式current、reference和candidate正文。continuity使用当前模型在独立只读会话检查所选正文、所存要求和批注，返回原句及未知项，不自动改稿。cross_episode针对有可靠集标题的合并稿逐对核对完整相邻集的因果、人物知情、道具数值和尾钩承接，要求两边原句，明确未读边界；分散单集须先明确合并，不按文件名猜顺序。repeat_scan只扫描实际当前稿或候选稿内部的字面重复候选，不比较原稿与候选的相同段落；coverage不完整时不能称零重复。transcript_coverage按transcript_sources逐集把稿件与该集ASR的output_json、可选video_ocr原始JSON逐字对齐，统计按序／错序／未写入的ASR段、无来源或仅画面文字的台词、新增措辞、与画面文字不同的字和最后有来源台词之后的行；给characters时列出表外说话人和已知错写。只计量，查不出同音字，不拦截交付。repetitions独立阅读完整选区，逐条判断字面候选并查换词重演，区分回忆、短接续与新信息，不自动删稿。source_fidelity用video_sources明确原片时间、缓存帧和目标正文行，在独立图像会话逐图及逐ASR段核对对应、遗漏、错误归属和事件顺序；返回video_source_review，只限抽样原帧与保存ASR，不称听过原音、身份或同源已验证。delivery按实际核对范围或草稿交付，将files[].label原样用作present描述；视频来源交付设source_mode:video；声明和呈现前后复验已采用的来源、稿件和所存要求，源疑点不能用普通文字审校清除。文件或所存要求变化需重新核验。compare/status对照返稿，review检查候选是否保留返稿修改，measure只统计同范围文字量，这些动作不作语义审校。",
+      "description": "支持Word/Markdown/文本。snapshot保留完整原件，history查历史；不自动选当前稿。notes用source_paths保留Word批注原文、旧稿定位及本轮完整真人要求，后续精修和独立审校可恢复；仅保留，不宣称批注已解决。materials读取显式current、reference和candidate正文。continuity使用当前模型在独立只读会话检查所选正文、所存要求和批注，返回原句及未知项，不自动改稿。cross_episode针对有可靠集标题的合并稿逐对核对完整相邻集的因果、人物知情、道具数值和尾钩承接，要求两边原句，明确未读边界；所选正文在材料上限内可一次提交，集界超出单个审校上限时自动按相邻集分段并行核对并合并为一个结果，合并稿超出材料上限时才按集分批；分散单集须先明确合并，不按文件名猜顺序。repeat_scan只扫描实际当前稿或候选稿内部的字面重复候选，不比较原稿与候选的相同段落；coverage不完整时不能称零重复。transcript_coverage按transcript_sources逐集把稿件与该集ASR的output_json、可选video_ocr原始JSON逐字对齐，统计按序／错序／未写入的ASR段、无来源或仅画面文字的台词、新增措辞、与画面文字不同的字和最后有来源台词之后的行；ASR带speaker_id时按音色分组列出说话人与同组多数不一致的台词（speaker_voice_conflicts，回原片看帧确认），与画面文字不同处同列ASR原文；给characters或共享人物表文件characters_path时列出表外说话人和已知错写。只计量，查不出同音字，不拦截交付。repetitions独立阅读完整选区，逐条判断字面候选并查换词重演，区分回忆、短接续与新信息，不自动删稿。source_fidelity用video_sources明确原片时间、缓存帧和目标正文行，在独立图像会话逐图及逐ASR段核对对应、遗漏、错误归属和事件顺序；返回video_source_review，只限抽样原帧与保存ASR，不称听过原音、身份或同源已验证。delivery按实际核对范围或草稿交付，将files[].label原样用作present描述；视频来源交付设source_mode:video并给video_dir，程序逐集查剧本格式与看帧记录、按事实生成标签，格式问题和看帧缺口写在标签与video_check里，按所列逐条改正；标目标完成时会列出仍缺的整剧Word、看帧或transcript_coverage；声明和呈现前后复验已采用的来源、稿件和所存要求，源疑点不能用普通文字审校清除。文件或所存要求变化需重新核验。compare/status对照返稿，review检查候选是否保留返稿修改，measure只统计同范围文字量，这些动作不作语义审校。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -267,6 +242,10 @@
             "enum": [
               "video"
             ]
+          },
+          "video_dir": {
+            "type": "string",
+            "description": "视频转剧本delivery：本剧原片所在目录，文件名里带集号。程序逐集核对剧本格式和看帧报告，按事实生成标签并返回逐集事实表video_check。"
           },
           "note": {
             "type": "string",
@@ -416,6 +395,10 @@
                 "path"
               ]
             }
+          },
+          "characters_path": {
+            "type": "string",
+            "description": "transcript_coverage可选，与characters二选一：主控建好的共享人物表JSON文件（[{name, variants}]，可另带外貌、称呼等字段），各集与分集代理用同一文件。"
           },
           "characters": {
             "type": "array",
@@ -595,13 +578,13 @@
     },
     {
       "name": "send_message",
-      "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.",
+      "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation.",
       "parameters": {
         "type": "object",
         "properties": {
-          "agent_id": {
+          "agent": {
             "type": "string",
-            "description": "The agent id of your direct continuable child, or your direct parent when you are a resident continuable child."
+            "description": "The name of another agent in your subagent tree, as shown by list_agents."
           },
           "message": {
             "type": "string",
@@ -609,14 +592,14 @@
           }
         },
         "required": [
-          "agent_id",
+          "agent",
           "message"
         ]
       }
     },
     {
       "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its name. If you are still online when it finishes, the runtime automatically delivers its completion notice. The notice includes the final answer unless the child sent you a message just before finishing. Use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -626,7 +609,11 @@
           },
           "description": {
             "type": "string",
-            "description": "A short (3-5 word) description of the delegated task, for display."
+            "description": "A short (3-5 word) description of the delegated task, for display. Use the language of the user's current request."
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional short name for the subagent, unique among the subagents you create: lower-case letters, digits, and hyphens, starting with a letter, at most 32 characters; lead is reserved for the root agent. Omitted names default to agent-1, agent-2, and so on."
           },
           "prompt": {
             "type": "string",
@@ -641,7 +628,7 @@
     },
     {
       "name": "subagent_fork",
-      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its name. If you are still online when it finishes, the runtime automatically delivers its completion notice. The notice includes the final answer unless the child sent you a message just before finishing. Use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -651,7 +638,11 @@
           },
           "description": {
             "type": "string",
-            "description": "A short (3-5 word) description of the delegated task, for display."
+            "description": "A short (3-5 word) description of the delegated task, for display. Use the language of the user's current request."
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional short name for the subagent, unique among the subagents you create: lower-case letters, digits, and hyphens, starting with a letter, at most 32 characters; lead is reserved for the root agent. Omitted names default to agent-1, agent-2, and so on."
           },
           "prompt": {
             "type": "string",
@@ -991,6 +982,19 @@
       }
     },
     {
+      "name": "wait_agent",
+      "description": "Wait for input at your next step, including agent messages, completion notifications, and user steering. Returns immediately if new input is pending. `timedOut: false` means new input is pending. Pending input is delivered to the model after code execution finishes.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "timeout_ms": {
+            "type": "integer",
+            "description": "Wait duration in milliseconds, from 10000 through 3600000. Defaults to 30000."
+          }
+        }
+      }
+    },
+    {
       "name": "web_fetch",
       "description": "Fetch the content of a specific HTTP(S) URL and return it decoded to text.",
       "parameters": {
@@ -1014,7 +1018,7 @@
         "properties": {
           "queries": {
             "type": "array",
-            "description": "1–4 search queries; their results are merged.",
+            "description": "1–10 search queries; their results are merged.",
             "items": {
               "type": "string"
             }
