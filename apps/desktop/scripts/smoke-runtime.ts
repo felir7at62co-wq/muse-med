@@ -351,11 +351,25 @@ export function apply(ctx) {
         // Name the loader state of the plugins that provide those dependencies; a failed fiber keeps its error.
         const states = ['pending', 'loading', 'active', 'failed', 'disposed', 'unloading']
         const loader = ctx.get('loader')
-        const entries = loader === undefined ? [] : [...loader.entries()]
-          .filter(entry => /storage|workspace|session-controller|session-coordinator/.test(String(entry.options.name)))
-          .map(entry => String(entry.options.name) + '=' + (entry.disabled ? 'disabled' : entry.fiber === undefined ? 'not loaded'
-            : (states[entry.fiber.state] ?? String(entry.fiber.state))
-              + (entry.fiber._error === undefined ? '' : ' (' + String(entry.fiber._error?.message ?? entry.fiber._error).slice(0, 300) + ')')))
+        const entries = []
+        for (const entry of loader === undefined ? [] : loader.entries()) {
+          if (!/storage|workspace|session-controller|session-coordinator/.test(String(entry.options.name))) continue
+          let state
+          if (entry.disabled) state = 'disabled'
+          else if (entry.fiber === undefined) {
+            // The loader only logs an import failure; repeat the import through the entry's tree to name it.
+            try {
+              await entry.parent.tree.import(entry.options.name, entry.getOuterStack)
+              state = 'not loaded (imports now)'
+            } catch (error) {
+              state = 'not loaded (' + String(error?.message ?? error).slice(0, 400) + ')'
+            }
+          } else {
+            state = (states[entry.fiber.state] ?? String(entry.fiber.state))
+              + (entry.fiber._error === undefined ? '' : ' (' + String(entry.fiber._error?.message ?? entry.fiber._error).slice(0, 300) + ')')
+          }
+          entries.push(String(entry.options.name) + '=' + state)
+        }
         throw new Error('desktop runtime: Main Session routing tool roster differs; missing: ' + (missing.join(', ') || 'none')
           + '; unexpected: ' + (unexpected.join(', ') || 'none') + '; absent services: ' + (before.join(', ') || 'none')
           + '; absent after 60 s: ' + (absent().join(', ') || 'none') + '; still missing after 60 s: ' + (later.join(', ') || 'none')
