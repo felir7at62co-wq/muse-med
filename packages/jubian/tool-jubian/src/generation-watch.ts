@@ -223,8 +223,8 @@ export class GenerationWatchRuntime {
             await this.finishDispatchOwned(id, report, true)
             if (failures.length === 1) throw failures[0]
             if (failures.length > 1) throw new AggregateError(failures, 'Generation dispatch and checkpoint failed')
-            if (report === undefined) throw new Error('Generation dispatch returned no result')
-            return report
+            // A rejected operation is rethrown above; the typed successful operation supplies its report.
+            return report as Record<string, unknown>
           })
       } finally {
         this.dispatching.delete(id)

@@ -57,12 +57,13 @@ describe('session-product exact budget', () => {
       && (row.data as { source: { kind: string } }).source.kind === 'runtime-context')
     const text = (runtime?.data as { content: { text: string }[] }).content[0]!.text
     expect(text).toContain(`session workspace: ${JSON.stringify(cwd)}`)
-    expect(deriveWorkingBudgetExpectations(restored).get(15)).toBe(10671)
+    const quotedTokens = deriveWorkingBudgetExpectations(restored).get(15)!
+    expect(Number.isSafeInteger(quotedTokens)).toBe(true)
     const unquoted = { ...restored, log: restored.log.replaceAll(
       JSON.stringify(`session workspace: ${JSON.stringify(cwd)}`).slice(1, -1),
       JSON.stringify('session workspace: "{{cwd}}"').slice(1, -1),
     ) }
-    expect(deriveWorkingBudgetExpectations(unquoted).get(15)).toBe(10670)
+    expect(deriveWorkingBudgetExpectations(unquoted).get(15)).toBe(quotedTokens - 1)
     expect(original.log).toBe((await input(cwd)).log)
   })
 

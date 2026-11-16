@@ -1131,7 +1131,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       sourceQaScope = binding
       return () => {
         owner.abort(Error('SOURCE_QA_HOST_UNAVAILABLE: 源片复验服务已卸载。'))
-        if (sourceQaScope === binding) sourceQaScope = undefined
+        // Cordis finishes this injected scope before activating its replacement.
+        sourceQaScope = undefined
       }
     })
   })
