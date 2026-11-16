@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream'
+import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { SubprocessHandle, SubprocessOutcome, SubprocessRuntime, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { checkHongguoRuntime, createNativeDiagnostics } from './fixtures/hongguo-runtime-smoke.mjs'
@@ -54,7 +55,9 @@ it('checks the current open engine without an original Java or Python payload', 
   expect(result).toEqual({ engine: 'jackotom', ffmpeg: true, ffprobe: true, cleanup: true })
   expect(fixture.runtime.client.signer.ensure).not.toHaveBeenCalled()
   expect(fixture.spawn).toHaveBeenCalledTimes(2)
-  expect(fixture.spawn.mock.calls.every(([spec]) => spec.cwd === '/runtime/media/ffmpeg/bin')).toBe(true)
+  expect(fixture.spawn.mock.calls.map(([spec]) => spec.cwd)).toEqual([
+    join('/runtime', 'media', 'ffmpeg', 'bin'), join('/runtime', 'media', 'ffmpeg', 'bin'),
+  ])
 })
 
 it('publishes only native versions and acceptance booleans after the client and context are disposed', async () => {
