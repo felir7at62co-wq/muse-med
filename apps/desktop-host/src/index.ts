@@ -33,6 +33,7 @@ import { installDesktopDouyinBrowser } from './douyin-browser.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION, DESKTOP_HOST_SHUTDOWN_GRACE_MS } from './host-protocol.ts'
 import { workspaceStorageLayer } from './workspace-storage-composition.ts'
 import { generationLoopLayer } from './generation-loop-composition.ts'
+import { packagedModuleOverrides } from './packaged-modules.ts'
 
 const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
 
@@ -126,7 +127,8 @@ async function desktopComposition(
   }])
   // Resolve bridge Config only after the setup service installs its startup hook.
   layers.push(feishuGateLayer([...rows.values()]))
-  return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: { ...bundledBridgeModules(runtimeDir), 'muse-workspace-owned-storage': fileURLToPath(new URL('./workspace-owned-storage.js', import.meta.url)), 'ds-bot': fileURLToPath(new URL('./retired-bot.js', import.meta.url)), 'muse-bot': fileURLToPath(new URL('./retired-bot.js', import.meta.url)) } }
+  return { profile, patches: layers.slice(profile.layers.length + 1).flat(),
+    moduleOverrides: { ...bundledBridgeModules(runtimeDir), ...packagedModuleOverrides(import.meta.url) } }
 }
 
 async function main(): Promise<void> {

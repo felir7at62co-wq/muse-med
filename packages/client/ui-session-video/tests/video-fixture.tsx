@@ -1,12 +1,11 @@
 /** Declarative Session and native-slot ownership shared by the video journey tests. */
-import { waitFor } from '@testing-library/react'
-import { expect, onTestFinished, vi } from 'vitest'
+import { onTestFinished, vi } from 'vitest'
 import { SlotTestRuntime, chatSnapshot } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InputActions, InputState } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionVideoAnalysis, SessionVideoInventory, SessionVideoSource, SessionVideoSourceId, SessionVideoShotId } from '@deepseek-ai/dsh-session-video'
+import type { SessionVideoAnalysis, SessionVideoInventory, SessionVideoSource, SessionVideoSourceId, SessionVideoShotId } from '@deepseek-ai/dsh-session-video/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { createVideoStore } from '../src/client/store.ts'
@@ -15,6 +14,7 @@ import { DeliveredVideoCard, GeneratedVideoCards } from '../src/client/InlineVid
 import type { VideoInjected } from '../src/client/face.ts'
 import { NS, en, zh } from '../src/client/locales.ts'
 import type { OwnerOf } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ResourceSnapshot } from '@deepseek-ai/dsh-client-resources/client'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -87,13 +87,17 @@ export async function fixture(items: SessionVideoSource[] = [source()]) {
   const reference = runtime.sessions.retain(id)
   retained.reference = reference
   await reference.ready
-  const listVideos = vi.fn<VideoInjected['listVideos']>().mockResolvedValue(inventory(items))
   const detectShots = vi.fn<VideoInjected['detectShots']>().mockImplementation(async (_session, id) => {
     const item = items.find(item => item.id === id)
     if (!item) throw Error('Unknown source in the detected inventory')
     return analysis(item)
   })
   const store = createVideoStore()
+  const resource = createSnapshotStore<ResourceSnapshot<SessionVideoInventory>>({ status: 'live', value: inventory(items), failure: undefined })
+  runtime.slots.provideRoot({ keyedHooks: { resource: () => resource } })
+  const openWorkspace = vi.fn(), refreshVideos = vi.fn(), addTargetReference = vi.fn().mockReturnValue(true),
+    removeTargetReference = vi.fn().mockReturnValue(true)
+  const injected = { detectShots, pixelsPerSecond: 48, openWorkspace, refreshVideos, addTargetReference, removeTargetReference }
   await runtime.declare({ 'conversation.content.overlay': { kind: 'list', scope: 'session' },
     'conversation.chat.pinned': { kind: 'list', scope: 'session' },
     'test.video.delivered': { kind: 'list', scope: 'session' }, 'conversation.chat.turnTail': { kind: 'list', scope: 'session' } })
@@ -102,16 +106,15 @@ export async function fixture(items: SessionVideoSource[] = [source()]) {
       children: { 'deliverables.video': { kind: 'chain', scope: 'session' } } },
     ({ renderSlotChain, sourceUrl, label, path, seq, index }) => renderSlotChain('deliverables.video', { sourceUrl, label, path, seq, index }))
     ctx.slots.register({ name: 'conversation.content.overlay', id: 'video', store, locale: NS,
-      inject: () => ({ listVideos, detectShots, pixelsPerSecond: 48 }) }, VideoShelf)
+      inject: () => injected }, VideoShelf)
     ctx.slots.register({ name: 'conversation.chat.pinned', id: 'video-spacer' }, VideoShelfSpacer)
     ctx.slots.register({ name: 'deliverables.video', store, locale: NS, select: () => true,
-      inject: () => ({ listVideos, detectShots, pixelsPerSecond: 48 }) }, DeliveredVideoCard)
+      inject: () => injected }, DeliveredVideoCard)
     ctx.slots.register({ name: 'conversation.chat.turnTail', id: 'generated', store, locale: NS,
-      inject: () => ({ listVideos, detectShots, pixelsPerSecond: 48 }) }, GeneratedVideoCards)
+      inject: () => injected }, GeneratedVideoCards)
   } })
   const panel = runtime.renderSlot('conversation.content.overlay', { activeView: 'chat' }, { session: reference })
   runtime.renderSlot('conversation.chat.pinned', {}, { session: reference })
   const instance = runtime.storeOf('conversation.content.overlay', reference) as ReturnType<typeof store.create>
-  await waitFor(() => { expect(instance.getSnapshot().sources).toEqual(items) })
-  return { runtime, panel, reference, instance, listVideos, detectShots, inputActions, input }
+  return { runtime, panel, reference, instance, detectShots, inputActions, input, openWorkspace, resource }
 }

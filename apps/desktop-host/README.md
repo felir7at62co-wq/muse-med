@@ -9,6 +9,8 @@ English | [中文](README.zh.md)
 
 The Host awaits application teardown and IPC delivery of its shutdown acknowledgement before explicitly exiting. Incidental event-loop handles retained by disposed plugins cannot delay a completed shutdown. Failed teardown or acknowledgement does not authorize that exit; startup failure retains its own diagnostic status. The [Desktop application](../desktop/README.md) still requires the acknowledgement and a successful process exit before installing an update.
 
+The Host supplies file URLs for its packaged plugin overrides so the Loader can import them from Windows and POSIX installation paths, including spaces and non-ASCII characters.
+
 ## Ordinary Sessions and retained data
 
 Desktop opens ordinary Sessions and leaves archived Bot state unchanged. The built-in Bot interface, long-term memory service and phone-control entry are inactive; retained files do not automatically become Session memory. Recovery and profile backups are documented in the [upgrade guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-session-product/guide.md).

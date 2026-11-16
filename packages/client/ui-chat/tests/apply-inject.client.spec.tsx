@@ -15,7 +15,7 @@ import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runt
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   apply as applyConversation, inject as injectConversation,
-  type GroupKey,
+  type ComposerBarInjected, type GroupKey,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
   apply as applyChat, inject as injectChat, type ChatFlowDataInjected, type ChatViewInjected,
@@ -26,6 +26,7 @@ import { createChatStore } from '../src/client/stores.ts'
 import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../src/chat-settings.ts'
 import type { LinkOpeningRowInjected } from '../src/client/settings/LinkOpeningRow.tsx'
 import type { TranscriptViewRowInjected } from '../src/client/settings/TranscriptViewRow.tsx'
+import { zh } from '../src/client/locale.ts'
 
 usePinnedBrowserLanguages('zh-CN')
 
@@ -350,6 +351,29 @@ describe('Chat inject API', () => {
       ['browser', { params: { url: 'https://example.test/path' } }],
     ])
     await b.runtime.dispose()
+  })
+
+  it('opens application resources in the Sidebar and reports an unavailable provider through the composer', async () => {
+    const b = await bench()
+    const external = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      const { injected } = b.chatViewApi(b.rootReference)
+      const address = 'dsh-resource://example/session/root-1/item'
+      injected.openResourceLink(address)
+      expect(b.sidebarRight.openResource).toHaveBeenCalledExactlyOnceWith(address)
+      expect(b.sidebarRight.openTab).not.toHaveBeenCalled()
+      expect(external).not.toHaveBeenCalled()
+      b.sidebarRight.openResource.mockImplementationOnce(() => { throw Error('No registered tab type claims this resource') })
+      expect(() => { injected.openResourceLink('dsh-resource://missing/session/root-1/item') }).not.toThrow()
+      const entry = b.runtime.slots.entries('conversation.composer.bar')[0]
+      if (entry?.inject === undefined) throw Error('The Conversation composer has no injected owner')
+      const composer = Reflect.apply(entry.inject, undefined, [ROOT]) as ComposerBarInjected
+      expect(composer.hooks.notices.getSnapshot()).toMatchObject({ level: 'error', text: zh['resourceOpen.failed'] })
+      expect(external).not.toHaveBeenCalled()
+    } finally {
+      external.mockRestore()
+      await b.runtime.dispose()
+    }
   })
 
   it('opens message HTTP(S) links in the system browser when no Sidebar Browser is registered', async () => {

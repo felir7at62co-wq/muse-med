@@ -11,12 +11,12 @@ import {
 import { registerPlainText } from '@lexical/plain-text'
 import { createEmptyHistoryState, registerHistory } from '@lexical/history'
 import { mergeRegister } from '@lexical/utils'
-import type { DraftQuote, DraftReference, ReferenceInsert } from '../../contract/draft-editor.ts'
+import type { DraftQuote, DraftReference, Occurrence, ReferenceInsert } from '../../contract/draft-editor.ts'
 import type { CommandClaim } from '../../contract/input.ts'
 import { QuoteNode, $createQuoteNode, $isQuoteNode, REMOVE_QUOTE_COMMAND } from './QuoteNode.tsx'
 import type { QuoteNodeLabels } from './QuoteNode.tsx'
 import { registerReferenceActivation } from './reference-activation.ts'
-import { ReferenceChipNode, $createReferenceChipNode } from './chip-node.tsx'
+import { ReferenceChipNode, $createReferenceChipNode, $isReferenceChipNode } from './chip-node.tsx'
 import { CommandChipNode, $createCommandChipNode, registerCommandChipSeat } from './command-chip-node.tsx'
 import { registerCommandChipSelection } from './command-chip-selection.ts'
 import { registerTextRefDecoration, rescanTextRefs, TextRefNode } from './text-ref.ts'
@@ -300,6 +300,26 @@ export class DraftEditorRuntime {
         : [$createReferenceChipNode(ref), $createTextNode(' ')]
       applied = $replaceDetectSpanWithNodes(span, nodes)
     })
+    return applied
+  }
+
+  /** Remove one matching reference as an independent undo operation.
+   * @param occurrence - current reference identity from the editor projection.
+   * @returns whether a matching reference node was removed.
+   */
+  removeReference(occurrence: Pick<Occurrence, 'occurrenceId' | 'source' | 'ref'>): boolean {
+    let applied = false
+    this.applyEdit(() => {
+      for (const [key, id] of this.occurrenceIds) {
+        if (id !== occurrence.occurrenceId) continue
+        const node = $getNodeByKey(key)
+        if ($isReferenceChipNode(node) && node.getSource() === occurrence.source && node.getReference() === occurrence.ref) {
+          node.remove()
+          applied = true
+        }
+        break
+      }
+    }, PASTE_TAG)
     return applied
   }
 

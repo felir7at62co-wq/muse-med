@@ -6,6 +6,7 @@ import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { TestSessions, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import type { TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
@@ -17,6 +18,8 @@ import { SESSION_VIDEO_CONFIG_GLOBAL, SETTINGS_ENTRY } from '../src/config.ts'
 import type { VideoInjected } from '../src/client/face.ts'
 import type { PresentationSettingFace } from '../src/client/PresentationSetting.tsx'
 import { inventory, source, analysis } from './video-fixture.tsx'
+import { videoWorkspaceAddress } from '../src/client/target-selection.ts'
+import { VIDEO_REFERENCE_SOURCE } from '../src/client/references.ts'
 
 vi.mock('@deepseek-ai/dsh-session-video/remote', () => ({
   default: { package: '@deepseek-ai/dsh-session-video', descriptors: [] },
@@ -52,20 +55,66 @@ async function fixture(enabled = false) {
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   const sessions = new TestSessions(async (fn) => { await fn() }, ctx)
+  ctx.provide('sessions', sessions)
   new UiConversation(ctx, sessions)
+  ctx.provide('conversation', { input: { for: () => { throw Error('No composer is mounted in the registration fixture') } } })
+  const references = new Map<string, InputTriggerSource>(), referenceReleased = vi.fn()
+  const registerSource = vi.fn((source: InputTriggerSource) => {
+    if (references.has(source.name)) throw Error('Duplicate reference source in registration fixture')
+    references.set(source.name, source)
+    return () => { references.delete(source.name); referenceReleased(source.name) }
+  })
+  ctx.provide('inputTriggers', { registerSource })
+  const openResource = vi.fn()
+  ctx.provide('sidebarRight', { openResource })
+  ctx.provide('sidebarRightTabs', { register: vi.fn(() => () => {}) })
+  ctx.provide('resources', { register: vi.fn(() => () => {}) })
   const form = stubConfigForm<{ enabled: boolean }>()
   ctx.provide('configForms', { get: (entry: string) => { expect(entry).toBe(SETTINGS_ENTRY); return form.scope } })
+  const tabInfo = () => { throw Error('Registration fixture does not render a Sidebar tab') }
   ctx.slots.register({ name: 'root', children: {
     'settings.general.item': { kind: 'list', scope: 'root' },
     'conversation.chat.pinned': { kind: 'list', scope: 'session' },
     'conversation.content.overlay': { kind: 'list', scope: 'session' },
     'deliverables.video': { kind: 'chain', scope: 'session' },
     'conversation.chat.turnTail': { kind: 'list', scope: 'session' },
+    'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session', inject: { hooks: { tabInfo } } },
+    'sidebar.right.pane.tab.title': { kind: 'keyed', scope: 'session', inject: { hooks: { tabInfo } } },
+    'conversation.user.text.node': { kind: 'keyed', scope: 'session' },
   } }, ({ renderSlot }: PropsRenderSlots<'settings.general.item' | 'conversation.chat.pinned'
-    | 'conversation.content.overlay' | 'deliverables.video' | 'conversation.chat.turnTail'>) => renderSlot('settings.general.item', {}))
+    | 'conversation.content.overlay' | 'deliverables.video' | 'conversation.chat.turnTail'
+    | 'sidebar.right.pane.tab' | 'sidebar.right.pane.tab.title' | 'conversation.user.text.node'>) => renderSlot('settings.general.item', {}))
   const remote = new VideoRemote(ctx)
-  return { ctx, locale, form, remote }
+  return { ctx, locale, form, remote, references, referenceReleased, registerSource, openResource }
 }
+
+it('retains the selected-video codec across accepted presentation changes until the plugin unloads', async () => {
+  const { ctx, form, remote, references, referenceReleased, registerSource, openResource } = await fixture(true)
+  const dispose = await apply(ctx)
+  await waitFor(() => { expect(ctx.slots.entries('conversation.content.overlay')).toHaveLength(1) })
+  const selected = references.get(VIDEO_REFERENCE_SOURCE)
+  if (selected?.codec === undefined) throw Error('Selected videos have no stable serializer')
+  const sessionId = inventory([]).sessionId, item = source(), signal = new AbortController().signal
+  const ref = videoWorkspaceAddress(sessionId, { kind: 'source', sourceId: item.id, sourceVersion: 'v1' })
+  expect(selected.openReference?.({ sessionId }, { ref })).toBe(true)
+  expect(openResource).toHaveBeenCalledOnce()
+  act(() => { form.publish({ status: 'ready', writable: true, value: { enabled: false } }) })
+  await waitFor(() => { expect(ctx.slots.entries('conversation.content.overlay')).toHaveLength(0) })
+  expect(references.get(VIDEO_REFERENCE_SOURCE)).toBe(selected)
+  expect(registerSource).toHaveBeenCalledOnce()
+  expect(referenceReleased).not.toHaveBeenCalled()
+  expect(selected.openReference?.({ sessionId }, { ref })).toBe(false)
+  expect(openResource).toHaveBeenCalledOnce()
+  expect(await selected.codec.serialize(ref, signal)).toContain('"source_version": "v1"')
+  expect(remote.operations.list).toHaveBeenCalledExactlyOnceWith(sessionId, signal)
+  act(() => { form.publish({ status: 'ready', writable: true, value: { enabled: true } }) })
+  await waitFor(() => { expect(ctx.slots.entries('conversation.content.overlay')).toHaveLength(1) })
+  expect(references.get(VIDEO_REFERENCE_SOURCE)).toBe(selected)
+  expect(registerSource).toHaveBeenCalledOnce()
+  await dispose()
+  expect(references.size).toBe(0)
+  expect(referenceReleased).toHaveBeenCalledExactlyOnceWith(VIDEO_REFERENCE_SOURCE)
+})
 
 it('keeps settings mounted while disabling and remounting every optional contribution', async () => {
   const { ctx, form, remote } = await fixture()
@@ -76,10 +125,13 @@ it('keeps settings mounted while disabling and remounting every optional contrib
   act(() => { form.publish({ status: 'ready', writable: true, value: { enabled: true } }) })
   await waitFor(() => { expect(ctx.slots.entries('conversation.content.overlay')).toHaveLength(1) })
   expect(ctx.uiConversation.headerPresentations.getSnapshot()).toBe('floating')
+  expect(ctx.uiConversation.userText.entries().map(value => value.id)).toEqual(['muse-video-selection'])
+  expect(ctx.slots.entries('conversation.user.text.node')).toHaveLength(1)
   const overlay = ctx.slots.entries('conversation.content.overlay')[0]
   if (!overlay?.inject) throw Error('Enabled shelf has no Host operations')
-  const injected = overlay.inject() as Partial<VideoInjected>
-  if (!injected.listVideos || !injected.detectShots) throw Error('Shelf operations are incomplete')
+  const id = inventory([]).sessionId
+  const injected = Reflect.apply(overlay.inject, undefined, [id]) as Partial<VideoInjected>
+  if (!injected.detectShots) throw Error('Workspace detection is incomplete')
   const delivered = ctx.slots.entries('deliverables.video')[0]
   const generated = ctx.slots.entries('conversation.chat.turnTail')[0]
   if (!delivered?.select || !delivered.inject || !generated?.inject) throw Error('Video playback contributions are incomplete')
@@ -87,18 +139,15 @@ it('keeps settings mounted while disabling and remounting every optional contrib
   const select = delivered.select as (props: Pick<PropsRuntime<'deliverables.video'>,
     'sourceUrl' | 'label' | 'path' | 'seq' | 'index'>) => boolean
   expect(select({ sourceUrl: '/delivered.mp4', label: 'Delivered video', path: 'delivered.mp4', seq: 1, index: 0 })).toBe(true)
-  expect(delivered.inject()).toBe(injected)
-  expect(generated.inject()).toBe(injected)
-  const id = inventory([]).sessionId, controller = new AbortController()
+  expect(Reflect.apply(delivered.inject, undefined, [id])).toBe(injected)
+  expect(Reflect.apply(generated.inject, undefined, [id])).toBe(injected)
+  const controller = new AbortController()
   expect(injected.pixelsPerSecond).toBe(64)
-  expect(await injected.listVideos(id, controller.signal)).toEqual(inventory([source()]))
-  expect(remote.operations.list).toHaveBeenCalledExactlyOnceWith(id, controller.signal)
   expect(await injected.detectShots(id, source().id, 'v1', controller.signal)).toEqual(analysis(source()))
   expect(remote.operations.detect).toHaveBeenCalledExactlyOnceWith(id, source().id, 'v1', controller.signal)
-  remote.operations.list.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'Unavailable inventory', {}) })
-  await expect(injected.listVideos(id, controller.signal)).rejects.toThrow('gateway/internal')
-  remote.operations.detect.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'Unavailable detector', {}) })
-  await expect(injected.detectShots(id, source().id, 'v1', controller.signal)).rejects.toThrow('gateway/internal')
+  const detectionFailure = new RemoteError('gateway/internal', 'Unavailable detector', {})
+  remote.operations.detect.mockResolvedValueOnce({ ok: false, error: detectionFailure })
+  await expect(injected.detectShots(id, source().id, 'v1', controller.signal)).rejects.toBe(detectionFailure)
   const settings = ctx.slots.entries('settings.general.item')[0]?.inject?.() as PresentationSettingFace | undefined
   if (!settings) throw Error('Settings row has no persistent writer')
   form.set.mockResolvedValueOnce(false)
@@ -109,6 +158,8 @@ it('keeps settings mounted while disabling and remounting every optional contrib
     expect(ctx.slots.entries(slot)).toHaveLength(0)
   }
   expect(ctx.uiConversation.headerPresentations.getSnapshot()).toBeUndefined()
+  expect(ctx.uiConversation.userText.entries()).toEqual([])
+  expect(ctx.slots.entries('conversation.user.text.node')).toHaveLength(0)
   await settings.setEnabled(true)
   expect(ctx.slots.entries('conversation.content.overlay')).toHaveLength(1)
   expect(ctx.slots.entries('conversation.content.overlay')[0]).not.toBe(overlay)

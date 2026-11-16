@@ -8,6 +8,7 @@ import { downloadMedia } from '@deepseek-ai/dsh-jubian-api'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
+import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { currentSessionMessageProjections } from '@deepseek-ai/dsh-session-format-catalog/message-projections'
@@ -128,7 +129,7 @@ export default class SessionVideo extends TypertRemoteService {
 
   protected async [Service.init](): Promise<void> {
     // Fold limits affect persisted state; each configuration must replay incompatible checkpoints.
-    const stateVersion = Number.parseInt(digest(JSON.stringify([1, this.config.maxSources, this.config.maxResultBytes])).slice(0, 12), 16)
+    const stateVersion = Number.parseInt(digest(JSON.stringify([2, this.config.maxSources, this.config.maxResultBytes])).slice(0, 12), 16)
     this.sources = await this.ctx.sessionProjections.register({ key: 'sessionVideoSources', stateVersion,
       stateSchema: sourceStateSchema, init: () => ({ sources: [], calls: [], complete: true, issues: [] }),
       apply: (state, event) => foldVideoSources(state, event, this.config) })
@@ -192,7 +193,10 @@ export default class SessionVideo extends TypertRemoteService {
           source = await this.resolve(session, candidate, operation)
         }
         if (source.target === null || source.fileVersion === null) return failed(source.source.issue ?? 'Video is not available as a local source')
-        const policy = this.ctx.sandboxPolicy.resolve({ session })
+        const configuredPolicy = this.ctx.sandboxPolicy.resolve({ session })
+        // Probe and scene analysis write only to stdout and null; confined analysis needs no workspace write grants.
+        const policy: SandboxExecutionPolicy = { ...configuredPolicy,
+          mode: configuredPolicy.mode === 'workspace-write' ? 'read-only' : configuredPolicy.mode }
         const processPath = this.ctx.fs.processPath(source.target)
         const ffprobe = await this.ctx.subprocess.resolveExecutable(this.config.ffprobePath, undefined, operation)
         const metadata = facts(await command(this.ctx, [ffprobe, '-v', 'error', '-protocol_whitelist', 'file,pipe',
@@ -237,9 +241,11 @@ export default class SessionVideo extends TypertRemoteService {
 
   private async resolve(session: Session, candidate: VideoCandidate, signal: AbortSignal): Promise<ResolvedSource> {
     const id = brandString<SessionVideoSourceId>(digest(`${session.id}:${candidate.key}`))
+    const state = this.sources.stateOf(session)
+    const production = state.productionBySource?.[candidate.key]
     let source: SessionVideoSource = { id, label: candidate.label, origin: candidate.origin, path: candidate.path,
       eventSeq: candidate.eventSeq, presentedIndex: candidate.presentedIndex, callId: candidate.callId, remoteUrl: candidate.remoteUrl,
-      status: 'missing', version: null, playbackUrl: null, issue: null }
+      status: 'missing', version: null, playbackUrl: null, issue: null, ...(production === undefined ? {} : { production }) }
     let path = candidate.path
     if (candidate.attachment !== null) {
       const hostPath = this.ctx.attachments.fileHostPath({ ...candidate.attachment,

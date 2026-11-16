@@ -490,7 +490,7 @@
 /* Active phase clips the shell while the scroll body holds the transcript
    and sticky composer seat. Header presentation owns flow or floating placement. */
 .root[data-phase='active'] {
-  overflow: hidden;
+  overflow: clip;
 }
 
 .root[data-phase='active'] .header {

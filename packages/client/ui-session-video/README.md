@@ -1,5 +1,5 @@
 ---
-description: "Review recorded Muse conversation videos, inspect visual shot ranges and prepare an explicit shot-modification draft."
+description: "Select recorded videos by episode, inspect original visual segments in a dockable preview, and request Agent advice or modifications in the same conversation."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Review the current conversation's recorded videos in a compact spider control and one expandable player. The timeline shows source-bound visual cut ranges and supports pointer and keyboard seeking. Delivered and supported generated videos retain inline playback and can be collected into the control as the transcript scrolls. Preparing a shot modification appends a reviewable draft; the user still submits it through ordinary chat.
+Keep a whole drama in one conversation while choosing episodes, videos and original visual segments. Preview the selected video in the right Sidebar or a floating panel without changing the conversation or its draft. Select videos across episodes, request Agent review, then describe changes in ordinary chat. Advice links return to the exact recorded source range; selecting media does not modify or regenerate it.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ Review the current conversation's recorded videos in a compact spider control an
 
 The independent [Muse video bundle](../../bundle/muse-video-ui/README.md) installs this presentation and its media service together.
 
-This package owns the optional Muse conversation presentation. In **Settings → General → Video bubble and timeline**, turn it on or off without restarting or reloading the page. The accepted switch persists in the profile through the native configuration forms. Disabling removes the spider, timeline, inline replacement players, collection layers, spacer and user-bubble enhancements, restores native navigation and delivered-video playback, and pauses and releases preview media. Transcript identity, input drafts, attachments, recorded files and running Agent jobs remain owned by Muse. Re-enabling creates a fresh presentation scope without duplicate controls. The settings row remains available while the package is installed.
+This package owns the optional Muse video workspace. In **Settings → General → Muse video workspace**, turn it on or off without restarting or reloading the page. The accepted switch persists in the profile through the native configuration forms. Disabling releases this presentation's registrations and preview media while preserving the conversation, draft, attachments, recorded files and running Agent tasks. Re-enabling creates a fresh presentation scope without duplicate controls. The settings row remains available while the package is installed.
 
 The Muse Desktop composition mounts this UI and the [Session video service](../../drama/session-video/README.md). Ordinary Web profiles do not activate either package by default. A custom composition retains the canonical `ui-session-video` entry id for its live settings and needs both rows plus the native Chat, Deliverables, locale, renderer and Remote services.
 
@@ -48,15 +48,19 @@ The Muse Desktop composition mounts this UI and the [Session video service](../.
 
 The Host validates this non-secret presentation policy and includes it in the page bootstrap. A new page reads the resolved value before registering the surface; accepted live settings replace the startup switch. The `enabled` field is volatile and changes only presentation registrations, even when configuration HMR is disabled. It is separate from media-processing limits owned by the Session video service.
 
-The shelf reserves one compact header footprint; its expanded curtain floats over the transcript without moving messages or the composer. Opening and closing use the same 900 ms eased transition, and closing content stays mounted only until its exit transition finishes. Reduced-motion preferences remove this transition.
+The conversation entry and recorded-video cards open the same video workspace. The native right Sidebar owns docking, floating, resizing and tab navigation; these operations keep the same conversation, playback selection and composer. The video workspace does not create a new Session for an episode.
 
-Opening the spider control displays the recorded inventory and analyzes available versioned sources. Missing media, incomplete inventory and failed detection retain explicit status and Retry controls. A failed analysis contributes no invented shot. The combined timeline keeps each source's original local time range; selecting a shot opens its source and seeks to that range.
+The video picker filters the recorded inventory by display episode number. Only structured production facts establish episode membership; sources without a verified display number remain **Unassigned**. Changing the filter does not clear cross-episode selections. Missing media, incomplete inventory and failed detection retain explicit status and Retry controls. A failed analysis contributes no invented visual segment.
 
-The video-name selector sits directly on the spider header row without a filled capsule and fades with the curtain; it switches sources without repeating the filename over the picture. The centered playback button and right-aligned zoom controls sit between the picture and timeline ruler with equal space above and below. Timeline zoom adjusts horizontal scale while preserving original media time and shot ranges. Source pills and zoom tracks keep circular corners; modification hover feedback applies only to inputs that support hovering.
+Select a whole video in the picker, or choose an FFmpeg-detected visual segment in its timeline and add that segment to the selection. Each choice retains the source identity, version and original time range. These visual segments are independent of authored production shot numbers and video-package indexes. Timeline zoom adjusts horizontal scale while preserving original media time and segment ranges.
 
 Pressing the playhead preserves its position. Dragging maps the pointer through the filmstrip's actual on-screen bounds and retains the initial grab offset, including at different page zoom levels.
 
-When a video is available, the modification control stays visible at the right of the expanded spider header, with no filled background or shadow. It is disabled until a timeline shot is selected; hovering it explains this requirement. Once a shot is selected, the action appends the source, shot identity and original time range to the existing input draft. It neither sends the draft nor replaces a video. Delivered video contributions replace only the playback body; native file preview and opening actions remain with Deliverables.
+**Review selected videos** prepares a request for the main Agent to delegate read-only inspection of the selected media, report specific issues and actionable suggestions, and attach the supplied `review_link` to each suggestion. The review request forbids file, prompt, card or asset edits and image or video generation. An empty composer without attachments can submit this request directly; existing unfinished input is retained for the user to review and send. This prompt expresses the requested scope; it is not a separate authorization mechanism.
+
+Selected-video references can accompany a natural-language modification request in the same composer. Reference serialization checks the latest inventory before submitting source evidence; a changed or unavailable source refuses submission and keeps the draft for reselection. **Prepare edit** adds an editable modification request without sending it. Modification and regeneration requests instruct the Agent to retain the original version and unaffected content. Media selection alone authorizes neither operation.
+
+Agent advice links reopen the same workspace at the recorded source version and original range. Stale links report that the selection must be refreshed rather than silently targeting a different version. Delivered-video contributions show compact entries that open the right-hand preview; native file preview and opening actions remain with Deliverables.
 
 -----
 
@@ -66,18 +70,23 @@ When a video is available, the modification control stays visible at the right o
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The settings controller owns a serialized child Cordis scope for all optional contributions. The child registers a reversible native header preference; disposal restores the preceding preference or deployment default. Its scoped styles apply only while the Chat spacer exists, including when the browser retains the loaded stylesheet. The Session video Host service remains separate and available to other consumers; disabling this presentation makes no inventory or analysis requests.
+The settings controller owns a serialized child Cordis scope for optional contributions and a reversible native header preference. Disposal restores the preceding preference or deployment default. The Session video Host service remains separate and available to other consumers. Disabling the workspace stops its inventory observation and visual analysis; its input-reference codec stays registered so existing video references can still be sent through ordinary chat, reading the current inventory only when the user submits them.
 
-The plugin mounts its generated `sessionVideo` Remote contribution, registers the session-scoped `conversation.content.overlay` shelf and a fixed `conversation.chat.pinned` spacer, and contributes to the native delivery-video chain and closing-Turn surface. The shelf mounts only while Chat is active; its expanded layer sits above transcript popovers. Queries use caller cancellation; closing pauses retained playback, and unmounting players releases their media source. Failed optional thumbnail capture leaves playback available. The absorption preview remains in its original Chat frame and finds the receiving anchor only inside that frame's enclosing conversation. It preserves the original inline card's layout position and respects reduced-motion preferences. Collection also hides the surrounding native delivery panel; reverse scrolling or teardown restores its original visibility, inert state and ARIA attributes. The spider control, expanded player and inline video card share a dark material with light labels in both page themes.
+The plugin mounts the generated `sessionVideo` Remote contribution and registers a native right-Sidebar tab. The resource provider retains the owning Session, refreshes its inventory from recorded changes, and cancels released reads. A Session-scoped view store retains browsing and source-local selections across presentation changes. Composer references use the existing input-trigger codec and ordinary message submission; the plugin owns no second message pipeline. Unmounting players releases media, and optional thumbnail failure leaves playback available.
+
+Selection evidence uses the owned `<muse-video-selection>` text envelope. While the workspace is enabled, its user-text rule accepts only the plugin's strict field set and self-consistent source links, then renders compact video labels in sent messages and queue previews. Arbitrary JSON, malformed envelopes and unsupported fields remain plain text. Only interactive labels in the owning conversation can navigate; rendering does not rewrite the logged or model-visible message.
 
 | Source | Responsibility |
 |---|---|
 | [config.ts](src/config.ts) | Host-validated public startup scale |
 | [client/index.ts](src/client/index.ts) | Remote and native Slot registrations |
-| [VideoShelf.tsx](src/client/VideoShelf.tsx) | Inventory, source selection and modification drafts |
+| [VideoWorkspace.tsx](src/client/VideoWorkspace.tsx) | Episode filtering, multi-selection, preview and review requests |
 | [VideoPlayer.tsx](src/client/VideoPlayer.tsx) | Actual playback, frame capture and media cleanup |
 | [VideoTimeline.tsx](src/client/VideoTimeline.tsx) | Controlled time mapping, selection needle and conditional edge fades |
-| [useAbsorption.tsx](src/client/useAbsorption.tsx) | Scroll-driven collection preview |
+| [target-selection.ts](src/client/target-selection.ts) | Version-bound selections, source evidence and advice-link coordinates |
+| [references.ts](src/client/references.ts) | Composer references and submission-time source validation |
+| [user-text-rules.ts](src/client/user-text-rules.ts) | Strict owned-envelope matching and compact user-text nodes |
+| [VideoSelectionText.tsx](src/client/VideoSelectionText.tsx) | Native inline video labels and same-conversation navigation |
 
 </details>
 
@@ -93,15 +102,15 @@ The plugin mounts its generated `sessionVideo` Remote contribution, registers th
 <a id="model-experience"></a>
 ## Model Experience
 
-### Shot modification draft
+### Video review and modification
 
 #### What the model sees
 
-The UI prepares source identity, shot identity, the source-local time range and editable modification instructions in the ordinary input draft. The English draft labels these fields `Source`, `shot ID` and `original range`. They reach the model only after the user submits that draft. Inventory, playback, scrolling and cut detection add no model input.
+The submitted user message contains the review or modification request and delimited structured source evidence, including source identity and version, local path or recorded provider URL, event coordinates, optional production metadata and original segment range, and `review_link`. The review request starts with `Delegate an Agent to perform a read-only review` and asks for advice rather than generation. References remain editable in the normal composer, and the model receives the complete recorded evidence. Inventory, playback, episode filtering and visual-cut detection add no model input.
 
 #### Token effect
 
-Only the user-submitted draft adds request tokens. Browsing and preparing a draft make no model or generation request.
+Only a submitted review or modification message adds request tokens. Read-only Agent review can consume model tokens. Browsing, selecting media and preparing an unsent draft make no model or generation request.
 
 #### KV Cache effect
 
@@ -113,9 +122,9 @@ Playback and detection preserve the existing request prefix. A later user submis
 
 These limits distinguish inspection from media production.
 
-- **Visual cut ranges** — the UI does not infer story scenes, dialogue or character continuity. It references ranges in the original video and creates no separate clip files.
+- **Visual cut ranges** — detection does not infer story scenes, dialogue, character continuity or authored shot numbers. It references original-video ranges and creates no separate clip files; the requested Agent review owns content observations and their uncertainty.
 - **Recorded supported sources** — omitted or unavailable sources follow the service's inventory diagnostics. A pasted arbitrary URL does not establish an authorized source.
-- **Explicit generation** — modification drafts require user submission and the existing agent workflow; selection alone does not authorize generation or spending.
+- **Explicit generation** — selecting media and requesting advice do not authorize generation or spending. Modification and regeneration proceed only through the submitted user request and existing Agent tools.
 - **Browser media support** — preview requires a compatible decoder. Frame capture may fail for a remote source without usable cross-origin media access.
 
 <a id="dev-note"></a>

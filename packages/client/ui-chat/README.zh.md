@@ -45,7 +45,7 @@ kind: "package-reference"
 
 已发送的普通文件附件保留草稿中的[文件卡片圆角](../../../docs/ui-radius.zh.md#radius-scale)。
 
-`ChatView` 通过节点列表外围既有的 `MarkdownDelegateProvider` 提供文件及 HTTP(S) 导航，直接传入 `requestOpenFile`、`openExternalLink` 和 `fileImages`。文件打开动作保留 Chat 的失败反馈与重试处理。Assistant Markdown 文件链接在消息落定后可于右侧栏打开，包括未修改文件的引用。相对路径基于当前查看的 Session 工作区解析；绝对路径仍使用同一 Session 的文件系统访问。[支持的 Markdown 行号引用](../ui-primitives/README.zh.md#rendering-agent-output)定位到指定起始行，并复用现有文件标签。文件缺失时显示预览错误状态。
+`ChatView` 通过 `MarkdownDelegateProvider` 提供文件、HTTP(S) 和应用内资源导航，传入 `requestOpenFile`、`openExternalLink`、`openResourceLink` 和 `fileImages`。普通点击 `dsh-resource:` 链接通过右侧栏的资源解析器打开。资源打开失败时，输入框显示本地化提示；确认对应功能已启用后，再次点击原链接重试。文件打开动作保留 Chat 的失败反馈与重试处理。Assistant Markdown 文件链接在消息落定后可于右侧栏打开，包括未修改文件的引用。相对路径基于当前查看的 Session 工作区解析；绝对路径仍使用同一 Session 的文件系统访问。[支持的 Markdown 行号引用](../ui-primitives/README.zh.md#rendering-agent-output)定位到指定起始行，并复用现有文件标签。文件缺失时显示预览错误状态。
 
 原生消息图片使用独立的用户与输出位置。`conversation.chat.user.content` Factory 声明 `conversation.chat.user.images`，由 `UserContent` 渲染；Assistant 节点注册声明 `conversation.chat.message.images`，由 `AssistantMarkdown` 渲染。两者通过显式 props 接收图片来源、授权 `loadImage` 和布局参数。官方 `MessageImages` 条目调用共享的 root 作用域 `conversation.images.content` Factory。每个位置均可独立替换，无需复制画廊实现。
 
@@ -200,7 +200,7 @@ Chat view 在标记了 `data-text-interaction-source` 的业务节点上检测�
 
 `ctx.uiConversation.interactions` 将有效手势分发给插件注册项，并把对应组件交给 Chat view。操作展示位置在已有 Chat 列内绝对定位，限制在 composer seat 及其 dock 上方。外层容器保留组件的外描边与阴影，内部滚动由组件负责。选区滚出该可见范围时暂时隐藏操作，滚回后恢复。Chat 负责视口可见性、定位、外部指针按下、Escape、新选区、来源失效与卸载清理；主动关闭保留浏览器选区，布局变化不会重新打开操作。[Message quotes](../../session/message-quotes/README.zh.md) 负责引用的接管条件和插入。
 
-Markdown 文件、链接、图片、引用 chip 和工具文件控件将明确的右键目标转发给 [ui-context-menu](../ui-context-menu/README.zh.md)。文件目标保留工作目录和行号；普通链接点击仍遵循配置的打开偏好。
+Markdown 文件、链接、图片、引用 chip 和工具文件控件将明确的右键目标转发给 [ui-context-menu](../ui-context-menu/README.zh.md)。文件目标保留工作目录和行号；普通 HTTP(S) 点击仍遵循配置的打开偏好。
 
 <a id="model-experience"></a>
 ## 模型体验

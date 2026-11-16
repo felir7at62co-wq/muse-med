@@ -4,8 +4,8 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { SessionVideoSourceId } from '@deepseek-ai/dsh-session-video'
-import type { SessionVideoAnalysis, SessionVideoShotId } from '@deepseek-ai/dsh-session-video'
+import type { SessionVideoSourceId } from '@deepseek-ai/dsh-session-video/types'
+import type { SessionVideoAnalysis, SessionVideoShotId } from '@deepseek-ai/dsh-session-video/types'
 import { VideoPlayer, type VideoPlayerProps } from '../src/client/VideoPlayer.tsx'
 import { en } from '../src/client/locales.ts'
 
@@ -95,12 +95,45 @@ it('removes the old deferred seek when a different shot is selected', () => {
   fireEvent.loadedMetadata(video)
   expect(video.currentTime).toBe(2.5)
 })
-it('keeps media errors in place and retries the same authorized URL', () => {
-  const view = render(<VideoPlayer {...props()} />)
+it('keeps playback moving through equivalent parent requests and reapplies explicit or refreshed-source navigation', () => {
+  const input = props()
+  const view = render(<VideoPlayer {...input} seekRequest={{ time: 2.125, revision: 1 }} />)
+  const video = view.getByLabelText('Actual source') as HTMLVideoElement
+  Object.defineProperty(video, 'readyState', { configurable: true, value: 1 })
+  fireEvent.loadedMetadata(video)
+  expect(video.currentTime).toBe(2.125)
+  video.currentTime = 3.5
+  fireEvent.timeUpdate(video)
+  loadVideo.mockClear()
+  view.rerender(<VideoPlayer {...input} source={{ ...input.source }} onSeek={vi.fn()}
+    seekRequest={{ time: 2.125, revision: 1 }} />)
+  expect(video.currentTime).toBe(3.5)
+  expect(loadVideo).not.toHaveBeenCalled()
+  view.rerender(<VideoPlayer {...input} seekRequest={{ time: 2.125, revision: 2 }} />)
+  expect(video.currentTime).toBe(2.125)
+  video.currentTime = 3.5
+  view.rerender(<VideoPlayer {...input} seekRequest={{ time: 2.125, revision: 'tab/2' }} />)
+  expect(video.currentTime).toBe(2.125)
+  video.currentTime = 3.5
+  view.rerender(<VideoPlayer {...input} seekRequest={{ time: 2.125, revision: 'tab/2' }} />)
+  expect(video.currentTime).toBe(3.5)
+  video.currentTime = 3.75
+  Object.defineProperty(video, 'readyState', { configurable: true, value: 0 })
+  view.rerender(<VideoPlayer {...input} source={{ ...input.source, playbackUrl: '/api/session-video?id=downloaded' }}
+    seekRequest={{ time: 2.125, revision: 2 }} />)
+  expect(view.getByLabelText('Actual source')).toBe(video)
+  expect(video.getAttribute('src')).toBe('/api/session-video?id=downloaded')
+  fireEvent.loadedMetadata(video)
+  expect(video.currentTime).toBe(2.125)
+})
+it('keeps media errors in place and refreshes the source before retrying its authorized URL', () => {
+  const refresh = vi.fn()
+  const view = render(<VideoPlayer {...props()} onRetrySource={refresh} />)
   const video = view.getByLabelText('Actual source') as HTMLVideoElement
   fireEvent.error(video)
   expect(view.getByRole('alert').textContent).toContain(en.unavailable)
   fireEvent.click(view.getByRole('button', { name: 'Retry' }))
+  expect(refresh).toHaveBeenCalledOnce()
   expect(video.getAttribute('src')).toBe('/api/session-video?id=first')
   fireEvent.loadedMetadata(video)
   expect(view.queryByRole('alert')).toBeNull()
@@ -136,7 +169,7 @@ it('changes only timeline scale while retaining the same media, playback time an
   fireEvent.change(range, { target: { value: '2' } })
   expect(input.onZoom).toHaveBeenLastCalledWith(2)
   view.rerender(<VideoPlayer {...input} zoom={2} />)
-  expect(view.getByRole('button', { name: /^Shot 1/u }).style.getPropertyValue('--video-shot-width')).toBe('288px')
+  expect(view.getByRole('button', { name: /^Video segment 1/u }).style.getPropertyValue('--video-shot-width')).toBe('288px')
   expect(view.getByLabelText('Actual source')).toBe(video)
   expect(video.currentTime).toBe(1.25)
   expect(input.onSeek).not.toHaveBeenCalled()
@@ -198,9 +231,9 @@ it('captures actual source-local shot midpoints and supplies their thumbnails to
   await act(async () => { await Promise.resolve() })
   expect(media.seeks).toEqual([1, 3])
   expect(media.draw).toHaveBeenCalledTimes(2)
-  expect(view.getByRole('button', { name: /^Shot 1/u }).style.getPropertyValue('--video-shot-thumbnail'))
+  expect(view.getByRole('button', { name: /^Video segment 1/u }).style.getPropertyValue('--video-shot-thumbnail'))
     .toBe('url("data:image/jpeg;base64,dGh1bWJuYWls")')
-  expect(view.getByRole('button', { name: /^Shot 2/u }).style.getPropertyValue('--video-shot-thumbnail'))
+  expect(view.getByRole('button', { name: /^Video segment 2/u }).style.getPropertyValue('--video-shot-thumbnail'))
     .toBe('url("data:image/jpeg;base64,dGh1bWJuYWls")')
   view.unmount()
   expect(media.element()?.hasAttribute('src')).toBe(false)
@@ -234,7 +267,7 @@ it('cancels pending thumbnail readiness and preserves the original stored thumbn
     const view = render(<VideoPlayer {...input} analysis={analysis} shots={analysis.shots} duration={4} />)
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
     expect(media.seeks).toEqual([])
-    expect(view.getByRole('button', { name: /^Shot 1/u }).style.getPropertyValue('--video-shot-thumbnail')).toBe('none')
+    expect(view.getByRole('button', { name: /^Video segment 1/u }).style.getPropertyValue('--video-shot-thumbnail')).toBe('none')
     expect(view.queryByRole('alert')).toBeNull()
     view.unmount()
     expect(vi.getTimerCount()).toBe(0)

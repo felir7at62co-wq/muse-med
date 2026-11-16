@@ -10,6 +10,11 @@ import type { ImageLightboxLabels } from '../ImageLightbox.tsx'
  */
 export type MarkdownExternalLinkHandler = (href: string) => void
 
+/** Open one sanitized application resource; the owner reports unavailable destinations.
+ * @param address - Absolute dsh-resource URL selected from Markdown.
+ */
+export type MarkdownResourceLinkHandler = (address: string) => void
+
 /** Explicit object and viewport coordinates from the element owning a context gesture. */
 export type MarkdownMenuTarget =
   | { kind: 'file'; path: string; line?: number }
@@ -32,6 +37,8 @@ export interface MarkdownDelegate {
   } | undefined
   /** Ordinary HTTP(S) activation; absent handlers retain native anchor behavior. */
   readonly openExternalLink?: MarkdownExternalLinkHandler | undefined
+  /** Application-resource activation; absent handlers retain native anchor behavior. */
+  readonly openResourceLink?: MarkdownResourceLinkHandler | undefined
   /**
    * Open a decoded local destination from settled Markdown; absent handlers leave plain text.
    * @param path - Absolute or workspace-relative file path.
@@ -50,18 +57,19 @@ export interface MarkdownDelegateProviderProps extends MarkdownDelegate {
 /**
  * Scope Markdown navigation without threading callbacks through renderers.
  * Nested providers replace the enclosing capabilities. Handler changes reach cached links.
- * @param props - Child tree and its file and HTTP(S) link handlers.
+ * @param props - Child tree and its file, application-resource and HTTP(S) link handlers.
  * @returns the scoped child tree.
  */
 export function MarkdownDelegateProvider({
   children,
   openExternalLink,
+  openResourceLink,
   openFile,
   fileImages,
   getTriggerProps,
 }: MarkdownDelegateProviderProps): ReactNode {
-  const delegate = useMemo(() => ({ openExternalLink, openFile, fileImages, getTriggerProps }),
-    [openExternalLink, openFile, fileImages, getTriggerProps])
+  const delegate = useMemo(() => ({ openExternalLink, openResourceLink, openFile, fileImages, getTriggerProps }),
+    [openExternalLink, openResourceLink, openFile, fileImages, getTriggerProps])
   return (
     <MarkdownDelegateContext.Provider value={delegate}>
       {children}

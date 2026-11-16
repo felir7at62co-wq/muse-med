@@ -1,7 +1,7 @@
 /** Session filmstrips preserve exact source ranges across multiple generated files. */
 import { expect, it } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { SessionVideoSource, SessionVideoSourceId, SessionVideoAnalysis, SessionVideoShotId } from '@deepseek-ai/dsh-session-video'
+import type { SessionVideoSource, SessionVideoSourceId, SessionVideoAnalysis, SessionVideoShotId } from '@deepseek-ai/dsh-session-video/types'
 import { assembleTimeline } from '../src/client/timeline.ts'
 
 function source(name: string): SessionVideoSource {

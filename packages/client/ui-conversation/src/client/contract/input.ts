@@ -185,6 +185,12 @@ export interface SessionInput extends InputTarget {
   /** Insert selected transcript text as an atomic quote. @param text - nonblank selection. @returns whether editing accepted it. */
   insertQuote(text: string): boolean
 
+  /** Remove one current reference without changing surrounding draft content.
+   * @param occurrence - exact occurrence id, owner and reference from the current input snapshot.
+   * @returns whether the reference still matched and editing accepted its removal.
+   */
+  removeReference(occurrence: Pick<Occurrence, 'occurrenceId' | 'source' | 'ref'>): boolean
+
   /** Replace the whole draft with plain text, removing inline reference chips. */
   setDraft(text: string): void
   /** Append ordered browser-owned attachment ids; busy admission phases refuse. */

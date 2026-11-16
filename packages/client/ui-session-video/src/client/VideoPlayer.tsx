@@ -1,7 +1,7 @@
 /** Native video playback and controls above the proportional shot timeline. */
 import { useEffect, useRef, useState } from 'react'
 import { Button, IconPlayTriangleOutlineRegular, IconPauseBarsOutlineRegular, IconZoomInOutlineRegular, IconZoomOutOutlineRegular, Tooltip, DOCUMENT_ZOOM } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SessionVideoAnalysis, SessionVideoSource } from '@deepseek-ai/dsh-session-video'
+import type { SessionVideoAnalysis, SessionVideoSource } from '@deepseek-ai/dsh-session-video/types'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { VideoTimeline, type VideoTimelineShot } from './VideoTimeline.tsx'
 import css from './VideoShelf.module.css'
@@ -20,9 +20,12 @@ export interface VideoPlayerProps extends PropsLocale<'sessionVideo'> {
   readonly zoom: number
   readonly onZoom: (zoom: number) => void
   readonly selectedShot: string | null
-  readonly seekRequest: { readonly time: number; readonly revision: number } | null
+  /** Equal request identities retain playback position across parent renders. */
+  readonly seekRequest: { readonly time: number; readonly revision: number | string } | null
   readonly onSeek: (time: number) => void
   readonly onSelectShot: (id: string) => void
+  /** Refresh the owning inventory before retrying a possibly replaced source. */
+  readonly onRetrySource?: () => void
 }
 
 /** Render one real media element; effects and controls use its mounted ref.
@@ -30,7 +33,7 @@ export interface VideoPlayerProps extends PropsLocale<'sessionVideo'> {
  * @returns Player, compact play control and filmstrip.
  */
 export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsPerSecond, selectedShot,
-  seekRequest, onSeek, onSelectShot, t, zoom, onZoom, active = true }: VideoPlayerProps) {
+  seekRequest, onSeek, onSelectShot, onRetrySource, t, zoom, onZoom, active = true }: VideoPlayerProps) {
   const player = useRef<HTMLVideoElement>(null)
   const playAttempt = useRef(0)
   const [playback, setPlayback] = useState({ sourceId: source.id, time: 0, playing: false, failed: false })
@@ -40,6 +43,8 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
     setPlayback(previous => ({ ...(previous.sourceId === source.id ? previous : current), ...update }))
   }
   const [retry, setRetry] = useState(0)
+  const seekTime = seekRequest?.time
+  const seekRevision = seekRequest?.revision
   const [thumbnails, setThumbnails] = useState<{ url: string | null; frames: Readonly<Record<string, string>> }>({ url: null, frames: {} })
   useEffect(() => { if (!active) { playAttempt.current++; player.current?.pause() } }, [active])
   useEffect(() => {
@@ -51,12 +56,12 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
   }, [source.id, source.playbackUrl, retry])
   useEffect(() => {
     const video = player.current
-    if (!video || seekRequest === null) return
-    const seek = () => { video.currentTime = seekRequest.time }
+    if (!video || seekTime === undefined) return
+    const seek = () => { video.currentTime = seekTime }
     if (video.readyState >= 1) seek()
     else video.addEventListener('loadedmetadata', seek, { once: true })
     return () => { video.removeEventListener('loadedmetadata', seek) }
-  }, [source.id, seekRequest])
+  }, [source.id, source.playbackUrl, seekTime, seekRevision])
   useEffect(() => {
     const playbackUrl = source.playbackUrl
     if (analysis?.state !== 'ready' || playbackUrl === null) return
@@ -100,7 +105,9 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
         onTimeUpdate={(event) => { updatePlayback({ time: event.currentTarget.currentTime }) }}
         onPlay={() => { updatePlayback({ playing: true }) }} onPause={() => { updatePlayback({ playing: false }) }}
         onError={() => { updatePlayback({ failed: true }) }} />
-      {failed && <div className={css.mediaError} role="alert">{t('unavailable')} <Button size="sm" onClick={() => { setRetry(value => value + 1) }}>{t('retry')}</Button></div>}
+      {failed && <div className={css.mediaError} role="alert">{t('unavailable')} <Button size="sm" onClick={() => {
+        onRetrySource?.(); setRetry(value => value + 1)
+      }}>{t('retry')}</Button></div>}
     </div>
     <div className={css.controls} data-muse-video-controls>
       <Button className={css.play} aria-label={t(playing ? 'pause' : 'play')} onClick={() => {

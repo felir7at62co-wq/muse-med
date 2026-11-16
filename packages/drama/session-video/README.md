@@ -31,6 +31,8 @@ A Host composition mounts this plugin alongside Session queries and projections,
 
 `list` returns recorded video identities, event coordinates, file or provider versions, playback addresses, and availability diagnostics. The inventory accepts explicit user file references and uploaded video attachments, presented videos, supported local generation outputs, and successful Jubian tool results. Assistant prose and arbitrary Client URLs do not introduce video sources. A bounded inventory reports incomplete coverage rather than presenting an omitted suffix as complete.
 
+Sources may include `production` coordinates reconstructed from successful recorded Jubian and `muse_production` results: remote project, episode, storyboard, task and subtask IDs, display episode number, video-package index, and authored shot numbers. Direct calls and committed PTC dispatches share this extraction. Unknown or conflicting associations remain absent; filenames never establish episode membership. Authored shot numbers do not identify FFmpeg-detected visual cuts. Metadata limits report incomplete coverage and omit production grouping without removing playable sources. These additions preserve source identities and rebuild incompatible private projection checkpoints; they neither query a provider nor authorize generation.
+
 `detect` takes a Session identity and the source identity and version returned by `list`. Detection refuses stale versions, probes duration and dimensions, then detects visual changes with FFmpeg. A ready result covers the entire original video with ordered, nonempty intervals; a continuous video has one interval. A failed result has no shot intervals and includes a diagnostic. Caller cancellation rejects after the owned subprocess has settled.
 
 Local playback uses a Session-bound authenticated byte-range route. Verified public Jubian URLs can play directly; detection obtains their bytes through the existing restricted Jubian downloader and saves them in the attachment store. Downloads omit credentials, refuse redirects, and obey configured byte and timeout limits. No method accepts an arbitrary source path or URL from the Client.
@@ -61,12 +63,13 @@ The validated schema in [`src/index.ts`](src/index.ts) owns accepted ranges. Rai
 
 A private Session projection retains bounded source coordinates and supported unsettled tool calls. Filesystem hydration supplies current availability and versions without changing Session history. Source identities bind the Session to an exact recorded coordinate; shot identities also bind the source version and interval endpoints. Successful analyses are reused only while the current file version matches the cached version.
 
-The service obtains execution paths through the filesystem provider and uses the Session sandbox policy for subprocesses. It checks file versions again after detection and around playback reads. Plugin disposal cancels operations and streams, joins subprocesses and pending reads, and removes the playback route. The processing helpers return complete results or explicit errors; they do not truncate successful shot lists.
+The service obtains execution paths through the filesystem provider. Probe and scene-analysis subprocesses read video bytes and write only to stdout or null; a confined Session's policy is narrowed to read-only, while `danger-full-access` remains unchanged. Analysis acquires no workspace write grants and creates no media. It checks file versions again after detection and around playback reads. Plugin disposal cancels operations and streams, joins subprocesses and pending reads, and removes the playback route. The processing helpers return complete results or explicit errors; they do not truncate successful shot lists.
 
 | File | Responsibility |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Remote methods, source resolution, bounded downloads, playback and lifecycle |
 | [`src/sources.ts`](src/sources.ts) | Private source projection and recorded-result parsing |
+| [`src/production.ts`](src/production.ts) | Recorded production associations and unambiguous source grouping |
 | [`src/media.ts`](src/media.ts) | Subprocess ownership, validated video facts and complete cut ranges |
 | [`src/types.ts`](src/types.ts) | Client-visible inventory, source and interval types |
 

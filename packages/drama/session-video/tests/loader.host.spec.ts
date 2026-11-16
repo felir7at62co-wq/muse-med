@@ -13,12 +13,14 @@ import FileSystem from '@deepseek-ai/dsh-fs-local'
 import Attachments from '@deepseek-ai/dsh-attachment-local'
 import Subprocess from '@deepseek-ai/dsh-subprocess-local'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
+import { SandboxProvider, type ConfinedArgv, type SandboxMode, type SandboxPolicy as ExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
+import type { FsVersion } from '@deepseek-ai/dsh-fs'
 import { createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
 import SessionVideo, { type Config } from '../src/index.ts'
 import type { SessionVideoSourceId } from '../src/types.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { sourceStateSchema } from '../src/sources.ts'
+import { digest, sourceStateSchema } from '../src/sources.ts'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 
 const roots: string[] = []
@@ -30,7 +32,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function fixture(overrides: Partial<Config> = {}) {
+async function fixture(overrides: Partial<Config> = {}, mode: SandboxMode = 'danger-full-access') {
   const root = mkdtempSync(join(tmpdir(), 'session-video-loader-')); roots.push(root)
   const file = join(root, 'three-shots.mp4')
   execFileSync('ffmpeg', ['-v', 'error', '-nostdin', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=10:d=1',
@@ -41,7 +43,7 @@ async function fixture(overrides: Partial<Config> = {}) {
   writeFileSync(configPath, JSON.stringify([
     { name: 'cordis:sessions' }, { name: 'cordis:projections' }, { name: 'cordis:query' },
     { name: 'cordis:fs', config: { cwd: root } }, { name: 'cordis:attachments', config: { dshHome: root } },
-    { name: 'cordis:subprocess' }, { name: 'cordis:policy', config: { mode: 'danger-full-access', workspaceRoot: root } },
+    { name: 'cordis:subprocess' }, { name: 'cordis:policy', config: { mode, workspaceRoot: root } },
     { id: 'video', name: 'cordis:video', config: { analysisWidth: 64, ...overrides } },
   ]))
   const ctx = await boot('dsh', configPath, [], (host) => {
@@ -89,6 +91,82 @@ it('detects three shot intervals through the real Loader and preserves original 
   expect(f.routes.size).toBe(0)
 })
 
+it.each(['read-only', 'workspace-write', 'danger-full-access'] as const)
+('keeps first detection and playback on the inventoried version under %s', async (mode) => {
+  const f = await fixture({}, mode)
+  f.user('@three-shots.mp4')
+  let workspaceGrant = false
+  const policies: ExecutionPolicy[] = []
+  const stat = f.ctx.fs.stat.bind(f.ctx.fs)
+  vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    const info = await stat(...args)
+    // Windows workspace-write ACL materialization changes metadata even when video bytes are unchanged.
+    return workspaceGrant && info !== undefined ? { ...info, version: brandString<FsVersion>(digest(`${info.version}:workspace-acl`)) } : info
+  })
+  class MetadataChangingSandbox extends SandboxProvider {
+    async confine(argv: readonly string[], policy: ExecutionPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
+      signal?.throwIfAborted()
+      policies.push(policy)
+      if (policy.mode === 'workspace-write') workspaceGrant = true
+      return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
+    }
+  }
+  await f.ctx.plugin(MetadataChangingSandbox).await()
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const before = readFileSync(f.file)
+  const result = await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)
+  expect(result).toMatchObject({ state: 'ready', sourceVersion: source.version })
+  expect(result.shots).toHaveLength(3)
+  expect(policies.map(policy => policy.mode)).toEqual(mode === 'danger-full-access' ? [] : ['read-only', 'read-only'])
+  expect(policies.every(policy => policy.workspaceRoot === f.root && policy.sessionId === f.session.id)).toBe(true)
+  expect(workspaceGrant).toBe(false)
+  expect((await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]?.version).toBe(source.version)
+  expect(readFileSync(f.file)).toEqual(before)
+  const response = await f.routes.get('/api/session-video')!.fetch(
+    new Request(`http://localhost/${source.playbackUrl}`, { headers: { range: 'bytes=0-15' } }))
+  expect(response.status).toBe(206)
+  expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(before.subarray(0, 16)))
+})
+
+it('exposes recorded episode identities through the real inventory without provider queries', async () => {
+  const f = await fixture()
+  const fetch = vi.fn(() => { throw new Error('production grouping must not query a provider') })
+  vi.stubGlobal('fetch', fetch)
+  f.tool('jubian_video', { method: 'task', task_id: 17 }, { task: { task_id: 17, script_id: 10, episode_id: 131 } })
+  f.tool('jubian_media', { method: 'download', media_kind: 'video', task_id: 17, subtask_id: 170 }, { path: f.file })
+  const before = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(before.production).toEqual({ scriptId: 10, taskId: 17, subtaskId: 170, episodeId: 131 })
+  f.tool('jubian_model', { method: 'episodes', script_id: 10 }, {
+    episodes: { total: 1, rows: [{ episode_id: 131, episode_count: 31, name: 'Episode 31' }] },
+  })
+  const after = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(after.production).toEqual({ ...before.production, episodeNumber: 31 })
+  expect(after.id).toBe(before.id)
+  expect(after.version).toBe(before.version)
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it('rebuilds legacy source checkpoints from recorded production facts', async () => {
+  const f = await fixture()
+  f.tool('jubian_model', { method: 'episodes', script_id: 10 }, {
+    episodes: { total: 1, rows: [{ episode_id: 131, episode_count: 31 }] },
+  })
+  f.tool('jubian_video', { method: 'task', task_id: 17 }, { task: { task_id: 17, script_id: 10, episode_id: 131 } })
+  f.tool('jubian_media', { method: 'download', media_kind: 'video', task_id: 17 }, { path: f.file })
+  await f.ctx.sessionVideo.list(f.session.id, f.signal)
+  const checkpoint = f.ctx.sessionProjections.checkpoint(f.session)
+  const cached = checkpoint.sessionVideoSources
+  if (cached === undefined) throw new Error('source checkpoint is missing')
+  const legacy = { ...checkpoint, sessionVideoSources: { ...cached,
+    ver: Number.parseInt(digest(JSON.stringify([1, 500, 4 * 1024 * 1024])).slice(0, 12), 16),
+    val: { sources: [], calls: [], complete: true, issues: [] },
+  } }
+  const restored = f.ctx.sessionProjections.restore(legacy, f.session.snapshotEvents(), SessionLogOffset(0),
+    f.session.header, SessionLogOffset(0))
+  const state = sourceStateSchema.parse(restored.checkpoint.sessionVideoSources?.val)
+  expect(Object.values(state.productionBySource ?? {})).toEqual([{ scriptId: 10, taskId: 17, episodeId: 131, episodeNumber: 31 }])
+})
+
 it('resolves uploaded video attachments outside the workspace and refuses foreign source ids and stale versions', async () => {
   const f = await fixture()
   const attachment = await f.ctx.attachments.saveFile({ data: readFileSync(f.file), name: 'upload.mp4' })
@@ -124,22 +202,33 @@ it('downloads only a successful logged Jubian URL through the bounded existing s
   expect((await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]?.status).toBe('local')
 })
 
-it('reports executable failure and source mutation without caching invented cut ranges', async () => {
+it.each(['bytes', 'metadata'] as const)('reports executable failure and source %s mutation without caching invented cut ranges', async (kind) => {
   const f = await fixture()
   f.user('@three-shots.mp4')
   const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
   const resolve = vi.spyOn(f.ctx.subprocess, 'resolveExecutable').mockRejectedValueOnce(new Error('fixture missing ffprobe'))
   expect(await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)).toMatchObject({ state: 'failed', shots: [], issue: 'fixture missing ffprobe' })
   resolve.mockRestore()
+  const before = readFileSync(f.file)
+  let metadataChanged = false
+  const stat = f.ctx.fs.stat.bind(f.ctx.fs)
+  vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    const info = await stat(...args)
+    return metadataChanged && info !== undefined ? { ...info, version: brandString<FsVersion>(digest(`${info.version}:external-metadata`)) } : info
+  })
   const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    if (basename(String(spec.argv[0])).replace(/\.exe$/iu, '') === 'ffmpeg') appendFileSync(f.file, 'fixture-version-change')
+    if (basename(String(spec.argv[0])).replace(/\.exe$/iu, '') === 'ffmpeg') {
+      if (kind === 'bytes') appendFileSync(f.file, 'fixture-version-change')
+      else metadataChanged = true
+    }
     return original(spec)
   })
   const changed = await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)
   expect(changed.state).toBe('failed')
   expect(changed.shots).toEqual([])
   expect(changed.issue).toContain('changed during detection')
+  if (kind === 'metadata') expect(readFileSync(f.file)).toEqual(before)
 })
 
 it('refuses unsupported provider origins and oversized downloads before spawning an analyzer', async () => {

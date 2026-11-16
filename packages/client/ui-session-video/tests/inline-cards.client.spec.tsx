@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-/** Inline source identity, delivered-file ownership and reversible collection stay in one Session. */
+/** Compact inline entries retain source identity and open the same conversation's video workspace. */
 import { act, fireEvent, render } from '@testing-library/react'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { ConversationLocationIndex } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { TurnLocation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SessionSeq } from '@deepseek-ai/dsh-session/types'
-import type { SessionVideoSource } from '@deepseek-ai/dsh-session-video'
+import type { SessionVideoSource } from '@deepseek-ai/dsh-session-video/types'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { InlineVideoCard } from '../src/client/InlineVideoCard.tsx'
 import { en } from '../src/client/locales.ts'
@@ -23,20 +23,25 @@ function turn(start = true, end = true): TurnLocation {
   return result
 }
 
-it('keeps delivered playback in place across media errors and retries the same owner-authorized URL', async () => {
+it('keeps a delivered entry usable when its muted thumbnail fails and follows an updated authorized URL', async () => {
   const item = { ...source(), presentedIndex: 0 }
-  const { runtime, reference } = await fixture([item])
+  const { runtime, reference, openWorkspace } = await fixture([item])
   const card = runtime.renderSlot('test.video.delivered', { sourceUrl: '/delivered/original.mp4', label: 'Delivered original',
     path: item.path ?? '', seq: 4, index: 0 }, { session: reference })
-  const video = card.view.getByLabelText('Delivered original') as HTMLVideoElement
+  const video = card.container.querySelector('video')
+  if (video === null) throw Error('The delivered entry has no metadata thumbnail')
+  expect(video.muted).toBe(true)
+  expect(video.preload).toBe('metadata')
+  expect(video.controls).toBe(false)
+  expect(video.autoplay).toBe(false)
   fireEvent.error(video)
-  expect(card.view.getByRole('alert').textContent).toContain(en.unavailable)
-  const load = vi.spyOn(HTMLMediaElement.prototype, 'load')
-  fireEvent.click(card.view.getByRole('button', { name: en.retry }))
-  expect(load).toHaveBeenCalledOnce()
+  expect(video.hidden).toBe(true)
+  fireEvent.click(card.view.getByRole('button', { name: 'Switch video: Delivered original' }))
+  expect(openWorkspace).toHaveBeenCalledOnce()
   expect(video.getAttribute('src')).toBe('/delivered/original.mp4')
   card.update({ sourceUrl: '/delivered/updated.mp4', label: 'Delivered original', path: item.path ?? '', seq: 4, index: 0 })
-  expect(card.view.getByLabelText('Delivered original')).toBe(video)
+  expect(card.container.querySelector('video')).toBe(video)
+  expect(video.hidden).toBe(false)
   expect(video.getAttribute('src')).toBe('/delivered/updated.mp4')
 })
 
@@ -52,15 +57,15 @@ it('shows only generated sources in the current Turn and omits a path already ow
   const { runtime, reference } = await fixture(sources)
   const cards = runtime.renderSlot('conversation.chat.turnTail', { turn: turn(), seq: 10, openFile: () => {} }, { session: reference })
   expect(cards.container.querySelectorAll('video')).toHaveLength(1)
-  expect(cards.view.getByLabelText(original.label)).toBeTruthy()
+  expect(cards.view.getByRole('button', { name: makeTranslate(en)('source', { name: original.label }) })).toBeTruthy()
   cards.update({ turn: turn(false), seq: 10, openFile: () => {} })
   expect(cards.container.querySelectorAll('video')).toHaveLength(0)
   cards.update({ turn: turn(true, false), seq: 20, openFile: () => {} })
   expect(cards.container.querySelectorAll('video')).toHaveLength(2)
 })
 
-/** Control only browser-owned geometry and frames; collection still runs the real hook. */
-function motion() {
+/** Reproduce the header crossing where the legacy collection canvas appeared. */
+function scrollFrame() {
   let top = 240, nextFrame = 0
   const frames = new Map<number, FrameRequestCallback>()
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame })
@@ -71,41 +76,35 @@ function motion() {
     if (this.hasAttribute('data-muse-video-anchor')) return new DOMRect(350, 60, 100, 40)
     return new DOMRect(100, 0, 600, 700)
   })
-  const context: Pick<CanvasRenderingContext2D, 'setTransform' | 'save' | 'restore' | 'beginPath' | 'moveTo' | 'bezierCurveTo'
-    | 'lineTo' | 'closePath' | 'fill' | 'rect' | 'roundRect' | 'clip' | 'fillStyle' | 'globalAlpha'> = {
-    setTransform: () => {}, save: () => {}, restore: () => {}, beginPath: () => {}, moveTo: () => {}, bezierCurveTo: () => {},
-    lineTo: () => {}, closePath: () => {}, fill: () => {}, rect: () => {}, roundRect: () => {}, clip: () => {}, fillStyle: '', globalAlpha: 1,
-  }
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as CanvasRenderingContext2D)
   return { set: (value: number) => { top = value }, paint: () => {
     act(() => { const pending = [...frames.values()]; frames.clear(); for (const frame of pending) frame(0) })
   } }
 }
 
-it.each([true, false])('collects and restores the original card and opens only a recorded source (recorded=%s)', async (recorded) => {
-  const { instance } = await fixture()
-  const moving = motion(), item = source(), url = '/delivered/selected.mp4'
+it.each([true, false])('keeps the entry visible without a collection canvas and opens its workspace (recorded=%s)', async (recorded) => {
+  const { instance, openWorkspace } = await fixture()
+  const moving = scrollFrame(), item = { ...source(), production: { scriptId: 1, episodeNumber: 33 } }, url = '/delivered/selected.mp4'
+  instance.actions.selectEpisode(31)
   const view = render(<div data-conversation-content data-chat-frame>
     <button data-muse-video-anchor />
     <div data-chat-scroll><InlineVideoCard source={recorded ? item : undefined} sourceUrl={url}
-      label="Inline original" actions={instance.actions} t={makeTranslate(en)} /></div>
+      label="Inline original" actions={instance.actions} openWorkspace={openWorkspace} t={makeTranslate(en)} /></div>
   </div>)
   onTestFinished(() => { view.unmount() })
   moving.paint()
   const scroll = view.container.querySelector('[data-chat-scroll]')
   if (!scroll) throw Error('Inline owner did not mount its Chat scroll container')
-  moving.set(-76); fireEvent.scroll(scroll); moving.paint()
-  expect(instance.getSnapshot().collected[recorded ? item.id : url]).toBe(true)
   const card = view.container.querySelector<HTMLElement>('[data-muse-inline-video]')
-  expect(card?.style.visibility).toBe('hidden')
-  moving.set(240); fireEvent.scroll(scroll); moving.paint()
-  expect(instance.getSnapshot().collected[recorded ? item.id : url]).toBe(false)
-  expect(card?.style.visibility).toBe('')
-  moving.set(54); fireEvent.scroll(scroll); moving.paint()
-  const hit = view.container.querySelector<HTMLButtonElement>('[data-video-absorption] button')
-  if (!hit) throw Error('Moving card did not mount its open control')
-  expect(hit.hidden).toBe(false)
-  fireEvent.click(hit)
-  expect(instance.getSnapshot().open).toBe(recorded)
+  for (const top of [54, -76, 240]) {
+    moving.set(top); fireEvent.scroll(scroll); moving.paint()
+    expect(card?.style.visibility).toBe('')
+    expect(card?.inert).not.toBe(true)
+    expect(view.container.querySelector('[data-video-absorption]')).toBeNull()
+    expect(view.container.querySelector('canvas')).toBeNull()
+  }
+  fireEvent.click(view.getByRole('button', { name: 'Switch video: Inline original' }))
+  expect(openWorkspace).toHaveBeenCalledOnce()
+  expect(instance.getSnapshot().selected).toBe(recorded ? item.id : null)
+  expect(instance.getSnapshot().selectedEpisode).toBe(recorded ? 33 : 31)
   view.unmount()
 })

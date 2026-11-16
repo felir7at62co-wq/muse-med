@@ -1,5 +1,5 @@
 /** Source-preserving coordinates for a conversation filmstrip. */
-import type { SessionVideoSource, SessionVideoAnalysis, SessionVideoShot } from '@deepseek-ai/dsh-session-video'
+import type { SessionVideoSource, SessionVideoAnalysis, SessionVideoShot } from '@deepseek-ai/dsh-session-video/types'
 
 /** Concatenated timeline coordinates retain the original source-local range. */
 interface LocatedShot extends SessionVideoShot {
