@@ -231,7 +231,7 @@ function fixture(packaged = false) {
   class TestContext {
     root = this
     fiber = ownerFiber
-    absentServices = new Set<string>()
+    absentServices = new Set<string>(['loader'])
     get = vi.fn((name: string) => this.absentServices.has(name) ? undefined : {})
     on<K extends keyof FixtureEvents>(event: K, listener: FixtureEvents[K]) {
       const listeners = eventListeners[event]
@@ -1552,6 +1552,24 @@ it('names the coordination dependencies absent when the Main Session lacks its r
   f.ctx.absentServices.add('jobs')
   await expect(f.apply(f.ctx)).rejects.toThrow('missing: coordinator_jobs; unexpected: none; absent services: jobs; '
     + 'absent after 60 s: jobs; still missing after 60 s: coordinator_jobs')
+})
+
+it('names the loader state of the coordination dependency plugins', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
+    ? schemas(key).filter(tool => tool.name !== 'coordinator_jobs') : schemas(key))
+  f.ctx.absentServices.delete('loader')
+  const loader = { entries: () => [
+    { options: { name: '@deepseek-ai/dsh-storage-json' }, disabled: false, fiber: { state: 3, _error: new Error('EPERM: storages') } },
+    { options: { name: '@deepseek-ai/dsh-storage-domain' }, disabled: false, fiber: { state: 0, _error: undefined } },
+    { options: { name: '@deepseek-ai/dsh-workspace' }, disabled: false, fiber: undefined },
+    { options: { name: '@deepseek-ai/dsh-time-context' }, disabled: false, fiber: { state: 2, _error: undefined } },
+  ] }
+  const get = f.ctx.get.getMockImplementation()!
+  f.ctx.get.mockImplementation(name => name === 'loader' ? loader : get(name))
+  await expect(f.apply(f.ctx)).rejects.toThrow('; loader entries: @deepseek-ai/dsh-storage-json=failed (EPERM: storages), '
+    + '@deepseek-ai/dsh-storage-domain=pending, @deepseek-ai/dsh-workspace=not loaded')
 })
 
 it('accepts a Main Session that also carries the optional human-facing tools', async () => {

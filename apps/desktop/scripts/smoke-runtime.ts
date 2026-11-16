@@ -342,15 +342,24 @@ export function apply(ctx) {
       if (missing.length > 0 || unexpected.length > 0) {
         // The coordinator tools register only while the coordination service runs; name its absent dependencies.
         const services = ['sessionCoordinator', 'agents', 'sessions', 'sessionQuery', 'sessionController', 'workspaceController', 'storageDomain',
-          'workspaceRegistry', 'jobs', 'typert', 'tools', 'sessionProjections']
+          'workspaceRegistry', 'jobs', 'typert', 'tools', 'sessionProjections', 'storage']
         const absent = () => services.filter(name => ctx.get(name) === undefined)
         const before = absent()
         const deadline = Date.now() + 60_000
         while (absent().includes('sessionCoordinator') && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 500))
         const later = required.filter(name => !new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name)).has(name))
+        // Name the loader state of the plugins that provide those dependencies; a failed fiber keeps its error.
+        const states = ['pending', 'loading', 'active', 'failed', 'disposed', 'unloading']
+        const loader = ctx.get('loader')
+        const entries = loader === undefined ? [] : [...loader.entries()]
+          .filter(entry => /storage|workspace|session-controller|session-coordinator/.test(String(entry.options.name)))
+          .map(entry => String(entry.options.name) + '=' + (entry.disabled ? 'disabled' : entry.fiber === undefined ? 'not loaded'
+            : (states[entry.fiber.state] ?? String(entry.fiber.state))
+              + (entry.fiber._error === undefined ? '' : ' (' + String(entry.fiber._error?.message ?? entry.fiber._error).slice(0, 300) + ')')))
         throw new Error('desktop runtime: Main Session routing tool roster differs; missing: ' + (missing.join(', ') || 'none')
           + '; unexpected: ' + (unexpected.join(', ') || 'none') + '; absent services: ' + (before.join(', ') || 'none')
-          + '; absent after 60 s: ' + (absent().join(', ') || 'none') + '; still missing after 60 s: ' + (later.join(', ') || 'none'))
+          + '; absent after 60 s: ' + (absent().join(', ') || 'none') + '; still missing after 60 s: ' + (later.join(', ') || 'none')
+          + '; loader entries: ' + (loader === undefined ? 'loader unavailable' : entries.join(', ') || 'none'))
       }
       const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       if (!assembly.sections.some(section => section.name === 'muse:main-session' && section.text.includes('只负责'))) {
