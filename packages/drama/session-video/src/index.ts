@@ -324,7 +324,8 @@ export default class SessionVideo extends TypertRemoteService {
       let offset = start, pending: Promise<void> | undefined, closed = false
       let controller: ReadableStreamDefaultController<Uint8Array>
       const release = (): void => { closed = true; if (pending === undefined) this.streams.delete(owner); operation.removeEventListener('abort', abort) }
-      const abort = (): void => { if (!closed) { release(); controller.error(operation.reason) } }
+      // release removes this one-shot listener before another cancellation can reach the closed stream.
+      const abort = (): void => { release(); controller.error(operation.reason) }
       const body = new ReadableStream<Uint8Array>({
         start(value) { controller = value; operation.addEventListener('abort', abort, { once: true }); if (operation.aborted) abort() },
         pull: (output) => {

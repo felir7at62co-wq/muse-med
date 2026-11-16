@@ -22,7 +22,9 @@ describe('recorded working-budget expectations', () => {
       pathDisplays: new Map([['{{cwd}}/.dsh/visualize/sessions/{{session:1}}/',
         '~/work/dsh-log-snap-B54lk8/.dsh/visualize/sessions/session-00000000-0000-4000-8000-000000000001/']]) }
     const measured = deriveWorkingBudgetExpectations(native)
-    expect([...measured.values()]).toEqual([10698, 14688, 14977, 15127])
+    const prices = [...measured.values()]
+    // Tool descriptions contribute the same prefix to every request; this case owns the history and path deltas.
+    expect(prices.map(count => count - prices[0]!)).toEqual([0, 3990, 4279, 4429])
     const absolute = deriveWorkingBudgetExpectations(original)
     expect([...absolute.values()].slice(0, 2)).toEqual([...measured.values()].slice(0, 2))
     expect(absolute).not.toEqual(measured)
