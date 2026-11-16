@@ -19,7 +19,7 @@ import { resolveLinuxNodePtyAddon, resolveWindowsNodePtyAddons } from './executa
 import { officeSidecarArchives, runtimeNpmArchive, OFFICE_ASSET_IGNORES } from './build-exe-for-python-sdk-office.ts'
 import { syncPythonRuntimeProduct } from './build-exe-for-python-sdk-resources.ts'
 import { deduplicateStagedWorkspacePackages, materializeStagedLinks } from './build-exe-for-python-sdk-staging.ts'
-import { PRIMARY_RUNTIME_NOTICE_FILES } from './primary-runtime/prepare.ts'
+import { PRIMARY_RUNTIME_NOTICE_FILES, primaryRuntimePayloadDigest } from './primary-runtime/prepare.ts'
 import primaryLock from './primary-runtime/lock.json' with { type: 'json' }
 
 const root = resolve(import.meta.dirname, '..')
@@ -432,7 +432,9 @@ class SingleExeBuild {
       const office = await officeSidecarArchives(this.staging, { platform, arch: target.arch })
       const pnpm = await runtimeNpmArchive('pnpm', packageManager.replace('pnpm@', ''))
       const inputs = { version, target: `${target.platform === 'macos' ? 'mac' : target.platform}-${target.arch}`, office, pnpm }
-      const identity = createHash('sha256').update(JSON.stringify({ ...inputs, primaryLock })).digest('hex')
+      const identity = createHash('sha256').update(JSON.stringify({ ...inputs, primaryLock,
+        ...(platform === 'win32' ? { primaryPayloadDigest: primaryRuntimePayloadDigest('win-x64', primaryLock, pnpm.version) } : {}),
+      })).digest('hex')
       await writeFile(join(resources, 'downloads.json'), JSON.stringify({ ...inputs, identity }, undefined, 2) + '\n')
     }
     if (target.platform !== 'macos') return [product, ripgrep, resources]
