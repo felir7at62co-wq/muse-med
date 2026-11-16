@@ -805,7 +805,7 @@
 
 .fading .regionArea,
 .root[data-sidebar-opening] .regionArea {
-  width: calc(var(--dsh-sidebar-expanded-width) - var(--dsh-sidebar-inline-padding));
+  width: calc(var(--dsh-sidebar-expanded-width) - 2 * var(--dsh-sidebar-inline-padding));
 }
 
 .collapsed .regionArea {

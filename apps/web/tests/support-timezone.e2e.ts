@@ -23,12 +23,13 @@ it.each(['UTC', 'America/Los_Angeles'])('isolates the recorded browser timezone 
 
 it('keeps browser timers and animation frames live with the Host date pinned, including reload', async () => {
   const originalNow = Date.now
-  const hostClock = pinHostClock()
+  const origin = performance.timeOrigin + performance.now()
+  const hostClock = pinHostClock(origin)
   try {
     const browser = await chromium.launch()
     try {
       const page = await newEnglishPage(browser)
-      await pinBrowserClock(page)
+      await pinBrowserClock(page, origin)
       await page.goto('data:text/html,<body>clock</body>')
       let previousTime = WEB_FIXTURE_TIME
       for (const reload of [false, true]) {

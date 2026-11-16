@@ -116,7 +116,7 @@ describe('SidebarRoot.module.css', () => {
     expect(declarations('.fading .wide')?.get('opacity')).toBe('0')
     expect(declarations('.fading > *')).toBeUndefined()
     expect(declarations('.fading .regionArea')?.get('width')).toBe(
-      'calc(var(--dsh-sidebar-expanded-width) - var(--dsh-sidebar-inline-padding))',
+      'calc(var(--dsh-sidebar-expanded-width) - 2 * var(--dsh-sidebar-inline-padding))',
     )
     expect(declarations('.wideIn')?.get('animation')).toBe('region-in 200ms var(--ds-ease-in-out) backwards')
     expect(declarations('.regionArea')?.get('animation')).toBeUndefined()
