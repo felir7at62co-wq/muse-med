@@ -2775,16 +2775,22 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Readonly resolved paths and bounds, without exposing archive contents.',
       },
       {
-        signature: '@Remote(\'sources\') async sources(): Promise<{ skills: { name: string; description: string; whenToUse?: string }[]; complete: boolean }>',
-        description: 'List current authoring candidates without reading or uploading resource directories.',
+        signature: '@Remote(\'sources\') async sources(): Promise<{ skills: { name: string; description: string; whenToUse?: string; sourceId?: MarketSourceId; version?: string }[] complete: boolean }>',
+        description: 'List registry Skills and retained local versions without reading or uploading resource directories.',
         parameters: [],
-        returns: 'Discovered metadata and whether every provider completed this observation.',
+        returns: 'Candidate metadata, exact selectors for retained versions, and registry discovery completeness.',
       },
       {
         signature: '@Remote(\'prepare\') async prepare(metadata: MarketMetadata, skillName: string): Promise<MuseMarketInstallation>',
         description: 'Prepare one selected local Skill as a disabled publication without uploading it.',
-        parameters: [{ name: 'metadata', description: 'Explicit author metadata.' }, { name: 'skillName', description: 'Exact registry invocation name.' }],
+        parameters: [{ name: 'metadata', description: 'Explicit author metadata.' }, { name: 'skillName', description: 'Exact registry invocation name or sourceId returned by sources() for a retained version.' }],
         returns: 'Verified disabled installation containing the selected complete bundle.',
+      },
+      {
+        signature: '@Remote(\'prepareUpload\') async prepareUpload(id: MarketReleaseId, presetPortrait: string): Promise<MuseMarketInstallation>',
+        description: 'Retain a publication\'s existing portrait or bind an unassigned portrait in a separate immutable package.',
+        parameters: [{ name: 'id', description: 'Exact installed release whose archive and extracted resources must verify.' }, { name: 'presetPortrait', description: 'Safe presentation asset key assigned by the creator preview.' }],
+        returns: 'Existing portrait-bearing installation or a new disabled installation; originals and defaults remain unchanged.',
       },
       {
         signature: '@Remote(\'importPackage\') async importPackage(base64: string): Promise<MuseMarketInstallation>',
@@ -2843,13 +2849,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: '@Remote(\'catalog\') async catalog(q: string, mine: boolean): Promise<MarketPublication[]>',
-        description: 'Search published metadata, or the signed-in creator\'s private records.',
-        parameters: [{ name: 'q', description: 'Search text, at most 200 characters; empty requests the bounded current catalog.' }, { name: 'mine', description: 'Whether private creator-visible publications are requested.' }],
+        description: 'Search the bounded published catalog anonymously, or the signed-in creator\'s private records.',
+        parameters: [{ name: 'q', description: 'Search words, at most 200 characters, matched against the bounded current catalog.' }, { name: 'mine', description: 'Whether private creator-visible publications are requested.' }],
         returns: 'At most catalogLimit validated records; oversized replies refuse instead of truncating.',
       },
       {
+        signature: '@Remote(\'legacyCatalog\') async legacyCatalog(query: string): Promise<MarketLegacyResource[]>',
+        description: 'Search the original public Skill catalog without reading or sending account credentials.',
+        parameters: [{ name: 'query', description: 'Search words, at most 200 characters; empty selects all original Skills.' }],
+        returns: 'Validated original resources within the configured catalog and archive bounds.',
+      },
+      {
+        signature: '@Remote(\'installLegacy\') async installLegacy(id: MarketLegacyResourceId, expectedSha256: string): Promise<{ resource: MarketLegacyResource installation: MuseMarketInstallation }>',
+        description: 'Verify and convert an original public ZIP without activating it or changing a Session binding.',
+        parameters: [{ name: 'id', description: 'Original catalog identity selected by the caller.' }, { name: 'expectedSha256', description: 'Original archive digest observed when selecting that resource.' }],
+        returns: 'Fresh catalog metadata and the disabled canonical local installation, deduplicated by its converted bytes.',
+      },
+      {
         signature: '@Remote(\'identity\') async identity(): Promise<MarketIdentity>',
-        description: 'Read admitted publishing teams and administrator capability for the current login.',
+        description: 'Read admitted publishing teams and administrator capability for the current login. Original two-field market identities obtain their account id from the same session\'s account endpoint.',
         parameters: [],
         returns: 'Validated public identity facts without the private account cookie.',
       },
@@ -8771,6 +8789,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MarketInstallTarget {\n    readonly spec: string;\n    readonly registry?: string;\n}',
   },
   {
+    name: 'MarketLegacyResourceId',
+    declaration: 'export type MarketLegacyResourceId = Branded<\'MarketLegacyResourceId\'>;',
+  },
+  {
     name: 'MarketLimits',
     declaration: 'export interface MarketLimits {\n    readonly archiveBytes: number;\n    readonly expandedBytes: number;\n    readonly fileCount: number;\n    readonly recordBytes: number;\n}',
   },
@@ -8792,7 +8814,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MarketMetadata',
-    declaration: 'export interface MarketMetadata {\n    readonly name: string;\n    readonly title: string;\n    readonly description: string;\n    readonly version: string;\n    readonly license: string;\n    readonly category: string;\n    readonly examples: readonly string[];\n    readonly requirements: readonly string[];\n}',
+    declaration: 'export interface MarketMetadata {\n    readonly presetPortrait?: string;\n    readonly name: string;\n    readonly title: string;\n    readonly description: string;\n    readonly version: string;\n    readonly license: string;\n    readonly category: string;\n    readonly examples: readonly string[];\n    readonly requirements: readonly string[];\n}',
   },
   {
     name: 'MarketPlugin',
@@ -8845,6 +8867,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MarketSource',
     declaration: 'export type MarketSource = {\n    readonly type: \'npm\';\n    readonly registry?: string;\n} | {\n    readonly type: \'git\';\n    readonly url: string;\n    readonly commit: string;\n    readonly path?: string;\n};',
+  },
+  {
+    name: 'MarketSourceId',
+    declaration: 'export type MarketSourceId = Branded<\'MarketSourceId\'>;',
   },
   {
     name: 'MarketUploadRequestId',

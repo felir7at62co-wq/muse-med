@@ -165,10 +165,13 @@ it('refuses a noncanonical actor assertion before catalog admission', async () =
   expect(await response.json()).toEqual({ error: 'invalid-actor' })
 })
 
-it('requires the dedicated IPv4 carrier even on another actual loopback address', async () => {
+it('requires the dedicated IPv4 carrier even when the service reports another loopback address', async () => {
   const f = await fixture(), ctx = new Context()
   onTestFinished(() => ctx.fiber.dispose())
-  await ctx.plugin(WebServer, { host: '127.0.0.2', port: 0 }).await()
+  await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 }).await()
+  // macOS does not bind additional 127/8 aliases without interface configuration.
+  const host = vi.spyOn(ctx.webServer, 'host', 'get').mockReturnValue('127.0.0.2')
+  onTestFinished(() => host.mockRestore())
   await expect(ctx.plugin(CloudHost, { policyFile: join(f.root, 'policy.json') }).await())
     .rejects.toMatchObject({ code: 'loopback-required' })
 })
@@ -290,6 +293,32 @@ it.each(['{', '[]', '{"title":"HTTP team"}'])('refuses an invalid publisher requ
   const database = f.database()
   try { expect(database.prepare('SELECT COUNT(*) AS count FROM publishers').get()?.count).toBe(0) }
   finally { database.close() }
+})
+
+it('keeps draft downloads private and allows another ordinary account to download after approval', async () => {
+  const f = await fixture(), publisher = await f.invite(), bytes = archive()
+  const uploaded = await f.api('/uploads', author, { method: 'POST', headers: {
+    'content-type': 'application/zip', 'x-market-publisher': publisher, 'idempotency-key': 'ordinary-download',
+  }, body: bytes })
+  const draft = parseMarketPublication(await uploaded.json(), limits)
+  const path = `/releases/${draft.id}/download`
+  const own = await f.api(path, author)
+  expect(own.status).toBe(200)
+  expect(Buffer.from(await own.arrayBuffer())).toEqual(bytes)
+  for (const actor of [reader, null]) {
+    const hidden = await f.api(path, actor)
+    expect(hidden.status).toBe(actor === null ? 401 : 404)
+    await hidden.body?.cancel()
+  }
+  const submitted = await f.api(`/releases/${draft.id}/review`, author, post({ revision: 1, action: 'submit', note: '' }))
+  const pending = parseMarketPublication(await submitted.json(), limits)
+  const approved = await f.api(`/releases/${draft.id}/review`, admin, post({ revision: pending.revision, action: 'approve', note: '' }))
+  expect(approved.status).toBe(200)
+  await approved.body?.cancel()
+  const shared = await f.api(path, reader)
+  expect(shared.status).toBe(200)
+  expect(shared.headers.get('x-content-sha256')).toBe(draft.sha256)
+  expect(Buffer.from(await shared.arrayBuffer())).toEqual(bytes)
 })
 
 it('reconciles a committed upload after its original HTTP response is deliberately unobserved', async () => {

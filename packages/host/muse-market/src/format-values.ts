@@ -52,8 +52,11 @@ export function marketMetadata(value: unknown): MarketMetadata {
     || !marketText(value.version, 80) || !/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/u.test(value.version)
     || !marketText(value.license, 2000) || !marketText(value.category, 60)
     || !strings(value.examples, 8, 1000) || !strings(value.requirements, 20, 300)) throw new MarketError('invalid-manifest')
+  if (value.presetPortrait !== undefined && (!marketText(value.presetPortrait, 64)
+    || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(value.presetPortrait))) throw new MarketError('invalid-manifest')
   return { name: value.name, title: value.title, description: value.description, version: value.version,
-    license: value.license, category: value.category, examples: value.examples, requirements: value.requirements }
+    license: value.license, category: value.category, examples: value.examples, requirements: value.requirements,
+    ...(value.presetPortrait === undefined ? {} : { presetPortrait: value.presetPortrait }) }
 }
 
 /** Parse a Skill-only manifest; Bot and plugin payloads are not admitted.
@@ -67,5 +70,6 @@ export function marketManifest(value: unknown): ValidatedMarketManifest {
   const skill: unknown = value.skills[0]
   if (!marketRecord(skill) || typeof skill.name !== 'string' || !isSkillName(skill.name)
     || skill.path !== `skills/${skill.name}/SKILL.md` || !marketPath(skill.path)) throw new MarketError('invalid-manifest')
-  return { ...metadata, formatVersion: 1, kind: 'skill', skills: [{ name: skill.name, path: skill.path }] }
+  return { ...metadata, formatVersion: 1, kind: 'skill',
+    skills: [{ name: skill.name, path: skill.path }] }
 }

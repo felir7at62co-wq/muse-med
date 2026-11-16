@@ -59,13 +59,16 @@ export class MarketController {
     }
     this.operations = {
       sources: () => local(() => actual.sources()), prepare: (metadata, source) => local(() => actual.prepare(metadata, source)),
+      prepareUpload: (id, preset) => local(() => actual.prepareUpload(id, preset)),
       installed: () => local(() => actual.installed()), importPackage: bytes => local(() => actual.importPackage(bytes)),
       exportPackage: id => local(() => actual.exportPackage(id)), removePackage: id => local(() => actual.removePackage(id)),
       defaults: () => local(() => actual.defaults()), setDefault: request => local(() => actual.setDefault(request)),
       binding: request => local(() => actual.binding(request)),
-      catalog: (q, mine) => guarded(() => actual.catalog(q, mine)),
+      catalog: (q, mine) => mine ? guarded(() => actual.catalog(q, mine)) : local(() => actual.catalog(q, mine)),
+      legacyCatalog: q => local(() => actual.legacyCatalog(q)),
       getPublication: id => guarded(() => actual.getPublication(id)),
       installPublication: (id, sha) => guarded(() => actual.installPublication(id, sha)),
+      installLegacy: (id, sha) => local(() => actual.installLegacy(id, sha)),
       publishDraft: (id, publisher, key) => guarded(() => actual.publishDraft(id, publisher, key)),
       review: (id, revision, action, note) => guarded(() => actual.review(id, revision, action, note)),
       identity: async () => {

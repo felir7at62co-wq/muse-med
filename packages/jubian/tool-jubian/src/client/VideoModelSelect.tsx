@@ -30,8 +30,8 @@ export function VideoModelSelect({ useVideoState, load, select, t, variant }: Vi
   const current = state.current ?? state.options.find(option => option.modelId === displayed?.modelId
     && option.platformId === displayed.platformId && option.resolution === displayed.resolution) ?? null
   const modelName = (model: { modelId: string; modelName?: string }): string => {
-    if (model.modelId === 'doubao-seedance-2-5-260628' || model.modelId === 'doubao-seedance-2.5') return 'Seedance 2.5'
-    if (model.modelId === 'doubao-seedance-2-0-260128' || model.modelId === 'doubao-seedance-2.0') return 'Seedance 2.0'
+    if (model.modelId === 'doubao-seedance-2-5-260628' || model.modelId === 'doubao-seedance-2.5') return t('videoSeedance25')
+    if (model.modelId === 'doubao-seedance-2-0-260128' || model.modelId === 'doubao-seedance-2.0') return t('videoSeedance20')
     return model.modelName ?? model.modelId
   }
   const groups = [...new Set(families.map(option => option.platformId))]

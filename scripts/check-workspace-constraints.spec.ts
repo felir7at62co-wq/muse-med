@@ -350,7 +350,7 @@ describe('package payload constraints', () => {
     expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, 'src/**'] } }))
       .toEqual([expect.stringContaining('package.json files must be')])
     for (const files of [
-      ...['lib/package.js', 'lib/activation.js', 'lib/cloud.js', 'lib/cloud-host.js', 'lib/shared-*.js', 'lib/cloud-values.js', 'lib/cloud-values.browser.js']
+      ...['locale/*.json', 'lib/package.js', 'lib/browser.js', 'lib/activation.js', 'lib/cloud.js', 'lib/cloud-host.js', 'lib/shared-*.js', 'lib/cloud-values.js', 'lib/legacy.js', 'lib/cloud-values.browser.js']
         .map(required => manifest.files!.filter(file => file !== required)),
       manifest.files!.map(file => file === 'lib/shared-*.js' ? 'lib/**/*.js' : file),
       [...manifest.files!, 'lib/*.js'],
@@ -611,6 +611,36 @@ describe('package payload constraints', () => {
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
     expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
     expect(checkWorkspaceManifest({ dir: 'apps/other-tool', manifest })).not.toEqual([])
+  })
+
+  it('keeps the standalone Skill website private without an npm payload in its exact application directory', () => {
+    const dir = 'apps/market-web'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, private: false } }))
+      .toContainEqual(expect.stringContaining('Skill website must set "private": true'))
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, publishConfig: { access: 'public' } } }))
+      .toContainEqual(expect.stringContaining('Skill website must omit publishConfig'))
+    const missingFiles = { ...manifest }; delete missingFiles.files
+    for (const candidate of [missingFiles, ...[['dist'], ['src/**']].map(files => ({ ...manifest, files }))]) {
+      expect(checkWorkspaceManifest({ dir, manifest: candidate }))
+        .toContainEqual(expect.stringContaining('package.json files must be []'))
+    }
+    expect(checkWorkspaceManifest({ dir: 'apps/other-market', manifest }))
+      .toContainEqual(expect.stringContaining('release member must not set "private": true'))
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, name: '@deepseek-ai/dsh-other-market' } }))
+      .toContainEqual(expect.stringContaining('app package has no publication files policy'))
+  })
+
+  it('includes only the shared Skill UI entrypoints, complete assets directory and declarations', () => {
+    const dir = 'packages/client/ui-muse-market'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    for (const assetEntry of ['lib/assets/*', 'lib/**/*']) {
+      expect(checkWorkspaceManifest({ dir, manifest: {
+        ...manifest, files: manifest.files!.map(file => file === 'lib/assets' ? assetEntry : file),
+      } })).toContainEqual(expect.stringContaining('package.json files must be'))
+    }
   })
 
   it('rejects locale publication entries without their resource exports', () => {

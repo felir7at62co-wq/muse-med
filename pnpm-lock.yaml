@@ -1315,6 +1315,40 @@ importers:
         specifier: workspace:*
         version: link:../../packages/session/working-directory
 
+  apps/market-web:
+    dependencies:
+      '@deepseek-ai/dsh-error':
+        specifier: workspace:*
+        version: link:../../packages/util/error
+      '@deepseek-ai/dsh-client-ui-muse-market':
+        specifier: workspace:*
+        version: link:../../packages/client/ui-muse-market
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: workspace:*
+        version: link:../../packages/client/ui-primitives
+      '@deepseek-ai/dsh-client-ui-theme':
+        specifier: workspace:*
+        version: link:../../packages/client/ui-theme
+      '@deepseek-ai/dsh-muse-market':
+        specifier: workspace:*
+        version: link:../../packages/host/muse-market
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.3.1(react@18.3.1)
+    devDependencies:
+      playwright:
+        specifier: ^1.49.0
+        version: 1.61.1
+      vite:
+        specifier: 8.2.2
+        version: 8.2.2(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
+      vite-tsconfig-paths:
+        specifier: ^6.1.1
+        version: 6.1.1(supports-color@9.4.0)(typescript@6.0.3)(vite@8.2.2(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+
   apps/plugin-market-generator:
     dependencies:
       '@deepseek-ai/dsh-plugin-market-index':

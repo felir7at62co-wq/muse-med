@@ -1,4 +1,4 @@
-/** Optional account-bound Skill publication client; credentials remain in the Host. */
+/** Skill publication client with Host-owned credentials and anonymous original resources. */
 import { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -8,6 +8,10 @@ import { isAbsolute } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { MarketError, marketRecord } from './format.ts'
 import { marketDigest, readMarketPackage } from './package.ts'
+import { parseMarketLegacyCatalog, parseMarketLegacyResourceId } from './legacy.ts'
+import { createLegacySkillPackage } from './legacy-skill.ts'
+import { MarketLegacyInstallations } from './legacy-installations.ts'
+import type { MarketLegacyResource, MarketLegacyResourceId } from './legacy.ts'
 import { MarketCloudError, parseMarketIdentity, parseMarketPublication, parseMarketPublicationId,
   parseMarketPublisherId, parseMarketUploadRequestId } from './cloud-protocol.ts'
 import type { MarketPublication, MarketPublicationId, MarketPublisherId, MarketUploadRequestId,
@@ -18,6 +22,7 @@ import type {} from './index.ts'
 export type { MarketPublication, MarketPublicationId, MarketPublisherId, MarketUploadRequestId,
   MarketReviewAction, MarketIdentity } from './cloud-protocol.ts'
 export { parseMarketPublicationId, parseMarketPublisherId, parseMarketUploadRequestId } from './cloud-protocol.ts'
+export type { MarketLegacyResource, MarketLegacyResourceId } from './legacy.ts'
 
 /** Host-owned endpoint, credential-file location and independent transport bounds. */
 export interface MuseMarketCloudConfig {
@@ -31,17 +36,18 @@ export interface MuseMarketCloudConfig {
   readonly jsonRequestBytes: number
   /** Maximum complete JSON reply bytes; archive limits come from local storage. */
   readonly jsonResponseBytes: number
-  /** Maximum catalog items accepted without silently truncating a server reply. */
+  /** Maximum entries accepted from either catalog without silently truncating a server reply. */
   readonly catalogLimit: number
 }
 
-type CloudPath = '/api/market/v1/me' | '/api/market/v1/uploads' | `/api/market/v1/catalog?${string}`
-  | `/api/market/v1/releases/${MarketPublicationId}` | `/api/market/v1/releases/${MarketPublicationId}/download`
+type CloudJsonPath = '/market/catalog.json' | '/api/muse.account' | '/api/market/v1/me' | '/api/market/v1/uploads'
+  | `/api/market/v1/catalog?q=&mine=${boolean}` | `/api/market/v1/releases/${MarketPublicationId}`
   | `/api/market/v1/releases/${MarketPublicationId}/review`
+type CloudArchivePath = `/api/market/v1/releases/${MarketPublicationId}/download` | `/market/downloads/${string}.zip`
 
 interface CloudRequest {
-  json(path: CloudPath, init?: RequestInit): Promise<unknown>
-  archive(path: CloudPath, publication: MarketPublication): Promise<Buffer>
+  json(path: CloudJsonPath, init?: RequestInit): Promise<unknown>
+  archive(path: CloudArchivePath, publication: Pick<MarketPublication, 'sha256' | 'bytes'>): Promise<Buffer>
   assertCurrent(): Promise<void>
 }
 
@@ -67,17 +73,25 @@ class AccountTransport {
   }
 
   async account<T>(required: boolean, action: (request: CloudRequest) => Promise<T>): Promise<T> {
-    const work = this.open(required, action)
+    return await this.request(required ? 'required' : 'optional', action)
+  }
+
+  async anonymous<T>(action: (request: CloudRequest) => Promise<T>): Promise<T> {
+    return await this.request('anonymous', action)
+  }
+
+  private async request<T>(access: 'required' | 'optional' | 'anonymous', action: (request: CloudRequest) => Promise<T>): Promise<T> {
+    const work = this.open(access, action)
     this.pending.add(work)
     try { return await work } finally { this.pending.delete(work) }
   }
 
-  private async open<T>(required: boolean, action: (request: CloudRequest) => Promise<T>): Promise<T> {
+  private async open<T>(access: 'required' | 'optional' | 'anonymous', action: (request: CloudRequest) => Promise<T>): Promise<T> {
     if (this.lifetime.signal.aborted) throw new MarketCloudError('closing', 503)
     let session
-    try { session = await readMuseSession(this.config.sessionFile, this.origin) }
+    try { session = access === 'anonymous' ? null : await readMuseSession(this.config.sessionFile, this.origin) }
     catch (_error) { throw new MarketCloudError('account-unavailable', 503) }
-    if (required && session === null) throw new MarketCloudError('login-required', 401)
+    if (access === 'required' && session === null) throw new MarketCloudError('login-required', 401)
     const assertCurrent = async (): Promise<void> => {
       if (this.lifetime.signal.aborted) throw new MarketCloudError('closing', 503)
       if (session === null) return
@@ -86,7 +100,7 @@ class AccountTransport {
       catch (_error) { throw new MarketCloudError('account-unavailable', 503) }
       if (current?.revision !== session.revision || current.cookie !== session.cookie) throw new MarketCloudError('account-changed', 409)
     }
-    const bytes = async (path: CloudPath, init: RequestInit, maximum: number, publication?: MarketPublication): Promise<Buffer> => {
+    const bytes = async (path: CloudJsonPath | CloudArchivePath, init: RequestInit, maximum: number, publication?: Pick<MarketPublication, 'sha256' | 'bytes'>): Promise<Buffer> => {
       await assertCurrent()
       const headers = new Headers(init.headers)
       headers.set('origin', this.origin)
@@ -110,8 +124,9 @@ class AccountTransport {
         await response.body?.cancel(); throw new MarketCloudError('response-too-large', 413)
       }
       const kind = response.headers.get('content-type')?.split(';', 1)[0]?.trim()
+      const digestHeader = response.headers.get('x-content-sha256')
       if (publication === undefined ? kind !== 'application/json' : kind !== 'application/zip'
-        || response.headers.get('x-content-sha256') !== publication.sha256
+        || (access !== 'anonymous' || digestHeader !== null) && digestHeader !== publication.sha256
         || length !== String(publication.bytes)) {
         await response.body?.cancel(); throw new MarketCloudError('invalid-response', 502)
       }
@@ -171,17 +186,20 @@ export default class MuseMarketCloud extends TypertRemoteService {
   static Config = Schema.object({
     baseUrl: Schema.string().required(),
     sessionFile: Schema.string().default(dshHomePath('muse-account', 'session.json')),
-    requestTimeoutMs: Schema.natural().min(100).max(120_000).default(30_000),
+    requestTimeoutMs: Schema.natural().min(100).max(120_000).default(120_000),
     jsonRequestBytes: Schema.natural().min(1024).max(1024 * 1024).default(16_384),
     jsonResponseBytes: Schema.natural().min(1024).max(16 * 1024 * 1024).default(1024 * 1024),
     catalogLimit: Schema.natural().min(1).max(100).default(100),
   })
   private readonly transport: AccountTransport
   private readonly limits: MarketLimits
+  private readonly legacyInstallations: MarketLegacyInstallations
 
   constructor(ctx: Context, private readonly config: MuseMarketCloudConfig) {
     super(ctx, 'museMarketCloud')
-    this.limits = ctx.museMarket.publicationStorage().limits
+    const storage = ctx.museMarket.publicationStorage()
+    this.limits = storage.limits
+    this.legacyInstallations = new MarketLegacyInstallations(storage)
     this.transport = new AccountTransport(config, this.limits)
     ctx.effect(() => () => this.transport.close())
   }
@@ -198,30 +216,88 @@ export default class MuseMarketCloud extends TypertRemoteService {
     }
   }
 
-  /** Search published metadata, or the signed-in creator's private records.
-   * @param q - Search text, at most 200 characters; empty requests the bounded current catalog.
+  /** Search the bounded published catalog anonymously, or the signed-in creator's private records.
+   * @param q - Search words, at most 200 characters, matched against the bounded current catalog.
    * @param mine - Whether private creator-visible publications are requested.
    * @returns At most catalogLimit validated records; oversized replies refuse instead of truncating.
    */
   @Remote('catalog')
   async catalog(q: string, mine: boolean): Promise<MarketPublication[]> {
-    return await this.run(() => this.transport.account(mine, async (request) => {
+    const read = async (request: CloudRequest): Promise<MarketPublication[]> => {
       if (q.length > 200) throw new MarketCloudError('invalid-query', 400)
-      const value = await request.json(`/api/market/v1/catalog?${new URLSearchParams({ q, mine: String(mine) }).toString()}`)
+      const value = await request.json(`/api/market/v1/catalog?q=&mine=${mine}`)
       if (!marketRecord(value) || Object.keys(value).length !== 1 || !Array.isArray(value.items)
         || value.items.length > this.config.catalogLimit) throw new MarketCloudError('invalid-response', 502)
       const publications = value.items.map((item: unknown) => parseMarketPublication(item, this.limits))
       if (!mine && publications.some(item => item.status !== 'published')) throw new MarketCloudError('invalid-response', 502)
-      return publications
+      const words = q.trim().toLowerCase().split(/\s+/u)
+      return publications.filter(item => words.every(word => [item.id, item.manifest.name, item.manifest.title,
+        item.manifest.description, item.manifest.category, item.publisher, ...item.manifest.skills.map(skill => skill.name)]
+        .join(' ').toLowerCase().includes(word)))
+    }
+    return await this.run(() => mine ? this.transport.account(true, read) : this.transport.anonymous(read))
+  }
+
+  /** Search the original public Skill catalog without reading or sending account credentials.
+   * @param query - Search words, at most 200 characters; empty selects all original Skills.
+   * @returns Validated original resources within the configured catalog and archive bounds.
+   */
+  @Remote('legacyCatalog')
+  async legacyCatalog(query: string): Promise<MarketLegacyResource[]> {
+    return await this.run(() => this.transport.anonymous(async (request) => {
+      if (query.length > 200) throw new MarketCloudError('invalid-query', 400)
+      const resources = parseMarketLegacyCatalog(await request.json('/market/catalog.json'), query, this.limits, this.config.catalogLimit)
+      try { return await this.legacyInstallations.resolve(resources) }
+      catch (_error) {
+        this.ctx.logger.warn('muse-market/legacy-markers-unavailable')
+        return resources
+      }
+    }))
+  }
+
+  /** Verify and convert an original public ZIP without activating it or changing a Session binding.
+   * @param id - Original catalog identity selected by the caller.
+   * @param expectedSha256 - Original archive digest observed when selecting that resource.
+   * @returns Fresh catalog metadata and the disabled canonical local installation, deduplicated by its converted bytes.
+   */
+  @Remote('installLegacy')
+  async installLegacy(id: MarketLegacyResourceId, expectedSha256: string): Promise<{
+    resource: MarketLegacyResource
+    installation: MuseMarketInstallation
+  }> {
+    return await this.run(() => this.transport.anonymous(async (request) => {
+      const selected = parseMarketLegacyResourceId(id)
+      if (!/^[a-f0-9]{64}$/u.test(expectedSha256)) throw new MarketCloudError('invalid-digest', 400)
+      const catalog = parseMarketLegacyCatalog(await request.json('/market/catalog.json'), '', this.limits, this.config.catalogLimit)
+      const resource = catalog.find(item => item.id === selected)
+      if (resource === undefined) throw new MarketCloudError('not-found', 404)
+      if (resource.sha256 !== expectedSha256) throw new MarketCloudError('catalog-changed', 409)
+      // Original catalog parsing admits only a same-origin /market/downloads/*.zip path.
+      const archive = await request.archive(resource.downloadPath as `/market/downloads/${string}.zip`, resource)
+      const converted = createLegacySkillPackage(resource, archive, this.limits)
+      await request.assertCurrent()
+      const installation = await this.ctx.museMarket.importPackage(Buffer.from(converted).toString('base64'))
+      await this.legacyInstallations.remember(resource, installation.release.id)
+      return { resource, installation }
     }))
   }
 
   /** Read admitted publishing teams and administrator capability for the current login.
+   * Original two-field market identities obtain their account id from the same session's account endpoint.
    * @returns Validated public identity facts without the private account cookie.
    */
   @Remote('identity')
   async identity(): Promise<MarketIdentity> {
-    return await this.run(() => this.transport.account(true, async request => parseMarketIdentity(await request.json('/api/market/v1/me'))))
+    return await this.run(() => this.transport.account(true, async (request) => {
+      const value = await request.json('/api/market/v1/me')
+      if (marketRecord(value) && Object.keys(value).length === 2
+        && Object.hasOwn(value, 'publishers') && Object.hasOwn(value, 'admin')) {
+        const account = await request.json('/api/muse.account')
+        if (!marketRecord(account)) throw new MarketCloudError('invalid-response', 502)
+        return parseMarketIdentity({ ...value, accountId: account.accountId })
+      }
+      return parseMarketIdentity(value)
+    }))
   }
 
   /** Read one original publication using current account visibility.

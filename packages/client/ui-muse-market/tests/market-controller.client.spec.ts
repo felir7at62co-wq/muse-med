@@ -7,13 +7,14 @@ import { MarketAccessChanged, MarketController } from '../src/client/market-cont
 import type { MarketActions } from '../src/client/market-actions.ts'
 import { installation, marketActions, metadata, publication, sources } from './market-fixtures.client.ts'
 import { parseMarketUploadRequestId } from '@deepseek-ai/dsh-muse-market/cloud-values'
+import { installation as originalInstallation, original } from './discovery-fixtures.client.ts'
 
 const account = (id: string) => parseMarketIdentity({ accountId: id.repeat(16), publishers: [], admin: false })
 const unavailable = async (): Promise<never> => { throw new Error('Unexpected operation in this request-lifetime test') }
 function operations(overrides: Partial<MarketActions> = {}): MarketActions {
-  return { sources: unavailable, prepare: unavailable, installed: async () => [], importPackage: unavailable,
+  return { sources: unavailable, prepare: unavailable, prepareUpload: unavailable, installed: async () => [], importPackage: unavailable,
     exportPackage: unavailable, removePackage: unavailable, defaults: unavailable, setDefault: unavailable,
-    binding: unavailable, catalog: async () => [], identity: async () => account('a'), getPublication: unavailable,
+    binding: unavailable, catalog: async () => [], legacyCatalog: async () => [], installLegacy: unavailable, identity: async () => account('a'), getPublication: unavailable,
     installPublication: unavailable, publishDraft: unavailable, review: unavailable, ...overrides }
 }
 
@@ -23,6 +24,8 @@ describe('market account request lifetimes', () => {
     const installed = [installation], catalog = [publication], exported = { name: 'writer.zip', base64: 'emlw' }
     const installedPublication = { publication, installation }
     const actual = {
+      prepareUpload: vi.fn(async () => installation), legacyCatalog: vi.fn(async () => []),
+      installLegacy: vi.fn(async () => ({ resource: original(), installation })),
       sources: vi.fn(async () => sources), prepare: vi.fn(async () => installation), installed: vi.fn(async () => installed),
       importPackage: vi.fn(async () => installation), exportPackage: vi.fn(async () => exported), removePackage: vi.fn(async () => {}),
       defaults: vi.fn(async () => defaults), setDefault: vi.fn(async () => defaults), binding: vi.fn(async () => binding),
@@ -105,6 +108,19 @@ describe('market account request lifetimes', () => {
     stop()
     controller.invalidateAccess()
     expect(changed).toHaveBeenCalledTimes(3)
+  })
+
+  it('retains a completed anonymous installation when identity is rejected during the request', async () => {
+    const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['installLegacy']>>>()
+    const expected = { resource: original(), installation: originalInstallation() }
+    const controller = new MarketController(operations({ installLegacy: () => pending.promise,
+      identity: async () => { throw new RemoteError('muse-market/cloud-failed', 'Signed out', { status: 401, code: 'login-required' }) } }))
+    const request = controller.operations.installLegacy(expected.resource.id, expected.resource.sha256)
+    await expect(controller.operations.identity()).rejects.toMatchObject({ details: { status: 401 } })
+    pending.resolve(expected)
+    await expect(request).resolves.toEqual(expected)
+    expect(controller.access.getSnapshot().identity).toBeUndefined()
+    controller.dispose()
   })
 
   it('rejects a private read that completes after logout while keeping local reads available', async () => {

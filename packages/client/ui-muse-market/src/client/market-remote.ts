@@ -11,12 +11,13 @@ function value<T>(result: RemoteResult<T>): T {
 
 /** Adapt the generated result envelopes without replacing Host storage or authority.
  * @param remote - Mounted generated namespace callbacks.
- * @returns Fifteen real operations with their original success values and structured errors.
+ * @returns Real operations with their original success values and structured errors.
  */
 export function createMarketOperations(remote: Pick<ClientRemote, 'museMarket' | 'museMarketActivation' | 'museMarketCloud'>): MarketActions {
   return {
     sources: async () => value(await remote.museMarket.sources()),
     prepare: async (metadata, source) => value(await remote.museMarket.prepare(metadata, source)),
+    prepareUpload: async (id, preset) => value(await remote.museMarket.prepareUpload(id, preset)),
     installed: async () => value(await remote.museMarket.installed()),
     importPackage: async bytes => value(await remote.museMarket.importPackage(bytes)),
     exportPackage: async id => value(await remote.museMarket.exportPackage(id)),
@@ -25,10 +26,12 @@ export function createMarketOperations(remote: Pick<ClientRemote, 'museMarket' |
     setDefault: async request => value(await remote.museMarketActivation.setDefault(request)),
     binding: async request => value(await remote.museMarketActivation.binding(request)),
     catalog: async (q, mine) => value(await remote.museMarketCloud.catalog(q, mine)),
+    legacyCatalog: async q => value(await remote.museMarketCloud.legacyCatalog(q)),
     identity: async () => value(await remote.museMarketCloud.identity()),
     getPublication: async id => value(await remote.museMarketCloud.getPublication(id)),
     publishDraft: async (id, publisher, key) => value(await remote.museMarketCloud.publishDraft(id, publisher, key)),
     installPublication: async (id, sha) => value(await remote.museMarketCloud.installPublication(id, sha)),
+    installLegacy: async (id, sha) => value(await remote.museMarketCloud.installLegacy(id, sha)),
     review: async (id, revision, action, note) => value(await remote.museMarketCloud.review(id, revision, action, note)),
   }
 }
