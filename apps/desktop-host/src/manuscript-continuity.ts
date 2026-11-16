@@ -18,7 +18,8 @@ import { readManuscriptMaterials, type ManuscriptMaterialsDocument, type Manuscr
   type ManuscriptMaterialsLimits, type ManuscriptMaterialsResult } from './manuscript-materials.ts'
 import { ManuscriptTaskContextLimitError, manuscriptTaskRequest, type ManuscriptTaskRequest } from './manuscript-task-intent.ts'
 import { ManuscriptNotes, type ManuscriptNoteContext, type ManuscriptNoteLimits } from './manuscript-notes.ts'
-import { buildEpisodePlan, validateEpisodeChecks, type EpisodePlan } from './manuscript-episode-checks.ts'
+import { buildEpisodePlan, validateEpisodeChecks, type EpisodePair, type EpisodePlan } from './manuscript-episode-checks.ts'
+import { episodeWindows, type EpisodeWindow } from './manuscript-episode-windows.ts'
 import { scanManuscriptRepetitions, type RepeatScanLimits, type RepeatScanResult } from './manuscript-repeat-scan.ts'
 import { validateRepetitionChecks } from './manuscript-repeat-review.ts'
 import { manuscriptQuotationMatches } from './manuscript-review-evidence.ts'
@@ -41,12 +42,13 @@ export interface ManuscriptContinuityConfig extends ManuscriptMaterialsLimits, M
   continuityMaxFindings: number
   continuityMaxCorrections: number
   continuityMaxEpisodeChecks: number
+  continuityMaxConcurrentReviews: number
 }
 
 /** Host-owned outcome; expected failures never depend on parsing a provider error message. */
 export type ContinuityReason = 'reviewed' | 'invalid_result' | 'invalid_evidence' | 'no_model' | 'budget' | 'setup_failed'
   | 'route_changed' | 'timeout' | 'reviewer_failed' | 'file_changed' | 'file_unavailable' | 'cleanup_failed'
-  | 'task_context_limit' | 'task_context_missing' | 'notes_changed' | 'cross_episode_scope' | 'repetition_scan_incomplete'
+  | 'task_context_limit' | 'task_context_missing' | 'notes_changed' | 'cross_episode_scope' | 'repetition_scan_incomplete' | 'capacity'
   | 'source_scope' | 'source_unavailable' | 'source_changed' | 'source_images_missing' | 'source_image_unsupported'
 /** Grounded judgment or an explicit Host validation failure. */
 export interface ContinuityJudgment extends ContinuityAssessment { reason: ContinuityReason }
@@ -70,10 +72,19 @@ export interface ContinuityResult extends ContinuityJudgment {
   notes_sha256?: string
   /** Host-scheduled target boundaries and explicitly unchecked scope for a cross-episode review. */
   episode_plan?: EpisodePlan
+  /** Present when the schedule exceeded one reviewer's limit; root judgment, findings and unknowns merge every window. */
+  windows?: EpisodeWindowReview[]
   /** Fresh literal candidates are advisory inputs to the full selected-text semantic review. */
   repeat_scan?: RepeatScanResult
   /** Delivery labels and unresolved findings retain this narrower review purpose. */
   repetition_review?: true
+}
+
+/** One separately reviewed slice of an oversized cross-episode schedule. */
+export interface EpisodeWindowReview extends EpisodeWindow {
+  status: ContinuityJudgment['status']
+  reason: ContinuityReason
+  reviewer: ContinuityResult['reviewer']
 }
 
 /** Original cached frames and saved recognition text are compared only within explicit source-to-draft mappings. */
@@ -195,6 +206,18 @@ export async function installManuscriptContinuityPreset(ctx: Context,
     description: 'Read-only review of explicitly supplied screenplay ranges.',
     plugins: [{ name: presetModuleUrl,
       config: { maxCorrections: config.continuityMaxCorrections } }] })
+}
+
+/** The subagent tree's shared slot pool rejects instead of queueing when it is full. */
+function activationLimitReached(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && Reflect.get(error, 'code') === 'ACTIVATION_LIMIT_REACHED'
+}
+
+function samePairs(left: readonly EpisodePair[], right: readonly EpisodePair[]): boolean {
+  return left.length === right.length && left.every((pair, index) => {
+    const other = right[index]
+    return other !== undefined && pair.from_episode === other.from_episode && pair.to_episode === other.to_episode
+  })
 }
 
 function unknown(reason: ContinuityReason, explanation: string): ContinuityJudgment {
@@ -404,6 +427,8 @@ export class ManuscriptContinuity {
   }
 
   /** Review every scheduled adjacent complete episode pair with two-sided target quotations.
+   * A schedule above `continuityMaxEpisodeChecks` is split into windows of adjacent episodes, each reviewed by its own
+   * child with at most `continuityMaxConcurrentReviews` running at once, and merged into one result.
    * @param documents - Explicit merged manuscripts and selected complete episodes or lines.
    * @param task - Current human review focus and preservation requirements.
    * @param agent - Exact editing parent whose model and Session supply the review input.
@@ -443,9 +468,9 @@ export class ManuscriptContinuity {
   }
 
   private async reviewOwned(documents: ManuscriptMaterialsInput, task: string, agent: Agent, signal: AbortSignal,
-    kind: 'continuity' | 'cross_episode' | 'repetitions'): Promise<ContinuityResult> {
+    kind: 'continuity' | 'cross_episode' | 'repetitions', window?: EpisodeWindow): Promise<ContinuityResult> {
     return this.withReviewOwner(signal, (ownedSignal, owner) =>
-      this.reviewActive(documents, task, agent, ownedSignal, owner, kind))
+      this.reviewActive(documents, task, agent, ownedSignal, owner, kind, window))
   }
 
   private async withReviewOwner<T>(signal: AbortSignal,
@@ -542,7 +567,8 @@ export class ManuscriptContinuity {
   }
 
   private async reviewActive(documents: ManuscriptMaterialsInput, task: string, agent: Agent,
-    signal: AbortSignal, owner: ActiveReview, kind: 'continuity' | 'cross_episode' | 'repetitions'): Promise<ContinuityResult> {
+    signal: AbortSignal, owner: ActiveReview, kind: 'continuity' | 'cross_episode' | 'repetitions',
+    window: EpisodeWindow | undefined): Promise<ContinuityResult> {
     const selected = agent.model.current()
     const selection = selected === undefined ? undefined : Object.freeze({ ...selected })
     const cwd = agent.session.header.cwd
@@ -560,7 +586,7 @@ export class ManuscriptContinuity {
       target, documents: manifest, file_verification: 'unavailable', ...unknown('no_model', 'Select a model before reviewing.'),
       reviewer: { session_id: null, selection: selection ?? null, requests: 0 } }
     if (notes !== undefined) result.notes_sha256 = notes.notes_sha256
-    const plan = kind === 'cross_episode' ? buildEpisodePlan(assessed, this.config.continuityMaxEpisodeChecks) : undefined
+    const plan = kind === 'cross_episode' ? buildEpisodePlan(assessed) : undefined
     if (plan !== undefined) result.episode_plan = plan
     const scan = kind === 'repetitions' ? scanManuscriptRepetitions(assessed, this.config, signal) : undefined
     if (scan !== undefined) { result.repeat_scan = scan; result.repetition_review = true }
@@ -574,10 +600,14 @@ export class ManuscriptContinuity {
       Object.assign(result, unknown('repetition_scan_incomplete', 'Literal scan enumeration or returned candidates are incomplete; narrow the explicit scope or adjust configured budgets.'))
     } else if (plan !== undefined && (plan.issues.length > 0 || plan.checks.length === 0)) {
       Object.assign(result, unknown('cross_episode_scope', plan.issues.join(' ') || 'No complete consecutive episode pair was returned; select complete adjacent episodes.'))
+    } else if (plan !== undefined && window !== undefined && !samePairs(plan.checks, window.checks)) {
+      Object.assign(result, unknown('file_changed', 'Episode boundaries changed after the schedule was split; read and review again.'))
     } else if (userRequest?.request === null && userRequest.continuations.length > 0) {
       Object.assign(result, unknown('task_context_missing', 'The continued human requirement is unavailable; restate it before reviewing.'))
     } else if (selection !== undefined && userRequest !== undefined) {
-      await this.runReview(result, materials, task, userRequest, agent, selection, signal, owner, notes, plan, scan)
+      if (plan !== undefined && window === undefined && plan.checks.length > this.config.continuityMaxEpisodeChecks) {
+        await this.reviewEpisodeWindows(result, documents, materials, assessed, plan, task, agent, signal)
+      } else await this.runReview(result, materials, task, userRequest, agent, selection, signal, owner, notes, plan, scan)
     }
     result.file_verification = await continuityFilesUnchanged(materials.documents, this.config, signal) ? 'verified' : 'changed'
     if (result.file_verification !== 'verified') Object.assign(result,
@@ -585,6 +615,92 @@ export class ManuscriptContinuity {
     if (!await manuscriptReviewNotesUnchanged(result, agent, this.config, signal)) Object.assign(result,
       unknown('notes_changed', 'Retained manuscript comments or human requirements changed during review; review again.'))
     return result
+  }
+
+  /** Review each window of an oversized schedule in its own child and merge the window judgments into `result`.
+   * A window that finds no free subagent slot retries after one of this call's other windows finishes; when none
+   * finished during its attempt and none is running, it stays unknown with reason `capacity`. A window whose reread
+   * fails with a manuscript error or a missing or unreadable file stays unknown with reason `file_changed` or
+   * `file_unavailable`. Any window that is not reviewed leaves
+   * the merged status unknown while keeping the other windows' findings. Cancellation, owner disposal and unexpected
+   * errors abort the remaining windows, await them and are rethrown.
+   */
+  private async reviewEpisodeWindows(result: ContinuityResult, documents: ManuscriptMaterialsInput,
+    materials: ManuscriptMaterialsResult, assessed: ManuscriptMaterialsDocument, plan: EpisodePlan, task: string,
+    agent: Agent, signal: AbortSignal): Promise<void> {
+    const windows = episodeWindows(plan.checks, assessed.episode_index.episodes, this.config.continuityMaxEpisodeChecks)
+    const position = materials.documents.indexOf(assessed)
+    const stop = new AbortController(), windowSignal = AbortSignal.any([signal, stop.signal])
+    const done: { index: number; window: EpisodeWindow; review: ContinuityResult }[] = []
+    let cursor = 0, running = 0, finished = 0, failure: { error: unknown } | undefined
+    let settled = Promise.withResolvers<undefined>()
+    const notify = (): void => { finished++; settled.resolve(undefined); settled = Promise.withResolvers() }
+    const attempt = async (window: EpisodeWindow): Promise<ContinuityResult> => {
+      // The assessed file is reread as exactly this window's complete episodes; other documents keep their selection.
+      const input = documents.map((document, at) => at === position
+        ? { role: assessed.role, path: assessed.path, lines: window.lines } : document)
+      try { return await this.reviewOwned(input, task, agent, windowSignal, 'cross_episode', window) }
+      catch (error) {
+        const manuscriptError = error instanceof Error && /^MANUSCRIPT_[A-Z_]+:/u.test(error.message)
+        const code: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'code') : undefined
+        const unavailable = typeof code === 'string' && ['ENOENT', 'ENOTDIR', 'EISDIR', 'EACCES', 'EPERM'].includes(code)
+        if (windowSignal.aborted || !this.accepting || !manuscriptError && !unavailable) throw error
+        const explanation = `This window could not be reread: ${error instanceof Error ? error.message : String(error)}`
+        return { ...result, ...unknown(unavailable ? 'file_unavailable' : 'file_changed', explanation),
+          reviewer: { session_id: null, selection: result.reviewer.selection, requests: 0 }, file_verification: 'unavailable' }
+      }
+    }
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const index = cursor++, window = windows[index]
+        if (window === undefined || failure !== undefined) return
+        for (;;) {
+          const waiting = settled.promise, seen = finished
+          running++
+          let review: ContinuityResult
+          try { review = await attempt(window) }
+          catch (error) {
+            failure ??= { error }
+            stop.abort(error)
+            notify()
+            return
+          } finally { running-- }
+          // A slot may have been released during this attempt, or will be when a running window of this call finishes.
+          if (review.reason === 'capacity' && (finished !== seen || running > 0)) {
+            await waiting
+            if (windowSignal.aborted) return
+            continue
+          }
+          done.push({ index, window, review })
+          notify()
+          break
+        }
+      }
+    }
+    try { await Promise.all(Array.from({ length: Math.min(windows.length, this.config.continuityMaxConcurrentReviews) }, worker)) }
+    finally { notify() }
+    if (failure !== undefined) throw failure.error
+    done.sort((left, right) => left.index - right.index)
+    const span = (window: EpisodeWindow): string => `第${Math.min(...window.checks.map(pair => pair.from_episode))}–${
+      Math.max(...window.checks.map(pair => pair.to_episode))}集`
+    const findings = done.flatMap(({ review }) => review.findings)
+    const unknowns = done.flatMap(({ window, review }) => review.unknowns.map(text => `${span(window)}：${text}`))
+    const checks = done.flatMap(({ review }) => review.episode_checks ?? [])
+    const unreviewed = done.find(({ review }) => review.reason !== 'reviewed')?.review.reason
+    const status: ContinuityJudgment['status'] = unreviewed !== undefined ? 'unknown'
+      : findings.length > 0 ? 'issues' : unknowns.length > 0 ? 'unknown' : 'consistent'
+    const merged: ContinuityJudgment = { status, reason: unreviewed ?? 'reviewed', findings, unknowns,
+      ...checks.length === 0 ? {} : { episode_checks: checks } }
+    Object.assign(result, merged)
+    result.reviewer = { session_id: null, selection: result.reviewer.selection,
+      requests: done.reduce((total, { review }) => total + review.reviewer.requests, 0) }
+    result.windows = done.map(({ window, review }) => ({ ...window, status: review.status, reason: review.reason,
+      reviewer: review.reviewer }))
+    if (done.some(({ review }) => review.target.file_sha256 !== result.target.file_sha256 || review.file_verification !== 'verified')) {
+      Object.assign(result, unknown('file_changed', 'The manuscript changed while its episode windows were reviewed; read and review again.'))
+    } else if (done.some(({ review }) => review.notes_sha256 !== result.notes_sha256)) {
+      Object.assign(result, unknown('notes_changed', 'Retained manuscript comments or human requirements changed while episode windows were reviewed; review again.'))
+    }
   }
 
   private async runReview(result: ContinuityJudgment & Pick<ContinuityResult, 'reviewer' | 'target'>,
@@ -694,12 +810,15 @@ export class ManuscriptContinuity {
         const stage = activation === undefined && result.reviewer.requests === 0 ? 'child_setup' : 'child_run'
         this.logger.warn('Manuscript continuity failure: %o', { stage, child_session_id: childId,
           preset: CONTINUITY_REVIEW_PRESET, preset_module: presetModuleUrl, ...safeFailureCause(error) })
-        if (stage === 'child_setup') failure.reason = 'setup_failed'
+        if (stage === 'child_setup') failure.reason = activationLimitReached(error) ? 'capacity' : 'setup_failed'
+      }
+      const explanations: Partial<Record<ContinuityReason, string>> = {
+        setup_failed: 'Reviewer setup failed; application logs identify this child session and preset module.',
+        capacity: 'No subagent slot was free for the reviewer; review again after other child agents finish.',
+        source_images_missing: 'Required original cached images are absent or offloaded in the selected model request; preserve all mapped images and review again.',
       }
       Object.assign(result, unknown(controller.signal.aborted ? 'timeout' : failure.reason,
-        failure.reason === 'setup_failed' ? 'Reviewer setup failed; application logs identify this child session and preset module.'
-          : failure.reason === 'source_images_missing' ? 'Required original cached images are absent or offloaded in the selected model request; preserve all mapped images and review again.'
-            : 'No verified semantic judgment is available.'))
+        explanations[failure.reason] ?? 'No verified semantic judgment is available.'))
     } finally {
       stopped = true
       clearTimeout(timer)

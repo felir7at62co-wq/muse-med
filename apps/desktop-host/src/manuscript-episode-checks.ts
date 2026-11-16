@@ -36,10 +36,10 @@ function coverage(episode: ManuscriptMaterialEpisode, returned: ReadonlySet<numb
 
 /** Schedule consecutive physical episode boundaries only when both complete episodes were returned.
  * @param document - Actual current or candidate material, including its complete episode index and returned line numbers.
- * @param maxChecks - Maximum scheduled complete boundaries; overflow fails without truncating checks or exclusions.
- * @returns Version-bound checks, unread or partial boundaries, numbering gaps and indexing failures.
+ * @returns Version-bound checks, unread or partial boundaries, numbering gaps and indexing failures; the caller splits
+ * a schedule larger than one reviewer's limit into windows.
  */
-export function buildEpisodePlan(document: ManuscriptMaterialsDocument, maxChecks: number): EpisodePlan {
+export function buildEpisodePlan(document: ManuscriptMaterialsDocument): EpisodePlan {
   const index = document.episode_index
   const plan: EpisodePlan = { path: document.path, file_sha256: document.file_sha256, checks: [], not_checked: [],
     preamble_lines: (index.episodes[0]?.start ?? 1) - 1, issues: [] }
@@ -66,7 +66,6 @@ export function buildEpisodePlan(document: ManuscriptMaterialsDocument, maxCheck
       plan.not_checked.push({ ...pair, reason: 'partial_episode' })
     } else plan.checks.push(pair)
   }
-  if (plan.checks.length > maxChecks) throw Error('CROSS_EPISODE_PLAN_LIMIT: 集界计划超过配置上限，未截断检查或遗漏范围。')
   return plan
 }
 

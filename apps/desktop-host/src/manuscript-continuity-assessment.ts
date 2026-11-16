@@ -18,6 +18,20 @@ export type ContinuityFinding = z.infer<typeof findingSchema>
 /** Semantic judgment before file freshness and exact quotation checks. */
 export type ContinuityAssessment = z.infer<typeof continuityAssessmentSchema>
 
+/** Name every rejected field of a structured submission so the reviewer can correct that exact field.
+ * @param issues - Issues from a failed parse of the submitted tool arguments.
+ * @returns Distinct `path: problem` entries joined by `; `; array indices collapse to `[]`, repeated problems report their item count.
+ */
+export function submissionIssueSummary(issues: z.ZodError['issues']): string {
+  const counts = new Map<string, number>()
+  for (const issue of issues) {
+    const path = issue.path.map(part => typeof part === 'number' ? '[]' : `.${String(part)}`).join('').replace(/^\./u, '')
+    const entry = `${path === '' ? '(root)' : path}: ${issue.message}`
+    counts.set(entry, (counts.get(entry) ?? 0) + 1)
+  }
+  return [...counts].map(([entry, count]) => count > 1 ? `${entry} (${count} items)` : entry).join('; ')
+}
+
 /** Reject inconsistent status declarations without altering findings or actual unknowns.
  * @param value - Result fields already parsed from the structured tool JSON.
  * @returns Feedback for a rejected combination, or undefined when the status agrees with its arrays.

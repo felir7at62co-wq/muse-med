@@ -77,7 +77,8 @@ async function runtime(seed?: { session: Session; root: string }) {
     return result
   }
   async function review(status: 'consistent' | 'issues' | 'unknown', lines?: { start: number; end: number }, referenceVersion?: string,
-    selfOnly = false, action: 'continuity' | 'cross_episode' | 'repetitions' = 'continuity') {
+    selfOnly = false, action: 'continuity' | 'cross_episode' | 'repetitions' = 'continuity',
+    checks = [{ from_episode: 1, to_episode: 2 }]) {
     const materials = await readManuscriptMaterials(selfOnly
       ? [{ role: 'current', path: 'final.md', ...(lines === undefined ? {} : { lines }) }]
       : [{ role: 'current', path: 'adopted.md' }, { role: 'candidate', path: 'final.md', ...(lines === undefined ? {} : { lines }) }], root, config, signal)
@@ -92,7 +93,7 @@ async function runtime(seed?: { session: Session; root: string }) {
           text_sha256: target.text_sha256, line: line.number, quote: line.text })) }] : [],
       unknowns: status === 'unknown' ? ['Missing facts'] : [], file_verification: 'verified', reviewer: { session_id: null, selection: null, requests: 1 },
       ...(notes === undefined ? {} : { notes_sha256: notes.notes_sha256 }),
-      ...(action === 'cross_episode' ? { episode_plan: { checks: [{ from_episode: 1, to_episode: 2 }] } } : {}),
+      ...(action === 'cross_episode' ? { episode_plan: { checks } } : {}),
       ...(action === 'repetitions' ? { repetition_review: true } : {}) }
     return logResult(session, 'manuscript_revision', { action }, value)
   }
@@ -123,6 +124,16 @@ it('labels a cross-episode review by its actual pairs instead of declaring the c
   await f.review('consistent', undefined, undefined, false, 'cross_episode')
   const declaration = await f.declare('reviewed')
   expect(declaration.files[0]?.label).toBe('已复核跨集接缝1→2（仅此范围）')
+  expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
+})
+
+it('collapses runs of three or more consecutive reviewed pairs into one episode span in the label', async () => {
+  const f = await runtime()
+  const pairs = (from: number, to: number) => Array.from({ length: to - from }, (_value, index) =>
+    ({ from_episode: from + index, to_episode: from + index + 1 }))
+  await f.review('consistent', undefined, undefined, false, 'cross_episode', [...pairs(1, 65), ...pairs(66, 68)])
+  const declaration = await f.declare('reviewed')
+  expect(declaration.files[0]?.label).toBe('已复核跨集接缝第1–65集逐集共64处、66→67、67→68（仅此范围）')
   expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
 })
 

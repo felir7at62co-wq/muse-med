@@ -442,13 +442,22 @@ function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): D
   return next
 }
 
+/** Lists short runs pair by pair; a run of three or more consecutive pairs becomes one episode span with its pair count. */
+function pairLabel(checks: readonly { from_episode: number; to_episode: number }[]): string {
+  const runs: { from_episode: number; to_episode: number }[][] = []
+  for (const pair of checks) {
+    const run = runs.at(-1)
+    if (run?.at(-1)?.to_episode === pair.from_episode) run.push(pair)
+    else runs.push([pair])
+  }
+  return runs.map(run => run.length < 3 ? run.map(pair => `${pair.from_episode}→${pair.to_episode}`).join('、')
+    : `第${Math.min(...run.map(pair => pair.from_episode))}–${Math.max(...run.map(pair => pair.to_episode))}集逐集共${run.length}处`).join('、')
+}
+
 function labelOf(review: Review): string {
   const target = review.documents.find(document => sameIdentity(document, review.target))
   if (target === undefined) throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '审校结果缺少目标文件范围。')
-  if (review.episode_plan !== undefined) {
-    const pairs = review.episode_plan.checks.map(pair => `${pair.from_episode}→${pair.to_episode}`).join('、')
-    return `已复核跨集接缝${pairs}（仅此范围）`
-  }
+  if (review.episode_plan !== undefined) return `已复核跨集接缝${pairLabel(review.episode_plan.checks)}（仅此范围）`
   if (target.coverage.full_document) return review.repetition_review === true
     ? '已复核本文件重复情节（仅当前提取正文与版本）' : '已复核本文件全部提取正文（仅当前版本）'
   if (target.selection.kind === 'episodes') {
