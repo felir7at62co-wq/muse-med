@@ -66,6 +66,8 @@ it('keeps whole-series transcription on a goal with subtitle OCR aligned to ASR'
   expect(entry).toMatch(/`source_mode: "video"`.*`video_dir`.*`screenplay_export_docx` 按集顺序导出 Word/su)
   expect(entry).toMatch(/用 `tool_search` 搜出来再调用.*不要自己写脚本替代或模拟这些工具.*程序会列出仍缺的整剧 Word/su)
   expect(entry).toMatch(/没跑 `video_ocr` 的集不称已按字幕校正/u)
+  expect(entry).toMatch(/交回前做分集自查.*`transcript_coverage`.*`characters_path`.*说话人与音色分组冲突.*回看对应帧/su)
+  expect(entry).toMatch(/多集时是主控派发前建好的 JSON 文件.*单段短片可不建表/su)
 
   const workflow = await readFile(join(directory, 'references', 'video-workflow.md'), 'utf8')
   expect(workflow).toMatch(/`video_ocr`.*`next_start_seconds`.*`merged_text_path`.*`transcript\/ocr\/`/su)
@@ -73,6 +75,8 @@ it('keeps whole-series transcription on a goal with subtitle OCR aligned to ASR'
   expect(workflow).toMatch(/`persistent_text_candidate`.*不当台词/su)
   expect(workflow).toMatch(/`output_json` 各段的 `start`、`end`、`speaker_id` 和 `text`.*字卡/su)
   expect(workflow).not.toContain('首次出场集')
+  expect(workflow).toMatch(/`speaker_voice_conflicts`.*`timeline` 找到帧号后 `revisit`.*`timestamps_seconds`.*不按分组直接改人/su)
+  expect(workflow).toMatch(/`on_screen_text_differs`.*同音不同字.*按清晰字幕改正.*读音不同、只是繁简体或字形相近.*保留正文/su)
 
   const series = workflow.slice(workflow.indexOf('## 多集整剧转写'), workflow.indexOf('## 从来源写成场景'))
   expect(series).toMatch(/同一轮调用 `create_goal`.*唤醒的轮次不能再创建目标/su)
@@ -83,6 +87,9 @@ it('keeps whole-series transcription on a goal with subtitle OCR aligned to ASR'
   expect(series).toMatch(/`【下集钩子】` 只标在原片已有的悬念前.*不新增没有画面依据的 ▲/su)
   expect(series).toMatch(/每批汇报只写实际做过的核对.*`scan_status`.*`silent`/su)
   expect(series).toMatch(/每批写完，用 `manuscript_revision` 的 `transcript_coverage` 逐集比对.*不代替 `source_fidelity`.*照录各集 `summary`/su)
+  expect(series).toMatch(/人物表存成 JSON.*`characters_path` 直接读这份文件.*只有主控改这份文件/su)
+  expect(series).toMatch(/交回前做分集自查.*`speaker_voice_conflicts`.*写明保留理由.*报主控登记.*附本集 `summary`/su)
+  expect(series).toMatch(/`cross_episode` 检查全部相邻两集.*`MANUSCRIPT_MATERIALS_BUDGET` 时按集分批.*发回负责该集的分集代理/su)
 
   const ocrTool = await readFile(fileURLToPath(new URL('../../../packages/perception/tool-video-inspect/src/ocr.ts', import.meta.url)), 'utf8')
   for (const field of ['next_start_seconds', 'raw_json_path', 'merged_text_path', 'scan_status', 'persistent_text_candidate']) {

@@ -21,7 +21,8 @@ import { ManuscriptVideoEvidence, manuscriptDeclaredOutputs } from './manuscript
 import { installManuscriptVideoReads } from './manuscript-video-reads.ts'
 import { installManuscriptVideoReceipts } from './manuscript-video-receipts.ts'
 import { materialDocumentsSchema, readManuscriptMaterials } from './manuscript-materials.ts'
-import { measureTranscriptCoverage, transcriptCharactersSchema, transcriptSourcesSchema } from './manuscript-transcript-coverage.ts'
+import { measureTranscriptCoverage, readTranscriptCharacters, transcriptCharactersSchema, transcriptSourcesSchema }
+  from './manuscript-transcript-coverage.ts'
 import { videoSourceInputsSchema, videoSourceReviewUnchanged } from './manuscript-video-source-review.ts'
 import { CONTINUITY_REVIEW_PRESET, installManuscriptContinuityPreset, ManuscriptContinuity } from './manuscript-continuity.ts'
 import { createManuscriptDelivery, manuscriptDeliveryMetadata } from './manuscript-delivery.ts'
@@ -191,7 +192,8 @@ const argumentsSchema = z.strictObject({
   change_id: z.string().optional(), authorization_quote: z.string().optional(),
   documents: materialDocumentsSchema.optional(),
   transcript_sources: transcriptSourcesSchema.optional(), characters: transcriptCharactersSchema.optional(),
-})
+  characters_path: z.string().min(1).refine(path => path.trim().length > 0).optional(),
+}).refine(args => args.characters === undefined || args.characters_path === undefined, 'characters 与 characters_path 只能给一种。')
 
 function context(text: string, summary = '用户返稿修改与保留范围') {
   return createUserMessage({ source: { kind: 'muse-manuscript', form: 'notice',
@@ -336,7 +338,10 @@ export class ManuscriptRevisions {
     }
     if (args.action === 'transcript_coverage') {
       if (!args.transcript_sources) throw Error('transcript_coverage 需要 transcript_sources：逐集给出稿件和该集转写结果。')
-      return JSON.stringify(await measureTranscriptCoverage(args.transcript_sources, args.characters, cwd, this.config, signal))
+      const roster = args.characters_path === undefined ? undefined
+        : await readTranscriptCharacters(args.characters_path, cwd, this.config.maxFileBytes, signal)
+      const table = roster?.characters ?? args.characters
+      return JSON.stringify(await measureTranscriptCoverage(args.transcript_sources, table, cwd, this.config, signal, roster?.file))
     }
     if (args.action === 'notes') {
       if (!args.source_paths?.length) throw Error('notes 需要 source_paths，明确本轮批注与真人要求所对应的原稿。')
@@ -481,7 +486,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const guidanceNotices = new WeakMap<Agent, string>()
   ctx.tools.register(defineTool({
     name: 'manuscript_revision',
-    description: '支持Word/Markdown/文本。snapshot保留完整原件，history查历史；不自动选当前稿。notes用source_paths保留Word批注原文、旧稿定位及本轮完整真人要求，后续精修和独立审校可恢复；仅保留，不宣称批注已解决。materials读取显式current、reference和candidate正文。continuity使用当前模型在独立只读会话检查所选正文、所存要求和批注，返回原句及未知项，不自动改稿。cross_episode针对有可靠集标题的合并稿逐对核对完整相邻集的因果、人物知情、道具数值和尾钩承接，要求两边原句，明确未读边界；所选正文在材料上限内可一次提交，集界超出单个审校上限时自动按相邻集分段并行核对并合并为一个结果，合并稿超出材料上限时才按集分批；分散单集须先明确合并，不按文件名猜顺序。repeat_scan只扫描实际当前稿或候选稿内部的字面重复候选，不比较原稿与候选的相同段落；coverage不完整时不能称零重复。transcript_coverage按transcript_sources逐集把稿件与该集ASR的output_json、可选video_ocr原始JSON逐字对齐，统计按序／错序／未写入的ASR段、无来源或仅画面文字的台词、新增措辞、与画面文字不同的字和最后有来源台词之后的行；给characters时列出表外说话人和已知错写。只计量，查不出同音字，不拦截交付。repetitions独立阅读完整选区，逐条判断字面候选并查换词重演，区分回忆、短接续与新信息，不自动删稿。source_fidelity用video_sources明确原片时间、缓存帧和目标正文行，在独立图像会话逐图及逐ASR段核对对应、遗漏、错误归属和事件顺序；返回video_source_review，只限抽样原帧与保存ASR，不称听过原音、身份或同源已验证。delivery按实际核对范围或草稿交付，将files[].label原样用作present描述；视频来源交付设source_mode:video并给video_dir，程序逐集查剧本格式与看帧记录、按事实生成标签，格式问题和看帧缺口写在标签与video_check里，按所列逐条改正；标目标完成时会列出仍缺的整剧Word、看帧或transcript_coverage；声明和呈现前后复验已采用的来源、稿件和所存要求，源疑点不能用普通文字审校清除。文件或所存要求变化需重新核验。compare/status对照返稿，review检查候选是否保留返稿修改，measure只统计同范围文字量，这些动作不作语义审校。',
+    description: '支持Word/Markdown/文本。snapshot保留完整原件，history查历史；不自动选当前稿。notes用source_paths保留Word批注原文、旧稿定位及本轮完整真人要求，后续精修和独立审校可恢复；仅保留，不宣称批注已解决。materials读取显式current、reference和candidate正文。continuity使用当前模型在独立只读会话检查所选正文、所存要求和批注，返回原句及未知项，不自动改稿。cross_episode针对有可靠集标题的合并稿逐对核对完整相邻集的因果、人物知情、道具数值和尾钩承接，要求两边原句，明确未读边界；所选正文在材料上限内可一次提交，集界超出单个审校上限时自动按相邻集分段并行核对并合并为一个结果，合并稿超出材料上限时才按集分批；分散单集须先明确合并，不按文件名猜顺序。repeat_scan只扫描实际当前稿或候选稿内部的字面重复候选，不比较原稿与候选的相同段落；coverage不完整时不能称零重复。transcript_coverage按transcript_sources逐集把稿件与该集ASR的output_json、可选video_ocr原始JSON逐字对齐，统计按序／错序／未写入的ASR段、无来源或仅画面文字的台词、新增措辞、与画面文字不同的字和最后有来源台词之后的行；ASR带speaker_id时按音色分组列出说话人与同组多数不一致的台词（speaker_voice_conflicts，回原片看帧确认），与画面文字不同处同列ASR原文；给characters或共享人物表文件characters_path时列出表外说话人和已知错写。只计量，查不出同音字，不拦截交付。repetitions独立阅读完整选区，逐条判断字面候选并查换词重演，区分回忆、短接续与新信息，不自动删稿。source_fidelity用video_sources明确原片时间、缓存帧和目标正文行，在独立图像会话逐图及逐ASR段核对对应、遗漏、错误归属和事件顺序；返回video_source_review，只限抽样原帧与保存ASR，不称听过原音、身份或同源已验证。delivery按实际核对范围或草稿交付，将files[].label原样用作present描述；视频来源交付设source_mode:video并给video_dir，程序逐集查剧本格式与看帧记录、按事实生成标签，格式问题和看帧缺口写在标签与video_check里，按所列逐条改正；标目标完成时会列出仍缺的整剧Word、看帧或transcript_coverage；声明和呈现前后复验已采用的来源、稿件和所存要求，源疑点不能用普通文字审校清除。文件或所存要求变化需重新核验。compare/status对照返稿，review检查候选是否保留返稿修改，measure只统计同范围文字量，这些动作不作语义审校。',
     parameters: {
       action: { type: 'string', required: true, enum: ['compare', 'status', 'review', 'measure', 'materials', 'continuity', 'cross_episode', 'repeat_scan',
         'transcript_coverage', 'repetitions', 'source_fidelity', 'delivery', 'snapshot', 'history', 'notes'] },
@@ -513,6 +518,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
             properties: { start: { type: 'integer', required: true }, end: { type: 'integer', required: true } } },
           asr_path: { type: 'string' }, ocr_paths: { type: 'array', items: { type: 'string' } },
         } } },
+      characters_path: { type: 'string', description: 'transcript_coverage可选，与characters二选一：主控建好的共享人物表JSON文件（[{name, variants}]，可另带外貌、称呼等字段），各集与分集代理用同一文件。' },
       characters: { type: 'array', description: 'transcript_coverage可选：人物表定名；variants为ASR或旧稿出现过的错写。',
         items: { type: 'object', additionalProperties: false, properties: {
           name: { type: 'string', required: true }, variants: { type: 'array', items: { type: 'string' } },

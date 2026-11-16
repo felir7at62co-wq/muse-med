@@ -6,7 +6,8 @@ import { z } from 'zod'
 import { manuscriptLineRangeSchema, readManuscriptMaterials, type ManuscriptMaterialRange,
   type ManuscriptMaterialsLimits } from './manuscript-materials.ts'
 import { alignTranscript, classifyScreenplayLine, editDistance, normalizeTranscriptText, orderMatchedUnits, substitutionHunks,
-  unmarkedFragments, type ScreenplayLine, type ScreenplayLineKind, type TranscriptText } from './manuscript-transcript-match.ts'
+  unmarkedFragments, type ScreenplayLine, type ScreenplayLineKind, type TranscriptAlignment, type TranscriptText }
+  from './manuscript-transcript-match.ts'
 
 const nonBlank = z.string().min(1).refine(value => value.trim().length > 0, '不能只有空白。')
 
@@ -39,6 +40,12 @@ export const transcriptCharactersSchema = z.array(z.strictObject({
   }
 })
 
+/** One roster entry; other fields (appearance, aliases, notes) are kept for people and ignored here, and blank variants are dropped. */
+const characterEntrySchema = z.looseObject({ name: nonBlank, variants: z.array(z.string()).optional() })
+/** A shared roster file: an array of entries, or an object whose `characters` holds them beside other records
+ * such as episode end states. */
+const characterFileSchema = z.union([z.array(characterEntrySchema), z.looseObject({ characters: z.array(characterEntrySchema) })])
+
 /** Validated per-episode source items. */
 export type TranscriptSources = z.infer<typeof transcriptSourcesSchema>
 /** Validated character table. */
@@ -52,7 +59,8 @@ export interface TranscriptCoverageLimits extends ManuscriptMaterialsLimits {
   transcriptMaxOutputChars: number
 }
 
-const asrSchema = z.array(z.looseObject({ start: z.number().min(0), end: z.number(), text: z.string() })
+const asrSchema = z.array(z.looseObject({ start: z.number().min(0), end: z.number(), text: z.string(),
+  speaker_id: z.union([z.string(), z.number()]).optional() })
   .refine(row => row.end >= row.start)).min(1)
   .refine(rows => rows.every((row, index) => (rows[index - 1]?.start ?? 0) <= row.start))
 
@@ -70,12 +78,32 @@ const ocrSchema = z.looseObject({
 })
 
 interface LineQuote { line: number; quote: string }
+/** A dialogue line whose speaker differs from the speaker most lines of its ASR voice group were given. */
+export interface SpeakerVoiceConflict {
+  line: number
+  quote: string
+  speaker: string
+  /** ASR `speaker_id` carrying most of the line's aligned characters; groups are per transcription task, not per person. */
+  voice: string
+  start_seconds: number
+  end_seconds: number
+  /** Dialogue lines per speaker in this voice group; a tie flags every line of the tied group. */
+  voice_speakers: Record<string, number>
+}
 /** Located differences between one episode's draft and its sources; each is a place to check, not a verdict. */
 export interface TranscriptCoverageFindings {
   asr_uncovered: { segment_id: string; start_seconds: number; end_seconds: number; text: string; action_line?: number }[]
   lines_without_source: LineQuote[]
+  speaker_voice_conflicts: SpeakerVoiceConflict[]
   asr_out_of_order: { segment_id: string; start_seconds: number; text: string; line: number }[]
-  on_screen_text_differs: { line: number; start_seconds: number; draft: string; on_screen: string; asr_segments: string[] }[]
+  on_screen_text_differs: {
+    line: number
+    start_seconds: number
+    draft: string
+    on_screen: string
+    asr_segments: string[]
+    asr_text: string
+  }[]
   ending_after_source: { line: number; kind: ScreenplayLineKind; quote: string }[]
   lines_on_screen_text_only: LineQuote[]
   asr_partly_missing: { segment_id: string; text: string; missing: string[] }[]
@@ -96,6 +124,7 @@ function withFindings(episode: TranscriptCoverageEpisode, select: Select): Trans
   return { ...episode,
     asr_uncovered: select(episode.asr_uncovered, 'asr_uncovered'),
     lines_without_source: select(episode.lines_without_source, 'lines_without_source'),
+    speaker_voice_conflicts: select(episode.speaker_voice_conflicts, 'speaker_voice_conflicts'),
     asr_out_of_order: select(episode.asr_out_of_order, 'asr_out_of_order'),
     on_screen_text_differs: select(episode.on_screen_text_differs, 'on_screen_text_differs'),
     ending_after_source: select(episode.ending_after_source, 'ending_after_source'),
@@ -108,7 +137,8 @@ function withFindings(episode: TranscriptCoverageEpisode, select: Select): Trans
 }
 
 function zeroCounts(): Record<Category, number> {
-  return { asr_uncovered: 0, lines_without_source: 0, asr_out_of_order: 0, on_screen_text_differs: 0, ending_after_source: 0,
+  return { asr_uncovered: 0, lines_without_source: 0, speaker_voice_conflicts: 0, asr_out_of_order: 0, on_screen_text_differs: 0,
+    ending_after_source: 0,
     lines_on_screen_text_only: 0, asr_partly_missing: 0, lines_with_added_text: 0, speakers_outside_table: 0, listed_variants: 0,
     on_screen_text_not_in_dialogue: 0 }
 }
@@ -125,6 +155,11 @@ export type TranscriptCoverageCounts = {
   lines_without_source: number
   lines_on_screen_text_only: number
   lines_with_added_text: number
+  /** Distinct ASR voice groups among the dialogue lines aligned to ASR; only lines matched to labelled segments count. */
+  voice_groups: number
+  /** ASR rows with a non-blank `speaker_id`. */
+  asr_voice_labelled: number
+  speaker_voice_conflicts: number
   on_screen_text_differs: number
   on_screen_text_not_in_dialogue: number
   ending_lines_after_source: number
@@ -169,6 +204,8 @@ export interface TranscriptCoverageResult {
     same_source: 'not_verified'
   }
   totals: Record<string, number>
+  /** The shared roster file read through `characters_path`, when one was given. */
+  characters_file?: SourceIdentity
   names: {
     speakers_outside_table: { label: string; near: string[]; episodes: string[]; line_count: number }[]
     listed_variants: { name: string; variant: string; episodes: string[]; line_count: number }[]
@@ -181,7 +218,7 @@ export interface TranscriptCoverageResult {
 interface DraftLine { number: number; text: string; line: ScreenplayLine }
 interface Dialogue { number: number; quote: string; speaker: string; norm: TranscriptText }
 interface Unit { start: number; end: number; text: string; norm: TranscriptText }
-interface Segment extends Unit { id: string }
+interface Segment extends Unit { id: string; voice?: string }
 interface Measured {
   counts: TranscriptCoverageCounts
   findings: TranscriptCoverageFindings
@@ -239,6 +276,47 @@ function nameFindings(lines: readonly DraftLine[], dialogue: readonly Dialogue[]
   return { outside, listed }
 }
 
+/** List matched dialogue lines whose speaker is not the single most frequent speaker of their ASR voice group.
+ * Nothing is listed when the aligned lines fall into fewer than two voice groups.
+ * @returns Distinct voice groups among the aligned lines; conflicts are appended to `findings`.
+ */
+function voiceConflicts(dialogue: readonly Dialogue[], asr: readonly Segment[], alignment: TranscriptAlignment,
+  findings: TranscriptCoverageFindings): number {
+  const voiced: { index: number; voice: string; start: number; end: number }[] = []
+  for (const index of dialogue.keys()) {
+    if (alignment.lineMatched[index] !== true) continue
+    const weights = new Map<string, number>()
+    let start = Number.POSITIVE_INFINITY, end = 0
+    for (const [unit, chars] of alignment.links[index] ?? []) {
+      const segment = asr[unit]
+      if (segment === undefined) continue
+      start = Math.min(start, segment.start); end = Math.max(end, segment.end)
+      if (segment.voice !== undefined) weights.set(segment.voice, (weights.get(segment.voice) ?? 0) + chars)
+    }
+    // Ties between groups within one line keep the first group in ASR order.
+    const voice = [...weights].reduce<[string, number] | undefined>((best, entry) =>
+      best === undefined || entry[1] > best[1] ? entry : best, undefined)
+    if (voice !== undefined) voiced.push({ index, voice: voice[0], start, end })
+  }
+  const groups = new Map<string, Map<string, number>>()
+  for (const { index, voice } of voiced) {
+    const speaker = dialogue[index]?.speaker ?? ''
+    const group = groups.get(voice) ?? new Map<string, number>()
+    group.set(speaker, (group.get(speaker) ?? 0) + 1); groups.set(voice, group)
+  }
+  // One voice group for every line means the grouping failed to separate voices, so it says nothing about speakers.
+  if (groups.size < 2) return groups.size
+  for (const { index, voice, start, end } of voiced) {
+    const group = groups.get(voice), line = dialogue[index]
+    if (group === undefined || line === undefined || group.size < 2) continue
+    const top = Math.max(...group.values()), majority = [...group].filter(([, count]) => count === top)
+    if (majority.length === 1 && majority[0]?.[0] === line.speaker) continue
+    findings.speaker_voice_conflicts.push({ line: line.number, quote: line.quote, speaker: line.speaker, voice,
+      start_seconds: start, end_seconds: end, voice_speakers: Object.fromEntries(group) })
+  }
+  return groups.size
+}
+
 function measureEpisode(lines: readonly DraftLine[], asr: readonly Segment[] | undefined, ocr: readonly Unit[] | undefined,
   characters: TranscriptCharacters | undefined, limits: TranscriptCoverageLimits, signal: AbortSignal): Measured | 'edit_limit' {
   const t = limits.transcriptMinSimilarity, gap = limits.transcriptMinGapChars, edits = limits.transcriptMaxEditLength
@@ -248,7 +326,8 @@ function measureEpisode(lines: readonly DraftLine[], asr: readonly Segment[] | u
   const asrAlignment = asr === undefined ? undefined : alignTranscript(asr.map(unit => unit.norm), norms, t, edits, signal)
   const ocrAlignment = ocr === undefined ? undefined : alignTranscript(ocr.map(unit => unit.norm), norms, t, edits, signal)
   if (asrAlignment === 'edit_limit' || ocrAlignment === 'edit_limit') return 'edit_limit'
-  const findings: TranscriptCoverageFindings = { asr_uncovered: [], lines_without_source: [], asr_out_of_order: [],
+  const findings: TranscriptCoverageFindings = { asr_uncovered: [], lines_without_source: [], speaker_voice_conflicts: [],
+    asr_out_of_order: [],
     on_screen_text_differs: [], ending_after_source: [], lines_on_screen_text_only: [], asr_partly_missing: [],
     lines_with_added_text: [], on_screen_text_not_in_dialogue: [] }
   let inOrder = 0, inAction = 0
@@ -299,11 +378,12 @@ function measureEpisode(lines: readonly DraftLine[], asr: readonly Segment[] | u
       if (!linked.length) continue
       const hunks = substitutionHunks(linked.flatMap(unit => ocr[unit]?.norm ?? []), line.norm, edits)
       if (hunks === 'edit_limit') return 'edit_limit'
-      const asrSegments = [...asrAlignment === undefined ? [] : asrAlignment.links[index]?.keys() ?? []].sort((left, right) => left - right)
-        .flatMap(unit => asr?.[unit]?.id ?? [])
+      const linkedAsr = [...asrAlignment === undefined ? [] : asrAlignment.links[index]?.keys() ?? []].sort((left, right) => left - right)
+        .flatMap(unit => asr?.[unit] ?? [])
       for (const hunk of hunks) {
         findings.on_screen_text_differs.push({ line: line.number, start_seconds: ocr[linked[hunk.unit] ?? -1]?.start ?? 0,
-          draft: hunk.draft, on_screen: hunk.on_screen, asr_segments: asrSegments })
+          draft: hunk.draft, on_screen: hunk.on_screen, asr_segments: linkedAsr.map(segment => segment.id),
+          asr_text: linkedAsr.map(segment => segment.text).join('') })
       }
     }
     for (const [index, segment] of ocr.entries()) {
@@ -311,6 +391,7 @@ function measureEpisode(lines: readonly DraftLine[], asr: readonly Segment[] | u
       findings.on_screen_text_not_in_dialogue.push({ start_seconds: segment.start, text: segment.text })
     }
   }
+  const voiceGroups = asr === undefined || asrAlignment === undefined ? 0 : voiceConflicts(dialogue, asr, asrAlignment, findings)
   const lastSupported = dialogue.findLast((_line, index) => byAsr(index) || byOcr(index))?.number ?? null
   if (lastSupported !== null) {
     const unsupported = new Set(findings.lines_without_source.map(line => line.line))
@@ -324,7 +405,9 @@ function measureEpisode(lines: readonly DraftLine[], asr: readonly Segment[] | u
     asr_covered_in_order: inOrder, asr_covered_out_of_order: findings.asr_out_of_order.length,
     asr_uncovered: findings.asr_uncovered.length, asr_in_action_lines: inAction, asr_partly_missing: findings.asr_partly_missing.length,
     lines_without_source: findings.lines_without_source.length, lines_on_screen_text_only: findings.lines_on_screen_text_only.length,
-    lines_with_added_text: findings.lines_with_added_text.length, on_screen_text_differs: findings.on_screen_text_differs.length,
+    lines_with_added_text: findings.lines_with_added_text.length, voice_groups: voiceGroups,
+    asr_voice_labelled: asr?.filter(segment => segment.voice !== undefined).length ?? 0,
+    speaker_voice_conflicts: findings.speaker_voice_conflicts.length, on_screen_text_differs: findings.on_screen_text_differs.length,
     on_screen_text_not_in_dialogue: findings.on_screen_text_not_in_dialogue.length,
     ending_lines_after_source: findings.ending_after_source.length }
   if (characters !== undefined) {
@@ -345,6 +428,9 @@ function summary(label: string, measured: Measured | undefined, hasAsr: boolean,
   return [`${label}：台词${c.dialogue_lines}行`,
     hasAsr ? `ASR ${c.asr_segments}段，按序${c.asr_covered_in_order}、错序${c.asr_covered_out_of_order}、未写入${c.asr_uncovered}`
       + `（入▲行${c.asr_in_action_lines}）、部分缺失${c.asr_partly_missing}` : 'ASR未提供',
+    ...hasAsr ? [c.asr_voice_labelled === 0 ? 'ASR无音色分组' : c.voice_groups > 1
+      ? `已对上台词涉及音色${c.voice_groups}组、说话人与同组多数不一致${c.speaker_voice_conflicts}行`
+      : `已对上台词只涉及${c.voice_groups}个音色组，未比对说话人`] : [],
     `无来源台词${c.lines_without_source}、仅画面文字${c.lines_on_screen_text_only}、新增措辞${c.lines_with_added_text}`,
     hasOcr ? `画面文字不同${c.on_screen_text_differs}、未入台词${c.on_screen_text_not_in_dialogue}` : '画面文字未提供',
     measured.last_supported_line === null ? '没有有来源的台词' : `最后有来源台词后${c.ending_lines_after_source}行`,
@@ -381,7 +467,9 @@ async function measureSource(source: TranscriptSources[number], index: number, c
     asr = { path: file.path, sha256: file.sha256, segments: rows.data.length }
     lastAsrEnd = Math.max(...rows.data.map(row => row.end))
     asrSegments = rows.data.map((row, position) => ({ id: `S${String(position + 1).padStart(5, '0')}`, start: row.start, end: row.end,
-      text: row.text, norm: normalizeTranscriptText(row.text) })).filter(segment => segment.norm.chars.length > 0)
+      text: row.text, norm: normalizeTranscriptText(row.text),
+      ...row.speaker_id === undefined || String(row.speaker_id).trim() === '' ? {} : { voice: String(row.speaker_id).trim() } }))
+      .filter(segment => segment.norm.chars.length > 0)
   }
   let ocr: TranscriptCoverageEpisode['ocr'] = null, ocrSegments: Unit[] | undefined
   if (source.ocr_paths !== undefined) {
@@ -416,7 +504,9 @@ async function measureSource(source: TranscriptSources[number], index: number, c
   signal.throwIfAborted()
   const result = measureEpisode(lines, asrSegments, ocrSegments, characters, limits, signal)
   const measured = result === 'edit_limit' ? undefined : result
-  const empty: TranscriptCoverageFindings = { asr_uncovered: [], lines_without_source: [], asr_out_of_order: [], on_screen_text_differs: [],
+  const empty: TranscriptCoverageFindings = { asr_uncovered: [], lines_without_source: [], speaker_voice_conflicts: [],
+    asr_out_of_order: [],
+    on_screen_text_differs: [],
     ending_after_source: [], lines_on_screen_text_only: [], asr_partly_missing: [], lines_with_added_text: [],
     ...characters === undefined ? {} : { speakers_outside_table: [], listed_variants: [] }, on_screen_text_not_in_dialogue: [] }
   return { label, draft: { path: document.path, file_sha256: document.file_sha256, lines: range }, asr, ocr,
@@ -448,8 +538,37 @@ function aggregateNames(episodes: readonly TranscriptCoverageEpisode[]): NonNull
 }
 
 const NOTICE = '逐集字面计量：台词去掉标点空白、统一数字写法后与ASR原段按序对齐，并与video_ocr画面文字对齐；低于min_similarity记为未覆盖或无来源。'
-  + '不识别同音字、改写和说话人，不核对动作、原音或文件同源；与ASR一致不等于台词正确，画面文字含招牌、手机屏幕和识别错误。'
+  + 'speaker_voice_conflicts按ASR音色分组列出说话人与同组多数不一致的台词；分组常把相近音色并成一组，只是回原片看帧确认说话人的位置。'
+  + 'on_screen_text_differs同列稿件、画面文字和ASR原文：同音不同字多为照抄ASR，应按清楚字幕改；繁简或形近字多为OCR误读。'
+  + '不识别同音字和改写，不核对动作、原音或文件同源；与ASR一致不等于台词正确，画面文字含招牌、手机屏幕和识别错误。'
   + '列出的是回原片核对的位置，不是结论；交付说明照录各集summary，本结果不拦截交付。'
+
+/**
+ * Read a shared character roster file written once for all episodes.
+ * @param path - JSON roster: an array of `{ name, variants? }` entries or `{ characters: [...] }`; extra entry fields are ignored.
+ * @param cwd - Session workspace for a relative path.
+ * @param maxFileBytes - Largest accepted file; symbolic links are refused.
+ * @param signal - Cancellation.
+ * @returns The validated character table with the file's real path and SHA-256.
+ */
+export async function readTranscriptCharacters(path: string, cwd: string, maxFileBytes: number,
+  signal: AbortSignal): Promise<{ characters: TranscriptCharacters; file: SourceIdentity }> {
+  const file = await readSourceJson(path, cwd, maxFileBytes, signal)
+  const parsed = characterFileSchema.safeParse(file.value)
+  if (!parsed.success) {
+    const fields = [...new Set(parsed.error.issues.flatMap(issue => issue.code === 'invalid_union'
+      ? issue.errors.flat().map(inner => inner.path.join('.')) : [issue.path.join('.')]))].filter(Boolean).slice(0, 8)
+    throw Error(`MANUSCRIPT_TRANSCRIPT_CHARACTERS: ${path}不是人物表JSON（[{name, variants?}] 或 {characters: [...]}）`
+      + `${fields.length ? `；请检查 ${fields.join('、')}` : ''}。`)
+  }
+  const entries = Array.isArray(parsed.data) ? parsed.data : parsed.data.characters
+  const table = transcriptCharactersSchema.safeParse(entries.map(({ name, variants }) => {
+    const given = (variants ?? []).filter(variant => variant.trim().length > 0)
+    return { name, ...given.length === 0 ? {} : { variants: given } }
+  }))
+  if (!table.success) throw Error(`MANUSCRIPT_TRANSCRIPT_CHARACTERS: ${path}的人物表无效：${table.error.issues.map(issue => issue.message).join('；')}`)
+  return { characters: table.data, file: { path: file.path, sha256: file.sha256 } }
+}
 
 /**
  * Measure each listed episode of a faithful video screenplay draft against that episode's own ASR and on-screen text.
@@ -458,10 +577,11 @@ const NOTICE = '逐集字面计量：台词去掉标点空白、统一数字写�
  * @param cwd - Session workspace for relative paths.
  * @param limits - Validated reading, matching and output budgets.
  * @param signal - Cancellation, checked between files and episodes.
+ * @param charactersFile - Identity of the shared roster file `table` was read from, reported within the output budget.
  * @returns Complete counts and summaries, with whole findings kept within `transcriptMaxOutputChars` and omissions counted.
  */
 export async function measureTranscriptCoverage(sources: TranscriptSources, table: TranscriptCharacters | undefined, cwd: string,
-  limits: TranscriptCoverageLimits, signal: AbortSignal): Promise<TranscriptCoverageResult> {
+  limits: TranscriptCoverageLimits, signal: AbortSignal, charactersFile?: SourceIdentity): Promise<TranscriptCoverageResult> {
   if (sources.length > limits.maxDocuments || sources.some(source => (source.ocr_paths?.length ?? 0) > limits.maxDocuments)) {
     throw Error('MANUSCRIPT_DOCUMENT_LIMIT: 本次集数过多，请分批。')
   }
@@ -480,7 +600,8 @@ export async function measureTranscriptCoverage(sources: TranscriptSources, tabl
   const result: TranscriptCoverageResult = { state: 'transcript_coverage', advisory: true, semantic_assessment: 'not_performed',
     matching: { basis: 'nfkc_letters_numbers_numerals_folded', min_similarity: limits.transcriptMinSimilarity,
       min_gap_chars: limits.transcriptMinGapChars, homophones: 'not_detected', same_source: 'not_verified' },
-    totals, names: table === undefined ? null : aggregateNames(all), episodes: all,
+    totals, ...charactersFile === undefined ? {} : { characters_file: charactersFile },
+    names: table === undefined ? null : aggregateNames(all), episodes: all,
     output: { complete: true, omitted: zeroCounts(), limit_reasons: [] }, notice: NOTICE }
   const budget = limits.transcriptMaxOutputChars
   if (characters(result) <= budget) return result

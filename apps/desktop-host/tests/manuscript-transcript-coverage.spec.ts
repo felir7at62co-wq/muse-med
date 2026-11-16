@@ -3,8 +3,8 @@ import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { measureTranscriptCoverage, transcriptCharactersSchema, transcriptSourcesSchema, type TranscriptCharacters,
-  type TranscriptCoverageLimits, type TranscriptSources } from '../src/manuscript-transcript-coverage.ts'
+import { measureTranscriptCoverage, readTranscriptCharacters, transcriptCharactersSchema, transcriptSourcesSchema,
+  type TranscriptCharacters, type TranscriptCoverageLimits, type TranscriptSources } from '../src/manuscript-transcript-coverage.ts'
 
 const roots: string[] = [], signal = new AbortController().signal
 const limits: TranscriptCoverageLimits = { maxFileBytes: 1024 * 1024, maxTextChars: 200_000, maxDocuments: 8, maxMaterialChars: 200_000,
@@ -44,7 +44,9 @@ it('reports dropped, invented, reordered, split, merged and partly written text 
     asr: { segments: 13 }, ocr: null, last_supported_line: 16, last_asr_segment_covered: false, last_asr_end_seconds: 21 })
   expect(episode.counts).toEqual({ dialogue_lines: 11, asr_segments: 13, asr_covered_in_order: 9, asr_covered_out_of_order: 1,
     asr_uncovered: 3, asr_in_action_lines: 1, asr_partly_missing: 1, lines_without_source: 1, lines_on_screen_text_only: 0,
-    lines_with_added_text: 1, on_screen_text_differs: 0, on_screen_text_not_in_dialogue: 0, ending_lines_after_source: 2 })
+    lines_with_added_text: 1, voice_groups: 1, asr_voice_labelled: 13, speaker_voice_conflicts: 0, on_screen_text_differs: 0,
+    on_screen_text_not_in_dialogue: 0,
+    ending_lines_after_source: 2 })
   expect(episode.asr_uncovered).toEqual([{ segment_id: 'S00002', start_seconds: 1.5, end_seconds: 2, text: '嗯。' },
     { segment_id: 'S00010', start_seconds: 13.5, end_seconds: 15, text: '把门关好', action_line: 14 },
     { segment_id: 'S00013', start_seconds: 19.5, end_seconds: 21, text: '我们走着瞧' }])
@@ -54,8 +56,9 @@ it('reports dropped, invented, reordered, split, merged and partly written text 
   expect(episode.lines_with_added_text).toEqual([{ line: 8, quote: '甲：老实告诉你，这个月一共欠了2万4。', added: ['老实告诉你'] }])
   expect(episode.ending_after_source).toEqual([{ line: 17, kind: 'hook', quote: '【下集钩子】' },
     { line: 18, kind: 'action', quote: '▲甲回头，看见门外站着一个人。' }])
-  expect(episode.summary).toBe('第1集：台词11行；ASR 13段，按序9、错序1、未写入3（入▲行1）、部分缺失1；'
+  expect(episode.summary).toBe('第1集：台词11行；ASR 13段，按序9、错序1、未写入3（入▲行1）、部分缺失1；已对上台词只涉及1个音色组，未比对说话人；'
     + '无来源台词1、仅画面文字0、新增措辞1；画面文字未提供；最后有来源台词后2行')
+  expect(episode.speaker_voice_conflicts).toEqual([])
   expect(episode).not.toHaveProperty('speakers_outside_table')
   expect(result).toMatchObject({ state: 'transcript_coverage', advisory: true, semantic_assessment: 'not_performed', names: null,
     totals: { episodes: 1, measured: 1, not_measured: 0, without_asr: 0, with_ocr: 0, dialogue_lines: 11, asr_uncovered: 3 },
@@ -74,7 +77,8 @@ it('uses on-screen content text from several video_ocr files and ignores persist
     files: [{ video_path: 'ep2.mp4', scan_status: 'partial' }, { video_path: 'ep2.mp4', scan_status: 'complete' }] })
   expect(episode.lines_on_screen_text_only).toEqual([{ line: 5, quote: '乙：别忘了带钱包。' }])
   expect(episode.lines_without_source).toEqual([])
-  expect(episode.on_screen_text_differs).toEqual([{ line: 3, start_seconds: 0.5, draft: '冬', on_screen: '东', asr_segments: ['S00001'] }])
+  expect(episode.on_screen_text_differs).toEqual([{ line: 3, start_seconds: 0.5, draft: '冬', on_screen: '东', asr_segments: ['S00001'],
+    asr_text: '冬桥菜场到了' }])
   expect(episode.on_screen_text_not_in_dialogue).toEqual([{ start_seconds: 140, text: '明天见' }])
   expect(JSON.stringify(result)).not.toContain('东桥TV')
   expect(episode.summary).toContain('画面文字不同1、未入台词1')
@@ -85,9 +89,56 @@ it('reports a substitution inside sparse on-screen text that covers only part of
   const root = await workspace({ 'ep6.md': draft, 'ocr.json': ocr('ep6.mp4', [0, 30], 'complete', [[20, 21, '哥你这不是为难老周吗']]) })
   const episode = (await measureTranscriptCoverage(parse([{ path: 'ep6.md', ocr_paths: ['ocr.json'] }]), undefined, root, limits, signal))
     .episodes[0]!
-  expect(episode.on_screen_text_differs).toEqual([{ line: 4, start_seconds: 20, draft: '爸', on_screen: '哥', asr_segments: [] }])
+  expect(episode.on_screen_text_differs).toEqual([{ line: 4, start_seconds: 20, draft: '爸', on_screen: '哥', asr_segments: [], asr_text: '' }])
   expect(episode.on_screen_text_not_in_dialogue).toEqual([])
   expect(episode.lines_without_source.map(line => line.line)).toEqual([2, 3, 4])
+})
+
+it('lists lines whose speaker differs from the majority of their ASR voice group, with the seconds to check', async () => {
+  const draft = ['第7集', '7-1 摊位 日 外', '刘老四：这蛤蟆可是老物件。', '刘老四：少一分都不卖。', '光头：开个实价吧。',
+    '林墨：你答应卖给他了？', '刘老四：那倒还没有。', '林墨：那我出两千。', '光头 OS（盘算）：这小子上钩了。'].join('\n')
+  const rows = [[0, 2, '这蛤蟆可是老物件', 'v1'], [2, 4, '少一分都不卖', 'v1'], [4, 5, '开个实价吧', 'v2'], [5, 7, '你答应卖给他了', 'v2'],
+    [7, 8, '那倒还没有', 'v1'], [8, 9, '那我出两千', 'v3'], [9, 11, '这小子上钩了', 'v2']] as const
+  const root = await workspace({ 'ep7.md': draft, 'ep7.json': rows.map(([start, end, text, voice]) => ({ start, end, text, speaker_id: voice })) })
+  const episode = (await measureTranscriptCoverage(parse([{ path: 'ep7.md', asr_path: 'ep7.json' }]), undefined, root, limits, signal)).episodes[0]!
+  expect(episode.speaker_voice_conflicts).toEqual([{ line: 6, quote: '林墨：你答应卖给他了？', speaker: '林墨', voice: 'v2', start_seconds: 5,
+    end_seconds: 7, voice_speakers: { 光头: 2, 林墨: 1 } }])
+  expect(episode.counts).toMatchObject({ voice_groups: 3, speaker_voice_conflicts: 1 })
+  expect(episode.summary).toContain('已对上台词涉及音色3组、说话人与同组多数不一致1行')
+  // Numeric ids are read as text; moving the inner line to v1 leaves voice 7 tied between 光头 and 林墨.
+  const tied = rows.map(([start, end, text, voice], index) => ({ start, end, text, speaker_id: index === 6 ? 'v1' : voice === 'v2' ? 7 : voice }))
+  await writeFile(join(root, 'tied.json'), JSON.stringify(tied))
+  const ties = (await measureTranscriptCoverage(parse([{ path: 'ep7.md', asr_path: 'tied.json' }]), undefined, root, limits, signal)).episodes[0]!
+  expect(ties.speaker_voice_conflicts.map(conflict => [conflict.line, conflict.voice])).toEqual([[5, '7'], [6, '7'], [9, 'v1']])
+  const unlabelled = rows.map(([start, end, text]) => ({ start, end, text, speaker_id: ' ' }))
+  await writeFile(join(root, 'plain.json'), JSON.stringify(unlabelled))
+  const plain = (await measureTranscriptCoverage(parse([{ path: 'ep7.md', asr_path: 'plain.json' }]), undefined, root, limits, signal)).episodes[0]!
+  expect(plain.counts).toMatchObject({ voice_groups: 0, asr_voice_labelled: 0, speaker_voice_conflicts: 0 })
+  expect(plain.summary).toContain('ASR无音色分组')
+})
+
+it('reads one shared roster file with extra descriptive fields and refuses an invalid one', async () => {
+  const root = await workspace({ 'roster.json': [{ name: '林墨', variants: ['林默', ' '], appearance: '牛仔外套' }, { name: '苏清雪', aliases: ['苏总'], variants: [] }],
+    'wrapped.json': { characters: [{ name: '林墨' }], episode_states: [{ episode: 3, end: '林墨离店' }] },
+    'dup.json': [{ name: '林墨' }, { name: '林墨' }], 'bad.json': { names: ['林墨'] }, 'nameless.json': [{ name: '林墨' }, { episode: 3 }] })
+  const roster = await readTranscriptCharacters('roster.json', root, limits.maxFileBytes, signal)
+  expect(roster.characters).toEqual([{ name: '林墨', variants: ['林默'] }, { name: '苏清雪' }])
+  expect(roster.file.path).toMatch(/roster\.json$/u)
+  expect(roster.file.sha256).toMatch(/^[0-9a-f]{64}$/u)
+  expect((await readTranscriptCharacters('wrapped.json', root, limits.maxFileBytes, signal)).characters).toEqual([{ name: '林墨' }])
+  await expect(readTranscriptCharacters('dup.json', root, limits.maxFileBytes, signal)).rejects.toThrow('人物表 name 不能重复')
+  await expect(readTranscriptCharacters('bad.json', root, limits.maxFileBytes, signal)).rejects.toThrow('MANUSCRIPT_TRANSCRIPT_CHARACTERS: bad.json')
+  await expect(readTranscriptCharacters('nameless.json', root, limits.maxFileBytes, signal)).rejects.toThrow('请检查 1.name')
+  await writeFile(join(root, 'ep1.md'), episodeOne)
+  await writeFile(join(root, 'ep1.json'), JSON.stringify(asrOne))
+  const sources = parse([{ path: 'ep1.md', asr_path: 'ep1.json' }])
+  const full = await measureTranscriptCoverage(sources, roster.characters, root, limits, signal, roster.file)
+  expect(full.characters_file).toEqual(roster.file)
+  const budget = Array.from(JSON.stringify(full)).length - 60
+  const bounded = await measureTranscriptCoverage(sources, roster.characters, root, { ...limits, transcriptMaxOutputChars: budget },
+    signal, roster.file)
+  expect(Array.from(JSON.stringify(bounded)).length).toBeLessThanOrEqual(budget)
+  expect(bounded.characters_file).toEqual(roster.file)
 })
 
 it('reports every line as without source when no transcript was supplied', async () => {
