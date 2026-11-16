@@ -7,6 +7,7 @@
  * are evidence for a human, not authorization for a program.
  */
 import { readPayload } from './reading.ts'
+import { SEEDVR2_UPSCALE_MODEL } from './upscale.ts'
 import { wireObject as object, wireRows as rowsOf, wireTotal as totalOf, wirePositiveId as id, wireNullableText as nullableText } from './wire.ts'
 
 function nullableId(value: unknown): number | null {
@@ -87,21 +88,27 @@ export function resolutionRank(value: string | null): number {
 /**
  * Compare the current result resolution with the delivery target.
  *
- * A recorded SeedVR2 upscale supplies a 1080p current file even when the
- * generation row keeps its old resolution label. This comparison does not
- * judge content usability or authorize paid processing.
+ * The row's label describes the current file unless an upscale pass ran after
+ * the labelled stage. The provider's own upscale row carries that pass's output
+ * label; a source row keeps its generation label. A recorded SeedVR2 pass, whose
+ * one standard is 1080p, ranks the current file at 1080p or above on either row;
+ * another model's output resolution is not on the source row. This comparison
+ * does not judge content usability or authorize paid processing.
  * @param row - One read subtask.
  * @param deliveryTarget - The resolution the caller intends to deliver, e.g. `1080p`.
- * @returns `true` when the source is below the target, `false` when it is not, and
- *   `null` when either label is unrecognised so a caller never reads a guess as a verdict.
+ * @returns `true` when the current file is below the target, `false` when it is not, and
+ *   `null` when the target or the current file cannot be ranked, so a caller never reads a guess as a verdict.
  */
-export function needsUpscale(row: Pick<VideoSubtask, 'resolution' | 'upscaled'>,
+export function needsUpscale(row: Pick<VideoSubtask, 'resolution' | 'upscaled' | 'model_id' | 'upscale_model_id'>,
   deliveryTarget: string): boolean | null {
-  const recorded = resolutionRank(row.resolution)
   const target = resolutionRank(deliveryTarget)
-  if (target < 0 || (recorded < 0 && !row.upscaled)) return null
-  const source = row.upscaled ? Math.max(recorded, resolutionRank('1080p')) : recorded
-  return source < target
+  const recorded = resolutionRank(row.resolution)
+  const labelIsCurrent = !row.upscaled || (row.upscale_model_id !== null && row.upscale_model_id === row.model_id)
+  const passFloor = row.upscale_model_id === SEEDVR2_UPSCALE_MODEL.modelId ? resolutionRank('1080p') : -1
+  const source = Math.max(recorded, passFloor)
+  if (target < 0 || source < 0) return null
+  if (source >= target) return false
+  return labelIsCurrent || passFloor >= 0 ? true : null
 }
 
 /** One child generation result. */
@@ -159,6 +166,13 @@ export interface VideoSubtask {
   subtitle_erased: boolean
   /** Whether an upscale pass has been recorded. */
   upscaled: boolean
+  /**
+   * The model of the recorded upscale pass, or null when the provider does not name it.
+   *
+   * A source row names it as `lastModelId` while the upscale is its newest
+   * stage; the row the provider creates for the pass names it as its own model.
+   */
+  upscale_model_id: string | null
 }
 
 /** Read the longest-lived file URL the provider offers for one result entry. */
@@ -244,6 +258,8 @@ export function readSubtaskPage(data: unknown): { total: number; rows: VideoSubt
       const lastTaskType = result === undefined || typeof result.lastTaskType !== 'number'
         ? null : result.lastTaskType
       const hdCount = result !== undefined && typeof result.hdCount === 'number' ? result.hdCount : null
+      const upscaleModel = result === undefined ? null : result.taskType === 20 ? nullableText(row.modelId)
+        : lastTaskType === 20 ? nullableText(result.lastModelId) : null
       return { subtask_id: id(row.id ?? row.subTaskId),
         parent_task_id: nullableId(row.aigcVideoTaskId), status: nullableText(row.taskStatus),
         duration_seconds: typeof row.duration === 'number' && Number.isFinite(row.duration) ? row.duration : null,
@@ -270,7 +286,8 @@ export function readSubtaskPage(data: unknown): { total: number; rows: VideoSubt
           || entries.some(entry => entry.task_type === 10 && entry.status === 'succeeded'
             && entry.video_url === current)),
         // Erasure also changes the URL; only an upscale-specific marker counts.
-        upscaled: (hdCount !== null && hdCount > 0) || lastTaskType === 20 }
+        upscaled: (hdCount !== null && hdCount > 0) || lastTaskType === 20,
+        upscale_model_id: upscaleModel }
     }) }
   })
 }

@@ -297,7 +297,7 @@ const ARGS = {
       + 'register 按它新建资产，不生成新图。' },
   content_duration_ms: { type: 'number', description: 'prepare_video / generate 准备阶段可选：内容时长交叉校验，等于已保存卡时长减 1 秒后的毫秒数；不用于修改时长。' },
   model_id: { type: 'string', description: 'erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 '
-    + 'ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。' },
+    + 'ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型时使用 MediaKit，SeedVR2 等其他模型须显式指定。' },
   task_name: { type: 'string', description: 'erase_subtitle 可选：任务名，省略时按「<源任务名>-去字幕」生成。' },
   first_result_id: { type: 'number', description: 'erase_subtitle 必填：源视频 firstResultId。' },
   parent_result_id: { type: 'number', description: 'erase_subtitle 必填：源视频 parentResultId。' },
@@ -1388,7 +1388,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行'
       + '（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。'
       + '按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。'
-      + '**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。'
+      + '**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定模型时默认 MediaKit，SeedVR2 等其他模型用 model_id 显式指定；具体价格以当前目录为准。'
       + '仿真人剧默认使用原片，不自动转高清。'
       + 'SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。'
       + '仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。'

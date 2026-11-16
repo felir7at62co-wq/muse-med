@@ -1,0 +1,45 @@
+{
+  "patches": [
+    {
+      "at": 3,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          {
+            "type": "block-start",
+            "index": 0,
+            "blockType": "text"
+          },
+          {
+            "type": "text-delta",
+            "index": 0,
+            "text": "Offline MediaKit upscale task 429001 was submitted once using its live 1.50 CNY reservation for a 13.5-second source under the default 4000.00 CNY project budget. Replaying the same key sent no HTTP requests. The explicit unpriced model was refused before billing or reservation. The ledger records one accepted 1.50 CNY charge and no outstanding reservation. No real provider was called."
+          },
+          {
+            "type": "block-end",
+            "index": 0,
+            "block": {
+              "type": "text",
+              "text": "Offline MediaKit upscale task 429001 was submitted once using its live 1.50 CNY reservation for a 13.5-second source under the default 4000.00 CNY project budget. Replaying the same key sent no HTTP requests. The explicit unpriced model was refused before billing or reservation. The ledger records one accepted 1.50 CNY charge and no outstanding reservation. No real provider was called."
+            }
+          },
+          {
+            "type": "usage",
+            "usage": {
+              "inputTokens": 180,
+              "outputTokens": 10,
+              "cacheReadTokens": 0,
+              "reasoningTokens": 4
+            }
+          },
+          {
+            "type": "finish",
+            "reason": {
+              "kind": "stop"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

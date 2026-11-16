@@ -1,5 +1,13 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { VIDEO_UPSCALE_MODEL, buildVideoUpscaleRequest, readUpscaleTaskId } from '../src/upscale.ts'
+import { MEDIAKIT_UPSCALE_MODEL, SEEDVR2_UPSCALE_MODEL, buildVideoUpscaleRequest, readUpscaleTaskId,
+  resolvePostProcessModel } from '../src/upscale.ts'
+
+const UPSCALE_ROWS = (JSON.parse(readFileSync(new URL('./fixtures/catalogue-20261016.json', import.meta.url), 'utf8')) as
+  Record<string, unknown[]>)['20']
+
+/** The SeedVR2 selectors of the captured workbench request. */
+const SEEDVR2 = { ...SEEDVR2_UPSCALE_MODEL, standardId: 55, videoStandardId: 303 }
 
 /** The operator's captured workbench request, reproduced field for field. */
 const CAPTURED = {
@@ -15,32 +23,37 @@ const CAPTURED = {
 
 describe('buildVideoUpscaleRequest', () => {
   it('reproduces the captured workbench body', () => {
-    expect(buildVideoUpscaleRequest(CAPTURED)).toEqual({ ...CAPTURED,
+    expect(buildVideoUpscaleRequest(CAPTURED, SEEDVR2)).toEqual({ ...CAPTURED,
       taskType: 20, modelId: '2074071626416742401', platformId: 'RUNNING_HUB',
       standardId: 55, videoStandardId: 303 })
   })
 
-  it('pins the SeedVR2 selectors the workbench uses by default', () => {
-    expect(VIDEO_UPSCALE_MODEL).toEqual({ modelId: '2074071626416742401', platformId: 'RUNNING_HUB',
-      standardId: 55, videoStandardId: 303 })
+  it.each([
+    { model: MEDIAKIT_UPSCALE_MODEL, standardId: 27, videoStandardId: 165 },
+    { model: SEEDVR2_UPSCALE_MODEL, standardId: 55, videoStandardId: 303 },
+  ])('resolves $model.modelId at 1080p from the captured live catalogue', ({ model, standardId, videoStandardId }) => {
+    const selected = resolvePostProcessModel(UPSCALE_ROWS, { ...model, resolution: '1080p' })
+    expect(selected).toEqual({ ...model, standardId, videoStandardId })
+    expect(buildVideoUpscaleRequest(CAPTURED, selected)).toMatchObject({ taskType: 20, ...model,
+      standardId, videoStandardId })
   })
 
   it('never emits taskType 2, which is an image operation, not this stage', () => {
-    expect(buildVideoUpscaleRequest(CAPTURED).taskType).toBe(20)
-    expect(buildVideoUpscaleRequest(CAPTURED).taskType).not.toBe(2)
+    expect(buildVideoUpscaleRequest(CAPTURED, SEEDVR2).taskType).toBe(20)
+    expect(buildVideoUpscaleRequest(CAPTURED, SEEDVR2).taskType).not.toBe(2)
   })
 
   it('passes the provider URL through verbatim instead of rewriting its host', () => {
     const body = buildVideoUpscaleRequest({ ...CAPTURED,
-      videoUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/2026/09/17/x.mp4' })
+      videoUrl: 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/2026/09/17/x.mp4' }, SEEDVR2)
     expect(body.videoUrl).toBe('https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/2026/09/17/x.mp4')
   })
 
   it('rejects an unusable source rather than sending a request the provider refuses', () => {
-    expect(() => buildVideoUpscaleRequest({ ...CAPTURED, videoUrl: 'http://x/y.mp4' })).toThrow()
-    expect(() => buildVideoUpscaleRequest({ ...CAPTURED, duration: 0 })).toThrow()
-    expect(() => buildVideoUpscaleRequest({ ...CAPTURED, firstResultId: 0 })).toThrow()
-    expect(() => buildVideoUpscaleRequest({ ...CAPTURED, taskName: '  ' })).toThrow()
+    expect(() => buildVideoUpscaleRequest({ ...CAPTURED, videoUrl: 'http://x/y.mp4' }, SEEDVR2)).toThrow()
+    expect(() => buildVideoUpscaleRequest({ ...CAPTURED, duration: 0 }, SEEDVR2)).toThrow()
+    expect(() => buildVideoUpscaleRequest({ ...CAPTURED, firstResultId: 0 }, SEEDVR2)).toThrow()
+    expect(() => buildVideoUpscaleRequest({ ...CAPTURED, taskName: '  ' }, SEEDVR2)).toThrow()
   })
 })
 
