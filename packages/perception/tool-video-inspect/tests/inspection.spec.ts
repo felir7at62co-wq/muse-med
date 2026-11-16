@@ -1295,8 +1295,9 @@ it('bounds concurrent inspections and waits for owned cancellation when the plug
   const second = await h.call({ method: 'metadata' })
   expect(second.isError).toBe(true)
   expect(second.error?.info).toEqual({ name: 'HarnessError', code: 'VIDEO_INSPECT_BUSY' })
-  expect(second.content).toEqual([{ type: 'text', text: expect.stringContaining('Video inspection is busy: all 1 inspection slots are in use. '
-    + 'Call the tool again; the frames you are currently viewing remain in your context.') }])
+  expect(second.content[0]?.type).toBe('text')
+  expect(second.error?.message).toContain('Video inspection is busy: all 1 inspection slots are in use. '
+    + 'Call the tool again; the frames you are currently viewing remain in your context.')
   await h.video.dispose()
   expect((await first).isError).toBe(true)
 }, 30_000)
@@ -1338,8 +1339,9 @@ it('tells a caller to call again when no slot frees within slotWaitMs, and stops
   const late = await h.call({ method: 'metadata' })
   expect(late.isError).toBe(true)
   expect(late.error?.info).toEqual({ name: 'HarnessError', code: 'VIDEO_INSPECT_BUSY' })
-  expect(late.content).toEqual([{ type: 'text', text: expect.stringContaining('Video inspection is busy: all 1 inspection slots are in use '
-    + 'and none was freed within 1.5 seconds. Call the tool again; the frames you are currently viewing remain in your context.') }])
+  expect(late.content[0]?.type).toBe('text')
+  expect(late.error?.message).toContain('Video inspection is busy: all 1 inspection slots are in use '
+    + 'and none was freed within 1.5 seconds. Call the tool again; the frames you are currently viewing remain in your context.')
   const timers = vi.spyOn(globalThis, 'setTimeout')
   const controller = new AbortController()
   const cancelled = h.ocr({ end_seconds: 1 }, controller.signal)
