@@ -340,8 +340,17 @@ export function apply(ctx) {
       const missing = required.filter(name => !names.has(name))
       const unexpected = [...names].filter(name => !routing.includes(name)).sort()
       if (missing.length > 0 || unexpected.length > 0) {
+        // The coordinator tools register only while the coordination service runs; name its absent dependencies.
+        const services = ['sessionCoordinator', 'agents', 'sessions', 'sessionQuery', 'sessionController', 'workspaceController', 'storageDomain',
+          'workspaceRegistry', 'jobs', 'typert', 'tools', 'sessionProjections']
+        const absent = () => services.filter(name => ctx.get(name) === undefined)
+        const before = absent()
+        const deadline = Date.now() + 60_000
+        while (absent().includes('sessionCoordinator') && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 500))
+        const later = required.filter(name => !new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name)).has(name))
         throw new Error('desktop runtime: Main Session routing tool roster differs; missing: ' + (missing.join(', ') || 'none')
-          + '; unexpected: ' + (unexpected.join(', ') || 'none'))
+          + '; unexpected: ' + (unexpected.join(', ') || 'none') + '; absent services: ' + (before.join(', ') || 'none')
+          + '; absent after 60 s: ' + (absent().join(', ') || 'none') + '; still missing after 60 s: ' + (later.join(', ') || 'none'))
       }
       const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       if (!assembly.sections.some(section => section.name === 'muse:main-session' && section.text.includes('只负责'))) {

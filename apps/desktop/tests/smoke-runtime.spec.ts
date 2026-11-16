@@ -231,6 +231,8 @@ function fixture(packaged = false) {
   class TestContext {
     root = this
     fiber = ownerFiber
+    absentServices = new Set<string>()
+    get = vi.fn((name: string) => this.absentServices.has(name) ? undefined : {})
     on<K extends keyof FixtureEvents>(event: K, listener: FixtureEvents[K]) {
       const listeners = eventListeners[event]
       listeners.add(listener)
@@ -1540,6 +1542,16 @@ it('names each routing tool missing from the Main Session', async () => {
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
     ? schemas(key).filter(tool => !absent.includes(tool.name)) : schemas(key))
   await expect(f.apply(f.ctx)).rejects.toThrow('Main Session routing tool roster differs; missing: ' + absent.join(', ') + '; unexpected: none')
+})
+
+it('names the coordination dependencies absent when the Main Session lacks its routing tools', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
+    ? schemas(key).filter(tool => tool.name !== 'coordinator_jobs') : schemas(key))
+  f.ctx.absentServices.add('jobs')
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing: coordinator_jobs; unexpected: none; absent services: jobs; '
+    + 'absent after 60 s: jobs; still missing after 60 s: coordinator_jobs')
 })
 
 it('accepts a Main Session that also carries the optional human-facing tools', async () => {
