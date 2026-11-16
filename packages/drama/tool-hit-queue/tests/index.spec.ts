@@ -95,10 +95,11 @@ describe('drama_hit_queue', () => {
   it('registers the model-facing description and removes the tool when its fiber is disposed', async () => {
     const { ctx, fiber } = await bench()
     const definition = ctx.tools.get('drama_hit_queue')
-    expect(definition?.description).toBe('数据站爆款转写任务队列。claim 领取一部待转写的红果剧（不填 work_id 取队首），返回任务和租约 lease；'
-      + '之后每一步都带上 work_id 和 lease。progress 上报阶段和第几集，也作心跳，至少每 30 分钟一次；'
+    expect(definition?.description).toBe('数据站爆款转写任务队列。claim 领取一部待转写的红果剧（不填 work_id 取队首），返回任务、租约 lease、作品信息 work 和选材复核 review；'
+      + '之后每一步都带上 work_id 和 lease。review.required 为 true 时，下载转写前先按 review.standard 判断整部剧是否符合选材方向，'
+      + '不符合就用 reject 淘汰并写明具体理由；reject 只用于选材不符。progress 上报阶段和第几集，也作心跳，至少每 30 分钟一次；'
       + 'videos 用 drama_tos_upload 返回的 manifest.url 登记原片；publish 上传通过程序检查的剧本并发布；'
-      + 'fail 报告失败，检查重写后仍不过时设 needs_attention。status 查询任务。')
+      + 'fail 报告下载、转写或检查失败，检查重写后仍不过时设 needs_attention。status 查询任务。')
     expect(definition?.presentCall?.({ action: 'status' })).toEqual({ card: 'generic', title: 'Hit queue: status', kind: 'read' })
     expect(definition?.presentCall?.({ action: 'claim' })).toEqual({ card: 'generic', title: 'Hit queue: claim', kind: 'other' })
     await fiber.dispose()
@@ -193,6 +194,18 @@ describe('drama_hit_queue', () => {
       '{"lease":"L","reason":"检查两次未通过","stage":"checking","retryable":false,"needsAttention":true}',
       '{"lease":"L","reason":"下载失败"}',
     ])
+  })
+
+  it('rejects a drama that does not fit the selection standard, with its reason', async () => {
+    const network = fakeNetwork()
+    const { call } = await bench({ fetch: network.fetch })
+    const reason = '标签有家长里短，但主线是校园恋爱，整体受众偏年轻'
+    expect((await call({ action: 'reject', work_id: 'hongguo:7470000000000000001', lease: 'L', reason })).value)
+      .toEqual({ action: 'reject', result: { echo: '/jobs/hongguo%3A7470000000000000001/reject', method: 'POST' } })
+    expect(JSON.parse(network.calls[0]?.init.body as string)).toEqual({ lease: 'L', reason })
+    expect(errorText(await call({ action: 'reject', work_id: '7470000000000000001', lease: 'L' }))).toContain('reject 需要 reason')
+    expect(errorText(await call({ action: 'reject', work_id: '7470000000000000001', reason }))).toContain('reject 需要 lease')
+    expect(network.calls).toHaveLength(1)
   })
 
   it.each([

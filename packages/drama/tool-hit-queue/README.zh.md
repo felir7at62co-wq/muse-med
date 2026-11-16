@@ -1,5 +1,5 @@
 ---
-description: "让转写工人从数据站任务队列领取一部红果爆款、上报进度、登记已存原片并发布完成的剧本。"
+description: "让转写工人从数据站任务队列领取一部红果爆款、在不符合选材标准时淘汰、上报进度、登记已存原片并发布完成的剧本。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`@deepseek-ai/dsh-tool-hit-queue` 为每日爆款转写循环注册模型可见的 `drama_hit_queue` 工具。工人会话从数据站任务队列领取一部红果剧，上报进度和心跳，凭清单地址登记用 `drama_tos_upload` 存好的原片，并发布通过检查的剧本或报告失败。选片、租约、重试和成员看到的储备看板都归数据站；本包只调用它的服务接口。
+`@deepseek-ai/dsh-tool-hit-queue` 为每日爆款转写循环注册模型可见的 `drama_hit_queue` 工具。工人会话从数据站任务队列领取一部红果剧，按数据站给出的选材标准判断整部剧，不符合就淘汰，上报进度和心跳，凭清单地址登记用 `drama_tos_upload` 存好的原片，并发布通过检查的剧本或报告失败。选片、租约、重试和成员看到的储备看板都归数据站；本包只调用它的服务接口。
 
 ## 目录
 
@@ -44,6 +44,7 @@ kind: "package-reference"
 | `videos` | `PUT /jobs/:workId/videos`，以清单为 `upload` | `work_id`、`lease`、`manifest_url` |
 | `publish` | multipart 形式 `POST /jobs/:workId/script` | `work_id`、`lease`、`script_path`、`checks_passed` |
 | `fail` | `POST /jobs/:workId/fail` | `work_id`、`lease`、`reason` |
+| `reject` | `POST /jobs/:workId/reject`；数据站把任务结束为复核淘汰，不再自动选入该作品 | `work_id`、`lease`、`reason` |
 
 <a id="request-safety"></a>
 ## 请求安全
@@ -83,17 +84,17 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-组合本插件后，模型会看到 `drama_hit_queue` 的定义，含一个 `action` 及上表中的字段。每次成功调用返回 `{ action, result }`，`result` 是数据站的 JSON 回答：`claim` 为 `{ job, lease }`，其他操作为 `Job` 记录，`publish` 为 `{ job, script }`。失败时带 `HIT_QUEUE_*` 代码和中文说明。描述原文如下：
+组合本插件后，模型会看到 `drama_hit_queue` 的定义，含一个 `action` 及上表中的字段。每次成功调用返回 `{ action, result }`，`result` 是数据站的 JSON 回答：`claim` 为 `{ job, lease, work, review }`，其中 `work` 含剧名、全部标签、简介和数据站的规则评估，`review` 含 `required` 与可修改的 `standard` 文本，其他操作为 `Job` 记录，`publish` 为 `{ job, script }`。失败时带 `HIT_QUEUE_*` 代码和中文说明。描述原文如下：
 
 ##### 工具描述
 
 ```markdown
-数据站爆款转写任务队列。claim 领取一部待转写的红果剧（不填 work_id 取队首），返回任务和租约 lease；之后每一步都带上 work_id 和 lease。progress 上报阶段和第几集，也作心跳，至少每 30 分钟一次；videos 用 drama_tos_upload 返回的 manifest.url 登记原片；publish 上传通过程序检查的剧本并发布；fail 报告失败，检查重写后仍不过时设 needs_attention。status 查询任务。
+数据站爆款转写任务队列。claim 领取一部待转写的红果剧（不填 work_id 取队首），返回任务、租约 lease、作品信息 work 和选材复核 review；之后每一步都带上 work_id 和 lease。review.required 为 true 时，下载转写前先按 review.standard 判断整部剧是否符合选材方向，不符合就用 reject 淘汰并写明具体理由；reject 只用于选材不符。progress 上报阶段和第几集，也作心跳，至少每 30 分钟一次；videos 用 drama_tos_upload 返回的 manifest.url 登记原片；publish 上传通过程序检查的剧本并发布；fail 报告下载、转写或检查失败，检查重写后仍不过时设 needs_attention。status 查询任务。
 ```
 
 #### Token 影响
 
-提供该工具的每次请求都会带上一份固定的参数定义。每次结果是一条数据站 `Job` 记录，约几百个 token。
+提供该工具的每次请求都会带上一份固定的参数定义。每次结果是一条数据站 `Job` 记录，约几百个 token；`claim` 结果还带剧的简介、标签和选材标准，不到约 1000 个 token。
 
 #### KV Cache 影响
 
@@ -105,6 +106,7 @@ kind: "package-reference"
 
 - **尚未组合** — 没有任何已发布的配置选用本插件；云端转写组合会连同令牌引用一起加入。
 - **仅限红果** — 数据站队列只放红果剧；小说和抖音不经过本工具。
+- **选材复核依赖数据站的复核接口** — 只有实现了该接口的数据站版本，`claim` 才返回 `work` 与 `review`，`reject` 才能成功；旧版数据站不返回 `review`，工人不做复核，`reject` 得到 `HIT_QUEUE_NOT_FOUND`。
 - **租约由模型携带** — `claim` 返回的租约要在之后每次调用时传回；工具不按会话保存租约。
 
 <a id="dev-note"></a>

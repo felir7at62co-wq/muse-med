@@ -1,7 +1,9 @@
 /**
  * The model-facing `drama_hit_queue` tool: a transcription worker claims one
- * 红果 hit from the data station's job queue, reports progress, registers the
- * stored videos and publishes the finished screenplay, or reports failure.
+ * 红果 hit from the data station's job queue, rejects it when the whole drama
+ * does not fit the selection standard the station returns, reports progress,
+ * registers the stored videos and publishes the finished screenplay, or
+ * reports failure.
  * @module @deepseek-ai/dsh-tool-hit-queue
  */
 import { lstat, readFile } from 'node:fs/promises'
@@ -23,7 +25,7 @@ export const name = 'hit-queue'
 export const inject = ['tools']
 
 /** Actions of `drama_hit_queue`. */
-const ACTIONS = ['claim', 'status', 'progress', 'videos', 'publish', 'fail'] as const
+const ACTIONS = ['claim', 'status', 'progress', 'videos', 'publish', 'fail', 'reject'] as const
 /** Working states a worker may report. */
 const WORK_STATES = ['downloading', 'transcribing', 'checking'] as const
 
@@ -215,6 +217,11 @@ export function apply(ctx: Context, config: Config, dependencies: Dependencies =
         }
         return { action: 'fail', result: await call('POST', path, { json }) }
       }
+      case 'reject': {
+        const path = `${workPath(args)}/reject`
+        const json = { lease: required(args.lease, 'lease', 'reject'), reason: required(args.reason, 'reason', 'reject') }
+        return { action: 'reject', result: await call('POST', path, { json }) }
+      }
       /* v8 ignore next -- the tool schema admits only the handled actions */
       default: return assertNever(args.action)
     }
@@ -222,10 +229,11 @@ export function apply(ctx: Context, config: Config, dependencies: Dependencies =
 
   ctx.tools.register(defineTool({
     name: 'drama_hit_queue',
-    description: '数据站爆款转写任务队列。claim 领取一部待转写的红果剧（不填 work_id 取队首），返回任务和租约 lease；'
-      + '之后每一步都带上 work_id 和 lease。progress 上报阶段和第几集，也作心跳，至少每 30 分钟一次；'
+    description: '数据站爆款转写任务队列。claim 领取一部待转写的红果剧（不填 work_id 取队首），返回任务、租约 lease、作品信息 work 和选材复核 review；'
+      + '之后每一步都带上 work_id 和 lease。review.required 为 true 时，下载转写前先按 review.standard 判断整部剧是否符合选材方向，'
+      + '不符合就用 reject 淘汰并写明具体理由；reject 只用于选材不符。progress 上报阶段和第几集，也作心跳，至少每 30 分钟一次；'
       + 'videos 用 drama_tos_upload 返回的 manifest.url 登记原片；publish 上传通过程序检查的剧本并发布；'
-      + 'fail 报告失败，检查重写后仍不过时设 needs_attention。status 查询任务。',
+      + 'fail 报告下载、转写或检查失败，检查重写后仍不过时设 needs_attention。status 查询任务。',
     parameters: {
       action: { type: 'string', enum: ACTIONS, required: true, description: '要执行的操作。' },
       work_id: { type: 'string', description: '红果剧 series_id；claim 时可不填。' },
@@ -238,7 +246,7 @@ export function apply(ctx: Context, config: Config, dependencies: Dependencies =
       script_path: { type: 'string', description: 'publish：剧本文件的绝对路径（.docx、.md、.txt 或 .pdf）。' },
       checks_passed: { type: 'boolean', description: 'publish：程序检查是否全部通过；未通过时改用 fail。' },
       checks_summary: { type: 'string', description: 'publish：检查结果摘要，例如「65/65 集通过」。' },
-      reason: { type: 'string', description: 'fail：失败原因。' },
+      reason: { type: 'string', description: 'fail：失败原因；reject：不符合选材方向的具体理由。' },
       stage: { type: 'string', description: 'fail：失败所在阶段。' },
       retryable: { type: 'boolean', description: 'fail：能否重新排队重试，默认 true。' },
       needs_attention: { type: 'boolean', description: 'fail：直接标为待人工处理。' },

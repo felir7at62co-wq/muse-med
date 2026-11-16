@@ -1872,7 +1872,7 @@ Optional package: only the cloud transcription deployment composes it, with its 
 
 ### `drama_hit_queue`
 
-数据站爆款转写任务队列。claim 领取一部待转写的红果剧（不填 work_id 取队首），返回任务和租约 lease；之后每一步都带上 work_id 和 lease。progress 上报阶段和第几集，也作心跳，至少每 30 分钟一次；videos 用 drama_tos_upload 返回的 manifest.url 登记原片；publish 上传通过程序检查的剧本并发布；fail 报告失败，检查重写后仍不过时设 needs_attention。status 查询任务。
+数据站爆款转写任务队列。claim 领取一部待转写的红果剧（不填 work_id 取队首），返回任务、租约 lease、作品信息 work 和选材复核 review；之后每一步都带上 work_id 和 lease。review.required 为 true 时，下载转写前先按 review.standard 判断整部剧是否符合选材方向，不符合就用 reject 淘汰并写明具体理由；reject 只用于选材不符。progress 上报阶段和第几集，也作心跳，至少每 30 分钟一次；videos 用 drama_tos_upload 返回的 manifest.url 登记原片；publish 上传通过程序检查的剧本并发布；fail 报告下载、转写或检查失败，检查重写后仍不过时设 needs_attention。status 查询任务。
 
 ```json
 {
@@ -1887,7 +1887,8 @@ Optional package: only the cloud transcription deployment composes it, with its 
         "progress",
         "videos",
         "publish",
-        "fail"
+        "fail",
+        "reject"
       ]
     },
     "work_id": {
@@ -1937,7 +1938,7 @@ Optional package: only the cloud transcription deployment composes it, with its 
     },
     "reason": {
       "type": "string",
-      "description": "fail：失败原因。"
+      "description": "fail：失败原因；reject：不符合选材方向的具体理由。"
     },
     "stage": {
       "type": "string",

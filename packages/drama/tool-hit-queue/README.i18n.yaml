@@ -3,20 +3,20 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-hit-queue/README.md
 /:
-  en: 0102c33f53bd1606
-  zh: 06c60aa041fcdf44
+  en: 7de2bdee4702449d
+  zh: 8af03ea24e084981
 /deepseek-ai-dsh-tool-hit-queue:
   en: 68afcf08a7b3f538
   zh: ba46224810a2c05e
 /deepseek-ai-dsh-tool-hit-queue/summary:
-  en: 8817794762facfde
-  zh: c612b4309ef10a99
+  en: 59b849c745ba2f51
+  zh: b13b09f337ba2672
 /deepseek-ai-dsh-tool-hit-queue/table-of-contents:
   en: 6946dbbc2f06d8d9
   zh: b521a35c97f6b3d2
 /deepseek-ai-dsh-tool-hit-queue/use-this-package:
-  en: d741ac0f97c65ceb
-  zh: 6db8fdc3e24eaa4d
+  en: 8cce686d23f3d854
+  zh: 7612b77cf7ad4a25
 /deepseek-ai-dsh-tool-hit-queue/request-safety:
   en: d7f6c18ecadb8d07
   zh: a397fd02e4b6b1bc
@@ -33,20 +33,20 @@
   en: d86bc6c863cb4c7c
   zh: 64f4eb9d7c996c69
 /deepseek-ai-dsh-tool-hit-queue/model-experience/hit-queue-tool/what-the-model-sees:
-  en: e6897eb013331e9f
-  zh: e81c92e74129f8ba
+  en: 959948fd018e5a40
+  zh: a073a6db9e5edb59
 /deepseek-ai-dsh-tool-hit-queue/model-experience/hit-queue-tool/what-the-model-sees/tool-description:
   en: 163f477a7dd52e3f
   zh: 489ef7ec88dee135
 /deepseek-ai-dsh-tool-hit-queue/model-experience/hit-queue-tool/token-effect:
-  en: 6f10b04d7ae51e81
-  zh: 83b2ab669c16edd6
+  en: 9743d071443dc3b7
+  zh: d7b1763c687b6ba7
 /deepseek-ai-dsh-tool-hit-queue/model-experience/hit-queue-tool/kv-cache-effect:
   en: 9d5281c82c3789c1
   zh: d61deb857b313e79
 /deepseek-ai-dsh-tool-hit-queue/known-limitations-and-deferred-work:
-  en: d1b15e814655e38b
-  zh: e878cc30207f2390
+  en: 6e85db31e3410bd7
+  zh: 5e624e5171785fae
 /deepseek-ai-dsh-tool-hit-queue/known-limitations-and-deferred-work/dev-note:
   en: b328a42f8534336f
   zh: 1b2658e7c001bc1f
