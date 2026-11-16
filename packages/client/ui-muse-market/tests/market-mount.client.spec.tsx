@@ -19,6 +19,8 @@ const { contribution } = vi.hoisted(() => ({
   contribution: { package: '@deepseek-ai/dsh-muse-market', descriptors: [] } satisfies TypertRemoteContribution,
 }))
 vi.mock('@deepseek-ai/dsh-muse-market/remote', () => ({ default: contribution }))
+import type { BoundActions } from '@deepseek-ai/dsh-client-store'
+import type { createMarketViewStore } from '../src/client/market-view-store.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -46,7 +48,7 @@ class TracedRemote extends Service {
     expect(value).toBe(contribution)
     const owner = this.ctx.plugin((scope) => {
       scope.provide('remote.museMarket', {
-        sources: unused, prepare: unused, importPackage: unused, exportPackage: unused, removePackage: unused,
+        sources: unused, prepare: unused, prepareUpload: unused, importPackage: unused, exportPackage: unused, removePackage: unused,
         installed: async () => { this.calls.push('installed'); return { ok: true, value: [] } },
       } satisfies ClientRemote['museMarket'])
       scope.provide('remote.museMarketActivation', {
@@ -54,7 +56,8 @@ class TracedRemote extends Service {
         defaults: async () => { this.calls.push('defaults'); return { ok: true, value: { revision: 0, defaults: [] } } },
       } satisfies ClientRemote['museMarketActivation'])
       scope.provide('remote.museMarketCloud', {
-        catalog: unused, getPublication: unused, publishDraft: unused, installPublication: unused, review: unused,
+        catalog: unused, legacyCatalog: unused, getPublication: unused, publishDraft: unused,
+        installPublication: unused, installLegacy: unused, review: unused,
         identity: async () => { this.calls.push('identity'); throw new Error('Cloud is offline') },
       } satisfies ClientRemote['museMarketCloud'])
     })
@@ -94,7 +97,9 @@ it('uses declared traced namespaces in a plugin scope and keeps local operations
     const plugin = ctx.plugin(client)
     await plugin
     const panel = ctx.slots.entries('main')[0]
-    const injected = panel?.inject?.() as MarketInjected | undefined
+    if (!panel?.store || typeof panel.store === 'function') throw new Error('Market panel has no store')
+    const inject = panel.inject as ((actions: BoundActions<ReturnType<typeof createMarketViewStore>>) => MarketInjected) | undefined
+    const injected = inject?.(panel.store.create().actions)
     if (injected === undefined) throw new Error('Market panel has no operations')
     expect(await injected.operations.installed()).toEqual([])
     expect(await injected.operations.defaults()).toEqual({ revision: 0, defaults: [] })

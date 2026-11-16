@@ -31,7 +31,7 @@ export interface VideoPlayerProps extends PropsLocale<'sessionVideo'> {
   readonly onSelectShot: (id: string) => void
 }
 
-/** Render one real media element and keep its lifecycle local.
+/** Render one real media element; effects and controls use its mounted ref.
  * @param props - Selected authorized source, detected cuts and controlled timeline.
  * @returns Player, compact play control and filmstrip.
  */

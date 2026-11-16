@@ -28,7 +28,11 @@ import { CONTROLLED_PROMPT, TerminalSanitizer } from './sanitize.ts'
 const requireHeadless = createLazyRequire<typeof import('@xterm/headless')>('@xterm/headless', import.meta.url)
 
 function utf8Tail(text: string, maxBytes: number): { text: string; truncated: boolean } {
-  if (Buffer.byteLength(text) <= maxBytes) return { text, truncated: false }
+  const byteLength = Buffer.byteLength(text)
+  if (byteLength <= maxBytes) return { text, truncated: false }
+  if (byteLength === text.length) {
+    return { text: Buffer.from(text.slice(text.length - maxBytes)).toString(), truncated: true }
+  }
   let bytes = 0
   let start = text.length
   while (start > 0) {

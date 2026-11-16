@@ -33,10 +33,11 @@ export async function command(ctx: Context, argv: readonly string[], policy: San
     stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: bounds.maxOutputBytes } } })
   const settled = child.done.then(outcome => ({ outcome }), (error: unknown) => ({ error }))
   try {
-    if (child.stdout === undefined) throw Error('Video process has no stdout stream')
+    const stdout = child.stdout
+    if (stdout === undefined) throw Error('Video process has no stdout stream')
     const chunks: Uint8Array[] = []
     let size = 0
-    for await (const chunk of child.stdout) {
+    for await (const chunk of stdout) {
       if (!(chunk instanceof Uint8Array)) throw Error('Video process returned non-binary output')
       size += chunk.byteLength
       if (size > bounds.maxOutputBytes) throw Error('Video detection output exceeds its limit')
@@ -45,7 +46,10 @@ export async function command(ctx: Context, argv: readonly string[], policy: San
     const result = await settled
     operation.throwIfAborted()
     if ('error' in result) throw result.error
-    if (result.outcome.exitCode !== 0) throw Error(`Video process failed (${String(result.outcome.exitCode)}): ${child.collected.stderr?.readFrom(0).text.slice(-1000) ?? ''}`)
+    if (result.outcome.exitCode !== 0) {
+      const diagnostic = child.collected.stderr?.readFrom(0).text.slice(-1000) ?? ''
+      throw Error(`Video process failed (${String(result.outcome.exitCode)}): ${diagnostic}`)
+    }
     return Buffer.concat(chunks, size)
   } finally {
     child.terminate()

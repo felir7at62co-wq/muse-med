@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write benchmarks/conversation-fold/README.md
+/:
+  en: c32831c9e3f753d9
+  zh: b52b5ba42741dfc4
+/conversation-fold-benchmarks:
+  en: b87ebdd74e31e287
+  zh: 3134c968a250b655
+/conversation-fold-benchmarks/summary:
+  en: 918c7dc0949f141f
+  zh: dc022b5d315d94cc
+/conversation-fold-benchmarks/table-of-contents:
+  en: 636d5d4f0aee8ae5
+  zh: ddb5c46bd9e36fc6
+/conversation-fold-benchmarks/run:
+  en: 587df9021882aa55
+  zh: c0629260fe01e941
+/conversation-fold-benchmarks/measurements:
+  en: ed60aa11c11ca295
+  zh: 377513634b6ae205
+/conversation-fold-benchmarks/hosted-streaming-calibration:
+  en: 054fa76654b52ce0
+  zh: 1549685f1af6cce5
+/conversation-fold-benchmarks/regression-controls:
+  en: 4dcc3e936d93345f
+  zh: 7e67831144a21657
+/conversation-fold-benchmarks/dev-note:
+  en: 897700ae43531d68
+  zh: b86e904d861e150e

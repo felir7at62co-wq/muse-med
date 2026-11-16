@@ -4,10 +4,11 @@
  * A removed source line is reduced to text fragments: the whole trimmed line, plus the contents of every string
  * literal in code and JSON. A fragment that no source file still contains, but that a committed
  * `system-prompt*.expected.md` or `tool-schemas*.expected.json` sidecar, or a `tool/result` event of a compared
- * Session JSONL does, marks that file as stale: its snapshot replay fails until the owning scenario is refreshed.
+ * Session JSONL does, reports a possible stale output. Static concatenation and fixture-owned text can produce
+ * false positives; only the owning replay determines whether the expected output needs to change.
  * Compared JSONL is a scenario's `writer*.expected.jsonl` oracles when it has them, otherwise the highest generation
  * of each Session role; retained older generations and recorded model text are never searched. The check needs no
- * build and runs in seconds, so CI reports the drift before the snapshot job and the pre-push hook before CI.
+ * build and runs in seconds. Hooks use warning-only mode so this heuristic cannot prevent a valid push.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -15,15 +16,19 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
-/** Paths whose changes are not model-visible source edits: the snapshot tree itself, tests, and documentation. */
+/**
+ * Paths that never supply model-visible text: recorded Sessions and expected output under `snapshots/`, spec
+ * assertions, and documentation. Workspace seeds under `snapshots/` and test fixtures stay sources, because
+ * scenarios copy them into the workspace a tool reads.
+ */
 export const NON_SOURCE_PATHSPECS: readonly string[] = [
-  ':(exclude)snapshots/',
+  ':(exclude,glob)snapshots/**/*.jsonl',
+  ':(exclude,glob)snapshots/**/*.expected.*',
+  ':(exclude,glob)snapshots/**/workspace.expected/**',
   ':(exclude)docs/',
   ':(exclude)website/',
   ':(exclude).agents/',
   ':(exclude)vendor/',
-  ':(exclude,glob)**/tests/**',
-  ':(exclude,glob)**/test/**',
   ':(exclude,glob)**/*.spec.*',
   ':(exclude,glob)**/*.test.*',
   ':(exclude,glob)**/README*.md',
@@ -209,7 +214,7 @@ function diffPath(value: string, prefix: string): string | undefined {
  */
 export function driftReport(findings: readonly DriftFinding[]): string[] {
   const scenarios = new Map<string, Set<string>>()
-  const lines = ['Recorded-session expected output still contains model-visible text this change removed:']
+  const lines = ['Possible stale recorded-session output contains text removed from source:']
   for (const { expected, source, fragment } of findings) {
     const [, suite = '', scenario = ''] = expected.split('/')
     const names = scenarios.get(suite) ?? new Set<string>()
@@ -218,12 +223,13 @@ export function driftReport(findings: readonly DriftFinding[]): string[] {
     const excerpt = fragment.length > 100 ? `${fragment.slice(0, 97)}...` : fragment
     lines.push(`  ${expected}: ${JSON.stringify(excerpt)} (removed from ${source})`)
   }
-  lines.push('Refresh the owning scenarios and review every resulting diff (snapshots/AGENTS.md):')
+  lines.push('Run the owning replay before refreshing; review every resulting diff (snapshots/AGENTS.md):')
   for (const [suite, names] of scenarios) {
     const filter = [...names].sort().join('|')
-    lines.push(suite === 'web'
-      ? `  pnpm run test:web:refresh ${[...names].sort().map(name => `apps/web/tests/${name}.e2e.ts`).join(' ')}`
-      : `  pnpm run test:snapshot:refresh snapshots/${suite}/${suite === 'session' ? 'headless' : suite}.snapshot.ts -t '${filter}'`)
+    if (suite === 'web') {
+      for (const name of [...names].sort()) lines.push(`  rg --fixed-strings 'snapshots/web/${name}' apps/web/tests`)
+      lines.push('  Run the matching test file with pnpm run test:web:built; its filename may differ from the scenario.')
+    } else lines.push(`  pnpm run test:snapshot snapshots/${suite}/${suite === 'session' ? 'headless' : suite}.snapshot.ts -t '${filter}'`)
   }
   return lines
 }
@@ -266,8 +272,7 @@ function readExpectedOutputs(root: string, head: string | undefined): Map<string
 
 function stillSourcedIn(root: string, head: string | undefined): (fragment: string) => boolean {
   return (fragment) => {
-    // Any file outside the snapshot tree may still supply the text, including test fixtures that scenarios load.
-    const args = ['grep', '-q', '-F', '-e', fragment, ...head === undefined ? ['--untracked'] : [head], '--', '.', ':(exclude)snapshots/']
+    const args = ['grep', '-q', '-F', '-e', fragment, ...head === undefined ? ['--untracked'] : [head], '--', '.', ...NON_SOURCE_PATHSPECS]
     const result = spawnSync('git', args, { cwd: root, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })
     if (result.status === 0) return true
     if (result.status === 1) return false
@@ -290,7 +295,11 @@ export function checkSnapshotDrift(root: string, base: string, head: string | un
   return findStaleOutputs(removed, readExpectedOutputs(root, head), stillSourcedIn(root, head))
 }
 
-/** Resolve the refs to compare for each ref git is about to push, from the pre-push hook's standard input. */
+/**
+ * Resolve the range to check for each ref git is about to push, from the pre-push hook's standard input. An
+ * updated ref starts at its remote commit; a new ref starts at the parent of its oldest commit that no
+ * remote-tracking ref contains, so only commits published for the first time are checked.
+ */
 function prePushRanges(root: string, stdin: string): Array<{ base: string; head: string }> {
   const zero = /^0+$/u
   const ranges: Array<{ base: string; head: string }> = []
@@ -298,10 +307,15 @@ function prePushRanges(root: string, stdin: string): Array<{ base: string; head:
     const [, localSha = '', , remoteSha = ''] = line.split(' ')
     if (zero.test(localSha)) continue
     const known = !zero.test(remoteSha) && spawnSync('git', ['cat-file', '-e', `${remoteSha}^{commit}`], { cwd: root }).status === 0
-    const base = known ? remoteSha : spawnSync('git', ['merge-base', localSha, 'refs/remotes/origin/HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim()
-    if (base === '') {
-      console.warn(`verify-snapshot-drift: no known base for ${localSha.slice(0, 12)}; skipped (CI still checks the pull request)`)
-      continue
+    let base = remoteSha
+    if (!known) {
+      const fresh = git(root, ['rev-list', '--topo-order', '--reverse', localSha, '--not', '--remotes']).split('\n')[0] ?? ''
+      if (fresh === '') continue
+      base = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${fresh}^`], { cwd: root, encoding: 'utf8' }).stdout.trim()
+      if (base === '') {
+        console.warn(`verify-snapshot-drift: ${localSha.slice(0, 12)} shares no commit with a remote; skipped (CI still checks the pull request)`)
+        continue
+      }
     }
     ranges.push({ base, head: localSha })
   }
@@ -309,7 +323,8 @@ function prePushRanges(root: string, stdin: string): Array<{ base: string; head:
 }
 
 function main(): void {
-  const { values } = parseArgs({ options: { base: { type: 'string' }, head: { type: 'string' }, 'pre-push': { type: 'boolean', default: false } } })
+  const { values } = parseArgs({ options: { base: { type: 'string' }, head: { type: 'string' },
+    'pre-push': { type: 'boolean', default: false }, 'warn-only': { type: 'boolean', default: false } } })
   const root = git(process.cwd(), ['rev-parse', '--show-toplevel']).trim()
   // CI supplies the trusted pull request base; a local run compares the working tree with HEAD.
   const ranges = values['pre-push']
@@ -320,8 +335,16 @@ function main(): void {
     console.log(`verify-snapshot-drift: no compared snapshot output contains removed source text (${ranges.length} range(s)).`)
     return
   }
-  console.error(driftReport(findings).join('\n'))
-  process.exitCode = 1
+  const report = driftReport(findings)
+  console.error(report.join('\n'))
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    // Workflow annotations carry diagnostics; --warn-only controls the exit status.
+    for (const command of report.slice(report.findIndex(line => line.startsWith('Run the owning')) + 1)) {
+      console.log(`::warning title=Stale recorded-session snapshots::${command.trim()}`)
+    }
+  }
+  console.error('This text search can report static string concatenation or retained fixture text; a passing owning replay needs no refresh.')
+  process.exitCode = values['warn-only'] ? 0 : 1
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === import.meta.filename) main()

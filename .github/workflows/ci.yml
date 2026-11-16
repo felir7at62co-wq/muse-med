@@ -531,6 +531,18 @@ jobs:
       - name: Run compatibility, snapshot, and artifact gates
         run: pnpm run check:ci:consumers
 
+      - name: Verify browser poll cancellation during update
+        run: node --import tsx/esm --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test third_party/plugins/ds-bot/test/browser-channel.test.js third_party/plugins/ds-bot/test/update-drain.test.js
+
+      - name: Upload read-only Session replay diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: session-replay-diagnostics
+          path: .artifacts/snapshot-replay
+          if-no-files-found: warn
+          retention-days: 3
+
 
   node-compat:
     if: github.event_name == 'pull_request'
@@ -559,8 +571,8 @@ jobs:
         include:
           # Pin the supported floor, whose internal loader is v1. Primary
           # jobs track latest 24 and exercise v2, introduced in 24.12.0.
-          - node: '24.9'
-            name: node 24.9
+          - node: '24.15'
+            name: node 24.15
             runner: ubuntu-latest
             gate_concurrency: '1'
           - node: 26

@@ -65,18 +65,21 @@ const publishedRepositoryUrl = 'git+https://github.com/deepseek-ai/deepseek-harn
 const experimentalPackageDirectory = /^packages\/experimental\/[^/]+$/
 /** Private reference tool run from the repository; it publishes no files. */
 const pluginMarketGeneratorDirectory = 'apps/plugin-market-generator'
+/** Private static website deployed to the Muse gateway rather than npm. */
+const marketWebApplicationDirectory = 'apps/market-web'
 /**
  * Ordinary directories whose packages this repository publishes: one release member each. The reference plugin
- * market generator is a private repository tool, not a published application.
+ * market generator and deployed Skill website are private applications.
  */
 const standardReleaseMemberDirectory = new RegExp(
-  `^(?:packages/(?!experimental/)[^/]+/[^/]+|apps/(?!desktop(?:-host)?$|${pluginMarketGeneratorDirectory.slice('apps/'.length)}$)[^/]+|vendor/[^/]+)$`,
+  `^(?:packages/(?!experimental/)[^/]+/[^/]+|apps/(?!desktop(?:-host)?$|${pluginMarketGeneratorDirectory.slice('apps/'.length)}$|${marketWebApplicationDirectory.slice('apps/'.length)}$)[^/]+|vendor/[^/]+)$`,
   'u',
 )
 /** Installable application assembled by electron-builder rather than published to npm. */
 const desktopApplicationDirectory = 'apps/desktop'
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/dsh-market-web': [],
   // Only `prepack` stages `docs`; every other reader of this directory sees
   // whatever the checkout holds.
   '@deepseek-ai/dsh': ['lib/*.js', 'lib/*.js.map', 'lib/types/*.d.ts', 'lib/types/*.d.ts.map', 'docs', 'src'],
@@ -197,7 +200,7 @@ export function readWorkspaceManifests(repositoryRoot: string): WorkspaceManifes
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/dsh-muse-market': ['lib/package.js', 'lib/format.js', 'lib/activation.js', 'lib/cloud.js', 'lib/cloud-host.js', 'lib/shared-*.js', 'lib/cloud-values.js', 'lib/cloud-values.browser.js'],
+  '@deepseek-ai/dsh-muse-market': ['lib/package.js', 'lib/browser.js', 'lib/format.js', 'lib/activation.js', 'lib/cloud.js', 'lib/cloud-host.js', 'lib/shared-*.js', 'lib/cloud-values.js', 'lib/legacy.js', 'lib/cloud-values.browser.js'],
   '@deepseek-ai/dsh-skill': ['lib/name.js'],
   // Tools entry points share error classes and invocation stages through runtime chunks.
   '@deepseek-ai/dsh-tools': ['lib/pipeline.js', 'lib/shared-*.js'],
@@ -576,6 +579,9 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
   } else if (dir === 'packages/host/muse-market' && manifest.name === '@deepseek-ai/dsh-muse-market') {
     if (manifest.private !== true) errors.push(`${label}: Skill publication package must set "private": true`)
     if (manifest.publishConfig !== undefined) errors.push(`${label}: Skill publication package must omit publishConfig`)
+  } else if (dir === marketWebApplicationDirectory && manifest.name === '@deepseek-ai/dsh-market-web') {
+    if (manifest.private !== true) errors.push(`${label}: Skill website must set "private": true`)
+    if (manifest.publishConfig !== undefined) errors.push(`${label}: Skill website must omit publishConfig`)
   } else if (isPrivateMusicAnalysisPackage(dir, manifest.name)) {
     if (manifest.private !== true) errors.push(`${label}: noncommercial music analysis package must set "private": true`)
     if (manifest.publishConfig !== undefined) errors.push(`${label}: noncommercial music analysis package must omit publishConfig`)
@@ -694,11 +700,14 @@ function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
     const nestedResource = resource !== undefined
       && /^(?:agents|assets|references|scripts)\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:md|yaml|py|json|mp3|mp4|txt)$/u.test(resource)
     const windowsDraftBridge = file === 'skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1'
+    const characterDeliveryReference = file === 'skills/tweet-drama-asset-vision-check/references/images/character-delivery-layout.png'
     const styleReference = match?.[1] === 'anime-3d-assets' && resource !== undefined
       && ['references/images/female-quality-reference.png', 'references/images/male-quality-layout.png',
         'references/images/rejected-cartoon.png', 'references/images/rejected-flat-cg.png',
         'references/images/target-quality.png'].includes(resource)
-    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference || windowsDraftBridge)) {
+    if (match?.[1] === undefined
+      || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference
+        || characterDeliveryReference || windowsDraftBridge)) {
       errors.push(`${label}: resource package file must be a declared skill resource: ${file}`)
       continue
     }

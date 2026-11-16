@@ -204,7 +204,7 @@ export async function apply(ctx) {
     assert.equal((await stat(path)).size, bytes.length)
     const deliveries = events.filter(event => event.type === 'deliverables/presented')
     assert.equal(deliveries.length, 1, JSON.stringify(visible.get('call_media_present')))
-    assert.ok(JSON.stringify(deliveries[0]).includes(path))
+    assert.ok(deliveries[0].data.files.some(file => file.path === path), 'The delivered file keeps its exact local path')
     assert.ok(!JSON.stringify(events).includes(cookie))
     assert.ok(!JSON.stringify(events).includes('snapshot-upstream-key'))
     await writeFile(join(process.cwd(), 'media-proof.json'), JSON.stringify({

@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-character-board-review
+profile: headless
+composition: muse-character-board-review
+recording: authored
+header:
+  class: muse-character-board-review
+  pin: true
+writerOutput: true

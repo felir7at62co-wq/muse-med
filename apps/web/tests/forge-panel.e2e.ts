@@ -1827,6 +1827,8 @@ it.skipIf(MODE === 'record')('archives a clean UI worktree and restores its reta
   await page.getByRole('menuitem', { name: '全部对话（显示已归档）', exact: true }).click()
   await row.hover()
   await row.getByRole('button', { name: '取消归档', exact: true }).click()
+  // Opening an archived row is refused until the unarchive response updates the browser's registry snapshot.
+  await row.getByRole('button', { name: '归档会话', exact: true }).waitFor()
   await row.click()
   const missing = page.locator('[data-forge-missing]')
   await missing.getByRole('button', { name: '恢复工作树', exact: true }).waitFor({ timeout: 20_000 })

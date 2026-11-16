@@ -28,7 +28,7 @@ export const ROLE_OVERHEAD = 4
  */
 export function estimateStructuralBlock(block: ContentBlock): number {
   if (block.type === 'image') {
-    const { offloaded: _offloaded, ...reference } = block
+    const { offloaded: _offloaded, offloadNotice: _offloadNotice, ...reference } = block
     return BLOCK_OVERHEAD + Math.ceil(JSON.stringify(reference).length / CHARS_PER_TOKEN)
   }
   return BLOCK_OVERHEAD + Math.ceil(JSON.stringify(block).length / CHARS_PER_TOKEN)

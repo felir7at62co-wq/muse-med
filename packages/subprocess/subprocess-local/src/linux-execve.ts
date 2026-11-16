@@ -48,6 +48,7 @@ function systemError(errno: number, syscall: string, path?: string): Error {
 
 /**
  * Load libc's execve and fcntl symbols on first use and retain the native bindings.
+ * Child-created standard-stream pipes use blocking I/O; inherited streams, PTYs and control fd 7 retain their status flags.
  * @returns a process-replacing execve operation that throws Node-style errors on failure.
  */
 export function loadLinuxExecve(): LinuxExecve {

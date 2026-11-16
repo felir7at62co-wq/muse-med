@@ -434,19 +434,26 @@ describe('forgePanel.follow', () => {
   it('skips a queued inspection once the last follower has left', async () => {
     const { repo } = await project()
     const opened = await open(repo)
-    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
-    opened.sandbox.gate = () => gate.promise
+    const inspection = hold(opened.sandbox, '--show-toplevel')
+    cleanups.push(async () => { inspection.release() })
     const follower = reader(opened)
-    await follower.until(state => state.checkout.state === 'pending')
-    await vi.waitFor(() => { expect(opened.sandbox.calls).toHaveLength(1) })
-    shellTurn(opened.session, 1, [{ callId: 'list', command: 'ls', output: '' }])
+    let draining: Promise<void> | undefined
+    try {
+      await follower.until(state => state.checkout.state === 'pending')
+      await inspection.reached
+      expect(opened.sandbox.calls).toHaveLength(1)
+      shellTurn(opened.session, 1, [{ callId: 'list', command: 'ls', output: '' }])
+      draining = opened.ctx.forgePanel.refresh(opened.session, signal)
 
-    await follower.stop()
-    opened.sandbox.gate = undefined
-    gate.resolve()
-    await new Promise(resolve => setTimeout(resolve, 50))
+      await follower.stop()
+      inspection.release()
+      await draining
 
-    expect(opened.sandbox.calls).toHaveLength(1)
+      expect(opened.sandbox.calls).toHaveLength(1)
+    } finally {
+      inspection.release()
+      await draining
+    }
   })
 })
 

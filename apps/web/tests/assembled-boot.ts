@@ -249,6 +249,9 @@ export function installAssembledBootEnv(): void {
       dispatchEvent: () => true,
     }))
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    vi.stubGlobal('matchMedia', (media: string): MediaQueryList => Object.assign(new EventTarget(), {
+      media, matches: false, onchange: null, addListener() {}, removeListener() {},
+    }))
     vi.stubGlobal('EventSource', EventSourceStub)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
       setTimeout(() => { callback(0) }, 0) as unknown as number)

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'guardian-race-')))
 const base = fileURLToPath(new URL('../../../..', import.meta.url))
 const originalRead = fs.readFile

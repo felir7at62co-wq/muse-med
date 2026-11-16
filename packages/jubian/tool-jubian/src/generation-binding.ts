@@ -115,7 +115,9 @@ export async function acquireGenerationSessionBinding(
     working?.release()
     model?.release()
     workspace.release()
-    if (detachOwner !== undefined) void Promise.resolve(detachOwner()).catch((error: unknown) => { ctx.logger.warn(`generation binding cleanup failed: ${String(error)}`) })
+    void Promise.resolve().then(() => detachOwner?.()).catch((error: unknown) => {
+      ctx.logger.warn(`generation binding cleanup failed: ${String(error)}`)
+    })
   }
   try {
     model = agent.model.guard({ provider: binding.model.provider, model: binding.model.model,

@@ -1,7 +1,7 @@
 // Real browser image loading and failure fallbacks through the shipped Web composition.
 import { mkdir, open, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
-import { join } from 'node:path'
+import { join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -198,7 +198,10 @@ describe('web e2e: Markdown image rendering', () => {
       const url = new URL(response.url())
       if (url.pathname !== '/api/file') return
       const path = url.searchParams.get('path')
-      if (path !== null) mediaResponses.set(path, response.status())
+      if (path !== null) {
+        const normalizedPath = normalize(path)
+        mediaResponses.set(normalizedPath, response.status())
+      }
     })
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -264,7 +267,7 @@ describe('web e2e: Markdown image rendering', () => {
     expect(imageOrigin.requests).toEqual([{ path: '/image.png', referer: undefined }])
 
     const workspaceImage = page.getByRole('img', { name: WORKSPACE_ALT })
-    await expect.poll(() => mediaResponses.get(join(scaffold.workspaceCwd, 'valid.png'))).toBe(200)
+    await expect.poll(() => mediaResponses.get(normalize(join(scaffold.workspaceCwd, 'valid.png')))).toBe(200)
     await expect.poll(() => workspaceImage.evaluate(element => (element as HTMLImageElement).naturalWidth, undefined, {
       timeout: 1_000,
     }))
@@ -275,16 +278,20 @@ describe('web e2e: Markdown image rendering', () => {
       await page.getByText(`Image preview unavailable · ${alt}`, { exact: true }).waitFor()
       expect(await page.getByRole('img', { name: alt }).count()).toBe(0)
     }
-    await page.getByText(`Image preview unavailable · ${join(scaffold.workspaceCwd, 'corrupt.png')}`, { exact: true }).waitFor()
+    const corruptPreview = page.getByText(/Image preview unavailable.*corrupt\.png$/u)
+    await corruptPreview.waitFor()
+    const corruptText = await corruptPreview.textContent()
+    expect(normalize(corruptText?.slice('Image preview unavailable · '.length) ?? ''))
+      .toBe(normalize(join(scaffold.workspaceCwd, 'corrupt.png')))
     expect(mediaResponses).toEqual(new Map([
-      [join(scaffold.workspaceCwd, 'valid.png'), 200],
-      [join(scaffold.workspaceCwd, 'local-image.png'), 200],
-      [join(scaffold.workspaceCwd, 'test workspace/测试图.png'), 200],
-      [join(scaffold.workspaceCwd, 'test workspace/测试#100%.png'), 200],
-      [join(scaffold.workspaceCwd, 'oversized.png'), 413],
-      [join(scaffold.persistenceRoot, 'outside.png'), 200],
-      [join(scaffold.workspaceCwd, 'missing.png'), 404],
-      [join(scaffold.workspaceCwd, 'corrupt.png'), 200],
+      [normalize(join(scaffold.workspaceCwd, 'valid.png')), 200],
+      [normalize(join(scaffold.workspaceCwd, 'local-image.png')), 200],
+      [normalize(join(scaffold.workspaceCwd, 'test workspace/测试图.png')), 200],
+      [normalize(join(scaffold.workspaceCwd, 'test workspace/测试#100%.png')), 200],
+      [normalize(join(scaffold.workspaceCwd, 'oversized.png')), 413],
+      [normalize(join(scaffold.persistenceRoot, 'outside.png')), 200],
+      [normalize(join(scaffold.workspaceCwd, 'missing.png')), 404],
+      [normalize(join(scaffold.workspaceCwd, 'corrupt.png')), 200],
     ]))
 
     await page.getByRole('button', { name: `View full image: ${WORKSPACE_ALT}`, exact: true }).click()
@@ -323,7 +330,20 @@ describe('web e2e: Markdown image rendering', () => {
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, ['ui.expected.md'])
     const input = page.locator('[data-composer-input]').first()
-    await workspaceImage.dragTo(input)
+    const imagePath = normalize(join(scaffold.workspaceCwd, 'valid.png'))
+    const fileRead = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === '/api/file' && normalize(url.searchParams.get('path') ?? '') === imagePath
+    })
+    await workspaceImage.scrollIntoViewIfNeeded()
+    const source = await workspaceImage.boundingBox()
+    const target = await input.boundingBox()
+    if (source === null || target === null) throw new Error('image or composer is not visible')
+    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
+    await page.mouse.down()
+    await fileRead
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 })
+    await page.mouse.up()
     const dragged = page.getByRole('group', { name: 'Pending attachments', exact: true }).getByRole('img')
     await dragged.waitFor({ state: 'visible' })
     expect(Buffer.from(await dragged.evaluate(async (node: HTMLImageElement) =>

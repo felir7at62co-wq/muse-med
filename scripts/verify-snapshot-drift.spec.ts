@@ -149,10 +149,11 @@ describe('driftReport', () => {
       { expected: 'snapshots/web/d/system-prompt.expected.md', source: 'src/tool.ts', fragment: sentence },
     ])
     expect(report[1]).toBe(`  snapshots/session/b/system-prompt.expected.md: "${'x'.repeat(97)}..." (removed from skills/x.md)`)
-    expect(report.slice(-3)).toEqual([
-      "  pnpm run test:snapshot:refresh snapshots/session/headless.snapshot.ts -t 'a|b'",
-      "  pnpm run test:snapshot:refresh snapshots/sdk/sdk.snapshot.ts -t 'c'",
-      '  pnpm run test:web:refresh apps/web/tests/d.e2e.ts',
+    expect(report.slice(-4)).toEqual([
+      "  pnpm run test:snapshot snapshots/session/headless.snapshot.ts -t 'a|b'",
+      "  pnpm run test:snapshot snapshots/sdk/sdk.snapshot.ts -t 'c'",
+      "  rg --fixed-strings 'snapshots/web/d' apps/web/tests",
+      '  Run the matching test file with pnpm run test:web:built; its filename may differ from the scenario.',
     ])
   })
 })
@@ -183,7 +184,7 @@ describe('verify-snapshot-drift command', () => {
       writeFileSync(join(root, path), text)
     }
     const run = (...args: string[]): SpawnSyncReturns<string> => spawnSync(process.execPath, [script, ...args], {
-      cwd: root, encoding: 'utf8', timeout: 60_000, env: { ...process.env, DSH_SNAPSHOT_DRIFT_BASE_REF: '' },
+      cwd: root, encoding: 'utf8', timeout: 60_000, env: { ...process.env, DSH_SNAPSHOT_DRIFT_BASE_REF: '', GITHUB_ACTIONS: '' },
     })
     git('init', '-q', '-b', 'main')
     return { root, git, write, run }
@@ -204,7 +205,13 @@ describe('verify-snapshot-drift command', () => {
     expect(stale.signal).toBeNull()
     expect(stale.status).toBe(1)
     expect(stale.stderr).toContain(`snapshots/session/screenplay/system-prompt.expected.md: ${JSON.stringify(sentence)} (removed from skills/format/SKILL.md)`)
-    expect(stale.stderr).toContain("pnpm run test:snapshot:refresh snapshots/session/headless.snapshot.ts -t 'screenplay'")
+    expect(stale.stderr).toContain("pnpm run test:snapshot snapshots/session/headless.snapshot.ts -t 'screenplay'")
+    expect(stale.stdout).not.toContain('::warning')
+    const annotated = spawnSync(process.execPath, [script, '--base', base, '--head', 'HEAD'], {
+      cwd: git('rev-parse', '--show-toplevel'), encoding: 'utf8', timeout: 60_000, env: { ...process.env, GITHUB_ACTIONS: 'true' },
+    })
+    expect(annotated.status).toBe(1)
+    expect(annotated.stdout).toBe("::warning title=Stale recorded-session snapshots::pnpm run test:snapshot snapshots/session/headless.snapshot.ts -t 'screenplay'\n")
 
     write('snapshots/session/screenplay/system-prompt.expected.md', '# Format\n\n- Put the speaker first and keep one dialogue line per row.\n')
     const refreshed = run()
@@ -212,6 +219,18 @@ describe('verify-snapshot-drift command', () => {
     expect(refreshed.status).toBe(0)
     git('commit', '-q', '-am', 'refresh snapshot')
     expect(run('--base', base, '--head', 'HEAD').status).toBe(0)
+  })
+
+  it('keeps an invalid base fatal in warning mode', () => {
+    const { git, write, run } = repository()
+    write('skills/format/SKILL.md', `- ${sentence}\n`)
+    git('add', '.')
+    git('commit', '-q', '-m', 'base')
+    const failed = run('--base', 'missing-ref-for-drift-test', '--warn-only')
+    expect(failed.error).toBeUndefined()
+    expect(failed.signal).toBeNull()
+    expect(failed.status).not.toBe(0)
+    expect(failed.stderr).toContain('missing-ref-for-drift-test')
   })
 
   it('fails when a skill reference the recorded tool read no longer contains its text, but ignores retained generations', () => {
@@ -234,7 +253,7 @@ describe('verify-snapshot-drift command', () => {
     const stale = run('--base', base, '--head', 'HEAD')
     expect(stale.status).toBe(1)
     expect(stale.stderr).toContain(`snapshots/session/video/session.v4.jsonl: ${JSON.stringify(sentence)} (removed from skills/video/references/workflow.md)`)
-    expect(stale.stderr).not.toContain('retained')
+    expect(stale.stderr).not.toContain('snapshots/session/retained/')
     expect(stale.stderr).not.toContain('session.v3.jsonl')
   })
 
@@ -261,12 +280,46 @@ describe('verify-snapshot-drift command', () => {
     git('rm', '-q', 'skills/shared/tests/fixtures/retired/SKILL.md')
     git('commit', '-q', '-m', 'drop moved text')
     const head = git('rev-parse', 'HEAD')
-    const pushed = spawnSync(process.execPath, [script, '--pre-push'], {
-      cwd: git('rev-parse', '--show-toplevel'), encoding: 'utf8', timeout: 60_000,
-      input: `refs/heads/main ${head} refs/heads/main ${base}\nrefs/heads/gone ${'0'.repeat(40)} refs/heads/gone ${base}\n`,
+    const push = (input: string): SpawnSyncReturns<string> => spawnSync(process.execPath, [script, '--pre-push'], {
+      cwd: git('rev-parse', '--show-toplevel'), encoding: 'utf8', timeout: 60_000, input,
     })
-    expect(pushed.signal).toBeNull()
-    expect(pushed.status).toBe(1)
-    expect(pushed.stderr).toContain(`${JSON.stringify(sentence)} (removed from skills/format/SKILL.md)`)
+    const zero = '0'.repeat(40)
+    const updated = push(`refs/heads/main ${head} refs/heads/main ${base}\nrefs/heads/gone ${zero} refs/heads/gone ${base}\n`)
+    expect(updated.signal).toBeNull()
+    expect(updated.status).toBe(1)
+    expect(updated.stderr).toContain(`${JSON.stringify(sentence)} (removed from skills/format/SKILL.md)`)
+    expect(updated.stderr).toContain('a passing owning replay needs no refresh')
+    const warning = spawnSync(process.execPath, [script, '--pre-push', '--warn-only'], {
+      cwd: git('rev-parse', '--show-toplevel'), encoding: 'utf8', timeout: 60_000,
+      input: `refs/heads/main ${head} refs/heads/main ${base}\n`,
+    })
+    expect(warning.error).toBeUndefined()
+    expect(warning.signal).toBeNull()
+    expect(warning.status).toBe(0)
+    expect(warning.stderr).toContain('snapshots/session/screenplay/system-prompt.expected.md')
+
+    // A new branch checks only the commits no remote-tracking ref contains.
+    git('update-ref', 'refs/remotes/origin/main', base)
+    expect(push(`refs/heads/topic ${head} refs/heads/topic ${zero}\n`).status).toBe(1)
+    git('update-ref', 'refs/remotes/origin/main', head)
+    expect(push(`refs/heads/topic ${head} refs/heads/topic ${zero}\n`).status).toBe(0)
+  })
+
+  it('treats snapshot workspace seeds as sources and recorded output as never sourcing itself', () => {
+    const { git, write, run } = repository()
+    const read = (text: string): string => `${JSON.stringify({ type: 'tool/result', result: { content: [{ type: 'text', text }] } })}\n`
+    write('packages/editing/skills/compose/SKILL.md', `- ${sentence}\n`)
+    write('snapshots/session/seeded/workspace/.dsh/skills/compose/SKILL.md', `- ${sentence}\n`)
+    write('snapshots/session/seeded/session.v4.jsonl', read(`- ${sentence}`))
+    git('add', '.')
+    git('commit', '-q', '-m', 'base')
+    const base = git('rev-parse', 'HEAD')
+    write('packages/editing/skills/compose/SKILL.md', '- Rewritten guidance for composing workspaces.\n')
+    git('commit', '-q', '-am', 'rewrite packaged skill')
+    expect(run('--base', base, '--head', 'HEAD').status).toBe(0)
+
+    git('rm', '-q', 'snapshots/session/seeded/workspace/.dsh/skills/compose/SKILL.md')
+    git('commit', '-q', '-m', 'drop the seed')
+    expect(run('--base', base, '--head', 'HEAD').status).toBe(1)
   })
 })

@@ -16,6 +16,20 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it.each([['ci.yml', 'node-24-consumers', 'pnpm run check:ci:consumers'],
+    ['ci-windows.yml', 'windows-build', 'pnpm run check:ci:windows-blocking']])(
+    'checks browser poll cancellation after the Host build in %s', (file, jobName, command) => {
+      const job = workflowJob(loadWorkflow(`.github/workflows/${file}`), jobName)
+      if (!Array.isArray(job.steps)) throw new TypeError('Update cancellation checks require workflow steps')
+      const steps = job.steps.filter(isRecord)
+      const check = steps.findIndex(step => step.name === 'Verify browser poll cancellation during update')
+      const build = steps.findIndex(step => step.run === command)
+      expect(build).toBeGreaterThanOrEqual(0)
+      expect(check).toBeGreaterThan(build)
+      expect(steps[check]).not.toHaveProperty('continue-on-error')
+      expect(steps[check]?.run).toBe('node --import tsx/esm --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test third_party/plugins/ds-bot/test/browser-channel.test.js third_party/plugins/ds-bot/test/update-drain.test.js')
+    })
+
   it.each([
     ['ci.yml', 'node-24-lint', 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core'],
     ['ci-windows.yml', 'windows-build', 'windows-2025', 'dsh-windows-2025-16core'],
@@ -83,8 +97,15 @@ describe('CI workflow', () => {
     }))
     const modelCheck = steps.find(step => step.name === 'Check model relay behavior')
     const packagingCheck = steps.find(step => step.name === 'Check packaging behavior')
+    const macPrewarm = steps.find(step => step.name === 'Prewarm locked Mac media sources')
     expect(modelCheck?.run).toBe('node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs')
     expect(packagingCheck?.run).toMatch(/^pnpm exec vitest run /)
+    expect(macPrewarm).toMatchObject({
+      if: "matrix.target == 'mac-arm64'",
+      env: { GH_TOKEN: '${{ github.token }}' },
+    })
+    expect(macPrewarm?.run).toContain('gh release download v1.2.0 --repo felir7at62co-wq/muse-med')
+    expect(macPrewarm?.run).toContain('--archive "$RUNNER_TEMP/mac-source-archive/muse-macos-media-9.0.2-locked-source-inputs.tar.gz"')
     expect(modelCheck).not.toHaveProperty('continue-on-error')
     expect(packagingCheck).not.toHaveProperty('continue-on-error')
     const installerUi = steps.find(step => step.name === 'Check native Windows install and automatic update UI')
@@ -155,7 +176,7 @@ describe('CI workflow', () => {
     expect(compatibilityLimit).toBeGreaterThan(0)
     expect(compatibility.strategy).toMatchObject({
       'fail-fast': false,
-      matrix: { include: [{ node: '24.9' }, { node: 26 }] },
+      matrix: { include: [{ node: '24.15' }, { node: 26 }] },
     })
     expect(workflowJob(ci, 'all-checks-passed').needs).toContain('node-compat')
     const ordinaryJobs = Object.entries(ci.jobs)
@@ -372,15 +393,23 @@ describe('CI workflow', () => {
     if (!Array.isArray(coverage.steps)) throw new TypeError('Windows coverage must define steps')
     const steps = coverage.steps.filter(isRecord)
     const install = steps.findIndex(step => step.name === 'Install (immutable)')
+    const download = steps.findIndex(step => step.name === 'Download locked media test archive')
     const prepare = steps.findIndex(step => step.name === 'Prepare media test executables')
     const verify = steps.findIndex(step => step.name === 'Verify media test executables')
     const run = steps.findIndex(step => step.run === 'pnpm run check:ci:coverage')
     expect(install).toBeGreaterThanOrEqual(0)
-    expect(prepare).toBeGreaterThan(install)
+    expect(download).toBeGreaterThan(install)
+    expect(prepare).toBeGreaterThan(download)
     expect(verify).toBeGreaterThan(prepare)
     expect(run).toBeGreaterThan(verify)
     expect(steps[prepare]).toEqual({
-      name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts',
+      name: 'Prepare media test executables', shell: 'pwsh',
+      run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts "$env:RUNNER_TEMP/muse-ffmpeg-9.0.2-win-x64.zip"',
+    })
+    expect(steps[download]).toEqual({
+      name: 'Download locked media test archive', shell: 'pwsh',
+      env: { GH_TOKEN: '${{ github.token }}' },
+      run: 'gh release download muse-desktop-v0.1.6-alpha.1 --repo felir7at62co-wq/muse-med --pattern muse-ffmpeg-9.0.2-win-x64.zip --dir $env:RUNNER_TEMP --clobber',
     })
     expect(steps[verify]).toEqual({
       name: 'Verify media test executables', shell: 'pwsh', run: [
@@ -821,6 +850,26 @@ describe('CI workflow', () => {
       run: 'pnpm run check:ci:unit',
       env: { DSH_COVERAGE_TEST_TIMEOUT_MS: coverage.env.DSH_COVERAGE_TEST_TIMEOUT_MS },
     })
+  })
+
+  it.each([
+    ['ci.yml', 'node-24-lint', 'DSH_CI_FAILOVER_LINUX', 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core', 'blacksmith-8vcpu-ubuntu-2404', ['self-hosted', 'linux', 'x64', 'vm-backup']],
+    ['ci-windows.yml', 'windows-build', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'dsh-windows-2025-16core', 'blacksmith-16vcpu-windows-2025', ['self-hosted', 'dsh-win-ci', 'windows']],
+    ['ci-windows.yml', 'windows-coverage', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'dsh-windows-2025-16core', 'blacksmith-16vcpu-windows-2025', ['self-hosted', 'dsh-win-ci', 'windows']],
+    ['ci-windows.yml', 'windows-native-tests', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'dsh-windows-2025-16core', 'blacksmith-2vcpu-windows-2025', ['self-hosted', 'dsh-win-ci', 'windows']],
+  ] as const)('%s / %s uses public runners in forks and preserves configured pools', (file, name, variable, hosted, upstream, blacksmith, pool) => {
+    const job = workflowJob(loadWorkflow(`.github/workflows/${file}`), name)
+    for (const repository of ['deepseek-harness/deepseek-harness', 'felir7at62co-wq/muse-med', 'contributor/fork']) {
+      const evaluate = (mode: string, login = 'maintainer'): unknown => evaluateRunsOn(job['runs-on'], {
+        vars: { [variable]: mode }, fromJSON: JSON.parse,
+        github: { repository, event: { pull_request: { user: { login } } } },
+      })
+      const fallback = repository === 'deepseek-harness/deepseek-harness' ? upstream : hosted
+      for (const mode of ['', 'hosted', 'unexpected']) expect(evaluate(mode), `${repository} ${mode}`).toBe(fallback)
+      expect(evaluate('blacksmith'), `${repository} Blacksmith`).toBe(blacksmith)
+      expect(evaluate('selfhosted'), `${repository} self-hosted`).toEqual(pool)
+      expect(evaluate('selfhosted', 'dependabot[bot]'), `${repository} Dependabot fallback`).toBe(fallback)
+    }
   })
 
   it('gates standalone keyless blacksmith jobs and benchmark tiers on the failover variables', () => {
@@ -1673,7 +1722,7 @@ describe('Weighted approval workflow', () => {
     const token = steps.find(step => step.id === 'decision-token')
     expect(token).toMatchObject({
       'continue-on-error': true,
-      uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
+      uses: 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510',
       with: {
         'client-id': '${{ vars.DSH_APPROVAL_APP_CLIENT_ID }}',
         'private-key': '${{ secrets.DSH_APPROVAL_APP_PRIVATE_KEY }}',
@@ -1792,7 +1841,7 @@ describe('Issue lifecycle workflow', () => {
     expect(tokenStep).toMatchObject({
       id: 'app-token',
       if: "${{ steps.preflight.outputs.needs-project == 'true' }}",
-      uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
+      uses: 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510',
       with: {
         'client-id': '${{ vars.DSH_ISSUE_APP_CLIENT_ID }}',
         'private-key': '${{ secrets.DSH_ISSUE_APP_PRIVATE_KEY }}',
@@ -1925,6 +1974,15 @@ describe('Documentation site publication', () => {
 })
 
 describe('Git hooks', () => {
+  it('reports heuristic snapshot text findings without blocking a checked push', () => {
+    const hook = loadWorkflow('lefthook.yml')['pre-push']
+    if (!isRecord(hook) || !Array.isArray(hook.jobs)) throw new TypeError('pre-push jobs are required')
+    expect(hook.jobs).toContainEqual(expect.objectContaining({
+      name: 'snapshot sidecar drift', use_stdin: true,
+      run: 'node_modules/.bin/tsx scripts/verify-snapshot-drift.ts --pre-push --warn-only',
+    }))
+  })
+
   it('leaves frozen Agent Note sidecars to the archive verifier', () => {
     const lefthook = loadWorkflow('lefthook.yml')
 
@@ -1991,7 +2049,8 @@ describe('Recovery decoder coverage preparation', () => {
 
   it('uses the locked Windows preparation before coverage without extra secrets', () => {
     const step = preparation('.github/workflows/ci-windows.yml', 'windows-coverage', 'Run Windows coverage')
-    expect(step).toEqual({ name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts' })
+    expect(step).toEqual({ name: 'Prepare media test executables', shell: 'pwsh',
+      run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts "$env:RUNNER_TEMP/muse-ffmpeg-9.0.2-win-x64.zip"' })
     expect(JSON.stringify(step)).not.toContain('secrets.')
   })
 

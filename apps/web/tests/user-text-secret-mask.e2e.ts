@@ -63,8 +63,15 @@ describe('web e2e: credential mask in user text', () => {
     const masked = { run: await run.boundingBox(), bubble: await text.boundingBox() }
     await page.getByRole('button', { name: 'Show secret', exact: true }).click()
     await expect.poll(() => text.textContent()).toBe(PROMPT)
-    // The monospace run keeps one mask character per original character, so revealing does not move the line.
-    expect({ run: await run.boundingBox(), bubble: await text.boundingBox() }).toEqual(masked)
+    // Glyph advances can round by one Chromium layout unit; revealing must preserve the line geometry.
+    for (const [name, locator] of [['run', run], ['bubble', text]] as const) {
+      const revealed = await locator.boundingBox(), before = masked[name]
+      expect(revealed).not.toBeNull()
+      expect(before).not.toBeNull()
+      for (const dimension of ['x', 'y', 'width', 'height'] as const) {
+        expect(Math.abs(revealed![dimension] - before![dimension])).toBeLessThanOrEqual(1 / 64)
+      }
+    }
     await page.getByRole('button', { name: 'Hide secret', exact: true }).click()
     await expect.poll(() => text.textContent()).not.toContain(KEY)
     expect(tripwire.pageErrors).toEqual([])

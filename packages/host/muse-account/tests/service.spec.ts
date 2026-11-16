@@ -16,24 +16,21 @@ import type { MuseAccountStatus } from '../src/types.ts'
 const contexts: Context[] = []
 const homes: string[] = []
 
-it('contains an account observer failure after recording the current identity', async () => {
-  const context = new Context()
-  contexts.push(context)
-  const failure = new Error('observer failed')
-  const observer = vi.fn(() => { throw failure })
-  const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
-  context.on('muse-account/session-changed', observer)
+it('keeps account status authoritative when a notification observer throws', async () => {
+  const context = new Context(); contexts.push(context)
   const status = { state: 'signed-out' } as const
   await context.plugin(MuseAccountService, { controller: {
-    status: async () => status,
-    logout: async () => status,
-    login: async () => { throw new Error('unused') },
+    status: async () => status, logout: async () => status, login: async () => { throw Error('Unused login') },
   } })
   const service = context.get('museAccount') as MuseAccountService
+  const error = Error('Notification observer offline')
+  const observer = vi.fn(() => { throw error })
+  const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
+  context.on('muse-account/session-changed', observer)
   await expect(service.status({ verify: false })).resolves.toEqual(status)
+  expect(warn).toHaveBeenCalledWith('Muse account observer failed', error)
   await expect(service.status({ verify: false })).resolves.toEqual(status)
-  expect(observer).toHaveBeenCalledTimes(1)
-  expect(warn).toHaveBeenCalledExactlyOnceWith('Muse account observer failed', failure)
+  expect(observer).toHaveBeenCalledOnce()
 })
 
 it('keeps browser redemption private, refreshes consumers after commit and cancels before manual authentication', async () => {

@@ -2604,6 +2604,8 @@ export interface PiAiCompatProfile {
    * `openai-completions`, the three Responses protocols, `anthropic-messages`.
    */
   supportsLongCacheRetention?: boolean
+  /** Whether later `system` messages stay in history; `openai-completions`. */
+  supportsMidConvoSystemMessages?: boolean
   /** Whether the endpoint accepts per-tool `eager_input_streaming`; `anthropic-messages`. */
   supportsEagerToolInputStreaming?: boolean
   /** Whether the endpoint accepts `cache_control` on tool definitions; `anthropic-messages`. */
@@ -2646,7 +2648,7 @@ export type PiAiThinkingTokenBudgetField = NonNullable<OpenAICompletionsCompat['
 
 - `inject`: `llm`
 - `refs`: [`LlmModelBadge`](../packages/llm/llm/src/index.ts) · [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · [`SystemPromptUpdate`](../packages/llm/llm/src/index.ts) · [`ToolUpdate`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/test-support/llm-replay/src/index.ts:1159`](../packages/test-support/llm-replay/src/index.ts)
+- `source`: [`packages/test-support/llm-replay/src/index.ts:1168`](../packages/test-support/llm-replay/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the {@link ReplayConfig} inputs, each defaulting to its `DSH_SNAPSHOT_*` env var in `apply`. */
@@ -5991,9 +5993,8 @@ export interface Config {
   /** Maximum images per observation batch. */
   reviewBatchFrames: number
   /**
-   * Omit frame images once the model has seen them: `observe` offloads the recorded frames' images, and each successful
-   * agent-loop request offloads labelled frame images, including Host-attached evidence, logged before the previous
-   * successful request; requires the `image/offload` projection of `@deepseek-ai/dsh-compaction-image-offload`.
+   * Omit recorded frame images after `observe` and other seen occurrences after a successful reply. The newest
+   * tool-result copy of a frame awaiting observation stays. Requires the `image/offload` projection.
    */
   offloadObservedFrames: boolean
   /** When `observe` leaves frames pending in a completely scanned review, return the next batch's images in the same result. */
@@ -6042,8 +6043,13 @@ export interface Config {
   frameJpegQuality: number
   /** Largest complete image output from one extraction command, in bytes. */
   maxFrameBytes: number
-  /** Largest simultaneous inspection count. */
+  /** Largest simultaneous inspection count, shared by every Session and video tool of this plugin instance. */
   maxConcurrent: number
+  /**
+   * Longest wait for a free inspection slot, in milliseconds; callers are served in arrival order. Zero fails at once
+   * when every slot is busy.
+   */
+  slotWaitMs: number
   /** Deadline of one probe or extraction command, in milliseconds. */
   commandTimeoutMs: number
   /** Process termination grace, in milliseconds. */

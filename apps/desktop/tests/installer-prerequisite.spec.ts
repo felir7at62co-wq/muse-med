@@ -22,7 +22,7 @@ it('defines one non-nested header hook containing both prerequisite and installe
   expect(headers).toEqual(['customHeader'])
   const headerStart = source.indexOf('!macro customHeader')
   const header = source.slice(headerStart, source.indexOf('!macroend', headerStart))
-  for (const marker of ['LangString MuseVCMissing', 'Function MuseEnsureVCRuntime',
+  for (const marker of ['!include "${INSTALLER_STRINGS_FILE}"', 'Function MuseEnsureVCRuntime',
     '!include "${INSTALLER_SOURCE_DIR}\\theme.nsh"', '!include "${INSTALLER_SOURCE_DIR}\\pages.nsh"',
     '!include "${INSTALLER_SOURCE_DIR}\\lifecycle.nsh"']) expect(header).toContain(marker)
 })
@@ -44,20 +44,18 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
   expect(source).toContain('${StdUtils.WaitForProcEx} $2 $1')
   expect(source).toContain('StrCmp $2 "0" muse_vc_done')
   expect(source).toContain('StrCmp $2 "3010" muse_vc_reboot')
-  expect(source).toMatch(/muse_vc_reboot:\s+SetRebootFlag true\s+MessageBox .*"\$\(MuseVCReboot\)"/u)
-  const keys = [...source.matchAll(/\$\((MuseVC\w+)\)/gu)].map(match => match[1])
+  expect(source).toMatch(/muse_vc_reboot:\s+SetRebootFlag true\s+MessageBox .*"\$\(INSTALLER_VC_REBOOT\)"/u)
+  const keys = [...source.matchAll(/\$\((INSTALLER_VC_[A-Z_]+)\)/gu)].map(match => match[1])
   expect(new Set(keys).size).toBe(7)
-  const fallbackStart = source.indexOf('!macro MuseVCDefaultStrings LANGUAGE')
-  const fallback = source.slice(fallbackStart, source.indexOf('!macroend', fallbackStart))
+  const locales = readInstallerLocales()
+  const strings = renderInstallerStrings(locales)
   for (const key of new Set(keys)) {
-    expect(fallback).toContain(`LangString ${key} \${LANGUAGE}`)
-    expect(source).toContain(`LangString ${key} \${LANG_SIMPCHINESE}`)
+    for (const { nsisLanguage } of locales) {
+      expect(strings).toContain(`LangString ${key} \${LANG_${nsisLanguage}}`)
+    }
   }
-  expect(source).toContain('!ifdef LANG_ENGLISH\n  !insertmacro MuseVCDefaultStrings ${LANG_ENGLISH}\n  !endif')
-  expect(source).toContain('!macro customHeader')
-  expect(source.match(/^!macro customHeader$/gm)).toHaveLength(1)
-  const headerStart = source.indexOf('!macro customHeader')
-  const header = source.slice(headerStart, source.indexOf('!macroend', headerStart))
+  expect([...source.matchAll(/^!macro customHeader\r?$/gmu)]).toHaveLength(1)
+  const header = source.slice(source.indexOf('!macro customHeader'), source.indexOf('!macroend'))
   expect(header).toContain('!ifndef BUILD_UNINSTALLER')
   expect(header).toContain('Function MuseEnsureVCRuntime')
   expect(header).toContain('FunctionEnd')
@@ -71,18 +69,16 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
 it('declares each prerequisite message once per shipped language in production and the actual installer fixture', async () => {
   const appRoot = new URL('../', import.meta.url)
   const source = await readFile(new URL('scripts/installer.nsh', appRoot), 'utf8')
-  const keys = [...new Set([...source.matchAll(/\$\((MuseVC\w+)\)/gu)].map(match => match[1]!))]
+  const keys = [...new Set([...source.matchAll(/\$\((INSTALLER_VC_[A-Z_]+)\)/gu)].map(match => match[1]!))]
   expect(keys).toHaveLength(7)
   for (const [owner, text] of [['production', source], ['fixture', createInstallerTestSource(source, 'C:\\private-installer')]] as const) {
-    const start = text.indexOf('!macro MuseVCDefaultStrings LANGUAGE')
-    const defaults = text.slice(start, text.indexOf('!macroend', start))
+    expect(text.split('!include "${INSTALLER_STRINGS_FILE}"'), `${owner}: one locale resource include`).toHaveLength(2)
     for (const locale of readInstallerLocales()) {
-      const language = `\\$\\{LANG_${locale.nsisLanguage}\\}`
-      const fallback = [...text.matchAll(new RegExp(`^\\s*!insertmacro MuseVCDefaultStrings ${language}\\s*$`, 'gmu'))].length
+      const rendered = renderInstallerStrings([locale])
       for (const key of keys) {
-        const direct = [...text.matchAll(new RegExp(`^\\s*LangString ${key} ${language} `, 'gmu'))].length
-        const defaultDeclarations = [...defaults.matchAll(new RegExp(`^\\s*LangString ${key} \\$\\{LANGUAGE\\} `, 'gmu'))].length
-        expect(direct + fallback * defaultDeclarations, `${owner}: ${locale.id} ${key} must have exactly one declaration`).toBe(1)
+        expect([...rendered.matchAll(new RegExp(`^LangString ${key} `, 'gmu'))],
+          `${owner}: ${locale.id} ${key} must have exactly one declaration`).toHaveLength(1)
+        expect(rendered).toContain(`LangString ${key} \${LANG_${locale.nsisLanguage}}`)
       }
     }
   }

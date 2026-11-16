@@ -11,6 +11,7 @@ import { createContentReviewVerifier, findShortDramaProject, parseSrtDocument,
   type ContentReviewVerifier } from '@deepseek-ai/dsh-tool-episode-render/delivery'
 import type {} from '@deepseek-ai/dsh-agent'
 import { z } from 'zod'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/u)
 const absolute = z.string().refine(isAbsolute)
@@ -50,8 +51,16 @@ const draftRecord = z.object({ version: z.literal(1), episode: z.string(),
   materials: z.array(z.object({ path: absolute, sha256: hash })).min(1),
 })
 const VIDEO = new Set(['.mp4', '.mov', '.mkv', '.webm', '.m4v'])
-const FORMAL = new Set(['exports', 'export', 'final', '01_可交付视频'])
+const FORMAL = new Set(['exports', 'export', 'final', '01_可交付视频', '00-交付上传'])
 const RECEIPT = '成片与草稿回执.json'
+
+/** Upload-copy failures retain a stable tool-result classification. */
+class ShortDramaUploadError extends HarnessError {
+  // oxlint-disable-next-line no-useless-constructor -- restrict callers to upload failure codes
+  constructor(message: string, code: 'SHORT_DRAMA_UPLOAD_UNSTAGED' | 'SHORT_DRAMA_UPLOAD_CHANGED' | 'SHORT_DRAMA_UPLOAD_SCOPE') {
+    super(message, code)
+  }
+}
 
 function inside(root: string, file: string): boolean {
   const part = relative(root, file)
@@ -147,7 +156,38 @@ async function checkProductEvidence(source: z.infer<typeof renderRecord>, signal
 async function formalProject(file: string): Promise<string | undefined> {
   let directory = dirname(file)
   while (true) {
-    if (FORMAL.has(basename(directory).toLowerCase())) return await findShortDramaProject(dirname(directory))
+    if (FORMAL.has(basename(directory).toLowerCase())) {
+      const existing = await findShortDramaProject(dirname(directory))
+      if (existing !== undefined) return existing
+      // Some projects keep episode upload folders beside their short-drama production root.
+      const episode = dirname(directory), video = dirname(episode)
+      if (basename(directory).toLowerCase() === '00-交付上传' && /^第\d+集$/u.test(basename(episode))
+        && basename(video) === '视频') {
+        const production = resolve(dirname(video), 'short-drama')
+        const sibling = await findShortDramaProject(production)
+        if (sibling !== undefined && samePath(sibling, production)) return sibling
+      }
+      return undefined
+    }
+    const parent = dirname(directory)
+    if (parent === directory) return undefined
+    directory = parent
+  }
+}
+
+/** Find the same episode's staged output for a named upload-folder copy. */
+function stagedUploadSource(file: string, project: string): string | undefined {
+  let directory = dirname(file)
+  while (true) {
+    if (basename(directory).toLowerCase() === '00-交付上传') {
+      const episode = dirname(directory), video = dirname(episode), name = basename(episode)
+      if (!/^第\d+集$/u.test(name)) return undefined
+      if (inside(project, episode)) return resolve(episode, '01_可交付视频', `${name}.mp4`)
+      const localVideo = resolve(project, '视频')
+      const siblingVideo = basename(project).toLowerCase() === 'short-drama' ? resolve(dirname(project), '视频') : ''
+      if (!siblingVideo || !samePath(video, siblingVideo)) return undefined
+      return resolve(localVideo, name, '01_可交付视频', `${name}.mp4`)
+    }
     const parent = dirname(directory)
     if (parent === directory) return undefined
     directory = parent
@@ -173,6 +213,23 @@ export async function validateShortDramaDelivery(files: readonly string[], signa
     const selected = resolve(file)
     const project = registered.get(selected) ?? registered.get(pathKey(selected)) ?? await formalProject(selected)
     if (project === undefined) continue
+    const staged = stagedUploadSource(selected, project)
+    if (staged !== undefined) {
+      if (!(await optionalFile(staged))) {
+        throw new ShortDramaUploadError('short_drama_delivery_unstaged: 常规分集目录未找到本集已归档成片；请使用 stage_delivery 返回的原始路径交付。', 'SHORT_DRAMA_UPLOAD_UNSTAGED')
+      }
+      const copyRoot = inside(project, selected) ? project : resolve(dirname(project), '视频')
+      if (!inside(await realpath(copyRoot), await realpath(selected))) {
+        throw new ShortDramaUploadError('上传副本不在本集项目或同级视频目录内，请使用已归档原件。', 'SHORT_DRAMA_UPLOAD_SCOPE')
+      }
+      const before = await digest(selected, signal)
+      const draftChanges = await validateShortDramaDelivery([staged], signal, registered, contentVerifier, fontsDir)
+      if (before !== await digest(staged, signal) || before !== await digest(selected, signal)) {
+        throw new ShortDramaUploadError('short_drama_delivery_changed: 上传目录视频与当前已归档成片不一致，请重新归档并使用相同内容。', 'SHORT_DRAMA_UPLOAD_CHANGED')
+      }
+      if (draftChanges !== undefined) modifiedDrafts.push(...draftChanges)
+      continue
+    }
     if (basename(dirname(selected)) !== '01_可交付视频') {
       throw Error('short_drama_delivery_unstaged: 本集工作成片尚未归集。请用 drama_render stage_delivery 复验同集成片、字幕、时间线和草稿，再交付其返回的 candidate 视频。')
     }

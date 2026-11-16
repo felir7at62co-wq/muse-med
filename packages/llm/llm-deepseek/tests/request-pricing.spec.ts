@@ -3,7 +3,7 @@ import { offloadedImageText, requestImageHandleText, textOnlyImageText } from '@
 import type { ImageBlock } from '@deepseek-ai/dsh-llm'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { deepSeekImageRequestPricing } from '../src/request-pricing.ts'
+import { deepSeekImageRequestPricing, DEFAULT_REQUEST_IMAGE_MAX_BYTES, resolveRequestImageMaxBytes } from '../src/request-pricing.ts'
 import { resolveAdapterOptions } from '../src/index.ts'
 import type { Options as Config } from '../src/index.ts'
 import { adapter } from './helpers.ts'
@@ -33,6 +33,11 @@ function connection(config: Omit<Config, 'models'> = {}): ReturnType<typeof reso
 }
 
 describe('DeepSeek request-image pricing', () => {
+  it('uses the configured image byte bound or its declared default', () => {
+    expect(resolveRequestImageMaxBytes(VISION_MODEL)).toBe(DEFAULT_REQUEST_IMAGE_MAX_BYTES)
+    expect(resolveRequestImageMaxBytes({ ...VISION_MODEL, imageMaxBytes: 50_000 })).toBe(50_000)
+  })
+
   it('prices an uncatalogued model as its text-only substitution', () => {
     const image = ref('photo', 1920, 1080)
     const prices = deepSeekImageRequestPricing(connection(), 'unlisted').priceImages([block(image)])
@@ -44,6 +49,18 @@ describe('DeepSeek request-image pricing', () => {
     const options = resolveAdapterOptions({ models: [{ id: 'text-only' }] })
     const prices = deepSeekImageRequestPricing(options, 'text-only').priceImages([block(image)])
     expect(prices).toEqual([{ visualTokens: 0, text: textOnlyImageText(image) }])
+  })
+
+  it.each(['vision', 'unlisted'])('prices the exact logged offload notice on %s', (model) => {
+    const image = ref('frame', 800, 800)
+    const text = 'Shown in an earlier step; revisit to inspect it again.'
+    const prices = deepSeekImageRequestPricing(connection(), model).priceImages([
+      { ...block(image, true), offloadNotice: text }, block(image, true),
+    ])
+    expect(prices).toEqual([
+      { visualTokens: 0, text: `["frame" (${image.attachmentId}): ${text}]` },
+      { visualTokens: 0, text: model === 'vision' ? offloadedImageText(image) : textOnlyImageText(image) },
+    ])
   })
 
   it('prices a retained image by its projected request dimensions plus its handle text', () => {

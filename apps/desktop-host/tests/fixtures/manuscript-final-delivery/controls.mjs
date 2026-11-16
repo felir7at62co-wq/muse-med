@@ -19,8 +19,8 @@ const faulty = await readFile(new URL('../manuscript-continuity/case-a.md', impo
 const words = { accepted: manuscriptDocx(accepted), faulty: manuscriptDocx(faulty) }
 const PROVIDER = 'manuscript-delivery-controls-fixture'
 const MODEL = 'selected-creative-model'
-const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash'
 const mode = process.env.MUSE_DELIVERY_CONTROL
+const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash'
 const modes = ['report', 'translation', 'format', 'mixed', 'shell', 'session-isolation', 'cancel-followup', 'new-input']
 assert.ok(modes.includes(mode), `Unknown delivery control ${mode}`)
 

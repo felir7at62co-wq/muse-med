@@ -95,6 +95,18 @@ describe('projectOffloadedImages', () => {
     expect(messages[1]?.content[0]).toEqual(image(3, true))
   })
 
+  it('sends the logged offload notice after the image identity instead of the route placeholder', () => {
+    const named = { ...image(3, true), attachment: { ...image(3).attachment, name: 'frame.jpg' }, offloadNotice: 'Shown earlier.' }
+    const messages = [createUserMessage({ content: [named, image(3, true)], source })]
+    expect(projectOffloadedImages(messages, () => OMITTED)[0]?.content).toEqual([
+      { type: 'text', text: `["frame.jpg" (sha256:${'a'.repeat(64)}): Shown earlier.]` }, { type: 'text', text: OMITTED },
+    ])
+    expect(projectImagesForTextModel(messages)[0]?.content).toEqual([
+      { type: 'text', text: `["frame.jpg" (sha256:${'a'.repeat(64)}): Shown earlier.]` },
+      { type: 'text', text: '[image omitted because this model accepts text only; attachment sha256:aaaaaaaa]' },
+    ])
+  })
+
   it('keeps unchanged tool content while replacing a later image', () => {
     const unchanged = createToolResultMessage({
       callId: ToolCallId('text-only'),

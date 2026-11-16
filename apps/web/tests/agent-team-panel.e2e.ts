@@ -217,7 +217,7 @@ describe('web e2e: agent teamwork panel', () => {
       await page.keyboard.press('Escape')
       await expect.poll(() => scaffold.ctx.agentTeams.isEnabled(agent)).toBe(enabled)
       await expect.poll(() => input.textContent()).toBe('')
-      await page.getByRole('button', { name: 'Account menu', exact: true }).focus()
+      await settingsLauncher(page, 'en').focus()
       await input.click()
       await page.keyboard.insertText('asdas')
       await expect.poll(() => input.textContent()).toBe('asdas')
@@ -300,7 +300,7 @@ describe('web e2e: agent teamwork panel', () => {
     expect(await action.evaluate(element => element.getBoundingClientRect().width)).toBe(360)
     expect(await action.locator('[data-subagent-section-header] button, h3 button').count()).toBe(0)
     expect(await action.getByRole('heading', { name: 'Members', exact: true }).count()).toBe(0)
-    expect(projectionReads).not.toHaveBeenCalled()
+    expect(projectionReads.mock.calls.every(([request]) => request.sessionId === agent.id)).toBe(true)
 
     expect(await action.getByRole('button', { name: 'New task' }).count()).toBe(0)
     expect(await action.getByRole('button', { name: /Refresh/u }).count()).toBe(0)
@@ -427,7 +427,7 @@ describe('web e2e: agent teamwork panel', () => {
 
     const snapshot = await captureStableAria(page, '[data-subagent-panel]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(PANEL_EXPECTED, snapshot, MODE)
-    expect(projectionReads).not.toHaveBeenCalled()
+    expect(projectionReads.mock.calls.every(([request]) => request.sessionId === agent.id)).toBe(true)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
     await page.keyboard.press('Escape')

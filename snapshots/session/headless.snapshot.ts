@@ -2,6 +2,7 @@
 
 import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deriveWorkingBudgetExpectations } from './working-budget-oracle.ts'
 import { sessionProductBudgetInput } from './muse-session-product/budget.ts'
+import { creationBudgetInput } from './muse-creation-ptc/budget.ts'
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
@@ -123,14 +124,23 @@ interface SessionLog {
   readonly header: JsonObject
 }
 
-/** Keep the cwd text priced by compaction independent of the platform's temporary-root length. */
-async function compactionWorkspaceOptions(): Promise<{ tempDirParent: string; tempDirPrefix: string }> {
+const fixedBudgetWorkspaceScenarios = new Set([
+  'compaction-recovery',
+  'muse-skill-market-bounded-catalog-ptc',
+  'muse-skill-market-creation-binding-ptc',
+  'muse-video-screenplay-entry-creation',
+  'prompt-usage-recovery',
+  'prompt-usage-stop',
+])
+
+/** Keep recorded request budgets independent of the platform's temporary-root length. */
+async function fixedBudgetWorkspaceOptions(): Promise<{ tempDirParent: string; tempDirPrefix: string }> {
   const tempDirParent = await realpath(tmpdir())
   const prefix = 'dsh-log-snap-'
   // mkdtemp appends six characters; JSON quoting is part of the runtime-context text.
   const unpaddedLength = JSON.stringify(join(tempDirParent, `${prefix}XXXXXX`)).length
   const paddingLength = 192 - unpaddedLength
-  if (paddingLength < 0) throw new Error('compaction snapshot temporary root exceeds its fixed cwd text length')
+  if (paddingLength < 0) throw new Error('snapshot temporary root exceeds its fixed cwd text length')
   return { tempDirParent, tempDirPrefix: prefix + '-'.repeat(paddingLength) }
 }
 
@@ -572,6 +582,21 @@ async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir:
   await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true, verbatimSymlinks: true })
   const report = join(expectedRoot, 'editing', 'review-overlay.srt.decision-report.json')
   await writeFile(report, expandSubtitleOverlayExpectedReport(await readFile(report, 'utf8'), await realpath(cwd)))
+  return expectedRoot
+}
+
+async function prepareHuanchangExpectedWorkspace(cwd: string, scenarioDir: string): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-huanchang-workspace')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+  const file = join(expectedRoot, 'shot_reviews', '01', 'review.json')
+  const report = JSON.parse(await readFile(file, 'utf8')) as JsonObject
+  expect(report.script).toBe('{{cwd}}/shots.txt')
+  expect(report.assets_manifest).toBe('{{cwd}}/assets_manifest.json')
+  expect(report.written).toEqual(['{{cwd}}/shot_reviews/01/shot_script.txt', '{{cwd}}/shot_reviews/01/review.json'])
+  report.script = join(cwd, 'shots.txt')
+  report.assets_manifest = join(cwd, 'assets_manifest.json')
+  report.written = [join(cwd, 'shot_reviews', '01', 'shot_script.txt'), join(cwd, 'shot_reviews', '01', 'review.json')]
+  await writeFile(file, `${JSON.stringify(report, null, 2)}\n`)
   return expectedRoot
 }
 
@@ -1341,7 +1366,10 @@ async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: st
       .split('\n').filter(line => line.trim() !== '').map(line =>
         JSON.stringify(visualizationBudgetValue(JSON.parse(line), visualize!))).join('\n') + '\n'
   }
-  return { log: expectedLog, prompt, schemas: expectedSchemas, cwd }
+  const input = { log: expectedLog, prompt, schemas: expectedSchemas, cwd }
+  return scenario.name === 'muse-creation-ptc' || scenario.name === 'muse-creation-review-guidance'
+    || scenario.name === 'muse-creation-stage-diagnostics'
+    ? creationBudgetInput(scenario.name, input, { join }) : input
 }
 
 async function workspaceBudgetExpected(
@@ -1840,6 +1868,19 @@ async function verifyChildOutputLimitRejection(scenario: HeadlessScenario, actua
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('allocates distinct workspaces with a fixed quoted length for budget snapshots', async () => {
+    const options = await fixedBudgetWorkspaceOptions()
+    const first = await mkdtemp(join(options.tempDirParent, options.tempDirPrefix))
+    const second = await mkdtemp(join(options.tempDirParent, options.tempDirPrefix))
+    try {
+      expect(first).not.toBe(second)
+      expect(JSON.stringify(first)).toHaveLength(192)
+      expect(JSON.stringify(second)).toHaveLength(192)
+    } finally {
+      await Promise.all([rm(first, { recursive: true, force: true }), rm(second, { recursive: true, force: true })])
+    }
+  })
+
   it('materializes the draft directory marker required by the strict replay initializer', async () => {
     const scenario = scenarioByName.get('muse-jianying-draft')
     if (scenario === undefined) throw new Error('Missing draft replay owner')
@@ -2871,7 +2912,7 @@ describe('headless recorded-session snapshots', () => {
         result = await runLoaderSmoke({
           label: `${scenario.name} headless snapshot`,
           tempDirPrefix: 'dsh-log-snap-',
-          ...(scenario.name === 'compaction-recovery' ? await compactionWorkspaceOptions() : {}),
+          ...(fixedBudgetWorkspaceScenarios.has(scenario.name) ? await fixedBudgetWorkspaceOptions() : {}),
           ...(scenario.manifest.workspace?.parent === 'outside-temp' ? { tempDirParent: outsideTempWorkspaceParent() } : {}),
           binScript: dshBin,
           sourceImport: 'tsx/esm',
@@ -2908,6 +2949,9 @@ describe('headless recorded-session snapshots', () => {
               : { DSH_PERMISSION_MODE: scenario.manifest.permission }),
             ...scenario.manifest.environment,
             ...scenario.name === 'muse-visualize' ? { DSH_VISUALIZE_FIXTURE_LAYOUT: visualizationLayoutReceipt } : {},
+            ...(scenario.name === 'subagent-acp-diagnostic' ? {
+              DSH_ACP_DIAGNOSTIC_SERVER: join(repoRoot, 'packages/subagent/subagent-acp/tests/mock-acp-server.ts'),
+            } : {}),
             ...(scenario.name === 'mcp-resources' || scenario.name === 'mcp-resources-ptc' ? {
               DSH_MCP_RESOURCES_FIXTURE: join(repoRoot, 'packages/mcp/mcp-client/tests/fixtures/resources-server.ts'),
             } : {}),
@@ -2944,6 +2988,24 @@ describe('headless recorded-session snapshots', () => {
               visualizationAssets = await readVisualizationAssets(visualizationLayoutReceipt, await realpath(cwd))
             }
             actualLogs = await persistedSessions(cwd)
+            if (scenario.name === 'muse-shot-huanchang-video') {
+              const report = JSON.parse(await readFile(join(cwd, 'shot_reviews', '01', 'review.json'), 'utf8')) as JsonObject
+              expect(report).toMatchObject({ method: 'compile', review_mode: 'advisory', ok: true,
+                duration_budget: { source: 'session', max_submit_seconds: 30,
+                  selection: { model_id: 'doubao-seedance-2.5', platform_id: 'FZ_HUAN_CHANG', standard_id: 93,
+                    resolution: '480p', max_duration_seconds: 30, revision: 1 } },
+                summary: { packages: 1, content_seconds: 20, failures: 0 },
+                packages: [{ content_seconds: 20, submit_seconds: 21, natural_hold_seconds: 1 }],
+              })
+              expect(await readFile(join(cwd, 'shot_reviews', '01', 'shot_script.txt')))
+                .toEqual(await readFile(join(scenario.dir, 'workspace', 'shots.txt')))
+              const events = parseSessionLog(actualLogs[0]!.content)
+              expect(events.filter(event => event.type === 'jubian/video-selection')).toHaveLength(1)
+              const toolResults = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(toolResults).toHaveLength(1)
+              expect(toolResults[0]?.isError).toBe(false)
+              expectedWorkspaceRoot = await prepareHuanchangExpectedWorkspace(await realpath(cwd), scenario.dir)
+            }
             if (scenario.name === 'headless-credentials') assertHeadlessCredentialsInactive(actualLogs[0]!.content)
             if (scenario.name === 'subagent-child-question-rejection') assertAsyncChildQuestion(actualLogs)
             if (scenario.name === 'subagent-agent-preset') assertAsyncChildPreset(actualLogs)
@@ -3558,10 +3620,11 @@ describe('headless recorded-session snapshots', () => {
               expect(existsSync(join(cwd, 'music'))).toBe(false)
               expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
             }
-            if (scenario.name === 'muse-storyboard-voice-identity') {
+            if (['muse-storyboard-voice-identity', 'muse-storyboard-voiceover-cards'].includes(scenario.name)) {
               const events = parseSessionLog(actualLogs[0]!.content)
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results).toHaveLength(4)
+              const preparesCards = scenario.name === 'muse-storyboard-voiceover-cards' || scenario.name === 'muse-storyboard-voice-identity'
+              expect(results).toHaveLength(preparesCards ? 4 : 2)
               for (const [index, message] of results.slice(0, 2).entries()) {
                 expect(message.isError).toBe(true)
                 const block = message.content[0]
@@ -3569,15 +3632,17 @@ describe('headless recorded-session snapshots', () => {
                 expect(block.text).toContain(index === 0 ? 'Project voice configuration project_bible' : 'Shared character voice requires')
                 expect(block.text).not.toContain('expected envelope')
               }
-              const statuses = results.slice(2).map(message => {
-                expect(message.isError).toBe(false)
-                const block = message.content.find(item => item.type === 'text')
-                if (block?.type !== 'text') throw new Error('Missing voiceover preparation result')
-                const result = JSON.parse(block.text)
-                expect(result).toMatchObject({ status: 'prepared', content_duration_ms: 25000 })
-                return result.voice_continuity_review.status
-              })
-              expect(statuses).toEqual(['voice_reference_present_unverified', 'dialogue_without_voice_reference'])
+              if (preparesCards) {
+                const statuses = results.slice(2).map(message => {
+                  expect(message.isError, JSON.stringify(message.content)).toBe(false)
+                  const block = message.content.find(item => item.type === 'text')
+                  if (block?.type !== 'text') throw new Error('Missing voiceover preparation result')
+                  const result = JSON.parse(block.text)
+                  expect(result).toMatchObject({ status: 'prepared', content_duration_ms: 25000 })
+                  return result.voice_continuity_review.status
+                })
+                expect(statuses).toEqual(['voice_reference_present_unverified', 'dialogue_without_voice_reference'])
+              }
               const evidence = JSON.parse(await readFile(join(cwd, '_probe/voice-identity-fixture.json'), 'utf8'))
               expect(evidence).toMatchObject({ simulated: true, writes: 0 })
               expect(evidence.requests.slice(0, 3)).toEqual([
@@ -3585,6 +3650,7 @@ describe('headless recorded-session snapshots', () => {
                 { method: 'GET', path: '/prod-api/aigc/storyboard/901' },
                 { method: 'GET', path: '/prod-api/aigc/asset/77' },
               ])
+              if (!preparesCards) expect(evidence.requests).toHaveLength(3)
               expect(evidence.requests.every((row: JsonObject) => row.method === 'GET')).toBe(true)
             }
             if (scenario.name === 'muse-voice-periods') {

@@ -297,7 +297,7 @@ const ARGS = {
       + 'register 按它新建资产，不生成新图。' },
   content_duration_ms: { type: 'number', description: 'prepare_video / generate 准备阶段可选：内容时长交叉校验，等于已保存卡时长减 1 秒后的毫秒数；不用于修改时长。' },
   model_id: { type: 'string', description: 'erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 '
-    + 'ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。' },
+    + 'ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型时使用 MediaKit，SeedVR2 等其他模型须显式指定。' },
   task_name: { type: 'string', description: 'erase_subtitle 可选：任务名，省略时按「<源任务名>-去字幕」生成。' },
   first_result_id: { type: 'number', description: 'erase_subtitle 必填：源视频 firstResultId。' },
   parent_result_id: { type: 'number', description: 'erase_subtitle 必填：源视频 parentResultId。' },
@@ -410,7 +410,13 @@ const VIDEO_SOURCES_SCHEMA = {
 } as const
 
 /** Existing storyboard results retain the original key when serializer changes require reconciliation. */
-const storyboardOutput = (generationBindings: WeakMap<object, GenerationSessionBinding>) => ({
+type GenerationPresentation = {
+  binding: GenerationSessionBinding
+  submission: { method: string; video_previews: { preview_path: string; idempotency_key: string }[] }
+    | { method: string; preview_path: string; idempotency_key: string } | undefined
+}
+
+const storyboardOutput = (generationBindings: WeakMap<object, GenerationPresentation>) => ({
   schema: { type: 'object', additionalProperties: true, properties: {
     verified_free: { type: 'boolean', enum: [true], description: '本次仅免费去字幕请求已核实零价，或原 key 已有已核实的零价凭据；完成状态须另行回读。' },
     existing_video_sources: VIDEO_SOURCES_SCHEMA,
@@ -436,24 +442,13 @@ const storyboardOutput = (generationBindings: WeakMap<object, GenerationSessionB
   preserveBodyMeta: true,
   presentationMeta: (args: unknown, value: Record<string, unknown>) => {
     if (typeof value.generation_watch_id !== 'string') return undefined
-    /* v8 ignore next -- the tool schema fixes the argument root as an object, so a non-object args
-    value is refused before dispatch and cannot reach this projection. */
-    const binding = args !== null && typeof args === 'object' ? generationBindings.get(args) : undefined
-    if (binding === undefined) return undefined
+    const captured = args !== null && typeof args === 'object' ? generationBindings.get(args) : undefined
+    if (captured?.submission === undefined) return undefined
+    const { binding, submission } = captured
     const { reasoningEffort } = binding.model
     const bindingMetadata = { ...binding, model: { provider: binding.model.provider, model: binding.model.model,
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }) } }
-    const input = args as MethodArgs
-    if (input.method === 'submit_video_batch' && input.video_previews !== undefined) {
-      return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission: { method: input.method,
-        video_previews: input.video_previews.map(item => ({ preview_path: item.preview_path, idempotency_key: item.idempotency_key })) } }
-    }
-    if ((input.method === 'submit_video' || input.method === 'generate')
-      && typeof input.preview_path === 'string' && typeof input.idempotency_key === 'string') {
-      return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission: { method: input.method,
-        preview_path: input.preview_path, idempotency_key: input.idempotency_key } }
-    }
-    return undefined
+    return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission }
   },
 } as const)
 
@@ -605,7 +600,7 @@ function characterReferenceAuthorityFor(
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
-  const generationBindings = new WeakMap<object, GenerationSessionBinding>()
+  const generationBindings = new WeakMap<object, GenerationPresentation>()
   const episodeUi = EpisodeUiConfig.parse({ episodePollIntervalMs: config.episodePollIntervalMs })
   if (config.sessionVideoSelection !== undefined && typeof config.sessionVideoSelection !== 'boolean') {
     throw new Error('sessionVideoSelection must be a boolean')
@@ -1339,18 +1334,21 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
             await beforeSend(key)
             captured.lease.assertCurrent()
           })
-          /* v8 ignore next 2 -- an already-recorded key returns from the native reconcile path before
-          beforeSend, so this rejection never runs; it stays as the ownership backstop. */
-          const refuseRepeat = (): Promise<never> =>
-            Promise.reject(new Error('The original video dispatch is already owned; reconcile its original key instead of submitting again'))
-          const report = enrollment.initial ? await watch.executeDispatch(enrollment.id, submit) : await dispatch(refuseRepeat)
+          const report = enrollment.initial ? await watch.executeDispatch(enrollment.id, submit) : await dispatch(() =>
+            Promise.reject(new Error('The original video dispatch is already owned; reconcile its original key instead of submitting again')))
           captured.lease.assertCurrent()
-          const result = { ...report, generation_watch_id: enrollment.id,
-            /* v8 ignore next -- enroll() never assigns groupExchangeId: it refuses group origins
-            outright and every return omits the field. */
-            ...(enrollment.groupExchangeId === undefined ? {} : { generation_watch_group_exchange_id: enrollment.groupExchangeId }) }
-          if (enrollment.initial) generationBindings.set(args, captured.binding)
-          return result
+          const result = { ...report, generation_watch_id: enrollment.id }
+          if (enrollment.initial) {
+            generationBindings.set(args, { binding: captured.binding,
+              submission: method === 'submit_video_batch'
+                ? { method: input.method, video_previews: (input.video_previews as NonNullable<MethodArgs['video_previews']>).map(item => ({
+                  preview_path: item.preview_path, idempotency_key: item.idempotency_key })) }
+                : input.preview_path === undefined ? undefined
+                  : { method: input.method, preview_path: input.preview_path, idempotency_key: input.idempotency_key as string } })
+            return result
+          } else {
+            return result
+          }
         } finally { captured.lease.release() }
       })(args)
     },
@@ -1390,7 +1388,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行'
       + '（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。'
       + '按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。'
-      + '**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。'
+      + '**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定模型时默认 MediaKit，SeedVR2 等其他模型用 model_id 显式指定；具体价格以当前目录为准。'
       + '仿真人剧默认使用原片，不自动转高清。'
       + 'SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。'
       + '仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。'

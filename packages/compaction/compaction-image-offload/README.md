@@ -35,7 +35,7 @@ Mount this plugin in every composition that runs the agent loop with an image-ca
 
 ### What you can observe
 
-Each decision appends one `image/offload` event identifying the selected occurrences by current message-event sequence and depth-first image index. The message events and surface node identities remain unchanged. An agent retry follows a fresh `request/header` identifying a new message series. Summary retries remain inside the same compaction bracket.
+Each decision appends one `image/offload` event identifying the selected occurrences by current message-event sequence and depth-first image index. The message events and surface node identities remain unchanged. Another plugin that logs its own decision may add `notice`, nonblank text of at most 1000 characters; this plugin's request-limit decisions carry none. An agent retry follows a fresh `request/header` identifying a new message series. Summary retries remain inside the same compaction bracket.
 
 ### Failures and recovery
 
@@ -77,7 +77,7 @@ The pure projection rejects invalid or repeated image references before Session 
 
 #### What the model sees
 
-Every selected image occurrence reaches the model as placeholder text (`offloadedImageText`) naming the attachment and its available read-only path; unselected occurrences stay images. Selections persist across requests. A new tool read may introduce a new occurrence of the same attachment without restoring the old one.
+Every selected image occurrence reaches the model as placeholder text (`offloadedImageText`) naming the attachment and its available read-only path; an occurrence selected by a decision with `notice` instead reaches it as the image identity followed by that notice. Unselected occurrences stay images. Selections persist across requests. A new tool read may introduce a new occurrence of the same attachment without restoring the old one.
 
 #### Token effect
 

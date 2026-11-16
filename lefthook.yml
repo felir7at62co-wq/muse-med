@@ -49,5 +49,6 @@ pre-push:
       run: pnpm run typecheck
 
     - name: snapshot sidecar drift
+      tags: [snapshot-drift]
       use_stdin: true
-      run: node_modules/.bin/tsx scripts/verify-snapshot-drift.ts --pre-push
+      run: node_modules/.bin/tsx scripts/verify-snapshot-drift.ts --pre-push --warn-only

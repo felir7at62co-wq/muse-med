@@ -15,6 +15,7 @@ export const inject = ['tools', 'skills', 'agents', 'sessions', 'sessionProjecti
 const publisherId = '11111111111111111111111111111111'
 const publicationId = '22222222222222222222222222222222'
 const createdAt = '2026-11-09T00:00:00.000Z'
+const presetPortrait = 'storyboard-reviewer'
 const limits = { archiveBytes: 1048576, expandedBytes: 2097152, fileCount: 32, recordBytes: 1048576 }
 const operations = ['read-draft', 'submit', 'reader-private', 'approve', 'install']
 
@@ -74,7 +75,7 @@ export async function apply(ctx, config) {
   await store.create('snapshot_reader', 'snapshot-password')
   const manifest = { formatVersion: 1, kind: 'skill', name: 'cloud-scene-review', title: 'Cloud scene review',
     description: 'Review continuity using an immutable Skill publication.', version: '1.0.0', license: 'MIT',
-    category: 'writing', examples: ['Review the supplied scene.'], requirements: ['The original scene.'],
+    category: 'writing', examples: ['Review the supplied scene.'], requirements: ['The original scene.'], presetPortrait,
     skills: [{ name: 'cloud-scene-review', path: 'skills/cloud-scene-review/SKILL.md' }] }
   const resources = {
     'skills/cloud-scene-review/SKILL.md': Buffer.from('---\nname: cloud-scene-review\ndescription: Review continuity using an immutable Skill publication.\nwhenToUse: For scene continuity review.\n---\nPreserve the original action and dialogue.\n'),
@@ -83,6 +84,7 @@ export async function apply(ctx, config) {
   }
   const archive = archiveModule.createMarketPackage(manifest, resources, limits)
   const parsed = archiveModule.readMarketPackage(archive, limits)
+  assert.equal(parsed.manifest.presetPortrait, presetPortrait)
   const sha256 = archiveModule.marketDigest(archive)
   const storage = join(root, 'catalog')
   const policy = { root: storage, secretFile: join(root, 'secret'), maxReleases: 20, maxActiveUploads: 4,
@@ -159,10 +161,12 @@ export async function apply(ctx, config) {
         if (expected === 'read-draft') {
           const value = await cloud.getPublication(publicationId)
           assert.equal(value.status, 'draft'); assert.equal(value.revision, 1)
+          assert.equal(value.manifest.presetPortrait, presetPortrait)
           return value
         }
         const value = await cloud.review(publicationId, 1, 'submit', 'Ready for review.')
         assert.equal(value.status, 'pending'); assert.equal(value.revision, 2)
+        assert.equal(value.manifest.presetPortrait, presetPortrait)
         return value
       }
       if (expected === 'reader-private') {
@@ -179,20 +183,24 @@ export async function apply(ctx, config) {
         await login('snapshot_admin')
         const value = await cloud.review(publicationId, 2, 'approve', 'Approved for the public catalog.')
         assert.equal(value.status, 'published'); assert.equal(value.revision, 3)
+        assert.equal(value.manifest.presetPortrait, presetPortrait)
         return value
       }
       assert.equal(expected, 'install')
       await login('snapshot_reader')
       const value = await cloud.installPublication(publicationId, sha256)
       assert.equal(value.publication.status, 'published')
+      assert.equal(value.publication.manifest.presetPortrait, presetPortrait)
+      assert.equal(value.installation.release.manifest.presetPortrait, presetPortrait)
       assert.equal(value.installation.enabled, false)
       assert.equal(value.installation.release.id, sha256)
       assert.notEqual(value.publication.id, value.installation.release.id)
       assert.deepEqual(await active.defaults(), beforeDefaults)
       assert.equal((await local.installed()).length, 1)
-      assert.deepEqual(await ctx.skills.list({ scope: primary }), [])
+      assert.deepEqual((await ctx.skills.list({ scope: primary })).filter(skill => skill.source === 'muse-market'), [])
       const exported = await local.exportPackage(value.installation.release.id)
       assert.equal(archiveModule.marketDigest(Buffer.from(exported.base64, 'base64')), sha256)
+      assert.deepEqual(archiveModule.readMarketPackage(Buffer.from(exported.base64, 'base64'), limits).manifest, parsed.manifest)
       return value
     },
   }))
@@ -216,7 +224,8 @@ export async function apply(ctx, config) {
       assert.equal(starts.length, config.executor === 'ptc' ? 5 : 0); assert.equal(settles.length, starts.length)
       assert.deepEqual(await active.defaults(), beforeDefaults)
       await writeFile(join(process.cwd(), 'market-cloud-proof.json'), JSON.stringify({ publicationId, publisherId,
-        archiveSha256: sha256, realGatewayAuthentication: true, privateDraftRefusedToReader: true,
+        archiveSha256: sha256, presetPortrait, portraitBindingPreserved: true,
+        realGatewayAuthentication: true, privateDraftRefusedToReader: true,
         explicitSubmissionAndApproval: true, publishedRevision: 3, wholeArchivePreserved: true,
         distinctLocalAndCloudIdentities: true, localInstallDisabled: true, activationDefaultsUnchanged: true,
         completeResultsReachedNextModel: true, modelRequests: requests, toolCalls: calls,

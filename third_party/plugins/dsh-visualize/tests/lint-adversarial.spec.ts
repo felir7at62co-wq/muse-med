@@ -186,41 +186,54 @@ function machineBudget(runs: number): number {
 lintFragment(CARD.replaceAll('%', 'w').repeat(50), MAX)
 const loadBudget = machineBudget(7)
 
-/** Timing attempts per budget check; see {@link measureAgainstBudget}. */
-const ATTEMPTS = 3
-
-/**
- * Times `run` against `multiple` machine budgets and returns the attempt
- * closest to passing. The first attempt uses the budget calibrated at load.
- * While every attempt so far is over budget, the next one recalibrates
- * immediately before timing `run`, so both samples see the same host load.
- * Contention only adds time, so the best attempt estimates the intrinsic
- * cost; the quadratic blow-ups this file guards run 10-100x over in every
- * attempt.
- * @param run Work to time; it runs once per attempt.
- * @param multiple Machine budgets allowed for `run`.
- * @returns Elapsed and budget ms of the attempt with the lowest ratio.
- */
-function measureAgainstBudget(run: () => void, multiple = 1): { elapsed: number; budget: number } {
-  let best = { elapsed: timeMs(run), budget: multiple * loadBudget }
-  for (let attempt = 1; attempt < ATTEMPTS && best.elapsed >= best.budget; attempt++) {
-    const budget = multiple * machineBudget(3)
-    const elapsed = timeMs(run)
-    if (elapsed / budget < best.elapsed / best.budget) best = { elapsed, budget }
-  }
-  return best
+interface TimingSample {
+  elapsed: number
+  budget: number
 }
 
-// Up to three near-budget lints plus recalibration must fit on a contended runner; the default 5 s does not.
+/** The middle elapsed/budget ratio; every sample contributes to the verdict. */
+function medianTiming(samples: readonly TimingSample[]): TimingSample {
+  return [...samples].sort((a, b) => a.elapsed / a.budget - b.elapsed / b.budget)[Math.floor(samples.length / 2)]!
+}
+
+/**
+ * Measure three paired calibration/work samples regardless of their results.
+ * The median ratio tolerates one scheduling outlier without accepting one
+ * unusually fast run as evidence that a repeated regression has passed.
+ * @param run Work to time; it runs three times.
+ * @param multiple Machine budgets allowed for `run`.
+ * @returns All samples and the sample with the median elapsed/budget ratio.
+ */
+function measureAgainstBudget(run: () => void, multiple = 1): TimingSample & { samples: TimingSample[] } {
+  const samples = Array.from({ length: 3 }, () => {
+    const budget = multiple * machineBudget(3)
+    return { elapsed: timeMs(run), budget }
+  })
+  return { ...medianTiming(samples), samples }
+}
+
+describe('paired timing verdict', () => {
+  it('rejects two over-budget samples even when the third is fast', () => {
+    const result = medianTiming([{ elapsed: 1, budget: 10 }, { elapsed: 30, budget: 10 }, { elapsed: 40, budget: 10 }])
+    expect(result.elapsed).toBeGreaterThan(result.budget)
+  })
+
+  it('uses paired ratios rather than absolute durations', () => {
+    expect(medianTiming([{ elapsed: 20, budget: 10 }, { elapsed: 100, budget: 200 }, { elapsed: 3, budget: 10 }]))
+      .toEqual({ elapsed: 100, budget: 200 })
+  })
+})
+
+// Three paired measurements must fit on a contended runner; the default 5 s does not.
 describe('lintFragment on adversarial input', { timeout: 30_000 }, () => {
-  const timings: [string, number][] = []
+  const timings: { name: string; elapsed: number; samples: TimingSample[] }[] = []
 
   for (const [name, fragment] of Object.entries(ADVERSARIAL)) {
     it(`stays under the machine budget (${BUDGET_MS} ms on the reference machine) and never throws: ${name}`, () => {
       expect(new TextEncoder().encode(fragment).length).toBeLessThanOrEqual(MAX)
       let report: ReturnType<typeof lintFragment> | undefined
-      const { elapsed, budget } = measureAgainstBudget(() => { report = lintFragment(fragment, MAX) })
-      timings.push([name, elapsed])
+      const { elapsed, budget, samples } = measureAgainstBudget(() => { report = lintFragment(fragment, MAX) })
+      timings.push({ name, elapsed, samples })
       expect(report).toBeDefined()
       expect(report?.skipped).toBeUndefined()
       expect(elapsed).toBeLessThan(budget)
@@ -228,8 +241,9 @@ describe('lintFragment on adversarial input', { timeout: 30_000 }, () => {
   }
 
   it('reports the slowest case', () => {
-    const slowest = [...timings].sort((a, b) => b[1] - a[1]).slice(0, 5)
-    console.log(`slowest lint cases (ms, load budget ${loadBudget.toFixed(1)}): ${slowest.map(([name, ms]) => `${name}=${ms.toFixed(1)}`).join(', ')}`)
+    const slowest = [...timings].sort((a, b) => b.elapsed - a.elapsed).slice(0, 5)
+    console.log(`slowest lint cases (ms, load budget ${loadBudget.toFixed(1)}): ${slowest.map(({ name, elapsed }) => `${name}=${elapsed.toFixed(1)}`).join(', ')}`)
+    console.log(`paired lint samples (elapsed/budget ms): ${JSON.stringify(timings)}`)
     expect(timings.length).toBe(Object.keys(ADVERSARIAL).length)
   })
 

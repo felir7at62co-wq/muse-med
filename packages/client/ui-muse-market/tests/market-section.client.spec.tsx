@@ -3,7 +3,7 @@
 import { File as NodeFile } from 'node:buffer'
 import { useSyncExternalStore } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -15,7 +15,8 @@ import { createMarketViewStore } from '../src/client/market-view-store.ts'
 import { marketEn } from '../src/client/market-locales.ts'
 import { identity, installation, marketActions, marketTranslate, publication, sources } from './market-fixtures.client.ts'
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+beforeEach(() => { localStorage.setItem('dsh.muse-market.guide.v1', 'seen') })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear() })
 
 const published = { ...publication, status: 'published' } as const
 const emptyDefaults: MarketDefaultSnapshot = { revision: 0, defaults: [] }
@@ -26,7 +27,8 @@ function mount(overrides: Partial<MarketActions> = {}, initialAccess: MarketAcce
     listeners.add(listener); return () => { listeners.delete(listener) }
   } }
   const actions = marketActions({ installed: async () => [installation], defaults: async () => emptyDefaults,
-    sources: async () => sources, catalog: async () => [published], identity: async () => identity, ...overrides })
+    sources: async () => sources, catalog: async () => [published], legacyCatalog: async () => [],
+    identity: async () => identity, ...overrides })
   const store = createMarketViewStore().create(), reportOutcome = vi.fn()
   const subscribe = store.subscribe.bind(store), getSnapshot = store.getSnapshot.bind(store)
   function Harness() {
@@ -34,7 +36,8 @@ function mount(overrides: Partial<MarketActions> = {}, initialAccess: MarketAcce
     const view = useSyncExternalStore(subscribe, getSnapshot)
     return <MarketPage {...({} as GlobalStandardProps)} operations={actions} reportOutcome={reportOutcome}
       isCurrentAccess={revision => revision === access.revision} useAccess={selector => selector(current)}
-      useStore={selector => selector(view)} actions={store.actions} t={marketTranslate} />
+      useStore={selector => selector(view)} actions={store.actions} t={marketTranslate}
+      onOpenCreator={vi.fn()} onBackMarket={vi.fn()} onOpenPublications={vi.fn()} />
   }
   return { ...render(<Harness />), actions, store, reportOutcome,
     setAccess(next: MarketAccess) { access = next; for (const listener of listeners) listener() } }
@@ -112,7 +115,7 @@ it.each([false, true])('installs an exact public release with an earlier default
   const page = mount({ installed: async () => [], installPublication,
     defaults: async () => ({ revision: 1, defaults: hasDefault ? [{ skillName: 'writer', releaseId: old }] : [] }) })
   await screen.findByRole('heading', { name: 'Writer' })
-  fireEvent.click(screen.getByRole('button', { name: hasDefault ? marketEn.installUpdate : marketEn.install }))
+  fireEvent.click(screen.getByRole('button', { name: marketEn.install }))
   await waitFor(() => { expect(page.reportOutcome).toHaveBeenCalledWith('installedDone', false) })
   expect(installPublication).toHaveBeenCalledExactlyOnceWith(published.id, published.sha256)
   expect(screen.getByRole('button', { name: marketEn.useVersion })).toBeTruthy()
@@ -202,7 +205,7 @@ it('keeps private rows and details out of a newer account generation', async () 
   await ready()
 })
 
-it('refreshes creator publications after upload and replaces the reviewed row by id', async () => {
+it('lists creator publications independently and replaces the reviewed row by id', async () => {
   const second = { ...published, id: parseMarketPublicationId('f'.repeat(32)), manifest: { ...published.manifest, title: 'Other writer' } }
   const catalog = vi.fn(async () => [publication, second]), publishDraft = vi.fn(async () => publication)
   const reviewed = { ...publication, status: 'pending', revision: 3, manifest: { ...publication.manifest, title: 'Reviewed writer' } } as const
@@ -210,10 +213,8 @@ it('refreshes creator publications after upload and replaces the reviewed row by
   mount({ catalog, publishDraft, review })
   await ready(); await tab('publish')
   await screen.findByRole('button', { name: marketEn['review.submit'] })
-  fireEvent.change(screen.getByLabelText(marketEn.chooseLocal), { target: { value: installation.release.id } })
-  fireEvent.change(screen.getByLabelText(marketEn.publisher), { target: { value: identity.publishers[0]!.id } })
-  fireEvent.click(screen.getByRole('button', { name: marketEn.upload }))
-  await waitFor(() => { expect(catalog).toHaveBeenCalledTimes(3) })
+  expect(publishDraft).not.toHaveBeenCalled()
+  expect(catalog).toHaveBeenCalledTimes(2)
   await ready()
   fireEvent.click(screen.getByRole('button', { name: marketEn['review.submit'] }))
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: marketEn.confirm }))
@@ -298,7 +299,7 @@ it.each(['default', 'import', 'remove', 'discover-install', 'creator-install', '
   const review = Promise.withResolvers<typeof publication>()
   const page = mount({ setDefault: () => active.promise, importPackage: () => local.promise,
     removePackage: () => done.promise, installPublication: () => cloud.promise, review: () => review.promise,
-    catalog: async () => operation === 'review' ? [publication] : [published] })
+    catalog: async (_query, mine) => operation === 'review' && mine ? [publication] : [published] })
   await screen.findByRole('heading', { name: 'Writer' })
   if (operation === 'creator-install' || operation === 'review') await tab('publish')
   if (operation === 'import' || operation === 'remove' || operation === 'failure') await tab('installed')

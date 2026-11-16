@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { parsePtcFixtureResult } from '../ptc-result.mjs'
 import { importSnapshotModule, importSnapshotPackage } from '../../../../../snapshots/session/muse-fixture-import.mjs'
 import { evidence, DRAFT, SOURCE, ASR, SELECTION, ROWS } from './evidence.mjs'
 import { parsePtcJsonResult, PARTIAL_SANDBOX_NOTICE } from '../ptc-json-result.mjs'

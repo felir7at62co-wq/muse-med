@@ -297,17 +297,24 @@ Local publication service; installing a package never registers or executes its 
  */
 publicationStorage(): MarketLocalConfig
 
-/** List current authoring candidates without reading or uploading resource directories.
- * @returns Discovered metadata and whether every provider completed this observation.
+/** List registry Skills and retained local versions without reading or uploading resource directories.
+ * @returns Candidate metadata, exact selectors for retained versions, and registry discovery completeness.
  */
-@Remote('sources') async sources(): Promise<{ skills: { name: string; description: string; whenToUse?: string }[]; complete: boolean }>
+@Remote('sources') async sources(): Promise<{ skills: { name: string; description: string; whenToUse?: string; sourceId?: MarketSourceId; version?: string }[] complete: boolean }>
 
 /** Prepare one selected local Skill as a disabled publication without uploading it.
  * @param metadata - Explicit author metadata.
- * @param skillName - Exact registry invocation name.
+ * @param skillName - Exact registry invocation name or sourceId returned by sources() for a retained version.
  * @returns Verified disabled installation containing the selected complete bundle.
  */
 @Remote('prepare') async prepare(metadata: MarketMetadata, skillName: string): Promise<MuseMarketInstallation>
+
+/** Retain a publication's existing portrait or bind an unassigned portrait in a separate immutable package.
+ * @param id - Exact installed release whose archive and extracted resources must verify.
+ * @param presetPortrait - Safe presentation asset key assigned by the creator preview.
+ * @returns Existing portrait-bearing installation or a new disabled installation; originals and defaults remain unchanged.
+ */
+@Remote('prepareUpload') async prepareUpload(id: MarketReleaseId, presetPortrait: string): Promise<MuseMarketInstallation>
 
 /** Import a user-selected publication without activation or network access.
  * @param base64 - Complete, canonical base64 ZIP bytes.
@@ -341,14 +348,28 @@ Source: [`packages/host/muse-market/src/index.ts`](../../packages/host/muse-mark
 Explicit cloud operations over immutable local archives; installation never activates a Skill.
 
 ```ts cordis-catalog
-/** Search published metadata, or the signed-in creator's private records.
- * @param q - Search text, at most 200 characters; empty requests the bounded current catalog.
+/** Search the bounded published catalog anonymously, or the signed-in creator's private records.
+ * @param q - Search words, at most 200 characters, matched against the bounded current catalog.
  * @param mine - Whether private creator-visible publications are requested.
  * @returns At most catalogLimit validated records; oversized replies refuse instead of truncating.
  */
 @Remote('catalog') async catalog(q: string, mine: boolean): Promise<MarketPublication[]>
 
+/** Search the original public Skill catalog without reading or sending account credentials.
+ * @param query - Search words, at most 200 characters; empty selects all original Skills.
+ * @returns Validated original resources within the configured catalog and archive bounds.
+ */
+@Remote('legacyCatalog') async legacyCatalog(query: string): Promise<MarketLegacyResource[]>
+
+/** Verify and convert an original public ZIP without activating it or changing a Session binding.
+ * @param id - Original catalog identity selected by the caller.
+ * @param expectedSha256 - Original archive digest observed when selecting that resource.
+ * @returns Fresh catalog metadata and the disabled canonical local installation, deduplicated by its converted bytes.
+ */
+@Remote('installLegacy') async installLegacy(id: MarketLegacyResourceId, expectedSha256: string): Promise<{ resource: MarketLegacyResource installation: MuseMarketInstallation }>
+
 /** Read admitted publishing teams and administrator capability for the current login.
+ * Original two-field market identities obtain their account id from the same session's account endpoint.
  * @returns Validated public identity facts without the private account cookie.
  */
 @Remote('identity') async identity(): Promise<MarketIdentity>

@@ -98,7 +98,7 @@
         "results": [
           {
             "id": "python-word",
-            "name": "bash",
+            "name": "{{nativeShell}}",
             "error": null
           },
           {
@@ -123,7 +123,7 @@
           },
           {
             "id": "python-rewrite",
-            "name": "bash",
+            "name": "{{nativeShell}}",
             "error": null
           },
           {

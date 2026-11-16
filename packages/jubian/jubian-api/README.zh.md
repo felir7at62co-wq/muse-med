@@ -42,6 +42,10 @@ kind: "package-reference"
 
 `ImageRequestInput.imageStyle` 选择 `anime` 或 `live_action`，分别向提供方发送 `style: 1` 或 `style: 0`。省略字段时，`resolveImageStyle` 识别提示词开头的正向动漫或真人声明，可带首行内精确的 `项目风格:` 或 `项目风格：` 前缀；未标记的旧提示词保留真人。其他位置的文字及否定指令不提供媒介。显式选择与开头声明冲突时，在提交前失败。完整提示词保持原字节，包括3D细分画风。该选择只描述请求媒介，不证明生成图像质量。
 
+图片请求设置 `skipAssetReferenceTemplate: true`，要求提供方使用调用者的构图、脸部遮罩与画风，跳过其资产参考模板。创建和编辑均保留完整提示词及有序参考图。此请求设置不代表视觉验收通过。
+
+提供方的 `quality` 值取自选中的图片规格，不改变提示词或画风。目录质量缺失、为 null 或空字符串时保留空的提供方字段；格式错误的值在构造请求前失败。质量档位不代表视觉验收通过。
+
 `readImageGeneration(data)` 独立读取生成图接口中的任务与结果身份、状态，不以图片 URL 是否存在替代状态。它将参考图上限、内容拒绝与其他供应商失败分类，不返回远端错误原文。仅含 URL 的旧回复返回 null。`buildImageRequest` 在构造付费请求前拒绝 KU_AI 超过五张参考图的参数。
 
 `readGeneratedImage(data)` 接受单个对象或仅有一行的列表。多行缺少已核实任务身份时属于歧义，不能按提供方行序选择。工具回读会核对所请求的父资产；只读的 `generated_image` 方法在多个任务并存时，仅选择任务 ID 唯一最大的记录。
@@ -94,7 +98,7 @@ async function readResults(client: JubianClient) {
 }
 ```
 
-`needsUpscale()` 把当前文件与交付目标作比较。已记录的 SeedVR2 处理会把当前文件视为 1080p，即使生成行仍保留旧标签；其他情况下，低于目标返回 `true`，等于或高于目标返回 `false`，现有证据无法对任一侧排序时返回 `null`。要使用的文件是 `row.video_url`：转高清之后，提供方把生成输出保留在 `row.base_video_url`，并在 `video_url` 里报告最新的那个文件。
+`needsUpscale()` 把当前文件与交付目标作比较。已记录的 SeedVR2 处理会把当前文件视为 1080p，即使生成行仍保留旧标签；经过 MediaKit 等其他模型处理后，低于目标的来源行返回 `null`，因为输出分辨率只记录在提供方的转高清行上。其他情况下，低于目标返回 `true`，等于或高于目标返回 `false`，现有证据无法对任一侧排序时返回 `null`。要使用的文件是 `row.video_url`：转高清之后，提供方把生成输出保留在 `row.base_video_url`，并在 `video_url` 里报告最新的那个文件。
 
 ### 构造请求体
 
@@ -122,7 +126,7 @@ const body = buildSubtitleEraseRequest('quzimuToB', {
 
 `resolveVideoModel(catalogue, intent)` 保留精确的 `modelId`、显式 `platformId`、生成类型和时长，宽高比与分辨率匹配不区分大小写。目录必须恰好匹配一项；缺失或歧义会失败，而不是改选其他模型或平台。返回的选择器刷新过期标准标识，并保留 `genNum=1`。原生准备流程使用实时分镜设置；按模型生成应使用 `prepare_video`/`submit_video`。
 
-`resolveVideoModel()` 和 `readStoryboard()` 将已保存的十进制时长字符串（含补零或首尾空白）规范为安全正整数；格式错误的字符串仍不能用于生成。`readStoryboard()` 保留原始提供方快照。`validateVideoDuration()` 校验数字类型的整数秒：精确 ID `doubao-seedance-2-0-260128` 使用 4–15 秒，`doubao-seedance-2-5-260628` 使用 4–30 秒。这些已记录的范围并非模型目录返回。其他型号接受正整数秒，不借用 Seedance 上限；上限未知本身不会阻止准备或提交，但仍必须精确匹配实时目录。原生预览冻结数字时长，项目、指纹与有序主体身份校验保持不变。
+`resolveVideoModel()` 和 `readStoryboard()` 将已保存的十进制时长字符串（含补零或首尾空白）规范为安全正整数；格式错误的字符串仍不能用于生成。`readStoryboard()` 保留原始提供方快照。`seedanceVideoVersion()` 仅将精确 ID `doubao-seedance-2-0-260128`、欢畅 `doubao-seedance-2.0` 识别为 2.0，将 `doubao-seedance-2-5-260628`、欢畅 `doubao-seedance-2.5` 识别为 2.5，其他 ID 返回 `null`。`validateVideoDuration()` 对这些 2.0 型号校验 4–15 整数秒，对这些 2.5 型号校验 4–30 整数秒；素材校验分别允许最多三条和十条音频引用。这些已记录的限制并非模型目录返回。其他型号接受正整数秒，不借用 Seedance 上限；上限未知本身不会阻止准备或提交，但仍必须精确匹配实时目录，请求中的模型及通道 ID 不会被改写。原生预览冻结数字时长，项目、指纹与有序主体身份校验保持不变。
 
 ### 下载媒体
 
@@ -162,7 +166,7 @@ async function downloadVideo(row: VideoSubtask) {
 | [`src/storyboard.ts`](src/storyboard.ts) | 分镜快照与两个只改一个字段的 PUT 变换 |
 | [`src/image.ts`](src/image.ts) | 目录选择器解析、图片请求体与展示单价 |
 | [`src/subtitle.ts`](src/subtitle.ts) | 擦除模型与标准、推导出的擦除框、去字幕请求体 |
-| [`src/upscale.ts`](src/upscale.ts) | SeedVR2 转高清请求体与提交后的任务身份 |
+| [`src/upscale.ts`](src/upscale.ts) | 转高清模型身份、实时选择字段解析、转高清请求体与提交后的任务身份 |
 | [`src/download.ts`](src/download.ts) | 从允许来源进行的有界媒体传输，媒体类型来自头字节 |
 | — | 不发布运行时不变量配套入口；纯读取器不持有可观测的运行时状态，其代数由单元测试保障。 |
 
@@ -196,11 +200,11 @@ async function downloadVideo(row: VideoSubtask) {
 
 `VIDEO_TASK_TYPES` 把 `1` 映射为 `generate`、`10` 映射为 `erase_subtitle`、`20` 映射为 `upscale`；`versions` 携带结果历史。`subtitle_erased` 要求存在当前 URL，且最新类型 10 结果成功并有显式输出 URL，或存在成功的类型 10 历史条目且其 URL 等于当前 URL。只有阶段 10 不足以成立，该标记也不代表字幕视觉审核通过。`upscaled` 要求转高清次数为正或最新阶段为 20，不能仅凭 URL 变化判断。
 
-`RESOLUTION_ORDER` 列出该提供方从 `480p` 到 `4K` 的阶梯。`resolutionRank()` 返回标签的下标，标签无法识别时返回 `-1`。交付目标无法识别时，或来源无法识别且没有已记录的转高清时，`needsUpscale()` 返回 `null`；已记录的转高清会确立一个 1080p 当前文件。交付目标是比较，不是常量，因为生成模型可能封顶在目标之下。
+`RESOLUTION_ORDER` 列出该提供方从 `480p` 到 `4K` 的阶梯。`resolutionRank()` 返回标签的下标，标签无法识别时返回 `-1`。交付目标无法识别或当前文件无法排序时，`needsUpscale()` 返回 `null`。`upscale_model_id` 指明已记录的处理模型：转高清是来源行的最新阶段时从 `lastModelId` 读取，提供方的转高清行（结果 `taskType` 20）本身就是该模型的行。该行的标签就是处理输出；SeedVR2 处理把来源行视为其唯一规格 1080p；其他模型处理后，低于目标的来源行不作排序。交付目标是比较，不是常量，因为生成模型可能封顶在目标之下。
 
 ### 线上形状从何而来
 
-构造器的请求体取自产品工作台的抓包并逐字段复现：去字幕请求体带 `taskType` 10 及其按模型固定的标准，转高清请求体带 `taskType` 20、SeedVR2 模型 id 及其两个标准标识。图片请求体则属于另一类：它从实时目录解析 `standardId`、`platformId` 与 `videoStandardId`，而不是接受调用方传入，因为这些值是账户状态，而过期的一组会让提供方在调用方已经以为成功之后才拒绝请求。同一个 modelId 可能按平台列成多行、各自定价，因此 `resolveImageModel()`、`buildImageRequest()` 与 `readImageDisplayPrice()` 都接受一个 `ImageModelSelection`（`platformId`、`standardId`，或两者都给）；当这个选择没能把候选收敛到恰好一行时，它们会带着全部候选一起失败。
+构造器的请求体取自产品工作台的抓包并逐字段复现：去字幕请求体带 `taskType` 10 及其按模型固定的标准，转高清请求体带 `taskType` 20 以及模型与规格选择字段，抓包时使用的是 SeedVR2。`buildVideoUpscaleRequest()` 从 `resolvePostProcessModel()` 对实时 taskType 20 目录的解析结果取得这些选择字段；`MEDIAKIT_UPSCALE_MODEL` 只给出模型与平台。图片请求体则属于另一类：它从实时目录解析 `standardId`、`platformId` 与 `videoStandardId`，而不是接受调用方传入，因为这些值是账户状态，而过期的一组会让提供方在调用方已经以为成功之后才拒绝请求。同一个 modelId 可能按平台列成多行、各自定价，因此 `resolveImageModel()`、`buildImageRequest()` 与 `readImageDisplayPrice()` 都接受一个 `ImageModelSelection`（`platformId`、`standardId`，或两者都给）；当这个选择没能把候选收敛到恰好一行时，它们会带着全部候选一起失败。
 
 ### 下载模块额外做了什么
 
@@ -242,7 +246,7 @@ async function downloadVideo(row: VideoSubtask) {
 - **图片选择器由调用方决定**——只有当这个选择把候选收敛到恰好一行 `gpt-image-2` 时，`resolveImageModel()` 才接受该目录。多行而未给选择时调用失败，错误里列出每个候选的 `platformId`、`standardId`、单价与单位；给了选择却匹配不到任何候选时同样失败。本库没有任何偏好某个平台或更便宜那一行的规则。
 - **费用与价格字段是证据，不是结算**——`real_cost`、`estimated_cost`、`discount_cost` 与 `readImageDisplayPrice()` 承载提供方报告的内容，且 `readImageDisplayPrice()` 始终返回 `quote_verified: false`；这里没有任何东西授权花钱。
 - **默认擦除矩形不裁切到画面内**——`defaultSubtitleBox()` 复现提供方实测的比例（`zimuTop` 570/1280、高 720/1280、宽为画面内缩一个像素），因此在 720x1280 的源上这个框可以越过底边；该形状取自一次被接受的请求，而不是提供方的保证。
-- **`needsUpscale()` 在无法判断时回答 `null`**——交付目标无法识别，或来源无法识别且没有已记录的转高清证据时，会得到 `null` 而不是布尔值；调用方必须把它当作未回答，而不是可以交付的许可。
+- **`needsUpscale()` 在无法判断时回答 `null`**——交付目标无法识别、来源无法识别且没有已记录的转高清证据，或非 SeedVR2 处理后来源行低于目标时，会得到 `null` 而不是布尔值；调用方必须把它当作未回答，而不是可以交付的许可。目前没有抓到 MediaKit 子结果载荷，因此假定其转高清行与已抓到的 SeedVR2 行一样记录自身模型和输出标签。
 - **媒体传输有界且只允许单一来源**——`downloadMedia()` 只接受 `MEDIA_ALLOWED_ORIGINS` 中的来源，把响应体限制在 `MEDIA_LIMITS`（图片 64 MiB，视频 512 MiB），拒绝重定向，且不写入磁盘。
 - **没有保存过模型设置的分镜照样能读，只有它的计费路径会拒绝**——`modelConfig` 是一项保存下来的选择，因此一个没人配置过的分镜（刚建出来的，或占位件）不会返回其中任何一项。`readStoryboard()` 用 `9:16`、`720p` 与 `genNum=1` 顶替，把每一处顶替都报在 `model_config_defaults` 里、也报成 `model_config_notes` 里的一句，并让 `content_duration_ms` 保持 null——因为没有已保存的时长可报。`duration` 与 `modelId` 永不顶替：`withGenerationEnabled()` 交给提供方的是它自己的快照，因此一份缺少"提供方据此行动"的字段的已保存配置会被拒绝，报文带出期望的线上字段、提供方没有返回的那些、实际收到载荷的脱敏结构，以及 `jubian_model preview → apply` 这条修法。提供方确实返回了的值仍然必须可用，因此空标签、读不了的 `storyboardMaterialList` 与缺失的身份都会被点名拒绝。
 - **提供方合法给 null 的字段永远不是拒绝理由**——本提供方把未设置的 `episodeCount`、`scriptName`、`remark`、`updateBy`、`updateTime` 与 `videoSubTaskList` 拼成 `null`，把未设置的 `storyboardMaterialList` 拼成 `null` 或 `[]`。这些字段一律原样带进快照，只由"为它而问"的那次读取检查，因此 `readStoryboard()` 只要求身份、生成标记与素材键，`readTaskPage()` 只要求任务身份。

@@ -12,8 +12,10 @@ export interface MarketCreatorDraft {
   publisher: string
   uploadRequest: { accountId: MarketIdentity['accountId']; key: Parameters<MarketActions['publishDraft']>[2]; releaseId: MarketInstallation['release']['id']; publisherId: MarketIdentity['publishers'][number]['id'] } | null
 }
-type State = { creator: MarketCreatorDraft }
+type State = { creator: MarketCreatorDraft; creatorMode: 'skill' | 'upload'; marketTab: 'discover' | 'installed' | 'publish' }
 type Actions = {
+  setCreatorMode: (draft: State, mode: State['creatorMode']) => void
+  setMarketTab: (draft: State, tab: State['marketTab']) => void
   setCreator: (draft: State, value: MarketCreatorDraft) => void
   prepared: (draft: State, revision: number, id: MarketInstallation['release']['id']) => void
   completeUpload: (draft: State, key: NonNullable<MarketCreatorDraft['uploadRequest']>['key']) => void
@@ -25,8 +27,10 @@ type Actions = {
  */
 export function createMarketViewStore(): EngineStoreHandle<State, Actions> {
   return defineStore({
-    init: (): State => ({ creator: { revision: 0, source: '', metadata: { name: '', title: '', description: '', version: '', license: '', category: '', requirements: [], examples: [] }, selectedId: null, publisher: '', uploadRequest: null } }),
+    init: (): State => ({ marketTab: 'discover', creatorMode: 'skill', creator: { revision: 0, source: '', metadata: { name: '', title: '', description: '', version: '', license: '', category: '', requirements: [], examples: [] }, selectedId: null, publisher: '', uploadRequest: null } }),
     actions: {
+      setCreatorMode: (draft, mode) => { draft.creatorMode = mode },
+      setMarketTab: (draft, tab) => { draft.marketTab = tab },
       setCreator: (draft, value: MarketCreatorDraft) => { draft.creator = { ...value, revision: draft.creator.revision + 1 } },
       prepared: (draft, revision, id) => {
         if (draft.creator.revision === revision && draft.creator.uploadRequest === null) {

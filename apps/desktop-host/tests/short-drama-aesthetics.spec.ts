@@ -90,8 +90,13 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(system).toContain('所有资产图默认16:9横版')
     expect(system).toContain('用户明确指定其他比例时按指定执行')
     expect(system).toContain('资产图比例与视频成片比例分别处理')
-    for (const requirement of ['人物角色资产图：16:9横版白底', '五官清晰的面部特写',
-      '完整保留头部、发型和双脚', '仅将右侧可见脸部覆盖为纯白', '背面保留后脑与发型', '严禁无头、截头']) {
+    expect(system).toContain('人物资产生成与交付提醒：先查看 tweet-drama-asset-vision-check 的 references/character-delivery-layout.md 及配图')
+    expect(system).toContain('只参考交付版式，不参考五官或人物形象')
+    expect(system).toContain('配图默认只供看版式，不自动混入角色身份或画风参考')
+    for (const requirement of ['人物角色资产图：16:9横版白底', '四个独立区域从左到右依次',
+      '正脸胸像', '正面（0°）全身、严格侧面（90°）全身、背面（180°）全身',
+      '肩部和上胸，不遮罩', '完整保留头部、发型和双脚', '纯白遮罩仅贴合右侧正面和侧面的脸部轮廓',
+      '背面完整呈现后脑、发型、颈部和服装，不加任何遮罩或白块', '以正背两视图替代三视图']) {
       expect(system).toContain(requirement)
     }
     expect(system).not.toContain('未指定时可用16:9横版白底设定板')
@@ -112,9 +117,10 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(bodies[1]).toContain('保留人物身份、物种、关键形态、剧情尺度、动作、道具功能与原台词')
     expect(bodies.join('\n')).not.toContain('土得帅')
     expect(bodies[0]).not.toContain('每次生成前必读')
-    expect(bodies[0]).toContain('左侧为正面平视的面部特写')
-    for (const requirement of ['完整保留头部、发型和从头到脚的身体', '右侧可见的脸部区域覆盖纯白',
-      '只遮脸，不覆盖整个头或头发', '背面保留完整后脑与发型', '严禁无头、截头或裁掉脚部']) {
+    expect(bodies[0]).toContain('左侧为正面平视的人物胸像')
+    for (const requirement of ['双肩及上胸，不遮罩', '正面0°、严格侧面90°、背面180°三张并列全身图',
+      '仅正面和侧面全身图的脸部区域覆盖纯白遮罩', '背面全身图完全不遮罩',
+      '三视图从完整头顶到鞋底', '严禁无头、截头或裁脚']) {
       expect(bodies[0]).toContain(requirement)
     }
     expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('preflight <集号> --script <本集镜头脚本>')

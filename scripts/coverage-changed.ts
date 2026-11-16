@@ -51,12 +51,19 @@ function main(): void {
   const scope = JSON.parse(renderChangeScope(['--base', values.base, ...values.head === undefined ? [] : ['--head', values.head]], root)) as {
     paths: Record<'committed' | 'staged' | 'unstaged' | 'untracked', string[]>
   }
-  const packages = changedPackages(Object.values(scope.paths).flat()).filter(dir => existsSync(join(root, dir, 'tests')))
+  const packages = changedPackages(Object.values(scope.paths).flat())
   if (packages.length === 0) {
     console.log(`coverage-changed: no coverage-gated package source or tests changed since ${values.base}`)
     return
   }
+  const missing = packages.filter(dir => !existsSync(join(root, dir, 'tests')))
+  if (missing.length > 0 && values.tests.length === 0) {
+    console.error(`coverage-changed: no local tests for ${missing.join(', ')}; provide owning tests with --tests <path>`)
+    process.exitCode = 2
+    return
+  }
   const args = coverageArguments(packages, values.tests)
+  for (const directory of missing) args.splice(args.indexOf(`${directory}/tests/`), 1)
   console.log(`coverage-changed: ${packages.join(', ')}\n  vitest ${args.join(' ')}`)
   if (values['dry-run']) return
   const result = spawnSync(process.execPath, [join(root, 'node_modules/vitest/vitest.mjs'), ...args], { cwd: root, stdio: 'inherit' })

@@ -19,9 +19,9 @@ import { seriesBudgetLimit } from '../src/budget-settings.ts'
 import * as Jubian from '../src/index.ts'
 
 it.each([
-  { scenario: 'a live per-video price', priced: true },
-  { scenario: 'a missing live price', priced: false },
-])('records upscale results with $scenario under the default budget and no manual estimates', async ({ priced }) => {
+  { scenario: 'a live MediaKit per-minute price', priced: true },
+  { scenario: 'a missing live MediaKit price', priced: false },
+])('records default upscale results with $scenario under the default budget and no manual estimates', async ({ priced }) => {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
     { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'config-editor', name: 'cordis:editor' }, { id: 'settings', name: 'cordis:settings' },
@@ -48,17 +48,20 @@ it.each([
         resultList: [{ tosVideoUrl: 'https://media.example.test/source.mp4' }] }] }
     } else if (method === 'GET' && path === '/model/charge/getSelectList') {
       expect(url.searchParams.get('taskType')).toBe('20')
-      data = [{ id: 55, modelId: '2074071626416742401', platformId: 'RUNNING_HUB',
-        unit: '元/条', ...(priced ? { unitPrice: 1 } : {}), genTypes: [],
-        videoStandards: [{ id: 303, modelId: '2074071626416742401', resolution: '1080p' }] }]
+      data = [{ id: 55, modelId: '2074071626416742401', platformId: 'RUNNING_HUB', unit: '元/条', unitPrice: 1,
+        genTypes: [], videoStandards: [{ id: 303, modelId: '2074071626416742401', resolution: '1080p' }] },
+      { id: 27, modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT', unit: '元/分钟(1系数)',
+        ...(priced ? { unitPrice: 0.375 } : {}), genTypes: [], videoStandards: [
+          { id: 165, modelId: 'AI MediaKit', resolution: '1080p', ratio: 'standard', height: 4, width: 0, frames: 31 },
+          { id: 166, modelId: 'AI MediaKit', resolution: '720p', ratio: 'standard', height: 2, width: 0, frames: 31 }] }]
     } else if (method === 'POST' && path === '/aigc/storyboard/hdConversion') {
       expect(priced, 'an unquoted operation cannot reach the paid endpoint').toBe(true)
       expect(body).toMatchObject({ scriptId: 2708,
         episodeId: 46744, firstResultId: 1007193, parentResultId: 1007193, duration: 13.5,
-        videoUrl: 'https://media.example.test/source.mp4', taskType: 20, standardId: 55,
-        modelId: '2074071626416742401', platformId: 'RUNNING_HUB', videoStandardId: 303 })
+        videoUrl: 'https://media.example.test/source.mp4', taskType: 20, standardId: 27,
+        modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT', videoStandardId: 165 })
       expect(await ledger.find('loader-upscale')).toMatchObject({ method: 'video_upscale',
-        script_id: 2708, quoted_amount: '1.00', quote_unit: 'CNY', quote_standard_id: 55, outcome: null })
+        script_id: 2708, quoted_amount: '1.50', quote_unit: 'CNY', quote_standard_id: 27, outcome: null })
       data = 429001
     } else throw new Error(`Unexpected offline provider request: ${method} ${path}`)
     return new Response(JSON.stringify({ code: 200, data }), { status: 200 })
@@ -103,7 +106,7 @@ it.each([
       const records = await ledger.records()
       expect(records).toHaveLength(1)
       expect(records[0]).toMatchObject({ idempotency_key: 'loader-upscale', method: 'video_upscale',
-        script_id: 2708, quoted_amount: '1.00', quote_unit: 'CNY', quote_standard_id: 55,
+        script_id: 2708, quoted_amount: '1.50', quote_unit: 'CNY', quote_standard_id: 27,
         outcome: 'accepted' })
       expect(Number.isFinite(Date.parse(records[0]?.quote_observed_at ?? ''))).toBe(true)
     } else {
@@ -113,7 +116,7 @@ it.each([
     const budget = results.at(-1)?.content[0]
     if (budget?.type !== 'text') throw new Error('Missing recorded project budget')
     expect(JSON.parse(budget.text)).toMatchObject({ script_id: 2708, source: 'default', limit_cents: 400_000,
-      settled_cents: priced ? 100 : 0, reserved_cents: 0, accounting_complete: true })
+      settled_cents: priced ? 150 : 0, reserved_cents: 0, accounting_complete: true })
     expect(adapter.requests).toHaveLength(priced ? 4 : 3)
     expect(adapter.requests.at(-1)?.messages.filter(message => message.role === 'tool')
       .map(message => message.content)).toEqual(results.map(message => message.content))

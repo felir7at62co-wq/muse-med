@@ -65,8 +65,6 @@ export class RecoveryDirectory {
   readonly notice = createSnapshotStore<RecoveryNotice>({ sequence: 0, kind: null, reason: null })
   private binding: { token: object; client: RecoveryClient } | undefined
   private picker: { token: object; pick: () => Promise<string | null> } | undefined
-  private epoch = 0
-  private selection = 0
   private dialogId = 0
   private operation: object | undefined
   private closed = false
@@ -79,14 +77,12 @@ export class RecoveryDirectory {
   connect(client: RecoveryClient): () => void {
     if (this.closed) return () => {}
     const token = {}
-    this.epoch++
     this.binding = { token, client }
     this.operation = undefined
     this.state.update((state) => { state.connected = true; state.busy = false; state.loading = false })
     void this.refresh()
     return () => {
       if (this.binding?.token !== token) return
-      this.epoch++
       this.binding = undefined
       this.operation = undefined
       this.state.update((state) => { state.connected = false; state.busy = false; state.loading = false; state.dialog = null })
@@ -114,7 +110,6 @@ export class RecoveryDirectory {
   dispose(): void {
     this.episodes.dispose()
     this.closed = true
-    this.epoch++
     this.binding = undefined
     this.picker = undefined
     this.operation = undefined
@@ -127,7 +122,6 @@ export class RecoveryDirectory {
   setProjectDir(path: string): void {
     if (this.closed) return
     this.episodes.retireSelection()
-    this.selection++
     this.operation = undefined
     this.state.update((state) => { state.projectDir = path; state.fieldError = false
       state.busy = false; state.loading = false; state.dialog = null })
@@ -254,10 +248,9 @@ export class RecoveryDirectory {
     call: (client: RecoveryClient, active: () => boolean) => Promise<void>): Promise<void> {
     const binding = this.binding
     if (this.closed || binding === undefined || this.operation !== undefined) return
-    const operation = {}, epoch = this.epoch, selection = this.selection
+    const operation = {}
     this.operation = operation
-    const active = (): boolean => !this.closed && this.binding === binding && this.epoch === epoch
-      && this.selection === selection && this.operation === operation
+    const active = (): boolean => !this.closed && this.binding === binding && this.operation === operation
     this.state.update((state) => {
       state.busy = true; state.loading = kind === 'query'
       if (kind === 'query') state.queryError = null

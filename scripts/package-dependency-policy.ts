@@ -108,11 +108,11 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'readReferenceAudio', 'readReferenceImage', 'readScript',
     'readScriptList', 'readStoryboard', 'readStoryboardPage', 'readSubtaskPage', 'readSubtitleTaskId',
     'readTaskList', 'readTaskPage', 'readUpscaleTaskId', 'readVoiceSlot', 'referenceAudioUrls', 'referenceMaterialItem',
-    'resolveImageModel', 'resolveImageStyle', 'resolvePostProcessModel', 'resolveVideoModel', 'responseRecords', 'signTosObjectPut', 'stableJson',
+    'resolveImageModel', 'resolveImageStyle', 'resolvePostProcessModel', 'resolveVideoModel', 'responseRecords', 'seedanceVideoVersion', 'signTosObjectPut', 'stableJson',
     'stableSha256', 'storyboardMaterials', 'submissionSemantics', 'taskIdOf', 'taskSemanticFields', 'taskStatusOf',
     'terminalOutcome', 'trustedSubjectId', 'validateAudioMaterial', 'validateImageRequestInput', 'validateNativeVideoPreview',
     'verifySubjectSelection', 'wireText', 'withGenerationDisabled',
-    'VIDEO_UPSCALE_MODEL', 'SUBTITLE_ERASE_MODELS',
+    'MEDIAKIT_UPSCALE_MODEL', 'SUBTITLE_ERASE_MODELS',
   ],
   '@deepseek-ai/dsh-llm': ['MessageId', 'createUserMessage', 'freezeMessage'],
   // Profile settings must match the installed Node provider's configuration schema.

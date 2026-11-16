@@ -180,7 +180,8 @@ describe('SessionSkillCatalog', () => {
     const session = ctx.sessions.create(sessionId, { meta: { cwd: '/live/project' } })
     const agent = { id: sessionId, session, status: 'idle', ctx } as Agent
     await ctx.agents.register(agent)
-    const ensureDirectory = vi.spyOn(ctx.workingDirectory, 'ensure').mockResolvedValue('/live/current')
+    vi.spyOn(ctx.workingDirectory, 'get').mockReturnValue('/live/current')
+    const ensureDirectory = vi.spyOn(ctx.workingDirectory, 'ensure').mockRejectedValue(new Error('catalog reads must not move the Session'))
     ctx.provide('sessionQuery', {
       observeSession: () => Promise.resolve(observation(sessionId, { cwd: '/live/project' })),
     } as never)
@@ -204,8 +205,9 @@ describe('SessionSkillCatalog', () => {
       }],
     })
     expect(scopedList).toHaveBeenCalledWith({ cwd: '/live/current', scope: agent })
-    expect(ensureDirectory).toHaveBeenCalledWith(agent, expect.any(AbortSignal))
+    expect(ensureDirectory).not.toHaveBeenCalled()
     expect(session.header.cwd).toBe('/live/project')
+    expect(session.snapshotEvents().filter(event => event.type === 'working-directory/change')).toEqual([])
     expect(acquireScope).not.toHaveBeenCalled()
   })
 

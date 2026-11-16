@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-14-market-preset-portrait.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-14-market-preset-portrait.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-14-market-preset-portrait:
+  en: af826baca45e42fb
+  zh: 7228f99f2186b6f2
+/2026-11-14-market-preset-portrait/summary:
+  en: 52f85b1a046806a8
+  zh: 2048c54b8109d44e
+/2026-11-14-market-preset-portrait/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-14-market-preset-portrait/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-14-market-preset-portrait/compatibility:
+  en: 34033786ecb47749
+  zh: d83bc8ecdc1a9b4c
+/2026-11-14-market-preset-portrait/verification:
+  en: 43a70de53fc25d31
+  zh: f41c5d15bd25f932
+/2026-11-14-market-preset-portrait/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

@@ -51,7 +51,7 @@ export function readInstallerLocales(directory = defaultDirectory) {
       const actual = locale[field]
       if (Object.keys(expected).sort().join(',') !== Object.keys(actual).sort().join(',')) throw new Error(`${locale.id}: ${field} keys differ from English`)
       for (const [key, text] of Object.entries(expected)) {
-        const placeholders = (/** @type {string} */ value) => (value.match(/%.?|(?<![A-Za-z0-9/])\/[A-Z][A-Z_]*(?:=[\w-]+)?/gu) ?? []).join(',')
+        const placeholders = (/** @type {string} */ value) => (value.match(/%.?|\$(?:[0-9]|R[0-9])\b|(?<![A-Za-z0-9/])\/[A-Z][A-Z_]*(?:=[\w-]+)?/gu) ?? []).join(',')
         if (placeholders(text) !== placeholders(actual[key])) throw new Error(`${locale.id}: ${key} changes format placeholders or commands`)
       }
     }
@@ -62,13 +62,18 @@ export function readInstallerLocales(directory = defaultDirectory) {
 /**
  * Generate guarded NSIS LangString declarations from validated JSON resources.
  * @param {ReturnType<typeof readInstallerLocales>} locales - Resources for all languages or one isolated native-test build.
- * @returns {string} UTF-8 NSIS source, with literal dollar signs, quotes and line breaks escaped.
+ * @returns {string} UTF-8 NSIS source with escaped literals and runtime registers preserved only in prerequisite diagnostics.
  */
 export function renderInstallerStrings(locales) {
-  const escape = (/** @type {string} */ text) => text.replace(/\$|"|\r|\n/gu, character => ({ '$': '$$', '"': '$\\"', '\r': '$\\r', '\n': '$\\n' })[character])
+  const escape = (/** @type {string} */ text, /** @type {string} */ key) => {
+    let escaped = text.replace(/\$|"|\r|\n/gu, character => ({ '$': '$$', '"': '$\\"', '\r': '$\\r', '\n': '$\\n' })[character])
+    const registers = key === 'INSTALLER_VC_EXIT_FAILED' ? ['$2'] : key === 'INSTALLER_VC_LAUNCH_FAILED' ? ['$0', '$1'] : []
+    for (const register of registers) escaped = escaped.replaceAll(`$${register}`, register)
+    return escaped
+  }
   return '; Generated from installer/locales/*.json.\n' + locales.map(locale =>
     `!ifdef LANG_${locale.nsisLanguage}\n` + Object.entries(locale.strings).map(([key, text]) =>
-      `LangString ${key} \${LANG_${locale.nsisLanguage}} "${escape(text)}"\n`).join('') + '!endif\n').join('')
+      `LangString ${key} \${LANG_${locale.nsisLanguage}} "${escape(text, key)}"\n`).join('') + '!endif\n').join('')
 }
 
 if (import.meta.main) {

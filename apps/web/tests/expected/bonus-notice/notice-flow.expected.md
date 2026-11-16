@@ -33,14 +33,14 @@ failed.links count=2 hrefs={{origin}}/usage,{{origin}}/usage
 failed.reached usages=2 gets=1 summaries=1
 en.notice=Bonus credited / You received a CNY 9.00 DSH trial credit.
 en.get locale=en_US query=
-web.notice=赠金已到账 / 已赠送您 4.00 元 DSH 体验赠金。 acks=1
+web.notice=absent account-menu=absent gets=0 acks=0
 stack.hidden cards=3 acks=0
-stack.initial cards=3 acks=stack-first widths=260,252 inset=10 offset=-4 transition=0.25s ease-out
+stack.initial cards=3 acks=stack-first widths=259,251 inset=10 offset=-4 transition=0.25s ease-out
 stack.resized sidebar=360 card=280 left-inset=10
-stack.resized sidebar=280 card=260 left-inset=10
+stack.resized sidebar=280 card=259 left-inset=10
 stack.rail cards=3 visible=false dismissed=0
 stack.expanded cards=3 duplicate-acks=0 dismissed=0
-stack.promoted cards=2 acks=stack-first,stack-second width=260 same-node=true
+stack.promoted cards=2 acks=stack-first,stack-second width=259 same-node=true
 stack.dismissed cards=0 acks=stack-first,stack-second,stack-third
 refresh.retained cards=3 acks=refresh-first same-node=true
 refresh.localized locale=en_US content-reads=3 list-reads=0 acks=1 same-node=true

@@ -93,6 +93,18 @@ describe('durable image selections', () => {
     expect(session.deriveEventMessage(source)?.source).toEqual(source.data.message.source)
   })
 
+  it('copies a logged notice to every selected occurrence and leaves unselected ones without it', () => {
+    const session = createSession(SessionId('notice'))
+    const source = input(session, [image, image, image])
+    session.append('image/offload', { targets: [{ seq: source.seq, imageIndexes: [0, 2] }], notice: 'shown earlier' })
+    session.append('image/offload', { targets: [{ seq: source.seq, imageIndexes: [1] }] })
+    expect(session.deriveMessages()[0]?.content).toEqual([
+      { ...image, offloaded: true, offloadNotice: 'shown earlier' }, { ...image, offloaded: true },
+      { ...image, offloaded: true, offloadNotice: 'shown earlier' },
+    ])
+    expect(JSON.stringify(source)).not.toContain('offloadNotice')
+  })
+
   it.each([
     null, {}, { targets: [] }, { targets: 'bad' }, { targets: [null] },
     { targets: [{ seq: 0, imageIndexes: [] }] },
@@ -107,6 +119,9 @@ describe('durable image selections', () => {
     { targets: [{ seq: 0, imageIndexes: [2] }] },
     { targets: [{ seq: 1, imageIndexes: [0] }] },
     { targets: [{ seq: 0, imageIndexes: [0] }, { seq: 0, imageIndexes: [1] }] },
+    { targets: [{ seq: 0, imageIndexes: [0] }], notice: 7 },
+    { targets: [{ seq: 0, imageIndexes: [0] }], notice: ' ' },
+    { targets: [{ seq: 0, imageIndexes: [0] }], notice: 'x'.repeat(1001) },
   ])('rejects malformed selections at append and replay without partial application: %j', (data) => {
     const session = createSession(SessionId('invalid'))
     input(session)

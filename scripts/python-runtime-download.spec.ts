@@ -168,7 +168,7 @@ it('starts without downloading, independently downloads either resource, and reu
     // A cached sidecar only redirects Kit resolution; the CLI process receives no Office executable paths.
     const started = await run().done
     expect(started.code, started.stderr).toBe(0)
-    expect(JSON.parse(started.stdout)).toEqual({ primary: join(cache, 'a'.repeat(64), 'primary', 'primary-runtime') })
+    expect(JSON.parse(started.stdout)).toEqual({ primary: toNamespacedPath(join(cache, 'a'.repeat(64), 'primary', 'primary-runtime')) })
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
