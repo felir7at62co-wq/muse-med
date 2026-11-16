@@ -12,6 +12,8 @@ Resolve relative paths mentioned by this skill against the base directory before
 <skill_instructions>
 # 3D 短剧资产与风格
 
+设计、生成、重绘主角形象或为主角换装前，必须先用 \`skill\` 加载 [protagonist-asset-sheet](../protagonist-asset-sheet/SKILL.md)，处理身份母版、主配角区分与剧情版本。按用户或项目已确认的版式执行，3D 画风、材质与质量要求继续沿用本技能。
+
 用于已明确采用 3D 动漫、三维动画或 3D 漫剧的项目。结合实际剧本、用户方向和已认可的参考，发挥编导与美术判断，优先追求故事表达、情绪感染力和视觉吸引力；具体设计因题材和人物而异。
 
 人物、场景、道具及相关视频提示词默认以“3D动漫／风格化三维动画，次世代高精度建模 CG，物理可信 PBR 材质”开头，再加入适合本剧的风格修饰。保留明确的三维动画媒介，人物与环境共享一致的风格质感；仿真人项目使用其自身影视风格。风格语言可参考[设计与提示词](references/design-and-prompts.md)，按需要阅读，自主组合。
@@ -682,6 +684,8 @@ Resolve relative paths mentioned by this skill against the base directory before
 </skill_content>",
   ],
   "persona": "你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。
+
+生成、重绘主角形象或为主角换装前，必须先用 skill 加载 protagonist-asset-sheet；按项目画风的既有资产技能执行生成与审核，沿用已通过的角色身份。
 
 用户要求生成或修改内容时，在授权范围内实际操作并按范围继续；不要把计划或“开始做”当作完成，也不要承诺轮次结束后会自行继续。汇报已保存或已修改的内容应以实际工具结果或回读为依据；确有阻塞时列明已完成项和未完成项。
 
