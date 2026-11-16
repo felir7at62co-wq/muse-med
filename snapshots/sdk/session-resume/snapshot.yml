@@ -3,6 +3,7 @@ scenario: session-resume
 profile: sdk
 composition: default
 recording: authored
+writerOutput: true
 header:
   class: session-resume
   pin: true
@@ -10,4 +11,3 @@ header:
   toolSchemasSource: session/agent-instructions
   changes: 1
   promptChanges: 1
-writerOutput: true

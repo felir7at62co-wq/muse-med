@@ -324,6 +324,8 @@ interface SessionEventMap {
       .toEqual(collectLogEvents(root).map(event => event.name).sort())
     expect(model.roots.some(root => root.kind === 'header')).toBe(true)
     expect(model.roots.some(root => root.kind === 'envelope')).toBe(true)
+    expect(model.types.flatMap(type => type.sources).filter(source => /^(?:packages|apps)\/.*\/lib\//u.test(source)))
+      .toEqual([])
     const digests = new Set(model.types.map(type => type.digest))
     for (const root of model.roots) {
       expect(schemaDigest(root.schema)).toBe(root.digest)

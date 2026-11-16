@@ -742,6 +742,45 @@ it('requires a review ID for recovered records behind stable native directory al
   } finally { for (const alias of aliases.toReversed()) await unlink(alias) }
 })
 
+it('accepts one file path that resolves to the selected saved review', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  const before = h.review(), saved = reviewsOf(h.readReviews, h.agent.session)
+  expect(before).toBeDefined()
+  await h.run({ name: 'video_inspect', args: { method: 'status', file_path: h.input, review_id: before.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  expect(h.review()).toBe(before)
+})
+
+it('requires a review ID when native directory aliases identify one source through two saved records', async () => {
+  const h = await fixture(), physical = join(h.root, 'physical'), file = join(physical, 'episode-80.mp4')
+  await mkdir(physical)
+  await copyFile(h.input, file)
+  const savedAlias = join(h.root, 'saved-alias'), queryAlias = join(h.root, 'query-alias')
+  for (const alias of [savedAlias, queryAlias]) await symlink(physical, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  try {
+    await h.run(h.call('scan', { file_path: file }), undefined)
+    const first = reviewsOf(h.readReviews, h.agent.session)[file]!
+    expect(first).toBeDefined()
+    const secondPath = join(savedAlias, 'episode-80.mp4')
+    saveReview(h.readReviews, h.agent.session, { ...first, id: VideoReviewId('native-alias-second'), path: secondPath })
+    const recovered = reviewsOf(h.readReviews, h.agent.session), queryPath = join(queryAlias, 'episode-80.mp4')
+    expect(recovered[queryPath]).toBeUndefined()
+    const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: queryPath } }, undefined)
+    expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+    expect(h.results().at(-1)?.isError).toBe(true)
+    expect(reviewsOf(h.readReviews, h.agent.session)).toBe(recovered)
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: queryPath, review_id: first.id } }, undefined)
+    expect(h.results().at(-1)?.isError).toBe(false)
+    expect(reviewsOf(h.readReviews, h.agent.session)).toEqual({
+      [file]: { ...first, follow_up: { status: 'closed' } }, [secondPath]: recovered[secondPath],
+    })
+    expect(spawn).not.toHaveBeenCalled()
+  } finally { for (const alias of [queryAlias, savedAlias]) await unlink(alias) }
+})
+
 it.skipIf(process.platform === 'win32')('passes symlink-parent traversal to the filesystem provider before probing the source', async () => {
   const h = await fixture(), physical = join(h.root, 'physical', 'episode-80.mp4')
   await mkdir(join(h.root, 'physical', 'nested'), { recursive: true })
@@ -2408,3 +2447,45 @@ it('allows a fork to explicitly start its own scan without changing the inherite
     expect(h.review()).toEqual(parentReview)
   } finally { await child.dispose() }
 }, 30_000)
+
+it('ignores an unresolvable saved source while selecting one exact provider alias', async () => {
+  const h = await fixture(), missing = 'unresolvable-saved.mp4', alias = relative(h.root, h.input)
+  const fields = { episode: 'episode-1', source_version: 'recorded-source', duration: 80,
+    scanned_until: 0, scan_complete: false, frames: [] }
+  saveReview(h.readReviews, h.agent.session, { ...fields, id: VideoReviewId('unresolvable-saved'), path: missing })
+  saveReview(h.readReviews, h.agent.session, { ...fields, id: VideoReviewId('selected-alias'), path: alias })
+  const original = h.ctx.fs.resolve.bind(h.ctx.fs)
+  const resolve = vi.spyOn(h.ctx.fs, 'resolve').mockImplementation(async (path, options) => {
+    if (path === missing) throw Error('Saved source cannot be resolved')
+    return await original(path, options)
+  })
+  try {
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input } }, undefined)
+    expect(h.results().at(-1)?.isError).toBe(false)
+    const reviews = reviewsOf(h.readReviews, h.agent.session)
+    expect(reviews[alias]?.follow_up?.status).toBe('closed')
+    expect(reviews[missing]?.follow_up).toBeUndefined()
+  } finally { resolve.mockRestore() }
+})
+
+it('requires one saved review when portable provider aliases resolve to the same source', async () => {
+  const h = await fixture(), alias = relative(h.root, h.input), secondPath = `./${alias}`
+  const fields = { episode: 'episode-1', source_version: 'recorded-source', duration: 80,
+    scanned_until: 0, scan_complete: false, frames: [] }
+  const first = { ...fields, id: VideoReviewId('first-portable-alias'), path: alias }
+  const second = { ...fields, id: VideoReviewId('second-portable-alias'), path: secondPath }
+  saveReview(h.readReviews, h.agent.session, first)
+  saveReview(h.readReviews, h.agent.session, second)
+  const other = join(h.root, 'other-source.mp4')
+  await copyFile(h.input, other)
+  await h.run({ name: 'video_inspect', args: { method: 'close', review_id: first.id, file_path: other } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+  expect(reviewsOf(h.readReviews, h.agent.session)[alias]?.follow_up).toBeUndefined()
+  expect(reviewsOf(h.readReviews, h.agent.session)[secondPath]?.follow_up).toBeUndefined()
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input, review_id: first.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)[alias]?.follow_up?.status).toBe('closed')
+  expect(reviewsOf(h.readReviews, h.agent.session)[secondPath]?.follow_up).toBeUndefined()
+})

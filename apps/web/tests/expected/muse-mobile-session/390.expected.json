@@ -7,7 +7,7 @@
   "questionAnswers": 1,
   "tools": [
     "write",
-    "ask_user",
+    "ask_user_question",
     "present"
   ],
   "toolErrors": [
@@ -16,7 +16,6 @@
     false
   ],
   "turns": [
-    "completed",
     "completed"
   ],
   "finalReply": true,

@@ -3,6 +3,7 @@ scenario: system-prompt-in-history
 profile: sdk
 composition: system-prompt-in-history
 recording: authored
+writerOutput: true
 header:
   class: system-prompt-in-history
 replay:

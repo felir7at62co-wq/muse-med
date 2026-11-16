@@ -2927,6 +2927,9 @@ describe('headless recorded-session snapshots', () => {
               : { DSH_PERMISSION_MODE: scenario.manifest.permission }),
             ...scenario.manifest.environment,
             ...scenario.name === 'muse-visualize' ? { DSH_VISUALIZE_FIXTURE_LAYOUT: visualizationLayoutReceipt } : {},
+            ...(scenario.name === 'subagent-acp-diagnostic' ? {
+              DSH_ACP_DIAGNOSTIC_SERVER: join(repoRoot, 'packages/subagent/subagent-acp/tests/mock-acp-server.ts'),
+            } : {}),
             ...(scenario.name === 'mcp-resources' || scenario.name === 'mcp-resources-ptc' ? {
               DSH_MCP_RESOURCES_FIXTURE: join(repoRoot, 'packages/mcp/mcp-client/tests/fixtures/resources-server.ts'),
             } : {}),
@@ -3595,10 +3598,11 @@ describe('headless recorded-session snapshots', () => {
               expect(existsSync(join(cwd, 'music'))).toBe(false)
               expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
             }
-            if (scenario.name === 'muse-storyboard-voice-identity') {
+            if (['muse-storyboard-voice-identity', 'muse-storyboard-voiceover-cards'].includes(scenario.name)) {
               const events = parseSessionLog(actualLogs[0]!.content)
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results).toHaveLength(4)
+              const preparesCards = scenario.name === 'muse-storyboard-voiceover-cards' || scenario.name === 'muse-storyboard-voice-identity'
+              expect(results).toHaveLength(preparesCards ? 4 : 2)
               for (const [index, message] of results.slice(0, 2).entries()) {
                 expect(message.isError).toBe(true)
                 const block = message.content[0]
@@ -3606,15 +3610,17 @@ describe('headless recorded-session snapshots', () => {
                 expect(block.text).toContain(index === 0 ? 'Project voice configuration project_bible' : 'Shared character voice requires')
                 expect(block.text).not.toContain('expected envelope')
               }
-              const statuses = results.slice(2).map(message => {
-                expect(message.isError).toBe(false)
-                const block = message.content.find(item => item.type === 'text')
-                if (block?.type !== 'text') throw new Error('Missing voiceover preparation result')
-                const result = JSON.parse(block.text)
-                expect(result).toMatchObject({ status: 'prepared', content_duration_ms: 25000 })
-                return result.voice_continuity_review.status
-              })
-              expect(statuses).toEqual(['voice_reference_present_unverified', 'dialogue_without_voice_reference'])
+              if (preparesCards) {
+                const statuses = results.slice(2).map(message => {
+                  expect(message.isError, JSON.stringify(message.content)).toBe(false)
+                  const block = message.content.find(item => item.type === 'text')
+                  if (block?.type !== 'text') throw new Error('Missing voiceover preparation result')
+                  const result = JSON.parse(block.text)
+                  expect(result).toMatchObject({ status: 'prepared', content_duration_ms: 25000 })
+                  return result.voice_continuity_review.status
+                })
+                expect(statuses).toEqual(['voice_reference_present_unverified', 'dialogue_without_voice_reference'])
+              }
               const evidence = JSON.parse(await readFile(join(cwd, '_probe/voice-identity-fixture.json'), 'utf8'))
               expect(evidence).toMatchObject({ simulated: true, writes: 0 })
               expect(evidence.requests.slice(0, 3)).toEqual([
@@ -3622,6 +3628,7 @@ describe('headless recorded-session snapshots', () => {
                 { method: 'GET', path: '/prod-api/aigc/storyboard/901' },
                 { method: 'GET', path: '/prod-api/aigc/asset/77' },
               ])
+              if (!preparesCards) expect(evidence.requests).toHaveLength(3)
               expect(evidence.requests.every((row: JsonObject) => row.method === 'GET')).toBe(true)
             }
             if (scenario.name === 'muse-voice-periods') {

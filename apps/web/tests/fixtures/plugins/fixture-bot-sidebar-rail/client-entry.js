@@ -22,7 +22,7 @@ export function apply(ctx) {
   const actions = { toggleSidebar: () => ctx.layout.toggleSidebar(), openSession: (id) => { landing.cancel(); note(id) },
     prepareLanding: () => landing.guard(),
     openPalette: () => note('search'), openSettings: () => note('settings'), openNewChat: () => note('new'),
-    clearUnread() {}, landOn() {}, openMenu() {} }
+    prepareLanding: () => () => true, clearUnread() {}, landOn() {}, openMenu() {} }
   function Sidebar(props) {
     return h(TeamSidebar, { ...props, actions,
       useRoster: select => select(roster), useUi: select => select({ unread: {} }),

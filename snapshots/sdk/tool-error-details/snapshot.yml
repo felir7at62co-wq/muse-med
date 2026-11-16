@@ -3,9 +3,9 @@ scenario: tool-error-details
 profile: sdk
 composition: default
 recording: authored
+writerOutput: true
 header:
   class: native-then-ptc
   pin: true
   changes: 1
   promptChanges: 1
-writerOutput: true

@@ -31,6 +31,28 @@ import { FILL_BELOW } from './navigator-layout.ts'
 import css from './FilesBody.module.css'
 
 const WORKSPACE_TREE_OPTIONS = { slots: { accessory: FileReferenceActions } }
+const navigatorRowAttribute = 'data-files-navigator-row'
+
+const navigatorRows = new WeakMap<HTMLElement, { references: number; preexisting: boolean }>()
+
+/** Retain the direct row's style marker until its last mounted navigator releases it. */
+function retainNavigatorRow(row: HTMLElement): () => void {
+  let lease = navigatorRows.get(row)
+  if (lease === undefined) {
+    lease = { references: 0, preexisting: row.hasAttribute(navigatorRowAttribute) }
+    navigatorRows.set(row, lease)
+    if (!lease.preexisting) row.setAttribute(navigatorRowAttribute, '')
+  }
+  const retained = lease
+  retained.references++
+  return () => {
+    retained.references--
+    if (retained.references === 0) {
+      navigatorRows.delete(row)
+      if (!retained.preexisting) row.removeAttribute(navigatorRowAttribute)
+    }
+  }
+}
 
 /** What a navigator occurrence is drawn for. */
 export interface FileNavigatorInput {
@@ -46,8 +68,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotFactoryMap {
     /**
      * One pane's workspace tree with its width and show/hide state. The host renders it as a direct child of
-     * the content row it shares with the body, and that row carries `data-files-navigator-row`, which the
-     * filled layout needs to hide the covered body.
+     * the content row it shares with the body. The navigator retains `data-files-navigator-row` on that
+     * parent while mounted so the filled layout hides the covered body.
      */
     'sidebar.files.navigator': {
       scope: 'session'
@@ -202,9 +224,17 @@ export function FileNavigator({
   const drag = useRef<{ readonly x: number; readonly width: number } | undefined>(undefined)
   const input = useRef<HTMLInputElement | null>(null)
   const trigger = useRef<HTMLButtonElement | null>(null)
+  const releaseRow = useRef<(() => void) | undefined>(undefined)
   // Stable, so each element registers once per drawing rather than on every render.
   const navigatorRef = useCallback(
-    (element: HTMLElement | null) => { navigatorDrawn(paneId, element, !page) },
+    (element: HTMLElement | null) => {
+      releaseRow.current?.()
+      releaseRow.current = undefined
+      if (element !== null && element.parentElement !== null) {
+        releaseRow.current = retainNavigatorRow(element.parentElement)
+      }
+      navigatorDrawn(paneId, element, !page)
+    },
     [navigatorDrawn, paneId, page],
   )
   // Also new when the container switches between the tree and the results, so

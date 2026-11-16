@@ -23,6 +23,7 @@ import { parseMarketPublication } from '../src/cloud-protocol.ts'
 import { parseMarketLegacyCatalog } from '../src/legacy.ts'
 import { bundle, limits, manifest, metadata, resources } from './fixtures.ts'
 import { originalCatalogEntry, originalSkillArchive } from './legacy-fixtures.ts'
+import { COVERAGE_TEST_TIMEOUT_ENV, coverageTestTimeoutOptions } from '../../../../scripts/coverage-partitions.ts'
 
 let host: TypertContribution, remote: TypertRemoteInfo
 beforeAll(async () => {
@@ -34,7 +35,7 @@ beforeAll(async () => {
   if (artifact?.remote === undefined) throw new Error('Missing source-generated market Remote')
   host = (await executableRemoteModule<{ TYPERT: TypertContribution }>(artifact.js)).TYPERT
   remote = (await executableRemoteModule<{ TYPERT_REMOTE: TypertRemoteInfo }>(artifact.remote.js)).TYPERT_REMOTE
-}, 60_000)
+}, coverageTestTimeoutOptions(process.env[COVERAGE_TEST_TIMEOUT_ENV]).hookTimeout ?? 60_000)
 
 async function fixture() {
   const source = await bundle(), ctx = new Context()

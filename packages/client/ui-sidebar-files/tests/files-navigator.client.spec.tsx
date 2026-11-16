@@ -9,7 +9,9 @@
  * and its resize bounds.
  */
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { act, cleanup, fireEvent, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
+import { memo } from 'react'
+import { createRoot } from 'react-dom/client'
 import { Context } from '@deepseek-ai/cordis'
 import { createSidebarRightController } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/service.ts'
 import { SidebarRightTabRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/tab-registry.ts'
@@ -20,7 +22,8 @@ import { DEFAULT_NAVIGATOR_WIDTH } from '../src/client/store.ts'
 import type { DirLevel, FilesTreeState } from '../src/client/store.ts'
 import { locateFile, navigatorGeometry, relativeFileOf } from '../src/client/store.ts'
 import { zh } from '../src/client/locales.ts'
-import { mountNavigator, PANE, ROOT, SESSION, TAB } from './mount.client.tsx'
+import { FileNavigator } from '../src/client/FileNavigator.tsx'
+import { factoryProps, mountNavigator, PANE, ROOT, SESSION, TAB } from './mount.client.tsx'
 import type { Mounted } from './mount.client.tsx'
 
 const ROOT_LEVEL: DirLevel = {
@@ -30,6 +33,7 @@ const ROOT_LEVEL: DirLevel = {
 const SRC_LEVEL: DirLevel = { entries: [{ name: 'a.ts', type: 'file', size: 1 }, { name: 'b.ts', type: 'file', size: 1 }], truncated: false }
 const A = sessionFileAddress(SESSION, 'src/a.ts')
 const B = sessionFileAddress(SESSION, 'src/b.ts')
+const navigatorRowAttribute = 'data-files-navigator-row'
 
 // jsdom lays nothing out and has no scrolling into view; the spec records the request.
 beforeEach(() => { Element.prototype.scrollIntoView = vi.fn() })
@@ -56,6 +60,121 @@ async function endTask(): Promise<void> {
 function focusedPath(): string | null | undefined {
   return document.activeElement?.closest('[data-files-path]')?.getAttribute('data-files-path')
 }
+
+describe('FileNavigator row ownership', () => {
+  function props() {
+    const h = mountNavigator(A)
+    return {
+      ...factoryProps(h.shared), page: true,
+      attach: vi.fn(() => vi.fn()), hold: vi.fn(() => vi.fn()),
+      navigatorDrawn: vi.fn<NonNullable<typeof h.shared.navigatorDrawn>>(),
+    }
+  }
+
+  it('marks an arbitrary direct parent before the face reads it and releases it on unmount', () => {
+    const input = props()
+    input.navigatorDrawn.mockImplementation((_paneId, navigator) => {
+      if (navigator !== null) expect(navigator.parentElement?.hasAttribute(navigatorRowAttribute)).toBe(true)
+    })
+    const view = render(<section className="consumer-row"><FileNavigator {...input} /></section>)
+    const row = view.container.firstElementChild!
+    expect(row.hasAttribute(navigatorRowAttribute)).toBe(true)
+    expect(input.navigatorDrawn).toHaveBeenCalledWith(PANE, row.firstElementChild, false)
+    view.unmount()
+    expect(row.className).toBe('consumer-row')
+    expect(input.navigatorDrawn).toHaveBeenLastCalledWith(PANE, null, false)
+  })
+
+  it('keeps a shared row marked until its last navigator unmounts', () => {
+    const input = props()
+    const view = render(<section><FileNavigator key="first" {...input} /><FileNavigator key="second" {...input} /></section>)
+    const row = view.container.firstElementChild!
+    expect(row.children).toHaveLength(2)
+    expect(row.hasAttribute(navigatorRowAttribute)).toBe(true)
+    view.rerender(<section><FileNavigator key="second" {...input} /></section>)
+    expect(row.children).toHaveLength(1)
+    expect(row.hasAttribute(navigatorRowAttribute)).toBe(true)
+    view.unmount()
+    expect(row.hasAttribute(navigatorRowAttribute)).toBe(false)
+  })
+
+  it('retains its style scope when a memoized navigator parent changes className', () => {
+    const input = props()
+    const drawn = vi.fn()
+    const Seat = memo(function Seat() {
+      drawn()
+      return <FileNavigator {...input} />
+    })
+    const view = render(<section className="before"><Seat /></section>)
+    const row = view.container.firstElementChild!
+    expect(row.hasAttribute(navigatorRowAttribute)).toBe(true)
+    expect(drawn).toHaveBeenCalledTimes(1)
+    view.rerender(<section className="after"><Seat /></section>)
+    expect(view.container.firstElementChild).toBe(row)
+    expect(row.classList.contains('after')).toBe(true)
+    expect(drawn).toHaveBeenCalledTimes(1)
+    expect(input.navigatorDrawn).toHaveBeenCalledTimes(1)
+    expect(row.hasAttribute(navigatorRowAttribute)).toBe(true)
+  })
+
+  it.each(['', 'consumer-owned'])('preserves the preexisting parent marker value %j', (value) => {
+    const input = props()
+    const view = render(<section data-files-navigator-row={value}><FileNavigator {...input} /></section>)
+    const row = view.container.firstElementChild!
+    expect(row.getAttribute(navigatorRowAttribute)).toBe(value)
+    view.unmount()
+    expect(row.getAttribute(navigatorRowAttribute)).toBe(value)
+  })
+
+  it('transfers ownership when its containing row is replaced', () => {
+    const input = props()
+    const view = render(<section key="first"><FileNavigator {...input} /></section>)
+    const first = view.container.firstElementChild!
+    view.rerender(<section key="second"><FileNavigator {...input} /></section>)
+    const second = view.container.firstElementChild!
+    expect(second).not.toBe(first)
+    expect(first.hasAttribute(navigatorRowAttribute)).toBe(false)
+    expect(second.hasAttribute(navigatorRowAttribute)).toBe(true)
+    view.unmount()
+    expect(second.hasAttribute(navigatorRowAttribute)).toBe(false)
+  })
+
+  it('retains the row across callback and pane changes before the next face observes it', () => {
+    const input = props()
+    const view = render(<section><FileNavigator {...input} /></section>)
+    const row = view.container.firstElementChild!
+    const navigator = row.firstElementChild!
+    const next = vi.fn((_paneId: typeof PANE, element: HTMLElement | null, _closable: boolean) => {
+      if (element !== null) expect(element.parentElement?.hasAttribute(navigatorRowAttribute)).toBe(true)
+    })
+    view.rerender(<section><FileNavigator {...input} navigatorDrawn={next} /></section>)
+    expect(input.navigatorDrawn).toHaveBeenLastCalledWith(PANE, null, false)
+    expect(next).toHaveBeenLastCalledWith(PANE, navigator, false)
+    const previousInfo = input.useTabInfo()
+    const nextPane = 'next-navigator-pane' as typeof PANE
+    view.rerender(<section><FileNavigator {...input} navigatorDrawn={next} useTabInfo={() => ({
+      ...previousInfo, panel: { ...previousInfo.panel, id: nextPane },
+    })} /></section>)
+    expect(next.mock.calls.slice(-2)).toEqual([[PANE, null, false], [nextPane, navigator, false]])
+    expect(row.hasAttribute(navigatorRowAttribute)).toBe(true)
+    view.unmount()
+    expect(row.hasAttribute(navigatorRowAttribute)).toBe(false)
+  })
+
+  it('draws in a DocumentFragment without inventing an element parent', () => {
+    const input = props()
+    const fragment = document.createDocumentFragment()
+    const root = createRoot(fragment)
+    onTestFinished(() => {
+      act(() => { root.unmount() })
+      expect(input.navigatorDrawn).toHaveBeenLastCalledWith(PANE, null, false)
+    })
+    act(() => { root.render(<FileNavigator {...input} />) })
+    const navigator = fragment.firstElementChild!
+    expect(navigator.parentElement).toBeNull()
+    expect(input.navigatorDrawn).toHaveBeenCalledWith(PANE, navigator, false)
+  })
+})
 
 describe('FileNavigator beside a preview', () => {
   it('stays hidden and lists nothing until the toggle shows it', async () => {

@@ -1,4 +1,5 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import * as fs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,6 +9,7 @@ import { readProfilePlugins } from '@deepseek-ai/dsh-app-boot'
 import { runtimeFixture } from './runtime-fixture.ts'
 
 const roots: string[] = []
+vi.mock('node:fs', async original => ({ ...await original<typeof import('node:fs')>() }))
 function temporaryRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-test-'))
   roots.push(root)
@@ -43,6 +45,18 @@ afterEach(() => {
 })
 
 describe('desktop external plugin profile', () => {
+  it('propagates a profile lock creation refusal without retaining a lock', async () => {
+    const { manager } = setup(), failure = Object.assign(new Error('Profile lock denied'), { code: 'EACCES' })
+    const open = fs.openSync
+    const spy = vi.spyOn(fs, 'openSync').mockImplementation((...args) => {
+      if (args[0] === manager.paths.lock) throw failure
+      return open(...args)
+    })
+    try { await expect(manager.applyRelease()).rejects.toBe(failure) }
+    finally { spy.mockRestore() }
+    expect(existsSync(manager.paths.lock)).toBe(false)
+  })
+
   it('preserves installed packages, profile state, and the lockfile when preparing a launch', async () => {
     const { manager } = setup()
     await manager.applyRelease()

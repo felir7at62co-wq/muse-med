@@ -1,6 +1,8 @@
 /** Required performance budgets for compiled Client history folding and live Assistant updates. */
 
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   runBuiltBenchmarkWorker,
@@ -12,6 +14,7 @@ import {
 } from '../support/calibration.ts'
 import { recordPeakMemory, recordTimings, type BenchmarkCase } from '../support/scaling-report.ts'
 import type { ConversationFoldWorkerReport, PreparingToolWorkerReport, StreamingAssistantWorkerReport } from './conversation-fold.worker.client.ts'
+import { accumulatedTrimControl } from './accumulated-trim-control.client.ts'
 
 /** Replies in the folded window; each carries one reasoning block and one text block. */
 const TURNS = 200
@@ -56,10 +59,10 @@ const PREPARING_CASES = [
 
 const STREAMING_CHARACTERS = 256 * 1024
 const STREAMING_SAMPLES = 5
-/** Reference-machine expectations; shared CI scaling applies only to elapsed time. */
+/** Fixed hosted expectations from repeated Node 24 / EPYC 7763 runs; only variance headroom applies. */
 const STREAMING_WORKLOADS = [
-  { fragments: 4_096, expectedMs: 12 },
-  { fragments: 16_384, expectedMs: 32 },
+  { fragments: 4_096, hostedExpectedMs: 32 },
+  { fragments: 16_384, hostedExpectedMs: 91 },
 ] as const
 const STREAMING_CASES = STREAMING_WORKLOADS.flatMap(workload => [
   { ...workload, blockType: 'text', pattern: 'ordinary' },
@@ -67,6 +70,21 @@ const STREAMING_CASES = STREAMING_WORKLOADS.flatMap(workload => [
 ] as const)
 /** Incremental heap while the Assembler, live entries, and published Chat state remain reachable. */
 const EXPECTED_STREAMING_RETAINED_MB = 16
+
+const SAVED_STREAMING_SAMPLES = [
+  { run: 43370634776, fragments: 4096, kind: 'text', oldRejected: false, ms: [17.299061, 16.993920, 20.017342, 15.694259, 16.333243] },
+  { run: 43370634776, fragments: 4096, kind: 'reasoning', oldRejected: false, ms: [16.380034, 17.258989, 18.557809, 23.578856, 41.131609] },
+  { run: 43370634776, fragments: 16384, kind: 'text', oldRejected: false, ms: [55.041406, 54.476473, 54.315240, 51.992727, 54.596674] },
+  { run: 43370634776, fragments: 16384, kind: 'reasoning', oldRejected: false, ms: [55.329510, 53.360640, 56.109177, 51.706623, 55.000203] },
+  { run: 43385079062, fragments: 4096, kind: 'text', oldRejected: false, ms: [30.038195, 30.896053, 28.196559, 29.410911, 29.981384] },
+  { run: 43385079062, fragments: 4096, kind: 'reasoning', oldRejected: true, ms: [29.325101, 35.061291, 31.806474, 32.092482, 29.500841] },
+  { run: 43385079062, fragments: 16384, kind: 'text', oldRejected: true, ms: [88.945825, 87.864694, 92.414745, 84.672063, 82.491105] },
+  { run: 43385079062, fragments: 16384, kind: 'reasoning', oldRejected: true, ms: [92.027728, 92.045491, 89.921680, 90.825057, 86.753776] },
+  { run: 43401713553, fragments: 4096, kind: 'text', oldRejected: false, ms: [28.196195, 27.627897, 27.296975, 28.649976, 27.619551] },
+  { run: 43401713553, fragments: 4096, kind: 'reasoning', oldRejected: false, ms: [27.273991, 30.118435, 28.415957, 31.435210, 29.371072] },
+  { run: 43401713553, fragments: 16384, kind: 'text', oldRejected: true, ms: [77.857506, 76.011959, 80.162063, 81.856289, 95.069183] },
+  { run: 43401713553, fragments: 16384, kind: 'reasoning', oldRejected: true, ms: [80.359447, 80.644824, 84.838171, 80.610368, 81.092785] },
+] as const
 
 const WORKER = join(
   import.meta.dirname,
@@ -86,6 +104,46 @@ function requireReport<Report>(
     + `timedOut=${String(run.timedOut)}\n${stderrLines.slice(-10).join('\n')}`,
   )
 }
+
+function streamingTimeBudget(hostedExpectedMs: number): number {
+  return Math.ceil(hostedExpectedMs * PERFORMANCE_BUDGET_HEADROOM)
+}
+
+function expectStreamingWithinBudget(value: number, budget: number): void {
+  expect(value).toBeLessThanOrEqual(budget)
+}
+
+describe('hosted streaming calibration controls', () => {
+  it.each(SAVED_STREAMING_SAMPLES)('classifies run $run $fragments $kind samples against old and hosted limits', (saved) => {
+    const workload = STREAMING_WORKLOADS.find(value => value.fragments === saved.fragments)!
+    const median = saved.ms.toSorted((a, b) => a - b)[Math.floor(saved.ms.length / 2)]!
+    const oldBudget = saved.fragments === 4096 ? 30 : 80
+    const oldVerdict = () => expectStreamingWithinBudget(median, oldBudget)
+    if (saved.oldRejected) expect(oldVerdict).toThrow()
+    else oldVerdict()
+    expectStreamingWithinBudget(median, streamingTimeBudget(workload.hostedExpectedMs))
+  })
+
+  it.each(STREAMING_WORKLOADS)('rejects the hosted limit plus one and a 50% slowdown at $fragments fragments', (workload) => {
+    const budget = streamingTimeBudget(workload.hostedExpectedMs)
+    expect(budget).toBe(workload.fragments === 4096 ? 40 : 114)
+    expect(() => expectStreamingWithinBudget(budget + 1, budget)).toThrow()
+    const slowest = Math.max(...SAVED_STREAMING_SAMPLES
+      .filter(value => value.fragments === workload.fragments)
+      .map(value => value.ms.toSorted((a, b) => a - b)[Math.floor(value.ms.length / 2)]!))
+    expect(() => expectStreamingWithinBudget(slowest * 1.5, budget)).toThrow()
+  })
+
+  it('changes exactly the two compiled visibility expressions and preserves all other bytes', () => {
+    const text = 'nextVisible = previous?.kind === "text" && previousVisible || chunk.text.trim() !== "";'
+    const reasoning = 'nextVisible = previous?.kind === "reasoning" && previousVisible || chunk.text.trim() !== "";'
+    const fixture = `before\n${text}\nbetween\n${reasoning}\nafter\n`
+    expect(accumulatedTrimControl(fixture)).toBe('before\nnextVisible = blockIsVisible(blocks[chunk.index]);\nbetween\nnextVisible = blockIsVisible(blocks[chunk.index]);\nafter\n')
+    for (const rejected of [text, reasoning, `${fixture}${text}`, `${fixture}${reasoning}`]) {
+      expect(() => accumulatedTrimControl(rejected)).toThrow('exactly one compiled expression per block kind')
+    }
+  })
+})
 
 describe('cold Chat fold of a large v2 history window', () => {
   it(`folds ${String(TURNS)} replies with ${String(LARGE_DELTAS)} deltas each within ${String(LARGE_FOLD_BUDGET_MS)} ms and scales with compact records`, async () => {
@@ -161,7 +219,7 @@ describe('live Assistant text publication', () => {
     }
     const median = samples.toSorted((a, b) => a.elapsedMs - b.elapsedMs)[Math.floor(STREAMING_SAMPLES / 2)]!
     const retainedMb = samples.map(sample => sample.retainedMb).toSorted((a, b) => a - b)[Math.floor(STREAMING_SAMPLES / 2)]!
-    const budgetMs = ciTimeBudget(workload.expectedMs)
+    const budgetMs = streamingTimeBudget(workload.hostedExpectedMs)
     const budgetMb = EXPECTED_STREAMING_RETAINED_MB * PERFORMANCE_BUDGET_HEADROOM
     const benchmarkCase: BenchmarkCase = {
       id: `conversation-fold/streaming-${workload.blockType}-${workload.pattern}-${String(workload.fragments)}`,
@@ -173,7 +231,69 @@ describe('live Assistant text publication', () => {
       medianMs: { ms: median.elapsedMs, cpuMs: median.cpuUserMs + median.cpuSystemMs },
     }, { medianMs: budgetMs })
     recordPeakMemory(benchmarkCase, { peakRssMb: Math.max(...samples.map(sample => sample.maxRssMb)) })
-    expect(median.elapsedMs).toBeLessThanOrEqual(budgetMs)
+    expectStreamingWithinBudget(median.elapsedMs, budgetMs)
     expect(retainedMb).toBeLessThanOrEqual(budgetMb)
+  })
+})
+
+describe('compiled accumulated-trim regression control', () => {
+  it.each(STREAMING_WORKLOADS)('rejects accumulated trimming at $fragments ordinary-text fragments', async (workload) => {
+    const source = await readFile(WORKER, 'utf8')
+    const control = accumulatedTrimControl(source)
+    const root = await mkdtemp(join(dirname(WORKER), 'accumulated-trim-'))
+    try {
+      const controlWorker = join(root, 'control.worker.js')
+      await writeFile(controlWorker, control)
+      const originalSha256 = createHash('sha256').update(source).digest('hex')
+      const regressionSha256 = createHash('sha256').update(control).digest('hex')
+      console.log(JSON.stringify({ benchmark: 'conversation-fold/accumulated-trim-control-build', fragments: workload.fragments, originalSha256, regressionSha256, replacements: 2 }))
+      const original: StreamingAssistantWorkerReport[] = []
+      const regression: StreamingAssistantWorkerReport[] = []
+      for (let index = 0; index < STREAMING_SAMPLES; index++) {
+        for (const worker of index % 2 === 0 ? [WORKER, controlWorker] : [controlWorker, WORKER]) {
+          const run = await runBuiltBenchmarkWorker<StreamingAssistantWorkerReport>({
+            worker,
+            args: ['streaming', 'text', 'ordinary', String(STREAMING_CHARACTERS), String(workload.fragments)],
+            exposeGc: true, timeoutMs: WORKER_TIMEOUT_MS,
+          })
+          expect(run.timedOut, run.stderr).toBe(false)
+          expect(run.signal, run.stderr).toBeNull()
+          expect(run.exitCode, run.stderr).toBe(0)
+          const report = requireReport(run)
+          expect(report.characters).toBe(STREAMING_CHARACTERS)
+          expect(report.fragments).toBe(workload.fragments)
+          const destination = worker === WORKER ? original : regression
+          destination.push(report)
+          console.log(JSON.stringify({ benchmark: 'conversation-fold/accumulated-trim-control-sample', variant: worker === WORKER ? 'original' : 'regression', attempt: index, ...report }))
+        }
+      }
+      const ordered = (samples: readonly StreamingAssistantWorkerReport[]) => samples.toSorted((a, b) => a.elapsedMs - b.elapsedMs)
+      const originalMedian = ordered(original)[Math.floor(STREAMING_SAMPLES / 2)]!
+      const regressionMedian = ordered(regression)[Math.floor(STREAMING_SAMPLES / 2)]!
+      const budgetMs = streamingTimeBudget(workload.hostedExpectedMs)
+      const originalCase: BenchmarkCase = {
+        id: `conversation-fold/accumulated-trim-original-${String(workload.fragments)}`,
+        measures: `Unmodified production text publication paired with the accumulated-trim control at ${String(workload.fragments)} fragments.`,
+        affects: 'Local processing of a long active model response; excludes model pacing, network transport, and browser rendering.',
+      }
+      recordTimings(originalCase, {
+        medianMs: { ms: originalMedian.elapsedMs, cpuMs: originalMedian.cpuUserMs + originalMedian.cpuSystemMs },
+      }, { medianMs: budgetMs })
+      recordPeakMemory(originalCase, { peakRssMb: Math.max(...original.map(report => report.maxRssMb)) })
+      console.log(JSON.stringify({
+        benchmark: 'conversation-fold/accumulated-trim-control', fragments: workload.fragments,
+        originalSha256, regressionSha256,
+        replacements: 2, original, regression, originalMedianMs: originalMedian.elapsedMs,
+        regressionMedianMs: regressionMedian.elapsedMs, budgetMs,
+      }))
+      expect(original.map(value => value.checksum)).toEqual(regression.map(value => value.checksum))
+      expect(() => expectStreamingWithinBudget(regressionMedian.elapsedMs, budgetMs)).toThrow()
+      expectStreamingWithinBudget(originalMedian.elapsedMs, budgetMs)
+      for (const report of [...original, ...regression]) {
+        expect(report.retainedMb).toBeLessThanOrEqual(EXPECTED_STREAMING_RETAINED_MB * PERFORMANCE_BUDGET_HEADROOM)
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })
