@@ -60,6 +60,7 @@
     "duplication": "jscpd --config .jscpd.json packages scripts",
     "test": "pnpm run build:native-system && vitest run",
     "test:coverage": "pnpm run build:native-system && vitest run --coverage",
+    "coverage:changed": "tsx scripts/coverage-changed.ts",
     "build:native-system": "tsx native/system/scripts/build.ts --host-addon-only",
     "test:coverage:partitioned": "tsx scripts/run-coverage-partitions.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
