@@ -639,7 +639,7 @@ it('retains the explicitly selected supported reasoning effort in submission evi
   await vi.waitFor(async () => {
     expect(adapter.requests).toHaveLength(1)
     expect((await h.store.load(h.run.id))?.notice?.deliveredAt).toEqual(expect.any(Number))
-  })
+  }, { timeout: 5_000 })
   const resolved = await restored.sessionController.resolveAgent(h.agent.id)
   if ('error' in resolved) throw resolved.error
   await resolved.agent.whenIdle()

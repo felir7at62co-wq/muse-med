@@ -700,11 +700,14 @@ function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
     const nestedResource = resource !== undefined
       && /^(?:agents|assets|references|scripts)\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:md|yaml|py|json|mp3|mp4|txt)$/u.test(resource)
     const windowsDraftBridge = file === 'skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1'
+    const characterDeliveryReference = file === 'skills/tweet-drama-asset-vision-check/references/images/character-delivery-layout.png'
     const styleReference = match?.[1] === 'anime-3d-assets' && resource !== undefined
       && ['references/images/female-quality-reference.png', 'references/images/male-quality-layout.png',
         'references/images/rejected-cartoon.png', 'references/images/rejected-flat-cg.png',
         'references/images/target-quality.png'].includes(resource)
-    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference || windowsDraftBridge)) {
+    if (match?.[1] === undefined
+      || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference
+        || characterDeliveryReference || windowsDraftBridge)) {
       errors.push(`${label}: resource package file must be a declared skill resource: ${file}`)
       continue
     }

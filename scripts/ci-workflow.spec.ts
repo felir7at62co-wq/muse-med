@@ -83,8 +83,15 @@ describe('CI workflow', () => {
     }))
     const modelCheck = steps.find(step => step.name === 'Check model relay behavior')
     const packagingCheck = steps.find(step => step.name === 'Check packaging behavior')
+    const macPrewarm = steps.find(step => step.name === 'Prewarm locked Mac media sources')
     expect(modelCheck?.run).toBe('node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs')
     expect(packagingCheck?.run).toMatch(/^pnpm exec vitest run /)
+    expect(macPrewarm).toMatchObject({
+      if: "matrix.target == 'mac-arm64'",
+      env: { GH_TOKEN: '${{ github.token }}' },
+    })
+    expect(macPrewarm?.run).toContain('gh release download v1.2.0 --repo felir7at62co-wq/muse-med')
+    expect(macPrewarm?.run).toContain('--archive "$RUNNER_TEMP/mac-source-archive/muse-macos-media-9.0.2-locked-source-inputs.tar.gz"')
     expect(modelCheck).not.toHaveProperty('continue-on-error')
     expect(packagingCheck).not.toHaveProperty('continue-on-error')
     const installerUi = steps.find(step => step.name === 'Check native Windows install and automatic update UI')
@@ -372,15 +379,23 @@ describe('CI workflow', () => {
     if (!Array.isArray(coverage.steps)) throw new TypeError('Windows coverage must define steps')
     const steps = coverage.steps.filter(isRecord)
     const install = steps.findIndex(step => step.name === 'Install (immutable)')
+    const download = steps.findIndex(step => step.name === 'Download locked media test archive')
     const prepare = steps.findIndex(step => step.name === 'Prepare media test executables')
     const verify = steps.findIndex(step => step.name === 'Verify media test executables')
     const run = steps.findIndex(step => step.run === 'pnpm run check:ci:coverage')
     expect(install).toBeGreaterThanOrEqual(0)
-    expect(prepare).toBeGreaterThan(install)
+    expect(download).toBeGreaterThan(install)
+    expect(prepare).toBeGreaterThan(download)
     expect(verify).toBeGreaterThan(prepare)
     expect(run).toBeGreaterThan(verify)
     expect(steps[prepare]).toEqual({
-      name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts',
+      name: 'Prepare media test executables', shell: 'pwsh',
+      run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts "$env:RUNNER_TEMP/muse-ffmpeg-9.0.2-win-x64.zip"',
+    })
+    expect(steps[download]).toEqual({
+      name: 'Download locked media test archive', shell: 'pwsh',
+      env: { GH_TOKEN: '${{ github.token }}' },
+      run: 'gh release download muse-desktop-v0.1.6-alpha.1 --repo felir7at62co-wq/muse-med --pattern muse-ffmpeg-9.0.2-win-x64.zip --dir $env:RUNNER_TEMP --clobber',
     })
     expect(steps[verify]).toEqual({
       name: 'Verify media test executables', shell: 'pwsh', run: [
@@ -2011,7 +2026,8 @@ describe('Recovery decoder coverage preparation', () => {
 
   it('uses the locked Windows preparation before coverage without extra secrets', () => {
     const step = preparation('.github/workflows/ci-windows.yml', 'windows-coverage', 'Run Windows coverage')
-    expect(step).toEqual({ name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts' })
+    expect(step).toEqual({ name: 'Prepare media test executables', shell: 'pwsh',
+      run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts "$env:RUNNER_TEMP/muse-ffmpeg-9.0.2-win-x64.zip"' })
     expect(JSON.stringify(step)).not.toContain('secrets.')
   })
 

@@ -3,6 +3,9 @@ import { spawn } from 'node:child_process'
 import { pnpmInvocation } from './pnpm-invocation.ts'
 
 const serialFiles = [
+  // DevTools parses a snapshot of the live Host heap; keep that V8 work isolated.
+  'apps/web/tests/inspector-panels.e2e.ts',
+  'apps/web/tests/inspector-source-build.e2e.ts',
   'apps/web/tests/hmr-live.e2e.ts',
   'apps/web/tests/client-plugin-live.e2e.ts',
   // Recorded SVG streaming retains live heartbeat assertions; reserve its browser CPU budget.
