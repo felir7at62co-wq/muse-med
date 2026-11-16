@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/skill/tool-workspace-dependencies"
+    },
+    {
       "path": "../../packages/boot/app-boot"
     },
     {

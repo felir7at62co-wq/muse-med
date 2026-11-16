@@ -130,6 +130,7 @@ const PYTHON_METADATA: Record<string, { license: string; repo: string; role?: st
   pyreadline3: { license: 'BSD-3-Clause', repo: 'https://github.com/pyreadline3/pyreadline3' },
   pyyaml: { license: 'MIT', repo: 'https://github.com/yaml/pyyaml' },
   rapidocr: { license: 'Apache-2.0', repo: 'https://github.com/RapidAI/RapidOCR' },
+  pycryptodome: { license: 'BSD-2-Clause AND Unlicense', repo: 'https://github.com/Legrandin/pycryptodome' },
   requests: { license: 'Apache-2.0', repo: 'https://github.com/psf/requests' },
   shapely: { license: 'BSD-3-Clause', repo: 'https://github.com/shapely/shapely' },
   sympy: { license: 'BSD-3-Clause', repo: 'https://github.com/sympy/sympy' },

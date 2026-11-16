@@ -11,7 +11,6 @@ import { scrubWindowsSigningEnvironment } from './windows-sign.mjs'
 import { prepareMacMedia } from './prepare-macos-media.ts'
 import { obtain, verifyMediaResource } from './media-resources.ts'
 import { extractSubtitleFont, validateMediaLock, type MediaLock } from './prepare-media-runtime.ts'
-import { prepareHongguoRuntime, validateHongguoRuntimeLock } from './prepare-hongguo-runtime.ts'
 import { prepareCuaRuntime, validateCuaRuntimeLock } from './prepare-cua-runtime.ts'
 
 /** Install the shared, hash-locked CJK fonts and their notices in a Mac media payload.
@@ -63,8 +62,6 @@ export async function preparePrimaryRuntime(options: { deferSmoke?: boolean } = 
     const lock = validateMediaLock(JSON.parse(readFileSync(new URL('./media-runtime.lock.json', import.meta.url), 'utf8')))
     await prepareMacFonts(join(paths.runtime, 'media'), paths.downloads, lock)
   }
-  const hongguoLock = validateHongguoRuntimeLock(JSON.parse(readFileSync(new URL('./hongguo-runtime.lock.json', import.meta.url), 'utf8')))
-  await prepareHongguoRuntime({ output: join(paths.runtime, 'hongguo'), cache: paths.downloads, target, lock: hongguoLock })
   if (target === 'win-x64') {
     const cuaLock = validateCuaRuntimeLock(JSON.parse(readFileSync(new URL('./cua-runtime.lock.json', import.meta.url), 'utf8')))
     await prepareCuaRuntime({ output: join(paths.runtime, 'cua'), cache: paths.downloads, lock: cuaLock })

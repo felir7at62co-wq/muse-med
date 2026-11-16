@@ -58,7 +58,8 @@
       "pydub": "0.25.1",
       "uiautomation": "2.0.29",
       "comtypes": "1.4.17",
-      "pymediainfo": "7.0.1"
+      "pymediainfo": "7.0.1",
+      "pycryptodome": "3.23.0"
     }
   }
 }

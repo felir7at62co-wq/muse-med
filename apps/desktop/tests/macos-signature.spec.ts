@@ -65,6 +65,7 @@ describe('desktop macOS release signature', () => {
     }
     expect(config.extraResources).toHaveLength(2)
     expect(config.extraResources[0]?.to).toBe('runtime')
+    expect(config.extraResources[0]?.filter).toEqual(['**/*', '!hongguo', '!hongguo/**/*'])
     expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
     const [dshFiles, dshNodeModules] = config.files.slice(-2)
     if (!dshFiles || !dshNodeModules || typeof dshFiles === 'string' || typeof dshNodeModules === 'string') {

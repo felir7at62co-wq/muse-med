@@ -344,6 +344,7 @@ The [Python source distribution decision](.agents/notes/implemented/process/2026
 | [`pillow`](https://github.com/python-pillow/Pillow) | 12.3.0 | MIT-CMU |
 | [`protobuf`](https://github.com/protocolbuffers/protobuf) | 7.36.2 | BSD-3-Clause |
 | [`pyclipper`](https://github.com/fonttools/pyclipper) | 1.4.0 | MIT |
+| [`pycryptodome`](https://github.com/Legrandin/pycryptodome) | 3.23.0 | BSD-2-Clause AND Unlicense |
 | [`pydub`](https://github.com/jiaaro/pydub) | 0.25.1 | MIT |
 | [`pyjianyingdraft`](https://github.com/GuanYixuan/pyJianYingDraft) | 0.3.1 | MIT |
 | [`pymediainfo`](https://github.com/sbraz/pymediainfo) | 7.0.1 | MIT |

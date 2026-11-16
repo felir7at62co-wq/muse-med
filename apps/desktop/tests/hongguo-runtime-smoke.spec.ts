@@ -41,6 +41,22 @@ function mountedRuntime(signature = JSON.stringify({ 'X-Argus': 'private-signatu
 
 afterEach(() => { vi.useRealTimers() })
 
+it('checks the current open engine without an original Java or Python payload', async () => {
+  const fixture = mountedRuntime()
+  const runtime: HongguoSmokeRuntime = {
+    ...fixture.runtime,
+    client: { ...fixture.runtime.client, source: { ...fixture.runtime.client.source, identity: 'jackotom:test',
+      load: async () => ({ fetchEpisodeList() {}, fetchPlayUrlSingle() {} }) } },
+  }
+  fixture.spawn.mockImplementation((spec: SubprocessSpawnSpec) => nativeHandle(
+    spec.argv[0]!.includes('ffprobe') ? 'ffprobe version 7' : 'ffmpeg version 7'))
+  const result = await checkHongguoRuntime('/packaged/dsh', '/runtime', { MUSE_FANQIE_PYTHON_PATH: '/runtime/python' }, async () => runtime)
+  expect(result).toEqual({ engine: 'jackotom', ffmpeg: true, ffprobe: true, cleanup: true })
+  expect(fixture.runtime.client.signer.ensure).not.toHaveBeenCalled()
+  expect(fixture.spawn).toHaveBeenCalledTimes(2)
+  expect(fixture.spawn.mock.calls.every(([spec]) => spec.cwd === '/runtime/media/ffmpeg/bin')).toBe(true)
+})
+
 it('publishes only native versions and acceptance booleans after the client and context are disposed', async () => {
   const fixture = mountedRuntime()
   const clientExit = deferred(), contextExit = deferred()

@@ -77,7 +77,7 @@ import { DesktopQuitConfirmation } from './quit-confirmation.ts'
 import { DesktopTray } from './tray.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
 import { DesktopCompletionNotice } from './completion-notice.ts'
-import { prepareDesktopHongguoEnvironment } from './hongguo-runtime.ts'
+import { prepareDesktopFanqieEnvironment } from './fanqie-runtime.ts'
 import { applyDesktopProductIdentity, DESKTOP_PRIMARY_ACCOUNT, desktopProductVersion } from './product-identity.ts'
 import { resolveDevelopmentProtocolRegistration } from './development-protocol.ts'
 
@@ -490,10 +490,8 @@ async function main(): Promise<void> {
   let hostEnvironment: NodeJS.ProcessEnv = process.env
   const prepareHostEnvironment = async (): Promise<void> => {
     hostEnvironment = await loginShell
-    const hongguoRuntime = app.isPackaged ? join(process.resourcesPath, 'runtime', 'hongguo') : resolve(primaryRuntime, '..', 'hongguo')
-    const hongguo = await timed('hongguo-prepare', () => prepareDesktopHongguoEnvironment({
-      runtime: hongguoRuntime,
-      productHome: resolve(paths.root, '..'),
+    const hongguo = await timed('hongguo-prepare', () => prepareDesktopFanqieEnvironment({
+      primaryRuntime,
     }))
     const bytevc2Runtime = app.isPackaged ? join(process.resourcesPath, 'runtime', 'bytevc2')
       : resolve(process.env.DSH_DESKTOP_BYTEVC2_RUNTIME_DIR ?? resolve(primaryRuntime, '..', 'bytevc2'))

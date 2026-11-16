@@ -48,8 +48,9 @@ export async function checkHongguoLive(root, resourcesRuntime, environment = pro
     python: environment.MUSE_HONGGUO_PYTHON_PATH,
     ffmpeg: join(resourcesRuntime, 'media', 'ffmpeg', 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
     ffprobe: join(resourcesRuntime, 'media', 'ffmpeg', 'bin', process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe') }
-  assert.ok(environment.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'
-    && [paths.app, paths.java, paths.python].every(value => typeof value === 'string' && isAbsolute(value)),
+  assert.ok((typeof environment.MUSE_FANQIE_PYTHON_PATH === 'string' && isAbsolute(environment.MUSE_FANQIE_PYTHON_PATH))
+    || (environment.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'
+      && [paths.app, paths.java, paths.python].every(value => typeof value === 'string' && isAbsolute(value))),
   'Hongguo live acceptance requires prepared private paths')
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'muse-hongguo-live-')))
   let runtime, receipt, stage = 'mount'
