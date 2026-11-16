@@ -756,11 +756,12 @@ function groupedDump(
  * @param bareModuleBaseUrl - optional installed-host base for bare package
  * names; relative names continue to resolve beside the configuration file.
  * @param binName - diagnostic prefix for a profile plugin denied by compatibility policy; defaults to `dsh`.
- * @param moduleOverrides - application-owned exact specifiers redirected to packaged module URLs;
+ * @param moduleOverrides - application-owned exact specifiers redirected to packaged `file:` module URLs;
  * other imports keep their existing resolution.
  * @returns the created root Include entry, or `undefined` when a surface
  * disposed the whole tree (taking the Loader service with it) while the
  * entry creation was in flight.
+ * @throws TypeError before mounting when a module override is not a `file:` URL.
  */
 export async function mountRootInclude(
   ctx: Context,
@@ -770,6 +771,13 @@ export async function mountRootInclude(
   binName = 'dsh',
   moduleOverrides?: Readonly<Record<string, string>>,
 ): Promise<Entry | undefined> {
+  // The root Include imports an override as given. A filesystem path imports on POSIX hosts but not on
+  // Windows, where `D:\…` is no import specifier, so a path is refused on every platform.
+  for (const [specifier, target] of Object.entries(moduleOverrides ?? {})) {
+    if (URL.parse(target)?.protocol !== 'file:') {
+      throw new TypeError(`${binName}: module override ${JSON.stringify(specifier)} must be a file: URL, not ${JSON.stringify(target)}; convert a filesystem path with pathToFileURL(path).href`)
+    }
+  }
   ctx.loader.builtins.include = bareModuleBaseUrl === undefined && moduleOverrides === undefined
     ? Include
     : class HostResolvedRootInclude extends Include {

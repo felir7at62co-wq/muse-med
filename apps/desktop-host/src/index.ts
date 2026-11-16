@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadLayeredEnv, loadOverlayPatches, loadProfileDirectory, reportSkippedBundles, type Profile } from '@deepseek-ai/dsh-app-boot'
 import { bundledSkillDirectory, productSkillDirectory, desktopSkillDirectories } from './bundled-skills.ts'
-import { bundledBridgeModules, verifyBundledImClient } from './bundled-bridge.ts'
+import { verifyBundledImClient } from './bundled-bridge.ts'
+import { productModuleOverrides } from './product-modules.ts'
 import { feishuGateLayer, migrateFeishuProfileName } from './feishu-gate.ts'
 import { randomUUID } from 'node:crypto'
 import type { PluginOperationRunId } from '@deepseek-ai/dsh-plugin-manager/diagnostic'
@@ -126,11 +127,7 @@ async function desktopComposition(
   }])
   // Resolve bridge Config only after the setup service installs its startup hook.
   layers.push(feishuGateLayer([...rows.values()]))
-  // The Loader imports an override as given, so each one is a file: URL; a Windows path such as D:\… is not an import specifier.
-  const productModule = (file: string): string => new URL(file, import.meta.url).href
-  return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: { ...bundledBridgeModules(runtimeDir),
-    'muse-workspace-owned-storage': productModule('./workspace-owned-storage.js'),
-    'ds-bot': productModule('./retired-bot.js'), 'muse-bot': productModule('./retired-bot.js') } }
+  return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: productModuleOverrides(runtimeDir) }
 }
 
 async function main(): Promise<void> {
