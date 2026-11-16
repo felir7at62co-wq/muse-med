@@ -124,14 +124,23 @@ interface SessionLog {
   readonly header: JsonObject
 }
 
-/** Keep the cwd text priced by compaction independent of the platform's temporary-root length. */
-async function compactionWorkspaceOptions(): Promise<{ tempDirParent: string; tempDirPrefix: string }> {
+const fixedBudgetWorkspaceScenarios = new Set([
+  'compaction-recovery',
+  'muse-skill-market-bounded-catalog-ptc',
+  'muse-skill-market-creation-binding-ptc',
+  'muse-video-screenplay-entry-creation',
+  'prompt-usage-recovery',
+  'prompt-usage-stop',
+])
+
+/** Keep recorded request budgets independent of the platform's temporary-root length. */
+async function fixedBudgetWorkspaceOptions(): Promise<{ tempDirParent: string; tempDirPrefix: string }> {
   const tempDirParent = await realpath(tmpdir())
   const prefix = 'dsh-log-snap-'
   // mkdtemp appends six characters; JSON quoting is part of the runtime-context text.
   const unpaddedLength = JSON.stringify(join(tempDirParent, `${prefix}XXXXXX`)).length
   const paddingLength = 192 - unpaddedLength
-  if (paddingLength < 0) throw new Error('compaction snapshot temporary root exceeds its fixed cwd text length')
+  if (paddingLength < 0) throw new Error('snapshot temporary root exceeds its fixed cwd text length')
   return { tempDirParent, tempDirPrefix: prefix + '-'.repeat(paddingLength) }
 }
 
@@ -1859,6 +1868,19 @@ async function verifyChildOutputLimitRejection(scenario: HeadlessScenario, actua
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('allocates distinct workspaces with a fixed quoted length for budget snapshots', async () => {
+    const options = await fixedBudgetWorkspaceOptions()
+    const first = await mkdtemp(join(options.tempDirParent, options.tempDirPrefix))
+    const second = await mkdtemp(join(options.tempDirParent, options.tempDirPrefix))
+    try {
+      expect(first).not.toBe(second)
+      expect(JSON.stringify(first)).toHaveLength(192)
+      expect(JSON.stringify(second)).toHaveLength(192)
+    } finally {
+      await Promise.all([rm(first, { recursive: true, force: true }), rm(second, { recursive: true, force: true })])
+    }
+  })
+
   it('materializes the draft directory marker required by the strict replay initializer', async () => {
     const scenario = scenarioByName.get('muse-jianying-draft')
     if (scenario === undefined) throw new Error('Missing draft replay owner')
@@ -2890,7 +2912,7 @@ describe('headless recorded-session snapshots', () => {
         result = await runLoaderSmoke({
           label: `${scenario.name} headless snapshot`,
           tempDirPrefix: 'dsh-log-snap-',
-          ...(scenario.name === 'compaction-recovery' ? await compactionWorkspaceOptions() : {}),
+          ...(fixedBudgetWorkspaceScenarios.has(scenario.name) ? await fixedBudgetWorkspaceOptions() : {}),
           ...(scenario.manifest.workspace?.parent === 'outside-temp' ? { tempDirParent: outsideTempWorkspaceParent() } : {}),
           binScript: dshBin,
           sourceImport: 'tsx/esm',
