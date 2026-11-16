@@ -130,6 +130,22 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     expect(listed.map(row => row.name)).not.toContain('jubian-asset-library')
     expect(listed.map(row => row.name)).toContain('tweet-drama-asset-vision-check')
     expect(listed.find(row => row.name === 'tweet-drama-core')).toMatchObject({ source: 'bundled', provider: 'filesystem' })
+    expect(listed.find(row => row.name === 'protagonist-asset-sheet')).toMatchObject({
+      source: 'bundled', provider: 'filesystem', invocation: { modelInvocable: true },
+    })
+    const protagonist = await executeModelToolFixture(ctx, { name: 'skill', arguments: { name: 'protagonist-asset-sheet' },
+      callId: ToolCallId('short-drama-protagonist'), signal: new AbortController().signal })
+    expect(protagonist.isError).toBe(false)
+    const protagonistBlock = protagonist.content[0]
+    if (protagonistBlock?.type !== 'text') throw new Error('Expected protagonist skill content')
+    if (typeof persona?.prefix !== 'string') throw new Error('Expected short-drama persona prefix')
+    const protagonistGuidance = persona.prefix.split('\n').find(line => line.includes('protagonist-asset-sheet'))
+    if (!protagonistGuidance) throw new Error('Missing protagonist skill guidance')
+    await expect([
+      '# Short-drama protagonist guidance', '', protagonistGuidance.trim(), '',
+      '# Loaded protagonist skill', '',
+      protagonistBlock.text.replaceAll(join(bundledSkillDir, 'protagonist-asset-sheet'), '<bundled-skills>/protagonist-asset-sheet'), '',
+    ].join('\n')).toMatchFileSnapshot('./expected/protagonist-asset-sheet.expected.md')
     const loaded = await executeModelToolFixture(ctx, { name: 'skill', arguments: { name: 'tweet-drama-core' },
       callId: ToolCallId('short-drama-skill'), signal: new AbortController().signal })
     expect(loaded.isError).toBe(false)

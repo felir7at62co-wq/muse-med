@@ -24,6 +24,7 @@
     "skills/jubian-snatch/scripts/snatcher/config.py",
     "skills/jubian-snatch/scripts/snatcher/httpclient.py",
     "skills/jubian-snatch/scripts/snatcher/ledger.py",
+    "skills/protagonist-asset-sheet/SKILL.md",
     "skills/tweet-drama-asset-vision-check/SKILL.md",
     "skills/tweet-drama-asset-vision-check/agents/openai.yaml",
     "skills/tweet-drama-asset-vision-check/references/io-contract.md",

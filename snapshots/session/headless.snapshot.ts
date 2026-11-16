@@ -2,6 +2,7 @@
 
 import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deriveWorkingBudgetExpectations } from './working-budget-oracle.ts'
 import { sessionProductBudgetInput } from './muse-session-product/budget.ts'
+import { creationBudgetInput } from './muse-creation-ptc/budget.ts'
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
@@ -1356,7 +1357,10 @@ async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: st
       .split('\n').filter(line => line.trim() !== '').map(line =>
         JSON.stringify(visualizationBudgetValue(JSON.parse(line), visualize!))).join('\n') + '\n'
   }
-  return { log: expectedLog, prompt, schemas: expectedSchemas, cwd }
+  const input = { log: expectedLog, prompt, schemas: expectedSchemas, cwd }
+  return scenario.name === 'muse-creation-ptc' || scenario.name === 'muse-creation-review-guidance'
+    || scenario.name === 'muse-creation-stage-diagnostics'
+    ? creationBudgetInput(scenario.name, input, { join }) : input
 }
 
 async function workspaceBudgetExpected(
