@@ -105,7 +105,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-muse-account')).toEqual([
       { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', inject: ['tools', 'llm', 'sessions', 'sessionProjections', 'agentDefaultModel', 'museDesktopBridge', 'connection', 'webServer'], config: {
-        remoteAccess: true, webSearch: true, feedbackTools: true, mediaTools: true,
+        remoteAccess: true, webSearch: true, feedbackTools: true, mediaTools: true, douyinDownloadTool: true,
         mediaNodePath: { __jsExpr: 'process.execPath' },
         mediaFfmpegPath: { __jsExpr: "process.env.DSH_FFMPEG_PATH || 'ffmpeg'" },
         mediaFfprobePath: { __jsExpr: "process.env.DSH_FFPROBE_PATH || 'ffprobe'" },

@@ -29,7 +29,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     expect(names).toEqual([
       'apply_patch', 'ask_user_question', 'audio_transcribe', 'bash', 'bash',
       'bgm_match', 'cordis_inspect_list', 'cordis_inspect_query', 'create_goal', 'create_worktree',
-      'drama_assets', 'drama_bgm', 'drama_character_reference_project', 'drama_character_reference_view', 'drama_character_references',
+      'douyin_download', 'drama_assets', 'drama_bgm', 'drama_character_reference_project', 'drama_character_reference_view', 'drama_character_references',
       'drama_draft_dir', 'drama_hit_queue', 'drama_project', 'drama_render', 'drama_shot', 'drama_tos_upload', 'drama_video',
       'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep',
       'interrupt_agent', 'job_kill', 'job_list', 'job_output', 'jubian_asset',
