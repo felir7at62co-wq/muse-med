@@ -74,6 +74,8 @@ it('keeps whole-series transcription on a goal with subtitle OCR aligned to ASR'
   expect(workflow).toMatch(/按时间重叠把 OCR 字幕段对应到 ASR 段.*以清晰字幕为准.*说话人分组看 ASR/su)
   expect(workflow).toMatch(/`persistent_text_candidate`.*不当台词/su)
   expect(workflow).toMatch(/`output_json` 各段的 `start`、`end`、`speaker_id` 和 `text`.*字卡/su)
+  expect(workflow).toMatch(/`status`、`metadata`、`timeline`、`compare` 等文字结果不重新附图.*没有图片是正常行为/su)
+  expect(workflow).toMatch(/`next` 或 `revisit` 明确返回帧.*实际结果却没有这些图片.*不撤回此前有效记录/su)
   expect(workflow).not.toContain('首次出场集')
   expect(workflow).toMatch(/`speaker_voice_conflicts`.*`timeline` 找到帧号后 `revisit`.*`timestamps_seconds`.*不按分组直接改人/su)
   expect(workflow).toMatch(/`on_screen_text_differs`.*同音不同字.*按清晰字幕改正.*读音不同、只是繁简体或字形相近.*保留正文/su)
