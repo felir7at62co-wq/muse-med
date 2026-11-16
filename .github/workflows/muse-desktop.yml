@@ -140,7 +140,11 @@ jobs:
           pnpm --dir apps/desktop run test:updates:local
       - name: Prewarm locked Mac media sources
         if: matrix.target == 'mac-arm64'
-        run: python -B apps/desktop/scripts/prewarm_macos_media_sources.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v1.2.0 --repo felir7at62co-wq/muse-med --pattern muse-macos-media-9.0.2-locked-source-inputs.tar.gz --dir apps/desktop/.desktop-build/downloads
+          python -B apps/desktop/scripts/prewarm_macos_media_sources.py --archive apps/desktop/.desktop-build/downloads/muse-macos-media-9.0.2-locked-source-inputs.tar.gz
       - name: Check native macOS DMG identity and signature verification
         if: matrix.target == 'mac-arm64'
         run: |

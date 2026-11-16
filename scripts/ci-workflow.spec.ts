@@ -97,8 +97,15 @@ describe('CI workflow', () => {
     }))
     const modelCheck = steps.find(step => step.name === 'Check model relay behavior')
     const packagingCheck = steps.find(step => step.name === 'Check packaging behavior')
+    const macPrewarm = steps.find(step => step.name === 'Prewarm locked Mac media sources')
     expect(modelCheck?.run).toBe('node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs')
     expect(packagingCheck?.run).toMatch(/^pnpm exec vitest run /)
+    expect(macPrewarm).toMatchObject({
+      if: "matrix.target == 'mac-arm64'",
+      env: { GH_TOKEN: '${{ github.token }}' },
+    })
+    expect(macPrewarm?.run).toContain('gh release download v1.2.0 --repo felir7at62co-wq/muse-med')
+    expect(macPrewarm?.run).toContain('--archive apps/desktop/.desktop-build/downloads/muse-macos-media-9.0.2-locked-source-inputs.tar.gz')
     expect(modelCheck).not.toHaveProperty('continue-on-error')
     expect(packagingCheck).not.toHaveProperty('continue-on-error')
     const installerUi = steps.find(step => step.name === 'Check native Windows install and automatic update UI')
