@@ -662,17 +662,17 @@ describe.skipIf(MODE === 'record')('web e2e: bonus notice', () => {
     const frontBox = await cards.first().boundingBox()
     const backBox = await second.boundingBox()
     expect(frontBox!.x).toBeCloseTo(10, 0)
-    expect(frontBox!.width).toBeCloseTo(260, 0)
-    expect(frontBox!.x + frontBox!.width).toBeCloseTo(270, 0)
-    expect(backBox!.width).toBeCloseTo(252, 0)
+    expect(frontBox!.width).toBeCloseTo(259, 0)
+    expect(frontBox!.x + frontBox!.width).toBeCloseTo(269, 0)
+    expect(backBox!.width).toBeCloseTo(259 * 252 / 260, 0)
     expect(backBox!.y).toBeCloseTo(frontBox!.y - 4, 0)
     const transition = await second.evaluate((element) => {
       const style = getComputedStyle(element)
       return `${style.transitionDuration} ${style.transitionTimingFunction}`
     })
     expect(transition).toBe('0.25s ease-out')
-    observations.push(`stack.initial cards=3 acks=stack-first widths=260,252 inset=10 offset=-4 transition=${transition}`)
-    for (const [delta, width, edge] of [[80, 280, 360], [-80, 260, 280]] as const) {
+    observations.push(`stack.initial cards=3 acks=stack-first widths=259,251 inset=10 offset=-4 transition=${transition}`)
+    for (const [delta, width, edge] of [[80, 280, 360], [-80, 259, 280]] as const) {
       const handle = await stackPage.locator('[data-side="sidebar"]').boundingBox()
       const x = handle!.x + handle!.width / 2
       const y = handle!.y + handle!.height / 2
@@ -735,12 +735,12 @@ describe.skipIf(MODE === 'record')('web e2e: bonus notice', () => {
     expect(promotion.middle.y).toBeLessThan(promotion.start.y)
     expect(promotion.middle.y).toBeGreaterThan(promotion.end.y)
     await expect.poll(() => cards.count()).toBe(2)
-    await expect.poll(async () => Math.round((await second.boundingBox())!.width)).toBe(260)
+    await expect.poll(async () => Math.round((await second.boundingBox())!.width)).toBe(259)
     expect(await second.evaluate((element, previous) => element === previous, secondNode)).toBe(true)
     expect(await second.getAttribute('data-front')).toBe('true')
     await expect.poll(() => platform.acks.length).toBe(ackStart + 2)
     expect(platform.acks.slice(ackStart).map(ack => ack.orderId)).toEqual(['a1111111-1111-4111-8111-111111111111', 'a2222222-2222-4222-8222-222222222222'])
-    observations.push('stack.promoted cards=2 acks=stack-first,stack-second width=260 same-node=true')
+    observations.push('stack.promoted cards=2 acks=stack-first,stack-second width=259 same-node=true')
     await second.getByRole('button', { name: '关闭', exact: true }).click()
     await expect.poll(() => platform.acks.length).toBe(ackStart + 3)
     expect(platform.acks.slice(ackStart).map(ack => ack.orderId)).toEqual(['a1111111-1111-4111-8111-111111111111', 'a2222222-2222-4222-8222-222222222222', 'a3333333-3333-4333-8333-333333333333'])
