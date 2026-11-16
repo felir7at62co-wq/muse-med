@@ -31,7 +31,7 @@ const limits: ManuscriptContinuityConfig = {
   maxVersionBytes: 1048576, maxLedgerBytes: 1048576, lockWaitMs: 5000,
   maxDocuments: 8, maxMaterialChars: 40000, continuityMaxRequests: 3, continuityMaxOutputTokens: 4096,
   continuityTimeoutMs: 120000, continuityMaxFindings: 8, continuityMaxCorrections: 1, continuityMaxEpisodeChecks: 12,
-  continuityMaxConcurrentReviews: 4,
+  continuityMaxConcurrentReviews: 4, continuityMaxWindowRetries: 0,
   videoEvidenceWindowSeconds: 8, videoEvidenceMaxScenes: 4, videoEvidenceMaxFrames: 4,
   videoEvidenceMaxBytes: 262144, videoEvidenceMaxTranscriptBytes: 2097152,
   repeatMinChars: 32, repeatMaxSeedPairs: 50000, repeatMaxCandidates: 12, repeatMaxOutputChars: 20000,

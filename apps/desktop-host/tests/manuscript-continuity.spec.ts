@@ -35,7 +35,7 @@ const config: ManuscriptContinuityConfig = { maxFileBytes: 65536, maxTextChars: 
   maxLedgerBytes: 1024 * 1024, lockWaitMs: 5000,
   maxDocuments: 8, maxMaterialChars: 40000, continuityMaxRequests: 3,
   continuityMaxOutputTokens: 4096, continuityTimeoutMs: 120000, continuityMaxFindings: 8,
-  continuityMaxCorrections: 1, continuityMaxEpisodeChecks: 12, continuityMaxConcurrentReviews: 4,
+  continuityMaxCorrections: 1, continuityMaxEpisodeChecks: 12, continuityMaxConcurrentReviews: 4, continuityMaxWindowRetries: 0,
   videoEvidenceWindowSeconds: 8, videoEvidenceMaxScenes: 4, videoEvidenceMaxFrames: 4,
   videoEvidenceMaxBytes: 256 * 1024, videoEvidenceMaxTranscriptBytes: 2 * 1024 * 1024,
   repeatMinChars: 32, repeatMaxSeedPairs: 50000, repeatMaxCandidates: 12, repeatMaxOutputChars: 20000 }
@@ -746,4 +746,14 @@ it('keeps a window unknown when the manuscript disappears before its reread', as
   expect(result).toMatchObject({ status: 'unknown', file_verification: 'changed' })
   expect(result.windows?.slice(1)).toMatchObject([{ reason: 'file_unavailable' }, { reason: 'file_unavailable' }])
   expect(fixture.ctx.agents.list().map(agent => agent.id)).toEqual([fixture.parent.id])
+})
+
+it('runs a failed window again with a fresh reviewer and counts every attempt', async () => {
+  const fixture = await runtime([windowAnswer, textResponse('The handoff looks fine.'), windowAnswer, windowAnswer],
+    { continuityMaxEpisodeChecks: 1, continuityMaxConcurrentReviews: 1, continuityMaxCorrections: 0, continuityMaxWindowRetries: 1 })
+  await writeFile(join(fixture.root, 'current.md'), fourEpisodes)
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对整剧集间承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'consistent', reason: 'reviewed', reviewer: { requests: 4 },
+    windows: [{ attempts: 1 }, { attempts: 2, reason: 'reviewed', reviewer: { requests: 2 } }, { attempts: 1 }] })
+  expect(fixture.childSessions).toHaveLength(4)
 })

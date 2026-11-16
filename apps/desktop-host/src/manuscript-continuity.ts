@@ -43,6 +43,7 @@ export interface ManuscriptContinuityConfig extends ManuscriptMaterialsLimits, M
   continuityMaxCorrections: number
   continuityMaxEpisodeChecks: number
   continuityMaxConcurrentReviews: number
+  continuityMaxWindowRetries: number
 }
 
 /** Host-owned outcome; expected failures never depend on parsing a provider error message. */
@@ -84,8 +85,14 @@ export interface ContinuityResult extends ContinuityJudgment {
 export interface EpisodeWindowReview extends EpisodeWindow {
   status: ContinuityJudgment['status']
   reason: ContinuityReason
+  /** Fresh reviewer runs of this window, including retries after a failed or rejected submission. */
+  attempts: number
+  /** The last run's child Session; `requests` counts every attempt. */
   reviewer: ContinuityResult['reviewer']
 }
+
+/** Window outcomes that a fresh reviewer run may resolve; unchanged files and notes are verified again on retry. */
+const RETRYABLE_WINDOW_REASONS: ReadonlySet<ContinuityReason> = new Set(['reviewer_failed', 'invalid_result', 'invalid_evidence', 'budget'])
 
 /** Original cached frames and saved recognition text are compared only within explicit source-to-draft mappings. */
 export interface VideoSourceReviewResult extends Omit<ContinuityResult, 'state' | 'scope'> {
@@ -621,7 +628,8 @@ export class ManuscriptContinuity {
    * A window that finds no free subagent slot retries after one of this call's other windows finishes; when none
    * finished during its attempt and none is running, it stays unknown with reason `capacity`. A window whose reread
    * fails with a manuscript error or a missing or unreadable file stays unknown with reason `file_changed` or
-   * `file_unavailable`. Any window that is not reviewed leaves
+   * `file_unavailable`. A window whose reviewer failed, exhausted its requests or submitted a result that Host
+   * validation rejected runs again with a fresh reviewer up to `continuityMaxWindowRetries` times. Any window that is not reviewed leaves
    * the merged status unknown while keeping the other windows' findings. Cancellation, owner disposal and unexpected
    * errors abort the remaining windows, await them and are rethrown.
    */
@@ -631,7 +639,7 @@ export class ManuscriptContinuity {
     const windows = episodeWindows(plan.checks, assessed.episode_index.episodes, this.config.continuityMaxEpisodeChecks)
     const position = materials.documents.indexOf(assessed)
     const stop = new AbortController(), windowSignal = AbortSignal.any([signal, stop.signal])
-    const done: { index: number; window: EpisodeWindow; review: ContinuityResult }[] = []
+    const done: { index: number; window: EpisodeWindow; review: ContinuityResult; attempts: number }[] = []
     let cursor = 0, running = 0, finished = 0, failure: { error: unknown } | undefined
     let settled = Promise.withResolvers<undefined>()
     const notify = (): void => { finished++; settled.resolve(undefined); settled = Promise.withResolvers() }
@@ -654,6 +662,7 @@ export class ManuscriptContinuity {
       for (;;) {
         const index = cursor++, window = windows[index]
         if (window === undefined || failure !== undefined) return
+        let attempts = 0, requests = 0
         for (;;) {
           const waiting = settled.promise, seen = finished
           running++
@@ -671,7 +680,10 @@ export class ManuscriptContinuity {
             if (windowSignal.aborted) return
             continue
           }
-          done.push({ index, window, review })
+          attempts++
+          requests += review.reviewer.requests
+          if (RETRYABLE_WINDOW_REASONS.has(review.reason) && attempts <= this.config.continuityMaxWindowRetries) continue
+          done.push({ index, window, attempts, review: { ...review, reviewer: { ...review.reviewer, requests } } })
           notify()
           break
         }
@@ -694,8 +706,8 @@ export class ManuscriptContinuity {
     Object.assign(result, merged)
     result.reviewer = { session_id: null, selection: result.reviewer.selection,
       requests: done.reduce((total, { review }) => total + review.reviewer.requests, 0) }
-    result.windows = done.map(({ window, review }) => ({ ...window, status: review.status, reason: review.reason,
-      reviewer: review.reviewer }))
+    result.windows = done.map(({ window, review, attempts }) => ({ ...window, status: review.status, reason: review.reason,
+      attempts, reviewer: review.reviewer }))
     if (done.some(({ review }) => review.target.file_sha256 !== result.target.file_sha256 || review.file_verification !== 'verified')) {
       Object.assign(result, unknown('file_changed', 'The manuscript changed while its episode windows were reviewed; read and review again.'))
     } else if (done.some(({ review }) => review.notes_sha256 !== result.notes_sha256)) {

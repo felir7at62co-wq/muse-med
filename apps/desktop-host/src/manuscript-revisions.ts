@@ -62,6 +62,8 @@ export interface Config {
   continuityMaxEpisodeChecks: number
   /** Maximum cross-episode window reviewers running at once for one review request. */
   continuityMaxConcurrentReviews: number
+  /** Fresh reviewer runs added to a cross-episode window whose reviewer failed or whose submission Host validation rejected. */
+  continuityMaxWindowRetries: number
   /** Minimum exact repeated Unicode span; literal matches remain semantic-review candidates. */
   repeatMinChars: number
   /** Maximum literal seed-position pairs considered before explicit partial coverage. */
@@ -138,6 +140,7 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   continuityMaxFindings: Schema.number().step(1).min(1).default(24),
   continuityMaxEpisodeChecks: Schema.number().step(1).min(1).default(6),
   continuityMaxConcurrentReviews: Schema.number().step(1).min(1).default(4),
+  continuityMaxWindowRetries: Schema.number().step(1).min(0).default(1),
   repeatMinChars: Schema.number().step(1).min(1).default(32),
   repeatMaxSeedPairs: Schema.number().step(1).min(1).default(50_000),
   repeatMaxCandidates: Schema.number().step(1).min(1).default(12),
