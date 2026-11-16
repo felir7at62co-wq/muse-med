@@ -50,6 +50,7 @@ function isProjectPath(projectDir: string, target: string): boolean {
 interface DesktopComposition {
   readonly profile: Profile
   readonly patches: PatchOptions[]
+  /** Exact plugin specifiers mapped to the file: URLs of their packaged modules. */
   readonly moduleOverrides: Readonly<Record<string, string>>
 }
 
@@ -125,7 +126,11 @@ async function desktopComposition(
   }])
   // Resolve bridge Config only after the setup service installs its startup hook.
   layers.push(feishuGateLayer([...rows.values()]))
-  return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: { ...bundledBridgeModules(runtimeDir), 'muse-workspace-owned-storage': fileURLToPath(new URL('./workspace-owned-storage.js', import.meta.url)), 'ds-bot': fileURLToPath(new URL('./retired-bot.js', import.meta.url)), 'muse-bot': fileURLToPath(new URL('./retired-bot.js', import.meta.url)) } }
+  // The Loader imports an override as given, so each one is a file: URL; a Windows path such as D:\… is not an import specifier.
+  const productModule = (file: string): string => new URL(file, import.meta.url).href
+  return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: { ...bundledBridgeModules(runtimeDir),
+    'muse-workspace-owned-storage': productModule('./workspace-owned-storage.js'),
+    'ds-bot': productModule('./retired-bot.js'), 'muse-bot': productModule('./retired-bot.js') } }
 }
 
 async function main(): Promise<void> {
