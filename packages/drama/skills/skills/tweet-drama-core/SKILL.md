@@ -72,6 +72,8 @@ source、episodes、style、asset_prompts、asset_candidates、official_assets�
 
 ## 资产硬字段
 
+设计、生成、重绘主角形象或为主角换装前，必须先用 `skill` 加载 [protagonist-asset-sheet](../protagonist-asset-sheet/SKILL.md)，准备身份母版、服装与剧情状态版本，再按项目画风生成与审核。普通配角不要求加载主角技能；已有合格正式资产继续复用。
+
 stable_id、type、name、aliases、episodes、prompt、review、review_attempts、max_review_attempts、jubian_asset_id、jubian_material_id、url、asset_confirmation、official。正式资产必须 official=true；非本地生成候选确认响应可追溯，本地正式主体使用总控规定的实时独立门禁证据，不伪造 material_id 或确认响应。
 
 ## 资产参考搜索
