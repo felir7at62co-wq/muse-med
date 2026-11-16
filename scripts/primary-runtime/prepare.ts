@@ -14,6 +14,7 @@ import { copyPrimaryRuntime, parsePrimaryRuntime, workspaceDependencyPaths, type
 import { acceptsNpmPlatform } from '../npm-platform.ts'
 import lock from './lock.json' with { type: 'json' }
 import { prunePrimaryRuntimePythonTests } from './prune-python-tests.ts'
+import { patchPrimaryRuntimeWindowsCrypto } from './windows-crypto.ts'
 
 /** OCR model notices copied into each primary runtime payload. */
 export const PRIMARY_RUNTIME_NOTICE_FILES = ['ocr-models-notice.txt', 'ocr-models-license.txt'] as const
@@ -129,7 +130,7 @@ export function primaryRuntimePayloadDigest(
   // Identity preserves key order within the selected target, wheel records and distribution map, plus wheel-entry order.
   // Bump format when extraction or assembly changes payload bytes without changing locked inputs.
   return createHash('sha256').update(JSON.stringify({
-    format: 8, target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
+    format: target === 'win-x64' ? 9 : 8, target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
     artifact: runtimeLock.targets[target], wheels, pythonPackages, pnpm: pnpmVersion,
     ocrNotices: PRIMARY_RUNTIME_NOTICE_FILES.map(filename =>
       createHash('sha256').update(readFileSync(join(import.meta.dirname, filename))).digest('hex')),
@@ -244,6 +245,7 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
     for (const wheel of [...lock.targets[target].wheels, ...lock.wheels]) {
       await unpackPrimaryRuntimeWheel(await downloadPrimaryRuntimeAsset(wheel.url, wheel.sha256, paths.downloads), entries.pythonPackages)
     }
+    if (target === 'win-x64') patchPrimaryRuntimeWindowsCrypto(entries.pythonPackages)
     for (const filename of PRIMARY_RUNTIME_NOTICE_FILES) {
       writeFileSync(join(output, filename), readFileSync(join(import.meta.dirname, filename)))
     }
