@@ -185,38 +185,73 @@ async function assertMaskFade(frame: Locator, from: number, to: number): Promise
   })
 }
 
-/** Sample both width transitions on the same clock to detect detached sidebar controls. */
-async function assertFoldResize(toggle: Locator, from: number, to: number): Promise<void> {
-  await expect.poll(() => toggle.evaluate((button, target) => {
-    const frame = button.closest<HTMLElement>('[data-animating]')
-    return frame !== null && parseFloat(frame.style.gridTemplateColumns) === target && frame.getAnimations().some(animation =>
-      animation instanceof CSSTransition && animation.transitionProperty === 'grid-template-columns')
-  }, to)).toBe(true)
-  const sample = await toggle.evaluate((button) => {
-    const frame = button.closest<HTMLElement>('[data-animating]')!
-    const transitions = frame.getAnimations({ subtree: true }).filter((animation): animation is CSSTransition =>
-      animation instanceof CSSTransition && ['grid-template-columns', 'width'].includes(animation.transitionProperty))
-    const grid = transitions.find(animation => animation.transitionProperty === 'grid-template-columns')
-    if (grid === undefined) throw new Error('Fold width transition is missing')
-    const at = (progress: number) => {
-      for (const transition of transitions) {
-        transition.pause()
-        transition.currentTime = Number(transition.effect!.getComputedTiming().duration) * progress
+/** Capture shared-clock geometry before the frame's settle fallback removes its transitions. */
+async function assertFoldResize(toggle: Locator, from: number, to: number, changePosture: () => Promise<unknown>): Promise<void> {
+  const observation = await toggle.evaluateHandle((button, target) => {
+    const frame = button.closest<HTMLElement>('[data-rightbar-collapsed]')
+    if (frame === null) throw new Error('Fold frame is missing')
+    const duration = frame.style.getPropertyValue('--ds-transition-duration-slow')
+    const priority = frame.style.getPropertyPriority('--ds-transition-duration-slow')
+    frame.style.setProperty('--ds-transition-duration-slow', '100s')
+    frame.getBoundingClientRect()
+    let sample: { endpoints: number[]; start: { width: number; gap: number }; middle: { width: number; gap: number } } | undefined
+    let failure: string | undefined
+    let transitions: CSSTransition[] = []
+    const capture = (event: TransitionEvent) => {
+      if (event.target !== frame || event.propertyName !== 'grid-template-columns'
+        || !frame.hasAttribute('data-animating') || parseFloat(frame.style.gridTemplateColumns) !== target) return
+      frame.removeEventListener('transitionrun', capture)
+      try {
+        transitions = frame.getAnimations({ subtree: true }).filter((animation): animation is CSSTransition =>
+          animation instanceof CSSTransition && ['grid-template-columns', 'width'].includes(animation.transitionProperty))
+        const grid = transitions.find(animation => animation.transitionProperty === 'grid-template-columns'
+          && animation.effect instanceof KeyframeEffect && animation.effect.target === frame)
+        if (grid === undefined) throw new Error('Fold width transition is missing')
+        const at = (progress: number) => {
+          for (const transition of transitions) {
+            transition.pause()
+            transition.currentTime = Number(transition.effect!.getComputedTiming().duration) * progress
+          }
+          const width = parseFloat(getComputedStyle(frame).gridTemplateColumns)
+          return { width, gap: frame.getBoundingClientRect().left + width - button.getBoundingClientRect().right }
+        }
+        const start = at(0)
+        const middle = at(0.5)
+        const end = at(1)
+        sample = { endpoints: [start.width, end.width], start, middle }
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error)
+      } finally {
+        for (const transition of transitions) transition.finish()
       }
-      const width = parseFloat(getComputedStyle(frame).gridTemplateColumns)
-      return { width, gap: frame.getBoundingClientRect().left + width - button.getBoundingClientRect().right }
     }
-    const start = at(0)
-    const middle = at(0.5)
-    const end = at(1)
-    for (const transition of transitions) transition.finish()
-    frame.style.removeProperty('--ds-transition-duration-slow')
-    return { endpoints: [start.width, end.width], start, middle }
-  })
-  expect(sample.endpoints).toEqual([from, to])
-  expect(sample.middle.width).toBeGreaterThan(Math.min(from, to))
-  expect(sample.middle.width).toBeLessThan(Math.max(from, to))
-  expect(sample.middle.gap).toBeCloseTo(sample.start.gap, 1)
+    frame.addEventListener('transitionrun', capture)
+    return {
+      settled: () => parseFloat(frame.style.gridTemplateColumns) === target && !frame.hasAttribute('data-animating'),
+      read: () => ({ sample, failure }),
+      dispose: () => {
+        frame.removeEventListener('transitionrun', capture)
+        for (const transition of transitions) transition.finish()
+        if (duration === '') frame.style.removeProperty('--ds-transition-duration-slow')
+        else frame.style.setProperty('--ds-transition-duration-slow', duration, priority)
+      },
+    }
+  }, to)
+  try {
+    await changePosture()
+    // Host sampling deliberately follows settlement; the browser must retain the measured transition.
+    await expect.poll(() => observation.evaluate(value => value.settled())).toBe(true)
+    const { sample, failure } = await observation.evaluate(value => value.read())
+    if (failure !== undefined) throw new Error(failure)
+    if (sample === undefined) throw new Error('Fold width transition was not captured')
+    expect(sample.endpoints).toEqual([from, to])
+    expect(sample.middle.width).toBeGreaterThan(Math.min(from, to))
+    expect(sample.middle.width).toBeLessThan(Math.max(from, to))
+    expect(sample.middle.gap).toBeCloseTo(sample.start.gap, 1)
+  } finally {
+    try { await observation.evaluate((value) => { value.dispose() }) }
+    finally { await observation.dispose() }
+  }
 }
 
 it('overlays the conversation and closes after navigation without losing its sidebar content', async () => {
@@ -490,16 +525,12 @@ it('overlays the conversation and closes after navigation without losing its sid
         await foldSearch.fill('fold search')
         const wideFrame = page.locator('[data-rightbar-collapsed]')
         const collapseSidebar = page.getByRole('button', { name: 'Collapse sidebar', exact: true })
-        await wideFrame.evaluate((el) => { el.style.setProperty('--ds-transition-duration-slow', '100s') })
-        await posture.send('Emulation.clearDevicePostureOverride')
-        await assertFoldResize(collapseSidebar, 475.5, 280)
+        await assertFoldResize(collapseSidebar, 475.5, 280, () => posture.send('Emulation.clearDevicePostureOverride'))
         await expect.poll(() => main.boundingBox()).toEqual({ x: 280, y: 0, width: 671, height: 669 })
         expect(await page.locator('[data-side="sidebar"]').count()).toBe(1)
         expect(await foldSearch.evaluate(el => el === document.activeElement)).toBe(true)
         expect(await foldSearch.inputValue()).toBe('fold search')
-        await wideFrame.evaluate((el) => { el.style.setProperty('--ds-transition-duration-slow', '100s') })
-        await posture.send('Emulation.setDevicePostureOverride', { posture: { type: 'folded' } })
-        await assertFoldResize(collapseSidebar, 280, 475.5)
+        await assertFoldResize(collapseSidebar, 280, 475.5, () => posture.send('Emulation.setDevicePostureOverride', { posture: { type: 'folded' } }))
         await expect.poll(async () => (await main.boundingBox())?.x).toBe(475.5)
         expect(await foldSearch.evaluate(el => el === document.activeElement)).toBe(true)
         await page.emulateMedia({ reducedMotion: 'reduce' })
