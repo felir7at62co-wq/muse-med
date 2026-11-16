@@ -125,8 +125,8 @@ vi.mock('../src/paths.ts', async (importOriginal) => {
     ...original.resolveDesktopPaths(), profile: '/profile',
   }) }
 })
-vi.mock('../src/hongguo-runtime.ts', () => ({
-  prepareDesktopHongguoEnvironment: vi.fn<typeof import('../src/hongguo-runtime.ts').prepareDesktopHongguoEnvironment>()
+vi.mock('../src/fanqie-runtime.ts', () => ({
+  prepareDesktopFanqieEnvironment: vi.fn<typeof import('../src/fanqie-runtime.ts').prepareDesktopFanqieEnvironment>()
     .mockResolvedValue({}),
 }))
 vi.mock('../src/settings.ts', async importOriginal => ({

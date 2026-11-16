@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { runConcurrent } from '../../../scripts/release/process.ts'
 import { runtimeArchivePath } from '../../desktop-host/src/cli.ts'
 import { desktopNodeEnvironment } from '../src/node-environment.ts'
-import { prepareDesktopHongguoEnvironment } from '../src/hongguo-runtime.ts'
+import { prepareDesktopFanqieEnvironment } from '../src/fanqie-runtime.ts'
 import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 import { scrubWindowsSigningEnvironment } from './windows-sign.mjs'
 import { smokeDesktopRuntime } from './smoke-runtime.ts'
@@ -31,8 +31,8 @@ export async function smokePreparedRuntime(
   try {
     const archive = runtimeArchivePath(root)
     if (archive !== undefined) await verifyRuntimeArchive(archive, descriptor)
-    Object.assign(environment, await prepareDesktopHongguoEnvironment({
-      runtime: join(resourcesRuntime, 'hongguo'), productHome: join(cache, 'muse'),
+    Object.assign(environment, await prepareDesktopFanqieEnvironment({
+      primaryRuntime: join(resourcesRuntime, 'primary-runtime'),
     }))
     const { stdout } = await promisify(execFile)(node, [
       '--expose-internals', resolve(import.meta.dirname, '../tests/fixtures/runtime-payload-smoke.mjs'), root, resourcesRuntime,

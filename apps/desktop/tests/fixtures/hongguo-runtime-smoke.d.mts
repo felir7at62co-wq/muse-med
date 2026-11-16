@@ -26,9 +26,9 @@ export function createNativeDiagnostics(service: Pick<SubprocessRuntime, 'spawn'
 
 /** Private executable and source paths used only by native payload fixtures. */
 export interface HongguoSmokePaths {
-  app: string
-  java: string
-  python: string
+  app?: string
+  java?: string
+  python?: string
   ffmpeg: string
   ffprobe?: string
 }

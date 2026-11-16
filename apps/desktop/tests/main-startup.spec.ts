@@ -371,7 +371,7 @@ vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
 }))
 vi.mock('../src/runtime-tree.ts', () => ({ readDesktopRuntime: () => ({ release: { version: '1.0.0' } }) }))
 vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ root: 'desktop-test-root', profile: 'desktop-test-profile' }) }))
-vi.mock('../src/hongguo-runtime.ts', () => ({ prepareDesktopHongguoEnvironment: async () => ({}) }))
+vi.mock('../src/fanqie-runtime.ts', () => ({ prepareDesktopFanqieEnvironment: async () => ({}) }))
 vi.mock('../src/project-manager.ts', () => ({
   DesktopProjectManager: class {
     readonly applyRelease = harness.applyRelease

@@ -103,7 +103,9 @@ export async function mountPackagedRuntime(root, paths, platformRequests = false
     await context.plugin(SubprocessLocal)
     diagnostics = createNativeDiagnostics(context.subprocess)
     const client = new HongguoDownloadClient({
-      legacyAppDir: paths.app, javaExecutable: paths.java, pythonExecutable: paths.python,
+      ...(paths.app === undefined ? {} : { legacyAppDir: paths.app }),
+      ...(paths.java === undefined ? {} : { javaExecutable: paths.java }),
+      ...(paths.python === undefined ? {} : { pythonExecutable: paths.python }),
       bootstrapDevices: true, signerStartupTimeoutMs: 120_000, deviceBootstrapTimeoutMs: 30_000,
       ffmpegExecutable: paths.ffmpeg, ...(paths.ffprobe ? { ffprobeExecutable: paths.ffprobe } : {}),
     }, { subprocess: diagnostics.subprocess,
@@ -124,7 +126,7 @@ export async function mountPackagedRuntime(root, paths, platformRequests = false
 
 /** Collect a bounded native probe and join its entire managed range even when collection fails. */
 async function nativeProbe(subprocess, paths, argv, signal) {
-  const handle = subprocess.spawn({ argv, cwd: paths.app, signal, graceMs: 1_000,
+  const handle = subprocess.spawn({ argv, cwd: paths.app ?? dirname(paths.ffmpeg), signal, graceMs: 1_000,
     env: { HOME: paths.app, USERPROFILE: paths.app, JAVA_TOOL_OPTIONS: undefined,
       JDK_JAVA_OPTIONS: undefined, _JAVA_OPTIONS: undefined, CLASSPATH: undefined },
     stdio: { stdin: 'ignore', stdout: { maxBytes: 64 * 1024 }, stderr: { maxBytes: 64 * 1024 } } })
@@ -185,8 +187,9 @@ export async function checkHongguoRuntime(root, resourcesRuntime, environment = 
     python: environment.MUSE_HONGGUO_PYTHON_PATH,
     ffmpeg: join(resourcesRuntime, 'media', 'ffmpeg', 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
     ffprobe: join(resourcesRuntime, 'media', 'ffmpeg', 'bin', process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe') }
-  assert.ok(environment.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'
-    && [paths.app, paths.java, paths.python].every(value => typeof value === 'string' && isAbsolute(value)),
+  assert.ok((typeof environment.MUSE_FANQIE_PYTHON_PATH === 'string' && isAbsolute(environment.MUSE_FANQIE_PYTHON_PATH))
+    || (environment.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'
+    && [paths.app, paths.java, paths.python].every(value => typeof value === 'string' && isAbsolute(value))),
   'Hongguo native smoke requires prepared local runtime paths')
   const lifetime = new AbortController()
   const timer = setTimeout(() => lifetime.abort(new Error('Hongguo native payload deadline exceeded')), 180_000)

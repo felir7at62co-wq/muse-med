@@ -311,9 +311,9 @@ vi.mock('../src/paths.ts', async (importOriginal) => {
   }) }
 })
 const hongguo = vi.hoisted(() => ({
-  prepare: vi.fn<typeof import('../src/hongguo-runtime.ts').prepareDesktopHongguoEnvironment>(),
+  prepare: vi.fn<typeof import('../src/fanqie-runtime.ts').prepareDesktopFanqieEnvironment>(),
 }))
-vi.mock('../src/hongguo-runtime.ts', () => ({ prepareDesktopHongguoEnvironment: hongguo.prepare }))
+vi.mock('../src/fanqie-runtime.ts', () => ({ prepareDesktopFanqieEnvironment: hongguo.prepare }))
 vi.mock('../src/hongguo-v2-environment.ts', () => ({ prepareDesktopHongguoV2Environment: vi.fn(async () => ({})) }))
 vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/login-shell-environment.ts')>(),
@@ -1069,10 +1069,7 @@ describe('desktop main startup', () => {
     harness.app.isPackaged = packaged
     const entered = Promise.withResolvers<undefined>(), prepared = Promise.withResolvers<NodeJS.ProcessEnv>()
     const environment = {
-      MUSE_HONGGUO_JAVA_PATH: join(harness.appRoot, 'hongguo', 'java'),
-      MUSE_HONGGUO_PYTHON_PATH: join(harness.appRoot, 'hongguo', 'python'),
-      MUSE_HONGGUO_LEGACY_APP_DIR: join(harness.appRoot, 'hongguo', 'source-fixture'),
-      MUSE_HONGGUO_BOOTSTRAP_DEVICES: '1',
+      MUSE_FANQIE_PYTHON_PATH: join(harness.appRoot, 'primary-runtime', 'python'),
     }
     hongguo.prepare.mockImplementationOnce(async () => { entered.resolve(undefined); return await prepared.promise })
     await import('../src/main.ts')
@@ -1081,14 +1078,13 @@ describe('desktop main startup', () => {
     await entered.promise
     try {
       expect(hongguo.prepare).toHaveBeenCalledExactlyOnceWith({
-        runtime: packaged ? join('desktop-test-resources', 'runtime', 'hongguo') : resolve('test-primary-runtime', '..', 'hongguo'),
-        productHome: packaged ? join(homedir(), '.muse') : resolve('upstream-dsh-home'),
+        primaryRuntime: packaged ? join('desktop-test-resources', 'runtime', 'primary-runtime') : 'test-primary-runtime',
       })
       expect(harness.hosts).toHaveLength(0)
       prepared.resolve(environment)
       await harness.hostStarted.promise
       expect(harness.hosts[0]!.environment).toMatchObject(environment)
-      expect(process.env.MUSE_HONGGUO_LEGACY_APP_DIR).not.toBe(environment.MUSE_HONGGUO_LEGACY_APP_DIR)
+      expect(process.env.MUSE_FANQIE_PYTHON_PATH).not.toBe(environment.MUSE_FANQIE_PYTHON_PATH)
       harness.hosts[0]!.ready.resolve()
       await harness.windows[0]!.shown.promise
     } finally { prepared.resolve(environment) }
