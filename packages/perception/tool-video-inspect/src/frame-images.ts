@@ -10,10 +10,10 @@ const FRAME_LABEL = /^VIDEO_FRAME (\S+) /u
 const occurrenceSchema = z.object({ seq: z.number().int().nonnegative(), index: z.number().int().nonnegative() })
 const stateSchema = z.record(z.string(), z.array(occurrenceSchema))
 
-/** Retained, not yet offloaded image occurrences keyed by `review_id/frame_id`. */
+/** Not yet offloaded image occurrences keyed by `review_id/frame_id`. */
 export type FrameImageOccurrences = z.infer<typeof stateSchema>
 
-/** Synchronous reader of one Session's retained frame-image occurrences. */
+/** Synchronous reader of one Session's frame-image occurrences still present in its current surface. */
 export type FrameImageReader = (session: Session) => FrameImageOccurrences
 
 function labelledImages(content: readonly ContentBlock[]): { label: string; index: number }[] {
@@ -29,9 +29,8 @@ function labelledImages(content: readonly ContentBlock[]): { label: string; inde
 }
 
 /**
- * Register the Host-only projection of labelled frame images in tool results and Host-injected user messages that later
- * model requests would still resend. State grows with retained frame images and shrinks as `image/offload` decisions
- * select them.
+ * Register the Host-only image-occurrence index and read it against the owning Session's current surface. Compaction
+ * can replace message nodes without an image/offload event; those historical occurrences are excluded at read time.
  * @param ctx - Session projection registration owner.
  * @returns Ready reader retained by the calling owner.
  */
@@ -59,7 +58,18 @@ export async function installFrameImageState(ctx: Context): Promise<FrameImageRe
       }
       return changed ? next : state
     } })
-  return session => projection.stateOf(session)
+  return (session) => {
+    const state = projection.stateOf(session)
+    const nodes = new Set<number>(session.surface.nodes)
+    const current: FrameImageOccurrences = {}
+    let changed = false
+    for (const [label, occurrences] of Object.entries(state)) {
+      const retained = occurrences.filter(occurrence => nodes.has(occurrence.seq))
+      if (retained.length !== occurrences.length) changed = true
+      if (retained.length > 0) current[label] = retained
+    }
+    return changed ? current : state
+  }
 }
 
 /**

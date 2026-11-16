@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import * as ImageOffload from '@deepseek-ai/dsh-compaction-image-offload'
 import { LlmAdapter, createUserMessage, type ContentBlock, type ImageBlock, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import { SessionId, type Session } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { installFrameImageState, offloadFrameImages } from '../src/frame-images.ts'
 
@@ -70,6 +70,42 @@ describe('retained frame image occurrences', () => {
     h.send([label('VIDEO_FRAME r1/F1 a'), image])
     expect(offloadFrameImages(h.session, h.read, () => false)).toBe(0)
     expect(h.session.snapshotEvents().filter(event => event.type === 'image/offload')).toEqual([])
+  })
+
+  it('excludes summarized frame messages before selecting images to offload', async () => {
+    const h = await harness()
+    const replaced = h.send([label('VIDEO_FRAME r1/F1 older'), image])
+    const retained = h.send([label('VIDEO_FRAME r2/F1 current'), image])
+    const oldState = h.ctx.sessionProjections.checkpoint(h.session)
+    h.session.append('user/message', createUserMessage({ content: [label('conversation summary')], source: { kind: 'user' } }), {
+      surfaceOp: { op: 'replace', startSeq: replaced.seq, endSeq: replaced.seq }, sourceEventSeqs: [replaced.seq],
+    })
+    const expected = { 'r2/F1': [{ seq: retained.seq, index: 0 }] }
+    expect(h.read(h.session)).toEqual(expected)
+    const events = h.session.snapshotEvents()
+    const restored = Session.create(h.session.id, events, h.session.header)
+    h.ctx.sessionProjections.hydrate(restored, oldState, events, SessionLogOffset(0))
+    expect(h.read(restored)).toEqual(expected)
+    const selected: number[] = []
+    expect(offloadFrameImages(h.session, h.read, (_label, seq) => { selected.push(seq); return true })).toBe(1)
+    expect(selected).toEqual([retained.seq])
+    expect(offloadFrameImages(h.session, h.read, () => true)).toBe(0)
+  })
+
+  it('uses the current order when a replacement range contains a newer summary node', async () => {
+    const h = await harness()
+    const first = h.send([label('VIDEO_FRAME r1/F1 first'), image])
+    const second = h.send([label('VIDEO_FRAME r1/F2 second'), image])
+    const third = h.send([label('VIDEO_FRAME r1/F3 third'), image])
+    const summary = h.session.append('user/message', createUserMessage({
+      content: [label('VIDEO_FRAME r2/F1 summary image'), image], source: { kind: 'user' },
+    }), { surfaceOp: { op: 'replace', startSeq: first.seq, endSeq: first.seq }, sourceEventSeqs: [first.seq] })
+    h.session.append('user/message', createUserMessage({ content: [label('next summary')], source: { kind: 'user' } }), {
+      surfaceOp: { op: 'replace', startSeq: summary.seq, endSeq: second.seq }, sourceEventSeqs: [summary.seq, second.seq, third.seq],
+    })
+    expect(h.read(h.session)).toEqual({ 'r1/F3': [{ seq: third.seq, index: 0 }] })
+    expect(offloadFrameImages(h.session, h.read, () => true)).toBe(1)
+    expect(h.read(h.session)).toEqual({})
   })
 
   it('logs one offload decision with sorted image indexes per selected event and reports their count', async () => {
