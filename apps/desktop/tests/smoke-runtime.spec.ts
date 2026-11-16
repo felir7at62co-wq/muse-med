@@ -287,7 +287,7 @@ function fixture(packaged = false) {
       return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames, ...sourceCapabilityNames, 'tool_search', 'tool_context']
         : key.preset === 'main-session' ? ['coordinator_sessions', 'coordinator_read', 'coordinator_view_image', 'coordinator_jobs', 'coordinator_settings',
           'coordinator_dispatch', 'coordinator_reconcile', 'coordinator_tasks', 'coordinator_stop',
-          'coordinator_show_report', 'coordinator_display_skill', 'ask_user_question']
+          'coordinator_show_report', 'coordinator_display_skill']
           : key.preset === 'minimal' ? [shell]
             : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
               'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...sourceCapabilityNames]
@@ -1540,6 +1540,14 @@ it('names each routing tool missing from the Main Session', async () => {
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
     ? schemas(key).filter(tool => !absent.includes(tool.name)) : schemas(key))
   await expect(f.apply(f.ctx)).rejects.toThrow('Main Session routing tool roster differs; missing: ' + absent.join(', ') + '; unexpected: none')
+})
+
+it('accepts a Main Session that also carries the optional human-facing tools', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
+    ? [...schemas(key), { name: 'ask_user_question' }, { name: 'show_view' }, { name: 'visualize' }] : schemas(key))
+  await expect(f.apply(f.ctx)).resolves.toBeUndefined()
 })
 
 it('rejects a Main Session missing its routing instructions', async () => {

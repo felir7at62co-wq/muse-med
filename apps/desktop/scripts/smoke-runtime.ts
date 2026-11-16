@@ -334,9 +334,9 @@ export function apply(ctx) {
       if (ctx.agentTeams.isEnabled(handle.agent)) throw new Error('desktop runtime: Main Session unexpectedly enables Team work')
       const required = ['coordinator_sessions', 'coordinator_read', 'coordinator_view_image', 'coordinator_jobs', 'coordinator_settings',
         'coordinator_dispatch', 'coordinator_reconcile', 'coordinator_tasks', 'coordinator_stop',
-        'coordinator_show_report', 'coordinator_display_skill', 'ask_user_question']
-      // Other plugins own these two display tools, so a composition may omit them.
-      const routing = [...required, 'show_view', 'visualize']
+        'coordinator_show_report', 'coordinator_display_skill']
+      // Other plugins own these human-facing tools; the Desktop main-session preset loads none of them itself.
+      const routing = [...required, 'ask_user_question', 'show_view', 'visualize']
       const missing = required.filter(name => !names.has(name))
       const unexpected = [...names].filter(name => !routing.includes(name)).sort()
       if (missing.length > 0 || unexpected.length > 0) {
