@@ -10,11 +10,10 @@ import { marketListings, type MarketListing } from './market-listing.ts'
 import { MarketBrowserUpload } from './MarketBrowserUpload.tsx'
 import { MarketPublications } from './MarketPublications.tsx'
 import { MarketGuide, rememberMarketGuide, shouldShowMarketGuide } from './MarketGuide.tsx'
-import { MarketPublicationFilter, MarketResourceCard, MarketResourceDetails,
+import { MarketLayout, MarketPublicationFilter, MarketResourceCard, MarketResourceDetails,
   type MarketPublicationFilterValue, type MarketResourceDetail } from './MarketResource.tsx'
 import type { MarketBrowserFile, MarketBrowserPageProps } from './market-browser-actions.ts'
 import css from './MarketSection.module.css'
-import mascotUrl from './assets/muse-purple-spider.png'
 import contributionUrl from './assets/storyboard-skill-kit.png'
 
 export type { MarketBrowserActions, MarketBrowserArchive, MarketBrowserFile,
@@ -196,85 +195,77 @@ export function MarketBrowserPage({ actions, view, onNavigate, t, reportOutcome 
       return await actions.review(...args, accountId)
     },
   })
-  return <div className={css.page} data-muse-skill-market data-market-carrier="web" onScroll={(event) => {
-    const element = event.currentTarget
-    if (element.scrollHeight - element.scrollTop - element.clientHeight < 320 && shownCount < visible.length) {
-      setShownCount(count => Math.min(count + 12, visible.length))
-    }
-  }}><section className={css.section}>
-      <header className={css.masthead}>
-        <div className={css.brand}><img src={mascotUrl} alt="" /><span>{t('brand')}</span></div>
-        <nav className={css.navigation} role="tablist" aria-label={t('nav')}>
-          {(['discover', 'publish'] as const).map(tab => <Button key={tab} role="tab" aria-selected={view === tab}
-            variant="ghost" className={css.navButton} onClick={() => { onNavigate(tab) }}>{t(tab)}</Button>)}
-        </nav>
-        <div className={css.actions}><Button variant="ghost" onClick={() => { setGuide(true) }}>{t('guideEntry')}</Button>
-          <Button variant="primary" icon={<IconPlusOutlineRegular size={18} />} onClick={() => { onNavigate('upload') }}>{t('creatorUploadZip')}</Button>
-          <a href={identity ? '/account' : '/login'}>{t(identity ? 'browserAccount' : 'browserSignIn')}</a></div>
-      </header>
-      <div className={css.hero}><div className={css.heroCopy}>
-        {view === 'upload' && <Button variant="ghost" onClick={() => { onNavigate('publish') }}>{t('creatorBack')}</Button>}
-        <p className={css.eyebrow}>{t(view === 'discover' ? 'discoverEyebrow' : 'creatorEyebrow')}</p>
-        <h1>{t(view === 'discover' ? 'discoverTitle' : view === 'publish' ? 'myPublications' : 'creatorTitle')}</h1>
-        <p>{t(view === 'discover' ? 'discoverDescription' : view === 'publish' ? 'publicationsDescription' : 'browserUploadDescription')}</p>
-      </div>{view === 'discover' && <form className={css.search} onSubmit={(event) => {
-        event.preventDefault(); void readPublic('publication'); void readPublic('legacy')
-      }}><Input className={css.query} icon={<IconSearchOutlineRegular size={18} />} type="search" maxLength={200}
-          value={query} aria-label={t('query')} placeholder={t('query')}
-          onChange={(event) => { setQuery(event.target.value); setShownCount(12) }} /><Button type="submit" variant="outline">{t('search')}</Button></form>}</div>
-      <div className={css.discoveryBar}>{view === 'discover' ? <div className={css.filters} role="group" aria-label={t('category')}>
-        {['', ...categories].map(value => <Button key={value} size="sm" aria-pressed={category === value}
-          variant={category === value ? 'outline' : 'ghost'} onClick={() => { setCategory(value); setShownCount(12) }}>{value || t('allCategories')}</Button>)}
-      </div> : <span>{t(view === 'publish' ? 'publish' : 'creatorUploadZip')}</span>}
-      <Button variant="ghost" onClick={refresh}>{t('refresh')}</Button></div>
-      {(view === 'publish' && privatePhase === 'loading' || view === 'upload' && identityPhase === 'loading')
+  return <MarketLayout carrier="web" total={visible.length} setShownCount={setShownCount} t={t}
+    navigation={<nav className={css.navigation} role="tablist" aria-label={t('nav')}>
+      {(['discover', 'publish'] as const).map(tab => <Button key={tab} role="tab" aria-selected={view === tab}
+        variant="ghost" className={css.navButton} onClick={() => { onNavigate(tab) }}>{t(tab)}</Button>)}
+    </nav>}
+    actions={<><Button variant="ghost" onClick={() => { setGuide(true) }}>{t('guideEntry')}</Button>
+      <Button variant="primary" icon={<IconPlusOutlineRegular size={18} />} onClick={() => { onNavigate('upload') }}>{t('creatorUploadZip')}</Button>
+      <a href={identity ? '/account' : '/login'}>{t(identity ? 'browserAccount' : 'browserSignIn')}</a></>}>
+    <div className={css.hero}><div className={css.heroCopy}>
+      {view === 'upload' && <Button variant="ghost" onClick={() => { onNavigate('publish') }}>{t('creatorBack')}</Button>}
+      <p className={css.eyebrow}>{t(view === 'discover' ? 'discoverEyebrow' : 'creatorEyebrow')}</p>
+      <h1>{t(view === 'discover' ? 'discoverTitle' : view === 'publish' ? 'myPublications' : 'creatorTitle')}</h1>
+      <p>{t(view === 'discover' ? 'discoverDescription' : view === 'publish' ? 'publicationsDescription' : 'browserUploadDescription')}</p>
+    </div>{view === 'discover' && <form className={css.search} onSubmit={(event) => {
+      event.preventDefault(); void readPublic('publication'); void readPublic('legacy')
+    }}><Input className={css.query} icon={<IconSearchOutlineRegular size={18} />} type="search" maxLength={200}
+        value={query} aria-label={t('query')} placeholder={t('query')}
+        onChange={(event) => { setQuery(event.target.value); setShownCount(12) }} /><Button type="submit" variant="outline">{t('search')}</Button></form>}</div>
+    <div className={css.discoveryBar}>{view === 'discover' ? <div className={css.filters} role="group" aria-label={t('category')}>
+      {['', ...categories].map(value => <Button key={value} size="sm" aria-pressed={category === value}
+        variant={category === value ? 'outline' : 'ghost'} onClick={() => { setCategory(value); setShownCount(12) }}>{value || t('allCategories')}</Button>)}
+    </div> : <span>{t(view === 'publish' ? 'publish' : 'creatorUploadZip')}</span>}
+    <Button variant="ghost" onClick={refresh}>{t('refresh')}</Button></div>
+    {(view === 'publish' && privatePhase === 'loading' || view === 'upload' && identityPhase === 'loading')
       && <div className={css.skeletons} role="status" aria-label={t('loading')}><StateDot state="ongoing" /></div>}
-      {view === 'discover' && <>
-        {publishedPhase === 'error' && <div className={css.notice}><p role="alert">{t('publishedReadFailed')}</p>
-          <Button onClick={() => { void readPublic('publication') }}>{t('retryPublished')}</Button></div>}
-        {legacyPhase === 'error' && <div className={css.notice}><p role="alert">{t('originalReadFailed')}</p>
-          <Button onClick={() => { void readPublic('legacy') }}>{t('retryOriginal')}</Button></div>}
-        {visible.length === 0 && (publishedPhase === 'loading' || legacyPhase === 'loading') && <div className={css.skeletons} aria-hidden="true">
-          {[0, 1, 2].map(key => <div key={key} className={css.skeletonCard}><span /><span /><span /></div>)}</div>}
-        <div className={css.grid}>{visible.slice(0, shownCount).map(item => <MarketResourceCard key={item.key} metadata={item}
-          source={{ kind: item.source, id: item.source === 'publication' ? item.publication.id : item.resource.id }}
-          publisher={item.source === 'publication' ? item.publication.publisher : t('originalResources')} t={t} actions={[
-            { id: 'details', label: t('details'), variant: 'outline', onSelect: () => { showDetails(item, { kind: 'public' }) } },
-            { id: 'download', label: t('browserDownload'), variant: 'primary', disabled: busy, onSelect: () => { void download(item, { kind: 'public' }) } },
-          ]} />)}{!query.trim() && !category && visible.length > 0 && <aside className={css.contributionCard}>
-          <span className={css.badge}>{t('discoverEyebrow')}</span><img src={contributionUrl} alt="" />
-          <h2>{t('contributeTitle')}</h2><p>{t('contributeDescription')}</p>
-          <Button variant="outline" onClick={() => { onNavigate('upload') }}>{t('creatorUploadZip')}</Button></aside>}</div>
-        {visible.length === 0 && publishedPhase === 'ready' && legacyPhase === 'ready' && <p>{t('empty')}</p>}
-      </>}
-      {view === 'publish' && <section className={css.publications}>
-        {identity ? <><MarketPublicationFilter value={status} onChange={setStatus} t={t} />
-          {identity.admin && <p className={css.badge}>{t('administrator')}</p>}
-          {privatePhase === 'error' && <div className={css.notice}><p>{t('publishedReadFailed')}</p>
-            <Button onClick={() => { void readPrivate() }}>{t('retryPublished')}</Button></div>}
-          <MarketPublications key={accessRevision} items={privateItems.filter(item => !status || item.status === status)}
-            identity={identity} actions={reviewOperations(identity.accountId)} accessRevision={accessRevision}
-            isCurrentAccess={revision => alive.current && privateRevision.current === revision} busy={busy} t={t}
-            downloadLabel={t('browserDownload')} reportOutcome={reportOutcome}
-            onReplace={(item) => { setPrivateItems(previous => previous.map(row => row.id === item.id ? item : row)) }}
-            onDetails={(item) => { showDetails(publicationListing(item), publicationAccess(item, identity.accountId)) }}
-            onInstall={(item) => { void download(publicationListing(item), publicationAccess(item, identity.accountId)) }} />
-          {privatePhase === 'ready' && privateItems.filter(item => !status || item.status === status).length === 0 && <div className={css.emptyState}>
-            <h2>{t('noPublications')}</h2><p>{t('noPublicationsHint')}</p><Button onClick={() => { onNavigate('upload') }}>{t('creatorUploadZip')}</Button></div>}
-        </> : identityPhase === 'error' && <div className={css.notice}><p role="alert">{t(identityError)}</p>
-          {identityError === 'signInRequired' ? <a href="/login">{t('browserSignIn')}</a>
-            : <Button onClick={() => { void readPrivate() }}>{t('retry')}</Button>}</div>}
-      </section>}
-      {/* Keep the original upload bytes and request key alive across market navigation. */}
-      <div hidden={view !== 'upload'}><MarketBrowserUpload actions={actions} identity={identity} identityError={identityError}
-        identityLoading={identityPhase === 'loading'} retryIdentity={() => { void readIdentity() }} verifyIdentity={verifyIdentity}
-        onUploaded={() => { if (currentView.current === 'upload') onNavigate('publish') }} reportOutcome={reportOutcome} t={t} /></div>
-      <p className={css.secondary}>{t('browserDownloadHint')}</p>
-      <MarketResourceDetails detail={shownDetail?.metadata} t={t} onClose={() => { setDetail(undefined) }}
-        onFindSkill={(name) => { setDetail(undefined); setQuery(name); setCategory(''); setShownCount(12); onNavigate('discover')
-          void readPublic('publication', name); void readPublic('legacy', name) }}
-        actions={shownDetail ? [{ id: 'download', label: t('browserDownload'), variant: 'primary', disabled: busy,
-          onSelect: () => { void download(shownDetail.listing, shownDetail.access) } }] : []} />
-      {guide && <MarketGuide web t={t} onClose={() => { rememberMarketGuide(); setGuide(false) }} />}
-    </section></div>
+    {view === 'discover' && <>
+      {publishedPhase === 'error' && <div className={css.notice}><p role="alert">{t('publishedReadFailed')}</p>
+        <Button onClick={() => { void readPublic('publication') }}>{t('retryPublished')}</Button></div>}
+      {legacyPhase === 'error' && <div className={css.notice}><p role="alert">{t('originalReadFailed')}</p>
+        <Button onClick={() => { void readPublic('legacy') }}>{t('retryOriginal')}</Button></div>}
+      {visible.length === 0 && (publishedPhase === 'loading' || legacyPhase === 'loading') && <div className={css.skeletons} aria-hidden="true">
+        {[0, 1, 2].map(key => <div key={key} className={css.skeletonCard}><span /><span /><span /></div>)}</div>}
+      <div className={css.grid}>{visible.slice(0, shownCount).map(item => <MarketResourceCard key={item.key} metadata={item}
+        source={{ kind: item.source, id: item.source === 'publication' ? item.publication.id : item.resource.id }}
+        publisher={item.source === 'publication' ? item.publication.publisher : t('originalResources')} t={t} actions={[
+          { id: 'details', label: t('details'), variant: 'outline', onSelect: () => { showDetails(item, { kind: 'public' }) } },
+          { id: 'download', label: t('browserDownload'), variant: 'primary', disabled: busy, onSelect: () => { void download(item, { kind: 'public' }) } },
+        ]} />)}{!query.trim() && !category && visible.length > 0 && <aside className={css.contributionCard}>
+        <span className={css.badge}>{t('discoverEyebrow')}</span><img src={contributionUrl} alt="" />
+        <h2>{t('contributeTitle')}</h2><p>{t('contributeDescription')}</p>
+        <Button variant="outline" onClick={() => { onNavigate('upload') }}>{t('creatorUploadZip')}</Button></aside>}</div>
+      {visible.length === 0 && publishedPhase === 'ready' && legacyPhase === 'ready' && <p>{t('empty')}</p>}
+    </>}
+    {view === 'publish' && <section className={css.publications}>
+      {identity ? <><MarketPublicationFilter value={status} onChange={setStatus} t={t} />
+        {identity.admin && <p className={css.badge}>{t('administrator')}</p>}
+        {privatePhase === 'error' && <div className={css.notice}><p>{t('publishedReadFailed')}</p>
+          <Button onClick={() => { void readPrivate() }}>{t('retryPublished')}</Button></div>}
+        <MarketPublications key={accessRevision} items={privateItems.filter(item => !status || item.status === status)}
+          identity={identity} actions={reviewOperations(identity.accountId)} accessRevision={accessRevision}
+          isCurrentAccess={revision => alive.current && privateRevision.current === revision} busy={busy} t={t}
+          downloadLabel={t('browserDownload')} reportOutcome={reportOutcome}
+          onReplace={(item) => { setPrivateItems(previous => previous.map(row => row.id === item.id ? item : row)) }}
+          onDetails={(item) => { showDetails(publicationListing(item), publicationAccess(item, identity.accountId)) }}
+          onInstall={(item) => { void download(publicationListing(item), publicationAccess(item, identity.accountId)) }} />
+        {privatePhase === 'ready' && privateItems.filter(item => !status || item.status === status).length === 0 && <div className={css.emptyState}>
+          <h2>{t('noPublications')}</h2><p>{t('noPublicationsHint')}</p><Button onClick={() => { onNavigate('upload') }}>{t('creatorUploadZip')}</Button></div>}
+      </> : identityPhase === 'error' && <div className={css.notice}><p role="alert">{t(identityError)}</p>
+        {identityError === 'signInRequired' ? <a href="/login">{t('browserSignIn')}</a>
+          : <Button onClick={() => { void readPrivate() }}>{t('retry')}</Button>}</div>}
+    </section>}
+    {/* Keep the original upload bytes and request key alive across market navigation. */}
+    <div hidden={view !== 'upload'}><MarketBrowserUpload actions={actions} identity={identity} identityError={identityError}
+      identityLoading={identityPhase === 'loading'} retryIdentity={() => { void readIdentity() }} verifyIdentity={verifyIdentity}
+      onUploaded={() => { if (currentView.current === 'upload') onNavigate('publish') }} reportOutcome={reportOutcome} t={t} /></div>
+    <p className={css.secondary}>{t('browserDownloadHint')}</p>
+    <MarketResourceDetails detail={shownDetail?.metadata} t={t} onClose={() => { setDetail(undefined) }}
+      onFindSkill={(name) => { setDetail(undefined); setQuery(name); setCategory(''); setShownCount(12); onNavigate('discover')
+        void readPublic('publication', name); void readPublic('legacy', name) }}
+      actions={shownDetail ? [{ id: 'download', label: t('browserDownload'), variant: 'primary', disabled: busy,
+        onSelect: () => { void download(shownDetail.listing, shownDetail.access) } }] : []} />
+    {guide && <MarketGuide web t={t} onClose={() => { rememberMarketGuide(); setGuide(false) }} />}
+  </MarketLayout>
 }

@@ -8,7 +8,7 @@ import { MarketPage, type MarketPageProps } from '../src/client/MarketSection.ts
 import type { MarketAccess } from '../src/client/market-controller.ts'
 import { createMarketViewStore } from '../src/client/market-view-store.ts'
 import { marketEn } from '../src/client/market-locales.ts'
-import { installMarketListing, listingInstallation, marketListings } from '../src/client/market-listing.ts'
+import { installMarketListing, listingInstallation, marketListings, nextMarketListingCount } from '../src/client/market-listing.ts'
 import { installation, operations, original, publication } from './discovery-fixtures.client.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { MarketActions, MarketIdentity, MarketPublication } from '../src/client/market-actions.ts'
@@ -220,4 +220,15 @@ it('keeps a loading indicator visible while creator publications are pending', a
   await act(async () => { pending.resolve([publication()]); await pending.promise })
   await screen.findByRole('heading', { name: publication().manifest.title })
   expect(screen.queryByRole('status', { name: marketEn.loading })).toBeNull()
+})
+
+it.each([
+  { remaining: 321, shown: 12, total: 30, expected: 12 },
+  { remaining: 320, shown: 12, total: 30, expected: 12 },
+  { remaining: 319, shown: 12, total: 30, expected: 24 },
+  { remaining: 100, shown: 24, total: 30, expected: 30 },
+  { remaining: 100, shown: 30, total: 30, expected: 30 },
+  { remaining: 100, shown: 30, total: 20, expected: 30 },
+])('renders $expected cards when $remaining pixels remain with $shown of $total requested', ({ remaining, shown, total, expected }) => {
+  expect(nextMarketListingCount({ scrollHeight: 2000, clientHeight: 600, scrollTop: 1400 - remaining }, shown, total)).toBe(expected)
 })

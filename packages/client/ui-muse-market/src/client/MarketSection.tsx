@@ -6,12 +6,11 @@ import type { MarketDefaultSnapshot, MarketInjected, MarketInstallation, MarketL
 import { archiveBase64, defaultFor, downloadMarketFile, marketFailureOutcome } from './market-actions.ts'
 import { MarketPublications } from './MarketPublications.tsx'
 import { MarketGuide, rememberMarketGuide, shouldShowMarketGuide } from './MarketGuide.tsx'
-import { MarketPublicationFilter, MarketResourceCard, MarketResourceDetails,
+import { MarketLayout, MarketPublicationFilter, MarketResourceCard, MarketResourceDetails,
   type MarketResourceAction, type MarketResourceDetail } from './MarketResource.tsx'
 import { installMarketListing, listingInstallation, marketListings, type MarketListing } from './market-listing.ts'
 import type { createMarketViewStore } from './market-view-store.ts'
 import css from './MarketSection.module.css'
-import mascotUrl from './assets/muse-purple-spider.png'
 import contributionUrl from './assets/storyboard-skill-kit.png'
 
 export type MarketPageProps = PropsRuntime<'main'> & PropsLocale<'settings.museMarket'> & InjectFace<MarketInjected> & PropsStore<ReturnType<typeof createMarketViewStore>>
@@ -158,116 +157,108 @@ export function MarketPage({
   const filteredInstalled = installed.filter(item => [item.release.manifest.name, item.release.manifest.title, item.release.manifest.description, item.release.manifest.version, ...item.release.manifest.skills.map(skill => skill.name)].join(' ').toLowerCase().includes(installedQuery.trim().toLowerCase()))
   const loading = tab === 'installed' ? phase === 'loading'
     : publishedPhase === 'loading' || tab === 'discover' && legacyPhase === 'loading'
-  return <div className={css.page} data-muse-skill-market onScroll={(event) => {
-    const element = event.currentTarget
-    if (element.scrollHeight - element.scrollTop - element.clientHeight < 320 && shownCount < visible.length) {
-      setShownCount(count => Math.min(count + 12, visible.length))
-    }
-  }}><section className={css.section}>
-      <header className={css.masthead}>
-        <div className={css.brand}><img src={mascotUrl} alt="" /><span>{t('brand')}</span></div>
-        <nav className={css.navigation} role="tablist" aria-label={t('nav')}>
-          {(['discover', 'installed', 'publish'] as const).map(value => <Button key={value} role="tab" aria-selected={tab === value}
-            className={css.navButton} disabled={busy} variant="ghost" onClick={() => { switchTab(value) }}>{t(value)}</Button>)}
-        </nav>
-        <div className={css.actions}><Button variant="outline" disabled={busy} onClick={() => { onOpenCreator('skill') }}>{t('creatorNewSkill')}</Button>
-          <Button variant="ghost" aria-haspopup="dialog" onClick={() => { setGuide(true) }}>{t('guideEntry')}</Button>
-          <Button variant="primary" icon={<IconPlusOutlineRegular size={18} />} disabled={busy} onClick={() => { onOpenCreator('upload') }}>{t('creatorUploadZip')}</Button></div>
-      </header>
-      <div className={css.hero}><div className={css.heroCopy}>
-        <p className={css.eyebrow}>{t(tab === 'discover' ? 'discoverEyebrow' : tab === 'installed' ? 'installedEyebrow' : 'creatorEyebrow')}</p>
-        <h1>{t(tab === 'discover' ? 'discoverTitle' : tab === 'installed' ? 'installedTitle' : 'myPublications')}</h1>
-        <p>{t(tab === 'discover' ? 'discoverDescription' : tab === 'installed' ? 'installedDescription' : 'publicationsDescription')}</p>
-      </div>
-      {tab === 'discover' && <form className={css.search} onSubmit={(event) => { event.preventDefault(); void read(tab) }}>
-        <Input className={css.query} icon={<IconSearchOutlineRegular size={18} />} placeholder={t('query')} type="search" aria-label={t('query')} value={query} disabled={busy}
-          onChange={(event) => { setQuery(event.target.value); setShownCount(12) }} /><Button variant="outline" type="submit" disabled={busy}>{t('search')}</Button>
-      </form>}</div>
-      <div className={css.discoveryBar}>{tab === 'discover' ? <div className={css.filters} role="group" aria-label={t('category')}>
-        {['', ...categories].map(value => <Button key={value} size="sm" aria-pressed={category === value}
-          variant={category === value ? 'outline' : 'ghost'} onClick={() => { setCategory(value); setShownCount(12) }}>{value || t('allCategories')}</Button>)}
-      </div> : <span>{t(tab === 'installed' ? 'installed' : 'publish')}</span>}
-      <div className={css.actions}>{loading && <span role="status" aria-label={t('loading')}><StateDot state="ongoing" /></span>}
-        <Button variant="ghost" size="sm" disabled={busy} onClick={() => { void read(tab) }}>{t('refresh')}</Button></div></div>
-      {tab === 'installed' && <><Input className={css.query} type="search" aria-label={t('installedSearch')} placeholder={t('installedSearch')} value={installedQuery} onChange={(event) => { setInstalledQuery(event.target.value) }} /><p>{t('defaultsHint')}</p><label className={css.importControl}><span>{t('import')}</span>
-        <input className={css.fileInput} type="file" accept=".zip,application/zip" disabled={busy} onChange={(event) => {
-          const file = event.target.files?.[0]; event.target.value = ''
-          if (file) void run(async () => { const item = await actions.importPackage(await archiveBase64(file)); if (alive.current) accept(item) }, 'installedDone')
-        }} /></label></>}
-      {phase === 'error' && <div className={css.notice}><p role="alert">{t('readFailedRetained')}</p>
-        <Button disabled={busy} onClick={() => { void read(tab) }}>{t('retry')}</Button></div>}
-      {tab !== 'installed' && publishedPhase === 'error' && <div className={css.notice}><p role="alert">{t('publishedReadFailed')}</p>
-        <Button disabled={busy} onClick={() => { void read(tab, 'publication') }}>{t('retryPublished')}</Button></div>}
-      {tab === 'discover' && legacyPhase === 'error' && <div className={css.notice}><p role="alert">{t('originalReadFailed')}</p>
-        <Button disabled={busy} onClick={() => { void read(tab, 'legacy') }}>{t('retryOriginal')}</Button></div>}
-      {loading && tab === 'discover' && visible.length === 0 && <div className={css.skeletons} aria-hidden="true">
-        {[0, 1, 2].map(key => <div key={key} className={css.skeletonCard}><span /><span /><span /></div>)}
-      </div>}
-      {tab === 'discover' && <div className={css.grid}>{visible.slice(0, shownCount).map((item) => {
-        const local = listingInstallation(item, installed, confirmed)
-        const skillName = item.source === 'publication' ? item.publication.manifest.skills[0]?.name : item.name
-        const prior = defaults.defaults.find(row => row.skillName === skillName)
-        return <MarketResourceCard key={item.key} metadata={item} t={t}
-          source={{ kind: item.source, id: item.source === 'publication' ? item.publication.id : item.resource.id }}
-          publisher={item.source === 'publication' ? item.publication.publisher : t('originalResources')}
-          actions={[{ id: 'details', label: t('details'), variant: 'outline', onSelect: () => {
-            setDetail(item.source === 'publication' ? { ...detailFor(item.publication), publisher: item.publication.publisher, listing: item }
-              : { ...item, skills: [{ name: item.name }], requiredSkills: item.resource.requiredSkills,
-                validation: item.resource.validation, examples: [], listing: item })
-          } }, local ? { id: 'activate', label: t(prior?.releaseId === local.release.id ? 'default' : 'useVersion'),
-            disabled: busy || prior?.releaseId === local.release.id, onSelect: () => { choose(local, false) } }
-            : { id: 'install', label: t('install'), variant: 'primary',
-              disabled: busy || (item.source === 'publication' ? publishedPhase !== 'ready' : legacyPhase !== 'ready'),
-              onSelect: () => { void run(async () => {
-                const installation = await installMarketListing(actions, item)
-                if (alive.current) {
-                  accept(installation); setConfirmed(previous => ({ ...previous, [item.key]: installation.release.id }))
-                }
-              }, 'installedDone') } }]} />
-      })}{!query.trim() && !category && visible.length > 0 && <aside className={css.contributionCard}>
-        <span className={css.badge}>{t('discoverEyebrow')}</span><img src={contributionUrl} alt="" />
-        <h2>{t('contributeTitle')}</h2><p>{t('contributeDescription')}</p>
-        <Button variant="outline" onClick={() => { onOpenCreator('skill') }}>{t('createEntry')}</Button>
-      </aside>}</div>}
-      {tab === 'installed' && <div className={css.grid}>{filteredInstalled.map((item) => {
-        const active = defaultFor(item, defaults)?.releaseId === item.release.id
-        return <MarketResourceCard key={item.release.id} metadata={item.release.manifest} t={t}
-          source={{ kind: 'local', id: item.release.id }} publisher={t(active ? 'default' : 'stored')}
-          command={`/${item.release.manifest.skills[0]?.name}`} actions={[
-            { id: 'details', label: t('details'), variant: 'outline',
-              onSelect: () => { setDetail({ ...detailFor(item.release), localId: item.release.id }) } },
-            { id: 'activate', label: t(active ? 'disable' : 'useVersion'), variant: active ? 'outline' : 'primary',
-              disabled: busy, onSelect: () => { choose(item, active) } },
-            { id: 'export', label: t('export'), disabled: busy,
-              onSelect: () => { void run(async () => { downloadMarketFile(await actions.exportPackage(item.release.id)) }) } },
-            { id: 'remove', label: t('remove'), disabled: busy || active, onSelect: () => { void run(async () => {
-              await actions.removePackage(item.release.id)
-              if (alive.current) setInstalled(previous => previous.filter(row => row.release.id !== item.release.id))
-            }) } },
-          ]} />
-      })}</div>}
-      {tab === 'publish' && <section className={css.publications}>
-        {identityError && <div className={css.notice}><p role="alert">{t(identityError)}</p><Button onClick={() => { void read('publish') }}>{t('retry')}</Button></div>}
-        {identity && <>
-          {identity.admin && <p className={css.badge}>{t('administrator')}</p>}
-          <MarketPublicationFilter value={publicationStatus} onChange={setPublicationStatus} t={t} />
-          <MarketPublications accessRevision={access.revision} isCurrentAccess={isCurrentAccess}
-            items={authorizedItems.filter(item => !publicationStatus || item.status === publicationStatus)}
-            identity={identity} actions={actions} busy={busy} t={t} reportOutcome={reportOutcome}
-            onReplace={replacePublication}
-            onDetails={(item) => { setDetail({ ...detailFor(item), publisher: item.publisher, listing: { ...item.manifest, source: 'publication', publication: item, key: `publication:${item.id}:${item.sha256}`, sha256: item.sha256, bytes: item.bytes }, accessRevision: access.revision }) }}
-            onInstall={(item) => { void run(async () => { const result = await actions.installPublication(item.id, item.sha256); if (alive.current) accept(result.installation) }, 'installedDone') }} />
-          {publishedPhase === 'ready' && authorizedItems.filter(item => !publicationStatus || item.status === publicationStatus).length === 0 && <div className={css.emptyState}><h2>{t('noPublications')}</h2><p>{t('noPublicationsHint')}</p><Button variant="primary" onClick={() => { onOpenCreator('skill') }}>{t('creatorNewSkill')}</Button></div>}
-        </>}
-      </section>}
-      {!loading && (tab === 'discover' ? visible.length === 0 && publishedPhase === 'ready' && legacyPhase === 'ready' : tab === 'installed' && phase === 'ready' && installed.length === 0) && <p>{t('empty')}</p>}
-      <MarketResourceDetails detail={shownDetail} actions={detailActions} t={t} onClose={() => { setDetail(undefined) }}
-        onFindSkill={(name) => { setDetail(undefined); setQuery(name); setCategory(''); setTab('discover'); void read('discover', undefined, name) }} />
-      <Modal open={Boolean(selection)} title={t(selection?.disable ? 'disable' : 'useVersion')} closeLabel={t('close')}
-        onClose={() => { if (!busy) setSelection(undefined) }}>
-        {selection && <div className={css.form}><p>{selection.item.release.manifest.title} · {selection.item.release.manifest.version}</p>
-          <p>{t('defaultsHint')}</p><Button variant="primary" disabled={busy} onClick={() => { void changeDefault(selection) }}>{t('confirm')}</Button></div>}
-      </Modal>
-      {guide && <MarketGuide t={t} onClose={() => { rememberMarketGuide(); setGuide(false) }} />}
-    </section></div>
+  return <MarketLayout carrier="desktop" total={visible.length} setShownCount={setShownCount} t={t}
+    navigation={<nav className={css.navigation} role="tablist" aria-label={t('nav')}>
+      {(['discover', 'installed', 'publish'] as const).map(value => <Button key={value} role="tab" aria-selected={tab === value}
+        className={css.navButton} disabled={busy} variant="ghost" onClick={() => { switchTab(value) }}>{t(value)}</Button>)}
+    </nav>}
+    actions={<><Button variant="outline" disabled={busy} onClick={() => { onOpenCreator('skill') }}>{t('creatorNewSkill')}</Button>
+      <Button variant="ghost" aria-haspopup="dialog" onClick={() => { setGuide(true) }}>{t('guideEntry')}</Button>
+      <Button variant="primary" icon={<IconPlusOutlineRegular size={18} />} disabled={busy} onClick={() => { onOpenCreator('upload') }}>{t('creatorUploadZip')}</Button></>}>
+    <div className={css.hero}><div className={css.heroCopy}>
+      <p className={css.eyebrow}>{t(tab === 'discover' ? 'discoverEyebrow' : tab === 'installed' ? 'installedEyebrow' : 'creatorEyebrow')}</p>
+      <h1>{t(tab === 'discover' ? 'discoverTitle' : tab === 'installed' ? 'installedTitle' : 'myPublications')}</h1>
+      <p>{t(tab === 'discover' ? 'discoverDescription' : tab === 'installed' ? 'installedDescription' : 'publicationsDescription')}</p>
+    </div>
+    {tab === 'discover' && <form className={css.search} onSubmit={(event) => { event.preventDefault(); void read(tab) }}>
+      <Input className={css.query} icon={<IconSearchOutlineRegular size={18} />} placeholder={t('query')} type="search" aria-label={t('query')} value={query} disabled={busy}
+        onChange={(event) => { setQuery(event.target.value); setShownCount(12) }} /><Button variant="outline" type="submit" disabled={busy}>{t('search')}</Button>
+    </form>}</div>
+    <div className={css.discoveryBar}>{tab === 'discover' ? <div className={css.filters} role="group" aria-label={t('category')}>
+      {['', ...categories].map(value => <Button key={value} size="sm" aria-pressed={category === value}
+        variant={category === value ? 'outline' : 'ghost'} onClick={() => { setCategory(value); setShownCount(12) }}>{value || t('allCategories')}</Button>)}
+    </div> : <span>{t(tab === 'installed' ? 'installed' : 'publish')}</span>}
+    <div className={css.actions}>{loading && <span role="status" aria-label={t('loading')}><StateDot state="ongoing" /></span>}
+      <Button variant="ghost" size="sm" disabled={busy} onClick={() => { void read(tab) }}>{t('refresh')}</Button></div></div>
+    {tab === 'installed' && <><Input className={css.query} type="search" aria-label={t('installedSearch')} placeholder={t('installedSearch')} value={installedQuery} onChange={(event) => { setInstalledQuery(event.target.value) }} /><p>{t('defaultsHint')}</p><label className={css.importControl}><span>{t('import')}</span>
+      <input className={css.fileInput} type="file" accept=".zip,application/zip" disabled={busy} onChange={(event) => {
+        const file = event.target.files?.[0]; event.target.value = ''
+        if (file) void run(async () => { const item = await actions.importPackage(await archiveBase64(file)); if (alive.current) accept(item) }, 'installedDone')
+      }} /></label></>}
+    {phase === 'error' && <div className={css.notice}><p role="alert">{t('readFailedRetained')}</p>
+      <Button disabled={busy} onClick={() => { void read(tab) }}>{t('retry')}</Button></div>}
+    {tab !== 'installed' && publishedPhase === 'error' && <div className={css.notice}><p role="alert">{t('publishedReadFailed')}</p>
+      <Button disabled={busy} onClick={() => { void read(tab, 'publication') }}>{t('retryPublished')}</Button></div>}
+    {tab === 'discover' && legacyPhase === 'error' && <div className={css.notice}><p role="alert">{t('originalReadFailed')}</p>
+      <Button disabled={busy} onClick={() => { void read(tab, 'legacy') }}>{t('retryOriginal')}</Button></div>}
+    {loading && tab === 'discover' && visible.length === 0 && <div className={css.skeletons} aria-hidden="true">
+      {[0, 1, 2].map(key => <div key={key} className={css.skeletonCard}><span /><span /><span /></div>)}
+    </div>}
+    {tab === 'discover' && <div className={css.grid}>{visible.slice(0, shownCount).map((item) => {
+      const local = listingInstallation(item, installed, confirmed)
+      const skillName = item.source === 'publication' ? item.publication.manifest.skills[0]?.name : item.name
+      const prior = defaults.defaults.find(row => row.skillName === skillName)
+      return <MarketResourceCard key={item.key} metadata={item} t={t}
+        source={{ kind: item.source, id: item.source === 'publication' ? item.publication.id : item.resource.id }}
+        publisher={item.source === 'publication' ? item.publication.publisher : t('originalResources')}
+        actions={[{ id: 'details', label: t('details'), variant: 'outline', onSelect: () => {
+          setDetail(item.source === 'publication' ? { ...detailFor(item.publication), publisher: item.publication.publisher, listing: item }
+            : { ...item, skills: [{ name: item.name }], requiredSkills: item.resource.requiredSkills,
+              validation: item.resource.validation, examples: [], listing: item })
+        } }, local ? { id: 'activate', label: t(prior?.releaseId === local.release.id ? 'default' : 'useVersion'),
+          disabled: busy || prior?.releaseId === local.release.id, onSelect: () => { choose(local, false) } }
+          : { id: 'install', label: t('install'), variant: 'primary',
+            disabled: busy || (item.source === 'publication' ? publishedPhase !== 'ready' : legacyPhase !== 'ready'),
+            onSelect: () => { void run(async () => {
+              const installation = await installMarketListing(actions, item)
+              if (alive.current) {
+                accept(installation); setConfirmed(previous => ({ ...previous, [item.key]: installation.release.id }))
+              }
+            }, 'installedDone') } }]} />
+    })}{!query.trim() && !category && visible.length > 0 && <aside className={css.contributionCard}>
+      <span className={css.badge}>{t('discoverEyebrow')}</span><img src={contributionUrl} alt="" />
+      <h2>{t('contributeTitle')}</h2><p>{t('contributeDescription')}</p>
+      <Button variant="outline" onClick={() => { onOpenCreator('skill') }}>{t('createEntry')}</Button>
+    </aside>}</div>}
+    {tab === 'installed' && <div className={css.grid}>{filteredInstalled.map((item) => {
+      const active = defaultFor(item, defaults)?.releaseId === item.release.id
+      return <MarketResourceCard key={item.release.id} metadata={item.release.manifest} t={t}
+        source={{ kind: 'local', id: item.release.id }} publisher={t(active ? 'default' : 'stored')}
+        command={`/${item.release.manifest.skills[0]?.name}`} actions={[
+          { id: 'details', label: t('details'), variant: 'outline',
+            onSelect: () => { setDetail({ ...detailFor(item.release), localId: item.release.id }) } },
+          { id: 'activate', label: t(active ? 'disable' : 'useVersion'), variant: active ? 'outline' : 'primary',
+            disabled: busy, onSelect: () => { choose(item, active) } },
+          { id: 'export', label: t('export'), disabled: busy,
+            onSelect: () => { void run(async () => { downloadMarketFile(await actions.exportPackage(item.release.id)) }) } },
+          { id: 'remove', label: t('remove'), disabled: busy || active, onSelect: () => { void run(async () => {
+            await actions.removePackage(item.release.id)
+            if (alive.current) setInstalled(previous => previous.filter(row => row.release.id !== item.release.id))
+          }) } },
+        ]} />
+    })}</div>}
+    {tab === 'publish' && <section className={css.publications}>
+      {identityError && <div className={css.notice}><p role="alert">{t(identityError)}</p><Button onClick={() => { void read('publish') }}>{t('retry')}</Button></div>}
+      {identity && <>
+        {identity.admin && <p className={css.badge}>{t('administrator')}</p>}
+        <MarketPublicationFilter value={publicationStatus} onChange={setPublicationStatus} t={t} />
+        <MarketPublications accessRevision={access.revision} isCurrentAccess={isCurrentAccess}
+          items={authorizedItems.filter(item => !publicationStatus || item.status === publicationStatus)}
+          identity={identity} actions={actions} busy={busy} t={t} reportOutcome={reportOutcome}
+          onReplace={replacePublication}
+          onDetails={(item) => { setDetail({ ...detailFor(item), publisher: item.publisher, listing: { ...item.manifest, source: 'publication', publication: item, key: `publication:${item.id}:${item.sha256}`, sha256: item.sha256, bytes: item.bytes }, accessRevision: access.revision }) }}
+          onInstall={(item) => { void run(async () => { const result = await actions.installPublication(item.id, item.sha256); if (alive.current) accept(result.installation) }, 'installedDone') }} />
+        {publishedPhase === 'ready' && authorizedItems.filter(item => !publicationStatus || item.status === publicationStatus).length === 0 && <div className={css.emptyState}><h2>{t('noPublications')}</h2><p>{t('noPublicationsHint')}</p><Button variant="primary" onClick={() => { onOpenCreator('skill') }}>{t('creatorNewSkill')}</Button></div>}
+      </>}
+    </section>}
+    {!loading && (tab === 'discover' ? visible.length === 0 && publishedPhase === 'ready' && legacyPhase === 'ready' : tab === 'installed' && phase === 'ready' && installed.length === 0) && <p>{t('empty')}</p>}
+    <MarketResourceDetails detail={shownDetail} actions={detailActions} t={t} onClose={() => { setDetail(undefined) }}
+      onFindSkill={(name) => { setDetail(undefined); setQuery(name); setCategory(''); setTab('discover'); void read('discover', undefined, name) }} />
+    <Modal open={Boolean(selection)} title={t(selection?.disable ? 'disable' : 'useVersion')} closeLabel={t('close')}
+      onClose={() => { if (!busy) setSelection(undefined) }}>
+      {selection && <div className={css.form}><p>{selection.item.release.manifest.title} · {selection.item.release.manifest.version}</p>
+        <p>{t('defaultsHint')}</p><Button variant="primary" disabled={busy} onClick={() => { void changeDefault(selection) }}>{t('confirm')}</Button></div>}
+    </Modal>
+    {guide && <MarketGuide t={t} onClose={() => { rememberMarketGuide(); setGuide(false) }} />}
+  </MarketLayout>
 }

@@ -1,10 +1,37 @@
 /** Shared resource cards, details and publication filters for Desktop and the website. */
-import type { ReactNode } from 'react'
+import type { Dispatch, ReactNode, SetStateAction } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarketPublication, MarketTranslate } from './market-actions.ts'
 import type { MarketSkillArtworkMetadata } from './market-skill-artwork.ts'
 import { SkillPortrait } from './SkillPortrait.tsx'
+import { nextMarketListingCount } from './market-listing.ts'
 import css from './MarketSection.module.css'
+import mascotUrl from './assets/muse-purple-spider.png'
+
+/** Render the shared discovery viewport and market header.
+ * @param props - Carrier, card pagination, localized header content and page body.
+ * @returns The market scroll viewport with consistent branding and automatic pagination.
+ */
+export function MarketLayout({ carrier, total, setShownCount, t, navigation, actions, children }: {
+  readonly carrier: 'desktop' | 'web'
+  readonly total: number
+  readonly setShownCount: Dispatch<SetStateAction<number>>
+  readonly t: MarketTranslate
+  readonly navigation: ReactNode
+  readonly actions: ReactNode
+  readonly children: ReactNode
+}): ReactNode {
+  return <div className={css.page} data-muse-skill-market data-market-carrier={carrier === 'web' ? 'web' : undefined}
+    onScroll={({ currentTarget }) => {
+      const { scrollHeight, scrollTop, clientHeight } = currentTarget
+      setShownCount(count => nextMarketListingCount({ scrollHeight, scrollTop, clientHeight }, count, total))
+    }}>
+    <section className={css.section}><header className={css.masthead}>
+      <div className={css.brand}><img src={mascotUrl} alt="" /><span>{t('brand')}</span></div>
+      {navigation}<div className={css.actions}>{actions}</div>
+    </header>{children}</section>
+  </div>
+}
 
 /** An explicit card or details action owned by its transport-specific page. */
 export interface MarketResourceAction {

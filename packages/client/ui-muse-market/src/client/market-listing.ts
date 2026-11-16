@@ -69,3 +69,14 @@ export async function installMarketListing(actions: MarketActions, item: MarketL
     ? (await actions.installPublication(item.publication.id, item.sha256)).installation
     : (await actions.installLegacy(item.resource.id, item.sha256)).installation
 }
+
+/** Extend discovery by one page when its scroll viewport approaches the end.
+ * @param viewport - Current scroll position and viewport dimensions.
+ * @param shown - Number of discovery cards already requested.
+ * @param total - Number of matching discovery cards.
+ * @returns The retained count, or one additional page capped at the matching total.
+ */
+export function nextMarketListingCount(viewport: Pick<HTMLElement, 'scrollHeight' | 'scrollTop' | 'clientHeight'>, shown: number, total: number): number {
+  return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 320 && shown < total
+    ? Math.min(shown + 12, total) : shown
+}
