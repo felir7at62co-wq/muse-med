@@ -33,8 +33,8 @@ export async function command(ctx: Context, argv: readonly string[], policy: San
     stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: bounds.maxOutputBytes } } })
   const settled = child.done.then(outcome => ({ outcome }), (error: unknown) => ({ error }))
   try {
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- The subprocess service guarantees raw stdout for pipe mode.
-    const stdout = child.stdout!
+    const stdout = child.stdout
+    if (stdout === undefined) throw Error('Video process has no stdout stream')
     const chunks: Uint8Array[] = []
     let size = 0
     for await (const chunk of stdout) {
@@ -47,8 +47,7 @@ export async function command(ctx: Context, argv: readonly string[], policy: San
     operation.throwIfAborted()
     if ('error' in result) throw result.error
     if (result.outcome.exitCode !== 0) {
-      // oxlint-disable-next-line typescript/no-non-null-assertion -- stderr collect mode always provides its retained reader.
-      const diagnostic = child.collected.stderr!.readFrom(0).text.slice(-1000)
+      const diagnostic = child.collected.stderr?.readFrom(0).text.slice(-1000) ?? ''
       throw Error(`Video process failed (${String(result.outcome.exitCode)}): ${diagnostic}`)
     }
     return Buffer.concat(chunks, size)

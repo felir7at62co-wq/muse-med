@@ -115,7 +115,9 @@ export async function acquireGenerationSessionBinding(
     working?.release()
     model?.release()
     workspace.release()
-    void detachOwner?.()
+    void Promise.resolve().then(() => detachOwner?.()).catch((error: unknown) => {
+      ctx.logger.warn(`generation binding cleanup failed: ${String(error)}`)
+    })
   }
   try {
     model = agent.model.guard({ provider: binding.model.provider, model: binding.model.model,
@@ -129,6 +131,7 @@ export async function acquireGenerationSessionBinding(
       if (registry.get(agent.session.id) !== agent || sessions.get(agent.session.id) !== agent.session) throw new Error('generation Session owner changed')
       workspace.assertCurrent()
       heldModel.assertCurrent()
+      if (directory.get(agent.session) !== binding.workingDirectory) throw new Error('generation working directory changed')
     }
     active.addEventListener('abort', release, { once: true })
     detachOwner = agent.ctx.effect(() => release, 'generation.executionBinding')
