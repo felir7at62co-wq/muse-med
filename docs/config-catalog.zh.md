@@ -5320,7 +5320,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-hit-queue`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-hit-queue/src/index.ts:40`](../packages/drama/tool-hit-queue/src/index.ts)
+- `source`: [`packages/drama/tool-hit-queue/src/index.ts:42`](../packages/drama/tool-hit-queue/src/index.ts)
 
 ```ts config-catalog
 /** Deployment configuration. */
