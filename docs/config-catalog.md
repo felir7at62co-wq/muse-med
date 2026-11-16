@@ -3772,7 +3772,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-session-coordinator`
 
 - `inject`: `agents` · `sessions` · `sessionQuery` · `sessionController` · `workspaceController` · `storageDomain` · `workspaceRegistry` · `jobs` · `typert` · `tools` · `sessionProjections`
-- `source`: [`packages/session/session-coordinator/src/index.ts:77`](../packages/session/session-coordinator/src/index.ts)
+- `source`: [`packages/session/session-coordinator/src/index.ts:80`](../packages/session/session-coordinator/src/index.ts)
 
 ```ts config-catalog
 /** Deployment choices for the optional coordination plugin. */
