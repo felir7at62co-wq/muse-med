@@ -94,8 +94,8 @@ const resultSchema = z.object({ review_id: z.string(), episode: z.string(), tota
   frames: z.array(reviewFrameSchema.extend({ status: z.string(), revisited: z.boolean().optional() })) }).loose()
 
 /** Model-facing note on frame images that later requests omit once seen. */
-const FRAME_IMAGE_NOTE = '帧图说明：待记录帧图一直保留到你observe记录它；已记录帧和revisit重看图在你回复一轮后从之后的请求移除，历史里改为“该帧图已在之前的步骤中展示给你”的说明。'
-  + '这条说明表示当时已看到图片，当时的observe仍有效；不要翻查历史判断自己是否收到过图片。只有本次结果里完全没有图片时，才如实报告本次工具结果原文。需要再看某帧时用revisit。'
+const FRAME_IMAGE_NOTE = '历史帧图的移除说明只记录此前展示，不代表本次图片缺失，也不否定原观察。'
+  + '请按本次附带图片记录observe；需要再看已记录帧用revisit，待查看帧用next。'
 
 /**
  * Model-visible `image/offload` notice for frame images removed after the model saw them.
@@ -131,7 +131,13 @@ function content(serialized: string, note: string | undefined): ContentBlock[] {
       { type: 'image', attachment: image })
     }
   }
-  if (note !== undefined && result.length > 1) result.push({ type: 'text', text: note })
+  if (note !== undefined) {
+    const attached = result.filter(block => block.type === 'image').length
+    result.push({ type: 'text', text: '帧图说明：' + (attached > 0
+      ? `本次工具结果附带${attached}张图片，位于各VIDEO_FRAME标记后。${note}`
+      : '本次工具结果仅返回文字，没有新图片；status等进度查询不会重新附图，不能据此判断此前图片是否送达。'
+        + '待记录帧仍可见时按图observe；需要图片时，已记录帧用revisit，待查看帧用next。') })
+  }
   return result
 }
 
@@ -230,7 +236,7 @@ export async function applyCompleteReview(ctx: Context, config: Config,
       + 'timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。'
       + 'compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。'
       + '待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。'
-      + (config.offloadObservedFrames ? '待记录帧图保留到observe记录；已记录帧和revisit重看图在你回复一轮后移除，历史改为“已在之前的步骤中展示给你”的说明：表示当时已看到图片，observe仍有效，不要据此翻查历史或自查是否收到图片；再看用revisit。' : '')
+      + (config.offloadObservedFrames ? '图片结果注明本次附图数量；status只查进度，不重新附图。历史的“已在之前的步骤中展示给你”说明不代表图片缺失；待记录帧保留到observe，重看已记录帧用revisit。' : '')
       + (config.reviewObserveNextBatch ? 'observe记录后若仍有待看帧，结果直接附带下一批图片，不必再调用next。' : ''),
     parameters: { file_path: { type: 'string', description: '当前集实际完整视频路径；与review_id至少提供一项，同时提供时须指向同一记录。' },
       review_id: { type: 'string', description: '本会话已保存的review_id；不按集号或其他来源回退。status和close可仅凭此ID操作保存状态。' },
