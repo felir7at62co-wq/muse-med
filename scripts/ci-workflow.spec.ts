@@ -16,6 +16,20 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it.each([['ci.yml', 'node-24-consumers', 'pnpm run check:ci:consumers'],
+    ['ci-windows.yml', 'windows-build', 'pnpm run check:ci:windows-blocking']])(
+    'checks browser poll cancellation after the Host build in %s', (file, jobName, command) => {
+      const job = workflowJob(loadWorkflow(`.github/workflows/${file}`), jobName)
+      if (!Array.isArray(job.steps)) throw new TypeError('Update cancellation checks require workflow steps')
+      const steps = job.steps.filter(isRecord)
+      const check = steps.findIndex(step => step.name === 'Verify browser poll cancellation during update')
+      const build = steps.findIndex(step => step.run === command)
+      expect(build).toBeGreaterThanOrEqual(0)
+      expect(check).toBeGreaterThan(build)
+      expect(steps[check]).not.toHaveProperty('continue-on-error')
+      expect(steps[check]?.run).toBe('node --import tsx/esm --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test third_party/plugins/ds-bot/test/browser-channel.test.js third_party/plugins/ds-bot/test/update-drain.test.js')
+    })
+
   it.each([
     ['ci.yml', 'node-24-lint', 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core'],
     ['ci-windows.yml', 'windows-build', 'windows-2025', 'dsh-windows-2025-16core'],

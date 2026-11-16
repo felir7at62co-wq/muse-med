@@ -102,6 +102,9 @@ jobs:
           ./apps/desktop/tests/windows-runner-network.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./apps/desktop/tests/windows-runner-network-process.ps1
+      - name: Verify browser poll cancellation during update
+        shell: pwsh
+        run: node --import tsx/esm --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test third_party/plugins/ds-bot/test/browser-channel.test.js third_party/plugins/ds-bot/test/update-drain.test.js
       - name: Run Windows observational gates on built artifacts
         id: observational
         continue-on-error: true
