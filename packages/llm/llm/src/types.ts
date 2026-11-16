@@ -93,6 +93,11 @@ export interface ImageBlock {
    * available read-only path instead of image bytes.
    */
   offloaded?: true
+  /**
+   * Derived with `offloaded` from a decision whose owner stated why the image left later requests. Every route then
+   * sends this text after the image identity instead of the request-limit placeholder.
+   */
+  offloadNotice?: string
 }
 
 /**

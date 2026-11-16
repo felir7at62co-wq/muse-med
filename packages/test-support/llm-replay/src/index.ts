@@ -36,7 +36,7 @@ import type {
   TokenUsage,
   ToolUpdate,
 } from '@deepseek-ai/dsh-llm'
-import { LlmAdapter, LlmError, ReasoningEffortId, expandAssistantStream, offloadedImageText, requestImageHandleText, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, ReasoningEffortId, expandAssistantStream, offloadedImageBlockText, offloadedImageText, requestImageHandleText, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 
 const PACKED_CHUNK_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool-call-chunks'])
@@ -921,9 +921,10 @@ class ReplayAdapter extends LlmAdapter {
     const visualTokens = configured?.models?.find(candidate => candidate.id === model)?.imageRequestTokens
     if (visualTokens === undefined) return undefined
     return {
-      priceImages: images => images.map(({ attachment: ref, offloaded }) => (offloaded === true
-        ? { visualTokens: 0, text: offloadedImageText(ref) }
-        : { visualTokens, text: requestImageHandleText(ref, { width: ref.width, height: ref.height }) })),
+      priceImages: images => images.map(image => (image.offloaded === true
+        ? { visualTokens: 0, text: offloadedImageBlockText(image, ref => offloadedImageText(ref)) }
+        : { visualTokens, text: requestImageHandleText(image.attachment,
+          { width: image.attachment.width, height: image.attachment.height }) })),
     }
   }
 

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { AttachmentId, IMAGE_RESULT_SCHEMA, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-attachment'
@@ -42,9 +42,8 @@ export interface Config {
   /** Maximum images per observation batch. */
   reviewBatchFrames: number
   /**
-   * Omit frame images once the model has seen them: `observe` offloads the recorded frames' images, and each successful
-   * agent-loop request offloads labelled frame images, including Host-attached evidence, logged before the previous
-   * successful request; requires the `image/offload` projection of `@deepseek-ai/dsh-compaction-image-offload`.
+   * Omit recorded frame images after `observe` and other seen occurrences after a successful reply. The newest
+   * tool-result copy of a frame awaiting observation stays. Requires the `image/offload` projection.
    */
   offloadObservedFrames: boolean
   /** When `observe` leaves frames pending in a completely scanned review, return the next batch's images in the same result. */
@@ -93,8 +92,13 @@ export interface Config {
   frameJpegQuality: number
   /** Largest complete image output from one extraction command, in bytes. */
   maxFrameBytes: number
-  /** Largest simultaneous inspection count. */
+  /** Largest simultaneous inspection count, shared by every Session and video tool of this plugin instance. */
   maxConcurrent: number
+  /**
+   * Longest wait for a free inspection slot, in milliseconds; callers are served in arrival order. Zero fails at once
+   * when every slot is busy.
+   */
+  slotWaitMs: number
   /** Deadline of one probe or extraction command, in milliseconds. */
   commandTimeoutMs: number
   /** Process termination grace, in milliseconds. */
@@ -196,6 +200,7 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   frameJpegQuality: Schema.number().step(1).min(1).max(31).default(2),
   maxFrameBytes: Schema.number().step(1).min(1024).max(32 * 1024 * 1024).default(4 * 1024 * 1024),
   maxConcurrent: Schema.number().step(1).min(1).max(16).default(2),
+  slotWaitMs: Schema.number().step(1).min(0).max(3_600_000).default(0),
   commandTimeoutMs: Schema.number().step(1).min(1000).max(600_000).default(60_000),
   graceMs: Schema.number().step(1).min(1).max(10_000).default(1000),
   sceneThreshold: Schema.number().min(0.01).max(1).default(0.25),
@@ -328,19 +333,52 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const evidence = config.trustedEvidence ? installVideoEvidence(ctx) : undefined
   let disposed = false
   const active = new Map<AbortController, Promise<void>>()
+  // Slots held by running or just-woken callers; a released slot passes directly to the oldest waiter.
+  let held = 0
+  const waiting: PromiseWithResolvers<void>[] = []
   ctx.effect(() => async () => {
     disposed = true
     for (const owner of active.keys()) owner.abort(new Error('Video inspection disposed'))
     await Promise.all(active.values())
   }, 'video-inspect: cancel inspections')
+  const busy = () => new HarnessError(`Video inspection is busy: all ${config.maxConcurrent} inspection slots are in use`
+    + (config.slotWaitMs === 0 ? '' : ` and none was freed within ${config.slotWaitMs / 1000} seconds`)
+    + '. Call the tool again; the frames you are currently viewing remain in your context.', 'VIDEO_INSPECT_BUSY')
+  const acquire = async (signal: AbortSignal): Promise<void> => {
+    if (held < config.maxConcurrent && waiting.length === 0) { held += 1; return }
+    if (config.slotWaitMs === 0) throw busy()
+    signal.throwIfAborted()
+    const waiter = Promise.withResolvers<void>()
+    waiting.push(waiter)
+    const leave = (error: unknown) => {
+      const index = waiting.indexOf(waiter)
+      if (index < 0) return
+      waiting.splice(index, 1)
+      waiter.reject(error)
+    }
+    const timer = setTimeout(() => { leave(busy()) }, config.slotWaitMs)
+    const abort = () => { leave(signal.reason) }
+    signal.addEventListener('abort', abort, { once: true })
+    try { await waiter.promise } finally { clearTimeout(timer); signal.removeEventListener('abort', abort) }
+  }
+  const release = () => {
+    const next = waiting.shift()
+    if (next === undefined) held -= 1
+    else next.resolve()
+  }
   const run = async <T>(exec: ToolExecution, operation: (signal: AbortSignal) => Promise<T>): Promise<T> => {
     if (disposed) throw new Error('Video inspection is unavailable')
-    if (active.size >= config.maxConcurrent) throw new Error('Video inspection is busy; retry after another inspection finishes')
     const owner = new AbortController()
     const completion = Promise.withResolvers<void>()
     active.set(owner, completion.promise)
-    try { return await operation(AbortSignal.any([owner.signal, exec.signal])) }
-    finally { active.delete(owner); completion.resolve() }
+    const signal = AbortSignal.any([owner.signal, exec.signal])
+    try {
+      await acquire(signal)
+      try {
+        signal.throwIfAborted()
+        return await operation(signal)
+      } finally { release() }
+    } finally { active.delete(owner); completion.resolve() }
   }
   if (config.requireCompleteReview) {
     await applyCompleteReview(ctx, config, run, imageRoute)

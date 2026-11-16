@@ -94,7 +94,30 @@ const resultSchema = z.object({ review_id: z.string(), episode: z.string(), tota
   frames: z.array(reviewFrameSchema.extend({ status: z.string(), revisited: z.boolean().optional() })) }).loose()
 
 /** Model-facing note on frame images that later requests omit once seen. */
-const FRAME_IMAGE_NOTE = '帧图说明：本批帧图在你observe记录后、或你看过它再回复一轮后，会从之后的上下文移除，历史里显示为“image omitted”占位。占位只表示为节省上下文已移除，不表示当时没看到；当时写下的observe仍有效，不需要另行导出图片复核。需要再看某帧时用revisit。'
+const FRAME_IMAGE_NOTE = '帧图说明：待记录帧图一直保留到你observe记录它；已记录帧和revisit重看图在你回复一轮后从之后的请求移除，历史里改为“该帧图已在之前的步骤中展示给你”的说明。'
+  + '这条说明表示当时已看到图片，当时的observe仍有效；不要翻查历史判断自己是否收到过图片。只有本次结果里完全没有图片时，才如实报告本次工具结果原文。需要再看某帧时用revisit。'
+
+/**
+ * Model-visible `image/offload` notice for frame images removed after the model saw them.
+ * @param toolName - Registered complete-review tool name.
+ * @returns Text sent after each removed frame image's identity.
+ */
+function frameRemovedNotice(toolName: string): string {
+  return `该帧图已在之前的步骤中展示给你，为控制请求大小已从之后的请求中移除。你当时记录的observe仍有效；需要再看时，已记录帧用${toolName}的revisit，未记录帧用next。`
+}
+
+/**
+ * Whether a `review_id/frame_id` label names a frame still awaiting observation in a review that is not closed.
+ * @param reviews - Current reviews of the Session.
+ * @param label - Frame label from a `VIDEO_FRAME` marker.
+ * @returns True while the model has not recorded the frame.
+ */
+function pendingFrame(reviews: readonly VideoReview[], label: string): boolean {
+  const split = label.lastIndexOf('/'), id = label.slice(0, split), frameId = label.slice(split + 1)
+  const review = reviews.find(row => row.id === id)
+  return review !== undefined && review.follow_up?.status !== 'closed'
+    && review.frames.some(frame => frame.id === frameId && frame.observation === undefined)
+}
 
 function content(serialized: string, note: string | undefined): ContentBlock[] {
   const value = resultSchema.parse(JSON.parse(serialized))
@@ -133,12 +156,11 @@ export async function applyCompleteReview(ctx: Context, config: Config,
   await installSourceQaState(ctx)
   const sessions = new Map<SessionId, Session>()
   const batchLimits = new Map<SessionId, number>()
-  // Log length when the latest successful request began, per Session; frame images logged before it were sent in it.
-  const shownBefore = new Map<SessionId, number>()
+  const removedNotice = frameRemovedNotice(toolName)
   let active = true
   ctx.on('session/event', (session) => { sessions.set(session.id, session) })
-  ctx.on('session/disposed', (session) => { sessions.delete(session.id); batchLimits.delete(session.id); shownBefore.delete(session.id) })
-  ctx.effect(() => () => { active = false; sessions.clear(); batchLimits.clear(); shownBefore.clear() })
+  ctx.on('session/disposed', (session) => { sessions.delete(session.id); batchLimits.delete(session.id) })
+  ctx.effect(() => () => { active = false; sessions.clear(); batchLimits.clear() })
 
   ctx.on('llm/stream', async function* (options, next) {
     const session = options.sessionId === undefined ? undefined : sessions.get(options.sessionId)
@@ -182,10 +204,12 @@ export async function applyCompleteReview(ctx: Context, config: Config,
     }
     if (!active || !successful || options.signal?.aborted || session === undefined) return
     if (readFrameImages !== undefined && isAgentLoopRequest(options)) {
-      // An image logged before the previous successful request was sent in it and again in this one; later requests omit it.
-      const previous = shownBefore.get(session.id)
-      if (previous !== undefined) offloadFrameImages(session, readFrameImages, (_label, seq) => seq < previous)
-      shownBefore.set(session.id, requestStart)
+      // Images logged before this request were sent in it and the model has now replied once. The newest tool-result
+      // occurrence of a frame still awaiting observation stays until observe records it, whatever this reply was.
+      const reviews = Object.values(reviewsOf(readReviews, session))
+      offloadFrameImages(session, readFrameImages, (label, occurrence, occurrences) => occurrence.seq < requestStart
+        && !(occurrence.host !== true && occurrence === occurrences.findLast(row => row.host !== true) && pendingFrame(reviews, label)),
+      removedNotice)
     }
     for (const path of new Set(admitted.map(frame => frame.path))) {
       // Review projections retain source keys until their owning plugin is disposed.
@@ -206,7 +230,7 @@ export async function applyCompleteReview(ctx: Context, config: Config,
       + 'timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。'
       + 'compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。'
       + '待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。'
-      + (config.offloadObservedFrames ? '已看过的帧图之后会从上下文移除，显示为image omitted占位；当时的observe仍有效，再看用revisit。' : '')
+      + (config.offloadObservedFrames ? '待记录帧图保留到observe记录；已记录帧和revisit重看图在你回复一轮后移除，历史改为“已在之前的步骤中展示给你”的说明：表示当时已看到图片，observe仍有效，不要据此翻查历史或自查是否收到图片；再看用revisit。' : '')
       + (config.reviewObserveNextBatch ? 'observe记录后若仍有待看帧，结果直接附带下一批图片，不必再调用next。' : ''),
     parameters: { file_path: { type: 'string', description: '当前集实际完整视频路径；与review_id至少提供一项，同时提供时须指向同一记录。' },
       review_id: { type: 'string', description: '本会话已保存的review_id；不按集号或其他来源回退。status和close可仅凭此ID操作保存状态。' },
@@ -572,7 +596,7 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           if (readFrameImages !== undefined) {
             const reviewId = review.id
             const labels = new Set([...notes.keys()].map(id => `${reviewId}/${id}`))
-            offloadFrameImages(session, readFrameImages, label => labels.has(label))
+            offloadFrameImages(session, readFrameImages, label => labels.has(label), removedNotice)
           }
           // With the option, recorded observations continue into the next batch below instead of costing a separate next step.
           if (!config.reviewObserveNextBatch || !review.scan_complete || review.frames.every(frame => frame.observation !== undefined)) {

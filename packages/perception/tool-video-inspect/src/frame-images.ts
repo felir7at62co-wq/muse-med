@@ -7,11 +7,16 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
 
 const FRAME_LABEL = /^VIDEO_FRAME (\S+) /u
-const occurrenceSchema = z.object({ seq: z.number().int().nonnegative(), index: z.number().int().nonnegative() })
+const occurrenceSchema = z.object({ seq: z.number().int().nonnegative(), index: z.number().int().nonnegative(),
+  /** Present when the image came in a Host-injected user message rather than a tool result. */
+  host: z.literal(true).optional() })
 const stateSchema = z.record(z.string(), z.array(occurrenceSchema))
 
 /** Not yet offloaded image occurrences keyed by `review_id/frame_id`. */
 export type FrameImageOccurrences = z.infer<typeof stateSchema>
+
+/** One retained frame-image occurrence. */
+export type FrameImageOccurrence = z.infer<typeof occurrenceSchema>
 
 /** Synchronous reader of one Session's frame-image occurrences still present in its current surface. */
 export type FrameImageReader = (session: Session) => FrameImageOccurrences
@@ -38,13 +43,14 @@ export async function installFrameImageState(ctx: Context): Promise<FrameImageRe
   const projections = ctx.get('sessionProjections')
   if (projections === undefined) throw Error('Video frame image offload requires sessionProjections')
   const projection = await projections.register<'videoFrameImages', FrameImageOccurrences>({ key: 'videoFrameImages',
-    stateSchema, init: () => ({}), stateVersion: 2,
+    stateSchema, init: () => ({}), stateVersion: 3,
     apply: (state, event) => {
       if (event.type === 'tool/result' || event.type === 'user/message') {
         const images = labelledImages(event.type === 'tool/result' ? event.data.message.content : event.data.content)
         if (images.length === 0) return state
         const next = { ...state }
-        for (const image of images) next[image.label] = [...next[image.label] ?? [], { seq: event.seq, index: image.index }]
+        const host = event.type === 'user/message' ? { host: true as const } : {}
+        for (const image of images) next[image.label] = [...next[image.label] ?? [], { seq: event.seq, index: image.index, ...host }]
         return next
       }
       if (event.type !== 'image/offload') return state
@@ -73,22 +79,26 @@ export async function installFrameImageState(ctx: Context): Promise<FrameImageRe
 }
 
 /**
- * Log one `image/offload` decision for every selected retained frame image; later requests send placeholder text instead.
+ * Log one `image/offload` decision for every selected retained frame image; later requests send `notice` after each
+ * image identity instead.
  * @param session - Session whose later requests omit the images.
  * @param read - Reader of retained frame-image occurrences.
- * @param select - Whether the image of one `review_id/frame_id` label recorded at one event seq is omitted.
+ * @param select - Whether one retained occurrence of a `review_id/frame_id` label, among all retained occurrences of that
+ *   label in log order, is omitted.
+ * @param notice - Model-visible reason logged with the decision.
  * @returns Number of selected image occurrences; zero appends nothing.
  */
 export function offloadFrameImages(session: Session, read: FrameImageReader,
-  select: (label: string, seq: number) => boolean): number {
+  select: (label: string, occurrence: FrameImageOccurrence, occurrences: readonly FrameImageOccurrence[]) => boolean,
+  notice: string): number {
   const bySeq = new Map<number, number[]>()
   for (const [label, occurrences] of Object.entries(read(session))) {
     for (const occurrence of occurrences) {
-      if (select(label, occurrence.seq)) bySeq.set(occurrence.seq, [...bySeq.get(occurrence.seq) ?? [], occurrence.index])
+      if (select(label, occurrence, occurrences)) bySeq.set(occurrence.seq, [...bySeq.get(occurrence.seq) ?? [], occurrence.index])
     }
   }
   if (bySeq.size === 0) return 0
   const targets = [...bySeq].map(([seq, indexes]) => ({ seq: SessionSeq(seq), imageIndexes: indexes.toSorted((a, b) => a - b) }))
-  session.append('image/offload', { targets })
+  session.append('image/offload', { targets, notice })
   return targets.reduce((sum, target) => sum + target.imageIndexes.length, 0)
 }

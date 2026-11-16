@@ -2281,10 +2281,12 @@ describe('apply (the plugin entry)', () => {
     const priced = pricing?.priceImages([
       { type: 'image', attachment: ref },
       { type: 'image', attachment: ref, offloaded: true },
+      { type: 'image', attachment: ref, offloaded: true, offloadNotice: 'Shown earlier; revisit to inspect.' },
     ])
-    expect(priced?.map(price => price.visualTokens)).toEqual([384, 0])
+    expect(priced?.map(price => price.visualTokens)).toEqual([384, 0, 0])
     expect(priced?.[0]?.text).toContain('640x480px')
     expect(priced?.[1]?.text).toContain('image omitted to fit request image limits')
+    expect(priced?.[2]?.text).toBe('[sha256:aaaaaaaa: Shown earlier; revisit to inspect.]')
     expect(ctx.llm.imageRequestPricing('deepseek', 'plain')).toBeUndefined()
   })
 

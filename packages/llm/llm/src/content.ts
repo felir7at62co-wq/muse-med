@@ -118,6 +118,17 @@ export function offloadedImageText(
 }
 
 /**
+ * Model-visible text of one offloaded occurrence: the image identity followed by the `offloadNotice` its offload
+ * decision logged, or the route's request-limit placeholder when the decision logged none.
+ * @param block - offloaded image occurrence.
+ * @param placeholder - route-owned request-limit text for an occurrence without a notice.
+ * @returns deterministic replacement text.
+ */
+export function offloadedImageBlockText(block: ImageBlock, placeholder: (ref: ImageAttachmentRef) => string): string {
+  return block.offloadNotice === undefined ? placeholder(block.attachment) : `[${imageIdentity(block.attachment)}: ${block.offloadNotice}]`
+}
+
+/**
  * True when typed model content contains an image block. This is the one image
  * walk shared by every image policy (capability gating, text-only
  * serialization, compaction survey), so a consumer cannot silently diverge.
@@ -233,7 +244,7 @@ function replaceOffloadedImages(
   for (const [index, block] of blocks.entries()) {
     if (block.type === 'image' && block.offloaded === true) {
       next ??= blocks.slice(0, index)
-      next.push({ type: 'text', text: placeholder(block.attachment) })
+      next.push({ type: 'text', text: offloadedImageBlockText(block, placeholder) })
       continue
     }
     next?.push(block)
@@ -338,7 +349,8 @@ function replaceImagesForTextModel(blocks: readonly ContentBlock[]): ContentBloc
   for (const [index, block] of blocks.entries()) {
     if (block.type === 'image') {
       next ??= blocks.slice(0, index)
-      next.push({ type: 'text', text: textOnlyImageText(block.attachment) })
+      next.push({ type: 'text', text: block.offloaded === true
+        ? offloadedImageBlockText(block, textOnlyImageText) : textOnlyImageText(block.attachment) })
       continue
     }
     next?.push(block)

@@ -69,6 +69,8 @@ kind: "package-reference"
 
 fixture 是运行一次真实 agent 所产生的一份选定持久化 Session generation 投影，本插件不录制。快照 harness 会提供数值最高的规范 parent 路径（v0 为 `<scenario>/session.jsonl`，正 generation 为 `<scenario>/session.vN.jsonl`），并在回放前校验文件名与 header 一致。fixture 保留 header 与每个事件 payload，但省略正文的 `seq`/`time` envelope（历史 packed row 使用 `seq0`/`time0`）。回放会补充连续序号与确定性时间戳，恢复被快照 token 替换的类型化值，拒绝不完整或混合 envelope，通过构建期静态 Session 格式 catalog 解码完整物理产物，并在公开事件或继承 cut 前于内存中迁移历史输入；当前输入直接 restore。仅对投影 v0 header，缺失的 `delegationDepth` 表示 `0`。parser 从不重写或重命名 fixture。运行时持久化继续写入完整日志。回放会展开当前视图中每个 `assistant/message` 或 `assistant/attempt` 的紧凑流，因此已记录 fixture 会回放出与在线模型产生的相同逻辑流。fixture 的 `request/header` 内容可能 token 化为 `{{system}}`/`{{tools}}`；回放会物化仅用于校验的值，而派生只读取 Assistant settlement、带标记的 summary 事件与 Session metadata。每个回放 fixture 与比较 fixture 都必须通过同一个只基于内容的 catalog 校验；回放绝不修复被拒绝的产物。比较编码保留已接受的 catalog 输出，包括扩展 request-header 字段；当前版本的 `header.system` 会被拒绝。协议通知的预期输出直接与当前写入器输出比较，保留事件顺序、插入的系统消息、包装层字段，以及不透明的交付和捕获代际值；只有完整 Session 产物使用格式迁移 catalog。
 
+配置 `imageRequestTokens` 的模型按该数值计量保留的图片。已移出的图片仅计量其记录的 `offloadNotice` 文本，缺少该文本时使用请求限制占位文本。回放图片不会发给提供方。
+
 ### 嵌套 agent
 
 parent agent 委托给进程内 subagent 的场景会为每个 Session 记录一个角色：parent 为 `session[.vN].jsonl`，随后是连续 child `session.<ordinal>[.vN].jsonl`。snapshot harness 只提供每个角色的最高 generation。live Session id 每次运行都会重新随机生成，因此 replay 按首次调用顺序把每个 live Session 绑定到已记录脚本：第一个发起模型调用的 live Session 取得 parent 脚本，下一个新 Session 取得下一条 child 脚本，依此类推，每个 Session 分别推进自己的 cursor。不同 live Session 数量超过已记录脚本数时会明确报错。

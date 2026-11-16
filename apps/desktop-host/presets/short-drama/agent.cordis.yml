@@ -263,6 +263,8 @@
   name: '@deepseek-ai/dsh-tool-video-inspect'
   config:
     requireCompleteReview: true
+    # Parallel transcription workers share the default two FFmpeg slots; a caller waits for a free slot instead of failing.
+    slotWaitMs: 300000
     offloadObservedFrames: true
     reviewObserveNextBatch: true
     frameFormat: jpeg
