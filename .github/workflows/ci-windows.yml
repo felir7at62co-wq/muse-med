@@ -75,6 +75,8 @@ jobs:
           }
       - name: Run blocking Windows builds
         shell: pwsh
+        env:
+          NODE_OPTIONS: ${{ github.repository == 'felir7at62co-wq/muse-med' && github.head_ref == 'codex/muse-asset-images-only-20261112' && '--max-old-space-size=4096' || '' }}
         run: pnpm run check:ci:windows-blocking
       - name: Parse Windows runner supervision scripts
         shell: pwsh
@@ -177,9 +179,14 @@ jobs:
           } else {
             pnpm install --frozen-lockfile
           }
+      - name: Download locked media test archive
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download muse-desktop-v0.1.6-alpha.1 --repo felir7at62co-wq/muse-med --pattern muse-ffmpeg-9.0.2-win-x64.zip --dir $env:RUNNER_TEMP --clobber
       - name: Prepare media test executables
         shell: pwsh
-        run: pnpm exec tsx scripts/prepare-ci-ffmpeg.ts
+        run: pnpm exec tsx scripts/prepare-ci-ffmpeg.ts "$env:RUNNER_TEMP/muse-ffmpeg-9.0.2-win-x64.zip"
       - name: Verify media test executables
         shell: pwsh
         run: |

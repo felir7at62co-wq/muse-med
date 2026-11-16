@@ -355,15 +355,23 @@ describe('CI workflow', () => {
     if (!Array.isArray(coverage.steps)) throw new TypeError('Windows coverage must define steps')
     const steps = coverage.steps.filter(isRecord)
     const install = steps.findIndex(step => step.name === 'Install (immutable)')
+    const download = steps.findIndex(step => step.name === 'Download locked media test archive')
     const prepare = steps.findIndex(step => step.name === 'Prepare media test executables')
     const verify = steps.findIndex(step => step.name === 'Verify media test executables')
     const run = steps.findIndex(step => step.run === 'pnpm run check:ci:coverage')
     expect(install).toBeGreaterThanOrEqual(0)
-    expect(prepare).toBeGreaterThan(install)
+    expect(download).toBeGreaterThan(install)
+    expect(prepare).toBeGreaterThan(download)
     expect(verify).toBeGreaterThan(prepare)
     expect(run).toBeGreaterThan(verify)
     expect(steps[prepare]).toEqual({
-      name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts',
+      name: 'Prepare media test executables', shell: 'pwsh',
+      run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts "$env:RUNNER_TEMP/muse-ffmpeg-9.0.2-win-x64.zip"',
+    })
+    expect(steps[download]).toEqual({
+      name: 'Download locked media test archive', shell: 'pwsh',
+      env: { GH_TOKEN: '${{ github.token }}' },
+      run: 'gh release download muse-desktop-v0.1.6-alpha.1 --repo felir7at62co-wq/muse-med --pattern muse-ffmpeg-9.0.2-win-x64.zip --dir $env:RUNNER_TEMP --clobber',
     })
     expect(steps[verify]).toEqual({
       name: 'Verify media test executables', shell: 'pwsh', run: [
@@ -1968,7 +1976,8 @@ describe('Recovery decoder coverage preparation', () => {
 
   it('uses the locked Windows preparation before coverage without extra secrets', () => {
     const step = preparation('.github/workflows/ci-windows.yml', 'windows-coverage', 'Run Windows coverage')
-    expect(step).toEqual({ name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts' })
+    expect(step).toEqual({ name: 'Prepare media test executables', shell: 'pwsh',
+      run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts "$env:RUNNER_TEMP/muse-ffmpeg-9.0.2-win-x64.zip"' })
     expect(JSON.stringify(step)).not.toContain('secrets.')
   })
 
@@ -2082,5 +2091,33 @@ describe('Policy workflows', () => {
     // The script annotates its own failures; the step keeps a mode-aware guard for a check that crashes.
     expect(run).toContain('exited without reporting')
     expect(run).toContain('"$CHECK_MODE" = block')
+  })
+})
+
+describe('Asset branch CI resources', () => {
+  it('raises the static scanner heap only for this branch', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24')
+    expect(job.steps).toContainEqual(expect.objectContaining({
+      name: 'Configure Node heap for static gates',
+      if: "github.repository == 'felir7at62co-wq/muse-med' && github.head_ref == 'codex/muse-asset-images-only-20261112'",
+      run: 'echo "NODE_OPTIONS=--max-old-space-size=4096" >> "$GITHUB_ENV"',
+    }))
+  })
+
+  it('limits concurrent typecheck gates only for this branch on the hosted runner', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-lint')
+    expect(job.env).toMatchObject({
+      DSH_GATE_CONCURRENCY: "${{ github.repository == 'felir7at62co-wq/muse-med' && github.head_ref == 'codex/muse-asset-images-only-20261112' && '1' || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '' }}",
+    })
+  })
+
+  it('gives this branch enough Node heap for Windows site builds', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci-windows.yml'), 'windows-build')
+    expect(job.steps).toContainEqual(expect.objectContaining({
+      name: 'Run blocking Windows builds',
+      shell: 'pwsh',
+      env: { NODE_OPTIONS: "${{ github.repository == 'felir7at62co-wq/muse-med' && github.head_ref == 'codex/muse-asset-images-only-20261112' && '--max-old-space-size=4096' || '' }}" },
+      run: 'pnpm run check:ci:windows-blocking',
+    }))
   })
 })
