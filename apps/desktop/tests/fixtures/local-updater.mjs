@@ -210,7 +210,7 @@ async function main() {
       assert.ok(!cache.some(file => file.endsWith('.exe') || file.endsWith('update-info.json')), 'Partial bytes must not remain installable')
       const presentation = presentDesktopUpdate(f.coordinator.state)
       assert.equal(presentation.phase, 'error')
-      assert.equal(presentation.failure, 'download')
+      assert.equal(presentation.failure, 'download-space')
       assert.equal((await f.coordinator.download(available.version)).phase, 'ready')
       assert.deepEqual(await readFile(f.updater.installerPath), server.payload)
       assert.equal(f.installations.length, 0)
