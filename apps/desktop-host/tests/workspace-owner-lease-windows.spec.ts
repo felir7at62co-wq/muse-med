@@ -47,11 +47,16 @@ it('closes a contended mutex without releasing another process ownership', async
 })
 
 it('publishes with write-through and explicitly selected replace semantics', async () => {
-  Object.defineProperty(process, 'platform', { value: 'win32' })
-  await publishWorkspacePath('/source', '/target', false)
-  expect(native.move).toHaveBeenLastCalledWith(toNamespacedPath('/source'), toNamespacedPath('/target'), 8)
-  await publishWorkspacePath('/source', '/target', true)
-  expect(native.move).toHaveBeenLastCalledWith(toNamespacedPath('/source'), toNamespacedPath('/target'), 9)
-  native.move.mockReturnValueOnce(0)
-  await expect(publishWorkspacePath('/source', '/target', true)).rejects.toThrow('durable publication failed')
+  const root = await mkdtemp(join(tmpdir(), 'muse-publish-win32-'))
+  try {
+    const source = join(root, 'source'), target = join(root, 'target')
+    const nativeSource = toNamespacedPath(source), nativeTarget = toNamespacedPath(target)
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    await publishWorkspacePath(source, target, false)
+    expect(native.move).toHaveBeenLastCalledWith(nativeSource, nativeTarget, 8)
+    await publishWorkspacePath(source, target, true)
+    expect(native.move).toHaveBeenLastCalledWith(nativeSource, nativeTarget, 9)
+    native.move.mockReturnValueOnce(0)
+    await expect(publishWorkspacePath(source, target, true)).rejects.toThrow('durable publication failed')
+  } finally { Object.defineProperty(process, 'platform', originalPlatform); await rm(root, { recursive: true, force: true }) }
 })

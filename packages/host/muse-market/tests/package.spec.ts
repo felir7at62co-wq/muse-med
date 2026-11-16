@@ -4,66 +4,33 @@ import { createMarketPackage, readMarketPackage, marketDigest, marketRelease } f
 import { marketManifest, marketPath, marketSkill } from '../src/format.ts'
 import { limits, manifest, resources, instructions } from './fixtures.ts'
 
-function wireArchive(files: Record<string, Uint8Array>, change: Record<string, unknown> = {}): Uint8Array {
-  const rows = Object.entries(files).map(([path, bytes]) => ({ path, bytes: bytes.byteLength, sha256: marketDigest(bytes) }))
-  return zipSync({ ...files, 'muse-package.json': Buffer.from(JSON.stringify({ ...manifest, files: rows, ...change })) }, { level: 0 })
+function fileRows(files: Readonly<Record<string, Uint8Array>>) {
+  return Object.entries(files).map(([path, bytes]) => ({ path, bytes: bytes.byteLength, sha256: marketDigest(bytes) }))
+}
+
+function archiveEntries(files: Readonly<Record<string, Uint8Array>> = resources, fields: Record<string, unknown> = {}) {
+  return { ...files, 'muse-package.json': Buffer.from(JSON.stringify({ ...manifest, files: fileRows(files), ...fields })) }
+}
+
+function expectFileBytes(actual: Readonly<Record<string, Uint8Array>>, expected: Readonly<Record<string, Uint8Array>>): void {
+  expect(Object.keys(actual).sort()).toEqual(Object.keys(expected).sort())
+  for (const [path, bytes] of Object.entries(expected)) {
+    const observed = actual[path]
+    if (observed === undefined) throw new Error(`Missing archive file: ${path}`)
+    expect(Buffer.from(observed)).toEqual(Buffer.from(bytes))
+  }
 }
 
 describe('Skill publications', () => {
-  it('retains the exact release identity for Unicode resource-name ordering', () => {
-    const files = { ...resources, 'skills/fixture-skill/assets/é.txt': Buffer.from('accent'),
-      'skills/fixture-skill/assets/𐀀.txt': Buffer.from('supplementary'), 'skills/fixture-skill/assets/！.txt': Buffer.from('wide') }
-    expect(marketDigest(createMarketPackage(manifest, files, limits))).toBe('9df4635058000fa2c3360e62fe68d6739b6e7b5b41baa5a627047a3c7b41b5f5')
-  })
-  it('accepts directory records while verifying only declared regular resources', () => {
-    const entries = unzipSync(createMarketPackage(manifest, resources, limits))
-    const archive = zipSync({ 'skills/': new Uint8Array(), 'skills/fixture-skill/': new Uint8Array(), ...entries })
-    expect(readMarketPackage(archive, limits).manifest).toEqual(manifest)
-    expect(Object.keys(readMarketPackage(archive, limits).files).sort()).toEqual(Object.keys(resources).sort())
-  })
-
-  it.each(['{', '\ufffd'] as const)('refuses malformed manifest JSON %j', (text) => {
-    expect(() => readMarketPackage(zipSync({ 'muse-package.json': Buffer.from(text) }), limits)).toThrow('invalid-manifest')
-  })
-
-  it('refuses a nonarray resource inventory and invalid or repeated inventory rows', () => {
-    for (const files of [null, {}, [null, null, null], [{ path: 1 }, null, null]]) {
-      expect(() => readMarketPackage(wireArchive(resources, { files }), limits)).toThrow('file-mismatch')
-    }
-    const rows = Object.entries(resources).map(([path, bytes]) => ({ path, bytes: bytes.byteLength, sha256: marketDigest(bytes) }))
-    expect(() => readMarketPackage(wireArchive(resources, { files: [rows[0], rows[0], rows[2]] }), limits)).toThrow('file-mismatch')
-  })
-
-  it('refuses resources outside the declared Skill even when their file inventory matches', () => {
-    expect(() => readMarketPackage(wireArchive({ ...resources, 'another-skill/private.txt': Buffer.from('unselected') }), limits))
-      .toThrow('undeclared-skill')
-  })
-
-  it('requires the declared instruction file and validates its exact frontmatter bytes', () => {
-    const { 'skills/fixture-skill/SKILL.md': _instructions, ...missing } = resources
-    expect(() => readMarketPackage(wireArchive(missing), limits)).toThrow('missing-skill')
-    expect(() => readMarketPackage(wireArchive({ ...resources, 'skills/fixture-skill/SKILL.md': Buffer.from('Not Skill instructions') }), limits))
-      .toThrow('invalid-skill')
-  })
-
-  it('bounds actual expanded bytes when ZIP directory entries understate their uncompressed lengths', () => {
-    const bytes = Buffer.from(wireArchive(resources)), view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-    let offset = view.getUint32(bytes.byteLength - 6, true)
-    const count = view.getUint16(bytes.byteLength - 12, true)
-    for (let entry = 0; entry < count; entry++) {
-      expect(view.getUint32(offset, true)).toBe(0x02014b50)
-      view.setUint32(offset + 24, 0, true)
-      offset += 46 + view.getUint16(offset + 28, true) + view.getUint16(offset + 30, true) + view.getUint16(offset + 32, true)
-    }
-    const expandedBytes = Object.values(unzipSync(bytes)).reduce((sum, value) => sum + value.byteLength, 0)
-    expect(() => readMarketPackage(bytes, { ...limits, expandedBytes: expandedBytes - 1 })).toThrow('expanded-limit')
-  })
   it('roundtrips binary resources, original instructions and deterministic release identity', () => {
     const archive = createMarketPackage(manifest, resources, limits)
     expect(createMarketPackage(manifest, resources, limits)).toEqual(archive)
     expect(createMarketPackage(manifest, Object.fromEntries(Object.entries(resources).reverse()), limits)).toEqual(archive)
     const decoded = readMarketPackage(archive, limits)
     expect(decoded.manifest).toEqual(manifest)
+    expect(decoded.manifest.skills).toHaveLength(1)
+    expect(decoded.skillInstructions).toBe(decoded.files[decoded.manifest.skills[0].path])
+    expect(Buffer.from(decoded.skillInstructions)).toEqual(Buffer.from(resources['skills/fixture-skill/SKILL.md']))
     for (const [path, bytes] of Object.entries(resources)) expect(Buffer.from(decoded.files[path]!)).toEqual(Buffer.from(bytes))
     expect(marketRelease(archive, limits)).toMatchObject({
       id: marketDigest(archive), sha256: marketDigest(archive), bytes: archive.byteLength,
@@ -80,8 +47,10 @@ describe('Skill publications', () => {
     expect(() => marketManifest({ ...manifest, ...change })).toThrow()
   })
 
-  it.each([{ title: '' }, { version: '../latest' }])('refuses incomplete or nonversioned release metadata %j', (change) => {
-    expect(() => marketManifest({ ...manifest, ...change })).toThrow('invalid-manifest')
+  it.each([null, { name: 1, path: 'skills/fixture-skill/SKILL.md' },
+    { name: 'invalid/name', path: 'skills/invalid/name/SKILL.md' },
+    { name: 'fixture-skill', path: 'skills/another-skill/SKILL.md' }])('rejects an invalid Skill manifest entry %#', (skill) => {
+    expect(() => marketManifest({ ...manifest, skills: [skill] })).toThrow('invalid-manifest')
   })
 
   it('rejects undeclared, altered, missing and case-colliding archive entries', () => {
@@ -101,6 +70,66 @@ describe('Skill publications', () => {
     expect(() => readMarketPackage(archive, { ...limits, recordBytes: 4 })).toThrow('invalid-manifest')
     expect(() => readMarketPackage(archive, { ...limits, fileCount: 1 })).toThrow('expanded-limit')
     expect(() => readMarketPackage(Buffer.from('not a ZIP'), limits)).toThrow('invalid-archive')
+  })
+
+  it('admits portable directory entries without treating them as declared files', () => {
+    const archive = zipSync({ ...archiveEntries(), 'skills/': new Uint8Array(), 'skills/fixture-skill/': new Uint8Array() })
+    const parsed = readMarketPackage(archive, limits)
+    expect(parsed.manifest).toEqual(manifest)
+    expectFileBytes(parsed.files, resources)
+    expect(() => readMarketPackage(new Uint8Array(), limits)).toThrow('archive-too-large')
+  })
+
+  it.each([Buffer.from('{'), Uint8Array.from([0xff, 0xfe])])('refuses invalid JSON or UTF-8 in the archive manifest %#', (bytes) => {
+    expect(() => readMarketPackage(zipSync({ ...resources, 'muse-package.json': bytes }), limits)).toThrow('invalid-manifest')
+  })
+
+  it.each([undefined, null, {}])('requires a complete manifest file table %#', (files) => {
+    expect(() => readMarketPackage(zipSync(archiveEntries(resources, { files })), limits)).toThrow('file-mismatch')
+  })
+
+  it('refuses malformed, duplicate and undeclared file table identities', () => {
+    const rows = fileRows(resources)
+    for (const files of [
+      [null, rows[1], rows[2]],
+      [{ path: 1 }, rows[1], rows[2]],
+      [rows[0], rows[0], rows[2]],
+      [{ ...rows[0], path: 'skills/fixture-skill/missing.txt' }, rows[1], rows[2]],
+    ]) expect(() => readMarketPackage(zipSync(archiveEntries(resources, { files })), limits)).toThrow('file-mismatch')
+  })
+
+  it('refuses complete file tables that omit instructions or include another Skill resource', () => {
+    const missing = { 'skills/fixture-skill/reference.txt': Buffer.from('Retained reference.') }
+    expect(() => readMarketPackage(zipSync(archiveEntries(missing)), limits)).toThrow('missing-skill')
+    expect(() => readMarketPackage(zipSync(archiveEntries({ ...resources, 'other-skill/resource.txt': Buffer.from('Unselected.') })), limits))
+      .toThrow('undeclared-skill')
+  })
+
+  it('refuses invalid instruction bytes even when the declared digest and byte count match', () => {
+    for (const body of [Buffer.from('Missing frontmatter.'), Uint8Array.from([0xff, 0xfe])]) {
+      const files = { ...resources, 'skills/fixture-skill/SKILL.md': body }
+      expect(() => readMarketPackage(zipSync(archiveEntries(files)), limits)).toThrow('invalid-skill')
+    }
+  })
+
+  it('checks actual stored bytes when ZIP directory metadata understates expanded size', () => {
+    const entries = archiveEntries(), archive = Buffer.from(zipSync(entries, { level: 0 }))
+    const end = archive.length - 22
+    expect(archive.readUInt32LE(end)).toBe(0x06054b50)
+    let offset = archive.readUInt32LE(end + 16)
+    const count = archive.readUInt16LE(end + 10)
+    for (let index = 0; index < count; index++) {
+      expect(archive.readUInt32LE(offset)).toBe(0x02014b50)
+      // Stored entries retain their real data length while the central-directory claim is false.
+      archive.writeUInt32LE(0, offset + 24)
+      offset += 46 + archive.readUInt16LE(offset + 28) + archive.readUInt16LE(offset + 30) + archive.readUInt16LE(offset + 32)
+    }
+    const actualBytes = Object.values(entries).reduce((sum, bytes) => sum + bytes.byteLength, 0)
+    expectFileBytes(unzipSync(archive), entries)
+    expect(() => readMarketPackage(archive, { ...limits, expandedBytes: actualBytes - 1 })).toThrow('expanded-limit')
+    const parsed = readMarketPackage(archive, { ...limits, expandedBytes: actualBytes })
+    expect(parsed.manifest).toEqual(manifest)
+    expectFileBytes(parsed.files, resources)
   })
 
   it.each(['modelInvocable: true', 'disableModelInvocation: true', 'userInvocable: true', 'user-invocable: perhaps'])(

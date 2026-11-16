@@ -1,8 +1,8 @@
 version: 1
+writerOutput: true
 scenario: bash-tool-turn
 profile: headless
 composition: default
 recording: authored
-writerOutput: true
 header:
   class: default

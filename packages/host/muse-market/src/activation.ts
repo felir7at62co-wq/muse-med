@@ -61,7 +61,14 @@ export default class MuseMarketActivation extends TypertRemoteService {
       view.signal.throwIfAborted()
       const state = view.projections.values.museMarketBinding
       if (state === undefined) throw new MarketError('binding-projection-unavailable')
-      const entries = state.bound ? state.releases : state.requested ? [] : await this.local.captureDefaults()
+      let entries: readonly MuseMarketBindingEntry[]
+      if (state.bound) {
+        entries = state.releases
+      } else if (state.requested) {
+        entries = []
+      } else {
+        entries = await this.local.captureDefaults()
+      }
       view.signal.throwIfAborted(); this.lifetime.signal.throwIfAborted()
       if (entries.length === 0) return
       const context = view.context(), key = scopeOf(context)

@@ -27,6 +27,11 @@ _inputs_spec = importlib.util.spec_from_file_location(
 _draft_inputs = importlib.util.module_from_spec(_inputs_spec)
 _inputs_spec.loader.exec_module(_draft_inputs)
 
+_fonts_spec = importlib.util.spec_from_file_location(
+    "drama_draft_fonts", Path(__file__).resolve().with_name("draft_fonts.py"))
+_draft_fonts = importlib.util.module_from_spec(_fonts_spec)
+_fonts_spec.loader.exec_module(_draft_fonts)
+
 _VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 if _VENDOR_DIR.is_dir() and str(_VENDOR_DIR) not in sys.path:
     sys.path.insert(0, str(_VENDOR_DIR))
@@ -49,6 +54,22 @@ NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 class DraftInputError(ValueError):
     """Invalid or incomplete material input for draft generation."""
+
+
+class _LocalFontTextSegment(draft.TextSegment):
+    """Use the editor's local font-file reference without inventing a catalog resource ID."""
+
+    def __init__(self, *args, font_path: str, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.font_path = font_path
+
+    def export_material(self):
+        material = super().export_material()
+        content = json.loads(material['content'])
+        for span in content['styles']:
+            span['font'] = {'id': '', 'path': self.font_path}
+        material['content'] = json.dumps(content, ensure_ascii=False)
+        return material
 
 
 # 剪映草稿字幕样式：本文件的这些值是**剪映 UI 单位**，不是 draft_content.json 里
@@ -98,24 +119,79 @@ def watermark_position(width: int, height: int, font_size_ui: float = WATERMARK_
     return max(0.0, 0.90 - text_width / width), -0.8625
 
 
-def draft_font_choice(name: str | None) -> dict:
-    """Describe an exact library reference or a visible default fallback, without downloading fonts."""
-    choice = {'requested': name, 'resolved': '剪映系统默认字体', 'resource_id': None,
-              'status': 'default', 'warnings': []}
+def draft_font_choice(name: str | None, *, required: bool = False) -> dict:
+    """Resolve a managed local file first; catalog IDs alone cannot satisfy a requested font."""
+    choice = _draft_inputs.subtitle_font_request(name, 'pyJianYingDraft', required=required)
     if name is None:
+        return choice
+    try:
+        local = _draft_fonts.resolve_managed_font(name)
+    except (OSError, ValueError) as error:
+        choice.update(status='resourceUnavailable', warnings=[
+            f'请求字体“{name}”的随包资源不可用：{error}；保留待修草稿，禁止交付。'])
+        return choice
+    if local is not None:
+        choice.update(local, resolved=name, binding='local_file', status='localFilePending', warnings=[])
         return choice
     font = next((item for item in draft.FontType if name in (item.name, item.value.name)), None)
     if font is None or font.value.is_vip:
-        reason = '不在当前打包字体目录中' if font is None else '标为会员资源，尚未确认账号许可'
-        choice.update(status='fallback', warnings=[
-            f'请求字体“{name}”{reason}；已回退剪映系统默认字体，实际字族由剪映决定。'
-            '未下载或购买字体；请核对预览，选用可用且获许可的字体后重新生成。'])
+        reason = '当前后端没有可验证的本地字体绑定' if font is None else '标为会员资源，尚未确认账号许可'
+        choice.update(status='backendUnsupported' if font is None else 'resourceUnavailable', warnings=[
+            f'请求字体“{name}”{reason}；保留可编辑待修草稿，不能按请求字体交付。未下载或购买字体。'])
         return choice
     choice.update(resolved=font.value.name, resource_id=font.value.resource_id,
-                  status='reference_unverified', warnings=[
+                  status='resourceUnverified', warnings=[
                       f'已写入字体“{font.value.name}”的剪映资源引用；仅有目录元数据，'
-                      '尚未验证本机资源可用性或使用许可，请在剪映预览中核对；未下载字体。'])
+                      '尚未验证本机资源可用性，草稿保留为待修候选，禁止交付；未下载字体。'])
     return choice
+
+
+def verify_saved_subtitle_font(content: dict, choice: dict, *, expected_subtitle_count: int | None = None) -> dict:
+    """Check every saved subtitle span; a catalog ID alone does not verify the loaded font."""
+    checked = {**choice, 'warnings': list(choice['warnings']), 'saved_reference_matched': False}
+    segments = [segment for track in content.get('tracks', [])
+                if track.get('type') == 'text' and track.get('name') != WATERMARK_TRACK
+                for segment in track.get('segments', [])]
+    if choice['required'] and expected_subtitle_count is not None and len(segments) != expected_subtitle_count:
+        checked.update(status='readbackMismatch', delivery_ready=False)
+        checked['warnings'].append('保存后的字幕数量与字体绑定计划不一致；候选已保留，禁止交付。')
+        return checked
+    if not segments:
+        if expected_subtitle_count == 0:
+            checked.update(status='notApplicable', delivery_ready=True)
+        elif choice['required']:
+            checked.update(status='readbackMismatch', delivery_ready=False)
+        return checked
+    local = choice.get('binding') == 'local_file'
+    if local:
+        try:
+            for key, hash_key in (('path', 'sha256'), ('license_path', 'license_sha256')):
+                path = Path(choice[key])
+                if not path.is_absolute() or path.is_symlink() or _draft_fonts.file_hash(path) != choice[hash_key]:
+                    raise ValueError('随稿字体或许可证文件发生变化')
+            if choice['requested'] not in _draft_fonts.family_names(Path(choice['path'])):
+                raise ValueError('随稿字体字族与请求不一致')
+        except (KeyError, OSError, ValueError) as error:
+            checked.update(status='readbackMismatch', delivery_ready=False)
+            checked['warnings'].append(f'随稿字体校验失败：{error}；禁止交付。')
+            return checked
+    elif choice['resource_id'] is None:
+        return checked
+    materials = {item.get('id'): item for item in content.get('materials', {}).get('texts', [])}
+    for segment in segments:
+        material = materials.get(segment.get('material_id'), {})
+        data = json.loads(material.get('content') or '{}')
+        spans = data.get('styles') or []
+        if (not spans or any(
+                span.get('font') != {'id': '', 'path': choice['path']} if local
+                else span.get('font', {}).get('id') != choice['resource_id'] for span in spans)):
+            checked.update(status='readbackMismatch', delivery_ready=False)
+            checked['warnings'].append('保存后的字幕字体引用缺失或与请求不符；候选已保留，禁止交付。')
+            return checked
+    checked['saved_reference_matched'] = True
+    if local:
+        checked.update(status='localFileBound', delivery_ready=True, binding_verified=True)
+    return checked
 
 
 def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
@@ -141,12 +217,13 @@ def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
     except ValueError as error:
         raise DraftInputError(str(error)) from error
     body_end, included = clock["body_end_us"], clock["included"]
-    font = draft_font_choice(style['subtitle']['font_family'])
+    font = draft_font_choice(style['subtitle']['font_family'], required=force_portrait)
     style_warnings = []
     if visual_mapping is not None:
         typography_source = ('产品统一的剪映可编辑字幕配置' if force_portrait
                              else 'delivery.draft_style.subtitle 的剪映配置')
-        unconfigured = ('使用产品默认字族' if force_portrait else '未配置字段保留旧默认')
+        unconfigured = (f'请求字族“{font["requested"]}”，字体绑定状态单独核验' if font['requested'] else
+                        '未配置字段保留旧默认')
         style_warnings.extend([
             f"字幕视觉适配使用{typography_source}的 UI 字号 "
             f"{style['subtitle']['font_size_ui']:g}、描边 {style['subtitle']['border_width_ui']:g} 与字族选择；"
@@ -1388,8 +1465,11 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
                             f"{subtitle_style['border_width_ui'] / 100 * 0.2}。")
         if (stroke.get("content", {}).get("solid", {}).get("color")) != list(SUBTITLE_BORDER_COLOR):
             failures.append(f"字幕描边颜色 {stroke.get('content')!r} != {list(SUBTITLE_BORDER_COLOR)}。")
-        if expected_font_id is None and 'font' in style:
-            failures.append('字幕应回退剪映系统默认字体，不写 font 字段。')
+        local_font = (ending or {}).get('subtitle_font', {}).get('binding') == 'local_file'
+        if local_font and style.get('font') != {'id': '', 'path': ending['subtitle_font'].get('path')}:
+            failures.append('字幕本地字体文件引用与请求不一致。')
+        elif not local_font and expected_font_id is None and 'font' in style:
+            failures.append('本次未解析出字体资源引用，但字幕出现了非预期 font 字段。')
         elif expected_font_id is not None and style.get('font', {}).get('id') != expected_font_id:
             failures.append('字幕字体资源引用与本次已解析的项目样式不一致。')
         if (segment.get("clip") or {}).get("transform", {}).get("y") != subtitle_style['transform_y']:
@@ -1628,7 +1708,9 @@ def main_with_args(args, results=None):
             raise DraftInputError(f"创建草稿 {draft_path} 失败：{error}") from error
         try:
             assign_new_draft_identity(script, draft_path)
-        except DraftInputError as error:
+            if ending_plan['subtitle_font'].get('binding') == 'local_file':
+                ending_plan['subtitle_font'] = _draft_fonts.retain_managed_font(ending_plan['subtitle_font'], draft_path)
+        except (DraftInputError, OSError, ValueError) as error:
             refuse(str(error))
         logger.info(f"[{draft_name}] Successfully created new draft: {draft_name} "
                     f"with {canvas['width']}x{canvas['height']} at {ending_plan['policy']['fps']:g}fps")
@@ -1893,12 +1975,24 @@ def main_with_args(args, results=None):
                         )
                         
                         # 导入字幕
-                        script.import_srt(
-                            str(normalized_srt),
-                            "字幕轨道",
-                            style_reference=style_reference,
-                            clip_settings=clip_settings
-                        )
+                        if ending_plan['subtitle_font'].get('binding') == 'local_file':
+                            from pyJianYingDraft.track import TrackSpec
+                            subtitle_track = script.append_track(TrackSpec(draft.TrackType.text, '字幕轨道'))
+                            for cue in normalized_cues:
+                                text_segment = _LocalFontTextSegment(
+                                    cue['text'], Timerange(cue['start_us'], cue['end_us'] - cue['start_us']),
+                                    font_path=ending_plan['subtitle_font']['path'], style=text_style,
+                                    clip_settings=clip_settings,
+                                    border=TextBorder(alpha=1.0, color=SUBTITLE_BORDER_COLOR,
+                                                      width=subtitle_style['border_width_ui']))
+                                script.add_segment(text_segment, subtitle_track)
+                        else:
+                            script.import_srt(
+                                str(normalized_srt),
+                                "字幕轨道",
+                                style_reference=style_reference,
+                                clip_settings=clip_settings
+                            )
                         logger.info(f"[{draft_name}] Successfully imported subtitle to timeline with style")
                 except Exception as e:
                     warn(f"剪映草稿字幕未导入：{e}；其他轨道保留，请 Muse 决定后续处理。")
@@ -2072,17 +2166,31 @@ def main_with_args(args, results=None):
                 if not fpath.exists():
                     fpath.touch()
 
+        subtitle_font = verify_saved_subtitle_font(
+            saved_content, ending_plan['subtitle_font'],
+            expected_subtitle_count=None if normalized_cues is None else len(normalized_cues))
+        font_ready = subtitle_font['delivery_ready']
+        for warning in subtitle_font['warnings']:
+            if warning not in review_warnings:
+                warn(warning)
+        quality = 'needs_review' if font_ready else 'needs_repair'
         review_path = draft_path / 'muse-review.json'
         review_path.write_text(json.dumps({
-            'status': 'needs_review', 'warnings': review_warnings,
-            'draft_style': ending_plan['draft_style'], 'subtitle_font': ending_plan['subtitle_font'],
+            'status': quality, 'warnings': review_warnings,
+            'draft_style': ending_plan['draft_style'], 'subtitle_font': subtitle_font,
             **({'subtitle_visual': ending_plan['subtitle_visual'],
                 'subtitle_visual_adapter': ending_plan['subtitle_visual_adapter']}
                if 'subtitle_visual' in ending_plan else {}),
-            'next': '草稿已保存；这不代表创作或交付质量通过，由 Muse 查看实际轨道后继续。'
+            'next': ('草稿已保存；这不代表创作或交付质量通过，由 Muse 查看实际轨道后继续。' if font_ready else
+                     '草稿字体待修，禁止交付；保留本候选，补齐后端字体绑定并重新验证。')
         }, ensure_ascii=False, indent=2), encoding='utf-8')
-        result.update(success=True, id=saved_content.get("id", ""), error="",
-                      quality='needs_review', warnings=review_warnings.copy(), review_path=str(review_path))
+        result.update(success=font_ready, saved=True, id=saved_content.get("id", ""),
+                      error='' if font_ready else (
+                          f'请求字幕字体尚未绑定并验证，禁止交付。可编辑候选：{draft_path}；核对记录：{review_path}'),
+                      quality=quality, subtitle_font=subtitle_font,
+                      warnings=review_warnings.copy(), review_path=str(review_path))
+        if not font_ready:
+            raise DraftInputError(result['error'])
         logger.info(f"[{draft_name}] Generated and read back successfully: {draft_path}")
 
     if not results:
@@ -2161,7 +2269,7 @@ def generate_draft(
         allow_empty_subtitle_seq: 内部已绑定全烧录字幕报告的唯一集号，仅允许其空白后加 SRT
 
     返回:
-        success 仅在至少一个候选完成且全部成功时为 True；drafts_created 只统计已保存并回读一致的草稿。
+        success 仅在至少一个候选完成且全部成功时为 True；drafts_created 只统计保存、回读和请求字体检查均通过的草稿。
         drafts 逐项包含 episode/name/path/id/success/error；id 取已保存 JSON，缺失时为空串。
         首个失败即停止，保留此前成功的草稿与结果；error 为本次失败原因。
     """
@@ -2191,6 +2299,7 @@ def generate_draft(
             results[-1]["error"] = error
     created = sum(result["success"] for result in results)
     return {"success": not error and created > 0 and created == len(results),
-            "drafts_created": created, "drafts": results, "quality": "needs_review",
+            "drafts_created": created, "drafts": results,
+            "quality": "needs_repair" if any(row.get('quality') == 'needs_repair' for row in results) else "needs_review",
             "warnings": [warning for result in results for warning in result.get("warnings", [])],
             **({"error": error} if error else {})}

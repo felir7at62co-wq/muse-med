@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ContextMessageNode, ConversationContextReader, ConversationLocation, ConversationNodeDefinition,
+  ContextMessageNode, ConversationContextReader, ConversationLocation, ConversationNodeDefinition, ConversationNodeDefinitionInput,
   SteeringMessageNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
@@ -79,16 +79,18 @@ function followsProcessEvidence(location: ConversationLocation, reader: Conversa
 }
 
 /** User, steering, and injected-context message classification Definition. */
-export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
+export const messageDefinition: ConversationNodeDefinitionInput<MessageNode> = {
   kind: 'input-message',
   target: 'chat',
-  match: (event) => {
-    if (event.type === 'user/message') {
-      return isAppendSurfaceEvent(event) && !isCompactionCheckpoint(event)
-        ? { id: String(event.data.id), role: 'start' }
-        : null
-    }
-    return null
+  match: {
+    'user/message': (event) => {
+      if (event.type === 'user/message') {
+        return isAppendSurfaceEvent(event) && !isCompactionCheckpoint(event)
+          ? { id: String(event.data.id), role: 'start' }
+          : null
+      }
+      return null
+    },
   },
   start: (_context, match, reader) => {
     const event = match.event

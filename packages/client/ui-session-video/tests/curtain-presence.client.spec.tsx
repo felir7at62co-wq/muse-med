@@ -37,6 +37,18 @@ function Fixture({ open, attached = true }: { open: boolean; attached?: boolean 
   return <div ref={attached ? owner : undefined} data-testid="curtain">{present && <span>Mounted media</span>}</div>
 }
 
+it('clears retained content when the transition owner has been removed', () => {
+  function DetachedFixture({ open }: { open: boolean }) {
+    const owner = useRef<HTMLDivElement | null>(null)
+    const present = useCurtainPresence(open, owner)
+    return present && <span>Detached media</span>
+  }
+  const view = render(<DetachedFixture open />)
+  expect(view.getByText('Detached media')).toBeTruthy()
+  view.rerender(<DetachedFixture open={false} />)
+  expect(view.queryByText('Detached media')).toBeNull()
+})
+
 /** Browser-owned completion controlled without test-clock assumptions. */
 function transition() {
   const done = Promise.withResolvers<Animation>()

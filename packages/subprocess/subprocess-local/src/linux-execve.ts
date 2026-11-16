@@ -67,16 +67,15 @@ export function loadLinuxExecve(): LinuxExecve {
     for (const fd of descriptors) {
       const flags = nativeFcntl(fd, F_GETFD, 0)
       if (flags === -1) throw systemError(koffi.errno(), 'fcntl')
-      if ((flags & FD_CLOEXEC) === 0) continue
-      if (nativeFcntl(fd, F_SETFD, flags & ~FD_CLOEXEC) === -1) {
+      if ((flags & FD_CLOEXEC) !== 0 && nativeFcntl(fd, F_SETFD, flags & ~FD_CLOEXEC) === -1) {
         throw systemError(koffi.errno(), 'fcntl')
       }
-    }
-    for (const fd of STANDARD_FILE_DESCRIPTORS) {
-      const flags = nativeFcntl(fd, F_GETFL, 0)
-      if (flags === -1) throw systemError(koffi.errno(), 'fcntl')
-      if ((flags & constants.O_NONBLOCK) === 0) continue
-      if (nativeFcntl(fd, F_SETFL, flags & ~constants.O_NONBLOCK) === -1) {
+      if (fd === SUBPROCESS_CONTROL_FD) continue
+      // Node can make inherited stdio nonblocking when its stream getters run.
+      // Native targets expect blocking stdio; preserve every other status bit.
+      const status = nativeFcntl(fd, F_GETFL, 0)
+      if (status === -1) throw systemError(koffi.errno(), 'fcntl')
+      if ((status & constants.O_NONBLOCK) !== 0 && nativeFcntl(fd, F_SETFL, status & ~constants.O_NONBLOCK) === -1) {
         throw systemError(koffi.errno(), 'fcntl')
       }
     }

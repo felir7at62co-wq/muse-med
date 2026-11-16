@@ -30,10 +30,10 @@ it('does not present failed, pending or stale media as detected shots', () => {
   expect(assembleTimeline([a], []).duration).toBe(0)
 })
 
-it('does not invent a duration or shift following sources when a ready inventory omits duration', () => {
-  const first = source('first'), second = source('second')
-  const result = assembleTimeline([first, second], [{ ...analysis(first), durationSeconds: null, shots: [] }, analysis(second)])
+it('keeps later source coordinates stable when a completed analysis has no duration', () => {
+  const a = source('first'), b = source('second')
+  const result = assembleTimeline([a, b], [{ ...analysis(a), durationSeconds: null, shots: [] }, analysis(b)])
   expect(result.duration).toBe(6)
-  expect(result.offsets[second.id]).toBe(0)
-  expect(result.shots.map(shot => shot.source.id)).toEqual([second.id, second.id])
+  expect(result.offsets[b.id]).toBe(0)
+  expect(result.shots.map(shot => [shot.startSeconds, shot.endSeconds])).toEqual([[0, 2], [2, 6]])
 })

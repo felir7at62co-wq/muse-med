@@ -389,27 +389,19 @@ it('observes bounded state JSON and rejects I/O errors, malformed JSON and overs
 })
 
 it('reads bounded state through the POSIX open branch on either lane', async () => {
-  // The POSIX arm of readEpisodeStateSnapshot is unreachable while process.platform is 'win32'.
-  // Stub the platform for this case (the inverse of the Windows-compatibility stubs below) so the
-  // Windows lane exercises the same open/stat/read/close path on real files instead of skipping it.
   const f = await fixture(), path = join(f.root, 'posix-state.json')
-  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
-  if (descriptor === undefined) throw new Error('Expected process platform descriptor')
-  Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux', configurable: true })
-  onTestFinished(() => { Object.defineProperty(process, 'platform', descriptor) })
-  expect(await readEpisodeStateSnapshot(join(f.root, 'absent-state.json'), 4)).toBeUndefined()
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  expect(await observePosixState(join(f.root, 'absent-state.json'), 4)).toBeUndefined()
   await writeFile(path, '{}')
-  expect(await readEpisodeStateSnapshot(path, 2)).toEqual({})
+  expect(await observePosixState(path, 2)).toEqual({})
   await writeFile(path, '12345')
-  await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('bounded regular file')
-  // A directory opens but is not a regular file.
-  await expect(readEpisodeStateSnapshot(f.root, 4096)).rejects.toThrow('bounded regular file')
-  // A self-referential link answers ELOOP with O_NOFOLLOW on both platforms.
+  await expect(observePosixState(path, 4)).rejects.toThrow('bounded regular file')
+  await expect(observePosixState(f.root, 4096)).rejects.toThrow('bounded regular file')
   const loop = join(f.root, 'posix-loop.json')
   await symlink('posix-loop.json', loop, 'file')
-  await expect(readEpisodeStateSnapshot(loop, 4)).rejects.toThrow('bounded regular file')
-  // Any other failure leaves the POSIX branch's own error intact rather than reporting the path absent.
-  await expect(readEpisodeStateSnapshot(join(f.root, 'posix-nul\u0000name.json'), 4)).rejects.toThrow(/\u0000|null byte/iu)
+  await expect(observePosixState(loop, 4)).rejects.toThrow('bounded regular file')
+  await expect(observePosixState(join(f.root, 'posix-nul\u0000name.json'), 4)).rejects.toThrow(/\u0000|null byte/iu)
+  expect(Object.getOwnPropertyDescriptor(process, 'platform')).toEqual(platform)
 })
 
 it('retains the complete opened state when its path is atomically replaced', async () => {

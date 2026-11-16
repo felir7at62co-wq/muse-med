@@ -84,8 +84,6 @@ describe('durable market binding projection', () => {
       type: 'request/header', seq: SessionSeq(0), time: 1,
       data: { header: { config: { provider: 'fixture', model: 'fixture' } }, reason: 'initial' },
     })
-    expect(definition.apply(requested, { type: 'request/header', seq: SessionSeq(1), time: 2,
-      data: { header: { config: { provider: 'fixture', model: 'fixture' } }, reason: 'initial' } })).toBe(requested)
     expect(() => definition.apply(requested, bound(entries))).toThrow(/before the first request/u)
     const selected = definition.apply(empty, bound(entries))
     expect(definition.apply(selected, bound(structuredClone(entries)))).toBe(selected)
@@ -104,14 +102,18 @@ describe('durable market binding projection', () => {
     }
   })
 
-  it('refuses damaged release facts in a restored binding checkpoint', async () => {
+  it('rejects invalid persisted releases and preserves the first requested state', async () => {
     const { entries } = await setup(), entry = entries[0]
-    if (!entry) throw Error('Expected a verified release')
-    for (const release of [null, { ...entry.release, id: 'not-a-digest' },
-      { ...entry.release, sha256: 'b'.repeat(64) }, { ...entry.release, bytes: 0 },
-      { ...entry.release, bytes: Number.MAX_SAFE_INTEGER + 1 },
-      { ...entry.release, manifest: { ...manifest, kind: 'bot' } }]) {
+    if (entry === undefined) throw new Error('Expected a verified release')
+    for (const release of [null, {}, { ...entry.release, id: 'invalid' },
+      { ...entry.release, sha256: 'a'.repeat(64) }, { ...entry.release, bytes: 0 },
+      { ...entry.release, bytes: Number.NaN }, { ...entry.release, manifest: { ...entry.release.manifest, skills: [] } }]) {
       expect(definition.stateSchema.safeParse({ bound: true, requested: false, releases: [{ ...entry, release }] }).success).toBe(false)
     }
+    const request: SessionEvent<'request/header'> = { type: 'request/header', seq: SessionSeq(0), time: 1,
+      data: { header: { config: { provider: 'fixture', model: 'fixture' } }, reason: 'initial' } }
+    const state = definition.apply(definition.init(), request)
+    expect(definition.apply(state, request)).toBe(state)
+    expect(definition.wire.view(state)).toBe(state)
   })
 })

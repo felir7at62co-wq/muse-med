@@ -1,12 +1,15 @@
-import { mkdtemp, readFile, realpath, rm, writeFile, rename } from 'node:fs/promises'
-import * as files from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, realpath, rename, rm, utimes, writeFile } from 'node:fs/promises'
+import * as Files from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { join, resolve } from 'node:path'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { JsonStorageBackend, jsonUnitSourcePath, readJsonUnitSource } from '../src/index.ts'
 
-const descriptor = { name: 'workspace', version: 2, hasGlobal: true, tables: ['workspaces'] }
 vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>() }))
+const nativeFiles = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+afterEach(() => { vi.restoreAllMocks() })
+
+const descriptor = { name: 'workspace', version: 2, hasGlobal: true, tables: ['workspaces'] }
 async function harness() {
   const root = await mkdtemp(join(tmpdir(), 'dsh-json-source-'))
   onTestFinished(() => rm(root, { recursive: true, force: true }))
@@ -15,62 +18,36 @@ async function harness() {
   return { root, backend }
 }
 
+async function sourceDocument() {
+  const h = await harness(), path = await jsonUnitSourcePath(h.backend, descriptor)
+  const text = JSON.stringify({ unit: { name: 'workspace', version: 2 }, global: null, tables: { workspaces: {} } })
+  await writeFile(path, text)
+  return { ...h, path, text }
+}
+
+/** Put the real file change between the handle's read and its following identity check. */
+function afterSourceRead(path: string, change: () => Promise<void>) {
+  let seen: Files.FileHandle | undefined
+  vi.spyOn(Files, 'open').mockImplementation(async (...args) => {
+    const handle = await nativeFiles.open(...args)
+    if (String(args[0]) !== path) return handle
+    onTestFinished(() => handle.close())
+    seen = handle
+    const read = handle.readFile.bind(handle)
+    vi.spyOn(handle, 'readFile').mockImplementationOnce(async (options) => {
+      const text = await read(options)
+      await change()
+      return text
+    })
+    return handle
+  })
+  return async () => {
+    if (seen === undefined) throw new Error('Migration did not open the selected source')
+    await expect(seen.stat()).rejects.toMatchObject({ code: 'EBADF' })
+  }
+}
+
 describe('explicit JSON migration source', () => {
-  it('resolves a missing configured root without creating it', async () => {
-    const h = await harness(), root = join(h.root, 'not-created'), backend = new JsonStorageBackend(root)
-    onTestFinished(() => backend.close())
-    const path = join(root, 'workspace.json')
-    expect(await jsonUnitSourcePath(backend, descriptor)).toBe(path)
-    expect(await readJsonUnitSource(backend, descriptor)).toEqual({ path, text: undefined })
-    await expect(files.stat(root)).rejects.toMatchObject({ code: 'ENOENT' })
-  })
-
-  it.each(['realpath', 'open'] as const)('preserves a nonmissing %s failure instead of treating the source as absent', async (phase) => {
-    const h = await harness(), failure = Object.assign(Error('Source access denied'), { code: 'EACCES' })
-    const inspect = phase === 'realpath' ? vi.spyOn(files, 'realpath').mockRejectedValueOnce(failure)
-      : vi.spyOn(files, 'open').mockRejectedValueOnce(failure)
-    try { await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toBe(failure) }
-    finally { inspect.mockRestore() }
-  })
-
-  it('rejects an identical-byte file replacement after reading the opened migration source', async () => {
-    const h = await harness(), path = await jsonUnitSourcePath(h.backend, descriptor), held = join(h.root, 'held.json')
-    const text = JSON.stringify({ unit: { name: 'workspace', version: 2 }, global: null, tables: { workspaces: {} } })
-    await writeFile(path, text)
-    const stat = files.stat
-    const inspect = vi.spyOn(files, 'stat').mockImplementation(async (...args) => {
-      if (args[0] === path) { await rename(path, held); await writeFile(path, text) }
-      return stat(...args)
-    })
-    try { await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('changed while reading') }
-    finally { inspect.mockRestore() }
-    expect(await readFile(held, 'utf8')).toBe(text)
-    expect(await readFile(path, 'utf8')).toBe(text)
-  })
-
-  it('rejects a backend closed while reading and releases its owned descriptor', async () => {
-    const h = await harness(), path = await jsonUnitSourcePath(h.backend, descriptor)
-    await writeFile(path, JSON.stringify({ unit: { name: 'workspace', version: 2 }, global: null, tables: { workspaces: {} } }))
-    const open = files.open, entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
-    let closed = false
-    const inspect = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
-      const handle = await open(...args)
-      if (args[0] === path) {
-        const read = handle.readFile.bind(handle), close = handle.close.bind(handle)
-        Object.defineProperty(handle, 'readFile', { value: async (...input: Parameters<typeof handle.readFile>) => {
-          entered.resolve(undefined); await release.promise; return read(...input)
-        } })
-        Object.defineProperty(handle, 'close', { value: async () => { await close(); closed = true } })
-      }
-      return handle
-    })
-    const outcome = readJsonUnitSource(h.backend, descriptor).then(value => ({ value }), (error: unknown) => ({ error }))
-    try {
-      await entered.promise; await h.backend.close(); release.resolve(undefined)
-      expect(await outcome).toMatchObject({ error: { message: 'migration source JSON backend closed while reading' } })
-      expect(closed).toBe(true)
-    } finally { release.resolve(undefined); await outcome; inspect.mockRestore() }
-  })
   it('reads a complete current disk snapshot instead of the opened unit cache', async () => {
     const h = await harness()
     const unit = await h.backend.kv.open(descriptor)
@@ -92,6 +69,19 @@ describe('explicit JSON migration source', () => {
     await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('not a live JSON')
   })
 
+  it('refuses an in-flight migration read after its backend closes without changing the source', async () => {
+    const h = await harness(), path = await jsonUnitSourcePath(h.backend, descriptor)
+    const text = JSON.stringify({ unit: { name: 'workspace', version: 2 }, global: null,
+      tables: { workspaces: { first: { title: 'retained source' } } } })
+    await writeFile(path, text)
+    const reading = readJsonUnitSource(h.backend, descriptor)
+    const refused = expect(reading).rejects.toThrow('migration source JSON backend closed while reading')
+    await h.backend.close()
+    await refused
+    expect(await readFile(path, 'utf8')).toBe(text)
+    await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('not a live JSON')
+  })
+
   it('distinguishes a missing unit from a malformed or unsupported-version document', async () => {
     const h = await harness()
     const path = await jsonUnitSourcePath(h.backend, descriptor)
@@ -100,5 +90,55 @@ describe('explicit JSON migration source', () => {
     await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('not valid JSON')
     await writeFile(path, JSON.stringify({ unit: { name: 'workspace', version: 99 }, global: null, tables: {} }))
     await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('not accepted')
+  })
+
+  it('keeps an absent configured root absent while resolving its source identity', async () => {
+    const h = await harness(), root = join(h.root, 'not-created'), backend = new JsonStorageBackend(root)
+    onTestFinished(() => backend.close())
+    const path = join(resolve(root), 'workspace.json')
+    expect(await readJsonUnitSource(backend, descriptor)).toEqual({ path, text: undefined })
+    await expect(nativeFiles.stat(root)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('propagates root lookup and source-open permission errors without treating them as missing', async () => {
+    const h = await harness(), denied = Object.assign(new Error('denied migration source'), { code: 'EACCES' })
+    const lookup = vi.spyOn(Files, 'realpath').mockRejectedValueOnce(denied)
+    await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toBe(denied)
+    lookup.mockRestore()
+    vi.spyOn(Files, 'open').mockRejectedValueOnce(denied)
+    await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toBe(denied)
+  })
+
+  it.each(['replacement', 'size', 'mtime'] as const)('rejects a real source %s while its handle is being read', async (kind) => {
+    const h = await sourceDocument()
+    const closed = afterSourceRead(h.path, async () => {
+      if (kind === 'replacement') {
+        await rename(h.path, `${h.path}.old`)
+        await writeFile(h.path, h.text)
+      } else if (kind === 'size') await writeFile(h.path, `${h.text}\n`)
+      else await utimes(h.path, new Date(0), new Date(0))
+    })
+    await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('changed while reading')
+    await closed()
+    expect(await readFile(h.path, 'utf8')).toBe(kind === 'size' ? `${h.text}\n` : h.text)
+  })
+
+  // Windows chmod does not provide this POSIX permission/ctime transition.
+  it.skipIf(process.platform === 'win32')('rejects a POSIX permission change with unchanged bytes and mtime', async () => {
+    const h = await sourceDocument(), before = await nativeFiles.stat(h.path, { bigint: true })
+    const closed = afterSourceRead(h.path, async () => { await chmod(h.path, Number(before.mode) ^ 0o100) })
+    await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('changed while reading')
+    const after = await nativeFiles.stat(h.path, { bigint: true })
+    expect(after.mtimeNs).toBe(before.mtimeNs)
+    expect(after.ctimeNs).not.toBe(before.ctimeNs)
+    expect(await readFile(h.path, 'utf8')).toBe(h.text)
+    await closed()
+  })
+
+  it('rejects backend closure during the read and still closes the real file handle', async () => {
+    const h = await sourceDocument(), closed = afterSourceRead(h.path, () => h.backend.close())
+    await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('backend closed while reading')
+    await closed()
+    expect(await readFile(h.path, 'utf8')).toBe(h.text)
   })
 })

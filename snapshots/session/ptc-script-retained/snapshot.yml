@@ -1,9 +1,9 @@
 version: 1
+writerOutput: true
 scenario: ptc-script-retained
 profile: headless
 composition: ptc
 recording: authored
-writerOutput: true
 header:
   class: ptc-script-retained
   pin: true

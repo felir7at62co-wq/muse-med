@@ -1,8 +1,8 @@
 version: 1
+writerOutput: true
 scenario: fs-read
 profile: headless
 composition: default
 recording: live
-writerOutput: true
 header:
   class: default

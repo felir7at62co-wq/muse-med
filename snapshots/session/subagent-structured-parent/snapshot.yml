@@ -1,9 +1,9 @@
 version: 1
+writerOutput: true
 scenario: subagent-structured-parent
 profile: headless
 composition: subagent-structured-parent
 recording: authored
-writerOutput: true
 header:
   class: subagent-structured-parent
   pin: true
