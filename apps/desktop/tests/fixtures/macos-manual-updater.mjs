@@ -8,7 +8,7 @@ import { app, autoUpdater as nativeUpdater, shell } from 'electron'
 import { getNetSession } from 'electron-updater/out/electronHttpExecutor.js'
 import { createMacOSManualUpdater } from '../../lib/types/macos-manual-updater.js'
 import { DesktopUpdateCoordinator } from '../../lib/types/update-coordinator.js'
-import { DesktopUpdateHttpExecutor } from '../../lib/types/update-http-executor.js'
+import { DesktopUpdateHttpExecutor } from '../../lib/types/updates/electron-updater/http-executor.js'
 
 const root = process.env.DSH_MACOS_MANUAL_UPDATE_ROOT
 if (!root) throw new Error('Manual macOS qualification requires its private root')

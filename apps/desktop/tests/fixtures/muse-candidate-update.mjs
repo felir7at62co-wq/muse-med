@@ -11,7 +11,7 @@ import updaterModule from 'electron-updater'
 import { getNetSession } from 'electron-updater/out/electronHttpExecutor.js'
 import { dump } from 'js-yaml'
 import { DesktopUpdateCoordinator } from '../../lib/types/update-coordinator.js'
-import { DesktopUpdateHttpExecutor } from '../../lib/types/update-http-executor.js'
+import { DesktopUpdateHttpExecutor } from '../../lib/types/updates/electron-updater/http-executor.js'
 import { createMacOSManualUpdater } from '../../lib/types/macos-manual-updater.js'
 
 const root = process.env.MUSE_CANDIDATE_UPDATE_ROOT
