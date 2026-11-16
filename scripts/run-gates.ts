@@ -101,7 +101,7 @@ type ResultObserver = (result: GateResult) => void
 const PROGRAM_MODE_CAP = 8
 
 /** CI pins this minor in .github/workflows/ci.yml; its compatibility leg owns the built CLI smoke. */
-export const BUILD_BACKED_NODE_COMPAT_VERSION = '24.9'
+export const BUILD_BACKED_NODE_COMPAT_VERSION = '24.15'
 
 const root = resolve(import.meta.dirname, '..')
 if (import.meta.main) {
