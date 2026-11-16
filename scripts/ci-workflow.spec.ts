@@ -1673,7 +1673,7 @@ describe('Weighted approval workflow', () => {
     const token = steps.find(step => step.id === 'decision-token')
     expect(token).toMatchObject({
       'continue-on-error': true,
-      uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
+      uses: 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510',
       with: {
         'client-id': '${{ vars.DSH_APPROVAL_APP_CLIENT_ID }}',
         'private-key': '${{ secrets.DSH_APPROVAL_APP_PRIVATE_KEY }}',
@@ -1792,7 +1792,7 @@ describe('Issue lifecycle workflow', () => {
     expect(tokenStep).toMatchObject({
       id: 'app-token',
       if: "${{ steps.preflight.outputs.needs-project == 'true' }}",
-      uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
+      uses: 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510',
       with: {
         'client-id': '${{ vars.DSH_ISSUE_APP_CLIENT_ID }}',
         'private-key': '${{ secrets.DSH_ISSUE_APP_PRIVATE_KEY }}',
