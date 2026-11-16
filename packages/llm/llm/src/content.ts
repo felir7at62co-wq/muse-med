@@ -72,9 +72,11 @@ function normalizedAccessText(ref: ImageAttachmentRef, access: ImageAttachmentAc
 /**
  * Stable text shown to a model that cannot accept one durable image reference.
  * @param ref - durable normalized attachment omitted from the request.
+ * @param offloadNotice - optional recorded omission reason shown instead of text-only model wording.
  * @returns deterministic text-only placeholder.
  */
-export function textOnlyImageText(ref: ImageAttachmentRef): string {
+export function textOnlyImageText(ref: ImageAttachmentRef, offloadNotice?: string): string {
+  if (offloadNotice !== undefined) return offloadedImageText(ref, undefined, offloadNotice)
   const digest = String(ref.attachmentId).slice('sha256:'.length, 'sha256:'.length + 8)
   return `[image omitted because this model accepts text only; attachment sha256:${digest}]`
 }
@@ -104,12 +106,15 @@ export function requestImageHandleText(
  * Stable per-image placeholder for a request-limit omission.
  * @param ref - durable normalized attachment omitted from this request.
  * @param access - optional provider-resolved path for model tools.
+ * @param notice - optional recorded reason that replaces the request-limit wording.
  * @returns identity, normalized metadata, and the available recovery path.
  */
 export function offloadedImageText(
   ref: ImageAttachmentRef,
   access?: ImageAttachmentAccess,
+  notice?: string,
 ): string {
+  if (notice !== undefined) return `[${imageIdentity(ref)}: ${notice}]`
   const identity = `image omitted to fit request image limits; ${imageIdentity(ref)}.`
   if (access === undefined) {
     return `[${identity} No local normalized image path is available; ask the user to attach it again if needed.]`
@@ -124,8 +129,9 @@ export function offloadedImageText(
  * @param placeholder - route-owned request-limit text for an occurrence without a notice.
  * @returns deterministic replacement text.
  */
-export function offloadedImageBlockText(block: ImageBlock, placeholder: (ref: ImageAttachmentRef) => string): string {
-  return block.offloadNotice === undefined ? placeholder(block.attachment) : `[${imageIdentity(block.attachment)}: ${block.offloadNotice}]`
+function offloadedImageBlockText(block: ImageBlock, placeholder: (ref: ImageAttachmentRef) => string): string {
+  return block.offloadNotice === undefined
+    ? placeholder(block.attachment) : offloadedImageText(block.attachment, undefined, block.offloadNotice)
 }
 
 /**

@@ -36,7 +36,7 @@ import type {
   TokenUsage,
   ToolUpdate,
 } from '@deepseek-ai/dsh-llm'
-import { LlmAdapter, LlmError, ReasoningEffortId, expandAssistantStream, offloadedImageBlockText, offloadedImageText, requestImageHandleText, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, ReasoningEffortId, expandAssistantStream, offloadedImageText, requestImageHandleText, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 
 const PACKED_CHUNK_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool-call-chunks'])
@@ -922,7 +922,7 @@ class ReplayAdapter extends LlmAdapter {
     if (visualTokens === undefined) return undefined
     return {
       priceImages: images => images.map(image => (image.offloaded === true
-        ? { visualTokens: 0, text: offloadedImageBlockText(image, ref => offloadedImageText(ref)) }
+        ? { visualTokens: 0, text: offloadedImageText(image.attachment, undefined, image.offloadNotice) }
         : { visualTokens, text: requestImageHandleText(image.attachment,
           { width: image.attachment.width, height: image.attachment.height }) })),
     }

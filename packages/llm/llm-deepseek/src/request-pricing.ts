@@ -9,7 +9,7 @@
  * @module dsh-llm-deepseek/request-pricing
  */
 
-import { offloadedImageBlockText, offloadedImageText, requestImageHandleText, textOnlyImageText } from '@deepseek-ai/dsh-llm'
+import { offloadedImageText, requestImageHandleText, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentAccessResolver, ImageBlock, LlmImageRequestPrice, LlmImageRequestPricing } from '@deepseek-ai/dsh-llm'
 import { longEdgeDimensions, requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef, ImageRequestTarget } from '@deepseek-ai/dsh-attachment'
@@ -71,7 +71,7 @@ export function resolveRequestImageTarget(
  */
 function textOnlyPrice(block: ImageBlock): LlmImageRequestPrice {
   return { visualTokens: 0, text: block.offloaded === true
-    ? offloadedImageBlockText(block, textOnlyImageText) : textOnlyImageText(block.attachment) }
+    ? textOnlyImageText(block.attachment, block.offloadNotice) : textOnlyImageText(block.attachment) }
 }
 
 /**
@@ -101,7 +101,7 @@ export function deepSeekImageRequestPricing(
     priceImages: images => images.map((image) => {
       const ref = image.attachment
       if (image.offloaded === true) {
-        return { visualTokens: 0, text: offloadedImageBlockText(image, source => offloadedImageText(source, resolveAccess?.(source))) }
+        return { visualTokens: 0, text: offloadedImageText(image.attachment, resolveAccess?.(image.attachment), image.offloadNotice) }
       }
       const target = resolveRequestImageTarget(catalogModel, ref)
       return {
