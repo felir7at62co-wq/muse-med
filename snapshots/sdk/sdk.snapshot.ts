@@ -11,7 +11,6 @@
 
 import { existsSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
-import { writeReplayDiagnostics } from '../replay-diagnostics.ts'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1295,13 +1294,6 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       )
       reconcileCatalogCreationTimes(ordered.map(log => log.content), 'validate')
       const actualContext = contextOf(ordered, cwd)
-      if (!recording && !refreshing && process.env.CI === 'true') {
-        const directory = join(corpusRoot, '../.artifacts/snapshot-replay/sdk', scenario.name)
-        await writeReplayDiagnostics(directory, ordered.map(log => log.content), actualContext)
-        await writeFile(join(directory, 'notifications.expected.jsonl'), normalizeNotifications(notifications, actualContext))
-        const finalResult = results.at(-1)
-        if (finalResult !== undefined) await writeFile(join(directory, 'result.expected.json'), normalizeResult(finalResult, actualContext))
-      }
       if (scenario.name === 'command-attachments') {
         const parent = ordered[0]
         if (parent === undefined) throw new Error('command attachments have no persisted Session')
@@ -1357,9 +1349,15 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
           .map(event => event.data.source)).toMatchObject([{ round: 1, revision: 1 }, { round: 2, revision: 1 }])
         expect(events.filter(event => event.type === 'turn/start')).toHaveLength(3)
         expect(events.filter(event => event.type === 'step/start')).toHaveLength(6)
+        expect(events.filter(event => event.type === 'tool/call').map(event => ({
+          turn: event.data.turn, name: event.data.name,
+        }))).toEqual([
+          { turn: 2, name: 'get_goal' },
+          { turn: 3, name: 'get_goal' },
+          { turn: 3, name: 'update_goal' },
+        ])
+        expect(events.filter(event => event.type === 'goal/wait')).toEqual([])
         expect(modelRequests).toHaveLength(6)
-        expect([2, 3].map(turn => events.filter(event => event.type === 'tool/call' && event.data.turn === turn)
-          .map(event => event.data.name))).toEqual([['get_goal'], ['get_goal', 'update_goal']])
         expect(JSON.stringify(modelRequests.at(-1)?.messages)).toContain('<goal_complete>')
         expect(events.findLast(event => event.type === 'assistant/message'))
           .toMatchObject({ data: { message: { content: [{ type: 'text', text: 'SDK_GOAL_DONE' }] } } })
@@ -1582,6 +1580,31 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         for (const notice of notices) expect(JSON.stringify(notice)).toContain(expectedContent)
         const finalAssistant = parentEvents.findLastIndex(event => event.type === 'assistant/message')
         for (const notice of notices) expect(parentEvents.indexOf(notice)).toBeLessThan(finalAssistant)
+        if (scenario.name === 'subagent-dsh-sdk-diagnostic') {
+          const diagnosticEvents = parseSessionLog(ordered[0]!.content)
+          const diagnosticNotices = diagnosticEvents.flatMap(event => event.type === 'user/message'
+            && event.data.source.kind === 'subagent-settled'
+            ? [{ source: event.data.source, content: event.data.content }] : [])
+          const children = catalog.map(event => (event.data as JsonObject).childId)
+          expect(new Set(children).size).toBe(2)
+          expect(catalog).toMatchObject([
+            { data: { mode: 'external', label: 'Observe first SDK failure' } },
+            { data: { mode: 'external', label: 'Observe second SDK failure' } },
+          ])
+          expect(diagnosticNotices.map(notice => notice.source.senderSessionId)).toEqual(children)
+          for (const notice of diagnosticNotices) {
+            expect(notice.source.summary).toContain('failed before it finished')
+            expect(JSON.stringify(notice.content)).toContain('partial child loader answer')
+            expect(JSON.stringify(notice.content)).toContain('stage: session-run; category: child-error')
+          }
+          expect(diagnosticEvents.filter(event => event.type === 'tool/call').map(event => event.data.name))
+            .toEqual(['subagent_dsh_sdk', 'subagent_dsh_sdk_second'])
+          expect(diagnosticEvents.filter(event => event.type === 'step/start')).toHaveLength(3)
+          expect(diagnosticEvents.filter(event => event.type === 'assistant/message')).toHaveLength(3)
+          expect(diagnosticEvents.filter(event => event.type === 'assistant/message'
+            && event.data.message.content.some(block => block.type === 'text'
+              && block.text === 'PARENT_OBSERVED_DSH_SDK_DIAGNOSTIC'))).toHaveLength(1)
+        }
         expect(parentEvents.filter(event => event.type === 'turn/end')).toEqual([
           expect.objectContaining({ data: { turn: 1, reason: { kind: 'completed' } } }),
         ])
@@ -1704,8 +1727,8 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
           const fresh = freshIdentities[index]
           if (fresh === undefined) throw new Error(`no fresh identity log ${index}`)
           if (existing === undefined) throw new Error(`no fixture for persisted log ${index}`)
-          return scrubSessionSnapshot(tokenizeSessionFixtureCwd(
-            stabilizeRefreshLog(fresh, existing, replacements, actualContext),
+          return scrubSessionSnapshot(stabilizeRefreshLog(
+            tokenizeSessionFixtureCwd(fresh), existing, replacements, actualContext,
           ))
         })
         expectedContents = redactSessionSnapshotIds(stabilizeFixtureMessageIds(reconcileCatalogCreationTimes(refreshed, 'preserve-headers'), expectedContents))

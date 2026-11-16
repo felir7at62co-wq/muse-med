@@ -84,7 +84,7 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   // Preset ids and paths below an already scoped module root retain the literal cordis name.
   { file: 'apps/desktop-host/tests/preset-executors.spec.ts', upstream: ['cordis'] },
   { file: 'apps/desktop-host/tests/qimao-presets.spec.ts', upstream: ['cordis'] },
-  { file: 'apps/desktop-host/tests/source-research-presets.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop-host/tests/source-research-presets.expected.e2e.ts', upstream: ['cordis'] },
   { file: 'docs/tool-catalog.md', upstream: ['cordis'] },
   { file: 'docs/tool-catalog.zh.md', upstream: ['cordis'] },
   { file: 'docs/upgrade-guide/v0.2.2-alpha.2/fs-observation-policy-default-off/guide.md', upstream: ['cordis'] },

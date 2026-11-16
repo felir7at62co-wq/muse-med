@@ -78,7 +78,7 @@ describe('desktop core package set', () => {
       'node-pty': true, koffi: true, 'fs-ext': true,
       [pinned ? '@deepseek-ai/dsh-subprocess-local@file:desktop-packages/subprocess-local.tgz' : '@deepseek-ai/dsh-subprocess-local']: true,
       '@google/genai': false, protobufjs: false, 'node-addon-require-builtin': false,
-      '@whiskeysockets/baileys': false, 'tos-crc64-js': false,
+      'tos-crc64-js@0.0.1': false, '@whiskeysockets/baileys@7.0.0-rc14': false,
     })
   })
 

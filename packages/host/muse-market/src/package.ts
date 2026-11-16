@@ -14,11 +14,12 @@ export function marketDigest(bytes: Uint8Array): string { return createHash('sha
 /** Decode an archive only after validating every declared file and digest.
  * @param archive - Complete publication ZIP.
  * @param limits - Resolved deployment limits.
- * @returns Manifest and exact resource bytes.
+ * @returns Validated singleton manifest, exact resource bytes and the required Skill instructions.
  */
 export function readMarketPackage(archive: Uint8Array, limits: MarketLimits): {
-  manifest: MarketManifest
+  manifest: ReturnType<typeof marketManifest>
   files: Readonly<Record<string, Uint8Array>>
+  skillInstructions: Uint8Array
 } {
   if (!archive.byteLength || archive.byteLength > limits.archiveBytes) throw new MarketError('archive-too-large')
   let expanded = 0, count = 0
@@ -57,14 +58,13 @@ export function readMarketPackage(archive: Uint8Array, limits: MarketLimits): {
     if (!bytes || bytes.byteLength !== item.bytes || marketDigest(bytes) !== item.sha256) throw new MarketError('file-mismatch')
   }
   if (Object.values(entries).reduce((sum, bytes) => sum + bytes.byteLength, 0) > limits.expandedBytes) throw new MarketError('expanded-limit')
-  // oxlint-disable-next-line typescript/no-non-null-assertion -- marketManifest requires exactly one Skill.
-  const skill = manifest.skills[0]!
+  const skill = manifest.skills[0]
   if (Object.keys(files).some(path => !path.startsWith(`skills/${skill.name}/`))) throw new MarketError('undeclared-skill')
   const instructions = files[skill.path]
   if (!instructions) throw new MarketError('missing-skill')
   try { marketSkill(new TextDecoder('utf-8', { fatal: true }).decode(instructions), skill.name) }
   catch (_error) { throw new MarketError('invalid-skill') }
-  return { manifest, files }
+  return { manifest, files, skillInstructions: instructions }
 }
 
 /** Create a deterministic publication over an explicit resource set.
@@ -76,8 +76,8 @@ export function readMarketPackage(archive: Uint8Array, limits: MarketLimits): {
 export function createMarketPackage(
   manifest: MarketManifest, files: Readonly<Record<string, Uint8Array>>, limits: MarketLimits,
 ): Uint8Array {
-  // oxlint-disable-next-line typescript/no-non-null-assertion -- Each sorted key belongs to the borrowed readonly resource map.
-  const ordered = Object.keys(files).sort().map(path => [path, files[path]!] as const)
+  const captured = new Map(Object.entries(files))
+  const ordered = [...captured.keys()].sort().map(path => [path, captured.get(path) as Uint8Array] as const)
   const rows = ordered
     .map(([path, bytes]) => ({ path, bytes: bytes.byteLength, sha256: marketDigest(bytes) }))
   const archive = zipSync({ ...Object.fromEntries(ordered),

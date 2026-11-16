@@ -1,12 +1,18 @@
 import { SHIPPED_LOCALE_IDS } from '../../../scripts/shipped-locales.ts'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
 /** Per-language installer resources feed both the packaging language list and the NSIS compiler. */
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { globSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { expect, it, onTestFinished } from 'vitest'
 import { readInstallerLocales, renderInstallerStrings } from '../scripts/installer-locales.mjs'
+
+const require = createRequire(import.meta.url)
+const { LangConfigurator, createAddLangsMacro } = require('app-builder-lib/out/targets/nsis/nsisLang.js') as {
+  LangConfigurator: new (options: { installerLanguages: string[] }) => object
+  createAddLangsMacro: (generator: { macro: (name: string, lines: string[]) => void }, languages: object) => void
+}
 
 function fixture(): string {
   const directory = mkdtempSync(join(tmpdir(), 'dsh-installer-locales-'))
@@ -39,6 +45,22 @@ it('generates Japanese NSIS strings from the same files that select packaged lan
   expect(source.match(/^LangString /gmu)).toHaveLength(312)
   const japanese = locales.filter(locale => locale.id === 'ja_JP')
   expect(renderInstallerStrings(japanese)).not.toContain('${LANG_ENGLISH}')
+})
+
+it('declares every product NSIS string reference in each generated installer language', () => {
+  const appRoot = fileURLToPath(new URL('../', import.meta.url))
+  const files = globSync(['installer/**/*.nsh', 'scripts/installer*.nsh'], { cwd: appRoot })
+  expect(files.length).toBeGreaterThan(0)
+  const keys = [...new Set(files.flatMap(file => [...readFileSync(join(appRoot, file), 'utf8')
+    .matchAll(/\$\((INSTALLER_[A-Z0-9_]+)\)/gu)].map(match => match[1]!)))].sort()
+  expect(keys).toContain('INSTALLER_REBOOT_REQUIRED')
+  for (const locale of readInstallerLocales()) {
+    const source = renderInstallerStrings([locale])
+    for (const key of keys) {
+      expect(locale.strings[key], `${locale.id}: ${key}`).toEqual(expect.any(String))
+      expect(source).toContain(`LangString ${key} \${LANG_${locale.nsisLanguage}}`)
+    }
+  }
 })
 
 it.each(['en_US', 'zh_CN', 'ja_JP', 'es_ES', 'fr_FR', 'de_DE', 'ru_RU', 'pt_BR'])('rejects a missing %s configuration', (id) => {
@@ -88,11 +110,6 @@ it('interpolates prerequisite diagnostic registers while keeping other dollar si
 })
 
 it('uses the real electron-builder language identifiers and English fallback', () => {
-  const require = createRequire(import.meta.url)
-  const { LangConfigurator, createAddLangsMacro } = require('app-builder-lib/out/targets/nsis/nsisLang.js') as {
-    LangConfigurator: new (options: { installerLanguages: string[] }) => object
-    createAddLangsMacro: (generator: { macro: (name: string, lines: string[]) => void }, languages: object) => void
-  }
   const locales = readInstallerLocales()
   expect(locales[0]?.id).toBe('en_US')
   expect(locales.map(locale => locale.id.split('_')[0]).sort()).toEqual([...SHIPPED_LOCALE_IDS].sort())

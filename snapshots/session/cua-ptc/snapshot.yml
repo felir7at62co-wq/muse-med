@@ -1,9 +1,9 @@
 version: 1
+writerOutput: true
 scenario: cua-ptc
 profile: headless
 composition: cua-ptc
 recording: authored
-writerOutput: true
 header:
   class: cua-ptc
   pin: true

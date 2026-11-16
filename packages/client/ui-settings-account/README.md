@@ -81,6 +81,8 @@ Account login uses a dismissible dialog before the model onboarding credential e
 
 A terminal account-state stream failure appears in the sign-in dialog or Account settings. Plugin unload suppresses late failure reports.
 
+When account login occupies `settings.models.sign-in`, it forwards the [onboarding visibility notification](../ui-settings-models/README.md) when the dialog's DOM attaches. Loading and stored-credential states render no dialog and send no notification. Ordinary account-menu dialogs retain their own open and close actions.
+
 The balance card shows recharge funds and bonus credit in separate rows. While signed in, the bonus row appears during loading, after a failed wallet read, and when a wallet holds positive bonus credit; a successful read without positive bonus credit omits the row. A failed wallet read shows the existing unavailable copy as a link to Platform — the same destination and behavior as the Usage action, so the embedded page opens on Desktop and a new tab elsewhere — while the loading state stays plain text. Currencies retain their own amounts, and a notice date is rendered only inside the server’s own message.
 
 

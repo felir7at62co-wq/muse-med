@@ -128,9 +128,11 @@ vi.mock('../src/hongguo-runtime.ts', () => ({
   prepareDesktopHongguoEnvironment: vi.fn<typeof import('../src/hongguo-runtime.ts').prepareDesktopHongguoEnvironment>()
     .mockResolvedValue({}),
 }))
-vi.mock('../src/settings.ts', () => ({
-  readDesktopSettings: () => ({ updates: { allowTestAuthPopupWindow: false } }),
-  configureDesktopHostResolver: vi.fn(), readDesktopSystemDns: () => true, setDesktopSystemDnsStatus: vi.fn(),
+vi.mock('../src/settings.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/settings.ts')>(),
+  readDesktopSettings: (): import('../src/settings.ts').DesktopSettings => ({
+    updates: { allowTestAuthPopupWindow: false }, network: { useSystemResolver: false },
+  }),
 }))
 vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/login-shell-environment.ts')>(),

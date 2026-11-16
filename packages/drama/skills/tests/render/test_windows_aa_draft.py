@@ -91,6 +91,10 @@ class AaDraftTests(unittest.TestCase):
                                            'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}):
             plan, stage = self.plan()
         subtitle = plan['draft_style']['subtitle']
+        self.assertEqual(subtitle['font_family'], visual['font_family'])
+        self.assertEqual(plan['subtitle_font']['requested'], visual['font_family'])
+        self.assertEqual(plan['subtitle_font']['status'], 'backendUnsupported')
+        self.assertFalse(plan['subtitle_font']['delivery_ready'])
         self.assertEqual((subtitle['font_size_ui'], subtitle['border_width_ui']), (11, 20))
         self.assertAlmostEqual(subtitle['transform_y'], 1 - 2 * visual['center_y_ratio'])
         self.assertFalse(subtitle['auto_wrapping'])
@@ -101,6 +105,39 @@ class AaDraftTests(unittest.TestCase):
         self.assertEqual(plan['subtitles'], [{'start_us': 123_000, 'end_us': 789_000,
                                               'text': '价格 3.14 好'}])
         self.assertEqual(aa.parse_subtitles(stage / 'subtitles-product.srt'), plan['subtitles'])
+
+    def test_font_request_is_preserved_but_native_success_cannot_claim_font_support(self):
+        document = json.loads(self.timeline.read_text())
+        document['delivery']['draft_style'] = {'subtitle': {'font_family': 'Zhuque Fangsong'}}
+        self.timeline.write_text(json.dumps(document))
+
+        def save_native(arguments):
+            plan = json.loads(Path(arguments[arguments.index('-PlanPath') + 1]).read_text(encoding='utf-8'))
+            result, rows = self.saved(plan)
+            result.update(full=rows, draft_id='font-candidate', runtime={'font_capability': {'status': 'supported'}})
+            candidate = Path(plan['draft_path'])
+            candidate.mkdir()
+            (candidate / 'draft_content.json').write_text('{}', encoding='utf-8')
+            Path(arguments[arguments.index('-ResultPath') + 1]).write_text(json.dumps(result), encoding='utf-8')
+            return subprocess.CompletedProcess(arguments, 0, '', '')
+
+        with patch.dict(aa.os.environ, {'MUSE_JIANYING_POWERSHELL': sys.executable}), \
+                patch.object(aa, 'native_run', side_effect=save_native):
+            result = aa.generate_request(self.request, str(self.drafts))
+        self.assertFalse(result['success'])
+        self.assertEqual(result['drafts_created'], 0)
+        self.assertEqual(result['quality'], 'needs_repair')
+        candidate = result['drafts'][0]
+        self.assertTrue(candidate['saved'])
+        self.assertFalse(candidate['success'])
+        self.assertIn(candidate['path'], result['error'])
+        self.assertIn(candidate['review_path'], result['error'])
+        self.assertTrue((Path(candidate['path']) / 'draft_content.json').is_file())
+        review = json.loads(Path(candidate['review_path']).read_text(encoding='utf-8'))
+        self.assertEqual(review['subtitle_font']['requested'], 'Zhuque Fangsong')
+        self.assertEqual(review['subtitle_font']['status'], 'backendUnsupported')
+        self.assertFalse(review['subtitle_font']['binding_verified'])
+        self.assertFalse(review['subtitle_font']['delivery_ready'])
 
     def test_product_punctuation_only_cues_leave_no_fake_overlay_and_warn(self):
         source = '1\n00:00:00,123 --> 00:00:00,789\n？！\n'

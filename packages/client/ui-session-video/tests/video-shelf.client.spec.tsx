@@ -1,160 +1,243 @@
 // @vitest-environment jsdom
-/** Shared Session selection, bounded detection and source-local regeneration through native slots. */
-import { act,fireEvent,screen,waitFor } from '@testing-library/react'
-import { expect,it,vi } from 'vitest'
-import type { SessionVideoAnalysis,SessionVideoSource } from '@deepseek-ai/dsh-session-video'
-import type { VideoInjected } from '../src/client/face.ts'
+/** The shelf owns one Session's real media, detection requests and source-local redo ranges. */
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { bindSnapshotSelector, makeTranslate, sessionSnapshot } from '@deepseek-ai/dsh-client-test-runtime'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { SessionVideoSource, SessionVideoSourceId, SessionVideoShotId, SessionVideoAnalysis, SessionVideoInventory } from '@deepseek-ai/dsh-session-video'
+import type { VideoPlayerProps } from '../src/client/VideoPlayer.tsx'
+import { VideoShelf, VideoShelfSpacer } from '../src/client/VideoShelf.tsx'
+import { createVideoStore } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
-import { source,analysis,inventory,fixture } from './video-fixture.tsx'
 
-it('opens one selected source, detects real shot ranges and appends a guarded regeneration draft without submitting', async () => {
-  const { instance, detectShots, inputActions } = await fixture()
-  const toggle = screen.getByRole('button', { name: en.library })
-  expect(toggle.getAttribute('aria-expanded')).toBe('false')
-  expect(detectShots).not.toHaveBeenCalled()
-  fireEvent.click(toggle)
-  const shot = await screen.findByRole('button', { name: /^Shot 1/u })
-  expect(instance.getSnapshot().open).toBe(true)
-  expect(screen.getByRole('button', { name: en.redo }).hasAttribute('disabled')).toBe(true)
-  fireEvent.click(shot)
-  fireEvent.click(screen.getByRole('button', { name: en.redo }))
-  expect(inputActions.insertText).toHaveBeenCalledWith(expect.stringContaining('original range: 0.000–4.000'),
-    { start: 'Existing draft'.length, end: 'Existing draft'.length, draftRev: 7 })
-  expect(inputActions.persistDraft).toHaveBeenCalledOnce()
-  expect(detectShots).toHaveBeenCalledOnce()
+const sessionId = SessionId('video-shelf-session')
+type ShelfProps = Parameters<typeof VideoShelf>[0]
+const observed = vi.hoisted(() => ({ player: undefined as VideoPlayerProps | undefined, redo: undefined as (() => void) | undefined }))
+vi.mock('../src/client/VideoPlayer.tsx', async (original) => {
+  const actual = await original<typeof import('../src/client/VideoPlayer.tsx')>()
+  return { ...actual, VideoPlayer: (props: VideoPlayerProps) => {
+    observed.player = props
+    return <actual.VideoPlayer {...props} />
+  } }
+})
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', async (original) => {
+  const actual = await original<typeof import('@deepseek-ai/dsh-client-ui-primitives')>()
+  return { ...actual, Button: (props: React.ComponentProps<typeof actual.Button>) => {
+    if (props.size === 'sm' && props.disabled !== undefined && props['aria-label'] === undefined && props.onClick !== undefined) {
+      observed.redo = () => { Reflect.apply(props.onClick!, undefined, []) }
+    }
+    return <actual.Button {...props} />
+  } }
+})
+let getAnimationsDescriptor: PropertyDescriptor | undefined
+beforeEach(() => {
+  observed.player = undefined; observed.redo = undefined
+  getAnimationsDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'getAnimations')
+  Object.defineProperty(Element.prototype, 'getAnimations', { configurable: true, value: () => [] })
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+})
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  if (getAnimationsDescriptor === undefined) Reflect.deleteProperty(Element.prototype, 'getAnimations')
+  else Object.defineProperty(Element.prototype, 'getAnimations', getAnimationsDescriptor)
 })
 
-it('switches source-local playback while preserving concatenated timeline ranges', async () => {
-  const first = source(), second = source('second')
-  const { instance } = await fixture([first, second])
-  fireEvent.click(screen.getByRole('button', { name: en.library }))
-  await screen.findByRole('button', { name: /^Shot 2/u })
-  fireEvent.change(screen.getByRole('combobox', { name: en.library }), { target: { value: second.id } })
-  expect(instance.getSnapshot().selected).toBe(second.id)
-  expect(screen.getByLabelText(second.label)).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: /^Shot 1/u }))
-  expect(instance.getSnapshot().selected).toBe(first.id)
-  expect(screen.getByLabelText(first.label)).toBeTruthy()
-  fireEvent.keyDown(screen.getByRole('slider', { name: en.playhead }), { key: 'End' })
-  expect(instance.getSnapshot().selected).toBe(second.id)
-  const player = screen.getByLabelText(second.label)
-  fireEvent.loadedMetadata(player)
-  expect(player).toHaveProperty('currentTime', 4)
-})
-
-it('cancels its inventory request while another conversation view is active and remounts on return', async () => {
-  const { panel, reference, listVideos } = await fixture()
-  const signal = listVideos.mock.calls[0]?.[1]
-  panel.update({ activeView: 'trajectory' }, { session: reference })
-  expect(panel.container.querySelector('[data-muse-video-shelf]')).toBeNull()
-  expect(signal?.aborted).toBe(true)
-  panel.update({ activeView: 'chat' }, { session: reference })
-  await waitFor(() => { expect(listVideos).toHaveBeenCalledTimes(2) })
-  expect(screen.getByRole('button', { name: en.library })).toBeTruthy()
-})
-
-it('shows an empty shelf and retains a retry after inventory failure', async () => {
-  const { listVideos, panel, reference } = await fixture([])
-  fireEvent.click(screen.getByRole('button', { name: en.library }))
-  expect(await screen.findByText(en.empty)).toBeTruthy()
-  panel.update({ activeView: null }, { session: reference })
-  listVideos.mockRejectedValueOnce(Error('Inventory unavailable'))
-  panel.update({ activeView: 'chat' }, { session: reference })
-  await screen.findAllByText(en.unavailable)
-  fireEvent.click(screen.getByRole('button', { name: en.retry }))
-  await waitFor(() => { expect(screen.queryByText(en.unavailable)).toBeNull() })
-  expect(screen.getByText(en.empty)).toBeTruthy()
-})
-
-it('aborts a superseded detection and keeps a refused draft edit from triggering persistence', async () => {
-  const { detectShots, inputActions, panel, reference } = await fixture()
-  const pending = Promise.withResolvers<SessionVideoAnalysis>()
-  detectShots.mockReturnValueOnce(pending.promise)
-  fireEvent.click(screen.getByRole('button', { name: en.library }))
-  await waitFor(() => { expect(detectShots).toHaveBeenCalledOnce() })
-  const signal = detectShots.mock.calls[0]?.[3]
-  panel.update({ activeView: 'trajectory' }, { session: reference })
-  expect(signal?.aborted).toBe(true)
-  await act(async () => { pending.resolve(analysis(source())) })
-  panel.update({ activeView: 'chat' }, { session: reference })
-  await screen.findByRole('button', { name: /^Shot 1/u })
-  vi.mocked(inputActions.insertText).mockReturnValue(false)
-  fireEvent.click(screen.getByRole('button', { name: /^Shot 1/u }))
-  fireEvent.click(screen.getByRole('button', { name: en.redo }))
-  expect(inputActions.persistDraft).not.toHaveBeenCalled()
-})
-
-it.each(['rejected', 'failed-result'] as const)('retries an unverified detection after %s without resubmitting automatically', async (failure) => {
-  const { detectShots, instance } = await fixture()
-  if (failure === 'rejected') detectShots.mockRejectedValueOnce(Error('Detector unavailable'))
-  else detectShots.mockResolvedValueOnce({ ...analysis(source()), state: 'failed', issue: 'detector-unavailable' })
-  fireEvent.click(screen.getByRole('button', { name: en.library }))
-  await screen.findByText(en.detectionFailed)
-  expect(detectShots).toHaveBeenCalledOnce()
-  fireEvent.click(screen.getByRole('button', { name: en.retry }))
-  await screen.findByRole('button', { name: /^Shot 1/u })
-  expect(detectShots).toHaveBeenCalledTimes(2)
-  expect(instance.getSnapshot().analyses[source().id]?.state).toBe('ready')
-})
-
-it.each([true, false])('keeps a remote provider source playable when the optional local inventory refresh succeeds=%s', async (refresh) => {
-  const remote: SessionVideoSource = { ...source(), status: 'remote-only', path: null,
-    playbackUrl: 'https://media.example/video.mp4', remoteUrl: 'https://media.example/video.mp4' }
-  const { listVideos, instance, inputActions } = await fixture([remote])
-  if (refresh) listVideos.mockResolvedValueOnce(inventory([source()]))
-  else listVideos.mockRejectedValueOnce(Error('Local inventory unavailable'))
-  fireEvent.click(screen.getByRole('button', { name: en.library }))
-  await screen.findByRole('button', { name: /^Shot 1/u })
-  expect(listVideos).toHaveBeenCalledTimes(2)
-  expect(instance.getSnapshot().sources[0]?.status).toBe(refresh ? 'local' : 'remote-only')
-  expect(screen.getByLabelText(remote.label).getAttribute('src')).toBe(refresh ? source().playbackUrl : remote.playbackUrl)
-  if (!refresh) {
-    fireEvent.click(screen.getByRole('button', { name: /^Shot 1/u }))
-    fireEvent.click(screen.getByRole('button', { name: en.redo }))
-    expect(inputActions.insertText).toHaveBeenCalledWith(expect.stringContaining(`Source: ${remote.id}`), expect.anything())
-  }
-})
-
-it('ignores a detector failure after its conversation view has left', async () => {
-  const { detectShots, panel, reference, instance } = await fixture()
-  const pending = Promise.withResolvers<SessionVideoAnalysis>()
-  detectShots.mockReturnValueOnce(pending.promise)
-  fireEvent.click(screen.getByRole('button', { name: en.library }))
-  await waitFor(() => { expect(detectShots).toHaveBeenCalledOnce() })
-  const signal = detectShots.mock.calls[0]![3]
-  panel.update({ activeView: 'trajectory' }, { session: reference })
-  expect(signal.aborted).toBe(true)
-  await act(async () => { pending.reject(Error('Cancelled detector settled late')) })
-  expect(instance.getSnapshot().analyses).toEqual({})
-  panel.update({ activeView: 'chat' }, { session: reference })
-  await screen.findByRole('button', { name: /^Shot 1/u })
-  expect(screen.queryByText(en.detectionFailed)).toBeNull()
-})
-
-it('shows the unavailable source in place without starting a detector for missing media coordinates', async () => {
-  const unavailable: SessionVideoSource = { ...source(), version: null, playbackUrl: null, status: 'missing' }
-  const { detectShots } = await fixture([unavailable])
-  fireEvent.click(screen.getByRole('button', { name: en.library }))
-  expect(await screen.findByRole('alert')).toHaveProperty('textContent', en.unavailable)
-  expect(detectShots).not.toHaveBeenCalled()
-})
-
-it.each([true, false])('keeps the new view inventory after an old request settles successfully=%s', async (success) => {
-  const first = source(), second = source('second')
-  const { instance, panel, reference, listVideos } = await fixture([first])
-  await act(async () => { instance.actions.inventory(inventory([first], ['partial-read'])); instance.actions.toggle() })
-  const old = Promise.withResolvers<Awaited<ReturnType<VideoInjected['listVideos']>>>()
-  listVideos.mockReturnValueOnce(old.promise).mockResolvedValueOnce(inventory([second]))
-  const calls = listVideos.mock.calls.length
-  fireEvent.click(screen.getByRole('button', { name: en.retry }))
-  await waitFor(() => { expect(listVideos).toHaveBeenCalledTimes(calls + 1) })
-  panel.update({ activeView: 'trajectory' }, { session: reference })
-  panel.update({ activeView: 'chat' }, { session: reference })
-  await waitFor(() => { expect(instance.getSnapshot().sources).toEqual([second]) })
-  await act(async () => {
-    if (success) old.resolve(inventory([first]))
-    else old.reject(Error('Obsolete inventory failed'))
+function source(id: string, overrides: Partial<SessionVideoSource> = {}): SessionVideoSource {
+  return { id: brandString<SessionVideoSourceId>(id), label: `${id} video`, origin: 'generated', path: `/work/${id}.mp4`,
+    eventSeq: 5, presentedIndex: null, callId: null, status: 'local', version: 'v1',
+    playbackUrl: `/api/video/${id}`, remoteUrl: null, issue: null, ...overrides }
+}
+function analysis(video: SessionVideoSource, state: 'ready' | 'failed' = 'ready'): SessionVideoAnalysis {
+  return { sourceId: video.id, sourceVersion: 'v1', state, durationSeconds: 4, width: 320, height: 180,
+    method: 'ffmpeg-scene', threshold: 0.3, issue: state === 'failed' ? 'unavailable' : null,
+    shots: state === 'failed' ? [] : [{ id: brandString<SessionVideoShotId>(`${video.id}-shot`), index: 1,
+      startSeconds: 0, endSeconds: 4, thumbnail: null }] }
+}
+function setup(sources: SessionVideoSource[] = []) {
+  const store = createVideoStore().create(sessionId)
+  const inventory = (items = sources, issues: string[] = []): SessionVideoInventory => ({
+    sessionId, sources: items, complete: issues.length === 0, issues,
   })
-  expect(instance.getSnapshot().sources).toEqual([second])
-  expect(screen.queryByText(en.unavailable)).toBeNull()
+  store.actions.inventory(inventory())
+  const session = createSnapshotStore(sessionSnapshot(sessionId))
+  const chat = createSnapshotStore({ order: [] as string[] })
+  const input = createSnapshotStore({ draft: 'My notes', draftRev: 7 })
+  const inputActions = { insertText: vi.fn(() => true), persistDraft: vi.fn() }
+  const listVideos = vi.fn<ShelfProps['listVideos']>(async () => inventory())
+  const detectShots = vi.fn<ShelfProps['detectShots']>(async (_id, id) => analysis(sources.find(item => item.id === id)!))
+  // This component consumes only these declared hooks; unrelated Session slots are absent.
+  const props = { activeView: 'chat', sessionId, useStore: bindSnapshotSelector(store), actions: store.actions,
+    useSession: bindSnapshotSelector(session), useChat: bindSnapshotSelector(chat), useInput: bindSnapshotSelector(input),
+    inputActions, listVideos, detectShots, pixelsPerSecond: 48, t: makeTranslate(en) } as ShelfProps
+  return { store, inventory, session, chat, inputActions, listVideos, detectShots, props }
+}
+
+it('keeps the pinned spacer and makes no requests outside the Chat view', () => {
+  const h = setup()
+  const view = render(<><VideoShelfSpacer /><VideoShelf {...h.props} activeView="trajectory" /></>)
+  expect(view.container.querySelector('[data-muse-video-spacer]')?.getAttribute('aria-hidden')).toBe('true')
+  expect(view.queryByRole('button')).toBeNull()
+  expect(h.listVideos).not.toHaveBeenCalled()
+})
+
+it('loads an empty shelf on demand and cancels an obsolete inventory request', async () => {
+  const h = setup(), pending = Promise.withResolvers<SessionVideoInventory>()
+  h.listVideos.mockImplementationOnce(() => pending.promise)
+  const view = render(<VideoShelf {...h.props} />)
+  fireEvent.click(view.getByRole('button', { name: en.library }))
+  expect(view.getByText(en.empty)).toBeTruthy()
+  const signal = h.listVideos.mock.calls[0]![1]
+  view.unmount()
+  expect(signal.aborted).toBe(true)
+  await act(async () => { pending.resolve(h.inventory([source('late')])) })
+  expect(h.store.getSnapshot().sources).toEqual([])
+})
+
+it('ignores inventory failure reported after the shelf has unmounted', async () => {
+  const h = setup(), pending = Promise.withResolvers<SessionVideoInventory>()
+  h.listVideos.mockImplementationOnce(() => pending.promise)
+  const view = render(<VideoShelf {...h.props} />)
+  view.unmount()
+  await act(async () => { pending.reject(new Error('request aborted')) })
+  expect(h.store.getSnapshot().issue).toBeNull()
+})
+
+it('ignores detection rejection after closing', async () => {
+  const video = source('first'), h = setup([video]), pending = Promise.withResolvers<SessionVideoAnalysis>()
+  h.detectShots.mockImplementationOnce(() => pending.promise)
+  const view = render(<VideoShelf {...h.props} />)
+  fireEvent.click(view.getByRole('button', { name: en.library }))
+  expect(h.store.getSnapshot().selected).toBe(video.id)
+  fireEvent.click(view.getByRole('button', { name: en.library }))
+  await act(async () => { pending.reject(new Error('request aborted')) })
+  expect(view.queryByText(en.detectionFailed)).toBeNull()
+})
+
+it('keeps collection and explicit open actions within their own Session store', () => {
+  const first = createVideoStore().create('first'), second = createVideoStore().create('second')
+  first.actions.collect('video-1', true)
+  first.actions.openSource('video-1')
+  expect(first.getSnapshot()).toMatchObject({ selected: 'video-1', open: true, collected: { 'video-1': true } })
+  first.actions.collect('video-1', false)
+  expect(first.getSnapshot().collected['video-1']).toBe(false)
+  expect(second.getSnapshot()).toMatchObject({ selected: null, open: false, collected: {} })
+})
+
+it('retries a failed inventory and keeps partial inventory visible', async () => {
+  const h = setup()
+  h.listVideos.mockRejectedValueOnce(new Error('unavailable')).mockResolvedValueOnce(h.inventory([], ['one source unreadable']))
+  const view = render(<VideoShelf {...h.props} />)
+  fireEvent.click(view.getByRole('button', { name: en.library }))
+  await waitFor(() => { expect(view.getAllByText(en.unavailable)).toHaveLength(2) })
+  fireEvent.click(view.getByRole('button', { name: en.retry }))
+  await waitFor(() => { expect(view.getByText(en.incomplete)).toBeTruthy() })
+  expect(h.listVideos).toHaveBeenCalledTimes(2)
+})
+
+it('selects real shots and seeks source-local time before inserting a redo request', async () => {
+  const first = source('first'), second = source('second', { path: null })
+  const h = setup([first, second])
+  h.store.actions.analysis(analysis(first)); h.store.actions.analysis(analysis(second))
+  const view = render(<VideoShelf {...h.props} />)
+  fireEvent.click(view.getByRole('button', { name: en.library }))
+  await waitFor(() => { expect(h.listVideos).toHaveBeenCalledOnce() })
+  expect((view.getByRole('button', { name: en.redo }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(view.getByRole('button', { name: /^Shot 2/u }))
+  expect(h.store.getSnapshot().selected).toBe(second.id)
+  const video = view.getByLabelText(second.label) as HTMLVideoElement
+  Object.defineProperty(video, 'readyState', { configurable: true, value: 1 })
+  fireEvent.loadedMetadata(video)
+  expect(video.currentTime).toBe(0)
+  fireEvent.keyDown(view.getByRole('slider', { name: en.playhead }), { key: 'End' })
+  expect(video.currentTime).toBe(4)
+  fireEvent.click(view.getByRole('button', { name: en.redo }))
+  expect(h.inputActions.insertText).toHaveBeenLastCalledWith(expect.stringContaining('Source: second; shot ID: second-shot; original range: 0.000–4.000'),
+    { start: 8, end: 8, draftRev: 7 })
+  expect(h.inputActions.persistDraft).toHaveBeenCalledOnce()
+  h.inputActions.insertText.mockReturnValue(false)
+  fireEvent.click(view.getByRole('button', { name: en.redo }))
+  expect(h.inputActions.persistDraft).toHaveBeenCalledOnce()
+  fireEvent.change(view.getByRole('combobox', { name: en.library }), { target: { value: first.id } })
+  expect(h.store.getSnapshot().selected).toBe(first.id)
+  expect((view.getByRole('button', { name: en.redo }) as HTMLButtonElement).disabled).toBe(true)
+  expect(h.detectShots).not.toHaveBeenCalled()
+})
+
+it('ignores unavailable shot callbacks without changing selection or the draft', async () => {
+  const video = source('first'), h = setup([video])
+  h.store.actions.analysis(analysis(video))
+  const view = render(<VideoShelf {...h.props} />)
+  fireEvent.click(view.getByRole('button', { name: en.library }))
+  await waitFor(() => { expect(h.listVideos).toHaveBeenCalledOnce() })
+  expect(observed.player).toBeDefined()
+  expect(observed.redo).toBeDefined()
+  // Observe the real child interface without replacing its rendering or event behavior.
+  act(() => {
+    observed.player!.onSelectShot('removed-shot')
+    observed.player!.onSeek(-1)
+    observed.redo!()
+  })
+  expect(h.store.getSnapshot().selected).toBe(video.id)
+  expect(h.inputActions.insertText).not.toHaveBeenCalled()
+  expect(h.inputActions.persistDraft).not.toHaveBeenCalled()
+})
+
+it('detects open playable sources and refreshes remote inventory before accepting the analysis', async () => {
+  const remote = source('remote', { status: 'remote-only', path: null })
+  const local = { ...remote, status: 'local' as const, path: '/work/remote.mp4' }
+  const h = setup([remote])
+  h.listVideos.mockResolvedValueOnce(h.inventory()).mockResolvedValueOnce(h.inventory([local]))
+  const view = render(<VideoShelf {...h.props} />)
+  fireEvent.click(view.getByRole('button', { name: en.library }))
+  await waitFor(() => { expect(h.store.getSnapshot().analyses[remote.id]?.state).toBe('ready') })
+  expect(h.listVideos).toHaveBeenCalledTimes(2)
+  expect(h.store.getSnapshot().sources[0]?.path).toBe('/work/remote.mp4')
+  expect(h.detectShots).toHaveBeenCalledExactlyOnceWith(sessionId, remote.id, 'v1', expect.any(AbortSignal))
+})
+
+it('retains a provider playback URL when the optional post-detection inventory refresh fails', async () => {
+  const remote = source('remote', { status: 'remote-only', path: null })
+  const h = setup([remote])
+  h.listVideos.mockResolvedValueOnce(h.inventory()).mockRejectedValueOnce(new Error('refresh failed'))
+  const view = render(<VideoShelf {...h.props} />)
+  fireEvent.click(view.getByRole('button', { name: en.library }))
+  await waitFor(() => { expect(h.store.getSnapshot().analyses[remote.id]?.state).toBe('ready') })
+  expect((view.getByLabelText(remote.label) as HTMLVideoElement).getAttribute('src')).toBe('/api/video/remote')
+})
+
+it('shows detection failures, retries them and ignores a result arriving after close', async () => {
+  const video = source('first'), h = setup([video])
+  h.detectShots.mockRejectedValueOnce(new Error('detector failed'))
+  const pending = Promise.withResolvers<SessionVideoAnalysis>()
+  h.detectShots.mockImplementationOnce(() => pending.promise)
+  const view = render(<VideoShelf {...h.props} />)
+  fireEvent.click(view.getByRole('button', { name: en.library }))
+  await waitFor(() => { expect(view.getByText(en.detectionFailed)).toBeTruthy() })
+  fireEvent.click(view.getByRole('button', { name: en.retry }))
+  await waitFor(() => { expect(h.detectShots).toHaveBeenCalledTimes(2) })
+  const signal = h.detectShots.mock.calls[1]![3]
+  fireEvent.click(view.getByRole('button', { name: en.library }))
+  expect(signal.aborted).toBe(true)
+  await act(async () => { pending.resolve(analysis(video)) })
+  expect(h.store.getSnapshot().analyses[video.id]).toBeUndefined()
+})
+
+it('shows missing playback without starting detection and can retry a failed recorded analysis', async () => {
+  const missing = source('missing', { playbackUrl: null, version: null })
+  const playable = source('playable')
+  const h = setup([missing, playable])
+  h.store.actions.analysis(analysis(playable, 'failed'))
+  const view = render(<VideoShelf {...h.props} />)
+  fireEvent.click(view.getByRole('button', { name: en.library }))
+  await waitFor(() => { expect(h.listVideos).toHaveBeenCalledOnce() })
+  expect(view.getByRole('alert').textContent).toBe(en.unavailable)
+  fireEvent.change(view.getByRole('combobox', { name: en.library }), { target: { value: playable.id } })
+  expect(view.getByText(en.detectionFailed)).toBeTruthy()
+  fireEvent.click(view.getByRole('button', { name: en.retry }))
+  await waitFor(() => { expect(h.store.getSnapshot().analyses[playable.id]?.state).toBe('ready') })
 })

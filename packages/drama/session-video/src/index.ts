@@ -71,9 +71,9 @@ interface ResolvedSource {
 }
 
 function trimCache<T>(cache: Map<string, T>, maximum: number): void {
-  while (cache.size > maximum) {
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- Size exceeds the positive limit, so an oldest key exists.
-    cache.delete(cache.keys().next().value!)
+  for (const oldest of cache.keys()) {
+    if (cache.size <= maximum) return
+    cache.delete(oldest)
   }
 }
 

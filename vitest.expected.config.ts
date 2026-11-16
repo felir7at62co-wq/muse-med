@@ -8,6 +8,7 @@ export default defineConfig({
   plugins: [tsconfigPaths({ projects: ['./tsconfig.base.json'] }), standardDecoratorPlugin()],
   test: {
     execArgv: vitestExecArgv,
+    env: { DSH_EXAMPLE_MODE: 'lib' },
     setupFiles: ['./scripts/test-proxy-environment.ts'],
     include: [
       'apps/cli/tests/**/*.expected.e2e.ts',

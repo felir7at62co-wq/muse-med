@@ -1,8 +1,8 @@
 /** Assert recorded read recovery through the shipped headless profile. */
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { createHash } from 'node:crypto'
 import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 
 const host = new URL('../../../apps/desktop-host/package.json', import.meta.url)
@@ -16,14 +16,33 @@ export const inject = ['tools', 'fs', 'sessionQuery', 'toolResultPruner']
 export async function apply(ctx) {
   await ctx.plugin(recovery)
   await ctx.plugin(present)
-  // Keep the real read and structured value; only its displayed path must be independent of the workspace.
-  ctx.on('tools/post-execute', async (exec, result, next) => {
-    const decision = await next()
-    if (exec.name !== 'read' || exec.arguments.file_path !== 'source.txt' || result.isError || decision.kind !== 'accept') return decision
-    assert.ok(!Object.hasOwn(decision, 'content') && !Object.hasOwn(decision, 'value'))
-    return { ...decision, content: result.content.map(block => block.type === 'text'
-      ? { ...block, text: block.text.replace(/^<path>[^\n]*<\/path>/u, '<path>source.txt</path>') } : block) }
+  const sourceTarget = await ctx.fs.resolve('source.txt')
+  const sourcePath = ctx.fs.processPath(sourceTarget)
+  const readTool = ctx.tools.get('read')
+  assert.ok(readTool)
+  ctx.effect(() => {
+    // Keep the actual filesystem identity while making this fixture's model-facing source path stable.
+    const originalRender = readTool.output.render
+    const originalMeta = readTool.output.presentationMeta
+    const display = value => value.path === sourcePath ? { ...value, path: 'source.txt' } : value
+    readTool.output.render = (args, value) => originalRender(args, display(value))
+    readTool.output.presentationMeta = (args, value) => originalMeta?.(args, display(value))
+    return () => {
+      readTool.output.render = originalRender
+      readTool.output.presentationMeta = originalMeta
+    }
   })
+  for (const path of ['source.txt', sourcePath]) {
+    const resolved = await ctx.fs.resolve(path)
+    assert.equal(resolved.targetKey, sourceTarget.targetKey)
+    const value = { path: ctx.fs.processPath(resolved), offset: 1, lines: [{ number: 1, text: 'display preflight' }], totalLines: 1 }
+    assert.ok(readTool.output.render({ file_path: path }, value)[0].text.startsWith('<path>source.txt</path>\n'))
+    assert.equal(readTool.output.presentationMeta({ file_path: path }, value).path, 'source.txt')
+  }
+  const unrelated = ctx.fs.processPath(await ctx.fs.resolve('delivery.txt'))
+  assert.notEqual(readTool.output.presentationMeta({ file_path: unrelated }, {
+    path: unrelated, offset: 1, lines: [], totalLines: 0,
+  }).path, 'source.txt')
   ctx.effect(() => {
     const original = globalThis.fetch
     globalThis.fetch = async () => { throw Error('source recovery snapshot refuses network') }
@@ -53,16 +72,18 @@ export async function apply(ctx) {
       return event.data.message.content.find(block => block.type === 'text')?.text
     }
     const raw = result('call_recovery_1')
-    assert.ok(raw.startsWith('<path>source.txt</path>'), 'the recovered bytes have a workspace-independent display path')
     const first = JSON.parse(result('call_recovery_2'))
     const second = JSON.parse(result('call_recovery_3'))
     assert.equal(first.next_offset, 100)
     assert.equal(second.offset, 100)
     assert.equal(second.next_offset, null)
     assert.equal(first.text + second.text, raw, 'pages reconstruct the complete recorded tool result')
+    assert.ok(raw.startsWith('<path>source.txt</path>\n'), 'the recorded read has the fixture-owned stable display path')
     const digest = createHash('sha256').update(raw).digest('hex')
-    assert.equal(first.text_sha256, digest)
-    assert.equal(second.text_sha256, digest)
+    for (const page of [first, second]) {
+      assert.equal(page.text_sha256, digest)
+      assert.deepEqual(page.recorded_text_blocks, [{ block: 0, chars: raw.length, sha256: digest }])
+    }
     assert.equal(first.read_file_scope, 'complete')
     assert.equal(first.recorded_result, 'original_logged_event_not_verified_complete')
     assert.ok(events.some(event => event.type === 'compaction/prune'))
@@ -70,6 +91,10 @@ export async function apply(ctx) {
       && message.source.kind === 'muse-manuscript' && message.content.some(block => block.type === 'text'
         && block.text.startsWith('{"source_recovery":')))
     assert.ok(index, 'recovery index enters the logged model context')
+    const indexText = index.content.find(block => block.type === 'text' && block.text.startsWith('{"source_recovery":')).text
+    const entry = JSON.parse(indexText).source_recovery.entries.find(item => item.seq === 15)
+    assert.ok(entry, 'the recovery index identifies the original read')
+    assert.deepEqual(entry.recorded_text_blocks, [{ block: 0, chars: raw.length, sha256: digest }])
     assert.ok(!events.some(event => event.type === 'system/message'
       && event.data.message.content.some(block => block.type === 'text' && block.text.includes('source_recover'))),
     'source recovery adds no system prompt section')

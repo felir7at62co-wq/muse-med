@@ -70,6 +70,18 @@ const apply = (plan: Record<string, unknown>, extra = {}) => storyboardMethod(cl
 })
 const writes = () => calls.filter(call => call.method !== 'GET')
 
+it('reports prompt findings for an unnamed legacy card without inventing a card name', async () => {
+  delete boards[0]!.storyboardName
+  const plan = await storyboardEditMethod(client, ledger, {
+    method: 'edit_preview', project_dir: root, script_id: 2708, storyboard_id: 1,
+    changes: { prompt: '蓝光照着房门' },
+  }, { maxItems: 3, concurrency: 1 }, { terms: ['蓝光'], contextChars: 2, maxMatches: 10 })
+  expect(plan).toMatchObject({ targets: [{ after: { name: null } }],
+    prompt_risk_review: { total_matches: 1, matches: [{ storyboard_id: 1, card_name: null, term: '蓝光', offset: 0, context: '蓝光照着' }] },
+  })
+  expect(writes()).toEqual([])
+})
+
 it('edits a saved decimal duration and accepts equivalent provider readback without resending', async () => {
   boards[0]!.modelConfig = JSON.stringify({ ...config, duration: '10' })
   onPut = (body) => {

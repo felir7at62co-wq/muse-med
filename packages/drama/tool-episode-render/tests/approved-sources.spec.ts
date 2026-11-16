@@ -1,8 +1,7 @@
 import { join } from 'node:path'
-import { copyFile, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
-import * as Fs from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it } from 'vitest'
 import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
 import { createSourceQaStagedAccess } from '../src/source-qa.ts'
 import { fileSha256 } from '../src/cache.ts'
@@ -10,9 +9,8 @@ import { episodePaths } from '../src/paths.ts'
 import { cleanup, tempProject, writePlaceholder } from './harness.ts'
 import { sourceQaFixture, verifiedSourceQaFixture } from './source-qa-fixture.ts'
 
-vi.mock('node:fs/promises', async load => ({ ...await load<typeof import('node:fs/promises')>() }))
 const projects: string[] = []
-afterEach(async () => { vi.restoreAllMocks(); await Promise.all(projects.splice(0).map(cleanup)) })
+afterEach(async () => { await Promise.all(projects.splice(0).map(cleanup)) })
 
 it('rechecks complete package and original evidence through supplied staged file facts', async () => {
   const project = await realpath(await tempProject()); projects.push(project)
@@ -42,10 +40,8 @@ it('rechecks complete package and original evidence through supplied staged file
   const snapshot = [{ originalPath: join(project, 'reviews'), entries: ['ep24-p01.json'] }]
   const access = createSourceQaStagedAccess(project, stage, files, signal, snapshot)
   const row = { shot: 1, package: 1, video, audio: video }
-  const other = join(project, 'other-project')
-  await mkdir(other)
-  await expect(verifySelectedSourceReviews(episodePaths(other, '24'), [row], true, true, verifiedSourceQaFixture, access))
-    .rejects.toThrow('belongs to another project')
+  await expect(verifySelectedSourceReviews({ ...paths, project: join(project, 'another-project') }, [row],
+    true, true, verifiedSourceQaFixture, access)).rejects.toThrow('stage belongs to another project')
   const direct = await verifySelectedSourceReviews(paths, [row], true, true, verifiedSourceQaFixture)
   for (const original of [frame, receipt]) {
     expect(direct[0]?.sourceQa?.files).toContainEqual({ path: original, sha256: await fileSha256(original) })
@@ -69,15 +65,43 @@ it('rechecks complete package and original evidence through supplied staged file
     .rejects.toThrow('no captured directory snapshot')
   await writeFile(files[2]!.stagedPath, 'changed')
   await expect(verifySelectedSourceReviews(paths, [row], true, true, verifiedSourceQaFixture, access)).rejects.toThrow('stage file changed')
-  const review = JSON.parse(await readFile(reviewPath, 'utf8')) as Record<string, unknown>
-  const download = JSON.parse(await readFile(receipt, 'utf8')) as Record<string, unknown>
-  await writeFile(reviewPath, JSON.stringify({ ...review, review_frames: [receipt] }))
-  const read = Fs.readFile
-  vi.spyOn(Fs, 'readFile').mockImplementation(async (...args) => {
-    if (args[0] === receipt) await writeFile(receipt, JSON.stringify({ ...download, note: 'changed during verification' }))
-    return await read(...args)
-  })
-  await expect(verifySelectedSourceReviews(paths, [row], true, true, verifiedSourceQaFixture)).rejects.toThrow('审核证据在核验期间已变化')
+})
+
+// Real entry: `verifySelectedSourceReviews` in strict delivery. The review lists one approved
+// frame once per captured angle, so the content-evidence pass binds that exact file identity
+// twice. The Host keeps appending to the frame while the pass hashes it, so the second binding
+// of the same path disagrees with the first and the per-shot capture map refuses the review
+// before any OCR proof is asked for.
+it('refuses one review frame bound with two digests during content verification', async () => {
+  const project = await realpath(await tempProject()); projects.push(project)
+  const paths = episodePaths(project, '24'), video = join(project, 'picture.mp4')
+  const packagePath = join(project, 'episode_packages', '24', 'package.json')
+  const reviewPath = join(project, 'reviews', 'ep24-p01.json')
+  const frame = join(project, 'review-frame.png'), receipt = join(project, 'download.json')
+  await Promise.all([writePlaceholder(video, 'approved picture'),
+    writeFile(frame, Buffer.alloc(4 * 1024 * 1024, 0x41)),
+    writePlaceholder(packagePath, JSON.stringify({ episode: '24', video_tasks: [{ shots: [1] }] }))])
+  const videoSha256 = await fileSha256(video), qa = await sourceQaFixture(project, video)
+  await writePlaceholder(receipt, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4', path: video,
+    sha256: `sha256:${videoSha256}`, source_sha256: 'a'.repeat(64) }))
+  const checks = Object.fromEntries(['identity', 'wardrobe', 'scene', 'prop', 'action_and_dialogue', 'visible_artifacts',
+    'continuity', 'voice_and_speaker', 'av_sync', 'sensitive_content'].map(key => [key, 'pass']))
+  await writePlaceholder(reviewPath, JSON.stringify({ episode: '24', package: 1, status: 'approved', subtitle_cleanup: 'not_required',
+    package_sha256: await fileSha256(packagePath), video_path: video, video_sha256: videoSha256, audio_path: video,
+    audio_sha256: videoSha256, content_review: { ...checks, embedded_subtitles: 'absent' },
+    review_frames: Array.from({ length: 6 }, () => frame),
+    original_download_receipt_path: receipt, source_qa: { version: 1, selected: qa.declaration } }))
+  let growing = true
+  const growth = (async () => {
+    for (let appended = 0; growing && appended < 24; appended += 1) {
+      await appendFile(frame, Buffer.alloc(64 * 1024, 0x42)).catch(() => {})
+      await new Promise<void>(resolve => setTimeout(resolve, 1))
+    }
+  })()
+  try {
+    await expect(verifySelectedSourceReviews(paths, [{ shot: 1, package: 1, video, audio: video }], true, true, verifiedSourceQaFixture))
+      .rejects.toThrow('审核证据在核验期间已变化')
+  } finally { growing = false; await growth }
 })
 
 it('rejects an unrelated independent audio file when the selected picture was not cleaned', async () => {
@@ -105,6 +129,7 @@ it.each([
   { kind: 'verified erase with original sound' },
   { kind: 'manual erase', error: /正式去字幕结果/u },
   { kind: 'local fallback after both routes finished' },
+  { kind: 'local fallback from captured copies' },
   { kind: 'local fallback while paid route is unknown', error: /明确终态/u },
   { kind: 'local fallback with reused comparison frame', error: /独立的处理前后抽帧/u },
   { kind: 'wrong download bytes', error: /下载回执与本次选片/u },
@@ -177,11 +202,11 @@ it.each([
     for (const path of consumed) {
       expect(checked[0]?.sourceQa?.files).toContainEqual({ path: await realpath(path), sha256: await fileSha256(path) })
     }
-    if (kind === 'local fallback after both routes finished') {
+    if (kind === 'local fallback from captured copies') {
       const stage = join(project, 'private-stage')
       await mkdir(stage)
-      const evidence = checked.flatMap(review => review.sourceQa?.files.map(file => file.path) ?? [])
-      const originals = [...new Set([packagePath, reviewPath, ...evidence])]
+      const originals = [...new Set([video, audio, packagePath, reviewPath,
+        ...checked.flatMap(shot => shot.sourceQa?.files.map(file => file.path) ?? [])])]
       const files = await Promise.all(originals.map(async (originalPath, index) => {
         const bytes = await readFile(originalPath), stagedPath = join(stage, String(index))
         await copyFile(originalPath, stagedPath)

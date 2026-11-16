@@ -41,6 +41,7 @@ export class EpisodeDirectory {
     displayedReadiness: null, displayedHistory: null, displayedStatus: null })
   private binding: { client: EpisodeClient; pin: (address: string, signal: AbortSignal) => void } | undefined
   private revision = 0
+  private selection = 0
   private operation: object | undefined
   private closed = false
   private readonly queries = new Map<EpisodeQueryKind, { address: string; controller: AbortController }>()
@@ -75,7 +76,7 @@ export class EpisodeDirectory {
    */
   retireSelection(episodeText = this.state.getSnapshot().episodeText): void {
     if (this.closed) return
-    this.operation = undefined; this.announced = undefined; this.releaseQueries()
+    this.selection++; this.operation = undefined; this.announced = undefined; this.releaseQueries()
     this.state.update((state) => { state.episodeText = episodeText; state.target = null; state.busy = false
       state.displayedReadiness = null; state.displayedHistory = null; state.displayedStatus = null })
   }
@@ -159,21 +160,22 @@ export class EpisodeDirectory {
   }
 
   /** Submit once, or explicitly resume the same observed original task.
+   * One submission and its completion remain bound to the connection captured for that action.
    * @param resume - True only for a user-selected Resume action backed by current Host permission.
    */
   async admit(resume = false): Promise<void> {
-    if (!this.available()) return
+    const binding = this.binding
+    if (this.closed || binding === undefined || this.operation !== undefined) return
     const permission = this.permission, selected = this.state.getSnapshot().target
     const input = selected ?? this.ready
     if (input === undefined || permission === undefined || !this.same(input, permission.input)
       || (resume ? !permission.status.canResume : this.ready === undefined || !this.same(input, this.ready)
         || permission.status.state !== 'not-admitted')) return
-    const binding = this.binding as NonNullable<typeof this.binding>
-    const operation = {}
+    const operation = {}, selection = this.selection
     this.operation = operation; this.permission = undefined; this.ready = undefined
     this.releaseQuery('status')
     this.state.update((state) => { state.target = { ...input }; state.busy = true; state.checked = false; state.statusAddress = '' })
-    const active = (): boolean => !this.closed && this.binding === binding && this.operation === operation
+    const active = (): boolean => !this.closed && this.binding === binding && this.selection === selection && this.operation === operation
     try {
       const result = await binding.client.admitEpisode({ ...input, ...(resume ? { resume: true as const } : {}) })
       if (!active()) return

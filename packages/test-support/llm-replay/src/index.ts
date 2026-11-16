@@ -542,11 +542,6 @@ const FROM_REQUEST_OPEN = '{{fromRequest:'
 const FROM_REQUEST_JSON_OPEN = '{{fromRequestJson:'
 const FROM_REQUEST_CLOSE = '}}'
 
-/** Whether a scripted string contains a supported request placeholder. */
-function hasRequestPlaceholder(text: string): boolean {
-  return text.includes(FROM_REQUEST_OPEN) || text.includes(FROM_REQUEST_JSON_OPEN)
-}
-
 /** Collect every string leaf of one JSON-compatible value, in traversal order. */
 function collectStrings(value: unknown, out: string[]): void {
   if (typeof value === 'string') {
@@ -579,17 +574,34 @@ function resolveFromRequest(pattern: string, corpus: string): string {
   return last[1] ?? last[0]
 }
 
-/** Substitute raw captures or JSON-string-escaped captures in one scripted string. */
-function substituteString(text: string, corpus: string): string {
+interface JsonStringCursor {
+  quoted: boolean
+  escaped: boolean
+}
+
+/** Replace placeholders, escaping captured text only inside a tool-argument JSON string. */
+function substituteString(text: string, corpus: string, json?: JsonStringCursor): string {
   let result = ''
   let cursor = 0
+  const append = (part: string): void => {
+    result += part
+    if (json === undefined) return
+    for (const char of part) {
+      if (json.escaped) json.escaped = false
+      else if (json.quoted && char === '\\') json.escaped = true
+      else if (char === '"') json.quoted = !json.quoted
+    }
+  }
   while (true) {
     const rawOpen = text.indexOf(FROM_REQUEST_OPEN, cursor)
     const jsonOpen = text.indexOf(FROM_REQUEST_JSON_OPEN, cursor)
     const escaped = jsonOpen !== -1 && (rawOpen === -1 || jsonOpen < rawOpen)
     const open = escaped ? jsonOpen : rawOpen
-    if (open === -1) return result + text.slice(cursor)
     const prefix = escaped ? FROM_REQUEST_JSON_OPEN : FROM_REQUEST_OPEN
+    if (open === -1) {
+      append(text.slice(cursor))
+      return result
+    }
     let close = text.indexOf(FROM_REQUEST_CLOSE, open + prefix.length)
     if (close === -1) {
       throw new Error(`llm-replay: fromRequest placeholder is unterminated in ${JSON.stringify(text)}`)
@@ -598,8 +610,9 @@ function substituteString(text: string, corpus: string): string {
     // so a pattern may end with a brace quantifier like `[0-9a-f]{4}`.
     while (text[close + FROM_REQUEST_CLOSE.length] === '}') close += 1
     const pattern = text.slice(open + prefix.length, close)
+    append(text.slice(cursor, open))
     const captured = resolveFromRequest(pattern, corpus)
-    result += text.slice(cursor, open) + (escaped ? JSON.stringify(captured).slice(1, -1) : captured)
+    append(escaped || json?.quoted ? JSON.stringify(captured).slice(1, -1) : captured)
     cursor = close + FROM_REQUEST_CLOSE.length
   }
 }
@@ -607,13 +620,30 @@ function substituteString(text: string, corpus: string): string {
 /** Deep-copy one JSON-compatible value with scripted placeholders resolved. */
 function substituteValue(value: unknown, corpus: string): unknown {
   if (typeof value === 'string') {
-    return hasRequestPlaceholder(value) ? substituteString(value, corpus) : value
+    return (value.includes(FROM_REQUEST_OPEN) || value.includes(FROM_REQUEST_JSON_OPEN)) ? substituteString(value, corpus) : value
   }
   if (Array.isArray(value)) return value.map(item => substituteValue(item, corpus))
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, substituteValue(item, corpus)]))
   }
   return value
+}
+
+/** Resolve only actual stream argument fields as JSON; opaque replay metadata remains ordinary data. */
+function substituteChunk(chunk: StreamChunk, corpus: string, argumentCursors: Map<number, JsonStringCursor>): StreamChunk {
+  if (chunk.type === 'tool-call-delta') {
+    const { argumentsDelta, ...metadata } = chunk
+    const cursor = argumentCursors.get(chunk.index) ?? { quoted: false, escaped: false }
+    argumentCursors.set(chunk.index, cursor)
+    return { ...substituteValue(metadata, corpus) as typeof metadata,
+      argumentsDelta: substituteString(argumentsDelta, corpus, cursor) }
+  }
+  if (chunk.type === 'block-end' && chunk.block.type === 'tool-call') {
+    const { arguments: args, ...metadata } = chunk.block
+    return { ...chunk, block: { ...substituteValue(metadata, corpus) as typeof metadata,
+      arguments: substituteString(args, corpus, { quoted: false, escaped: false }) } }
+  }
+  return substituteValue(chunk, corpus) as StreamChunk
 }
 
 /**
@@ -627,18 +657,27 @@ function substituteValue(value: unknown, corpus: string): unknown {
  * fail loud. The last two braces of a consecutive `}` run terminate the
  * placeholder, so a pattern may end with a brace quantifier but cannot
  * contain `}}` followed by further pattern content. Derived entries pass
- * through the same resolution as sidecar entries.
- * `{{fromRequestJson:<regex>}}` uses the same matching rules and escapes the
- * capture for embedding inside an existing JSON string literal, without adding quotes.
+ * through the same resolution as sidecar entries. Captures inside quoted JSON
+ * strings in tool-call arguments are JSON-escaped; streamed argument deltas
+ * retain their string cursor by block index. Other text and unquoted positions
+ * keep literal substitution, and malformed argument templates are not repaired.
+ * `{{fromRequestJson:<regex>}}` explicitly escapes a capture inside a JSON string
+ * in any scripted text field without adding surrounding quotes.
  * @param entry - the scripted entry about to replay.
  * @param messages - the live request messages searched by the placeholders.
  * @returns the entry itself when no placeholder appears, else a resolved deep copy.
  */
 export function resolveScriptedEntry(entry: ReplayEntry, messages: GenerateOptions['messages']): ReplayEntry {
-  if (!hasRequestPlaceholder(JSON.stringify(entry))) return entry
+  const serialized = JSON.stringify(entry)
+  if (!serialized.includes(FROM_REQUEST_OPEN) && !serialized.includes(FROM_REQUEST_JSON_OPEN)) return entry
   const leaves: string[] = []
   collectStrings(messages, leaves)
-  return substituteValue(entry, leaves.join('\n')) as ReplayEntry
+  const corpus = leaves.join('\n')
+  if (entry.kind === 'hang') return substituteValue(entry, corpus) as ReplayEntry
+  const { chunks, ...metadata } = entry
+  const argumentCursors = new Map<number, JsonStringCursor>()
+  return { ...substituteValue(metadata, corpus) as typeof metadata,
+    chunks: chunks.map(chunk => substituteChunk(chunk, corpus, argumentCursors)) }
 }
 
 /** Replace typed recorded-session tokens with the live sessions bound at the same corpus indexes. */

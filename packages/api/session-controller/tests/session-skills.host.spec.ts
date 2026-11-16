@@ -5,10 +5,11 @@ import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-test
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
+import { scopeChainOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import type {} from '@deepseek-ai/dsh-skill'
-import { scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
-import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionSkillCatalog } from '../src/skill-catalog.ts'
+import { scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
 
 function observation(
   sessionId: SessionId,
@@ -51,43 +52,54 @@ async function context(): Promise<Context> {
 
 describe('SessionSkillCatalog', () => {
   it.each([
-    { fails: false, parented: false }, { fails: true, parented: false },
-    { fails: false, parented: true }, { fails: true, parented: true },
-  ])('disposes a cold view after listing: $fails failure / $parented preset', async ({ fails, parented }) => {
+    { fails: false, preset: false }, { fails: true, preset: false },
+    { fails: false, preset: true }, { fails: true, preset: true },
+  ])('disposes a cold temporary view with preset=$preset and listing failure=$fails', async ({ fails, preset }) => {
     const ctx = await context()
-    onTestFinished(() => ctx.fiber.dispose())
-    const sessionId = SessionId('cold-prepared-view')
-    ctx.provide('sessionQuery', {
-      observeSession: () => Promise.resolve(observation(sessionId, { cwd: '/cold/project' })),
-    } as never)
-    let scope: object | undefined, active = 0, leaseDisposed = false
-    const parent = {}
-    if (parented) ctx.provide('agentPresets', { acquireScope: async () => ({ key: parent,
-      [Symbol.asyncDispose]: async () => { leaseDisposed = true } }) } as never)
-    ctx.on('session-skills/prepare-view', async (view) => {
-      expect(view.sessionId).toBe(sessionId)
-      const owned = view.context()
-      expect(view.context()).toBe(owned)
-      scope = scopeOf(owned)
-      expect(scope).toBeDefined()
-      if (scope === undefined) throw Error('Prepared view has no owned scope')
-      expect(scopeParentOf(scope)).toBe(parented ? parent : undefined)
-      owned.effect(() => { active++; return () => { active-- } })
-    })
-    const list = vi.fn(async (options: { cwd: string; scope?: object }) => {
-      expect(options).toMatchObject({ cwd: '/cold/project', scope })
-      expect(active).toBe(1)
-      if (fails) throw Error('Prepared catalog offline')
-      return []
-    })
-    ctx.provide('skills', { list } as never)
-    const operation = new SessionSkillCatalog(ctx).list({ sessionId }, new AbortController().signal)
-    if (fails) await expect(operation).rejects.toMatchObject({ code: 'gateway/internal' })
-    else await expect(operation).resolves.toEqual({ skills: [] })
-    expect(list).toHaveBeenCalledOnce()
-    expect(active).toBe(0)
-    expect(leaseDisposed).toBe(parented)
-    expect(ctx.agents.list()).toEqual([])
+    try {
+      const sessionId = SessionId('cold-temporary-skills')
+      const parent = { preset: 'cold-catalog' }
+      const releasePreset = vi.fn(async () => {})
+      if (preset) ctx.provide('agentPresets', {
+        acquireScope: async () => ({ key: parent, [Symbol.asyncDispose]: releasePreset }),
+      } as never)
+      ctx.provide('sessionQuery', {
+        observeSession: () => Promise.resolve(observation(sessionId, {
+          cwd: '/cold/project', ...preset ? { agentPreset: 'cold-catalog' } : {},
+        })),
+      } as never)
+      let registered = false
+      ctx.on('session-skills/prepare-view', async (view) => {
+        const owned = view.context()
+        expect(view.context()).toBe(owned)
+        const key = scopeOf(owned)
+        if (key === undefined) throw new Error('Expected a temporary catalog scope')
+        expect(scopeParentOf(key)).toBe(preset ? parent : undefined)
+        owned.effect(() => {
+          registered = true
+          return () => { registered = false }
+        })
+      })
+      const list = vi.fn(async (options: { cwd: string; scope?: unknown; signal?: AbortSignal }) => {
+        expect(registered).toBe(true)
+        expect(options.cwd).toBe('/cold/project')
+        expect(options.signal).toBeInstanceOf(AbortSignal)
+        expect(options.scope).toBeDefined()
+        if (fails) throw new Error('temporary catalog unavailable')
+        return [{ name: 'temporary', description: 'Cold view skill.',
+          invocation: { modelInvocable: true, userInvocable: true } }]
+      })
+      ctx.provide('skills', { list } as never)
+      const request = new SessionSkillCatalog(ctx).list({ sessionId }, new AbortController().signal)
+      if (fails) await expect(request).rejects.toThrow('temporary catalog unavailable')
+      else await expect(request).resolves.toEqual({ skills: [{
+        name: 'temporary', description: 'Cold view skill.', modelInvocable: true,
+      }] })
+      expect(list).toHaveBeenCalledOnce()
+      expect(registered).toBe(false)
+      expect(releasePreset).toHaveBeenCalledTimes(preset ? 1 : 0)
+      expect(ctx.agents.list()).toEqual([])
+    } finally { await ctx.fiber.dispose() }
   })
 
   it('reads a moved cold Session catalog from its recorded current directory without resuming an Agent', async () => {
@@ -217,6 +229,59 @@ describe('SessionSkillCatalog', () => {
     expect(acquireScope).toHaveBeenCalledWith('minimal')
     expect(list).toHaveBeenCalledWith({ cwd: '/cold/project', scope })
     expect(ctx.agents.list()).toEqual([])
+  })
+
+  it.each([
+    { withPreset: true, listingFails: false }, { withPreset: false, listingFails: false },
+    { withPreset: true, listingFails: true }, { withPreset: false, listingFails: true },
+  ])('isolates prepared cold views with preset=$withPreset and listingFails=$listingFails', async ({ withPreset, listingFails }) => {
+    const ctx = await context()
+    try {
+      const sessionId = SessionId('prepared-preset-skills'), preset = { agentPreset: 'minimal' }
+      ctx.provide('sessionQuery', {
+        observeSession: () => Promise.resolve(observation(sessionId, { cwd: '/cold/project',
+          ...withPreset ? { agentPreset: 'minimal' } : {} })),
+      } as never)
+      let active = false
+      const release = vi.fn(async () => { expect(active).toBe(false) })
+      if (withPreset) ctx.provide('agentPresets', {
+        acquireScope: () => Promise.resolve({ key: preset, [Symbol.asyncDispose]: release }),
+      } as never)
+      ctx.on('session-skills/prepare-view', async (view) => {
+        const prepared = view.context()
+        expect(view.context()).toBe(prepared)
+        prepared.effect(() => {
+          active = true
+          return () => { active = false }
+        })
+      })
+      const keys: ScopeKey[] = []
+      const list = vi.fn(async ({ scope }: { scope: ScopeKey }) => {
+        keys.push(scope)
+        const chain = scopeChainOf(scope)
+        if (!active || !(withPreset ? chain.includes(preset) : chain.length === 1)) return []
+        if (listingFails) throw new Error('prepared view provider unavailable')
+        return [{ name: 'prepared-preset', description: 'Visible through its cold preset.',
+          invocation: { modelInvocable: true, userInvocable: true } }]
+      })
+      ctx.provide('skills', { list } as never)
+      const catalog = new SessionSkillCatalog(ctx), signal = new AbortController().signal
+      for (let index = 0; index < 2; index++) {
+        const result = catalog.list({ sessionId }, signal)
+        if (listingFails) await expect(result).rejects.toMatchObject({ code: 'gateway/internal',
+          message: 'skill listing failed: Error: prepared view provider unavailable' })
+        else await expect(result).resolves.toEqual({
+          skills: [{ name: 'prepared-preset', description: 'Visible through its cold preset.', modelInvocable: true }],
+        })
+        expect(active).toBe(false)
+      }
+      expect(keys).toHaveLength(2)
+      expect(keys[0]).not.toBe(keys[1])
+      expect(release).toHaveBeenCalledTimes(withPreset ? 2 : 0)
+      expect(ctx.agents.list()).toEqual([])
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 
   it('falls back to the global registry when the recorded preset is unavailable', async () => {

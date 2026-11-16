@@ -3552,7 +3552,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'settings.models.footer\', () => ctx.slots.register(\n      { name: \'settings.models.footer\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-settings-models/src/client/slot-contract.ts:40',
+    source: 'packages/client/ui-settings-models/src/client/slot-contract.ts:49',
   },
   {
     key: 'settings.models.provider-card',
@@ -3654,7 +3654,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** Owner share of the currently active settings-backed onboarding step. */\nexport interface SettingsOnboardingOwnerProps {\n  /** Stable id of the step currently selected by the coordinator. */\n  stepId: string\n  /** User explicitly reopened this step outside first-run onboarding. */\n  explicit?: boolean\n  /** Complete or skip this step and transfer ownership to the next entry. */\n  complete: () => void\n  /** Open the settings panel directly on one registered section. */\n  openSection: (id: string) => void\n}',
+      '/** Owner share of the currently active settings-backed onboarding step. */\nexport interface SettingsOnboardingOwnerProps {\n  /** Stable id of the step currently selected by the coordinator. */\n  stepId: string\n  /** User explicitly reopened this step outside first-run onboarding. */\n  explicit?: boolean\n  /** Complete or skip this step and transfer ownership to the next entry. */\n  complete: () => void\n  /** Stable, idempotent Settings closer, called when visible dialog DOM attaches. Hidden or loading steps do not call it. */\n  onVisible: () => void\n  /** Open the settings panel directly on one registered section. */\n  openSection: (id: string) => void\n}',
     ],
     ownerPropsReferences: [],
     standardProps: [

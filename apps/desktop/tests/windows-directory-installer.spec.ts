@@ -44,6 +44,27 @@ it('stages before stopping the application and promotes before registering the i
   expect(result).toContain('IfRebootFlag dsh_skip_upstream_start\n  !insertmacro StartApp\ndsh_skip_upstream_start:')
 })
 
+it('normalizes the registered full path before selecting staged replacement instead of the old uninstaller', () => {
+  const result = directoryInstallSection(section)
+  const macro = result.slice(result.indexOf('!macro uninstallOldVersion ROOT_KEY'), result.indexOf('!macroend', result.indexOf('!macro uninstallOldVersion ROOT_KEY')))
+  const compare = macro.indexOf('${If} $R4 == $INSTDIR')
+  expect(macro.indexOf('kernel32::GetFullPathNameW')).toBeGreaterThan(macro.indexOf('${If} $R4 != ""'))
+  expect(macro).toContain('!insertmacro InstallerTrimDirectorySeparators $2')
+  expect(macro.indexOf('!insertmacro InstallerTrimDirectorySeparators $2')).toBeLessThan(compare)
+  expect(macro).toContain('${AndIf} $1 < ${NSIS_MAX_STRLEN}')
+  expect(macro).toContain('${If} $1 > 3\n        StrCpy $R4 $2')
+  expect(macro.slice(compare)).toBe('${If} $R4 == $INSTDIR\n    StrCpy $R0 0\n    ClearErrors\n  ${Else}\n    Push "${ROOT_KEY}"\n    Call uninstallOldVersion\n  ${EndIf}\n')
+  expect(directoryInstallSection(section.replaceAll('\n', '\r\n'))).toBe(result)
+  expect(macro).toContain('Push $0')
+  expect(macro).toContain('Push $1')
+  expect(macro).toContain('Push $2')
+  expect(macro).toContain('Pop $2')
+  expect(macro).toContain('Pop $1')
+  expect(macro).toContain('Pop $0')
+  expect(result).toContain('!insertmacro CHECK_APP_RUNNING')
+  expect(result).toContain('Call dshPromoteDirectories\nIfErrors 0 +3\n  SetErrorLevel 2\n  Quit')
+})
+
 it.each(['!include installer.nsh', '!insertmacro setLinkVars', '!insertmacro installApplicationFiles', '  !insertmacro StartApp'])(
   'rejects a missing or duplicate upstream insertion point: %s', (point) => {
     expect(() => directoryInstallSection(section.replace(point, ''))).toThrow('Desktop NSIS template changed')

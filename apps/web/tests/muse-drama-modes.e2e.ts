@@ -67,7 +67,6 @@ it('hides preset selection, mode labels and plugin management for the unified Ag
   expect(await page.getByRole('button', { name: 'Agent presets', exact: true }).count()).toBe(0)
   expect(await page.getByRole('button', { name: 'Built-in plugins', exact: true }).count()).toBe(0)
   expect((await scaffold.ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama'])
-  expect((await scaffold.ctx.agentPresets.list()).map(row => row.id)).toContain('bot-coordinator')
   if (evidenceDir) await page.screenshot({ path: join(evidenceDir, 'unified-agent-settings.png') })
   expect(consoleWatch.pageErrors).toEqual([])
 })

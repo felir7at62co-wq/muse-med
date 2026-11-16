@@ -23,6 +23,7 @@
         - text: 自定义设置 API 地址
         - textbox "API 地址":
           - /placeholder: https://api.deepseek.com/anthropic（默认使用环境 DEEPSEEK_BASE_URL）
+          - text: {{modelDirectory}}
         - text: 请填写兼容 Anthropic Messages 协议的 API 地址。
         - region "模型目录":
           - text: 模型目录 已自定义模型目录

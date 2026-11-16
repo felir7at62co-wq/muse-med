@@ -24,8 +24,8 @@ export function InlineVideoCard({ source, sourceUrl, label, actions, t }: Pick<V
     onCollect: (value) => { actions.collect(id, value) },
     onOpen: () => { if (source) actions.openSource(source.id) } })
   useEffect(() => {
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- A committed inline card always includes its video element.
-    const element = video.current!
+    // This unconditional video is mounted before React commits its effect.
+    const element = video.current as HTMLVideoElement
     element.src = sourceUrl
     return () => { element.pause(); element.removeAttribute('src'); element.load() }
   }, [sourceUrl])

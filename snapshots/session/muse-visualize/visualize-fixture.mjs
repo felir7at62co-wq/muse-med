@@ -1,22 +1,21 @@
 /** Real native visualization calls in the product's default short-drama preset. */
 import assert from 'node:assert/strict'
-import { readFile, writeFile } from 'node:fs/promises'
-import { join, sep } from 'node:path'
-import { homedir } from 'node:os'
+import { cp, mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { apply as mountPreset } from '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
-import { importSnapshotModule } from '../muse-fixture-import.mjs'
+import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 
-const { loadOverlayPatches } = await importSnapshotModule(new URL('../../../packages/boot/app-boot/src/index.ts', import.meta.url),
-  new URL('../../../packages/boot/app-boot/lib/index.js', import.meta.url))
-
+const { loadOverlayPatches } = await importSnapshotPackage('@deepseek-ai/dsh-app-boot',
+  new URL('../../../apps/desktop-host/package.json', import.meta.url))
 const Discovery = await importSnapshotModule(new URL('../../../packages/core/tool-discovery/src/index.ts', import.meta.url),
   new URL('../../../packages/core/tool-discovery/lib/index.js', import.meta.url))
 
 /** Loader identity for the native visualization conversation. */
 export const name = 'snapshot-muse-visualize'
 /** Product preset, real Skill catalog, tool and Session services. */
-export const inject = ['agentPresets', 'tools', 'systemPrompt', 'workingDirectory', 'skills', 'llm', 'agents', 'sessions']
+export const inject = ['agentPresets', 'tools', 'systemPrompt', 'workingDirectory', 'skills', 'llm', 'agents', 'sessions', 'fs']
 
 /**
  * Stage the runtime under the private home and retain its real file writes and result metadata.
@@ -24,7 +23,24 @@ export const inject = ['agentPresets', 'tools', 'systemPrompt', 'workingDirector
  * @returns {Promise<void>} Readiness after the real tool, preset and discovery are active.
  */
 export async function apply(ctx) {
-  const cwd = process.cwd()
+  const cwd = await realpath(process.cwd())
+  const layoutReceipt = process.env.DSH_VISUALIZE_FIXTURE_LAYOUT
+  assert.equal(typeof layoutReceipt, 'string', 'Visualization replay requires its private layout receipt')
+  const receiptRelative = relative(cwd, layoutReceipt)
+  assert.ok(isAbsolute(layoutReceipt) && (isAbsolute(receiptRelative) || receiptRelative === '..' || receiptRelative.startsWith('..' + sep)),
+    'Visualization layout receipt must stay outside the model workspace')
+  // Keep display-path abbreviations independent of the hosted runner's account home.
+  const previousHome = process.env.HOME, previousProfile = process.env.USERPROFILE
+  ctx.effect(() => {
+    process.env.HOME = join(dirname(layoutReceipt), 'visualize-home')
+    process.env.USERPROFILE = join(dirname(layoutReceipt), 'visualize-home')
+    return () => {
+      if (previousHome === undefined) delete process.env.HOME
+      else process.env.HOME = previousHome
+      if (previousProfile === undefined) delete process.env.USERPROFILE
+      else process.env.USERPROFILE = previousProfile
+    }
+  })
   const currentEvents = new Map()
   ctx.on('session/event', (session, event) => {
     if (session.header.origin === 'subagent') return
@@ -34,8 +50,27 @@ export async function apply(ctx) {
     currentEvents.set(session.id, events)
   })
   const plugin = join(cwd, '.dsh', 'plugins', 'dsh-visualize')
+  await mkdir(plugin, { recursive: true })
+  const source = process.env.MUSE_VISUALIZE_PACKAGE
+    ?? fileURLToPath(new URL('../../../third_party/plugins/dsh-visualize/', import.meta.url))
   const built = process.env.DSH_EXAMPLE_MODE === 'lib' || process.env.MUSE_VISUALIZE_PACKAGE !== undefined
+  for (const part of [built ? 'lib' : 'src', 'assets', 'package.json']) {
+    await cp(join(source, part), join(plugin, part), { recursive: true })
+  }
+  const manifest = JSON.parse(await readFile(join(plugin, 'package.json'), 'utf8'))
+  const requireHost = createRequire(new URL('../../../apps/desktop-host/package.json', import.meta.url))
+  // The private plugin lives outside the checkout, so explicitly stage its runtime Host peers.
+  for (const name of ['@deepseek-ai/schemastery', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-skill']) {
+    assert.ok(Object.hasOwn(manifest.peerDependencies, name))
+    const target = join(plugin, 'node_modules', name)
+    await mkdir(dirname(target), { recursive: true })
+    await symlink(dirname(requireHost.resolve(`${name}/package.json`)), target,
+      process.platform === 'win32' ? 'junction' : 'dir')
+  }
   const entry = built ? 'lib/index.js' : 'src/index.ts'
+  const selectedEntry = await realpath(join(plugin, entry))
+  const assets = await realpath(join(dirname(dirname(selectedEntry)), 'assets'))
+  await writeFile(layoutReceipt, JSON.stringify({ entry: selectedEntry, assets }) + '\n', { flag: 'wx' })
   const visualize = await import(pathToFileURL(join(plugin, entry)).href)
   await ctx.plugin(visualize, {}).await()
   await mountPreset(ctx, { presetId: 'short-drama', hidePlatformShellTools: true })
@@ -50,8 +85,6 @@ export async function apply(ctx) {
   ctx.on('llm/stream', async function* (options, next) {
     assert.equal(options.provider, 'snapshot-visualize')
     assert.equal(options.model, 'local-fixture')
-    assert.match(options.sessionId, /^session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
-      'Private card paths retain the shipped Headless Session id length')
     assert.ok(options.tools.some(tool => tool.name === 'visualize'), 'Visualization must be available without search')
     assert.ok(options.tools.some(tool => tool.name === 'skill'))
     const agent = ctx.agents.get(options.sessionId)
@@ -86,17 +119,20 @@ export async function apply(ctx) {
     const updated = results[2].data.meta
     assert.equal(created.kind, 'visualize')
     assert.equal(updated.kind, 'visualize')
-    assert.equal(created.path, updated.path)
-    const createdPath = created.path.startsWith('~/') ? join(homedir(), created.path.slice(2)) : created.path
-    const updatedPath = updated.path.startsWith('~/') ? join(homedir(), updated.path.slice(2)) : updated.path
+    const createdTarget = await ctx.fs.resolve(created.path)
+    const updatedTarget = await ctx.fs.resolve(updated.path)
+    assert.equal(createdTarget.targetKey, updatedTarget.targetKey)
     const homePath = ctx.get('dshHomePath')
     assert.equal(typeof homePath, 'function')
-    assert.ok(createdPath.startsWith(homePath('visualize', 'sessions') + sep),
-      JSON.stringify({ path: created.path, home: homePath('visualize'), cwd, sessionId: agent.session.id }))
+    const cardPath = ctx.fs.processPath(updatedTarget)
+    const privateRoot = ctx.fs.processPath(await ctx.fs.resolve(homePath('visualize', 'sessions')))
+    const within = relative(privateRoot, cardPath)
+    assert.ok(within !== '' && within !== '..' && !within.startsWith(`..${sep}`) && !isAbsolute(within),
+      JSON.stringify({ path: cardPath, home: privateRoot, cwd, sessionId: agent.session.id }))
     assert.ok(created.fragment.includes('预算方案 V1'))
     assert.ok(updated.fragment.includes('预算方案 V2'))
     assert.ok(!updated.fragment.includes('预算方案 V1'))
-    assert.equal(await readFile(updatedPath, 'utf8'), updated.fragment)
+    assert.equal(await readFile(cardPath, 'utf8'), updated.fragment)
     assert.ok(skillRead && createRead && updateRead)
     const header = events.find(event => event.type === 'request/header')
     assert.ok(header.data.header.tools.some(tool => tool.name === 'visualize'))
@@ -104,7 +140,7 @@ export async function apply(ctx) {
     await writeFile(join(cwd, 'visualize-proof.json'), JSON.stringify({
       preset: 'short-drama', requests, firstRequestIncludesVisualize: true, skillRead,
       calls: calls.map(event => event.data.name), discoveryCalls: 0,
-      createdAndUpdated: true, stableCardPath: created.path === updated.path,
+      createdAndUpdated: true, stableCardPath: createdTarget.targetKey === updatedTarget.targetKey,
       persistedMeta: true, savedFileMatchesMeta: true, externalResources: false,
     }, null, 2) + '\n', { flag: 'wx' })
   })

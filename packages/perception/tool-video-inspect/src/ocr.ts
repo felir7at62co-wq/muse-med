@@ -385,14 +385,74 @@ export function ocrBridgeHostPath(moduleUrl = import.meta.url, engine: Config['o
 
 class OcrTimestampOriginError extends Error {}
 
-interface SourceFrame { pts: number; time: number; duration?: number }
+function printedSeconds(text: unknown): number {
+  const match = typeof text === 'string' ? /^[+-]?(?:\d+(?:\.(\d*))?|\.(\d+))(?:e([+-]?\d+))?$/iu.exec(text) : null
+  // Reject malformed and unrepresentable print formats; this is not an error allowance.
+  const scale = 10 ** (Number(match?.[3] ?? 0) - (match?.[1] ?? match?.[2] ?? '').length)
+  return match && Number.isFinite(scale) && scale > 0 ? Number(text) : NaN
+}
 
-/** Find the source frame displayed at one requested microsecond, including its final-frame duration. */
-function displayedFrame(frames: readonly SourceFrame[], requestedUs: number): SourceFrame | undefined {
-  const position = frames.findLastIndex(frame => Math.round(frame.time * 1_000_000) <= requestedUs)
-  const frame = frames[position], next = frames[position + 1]
-  const displayEnd = next?.time ?? (frame?.duration === undefined ? undefined : frame.time + frame.duration)
-  return frame && displayEnd !== undefined && Math.round(displayEnd * 1_000_000) > requestedUs ? frame : undefined
+interface OcrTimeBase { numerator: number; denominator: number }
+
+function ocrTimeBase(value: unknown): OcrTimeBase {
+  const match = typeof value === 'string' ? /^([1-9]\d*)\/([1-9]\d*)$/.exec(value) : null
+  const numerator = Number(match?.[1]), denominator = Number(match?.[2])
+  if (!Number.isSafeInteger(numerator) || !Number.isSafeInteger(denominator)) {
+    throw Error('OCR frame evidence omitted a valid source time base')
+  }
+  return { numerator, denominator }
+}
+
+function sourcePtsSeconds(pts: number, timeBase: OcrTimeBase): number {
+  const ticks = pts * timeBase.numerator
+  if (!Number.isSafeInteger(ticks) || ticks < 0) throw Error('OCR frame evidence has an invalid source PTS')
+  // FFmpeg multiplies PTS by av_q2d(time_base), preserving this operation order.
+  return (timeBase.numerator / timeBase.denominator) * pts
+}
+
+/** C printf rounds exact decimal half points to even; Number.toFixed rounds them up. */
+function fixedTimestamp(seconds: number, digits: number): number {
+  // Source text uses six decimals; selected frames are bounded to 24 hours.
+  // Positive safe-integer PTS/time bases therefore constrain precision to 1..21.
+  // Scaling by a power of two is exact. An odd integer proves a decimal half
+  // point; BigInt then retains its parity without a second floating-point round.
+  const binaryUnits = seconds * 2 ** (digits + 1)
+  if (!Number.isSafeInteger(binaryUnits) || binaryUnits % 2 === 0) return Number(seconds.toFixed(digits))
+  const lower = (BigInt(binaryUnits) * 5n ** BigInt(digits)) / 2n
+  return Number(lower + lower % 2n) / 10 ** digits
+}
+
+function verifyBatchTimestamps(diagnostic: string, sourceTimeBase: OcrTimeBase,
+  frames: readonly { pts: number }[], images: readonly Uint8Array[]): Map<number, Uint8Array> {
+  const timeBases = [...diagnostic.matchAll(/\bconfig in time_base:\s*([^,\s]+)/gu)]
+  if (timeBases.length === 0) throw Error('OCR frame batch omitted its decoded time base')
+  for (const match of timeBases) {
+    const decoded = ocrTimeBase(match[1])
+    if (BigInt(decoded.numerator) * BigInt(sourceTimeBase.denominator)
+      !== BigInt(sourceTimeBase.numerator) * BigInt(decoded.denominator)) {
+      throw Error('OCR frame batch changed the source time base')
+    }
+  }
+  const timestamps = [...diagnostic.matchAll(/\bn:\s*\d+\s+pts:\s*([+-]?\d+)\s+pts_time:\s*(\S+)/gu)]
+  const byPts = new Map<number, Uint8Array>()
+  for (const [index, image] of images.entries()) {
+    const source = frames[index], match = timestamps[index]
+    if (source === undefined || match === undefined) throw Error('OCR frame batch did not return the selected source frames')
+    const pts = Number(match[1]), time = printedSeconds(match[2])
+    if (!Number.isSafeInteger(pts) || pts !== source.pts) {
+      throw Error('OCR frame batch did not return the selected source PTS')
+    }
+    const seconds = sourcePtsSeconds(pts, sourceTimeBase)
+    // Older FFmpeg prints %.6g; newer versions retain at least six decimals.
+    // Integer PTS and the proven time base remain authoritative in both cases.
+    const significantDigits = seconds === 0 ? 6 : 5 - Math.floor(Math.log10(seconds))
+    if (time !== fixedTimestamp(seconds, significantDigits) && time !== fixedTimestamp(seconds, Math.max(6, significantDigits))) {
+      throw Error('OCR frame batch returned inconsistent source timestamp text')
+    }
+    byPts.set(pts, image)
+  }
+  if (timestamps.length !== images.length) throw Error('OCR frame batch did not return the selected source frames')
+  return byPts
 }
 
 async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg: string,
@@ -402,15 +462,14 @@ async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg
   const startUs = Math.round(start * 1_000_000), endUs = Math.round((start + count * interval) * 1_000_000)
   const ffprobe = await ctx.subprocess.resolveExecutable(config.ffprobePath, undefined, signal)
   let probeEnd = Math.min(sourceDuration, start + count * interval * 2)
-  let probeStart = startUs / 1_000_000
-  let sourceFrames: SourceFrame[] = []
+  let probeStartUs = startUs
+  let sourceFrames: { pts: number; time: number; duration?: number }[] = []
+  let sourceTimeBase: OcrTimeBase
+  let selected: { frame: (typeof sourceFrames)[number]; requested: number }[] = []
   for (;;) {
-    // A complete zero-origin scan omits the empty '%' interval, which can return no frames.
-    const intervalArgs = probeStart === 0 && probeEnd >= sourceDuration ? []
-      : ['-read_intervals', `${probeStart === 0 ? '' : probeStart}%${probeEnd >= sourceDuration ? '' : probeEnd}`]
     const probe = await Media.runMedia(ctx, [ffprobe, '-v', 'error', '-protocol_whitelist', 'file,pipe',
-      '-select_streams', 'v:0', ...intervalArgs,
-      '-show_entries', 'format=start_time:stream=start_time:frame=best_effort_timestamp,best_effort_timestamp_time,duration_time,pkt_duration_time', '-of', 'json', source],
+      '-select_streams', 'v:0', '-read_intervals', `${probeStartUs / 1_000_000}%${probeEnd}`,
+      '-show_entries', 'format=start_time:stream=start_time,time_base:frame=best_effort_timestamp,best_effort_timestamp_time,duration_time,pkt_duration_time', '-of', 'json', source],
     policy, signal, { timeoutMs: config.ocrCommandTimeoutMs, graceMs: config.graceMs, maxBytes: config.maxOcrBatchImageBytes })
     const parsed: unknown = JSON.parse(Buffer.from(probe.bytes).toString('utf8'))
     if (!parsed || typeof parsed !== 'object' || !('frames' in parsed) || !Array.isArray(parsed.frames)
@@ -423,67 +482,62 @@ async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg
       || !format || typeof format !== 'object' || !('start_time' in format) || Number(format.start_time) !== 0) {
       throw new OcrTimestampOriginError('OCR暂不支持非零或未知起点的视频时间轴；请保留原片并使用零起点副本重新审看。')
     }
+    sourceTimeBase = ocrTimeBase('time_base' in stream ? stream.time_base : undefined)
     sourceFrames = []
     const seenPts = new Set<number>(), rawFrames: readonly unknown[] = parsed.frames
     for (const row of rawFrames) {
       if (!row || typeof row !== 'object' || !('best_effort_timestamp' in row) || !('best_effort_timestamp_time' in row)) {
         throw Error('OCR frame probe omitted a source timestamp')
       }
-      const pts = Number(row.best_effort_timestamp), time = Number(row.best_effort_timestamp_time)
+      const pts = Number(row.best_effort_timestamp), time = printedSeconds(row.best_effort_timestamp_time)
       const previous = sourceFrames.at(-1)
       if (!Number.isSafeInteger(pts) || seenPts.has(pts) || !Number.isFinite(time) || time < 0
         || (previous !== undefined && time <= previous.time)) {
         throw Error('OCR source timestamps are invalid or unordered')
+      }
+      if (time !== fixedTimestamp(sourcePtsSeconds(pts, sourceTimeBase), 6)) {
+        throw Error('OCR source timestamp text does not match its PTS and time base')
       }
       const rawDuration = 'duration_time' in row ? row.duration_time : 'pkt_duration_time' in row ? row.pkt_duration_time : undefined
       const duration = Number(rawDuration)
       sourceFrames.push({ pts, time, ...(Number.isFinite(duration) && duration > 0 ? { duration } : {}) })
       seenPts.add(pts)
     }
-    // Indexed seeking may skip the requested frame; an omitted interval start reads without seeking.
     const lastRequest = start + (count - 1) * interval
-    if (probeStart !== 0 && [startUs, Math.round(lastRequest * 1_000_000)].some(time => displayedFrame(sourceFrames, time) === undefined)) {
-      probeStart = 0
+    if ((sourceFrames.at(-1)?.time ?? -1) > lastRequest || probeEnd >= sourceDuration || probeStartUs !== startUs) {
+      const candidates = Array.from({ length: count }, (_, index) => {
+        const requestedUs = Math.round((start + index * interval) * 1_000_000)
+        const position = sourceFrames.findLastIndex(frame => Math.round(frame.time * 1_000_000) <= requestedUs)
+        const frame = sourceFrames[position], next = sourceFrames[position + 1]
+        const displayEnd = next?.time ?? (frame?.duration === undefined ? undefined : frame.time + frame.duration)
+        return !frame || displayEnd === undefined || Math.round(displayEnd * 1_000_000) <= requestedUs
+          ? undefined : { frame, requested: start + index * interval }
+      })
+      if (candidates.every(item => item !== undefined)) { selected = candidates; break }
+      if (probeStartUs === 0) throw Error('OCR source has no frame covering a requested sample')
+      probeStartUs = 0
       continue
     }
-    if ((sourceFrames.at(-1)?.time ?? -1) > lastRequest || probeEnd >= sourceDuration) break
     probeEnd = Math.min(sourceDuration, start + (probeEnd - start) * 2)
   }
-  const selected = Array.from({ length: count }, (_, index) => {
-    const requestedUs = Math.round((start + index * interval) * 1_000_000)
-    const frame = displayedFrame(sourceFrames, requestedUs)
-    if (frame === undefined) {
-      throw Error('OCR source has no frame covering a requested sample')
-    }
-    return { frame, requested: start + index * interval }
-  })
   const unique = [...new Map(selected.map(item => [item.frame.pts, item.frame])).values()]
   const selection = unique.map(frame => `eq(pts\\,${frame.pts})`).join('+')
-  // Progress output can interrupt showinfo fields on stderr; these fields identify decoded evidence.
-  const output = await Media.runMedia(ctx, [ffmpeg, '-nostdin', '-nostats', '-hide_banner', '-loglevel', 'info',
+  const output = await Media.runMedia(ctx, [ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info',
     '-protocol_whitelist', 'file,pipe', '-ss', String(startUs / 1_000_000), '-noaccurate_seek', '-copyts', '-i', source,
     '-to', String(endUs / 1_000_000), '-map', '0:v:0', '-an', '-sn', '-dn',
     '-vf', `select=${selection},trim=end_frame=${unique.length},scale=w='min(${config.ocrFrameMaxDimension},iw)':h='min(${config.ocrFrameMaxDimension},ih)':force_original_aspect_ratio=decrease,showinfo`,
     '-fps_mode', 'passthrough', '-frames:v', String(unique.length), '-c:v', 'mjpeg', '-q:v', String(config.ocrFrameJpegQuality),
     '-f', 'image2pipe', 'pipe:1'], policy, signal, { timeoutMs: config.ocrCommandTimeoutMs,
     graceMs: config.graceMs, maxBytes: config.maxOcrBatchImageBytes, maxDiagnosticBytes: config.maxOcrDiagnosticBytes })
-  const images = splitMjpeg(output.bytes), timestamps = showinfoTimestamps(output.diagnostic)
-  const pts = Array.from(output.diagnostic.matchAll(/\bpts:\s*(-?\d+)\s+pts_time:/gu), match => Number(match[1]))
-  // FFmpeg 6 prints six significant time digits; integer PTS still identifies the exact selected frame.
-  if (images.length > unique.length || timestamps.length !== images.length || pts.length !== images.length
-    || unique.slice(0, images.length).some((frame, index) => pts[index] !== frame.pts
-      || Math.round(Number(timestamps[index]) * 1_000_000) !== Math.round(frame.time * 1_000_000)
-        && timestamps[index] !== Number(frame.time.toPrecision(6)))) {
-    throw Error('OCR frame batch did not return the selected source frames')
-  }
-  const byPts = new Map(unique.map((frame, index) => [frame.pts, images[index]]))
-  const extracted: ExtractedFrame[] = []
+  const images = splitMjpeg(output.bytes)
+  const byPts = verifyBatchTimestamps(output.diagnostic, sourceTimeBase, unique, images)
+  const frames: ExtractedFrame[] = []
   for (const item of selected) {
     const bytes = byPts.get(item.frame.pts)
     if (bytes === undefined) break
-    extracted.push({ id: `frame-${randomUUID()}`, requested_seconds: item.requested, timestamp_seconds: item.frame.time, bytes })
+    frames.push({ id: `frame-${randomUUID()}`, requested_seconds: item.requested, timestamp_seconds: item.frame.time, bytes })
   }
-  return extracted
+  return frames
 }
 
 async function runBridge(ctx: Context, config: Config, policy: ReturnType<Context['sandboxPolicy']['resolve']>, signal: AbortSignal,
