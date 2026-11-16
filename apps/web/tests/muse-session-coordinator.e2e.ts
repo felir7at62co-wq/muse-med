@@ -11,7 +11,7 @@ import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import { captureStableAria, compareOrRefreshGolden, launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold, type WebConsoleTripwire } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishPage } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage, scrollIntoView } from './support.ts'
 
 const OVERLAY = fileURLToPath(new URL('./muse-session-coordinator.overlay.yml', import.meta.url))
 const EXPECTED = fileURLToPath(new URL('./expected/muse-session-coordinator/navigation.expected.md', import.meta.url))
@@ -305,6 +305,8 @@ describe('web e2e: Muse Main Session coordination', () => {
       const report = page.locator(`[data-report-task="${initial.id}"][data-report-revision="2"]`).last()
       await report.getByText('Preparing reconciliation', { exact: true }).waitFor()
       expect(await report.getByText('Worker completed', { exact: true }).count()).toBe(0)
+      await page.mouse.move(0, 0)
+      await scrollIntoView(report)
       await report.getByRole('button', { name: 'Open execution chat', exact: true }).click({ trial: true })
       await mkdir(join(process.cwd(), '.artifacts', 'muse-main-reconciliation'), { recursive: true })
       for (const theme of ['light', 'dark'] as const) {
