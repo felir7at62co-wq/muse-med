@@ -171,7 +171,7 @@ it('requires the dedicated IPv4 carrier even when the service reports another lo
   await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 }).await()
   // macOS does not bind additional 127/8 aliases without interface configuration.
   const host = vi.spyOn(ctx.webServer, 'host', 'get').mockReturnValue('127.0.0.2')
-  onTestFinished(() => host.mockRestore())
+  onTestFinished(() => { host.mockRestore() })
   await expect(ctx.plugin(CloudHost, { policyFile: join(f.root, 'policy.json') }).await())
     .rejects.toMatchObject({ code: 'loopback-required' })
 })

@@ -98,6 +98,7 @@ export async function apply(ctx) {
     ? { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro' }
     : { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }
   assert.deepEqual({ provider: selection?.provider, model: selection?.model }, selectedModel)
+  if (refusal) catalog.providers = catalog.providers.filter(provider => `muse-cloud-${provider.id}` === selectedModel.provider)
   const directCompletion = direct && (!pooledZhipu || leasedZhipu)
   const completionPath = `${directCompletion ? '/supplier' : '/api/desktop-models'}/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
   const fallbackModel = { provider: 'muse-cloud-yunying', model: 'gpt-6-sol' }

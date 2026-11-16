@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import * as fs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -47,9 +47,11 @@ afterEach(() => {
 describe('desktop external plugin profile', () => {
   it('propagates a profile lock creation refusal without retaining a lock', async () => {
     const { manager } = setup(), failure = Object.assign(new Error('Profile lock denied'), { code: 'EACCES' })
+    mkdirSync(manager.paths.profile, { recursive: true })
+    const lockPath = join(realpathSync(manager.paths.profile), 'lock')
     const open = fs.openSync
     const spy = vi.spyOn(fs, 'openSync').mockImplementation((...args) => {
-      if (args[0] === manager.paths.lock) throw failure
+      if (args[0] === lockPath) throw failure
       return open(...args)
     })
     try { await expect(manager.applyRelease()).rejects.toBe(failure) }

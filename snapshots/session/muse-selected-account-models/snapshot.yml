@@ -4,7 +4,7 @@ profile: headless
 composition: muse-selected-account-models
 recording: authored
 header:
-  class: muse-selected-account-models
+  class: muse-account-cache-prefix
   pin: true
   promptChanges: 1
 writerOutput: true

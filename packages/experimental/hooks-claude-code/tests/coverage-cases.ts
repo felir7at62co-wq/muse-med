@@ -67,14 +67,9 @@ function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
   return agent.whenIdle()
 }
 function events(agent: Agent): readonly SessionEvent[] { return agent.session.snapshotEvents() }
-/** Poll until `predicate` holds or the deadline passes — robust to detached
- * emit-listener hooks firing on a `.then` (a fixed sleep flakes under load). */
-async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10): Promise<void> {
-  const deadline = Date.now() + timeout
-  while (!predicate()) {
-    if (Date.now() > deadline) throw new Error('waitFor: condition not met before deadline')
-    await new Promise(r => setTimeout(r, interval))
-  }
+/** Wait for detached hook effects within the owning test lane's polling budget. */
+async function waitFor(predicate: () => boolean): Promise<void> {
+  await expect.poll(predicate).toBe(true)
 }
 
 export type CoverageGroup = 'config' | 'stop' | 'context' | 'edge-paths'
