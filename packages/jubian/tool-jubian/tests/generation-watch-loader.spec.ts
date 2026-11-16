@@ -443,11 +443,12 @@ async function parkedNativeDelivery() {
   }))
   await entered.promise
   h.complete()
+  // JSONL flushes and binding verification can exceed the default one-second poll window on Windows.
   await vi.waitFor(async () => {
     const run = await h.store.load(h.run.id)
     expect(run?.notice?.id).toEqual(expect.any(String))
     expect(h.agent.inbox.nextTurn.some(message => message.id === run?.notice?.id)).toBe(true)
-  })
+  }, { timeout: 10_000 })
   const host = await h.reopen(true, false)
   await maintenance
   const saved = await h.store.load(h.run.id)
