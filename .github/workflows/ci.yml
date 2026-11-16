@@ -105,6 +105,7 @@ jobs:
       - name: Run static gates
         env:
           DSH_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+          DSH_SNAPSHOT_DRIFT_BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: pnpm run check:ci:static
 
   node-24-coverage:

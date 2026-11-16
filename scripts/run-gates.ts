@@ -526,6 +526,8 @@ function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
       docsBuildScript: 'docs:build:mpa',
     }),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
+    // Reports stale prompt and tool-schema sidecars in seconds, before the snapshot job replays them.
+    pnpmScript('snapshot-drift', 'verify-snapshot-drift', { label: 'snapshot sidecar drift' }),
   ]
 }
 
