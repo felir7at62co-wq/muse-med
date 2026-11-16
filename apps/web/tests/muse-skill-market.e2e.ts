@@ -95,7 +95,8 @@ async function fixture() {
   return { scaffold, stack, evidence, browser, modelCalls: () => modelCalls, localModelCalls: () => adapter.calls }
 }
 
-const marketNavigation = (page: Page) => page.getByRole('navigation').getByRole('button', { name: /Skill.*市场|技能市场|Skill.*market/i })
+// Anchored so the row's separate unpin control, whose label names the market, is not a second match.
+const marketNavigation = (page: Page) => page.getByRole('navigation').getByRole('button', { name: /^(Skill.*市场|技能市场|Skill.*market)$/i })
 const panel = (page: Page) => page.locator('[data-muse-skill-market]')
 const tab = (root: Locator, name: string) => root.getByRole('tab', { name, exact: true }).or(root.getByRole('button', { name, exact: true }))
 
