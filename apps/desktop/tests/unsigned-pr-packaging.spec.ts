@@ -25,6 +25,15 @@ it('gives packaging Git fixtures the native test-lane budget', () => {
   expect(packaging.run).toContain('apps/desktop/tests/package-resume.spec.ts')
 })
 
+it('runs the isolated Windows upgrade safety smoke after the application build', () => {
+  const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
+  const steps = record(record(workflow.jobs).build).steps
+  if (!Array.isArray(steps)) throw new Error('Expected packaging steps')
+  const smoke = steps.map((step: unknown) => record(step)).find(step => step.name === 'Verify isolated Windows upgrade safety')
+  expect(smoke).toMatchObject({ if: "matrix.target == 'win-x64'", run: 'node apps/desktop/scripts/run-isolated-upgrade-smoke.mjs' })
+  expect(steps.indexOf(smoke)).toBeGreaterThan(steps.findIndex((step: unknown) => record(step).name === 'Build and verify the assembled application'))
+})
+
 it('runs draft ownership and saved-source regressions before dependency installation on both native targets', () => {
   const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
   const steps = record(record(workflow.jobs).build).steps

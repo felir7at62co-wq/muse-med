@@ -47,6 +47,7 @@ $uninstaller = Join-Path $installPath ('Uninstall ' + $ProductName + '.exe')
 $processes = [Collections.Generic.List[Diagnostics.Process]]::new()
 $processHandles = [Collections.Generic.Dictionary[int, IntPtr]]::new()
 $results = [Collections.Generic.List[string]]::new()
+$seenUpgradeReports = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 $primaryFailure = $null
 $cleanupFailures = [Collections.Generic.List[System.Management.Automation.ErrorRecord]]::new()
 $discoveredAppProcessIds = [Collections.Generic.List[int]]::new()
@@ -247,12 +248,29 @@ function Read-NativeFailureObserver([Diagnostics.Process]$Process) {
     }
 }
 function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$Theme, [string]$Bounds,
-    [bool]$InjectLaunchFailure = $true) {
+    [bool]$InjectLaunchFailure = $true, [bool]$ExpectBackup = $true) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $previous = 0
     $window = [InstallerCapture]::Find($Process.Id)
+    $acknowledgedBackups = 0
     while ([InstallerCapture]::FindButton($Process.Id, $copy.INSTALLER_FINISH) -eq [IntPtr]::Zero) {
         if ($Process.HasExited -or $timer.Elapsed.TotalSeconds -gt 30) { throw 'Installer did not complete' }
+        foreach ($report in @(Get-ChildItem -LiteralPath (Join-Path $OutputDirectory 'upgrade-reports') -Filter '*.completed' -File -ErrorAction SilentlyContinue)) {
+            if ($seenUpgradeReports.Contains($report.FullName)) { continue }
+            if (-not $ExpectBackup) { throw 'Fresh installation unexpectedly retained an old directory' }
+            try { $receipt = [IO.File]::ReadAllText($report.FullName, [Text.Encoding]::Unicode) }
+            catch [IO.IOException] { continue } # The writer opens the receipt exclusively until it flushes and closes.
+            if ($receipt -notmatch '^Upgrade completed\. Retained backup: ([^\r\n]+)\r\nCurrent directory: ([^\r\n]+)\r\n$') { throw 'Malformed completed upgrade receipt' }
+            $backup = $Matches[1]
+            if ($Matches[2] -cne $installPath -or -not $backup.StartsWith($installPath + '.old-', [StringComparison]::OrdinalIgnoreCase) -or
+                -not (Test-Path -LiteralPath (Join-Path $backup ($ProductName + '.exe')) -PathType Leaf)) { throw 'Upgrade receipt did not identify the retained test installation' }
+            $control = [InstallerCapture]::FindDialogText($Process.Id, $backup)
+            if ($control -eq [IntPtr]::Zero) { continue }
+            [void][InstallerCapture]::SaveNative([InstallerCapture]::TopLevel($control), (Join-Path $OutputDirectory ($Theme + '-backup.png')), $false)
+            Dismiss $Process $backup
+            [void]$seenUpgradeReports.Add($report.FullName)
+            $acknowledgedBackups++
+        }
         $visible = [InstallerCapture]::VisibleText($Process.Id)
         if ($visible.Contains('msctls_progress32') -ne $expected.nativeProgressVisible) { throw 'Stock green progress bar is visible' }
         if ($visible -match 'HarnessInstallerProgress[^\r\n]*?(\d+)%') {
@@ -263,6 +281,7 @@ function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$The
         }
         Start-Sleep -Milliseconds 25
     }
+    if ($acknowledgedBackups -ne [int]$ExpectBackup) { throw 'Unexpected number of retained-backup notices' }
     if ([InstallerCapture]::GetProp($window, 'HarnessInstaller.CompletedPercent').ToInt32() -ne 100) { throw 'Finish page replaced an incomplete progress bar' }
     $checkbox = Wait-Control $Process $copy.INSTALLER_LAUNCH -Button
     $state = [InstallerCapture]::SendMessage($checkbox, 0xF0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
@@ -485,7 +504,7 @@ try {
     [InstallerCapture]::MoveBy($window, 73, -41)
     $bounds = [InstallerCapture]::Bounds($window)
     Click-Control $process $copy.INSTALLER_INSTALL
-    Finish-Setup $process $false light $bounds
+    Finish-Setup $process $false light $bounds $true $false
     if (-not (Test-Path -LiteralPath $appPath) -or (Test-Path -LiteralPath (Join-Path $installPath 'launched.txt'))) { throw 'Unchecked launch behavior failed' }
     $results.Add('enter-validates-current-path-and-unchecked-launch')
     $results.Add('completion-preserves-window-position')
