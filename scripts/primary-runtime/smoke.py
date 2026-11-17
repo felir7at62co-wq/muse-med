@@ -15,6 +15,8 @@ from rapidocr import RapidOCR
 import rapidocr
 import pyJianYingDraft as draft
 from pymediainfo import MediaInfo
+from Crypto.Cipher import AES
+from Crypto.Util._file_system import pycryptodome_filename
 
 import numpy
 # NumPy testing helpers require this native extension even without upstream test directories.
@@ -79,6 +81,12 @@ def main():
         assert "Mozilla Public" in distribution.locate_file(notice).read_text(encoding="utf-8"), str(notice)
     assert numpy.arange(4).sum() == 6
     assert pandas.DataFrame({"n": [1, 2]}).n.sum() == 3
+    cipher = AES.new(bytes(16), AES.MODE_ECB)
+    assert cipher.decrypt(cipher.encrypt(bytes(range(16)))) == bytes(range(16))
+    if sys.platform == "win32":
+        native = pycryptodome_filename(["Crypto", "Util"], "_cpuid_c.pyd")
+        assert ".." not in Path(native).parts, native
+        assert Path(native).is_file(), native
     model_root = Path(rapidocr.__file__).parent / "models"
     model_hashes = {
         "Det": ("PP-OCRv6_det_small.onnx", "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f"),

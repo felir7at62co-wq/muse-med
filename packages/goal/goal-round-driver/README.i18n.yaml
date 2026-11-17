@@ -9,23 +9,23 @@
   en: e8011e091ba10543
   zh: 77d822a4089d5d24
 /deepseek-ai-dsh-goal-round-driver/summary:
-  en: ce464a4106d6cfb2
-  zh: 97b1791fe52223e1
+  en: cfe3914ac196cb5f
+  zh: 3daac9dcf402923c
 /deepseek-ai-dsh-goal-round-driver/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
 /deepseek-ai-dsh-goal-round-driver/use-this-package:
   en: 49091854cd35fe00
-  zh: 1e6eb2b8b6da3db7
+  zh: 518871ea2ed5c9d1
 /deepseek-ai-dsh-goal-round-driver/use-this-package/compose-it:
-  en: dbf043249119778f
-  zh: 75a61167426d0d85
+  en: 9dc840656cc0b518
+  zh: 7f25889e6807d216
 /deepseek-ai-dsh-goal-round-driver/use-this-package/what-each-round-does:
   en: a1312339977f1127
   zh: 57450327ff7e7d83
 /deepseek-ai-dsh-goal-round-driver/use-this-package/when-continuation-stops:
-  en: f3cb23a11176dc4f
-  zh: de7aa54d5c93445d
+  en: 79690bc14b9f6e5b
+  zh: d0417e9ec80f7c3b
 /deepseek-ai-dsh-goal-round-driver/use-this-package/after-resume-fork-or-unload:
   en: 85d5470b1b330330
   zh: e761f9046ba7af8a
@@ -33,8 +33,8 @@
   en: 907f73e7cee7269d
   zh: 1230e8e9b15655df
 /deepseek-ai-dsh-goal-round-driver/understand-the-implementation/design:
-  en: 58a2316725fe1f38
-  zh: d42d60cf02ad518e
+  en: d59d72b0ed6dac83
+  zh: 688803bf963a3846
 /deepseek-ai-dsh-goal-round-driver/understand-the-implementation/source-map:
   en: 80fe3f7859194ce5
   zh: 6d2090722d94718c
@@ -51,8 +51,8 @@
   en: 4d07e0f4df39dd39
   zh: b4b4b1a1ac49133d
 /deepseek-ai-dsh-goal-round-driver/model-experience/goal-round-prompt/what-the-model-sees:
-  en: 627dbb55e83ea545
-  zh: f7961cb0d8cee632
+  en: d83a3e1d875f0509
+  zh: c821c63dad7f5e9b
 /deepseek-ai-dsh-goal-round-driver/model-experience/goal-round-prompt/token-effect:
   en: d754ed8cc26fc2a5
   zh: 75aad6a5759b1fec
@@ -60,8 +60,8 @@
   en: 261db0e11125cb5c
   zh: fcceb0bb63f4e07a
 /deepseek-ai-dsh-goal-round-driver/known-limitations-and-deferred-work:
-  en: 9a392b465bd1b96d
-  zh: f24e557f8b67020c
+  en: c1207fb779754a56
+  zh: fe11664afc37844a
 /deepseek-ai-dsh-goal-round-driver/known-limitations-and-deferred-work/dev-note:
-  en: 19c6db37afd5cff4
-  zh: 86e849e83cdc1d94
+  en: 2965858d5fe8a671
+  zh: 330ab55d2ff44ac3

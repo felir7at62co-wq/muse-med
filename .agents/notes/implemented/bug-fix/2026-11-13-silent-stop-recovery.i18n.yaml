@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-11-13-silent-stop-recovery.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-11-13-silent-stop-recovery.md
+/agent-note-silent-stop-recovery-in-output-continuation:
+  en: 77ee996f7a1deae2
+  zh: 27c0832ddf510681
+/agent-note-silent-stop-recovery-in-output-continuation/problem:
+  en: c72de870b9fbe5a9
+  zh: f942f853ffc43456
+/agent-note-silent-stop-recovery-in-output-continuation/decision:
+  en: f17373c4acc998c9
+  zh: c5318796c7e2673a
+/agent-note-silent-stop-recovery-in-output-continuation/alternatives-considered:
+  en: ded31581494db81e
+  zh: 243c3101ebc96f0e
+/agent-note-silent-stop-recovery-in-output-continuation/consequences:
+  en: db655391cb70662b
+  zh: 025baf4ea4c48cbf

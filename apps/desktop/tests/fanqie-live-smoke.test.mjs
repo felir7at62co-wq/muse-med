@@ -105,6 +105,16 @@ test('verifies UTF-8 identity, every chapter receipt and independent TXT hash be
   assert.equal(JSON.stringify(result).includes(f.workspace()), false)
 })
 
+test('prefers the primary Fanqie Python path over legacy compatibility inputs', async () => {
+  const f = fixture()
+  const primary = join(import.meta.dirname, 'bundled', 'primary-python')
+  await checkFanqieLive('/packaged', join(import.meta.dirname, 'bundled'), {
+    ...environment, MUSE_FANQIE_PYTHON_PATH: primary,
+  }, f.mount)
+  assert.deepEqual(f.paths(), { python: primary })
+  assert.equal(existsSync(f.workspace()), false)
+})
+
 for (const [name, change] of [
   ['different book', result => { result.items[0].bookId = '1000000000000000009' }],
   ['different title', result => { result.items[0].title = '另一本书' }],

@@ -24,6 +24,12 @@ function productIcon(glyph: IconGlyph, weight: IconWeight): (props: IconProps) =
   )
 }
 
+/** Regular one-pixel IconLayersOutline artwork. */
+export const IconLayersOutlineRegular = productIcon('layers-outline', 'regular')
+
+/** Medium IconLayersOutline artwork with a 1.3px stroke. */
+export const IconLayersOutlineMedium = productIcon('layers-outline', 'medium')
+
 /** Regular one-pixel IconNewChatOutline artwork. */
 export const IconNewChatOutlineRegular = productIcon('new-chat-outline', 'regular')
 
@@ -47,6 +53,17 @@ export const IconZoomInOutlineRegular = productIcon('zoom-in-outline', 'regular'
 
 /** Medium magnifier with a plus sign for increasing the displayed scale. */
 export const IconZoomInOutlineMedium = productIcon('zoom-in-outline', 'medium')
+/** Regular one-pixel IconEyeOutline artwork. */
+export const IconEyeOutlineRegular = productIcon('eye-outline', 'regular')
+
+/** Medium IconEyeOutline artwork with a 1.3px stroke. */
+export const IconEyeOutlineMedium = productIcon('eye-outline', 'medium')
+
+/** Regular one-pixel IconEyeOffOutline artwork. */
+export const IconEyeOffOutlineRegular = productIcon('eye-off-outline', 'regular')
+
+/** Medium IconEyeOffOutline artwork with a 1.3px stroke. */
+export const IconEyeOffOutlineMedium = productIcon('eye-off-outline', 'medium')
 
 /** Regular one-pixel IconGlobeOutline artwork. */
 export const IconGlobeOutlineRegular = productIcon('globe-outline', 'regular')

@@ -289,3 +289,10 @@ it('refuses a dialog after a later query accepts another version of the same rep
   await directory.confirm(id, '')
   expect(api.review).not.toHaveBeenCalled()
 })
+
+it('keeps an unconfigured Host project as an empty draft', async () => {
+  const directory = new RecoveryDirectory()
+  await loaded(directory, client({ status: async () => ok({ ...status, projectDir: null }) }))
+  expect(directory.state.getSnapshot()).toMatchObject({ projectDir: '', status: { projectDir: null } })
+  directory.dispose()
+})

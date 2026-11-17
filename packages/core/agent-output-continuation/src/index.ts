@@ -1,4 +1,4 @@
-/** Continue settled output-limited responses through the agent's normal next-step input. */
+/** Continue settled output-limited responses, and stops that produced nothing visible, through the agent's normal next-step input. */
 
 import { createHash } from 'node:crypto'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
@@ -10,7 +10,7 @@ import { z } from 'zod'
 import type { ContinuationConfig } from './types.ts'
 export type { OutputContinuationSource } from './types.ts'
 
-/** Deployment limits for continuing one output-limited turn. */
+/** Deployment limits for continuing one turn after an output limit or a silent stop. */
 export interface Config extends ContinuationConfig {}
 
 /** Loader identity for automatic output continuation. */
@@ -23,6 +23,7 @@ export const Config = z.object({
   maxNoProgressResponses: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).default(2),
   repeatWindowChars: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).default(16384),
   continuationTailChars: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).default(1024),
+  maxSilentStopRecoveries: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(1),
 }).strict().prefault({})
 
 /** Model-visible continuation instruction, recorded as ordinary admitted context. */
@@ -30,6 +31,14 @@ const PROMPT = 'Your previous response was cut off before it finished. Continue 
   + 'Do not repeat the previous text or restart the answer. Complete the original request. '
   + 'If the response ended mid-sentence or mid-line, write only its missing suffix first; do not skip the unfinished item. '
   + 'If a tool call was cut off, issue the complete call again before claiming its action happened. '
+  + 'Stop normally when the answer or required work is complete.'
+
+/** Model-visible instruction after a normal stop that carried no visible text and no tool call. */
+const SILENT_STOP_PROMPT = 'Your previous response ended without any visible reply and without a tool call, so the user received nothing; '
+  + 'your reasoning is not shown to the user. Do not stop silently. '
+  + 'If the requested work is not finished, continue it now by calling the provided tools; '
+  + 'only those tools can read or change files or run code, and code written in a reply is not executed. '
+  + 'If the work is finished, give the user a brief final reply that states only what tool results show was actually done. '
   + 'Stop normally when the answer or required work is complete.'
 
 interface State {
@@ -41,11 +50,14 @@ interface State {
   fingerprint: string | undefined
   tail: string
   responseEnd: string
+  silentStop: boolean
+  silentRecoveries: number
   pendingId: MessageId | undefined
 }
 
 function fresh(turn: number): State {
-  return { turn, finish: undefined, attempts: 0, admitted: false, noProgress: 0, fingerprint: undefined, tail: '', responseEnd: '', pendingId: undefined }
+  return { turn, finish: undefined, attempts: 0, admitted: false, noProgress: 0, fingerprint: undefined, tail: '', responseEnd: '',
+    silentStop: false, silentRecoveries: 0, pendingId: undefined }
 }
 
 /** Last reported finish of the exact durable assistant attempt. */
@@ -57,7 +69,7 @@ function finishOf(data: SessionEventMap['assistant/message']): FinishReason['kin
 }
 
 /**
- * Install same-turn continuation, admission fences and output-recovery reporting.
+ * Install same-turn continuation after an output limit or a silent stop, admission fences and output-recovery reporting.
  * @param ctx - owning plugin context; disposal withdraws callbacks and queued continuation input.
  * @param config - deployment limits, validated at activation.
  */
@@ -95,8 +107,10 @@ export function apply(ctx: Context, config: Config): void {
     }
     if (event.type !== 'assistant/message' || event.data.turn !== state.turn) return
     state.finish = event.data.interrupted === true ? 'aborted' : finishOf(event.data)
-    if (state.finish !== 'max-tokens') return
     const visible = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
+    state.silentStop = state.finish === 'stop' && visible.trim().length === 0
+      && event.data.message.content.every(block => block.type === 'text' || block.type === 'reasoning')
+    if (state.finish !== 'max-tokens') return
     state.responseEnd = visible.slice(-policy.continuationTailChars)
     const text = visible.trim()
     const fingerprint = createHash('sha256').update(text).digest('hex')
@@ -118,15 +132,21 @@ export function apply(ctx: Context, config: Config): void {
   }, { prepend: true })
   ctx.on('agent/turn-stopping', ({ agent, turn, signal }) => {
     const state = states.get(agent)
-    if (!active(signal) || state?.turn !== turn || state.finish !== 'max-tokens'
-      || agent.inbox.nextStep.length > 0 || agent.inbox.nextTurn.length > 0 || state.noProgress >= policy.maxNoProgressResponses
-      || policy.maxContinuations !== null && state.attempts >= policy.maxContinuations) return
-    const attempt = state.attempts + 1
-    const text = `${PROMPT}\n\nExact end of the interrupted response (JSON string): ${JSON.stringify(state.responseEnd)}`
+    if (!active(signal) || state?.turn !== turn || agent.inbox.nextStep.length > 0 || agent.inbox.nextTurn.length > 0) return
+    const outputLimited = state.finish === 'max-tokens'
+    if (outputLimited) {
+      if (state.noProgress >= policy.maxNoProgressResponses
+        || policy.maxContinuations !== null && state.attempts >= policy.maxContinuations) return
+    }
+    else if (!state.silentStop || state.silentRecoveries >= policy.maxSilentStopRecoveries) return
+    const text = outputLimited
+      ? `${PROMPT}\n\nExact end of the interrupted response (JSON string): ${JSON.stringify(state.responseEnd)}`
+      : SILENT_STOP_PROMPT
     const message = createUserMessage({ content: [{ type: 'text', text }],
       source: { kind: 'output-continuation' } })
     agent.inject(message)
-    state.attempts = attempt
+    if (outputLimited) state.attempts += 1
+    else state.silentRecoveries += 1
     state.pendingId = message.id
     if (!active(signal)) agent.inbox.remove(message.id)
   })

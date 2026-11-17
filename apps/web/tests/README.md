@@ -30,6 +30,8 @@ Root-only recorded-session owners can preserve canonical replay inputs with [`wr
 
 Built-bundle jsdom cases share `installAssembledBootEnv`, which supplies non-matching media queries and restores browser globals after each test; real media-query behavior belongs to browser cases.
 
+Every scenario requires the whole client composition to activate. The product boot only warns about inactive entries outside its required list, but the `watchConsole` tripwire, the [real-host smoke](smoke-real.e2e.ts), and the [assembled jsdom boot](assembled-boot.ts) treat a `web boot: warning` as a failure. No scenario option relaxes this: an inactive plugin in a product composition is a defect to fix.
+
 The [Bot sidebar fixture](bot-sidebar-rail.e2e.ts) mounts the shipped navigation with a synthetic roster and empty Sessions. Its public navigation guard is cancelled on release. Narrow Web and macOS cases check the visible drawer, hit testing, keyboard focus and unreserved main column; Windows retains its rail. These geometry checks do not certify native Session operations.
 
 ## Completion observations

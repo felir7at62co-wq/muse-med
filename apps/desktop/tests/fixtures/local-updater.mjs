@@ -17,7 +17,7 @@ import { DesktopMandatoryUpdatePolicy, resolveDesktopPolicyConfig } from '../../
 import { DesktopMandatoryUpdateWindow } from '../../lib/types/mandatory-update-window.js'
 import { DesktopUpdateOverlays } from '../../lib/types/update-overlay.js'
 import { DesktopUpdatePreparationError } from '../../lib/types/update-error.js'
-import { DesktopUpdateHttpExecutor } from '../../lib/types/update-http-executor.js'
+import { DesktopUpdateHttpExecutor } from '../../lib/types/updates/electron-updater/http-executor.js'
 import { qualifyUpdateDialogs } from './update-dialogs.mjs'
 
 const root = process.env.DSH_LOCAL_UPDATE_TEST_ROOT
@@ -210,7 +210,7 @@ async function main() {
       assert.ok(!cache.some(file => file.endsWith('.exe') || file.endsWith('update-info.json')), 'Partial bytes must not remain installable')
       const presentation = presentDesktopUpdate(f.coordinator.state)
       assert.equal(presentation.phase, 'error')
-      assert.equal(presentation.failure, 'download')
+      assert.equal(presentation.failure, 'download-space')
       assert.equal((await f.coordinator.download(available.version)).phase, 'ready')
       assert.deepEqual(await readFile(f.updater.installerPath), server.payload)
       assert.equal(f.installations.length, 0)

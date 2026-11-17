@@ -83,29 +83,19 @@ describe('ContextMeter', () => {
     expect(widths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(100)
   })
 
-  it('keeps the expanded working-context panel portaled and inside the viewport', () => {
-    const width = 264
-    const height = 340
-    const anchor = vi.spyOn(HTMLSpanElement.prototype, 'getBoundingClientRect')
-      .mockReturnValue(new DOMRect(window.innerWidth - 44, window.innerHeight - 24, 28, 20))
-    const panelWidth = vi.spyOn(HTMLDivElement.prototype, 'offsetWidth', 'get').mockReturnValue(width)
-    const panelHeight = vi.spyOn(HTMLDivElement.prototype, 'offsetHeight', 'get').mockReturnValue(height)
-    try {
-      const view = meter({
-        contextPressure: { workingContextTokens: 498_000, contextWindow: 1_000_000, workingTokenLimit: 475_000 },
-        contextBreakdown: BREAKDOWN,
-      })
-      fireEvent.click(view.getByRole('button', { name: '工作上下文 105%' }))
-      const panel = view.getByRole('dialog')
-      expect(panel.parentElement).toBe(document.body)
-      expect(Number.parseFloat(panel.style.left)).toBe(window.innerWidth - width - 12)
-      expect(Number.parseFloat(panel.style.top)).toBeGreaterThanOrEqual(12)
-      expect(Number.parseFloat(panel.style.top) + height).toBeLessThanOrEqual(window.innerHeight - 12)
-    } finally {
-      anchor.mockRestore()
-      panelWidth.mockRestore()
-      panelHeight.mockRestore()
-    }
+  it('portals the expanded working-context panel and binds it to the trigger anchor for CSS placement', () => {
+    const view = meter({
+      contextPressure: { workingContextTokens: 498_000, contextWindow: 1_000_000, workingTokenLimit: 475_000 },
+      contextBreakdown: BREAKDOWN,
+    })
+    fireEvent.click(view.getByRole('button', { name: '工作上下文 105%' }))
+    const panel = view.getByRole('dialog')
+    const anchorName = (view.container.firstElementChild as HTMLElement).style.getPropertyValue('anchor-name')
+    expect(panel.parentElement).toBe(document.body)
+    expect(anchorName).not.toBe('')
+    expect(panel.style.getPropertyValue('position-anchor')).toBe(anchorName)
+    expect(panel.style.left).toBe('')
+    expect(panel.style.top).toBe('')
   })
 
   it('uses the new model window after a working budget is removed', () => {

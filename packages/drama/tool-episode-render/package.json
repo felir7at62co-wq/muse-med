@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-episode-render",
   "description": "Short-drama episode renderer: the model-facing drama_render tool that lays out render inputs, encodes the delivery master, and checks the result",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "publishConfig": {
     "access": "public"
   },
@@ -20,12 +20,26 @@
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./source-qa": {
+      "types": "./lib/types/source-qa-api.d.ts",
+      "default": "./lib/source-qa.js"
+    },
+    "./delivery": {
+      "types": "./lib/types/delivery-api.d.ts",
+      "default": "./lib/delivery.js"
+    }
   },
   "files": [
     "locale/*.json",
     "lib/index.js",
-    "lib/types/**/*.d.ts"
+    "lib/source-qa.js",
+    "lib/delivery.js",
+    "lib/shared-*.js",
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
+    "src"
   ],
   "license": "MIT",
   "dependencies": {

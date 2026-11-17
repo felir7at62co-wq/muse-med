@@ -11,6 +11,13 @@
 # A unified diff needs one space to mark a blank context line.
 integrations/muse-kb/*.patch whitespace=-blank-at-eol
 
+# DTK patches apply to the pinned upstream source as unified diffs.
+services/muse-media/deploy/patches/*.patch whitespace=-blank-at-eol
+
+# The reviewed optional-adapter patch stays byte-identical to its pinned hash;
+# a unified diff needs one space to mark a blank context line.
+third_party/optional-plugins/*/*.patch whitespace=-blank-at-eol
+
 # Preserve the pinned panel client's upstream whitespace in the source snapshot.
 third_party/plugins/dsh-skill-mcp-panel/src/client.ts whitespace=-blank-at-eol,-space-before-tab
 
@@ -32,3 +39,12 @@ docs/persistence-changes/historical-formats/*.schema.json linguist-generated=tru
 
 # Unified patch blank context lines require their leading space.
 patches/*.patch whitespace=-blank-at-eol
+
+# Review layers of the forge changes view (dsh-review-layer), for this repository's own conventions:
+# plugin locale dictionaries and the session snapshot tree hide with test files, generated bilingual
+# pairing records join them, and a package's types-only module is part of its interface.
+packages/*/*/locale/*.json dsh-review-layer=test
+locales.ts dsh-review-layer=test
+snapshots/** dsh-review-layer=test
+*.i18n.yaml dsh-review-layer=test
+packages/*/*/src/types.ts dsh-review-layer=interface

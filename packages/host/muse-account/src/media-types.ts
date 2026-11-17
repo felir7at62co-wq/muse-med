@@ -118,6 +118,7 @@ export interface MuseMediaStatus {
 export type MuseMediaFailure =
   | 'sign-in-required' | 'company-access-required' | 'account-changed' | 'rate-limited' | 'request-conflict' | 'not-found'
   | 'invalid-input' | 'invalid-response' | 'unconfirmed' | 'unavailable' | 'cancelled' | 'timeout' | 'file-too-large' | 'file-incomplete'
+  | 'douyin-unsupported'
 
 /** Origin-bound private session and explicit transport limits supplied by the product. */
 export interface MuseMediaOptions {

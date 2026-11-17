@@ -9,20 +9,23 @@
   en: db5527a4bb7a543e
   zh: 8af3bc11b56325b5
 /deepseek-ai-dsh-muse-account/summary:
-  en: 1ded5950b0654d15
-  zh: 26103f2974429fa4
+  en: 89d51cb7116766b1
+  zh: ac6ecb9f6d023eb2
 /deepseek-ai-dsh-muse-account/table-of-contents:
   en: d152484eb41ac6b4
   zh: ffab54373e9e61f0
 /deepseek-ai-dsh-muse-account/use-this-package:
-  en: 49e58a290d16d903
-  zh: d8eb65f15f2dc536
+  en: 95c17ea76ede2ca3
+  zh: 981021ee1adbe10e
 /deepseek-ai-dsh-muse-account/use-this-package/account-authorized-web-search:
   en: 176956ec3d631560
   zh: 98b06e33be6e5060
 /deepseek-ai-dsh-muse-account/use-this-package/company-media:
-  en: d3ac6ced0b0e4b17
-  zh: 7640e8315bb89774
+  en: 0a96ffb8614f0ba7
+  zh: b73f0f9c3a88304e
+/deepseek-ai-dsh-muse-account/use-this-package/data-station-douyin-downloads:
+  en: 77de52eb75879350
+  zh: 5e4702b108768c4b
 /deepseek-ai-dsh-muse-account/use-this-package/shared-voice-registration:
   en: 89d768ad5d812024
   zh: 84f6e12f149a4c00
@@ -33,8 +36,8 @@
   en: ef7d6468a32c44cf
   zh: 6e5dbb414f85cf51
 /deepseek-ai-dsh-muse-account/use-this-package/minimal-configuration:
-  en: 453605acce6400a6
-  zh: 72ed48676ee190e7
+  en: 05316b4e4c36b783
+  zh: 395f47446d91e67f
 /deepseek-ai-dsh-muse-account/use-this-package/desktop-access-from-the-website:
   en: 3274ef3700b1dae4
   zh: d2725395470e644f
@@ -51,17 +54,17 @@
   en: cd8530c72534ee6b
   zh: cd8530c72534ee6b
 /deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/what-the-model-sees:
-  en: 8a1d745551858eda
-  zh: 4ae95ff9991c1a6e
+  en: b6c4aaa48ef2da91
+  zh: 56f46fe0c8582ff4
 /deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/token-effect:
-  en: 2fdaf1f10f157585
-  zh: baf9374161164985
+  en: 2a127317fa1419bf
+  zh: 5ef8f194765fb7e8
 /deepseek-ai-dsh-muse-account/model-experience/request-context-and-condition/kv-cache-effect:
-  en: d9c7f8f40da48c36
-  zh: ed817aa3f6a2ee19
+  en: af02d51bc55cf4af
+  zh: 619bb504dff069e6
 /deepseek-ai-dsh-muse-account/known-limitations-and-deferred-work:
-  en: 1953050cd69ab1df
-  zh: 5cbf99313bcb0e51
+  en: 513d5a5a86a732e7
+  zh: a3617aa040d39c29
 /deepseek-ai-dsh-muse-account/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 8ec3e73528ddb1a6

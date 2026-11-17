@@ -9,10 +9,10 @@
   "replayHttpRequests": 0,
   "missingPricePaidRequests": 0,
   "ledgerRecords": 1,
-  "quotedAmount": "1.00",
+  "quotedAmount": "1.50",
   "quoteUnit": "CNY",
-  "quoteStandardId": 55,
-  "settledCents": 100,
+  "quoteStandardId": 27,
+  "settledCents": 150,
   "reservedCents": 0,
   "modelSawEveryToolResult": true,
   "realProviderRequests": 0

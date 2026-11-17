@@ -3,6 +3,17 @@ export { REFERENCE_AUDIO_MAX_SECONDS, childAudioUrls, readReferenceAudio, refere
 export type { ReferenceAudio } from './audio.ts'
 export { MODEL_TASK_TYPES, readEpisodes, readModels, readScript, readScriptList, readStoryboardPage } from './catalog.ts'
 export type { ScriptRow } from './catalog.ts'
+export { buildManuscriptProjectCheckRequest, buildProjectCreateRequest, readCreatedProjectId,
+  readManuscriptProjectCheck, readProjectDetail } from './project.ts'
+export type { ProjectCreateInput, ProjectDetail, ProjectParsingPhase } from './project.ts'
+export { MANUSCRIPT_PRODUCER_TYPES, MANUSCRIPT_SCRIPT_FORMATS, MANUSCRIPT_TAG_CATEGORIES,
+  buildBindableManuscriptsRequest, buildManuscriptDetailRequest, buildManuscriptFileRequest,
+  buildManuscriptStartProduceRequest, buildManuscriptTagOptionsRequest,
+  buildManuscriptUploadRequest, readBindableManuscripts, readManuscriptDetail, readManuscriptFile,
+  readManuscriptTagOptions } from './manuscript.ts'
+export type { BindableManuscript, BindableManuscriptQuery, ManuscriptDetail, ManuscriptFileInfo,
+  ManuscriptOwner, ManuscriptTag, ManuscriptTagCategory, ManuscriptTagOptions,
+  ManuscriptUploadFile, ManuscriptUploadInput } from './manuscript.ts'
 export { readAssetList, readAssetPage, readGeneratedImage, readImageGeneration, readMaterialList } from './asset.ts'
 export type { ImageGeneration } from './asset.ts'
 export type { AssetDetail, AssetRow, MaterialRow } from './asset.ts'
@@ -19,12 +30,12 @@ export type { ImageAspectRatio, ImageModelCandidate, ImageModelSelection, ImageM
 export { AUTOMATIC_ERASE_MODEL, DEFAULT_SUBTITLE_REGION, SUBTITLE_ERASE_MODELS, SUBTITLE_ERASE_STANDARDS,
   buildSubtitleEraseRequest, defaultSubtitleBox, readSubtitleTaskId } from './subtitle.ts'
 export type { SubtitleEraseInput } from './subtitle.ts'
-export { VIDEO_UPSCALE_MODEL, VIDEO_UPSCALE_TASK_TYPE, buildVideoUpscaleRequest, readUpscaleTaskId, resolvePostProcessModel } from './upscale.ts'
+export { MEDIAKIT_UPSCALE_MODEL, VIDEO_UPSCALE_TASK_TYPE, buildVideoUpscaleRequest, readUpscaleTaskId, resolvePostProcessModel } from './upscale.ts'
 export type { VideoUpscaleInput, PostProcessModel, PostProcessSelection } from './upscale.ts'
 export { MEDIA_ALLOWED_ORIGINS, MEDIA_LIMITS, downloadMedia } from './download.ts'
 export type { DownloadMediaOptions, DownloadedMedia, MediaKind } from './download.ts'
 export { REFERENCE_ALIGNMENT, REFERENCE_OBJECT_PREFIX, alignReferenceEdge, alignedReferenceSize,
-  buildReferenceObjectKey, extractAppScriptUrl, extractTosUploadConfig, readReferenceImage,
+  buildDocumentObjectKey, buildReferenceObjectKey, extractAppScriptUrl, extractTosUploadConfig, readReferenceImage,
   referenceMaterialItem, signTosObjectPut } from './reference.ts'
 export type { ReferenceFormat, ReferenceImage, ReferenceMaterialItem, TosPutRequest, TosSignedPut,
   TosUploadConfig } from './reference.ts'
@@ -36,10 +47,15 @@ export { FAILED_STATUSES, NATIVE_MODEL_FIELDS, SUCCESS_STATUSES, assertImageRefe
   childrenOf, classifyExistingNativeMatches, classifyNewNativeCandidates, isRelatedTaskCandidate,
   matchesNativeEpisode, nativeEpisodeScope, nativeModelSignature, nativeObservablePrompt, nativeResultUrls,
   normalizedPrompt, readBackIdentity,
-  responseRecords, resolveVideoModel, validateVideoDuration, stableJson, stableSha256, storyboardMaterials,
+  responseRecords, resolveVideoModel, seedanceVideoVersion, validateVideoDuration, stableJson, stableSha256, storyboardMaterials,
   subjectIdentitySignature, submissionSemantics, taskIdOf, taskSemanticFields, taskStatusOf,
   terminalOutcome, validateNativeVideoPreview, validatedVideoMaterials, wireText } from './native.ts'
 export type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeScope, NativeOrderedAsset, NativePreviewInput,
   NativeVideoPreview, SeedanceVideoModel, SubjectIdentityItem } from './native.ts'
 export { encodeVoiceSlot, readVoiceSlot } from './voice-slot.ts'
 export type { VoiceSlotIdentity } from './voice-slot.ts'
+export { buildProjectShareBatchRequest, buildProjectShareDepartmentsRequest, buildProjectShareListRequest,
+  buildProjectSharePageRequest, buildProjectShareUsersRequest, readProjectShareDepartments, readProjectShareList,
+  readProjectSharePage, readProjectShareUsers } from './project-share.ts'
+export type { ProjectShareBatchInput, ProjectShareDepartment, ProjectSharePage, ProjectShareRecord,
+  ProjectShareTargetType, ProjectShareType, ProjectShareUser } from './project-share.ts'

@@ -80,9 +80,11 @@ export function createElectronBuilderConfig(
     '**/@deepseek-ai/dsh-drama-skills/**', '**/@deepseek-ai/dsh-desktop-host/skills/**',
     '**/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/**', '**/@openai/codex*/**',
     ...packagesWindows ? ['**/@deepseek-ai/dsh-tool-video-inspect/scripts/**'] : [],
-    '**/muse-douyin-download/python/**', '**/muse-hongguo-download/python/**',
+    '**/muse-douyin-download/python/**', '**/muse-hongguo-download/**',
     '**/muse-reverse-tools/resources/**', '**/muse-fanqie-download/python/**', '**/muse-lvpaopao/native/**',
-    `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`]
+    `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`,
+    // LaunchServices requires the notarized helper bundles on disk.
+    '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/native/bin/**/*']
   const windowsSigner = packagesWindows && !unsigned
     ? createWindowsTokenSigner({
         certificateFile: env.DSH_DESKTOP_WINDOWS_CER_FILE,
@@ -109,7 +111,6 @@ export function createElectronBuilderConfig(
   const harnessVersion = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')).version
   const productVersion = readDesktopProductVersion()
   const buildVersion = resolveDesktopBuildVersion(env, productVersion)
-  if (update?.channel === 'latest' && buildVersion.includes('-')) throw new Error('desktop package: latest requires a stable version')
   const packaged = resolveDesktopBuildCommit(env)
   return {
     appId,
@@ -171,7 +172,7 @@ export function createElectronBuilderConfig(
     ],
     asarUnpack: unpack,
     extraResources: [
-      { from: buildPaths.runtime, to: 'runtime' },
+      { from: buildPaths.runtime, to: 'runtime', filter: ['**/*', '!hongguo', '!hongguo/**/*'] },
       { from: fileURLToPath(new URL('../renderer/icon.png', import.meta.url)), to: 'icon.png' },
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),

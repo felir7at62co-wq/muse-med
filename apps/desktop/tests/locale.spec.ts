@@ -16,7 +16,13 @@ describe('desktop locale dictionaries', () => {
     expect(messages.aboutProduct).toBe('Muse')
   })
 
-  it('ships the same key set in English and Chinese', () => {
+  it('uses the same concise Chinese configuration error in the toast and details', () => {
+    for (const message of [zh.updateConfigurationRead, zh.updateConfigurationFormat, zh.updateConfigurationChannel]) {
+      expect(message).toBe('配置文件异常，更新已暂停')
+    }
+  })
+
+  it('ships baseline and Japanese keys and falls back for unsupported languages', () => {
     expect(Object.keys(zh)).toEqual(Object.keys(en))
     expect(Object.keys(ja)).toEqual(Object.keys(en))
     expect(resolveDesktopLocale('JA-jp')).toEqual({ id: 'ja', messages: ja })

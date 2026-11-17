@@ -34,15 +34,15 @@ function checks(doc: ManuscriptMaterialsDocument) {
 const consistent = { status: 'consistent' as const, findings: [], unknowns: [] }
 
 it('schedules complete adjacent episode sections while keeping preamble outside the plan', () => {
-  expect(buildEpisodePlan(document(), 2)).toEqual({ path: '/workspace/final.md', file_sha256: 'a'.repeat(64),
+  expect(buildEpisodePlan(document())).toEqual({ path: '/workspace/final.md', file_sha256: 'a'.repeat(64),
     checks: [{ from_episode: 1, to_episode: 2 }, { from_episode: 2, to_episode: 3 }],
     not_checked: [], preamble_lines: 2, issues: [] })
 })
 
 it('distinguishes unread and partially read episode boundaries without treating excerpts as complete', () => {
-  expect(buildEpisodePlan(document({ start: 3, end: 9 }), 2)).toMatchObject({ checks: [{ from_episode: 1, to_episode: 2 }],
+  expect(buildEpisodePlan(document({ start: 3, end: 9 }))).toMatchObject({ checks: [{ from_episode: 1, to_episode: 2 }],
     not_checked: [{ from_episode: 2, to_episode: 3, reason: 'unread_episode' }] })
-  expect(buildEpisodePlan(document({ start: 3, end: 8 }), 2)).toMatchObject({ checks: [], not_checked: [
+  expect(buildEpisodePlan(document({ start: 3, end: 8 }))).toMatchObject({ checks: [], not_checked: [
     { from_episode: 1, to_episode: 2, reason: 'partial_episode' }, { from_episode: 2, to_episode: 3, reason: 'unread_episode' },
   ] })
 })
@@ -50,21 +50,20 @@ it('distinguishes unread and partially read episode boundaries without treating 
 it('reports a numbering gap instead of inventing an absent episode or calling nonconsecutive sections adjacent', () => {
   const doc = document()
   doc.episode_index.episodes[2] = { episode: 4, start: 10, end: 12 }
-  expect(buildEpisodePlan(doc, 2)).toMatchObject({ checks: [{ from_episode: 1, to_episode: 2 }],
+  expect(buildEpisodePlan(doc)).toMatchObject({ checks: [{ from_episode: 1, to_episode: 2 }],
     not_checked: [{ from_episode: 2, to_episode: 4, reason: 'numbering_gap' }] })
 })
 
 it.each(['unavailable', 'ambiguous'] as const)('refuses planning for %s episode headings', (state) => {
   const doc = document()
   doc.episode_index = { state, episodes: [], issues: ['标题不能确定唯一集序。'] }
-  const plan = buildEpisodePlan(doc, 2)
+  const plan = buildEpisodePlan(doc)
   expect(plan.checks).toEqual([])
   expect(plan.issues).toContain('标题不能确定唯一集序。')
 })
 
-it('rejects a reference target and refuses a scheduled-check overflow without truncating', () => {
-  expect(buildEpisodePlan({ ...document(), role: 'reference' }, 2).issues).toHaveLength(1)
-  expect(() => buildEpisodePlan(document(), 1)).toThrow('CROSS_EPISODE_PLAN_LIMIT')
+it('rejects a reference target as the assessed draft', () => {
+  expect(buildEpisodePlan({ ...document(), role: 'reference' }).issues).toHaveLength(1)
 })
 
 it('allows a small checked batch in a large indexed manuscript and reports every unread boundary', () => {
@@ -76,7 +75,7 @@ it('allows a small checked batch in a large indexed manuscript and reports every
   doc.selection = { kind: 'episodes', requested: [2], included: [1, 2, 3], adjacent: [1, 3] }
   doc.coverage = { basis: 'returned_text_lines', read_ranges: [{ start: 1, end: 3 }],
     unread_ranges: [{ start: 4, end: 115 }], full_document: false }
-  const plan = buildEpisodePlan(doc, 2)
+  const plan = buildEpisodePlan(doc)
   expect(plan.checks).toEqual([{ from_episode: 1, to_episode: 2 }, { from_episode: 2, to_episode: 3 }])
   expect(plan.not_checked).toHaveLength(112)
   expect(plan.not_checked.at(-1)).toEqual({ from_episode: 114, to_episode: 115, reason: 'unread_episode' })
@@ -84,11 +83,11 @@ it('allows a small checked batch in a large indexed manuscript and reports every
 
 it('accepts complete checks supported by both actual target episodes', () => {
   const doc = document()
-  expect(validateEpisodeChecks(checks(doc), buildEpisodePlan(doc, 2), doc, consistent)).toBeUndefined()
+  expect(validateEpisodeChecks(checks(doc), buildEpisodePlan(doc), doc, consistent)).toBeUndefined()
 })
 
 it('rejects missing, duplicate, reversed and unscheduled pair coverage', () => {
-  const doc = document(), plan = buildEpisodePlan(doc, 2), values = checks(doc)
+  const doc = document(), plan = buildEpisodePlan(doc), values = checks(doc)
   expect(validateEpisodeChecks(undefined, plan, doc, consistent)).toContain('missing or invalid')
   expect(validateEpisodeChecks(values.slice(0, 1), plan, doc, consistent)).toContain('complete Host schedule')
   expect(validateEpisodeChecks([values[0], values[0]], plan, doc, consistent)).toContain('duplicated or was not scheduled')
@@ -101,11 +100,11 @@ it.each(['role', 'path', 'file_sha256', 'text_sha256', 'line', 'quote'] as const
   const value = field === 'line' ? 12 : field === 'role' ? 'current' : field.endsWith('sha256') ? 'c'.repeat(64) : 'fabricated'
   const fabricated = { ...evidence, [field]: value }
   const first = { ...values[0], evidence: [fabricated, cite(doc, 8)] }
-  expect(validateEpisodeChecks([first, values[1]], buildEpisodePlan(doc, 2), doc, consistent)).toBeDefined()
+  expect(validateEpisodeChecks([first, values[1]], buildEpisodePlan(doc), doc, consistent)).toBeDefined()
 })
 
 it('rejects two citations from only one side or a citation from a third episode', () => {
-  const doc = document(), values = checks(doc), plan = buildEpisodePlan(doc, 2)
+  const doc = document(), values = checks(doc), plan = buildEpisodePlan(doc)
   expect(validateEpisodeChecks([{ ...values[0], evidence: [cite(doc, 4), cite(doc, 5)] }, values[1]], plan, doc, consistent))
     .toContain('each episode')
   expect(validateEpisodeChecks([{ ...values[0], evidence: [cite(doc, 5), cite(doc, 12)] }, values[1]], plan, doc, consistent))
@@ -113,7 +112,7 @@ it('rejects two citations from only one side or a citation from a third episode'
 })
 
 it('keeps an uncertain boundary unknown without inventing evidence or discarding root uncertainty', () => {
-  const doc = document(), plan = buildEpisodePlan(doc, 2), values = checks(doc)
+  const doc = document(), plan = buildEpisodePlan(doc), values = checks(doc)
   const uncertain = [{ ...values[0], status: 'unknown', explanation: '现有正文没有说明道具归属。', evidence: [] }, values[1]]
   expect(validateEpisodeChecks(uncertain, plan, doc, { status: 'unknown', findings: [], unknowns: ['道具归属仍未确定。'] })).toBeUndefined()
   expect(validateEpisodeChecks(uncertain, plan, doc, { status: 'unknown', findings: [], unknowns: [] })).toContain('root uncertainty')
@@ -121,7 +120,7 @@ it('keeps an uncertain boundary unknown without inventing evidence or discarding
 })
 
 it('requires each boundary issue to correspond to a grounded root finding touching both target episodes', () => {
-  const doc = document(), plan = buildEpisodePlan(doc, 2), values = checks(doc)
+  const doc = document(), plan = buildEpisodePlan(doc), values = checks(doc)
   const issues = [{ ...values[0], status: 'issues' }, values[1]]
   const finding = { evidence: [cite(doc, 5), cite(doc, 8)] }
   expect(validateEpisodeChecks(issues, plan, doc, { status: 'issues', findings: [finding], unknowns: [] })).toBeUndefined()
@@ -134,8 +133,8 @@ it('requires each boundary issue to correspond to a grounded root finding touchi
 
 it('rejects a stale plan and refuses a passing judgment with no complete checked boundaries', () => {
   const doc = document()
-  expect(validateEpisodeChecks(checks(doc), { ...buildEpisodePlan(doc, 2), file_sha256: 'c'.repeat(64) }, doc, consistent))
+  expect(validateEpisodeChecks(checks(doc), { ...buildEpisodePlan(doc), file_sha256: 'c'.repeat(64) }, doc, consistent))
     .toContain('does not match')
   const partial = document({ start: 3, end: 8 })
-  expect(validateEpisodeChecks([], buildEpisodePlan(partial, 2), partial, consistent)).toContain('No complete unambiguous')
+  expect(validateEpisodeChecks([], buildEpisodePlan(partial), partial, consistent)).toContain('No complete unambiguous')
 })

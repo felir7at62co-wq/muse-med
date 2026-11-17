@@ -1294,9 +1294,99 @@ it('bounds concurrent inspections and waits for owned cancellation when the plug
   await entered.promise
   const second = await h.call({ method: 'metadata' })
   expect(second.isError).toBe(true)
-  expect(second.content.some(block => block.type === 'text' && block.text.includes('busy'))).toBe(true)
+  expect(second.error?.info).toEqual({ name: 'HarnessError', code: 'VIDEO_INSPECT_BUSY' })
+  expect(second.content[0]?.type).toBe('text')
+  expect(second.error?.message).toContain('Video inspection is busy: all 1 inspection slots are in use. '
+    + 'Call the tool again; the frames you are currently viewing remain in your context.')
   await h.video.dispose()
   expect((await first).isError).toBe(true)
+}, 30_000)
+
+it('serves callers that find every slot busy in arrival order once slots free within slotWaitMs', async () => {
+  const h = await setup({ maxConcurrent: 1, slotWaitMs: 20_000 })
+  const entered = Promise.withResolvers<undefined>(), gate = Promise.withResolvers<undefined>()
+  vi.spyOn(h.ctx.llm, 'resolveModelInfo').mockImplementationOnce(async (provider, model) => {
+    entered.resolve(undefined)
+    await gate.promise
+    return { provider, id: model, name: model, inputModalities: ['text', 'image'] }
+  })
+  const timers = vi.spyOn(globalThis, 'setTimeout')
+  const waits = () => timers.mock.calls.filter(call => call[1] === 20_000).length
+  const first = h.call({})
+  await entered.promise
+  const finished: string[] = []
+  const second = h.call({ method: 'metadata' }).then((result) => { finished.push('second'); return result })
+  await vi.waitFor(() => { expect(waits()).toBe(1) })
+  const third = h.call({ method: 'metadata' }).then((result) => { finished.push('third'); return result })
+  await vi.waitFor(() => { expect(waits()).toBe(2) })
+  gate.resolve(undefined)
+  expect((await first).isError).toBe(false)
+  expect((await second).isError).toBe(false)
+  expect((await third).isError).toBe(false)
+  expect(finished).toEqual(['second', 'third'])
+}, 30_000)
+
+it('tells a caller to call again when no slot frees within slotWaitMs, and stops waiting on cancellation', async () => {
+  const h = await setup({ maxConcurrent: 1, slotWaitMs: 1500 })
+  const entered = Promise.withResolvers<undefined>(), gate = Promise.withResolvers<undefined>()
+  vi.spyOn(h.ctx.llm, 'resolveModelInfo').mockImplementationOnce(async (provider, model) => {
+    entered.resolve(undefined)
+    await gate.promise
+    return { provider, id: model, name: model, inputModalities: ['text', 'image'] }
+  })
+  const first = h.call({})
+  await entered.promise
+  const late = await h.call({ method: 'metadata' })
+  expect(late.isError).toBe(true)
+  expect(late.error?.info).toEqual({ name: 'HarnessError', code: 'VIDEO_INSPECT_BUSY' })
+  expect(late.content[0]?.type).toBe('text')
+  expect(late.error?.message).toContain('Video inspection is busy: all 1 inspection slots are in use '
+    + 'and none was freed within 1.5 seconds. Call the tool again; the frames you are currently viewing remain in your context.')
+  const timers = vi.spyOn(globalThis, 'setTimeout')
+  const controller = new AbortController()
+  const cancelled = h.ocr({ end_seconds: 1 }, controller.signal)
+  await vi.waitFor(() => { expect(timers.mock.calls.some(call => call[1] === 1500)).toBe(true) })
+  controller.abort(new Error('Stop waiting'))
+  const stopped = await cancelled
+  expect(stopped.isError).toBe(true)
+  expect(JSON.stringify(stopped.content)).not.toContain('VIDEO_INSPECT_BUSY')
+  gate.resolve(undefined)
+  expect((await first).isError).toBe(false)
+  expect((await h.call({ method: 'metadata' })).isError).toBe(false)
+}, 30_000)
+
+it('skips a cancelled waiter after handoff and leaves the slot available for the next caller', async () => {
+  const h = await setup({ maxConcurrent: 1, slotWaitMs: 20_000 })
+  const entered = Promise.withResolvers<undefined>(), gate = Promise.withResolvers<undefined>()
+  vi.spyOn(h.ctx.llm, 'resolveModelInfo').mockImplementationOnce(async (provider, model) => {
+    entered.resolve(undefined)
+    await gate.promise
+    return { provider, id: model, name: model, inputModalities: ['text', 'image'] }
+  })
+  const first = h.call({})
+  await entered.promise
+  const controller = new AbortController()
+  const timers = vi.spyOn(globalThis, 'setTimeout')
+  const immediate = globalThis.clearTimeout
+  let readsAtCancellation: number | undefined
+  const reads = vi.spyOn(h.ctx.fs, 'resolve')
+  vi.spyOn(globalThis, 'clearTimeout').mockImplementation((timer) => {
+    immediate(timer)
+    if (timers.mock.results.some((result, index) => timers.mock.calls[index]?.[1] === 20_000
+      && result.type === 'return' && result.value === timer)) {
+      readsAtCancellation = reads.mock.calls.length
+      controller.abort(new Error('Cancelled at handoff'))
+    }
+  })
+  const waiting = h.ocr({ end_seconds: 1 }, controller.signal)
+  const queued = () => timers.mock.calls.some(call => call[1] === 20_000)
+  await vi.waitFor(() => { expect(queued()).toBe(true) })
+  gate.resolve(undefined)
+  expect((await first).isError).toBe(false)
+  expect((await waiting).isError).toBe(true)
+  expect(readsAtCancellation).toBeDefined()
+  expect(reads.mock.calls).toHaveLength(readsAtCancellation!)
+  expect((await h.call({ method: 'metadata' })).isError).toBe(false)
 }, 30_000)
 
 it('rejects an unresolved image route, while metadata remains callable without an agent', async () => {

@@ -113,6 +113,16 @@ describe.skipIf(MODE === 'record')('web e2e: compact Tool details', () => {
       expect(await row.locator('[class*="ioCard"]').count()).toBe(0)
       expect(await row.getByRole('button', { name: 'Inspect', exact: true }).count()).toBe(1)
     }
+    const agentRow = page.locator('[data-tool="list_agents"]').getByRole('listitem').first()
+    expect(await agentRow.getByRole('button').count()).toBe(0)
+    expect(await agentRow.locator('svg').count()).toBe(0)
+    // Read both positions in one browser task so scrolling cannot move the viewport between measurements.
+    const agentLayout = await agentRow.evaluate((element) => {
+      const description = element.querySelector('[class*="heading"] > span')!.getBoundingClientRect()
+      const name = element.querySelector('[class*="subtitle"]')!.getBoundingClientRect()
+      return { descriptionBottom: description.bottom, nameTop: name.top }
+    })
+    expect(agentLayout.descriptionBottom).toBeLessThanOrEqual(agentLayout.nameTop)
     const changedTodos = page.locator('[data-tool="todo_write"]').nth(1)
     await changedTodos.getByText('1 added · 1 updated · 1 removed', { exact: true }).waitFor()
     for (const summary of await page.locator('[data-tool] details > summary').all()) await summary.click()
@@ -125,6 +135,7 @@ describe.skipIf(MODE === 'record')('web e2e: compact Tool details', () => {
     const snapshot = snapshots.join('\n')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
     await page.setViewportSize({ width: 360, height: 800 })
+    await page.locator('[data-sidebar-drawer]').waitFor()
     const cards = page.locator('[data-chat-call-id] [data-tool="schedule_create"]')
     expect(await cards.count()).toBe(recordedCalls.filter(call => call.name === 'schedule_create').length)
     for (const card of await cards.all()) {

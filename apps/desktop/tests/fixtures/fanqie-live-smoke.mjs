@@ -150,7 +150,7 @@ function checkChapters(text, title, chapters) {
 export async function checkFanqieLive(root, resourcesRuntime, environment = process.env, mount = mountFanqieRuntime) {
   const selected = fanqieLiveBook(environment)
   if (selected === null) return { required: false }
-  const python = environment.MUSE_HONGGUO_PYTHON_PATH
+  const python = environment.MUSE_FANQIE_PYTHON_PATH ?? environment.MUSE_HONGGUO_PYTHON_PATH
   assert.ok(typeof python === 'string' && isAbsolute(python) && inside(resolve(resourcesRuntime), resolve(python)),
     'Fanqie live acceptance requires the bundled Python')
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'muse-fanqie-live-')))

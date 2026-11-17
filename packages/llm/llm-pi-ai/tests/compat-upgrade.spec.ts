@@ -26,6 +26,16 @@ describe('pi-ai gateway compatibility declarations', () => {
       .toMatchObject({ supportsMaxOutputTokens: false })
   })
 
+  it.each([true, false])('preserves Chat Completions mid-conversation system support: %s', (enabled) => {
+    expect(resolved({ supportsMidConvoSystemMessages: enabled }))
+      .toMatchObject({ supportsMidConvoSystemMessages: enabled })
+  })
+
+  it('rejects Chat Completions mid-conversation system support on another protocol', () => {
+    expect(() => resolved({ supportsMidConvoSystemMessages: true }, 'anthropic-messages'))
+      .toThrow(/compat/)
+  })
+
   it.each(['chatTemplateKwargs', 'chatTemplateArgs'])('accepts thinking.budget in %s', (field) => {
     const value = { budget: { $var: 'thinking.budget' } }
     expect(resolved({ [field]: value })).toMatchObject({ [field]: value })
@@ -51,7 +61,7 @@ describe('pi-ai gateway compatibility declarations', () => {
   })
 
   it.each([
-    'supportsMidConvoEffort', 'allowedFallbackModels', 'supportsMidConvoSystemMessages',
+    'supportsMidConvoEffort', 'allowedFallbackModels',
     'supportsMidConvoToolAdditions', 'supportsMidConvoToolChanges', 'sessionAffinityFormat',
   ])('withholds catalog-owned %s', (field) => {
     expect(() => resolved({ [field]: true }, 'anthropic-messages'))
@@ -60,9 +70,9 @@ describe('pi-ai gateway compatibility declarations', () => {
 
   it('withholds Mistral conversation capabilities', () => {
     expect(() => resolveProfiles({
-      mistral: { compat: { supportsMidConvoSystemMessages: true } as never },
+      mistral: { compat: { supportsMidConvoSystemMessages: true } },
     }))
-      .toThrow(/which is not configurable here/)
+      .toThrow(/no model on the route speaks a protocol that takes it/)
   })
 
   it('keeps generic additions absent unless configured', () => {

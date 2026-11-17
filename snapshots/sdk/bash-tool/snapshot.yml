@@ -6,4 +6,6 @@ recording: live
 header:
   class: sdk-default
   pin: true
+  systemPromptSource: text-turn
+  toolSchemasSource: session/text-turn
 writerOutput: true

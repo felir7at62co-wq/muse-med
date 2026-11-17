@@ -3,6 +3,7 @@ scenario: optional-string-editor
 profile: web
 composition: web-ptc-string-editor
 recording: authored
+writerOutput: true
 header:
   class: web-ptc-string-editor
   pin: true

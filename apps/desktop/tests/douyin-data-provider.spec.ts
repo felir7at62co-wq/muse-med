@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { runInNewContext } from 'node:vm'
 import { JSDOM } from 'jsdom'
-import type { DouyinVideoId } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+import type { DouyinDataSnapshot, DouyinVideoId } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 import { creatorData, providerCount, publicData, publicDataProbe } from '../src/douyin-data-provider.ts'
 import { PROVIDER_MAX_BYTES } from '../src/douyin-provider.ts'
 
@@ -17,10 +17,228 @@ const body = (statistics: object = stats, aweme_id: string = target) => JSON.str
 it('returns the exposed exact work counters without author, authentication or media fields', () => {
   const result = publicData(body(), target, observedAt, comments)
   expect(result).toEqual({ status: 'ok', source: 'public-page', targetVideoId: target, observedAt,
+    metadata: { description: null, authorName: null, publishedAt: null },
     counts: { play_count: { value: 8675309, precision: 'exact' },
       digg_count: { value: 12, precision: 'exact' }, comment_count: { value: 0, precision: 'exact' },
       share_count: { value: 2, precision: 'exact' }, collect_count: { value: 3, precision: 'exact' } }, comments })
   expect(JSON.stringify(result)).not.toMatch(/private|play_addr|sec_uid|token/)
+})
+
+it('returns bounded public metadata from the exact work even without statistics', () => {
+  const value = JSON.stringify({ aweme_detail: { aweme_id: target, desc: '第一集', create_time: 1790000000,
+    author: { nickname: '短剧作者', sec_uid: 'PRIVATE' }, video: { url: 'PRIVATE' } } })
+  const result = publicData(value, target, observedAt, comments)
+  expect(result?.metadata).toEqual({ description: '第一集', authorName: '短剧作者', publishedAt: 1790000000 })
+  expect(result?.counts.digg_count).toEqual({ value: null, precision: 'unavailable', reason: 'missing' })
+  expect(JSON.stringify(result)).not.toContain('PRIVATE')
+  expect(publicData(value, '7692443246022167852' as DouyinVideoId, observedAt, comments)).toBeUndefined()
+})
+
+it('refuses oversized and control-bearing fields rather than forwarding them', () => {
+  const value = JSON.stringify({ aweme_detail: { aweme_id: target, statistics: stats,
+    desc: 'x'.repeat(5001), author: { nickname: 'bad\u0000name' }, create_time: -1 } })
+  expect(publicData(value, target, observedAt, comments)?.metadata)
+    .toEqual({ description: null, authorName: null, publishedAt: null })
+})
+
+it('projects only bounded selected initial metadata, preserving unavailable fields', () => {
+  const data = { document: { readyState: 'complete' }, window: { _ROUTER_DATA: { loaderData: { video: { videoInfoRes: { item_list: [
+    { aweme_id: '7692443246022167852', desc: 'OTHER', author: { nickname: 'OTHER' } },
+    { aweme_id: target, desc: '作品文案', author: { nickname: '作者', sec_uid: 'PRIVATE' }, create_time: 1790000000 },
+  ] } } } } } }
+  const projected = String(runInNewContext(publicDataProbe(target), data))
+  expect(publicData(projected, target, observedAt, comments)?.metadata)
+    .toEqual({ description: '作品文案', authorName: '作者', publishedAt: 1790000000 })
+  expect(projected).not.toMatch(/OTHER|PRIVATE/)
+})
+
+it('refuses an oversized initial-data scan and duplicate creator rows', () => {
+  const rows = [{ aweme_id: target, statistics: stats }, ...Array.from({ length: 16 }, () => ({}))]
+  expect(runInNewContext(publicDataProbe(target), { document: { readyState: 'complete' },
+    window: { _ROUTER_DATA: { loaderData: { video: { videoInfoRes: { item_list: rows } } } } } })).toBeNull()
+  const row = { aweme_id: target, statistics: { ...stats, aweme_id: target } }
+  const duplicate = JSON.stringify({ status_code: 0, aweme_list: [row, row], can_modify: [true, true] })
+  expect(creatorData(duplicate, target, observedAt, comments).data).toBeUndefined()
+  expect(publicData(JSON.stringify({ aweme_detail: { aweme_id: target, desc: '错误统计目标',
+    statistics: { aweme_id: '7692443246022167852', digg_count: 1 } } }), target, observedAt, comments)).toBeUndefined()
+})
+
+function seriesPage(markup = `<section><h2>短剧 · 重生换亲娶千金</h2><ul>
+  <li><a href="/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li>
+  <li><a href="/video/7692443246022167852">第2集</a></li></ul></section>`): JSDOM {
+  const dom = new JSDOM(markup, { url: `https://www.douyin.com/video/${target}` })
+  Object.defineProperty(dom.window.document, 'readyState', { value: 'complete' })
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+    const visible = !this.closest('[data-hidden]')
+    return { x: 0, y: 0, top: 0, left: 0, bottom: 20, right: 20, width: visible ? 20 : 0,
+      height: visible ? 20 : 0, toJSON: () => ({}) }
+  }
+  return dom
+}
+
+function readPage(dom: JSDOM): DouyinDataSnapshot | undefined {
+  const body: unknown = runInNewContext(publicDataProbe(target), { document: dom.window.document, window: dom.window, URL })
+  return typeof body === 'string' ? publicData(body, target, observedAt, comments, true) : undefined
+}
+
+it('reads an exactly bound visible series even before counters are ready', () => {
+  const dom = seriesPage()
+  try {
+    const value = readPage(dom)
+    expect(value?.metadata).toMatchObject({ seriesTitle: '重生换亲娶千金', seriesSource: 'visible-series-list' })
+    expect(value?.counts.digg_count).toEqual({ value: null, precision: 'unavailable', reason: 'missing' })
+  } finally { dom.window.close() }
+})
+
+it('reads visible text fragments in one DIV while excluding hidden descendants', () => {
+  const dom = seriesPage(`<div><h2>短剧 · My Life</h2><ul><li><a href="/video/${target}">
+    <span>短剧 · My Life</span><span data-hidden>无关隐藏文字</span><span>第1集 播放中</span>
+    </a></li></ul></div>`)
+  try {
+    expect(readPage(dom)?.metadata).toMatchObject({ seriesTitle: 'My Life', seriesSource: 'visible-series-list' })
+  } finally { dom.window.close() }
+})
+
+it.each(['播放中', '第1集 播放中', '短剧 · 甲第1集 播放中'])(
+  'binds a selected playing entry with the supported label %s', (active) => {
+    const dom = seriesPage(`<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">${active}</a>
+      <h3><a href="/video/${target}">第1集 | #AI短剧</a></h3></li></ul></div>`)
+    try { expect(readPage(dom)?.metadata?.seriesTitle).toBe('甲') } finally { dom.window.close() }
+  },
+)
+
+it('ignores an explicitly hidden conflicting episode in the selected entry', () => {
+  const dom = seriesPage(`<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a>
+    <a href="/video/${target}"><span>第1集</span><span data-hidden>第2集</span></a></li></ul></div>`)
+  try { expect(readPage(dom)?.metadata?.seriesTitle).toBe('甲') } finally { dom.window.close() }
+})
+
+it('accepts an explicit episode in a visible non-link sibling of the selected link', () => {
+  const dom = seriesPage(`<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><span>第1集</span></li></ul></div>`)
+  try { expect(readPage(dom)?.metadata?.seriesTitle).toBe('甲') } finally { dom.window.close() }
+})
+
+it('accepts a matching series label split across visible text nodes', () => {
+  const dom = seriesPage(`<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a>
+    <span>短剧</span><span> · 甲第1集</span></li></ul></div>`)
+  try { expect(readPage(dom)?.metadata?.seriesTitle).toBe('甲') } finally { dom.window.close() }
+})
+
+it('refuses visible text when its bounded node scan overflows', () => {
+  const markup = `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">
+    <span>短剧 · 甲第1集 播放中</span>${'<span></span>'.repeat(128)}</a></li></ul></div>`
+  const dom = seriesPage(markup)
+  try { expect(readPage(dom)).toBeUndefined() } finally { dom.window.close() }
+})
+
+it('combines the bound series with the visible target action strip', () => {
+  const dom = seriesPage(`<section><h2>短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/${target}"
+    aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section><video></video><div>
+    <div><svg></svg><span>13</span></div><div><svg></svg><span>4</span></div>
+    <div><svg></svg><span>1</span></div><div data-e2e="video-share-icon-container"><svg></svg><span>3</span></div></div>`)
+  Object.defineProperty(dom.window.document.querySelector('video'), 'readyState', { value: 2 })
+  try {
+    const value = readPage(dom)
+    expect(value?.metadata?.seriesTitle).toBe('重生换亲娶千金')
+    expect(value?.counts.digg_count).toEqual({ value: 13, precision: 'exact' })
+  } finally { dom.window.close() }
+})
+
+it('preserves spaces in the original visible series title', () => {
+  const dom = seriesPage(`<section><h2>短剧 · My Life</h2><ul><li><a href="/video/${target}"
+    aria-label="短剧 · My Life 第1集 播放中">第1集</a></li></ul></section>`)
+  try { expect(readPage(dom)?.metadata?.seriesTitle).toBe('My Life') } finally { dom.window.close() }
+})
+
+it('ignores a regular episode caption when the complete series label identifies the target', () => {
+  const dom = seriesPage(`<section><h2>短剧 · My Life</h2><ul><li><a href="/video/${target}"
+    aria-label="短剧 · My Life 第1集 播放中">第1集 | #AI短剧</a></li></ul></section>`)
+  try { expect(readPage(dom)?.metadata?.seriesTitle).toBe('My Life') } finally { dom.window.close() }
+})
+
+it.each([
+  `<section><h2>短剧 · 错误标题</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section>`,
+  '<section><h2>短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/7692443246022167852" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section>',
+  `<section><h2 data-hidden>短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section>`,
+  `<section><h2>短剧 · 重生换亲娶千金</h2><h2>短剧 · 另一部</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section>`,
+  `<section><h2>短剧 · 重生换亲娶千金</h2><ul>${Array.from({ length: 2 }, () => `<li><a href="/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li>`).join('')}</ul></section>`,
+  `<section><h2>短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中" title="短剧 · 另一部第1集 播放中">第1集</a></li></ul></section>`,
+  `<section><h2>短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li>${'<li><a href="/video/1">推荐</a></li>'.repeat(64)}</ul></section>`,
+  `<section><h2>短剧 · 重生换亲娶千金</h2><ul><li><a href="https://name@www.douyin.com/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section>`,
+  `<section><h2>短剧 · 重生换亲娶千金</h2><ul><li><a href="https://www.douyin.com:8443/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section>`,
+  `<section><h2>短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/${target}?modal_id=7692443246022167852" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section>`,
+  `<section><h2>短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/${target}"><span data-hidden>短剧 · 重生换亲娶千金第1集 播放中</span></a></li></ul></section>`,
+  `<section><h2 style="visibility:hidden">短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section>`,
+  `<div style="visibility:hidden"><section><h2>短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section></div>`,
+  `<section><h2 style="clip-path:inset(100%)">短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section>`,
+  `<section><h2 style="color:transparent">短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section>`,
+  `<section><h2>短剧 · My Life</h2><ul><li><a href="/video/${target}" aria-label="短剧 · MyLife第1集 播放中">第1集</a></li></ul></section>`,
+  `<section><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">短剧 · 乙第1集</a></li></ul></section>`,
+  `<section><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">短剧 · 甲第2集</a></li></ul></section>`,
+  `<section><aside><h2>短剧 · 甲</h2><ul><li>另一列表</li></ul></aside><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></section>`,
+  `<section><aside><h2>短剧 · 甲</h2></aside><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></section>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}"><span>短剧 · 甲第1集</span><span data-hidden> 播放中</span></a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul><ul><li>其他列表</li></ul></div>`,
+  `<div><aside><h2>短剧 · 甲</h2></aside><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></div>`,
+  `<div><section><h2>短剧 · 甲</h2></section><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></div>`,
+  `<div><div role="region"><h2>短剧 · 甲</h2></div><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></div>`,
+  `<div><div role="navigation"><h2>短剧 · 甲</h2></div><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></div>`,
+  `<div><div role="complementary"><h2>短剧 · 甲</h2></div><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></div>`,
+  `<div><div role="group"><h2>短剧 · 甲</h2></div><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></div>`,
+  `<div><div role="article"><h2>短剧 · 甲</h2></div><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></div>`,
+  `<div><div role="presentation navigation"><h2>短剧 · 甲</h2></div><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></div>`,
+  `<div><div role="region complementary"><h2>短剧 · 甲</h2></div><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></div>`,
+  `<div><h2>短剧 · My Life</h2><ul><li><a href="/video/${target}" aria-label="短剧 · MyLife第1集 播放中">第1集</a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><a href="/video/${target}">短剧 · 乙第1集</a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">第1集 播放中</a><a href="/video/${target}">第2集 | #AI短剧</a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a></li><li><a href="/video/7692443246022167852">播放中</a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中 <span>推荐</span></a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><a href="/video/7692443246022167852">第2集</a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><span>短剧 · 乙第1集</span></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">第1集 播放中</a><span>第2集</span></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><span>短剧</span><span> · 乙第1集</span></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><span>短剧</span><span> · 甲乙第1集</span></li></ul></div>`,
+])('refuses ambiguous or unrelated visible series evidence %#', (markup) => {
+  const dom = seriesPage(markup)
+  try { expect(readPage(dom)).toBeUndefined() } finally { dom.window.close() }
+})
+
+it.each([
+  { rows: Array.from({ length: 17 }, () => ({})) },
+  { rows: [{ aweme_id: target, statistics: stats }, { aweme_id: target, statistics: stats }] },
+  { rows: [{ aweme_id: target, statistics: { ...stats, aweme_id: '7692443246022167852' } }] },
+])('keeps the separately verified series while refusing ambiguous initial data %#', ({ rows }) => {
+  const dom = seriesPage()
+  Object.defineProperty(dom.window, '_ROUTER_DATA', { value: { loaderData: { page: { videoInfoRes: { item_list: rows } } } } })
+  try {
+    const result = readPage(dom)
+    expect(result?.metadata?.seriesTitle).toBe('重生换亲娶千金')
+    expect(result?.counts.digg_count).toEqual({ value: null, precision: 'unavailable', reason: 'missing' })
+  } finally { dom.window.close() }
+})
+
+it('keeps a verified series when the action-strip candidate budget is exceeded', () => {
+  const dom = seriesPage(`<section><h2>短剧 · 重生换亲娶千金</h2><ul><li><a href="/video/${target}"
+    aria-label="短剧 · 重生换亲娶千金第1集 播放中">第1集</a></li></ul></section><video></video>
+    ${'<div data-e2e="video-share-icon-container"></div>'.repeat(17)}`)
+  Object.defineProperty(dom.window.document.querySelector('video'), 'readyState', { value: 2 })
+  try {
+    const result = readPage(dom)
+    expect(result?.metadata?.seriesTitle).toBe('重生换亲娶千金')
+    expect(result?.counts.digg_count).toEqual({ value: null, precision: 'unavailable', reason: 'missing' })
+  } finally { dom.window.close() }
+})
+
+it('refuses a current document with a conflicting modal target', () => {
+  const dom = seriesPage()
+  dom.reconfigure({ url: `https://www.douyin.com/video/${target}?modal_id=7692443246022167852` })
+  try { expect(readPage(dom)).toBeUndefined() } finally { dom.window.close() }
+})
+
+it('does not trust a claimed visible series in a network response', () => {
+  const response = JSON.stringify({ aweme_detail: { aweme_id: target, statistics: stats },
+    visibleSeries: { title: '未验证', source: 'visible-series-list' } })
+  expect(publicData(response, target, observedAt, comments)?.metadata?.seriesTitle).toBeUndefined()
 })
 
 it('reports the public zero play placeholder as unavailable without inferring a value', () => {
@@ -65,6 +283,19 @@ it('reads the normal visible action strip without inferring unavailable public v
       digg_count: { value: 13, precision: 'exact' }, comment_count: { value: 4, precision: 'exact' },
       collect_count: { value: 1, precision: 'exact' }, share_count: { value: 3, precision: 'exact' } })
     expect(String(projected)).not.toContain('999')
+  } finally { dom.window.close() }
+})
+
+it('keeps the existing action-strip observation when series visibility rules do not apply', () => {
+  const dom = actionPage()
+  const share = dom.window.document.querySelector<HTMLElement>('[data-e2e="video-share-icon-container"]')
+  if (share === null) throw new Error('Missing fixture share icon')
+  share.style.clipPath = 'inset(100%)'
+  try {
+    const body: unknown = runInNewContext(publicDataProbe(target), { document: dom.window.document, window: dom.window })
+    expect(typeof body).toBe('string')
+    expect(publicData(String(body), target, observedAt, comments)?.counts.digg_count)
+      .toEqual({ value: 13, precision: 'exact' })
   } finally { dom.window.close() }
 })
 

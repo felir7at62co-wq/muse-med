@@ -40,6 +40,18 @@ function bound(releases: readonly MuseMarketBindingEntry[]): SessionEvent<'muse-
 }
 
 describe('durable market binding projection', () => {
+  it('restores a binding whose Skill has no optional usage hint without introducing an undefined field', async () => {
+    const { entries } = await setup(), entry = entries[0]
+    if (entry === undefined) throw new Error('Expected a verified release')
+    const skill = { name: entry.skill.name, description: entry.skill.description, invocation: entry.skill.invocation }
+    const restored = definition.stateSchema.parse({ bound: true, requested: false, releases: [{ release: entry.release, skill }] })
+    expect(restored.releases[0]?.skill).toEqual(skill)
+    expect(Object.hasOwn(restored.releases[0]!.skill, 'whenToUse')).toBe(false)
+    expect(definition.apply(definition.init(), bound(restored.releases))).toEqual(restored)
+    expect(definition.stateSchema.safeParse({ ...restored, bound: false }).success).toBe(false)
+    expect(definition.stateSchema.parse(definition.init())).toEqual({ bound: false, requested: false, releases: [] })
+  })
+
   it('preserves the actual release set through SessionStore.fork and cold projection restoration', async () => {
     const { ctx, entries, local, installed, handle } = await setup()
     const parent = ctx.sessions.create(SessionId('market-binding-parent'))

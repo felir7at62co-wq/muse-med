@@ -45,6 +45,8 @@ Internal Web image drags do not show the full-page overlay. A foreign or expired
 
 ### Drop overlay
 
+Drops within a Conversation reach only that Conversation's composer. A drop outside all Conversations is accepted only when one composer is mounted; multiple composers never consume an ambiguous page-wide drop.
+
 While an external file drag is over the page, the full-viewport overlay announces the drop: illustration, title, and a limits line when drops are accepted. The overlay only shows state — the owner's document-level listeners decide accept or reject, and the drop handler reports which dropped members are directories through the entry API so the owner can cite or refuse them.
 
 Dragging a workspace-tree file shows a reference invitation without upload limits. The listener forwards its opaque ticket to the conversation owner; internal drags take precedence over any browser `Files` entries and never enter the upload path. The owner independently controls whether workspace references can be accepted.

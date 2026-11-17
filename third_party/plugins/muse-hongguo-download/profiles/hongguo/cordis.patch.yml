@@ -1,0 +1,18 @@
+- id: muse-hongguo-download
+  disabled: true
+- id: hmr
+  disabled: true
+- id: credentials
+  disabled: true
+- id: authorization
+  disabled: true
+- id: deepseek-account
+  disabled: true
+- insert:
+    - id: muse-hongguo-cli
+      name: muse-hongguo-download/cli
+      config:
+        quality: 1080p
+        ffmpegExecutable: !!js process.env.MUSE_HONGGUO_FFMPEG_PATH || process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || ''
+        ffprobeExecutable: !!js process.env.MUSE_HONGGUO_FFPROBE_PATH || process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || ''
+        bytevc2Executable: !!js process.env.MUSE_HONGGUO_BYTEVC2_PATH || ''

@@ -27,6 +27,8 @@ const { projectSubtitleFixtureReport } = reportModule as {
 }
 const { consumeDraftSeed } = draftSeedModule as { consumeDraftSeed: (workspace: string) => Promise<void> }
 const runFile = promisify(execFile)
+const sourcePluginNames = ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools',
+  'muse-fanqie-download', 'muse-qimao-data', 'muse-source-research', 'muse-lvpaopao']
 
 async function workspace() {
   const root = await mkdtemp(join(tmpdir(), 'dsh-muse-fixture-'))
@@ -39,22 +41,24 @@ async function workspace() {
     await rm(root, { recursive: true, force: true })
   })()
   onTestFinished(dispose)
+  const startFile = (file: string, args: string[]) => {
+    controller.signal.throwIfAborted()
+    const result = runFile(file, args,
+      { cwd: root, encoding: 'utf8', timeout: 30000, windowsHide: true, signal: controller.signal })
+    const closed = new Promise<void>(resolve => result.child.once('close', () => { resolve() }))
+    children.add(closed)
+    void closed.then(() => { children.delete(closed) })
+    const collected = (async () => {
+      try { return await result }
+      finally { await closed }
+    })()
+    return { child: result.child, result: collected }
+  }
   return {
     root,
     dispose,
-    startNode(args: string[]) {
-      controller.signal.throwIfAborted()
-      const result = runFile(process.execPath, args,
-        { cwd: root, timeout: 30000, windowsHide: true, signal: controller.signal })
-      const closed = new Promise<void>(resolve => result.child.once('close', () => { resolve() }))
-      children.add(closed)
-      void closed.then(() => { children.delete(closed) })
-      const collected = (async () => {
-        try { return await result }
-        finally { await closed }
-      })()
-      return { child: result.child, result: collected }
-    },
+    startFile,
+    startNode: (args: string[]) => startFile(process.execPath, args),
   }
 }
 
@@ -89,7 +93,7 @@ it('loads the real peer dependency from the installed fixture owner instead of t
   await mkdir(dependency, { recursive: true })
   await writeFile(join(dependency, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-atomic-write', type: 'module', exports: './index.js' }))
   await writeFile(join(dependency, 'index.js'), 'export const fixtureDependency = "installed-peer"\n')
-  for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-qimao-data', 'muse-source-research', 'muse-lvpaopao']) {
+  for (const plugin of sourcePluginNames) {
     const directory = join(source, plugin)
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, 'package.json'), JSON.stringify({ name: plugin, type: 'module',
@@ -143,6 +147,44 @@ it('loads the real peer dependency from the installed fixture owner instead of t
   }
 })
 
+it('keeps active source plugin artifacts out of Git and lint source discovery', async () => {
+  const fixture = await workspace()
+  const source = join(fixture.root, 'source'), installed = join(fixture.root, 'installed')
+  const nodeModules = join(installed, 'node_modules')
+  await mkdir(nodeModules, { recursive: true })
+  await copyFile(new URL('../.gitignore', import.meta.url), join(installed, '.gitignore'))
+  for (const plugin of sourcePluginNames) {
+    const directory = join(source, plugin)
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'package.json'), JSON.stringify({ name: plugin, type: 'module', exports: { '.': './index.js' } }))
+    await writeFile(join(directory, 'index.js'), 'export const fixtureSource = true\n')
+  }
+  const invalidDeclaration = 'export declare const:;\n'
+  await writeFile(join(source, 'muse-hongguo-download', 'generated.d.ts'), invalidDeclaration)
+  await stageSourceMusePlugins(source, nodeModules)
+  const staged = await realpath(join(nodeModules, 'muse-hongguo-download'))
+  expect(staged.split(/[/\\]/)).not.toContain('node_modules')
+  expect(await readFile(join(staged, 'generated.d.ts'), 'utf8')).toBe(invalidDeclaration)
+  await writeFile(join(installed, 'control.ts'), 'export const fixtureControl = true\n')
+  const git = (args: string[]) => fixture.startFile('git', ['-c', `safe.directory=${installed}`,
+    '-c', 'core.excludesFile=', '-C', installed, ...args]).result
+  await git(['init', '--quiet'])
+  const sources = async () => (await git(['ls-files', '--others', '--exclude-standard', '-z'])).stdout.split('\0').filter(Boolean).sort()
+  expect(await sources()).toEqual(['.gitignore', 'control.ts'])
+  const config = join(fixture.root, 'scan.oxlintrc.json')
+  await writeFile(config, JSON.stringify({ plugins: [], categories: { correctness: 'off' } }))
+  const scan = () => fixture.startNode([fileURLToPath(new URL('../node_modules/oxlint/bin/oxlint', import.meta.url)),
+    '--config', config, '--threads=1', '--format=json', installed]).result
+  const clean = await scan()
+  expect(JSON.parse(clean.stdout)).toMatchObject({ diagnostics: [] })
+  expect(clean.stderr).toBe('')
+  const oldLayout = join(installed, '.source-muse-plugins')
+  await mkdir(oldLayout)
+  await writeFile(join(oldLayout, 'legacy-source.ts'), invalidDeclaration)
+  expect(await sources()).toContain('.source-muse-plugins/legacy-source.ts')
+  await expect(scan()).rejects.toMatchObject({ code: 1, stdout: expect.stringContaining('legacy-source.ts') })
+})
+
 it('resolves staged source peers through the source launcher without a second Cordis registry', async () => {
   const fixture = await workspace()
   const source = join(fixture.root, 'source'), nodeModules = join(fixture.root, 'installed', 'node_modules')
@@ -152,8 +194,7 @@ it('resolves staged source peers through the source launcher without a second Co
   await writeFile(join(fixture.root, 'tsconfig.json'), JSON.stringify({
     extends: fileURLToPath(new URL('../tsconfig.base.json', import.meta.url)),
   }))
-  for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools',
-    'muse-fanqie-download', 'muse-qimao-data', 'muse-source-research', 'muse-lvpaopao']) {
+  for (const plugin of sourcePluginNames) {
     const directory = join(source, plugin)
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, 'package.json'), JSON.stringify({ name: plugin, type: 'module',

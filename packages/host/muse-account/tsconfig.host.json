@@ -30,7 +30,9 @@
     "src/media-types.ts",
     "src/media-import.ts",
     "src/media-file-helper.ts",
-    "src/media-tools.ts"
+    "src/media-tools.ts",
+    "src/douyin-station.ts",
+    "src/douyin-tools.ts"
   ],
   "references": [
     {

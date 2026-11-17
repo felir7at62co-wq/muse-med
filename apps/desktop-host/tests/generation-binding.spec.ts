@@ -110,7 +110,7 @@ describe('native generation execution binding', () => {
     owner.provide('generationWorkspaceAuthority', h.ctx.generationWorkspaceAuthority)
     owner.provide('workingDirectory', h.ctx.workingDirectory)
     await owner.plugin(AgentRegistry)
-    const detach = owner.agents.enter(h.agent, undefined)
+    const detach = owner.agents.enter(h.agent)
     onTestFinished(detach)
     const captured = await captureGenerationSessionBinding(owner, h.agent, new AbortController().signal)
     if (captured === undefined) throw new Error('binding not captured')

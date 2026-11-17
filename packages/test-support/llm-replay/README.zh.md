@@ -69,6 +69,8 @@ kind: "package-reference"
 
 fixture 是运行一次真实 agent 所产生的一份选定持久化 Session generation 投影，本插件不录制。快照 harness 会提供数值最高的规范 parent 路径（v0 为 `<scenario>/session.jsonl`，正 generation 为 `<scenario>/session.vN.jsonl`），并在回放前校验文件名与 header 一致。fixture 保留 header 与每个事件 payload，但省略正文的 `seq`/`time` envelope（历史 packed row 使用 `seq0`/`time0`）。回放会补充连续序号与确定性时间戳，恢复被快照 token 替换的类型化值，拒绝不完整或混合 envelope，通过构建期静态 Session 格式 catalog 解码完整物理产物，并在公开事件或继承 cut 前于内存中迁移历史输入；当前输入直接 restore。仅对投影 v0 header，缺失的 `delegationDepth` 表示 `0`。parser 从不重写或重命名 fixture。运行时持久化继续写入完整日志。回放会展开当前视图中每个 `assistant/message` 或 `assistant/attempt` 的紧凑流，因此已记录 fixture 会回放出与在线模型产生的相同逻辑流。fixture 的 `request/header` 内容可能 token 化为 `{{system}}`/`{{tools}}`；回放会物化仅用于校验的值，而派生只读取 Assistant settlement、带标记的 summary 事件与 Session metadata。每个回放 fixture 与比较 fixture 都必须通过同一个只基于内容的 catalog 校验；回放绝不修复被拒绝的产物。比较编码保留已接受的 catalog 输出，包括扩展 request-header 字段；当前版本的 `header.system` 会被拒绝。协议通知的预期输出直接与当前写入器输出比较，保留事件顺序、插入的系统消息、包装层字段，以及不透明的交付和捕获代际值；只有完整 Session 产物使用格式迁移 catalog。
 
+配置 `imageRequestTokens` 的模型按该数值计量保留的图片。已移出的图片仅计量其记录的 `offloadNotice` 文本，缺少该文本时使用请求限制占位文本。回放图片不会发给提供方。
+
 ### 嵌套 agent
 
 parent agent 委托给进程内 subagent 的场景会为每个 Session 记录一个角色：parent 为 `session[.vN].jsonl`，随后是连续 child `session.<ordinal>[.vN].jsonl`。snapshot harness 只提供每个角色的最高 generation。live Session id 每次运行都会重新随机生成，因此 replay 按首次调用顺序把每个 live Session 绑定到已记录脚本：第一个发起模型调用的 live Session 取得 parent 脚本，下一个新 Session 取得下一条 child 脚本，依此类推，每个 Session 分别推进自己的 cursor。不同 live Session 数量超过已记录脚本数时会明确报错。
@@ -101,7 +103,7 @@ parent agent 委托给进程内 subagent 的场景会为每个 Session 记录一
 
 ### 设计
 
-回放把选定的投影 Session generation 视为 fixture。一个 parser 补全投影 envelope，通过 `sessionFormatCatalog` 校验并迁移完整产物，再以一个结果返回当前 header、继承 cut 与事件列表。`deriveReplayScript` 按日志顺序展开每个 `assistant/message` 或 `assistant/attempt` 流，因此每个持久 settlement 都成为一条 `chunks` 条目；非空流缺少 `finish` 分片是 `stream()` 抛出异常的指纹，必须通过 override 伴随文件表达。携带 `llmStreamCall: true` 与完整 `rawOutput` 的 `compaction/summary` 会在该事件位置回放为一条规范成功流。脚本字符串可以内嵌 `{{fromRequest:<regex>}}`；流输出时每个 placeholder 针对 live request 的 string leaf 解析，取该 pattern 的最后一次 match，用其第一个 capture group（无 capture group 时用整个 match）原位替换。
+回放把选定的投影 Session generation 视为 fixture。一个 parser 补全投影 envelope，通过 `sessionFormatCatalog` 校验并迁移完整产物，再以一个结果返回当前 header、继承 cut 与事件列表。`deriveReplayScript` 按日志顺序展开每个 `assistant/message` 或 `assistant/attempt` 流，因此每个持久 settlement 都成为一条 `chunks` 条目；非空流缺少 `finish` 分片是 `stream()` 抛出异常的指纹，必须通过 override 伴随文件表达。携带 `llmStreamCall: true` 与完整 `rawOutput` 的 `compaction/summary` 会在该事件位置回放为一条规范成功流。脚本字符串可以内嵌 `{{fromRequest:<regex>}}`；流输出时每个 placeholder 针对 live request 的 string leaf 解析，取该 pattern 的最后一次 match，用其第一个 capture group（无 capture group 时用整个 match）原位替换。`{{fromRequestJson:<regex>}}` 遵循同样的匹配规则，并对捕获值执行 JSON 转义但不添加引号；包含 Windows 路径或引号的 JSON 工具参数字符串使用此形式。
 
 [已提交语料测试](tests/session-format-corpus.spec.ts) 通过真实 catalog 还原 `snapshots/`、`packages/` 与 `scripts/snapshots/python-sdk-single-exe/` 下每个带版本的 `session*.jsonl`，且不改变源字节。其[清单](tests/session-format-corpus-inventory.ts) 按路径、源代际、错误类型与精确原因固定有意拒绝的历史转换；拒绝消失或变化都会使测试失败。当前代际产物不能获得例外。不含 header 的快照 harness 协议示例具有独立的显式豁免。其他所有还原错误都携带产物路径并使测试失败；历史文件保持不变，原生当前 fixture 则由 owner 修正。
 

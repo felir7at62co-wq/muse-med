@@ -14,7 +14,7 @@ function mount(reduced = false) {
   const media = new EventTarget()
   Object.assign(media, { matches: reduced })
   vi.stubGlobal('matchMedia', () => media)
-  const renderSlot = vi.fn<HeroShellProps['renderSlot']>(() => null)
+  const renderSlot: HeroShellProps['renderSlot'] = () => null
   const view = render(<HeroShell t={makeTranslate(zh, commonZh)} renderSlot={renderSlot} />)
   return { ...view, media }
 }

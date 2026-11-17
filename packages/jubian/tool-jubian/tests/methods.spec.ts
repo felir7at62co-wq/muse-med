@@ -333,30 +333,49 @@ describe('jubian_video resolution guidance', () => {
       expect(calls[0]?.path).toContain('/admin/aigc/video/task/sub/list')
     } finally { await rm(root, { recursive: true, force: true }) }
   })
+
+  it('judges recorded upscale passes only from the model and label each row carries', async () => {
+    const source = (lastModelId: string) => ({ modelId: 'doubao-seedance-2-0-260128', resolution: '720p',
+      resultList: [{ taskType: 1, hdCount: 1, lastTaskType: 20, lastModelId,
+        tosVideoUrl: 'https://media.example/base.mp4', lastTosVideoUrl: 'https://media.example/hd.mp4' }] })
+    const pass = (resolution: string) => ({ modelId: 'AI MediaKit', resolution,
+      resultList: [{ taskType: 20, hdCount: 1, lastTaskType: 20, tosVideoUrl: 'https://media.example/hd.mp4' }] })
+    const { client } = stubClient(() => ({ total: 4, rows: [
+      { id: 1, ...source('2074071626416742401') }, { id: 2, ...source('AI MediaKit') },
+      { id: 3, ...pass('1080p') }, { id: 4, ...pass('720p') },
+    ] }))
+    const result = await videoMethod(client, ledger, { method: 'subtasks', task_id: 42, delivery_resolution: '1080p' })
+    expect((result.subtasks as { rows: { upscale_model_id: string | null; needs_upscale: boolean | null }[] }).rows
+      .map(row => [row.upscale_model_id, row.needs_upscale])).toEqual([
+      ['2074071626416742401', false], ['AI MediaKit', null], ['AI MediaKit', false], ['AI MediaKit', true]])
+  })
 })
 
-const UPSCALE_CATALOGUE = [{ id: 55, modelId: '2074071626416742401', platformId: 'RUNNING_HUB',
-  unitPrice: 1, unit: '元/条', videoStandards: [{ id: 303, resolution: '1080p' }] }]
+const UPSCALE_CATALOGUE = [
+  { id: 55, modelId: '2074071626416742401', platformId: 'RUNNING_HUB',
+    unitPrice: 1, unit: '元/条', videoStandards: [{ id: 303, resolution: '1080p' }] },
+  { id: 27, modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT', unitPrice: 0.375, unit: '元/分钟(1系数)',
+    videoStandards: [{ id: 165, resolution: '1080p', height: 4, width: 0 }, { id: 166, resolution: '720p', height: 2, width: 0 }] },
+]
 
 describe('jubian_video upscale', () => {
-  it('resolves an explicit MediaKit model and output standard before the paid write', async () => {
+  it('resolves an explicitly named SeedVR2 model and output standard before the paid write', async () => {
     const { client, calls } = stubClient((request) => {
-      if (request.path.includes('getSelectList?taskType=20')) return [{ id: 27, modelId: 'AI MediaKit',
-        platformId: 'AI_MEDIA_KIT', videoStandards: [{ id: 88, resolution: '720p' }, { id: 89, resolution: '1080p' }] }]
+      if (request.path.includes('getSelectList?taskType=20')) return UPSCALE_CATALOGUE
       if (request.method === 'GET') return { id: 42, scriptId: 2708, episodeId: 46744, episodeCount: 1 }
       if (request.path.includes('/sub/list')) return { total: 1, rows: [{ id: 990,
         aigcVideoTaskId: 42, duration: 8, firstResultId: 3, parentResultId: 4,
         resultList: [{ tosVideoUrl: 'https://example.test/source.mp4' }] }] }
       return 429001
     })
-    await videoMethod(client, ledger, { method: 'upscale', task_id: 42, idempotency_key: 'mediakit',
-      model_id: 'AI MediaKit', platform_id: 'AI_MEDIA_KIT', resolution: '1080p' })
+    await videoMethod(client, ledger, { method: 'upscale', task_id: 42, idempotency_key: 'seedvr2',
+      model_id: '2074071626416742401', platform_id: 'RUNNING_HUB', resolution: '1080p' })
     expect(calls.filter(call => call.path.endsWith('/hdConversion'))).toMatchObject([{ body: {
-      taskType: 20, modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT', standardId: 27, videoStandardId: 89,
+      taskType: 20, modelId: '2074071626416742401', platformId: 'RUNNING_HUB', standardId: 55, videoStandardId: 303,
     } }])
   })
 
-  it('posts the workbench HD conversion body once under the same ledger key', async () => {
+  it('posts the default MediaKit HD conversion body once under the same ledger key', async () => {
     const { client, calls } = stubClient((request) => {
       if (request.path.includes('getSelectList?taskType=20')) return UPSCALE_CATALOGUE
       if (request.method === 'GET') return { id: 42, scriptId: 2708, episodeId: 46744, episodeCount: 1 }
@@ -372,8 +391,8 @@ describe('jubian_video upscale', () => {
         path: 'https://web.jubianai.net/prod-api/aigc/storyboard/hdConversion',
         body: { scriptId: 2708, episodeId: 46744, episodeCount: 1,
           firstResultId: 1007193, parentResultId: 1007193, duration: 13.5,
-          taskName: 'EP11-P1-HD', taskType: 20, modelId: '2074071626416742401',
-          platformId: 'RUNNING_HUB', standardId: 55, videoStandardId: 303,
+          taskName: 'EP11-P1-HD', taskType: 20, modelId: 'AI MediaKit',
+          platformId: 'AI_MEDIA_KIT', standardId: 27, videoStandardId: 165,
           videoUrl: 'https://example.test/source.mp4' } })
       expect(await videoMethod(client, new JubianLedger({ root }), args)).toMatchObject({ replayed: true })
       expect(calls).toHaveLength(4)

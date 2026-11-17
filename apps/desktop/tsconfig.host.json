@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/skill/tool-workspace-dependencies"
+    },
+    {
       "path": "../../packages/boot/app-boot"
     },
     {
@@ -40,6 +43,9 @@
     },
     {
       "path": "../../packages/util/file-drag"
+    },
+    {
+      "path": "../../packages/client/ui-settings-general/tsconfig.host.json"
     },
     {
       "path": "../../packages/client/ui-file-actions"

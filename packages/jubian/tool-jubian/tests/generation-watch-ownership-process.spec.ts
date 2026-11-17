@@ -1,5 +1,5 @@
 import { fork, type ChildProcess } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -41,6 +41,39 @@ function processFixture(root: string, mode: string, payload: string) {
   }
   return { child, ready: ready.promise, result: result.promise, exited: exited.promise, stop }
 }
+
+async function expectCheckpointPending(root: string, original: GenerationWatchRun): Promise<void> {
+  const owner = { runId: original.id, sessionId: original.sessionId, previewPath: original.packs[0]!.previewPath }
+  const legacy: unknown = JSON.parse(await readFile(join(root, 'ownership.v1.json'), 'utf8'))
+  const current: unknown = JSON.parse(await readFile(join(root, 'ownership.v2.json'), 'utf8'))
+  expect(legacy).toMatchObject({ version: 1, keys: { [original.packs[0]!.key]: owner } })
+  expect(current).toMatchObject({ version: 2, keys: { [original.packs[0]!.key]: owner },
+    runs: { [original.id]: { sessionId: original.sessionId, packs: original.packs, startedKeys: [], dispatchFinished: false } } })
+  await expect(new GenerationWatchStore(root).load(original.id)).resolves.toBeUndefined()
+  const temporary = (await readdir(root)).filter(name => name.startsWith(`${original.id}.`) && name.endsWith('.tmp'))
+  expect(temporary).toHaveLength(1)
+  expect(JSON.parse(await readFile(join(root, temporary[0]!), 'utf8'))).toEqual(original)
+}
+
+it('publishes the checkpoint only after its real ownership indexes and complete temporary bytes exist', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'muse-watch-publish-process-'))
+  const original = run(root, 'a', 'original-session', ['b'])
+  const fixture = processFixture(root, 'observe-create', JSON.stringify(original))
+  try {
+    await fixture.ready
+    fixture.child.send('start')
+    expect(await fixture.result).toEqual({ kind: 'before-checkpoint' })
+    await expectCheckpointPending(root, original)
+    fixture.child.send('publish')
+    expect(await fixture.exited).toEqual({ code: 0, signal: null })
+    expect(await new GenerationWatchStore(root).load(original.id)).toEqual(original)
+    expect(await new GenerationWatchStore(root).claimAndCreate(original)).toBe(false)
+    expect((await readdir(root)).filter(name => name.startsWith(`${original.id}.`) && name.endsWith('.tmp'))).toEqual([])
+  } finally {
+    await fixture.stop(fixture.child)
+    await rm(root, { recursive: true, force: true })
+  }
+}, 30_000)
 
 it('atomically assigns overlapping keys to only one of two Host processes', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-watch-owner-process-'))
@@ -123,16 +156,20 @@ it('does not grant initial dispatch to different batches with an overlapping key
   }
 }, 30_000)
 
-it.skipIf(process.platform === 'win32')('retains an orphaned claim after the writer dies before creating the checkpoint', async () => {
+it('retains an orphaned claim after the writer dies before creating the checkpoint', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-watch-crash-process-'))
   const original = run(root, 'a', 'original-session', ['b'])
   const fixture = processFixture(root, 'interrupt-create', JSON.stringify(original))
+  let retry: ReturnType<typeof processFixture> | undefined
   try {
     await fixture.ready
     fixture.child.send('start')
-    expect((await fixture.result).kind).toBe('before-checkpoint')
-    fixture.child.kill('SIGKILL')
-    expect(await fixture.exited).toEqual({ code: null, signal: 'SIGKILL' })
+    expect(await fixture.result).toEqual({ kind: 'before-checkpoint' })
+    await expectCheckpointPending(root, original)
+    expect(fixture.child.kill('SIGKILL')).toBe(true)
+    const exited = await fixture.exited
+    expect(exited.code === null ? exited.signal !== null : exited.code !== 0).toBe(true)
+    if (process.platform !== 'win32') expect(exited).toEqual({ code: null, signal: 'SIGKILL' })
     const store = new GenerationWatchStore(root)
     await expect(store.claimAndCreate(original)).rejects.toThrow('ownership is ambiguous')
     expect(await store.load(original.id)).toBeUndefined()
@@ -140,8 +177,15 @@ it.skipIf(process.platform === 'win32')('retains an orphaned claim after the wri
       keys: Record<string, { runId: string; sessionId: string }>
     }
     expect(saved.keys[original.packs[0]!.key]).toMatchObject({ runId: original.id, sessionId: original.sessionId })
+    retry = processFixture(root, 'enroll', JSON.stringify(original))
+    await retry.ready
+    retry.child.send('start')
+    expect((await retry.result).kind).toBe('rejected')
+    expect(await retry.exited).toEqual({ code: 0, signal: null })
+    expect(await store.load(original.id)).toBeUndefined()
   } finally {
     await fixture.stop(fixture.child)
+    if (retry !== undefined) await retry.stop(retry.child)
     await rm(root, { recursive: true, force: true })
   }
 }, 30_000)

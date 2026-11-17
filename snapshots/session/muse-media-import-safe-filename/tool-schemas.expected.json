@@ -157,13 +157,13 @@
       },
       {
         "name": "muse_media_download",
-        "description": "Save one user-selected Douyin, TikTok or Bilibili work to the company cloud using the signed-in account. Supply a stable requestId and reuse identical arguments after uncertainty; do not create another key or automatically retry. pending/unconfirmed is unfinished. cloud_saved means the cloud manifest is complete, never that a local file exists. partial preserves only its listed verified files and does not mean the full video succeeded. Query the returned Muse job_id with muse_media_task; import a listed file separately with muse_media_import.",
+        "description": "Save one user-selected TikTok or Bilibili work to the company cloud using the signed-in account. Douyin works are refused here; use douyin_download for them. Supply a stable requestId and reuse identical arguments after uncertainty; do not create another key or automatically retry. pending/unconfirmed is unfinished. cloud_saved means the cloud manifest is complete, never that a local file exists. partial preserves only its listed verified files and does not mean the full video succeeded. Query the returned Muse job_id with muse_media_task; import a listed file separately with muse_media_import.",
         "parameters": {
           "type": "object",
           "properties": {
             "url": {
               "type": "string",
-              "description": "Selected official platform URL or share text, at most 8192 characters."
+              "description": "Selected official TikTok or Bilibili URL or share text, at most 8192 characters."
             },
             "requestId": {
               "type": "string",

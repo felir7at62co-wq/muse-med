@@ -7,6 +7,14 @@ import { findConcreteTermViolations, readTrackedSource } from './verify-concrete
 const blockedTerm = 'prove' + 'nance'
 
 describe('concrete terminology policy', () => {
+  it('retains MIME identifiers only in the exact hash-pinned Hongguo engine', () => {
+    const path = 'third_party/plugins/muse-hongguo-download/upstream/engine.cjs'
+    const source = readFileSync(new URL('../' + path, import.meta.url), 'utf8')
+    expect(findConcreteTermViolations(path, source)).toEqual([])
+    expect(() => findConcreteTermViolations(path, source + '\n')).toThrow('pinned upstream Hongguo engine changed')
+    expect(findConcreteTermViolations(path + '.copy', source)).not.toHaveLength(0)
+    expect(findConcreteTermViolations('third_party/plugins/muse-hongguo-download/src/index.js', blockedTerm)).toHaveLength(1)
+  })
   it('retains only the hash-pinned upstream OCR notice at its exact path', () => {
     const path = 'scripts/primary-runtime/ocr-models-notice.txt'
     const source = readFileSync(new URL('./primary-runtime/ocr-models-notice.txt', import.meta.url), 'utf8')

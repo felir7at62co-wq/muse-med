@@ -22,13 +22,13 @@ import NativePreset from '../../desktop-host/src/native-preset.ts'
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/defaults.cordis.patch.yml', import.meta.url))
 
-it('offers only short-drama while retaining historical coordinator and editing compositions', async () => {
+it('defaults ordinary sessions to short-drama and retains Main Session routing', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
     const patch = loadOverlayPatches('muse-med', patchPath).find(row => row.id === 'agent-preset-registry')
     const presetConfig = patch?.config as Record<string, unknown> | undefined
-    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama'] })
+    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama', 'main-session'], allowUserDefault: false })
     const productRows = yaml.load(await readFile(join(productRoot, 'short-drama', 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema }) as Array<{ id: string; name: string }>
     const guard = productRows.find(row => row.id === 'drama-gate')
@@ -67,16 +67,17 @@ it('offers only short-drama while retaining historical coordinator and editing c
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['bot-coordinator', 'cordis', 'creation', 'minimal', 'ptc', 'short-drama', 'standard'])
+    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['bot-coordinator', 'cordis', 'creation', 'main-session', 'minimal', 'ptc', 'short-drama', 'standard'])
     expect(ctx.agentPresets.defaultId).toBe('short-drama')
     await expect(ctx.agentPresets.resolveForCreation('bot-coordinator')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
-    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama'])
+    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['main-session', 'short-drama'])
     expect(await ctx.agentPresets.resolve('bot-coordinator')).toMatchObject({ id: 'bot-coordinator' })
     const recovery = (await ctx.agentPresets.readDocument('bot-coordinator')).content
     expect(recovery).not.toMatch(/name: (?:ds-bot|['"]ds-bot['"])/)
-    for (const name of ['@deepseek-ai/dsh-tool-jobs', '@deepseek-ai/dsh-tool-subagent', 'muse-qimao-data', 'muse-source-research', 'muse-douyin-download']) {
+    for (const name of ['@deepseek-ai/dsh-tool-jobs', '@deepseek-ai/dsh-tool-subagent', 'muse-qimao-data', 'muse-source-research']) {
       expect(recovery).toContain(name)
     }
+    expect(recovery).not.toContain('muse-douyin-download')
     expect((await ctx.agentPresets.list()).find(row => row.id === 'bot-coordinator')).toMatchObject({
       name: '历史会话恢复', description: '读取既有主控会话并使用通用工具继续工作；不恢复 Bot 团队或自动编排。',
     })
@@ -109,10 +110,12 @@ it('offers only short-drama while retaining historical coordinator and editing c
       expect(presetSource).toContain("watermarkFontFamily: !!js process.env.MUSE_WATERMARK_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'")
     }
     const prompt = rows.find(row => row.id === 'persona')?.config?.prefix ?? ''
-    expect(prompt).toContain('你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。')
+    expect(prompt).toContain('你是 muse-med 短剧编导 Agent。')
+    expect(prompt).not.toContain('deepseek-flash')
+    expect(prompt).toContain('在收到请求的这一轮调用 create_goal')
     expect(prompt).not.toContain('根据作品的媒介、题材与情绪体验，自主设计适合短剧的形象')
     expect(prompt).not.toContain('仿真人允许真人摄影质感与电影级玄幻生物、法术和虚构场景融合')
-    expect(prompt).toContain('不套用人类面部与无面容三视图版式')
+    expect(prompt).toContain('不套用人类胸像与遮脸三视图版式')
     expect(prompt).not.toContain('3–5个关键动作或场景切换')
     expect(prompt).not.toContain('以15秒视频包为参考')
     expect(prompt).toContain('每镜1–4秒是节奏建议，不是视频包时长上限')
@@ -126,8 +129,12 @@ it('offers only short-drama while retaining historical coordinator and editing c
     expect(prompt).toContain('技术性失败不构成修改台词的理由')
     expect(prompt).toContain('按项目已定画幅设计镜头')
     expect(prompt).toContain('所有资产图默认16:9横版；用户明确指定其他比例时按指定执行，资产图比例与视频成片比例分别处理')
-    expect(prompt).toContain('人物角色资产图：16:9横版白底，左侧为完整保留头顶与发型、五官清晰的面部特写')
-    expect(prompt).toContain('右侧为同一人物正面、侧面、背面全身三视图，完整保留头部、发型和双脚，仅将右侧可见脸部覆盖为纯白')
+    expect(prompt).toContain('人物角色资产图：16:9横版白底，四个独立区域从左到右依次为同一人物的正脸胸像、正面（0°）全身、严格侧面（90°）全身、背面（180°）全身')
+    expect(prompt).toContain('左侧胸像正面平视，完整显示头顶、发型、清晰五官、肩部和上胸，不遮罩')
+    expect(prompt).toContain('右侧三个全身图并列、同尺度，完整保留头部、发型和双脚')
+    expect(prompt).toContain('纯白遮罩仅贴合右侧正面和侧面的脸部轮廓，不盖头发、耳部、颈部或衣领')
+    expect(prompt).toContain('背面完整呈现后脑、发型、颈部和服装，不加任何遮罩或白块')
+    expect(prompt).toContain('不能省略侧面、以正背两视图替代三视图或用四分之三面替代严格侧面')
     expect(prompt).toContain('人物面部同样不写“脸红”“面部发红”')
     expect(prompt).toContain('依据实际成图和成片判断吸引力、情绪与叙事效果')
     expect(prompt).toContain('不凭提示词、参数或任务成功就宣称艺术效果达标')

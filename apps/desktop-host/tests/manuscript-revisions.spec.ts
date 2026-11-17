@@ -343,3 +343,40 @@ it('does not repeat an unchanged guidance read advisory or inspect arbitrary man
   expect(JSON.stringify((await read('写作规范.md')).content)).not.toContain('manuscript_guidance')
   expect(JSON.stringify((await read('正文.md')).content)).not.toContain('manuscript_guidance')
 })
+
+it('measures transcript coverage through the registered tool without creating a revision ledger', async () => {
+  const f = await fixture()
+  await f.ctx.plugin(RevisionPlugin, f.config)
+  await writeFile(join(f.root, 'ep1.md'), '第1集\n甲：灯笼在柜子上。\n乙：我去拿。\n乙：顺便买点菜。')
+  await writeFile(join(f.root, 'ep1.json'), JSON.stringify([{ start: 0, end: 1, text: '灯笼在柜子上' }, { start: 1, end: 2, text: '我去拿' }]))
+  let serial = 0
+  const call = (args: object) => executeModelToolFixture(f.ctx, { signal, callId: ToolCallId(`transcript-coverage-${++serial}`),
+    name: 'manuscript_revision', arguments: args, agent: f.agent })
+  const text = (result: Awaited<ReturnType<typeof call>>) => result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+  const schema = JSON.stringify(f.ctx.tools.schemas(f.agent).find(tool => tool.name === 'manuscript_revision'))
+  for (const name of ['transcript_coverage', 'transcript_sources', 'characters']) expect(schema).toContain(name)
+  const result = await call({ action: 'transcript_coverage', transcript_sources: [{ path: 'ep1.md', asr_path: 'ep1.json' }],
+    characters: [{ name: '甲' }, { name: '乙' }] })
+  expect(result.isError).toBe(false)
+  expect(z.object({ episodes: z.array(z.object({ summary: z.string() })) }).parse(JSON.parse(text(result))).episodes[0]?.summary)
+    .toBe('第1集：台词3行；ASR 2段，按序2、错序0、未写入0（入▲行0）、部分缺失0；ASR无音色分组；无来源台词1、仅画面文字0、新增措辞0；'
+      + '画面文字未提供；最后有来源台词后1行；表外说话人0行、已知错写0处')
+  await writeFile(join(f.root, 'roster.json'), JSON.stringify({ characters: [{ name: '甲', appearance: '灰外套' }, { name: '乙', variants: ['已'] }] }))
+  const shared = await call({ action: 'transcript_coverage', transcript_sources: [{ path: 'ep1.md', asr_path: 'ep1.json' }],
+    characters_path: 'roster.json' })
+  expect(shared.isError).toBe(false)
+  const sharedResult = z.object({ characters_file: z.object({ path: z.string(), sha256: z.string() }),
+    names: z.object({ speakers_outside_table: z.array(z.unknown()), listed_variants: z.array(z.unknown()) }) })
+    .parse(JSON.parse(text(shared)))
+  expect(sharedResult.characters_file.path).toMatch(/roster\.json$/u)
+  expect(sharedResult.names).toEqual({ speakers_outside_table: [], listed_variants: [] })
+  const both = await call({ action: 'transcript_coverage', transcript_sources: [{ path: 'ep1.md' }], characters: [{ name: '甲' }],
+    characters_path: 'roster.json' })
+  expect(both.isError).toBe(true)
+  expect(text(both)).toContain('characters 与 characters_path 只能给一种')
+  const missing = await call({ action: 'transcript_coverage' })
+  expect(missing.isError).toBe(true)
+  expect(text(missing)).toContain('transcript_coverage 需要 transcript_sources')
+  expect((await call({ action: 'transcript_coverage', transcript_sources: [{ path: 'ep1.md', video: 'ep1.mp4' }] })).isError).toBe(true)
+  await expect(readFile(join(f.root, '.muse', 'manuscript-revisions', 'ledger.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})

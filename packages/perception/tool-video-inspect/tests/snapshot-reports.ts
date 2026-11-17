@@ -1,6 +1,7 @@
 /** Owner-local handling of complete-review artifacts whose bytes include volatile Session identities. */
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 
 type Row = Record<string, unknown>
 const HASH = /^[a-f0-9]{64}$/u
@@ -37,6 +38,13 @@ function pairs(records: readonly Row[]) {
         || typeof body.path !== 'string' || typeof body.source_version !== 'string'
         || meta.path !== body.path || meta.sourceVersion !== body.source_version
         || typeof body.observation_report_sha256 !== 'string') throw Error('Video-review report tool/meta identity or digest mismatch')
+      const preserved = object(data.meta) && object(data.meta[TOOL_BODY_META_KEY])
+        ? data.meta[TOOL_BODY_META_KEY].videoReviewEvidence : undefined
+      if (preserved !== undefined) {
+        if (!object(preserved) || ['observationReport', 'sha256', 'reviewId', 'sessionId', 'path', 'sourceVersion'].some(key => preserved[key] !== meta[key])) {
+          throw Error('Video-review preserved body metadata identity or digest mismatch')
+        }
+      }
       reports.push({ path: body.observation_report, digest: body.observation_report_sha256, body, block, meta })
     }
   }

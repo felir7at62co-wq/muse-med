@@ -34,7 +34,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-it.skipIf(client === undefined)('keeps the native attachment entry mounted and opens the replacement login settings', async () => {
+it.skipIf(client === undefined)('keeps native attachments and mounts the usage dock with independent dismissible panels', async () => {
   if (client === undefined) throw new Error('MUSE_SUBSCRIPTIONS_CLIENT_BUNDLE must name the staged browser bundle')
   const modules: Record<string, object> = {
     react, 'react/jsx-runtime': jsxRuntime, 'react-dom': reactDom,
@@ -68,12 +68,16 @@ it.skipIf(client === undefined)('keeps the native attachment entry mounted and o
   }, (() => null) as never)
   const nativeAttachment = ctx.slots.entries('conversation.input.attachments')[0]
   const calls: string[] = []
+  let withAccount = false
   const rpc = { call: vi.fn(async (_channel: string, method: string) => {
     calls.push(method)
     const endpoint = method.replace('subscriptions-auth.', '')
     if (endpoint === 'status') return { ok: true, value: { providers: Object.fromEntries(
-      ['codex', 'claude', 'grok', 'copilot', 'antigravity'].map(provider => [provider, { busy: false, accounts: [] }]),
+      ['codex', 'claude', 'grok', 'copilot', 'antigravity'].map(provider => [provider, { busy: false,
+        accounts: withAccount && provider === 'codex' ? [{ key: 'fixture-account', account: 'fixture@example.invalid', isDefault: true }] : [],
+      }]),
     ) } }
+    if (endpoint === 'usage') return { ok: true, value: { supported: true, windows: [{ kind: 'session', usedPercent: 25 }] } }
     if (endpoint === 'providerSettings') return { ok: true, value: { codex: {} } }
     if (endpoint === 'proxyGet') return { ok: true, value: { enabled: false, url: '' } }
     if (endpoint === 'login') return { ok: true, value: { authorizeUrl: 'https://fixture.invalid/oauth' } }
@@ -97,8 +101,43 @@ it.skipIf(client === undefined)('keeps the native attachment entry mounted and o
   fireEvent.click(screen.getAllByRole('button', { name: /log in|登录|连接/iu })[0]!)
   await waitFor(() => { expect(calls).toContain('subscriptions-auth.login') })
   cleanup()
+  const dock = ctx.slots.entries('conversation.composer.dock').find(entry => entry.options.id === 'subscription-usage')
+  if (dock === undefined) throw new Error('Subscription usage dock was not registered')
+  const dockProps = { ...dock.inject?.('fixture-session' as never),
+    currentModel: async () => ({ provider: 'codex', model: 'fixture-model' }),
+  }
+  const beforeStatus = calls.filter(method => method === 'subscriptions-auth.status').length
+  render(createElement(dock.component as ComponentType<Record<string, unknown>>, dockProps))
+  await waitFor(() => { expect(calls.filter(method => method === 'subscriptions-auth.status').length).toBeGreaterThan(beforeStatus) })
+  expect(screen.queryByRole('button', { name: /^Subscription usage/u })).toBeNull()
+  cleanup()
+
+  withAccount = true
+  render(createElement('div', null,
+    createElement(dock.component as ComponentType<Record<string, unknown>>, dockProps),
+    createElement(dock.component as ComponentType<Record<string, unknown>>, dockProps),
+  ))
+  await waitFor(() => { expect(screen.getAllByRole('button', { name: /^Subscription usage/u })).toHaveLength(2) })
+  const [first, second] = screen.getAllByRole('button', { name: /^Subscription usage/u })
+  const firstAnchor = first!.parentElement!.style.getPropertyValue('anchor-name')
+  const secondAnchor = second!.parentElement!.style.getPropertyValue('anchor-name')
+  expect(firstAnchor).toMatch(/^--muse-subscription-/u)
+  expect(secondAnchor).not.toBe(firstAnchor)
+  fireEvent.click(first!)
+  const panel = screen.getByRole('dialog', { name: 'Subscription usage' })
+  expect(panel.style.getPropertyValue('position-anchor')).toBe(firstAnchor)
+  expect(panel.textContent).toContain('25%')
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(screen.queryByRole('dialog', { name: 'Subscription usage' })).toBeNull()
+  fireEvent.click(first!)
+  fireEvent.pointerDown(document.body)
+  expect(screen.queryByRole('dialog', { name: 'Subscription usage' })).toBeNull()
+  fireEvent.click(first!)
+  cleanup()
+  expect(document.querySelector('.dsh-subscription-usage-panel')).toBeNull()
   await fiber.dispose()
   expect(ctx.slots.entries('settings.section')).toHaveLength(0)
+  expect(ctx.slots.entries('conversation.composer.dock')).toHaveLength(0)
   expect(ctx.slots.entries('conversation.input.attachments')).toEqual([nativeAttachment])
   expect(document.querySelector('style[data-plugin="dsh-plugin-subscriptions"]')).toBeNull()
   expect(calls.some(method => /consume|image|video/u.test(method))).toBe(false)

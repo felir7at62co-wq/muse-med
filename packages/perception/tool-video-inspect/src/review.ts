@@ -9,6 +9,7 @@ import { isAgentLoopRequest, IMAGE_OFFLOAD_REQUIRED_CODE } from '@deepseek-ai/ds
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import { probeVideo, runMedia } from './media.ts'
 import { scanReviewFrames } from './review-scan.ts'
+import { installFrameImageState, offloadFrameImages } from './frame-images.ts'
 import { installReviewState, reviewsOf, saveReview, reviewImage, pendingReview, hasReviewUncertainty, reviewEvidenceJson,
   reviewFrameSchema, VideoReviewId, type VideoReview } from './review-state.ts'
 import type { Config } from './index.ts'
@@ -92,7 +93,33 @@ const resultSchema = z.object({ review_id: z.string(), episode: z.string(), tota
   complete: z.boolean(), follow_up: z.object({ status: z.enum(['active', 'closed']), reason: z.string().optional() }).default({ status: 'active' }),
   frames: z.array(reviewFrameSchema.extend({ status: z.string(), revisited: z.boolean().optional() })) }).loose()
 
-function content(serialized: string): ContentBlock[] {
+/** Model-facing note on frame images that later requests omit once seen. */
+const FRAME_IMAGE_NOTE = '历史帧图的移除说明只记录此前展示，不代表本次图片缺失，也不否定原观察。'
+  + '请按本次附带图片记录observe；需要再看已记录帧用revisit，待查看帧用next。'
+
+/**
+ * Model-visible `image/offload` notice for frame images removed after the model saw them.
+ * @param toolName - Registered complete-review tool name.
+ * @returns Text sent after each removed frame image's identity.
+ */
+function frameRemovedNotice(toolName: string): string {
+  return `该帧图已在之前的步骤中展示给你，为控制请求大小已从之后的请求中移除。你当时记录的observe仍有效；需要再看时，已记录帧用${toolName}的revisit，未记录帧用next。`
+}
+
+/**
+ * Whether a `review_id/frame_id` label names a frame still awaiting observation in a review that is not closed.
+ * @param reviews - Current reviews of the Session.
+ * @param label - Frame label from a `VIDEO_FRAME` marker.
+ * @returns True while the model has not recorded the frame.
+ */
+function pendingFrame(reviews: readonly VideoReview[], label: string): boolean {
+  const split = label.lastIndexOf('/'), id = label.slice(0, split), frameId = label.slice(split + 1)
+  const review = reviews.find(row => row.id === id)
+  return review !== undefined && review.follow_up?.status !== 'closed'
+    && review.frames.some(frame => frame.id === frameId && frame.observation === undefined)
+}
+
+function content(serialized: string, note: string | undefined): ContentBlock[] {
   const value = resultSchema.parse(JSON.parse(serialized))
   const text = { ...value, frames: value.frames.map(({ image: _image, ...frame }) => frame) }
   const result: ContentBlock[] = [{ type: 'text', text: JSON.stringify(text) }]
@@ -103,6 +130,13 @@ function content(serialized: string): ContentBlock[] {
         + (frame.revisited === true ? '重看缓存原图；原观察保留，供核对。' : '待逐图观察记录。') },
       { type: 'image', attachment: image })
     }
+  }
+  if (note !== undefined) {
+    const attached = result.filter(block => block.type === 'image').length
+    result.push({ type: 'text', text: '帧图说明：' + (attached > 0
+      ? `本次工具结果附带${attached}张图片，位于各VIDEO_FRAME标记后。${note}`
+      : '本次工具结果仅返回文字，没有新图片；status等进度查询不会重新附图，不能据此判断此前图片是否送达。'
+        + '待记录帧仍可见时按图observe；需要图片时，已记录帧用revisit，待查看帧用next。') })
   }
   return result
 }
@@ -124,9 +158,11 @@ export async function applyCompleteReview(ctx: Context, config: Config,
     throw Error('Complete video observation requires sessionProjections and llm')
   }
   const readReviews = await installReviewState(ctx)
+  const readFrameImages = config.offloadObservedFrames ? await installFrameImageState(ctx) : undefined
   await installSourceQaState(ctx)
   const sessions = new Map<SessionId, Session>()
   const batchLimits = new Map<SessionId, number>()
+  const removedNotice = frameRemovedNotice(toolName)
   let active = true
   ctx.on('session/event', (session) => { sessions.set(session.id, session) })
   ctx.on('session/disposed', (session) => { sessions.delete(session.id); batchLimits.delete(session.id) })
@@ -137,6 +173,7 @@ export async function applyCompleteReview(ctx: Context, config: Config,
     const model = session === undefined || !isAgentLoopRequest(options) ? undefined
       : await llm.resolveModelInfo(options.provider, options.model, options.signal)
     const delivered = new Map<string, string>()
+    const requestStart: number = session?.seq ?? 0
     const retained: { label: string | undefined; attachment: string }[] = []
     for (const message of options.messages) {
       let label: string | undefined
@@ -172,6 +209,14 @@ export async function applyCompleteReview(ctx: Context, config: Config,
       yield chunk
     }
     if (!active || !successful || options.signal?.aborted || session === undefined) return
+    if (readFrameImages !== undefined && isAgentLoopRequest(options)) {
+      // Images logged before this request were sent in it and the model has now replied once. The newest tool-result
+      // occurrence of a frame still awaiting observation stays until observe records it, whatever this reply was.
+      const reviews = Object.values(reviewsOf(readReviews, session))
+      offloadFrameImages(session, readFrameImages, (label, occurrence, occurrences) => occurrence.seq < requestStart
+        && !(occurrence.host !== true && occurrence === occurrences.findLast(row => row.host !== true) && pendingFrame(reviews, label)),
+      removedNotice)
+    }
     for (const path of new Set(admitted.map(frame => frame.path))) {
       // Review projections retain source keys until their owning plugin is disposed.
       const current = reviewsOf(readReviews, session)[path] as VideoReview
@@ -190,7 +235,9 @@ export async function applyCompleteReview(ctx: Context, config: Config,
       + 'events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。'
       + 'timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。'
       + 'compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。'
-      + '待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。',
+      + '待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。'
+      + (config.offloadObservedFrames ? '图片结果注明本次附图数量；status只查进度，不重新附图。历史的“已在之前的步骤中展示给你”说明不代表图片缺失；待记录帧保留到observe，重看已记录帧用revisit。' : '')
+      + (config.reviewObserveNextBatch ? 'observe记录后若仍有待看帧，结果直接附带下一批图片，不必再调用next。' : ''),
     parameters: { file_path: { type: 'string', description: '当前集实际完整视频路径；与review_id至少提供一项，同时提供时须指向同一记录。' },
       review_id: { type: 'string', description: '本会话已保存的review_id；不按集号或其他来源回退。status和close可仅凭此ID操作保存状态。' },
       reason: { type: 'string', description: 'close或reopen的可选原因；不改变未查看、未记录帧。' },
@@ -215,7 +262,7 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           change: { type: 'string', required: true, description: '与邻近画面的变化；无变化也需据实说明。' },
           uncertainty: { type: 'string', description: '需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。' },
         } } },
-    }, output: { schema: { type: 'string' }, preserveBodyMeta: true, render: (_args, value) => content(value),
+    }, output: { schema: { type: 'string' }, preserveBodyMeta: true, render: (_args, value) => content(value, config.offloadObservedFrames ? FRAME_IMAGE_NOTE : undefined),
       presentationMeta: (_args, serialized) => {
         const value = resultSchema.parse(JSON.parse(serialized))
         return { episode: value.episode, total: value.total, recorded: value.recorded, pending: value.pending,
@@ -251,20 +298,22 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           if (suppliedTarget.targetKey !== savedTarget.targetKey) throw Error('VIDEO_REVIEW_SELECTOR: file_path与review_id不指向同一保存记录。')
         }
         let snapshot = selected
-        if (suppliedTarget !== undefined) snapshot ??= saved[suppliedTarget.displayPath]
         if (snapshot === undefined && suppliedTarget !== undefined) {
-          const matching: VideoReview[] = []
-          for (const review of Object.values(saved)) {
-            try {
-              const target = await ctx.fs.resolve(review.path, { cwd: policy.workspaceRoot, signal })
-              if (target.targetKey === suppliedTarget.targetKey) matching.push(review)
-            } catch (_error: unknown) {
-              // An unresolvable saved source cannot identify the supplied path.
-              signal.throwIfAborted()
+          snapshot = saved[suppliedTarget.displayPath]
+          if (snapshot === undefined) {
+            const matching: VideoReview[] = []
+            for (const review of Object.values(saved)) {
+              try {
+                const target = await ctx.fs.resolve(review.path, { cwd: policy.workspaceRoot, signal })
+                if (target.targetKey === suppliedTarget.targetKey) matching.push(review)
+              } catch (_error: unknown) {
+                // An unresolvable saved source cannot identify the supplied path.
+                signal.throwIfAborted()
+              }
             }
+            if (matching.length > 1) throw Error('VIDEO_REVIEW_SELECTOR: file_path对应多个保存记录，请提供review_id。')
+            snapshot = matching[0]
           }
-          if (matching.length > 1) throw Error('VIDEO_REVIEW_SELECTOR: file_path对应多个保存记录，请提供review_id。')
-          snapshot = matching[0]
         }
         const savedDescription = (review: VideoReview): ReviewResult => ({ ...taskResult(review, 0),
           frames: [], frames_not_shown: review.frames.length, event_groups: [],
@@ -550,7 +599,15 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           }
           review = { ...review, frames }
           saveReview(readReviews, session, review)
-          return describe(review)
+          if (readFrameImages !== undefined) {
+            const reviewId = review.id
+            const labels = new Set([...notes.keys()].map(id => `${reviewId}/${id}`))
+            offloadFrameImages(session, readFrameImages, label => labels.has(label), removedNotice)
+          }
+          // With the option, recorded observations continue into the next batch below instead of costing a separate next step.
+          if (!config.reviewObserveNextBatch || !review.scan_complete || review.frames.every(frame => frame.observation !== undefined)) {
+            return describe(review)
+          }
         }
         if (args.method === 'status') return describe(review)
         if (!review.scan_complete) throw Error('VIDEO_SCAN_INCOMPLETE: 请先完成scan。')

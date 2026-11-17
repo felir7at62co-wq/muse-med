@@ -16,7 +16,7 @@ class SnapshotMedia extends SubprocessRuntime {
   }
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     spec.signal?.throwIfAborted()
-    const probing = spec.argv[0] === 'ffprobe'
+    const probing = /^ffprobe(?:\.exe)?$/u.test(basename(spec.argv[0]!))
     const selectedIndex = spec.argv.join(' ').match(/select='eq\(n,(\d+)\)'/)
     const time = Number(spec.argv[spec.argv.indexOf('-ss') + 1]) + (selectedIndex === null ? 0 : Number(selectedIndex[1]) / 10)
     const scanning = spec.argv.some(value => value.includes('gte(scene,0)'))

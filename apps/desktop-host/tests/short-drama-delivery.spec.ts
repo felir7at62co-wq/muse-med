@@ -24,7 +24,7 @@ import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import * as Present from '@deepseek-ai/dsh-tool-present'
 import * as EditingPolicy from '../src/editing-policy.ts'
 import { validateShortDramaDelivery } from '../src/short-drama-delivery.ts'
-import { verifyEpisodeContentReview, type ContentReviewVerifier } from '@deepseek-ai/dsh-tool-episode-render'
+import { verifyEpisodeContentReview, type ContentReviewVerifier } from '@deepseek-ai/dsh-tool-episode-render/delivery'
 import { contentReviewFixture } from '../../../packages/drama/tool-episode-render/tests/content-review-fixture.ts'
 import { draftFontFixture } from '../../../packages/drama/tool-episode-render/tests/draft-font-fixture.ts'
 import { installReviewState } from '../../../packages/perception/tool-video-inspect/src/review-state.ts'
@@ -90,10 +90,10 @@ interface FixtureTimeline { delivery: { width: number; height: number; fps: numb
 interface FixtureDraft { timeline_sha256: string; materials: Array<{ path: string; sha256: string }> }
 const readFixture = async <T>(path: string): Promise<T> => JSON.parse(await readFile(path, 'utf8')) as T
 
-async function fixture(videoCount = 1) {
+async function fixture(videoCount = 1, episodeParent = '视频') {
   const root = await mkdtemp(join(tmpdir(), 'muse-short-drama-delivery-'))
   cleanups.push(() => rm(root, { recursive: true, force: true }))
-  const project = join(root, 'short-drama'), episode = join(project, '视频', '第41集')
+  const project = join(root, 'short-drama'), episode = join(project, episodeParent, '第41集')
   const video = join(episode, '01_可交付视频', '第41集.mp4'), working = join(project, 'exports', '41.mp4')
   const draft = join(episode, '02_剪映草稿', '第41集')
   const timeline = join(project, 'editing', '41-timeline.json'), subtitle = join(project, 'editing', '41.srt')
@@ -674,6 +674,102 @@ it('does not lend a user Session review to an agentless attachment operation', a
   expect(result.isError).toBe(true)
   expect(JSON.stringify(result)).toContain('SOURCE_QA_SESSION')
   expect(h.sent).toEqual([])
+})
+
+it('requires staging for episode upload folders alongside a bound production root without blocking previews', async () => {
+  const f = await fixture(), h = await formalHost(f)
+  const upload = join(f.root, '视频', '第46集', '00-交付上传', '46.mp4')
+  const nestedUpload = join(f.project, '视频', '第46集', '00-交付上传', '46.mp4')
+  const preview = join(f.root, '视频', '第46集', '01-修复候选', '46.mp4')
+  const source = join(f.project, 'video', '46', 'shot_001.mp4')
+  for (const path of [upload, nestedUpload, preview, source]) {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, 'manual video')
+  }
+  for (const name of ['present', 'send_file', 'dsh_im_return_file']) {
+    const result = await h.execute(name, relative(f.root, upload))
+    expect(result.isError).toBe(true)
+    expect(result.error?.info).toMatchObject({ name: 'ShortDramaUploadError', code: 'SHORT_DRAMA_UPLOAD_UNSTAGED' })
+  }
+  expect((await h.execute('present', relative(f.root, nestedUpload))).isError).toBe(true)
+  expect((await h.execute('present', relative(f.root, preview))).isError).toBe(false)
+  expect((await h.execute('present', relative(f.root, source))).isError).toBe(false)
+  expect(h.sent).toEqual([])
+})
+
+it('does not treat an unrelated upload folder as a bound short-drama delivery', async () => {
+  const f = await fixture(), h = await formalHost(f)
+  const unrelated = join(f.root, 'other', '视频', '第46集', '00-交付上传', '46.mp4')
+  await mkdir(dirname(unrelated), { recursive: true })
+  await writeFile(unrelated, 'unrelated video')
+  expect((await h.execute('present', relative(f.root, unrelated))).isError).toBe(false)
+})
+
+it('accepts only a byte-identical upload copy of the same currently staged episode', async () => {
+  const f = await fixture(), h = await formalHost(f)
+  const sibling = join(f.root, '视频', '第41集', '00-交付上传', '41.mp4')
+  const local = join(f.episode, '00-交付上传', '41.mp4')
+  for (const path of [sibling, local]) {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, await readFile(f.video))
+    await expect(validateShortDramaDelivery([path], signal, undefined, verifiedContent)).resolves.toBeUndefined()
+  }
+  for (const name of ['send_file', 'dsh_im_return_file']) {
+    expect(JSON.stringify(await h.execute(name, relative(f.root, sibling)))).toContain('SOURCE_QA_SESSION')
+  }
+  await writeFile(sibling, 'altered upload copy')
+  await expect(validateShortDramaDelivery([sibling], signal, undefined, verifiedContent)).rejects.toThrow('short_drama_delivery_changed')
+  await writeFile(sibling, await readFile(f.video))
+  await writeFile(f.subtitle, 'modified after stage')
+  await expect(validateShortDramaDelivery([sibling], signal, undefined, verifiedContent)).rejects.toThrow('short_drama_delivery_changed')
+})
+
+it('accepts a copy next to its own nonstandard staged episode but does not guess a sibling upload location', async () => {
+  const f = await fixture(1, '其他位置'), h = await formalHost(f)
+  const local = join(f.episode, '00-交付上传', '41.mp4')
+  const sibling = join(f.root, '视频', '第41集', '00-交付上传', '41.mp4')
+  for (const path of [local, sibling]) {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, await readFile(f.video))
+  }
+  await expect(validateShortDramaDelivery([f.video], signal, undefined, verifiedContent)).resolves.toBeUndefined()
+  await expect(validateShortDramaDelivery([local], signal, undefined, verifiedContent)).resolves.toBeUndefined()
+  expect(JSON.stringify(await h.execute('present', relative(f.root, sibling)))).toContain('short_drama_delivery_unstaged')
+})
+
+it.each(['invalid-episode', 'different-parent', 'different-project'] as const)(
+  'does not invent a staged path for a registered %s upload', async (kind) => {
+    const f = await fixture()
+    const folder = kind === 'invalid-episode' ? join(f.project, 'draft', '00-交付上传')
+      : join(f.root, 'elsewhere', '第41集', '00-交付上传')
+    const path = join(folder, '41.mp4')
+    await mkdir(folder, { recursive: true })
+    await writeFile(path, await readFile(f.video))
+    const project = kind === 'different-project' ? join(f.root, 'another-project') : f.project
+    await expect(validateShortDramaDelivery([path], signal, new Map([[path, project]]), verifiedContent))
+      .rejects.toThrow('short_drama_delivery_unstaged')
+  },
+)
+
+it('preserves modified draft status and the caller verifier for a staged upload copy', async () => {
+  const f = await fixture(), path = join(f.episode, '00-交付上传', '41.mp4')
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, await readFile(f.video))
+  await writeFile(join(f.draft, 'draft_content.json'), '{"edited":true}')
+  const verifier = vi.fn(verifiedContent)
+  await expect(validateShortDramaDelivery([path], signal, undefined, verifier)).resolves.toEqual([
+    { episode: '41', draft: f.draft, status: 'modified_unverified' },
+  ])
+  expect(verifier).toHaveBeenCalled()
+})
+
+it.skipIf(process.platform === 'win32')('rejects an upload directory redirected outside the project', async () => {
+  const f = await fixture(), outside = join(f.root, 'outside-upload'), upload = join(f.episode, '00-交付上传')
+  await mkdir(outside)
+  await writeFile(join(outside, '41.mp4'), await readFile(f.video))
+  await symlink(outside, upload, 'dir')
+  await expect(validateShortDramaDelivery([join(upload, '41.mp4')], signal, undefined, verifiedContent))
+    .rejects.toMatchObject({ name: 'ShortDramaUploadError', code: 'SHORT_DRAMA_UPLOAD_SCOPE' })
 })
 
 it('registers relative native output paths from the actual episode report and Session cwd', async () => {

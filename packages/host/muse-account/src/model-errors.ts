@@ -54,6 +54,6 @@ export async function* safeMuseModelStream(source: () => AsyncIterable<StreamChu
     }
   } catch (error) {
     const failure = safeFailure(error instanceof LlmError ? error.failure : { code: 'UNKNOWN', message: '' })
-    throw new LlmError(failure.message, failure.code, failure)
+    throw LlmError.fromFailure(failure)
   }
 }

@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import * as VideoInspect from '@deepseek-ai/dsh-tool-video-inspect'
+import * as VideoInspectSourceQa from '@deepseek-ai/dsh-tool-video-inspect/source-qa'
 import { Context } from '@deepseek-ai/cordis'
 import { createToolResultMessage, createUserMessage, ToolCallId, type ToolSchema } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -143,7 +144,7 @@ describe('content listening evidence', () => {
     const observe = vi.fn<VideoInspect.VideoObservationVerifier>().mockImplementation(async (session) => {
       if (session === undefined) throw Error('SOURCE_QA_SESSION')
     })
-    const video = vi.spyOn(VideoInspect, 'createVideoObservationVerifier').mockResolvedValue(observe)
+    const video = vi.spyOn(VideoInspectSourceQa, 'createVideoObservationVerifier').mockResolvedValue(observe)
     try {
       const factory = await createContentReviewVerifier(ctx)
       const signal = new AbortController().signal
@@ -173,7 +174,7 @@ describe('content listening evidence', () => {
   it('rejects inherited listening answers after a fork and accepts new child answers or same-Session restoration', async () => {
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
-    const video = vi.spyOn(VideoInspect, 'createVideoObservationVerifier').mockResolvedValue(async () => {})
+    const video = vi.spyOn(VideoInspectSourceQa, 'createVideoObservationVerifier').mockResolvedValue(async () => {})
     try {
       const factory = await createContentReviewVerifier(ctx), signal = new AbortController().signal
       const parent = ctx.sessions.create(SessionId('listening-parent'))

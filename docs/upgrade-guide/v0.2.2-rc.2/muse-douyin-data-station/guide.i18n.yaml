@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.2/muse-douyin-data-station/guide.md
+/:
+  en: d358737459e19fa0
+  zh: 21dff00eae07cd63
+/douyin-downloads-move-to-the-data-station:
+  en: a97f1caba898b3b8
+  zh: 3f8909bb20768462
+/douyin-downloads-move-to-the-data-station/change:
+  en: c386f5ab8dfc4426
+  zh: b0da0ca22c4cf73c
+/douyin-downloads-move-to-the-data-station/migration:
+  en: 7d3eb5d5933abbf7
+  zh: 5ec261f34a7a2374

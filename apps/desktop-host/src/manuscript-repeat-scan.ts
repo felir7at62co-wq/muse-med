@@ -54,6 +54,10 @@ interface SeedOccurrence { chunk: number; offset: number }
 interface Interval { start: number; end: number }
 interface Diagonal { left: number; right: number; delta: number; intervals: Interval[] }
 
+/** A cast, location, time or document-metadata label followed by a colon; such lines are not story body. */
+export const MANUSCRIPT_METADATA_LINE
+  = /^(?:人物|出场人物|场景|地点|时间|时长|集数|字数|剧名|作者|编剧|版本|页码|Title|Author|Draft|Version|Cast|Characters|Location|Time)\s*[:：]/iu
+
 function structural(text: string): boolean {
   let line = text.replace(/^\uFEFF/u, '').trim()
   if (/^#{1,6}\s/u.test(line) || /^(?:`{3,}|~{3,})/u.test(line) || /^(?:[-_*]\s*){3,}$/u.test(line)) return true
@@ -66,7 +70,7 @@ function structural(text: string): boolean {
     || /^(?:EP(?:ISODE)?\.?\s*\d+)(?=$|[\s:：-])/iu.test(line)
     || /^\d+\s*[-—－]\s*\d+(?:\s|[.、]|$)/u.test(line)
     || /^(?:INT|EXT|INT\/EXT|EXT\/INT)\./iu.test(line)
-    || /^(?:人物|出场人物|场景|地点|时间|时长|集数|字数|剧名|作者|编剧|版本|页码|Title|Author|Draft|Version|Cast|Characters|Location|Time)\s*[:：]/iu.test(line)
+    || MANUSCRIPT_METADATA_LINE.test(line)
 }
 
 function appendRange(ranges: ManuscriptMaterialRange[], line: number): void {

@@ -26,7 +26,7 @@ import {
   validateImageRequestInput, responseRecords, wireText,
   withGenerationDisabled,
 } from '@deepseek-ai/dsh-jubian-api'
-import { AUTOMATIC_ERASE_MODEL, resolvePostProcessModel, VIDEO_UPSCALE_MODEL, SUBTITLE_ERASE_MODELS } from '@deepseek-ai/dsh-jubian-api'
+import { AUTOMATIC_ERASE_MODEL, MEDIAKIT_UPSCALE_MODEL, resolvePostProcessModel, SUBTITLE_ERASE_MODELS } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, ImageStyle, MediaKind,
   SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
 import { positiveInteger, prepareVideoMethod, recoverVideoSubmission, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
@@ -1369,13 +1369,13 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           projectId = media.scriptId
           const catalogue = (await client.request({ method: 'GET',
             path: '/model/charge/getSelectList?taskType=20' })).data
-          const platformId = args.platform_id ?? (args.model_id === undefined ? VIDEO_UPSCALE_MODEL.platformId : undefined)
+          const platformId = args.platform_id ?? (args.model_id === undefined ? MEDIAKIT_UPSCALE_MODEL.platformId : undefined)
           const selected = resolvePostProcessModel(catalogue, {
-            modelId: args.model_id ?? VIDEO_UPSCALE_MODEL.modelId,
+            modelId: args.model_id ?? MEDIAKIT_UPSCALE_MODEL.modelId,
             ...(platformId === undefined ? {} : { platformId }),
             resolution: args.resolution ?? '1080p',
           })
-          quote = { ...readUpscaleQuote(catalogue, selected), standardId: selected.standardId,
+          quote = { ...readUpscaleQuote(catalogue, selected, media.duration), standardId: selected.standardId,
             observedAt: new Date().toISOString() }
           return buildVideoUpscaleRequest({
             ...media,

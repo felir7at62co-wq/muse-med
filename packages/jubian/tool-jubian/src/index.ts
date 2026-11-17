@@ -37,6 +37,9 @@ import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
 import { assertNewNativeDispatchAllowed, resolveGenerateMethod, resolvePreviewPath, validateProjectBinding } from './native.ts'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
+import { manuscriptMethod, type ManuscriptArgs } from './manuscript.ts'
+import { projectMethod, type ProjectArgs } from './project.ts'
+import { projectShareMethod, type ProjectShareArgs } from './project-share.ts'
 import { findMethod } from './find.ts'
 import type { FindArgs } from './find.ts'
 import { claimMethod, claimWatchArgs, claimWatchJob, resolveClaimWatchConfig } from './claim.ts'
@@ -126,6 +129,20 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   characterReferenceQaAuthorizationDataRoot?: string
   /** Origin override; defaults to the client's own default base URL. */
   baseUrl?: string
+  /** Maximum bytes read for a local screenplay document upload; positive integer, default 33554432. */
+  documentUploadMaxBytes?: number
+  /** Total document-upload timeout including destination discovery; positive integer milliseconds, default 120000. */
+  documentUploadTimeoutMs?: number
+  /** Rows per project/share inventory page; integer 1..1000, default 100. */
+  projectSharePageSize?: number
+  /** Maximum pages per project/share inventory; integer 1..100, default 20. */
+  projectSharePageLimit?: number
+  /** Maximum selectable directory entries; integer 1..100000, default 10000. */
+  projectShareMaxDirectoryItems?: number
+  /** Maximum bytes in a frozen share preview; integer 1024..33554432, default 2097152. */
+  projectShareMaxPreviewBytes?: number
+  /** Maximum JSON characters returned for share queries; integer 2048..1000000, default 24000. */
+  projectShareMaxResultChars?: number
   /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
   /** Watch polling interval in milliseconds; integer 1..60000, default 15000. */
@@ -281,7 +298,7 @@ const ARGS = {
       + 'register 按它新建资产，不生成新图。' },
   content_duration_ms: { type: 'number', description: 'prepare_video / generate 准备阶段可选：内容时长交叉校验，等于已保存卡时长减 1 秒后的毫秒数；不用于修改时长。' },
   model_id: { type: 'string', description: 'erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 '
-    + 'ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。' },
+    + 'ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型时使用 MediaKit，SeedVR2 等其他模型须显式指定。' },
   task_name: { type: 'string', description: 'erase_subtitle 可选：任务名，省略时按「<源任务名>-去字幕」生成。' },
   first_result_id: { type: 'number', description: 'erase_subtitle 必填：源视频 firstResultId。' },
   parent_result_id: { type: 'number', description: 'erase_subtitle 必填：源视频 parentResultId。' },
@@ -394,7 +411,13 @@ const VIDEO_SOURCES_SCHEMA = {
 } as const
 
 /** Existing storyboard results retain the original key when serializer changes require reconciliation. */
-const storyboardOutput = (generationBindings: WeakMap<object, GenerationSessionBinding>) => ({
+type GenerationPresentation = {
+  binding: GenerationSessionBinding
+  submission: { method: string; video_previews: { preview_path: string; idempotency_key: string }[] }
+    | { method: string; preview_path: string; idempotency_key: string } | undefined
+}
+
+const storyboardOutput = (generationBindings: WeakMap<object, GenerationPresentation>) => ({
   schema: { type: 'object', additionalProperties: true, properties: {
     verified_free: { type: 'boolean', enum: [true], description: '本次仅免费去字幕请求已核实零价，或原 key 已有已核实的零价凭据；完成状态须另行回读。' },
     existing_video_sources: VIDEO_SOURCES_SCHEMA,
@@ -420,24 +443,13 @@ const storyboardOutput = (generationBindings: WeakMap<object, GenerationSessionB
   preserveBodyMeta: true,
   presentationMeta: (args: unknown, value: Record<string, unknown>) => {
     if (typeof value.generation_watch_id !== 'string') return undefined
-    /* v8 ignore next -- the tool schema fixes the argument root as an object, so a non-object args
-    value is refused before dispatch and cannot reach this projection. */
-    const binding = args !== null && typeof args === 'object' ? generationBindings.get(args) : undefined
-    if (binding === undefined) return undefined
+    const captured = args !== null && typeof args === 'object' ? generationBindings.get(args) : undefined
+    if (captured?.submission === undefined) return undefined
+    const { binding, submission } = captured
     const { reasoningEffort } = binding.model
     const bindingMetadata = { ...binding, model: { provider: binding.model.provider, model: binding.model.model,
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }) } }
-    const input = args as MethodArgs
-    if (input.method === 'submit_video_batch' && input.video_previews !== undefined) {
-      return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission: { method: input.method,
-        video_previews: input.video_previews.map(item => ({ preview_path: item.preview_path, idempotency_key: item.idempotency_key })) } }
-    }
-    if ((input.method === 'submit_video' || input.method === 'generate')
-      && typeof input.preview_path === 'string' && typeof input.idempotency_key === 'string') {
-      return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission: { method: input.method,
-        preview_path: input.preview_path, idempotency_key: input.idempotency_key } }
-    }
-    return undefined
+    return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission }
   },
 } as const)
 
@@ -589,7 +601,7 @@ function characterReferenceAuthorityFor(
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
-  const generationBindings = new WeakMap<object, GenerationSessionBinding>()
+  const generationBindings = new WeakMap<object, GenerationPresentation>()
   const generationSessionBindings = new GenerationSessionBindings(ctx)
   const episodeUi = EpisodeUiConfig.parse({ episodePollIntervalMs: config.episodePollIntervalMs })
   if (config.sessionVideoSelection !== undefined && typeof config.sessionVideoSelection !== 'boolean') {
@@ -608,7 +620,31 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     || new Set(config.imageAllowedStandardIds).size !== config.imageAllowedStandardIds.length)) {
     throw new Error('imageAllowedStandardIds must contain distinct positive catalogue row IDs')
   }
+  const documentUploadOptions = { maxBytes: config.documentUploadMaxBytes ?? 32 * 1024 * 1024,
+    timeoutMs: config.documentUploadTimeoutMs ?? 120000 }
+  if (!Number.isSafeInteger(documentUploadOptions.maxBytes) || documentUploadOptions.maxBytes < 1) {
+    throw new Error('documentUploadMaxBytes must be a positive safe integer')
+  }
+  if (!Number.isSafeInteger(documentUploadOptions.timeoutMs) || documentUploadOptions.timeoutMs < 1
+    || documentUploadOptions.timeoutMs > 2147483647) {
+    throw new Error('documentUploadTimeoutMs must be a positive integer within 1..2147483647')
+  }
   const watchConfig = resolveWatchConfig(config)
+  const projectShare = {
+    pageSize: config.projectSharePageSize ?? 100,
+    pageLimit: config.projectSharePageLimit ?? 20,
+    maxDirectoryItems: config.projectShareMaxDirectoryItems ?? 10000,
+    maxPreviewBytes: config.projectShareMaxPreviewBytes ?? 2097152,
+    maxResultChars: config.projectShareMaxResultChars ?? 24000,
+  }
+  for (const [field, lower, upper] of [
+    ['pageSize', 1, 1000], ['pageLimit', 1, 100], ['maxDirectoryItems', 1, 100000],
+    ['maxPreviewBytes', 1024, 33554432], ['maxResultChars', 2048, 1000000],
+  ] as const) {
+    if (!Number.isSafeInteger(projectShare[field]) || projectShare[field] < lower || projectShare[field] > upper) {
+      throw new Error(`projectShare.${field} must be an integer within ${lower}..${upper}`)
+    }
+  }
   const recovery = resolveVideoRecovery(config, watchConfig.watchTimeoutMs, process.env.DSH_FFMPEG_PATH)
   const episodeDelivery = resolveEpisodeDelivery(config)
   const claimConfig: ClaimWatchConfig = resolveClaimWatchConfig(config)
@@ -796,6 +832,84 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     ...(config.imageActiveTimeoutMs === undefined ? {} : { activeTimeoutMs: config.imageActiveTimeoutMs }),
     ...(config.imageActivePollMs === undefined ? {} : { pollIntervalMs: config.imageActivePollMs }),
   })
+
+  ctx.effect(() => registerJubianTool(defineTool({
+    name: 'jubian_manuscript',
+    description: '剧变项目制作接入：上传 Word/TXT 对象、登记已有 Word 稿件、由已登记稿件创建手动制作项目。options/get/file/bindable 读取所需表单选项和精确稿件身份。上传对象不等于登记稿件；稿件 ID 不等于制作项目 ID。版权、来源和团队按实际信息填写。上传、登记、创建均需原 idempotency_key，结果未知时用 jubian_project.operation 查询原回执，不换 key 重发；受理与回读核实分别报告。',
+    parameters: {
+      method: { type: 'string', required: true,
+        enum: ['options', 'bindable', 'get', 'file', 'upload_document', 'register', 'start_produce'] },
+      manuscript_id: { type: 'integer', description: '已存在的稿件 ID，用于 get/file/start_produce；与项目 script_id 不同。' },
+      name: { type: 'string', description: 'bindable 的名称检索。' },
+      page_num: ARGS.page_num, page_size: ARGS.page_size,
+      owner: { type: 'string', enum: ['produce', 'editor'], description: 'register 必填：选择账号实际使用的生产侧或编辑侧已有稿件入口。' },
+      document_path: { type: 'string', description: 'upload_document 必填，同时提供 idempotency_key：本地 DOC/DOCX/UTF-8 TXT 绝对路径；返回 URL、object_key 和文件哈希。稿件登记只接受 Word。' },
+      metadata: { type: 'object', additionalProperties: false,
+        description: 'register 的真实稿件信息。先 options 读取当前标签。两份 Word 分别是剧本稿和原文文件，不自动将同一文件冒充原文。',
+        properties: {
+          scriptName: { type: 'string', required: true },
+          scriptFormat: { type: 'integer', required: true, enum: [1, 2, 3, 4] },
+          creationType: { type: 'integer', required: true, description: '当前 creationType 标签 ID。' },
+          sourceScriptName: { type: 'string', description: '迭代/换梗所依据的原本名称。' },
+          producerType: { type: 'integer', required: true, enum: [1, 2], description: '真实制作团队，当前选项见 options。' },
+          episodeCount: { type: 'integer', required: true },
+          genreTagIds: { type: 'array', required: true, items: { type: 'integer' } },
+          eraTagId: { type: 'integer', required: true }, audienceTagId: { type: 'integer', required: true },
+          hasCopyright: { type: 'string', required: true, enum: ['0', '1'], description: '用户实际提供的版权声明；不因上传就推断有版权。' },
+          copyrightOwner: { type: 'string' }, assignLeaderId: { type: 'integer' },
+          manuscriptFile: { type: 'object', required: true, additionalProperties: false,
+            properties: { name: { type: 'string', required: true }, url: { type: 'string', required: true },
+              objectKey: { type: 'string', required: true } } },
+          originalFile: { type: 'object', required: true, additionalProperties: false,
+            properties: { name: { type: 'string', required: true }, url: { type: 'string', required: true },
+              objectKey: { type: 'string', required: true } } },
+        } },
+      project: { type: 'object', additionalProperties: false, description: 'start_produce 的手动项目表单；内外 manuscriptId 必须一致。',
+        properties: { scriptName: { type: 'string', required: true }, createType: { type: 'integer', required: true, enum: [1] },
+          productionType: { type: 'integer', required: true, enum: [0, 1] }, produceType: { type: 'integer', required: true, enum: [1] },
+          manuscriptId: { type: 'integer', required: true }, scriptStyle: { type: 'integer' },
+          episodeCount: { type: 'integer' }, storyboardCountPerEpisode: { type: 'integer' },
+          globalConfig: { type: 'object', additionalProperties: true } } },
+      idempotency_key: ARGS.idempotency_key,
+    },
+    output: OUTPUT,
+    execute: (args, exec) => guarded<ManuscriptArgs>('jubian_manuscript', input =>
+      manuscriptMethod(client, ledger, input, { ...documentUploadOptions, signal: exec.signal }))(args),
+  })))
+
+  ctx.effect(() => registerJubianTool(defineTool({
+    name: 'jubian_project',
+    description: '创建、查询与分享剧变项目。create 创建手动项目；get 读取项目身份及稿件绑定；operation 用原 key 查询原业务回执。share_targets 查询真实用户/部门，shares 查询提供方可见分享，share_preview 冻结具体接收人与保留对象，share_apply 在用户确认后提交原预览并回读。分享不创建公开链接；目标类型不是读写权限；复杂/不完整既有分享停止提交。内容项目绑定真实 manuscript_id；start_produce 本身创建绑定项目，不重复 create。所有写入保留原 key，未知不换 key 重发；创建不自动解析或生成。',
+    parameters: {
+      method: { type: 'string', required: true, enum: ['operation', 'get', 'create', 'share_targets', 'shares', 'share_preview', 'share_apply'] },
+      script_id: ARGS.script_id,
+      manuscript_id: { type: 'integer', description: '内容项目绑定的剧变稿件 ID；与项目 script_id 不同。' },
+      script_name: { type: 'string', description: 'create 使用的项目名称。' },
+      production_type: { type: 'integer', enum: [0, 1], description: 'create 必填：0=分镜工作台，1=画布工作台。' },
+      produce_type: { type: 'integer', enum: [1, 2], description: 'create 必填：1=剧本内容（必填 manuscript_id），2=前贴素材；按用户实际用途选择。' },
+      script_style: { type: 'integer', description: '分镜工作台 create 必填：使用剧变的风格代码。' },
+      episode_count: { type: 'integer', description: '分镜工作台 create 必填：项目集数。' },
+      storyboard_count_per_episode: { type: 'integer', description: '分镜工作台 create 必填：每集初始分镜数。' },
+      global_config: { type: 'object', additionalProperties: true, description: '已选择的项目设置；保留真实目录中的模型参数，不自动发起生成。' },
+      share_type: { type: 'integer', enum: [1, 2], description: '分享接收人类型：1=部门，2=用户；每次预览只选一类。' },
+      share_target_type: { type: 'integer', enum: [1, 2], description: '分享项目目标：1=漫剧视频，2=无限画布；不是只读或编辑权限。' },
+      user_ids: { type: 'array', items: { type: 'integer' }, description: '从 share_targets 取得并由用户选定的接收人 ID，不按姓名猜测。' },
+      department_id: { type: 'integer', description: '从 share_targets 取得的单个明确部门 ID；不得猜全员部门。' },
+      query: { type: 'string', description: 'share_targets 的用户或部门名称筛选；同名保留各自 ID。' },
+      preview_id: { type: 'string', description: 'share_preview 返回的原预览 ID。' },
+      preview_fingerprint: { type: 'string', description: 'share_preview 返回的原预览指纹，不自行构造。' },
+      confirm: { type: 'boolean', description: 'share_apply 必须在用户确认具体项目、接收人与分享范围后设为 true。' },
+      idempotency_key: ARGS.idempotency_key,
+    },
+    output: OUTPUT,
+    execute: (args, exec) => guarded<ProjectArgs | ProjectShareArgs>('jubian_project', (input) => {
+      switch (input.method) {
+        case 'share_targets': case 'shares': case 'share_preview': case 'share_apply':
+          return projectShareMethod(client, ledger, input, projectShare, exec.signal)
+        default: return projectMethod(client, ledger, input)
+      }
+    })(args),
+  })))
 
   registerJubianTool(defineTool({
     name: 'jubian_catalog',
@@ -1222,18 +1336,21 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
             await beforeSend(key)
             captured.lease.assertCurrent()
           })
-          /* v8 ignore next 2 -- an already-recorded key returns from the native reconcile path before
-          beforeSend, so this rejection never runs; it stays as the ownership backstop. */
-          const refuseRepeat = (): Promise<never> =>
-            Promise.reject(new Error('The original video dispatch is already owned; reconcile its original key instead of submitting again'))
-          const report = enrollment.initial ? await watch.executeDispatch(enrollment.id, submit) : await dispatch(refuseRepeat)
+          const report = enrollment.initial ? await watch.executeDispatch(enrollment.id, submit) : await dispatch(() =>
+            Promise.reject(new Error('The original video dispatch is already owned; reconcile its original key instead of submitting again')))
           captured.lease.assertCurrent()
-          const result = { ...report, generation_watch_id: enrollment.id,
-            /* v8 ignore next -- enroll() never assigns groupExchangeId: it refuses group origins
-            outright and every return omits the field. */
-            ...(enrollment.groupExchangeId === undefined ? {} : { generation_watch_group_exchange_id: enrollment.groupExchangeId }) }
-          if (enrollment.initial) generationBindings.set(args, captured.binding)
-          return result
+          const result = { ...report, generation_watch_id: enrollment.id }
+          if (enrollment.initial) {
+            generationBindings.set(args, { binding: captured.binding,
+              submission: method === 'submit_video_batch'
+                ? { method: input.method, video_previews: (input.video_previews as NonNullable<MethodArgs['video_previews']>).map(item => ({
+                  preview_path: item.preview_path, idempotency_key: item.idempotency_key })) }
+                : input.preview_path === undefined ? undefined
+                  : { method: input.method, preview_path: input.preview_path, idempotency_key: input.idempotency_key as string } })
+            return result
+          } else {
+            return result
+          }
         } finally { captured.lease.release() }
       })(args)
     },
@@ -1275,7 +1392,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行'
       + '（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。'
       + '按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。'
-      + '**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。'
+      + '**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定模型时默认 MediaKit，SeedVR2 等其他模型用 model_id 显式指定；具体价格以当前目录为准。'
       + '仿真人剧默认使用原片，不自动转高清。'
       + 'SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。'
       + '仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。'

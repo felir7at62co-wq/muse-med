@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-plugin-market-generator",
   "description": "Reference generator of plugin market index files from a list of npm packages and Git repositories",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-plugin-market-index": "workspace:*",
     "commander": "^15.0.0",
-    "hosted-git-info": "^9.0.3",
+    "hosted-git-info": "^10.1.1",
     "resolve.exports": "^2.0.3",
     "semver": "^7.8.5",
     "tar": "^7.5.22",

@@ -207,6 +207,8 @@ export const zh = {
   ...recoveryZh,
   nav: '剧变',
   videoSelector: '视频模型',
+  videoSeedance25: 'Seedance 2.5',
+  videoSeedance20: 'Seedance 2.0',
   videoModel: '视频模型',
   videoResolution: '分辨率',
   videoUnset: '未选择',
@@ -238,6 +240,8 @@ export const en = {
   ...recoveryEn,
   nav: 'Jubian',
   videoSelector: 'Video model',
+  videoSeedance25: 'Seedance 2.5',
+  videoSeedance20: 'Seedance 2.0',
   videoModel: 'Model',
   videoResolution: 'Resolution',
   videoUnset: 'Not selected',
@@ -285,6 +289,8 @@ export const ja = {
   'videoResolution': '解像度',
   'videoRetry': '再試行',
   'videoSelector': '動画モデル',
+  'videoSeedance25': 'Seedance 2.5',
+  'videoSeedance20': 'Seedance 2.0',
   'videoUnavailable': '動画設定を利用できません。再試行して再接続してください。',
   'videoUnset': '未選択',
 } satisfies Record<keyof typeof en, string>
@@ -313,6 +319,8 @@ export const es = {
   'videoResolution': 'Resolución',
   'videoRetry': 'Reintentar',
   'videoSelector': 'Modelo de vídeo',
+  'videoSeedance25': 'Seedance 2.5',
+  'videoSeedance20': 'Seedance 2.0',
   'videoUnavailable': 'Ajustes de vídeo no disponibles. Reintenta para volver a conectar.',
   'videoUnset': 'Sin seleccionar',
 } satisfies Record<keyof typeof en, string>
@@ -341,6 +349,8 @@ export const fr = {
   'videoResolution': 'Résolution',
   'videoRetry': 'Réessayer',
   'videoSelector': 'Modèle vidéo',
+  'videoSeedance25': 'Seedance 2.5',
+  'videoSeedance20': 'Seedance 2.0',
   'videoUnavailable': 'Paramètres vidéo indisponibles. Réessayez pour vous reconnecter.',
   'videoUnset': 'Non sélectionné',
 } satisfies Record<keyof typeof en, string>
@@ -369,6 +379,8 @@ export const de = {
   'videoResolution': 'Auflösung',
   'videoRetry': 'Erneut versuchen',
   'videoSelector': 'Videomodell',
+  'videoSeedance25': 'Seedance 2.5',
+  'videoSeedance20': 'Seedance 2.0',
   'videoUnavailable': 'Videoeinstellungen nicht verfügbar. Versuchen Sie die Verbindung erneut herzustellen.',
   'videoUnset': 'Nicht ausgewählt',
 } satisfies Record<keyof typeof en, string>
@@ -397,6 +409,8 @@ export const ru = {
   'videoResolution': 'Разрешение',
   'videoRetry': 'Повторить',
   'videoSelector': 'Видеомодель',
+  'videoSeedance25': 'Seedance 2.5',
+  'videoSeedance20': 'Seedance 2.0',
   'videoUnavailable': 'Настройки видео недоступны. Повторите попытку для подключения.',
   'videoUnset': 'Не выбрано',
 } satisfies Record<keyof typeof en, string>
@@ -425,6 +439,8 @@ export const pt = {
   'videoResolution': 'Resolução',
   'videoRetry': 'Tentar novamente',
   'videoSelector': 'Modelo de vídeo',
+  'videoSeedance25': 'Seedance 2.5',
+  'videoSeedance20': 'Seedance 2.0',
   'videoUnavailable': 'Definições de vídeo indisponíveis. Tente novamente para restabelecer a ligação.',
   'videoUnset': 'Não selecionado',
 } satisfies Record<keyof typeof en, string>

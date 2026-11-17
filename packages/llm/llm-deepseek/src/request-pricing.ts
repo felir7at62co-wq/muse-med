@@ -70,7 +70,8 @@ export function resolveRequestImageTarget(
  * applies before dispatching to a route without the `image` modality.
  */
 function textOnlyPrice(block: ImageBlock): LlmImageRequestPrice {
-  return { visualTokens: 0, text: textOnlyImageText(block.attachment) }
+  return { visualTokens: 0, text: block.offloaded === true
+    ? textOnlyImageText(block.attachment, block.offloadNotice) : textOnlyImageText(block.attachment) }
 }
 
 /**
@@ -97,9 +98,10 @@ export function deepSeekImageRequestPricing(
     return { priceImages: images => images.map(textOnlyPrice) }
   }
   return {
-    priceImages: images => images.map(({ attachment: ref, offloaded }) => {
-      if (offloaded === true) {
-        return { visualTokens: 0, text: offloadedImageText(ref, resolveAccess?.(ref)) }
+    priceImages: images => images.map((image) => {
+      const ref = image.attachment
+      if (image.offloaded === true) {
+        return { visualTokens: 0, text: offloadedImageText(image.attachment, resolveAccess?.(image.attachment), image.offloadNotice) }
       }
       const target = resolveRequestImageTarget(catalogModel, ref)
       return {

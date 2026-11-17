@@ -304,7 +304,8 @@ export class TokenMeter extends Service {
         if (indexes === undefined) return node
         return {
           ...node,
-          images: node.images.map((image, index) => (indexes.has(index) ? { ...image, offloaded: true as const } : image)),
+          images: node.images.map((image, index) => (indexes.has(index) ? { ...image, offloaded: true as const,
+            ...event.data.notice === undefined ? {} : { offloadNotice: event.data.notice } } : image)),
         }
       })
     }

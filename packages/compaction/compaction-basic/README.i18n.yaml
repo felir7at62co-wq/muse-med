@@ -48,8 +48,8 @@
   en: 203794c1bac768b5
   zh: 4dfdba065a1a25e2
 /deepseek-ai-dsh-compaction-basic/understand-the-implementation/summarization-mechanics:
-  en: 8da877fc57eb8b6b
-  zh: 7461cea88d012591
+  en: eb400a18bd75c057
+  zh: f70c1aa62cade8c7
 /deepseek-ai-dsh-compaction-basic/understand-the-implementation/the-region-transaction:
   en: f4330f6bff22d400
   zh: 46e16c51bb66a0f7
@@ -90,14 +90,14 @@
   en: 39a362ee4890dbdb
   zh: 3b98699120b1548e
 /deepseek-ai-dsh-compaction-basic/model-experience/auxiliary-summarizer-request/token-effect:
-  en: 5e0679cb7cb4291a
-  zh: c9df8ebc526b05d9
+  en: e4be1959836fa939
+  zh: fa8a1319b5443d70
 /deepseek-ai-dsh-compaction-basic/model-experience/auxiliary-summarizer-request/kv-cache-effect:
   en: d31d3e3d46542c91
   zh: 5a42f873993e0c79
 /deepseek-ai-dsh-compaction-basic/known-limitations-and-deferred-work:
-  en: a1c9e619127b853a
-  zh: 805ed8ecc027bbc9
+  en: 3c44d7712f9e31ce
+  zh: a213459376293f1e
 /deepseek-ai-dsh-compaction-basic/known-limitations-and-deferred-work/dev-note:
   en: 959c520fb436d673
   zh: bfa5cfef4fc51548

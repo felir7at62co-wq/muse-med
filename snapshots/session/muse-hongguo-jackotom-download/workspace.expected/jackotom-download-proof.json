@@ -1,0 +1,15 @@
+{
+  "infoResolvesPlayInfo": false,
+  "declaredEpisodes": 2,
+  "verifiedEpisodes": 2,
+  "reusedEpisodes": 2,
+  "catalogLookups": 2,
+  "playInfoLookups": 2,
+  "mediaTransfers": 2,
+  "requestedQuality": "1080p",
+  "bytesPerEpisode": 83,
+  "sha256": "3c71b2aa5f4ccadd18db828c136f54aad8b50b7cd384ec8ed283baf5352ace19",
+  "signedUrlsLogged": false,
+  "codecValidation": "controlled-external-verdict",
+  "actualMp4ContainerAndHashChecked": true
+}

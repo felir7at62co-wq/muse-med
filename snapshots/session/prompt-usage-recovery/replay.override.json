@@ -1,0 +1,54 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "I am not running inside the client, so I will write the content directly."
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 300,
+          "outputTokens": 20
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "Recovered answer after the discarded reply."
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 60000,
+          "outputTokens": 40
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  }
+]

@@ -241,6 +241,19 @@ describe('session.create Agent preset identity', () => {
 })
 
 describe('session.create reuse of a live blank Session', () => {
+  it('honors a registered blank identity filter without changing the reserved Session', async () => {
+    const { ctx, remote, presetOf } = await harness({ presets: ['standard', 'minimal'] })
+    await remote.create({ sessionId: SessionId('reserved'), agentPreset: 'minimal' })
+    const release = ctx.sessionController.registerBlankReuseFilter((id, preset) => id !== SessionId('reserved') || preset === 'minimal')
+    const created = await remote.create({ sessionId: SessionId('reserved') })
+    expect(created.ok).toBe(true)
+    if (!created.ok) throw new Error('Expected a new Session')
+    expect(created.value.sessionId).not.toBe(SessionId('reserved'))
+    expect(presetOf(SessionId('reserved'))).toBe('minimal')
+    expect(await remote.create({ sessionId: SessionId('reserved'), agentPreset: 'minimal' })).toMatchObject({ ok: true, value: { sessionId: 'reserved' } })
+    release()
+    expect(await remote.create({ sessionId: SessionId('reserved') })).toMatchObject({ ok: true, value: { sessionId: 'reserved', agentPreset: 'standard' } })
+  })
   it('recomposes a blank Session under the default when the caller names no preset', async () => {
     const { remote, selections, presetOf } = await harness({ presets: ['standard', 'minimal'] })
     await remote.create({ sessionId: SessionId('draft'), agentPreset: 'minimal' })

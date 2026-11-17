@@ -2,14 +2,19 @@
 import { isAbsolute } from 'node:path';
 
 const ranges = {
+  maxMergeEpisodes: [1, 10000], maxMergeBytes: [1024, 68719476736], mergeTimeoutMs: [100, 86400000],
+  mergeFrameRate: [1, 60], mergeThreads: [1, 16], mergeCrf: [0, 51], mergeAudioBitrate: [32000, 512000], mergeDurationToleranceMs: [1, 60000],
+  taskMaxRecords: [1, 10000], taskMaxStateBytes: [1024, 33554432], taskPollIntervalMs: [20, 60000],
+  taskControlWaitMs: [20, 60000], taskLockWaitMs: [0, 60000],
   v2PollIntervalMs: [100, 60000], v2RequestTimeoutMs: [100, 300000], v2StartupTimeoutMs: [100, 300000],
   v2ShutdownTimeoutMs: [100, 60000], v2MaxLineBytes: [1024, 33554432], v2MaxPendingRequests: [2, 64],
   v2MaxEpisodesPerJob: [1, 10000], v2EpisodesAtOnce: [1, 8], v2ConnectionsPerFile: [1, 4],
   requestTimeoutMs: [100, 120000], downloadTimeoutMs: [100, 3600000], callTimeoutMs: [100, 86400000],
   maxResponseBytes: [1024, 33554432], maxEpisodeBytes: [1024, 8589934592], maxSeries: [1, 20],
   concurrency: [1, 8], retries: [0, 4],
-  mediaProcessGraceMs: [1, 10000],
-  retryDelayMs: [0, 60000],
+  mediaProcessGraceMs: [1, 10000], bytevc2Concurrency: [1, 8], bytevc2Threads: [1, 16],
+  decryptionConcurrency: [1, 4], maxDecryptionBytes: [1024, 1073741824], decryptionWorkerHeapMb: [32, 1024],
+  retryDelayMs: [0, 60000], sourceRetries: [0, 4], sourceRetryDelayMs: [0, 60000], deferredSourceCooldownMs: [0, 600000],
   signerStartupTimeoutMs: [100, 600000], signerHeapMb: [256, 4096],
   signerPollIntervalMs: [1, 1000], signerPortAttempts: [1, 16],
   deviceBootstrapTimeoutMs: [100, 300000],
@@ -19,16 +24,21 @@ const ranges = {
   emptySourceCooldownMs: [1000, 600000], resumeSearchDepth: [0, 8], resumeSearchEntries: [1, 100000],
 };
 const defaults = {
-  legacyBackend: 'v1', v2RuntimeDir: '', v2StateDir: '', v2Quality: '720p',
+  maxMergeEpisodes: 1000, maxMergeBytes: 8589934592, mergeTimeoutMs: 7200000,
+  mergePreset: 'veryfast', mergeFrameRate: 30, mergeThreads: 2, mergeCrf: 23, mergeAudioBitrate: 128000, mergeDurationToleranceMs: 2000,
+  taskDirectory: '.muse-downloads/hongguo', taskMaxRecords: 1000, taskMaxStateBytes: 1048576,
+  taskPollIntervalMs: 250, taskControlWaitMs: 10000, taskLockWaitMs: 1000,
+  quality: '1080p', legacyBackend: 'v1', v2RuntimeDir: '', v2StateDir: '', v2Quality: '720p',
   v2PollIntervalMs: 1000, v2RequestTimeoutMs: 120000, v2StartupTimeoutMs: 30000,
   v2ShutdownTimeoutMs: 10000, v2MaxLineBytes: 1048576, v2MaxPendingRequests: 8, v2MaxEpisodesPerJob: 10000, v2EpisodesAtOnce: 1, v2ConnectionsPerFile: 1,
   sourceMode: 'legacy', legacyAppDir: '', signServer: '', signTokenEnv: 'MUSE_HONGGUO_SIGN_TOKEN',
-  pythonExecutable: '', ffmpegExecutable: '', ffprobeExecutable: '',
+  pythonExecutable: '', ffmpegExecutable: '', ffprobeExecutable: '', bytevc2Executable: '', bytevc2Concurrency: 1, bytevc2Threads: 2,
+  decryptionConcurrency: 1, maxDecryptionBytes: 268435456, decryptionWorkerHeapMb: 128,
   javaExecutable: '', signerStartupTimeoutMs: 120000, signerHeapMb: 1024,
   signerPollIntervalMs: 25, signerPortAttempts: 4,
   bootstrapDevices: false, deviceBootstrapTimeoutMs: 30000,
   mediaRequestIntervalMs: 6000, mediaIdleTimeoutMs: 20000,
-  mediaBatchSize: 5, mediaConnections: 4, mediaConnectionLimit: 12, mediaSegmentMinBytes: 2097152,
+  mediaBatchSize: 5, mediaConnections: 1, mediaConnectionLimit: 12, mediaSegmentMinBytes: 2097152,
   emptySourceCooldownMs: 120000, resumeSearchDepth: 4, resumeSearchEntries: 10000,
   mediaUserAgent: 'Mozilla/5.0 (Linux; Android 12)',
   catalogPath: '', outputRoot: '', mediaHosts: ['*.qznovelvod.com', '*.douyinvod.com', '*.idouyinvod.com', '*.pkoplink.com', '*.bdcgslb.com', '*.vegslb.com', '*.jspcdn.cn', '*.qrstuvwxyzab.com', '*.ctydoh.cn'],
@@ -36,7 +46,7 @@ const defaults = {
   requestTimeoutMs: 20000, downloadTimeoutMs: 600000, callTimeoutMs: 7200000,
   maxResponseBytes: 8388608, maxEpisodeBytes: 1073741824, maxSeries: 10, concurrency: 3, retries: 2,
   mediaProcessGraceMs: 1000,
-  retryDelayMs: 1500,
+  retryDelayMs: 1500, sourceRetries: 2, sourceRetryDelayMs: 2000, deferredSourceCooldownMs: 60000,
 };
 
 /** Resolve all settings before calls; optional credentials are read only via their environment variable name. */
@@ -59,13 +69,17 @@ export function resolveConfig(value = {}) {
     } else if (typeof entry !== 'string') throw new TypeError(`${key} 必须是字符串`);
     config[key] = Array.isArray(entry) ? [...entry] : entry;
   }
+  if (!['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'].includes(config.mergePreset)) throw new TypeError('mergePreset 必须是有效的 x264 preset');
+  if (!config.taskDirectory || isAbsolute(config.taskDirectory) || /[\\\0]/.test(config.taskDirectory)
+    || config.taskDirectory.split('/').some(part => !part || part === '.' || part === '..')) throw new TypeError('taskDirectory 必须是工作区内不含链接的相对目录');
   if (config.mediaConnectionLimit < config.concurrency) throw new TypeError('mediaConnectionLimit 不能小于 concurrency');
-  if (!['v1', 'v2'].includes(config.legacyBackend)) throw new TypeError('legacyBackend 必须是 v1 或 v2');
+  if (!['1080p', '720p', 'auto'].includes(config.quality)) throw new TypeError('quality 必须是 1080p、720p 或 auto');
+  if (config.legacyBackend !== 'v1') throw new TypeError('旧下载后端已移除，请使用 jackotom 引擎');
   if (!['1080p', '720p', '540p', '480p', '360p'].includes(config.v2Quality)) throw new TypeError('v2Quality 不是支持的视频清晰度');
   if (config.legacyBackend === 'v2' && (!config.v2RuntimeDir || !config.v2StateDir)) throw new TypeError('v2 后端必须配置 v2RuntimeDir 和 v2StateDir');
   if (!['legacy', 'manifest', 'public'].includes(config.sourceMode)) throw new TypeError('sourceMode 必须是 legacy、manifest 或 public');
   if (!config.mediaUserAgent || config.mediaUserAgent.length > 1024 || /[\r\n\0]/.test(config.mediaUserAgent)) throw new TypeError('mediaUserAgent 必须是非空有效请求头值');
-  for (const key of ['v2RuntimeDir', 'v2StateDir', 'legacyAppDir', 'catalogPath', 'outputRoot', 'pythonExecutable', 'ffmpegExecutable', 'ffprobeExecutable', 'javaExecutable']) {
+  for (const key of ['v2RuntimeDir', 'v2StateDir', 'legacyAppDir', 'catalogPath', 'outputRoot', 'pythonExecutable', 'ffmpegExecutable', 'ffprobeExecutable', 'bytevc2Executable', 'javaExecutable']) {
     if (config[key] && !isAbsolute(config[key])) throw new TypeError(`${key} 必须是绝对路径`);
   }
   if (!/^[A-Z_][A-Z0-9_]*$/.test(config.signTokenEnv)) throw new TypeError('signTokenEnv 必须是环境变量名称');

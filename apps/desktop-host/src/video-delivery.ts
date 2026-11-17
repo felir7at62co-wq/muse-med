@@ -123,8 +123,9 @@ export async function verifyWordBody(file: string, contents: string[], config: C
       else resolveRun()
     })
     child.stdin?.on('error', () => { /* execFile reports process failure through its callback. */ })
+    // Layout changes page breaks only; paragraph text comparison is layout-independent.
     child.stdin?.end(JSON.stringify({ inputs: contents.map(() => ''), contents, output: file,
-      verify_only: true, max_input_bytes: config.maxInputBytes, max_docx_bytes: config.maxProjectBytes }))
+      verify_only: true, episode_layout: 'continuous', max_input_bytes: config.maxInputBytes, max_docx_bytes: config.maxProjectBytes }))
   })
 }
 

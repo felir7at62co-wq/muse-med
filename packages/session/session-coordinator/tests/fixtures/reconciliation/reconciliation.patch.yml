@@ -1,0 +1,54 @@
+- id: llm-deepseek
+  disabled: true
+- id: llm-deepseek-account
+  disabled: true
+- id: session-title-llm
+  disabled: true
+- id: credentials
+  disabled: false
+- id: agent-instructions
+  disabled: true
+- id: session-persistence-jsonl
+  config:
+    root: !!js dshHomePath('sessions')
+    compression: none
+- id: agent-default-model
+  config:
+    provider: reconciliation-fixture
+    model: local-test
+- id: headless-runner
+  inject: [headlessStartup, reconciliationFixture]
+- insert:
+    - id: connection
+      name: '@deepseek-ai/dsh-client-connection'
+    - id: file-upload
+      name: '@deepseek-ai/dsh-client-file-upload'
+    - id: workspace
+      name: '@deepseek-ai/dsh-workspace'
+    - id: session-controller
+      name: '@deepseek-ai/dsh-api-session-controller'
+    - id: workspace-controller
+      name: '@deepseek-ai/dsh-api-workspace-controller'
+      config:
+        documentsDirectory: !!js process.cwd()
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: short-drama
+    - id: preset-main
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: main-session
+        plugins:
+          - name: '@deepseek-ai/dsh-session-coordinator/main'
+    - id: preset-worker
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: short-drama
+        plugins: []
+    - id: muse-session-coordinator
+      name: '@deepseek-ai/dsh-session-coordinator'
+    - id: muse-coordination-worker
+      name: '@deepseek-ai/dsh-session-coordinator/worker'
+    - id: reconciliation-fixture
+      name: ./model.ts

@@ -39,6 +39,7 @@ export function ComposerAttachments({
   const [dragActive, setDragActive] = useState(false)
   const [workspaceDrag, setWorkspaceDrag] = useState(false)
   const dragDepth = useRef(0)
+  const dropOwner = useRef<HTMLSpanElement>(null)
   const closePreview = useCallback(() => { setPreview(null) }, [])
   useEffect(() => {
     if (preview !== null && !attachments.some(attachment => attachment.id === preview.id)) setPreview(null)
@@ -48,7 +49,7 @@ export function ComposerAttachments({
     return installDocumentDropEvents(canAcceptDrop, onAddFiles, dragDepth, (active, workspace = false) => {
       setDragActive(active)
       setWorkspaceDrag(workspace)
-    }, readFileDrag, workspaceDrop)
+    }, readFileDrag, workspaceDrop, dropOwner)
   }, [canAcceptDrop, onAddFiles, readFileDrag, workspaceDrop])
 
   const railItems = useMemo<ComposerRailItem[]>(() => attachments.map(attachment => ({
@@ -58,6 +59,7 @@ export function ComposerAttachments({
 
   return (
     <>
+      <span ref={dropOwner} hidden data-attachment-drop-owner />
       {dragActive && (
         <DropOverlay
           disabled={!(workspaceDrag ? workspaceDrop?.canAccept === true : canAcceptDrop)}

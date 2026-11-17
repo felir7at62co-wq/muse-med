@@ -22,11 +22,12 @@ kind: "package-group"
 <a id="packages"></a>
 ## 包
 
-本组目前提供一个音乐情绪包：
+本组提供一个音乐情绪包和一个视频检查包：
 
 | 包 | 职责 |
 |---|---|
 | [`perception-bgm`](perception-bgm/README.zh.md) | `bgm_match` 工具：候选排序、经校验的下载、本地索引建立与单曲情绪分析 |
+| [`tool-video-inspect`](tool-video-inspect/README.zh.md) | `video_inspect` 与 `video_ocr` 工具：本地视频元数据、数量受限的带时间码画面，以及对画面的本地文字识别 |
 
 <a id="related-documentation"></a>
 ## 相关文档

@@ -109,6 +109,20 @@ it('checks and imports exact application-selected modules through a configuratio
   expect(f.warnings).toEqual([])
 })
 
+it.each([
+  ['a POSIX path', (path: string) => path],
+  ['a Windows path', () => 'D:\\Muse\\resources\\runtime\\bundled-provider\\index.mjs'],
+  ['a relative specifier', () => './node_modules/bundled-provider/index.mjs'],
+])('refuses %s as an application-selected module on every platform before importing anything', async (_label, target) => {
+  const f = fixture()
+  f.plugin('profile-shadow')
+  f.plugin('bundled-provider')
+  const path = join(f.dir, 'node_modules/bundled-provider/index.mjs')
+  await expect(f.run(insert('profile-shadow'), true, { 'profile-shadow': target(path) }))
+    .rejects.toThrow(/module override "profile-shadow" must be a file: URL, not .*pathToFileURL\(path\)\.href/u)
+  expect(existsSync(join(f.dir, 'effects'))).toBe(false)
+})
+
 it('still refuses an incompatible application-selected module before importing it', async () => {
   const f = fixture()
   f.plugin('allowed-profile-plugin')

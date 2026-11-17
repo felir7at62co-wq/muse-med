@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-update-silent-check
+profile: headless
+composition: muse-update-silent-check
+recording: authored
+header:
+  class: muse-update-silent-check
+  pin: true
+writerOutput: true
+workspace:
+  final: true

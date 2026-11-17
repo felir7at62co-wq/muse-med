@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-hongguo-jackotom-download
+profile: headless
+composition: muse-hongguo-jackotom-download
+recording: authored
+writerOutput: true
+header:
+  class: muse-hongguo-jackotom-download
+  pin: true
+workspace:
+  final: true

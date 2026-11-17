@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-frame-offload-compacted
+profile: headless
+composition: muse-frame-offload-compacted
+recording: authored
+writerOutput: true
+header:
+  class: muse-frame-offload-compacted
+  pin: true
+  promptChanges: 1

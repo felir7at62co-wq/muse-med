@@ -25,7 +25,16 @@
     "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
     "version": "0.9.12",
     "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
-    "license": "MIT"
+    "license": "MIT",
+    "localModifications": {
+      "description": "Synchronize the rekeyed-account forced-refresh regression with a shared store-read barrier.",
+      "files": {
+        "test/store.spec.ts": {
+          "upstreamSha256": "796b5d4d2d8fcfe9ed429c27f58e840f1fcb7e21e21285e48a1902a728461cf3",
+          "sha256": "36d50a7da6af7c57fdc2075b33ddd30529eb694e8fa9bd16f2364f581e05ee02"
+        }
+      }
+    }
   },
   "dsh-bridge": {
     "repository": "https://github.com/wenbin-wb/dsh-bridge",

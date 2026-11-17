@@ -47,6 +47,8 @@ export interface ImageModelSelectors {
   genType: 3
   videoStandardId: number
   resolution: string
+  /** Provider quality copied from the selected specification when it declares one. */
+  quality?: string
 }
 
 /**
@@ -218,11 +220,14 @@ export function resolveImageModel(catalogue: unknown, selection: ImageModelSelec
     const standard = atResolution[0]
     if (standard === undefined) invalid(`selected image catalogue row has no valid ${ratio} image specification`)
     if (atResolution.length > 1) invalid(`selected image catalogue row has multiple ${ratio} image specifications at ${resolution}`)
+    const quality = standard.quality === undefined || standard.quality === null || standard.quality === ''
+      ? undefined : text(standard.quality)
     return { standardId: positive(model.id ?? model.standardId), modelId: text(model.modelId),
       platformId: text(model.platformId), genType: 3,
       modelGenerationTypeId: generation === undefined || generation.id === undefined || generation.id === null
         ? null : positive(generation.id),
-      videoStandardId: positive(standard.id), resolution: (standard.resolution as string).toUpperCase() }
+      videoStandardId: positive(standard.id), resolution: (standard.resolution as string).toUpperCase(),
+      ...(quality === undefined ? {} : { quality }) }
   })
 }
 
@@ -269,20 +274,22 @@ export function validateImageRequestInput(input: ImageRequestInput): void {
  * @param input - Caller-supplied identity, prompt, optional aspect ratio and ordered reference URLs.
  * @param catalogue - Live `taskType=2` catalogue.
  * @param selection - The catalogue row this deployment pinned.
- * @returns The wire body, with `id` present only on the update route.
+ * @returns The wire body requesting the caller's composition instead of the provider's asset reference template,
+ *   with `id` present only on the update route.
  */
 export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
   selection: ImageModelSelection = {}): Record<string, unknown> {
   validateImageRequestInput(input)
   const aspectRatio = input.aspectRatio ?? '16:9'
-  const { resolution, ...selectors } = resolveImageModel(catalogue, selection, aspectRatio)
+  const { resolution, quality, ...selectors } = resolveImageModel(catalogue, selection, aspectRatio)
   if (selectors.platformId === 'KU_AI' && input.references.length > 5) {
     throw new JubianError('INVALID_ARGUMENT', 'KU_AI image generation accepts at most 5 reference images; reduce references before submission')
   }
   const references = input.references.map((materialUrl, index) =>
     ({ materialUrl, materialType: 'image', sortOrder: index + 1 }))
   const config = { ...selectors, duration: 1, resolution, ratio: aspectRatio, genNum: 1, backupModelList: [],
-    prompt: input.prompt, style: resolveImageStyle(input.prompt, input.imageStyle) === 'anime' ? 1 : 0, materialList: references, quality: '' }
+    prompt: input.prompt, style: resolveImageStyle(input.prompt, input.imageStyle) === 'anime' ? 1 : 0,
+    materialList: references, quality: quality ?? '', skipAssetReferenceTemplate: true }
   return { scriptId: input.scriptId, assetName: input.assetName, assetType: input.assetType,
     modelConfig: JSON.stringify(config), isLocal: 0, isGenerate: 1,
     ...(input.parentAssetId === undefined ? {} : { id: input.parentAssetId }) }

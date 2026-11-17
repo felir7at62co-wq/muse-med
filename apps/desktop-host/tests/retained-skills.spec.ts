@@ -1,6 +1,6 @@
 /** Maintained writing instructions load with their resources; retired instructions stay fixture-only. */
 import { access, readFile, readdir } from 'node:fs/promises'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -12,6 +12,11 @@ const retainedRoot = retainedSkillsFixture()
 const productRoot = fileURLToPath(new URL('../skills/', import.meta.url))
 const retiredRoot = fileURLToPath(new URL('./fixtures/retired-writing-skills/', import.meta.url))
 const writingSkills = ['muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']
+/** Archived resources a maintained skill deliberately dropped. */
+const removedResources: Readonly<Record<string, readonly string[]>> = {
+  // The unreferenced Word exporter was removed; delivery goes through screenplay_export_docx.
+  'screenplay-format': ['scripts/export_docx.py'],
+}
 
 it('keeps writing skills in the default catalog and preserves retired-only instructions', async () => {
   const ctx = new Context()
@@ -71,7 +76,8 @@ it.each(writingSkills)('loads maintained %s with archived resources and valid lo
     expect(loaded?.resourceBase).toEqual({ kind: 'directory', path: directory })
     expect(loaded?.content.trim()).toBeTruthy()
     const originals = (await readdir(originalDirectory, { recursive: true, withFileTypes: true }))
-      .filter(entry => entry.isFile()).map(entry => relative(originalDirectory, join(entry.parentPath, entry.name))).sort()
+      .filter(entry => entry.isFile()).map(entry => relative(originalDirectory, join(entry.parentPath, entry.name)))
+      .filter(file => !(removedResources[name] ?? []).includes(file.split(sep).join('/'))).sort()
     const restored = (await readdir(directory, { recursive: true, withFileTypes: true }))
       .filter(entry => entry.isFile()).map(entry => relative(directory, join(entry.parentPath, entry.name))).sort()
     expect(restored).toEqual(expect.arrayContaining(originals))

@@ -1,0 +1,8 @@
+{
+  "initialOffer": "1.1.0-nightly.1",
+  "automaticCheck": "error",
+  "visibleAfterFailure": "idle",
+  "manualRecheck": "available",
+  "authorizedDownload": "ready",
+  "downloadRequests": 1
+}

@@ -22,7 +22,7 @@
         providerName: acp-diagnostic
         command: !!js process.execPath
         args:
-          - !!js "decodeURIComponent(new URL('../../../packages/subagent/subagent-acp/tests/mock-acp-server.ts', 'file://' + process.env.DSH_SNAPSHOT_FILE).pathname)"
+          - !!js process.env.DSH_ACP_DIAGNOSTIC_SERVER
         permission: reject
         env:
           MOCK_PERMISSION: '1'
@@ -36,3 +36,24 @@
 
 - id: plugin-package-inventory-deepseek
   disabled: true
+
+# These recordings pin POSIX shell schemas independently of the replay host.
+- id: bash-sandbox
+  disabled: false
+- id: pwsh-sandbox
+  disabled: true
+- id: tool-bash
+  disabled: false
+- id: tool-pwsh
+  disabled: true
+
+# This fixture tests protocol behavior, without native OS confinement.
+- id: sandbox
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'

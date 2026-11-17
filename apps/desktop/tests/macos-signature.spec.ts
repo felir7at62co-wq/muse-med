@@ -65,6 +65,7 @@ describe('desktop macOS release signature', () => {
     }
     expect(config.extraResources).toHaveLength(2)
     expect(config.extraResources[0]?.to).toBe('runtime')
+    expect(config.extraResources[0]?.filter).toEqual(['**/*', '!hongguo', '!hongguo/**/*'])
     expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
     const [dshFiles, dshNodeModules] = config.files.slice(-2)
     if (!dshFiles || !dshNodeModules || typeof dshFiles === 'string' || typeof dshNodeModules === 'string') {
@@ -81,9 +82,10 @@ describe('desktop macOS release signature', () => {
       '**/@deepseek-ai/dsh-desktop-host/skills/**',
       '**/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/**',
       '**/muse-douyin-download/python/**',
-      '**/muse-hongguo-download/python/**',
+      '**/muse-hongguo-download/**',
       '**/muse-lvpaopao/native/**',
       '**/@openai/codex*/**',
+      '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/native/bin/**/*',
     ]))
     expect(config.icon).toMatch(/[/\\]renderer[/\\]icon\.png$/u)
     expect(config).toHaveProperty('win.icon', expect.stringMatching(/[/\\]renderer[/\\]icon\.ico$/u))

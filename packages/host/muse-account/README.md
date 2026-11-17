@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Sign in to MUSE from Desktop Settings without entering a password in a model conversation. Use the account model catalog, optional web search, cloud transcription, feedback and desktop remote access through the configured Muse gateway. Account credentials remain in Host storage.
+Sign in to MUSE from Desktop Settings without entering a password in a model conversation. Use the account model catalog, optional web search, cloud transcription, feedback, data-station Douyin downloads and desktop remote access through the configured Muse gateway. Account credentials remain in Host storage.
 
 ## Table of Contents
 
@@ -41,6 +41,8 @@ After admission succeeds, a failed account-liveness check returns non-retryable 
 
 Model refusals and cancelled streams expose fixed diagnostics with their error category, HTTP status and retry delay when available. The Host diagnostic log records only provider, model, category, HTTP status, and a bounded supplier request ID; supplier error text, credentials, authorization headers, diagnostic request IDs and chained exceptions do not enter Session logs. Successful model content and replay metadata remain intact. Content-safety refusals retain `CONTENT_FILTER` and never become a transient retry category.
 
+After bounded retries on the selected Muse account route, classified quota, rate limit, server, timeout, connection, and empty-response failures try other authorized, selectable suppliers in the same turn, choosing at most one model per supplier. The same model takes priority, then a model in the same family. A candidate must support images anywhere in the current history, the original model's context capacity, an explicit output limit, and an explicit reasoning effort. Each switch records the normal model selection and assembles the next step's prompt and tools again; tool calls from failed streams never execute. Exhausting candidates stops with an error. Logout, user cancellation, account or supplier authentication failure, content safety refusal, invalid requests, uncertain admission, and request deadlines never switch routes; personal providers are never selected automatically.
+
 Each Muse model call receives a random `client_request_id`. Host diagnostics correlate its Session, provider, model and purpose with bounded response identifiers, completion reason and usage when available. Diagnostic token counts accept only nonnegative safe integers; invalid fields are omitted without changing model stream chunks. The adapter passes the public request-header preparation waterfall; only requests to the configured Muse relay origin carry `x-muse-client-request-id`. Supplier-direct requests omit that header. Diagnostic records exclude message bodies, credentials, complete headers and exception text; these request identifiers do not add Session events or change replay metadata. A client request identifier names one prepared call; gateway HTTP attempts have separate identifiers.
 
 Models use each account model's declared default thinking level until the user explicitly selects another offered level. The prepared model carries that default into the logged request; models without thinking support receive no default effort. Yunying's exact `gpt-6.1-sol` model uses `max_completion_tokens` for its output limit.
@@ -65,9 +67,16 @@ Search refuses redirects, observes its own `searchRequestTimeoutMs` deadline, ca
 
 ### Company media
 
-With `mediaTools: true`, four deferred tools use the current private Muse login: `muse_media_data`, `muse_media_download`, `muse_media_task`, and `muse_media_import`. Desktop enables them without asking employees for an upstream API key. The matching [company media gateway](../../../services/muse-media/gateway/README.md) checks company membership, task ownership and per-account limits. Permission rejection does not delete the Muse login. Every call captures the current login revision and rejects delivery after an account change; unload aborts and settles requests and local helpers.
+With `mediaTools: true`, four deferred tools use the current private Muse login: `muse_media_data`, `muse_media_download`, `muse_media_task`, and `muse_media_import`. `muse_media_download` saves TikTok and Bilibili works only; a Douyin platform or any Douyin host in its URL or share text fails with `douyin-unsupported` before the login is read, and the result directs the model to `douyin_download`. Desktop enables them without asking employees for an upstream API key. The matching [company media gateway](../../../services/muse-media/gateway/README.md) checks company membership, task ownership and per-account limits. Permission rejection does not delete the Muse login. Every call captures the current login revision and rejects delivery after an account change; unload aborts and settles requests and local helpers.
 
-Cloud submission requires a stable `requestId`; uncertainty requires querying the original job, never a new submission key. `cloud_saved` describes complete cloud storage only. `partial` exposes only individually accepted files and remains partial after importing one of them. Import uses the exact filename from the cloud manifest, including accepted spaces and parentheses, without renaming it. Manifest and import validation share the same filename policy: an ASCII letter or digit first, at most 128 characters from letters, digits, dot, underscore, hyphen, space and parentheses, with no `..` or path separators. The importer requires an initiating local workspace, rejects read-only policy and existing-file replacement, and uses the configured OS sandbox for workspace-write helpers and media verification. Complete byte counts, SHA-256, FFprobe metadata and full FFmpeg decoding must pass before publication. `local_ready` identifies one verified image or video, with its source job state and file coverage; images do not establish video success. Use the existing `present` tool with the returned path for file cards and video inventory. The private helper is bundled inline, has no public executable, and receives no account credential.
+Cloud submission requires a stable `requestId`; uncertainty requires querying the original job, never a new submission key. `cloud_saved` describes complete cloud storage only. `partial` exposes only individually accepted files and remains partial after importing one of them. Import uses the exact filename from the cloud manifest, including accepted spaces and parentheses, without renaming it. Manifest and import validation share the same filename policy: an ASCII letter or digit first, at most 128 characters from letters, digits, dot, underscore, hyphen, space and parentheses, with no `..` or path separators. The importer requires an initiating local workspace, rejects read-only policy and existing-file replacement, and uses the configured OS sandbox for workspace-write helpers. Complete byte counts, SHA-256, FFprobe metadata and full FFmpeg decoding must pass before publication. Metadata and decoding run through the configured managed subprocess service with the same workspace policy and bounded output. The receiver waits for those facts on its private control pipe before accepting a commit. `local_ready` identifies one verified image or video, with its source job state and file coverage; images do not establish video success. Use the existing `present` tool with the returned path for file cards and video inventory. The private helper is bundled inline, has no public executable, and receives no account credential.
+
+<a id="data-station-douyin-downloads"></a>
+### Data-station Douyin downloads
+
+With `douyinDownloadTool: true`, the deferred `douyin_download` tool is the only Douyin video downloader. It sends the current Muse session token in `X-Muse-Account-Token` to the data station at `douyinStationPath` on the `baseUrl` origin; the public `/data/` proxy clears `Authorization`, and the station refuses requests carrying `Origin`. Requests carry no cookie, `Origin` or requester name, refuse redirects, bound the complete JSON reply with `douyinMaxReplyBytes`, and reject a reply that echoes the token. The station checks the token with the Muse gateway, admits only its team list, and records the verified member as the requester.
+
+`action: download` queues one work from a URL, share text or `aweme_id`, or every episode of one series from `mix_id` or a `douyin.com/collection/<id>` link. A `v.douyin.com` share link is resolved by one redirect read within `douyinLinkTimeoutMs`, without its body or any account credential. `action: query` reads existing records without submitting, and `action: quota` reports availability and the daily allowance that the station shares between its web page and Muse. `wait_seconds` from 0 to `douyinMaxWaitSeconds` polls records every `douyinPollIntervalMs` until every work is `done` or `failed`; cancellation ends the wait. A query requests at most `douyinListLimit` records. Results list each work's state and, when done, its public storage address; a private-mode record reads its signed address and `expiresAt`. These addresses are not local files. The station does not download a queued or saved work again, and resubmitting a failed work queues it again. Fixed codes report sign-in, team list, daily allowance, station availability, account change, unconfirmed submission, timeout and cancellation without station response text. Every request rechecks the login revision captured when the call started.
 
 ### Shared voice registration
 
@@ -110,6 +119,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `webSearch` | `false` | Register the `muse` search provider when the web service is present; Muse Desktop enables it. |
 | `searchRequestTimeoutMs` | 60,000 | Independent account-authorized search timeout in milliseconds, from 1,000 to 120,000. |
 | `modelRequestImageMaxBytes` | Adapter default (`20 MiB`) | Optional positive safe integer limiting accumulated base64 images per model request. Mount `compaction-image-offload` to log omission of the oldest image occurrences and retry; source attachments remain readable. This does not limit text output. |
+| `modelRetryPolicy` | Adapter default (normal, 5 retries, 0.5–10 s) | Optional provider `retryPolicy` for every account model route, validated at load. `dsh-llm-retry` applies it to failed steps and `compaction-basic` to summary requests. |
 | `feedbackTools` | `false` | Register explicit user submission and owner-scoped receipt-query tools; Muse Desktop enables them. |
 | `mediaTools` | `false` | Register four deferred company media tools; Desktop enables them. |
 | `mediaRequestTimeoutMs` | 60,000 | Metadata and receipt deadline in milliseconds, 1,000–120,000. |
@@ -125,6 +135,14 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `mediaCommandMaxOutputBytes` | 65,536 | Complete helper report and diagnostic cap, 1 KiB–1 MiB. |
 | `mediaMaxPixels` | 67,108,864 | Maximum imported width × height; positive safe integer. |
 | `mediaMaxDurationSeconds` | 7,200 | Maximum accepted video duration, 1–86,400 seconds. |
+| `douyinDownloadTool` | `false` | Register the deferred data-station `douyin_download` tool; Desktop enables it. |
+| `douyinStationPath` | `/data/api/muse-client/douyin` | Absolute route prefix joined to the `baseUrl` origin; slash-separated segments of letters, digits, `.`, `_`, `~` or `-`, without `.` or `..` segments or a trailing slash. |
+| `douyinRequestTimeoutMs` | 15,000 | One station request and its complete reply, 1,000–120,000 ms. |
+| `douyinLinkTimeoutMs` | 10,000 | One share-link redirect read, 1,000–60,000 ms. |
+| `douyinMaxReplyBytes` | 1,048,576 | Complete station JSON reply cap, 1 KiB–16 MiB. |
+| `douyinMaxWaitSeconds` | 60 | Largest `wait_seconds`, 0–600. |
+| `douyinPollIntervalMs` | 5,000 | Pause between record queries while waiting, 1,000–60,000 ms. |
+| `douyinListLimit` | 300 | Records requested by one query, 1–500; the station page holds at most 500. |
 | `feedbackExcerptChars` | 1,000 | Visible characters per optional related request or answer excerpt, from 100 to 1,200. |
 | `activityReportIntervalMs` | 30,000 | Minimum interval between activity reports for one login, from 1,000 to 3,600,000 milliseconds. |
 | `activityRequestTimeoutMs` | 5,000 | Best-effort activity request deadline, from 100 to 30,000 milliseconds. |
@@ -188,15 +206,15 @@ No runtime invariant companion is published because the account controller and m
 
 #### What the model sees
 
-Model requests use the selected account provider and model. Optional account search returns validated sources through the existing `web_search` tool. The package contributes no account-status or knowledge-base tool schemas. Passwords and cookies stay outside tool arguments and results. When the configured model image budget is exceeded, the composed image-offload executor logs placeholders for the oldest image occurrences; the model can read their original attachments again.
+Model requests use the selected account provider and model. Optional account search returns validated sources through the existing `web_search` tool. With `douyinDownloadTool`, the deferred [`douyin_download`](../../../docs/tool-catalog.md#deepseek-aidsh-muse-account) schema describes data-station Douyin downloads in Chinese; its results contain work states, public storage addresses and fixed failure codes. The package contributes no account-status or knowledge-base tool schemas. Passwords and cookies stay outside tool arguments and results. When the configured model image budget is exceeded, the composed image-offload executor logs placeholders for the oldest image occurrences; the model can read their original attachments again.
 
 #### Token effect
 
-When `feedbackTools` is enabled, two feedback tool schemas join the model request; receipt results enter normal tool history. With feedback and media tools disabled, the package adds no tool schemas or system-prompt text. Enabling `mediaTools` registers four deferred schemas; discovery controls admission, while accepted results enter ordinary logged tool history. Optional account search uses the existing web tool schema and appends its returned sources to the conversation.
+When `feedbackTools` is enabled, two feedback tool schemas join the model request; receipt results enter normal tool history. With feedback and media tools disabled, the package adds no tool schemas or system-prompt text. Enabling `mediaTools` registers four deferred schemas; discovery controls admission, while accepted results enter ordinary logged tool history. Enabling `douyinDownloadTool` registers one deferred schema; a whole-series result lists every returned episode with its address, so up to `douyinListLimit` work entries enter tool history. Optional account search uses the existing web tool schema and appends its returned sources to the conversation.
 
 #### KV Cache effect
 
-Account settings and status remain Host and Client data. Model selection and the existing tool-history rules determine request-prefix reuse.
+Account settings and status remain Host and Client data. The official account routes `deepseek-flash` and `deepseek-v4.1-flash-261017` keep changed system text in conversation order, preserving the earlier request prefix. Other account routes keep their declared prompt behavior; tool additions remain subject to each route's tool-history support. Model selection still determines which provider cache can be reused.
 
 ## Known Limitations and Deferred Work
 
@@ -206,6 +224,7 @@ These limits apply to the bundled Desktop account flow.
 
 - **Same-user file access** — the saved cookie is outside the model conversation, but an agent process running as the same OS user may be able to read the session file through file tools. UI and Remote routing do not provide complete isolation; stronger separation requires OS credential storage, a separate account, or narrower sandbox read permissions.
 - **Gateway dependency** — account-authorized models, web search and speech require matching deployed gateway services. Source packaging alone does not enable them.
+- **Data-station dependency** — `douyin_download` requires the data station's account-token routes under `douyinStationPath` and its team list. Without them, every action reports `unavailable` or `team-access-required`; no local downloader takes over.
 
 <a id="dev-note"></a>
 ### Dev Note

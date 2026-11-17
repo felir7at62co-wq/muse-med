@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-独立的可选插件包，提供 Muse 会话气泡、小蜘蛛视频幕布、镜头轨道和随滚动收纳的动效。它组合[界面插件](../../client/ui-session-video/README.zh.md)与[会话视频服务](../../drama/session-video/README.zh.md)。
+独立的可选插件包，提供聊天视频卡片、镜头轨道和会话视频历史。它组合[界面插件](../../client/ui-session-video/README.zh.md)与[会话视频服务](../../drama/session-video/README.zh.md)。
 
 ## 目录
 
@@ -24,7 +24,7 @@ kind: "package-bundle"
 
 在提供原生 Chat、Deliverables、配置表单和会话框架的 Web profile 上选择此插件包。它的补丁提供规范的 `session-video` 和 `ui-session-video` 条目；不要重复挂载。Muse Desktop 已自带这些贡献，无需另行安装。
 
-在**设置 → 通用 → 视频气泡与轨道**中，可立即切换整套界面。保存的偏好在刷新页面和重启应用后仍然生效。停用时恢复原生导航与视频播放，并保留聊天记录、草稿、附件和后台任务。设置行仍可用于再次启用。卸载插件包遵循 profile 原有的插件管理生命周期；实时开关不需要配置 HMR。
+在**设置 → 通用 → 视频卡片与轨道**中，可立即切换整套界面。保存的偏好在刷新页面和重启应用后仍然生效。停用时恢复原生已交付视频播放，并保留聊天记录、草稿、附件和后台任务。设置行仍可用于再次启用。卸载插件包遵循 profile 原有的插件管理生命周期；实时开关不需要配置 HMR。
 
 <a id="understand-the-implementation"></a>
 ## 了解实现

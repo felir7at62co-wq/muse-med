@@ -33,7 +33,7 @@ function onboardingProps(account: () => AccountSnapshot) {
     useTheme: <T,>(select: (snapshot: ThemeSnapshot) => T) => select(theme),
     start: vi.fn(async () => {}), cancel: vi.fn(async () => {}), signOut: vi.fn(async () => {}),
     contactUs: vi.fn(), t: makeTranslate(en),
-    refreshAccount: vi.fn(async () => {}), bonusNoticeShown: vi.fn(), bonusNoticeDismissed: vi.fn(),
+    refreshAccount: vi.fn(async () => {}),
     avatarFailed: vi.fn(),
   }
   return props

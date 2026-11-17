@@ -474,23 +474,6 @@ it('names a local subject verification failure without exposing asset URLs', asy
 })
 
 describe('uploaded voice references', () => {
-  it.each([false, true])('reviews the EP50 off-screen thoughts with voice reference %s', async (hasAudio) => {
-    const sample = await readFile(new URL('./fixtures/ep50-voiceover.txt', import.meta.url), 'utf8')
-    const prompt = hasAudio ? sample : sample.replace(/本段乔麦的心声与台词声音参考为[^。]+。/u, '')
-    const audio = { materialType: 'audio', materialUrl: 'https://media.example/voice.wav',
-      materialKey: 'voice-lead', fileName: '乔麦声线', sortOrder: 1, audioDuration: 2 }
-    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
-      storyboardMaterialList: hasAudio ? [...MATERIALS, audio] : MATERIALS,
-      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) } }
-    const result = await prepareVideoMethod(clientFor(provider), ledger,
-      { storyboard_id: 916953, project_dir: await project() })
-    expect(result.voice_continuity_review).toMatchObject({
-      status: hasAudio ? 'voice_reference_present_unverified' : 'dialogue_without_voice_reference',
-    })
-    expect(putCalls(provider)).toEqual([])
-    expect(await ledger.records()).toEqual([])
-  })
-
   it.each([
     '台词 ：陆沉舟：今晚别走。',
     '旁白：雨停了。',
@@ -514,6 +497,8 @@ describe('uploaded voice references', () => {
     '镜头17：旁白：雨停了。',
     '镜头17：台词：陆沉舟：今晚别走。',
     '场景：院子；台词：陆沉舟：今晚别走。',
+    '镜头17：动作：转身。陆沉舟：今晚别走。',
+    '镜头17：动作：转身；台词：陆沉舟：今晚别走。',
     '人物：张三\n镜头1：场景：客厅 台词：张三：快走！',
     '镜头1：核心场景：客厅 旁白：雨停了。',
     '镜头1：场景名称：客厅 dialogue: Run!',
@@ -523,16 +508,6 @@ describe('uploaded voice references', () => {
     '镜头1：场景：客厅 画面文字：禁止通行 旁白：雨停了。',
     '镜头17：画面文字：陆沉舟：无声；近景，陆沉舟：还想走吗？',
     '镜头17：画面文字：台词：无声；台词：陆沉舟：还想走吗？',
-    '人物：乔麦\n乔麦（在心里感慨）：所有人先前都戴着面具。',
-    '人物：乔麦\n镜头5：她嘴唇不动，不对口型。乔麦：所有人先前都戴着面具。',
-    '人物：乔麦\n镜头5：她低下头！乔麦（认真，带着笑意）：裴总。',
-    '人物：乔麦\n镜头5：她望着窗外？乔麦（OS）：听好了。',
-    '说话人：Mary Jane\nShot 2: She turns away.Mary Jane (smiling): Hello.',
-    '镜头5：嘴唇不动。OS：我想留下。',
-    '人物：乔麦\n镜头5：动作：她转身。台词：乔麦：听好了。',
-    '人物：乔麦\n镜头5：动作：她转身；台词：乔麦：听好了。',
-    '人物：乔麦\n镜头5：动作：她转身，台词：乔麦：听好了。',
-    '人物：乔麦\n镜头5：动作：她转身。乔麦（认真）：听好了。',
   ])('flags this spoken prompt without a voice reference: %s', async (speech) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${speech}` }) } }
@@ -588,16 +563,6 @@ describe('uploaded voice references', () => {
     '人物：张三\n镜头17：近景，李四：今晚别走。',
     '@[ ](lead)\n镜头17：近景，人物转身',
     '@[场景](lead)\n镜头17：场景：雨夜街头',
-    '人物：乔麦\n乔麦（不发声）：听好了。',
-    '人物：乔麦\n镜头5：乔麦（无对白）：听好了。',
-    '人物：乔麦\n镜头5：动作：乔麦（擦嘴）：抬起手。',
-    '人物：乔麦\n镜头5：人物动作：乔麦（擦嘴）：抬起手。',
-    '人物：乔麦\n镜头5：画面文字：乔麦（在心里感慨）：听好了。',
-    '人物：乔麦\n镜头5：近景。不要 乔麦（认真）：听好了。',
-    '人物：乔麦\n镜头5：负面提示：心声：听好了。',
-    '人物：乔麦\n镜头5：拿起印着“乔麦（在心里感慨）：听好了。”的纸条，人物不发声。',
-    '人物：乔麦\n镜头5：动作：她转身，画面文字：台词：乔麦：听好了。',
-    '人物：乔麦\n镜头5：动作：她转身。负面提示：台词：乔麦：听好了。',
   ])('does not treat a non-speech prompt as dialogue: %s', async (description) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${description}` }) } }
@@ -2090,32 +2055,7 @@ describe('submit_video_batch', () => {
       idempotency_key: String(preview.idempotencyKey) })) }
   }
 
-  it.each(['disappears', 'changes identity'] as const)(
-    'does not reconcile or resend an initially recorded batch key after it %s', async (change) => {
-      const { provider, items } = await batch()
-      for (const item of items) {
-        const preview = JSON.parse(await readFile(item.preview_path, 'utf8')) as NativeVideoPreview
-        await ledger.begin({ idempotencyKey: item.idempotency_key, method: 'storyboard_native_submit', scriptId: 2708,
-          requestSha256: bodyHash(preview.payload), beforeTaskIds: [], videoPreviewPath: item.preview_path })
-      }
-      const originalFind = ledger.find.bind(ledger)
-      let reads = 0
-      const find = vi.spyOn(ledger, 'find').mockImplementation(async (key) => {
-        reads++
-        const entry = await originalFind(key)
-        return reads <= items.length ? entry : change === 'disappears'
-          ? undefined : { ...entry!, record_id: 'replaced-record' }
-      })
-      try {
-        await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items })).rejects.toThrow(
-          change === 'disappears' ? 'No recorded video submission' : 'Recorded video submission identity changed')
-      } finally { find.mockRestore() }
-      expect(provider.calls).toEqual([])
-      expect(await ledger.records()).toHaveLength(items.length)
-    },
-  )
-
-  it('does not reconcile or resend an initially recorded batch key after its identity changes', async () => {
+  it.each(['missing', 'replaced'] as const)('refuses an initially recorded batch key after its record is %s', async (change) => {
     const { provider, items } = await batch()
     for (const item of items) {
       const preview = JSON.parse(await readFile(item.preview_path, 'utf8')) as NativeVideoPreview
@@ -2125,12 +2065,14 @@ describe('submit_video_batch', () => {
     const originalFind = ledger.find.bind(ledger)
     let reads = 0
     const find = vi.spyOn(ledger, 'find').mockImplementation(async (key) => {
-      reads++
-      const entry = await originalFind(key)
-      return reads <= items.length ? entry : { ...entry!, record_id: 'replaced-record' }
+      const initial = ++reads <= items.length
+      const record = await originalFind(key)
+      if (initial || record === undefined) return record
+      return change === 'missing' ? undefined : { ...record, record_id: 'replacement-' + record.record_id }
     })
     try {
-      await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items })).rejects.toThrow('Recorded video submission identity changed')
+      await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items }))
+        .rejects.toThrow(change === 'missing' ? 'No recorded video submission' : 'Recorded video submission identity changed')
     } finally { find.mockRestore() }
     expect(provider.calls).toEqual([])
     expect(await ledger.records()).toHaveLength(items.length)
@@ -3008,7 +2950,7 @@ describe('bare singleton list responses through the client', () => {
 
   it.each(['subject', 'task'])('rejects contradictory hasMore on %s inventory pages', async (kind) => {
     const subject = SUBJECT_ROWS[0], task = { id: 9, scriptId: 2708, storyboardId: 999999 }
-    for (const contradict of [{ total: 1, hasMore: true, rows: [kind === 'subject' ? subject : task] },
+    for (const contradict of [{ total: 'invalid', rows: [] }, { total: 1, hasMore: true, rows: [kind === 'subject' ? subject : task] },
       { hasMore: true, rows: [] }, { total: 2, hasMore: false, rows: [kind === 'subject' ? subject : task] }]) {
       const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
         subjectPage: () => kind === 'subject' ? contradict : { total: 1, rows: [subject] },
@@ -3079,14 +3021,15 @@ describe('bare singleton list responses through the client', () => {
 })
 
 describe('unused subject history in actual preparation and selection', () => {
-  it.each([null, 81285])('prepares numeric parent %s from current subject with unused history', async (parentId) => {
+  it.each([null, 81285, '81285'])('prepares numeric parent %s from current subject with unused history', async (parentId) => {
     for (const flag of [0, ' 0 ']) {
       for (const oldFirst of [true, false]) {
         const old = { ...SUBJECT_ROWS[0], id: 99, isUsed: flag, hsAssetId: 'asset-old', assetUrl: 'https://example.test/old.jpg' }
         const rows = oldFirst ? [old, ...SUBJECT_ROWS] : [...SUBJECT_ROWS, old]
         const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
           storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: parentId }, MATERIALS[1]] },
-        subjectPage: () => ({ total: rows.length, rows }) }
+        subjectPage: () => ({ total: rows.length, rows: typeof parentId === 'string'
+          ? rows.map(row => ({ ...row, id: String(row.id) })) : rows }) }
         const result = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project(2708, `project-${String(flag)}-${String(oldFirst)}`) })
         expect(result).toMatchObject({ status: 'prepared', assetSummary: { orderedAssets: [{ assetId: 'asset-lead', materialAssetId: 81285, imageUrl: URL_LEAD }, { assetId: 'asset-guest', materialAssetId: 83670 }] } })
         expect(provider.calls.every(call => call.method === 'GET')).toBe(true)

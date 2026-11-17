@@ -252,8 +252,7 @@ export class DesktopHostProcess {
    * @param inspectPort - Optional loopback inspector port for workspace development.
    * @param environment - Environment inherited by the Host and its plugin subprocesses.
    * @param onFailure - Receives the first unexpected child failure, including after readiness.
-   * @param primaryRuntime - Optional bundled dependency payload; when supplied, missing sibling
-   *   `office-skills` resources fail Host startup.
+   * @param primaryRuntime - Optional bundled dependency payload; the Host exposes it to its profile as `DSH_PRIMARY_RUNTIME`.
    * @param packageManager - Bundled pnpm entry and Node launcher directory, scoped to package operations.
    * @param onPlatformSession - Private credential updates for embedded Platform views.
    * @param onAttentionSound - A live user-owned turn or question needs an audible cue.
@@ -285,25 +284,22 @@ export class DesktopHostProcess {
   async start(): Promise<DesktopHostReady> {
     if (this.child !== undefined) return this.readyPromise
     const entry = join(this.runtimeDir, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'index.js')
-    const child = spawn(
-      this.node,
-      [
-        '--expose-internals',
-        ...(this.inspectPort === undefined ? [] : [`--inspect=127.0.0.1:${String(this.inspectPort)}`]),
-        entry,
-        this.runtimeDir,
-        this.projectDir,
-        this.primaryRuntime ?? join(this.runtimeDir, '..', 'runtime', 'primary-runtime'),
-        ...(this.packageManager === undefined ? [] : [this.packageManager.pnpm, this.packageManager.nodeBin]),
-        ...(this.inspectPort === undefined ? [] : ['--allow-linked-profile']),
-      ],
-      {
-        cwd: this.projectDir,
-        env: desktopNodeEnvironment(this.node, undefined, this.environment),
-        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-        windowsHide: true,
-      },
-    )
+    const child = spawn(this.node, [
+      '--expose-internals',
+      ...(this.inspectPort === undefined ? [] : [`--inspect=127.0.0.1:${String(this.inspectPort)}`]),
+      entry,
+      this.runtimeDir,
+      this.projectDir,
+      // Empty asks the Host for the payload beside its runtime directory, so that layout has one owner.
+      this.primaryRuntime ?? '',
+      ...(this.packageManager === undefined ? [] : [this.packageManager.pnpm, this.packageManager.nodeBin]),
+      ...(this.inspectPort === undefined ? [] : ['--allow-linked-profile']),
+    ], {
+      cwd: this.projectDir,
+      env: desktopNodeEnvironment(this.node, undefined, this.environment),
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      windowsHide: true,
+    })
     this.child = child
     child.stderr?.setEncoding('utf8')
     child.stderr?.on('data', (chunk: string) => {

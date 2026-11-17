@@ -85,6 +85,26 @@ async function harness(script: Response[], always = false, recoveryAttempts = 1)
 }
 
 describe('bounded local request recovery', () => {
+  it('keeps a pending recovery when an unrelated agent finishes and is disposed', async () => {
+    const test = await harness([loop(), done()], true)
+    const entered = Promise.withResolvers<null>(), release = Promise.withResolvers<null>()
+    test.ctx.on('agent/request-error', async (_payload, next) => {
+      entered.resolve(null); await release.promise; return next()
+    }, { prepend: true })
+    const first = test.run()
+    try {
+      await entered.promise
+      const other = new Adapter([done()])
+      test.ctx.llm.registerAdapter(['other'], other)
+      const owned = await test.ctx.agents.create({ sessionId: SessionId('unrelated-recovery-owner'),
+        agentOptions: { provider: 'other', model: 'other' } })
+      owned.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Complete unrelated work.' }] }))
+      await owned.agent.whenIdle()
+      await owned.dispose()
+    } finally { release.resolve(null); await first }
+    expect(test.adapter.requests).toHaveLength(2)
+    expect(test.effects.forbidden).toBe(0)
+  })
   it('retains earlier effects and failed raw output while resampling only the unsettled response', async () => {
     const test = await harness([
       [call('retained'), { type: 'finish', reason: { kind: 'tool-calls' } }], loop(),
@@ -214,6 +234,25 @@ describe('bounded local request recovery', () => {
     await disposal
     expect(test.adapter.requests).toHaveLength(1)
     expect(test.effects.forbidden).toBe(0)
+  })
+
+  it('reports the loop failure instead of resampling when unload cancellation has not reached the settling request', async () => {
+    const test = await harness([loop()], true)
+    const cancelled = Promise.withResolvers<null>()
+    const cancel = vi.spyOn(test.agent, 'cancel').mockImplementation(() => { cancelled.resolve(null) })
+    let disposal: Promise<unknown> | undefined
+    test.ctx.on('agent/request-error', async (_payload, next) => {
+      disposal ??= test.fiber.dispose()
+      await cancelled.promise
+      return next()
+    }, { prepend: true })
+    await test.run()
+    await disposal
+    expect(cancel).toHaveBeenCalledWith({ kind: 'parent' })
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(test.effects.forbidden).toBe(0)
+    expect(test.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason)
+      .toMatchObject({ kind: 'error', error: { code: guard.TOOL_ARGUMENT_LOOP } })
   })
 
   it('cancels recovery admitted before unload but not yet sent to the provider', async () => {
