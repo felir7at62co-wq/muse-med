@@ -45,6 +45,12 @@
     "src/client/locales.ts",
     "src/client/MuseAccountLauncher.tsx",
     "src/client/MuseAccountOnboarding.tsx",
+    "src/client/MuseAccountDetails.tsx",
+    "src/client/MuseAccountProfileSections.tsx",
+    "src/client/MuseAccountOrganization.tsx",
+    "src/client/MuseAccountHistory.tsx",
+    "src/client/MuseAccountRelayDetails.tsx",
+    "src/client/MuseAccountUsageFooter.tsx",
     "src/client/MuseAccountSection.tsx"
   ]
 }

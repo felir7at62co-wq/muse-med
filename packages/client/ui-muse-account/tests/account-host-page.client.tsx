@@ -10,6 +10,7 @@ import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus
 import { mountMuseAccountSettings } from '../src/client/mount.ts'
 
 interface AccountTransport {
+  details(request: import('@deepseek-ai/dsh-muse-account/types').MuseAccountDetailsRequest): Promise<RemoteResult<import('@deepseek-ai/dsh-muse-account/types').MuseAccountDetails>>
   status(request: MuseAccountStatusRequest): Promise<RemoteResult<MuseAccountStatus>>
   login(request: MuseAccountLoginRequest): Promise<RemoteResult<MuseAccountLoginResult>>
   logout(): Promise<RemoteResult<MuseAccountStatus>>
