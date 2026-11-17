@@ -572,6 +572,7 @@ function makeHarness(
     completeViewRequest: () => {},
     openFile,
     openExternalLink: vi.fn(),
+    openResourceLink: vi.fn(),
     loadOlder,
     consumeOlder,
     loadThrough,
@@ -3799,6 +3800,17 @@ describe('ChatView', () => {
     })
     expect(view.getByText('已停止')).toBeTruthy()
     expect(view.container.querySelectorAll('h1')).toHaveLength(2)
+  })
+
+  it('delegates an assistant application-resource link without opening an external window', () => {
+    const resource = 'dsh-resource://example/session/test/item?version=v1'
+    const h = makeHarness({ nodes: [assistant(2, `[Inspect selected segment](${resource})`)] })
+    const openResource = vi.fn()
+    h.props.openResourceLink = openResource
+    const view = render(<h.ChatView {...h.props} />)
+    expect(fireEvent.click(view.getByRole('link', { name: 'Inspect selected segment' }))).toBe(false)
+    expect(openResource).toHaveBeenCalledExactlyOnceWith(resource)
+    expect(h.props.openExternalLink).not.toHaveBeenCalled()
   })
 
   it('hands each final-language fence to the Chat fence slot', () => {

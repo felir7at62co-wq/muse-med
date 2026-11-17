@@ -21,7 +21,7 @@ import type {
   SessionInput, SubmitAttempt, SubmitAttachment, SubmitOutcome,
 } from '../contract/input.ts'
 import type {
-  ArbitrateKey, ArbitrateOutcome, ComposerKeyboard, DraftInput, DraftSnapshot, ReferenceInsert, TokenSpan,
+  ArbitrateKey, ArbitrateOutcome, ComposerKeyboard, DraftInput, DraftSnapshot, Occurrence, ReferenceInsert, TokenSpan,
 } from '../contract/draft-editor.ts'
 import type { InputSubmitMode, MessageSubmission, MessageSubmissionState } from '../contract/composer-submission.ts'
 import { serializeDraftPrompt } from './prompt.ts'
@@ -539,6 +539,17 @@ export class SessionInputShell implements SessionInput {
     if (span.draftRev !== this.rev) return false
     const tail = this.projection.detectText.slice(span.end, span.end + 1)
     return this.draftEditor.insertReference(span, ref, tail)
+  }
+
+  /**
+   * Remove an exact reference while preserving other draft nodes and selection.
+   * @param occurrence - current occurrence id and owner identity.
+   * @returns whether the input accepted removal of the matching reference.
+   */
+  removeReference(occurrence: Pick<Occurrence, 'occurrenceId' | 'source' | 'ref'>): boolean {
+    const phase = this.core.state.phase
+    if (this.disposed || phase !== 'plain' && phase !== 'claimed') return false
+    return this.draftEditor.removeReference(occurrence)
   }
 
   /**

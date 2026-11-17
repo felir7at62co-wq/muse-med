@@ -1,12 +1,16 @@
 /** Real Loader, local filesystem, attachment storage and FFmpeg over synthetic media only. */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { appendFileSync, copyFileSync, mkdtempSync, readFileSync, renameSync, rmSync, truncateSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { boot } from '@deepseek-ai/dsh-app-boot'
 import Sessions, { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
+import Tools from '@deepseek-ai/dsh-tools'
+import { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import Query from '@deepseek-ai/dsh-session-query'
 import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -15,12 +19,14 @@ import FileSystem from '@deepseek-ai/dsh-fs-local'
 import Attachments from '@deepseek-ai/dsh-attachment-local'
 import Subprocess from '@deepseek-ai/dsh-subprocess-local'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
+import { SandboxProvider, type ConfinedArgv, type SandboxMode, type SandboxPolicy as ExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
+import type { FsVersion } from '@deepseek-ai/dsh-fs'
 import { createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
 import SessionVideo, { type Config } from '../src/index.ts'
 import type { SessionVideoSourceId } from '../src/types.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { sourceStateSchema } from '../src/sources.ts'
+import { digest, sourceStateSchema } from '../src/sources.ts'
 
 const roots: string[] = []
 const contexts: Context[] = []
@@ -36,14 +42,14 @@ afterEach(async () => {
   if (errors.length) throw new AggregateError(errors, 'Session video fixture cleanup failed')
 })
 
-async function openFixture(root: string, overrides: Partial<Config> = {}, persistenceRoot?: string) {
+async function openFixture(root: string, overrides: Partial<Config> = {}, persistenceRoot?: string, mode: SandboxMode = 'danger-full-access') {
   const routes = new Map<string, { fetch(request: Request): Response | Promise<Response> }>()
   const configPath = join(root, 'cordis.yml')
   writeFileSync(configPath, JSON.stringify([
-    { name: 'cordis:sessions' }, { name: 'cordis:projections' }, { name: 'cordis:query' },
+    { name: 'cordis:sessions' }, { name: 'cordis:projections' }, { name: 'cordis:query' }, { name: 'cordis:prompt' }, { name: 'cordis:tools' },
     ...(persistenceRoot === undefined ? [] : [{ name: 'cordis:history', config: { root: persistenceRoot, compression: 'none' } }]),
     { name: 'cordis:fs', config: { cwd: root } }, { name: 'cordis:attachments', config: { dshHome: root } },
-    { name: 'cordis:subprocess' }, { name: 'cordis:policy', config: { mode: 'danger-full-access', workspaceRoot: root } },
+    { name: 'cordis:subprocess' }, { name: 'cordis:policy', config: { mode, workspaceRoot: root } },
     { id: 'video', name: 'cordis:video', config: { analysisWidth: 64, ...overrides } },
   ]))
   const ctx = await boot('dsh', configPath, [], (host) => {
@@ -51,20 +57,21 @@ async function openFixture(root: string, overrides: Partial<Config> = {}, persis
       routes.set(route.path, route); return () => routes.delete(route.path)
     } } } as never)
     Object.assign(host.loader.builtins, { sessions: Sessions, projections: Projections, query: Query, fs: FileSystem,
-      attachments: Attachments, subprocess: Subprocess, policy: SandboxPolicy, video: SessionVideo, history: JsonlPersistence })
+      attachments: Attachments, subprocess: Subprocess, policy: SandboxPolicy, video: SessionVideo,
+      tools: Tools, prompt: SystemPrompt, history: JsonlPersistence })
   })
   contexts.push(ctx)
   return { ctx, routes }
 }
 
-async function fixture(overrides: Partial<Config> = {}) {
+async function fixture(overrides: Partial<Config> = {}, mode: SandboxMode = 'danger-full-access', includeCwd = true) {
   const root = mkdtempSync(join(tmpdir(), 'session-video-loader-')); roots.push(root)
   const file = join(root, 'three-shots.mp4')
   execFileSync('ffmpeg', ['-v', 'error', '-nostdin', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=10:d=1',
     '-f', 'lavfi', '-i', 'color=c=white:s=64x64:r=10:d=1', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=10:d=1',
     '-filter_complex_threads', '1', '-filter_complex', '[0:v][1:v][2:v]concat=n=3:v=1:a=0', '-c:v', 'libx264', '-threads', '1', '-pix_fmt', 'yuv420p', file])
-  const { ctx, routes } = await openFixture(root, overrides)
-  const session = ctx.sessions.create(SessionId('fixture-session'), { meta: { cwd: root } })
+  const { ctx, routes } = await openFixture(root, overrides, undefined, mode)
+  const session = ctx.sessions.create(SessionId('fixture-session'), { meta: includeCwd ? { cwd: root } : {} })
   const signal = new AbortController().signal
   const user = (text: string) => session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] }), { surfaceOp: 'append' })
   const tool = (name: string, args: Record<string, unknown>, value: unknown) => {
@@ -129,6 +136,246 @@ it('detects three shot intervals through the real Loader and preserves original 
   const fiber = [...f.ctx.loader.entries()].find(entry => entry.options.id === 'video')?.fiber
   await fiber?.dispose()
   expect(f.routes.size).toBe(0)
+})
+
+it('binds observed authored-shot timing to exact bytes and drops it when the source changes', async () => {
+  const f = await fixture(), evidence = join(f.root, 'production.json')
+  f.user('@three-shots.mp4'); writeFileSync(evidence, JSON.stringify({ episode: 46, shots: [10, 11, 12] }))
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const args = { method: 'bind', source_id: source.id, source_version: source.version,
+    sha256: createHash('sha256').update(readFileSync(f.file)).digest('hex'), evidence_paths: [evidence],
+    production: { scriptId: 4660, episodeNumber: 46, packageIndex: 3, shotNumbers: [10, 11, 12],
+      shotRanges: [{ shotNumber: 12, startSeconds: 1, endSeconds: 2 }] } }
+  const run = (arguments_: Record<string, unknown>) => executeToolFixture(f.ctx, {
+    callId: ToolCallId('bind-fixture'), name: 'muse_video', arguments: arguments_, signal: f.signal,
+    agent: { id: f.session.id, session: f.session } as never,
+  })
+  expect((await run({ ...args, sha256: '0'.repeat(64) })).isError).toBe(true)
+  const invalidRange = { ...args.production, shotRanges: [{ shotNumber: 12, startSeconds: 1, endSeconds: 4 }] }
+  expect((await run({ ...args, production: invalidRange })).isError).toBe(true)
+  const result = await run(args)
+  expect(result.isError, JSON.stringify(result.content)).toBe(false)
+  if (typeof result.value !== 'string') throw Error('Missing binding result')
+  f.tool('muse_video', args, JSON.parse(result.value))
+  expect((await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]?.production).toEqual(args.production)
+  appendFileSync(f.file, 'new-version')
+  expect((await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]?.production).toBeUndefined()
+})
+
+it('returns only selected-interval images and rejects a wider review or a complete-video scan', async () => {
+  const f = await fixture({ reviewFrames: 2 }); f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const owner = { id: f.session.id, session: f.session } as never
+  f.user(`<muse-video-selection>${JSON.stringify([{ source_id: source.id, source_version: source.version,
+    start_seconds: 1, end_seconds: 2 }])}</muse-video-selection>\n<!-- muse-video-review: use the bounded review -->`)
+  const run = (name: string, args: Record<string, unknown>) => executeToolFixture(f.ctx, {
+    callId: ToolCallId('review-fixture'), name, arguments: args, signal: f.signal, agent: owner,
+  })
+  const args = { method: 'review', source_id: source.id, source_version: source.version, start_seconds: 1, end_seconds: 2 }
+  const wider = await run('muse_video', { ...args, start_seconds: 0 })
+  expect(wider.isError).toBe(true)
+  const result = await run('muse_video', args)
+  expect(result.isError, JSON.stringify(result.content)).toBe(false)
+  expect(result.content.filter(block => block.type === 'image')).toHaveLength(2)
+  if (typeof result.value !== 'string') throw Error('Missing review result')
+  const description = JSON.parse(result.value) as { interval: unknown; frames: { requested_seconds: number }[] }
+  expect(description.interval).toEqual({ start_seconds: 1, end_seconds: 2 })
+  expect(description.frames.map(frame => frame.requested_seconds)).toEqual([1.25, 1.75])
+  f.ctx.tools.register({ name: 'video_inspect', description: 'Forbidden scan fixture', parameters: {},
+    output: { schema: { type: 'string' }, render: () => [] }, execute: async () => { throw Error('scan reached its body') } })
+  const scan = await run('video_inspect', {})
+  expect(scan.isError).toBe(true)
+  expect(JSON.stringify(scan.content)).toContain('Use muse_video review')
+  f.ctx.tools.register({ name: 'pwsh', description: 'Forbidden script fixture', parameters: {},
+    output: { schema: { type: 'string' }, render: () => [] }, execute: async () => { throw Error('script reached its body') } })
+  expect(JSON.stringify((await run('pwsh', {})).content)).toContain('Use muse_video review')
+  f.user('Now make the requested local edit.')
+  expect(JSON.stringify((await run('pwsh', {})).content)).toContain('script reached its body')
+  const fiber = [...f.ctx.loader.entries()].find(entry => entry.options.id === 'video')?.fiber
+  await fiber?.dispose()
+  expect(f.ctx.tools.get('muse_video')).toBeUndefined()
+})
+
+it('classifies inventory as parallel and reports missing ownership, arguments, evidence and source versions', async () => {
+  const f = await fixture({}, 'danger-full-access', false)
+  const owner = { id: f.session.id, session: f.session } as never
+  const input = { callId: ToolCallId('video-validation'), name: 'muse_video', signal: f.signal, agent: owner }
+  const run = (args: Record<string, unknown>) => executeToolFixture(f.ctx, { ...input, arguments: args })
+  const pipeline = new ToolExecutionPipeline(f.ctx)
+  expect(pipeline.executionMode({ ...input, arguments: { method: 'list' } })).toEqual({ kind: 'parallel' })
+  expect(pipeline.executionMode({ ...input, arguments: { method: 'review' } })).toEqual({ kind: 'exclusive' })
+  const anonymous = { callId: input.callId, name: input.name, signal: input.signal, arguments: { method: 'list' } }
+  expect(JSON.stringify((await executeToolFixture(f.ctx, anonymous)).content)).toContain('initiating conversation')
+  expect((await run({ method: 'list' })).isError).toBe(false)
+  expect(JSON.stringify((await run({ method: 'bind' })).content)).toContain('source_id and source_version')
+  f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const args = { method: 'bind', source_id: source.id, source_version: source.version }
+  expect(JSON.stringify((await run({ ...args, source_version: 'old' })).content)).toContain('changed or is unavailable')
+  expect(JSON.stringify((await run(args)).content)).toContain('requires production')
+  const evidence = join(f.root, 'production.json'); writeFileSync(evidence, '{}')
+  const binding = { ...args, sha256: createHash('sha256').update(readFileSync(f.file)).digest('hex'),
+    production: { scriptId: 10 }, evidence_paths: [evidence] }
+  expect((await run(binding)).isError).toBe(false)
+  expect(JSON.stringify((await run({ ...binding, evidence_paths: [f.root] })).content)).toContain('evidence is unavailable')
+  const stat = f.ctx.fs.stat.bind(f.ctx.fs)
+  vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (target, signal) => {
+    const info = await stat(target, signal)
+    if (target.displayPath === evidence) appendFileSync(f.file, 'changed')
+    return info
+  })
+  expect(JSON.stringify((await run(binding)).content)).toContain('changed during binding')
+})
+
+it('bounds observed production fields before persisting a binding', async () => {
+  const f = await fixture({ maxShots: 1, maxResultBytes: 1024 }); f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const evidence = join(f.root, 'production.json'); writeFileSync(evidence, '{}')
+  const args = { method: 'bind', source_id: source.id, source_version: source.version,
+    sha256: createHash('sha256').update(readFileSync(f.file)).digest('hex'), evidence_paths: [evidence] }
+  const range = { shotNumber: 1, startSeconds: 0, endSeconds: 1 }
+  for (const production of [
+    { scriptId: 10, shotNumbers: [1, 2] },
+    { scriptId: 10, shotRanges: [range] },
+    { scriptId: 10, shotNumbers: [1], shotRanges: [range, range] },
+  ]) {
+    const result = await executeToolFixture(f.ctx, { callId: ToolCallId('bounded-bind'), name: 'muse_video',
+      arguments: { ...args, production }, signal: f.signal, agent: { id: f.session.id, session: f.session } as never })
+    expect(JSON.stringify(result.content)).toContain('Observed shot intervals')
+  }
+})
+
+it('reviews a whole selected video with exact advice links and reports empty trailing observations', async () => {
+  const f = await fixture({ reviewFrames: 2 })
+  f.session.append('deliverables/presented', { turn: 1, callId: ToolCallId('presented-review'), files: [{ path: f.file }] })
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const owner = { id: f.session.id, session: f.session } as never
+  const run = (args: Record<string, unknown>) => executeToolFixture(f.ctx, { callId: ToolCallId('whole-review'),
+    name: 'muse_video', arguments: { method: 'review', source_id: source.id, source_version: source.version, ...args }, signal: f.signal, agent: owner })
+  expect((await run({})).isError).toBe(false)
+  f.user(`<muse-video-selection>${JSON.stringify([{ source_id: source.id, source_version: source.version,
+    review_link: 'dsh-resource://session-video/selected' }])}</muse-video-selection>`)
+  const whole = await run({})
+  expect(whole.isError).toBe(false)
+  if (typeof whole.value !== 'string') throw Error('Missing whole-video review result')
+  expect(whole.value).toContain('[画面定位](dsh-resource://session-video/selected)')
+  const trailing = await run({ start_seconds: 2.8, end_seconds: 3 })
+  expect(trailing.isError).toBe(false)
+  expect(trailing.content.filter(item => item.type === 'image')).toHaveLength(1)
+  if (typeof trailing.value !== 'string') throw Error('Missing trailing-frame review result')
+  const description: unknown = JSON.parse(trailing.value)
+  expect(description).toMatchObject({ unavailable_seconds: [expect.any(Number)] })
+  expect(JSON.stringify((await run({ start_seconds: 2.99, end_seconds: 3 })).content)).toContain('no decodable frame')
+  expect(JSON.stringify((await run({ start_seconds: 2, end_seconds: 1 })).content)).toContain('Review interval is invalid')
+  f.user('A separate request without a selected interval.')
+  expect(JSON.stringify((await run({ end_seconds: 4 })).content)).toContain('Review interval is invalid')
+})
+
+it('refuses oversized review images and concurrent work, and discards images from a changed source', async () => {
+  const limited = await fixture({ maxSourcePixels: 1 }); limited.user('@three-shots.mp4')
+  const tooLarge = (await limited.ctx.sessionVideo.list(limited.session.id, limited.signal)).sources[0]!
+  const invalid = await executeToolFixture(limited.ctx, { callId: ToolCallId('oversized-review'), name: 'muse_video',
+    arguments: { method: 'review', source_id: tooLarge.id, source_version: tooLarge.version }, signal: limited.signal,
+    agent: { id: limited.session.id, session: limited.session } as never })
+  expect(JSON.stringify(invalid.content)).toContain('dimensions exceed')
+  const f = await fixture({ reviewFrames: 2, maxConcurrent: 1 }); f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const run = () => executeToolFixture(f.ctx, { callId: ToolCallId('changing-review'), name: 'muse_video',
+    arguments: { method: 'review', source_id: source.id, source_version: source.version }, signal: f.signal,
+    agent: { id: f.session.id, session: f.session } as never })
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const save = f.ctx.attachments.saveImage.bind(f.ctx.attachments)
+  vi.spyOn(f.ctx.attachments, 'saveImage').mockImplementation(async (input) => {
+    entered.resolve(undefined); await release.promise
+    const image = await save(input); appendFileSync(f.file, 'changed'); return image
+  })
+  const pending = run()
+  try {
+    await entered.promise
+    expect(JSON.stringify((await run()).content)).toContain('processing is busy')
+  } finally { release.resolve(undefined); await pending }
+  expect(JSON.stringify((await pending).content)).toContain('changed during review')
+})
+
+it.each(['read-only', 'workspace-write', 'danger-full-access'] as const)
+('keeps first detection and playback on the inventoried version under %s', async (mode) => {
+  const f = await fixture({ reviewFrames: 2 }, mode)
+  f.user('@three-shots.mp4')
+  let workspaceGrant = false
+  const policies: ExecutionPolicy[] = []
+  const stat = f.ctx.fs.stat.bind(f.ctx.fs)
+  vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    const info = await stat(...args)
+    // Windows workspace-write ACL materialization changes metadata even when video bytes are unchanged.
+    return workspaceGrant && info !== undefined ? { ...info, version: brandString<FsVersion>(digest(`${info.version}:workspace-acl`)) } : info
+  })
+  class MetadataChangingSandbox extends SandboxProvider {
+    async confine(argv: readonly string[], policy: ExecutionPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
+      signal?.throwIfAborted()
+      policies.push(policy)
+      if (policy.mode === 'workspace-write') workspaceGrant = true
+      return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
+    }
+  }
+  await f.ctx.plugin(MetadataChangingSandbox).await()
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const before = readFileSync(f.file)
+  const result = await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)
+  expect(result).toMatchObject({ state: 'ready', sourceVersion: source.version })
+  expect(result.shots).toHaveLength(3)
+  expect(policies.map(policy => policy.mode)).toEqual(mode === 'danger-full-access' ? [] : ['read-only', 'read-only'])
+  expect(policies.every(policy => policy.workspaceRoot === f.root && policy.sessionId === f.session.id)).toBe(true)
+  expect(workspaceGrant).toBe(false)
+  const review = await executeToolFixture(f.ctx, { callId: ToolCallId('confined-review'), name: 'muse_video',
+    arguments: { method: 'review', source_id: source.id, source_version: source.version }, signal: f.signal,
+    agent: { id: f.session.id, session: f.session } as never })
+  expect(review.isError, JSON.stringify(review.content)).toBe(false)
+  expect(policies.every(policy => policy.mode === 'read-only')).toBe(true)
+  expect((await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]?.version).toBe(source.version)
+  expect(readFileSync(f.file)).toEqual(before)
+  const response = await f.routes.get('/api/session-video')!.fetch(
+    new Request(`http://localhost/${source.playbackUrl}`, { headers: { range: 'bytes=0-15' } }))
+  expect(response.status).toBe(206)
+  expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(before.subarray(0, 16)))
+})
+
+it('exposes recorded episode identities through the real inventory without provider queries', async () => {
+  const f = await fixture()
+  const fetch = vi.fn(() => { throw new Error('production grouping must not query a provider') })
+  vi.stubGlobal('fetch', fetch)
+  f.tool('jubian_video', { method: 'task', task_id: 17 }, { task: { task_id: 17, script_id: 10, episode_id: 131 } })
+  f.tool('jubian_media', { method: 'download', media_kind: 'video', task_id: 17, subtask_id: 170 }, { path: f.file })
+  const before = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(before.production).toEqual({ scriptId: 10, taskId: 17, subtaskId: 170, episodeId: 131 })
+  f.tool('jubian_model', { method: 'episodes', script_id: 10 }, {
+    episodes: { total: 1, rows: [{ episode_id: 131, episode_count: 31, name: 'Episode 31' }] },
+  })
+  const after = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(after.production).toEqual({ ...before.production, episodeNumber: 31 })
+  expect(after.id).toBe(before.id)
+  expect(after.version).toBe(before.version)
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it('rebuilds legacy source checkpoints from recorded production facts', async () => {
+  const f = await fixture()
+  f.tool('jubian_model', { method: 'episodes', script_id: 10 }, {
+    episodes: { total: 1, rows: [{ episode_id: 131, episode_count: 31 }] },
+  })
+  f.tool('jubian_video', { method: 'task', task_id: 17 }, { task: { task_id: 17, script_id: 10, episode_id: 131 } })
+  f.tool('jubian_media', { method: 'download', media_kind: 'video', task_id: 17 }, { path: f.file })
+  await f.ctx.sessionVideo.list(f.session.id, f.signal)
+  const checkpoint = f.ctx.sessionProjections.checkpoint(f.session)
+  const cached = checkpoint.sessionVideoSources
+  if (cached === undefined) throw new Error('source checkpoint is missing')
+  const legacy = { ...checkpoint, sessionVideoSources: { ...cached,
+    ver: Number.parseInt(digest(JSON.stringify([1, 500, 4 * 1024 * 1024])).slice(0, 12), 16),
+    val: { sources: [], calls: [], complete: true, issues: [] },
+  } }
+  const restored = f.ctx.sessionProjections.restore(legacy, f.session.snapshotEvents(), SessionLogOffset(0),
+    f.session.header, SessionLogOffset(0))
+  const state = sourceStateSchema.parse(restored.checkpoint.sessionVideoSources?.val)
+  expect(Object.values(state.productionBySource ?? {})).toEqual([{ scriptId: 10, taskId: 17, episodeId: 131, episodeNumber: 31 }])
 })
 
 it('resolves uploaded video attachments outside the workspace and refuses foreign source ids and stale versions', async () => {
@@ -224,22 +471,33 @@ it('recovers a provider source when its cached attachment alias is removed', asy
   expect(fetch).toHaveBeenCalledTimes(2)
 })
 
-it('reports executable failure and source mutation without caching invented cut ranges', async () => {
+it.each(['bytes', 'metadata'] as const)('reports executable failure and source %s mutation without caching invented cut ranges', async (kind) => {
   const f = await fixture()
   f.user('@three-shots.mp4')
   const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
   const resolve = vi.spyOn(f.ctx.subprocess, 'resolveExecutable').mockRejectedValueOnce(new Error('fixture missing ffprobe'))
   expect(await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)).toMatchObject({ state: 'failed', shots: [], issue: 'fixture missing ffprobe' })
   resolve.mockRestore()
+  const before = readFileSync(f.file)
+  let metadataChanged = false
+  const stat = f.ctx.fs.stat.bind(f.ctx.fs)
+  vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    const info = await stat(...args)
+    return metadataChanged && info !== undefined ? { ...info, version: brandString<FsVersion>(digest(`${info.version}:external-metadata`)) } : info
+  })
   const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    if (/(?:^|[/\\])ffmpeg(?:\.exe)?$/iu.test(spec.argv[0] ?? '')) appendFileSync(f.file, 'fixture-version-change')
+    if (/(?:^|[/\\])ffmpeg(?:\.exe)?$/iu.test(spec.argv[0] ?? '')) {
+      if (kind === 'bytes') appendFileSync(f.file, 'fixture-version-change')
+      else metadataChanged = true
+    }
     return original(spec)
   })
   const changed = await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)
   expect(changed.state).toBe('failed')
   expect(changed.shots).toEqual([])
   expect(changed.issue).toContain('changed during detection')
+  if (kind === 'metadata') expect(readFileSync(f.file)).toEqual(before)
 })
 
 it('refuses unsupported provider origins and oversized downloads before spawning an analyzer', async () => {

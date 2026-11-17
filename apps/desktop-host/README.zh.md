@@ -9,6 +9,8 @@ description: "Muse Desktop Host 的产品配置与智能体预设默认值。"
 
 Host 等待应用收尾完成并通过 IPC 送达关闭确认后，才显式退出进程。已卸载插件遗留的附带事件循环句柄不会拖延已经完成的关闭。收尾或确认发送失败时不允许该退出；启动失败仍保留自身诊断状态。[桌面应用](../desktop/README.zh.md)仍要求收到关闭确认且进程成功退出后才安装更新。
 
+Host 为内置插件覆盖项提供文件 URL，使 Loader 可以从 Windows 和 POSIX 安装路径导入插件，包括含空格与非 ASCII 字符的路径。
+
 ## 普通会话与保留数据
 
 Desktop 打开普通会话，保持归档的 Bot 状态不变。内置 Bot 界面、长期记忆服务和手机控制入口停用；保留的文件不会自动成为会话记忆。恢复与 profile 备份见[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-session-product/guide.zh.md)。
