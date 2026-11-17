@@ -7,6 +7,9 @@
  */
 export function directoryInstallSection(source: string): string
 
+/** Avoid creating the installation target during installer initialization. */
+export function directoryInstallerInit(source: string): string
+
 /**
  * Clean staged directories on upstream Quit paths, including silent installers.
  * @param source Pinned NSIS helper source.

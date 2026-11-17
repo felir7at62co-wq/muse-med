@@ -36,6 +36,10 @@ Section
   !endif
   StrCpy $INSTDIR "${TARGET_DIR}"
   !insertmacro dshStageApplication
+  !ifdef CREATED_EMPTY
+    ; Match electron-builder's SetOutPath after staging on a fresh install.
+    SetOutPath $dshFinalDirectory
+  !endif
   !ifdef RESTORE_CONFLICT
     Rename $dshFinalDirectory $dshOldDirectory
     StrCpy $dshOldMoved "1"

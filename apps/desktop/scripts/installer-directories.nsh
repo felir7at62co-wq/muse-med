@@ -18,6 +18,7 @@ Var dshRecoveryStopped
 Var dshBackupReportFile
 Var dshReceiptTarget
 Var dshReceiptContents
+Var dshOriginalDirectoryExists
 
 ; MoveFileEx preserves the destination and exposes the Windows error before rollback changes it.
 ; Open files inside a directory can make its rename return access denied (5).
@@ -105,6 +106,18 @@ Var dshReceiptContents
     StrCpy $dshDirectoryLogDirectory "${DSH_INSTALLER_LOG_DIR}"
   !endif
   StrCpy $dshFinalDirectory $INSTDIR
+  ; Preserve pre-existing empty directories and their metadata too.
+  System::Call 'kernel32::GetFileAttributesW(w "$dshFinalDirectory") i.r0 ?e'
+  Pop $1
+  StrCpy $dshOriginalDirectoryExists "1"
+  ${If} $0 == -1
+    ${If} $1 != 2
+    ${AndIf} $1 != 3
+      SetErrorLevel 2
+      Quit
+    ${EndIf}
+    StrCpy $dshOriginalDirectoryExists ""
+  ${EndIf}
   System::Call 'ole32::CoCreateGuid(g .r0) i .r1'
   ${If} $1 != 0
     SetErrorLevel 2
@@ -184,7 +197,25 @@ Function dshPromoteDirectories
   ; SetOutPath opens a directory handle; release it before either rename.
   SetOutPath $PLUGINSDIR
   ClearErrors
-  ${If} ${FileExists} "$dshFinalDirectory\*.*"
+  ; Recheck the target guard after extraction, including reparse points.
+  Push $InstallerPath
+  StrCpy $InstallerPath $dshFinalDirectory
+  Call InstallerValidatePath
+  Pop $InstallerPath
+  ${If} $InstallerError != ""
+    Call dshRollbackDirectories
+    SetErrors
+    Return
+  ${EndIf}
+  ; FindFirstFile wildcards include '.' for empty directories. A pre-existing
+  ; directory is retained; only a newly created empty destination may be removed.
+  StrCpy $dshDirectorySource $dshFinalDirectory
+  StrCpy $dshDirectoryDestination ""
+  StrCpy $dshDirectoryError 145
+  ${If} $dshOriginalDirectoryExists != "1"
+    !insertmacro dshDirectoryOperation "$dshDirectorySource" "" $dshDirectoryError "remove-empty"
+  ${EndIf}
+  ${If} $dshDirectoryError == 145
     ; Record both planned paths before renaming the old directory.
     Call dshRecordRetainedDirectory
     ${If} ${Errors}
@@ -203,17 +234,11 @@ Function dshPromoteDirectories
       Return
     ${EndIf}
     StrCpy $dshOldMoved "1"
-  ${Else}
-    ; NSIS can create the destination before the install section starts.
-    StrCpy $dshDirectorySource $dshFinalDirectory
-    StrCpy $dshDirectoryDestination ""
-    !insertmacro dshDirectoryOperation "$dshDirectorySource" "" $dshDirectoryError "remove-empty"
-    ${If} $dshDirectoryError != 0
-      Call dshRollbackDirectories
-      !insertmacro dshReportDirectoryFailure
-      SetErrors
-      Return
-    ${EndIf}
+  ${ElseIf} $dshDirectoryError != 0
+    Call dshRollbackDirectories
+    !insertmacro dshReportDirectoryFailure
+    SetErrors
+    Return
   ${EndIf}
   ClearErrors
   StrCpy $dshDirectorySource $dshNewDirectory

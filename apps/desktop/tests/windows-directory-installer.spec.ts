@@ -3,11 +3,22 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { expect, it } from 'vitest'
-import { directoryInstallerExits, directoryInstallSection, directoryInstallUtil, directoryUninstaller } from '../scripts/windows-directory-installer.mjs'
+import { directoryInstallerExits, directoryInstallerInit, directoryInstallSection, directoryInstallUtil, directoryUninstaller } from '../scripts/windows-directory-installer.mjs'
 
 const require = createRequire(import.meta.url)
 const section = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')),
   'templates/nsis/installSection.nsh'), 'utf8')
+
+it('initializes the installer in its private plugin directory before selecting or creating a destination', () => {
+  const source = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis/installer.nsi'), 'utf8')
+  const adapted = directoryInstallerInit(source)
+  const init = adapted.slice(adapted.indexOf('Function .onInit\n'), adapted.indexOf('\nFunctionEnd', adapted.indexOf('Function .onInit\n')))
+  expect(init).toContain('!ifdef BUILD_UNINSTALLER\n    SetOutPath $INSTDIR\n  !else\n    InitPluginsDir\n    SetOutPath $PLUGINSDIR\n  !endif')
+  expect(init.indexOf('SetOutPath $PLUGINSDIR')).toBeLessThan(init.indexOf('!insertmacro preInit'))
+  expect(directoryInstallerInit(source.replaceAll('\n', '\r\n'))).toBe(adapted)
+  expect(() => directoryInstallerInit(source.replace('Function .onInit', 'Function changed'))).toThrow('template changed')
+  expect(() => directoryInstallerInit(`${source}\n${source}`)).toThrow('template changed')
+})
 
 it('declares shared path variables before production directory functions and reuses the guarded declaration in the path validator', () => {
   const installer = readFileSync(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')

@@ -156,7 +156,7 @@ SectionEnd
     await writeFile(strings, renderInstallerStrings([locale]), 'utf8')
     const include = join(languageOutput, 'include.nsh')
     const { fixture, pages } = await prepareInstallerTestFixtures(appRoot, languageOutput)
-    await writeFile(include, `!define INSTALLER_BUILD_DIR "${join(output, 'ui')}"\n!define INSTALLER_STRINGS_FILE "${strings}"\n!define INSTALLER_TEST_PAGES_FILE "${pages}"\n!define INSTALLER_TEST_TRACE_DIR "${languageOutput}"\n!include "${fixture}"\n`)
+    await writeFile(include, `!define INSTALLER_BUILD_DIR "${join(output, 'ui')}"\n!define INSTALLER_STRINGS_FILE "${strings}"\n!define INSTALLER_TEST_PAGES_FILE "${pages}"\n!define INSTALLER_TEST_TRACE_DIR "${languageOutput}"\n!define DSH_UPGRADE_REPORT_ROOT "${join(languageOutput, 'upgrade-reports')}"\n!include "${fixture}"\n`)
     await build({ projectDir: appRoot, prepackaged: payload, targets: Platform.WINDOWS.createTarget(['nsis'], Arch.x64), publish: 'never',
       config: { ...config, productName, extraMetadata: { ...config.extraMetadata, name: packageName },
         artifactName: 'installer-test.exe', directories: { output: languageOutput },

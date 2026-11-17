@@ -12,6 +12,21 @@ function replaceOnce(source, before, after) {
   return source.replace(before, after)
 }
 
+/** Keep installer initialization from creating the selected destination before ownership checks. */
+export function directoryInstallerInit(source) {
+  return replaceOnce(source.replaceAll('\r\n', '\n'),
+    'Function .onInit\n  Call setInstallSectionSpaceRequired\n\n  SetOutPath $INSTDIR',
+    `Function .onInit
+  Call setInstallSectionSpaceRequired
+
+  !ifdef BUILD_UNINSTALLER
+    SetOutPath $INSTDIR
+  !else
+    InitPluginsDir
+    SetOutPath $PLUGINSDIR
+  !endif`)
+}
+
 /**
  * Preserve upstream registration and uninstall UI while replacing payload installation.
  * Registered paths use the preflight's full-path and trailing-separator normalization.
@@ -142,7 +157,7 @@ export function installWindowsDirectoryInstaller() {
     const tool = join(directory, '7za.exe')
     await copyFile(sourceTool, tool)
     await this.packager.signIf(tool)
-    let adapted = replaceOnce(source, '!include "installSection.nsh"', `!include "${section}"`)
+    let adapted = replaceOnce(directoryInstallerInit(source), '!include "installSection.nsh"', `!include "${section}"`)
     for (const helper of ['allowOnlyOneInstallerInstance.nsh', 'installUtil.nsh']) {
       const path = join(directory, helper)
       const original = await readFile(join(templates, 'include', helper), 'utf8')

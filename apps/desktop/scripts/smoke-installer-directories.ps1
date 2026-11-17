@@ -56,11 +56,19 @@ try {
     } finally { $process.Dispose() }
   }
 
-  foreach ($mode in @('first', 'upgrade', 'transient-lock', 'locked', 'locked-stage', 'missing-stage', 'restore-conflict', 'broken', 'cancelled', 'post-promote-failure')) {
+  foreach ($mode in @('first', 'created-empty', 'existing-empty', 'hidden-only', 'empty-child', 'upgrade', 'transient-lock', 'locked', 'locked-stage', 'missing-stage', 'restore-conflict', 'broken', 'cancelled', 'post-promote-failure')) {
     $caseRoot = Join-Path $scratch $mode
     $target = Join-Path $caseRoot 'Application'
     New-Item -ItemType Directory -Path $caseRoot | Out-Null
-    if ($mode -ne 'first') {
+    if ($mode -in @('existing-empty', 'hidden-only', 'empty-child')) {
+      [IO.Directory]::CreateDirectory($target) | Out-Null
+      if ($mode -eq 'hidden-only') {
+        $hidden = Join-Path $target 'user-hidden.txt'
+        [IO.File]::WriteAllText($hidden, 'hidden user data')
+        [IO.File]::SetAttributes($hidden, [IO.FileAttributes]::Hidden)
+      }
+      if ($mode -eq 'empty-child') { [IO.Directory]::CreateDirectory((Join-Path $target 'user-empty-folder')) | Out-Null }
+    } elseif ($mode -notin @('first', 'created-empty')) {
       New-Item -ItemType Directory -Path $target | Out-Null
       [System.IO.File]::WriteAllText((Join-Path $target 'asset.txt'), 'old asset')
       [System.IO.File]::WriteAllText((Join-Path $target 'obsolete.txt'), 'old only')
@@ -80,6 +88,7 @@ try {
     if ($mode -eq 'restore-conflict') { $compileArgs += '/DRESTORE_CONFLICT' }
     if ($mode -eq 'cancelled') { $compileArgs += '/DCANCELLED' }
     if ($mode -eq 'post-promote-failure') { $compileArgs += '/DPOST_PROMOTE_FAILURE' }
+    if ($mode -eq 'created-empty') { $compileArgs += '/DCREATED_EMPTY' }
     Invoke-Checked $Makensis ($compileArgs + $fixture)
     if ($null -ne $SignExecutable) { & $SignExecutable $probe }
     $handle = $null
@@ -117,7 +126,7 @@ try {
         $process.WaitForExit()
         throw "Directory smoke $mode did not exit within 60 seconds"
       }
-      $expectedExit = if ($mode -in @('first', 'upgrade', 'transient-lock')) { 0 } else { 2 }
+      $expectedExit = if ($mode -in @('first', 'created-empty', 'existing-empty', 'hidden-only', 'empty-child', 'upgrade', 'transient-lock')) { 0 } else { 2 }
       if ($process.ExitCode -ne $expectedExit) {
         throw "Directory smoke $mode exited with $($process.ExitCode), expected $expectedExit"
       }
@@ -127,6 +136,17 @@ try {
         if (-not $process.HasExited) { $process.Kill($true); $process.WaitForExit() }
         $process.Dispose()
       }
+    }
+    if ($mode -in @('created-empty', 'existing-empty', 'hidden-only', 'empty-child')) {
+      $backups = @(Get-ChildItem -LiteralPath $caseRoot -Directory -Filter 'Application.old-*')
+      $reports = @(Get-ChildItem -LiteralPath $upgradeReports -Filter '*.completed' -ErrorAction SilentlyContinue)
+      $expectedBackups = if ($mode -eq 'created-empty') { 0 } else { 1 }
+      if ($backups.Count -ne $expectedBackups -or $reports.Count -ne $expectedBackups -or
+          [IO.File]::ReadAllText((Join-Path $target 'asset.txt')) -ne 'new asset') { throw "Empty/hidden target protection failed: $mode" }
+      if ($mode -eq 'hidden-only' -and [IO.File]::ReadAllText((Join-Path $backups[0].FullName 'user-hidden.txt')) -ne 'hidden user data') { throw 'Hidden user content was not retained' }
+      if ($mode -eq 'empty-child' -and -not (Test-Path -LiteralPath (Join-Path $backups[0].FullName 'user-empty-folder') -PathType Container)) { throw 'Empty user subdirectory was not retained' }
+      Write-Output "Directory replacement smoke passed: $mode"
+      continue
     }
     if ($mode -eq 'post-promote-failure') {
       $backups = @(Get-ChildItem -LiteralPath $caseRoot -Directory -Filter 'Application.old-*')
