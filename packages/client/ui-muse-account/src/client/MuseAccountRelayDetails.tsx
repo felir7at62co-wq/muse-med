@@ -8,6 +8,7 @@ import type { MuseAccountLocaleKey } from './locales.ts'
 import css from './MuseAccountDetails.module.css'
 import { MuseAccountProfileSections } from './MuseAccountProfileSections.tsx'
 import { MuseAccountOrganization } from './MuseAccountOrganization.tsx'
+import { MuseAccountHistory } from './MuseAccountHistory.tsx'
 
 type RelayPeriod = 'today' | '7d' | '30d'
 interface RelayDetailsProps extends Pick<MuseAccountSectionProps, 't'> {
@@ -24,11 +25,11 @@ interface RelayDetailsProps extends Pick<MuseAccountSectionProps, 't'> {
 const periods = ['today', '7d', '30d'] as const
 const periodCopy = { today: 'periodToday', '7d': 'periodWeek', '30d': 'periodMonth' } as const
 const metrics = [
+  ['totalTokens', 'totalTokens'], ['inputTokens', 'inputTokens'], ['outputTokens', 'outputTokens'],
   ['requests', 'requestCount'], ['completedRequests', 'completedRequests'], ['failedRequests', 'failedRequests'],
   ['pendingRequests', 'pendingRequests'], ['unknownRequests', 'unknownRequests'],
   ['reportedUsageRequests', 'reportedRequestCount'], ['partialUsageRequests', 'partialUsageRequests'],
-  ['unreportedUsageRequests', 'unreportedUsageRequests'], ['inputTokens', 'inputTokens'],
-  ['outputTokens', 'outputTokens'], ['totalTokens', 'totalTokens'],
+  ['unreportedUsageRequests', 'unreportedUsageRequests'],
 ] as const satisfies ReadonlyArray<readonly [keyof RelayDetails['usage']['summary'], MuseAccountLocaleKey]>
 const states = { completed: 'completedRequests', failed: 'failedRequests', pending: 'pendingRequests', unknown: 'unknownRequests' } as const
 const reports = { reported: 'reportedUsage', partial: 'partialUsage', unreported: 'notReported' } as const
@@ -47,6 +48,7 @@ export function MuseAccountRelayDetails({ t, value, period, offset, busy, failed
   const nextCursor = usage.nextCursor
   const number = (count: number | null | undefined): string => count === null || count === undefined ? t('notReported') : count.toLocaleString()
   return <div className={css.details} data-muse-account-details aria-busy={busy}>
+    {value.history === undefined ? null : <MuseAccountHistory t={t} value={value.history} />}
     {value.profile === undefined ? <>
       <section className={css.card} aria-label={t('profileTitle')}>
         <h4 className={css.heading}>{t('profileTitle')}</h4>
@@ -63,9 +65,9 @@ export function MuseAccountRelayDetails({ t, value, period, offset, busy, failed
       </section>
     </> : <MuseAccountProfileSections t={t} account={value.profile.account}
       groups={value.profile.groups} organization={value.profile.organization} />}
-    <section className={css.card} aria-label={t('usageTitle')}>
+    <section className={css.card} aria-label={t(value.history === undefined ? 'usageTitle' : 'relayDetailTitle')}>
       <div className={css.toolbar}>
-        <h4 className={css.heading}>{t('usageTitle')}</h4>
+        <h4 className={css.heading}>{t(value.history === undefined ? 'usageTitle' : 'relayDetailTitle')}</h4>
         <label className={css.period}>{t('usagePeriod')}
           <select value={period} disabled={busy} onChange={(event) => { onPeriod(event.currentTarget.value as RelayPeriod) }}>
             {periods.map(item => <option key={item} value={item}>{t(periodCopy[item])}</option>)}
@@ -73,9 +75,11 @@ export function MuseAccountRelayDetails({ t, value, period, offset, busy, failed
         </label>
         <Button disabled={busy} onClick={onRefresh}>{t('refreshUsage')}</Button>
       </div>
+      {value.history === undefined ? null : <p className={css.note}>{t('historyOverlap')}</p>}
       <p className={css.note}>{t('relayUsageScope')}</p>
       <p className={css.note}>{t('relayUsagePeriod', { from: usage.from, to: usage.to })}</p>
-      <dl className={css.metrics} data-muse-usage-summary>{metrics.map(([key, label]) => <div key={key}>
+      <dl className={css.metrics} data-muse-usage-summary>{metrics.map(([key, label]) => <div key={key}
+        className={key === 'totalTokens' ? css.totalMetric : undefined}>
         <dt>{t(label)}</dt><dd>{number(usage.summary[key])}</dd>
       </div>)}</dl>
       <p className={css.note}>{t('usageMissing')}</p>

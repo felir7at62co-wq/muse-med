@@ -32,6 +32,11 @@ const tokenMetrics = [
 const metrics = [
   ['requests', 'requestCount'], ['reportedRequests', 'reportedRequestCount'], ...tokenMetrics,
 ] as const satisfies ReadonlyArray<readonly [keyof MuseAccountFullDetails['usage']['summary'], MuseAccountLocaleKey]>
+const summaryMetrics = [
+  ['totalTokens', 'totalTokens'], ['inputTokens', 'inputTokens'], ['outputTokens', 'outputTokens'],
+  ['requests', 'requestCount'], ['reportedRequests', 'reportedRequestCount'],
+  ['cachedInputTokens', 'cachedInputTokens'], ['reasoningTokens', 'reasoningTokens'],
+] as const satisfies ReadonlyArray<readonly [keyof MuseAccountFullDetails['usage']['summary'], MuseAccountLocaleKey]>
 
 function timestamp(value: string): string {
   return new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
@@ -113,7 +118,8 @@ export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProp
       <p className={css.note}>{t('usageTrackingSince', { date: timestamp(usage.since) })}</p>
       <p className={css.note}>{t('usageUpdatedAt', { date: timestamp(usage.updatedAt) })}</p>
       <p className={css.note}>{t('usageDisplayedPeriod', { period: t(periodCopy[result.query.period]) })}</p>
-      <dl className={css.metrics} data-muse-usage-summary>{metrics.map(([key, label]) => <div key={key}>
+      <dl className={css.metrics} data-muse-usage-summary>{summaryMetrics.map(([key, label]) => <div key={key}
+        className={key === 'totalTokens' ? css.totalMetric : undefined}>
         <dt>{t(label)}</dt><dd>{number(usage.summary[key])}</dd>
       </div>)}</dl>
       <p className={css.note}>{t('usageMissing')}</p>

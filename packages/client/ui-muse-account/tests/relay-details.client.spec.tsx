@@ -49,6 +49,14 @@ const PROFILE: MuseAccountProfile = {
       name: '动画组', path: '星河工作室 / 制作部 / 动画组', pathIds: [] }] },
 }
 
+const HISTORY: NonNullable<RelayDetails['history']> = {
+  from: '2026-10-01', to: '2026-11-17', timeZone: 'Asia/Shanghai',
+  recordingSince: '2026-10-02T16:30:00.000Z', limited: false, health: { state: 'ok' },
+  summary: { requests: 200, reported: 196, partial: 1, unknown: 3,
+    inputTokens: 7_000_000, outputTokens: 80_000, totalTokens: 7_080_000,
+    inputTokensReports: 197, outputTokensReports: 197, totalTokensReports: 196 },
+}
+
 function copy(dictionary: typeof en): MuseAccountSectionProps['t'] {
   return ((key: MuseAccountLocaleKey, parameters?: Record<string, unknown>) => Object.entries(parameters ?? {}).reduce(
     (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), dictionary[key])) as MuseAccountSectionProps['t']
@@ -89,6 +97,54 @@ it('shows the actual relay summary and request fields with explicit unavailable 
     rows: rows.map(row => Array.from(row.children).map(cell => cell.textContent)),
   }
   await expect(JSON.stringify(snapshot, null, 2) + '\n').toMatchFileSnapshot('./expected/relay-account-details.zh.json')
+})
+
+it('shows historical totals first and keeps overlapping detail measurements separate', async () => {
+  const value: RelayDetails = { ...RELAY, history: HISTORY }
+  mount(async () => ({ ok: true, value }), zh)
+  const history = await screen.findByRole('region', { name: zh.historyTitle })
+  const details = screen.getByRole('region', { name: zh.relayDetailTitle })
+  expect(document.querySelector('[data-muse-account-details]')?.firstElementChild).toBe(history)
+  expect(within(history).getByText('7,080,000')).toBeDefined()
+  expect(history.textContent).toContain('196 / 200 次请求回报此项')
+  expect(within(history).getByText('累计区间：2026-10-01 至 2026-11-17（含首尾日期，北京时间）')).toBeDefined()
+  expect(within(history).getByText('历史记录起点：2026/10/3 00:30:00（北京时间）')).toBeDefined()
+  expect(within(details).getByText(zh.historyOverlap)).toBeDefined()
+  expect(details.querySelector('[data-muse-usage-summary]')?.textContent).toContain('总 Token1,218,000')
+  expect(within(history).queryByText(zh.historyLimited)).toBeNull()
+  expect(within(history).queryByText(zh.historyDegraded)).toBeNull()
+  const snapshot = {
+    headings: screen.getAllByRole('heading').map(heading => heading.textContent),
+    history: history.textContent,
+    detailsOverlap: within(details).getByText(zh.historyOverlap).textContent,
+    detailSummary: details.querySelector('[data-muse-usage-summary]')?.textContent,
+  }
+  await expect(JSON.stringify(snapshot, null, 2) + '\n').toMatchFileSnapshot('./expected/relay-account-history.zh.json')
+})
+
+it('reports incomplete historical reads and missing counts without hiding current detail records', async () => {
+  const value: RelayDetails = { ...RELAY, history: { ...HISTORY, recordingSince: null, limited: true,
+    health: { state: 'degraded' }, summary: { ...HISTORY.summary, reported: 0, partial: 0, unknown: 200,
+      inputTokens: null, outputTokens: null, totalTokens: null,
+      inputTokensReports: 0, outputTokensReports: 0, totalTokensReports: 0 } } }
+  mount(async () => ({ ok: true, value }))
+  const history = await screen.findByRole('region', { name: en.historyTitle })
+  expect(within(history).getAllByText(en.notReported)).toHaveLength(3)
+  expect(within(history).getByText(en.historyLimited)).toBeDefined()
+  expect(within(history).getByText(en.historyDegraded)).toBeDefined()
+  expect(within(history).getByText('Historical recording started: Not reported (Beijing time)')).toBeDefined()
+  expect(screen.queryByText(en.usageDegraded)).toBeNull()
+  expect(screen.getByText('deepseek-flash')).toBeDefined()
+})
+
+it('keeps historical supplier zeroes distinct from missing usage', async () => {
+  const value: RelayDetails = { ...RELAY, history: { ...HISTORY,
+    summary: { requests: 1, reported: 1, partial: 0, unknown: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0,
+      inputTokensReports: 1, outputTokensReports: 1, totalTokensReports: 1 } } }
+  mount(async () => ({ ok: true, value }))
+  const history = await screen.findByRole('region', { name: en.historyTitle })
+  expect(within(history).queryByText(en.notReported)).toBeNull()
+  expect(history.querySelector('[data-muse-history-summary]')?.textContent).toContain('Total tokens01 / 1 requests reported this field')
 })
 
 it('shows personal profile and account-level Feishu paths independently of the relay usage coverage', async () => {

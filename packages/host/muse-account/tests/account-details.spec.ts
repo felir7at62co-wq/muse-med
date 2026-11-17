@@ -18,12 +18,17 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
+function fullDetailsTransport(fetcher: typeof fetch): typeof fetch {
+  return async (input, init) => new URL(input instanceof Request ? input.url : input).pathname === '/api/muse/identity'
+    ? new Response(null, { status: 404 }) : fetcher(input, init)
+}
+
 async function controller(fetcher: typeof fetch): Promise<{ account: MuseAccountController; file: string }> {
   const root = await mkdtemp(join(tmpdir(), 'muse-account-details-'))
   roots.push(root)
   const file = join(root, 'session.json')
   return { file, account: new MuseAccountController({ baseUrl, sessionFile: file,
-    gateway: createMuseAccountGateway(baseUrl, 1000, fetcher) }) }
+    gateway: createMuseAccountGateway(baseUrl, 1000, fullDetailsTransport(fetcher)) }) }
 }
 
 it('returns only validated own profile and usage fields through the Remote account service', async () => {
@@ -51,7 +56,7 @@ it.each(['invalid JSON', 'negative tokens', 'invalid group', 'invalid date', 'to
     if (kind === 'invalid group') body = JSON.stringify({ ...data, groups: [{ id: 'bad', name: 'private', description: '' }] })
     if (kind === 'invalid date') body = JSON.stringify({ ...data, account: { ...data.account, createdAt: 'bad date' } })
     if (kind === 'too many recent rows') body = JSON.stringify({ ...data, usage: { ...data.usage, recent: Array(101).fill(data.usage.recent[0]) } })
-    const gateway = createMuseAccountGateway(baseUrl, 1000, async () => new Response(body))
+    const gateway = createMuseAccountGateway(baseUrl, 1000, fullDetailsTransport(async () => new Response(body)))
     await expect(gateway.details('__Host-muse=private', {})).rejects.toMatchObject({ code: 'gateway-rejected',
       message: 'MUSE account gateway: gateway-rejected' })
   },
@@ -59,10 +64,10 @@ it.each(['invalid JSON', 'negative tokens', 'invalid group', 'invalid date', 'to
 
 it('rejects an oversized response and releases the reader', async () => {
   let cancelled = false
-  const gateway = createMuseAccountGateway(baseUrl, 1000, async () => new Response(new ReadableStream({
+  const gateway = createMuseAccountGateway(baseUrl, 1000, fullDetailsTransport(async () => new Response(new ReadableStream({
     pull(stream) { stream.enqueue(new Uint8Array(4 * 1024 * 1024 + 1)) },
     cancel() { cancelled = true },
-  })))
+  }))))
   await expect(gateway.details('__Host-muse=private', {})).rejects.toMatchObject({ code: 'gateway-rejected' })
   expect(cancelled).toBe(true)
 })
@@ -74,6 +79,55 @@ it('preserves legacy identities without inventing a synchronized department', as
     name: identity.name, tenantKey: identity.tenantKey, boundAt: identity.boundAt, lastLoginAt: null,
   }] } }
   expect(await readMuseAccountDetails(Response.json(legacy))).toEqual(legacy)
+})
+
+it.each([
+  ['missing capability', 404, null], ['unknown route error', 503, 'PRIVATE_ROUTE_ERROR'],
+  ['unsupported capability', 403, 'PRIVATE_ROUTE_REFUSAL'], ['empty response', 204, null],
+  ['HTML page', 200, '<html>PRIVATE_HTML_PAGE</html>'], ['non-capability JSON', 200, '{"version":2}'],
+] as const)('reads full details after an unrecognized %s response', async (_kind, status, body) => {
+  const expected = accountDetailsFixture(), calls: URL[] = []
+  const gateway = createMuseAccountGateway(baseUrl, 1000, async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input)
+    calls.push(url)
+    expect(new Headers(init?.headers).get('cookie')).toBe('__Host-muse=writer')
+    expect(init?.redirect).toBe('manual')
+    if (url.pathname === '/api/muse/identity') return new Response(body, { status })
+    if (url.pathname === '/api/muse.account/details') return Response.json(expected)
+    throw new Error('Unexpected personal API request')
+  })
+  await expect(gateway.details('__Host-muse=writer', {})).resolves.toEqual(expected)
+  expect(calls.map(url => url.pathname)).toEqual(['/api/muse/identity', '/api/muse.account/details'])
+})
+
+it.each([303, 401, 429])('retains capability-probe HTTP %i without reading full details', async (status) => {
+  const fetcher = vi.fn<typeof fetch>(async () => new Response('PRIVATE_CAPABILITY_ERROR', { status }))
+  await expect(createMuseAccountGateway(baseUrl, 1000, fetcher).details('__Host-muse=writer', {}))
+    .rejects.toMatchObject({ code: status === 429 ? 'rate-limited' : 'invalid-credentials' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher.mock.calls.map(([input]) => new URL(input instanceof Request ? input.url : input).pathname)).toEqual(['/api/muse/identity'])
+})
+
+it.each([
+  { version: 1 }, { version: 1, accountId: 'invalid', username: 'writer' },
+  { version: 1, accountId: '0123456789abcdef', username: '' },
+])('rejects a malformed declared personal capability %j', async (identity) => {
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json({ ...identity, private: 'PRIVATE_CAPABILITY_FIELD' }))
+  await expect(createMuseAccountGateway(baseUrl, 1000, fetcher).details('__Host-muse=writer', {}))
+    .rejects.toMatchObject({ code: 'gateway-rejected', message: 'MUSE account gateway: gateway-rejected' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it('preserves a full-details service failure after a missing personal capability', async () => {
+  const calls: string[] = []
+  const gateway = createMuseAccountGateway(baseUrl, 1000, async (input) => {
+    const path = new URL(input instanceof Request ? input.url : input).pathname
+    calls.push(path)
+    return path === '/api/muse/identity' ? new Response(null, { status: 404 }) : new Response('PRIVATE_FULL_FAILURE', { status: 503 })
+  })
+  await expect(gateway.details('__Host-muse=writer', {}))
+    .rejects.toMatchObject({ code: 'gateway-rejected', message: 'MUSE account gateway: gateway-rejected' })
+  expect(calls).toEqual(['/api/muse/identity', '/api/muse.account/details'])
 })
 
 it('bounds absent and interrupted response bodies without retaining transport diagnostics', async () => {

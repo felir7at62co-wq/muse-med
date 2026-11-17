@@ -57,6 +57,32 @@
   font-variant-numeric: tabular-nums;
 }
 
+.totalMetric {
+  grid-column: 1 / -1;
+}
+
+.metrics .totalMetric dt {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+.metrics .totalMetric dd {
+  font-weight: 500;
+}
+
+.historyMetrics .totalMetric dd {
+  font-size: var(--dsw-font-markdown-h1-font-size);
+  line-height: var(--dsw-font-markdown-h1-line-height);
+}
+
+.metricCoverage {
+  display: block;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+}
+
 .list {
   padding-left: 20px;
 }

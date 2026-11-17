@@ -8,6 +8,18 @@
   "period": "统计区间：2026-10-19 至 2026-11-17（含首尾日期，UTC）",
   "summary": [
     {
+      "label": "总 Token",
+      "value": "1,218,000"
+    },
+    {
+      "label": "输入 Token",
+      "value": "1,200,000"
+    },
+    {
+      "label": "输出 Token",
+      "value": "18,000"
+    },
+    {
       "label": "请求数",
       "value": "101"
     },
@@ -38,18 +50,6 @@
     {
       "label": "未回报用量请求数",
       "value": "3"
-    },
-    {
-      "label": "输入 Token",
-      "value": "1,200,000"
-    },
-    {
-      "label": "输出 Token",
-      "value": "18,000"
-    },
-    {
-      "label": "总 Token",
-      "value": "1,218,000"
     }
   ],
   "rows": [

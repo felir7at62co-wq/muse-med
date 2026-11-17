@@ -25,22 +25,24 @@ interface LegacyAccountDetailsFixture {
   startLegacyAccountDetailsStack(options?: {
     readonly profile?: boolean
     readonly organization?: boolean
+    readonly history?: boolean
   }): Promise<LegacyAccountDetailsStack>
 }
 const fixtureUrl = new URL('./fixtures/muse-user-legacy-details/stack.mjs', import.meta.url)
 
 it.each([
-  { label: 'legacy', profile: false, organization: false },
-  { label: 'profile', profile: true, organization: false },
-  { label: 'workbench', profile: false, organization: true },
-])('shows private relay totals and cursor pages through $label', async ({ profile, organization }) => {
+  { label: 'legacy', profile: false, organization: false, history: false },
+  { label: 'profile', profile: true, organization: false, history: false },
+  { label: 'workbench', profile: false, organization: true, history: false },
+  { label: 'history', profile: true, organization: false, history: true },
+])('shows private relay totals and cursor pages through $label', async ({ profile, organization, history }) => {
   const root = await mkdtemp(join(tmpdir(), 'muse-legacy-details-browser-'))
   let account: LegacyAccountDetailsStack | undefined
   let scaffold: WebScaffold | undefined
   let browser: Browser | undefined
   try {
     const fixture = await import(fixtureUrl.href) as LegacyAccountDetailsFixture
-    account = await fixture.startLegacyAccountDetailsStack({ profile, organization })
+    account = await fixture.startLegacyAccountDetailsStack({ profile, organization, history })
     const accountHome = join(root, 'account')
     await mkdir(accountHome, { mode: 0o700 })
     await writeFile(join(accountHome, 'session.json'), JSON.stringify({ baseUrl: account.origin,
@@ -90,6 +92,14 @@ it.each([
     expect(await details.getByText(account.accountId, { exact: true }).count()).toBe(1)
     expect(await details.innerText()).toContain('直连、自定义和租用通道未观测')
     const summary = details.locator('[data-muse-usage-summary]')
+    if (history) {
+      const historical = details.locator('[data-muse-history-summary]')
+      await historical.getByText('130,000').waitFor()
+      expect(await historical.innerText()).toContain('119,000')
+      expect(await historical.innerText()).toContain('11,000')
+      expect(await details.getByRole('heading', { name: '明细记录统计', exact: true }).count()).toBe(1)
+      expect(await historical.innerText()).not.toContain('170,520')
+    }
     const requestCount = summary.locator('div').filter({ has: page.getByText('请求数', { exact: true }) })
     expect(await requestCount.locator('dd').innerText()).toBe('7')
     expect(await summary.innerText()).toContain('40,520')
@@ -118,21 +128,22 @@ it.each([
       && request.query.to === usageReads[0]?.query.to)).toBe(true)
     expect(usageReads.every(request => !Object.hasOwn(request.query, 'accountId'))).toBe(true)
     expect(account.requests.every(request => request.authenticated)).toBe(true)
-    expect(account.requests.some(request => request.path === '/api/muse.account/details')).toBe(true)
+    expect(account.requests.some(request => request.path === '/api/muse.account/details')).toBe(false)
     expect(account.requests.some(request => request.path === '/api/muse/identity')).toBe(true)
     expect(account.requests.some(request => request.path === '/api/muse/profile')).toBe(true)
-    if (profile) expect(account.requests.some(request => request.path === '/api/workbench')).toBe(false)
-    else expect(account.requests.filter(request => request.path === '/api/workbench').every(request => request.query.scope === 'self')).toBe(true)
+    expect(account.requests.filter(request => request.path === '/api/workbench').every(request => request.query.scope === 'self')).toBe(true)
     expect(account.requests.some(request => request.path.startsWith('/api/admin/'))).toBe(false)
     expect(account.violations).toEqual([])
     expect(externalRequests).toEqual([])
     expect(await details.innerText()).not.toContain(account.cookie)
     const snapshot = { headings: await details.getByRole('heading').allTextContents(), summary: firstSummary,
       ...(organization ? { department: await details.getByText('示例公司 / 创作中心 / 编剧部', { exact: true }).innerText() } : {}),
+      ...(history ? { history: await details.locator('[data-muse-history-summary]').innerText() } : {}),
     }
     await expect(JSON.stringify(snapshot, null, 2) + '\n').toMatchFileSnapshot(join(REPO_ROOT,
       'apps/web/tests/fixtures/muse-user-legacy-details/'
-      + (profile ? 'account-profile.expected.json' : organization ? 'account-organization.expected.json' : 'account.expected.json')))
+      + (history ? 'account-history.expected.json'
+        : profile ? 'account-profile.expected.json' : organization ? 'account-organization.expected.json' : 'account.expected.json')))
   } finally {
     try { await browser?.close() }
     finally {

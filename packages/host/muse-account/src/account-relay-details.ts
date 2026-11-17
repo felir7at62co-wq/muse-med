@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { readMuseAccountJson } from './account-details.ts'
 import { MuseGatewayError } from './gateway.ts'
-import type { MuseAccountDetailsRequest, MuseAccountId, MuseAccountProfile, MuseAccountRelayDetails, MuseAccountRelayUsage, MuseAccountUsageId, MuseFeishuDepartmentId } from './types.ts'
+import type { MuseAccountDetailsRequest, MuseAccountId, MuseAccountRelayDetails, MuseAccountRelayUsage, MuseAccountUsageId } from './types.ts'
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const instant = z.iso.datetime()
@@ -22,36 +22,6 @@ const tokens = z.object({
 const identitySchema = z.object({ version: z.literal(1),
   accountId: z.string().regex(/^[a-f0-9]{16}$/u).transform(value => brandString<MuseAccountId>(value)),
   username: z.string().min(1).max(200),
-})
-const workbenchDepartment = z.object({
-  id: z.string().regex(/^[A-Za-z0-9_-]{1,256}$/u).transform(value => brandString<MuseFeishuDepartmentId>(value)),
-  name: z.string().min(1).max(200).refine(value => value.trim().length > 0 && !/[\x00-\x1f\x7f]/u.test(value)),
-})
-const departmentPath = z.tuple([workbenchDepartment]).rest(workbenchDepartment).refine(path => path.length <= 100)
-const departmentPaths = z.array(departmentPath).max(100).refine((paths) => {
-  const leaves = new Set<string>(), nodes = new Map<string, { name: string; parent: string | null }>()
-  for (const path of paths) {
-    const visited = new Set<string>()
-    let parent: string | null = null
-    for (const node of path) {
-      if (visited.has(node.id)) return false
-      visited.add(node.id)
-      const previous = nodes.get(node.id)
-      if (previous !== undefined && (previous.name !== node.name || previous.parent !== parent)) return false
-      nodes.set(node.id, { name: node.name, parent })
-      parent = node.id
-    }
-    const leaf = path.reduce((_previous, node) => node)
-    if (leaves.has(leaf.id)) return false
-    leaves.add(leaf.id)
-  }
-  return true
-})
-const workbenchSchema = z.object({ scope: z.literal('self'),
-  me: z.object({ id: identitySchema.shape.accountId }),
-  organization: z.object({ status: z.enum(['ready', 'partial', 'unavailable']), updatedAt: instant.nullable() }),
-  members: z.tuple([z.object({ id: identitySchema.shape.accountId, username: z.string().min(1).max(200),
-    departmentPaths: departmentPaths.nullable() })]),
 })
 const rangeSchema = z.object({ from: z.iso.date(), to: z.iso.date() }).refine(value => value.from <= value.to)
 const usageSchema = z.object({
@@ -105,23 +75,21 @@ export async function readMuseAccountRelayIdentity(response: Response): Promise<
 }
 
 /**
- * Read only the authenticated member's complete department paths from a self-scoped workbench.
- * @param response - Successful workbench response, bounded to 4 MiB; task and production fields are discarded.
- * @param account - Separately verified identity for the same gateway session.
- * @returns Account-level organization data without task content, profile fields, or Muse group assignments.
+ * Recognize the personal account-data-v1 identity protocol without accepting malformed claimed identities.
+ * @param response - HTTP 200 identity probe; non-JSON or another protocol remains unrecognized.
+ * @returns Verified personal identity, or undefined when the response does not claim version one.
  */
-export async function readMuseAccountWorkbenchOrganization(response: Response, account: MuseAccountRelayDetails['account']): Promise<MuseAccountProfile['organization']> {
-  const value = await readMuseAccountJson(response)
+export async function probeMuseAccountRelayIdentity(response: Response): Promise<MuseAccountRelayDetails['account'] | undefined> {
+  let value: unknown
+  try { value = await readMuseAccountJson(response) }
+  catch (error) {
+    if (error instanceof MuseGatewayError && error.code === 'gateway-rejected') return
+    throw error
+  }
+  if (typeof value !== 'object' || value === null || !('version' in value) || value.version !== 1) return
   try {
-    const workbench = workbenchSchema.parse(value), member = workbench.members[0]
-    if (workbench.me.id !== account.id || member.id !== account.id || member.username !== account.username) throw new MuseGatewayError('gateway-rejected')
-    const paths = workbench.organization.status === 'unavailable' ? null : member.departmentPaths
-    return { status: paths === null ? 'unavailable' : 'available', updatedAt: workbench.organization.updatedAt,
-      departments: paths === null ? [] : paths.map((path) => {
-        const leaf = path.reduce((_previous, node) => node)
-        return { id: leaf.id, name: leaf.name, path: path.map(node => node.name).join(' / '), pathIds: path.map(node => node.id) }
-      }),
-    }
+    const identity = identitySchema.parse(value)
+    return { id: identity.accountId, username: identity.username }
   } catch (_error) { throw new MuseGatewayError('gateway-rejected') }
 }
 

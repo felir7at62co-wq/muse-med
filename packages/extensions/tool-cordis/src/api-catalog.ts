@@ -8418,7 +8418,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MuseAccountRelayDetails',
-    declaration: 'export interface MuseAccountRelayDetails {\n    readonly protocol: \'account-data-v1\';\n    readonly account: {\n        readonly id: MuseAccountId;\n        readonly username: string;\n    };\n    readonly profile?: MuseAccountProfile;\n    readonly organization?: MuseAccountProfile[\'organization\'];\n    readonly availability: {\n        readonly profile: \'available\' | \'unavailable\';\n        readonly groups: \'available\' | \'unavailable\';\n        readonly feishuOrganization: \'available\' | \'unavailable\';\n    };\n    readonly usage: MuseAccountRelayUsage;\n}',
+    declaration: 'export interface MuseAccountRelayDetails {\n    readonly protocol: \'account-data-v1\';\n    readonly account: {\n        readonly id: MuseAccountId;\n        readonly username: string;\n    };\n    readonly profile?: MuseAccountProfile;\n    readonly organization?: MuseAccountProfile[\'organization\'];\n    readonly history?: MuseAccountRelayHistory;\n    readonly availability: {\n        readonly profile: \'available\' | \'unavailable\';\n        readonly groups: \'available\' | \'unavailable\';\n        readonly feishuOrganization: \'available\' | \'unavailable\';\n    };\n    readonly usage: MuseAccountRelayUsage;\n}',
+  },
+  {
+    name: 'MuseAccountRelayHistory',
+    declaration: 'export interface MuseAccountRelayHistory {\n    readonly from: string;\n    readonly to: string;\n    readonly timeZone: \'Asia/Shanghai\';\n    readonly recordingSince: string | null;\n    readonly limited: boolean;\n    readonly health: {\n        readonly state: \'ok\' | \'degraded\';\n    };\n    readonly summary: {\n        readonly requests: number;\n        readonly reported: number;\n        readonly partial: number;\n        readonly unknown: number;\n        readonly inputTokens: number | null;\n        readonly outputTokens: number | null;\n        readonly totalTokens: number | null;\n        readonly inputTokensReports: number;\n        readonly outputTokensReports: number;\n        readonly totalTokensReports: number;\n    };\n}',
   },
   {
     name: 'MuseAccountRelayTokenFields',

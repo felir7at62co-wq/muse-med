@@ -1,7 +1,8 @@
 /** HTTP adapter for the MUSE account gateway. Credentials stay in request bodies. */
-import type { MuseAccountDetails, MuseAccountDetailsRequest, MuseAccountProfile } from './types.ts'
+import type { MuseAccountDetails, MuseAccountDetailsRequest, MuseAccountRelayDetails } from './types.ts'
 import { readMuseAccountDetails, readMuseAccountProfile } from './account-details.ts'
-import { museAccountRelayQuery, readMuseAccountRelayIdentity, readMuseAccountRelayUsage, readMuseAccountWorkbenchOrganization } from './account-relay-details.ts'
+import { museAccountRelayQuery, probeMuseAccountRelayIdentity, readMuseAccountRelayIdentity, readMuseAccountRelayUsage } from './account-relay-details.ts'
+import { readMuseAccountRelayWorkbench } from './account-history.ts'
 
 /** Stable failure classes that can cross the authenticated Remote interface. */
 export type MuseGatewayFailure =
@@ -74,7 +75,7 @@ export function createMuseAccountGateway(baseUrl: string, requestTimeoutMs: numb
       return await (fetcher ?? globalThis.fetch)(new URL(path, origin), {
         ...options,
         redirect: 'manual',
-        signal: AbortSignal.timeout(requestTimeoutMs),
+        signal: options.signal ?? AbortSignal.timeout(requestTimeoutMs),
       })
     } catch {
       throw new MuseGatewayError('gateway-unavailable')
@@ -116,8 +117,47 @@ export function createMuseAccountGateway(baseUrl: string, requestTimeoutMs: numb
     throw new MuseGatewayError('gateway-rejected')
   }
 
+  async function optionalPersonalGet(path: string, cookie: string, signal?: AbortSignal): Promise<Response | undefined> {
+    const response = await request(path, { headers: { cookie, accept: 'application/json' }, ...(signal === undefined ? {} : { signal }) })
+    if (response.status !== 404) return await personalResponse(response)
+    try { await response.body?.cancel() }
+    catch (_error) { /* An unsupported personal endpoint supplies no account data. */ }
+    return
+  }
+
+  async function probeRelayIdentity(cookie: string): Promise<MuseAccountRelayDetails['account'] | undefined> {
+    const response = await request('/api/muse/identity', { headers: { cookie, accept: 'application/json' } })
+    if (response.status === 303 || response.status === 401 || response.status === 429) {
+      return await personalResponse(response).then(readMuseAccountRelayIdentity)
+    }
+    if (response.status === 200) return await probeMuseAccountRelayIdentity(response)
+    try { await response.body?.cancel() }
+    catch (_error) { /* An unrecognized identity endpoint does not establish a gateway protocol. */ }
+    return
+  }
+
+  async function relayDetails(cookie: string, options: MuseAccountDetailsRequest, knownAccount?: MuseAccountRelayDetails['account']): Promise<MuseAccountRelayDetails> {
+    const relayQuery = museAccountRelayQuery(options)
+    const account = knownAccount ?? await readMuseAccountRelayIdentity(await personalGet('/api/muse/identity', cookie))
+    const profileResponse = await optionalPersonalGet('/api/muse/profile', cookie)
+    const profile = profileResponse === undefined ? undefined : await readMuseAccountProfile(profileResponse, account)
+    const workbench = await readMuseAccountRelayWorkbench({ account, requestTimeoutMs,
+      ...(profile === undefined ? {} : { createdAt: profile.account.createdAt }),
+      read: async (range, signal) => await optionalPersonalGet('/api/workbench?' + new URLSearchParams({ scope: 'self', ...range }).toString(), cookie, signal),
+    })
+    const organization = profile?.organization ?? workbench.organization
+    const usage = await readMuseAccountRelayUsage(await personalGet('/api/muse/usage?' + relayQuery.toString(), cookie))
+    return { protocol: 'account-data-v1', account, ...(profile === undefined ? {} : { profile }),
+      ...(organization === undefined ? {} : { organization }), ...(workbench.history === undefined ? {} : { history: workbench.history }),
+      availability: { profile: profile === undefined ? 'unavailable' : 'available',
+        groups: profile === undefined ? 'unavailable' : 'available',
+        feishuOrganization: organization?.status === 'available' ? 'available' : 'unavailable' }, usage }
+  }
+
   return {
     async details(cookie, options) {
+      const account = await probeRelayIdentity(cookie)
+      if (account !== undefined) return await relayDetails(cookie, options, account)
       const query = new URLSearchParams()
       if (options.period !== undefined) query.set('period', options.period)
       if (options.offset !== undefined) query.set('offset', String(options.offset))
@@ -127,30 +167,7 @@ export function createMuseAccountGateway(baseUrl: string, requestTimeoutMs: numb
         if (response.status === 404) {
           try { await response.body?.cancel() }
           catch (_error) { /* The unsupported details endpoint does not supply account data. */ }
-          const relayQuery = museAccountRelayQuery(options)
-          const account = await readMuseAccountRelayIdentity(await personalGet('/api/muse/identity', cookie))
-          const profileResponse = await request('/api/muse/profile', { headers: { cookie, accept: 'application/json' } })
-          let profile: MuseAccountProfile | undefined
-          let organization: MuseAccountProfile['organization'] | undefined
-          if (profileResponse.status === 404) {
-            try { await profileResponse.body?.cancel() }
-            catch (_error) { /* A gateway without the optional endpoint exposes no profile data. */ }
-            const workbenchResponse = await request('/api/workbench?scope=self', { headers: { cookie, accept: 'application/json' } })
-            if (workbenchResponse.status === 404) {
-              try { await workbenchResponse.body?.cancel() }
-              catch (_error) { /* An unsupported self workbench supplies no organization data. */ }
-            } else organization = await readMuseAccountWorkbenchOrganization(await personalResponse(workbenchResponse), account)
-          } else {
-            profile = await readMuseAccountProfile(await personalResponse(profileResponse), account)
-            organization = profile.organization
-          }
-          const usage = await readMuseAccountRelayUsage(await personalGet('/api/muse/usage?' + relayQuery.toString(), cookie))
-          return { protocol: 'account-data-v1', account,
-            ...(profile === undefined ? {} : { profile }),
-            ...(organization === undefined ? {} : { organization }),
-            availability: { profile: profile === undefined ? 'unavailable' : 'available',
-              groups: profile === undefined ? 'unavailable' : 'available',
-              feishuOrganization: organization?.status === 'available' ? 'available' : 'unavailable' }, usage }
+          return await relayDetails(cookie, options)
         }
         if (response.status === 303 || response.status === 401) throw new MuseGatewayError('invalid-credentials')
         if (response.status === 429) throw new MuseGatewayError('rate-limited')

@@ -8,8 +8,11 @@ import {createServer} from 'node:http';
  * @param {object} options Whether the existing gateway serves a safe personal profile or self-workbench directory.
  * @returns {Promise<object>} Private Host login, observed request metadata and awaited shutdown.
  */
-export async function startLegacyAccountDetailsStack({profile=false,organization=false}={}){
+export async function startLegacyAccountDetailsStack({profile=false,organization=false,history=false}={}){
  const username='legacy_browser_writer',accountId='a123456789abcdef';
+ const dayMs=86400000,today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
+ const historyFirstDay=new Date(Date.parse(today)-31*dayMs).toISOString().slice(0,10);
+ const historyCreatedAt=new Date(Date.parse(historyFirstDay)-dayMs).toISOString();
  const cookie='__Host-muse='+randomBytes(32).toString('base64url');
  const requests=[],violations=[],nextCursor='fixture-next-page';
  const summary={requests:7,completedRequests:5,failedRequests:1,pendingRequests:0,unknownRequests:1,
@@ -30,16 +33,32 @@ export async function startLegacyAccountDetailsStack({profile=false,organization
   if(url.pathname==='/api/muse/identity'){json(res,200,{version:1,accountId,username,admin:false});return;}
   if(url.pathname==='/api/muse/profile'){
    if(!profile){json(res,404,{});return;}
-   json(res,200,{version:1,account:{id:accountId,username,createdAt:'2026-01-01T00:00:00.000Z',lastLoginAt:null,lastActivityAt:null,
+   json(res,200,{version:1,account:{id:accountId,username,createdAt:history?historyCreatedAt:'2026-01-01T00:00:00.000Z',lastLoginAt:null,lastActivityAt:null,
     feishuIdentities:[{name:'测试编剧',tenantKey:'tenant_fixture',boundAt:'2026-01-01T00:00:00.000Z',lastLoginAt:null}]},
     groups:[{id:'group-0123456789abcdef',name:'长剧创作组',description:'长剧项目协作'}],
     organization:{status:'available',updatedAt:'2026-11-17T00:00:00.000Z',departments:[{id:'od_writer',name:'编剧部',path:'示例公司 / 创作中心 / 编剧部',pathIds:['0','od_creation','od_writer']}]}});return;
   }
   if(url.pathname==='/api/workbench'){
-   if(!organization){json(res,404,{});return;}
-   if(query.scope!=='self'||Object.keys(query).length!==1){violations.push('organization-scope-overridden');json(res,400,{});return;}
-   json(res,200,{scope:'self',me:{id:accountId,name:'测试编剧'},organization:{status:'partial',updatedAt:'2026-11-17T00:00:00.000Z'},
-    members:[{id:accountId,username,name:'测试编剧',departmentPaths:[[{id:'0',name:'示例公司'},{id:'od_creation',name:'创作中心'},{id:'od_writer',name:'编剧部'}]]}]});return;
+   if(!organization&&!history){json(res,404,{});return;}
+   if(query.scope!=='self'||Object.keys(query).some(key=>!['scope','from','to'].includes(key))
+    ||query.from!==undefined&&!/^\d{4}-\d{2}-\d{2}$/.test(query.from)||query.to!==undefined&&!/^\d{4}-\d{2}-\d{2}$/.test(query.to)){
+    violations.push('organization-scope-overridden');json(res,400,{});return;
+   }
+   const from=query.from??new Date(Date.parse(today)-29*dayMs).toISOString().slice(0,10),to=query.to??today;
+   const metrics={requests:0,reported:0,partial:0,unknown:0,inputTokens:null,outputTokens:null,totalTokens:null,
+    inputTokensReports:0,outputTokensReports:0,totalTokensReports:0};
+   for(const row of [{date:historyFirstDay,requests:3,reported:3,unknown:0,input:29000,output:1000,total:30000},
+    {date:today,requests:10,reported:9,unknown:1,input:90000,output:10000,total:100000}]){
+    if(row.date<from||row.date>to)continue;
+    metrics.requests+=row.requests;metrics.reported+=row.reported;metrics.unknown+=row.unknown;
+    metrics.inputTokens=(metrics.inputTokens??0)+row.input;metrics.outputTokens=(metrics.outputTokens??0)+row.output;metrics.totalTokens=(metrics.totalTokens??0)+row.total;
+    metrics.inputTokensReports+=row.reported;metrics.outputTokensReports+=row.reported;metrics.totalTokensReports+=row.reported;
+   }
+   json(res,200,{scope:'self',me:{id:accountId,name:'测试编剧'},filters:{from,to},
+    organization:{status:organization?'partial':'unavailable',updatedAt:'2026-11-17T00:00:00.000Z'},
+    ...history?{usage:{available:true,recordingSince:historyFirstDay+'T00:00:00.000Z',coverage:'server-relay-only',limited:false,writeFailures:0}}:{},
+    members:[{id:accountId,username,name:'测试编剧',departmentPaths:organization?[[{id:'0',name:'示例公司'},{id:'od_creation',name:'创作中心'},{id:'od_writer',name:'编剧部'}]]:null,
+     ...history?{usage:{status:metrics.requests?'recorded':'no-requests',metrics:metrics.requests?metrics:null}}:{}}]});return;
   }
   if(url.pathname==='/api/muse/usage'){
    if(Object.keys(query).some(key=>!['from','to','limit','cursor'].includes(key))){

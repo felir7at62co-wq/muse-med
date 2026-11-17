@@ -8,5 +8,5 @@
     "按日期",
     "请求明细"
   ],
-  "summary": "请求数\n1\n已报告用量请求数\n1\n输入 Token\n120\n输出 Token\n40\n总 Token\n160\n缓存命中 Token\n30\n推理 Token\n10"
+  "summary": "总 Token\n160\n输入 Token\n120\n输出 Token\n40\n请求数\n1\n已报告用量请求数\n1\n缓存命中 Token\n30\n推理 Token\n10"
 }

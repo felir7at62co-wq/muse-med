@@ -48,6 +48,7 @@
     "src/client/MuseAccountDetails.tsx",
     "src/client/MuseAccountProfileSections.tsx",
     "src/client/MuseAccountOrganization.tsx",
+    "src/client/MuseAccountHistory.tsx",
     "src/client/MuseAccountRelayDetails.tsx",
     "src/client/MuseAccountSection.tsx"
   ]

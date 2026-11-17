@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { createMuseAccountGateway } from '../src/gateway.ts'
 import { MuseAccountController } from '../src/account.ts'
 import { readMuseSession, writeMuseSession } from '../src/session.ts'
+import { probeMuseAccountRelayIdentity } from '../src/account-relay-details.ts'
 
 const baseUrl = 'https://muse.example'
 const cookie = '__Host-muse=private'
@@ -86,8 +87,10 @@ it.each(['ready', 'partial'])('reads only the authenticated self workbench depar
   expect(result.organization).toEqual({ status: 'available', updatedAt: fixture.organization.updatedAt,
     departments: [{ id: 'department-team', name: 'Team', path: 'Company / Team', pathIds: ['0', 'department-team'] }] })
   expect(result.availability).toEqual({ profile: 'unavailable', groups: 'unavailable', feishuOrganization: 'available' })
-  expect(calls.map(url => url.pathname)).toEqual(['/api/muse.account/details', '/api/muse/identity', '/api/muse/profile', '/api/workbench', '/api/muse/usage'])
-  expect(calls.find(url => url.pathname === '/api/workbench')?.search).toBe('?scope=self')
+  expect(calls.map(url => url.pathname)).toEqual(['/api/muse/identity', '/api/muse/profile', '/api/workbench', '/api/muse/usage'])
+  expect(calls.find(url => url.pathname === '/api/workbench')?.searchParams.get('scope')).toBe('self')
+  expect(calls.find(url => url.pathname === '/api/workbench')?.searchParams.has('from')).toBe(true)
+  expect(calls.find(url => url.pathname === '/api/workbench')?.searchParams.has('to')).toBe(true)
   expect(result.usage.summary.totalTokens).toBe(96_284_261)
   expect(JSON.stringify(result)).not.toContain('PRIVATE_')
 })
@@ -169,7 +172,7 @@ it.each(['2026-11-17T00:00:00.000Z', null])('joins verified profile data and ret
   expect(result.availability).toEqual({ profile: 'available', groups: 'available', feishuOrganization: 'available' })
   expect(result.profile?.organization.updatedAt).toBe(updatedAt)
   expect(result.organization).toEqual(result.profile?.organization)
-  expect(fetcher.mock.calls.some(([input]) => new URL(input instanceof Request ? input.url : input).pathname === '/api/workbench')).toBe(false)
+  expect(fetcher.mock.calls.some(([input]) => new URL(input instanceof Request ? input.url : input).pathname === '/api/workbench')).toBe(true)
   expect(result.usage.coverage).toEqual({ transport: 'relay-only', direct: 'unobserved' })
   expect(result.usage.summary.totalTokens).toBe(96_284_261)
   expect(JSON.stringify(result)).not.toContain('PRIVATE_')
@@ -208,7 +211,7 @@ it.each([303, 401, 403, 429, 503])('does not treat personal-profile HTTP %i as a
   await expect(createMuseAccountGateway(baseUrl, 1000, fetcher).details(cookie, {})).rejects.toMatchObject({
     code: status === 303 || status === 401 ? 'invalid-credentials' : status === 429 ? 'rate-limited' : 'gateway-rejected',
   })
-  expect(calls).toEqual(['/api/muse.account/details', '/api/muse/identity', '/api/muse/profile'])
+  expect(calls).toEqual(['/api/muse/identity', '/api/muse/profile'])
 })
 
 it.each([false, true])('keeps relay data when the missing-profile response has no readable body (empty: %s)', async (empty) => {
@@ -223,7 +226,7 @@ it.each([false, true])('keeps relay data when the missing-profile response has n
   expect(result.usage.summary.requests).toBe(461)
 })
 
-it('uses authenticated personal APIs only after a missing details endpoint and strips private fields', async () => {
+it('selects authenticated personal APIs from verified identity capability and strips private fields', async () => {
   const calls: URL[] = []
   const source = relayFetcher()
   const gateway = createMuseAccountGateway(baseUrl, 1000, async (input, init) => {
@@ -246,7 +249,7 @@ it('uses authenticated personal APIs only after a missing details endpoint and s
   expect(result.usage.coverage).toEqual({ transport: 'relay-only', direct: 'unobserved' })
   expect(result.usage.health).toEqual({ state: 'degraded' })
   expect(JSON.stringify(result)).not.toContain('PRIVATE_')
-  expect(calls.map(url => url.pathname)).toEqual(['/api/muse.account/details', '/api/muse/identity', '/api/muse/profile', '/api/workbench', '/api/muse/usage'])
+  expect(calls.map(url => url.pathname)).toEqual(['/api/muse/identity', '/api/muse/profile', '/api/workbench', '/api/muse/usage'])
   expect(calls.every(url => !url.searchParams.has('accountId'))).toBe(true)
 })
 
@@ -288,15 +291,15 @@ it('retains the successful page dates across UTC midnight and resolves a new ran
 it.each([
   { from: '2026-2-01', to: '2026-11-17' }, { from: '2026-02-30', to: '2026-11-17' },
   { from: '2026-11-18', to: '2026-11-17' }, { from: '2026-11-17', to: '2026-11-17T00:00:00.000Z' },
-])('rejects an invalid retained UTC range %j before requesting identity or usage', async (range) => {
-  const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 404 }))
+])('rejects an invalid retained UTC range %j before requesting profile or usage', async (range) => {
+  const fetcher = vi.fn<typeof fetch>(relayFetcher())
   await expect(createMuseAccountGateway(baseUrl, 1000, fetcher).details(cookie, { range, cursor: 'b3BhcXVl' }))
     .rejects.toMatchObject({ code: 'gateway-rejected' })
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
 
 it('rejects all-history even when a valid retained date range was supplied', async () => {
-  const fetcher = vi.fn<typeof fetch>(async () => new Response(null, { status: 404 }))
+  const fetcher = vi.fn<typeof fetch>(relayFetcher())
   await expect(createMuseAccountGateway(baseUrl, 1000, fetcher).details(cookie, {
     period: 'all', range: { from: '2026-11-11', to: '2026-11-17' }, cursor: 'b3BhcXVl',
   })).rejects.toMatchObject({ code: 'unsupported-period' })
@@ -317,16 +320,17 @@ it('does not turn unknown supplier counters, absent models or unobserved direct 
   expect(result.usage.nextCursor).toBeNull()
 })
 
-it.each([303, 401, 403, 429, 500, 200])('does not probe an older protocol after details HTTP %i', async (status) => {
-  const fetcher = vi.fn<typeof fetch>(async () => new Response('PRIVATE_BODY', { status }))
+it.each([303, 401, 403, 429, 500, 200])('does not select relay details after unrecognized capability and full details HTTP %i', async (status) => {
+  const fetcher = vi.fn<typeof fetch>(async input => new URL(input instanceof Request ? input.url : input).pathname === '/api/muse/identity'
+    ? new Response(null, { status: 404 }) : new Response('PRIVATE_BODY', { status }))
   const gateway = createMuseAccountGateway(baseUrl, 1000, fetcher)
   await expect(gateway.details(cookie, {})).rejects.toMatchObject({ code: status === 303 || status === 401
     ? 'invalid-credentials' : status === 429 ? 'rate-limited' : 'gateway-rejected' })
-  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher).toHaveBeenCalledTimes(2)
 })
 
 it('rejects all-history and unsupported offset pagination before reading relay data', async () => {
-  const fetcher = vi.fn<typeof fetch>(async () => new Response('missing', { status: 404 }))
+  const fetcher = vi.fn<typeof fetch>(relayFetcher())
   const gateway = createMuseAccountGateway(baseUrl, 1000, fetcher)
   await expect(gateway.details(cookie, { period: 'all' })).rejects.toMatchObject({ code: 'unsupported-period' })
   await expect(gateway.details(cookie, { offset: 50 })).rejects.toMatchObject({ code: 'gateway-rejected' })
@@ -334,12 +338,71 @@ it('rejects all-history and unsupported offset pagination before reading relay d
 })
 
 it.each([303, 401, 403, 429, 503])('contains legacy personal HTTP %i and never leaks its body', async (status) => {
-  const fetcher = vi.fn<typeof fetch>(async input => new URL(input instanceof Request ? input.url : input).pathname === '/api/muse.account/details'
-    ? new Response(null, { status: 404 }) : new Response('PRIVATE_LEGACY_BODY', { status }))
+  let first = true
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const path = new URL(input instanceof Request ? input.url : input).pathname
+    if (path === '/api/muse/identity' && first) { first = false; return new Response(null, { status: 404 }) }
+    return path === '/api/muse.account/details' ? new Response(null, { status: 404 }) : new Response('PRIVATE_LEGACY_BODY', { status })
+  })
   await expect(createMuseAccountGateway(baseUrl, 1000, fetcher).details(cookie, {})).rejects.toMatchObject({
     code: status === 303 || status === 401 ? 'invalid-credentials' : status === 429 ? 'rate-limited' : 'gateway-rejected',
   })
-  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(fetcher).toHaveBeenCalledTimes(3)
+})
+
+it('retains strict relay discovery after an unrecognized identity probe and a missing full-details endpoint', async () => {
+  let probes = 0
+  const source = relayFetcher()
+  const gateway = createMuseAccountGateway(baseUrl, 1000, async (input, init) => {
+    const path = new URL(input instanceof Request ? input.url : input).pathname
+    if (path === '/api/muse/identity' && ++probes === 1) return new Response('legacy HTML')
+    return source(input, init)
+  })
+  expect((await gateway.details(cookie, {})).protocol).toBe('account-data-v1')
+  expect(probes).toBe(2)
+})
+
+it('rejects an invalid strict identity after an unrecognized capability and a missing full endpoint', async () => {
+  let probes = 0
+  const gateway = createMuseAccountGateway(baseUrl, 1000, async (input) => {
+    if (new URL(input instanceof Request ? input.url : input).pathname !== '/api/muse/identity') return new Response(null, { status: 404 })
+    probes++
+    return probes === 1 ? new Response('HTML') : Response.json({ ...identity, accountId: 'invalid' })
+  })
+  await expect(gateway.details(cookie, {})).rejects.toMatchObject({ code: 'gateway-rejected' })
+  expect(probes).toBe(2)
+})
+
+it.each([null, 7, {}, { version: 2 }])('leaves an identity probe that does not claim version one unrecognized: %j', async (value) => {
+  expect(await probeMuseAccountRelayIdentity(Response.json(value))).toBeUndefined()
+})
+
+it('preserves an interrupted identity-probe read as a transport failure', async () => {
+  const fetcher = vi.fn<typeof fetch>(async () => new Response(new ReadableStream({
+    start(controller) { controller.error(new Error('PRIVATE_NETWORK_ERROR')) },
+  })))
+  await expect(createMuseAccountGateway(baseUrl, 1000, fetcher).details(cookie, {})).rejects.toMatchObject({ code: 'gateway-unavailable' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it('keeps older recorded history separate from the overlapping cursor ledger', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-17T00:00:00.000Z'))
+  const fixture = workbenchFixture(), source = relayFetcher()
+  const gateway = createMuseAccountGateway(baseUrl, 1000, async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input)
+    if (url.pathname !== '/api/workbench') return source(input, init)
+    return Response.json({ ...fixture, filters: { from: url.searchParams.get('from'), to: url.searchParams.get('to') },
+      usage: { available: true, recordingSince: '2026-10-29T00:00:00.000Z', coverage: 'server-relay-only', limited: false, writeFailures: 0 },
+      members: [{ ...fixture.members[0], usage: { status: 'recorded', metrics: { requests: 2, reported: 2, partial: 0, unknown: 0,
+        inputTokens: 12, outputTokens: 8, totalTokens: 20, inputTokensReports: 2, outputTokensReports: 2, totalTokensReports: 2 } } }],
+    })
+  })
+  const result = await gateway.details(cookie, {})
+  if (result.protocol !== 'account-data-v1') throw new Error('Expected relay protocol')
+  expect(result.history).toMatchObject({ from: '2026-10-29', to: '2026-11-17', timeZone: 'Asia/Shanghai', summary: { requests: 2, totalTokens: 20 } })
+  expect(result.usage.summary.totalTokens).toBe(96_284_261)
+  expect(JSON.stringify(result)).not.toContain('PRIVATE_')
 })
 
 it.each(['coverage', 'negative tokens', 'invalid date', 'cursor', 'oversized page', 'identity'])('rejects malformed relay %s', async (kind) => {

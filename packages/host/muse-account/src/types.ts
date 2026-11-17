@@ -184,6 +184,28 @@ export interface MuseAccountProfile {
   }
 }
 
+/** Recorded server-relay history across nonoverlapping Beijing date windows; overlaps the separate request ledger. */
+export interface MuseAccountRelayHistory {
+  readonly from: string
+  readonly to: string
+  readonly timeZone: 'Asia/Shanghai'
+  readonly recordingSince: string | null
+  readonly limited: boolean
+  readonly health: { readonly state: 'ok' | 'degraded' }
+  readonly summary: {
+    readonly requests: number
+    readonly reported: number
+    readonly partial: number
+    readonly unknown: number
+    readonly inputTokens: number | null
+    readonly outputTokens: number | null
+    readonly totalTokens: number | null
+    readonly inputTokensReports: number
+    readonly outputTokensReports: number
+    readonly totalTokensReports: number
+  }
+}
+
 /** Account-data-v1 identity and relay measurements, with optional verified personal profile support. */
 export interface MuseAccountRelayDetails {
   readonly protocol: 'account-data-v1'
@@ -192,6 +214,8 @@ export interface MuseAccountRelayDetails {
   readonly profile?: MuseAccountProfile
   /** Account-level departments from the profile or the authenticated self workbench. */
   readonly organization?: MuseAccountProfile['organization']
+  /** Earlier recorded metering history, without adding its overlapping totals to usage. */
+  readonly history?: MuseAccountRelayHistory
   readonly availability: {
     readonly profile: 'available' | 'unavailable'
     readonly groups: 'available' | 'unavailable'
