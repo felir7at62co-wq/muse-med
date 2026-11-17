@@ -17,7 +17,8 @@
 - id: tool-pwsh
   disabled: true
 
-# Proactive compaction with a bounded message budget.
+# Match the replay budget: 6,850 tokens with output reservation, below the
+# pinned 6,942-token request but above its checkpoint and retained tool pair.
 
 - id: agent-instructions
   disabled: true
@@ -26,7 +27,7 @@
   config:
     models:
       - id: deepseek-v4-flash
-        contextWindow: 8622
+        contextWindow: 9650
         maxTokens: 1000
 
 - id: compaction-basic

@@ -650,7 +650,7 @@ describe('dsh-tool-skill', () => {
     expect(catalogMessages(session)).toHaveLength(3)
   })
 
-  it.each([false, true])('resumes from the latest visible catalog with historical incomplete flag %s', async (incomplete) => {
+  it('resumes from the durable entries of the latest visible catalog', async () => {
     // Catalog identity lives on `source.entries`: the model-facing prose does
     // not decide whether a republish is needed, so a seeded message is
     // recognized by its source alone and malformed prose cannot hide (or fake)
@@ -673,7 +673,6 @@ describe('dsh-tool-skill', () => {
         kind: 'skill-catalog',
         form: 'catalog',
         entries: [{ name: 'old-skill', description: 'Old skill' }],
-        ...incomplete ? { incomplete: true } : {},
       },
     }), { surfaceOp: 'append' })
     session.append('user/message', createUserMessage({
@@ -725,7 +724,7 @@ describe('dsh-tool-skill', () => {
       { kind: 'skill-catalog', form: 'catalog', entries: [null] },
       { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'x' }] },
       { kind: 'skill-catalog', form: 'catalog', entries: [{ description: 'no name' }] },
-      { kind: 'skill-catalog', form: 'catalog', entries: [], bounded: false },
+      { kind: 'skill-catalog', form: 'catalog', bounded: false, entries: [{ name: 'stale', description: 'Unreadable bound flag' }] },
     ]) {
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'unreadable catalog' }],
@@ -733,10 +732,12 @@ describe('dsh-tool-skill', () => {
       }), { surfaceOp: 'append' })
     }
 
-    const seeded = catalogMessages(session).length
+    const beforeStep = session.seq
     await expect(fireStep(ctx, agent, 1, 1)).resolves.toBeUndefined()
 
-    const published = catalogMessages(session).slice(seeded)
+    // None of the malformed records count as published, so the live catalog lands as a
+    // first publication rather than a replacement.
+    const published = catalogMessages(session).filter(event => event.seq >= beforeStep)
     expect(published).toHaveLength(1)
     expect(published[0]?.data.source).toMatchObject({ kind: 'skill-catalog', form: 'catalog' })
     expect(published[0]?.data.source).not.toHaveProperty('update')

@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, TurnMaxTokensNode,
+  ConversationMatch, ConversationNodeContext, ConversationNodeDefinitionInput, TurnMaxTokensNode,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { CHAT_SYNTHETIC_SEQ_OFFSETS, chatNode } from './common.ts'
 
@@ -44,14 +44,16 @@ function stateFrom(match: ConversationMatch): TurnMaxTokensState | undefined {
 }
 
 /** Notice Definition for a turn the provider ended at its output-token cap. */
-export const turnMaxTokensDefinition: ConversationNodeDefinition<TurnMaxTokensState> = {
+export const turnMaxTokensDefinition: ConversationNodeDefinitionInput<TurnMaxTokensState> = {
   kind: 'turn-max-tokens',
   target: 'chat',
-  match: (event) => {
-    if (event.type === 'turn/end' && event.data.reason.kind === 'max-tokens') {
-      return { id: String(event.data.turn), role: 'start' }
-    }
-    return null
+  match: {
+    'turn/end': (event) => {
+      if (event.type === 'turn/end' && event.data.reason.kind === 'max-tokens') {
+        return { id: String(event.data.turn), role: 'start' }
+      }
+      return null
+    },
   },
   start: (_context, match) => {
     const state = stateFrom(match)

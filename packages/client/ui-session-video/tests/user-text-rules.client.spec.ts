@@ -2,8 +2,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import { UserTextRegistry } from '@deepseek-ai/dsh-client-ui-conversation/src/client/conversation/user-text-registry.ts'
 import { expect, it, onTestFinished } from 'vitest'
-import { parseVideoSelectionData, videoSelectionRule } from '../src/client/user-text-rules.ts'
-import { serializeVideoTargets, VIDEO_SELECTION_CLOSE, VIDEO_SELECTION_OPEN, videoWorkspaceAddress } from '../src/client/target-selection.ts'
+import { parseVideoSelectionData, videoSelectionRule, videoReviewRule } from '../src/client/user-text-rules.ts'
+import { serializeVideoTargets, VIDEO_REVIEW_REQUEST, VIDEO_SELECTION_CLOSE, VIDEO_SELECTION_OPEN, videoWorkspaceAddress } from '../src/client/target-selection.ts'
 import { sessionId, shot, source, whole } from './selection-fixture.client.ts'
 
 function evidence() {
@@ -87,4 +87,12 @@ it('uses original UTF-16 offsets and can find later valid evidence after an inva
   expect(node?.end).toBe(text.length)
   expect(videoSelectionRule.match(text, text.length, { read: () => undefined })).toBeUndefined()
   expect(videoSelectionRule.match(fixture.text, 1, { read: () => undefined })).toBeUndefined()
+})
+
+it('hides only the exact recorded review intent while leaving surrounding user text intact', () => {
+  const text = `Please inspect.\n${VIDEO_REVIEW_REQUEST}\nKeep the dialogue.`
+  expect(videoReviewRule.match(text, 0, { read: () => undefined })).toEqual({ id: 'muse-video-review',
+    start: text.indexOf(VIDEO_REVIEW_REQUEST), end: text.indexOf(VIDEO_REVIEW_REQUEST) + VIDEO_REVIEW_REQUEST.length,
+    data: { mode: 'read-only' } })
+  expect(videoReviewRule.match(text, text.length, { read: () => undefined })).toBeUndefined()
 })

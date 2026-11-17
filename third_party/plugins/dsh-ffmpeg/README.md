@@ -80,6 +80,7 @@ ffmpeg_adjust { input: E:\videos\raw.mp4, volume: +2dB }
 - **无 shell**：所有参数以独立 argv 数组传递，用户输入不可能注入命令
 - **进程走 DSH 官方 subprocess 服务**：超时 AbortSignal 会真正触发树级终止（SIGTERM → 强杀，Windows taskkill /T），本插件零运行时依赖
 - **防覆写**：默认不覆盖同名文件（自动加序号），输出与输入相同直接拒绝
+- **输出目录**：输出路径的父目录不存在时自动创建，不把缺目录留给 ffmpeg 报 “No such file or directory”
 - **超时钳制**：单次操作 10 秒 - 2 小时；探测额外限制 60 秒
 - **参数校验**：时间格式、预设枚举、crf/fps/scale 范围全部前置校验，输入目录、抽帧无扩展名输出等边界也有中文错误/自动修复
 
@@ -87,7 +88,7 @@ ffmpeg_adjust { input: E:\videos\raw.mp4, volume: +2dB }
 
 ```bash
 pnpm install
-pnpm test       # 构建 + 102 个测试（含真实 ffmpeg 端到端集成，缺 ffmpeg 自动跳过）
+pnpm test       # 构建 + 103 个测试（含真实 ffmpeg 端到端集成，缺 ffmpeg 自动跳过）
 ```
 
 ## License
@@ -96,4 +97,5 @@ MIT
 
 ## 版本记录
 
+- **未发布**：`output` 的父目录不存在时自动创建（此前 `ffmpeg_extract` 抽帧到新目录会失败）。测试 103 项。
 - **0.4.3（2026-09-18）**：修复抽帧数到旧帧/清单截断、取消被当成功、取消文案丢原因、`+2dB` 被拒；音轨提取非 AAC 自动转 AAC、concat 混合音轨可用、ffprobe 截断明确报错。测试 102 项。

@@ -23,6 +23,7 @@ async function completed() {
   const target = { ...f.planInput, digest: ready.digest }, initial = await f.service.admitEpisode(target)
   f.renderer.release()
   await expect.poll(async () => (await f.service.episodeStatus(target)).state).toBe('completed')
+  await expect.poll(() => f.service.hasActiveWork()).toBe(false)
   const status = await f.service.episodeStatus(target)
   if (status.attempt === null || status.execution === undefined || status.output === undefined) throw new Error('Expected actual completed admission')
   expect(status.attempt).toBe(initial.attempt)

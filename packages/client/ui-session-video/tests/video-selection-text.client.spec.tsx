@@ -9,15 +9,16 @@ import { VideoSelectionText } from '../src/client/VideoSelectionText.tsx'
 import { NS, en, zh } from '../src/client/locales.ts'
 import { videoSelectionRule } from '../src/client/user-text-rules.ts'
 import { serializeVideoTargets, videoWorkspaceAddress } from '../src/client/target-selection.ts'
-import { sessionId, shot, source } from './selection-fixture.client.ts'
+import { sessionId, shot, source, whole } from './selection-fixture.client.ts'
 
-async function fixture(interactive: boolean, ownSession = sessionId) {
+async function fixture(interactive: boolean, ownSession = sessionId, wholeVideos = false) {
   const runtime = await SlotTestRuntime.create()
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.ctx.provide('locale', locale)
   locale.register(NS, { en, zh }); locale.setLocale('en'); runtime.slots.installLocale(locale)
   const item = { ...source(), label: 'EP31 <literal> video' }
-  const serialized = serializeVideoTargets([shot(item)], [item], sessionId)
+  const second = source('second')
+  const serialized = serializeVideoTargets(wholeVideos ? [whole(item), whole(second)] : [shot(item)], [item, second], sessionId)
   if (!serialized.ok) throw new Error('selection fixture is unavailable')
   const node = videoSelectionRule.match(serialized.text, 0, { read: () => undefined })
   if (node?.id !== 'muse-video-selection') throw new Error('selection fixture is malformed')
@@ -60,4 +61,11 @@ it('does not activate a reference whose owning conversation differs from its ren
   expect(view.queryByRole('button')).toBeNull()
   expect(view.container.textContent).toContain('EP31 <literal> video')
   expect(openVideoSelection).not.toHaveBeenCalled()
+})
+
+it('renders whole-video labels for multiple sources without inventing segment times', async () => {
+  const { view } = await fixture(true, sessionId, true)
+  expect(view.getByRole('button', { name: 'EP31 <literal> video' })).toBeTruthy()
+  expect(view.getByRole('button', { name: 'Video second' })).toBeTruthy()
+  expect(view.container.textContent).not.toContain('4.00')
 })

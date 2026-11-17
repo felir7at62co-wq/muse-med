@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-12-muse-main-native-attribution-review.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-12-muse-main-native-attribution-review.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-12-muse-main-native-attribution-review:
+  en: e2759faaef73d19f
+  zh: 5b4ce6506a67f79f
+/2026-11-12-muse-main-native-attribution-review/summary:
+  en: 9ba275a9daf82cd9
+  zh: 57b87884fd41d1c3
+/2026-11-12-muse-main-native-attribution-review/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-12-muse-main-native-attribution-review/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-12-muse-main-native-attribution-review/compatibility:
+  en: 4e15a6365a2527e1
+  zh: 12347cec518f0bd6
+/2026-11-12-muse-main-native-attribution-review/verification:
+  en: ea110ae047f2aa8a
+  zh: ff008491a05f4cc9
+/2026-11-12-muse-main-native-attribution-review/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

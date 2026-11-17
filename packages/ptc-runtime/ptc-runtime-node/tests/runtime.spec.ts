@@ -186,11 +186,21 @@ describe('Node program process', () => {
     expect((await run({ program, bindings: [] })).error?.kind).toBe('timeout')
   })
 
-  it('retains console output emitted immediately before a non-yielding program', async () => {
-    const { run } = await setup({ timeoutMs: 1000, graceMs: 50 })
-    const result = await run({ program: 'console.log("before hot loop"); for (;;) {}', bindings: [] })
-    expect(result.error?.kind).toBe('timeout')
-    expect(result.logs).toEqual(['before hot loop'])
+  it('retains console output when a non-yielding program is canceled', async () => {
+    const { run, cwd } = await setup()
+    const controller = new AbortController()
+    const pending = run({
+      program: 'const fs = await import("node:fs"); console.log("before hot loop"); await tools.enter({}); fs.writeFileSync("entered-loop", "ready"); for (;;) {}',
+      signal: controller.signal, timeoutMs: null,
+      bindings: bindings({ enter: async () => null }),
+    })
+    try {
+      await expect.poll(async () => readFile(join(cwd, 'entered-loop'), 'utf8')).toBe('ready')
+      controller.abort('stop')
+      const result = await pending
+      expect(result.error?.kind).toBe('abort')
+      expect(result.logs).toEqual(['before hot loop'])
+    } finally { controller.abort(); await pending }
   })
 
   it('does not pause the deadline while a binding is pending', async () => {
@@ -200,13 +210,49 @@ describe('Node program process', () => {
   })
 
   it.each([{}, { timeoutMs: null }] as const)('cancels a live program and closes its managed process with %j', async (timing) => {
-    const { run } = await setup()
-    const entered = Promise.withResolvers<undefined>()
+    const { ctx, run } = await setup()
+    const spawn = ctx.subprocess.spawn.bind(ctx.subprocess)
+    const entered = Promise.withResolvers<ReturnType<typeof spawn>>()
+    const marker = 'non-yielding program entered\n'
+    let output = ''
+    const spawnObserver = vi.spyOn(ctx.subprocess, 'spawn').mockImplementation((spec) => {
+      const handle = spawn(spec)
+      const observe = (chunk: Buffer | string): void => {
+        output += chunk.toString()
+        if (!output.includes('\n')) return
+        if (output === marker) entered.resolve(handle)
+        else entered.reject(new Error(`unexpected program readiness output: ${JSON.stringify(output)}`))
+      }
+      handle.stdout?.on('data', observe)
+      onTestFinished(async () => {
+        handle.stdout?.off('data', observe)
+        await ctx.fiber.dispose()
+        await handle.done
+        expect(await handle.waitForExit()).toBe(true)
+      })
+      return handle
+    })
+    onTestFinished(() => { spawnObserver.mockRestore() })
     const controller = new AbortController()
-    const active = run({ ...timing, program: 'void tools.enter({}); for (;;) {}', signal: controller.signal, bindings: bindings({ enter: async () => { entered.resolve(undefined); return null } }) })
-    await entered.promise
-    controller.abort('stop')
-    expect((await active).error).toEqual({ kind: 'abort', message: 'stop' })
+    try {
+      // A binding notification can remain queued behind the previous control write
+      // while the hot loop prevents its callback from flushing that queue.
+      const active = run({ ...timing, program: `const { writeSync } = await import('node:fs'); writeSync(1, ${JSON.stringify(marker)}); for (;;) {}`, signal: controller.signal, bindings: [] })
+      const handle = await Promise.race([entered.promise, active.then((result) => {
+        throw new Error(`program completed before entering its hot loop: ${JSON.stringify(result)}`)
+      })])
+      expect(spawnObserver).toHaveBeenCalledTimes(1)
+      controller.abort('stop')
+      expect((await active).error).toEqual({ kind: 'abort', message: 'stop' })
+      await handle.done
+      expect(await handle.waitForExit()).toBe(true)
+      expect(handle.stdout?.readableEnded).toBe(true)
+      expect(handle.stderr?.readableEnded).toBe(true)
+      expect(handle.control?.destroyed).toBe(true)
+      expect(output).toBe(marker)
+    } finally {
+      spawnObserver.mockRestore()
+    }
   })
 
   it('closes a still-running descendant before returning the program result', async () => {

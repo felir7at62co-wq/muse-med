@@ -59,7 +59,13 @@ class NetworkTests(unittest.TestCase):
                 self.assertEqual(client.network_mode, 'direct')
                 https = next(handler for handler in client.opener.handlers
                              if isinstance(handler, urllib.request.HTTPSHandler))
-                self.assertIsNone(https._context)
+                baseline = urllib.request.HTTPSHandler()._context
+                if baseline is None:
+                    self.assertIsNone(https._context)
+                else:
+                    self.assertTrue(https._context.check_hostname)
+                    self.assertEqual(https._context.verify_mode, ssl.CERT_REQUIRED)
+                    self.assertEqual(https._context.minimum_version, baseline.minimum_version)
 
     def test_system_keeps_standard_proxy_discovery(self):
         with mock.patch('urllib.request.getproxies', return_value={'https': 'http://proxy-secret:17890'}) as proxies:

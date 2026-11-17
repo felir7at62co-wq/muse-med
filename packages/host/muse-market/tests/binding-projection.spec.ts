@@ -40,6 +40,18 @@ function bound(releases: readonly MuseMarketBindingEntry[]): SessionEvent<'muse-
 }
 
 describe('durable market binding projection', () => {
+  it('restores a binding whose Skill has no optional usage hint without introducing an undefined field', async () => {
+    const { entries } = await setup(), entry = entries[0]
+    if (entry === undefined) throw new Error('Expected a verified release')
+    const skill = { name: entry.skill.name, description: entry.skill.description, invocation: entry.skill.invocation }
+    const restored = definition.stateSchema.parse({ bound: true, requested: false, releases: [{ release: entry.release, skill }] })
+    expect(restored.releases[0]?.skill).toEqual(skill)
+    expect(Object.hasOwn(restored.releases[0]!.skill, 'whenToUse')).toBe(false)
+    expect(definition.apply(definition.init(), bound(restored.releases))).toEqual(restored)
+    expect(definition.stateSchema.safeParse({ ...restored, bound: false }).success).toBe(false)
+    expect(definition.stateSchema.parse(definition.init())).toEqual({ bound: false, requested: false, releases: [] })
+  })
+
   it('preserves the actual release set through SessionStore.fork and cold projection restoration', async () => {
     const { ctx, entries, local, installed, handle } = await setup()
     const parent = ctx.sessions.create(SessionId('market-binding-parent'))
@@ -84,8 +96,6 @@ describe('durable market binding projection', () => {
       type: 'request/header', seq: SessionSeq(0), time: 1,
       data: { header: { config: { provider: 'fixture', model: 'fixture' } }, reason: 'initial' },
     })
-    expect(definition.apply(requested, { type: 'request/header', seq: SessionSeq(1), time: 2,
-      data: { header: { config: { provider: 'fixture', model: 'fixture' } }, reason: 'initial' } })).toBe(requested)
     expect(() => definition.apply(requested, bound(entries))).toThrow(/before the first request/u)
     const selected = definition.apply(empty, bound(entries))
     expect(definition.apply(selected, bound(structuredClone(entries)))).toBe(selected)
@@ -104,14 +114,18 @@ describe('durable market binding projection', () => {
     }
   })
 
-  it('refuses damaged release facts in a restored binding checkpoint', async () => {
+  it('rejects invalid persisted releases and preserves the first requested state', async () => {
     const { entries } = await setup(), entry = entries[0]
-    if (!entry) throw Error('Expected a verified release')
-    for (const release of [null, { ...entry.release, id: 'not-a-digest' },
-      { ...entry.release, sha256: 'b'.repeat(64) }, { ...entry.release, bytes: 0 },
-      { ...entry.release, bytes: Number.MAX_SAFE_INTEGER + 1 },
-      { ...entry.release, manifest: { ...manifest, kind: 'bot' } }]) {
+    if (entry === undefined) throw new Error('Expected a verified release')
+    for (const release of [null, {}, { ...entry.release, id: 'invalid' },
+      { ...entry.release, sha256: 'a'.repeat(64) }, { ...entry.release, bytes: 0 },
+      { ...entry.release, bytes: Number.NaN }, { ...entry.release, manifest: { ...entry.release.manifest, skills: [] } }]) {
       expect(definition.stateSchema.safeParse({ bound: true, requested: false, releases: [{ ...entry, release }] }).success).toBe(false)
     }
+    const request: SessionEvent<'request/header'> = { type: 'request/header', seq: SessionSeq(0), time: 1,
+      data: { header: { config: { provider: 'fixture', model: 'fixture' } }, reason: 'initial' } }
+    const state = definition.apply(definition.init(), request)
+    expect(definition.apply(state, request)).toBe(state)
+    expect(definition.wire.view(state)).toBe(state)
   })
 })

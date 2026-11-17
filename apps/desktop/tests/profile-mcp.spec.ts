@@ -25,11 +25,13 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     for (const [directory, pin] of Object.entries({ ...pins, ...JSON.parse(readFileSync(join(sourceRoot, 'owned-downloads.json'), 'utf8')) as Record<string, { version: string; desktop?: boolean }> })) {
       if (pin.desktop === false) continue
       const source = join(sourceRoot, directory)
-      const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')) as { name: string; version: string; main: string; dependencies?: unknown; dsh?: { bundle?: { patch: string } } }
+      const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')) as { name: string; version: string; main: string; dependencies?: unknown; engines?: Record<string, string>; dsh?: { bundle?: { patch: string } } }
       const fixture = join(home, directory)
       const pkg = join(fixture, 'package')
       mkdirSync(join(pkg, 'lib'), { recursive: true })
-      writeFileSync(join(pkg, 'package.json'), JSON.stringify({ ...manifest, main: 'lib/index.js', dependencies: {}, peerDependencies: { '@deepseek-ai/dsh': version } }))
+      // The plugin build admits the reviewed Host release, including through a pinned `engines.dsh` range.
+      writeFileSync(join(pkg, 'package.json'), JSON.stringify({ ...manifest, main: 'lib/index.js', dependencies: {}, peerDependencies: { '@deepseek-ai/dsh': version },
+        ...manifest.engines?.dsh === undefined ? {} : { engines: { ...manifest.engines, dsh: version } } }))
       writeFileSync(join(pkg, 'lib/index.js'), '')
       writeFileSync(join(pkg, 'SOURCE.json'), JSON.stringify({ hostVersion: version }))
       const patch = manifest.dsh?.bundle?.patch
@@ -84,8 +86,13 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     expect(rows.find(row => row.id === 'sandbox-policy')?.config).toMatchObject({ mode: 'danger-full-access' })
     expect(rows.find(row => row.id === 'approval')?.config).toEqual({ policy: 'never' })
     expect(rows.find(row => row.id === 'ui-settings-models')?.config).toEqual({ welcomeNotice: false })
-    for (const id of ['agent-team', 'tool-agent-team', 'ui-agent-team', 'auto-review',
-      'experimental-inspector', 'session-inspector', 'speech-to-text', 'ui-voice-input']) {
+    // Execution roots use the official Agent Teams service and board (`teamByDefault` in short-drama).
+    expect(['agent-team', 'tool-agent-team', 'ui-agent-team'].map(id => rows.find(row => row.id === id))).toEqual([
+      { id: 'agent-team', name: '@deepseek-ai/dsh-agent-team', config: { maxTasks: 256 } },
+      { id: 'tool-agent-team', name: '@deepseek-ai/dsh-tool-agent-team' },
+      { id: 'ui-agent-team', name: '@deepseek-ai/dsh-client-ui-agent-team' },
+    ])
+    for (const id of ['auto-review', 'experimental-inspector', 'session-inspector', 'speech-to-text', 'ui-voice-input']) {
       expect(rows.find(row => row.id === id), id).toBeUndefined()
     }
     expect(rows.find(row => row.id === 'llm-subscriptions')).toMatchObject({ name: 'dsh-plugin-subscriptions' })
@@ -98,13 +105,15 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-muse-account')).toEqual([
       { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', inject: ['tools', 'llm', 'sessions', 'sessionProjections', 'agentDefaultModel', 'museDesktopBridge', 'connection', 'webServer'], config: {
-        remoteAccess: true, webSearch: true, feedbackTools: true, mediaTools: true,
+        remoteAccess: true, webSearch: true, feedbackTools: true, mediaTools: true, douyinDownloadTool: true,
         mediaNodePath: { __jsExpr: 'process.execPath' },
         mediaFfmpegPath: { __jsExpr: "process.env.DSH_FFMPEG_PATH || 'ffmpeg'" },
         mediaFfprobePath: { __jsExpr: "process.env.DSH_FFPROBE_PATH || 'ffprobe'" },
         excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
         visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' },
           { providerId: 'yunying', modelId: 'gpt-6.1-sol' }], requestTimeoutMs: 60000,
+        modelRetryPolicy: { mode: 'normal', maxRetries: 8, backoff: { initialDelayMs: 2000, maxDelayMs: 60000 },
+          retryableCodes: ['EMPTY_RESPONSE', 'INVALID_TOOL_ARGUMENTS', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'PROMPT_USAGE_SHORTFALL'] },
         excludedModels: [
           { providerId: 'yunying', modelId: 'claude-opus-5-5' },
           { providerId: 'yunying', modelId: 'claude-fable-5-1' },
@@ -135,7 +144,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
         sessionVideoSelection: true,
         videoRecoverySettings: true,
         generationWatch: true,
-        defaultVideoModel: { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU', resolution: '480p' },
+        defaultVideoModel: { modelId: 'doubao-seedance-2.5', platformId: 'FZ_HUAN_CHANG', resolution: '480p' },
       } },
     ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-tool-audio-transcribe')).toEqual([])

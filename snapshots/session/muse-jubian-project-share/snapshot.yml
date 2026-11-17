@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-jubian-project-share
+profile: headless
+composition: muse-jubian-project-share
+recording: authored
+writerOutput: true
+header:
+  class: muse-jubian-project-share
+  pin: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-project-share-fixture

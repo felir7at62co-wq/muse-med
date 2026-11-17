@@ -15,9 +15,10 @@ import {
   hasExperimentalPackageReference,
   EXPERIMENTAL_PACKAGE_NAME_EXCEPTIONS,
   EXPERIMENTAL_PACKAGE_NAME_PREFIX,
+  LEGACY_PREFIXED_EXPERIMENTAL_PACKAGE_DIRECTORIES,
   PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES,
 } from './experimental-package-policy.ts'
-import { hasTypertRemoteNavigation, isForbiddenPublicationFile } from './publication-payload.ts'
+import { hasTypertRemoteNavigation } from './publication-payload.ts'
 import type { DshBundleManifest } from '../packages/util/package-manifest/src/types.ts'
 import { detailPath } from '../packages/util/plugin-detail/src/document.ts'
 import { bundlePatchFiles } from '../packages/boot/app-boot/src/profile.ts'
@@ -58,29 +59,30 @@ const publicNativePackages = new Set([
   '@deepseek-ai/node-addon-system-linux-arm64',
   '@deepseek-ai/node-addon-system-linux-x64',
 ])
-/** Deliberate source payloads whose exact bytes are part of the package's audit surface. */
-const publicationSourceAllowlist: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/node-addon-system': ['src/main.c', 'src/flock.c'],
-}
 /** Public source home recorded in maintained package manifests. */
 const publishedRepositoryUrl = 'git+https://github.com/deepseek-ai/deepseek-harness.git'
 /** Packages that participate in the experimental policy. */
 const experimentalPackageDirectory = /^packages\/experimental\/[^/]+$/
 /** Private reference tool run from the repository; it publishes no files. */
 const pluginMarketGeneratorDirectory = 'apps/plugin-market-generator'
+/** Private static website deployed to the Muse gateway rather than npm. */
+const marketWebApplicationDirectory = 'apps/market-web'
 /**
  * Ordinary directories whose packages this repository publishes: one release member each. The reference plugin
- * market generator is a private repository tool, not a published application.
+ * market generator and deployed Skill website are private applications.
  */
 const standardReleaseMemberDirectory = new RegExp(
-  `^(?:packages/(?!experimental/)[^/]+/[^/]+|apps/(?!desktop(?:-host)?$|${pluginMarketGeneratorDirectory.slice('apps/'.length)}$)[^/]+|vendor/[^/]+)$`,
+  `^(?:packages/(?!experimental/)[^/]+/[^/]+|apps/(?!desktop(?:-host)?$|${pluginMarketGeneratorDirectory.slice('apps/'.length)}$|${marketWebApplicationDirectory.slice('apps/'.length)}$)[^/]+|vendor/[^/]+)$`,
   'u',
 )
 /** Installable application assembled by electron-builder rather than published to npm. */
 const desktopApplicationDirectory = 'apps/desktop'
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/dsh': ['lib/*.js', 'lib/types/*.d.ts'],
+  '@deepseek-ai/dsh-market-web': [],
+  // Only `prepack` stages `docs`; every other reader of this directory sees
+  // whatever the checkout holds.
+  '@deepseek-ai/dsh': ['lib/*.js', 'lib/*.js.map', 'lib/types/*.d.ts', 'lib/types/*.d.ts.map', 'docs', 'src'],
   '@deepseek-ai/dsh-desktop-host': [
     'lib/index.js', 'lib/native-preset.js', 'config/desktop.cordis.patch.yml',
     'presets', 'skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
@@ -90,14 +92,14 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
     'lib/source-recovery.js', 'lib/retired-bot.js', 'licenses', 'lib/computer-use.js',
     'lib/computer-input-worker.js', 'lib/delegation-policy.js',
     'lib/approved-episode-render.js', 'lib/episode-render-worker.js',
-    'lib/workspace-owned-storage.js', 'lib/workspace-owner-lease.js', 'lib/workspace-storage-composition.js',
-    'lib/workspace-handoff.js', 'lib/workspace-process-snapshot.js', 'lib/generation-loop-composition.js',
+    'lib/workspace-owned-storage.js', 'lib/workspace-owner-lease.js',
+    'lib/workspace-storage-composition.js', 'lib/workspace-handoff.js',
+    'lib/workspace-process-snapshot.js', 'lib/generation-loop-composition.js',
     'lib/episode-source-authority.js',
   ],
-  // Sourcemaps stay out by payload policy; the worker-preview surface
-  // (dist/preview.html and dist/preview/) backs opt-in experimental
-  // packages and is not published.
-  '@deepseek-ai/dsh-web-frontend': ['dist', '!dist/**/*.map', '!dist/preview.html', '!dist/preview'],
+  // The worker-preview surface (dist/preview.html and dist/preview/) backs
+  // opt-in experimental packages and is not published.
+  '@deepseek-ai/dsh-web-frontend': ['dist', '!dist/preview.html', '!dist/preview', 'src'],
 }
 
 /** The subset of package.json fields this constraint check cares about. */
@@ -198,25 +200,23 @@ export function readWorkspaceManifests(repositoryRoot: string): WorkspaceManifes
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/dsh-muse-market': ['lib/package.js', 'lib/format.js', 'lib/activation.js', 'lib/cloud.js', 'lib/cloud-host.js', 'lib/shared-*.js', 'lib/cloud-values.js', 'lib/cloud-values.browser.js'],
+  '@deepseek-ai/dsh-muse-market': ['lib/package.js', 'lib/browser.js', 'lib/format.js', 'lib/activation.js', 'lib/cloud.js', 'lib/cloud-host.js', 'lib/shared-*.js', 'lib/cloud-values.js', 'lib/legacy.js', 'lib/cloud-values.browser.js'],
   '@deepseek-ai/dsh-skill': ['lib/name.js'],
   // Tools entry points share error classes and invocation stages through runtime chunks.
   '@deepseek-ai/dsh-tools': ['lib/pipeline.js', 'lib/shared-*.js'],
   // The embedded OAR implementation retains its upstream license.
   '@deepseek-ai/dsh-experimental-subagent-oar': ['LICENSE-OAR'],
   // CUA publishes its client API and attributed native source for local macOS builds.
-  '@deepseek-ai/dsh-cua': ['lib/remote-types.js', 'lib/api.js', 'lib/bridge.js', 'lib/native-client.js', 'lib/protocol.js'],
+  '@deepseek-ai/dsh-cua': ['lib/remote-types.js', 'lib/api.js', 'lib/bridge.js', 'lib/native-client.js', 'lib/protocol.js', 'lib/config.js', 'lib/native-schema.js', 'lib/native-build.js', 'lib/guidance.js'],
   '@deepseek-ai/dsh-experimental-cua-macos': ['native/bin', 'cua-helper.json', 'native/Package.swift', 'native/Info.plist', 'native/DSHComputerUse.icns', 'native/build_app.py', 'native/Sources', 'native/tests/swift', 'native/tests/test_swift.py', 'native/LICENSE.cua-driver', 'native/LICENSE.computer-use-icon', 'native/upstream.json', 'native/README.md', 'native/README.zh.md', 'native/protocol.schema.json'],
   '@deepseek-ai/dsh-webhook-github': ['examples/github-review/cordis.yml', 'examples/github-review/github-ready-review-rule.mjs'],
   // Liveshare publishes its built Relay gateway entry and the shared runtime
-  // chunk that entry imports, plus the declaration-plane entry and its chunk.
-  // Its `./types` export is a type-only module, so the emitted tree contributes
-  // that one runtime file; the declarations still ship as the whole tree.
+  // chunk that entry imports. Its `./types` export is a type-only module, so
+  // the emitted tree contributes that one runtime file; the declarations still
+  // ship as the whole tree.
   '@deepseek-ai/dsh-experimental-liveshare': [
     'lib/owner-gateway/cli.js',
     'lib/retry-backoff-*.js',
-    'lib/viewer-declarations.js',
-    'lib/viewer-declarations-*.js',
   ],
   // Owned Worker bundles import this public bootstrap before their business entry.
   '@deepseek-ai/dsh-app-boot': ['lib/worker/profile-resolution-bootstrap.js'],
@@ -235,11 +235,17 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],
   // The physical-key protocol is a public entry usable without the browser service.
   '@deepseek-ai/dsh-client-shortcuts': ['lib/protocol.js'],
+  // Routing and policy modules are loaded as separate profile rows.
+  '@deepseek-ai/dsh-session-coordinator': ['lib/main.js', 'lib/policy.js'],
+  // The existing example subpath publishes the mod fixtures consumed by its guide.
+  '@deepseek-ai/dsh-experimental-claude-code-mods': ['examples'],
   // The CPython side ships as source .py files, published as-is rather than built.
   '@deepseek-ai/dsh-experimental-ptc-runtime-python': ['py/**/*.py'],
   '@deepseek-ai/dsh-experimental-speech-to-text-sensevoice': ['runtime/assets.json'],
   // Local OCR executes these fixed bridges relative to the bundled plugin entry.
-  '@deepseek-ai/dsh-tool-video-inspect': ['scripts/ocr_bridge.ps1', 'scripts/ocr_bridge.py'],
+  '@deepseek-ai/dsh-tool-video-inspect': ['scripts/ocr_bridge.ps1', 'scripts/ocr_bridge.py', 'lib/source-qa.js', 'lib/shared-*.js'],
+  // Desktop delivery reuses the same source review and project lookup implementations.
+  '@deepseek-ai/dsh-tool-episode-render': ['lib/source-qa.js', 'lib/delivery.js', 'lib/shared-*.js'],
   // Node profile configuration and process bootstraps have separate bundles.
   '@deepseek-ai/dsh-ptc-runtime-node': ['lib/configuration.js', 'lib/process.js', 'lib/persistent-process.js'],
   // The Inspector owns a Worker and a mirrored frontend outside package export paths.
@@ -393,6 +399,13 @@ export function expectedDshPackageFiles(manifest: PackageManifest, detailFiles: 
     // declarations.
     ...emittedRuntimeFiles(manifest),
     'lib/types/**/*.d.ts',
+    // A published declaration map plus `src` lets a consumer editor open the
+    // implementation behind an exported declaration, and lets a plugin author
+    // read it without a repository checkout.
+    'lib/types/**/*.d.ts.map',
+    // Every emitted map ships beside the JavaScript it describes, so a stack
+    // frame or a debugger session resolves into the published `src`.
+    'lib/**/*.js.map',
     ...hasExportPair(manifest, './typert', './lib/typert.host.d.ts', './lib/typert.host.js')
       ? ['lib/typert.host.js', 'lib/typert.host.d.ts']
       : [],
@@ -400,8 +413,11 @@ export function expectedDshPackageFiles(manifest: PackageManifest, detailFiles: 
       ? ['lib/typert.client.js', 'lib/typert.client.d.ts']
       : [],
     ...hasTypertRemoteNavigation(manifest)
-      ? ['lib/typert.remote-client.js', 'lib/typert.remote-client.d.ts']
+      // The generated Remote declaration carries a `sourceMappingURL` its map
+      // resolves, and that map resolves the Host method through `src`.
+      ? ['lib/typert.remote-client.js', 'lib/typert.remote-client.d.ts', 'lib/typert.remote-client.d.ts.map']
       : [],
+    'src',
   ]
 }
 
@@ -458,9 +474,14 @@ export function checkExperimentalManifest(
   if (!experimentalPackageDirectory.test(dir)) return []
   const label = manifest.name ?? dir
   const errors: string[] = []
-  if (manifest.name === undefined || !manifest.name.startsWith(EXPERIMENTAL_PACKAGE_NAME_PREFIX)
-    && manifest.name !== EXPERIMENTAL_PACKAGE_NAME_EXCEPTIONS[dir]) {
-    errors.push(`${label}: experimental package name must start with ${JSON.stringify(EXPERIMENTAL_PACKAGE_NAME_PREFIX)} or match its declared directory exception`)
+  if (manifest.name === undefined) {
+    errors.push(`${label}: experimental package must declare a name`)
+  } else if (manifest.name.startsWith(EXPERIMENTAL_PACKAGE_NAME_PREFIX)) {
+    if (!LEGACY_PREFIXED_EXPERIMENTAL_PACKAGE_DIRECTORIES.includes(dir)) {
+      errors.push(`${label}: new experimental packages must not use the ${JSON.stringify(EXPERIMENTAL_PACKAGE_NAME_PREFIX)} prefix; name it @deepseek-ai/dsh-<name> and declare it in EXPERIMENTAL_PACKAGE_NAME_EXCEPTIONS (scripts/experimental-package-policy.ts)`)
+    }
+  } else if (manifest.name !== EXPERIMENTAL_PACKAGE_NAME_EXCEPTIONS[dir]) {
+    errors.push(`${label}: experimental package name must be declared for this directory in EXPERIMENTAL_PACKAGE_NAME_EXCEPTIONS (scripts/experimental-package-policy.ts)`)
   }
   if (isPublicExperimentalPackageDirectory(dir, privateDirectories)) {
     if (manifest.private === true) errors.push(`${label}: public experimental package must not set "private": true`)
@@ -475,7 +496,7 @@ export function checkExperimentalManifest(
 }
 
 /**
- * Reject missing, renamed, moved, or duplicated retained-name exceptions.
+ * Reject missing, renamed, moved, or duplicated unprefixed-name declarations and stale legacy prefixed directories.
  * @param manifests - every workspace manifest, with repository-relative directories.
  * @returns Violations of the exact directory/name ownership declarations.
  */
@@ -484,7 +505,12 @@ export function checkExperimentalNameExceptions(manifests: readonly WorkspaceMan
   for (const [dir, name] of Object.entries(EXPERIMENTAL_PACKAGE_NAME_EXCEPTIONS)) {
     const owners = manifests.filter(entry => entry.manifest.name === name)
     if (owners.length !== 1 || owners[0]?.dir !== dir) {
-      errors.push(`${dir}: retained experimental name ${name} must have exactly one workspace owner at this directory`)
+      errors.push(`${dir}: unprefixed experimental name ${name} must have exactly one workspace owner at this directory`)
+    }
+  }
+  for (const dir of LEGACY_PREFIXED_EXPERIMENTAL_PACKAGE_DIRECTORIES) {
+    if (!manifests.some(entry => entry.dir === dir && entry.manifest.name?.startsWith(EXPERIMENTAL_PACKAGE_NAME_PREFIX) === true)) {
+      errors.push(`${dir}: remove this directory from LEGACY_PREFIXED_EXPERIMENTAL_PACKAGE_DIRECTORIES; no package with the legacy prefix lives here`)
     }
   }
   return errors
@@ -553,6 +579,9 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
   } else if (dir === 'packages/host/muse-market' && manifest.name === '@deepseek-ai/dsh-muse-market') {
     if (manifest.private !== true) errors.push(`${label}: Skill publication package must set "private": true`)
     if (manifest.publishConfig !== undefined) errors.push(`${label}: Skill publication package must omit publishConfig`)
+  } else if (dir === marketWebApplicationDirectory && manifest.name === '@deepseek-ai/dsh-market-web') {
+    if (manifest.private !== true) errors.push(`${label}: Skill website must set "private": true`)
+    if (manifest.publishConfig !== undefined) errors.push(`${label}: Skill website must omit publishConfig`)
   } else if (isPrivateMusicAnalysisPackage(dir, manifest.name)) {
     if (manifest.private !== true) errors.push(`${label}: noncommercial music analysis package must set "private": true`)
     if (manifest.publishConfig !== undefined) errors.push(`${label}: noncommercial music analysis package must omit publishConfig`)
@@ -583,15 +612,6 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
 
   if (manifest.name && vendoredPackages.has(manifest.name)) {
     return errors
-  }
-
-  if (manifest.name?.startsWith('@deepseek-ai/')) {
-    const allowedSources = publicationSourceAllowlist[manifest.name] ?? []
-    for (const file of manifest.files ?? []) {
-      if (isForbiddenPublicationFile(file) && !allowedSources.includes(file)) {
-        errors.push(`${label}: package.json files must not publish ${JSON.stringify(file)}`)
-      }
-    }
   }
 
   if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && dir !== pluginMarketGeneratorDirectory && manifest.name?.startsWith('@deepseek-ai/')) {
@@ -680,11 +700,14 @@ function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
     const nestedResource = resource !== undefined
       && /^(?:agents|assets|references|scripts)\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:md|yaml|py|json|mp3|mp4|txt)$/u.test(resource)
     const windowsDraftBridge = file === 'skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1'
+    const characterDeliveryReference = file === 'skills/tweet-drama-asset-vision-check/references/images/character-delivery-layout.png'
     const styleReference = match?.[1] === 'anime-3d-assets' && resource !== undefined
       && ['references/images/female-quality-reference.png', 'references/images/male-quality-layout.png',
         'references/images/rejected-cartoon.png', 'references/images/rejected-flat-cg.png',
         'references/images/target-quality.png'].includes(resource)
-    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference || windowsDraftBridge)) {
+    if (match?.[1] === undefined
+      || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference
+        || characterDeliveryReference || windowsDraftBridge)) {
       errors.push(`${label}: resource package file must be a declared skill resource: ${file}`)
       continue
     }

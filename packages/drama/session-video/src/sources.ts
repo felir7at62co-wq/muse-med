@@ -81,7 +81,7 @@ function json(value: unknown, bounds: SourceBounds): Record<string, unknown> | u
  * @param previous - Validated projection state before this event.
  * @param event - Exact durable event and coordinate.
  * @param bounds - Source and tool-result parsing limits.
- * @returns The same state for irrelevant events, otherwise the next bounded state.
+ * @returns The same state for irrelevant events, otherwise the next bounded state with labels derived from each recorded coordinate.
  */
 export function foldVideoSources(previous: VideoSourceState, event: { seq: number; type: string; data: unknown },
   bounds: SourceBounds): VideoSourceState {
@@ -97,7 +97,7 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
   }
   let state = previous
   let ownsSources = false
-  const add = (source: Omit<VideoCandidate, 'key' | 'label' | 'eventSeq'>): void => {
+  const add = (source: Omit<VideoCandidate, 'key' | 'label' | 'eventSeq'>, labelPath: string): void => {
     if (!ownsSources) {
       state = { ...state, sources: [...state.sources], issues: [...state.issues] }
       ownsSources = true
@@ -108,47 +108,46 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
       return
     }
     const index = state.sources.filter(item => item.eventSeq === event.seq).length
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- Each private caller supplies a local path, attachment or remote URL.
-    const path = source.path ?? source.attachment?.name ?? source.remoteUrl!
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- split always returns its first field, including for an empty address.
-    const label = path.includes('\\') ? win32.basename(path) : basename(path.split('?')[0]!)
+    const label = labelPath.includes('\\') ? win32.basename(labelPath) : basename(labelPath.replace(/\?.*$/s, ''))
     state.sources.push({ ...source, key: `${event.seq}:${index}`, eventSeq: event.seq, label })
   }
   const local = (path: string, origin: VideoCandidate['origin'], callId: string | null = null, presentedIndex: number | null = null,
     production?: VideoCandidate['production']): void => {
     if (videoPath(path)) add({ origin, path, callId, presentedIndex, remoteUrl: null, attachment: null,
-      ...(production === undefined ? {} : { production }) })
+      ...(production === undefined ? {} : { production }) }, path)
   }
   if (event.type === 'deliverables/presented' && Array.isArray(data.files)) {
     data.files.forEach((file, index) => { const path = record(file)?.path; if (typeof path === 'string') local(path, 'presented', null, index) })
   } else if (event.type === 'user/message' && Array.isArray(data.content)) {
     // Runtime context does not replace the user's selected review scope.
-    if (record(data.source)?.kind === 'user') state = { ...state, reviewTargets: [], reviewOnly: false }
+    const ownsReview = record(data.source)?.kind === 'user'
+    const reviewTargets: NonNullable<VideoSourceState['reviewTargets']> = []
+    let reviewOnly = false
     for (const block of data.content) {
       const item = record(block)
       if (item?.type === 'file') {
         const parsed = attachmentSchema.safeParse(item.attachment)
         if (parsed.success && videoPath(parsed.data.name)) add({ origin: 'attachment', path: null, callId: null,
-          presentedIndex: null, remoteUrl: null, attachment: parsed.data })
+          presentedIndex: null, remoteUrl: null, attachment: parsed.data }, parsed.data.name)
       } else if (item?.type === 'text' && typeof item.text === 'string') {
-        if (record(data.source)?.kind === 'user') {
-          if (item.text.includes('<!-- muse-video-review:')) state = { ...state, reviewOnly: true }
+        if (ownsReview) {
+          if (item.text.includes('<!-- muse-video-review:')) reviewOnly = true
           const match = /<muse-video-selection>\s*([\s\S]*?)\s*<\/muse-video-selection>/u.exec(item.text)
           if (match?.[1] !== undefined && Buffer.byteLength(match[1]) <= bounds.maxResultBytes) {
             try {
               const parsed = sourceStateSchema.shape.reviewTargets.unwrap().safeParse(JSON.parse(match[1]))
-              if (parsed.success) state = { ...state, reviewTargets: [...state.reviewTargets ?? [], ...parsed.data] }
+              if (parsed.success) reviewTargets.push(...parsed.data)
             } catch (_error) { /* Invalid selection text grants no inspection scope. */ }
           }
         }
         // Desktop file chips serialize with the shared @path / @"quoted path" grammar.
         for (const match of item.text.matchAll(/(?:^|\s)@(?:"([^"\r\n]+)"|([^\s]+))/gu)) {
-          // oxlint-disable-next-line typescript/no-non-null-assertion -- The pattern requires one nonempty quoted or unquoted path.
-          const path = match[1] ?? match[2]!
-          if (!/^[a-z]+:\/\//i.test(path)) local(path, 'workspace')
+          const path = match[1] ?? match[2]
+          if (path !== undefined && !/^[a-z]+:\/\//i.test(path)) local(path, 'workspace')
         }
       }
     }
+    if (ownsReview) state = { ...state, reviewTargets, reviewOnly }
   } else if (event.type === 'tool/call' && typeof data.callId === 'string' && typeof data.name === 'string' && tools.has(data.name)) {
     if (previous.calls.length >= bounds.maxSources) return { ...previous, complete: false,
       issues: previous.issues.includes('unsettled video call limit reached') ? previous.issues : [...previous.issues, 'unsettled video call limit reached'] }
@@ -158,11 +157,10 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
       ...productionRequest(args) }] }
   } else if (event.type === 'tool/result') {
     const message = record(data.message)
-    if (!message) return previous
-    const call = previous.calls.find(item => item.id === message.toolCallId)
+    const call = previous.calls.find(item => item.id === message?.toolCallId)
     if (!call) return previous
     state = { ...previous, calls: previous.calls.filter(item => item !== call) }
-    if (message.isError === true || !Array.isArray(message.content)) return state
+    if (message?.isError === true || !Array.isArray(message?.content)) return state
     if (call.name === 'muse_video') {
       const parsed = z.object({ museVideoBinding: videoBindingSchema }).safeParse(data.meta)
       if (parsed.success && state.sources.some(source => source.key === parsed.data.museVideoBinding.key)) {
@@ -172,7 +170,7 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
     }
     if (call.name === 'video_generate') {
       const name = record(data.meta)?.fileName
-      if (typeof name === 'string' && /^[\w.-]+\.mp4$/i.test(name)) {
+      if (typeof name === 'string' && /^[\w.-]+\.mp4$/i.test(name) && name !== '..') {
         local(join(dshHomePath('plugins', 'subscriptions', 'videos'), name), 'generated', call.id)
       }
     }
@@ -222,7 +220,7 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
         if (subtasks && (call.taskId === null || row.parent_task_id !== call.taskId)) continue
         const production = videoProduction(call, result, row, state.productionFacts ?? [])
         add({ origin: 'generated', path: null, callId: call.id, presentedIndex: null, remoteUrl: row.video_url, attachment: null,
-          ...(production === undefined ? {} : { production }) })
+          ...(production === undefined ? {} : { production }) }, row.video_url)
       }
     }
   }

@@ -4,8 +4,8 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
+import { pathToFileURL } from 'node:url'
 import { applyMuseBotDesktopCompatibility, museBotDesktopCompatibility } from './compatibility/muse-bot-desktop.mjs'
 import { applyMcpDesktopCompatibility, mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
 import { applyBridgeDesktopCompatibility, bridgeDesktopCompatibility } from './compatibility/bridge-desktop.mjs'
@@ -15,6 +15,7 @@ import { applyImDesktopCompatibility, finishImDesktopCompatibility, imDesktopCom
 import { applyCodexModelVisibility } from './compatibility/codex-model-visibility.mjs'
 import { applyCodexPiAiCompatibility, codexPiAiVersion } from './compatibility/codex-pi-ai.mjs'
 import { applyHongguoHostCompatibility, hongguoHostCompatibility } from './compatibility/hongguo-host.mjs'
+import { applyDeepViewHostCompatibility, deepViewHostCompatibility } from './compatibility/deep-view-host.mjs'
 import { hostRuntimeCompatibility, qualifyCommunityManifest, reviewedHostVersion, reviewedVendorVersions } from './compatibility/host-runtime.mjs'
 import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs'
 import { selectCommunitySources } from './source-selection.mjs'
@@ -117,6 +118,10 @@ for (const name of selectedSources) {
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     }
     if (name === 'dsh-skill-mcp-panel') applyMcpDesktopCompatibility(directory)
+    if (name === 'deep-view') {
+      applyDeepViewHostCompatibility(directory)
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    }
     if (name === 'muse-hongguo-search') {
       applyHongguoHostCompatibility(directory)
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
@@ -190,6 +195,8 @@ export function codexFilesystemPath(value) {
       run(['scripts/build-client.mjs'], directory)
       if (name === 'deep-view') {
         run(['--import', './test/harness-resolve.mjs', '--test', '--test-concurrency=1', 'test/*.test.js'], directory, { DSH_HARNESS: repository })
+        cpSync(join(sourceRoot, 'checks/deep-view-host-runtime.mjs'), join(directory, '.muse-deep-view-host.test.mjs'))
+        run(['--test', '.muse-deep-view-host.test.mjs'], directory)
         run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/deep-view-client.client.spec.tsx'], repository, {
           MUSE_DEEP_VIEW_CLIENT_BUNDLE: join(directory, 'client.js'), DSH_HOME: join(staging, 'client-test-home'),
         })
@@ -272,6 +279,7 @@ export function codexFilesystemPath(value) {
               : name === 'dsh-im' ? imDesktopCompatibility
                 : name === 'ds-bot' ? museBotDesktopCompatibility
             : name === 'dsh-skill-mcp-panel' ? mcpDesktopCompatibility
+              : name === 'deep-view' ? deepViewHostCompatibility
               : name === 'muse-hongguo-search' ? hongguoHostCompatibility : undefined,
       toolchainLockSha256: createHash('sha256').update(readFileSync(join(toolchain, 'pnpm-lock.yaml'))).digest('hex'),
     }, null, 2)}\n`)

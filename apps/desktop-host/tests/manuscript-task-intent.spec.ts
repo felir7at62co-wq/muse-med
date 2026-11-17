@@ -59,6 +59,26 @@ it('recognizes an explicit revision added while continuing a new screenplay task
     continuations: [{ text: '继续，修改第3集剧情' }] })
 })
 
+it.each(['我的文件呢', '你给我文件', '把文件给我啊，混蛋', '给我文件', '现在把修改好的本子给我', '精修完把本子给我', '文件在哪？', '本子呢',
+  '把Word发给我', '稿子怎么还没给我'])('keeps a bare request for the deliverable on the current task and requires a file: %s', (text) => {
+  expect(manuscriptDeliveryIntent(text)).toMatchObject({ continuation: true, file: true })
+  const request = human(originalRequirement), followup = human(text)
+  expect(manuscriptTaskRequest([request, followup], 1000)).toEqual({
+    request: { message_id: request.id, text: originalRequirement },
+    continuations: [{ message_id: followup.id, text }], revision: true,
+  })
+})
+
+it.each(['不要把文件给我', '先别给我文件', '给我文件格式说明', '这个文件给我讲讲是什么意思', '把文件夹整理一下给我',
+  '整理本季采购情况，生成普通 Word 报告，不涉及剧本创作。'])('does not read %s as a bare request for the deliverable', (text) => {
+  expect(manuscriptDeliveryIntent(text).continuation).toBe(false)
+})
+
+it('treats polishing the script and handing it over as writing with a file requirement', () => {
+  expect(manuscriptDeliveryIntent('把对白再精修一遍，本子给我')).toMatchObject({ writing: true, file: true, continuation: false })
+  expect(manuscriptRevisionIntent('精修完把本子给我')).toBe(false)
+})
+
 it.each(['现在改做采购报告', '继续，现在改做采购报告'])('resets at an explicit unrelated task: %s', (text) => {
   const request = human(text)
   expect(manuscriptDeliveryIntent(text).continuation).toBe(false)

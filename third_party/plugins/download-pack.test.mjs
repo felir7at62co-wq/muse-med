@@ -11,6 +11,7 @@ import { t as listTar } from 'tar'
 import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs'
 
 const repository = resolve(import.meta.dirname, '../..')
+const hostVersion = JSON.parse(readFileSync(join(repository, 'apps/desktop-host/package.json'), 'utf8')).version
 const embeddedSourceRoots = {
   'muse-reverse-tools': 'resources/reverse-skill/',
   'muse-fanqie-download': '',
@@ -56,20 +57,28 @@ for (const mode of ['javascript', 'lifecycle']) test(`packs every owned tool thr
       const reader = pathToFileURL(join(repository, 'scripts/release/tarball.ts')).href
       const qualification = spawnSync(process.execPath, ['--import', 'tsx/esm', '--input-type=module', '-e',
         `import assert from 'node:assert/strict'; import { packedManifest, tarballFiles } from ${JSON.stringify(reader)};
-        const archive = process.argv[1]; assert.equal(packedManifest(archive).name, process.argv[2]);
-        assert.ok(tarballFiles(archive).includes('package/package.json'));`, archive, name],
+        const archive = process.argv[1], manifest = packedManifest(archive); assert.equal(manifest.name, process.argv[2]);
+        for (const [peer, version] of Object.entries(manifest.peerDependencies ?? {})) {
+          if (peer.startsWith('@deepseek-ai/dsh-')) assert.equal(version, process.argv[3], peer);
+        }
+        assert.ok(tarballFiles(archive).includes('package/package.json'));`, archive, name, hostVersion],
       { cwd: repository, encoding: 'utf8', timeout: 30000,
         env: { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toUpperCase() !== 'PATH')), PATH: '' } })
       assert.equal(qualification.error, undefined)
       assert.equal(qualification.signal, null)
       assert.equal(qualification.status, 0, qualification.stdout + qualification.stderr)
       const entries = new Map()
+      const sourceChunks = []
       await listTar({ file: archive, onReadEntry(entry) {
         assert.equal(entries.has(entry.path), false, `Duplicate archive member: ${entry.path}`)
         const hash = createHash('sha256')
-        entry.on('data', chunk => { hash.update(chunk) })
+        entry.on('data', chunk => {
+          hash.update(chunk)
+          if (entry.path === 'package/SOURCE.json') sourceChunks.push(chunk)
+        })
         entry.on('end', () => { entries.set(entry.path, hash.digest('hex')) })
       } })
+      assert.equal(JSON.parse(Buffer.concat(sourceChunks).toString('utf8')).hostVersion, hostVersion)
       const manifest = JSON.parse(readFileSync(join(import.meta.dirname, name, 'package.json'), 'utf8'))
       assert.ok(entries.has(`package/${manifest.main.replace(/^\.\//u, '')}`))
       assert.doesNotMatch([...entries.keys()].join('\n'), /(?:^|\/)(?:node_modules|config\.json|devices\.json|\.env)(?:\/|$|\n)/u)

@@ -14,14 +14,18 @@ import { installStreamDiagnostics, wireMarkerTimings } from './stream-diagnostic
 
 const SAMPLES = 3
 const TAIL = '[data-chat-flow-key^="9:turn-tail"]'
-const REFERENCE = { open: 200, page: 260, trajectory: 160, first: 1100, streamTask: 1800, input: 500, streamWall: 1000 }
+/** Reference-machine allowances; stream task and wall values exclude the scripted replay window. */
+const REFERENCE = { open: 200, page: 260, trajectory: 160, first: 1100, streamTask: 808, input: 500, streamWall: 1000 }
 const EXPECTED_OPEN_CI_MS = 900
 const EXPECTED_PAGE_CI_MS = 700
 const EXPECTED_TRAJECTORY_CI_MS = 520
 const OPEN_BUDGET_MS = Math.ceil(EXPECTED_OPEN_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
 const PAGE_BUDGET_MS = Math.ceil(EXPECTED_PAGE_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
 const TRAJECTORY_BUDGET_MS = Math.ceil(EXPECTED_TRAJECTORY_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
+/** Scripted replay window; it lasts equally long on every runner, so stream task and wall budgets add it unscaled to their scaled allowances. */
 const REPLAY_DURATION_MS = (DELTAS + 4) * PACE_MS
+const STREAM_TASK_BUDGET_MS = ciTimeBudget(REFERENCE.streamTask) + REPLAY_DURATION_MS
+const STREAM_WALL_BUDGET_MS = ciTimeBudget(REFERENCE.streamWall) + REPLAY_DURATION_MS
 /** Endpoints without paced replay waits, so CPU scaling applies to their whole duration. */
 const SCALED_ENDPOINTS = ['open', 'page', 'trajectory', 'streamTask'] as const
 /** Estimated storage wait: the Host reads the seeded Session log, which the page cache usually holds. */
@@ -288,6 +292,17 @@ it('accepts recorded hosted paging and Trajectory medians and rejects slower end
     expect(budget).toBe(expectedBudget)
     expect(() => expectEndpointWithinBudget(budget + 1, budget)).toThrow()
   }
+})
+
+it('accepts the recorded hosted stream-task median beside its replay window and rejects slower endpoints', () => {
+  const value = median([4592.478, 4644.454, 4607.746])
+  expect(value).toBe(4607.746)
+  expect(() => expectEndpointWithinBudget(value, 4500)).toThrow()
+  expectEndpointWithinBudget(value, STREAM_TASK_BUDGET_MS)
+  expect(REPLAY_DURATION_MS).toBe(3968)
+  expect(STREAM_TASK_BUDGET_MS).toBe(5988)
+  expect(() => expectEndpointWithinBudget(STREAM_TASK_BUDGET_MS + 1, STREAM_TASK_BUDGET_MS)).toThrow()
+  expect(STREAM_WALL_BUDGET_MS).toBe(6468)
 })
 
 it('waits for visible marker text in the latest Assistant step', async () => {
@@ -651,8 +666,8 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
   }
   const aggregate = Object.fromEntries(Object.keys(REFERENCE).map(key => [key, median(samples.map(sample => sample[key as keyof typeof REFERENCE]))]))
   const budgets: Record<string, number> = {
-    ...Object.fromEntries(Object.entries(REFERENCE).map(([key, value]) => [key, ciTimeBudget(value) + (key === 'streamWall' ? REPLAY_DURATION_MS : 0)])),
-    open: OPEN_BUDGET_MS, page: PAGE_BUDGET_MS, trajectory: TRAJECTORY_BUDGET_MS,
+    ...Object.fromEntries(Object.entries(REFERENCE).map(([key, value]) => [key, ciTimeBudget(value)])),
+    open: OPEN_BUDGET_MS, page: PAGE_BUDGET_MS, trajectory: TRAJECTORY_BUDGET_MS, streamTask: STREAM_TASK_BUDGET_MS, streamWall: STREAM_WALL_BUDGET_MS,
   }
   console.log(JSON.stringify({ benchmark: 'long-session-browser/median', turns: HISTORY_TURNS, deltas: DELTAS, paceMs: PACE_MS, samples, aggregate, referenceMs: REFERENCE, expectedOpenCiMs: EXPECTED_OPEN_CI_MS, expectedPageCiMs: EXPECTED_PAGE_CI_MS, expectedTrajectoryCiMs: EXPECTED_TRAJECTORY_CI_MS, budgets }))
   recordTimings(CASE, Object.fromEntries(SCALED_ENDPOINTS.map(key => [key, { ms: aggregate[key]!, ioShare: IO_SHARE }])), budgets)

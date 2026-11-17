@@ -198,6 +198,22 @@ test('ffmpeg_extract：frames 显式输出自动补 %03d 与扩展名', async ()
   assert.equal(pattern.output, join(dir, 'seq-%04d.png'))
 })
 
+test('输出目录不存在时先创建，不把缺目录留给 ffmpeg 报错', async () => {
+  const runner = makeRunner()
+  const tools = buildFfmpegTools(cfg, runner)
+  const extract = tools.find((t) => t.name === 'ffmpeg_extract')
+  const frames = await extract.execute({ input, what: 'frames', output: join(dir, 'probe', 'frames', 'ep01-%02d.png') })
+  assert.equal(frames.output, join(dir, 'probe', 'frames', 'ep01-%02d.png'))
+  assert.equal(existsSync(join(dir, 'probe', 'frames')), true)
+  const frame = await extract.execute({ input, what: 'frame', output: join(dir, 'probe', 'tmp', 'e21_005.jpg') })
+  assert.equal(frame.output, join(dir, 'probe', 'tmp', 'e21_005.jpg'))
+  assert.equal(existsSync(join(dir, 'probe', 'tmp')), true)
+  const cut = await tools.find((t) => t.name === 'ffmpeg_cut').execute({ input, duration: 1, output: join(dir, 'clips', 'a', 'cut.mp4') })
+  assert.equal(cut.output, join(dir, 'clips', 'a', 'cut.mp4'))
+  assert.equal(existsSync(join(dir, 'clips', 'a')), true)
+  assert.equal(runner.calls.length, 3)
+})
+
 test('超时透传给 runner', async () => {
   const runner = makeRunner()
   const cut = buildFfmpegTools(cfg, runner).find((t) => t.name === 'ffmpeg_cut')

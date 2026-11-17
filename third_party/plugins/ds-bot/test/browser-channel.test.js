@@ -1,8 +1,117 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { getEventListeners } from 'node:events'
 import { createBrowserChannel, pageText, partEnd } from '../src/host/browser.js'
 
 const ids = items => items.map(item => item.id)
+
+test('an aborted browser poll completes before the desktop update deadline', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const channel = createBrowserChannel()
+  t.after(() => channel.dispose())
+  const controller = new AbortController()
+  let completed = false
+  const poll = channel.wait('window-1', { 'bot-a': {} }, controller.signal)
+    .then(items => { completed = true; return items })
+  controller.abort()
+  t.mock.timers.tick(10_000)
+  await Promise.resolve()
+  assert.equal(completed, true)
+  assert.deepEqual(await poll, [])
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0)
+})
+
+test('a pre-aborted browser poll leaves an existing poll and its open pages intact', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const channel = createBrowserChannel()
+  t.after(() => channel.dispose())
+  let olderCompleted = false
+  const older = channel.wait('window-1', { 'bot-a': {} })
+    .then(items => { olderCompleted = true; return items })
+  const controller = new AbortController()
+  controller.abort()
+  let cancelled
+  void channel.wait('window-1', { 'bot-b': {} }, controller.signal).then(items => { cancelled = items })
+  await Promise.resolve()
+  assert.deepEqual(cancelled, [])
+  assert.equal(olderCompleted, false)
+  assert.deepEqual(Object.keys(channel.openPages()), ['bot-a'])
+  const read = channel.read('bot-a')
+  const [request] = await older
+  channel.result({ id: request.id, ok: true, page: { title: 'Still open' } })
+  assert.deepEqual(await read, { page: { title: 'Still open' } })
+})
+
+test('a pre-aborted browser poll does not hand out queued reads', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const channel = createBrowserChannel()
+  t.after(() => channel.dispose())
+  const seed = channel.wait('window-1', { 'bot-a': {} })
+  t.mock.timers.tick(20_000)
+  await seed
+  const read = channel.read('bot-a')
+  const controller = new AbortController()
+  controller.abort()
+  assert.deepEqual(await channel.wait('window-1', { 'bot-a': {} }, controller.signal), [])
+  const [request] = await channel.wait('window-1', { 'bot-a': {} })
+  channel.result({ id: request.id, ok: true, page: { title: 'Queued page' } })
+  assert.deepEqual(await read, { page: { title: 'Queued page' } })
+})
+
+test('replacing a browser poll removes its listener without cancelling the replacement', async (t) => {
+  const channel = createBrowserChannel()
+  t.after(() => channel.dispose())
+  const olderController = new AbortController()
+  const newerController = new AbortController()
+  const older = channel.wait('window-1', { 'bot-a': {} }, olderController.signal)
+  const newer = channel.wait('window-1', { 'bot-a': {} }, newerController.signal)
+  assert.deepEqual(await older, [])
+  assert.equal(getEventListeners(olderController.signal, 'abort').length, 0)
+  assert.equal(getEventListeners(newerController.signal, 'abort').length, 1)
+  olderController.abort()
+  const read = channel.read('bot-a')
+  const [request] = await newer
+  channel.result({ id: request.id, ok: true, page: { title: 'Replacement' } })
+  assert.deepEqual(await read, { page: { title: 'Replacement' } })
+  assert.equal(getEventListeners(newerController.signal, 'abort').length, 0)
+})
+
+test('browser poll timeout and disposal remove the abort listener', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  for (const finish of ['timeout', 'dispose']) {
+    const channel = createBrowserChannel()
+    t.after(() => channel.dispose())
+    const controller = new AbortController()
+    const poll = channel.wait('window-1', { 'bot-a': {} }, controller.signal)
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 1)
+    if (finish === 'timeout') t.mock.timers.tick(20_000)
+    else channel.dispose()
+    assert.deepEqual(await poll, [])
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0)
+    controller.abort()
+  }
+})
+
+test('cancelling a retry poll preserves its unacknowledged browser read', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let now = 0
+  const channel = createBrowserChannel({ now: () => now })
+  t.after(() => channel.dispose())
+  const firstPoll = channel.wait('window-1', { 'bot-a': {} })
+  const read = channel.read('bot-a')
+  const [first] = await firstPoll
+  const controller = new AbortController()
+  let cancelled
+  void channel.wait('window-1', { 'bot-a': {} }, controller.signal).then(items => { cancelled = items })
+  controller.abort()
+  await Promise.resolve()
+  assert.deepEqual(cancelled, [])
+  now = 2000
+  const [retried] = await channel.wait('window-1', { 'bot-a': {} })
+  assert.equal(retried.id, first.id)
+  channel.result({ id: retried.id, ok: true, page: { title: 'Acknowledged after retry' } })
+  assert.deepEqual(await read, { page: { title: 'Acknowledged after retry' } })
+})
 
 test('a read with no window that shows the Bot answers at once', async () => {
   const channel = createBrowserChannel()

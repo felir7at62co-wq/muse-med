@@ -30,10 +30,10 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
-                contextWindow: 100000
+                contextWindow: 97000
                 defaultMaxTokens: 1000
               - id: deepseek-v4-pro
-                contextWindow: 11000
+                contextWindow: 9700
                 defaultMaxTokens: 1000
     - id: compaction-working-directory
       name: '../../../packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts'

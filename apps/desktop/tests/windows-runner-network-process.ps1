@@ -45,13 +45,19 @@ Write-Output 'RUNNER-STDOUT'
 for ($iteration = 0; $iteration -lt 2; $iteration++) {
     $previous = [int](Get-Content (Join-Path $network 'child-pid'))
     $child = Get-Process -Id $previous
-    try { $child.Kill(); $child.WaitForExit() } finally { $child.Dispose() }
-    $deadline = [datetime]::UtcNow.AddSeconds(30)
-    do {
-        if ([datetime]::UtcNow -ge $deadline) { throw 'Network process was not recovered.' }
-        Start-Sleep -Milliseconds 50
-        $next = Get-Content (Join-Path $network 'child-pid') -Raw
-    } while (-not $next -or [int]$next -eq $previous)
+    try {
+        # Retain the terminated process handle so Windows cannot recycle its PID before recovery is observed.
+        $null = $child.Handle
+        $child.Kill()
+        $child.WaitForExit()
+        $deadline = [datetime]::UtcNow.AddSeconds(30)
+        $next = $null
+        do {
+            if ([datetime]::UtcNow -ge $deadline) { throw "Network process was not recovered (iteration $iteration, previous PID $previous, observed PID $next)." }
+            Start-Sleep -Milliseconds 50
+            $next = Get-Content (Join-Path $network 'child-pid') -Raw
+        } while (-not $next -or [int]$next -eq $previous)
+    } finally { $child.Dispose() }
     if ([int](Get-Content (Join-Path $PSScriptRoot 'listened')) -ne $PID) { throw 'Runner was replaced during recovery.' }
 }
 Write-Output 'RUNNER-SURVIVED-RECOVERY'
@@ -108,7 +114,10 @@ exit 0
             if ((Test-Path (Join-Path $runner 'dsh-task/listened')) -ne ($case -in @('ready','stale','reused','runner-failure','recovery','task-route'))) { throw "Listener admission failed: $case" }
             if ($case -in @('recovery','task-route')) {
                 foreach ($expected in @('RUNNER-STDOUT','RUNNER-STDERR','RUNNER-SURVIVED-RECOVERY','Network process exited','Network process restarted (attempt 2)')) {
-                    if (-not $output.Contains($expected)) { throw "Missing recovery evidence: $expected" }
+                    if (-not $output.Contains($expected)) {
+                        Write-Output "Recovery output for ${case}:`n$output"
+                        throw "Missing recovery evidence for ${case}: $expected"
+                    }
                 }
             }
             if ($case -eq 'stale' -and -not $stale.HasExited) { throw 'Owned stale provider was not reaped' }

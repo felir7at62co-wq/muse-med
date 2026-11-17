@@ -1,5 +1,5 @@
 ---
-description: "Package map for the guard family: the advisory repeat-tool reminder, the per-tool-call timeout policy, the composition guard that reports tools withdrawn by a live reload, and the short-drama gate that refuses a workshop write or paid submission breaking the format's rules, for users and maintainers choosing or composing the guards."
+description: "Package map for the guard family: the advisory repeat-tool reminder, the per-tool-call timeout policy, the composition guard that reports tools withdrawn by a live reload, the short-drama gate that refuses a workshop write or paid submission breaking the format's rules, and the stream guards for looping tool arguments and replies to incomplete requests, for users and maintainers choosing or composing the guards."
 kind: "package-group"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The `guard/` packages surface repeated tool calls, end calls that exceed declared timeouts, and report tools withdrawn by live reload. The short-drama guard rejects workshop writes that break spoken-track or shot limits and paid generation before the official-asset check. `repeat-tool-reminder` and `timeout-policy` ship in the `dsh` base bundle; the package READMEs explain configuration and recovery.
+The `guard/` packages surface repeated tool calls, end calls that exceed declared timeouts, and report tools withdrawn by live reload. The short-drama guard rejects workshop writes that break spoken-track or shot limits and paid generation before the official-asset check. Two stream guards stop looping tool arguments and discard replies whose provider received an incomplete request. `repeat-tool-reminder` and `timeout-policy` ship in the `dsh` base bundle; the package READMEs explain configuration and recovery.
 
 ## Table of Contents
 
@@ -22,11 +22,12 @@ The `guard/` packages surface repeated tool calls, end calls that exceed declare
 <a id="packages"></a>
 ## Packages
 
-Five small plugins cover these patterns; each README below explains when to keep, tune, or remove it.
+Six small plugins cover these patterns; each README below explains when to keep, tune, or remove it.
 
 | Package | What it provides |
 |---|---|
 | [`argument-loop/`](argument-loop/README.md) | Stops repeated JSON members in a streamed tool response without automatic retry or tool replay; Muse selects the threshold explicitly |
+| [`prompt-usage/`](prompt-usage/README.md) | Discards a tool-less reply whose reported prompt is below both the request's tool definitions and its working estimate, so the route's retry policy resends it; Muse lists the Yunying Gemini route explicitly |
 | [`repeat-tool-reminder/`](repeat-tool-reminder/README.md) | Reminds the model when it repeats the same tool call, so it changes approach or finishes |
 | [`timeout-policy/`](timeout-policy/README.md) | Times out tool calls that declare a limit, so the model gets a clear error instead of waiting forever |
 | [`composition-guard/`](composition-guard/README.md) | Reports a session whose tools a live composition reload withdrew, so the person knows to restart the host |

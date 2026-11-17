@@ -257,10 +257,14 @@ describe('product identifiers', () => {
     'apps/web/tests/developer-tools-settings.e2e.ts',
     'docs/subsystems/extensions.md',
     'docs/subsystems/extensions.zh.md',
+    'docs/tool-catalog.md',
+    'docs/tool-catalog.zh.md',
     'docs/upgrade-guide/v0.2.0-rc.2/schedule-bundle-retired/guide.md',
     'docs/upgrade-guide/v0.2.0-rc.2/schedule-bundle-retired/guide.zh.md',
     'docs/upgrade-guide/v0.2.1-alpha.1/subagent-preset-composition/guide.md',
     'docs/upgrade-guide/v0.2.1-alpha.1/subagent-preset-composition/guide.zh.md',
+    'docs/upgrade-guide/v0.2.2-alpha.2/fs-observation-policy-default-off/guide.md',
+    'docs/upgrade-guide/v0.2.2-alpha.2/fs-observation-policy-default-off/guide.zh.md',
     'docs/user/guide/schedule.md',
     'docs/user/guide/schedule.zh.md',
     'packages/bundle/web-app/cordis.patch.yml',
@@ -276,6 +280,7 @@ describe('product identifiers', () => {
     'packages/client/ui-entry-customization/tests/menu.client.spec.tsx',
     'packages/client/ui-workspace/tests/workspaces-service.client.spec.ts',
     'packages/extensions/cordis-host-runner/tests/inspect-registry.spec.ts',
+    'scripts/gen-tool-catalog.ts',
     'snapshots/session/cordis-inspect-liveness/client-fixture.mjs',
     'snapshots/session/cordis-inspect-timeout/client-fixture.mjs',
   ])('preserves the product values in %s', (file) => {
@@ -340,11 +345,13 @@ describe('product identifiers', () => {
     ['packages/client/ui-entry-customization/tests/menu.client.spec.tsx', 1],
     ['packages/client/ui-workspace/tests/workspaces-service.client.spec.ts', 1],
     ['packages/extensions/cordis-host-runner/tests/inspect-registry.spec.ts', 2],
+    ['scripts/gen-tool-catalog.ts', 2],
     ['snapshots/session/cordis-inspect-liveness/client-fixture.mjs', 1],
     ['snapshots/session/cordis-inspect-timeout/client-fixture.mjs', 2],
   ] as const)('reverses real package references in %s and restores them', (file, lines) => {
     const scoped = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
     const text = scoped.replaceAll("'@deepseek-ai/cordis'", "'cordis'")
+      .replaceAll("'@deepseek-ai/cordis-plugin-loader'", "'@cordisjs/plugin-loader'")
     expect(text).not.toBe(scoped)
     expectRoundTrip(file, text, scoped, lines)
     expect(rescopeText(text, file, true)).toEqual({ text, lines: 0 })
@@ -353,7 +360,7 @@ describe('product identifiers', () => {
   it.each([
     'apps/desktop-host/tests/preset-executors.spec.ts',
     'apps/desktop-host/tests/qimao-presets.spec.ts',
-    'apps/desktop-host/tests/source-research-presets.spec.ts',
+    'apps/desktop-host/tests/source-research-presets.expected.e2e.ts',
     'scripts/gen-tool-catalog.ts',
     'third_party/plugins/dsh-skill-mcp-panel/test-tool-filter.mjs',
   ])('retains preset and scoped-directory identifiers while rescoping imports in %s', (file) => {

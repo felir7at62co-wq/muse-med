@@ -35,10 +35,26 @@ Upload retains an attempt's original account id, request key, archive and publis
 
 Disposal removes the panel, navigation, dictionaries, feedback overlay and Remote registrations. Toast outcomes outlive panel navigation; plugin disposal suppresses late outcomes. The [publication package](../../host/muse-market/README.md) owns archive validation, storage, activation and cloud authority.
 
+Discovery combines moderated publications with the original public Skill directory. Each publication id and original-source id remains visible; matching names and versions do not hide another publisher. Each source retains its own results and retry state, so one unavailable directory does not erase the other. Scrolling reveals further cards. Original downloads are converted by the Host and imported without changing the default for new chats; the Host supplies verified original-to-local archive identities across restarts.
+
+Public directories load independently of local inventory and default-version reads. A local failure retains available results and shows a retry notice without blocking public search. Anonymous original-resource installation retains its result across account revocation; panel disposal still suppresses late callbacks.
+
+Discovery, local releases, publication details and creation previews share the same purpose-based character matching and silhouette framing. A recognized published `presetPortrait` takes precedence; otherwise the Skill name, title, category and description select an included character. Hover or keyboard focus reveals its Skill introduction. The images are packaged assets and do not require an image model or a remote image service.
+
+The market uses a dedicated header, three-column character cards and a separate creator view with source-Skill and ZIP modes. Source or metadata edits invalidate a prepared selection so upload cannot use an earlier preview. The first-visit guide explains discovery, import and explicit activation; closing it retains only the existing `dsh.muse-market.guide.v1` dismissal marker, and the header can reopen it.
+
+Creation opens a separate main panel with direct source-Skill and ZIP modes, while the creator center lists publications independently of local-source availability. ZIP preparation retains its original package and binds an unassigned character into a separate upload package. The prepared metadata and character remain identical in preview, export and upload. A successful upload returns to publication management. Character cards support pointer, keyboard and touch introductions, with an included fallback image for failed artwork loads.
+
+The [standalone browser entry](src/client/browser.tsx) shares resource cards, details, characters and publication filters with Desktop. Its explicit browser operations support public catalogs, ZIP preview, confirmed upload, moderation and verified file downloads. The browser never reports local installation or enables a default. Upload previews use the actual prepared archive, and retries keep its original bytes, account, team and request key. Private downloads retain the selected account and permission revision; either changing discards their result. Public downloads remain independent of internal navigation and account changes. Import and activation remain Desktop actions.
+
+The browser upload panel remains mounted across internal market navigation, retaining an in-flight or uncertain upload's archive and request key. Background completion does not change the selected page. A verified account change hides the previous account's preview and suppresses its completion callback; returning to the original account permits retry with the original key.
+
+Browser identity failures preserve their cause: network failures offer local retry, while a rejected login offers sign-in. Local ZIP preview remains available without a login. Inactive upload controls and notices are hidden from the accessibility tree during discovery.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-[Remote adapters](src/client/market-remote.ts) preserve all fifteen operation results and structured errors. [The controller](src/client/market-controller.ts) owns private request currency. The renderer owns the registered creator draft store; it contains user choices and original retry identities, not a replacement installation or cloud ledger. Components use framework hooks, derived slot props and existing Button, Modal and Toast primitives. Market cards and source form controls follow the shared neutral hairline treatment in [Web styling](../../../docs/web-styling.md).
+[Remote adapters](src/client/market-remote.ts) preserve the generated operation results and structured errors. [The controller](src/client/market-controller.ts) owns private request currency. The renderer owns the registered creator draft store; it contains user choices and original retry identities, not a replacement installation or cloud ledger. Components use framework hooks, derived slot props and existing Button, Modal and Toast primitives.
 
 <a id="further-exploration"></a>
 ## Further Exploration

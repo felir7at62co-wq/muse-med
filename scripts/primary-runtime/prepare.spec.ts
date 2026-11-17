@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { zipSync } from 'fflate'
 import { expect, it } from 'vitest'
-import { downloadPrimaryRuntimeAsset, prepareOfficeSkillAssets, primaryRuntimePayloadDigest, prunePnpmForeignNativePackages, smokePrimaryRuntime, unpackPrimaryRuntimeWheel } from './prepare.ts'
+import { downloadPrimaryRuntimeAsset, primaryRuntimePayloadDigest, prunePnpmForeignNativePackages, smokePrimaryRuntime, unpackPrimaryRuntimeWheel } from './prepare.ts'
 import lock from './lock.json' with { type: 'json' }
 
 it('covers every SDK wheel target with the shared interpreter lock', () => {
@@ -30,8 +30,8 @@ it.each(Object.entries(lock.targets))('records every locked wheel distribution a
   expect(Object.fromEntries(distributions)).toEqual(Object.fromEntries(declared))
 })
 
-it.each(['', 'win-x64/'])('records the shared locked distributions in the current SDK authoring output: %s', (platform) => {
-  const projection = JSON.parse(readFileSync(new URL(`../snapshots/python-sdk-single-exe/authoring/${platform}model-visible.json`, import.meta.url), 'utf8')) as {
+it.each(['model-visible.json', 'win-x64/model-visible.json'])('records the shared locked distributions in the current SDK authoring output: %s', (filename) => {
+  const projection = JSON.parse(readFileSync(new URL(`../snapshots/python-sdk-single-exe/authoring/${filename}`, import.meta.url), 'utf8')) as {
     result: { pythonDistributions: Record<string, string> }
   }
   expect(projection.result.pythonDistributions).toEqual(lock.pythonPackages)
@@ -150,26 +150,6 @@ it('retains locked wheel manual pages without admitting arbitrary data installat
     expect(await readFile(join(root, path), 'utf8')).toBe('manual page')
     await writeFile(archive, zipSync({ 'sample-1.0.data/data/etc/sample': Buffer.from('outside data') }))
     await expect(unpackPrimaryRuntimeWheel(archive, root)).rejects.toThrow('unsupported installation paths')
-  } finally { await rm(root, { recursive: true, force: true }) }
-})
-
-it('copies complete Office resources outside the application archive and removes obsolete assets', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'desktop-office-assets-'))
-  try {
-    const source = join(root, 'package', 'assets')
-    const destination = join(root, 'Contents', 'Resources', 'runtime', 'office-skills')
-    await mkdir(source, { recursive: true })
-    for (const name of ['office-docx', 'office-pptx', 'office-xlsx']) {
-      await mkdir(join(source, name))
-      await writeFile(join(source, name, 'SKILL.md'), `# ${name}\n`)
-    }
-    await prepareOfficeSkillAssets(source, destination)
-    await writeFile(join(destination, 'obsolete.py'), 'old helper')
-    await prepareOfficeSkillAssets(source, destination)
-    for (const name of ['office-docx', 'office-pptx', 'office-xlsx']) {
-      expect(await readFile(join(destination, name, 'SKILL.md'), 'utf8')).toBe(`# ${name}\n`)
-    }
-    await expect(readFile(join(destination, 'obsolete.py'))).rejects.toMatchObject({ code: 'ENOENT' })
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

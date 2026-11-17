@@ -1,0 +1,7 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: snapshot-update-retry
+      name: './update-retry-fixture.mjs'

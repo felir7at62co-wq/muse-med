@@ -1,0 +1,27 @@
+- id: agent-default-model
+  config:
+    provider: hongguo-merge-fixture
+    model: merge-test-model
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: subprocess
+  disabled: true
+- insert:
+    - id: hongguo-merge-fixture
+      name: ./merge-fixture.mjs
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: hongguo-merge-fixture
+            name: Hongguo merge fixture
+            models:
+              - id: merge-test-model

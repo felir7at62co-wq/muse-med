@@ -3,10 +3,11 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { registerHooks } from 'node:module'
-import { isAbsolute, join } from 'node:path'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { importSnapshotPackage } from '../muse-fixture-import.mjs'
 import { media, privateMarker, requests, series } from './network-fixture.mjs'
+import { installHongguoTaskIdentity } from '../muse-hongguo-task-controls/identity-fixture.mjs'
 
 const owner = new URL('../../../apps/desktop-host/package.json', import.meta.url)
 const { Service } = await importSnapshotPackage('@deepseek-ai/cordis', owner)
@@ -48,7 +49,9 @@ class CodecFixture extends Service {
     assert.equal(spec.argv[0], process.execPath)
     const probe = spec.argv.includes('-show_entries')
     const path = spec.argv[spec.argv.indexOf('-i') + 1]
-    assert.equal(path, join(spec.cwd, `公开下载测试虚构剧-${series[0]}`, '0001.mp4.part'))
+    assert.equal(dirname(dirname(path)), join(spec.cwd, `公开下载测试虚构剧-${series[0]}`))
+    assert.match(basename(dirname(path)), /^\.media-stage-[a-zA-Z0-9]+$/)
+    assert.equal(basename(path), 'input.part')
     assert.deepEqual(spec.argv, probe
       ? [process.execPath, '-v', 'error', '-show_entries', 'format=duration:stream=codec_type,codec_name,width,height',
         '-of', 'json', '-protocol_whitelist', 'file,pipe', '-i', path]
@@ -100,7 +103,13 @@ async function verifyResult(message, step) {
     assert.equal(episode.bytes, media.length)
     assert.equal(episode.sha256, sha256)
     assert.deepEqual(await readFile(episode.path), media, 'The actual tool must publish the transferred bytes')
-    assert.deepEqual(JSON.parse(await readFile(join(value.path, 'download-manifest.json'), 'utf8')), value)
+    const { taskId, runId, jobId, state, task, downloadTask, ...download } = value
+    assert.equal(state, 'completed')
+    assert.equal(taskId, task.id)
+    assert.equal(runId, task.runId)
+    assert.equal(jobId, null)
+    assert.deepEqual(downloadTask, task)
+    assert.deepEqual(JSON.parse(await readFile(join(value.path, 'download-manifest.json'), 'utf8')), download)
     assert.deepEqual(codecCalls, ['probe', 'decode'])
   } else {
     assert.equal(value.ok, false)
@@ -153,6 +162,7 @@ export const inject = ['llm', 'tools', 'agents']
  */
 export async function apply(ctx) {
   const state = { results: [], values: [] }
+  installHongguoTaskIdentity(ctx, clientURL, { identity: 'muse-hongguo-public-download', stamp })
   await ctx.plugin(CodecFixture)
   let replaced = false
   ctx.effect(() => {
@@ -163,11 +173,6 @@ export async function apply(ctx) {
     } })
     return () => hooks.deregister()
   }, 'hongguo-public-fixture.external-transport')
-  ctx.effect(() => {
-    const priorNow = Date.now
-    Date.now = () => stamp
-    return () => { Date.now = priorNow }
-  })
   const plugin = await import(pluginURL.href)
   assert.equal(replaced, true, 'The fixture must intercept the exact client transport before plugin evaluation')
   await ctx.plugin(plugin, { retries: 0, retryDelayMs: 0, mediaRequestIntervalMs: 0,
@@ -205,6 +210,17 @@ export async function apply(ctx) {
       codecValidation: 'controlled-external-verdict', actualMp4ContainerAndHashChecked: true }
     // The fixture verifies published bytes and receipts before removing its private test transfer artifacts.
     await rm(output, { recursive: true, force: true })
+    const tasks = join(root, '.muse-downloads/hongguo')
+    const taskFiles = await readdir(tasks)
+    assert.equal(taskFiles.length, 3)
+    for (const file of taskFiles) {
+      const task = JSON.parse(await readFile(join(tasks, file), 'utf8'))
+      assert.equal(task.owner.id, agent.session.id)
+      assert.equal(task.cwd, root)
+      assert.ok(['completed', 'failed'].includes(task.state))
+      assert.ok(!JSON.stringify(task).includes(privateMarker))
+    }
+    await rm(join(root, '.muse-downloads'), { recursive: true })
     await writeFile(join(root, 'public-download-proof.json'), JSON.stringify(proof, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
   })
   if (!process.env.DSH_SNAPSHOT || process.env.DSH_SNAPSHOT === 'record') {

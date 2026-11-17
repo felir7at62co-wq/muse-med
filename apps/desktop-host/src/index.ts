@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadLayeredEnv, loadOverlayPatches, loadProfileDirectory, reportSkippedBundles, type Profile } from '@deepseek-ai/dsh-app-boot'
 import { bundledSkillDirectory, productSkillDirectory, desktopSkillDirectories } from './bundled-skills.ts'
-import { bundledBridgeModules, verifyBundledImClient } from './bundled-bridge.ts'
+import { verifyBundledImClient } from './bundled-bridge.ts'
+import { productModuleOverrides } from './product-modules.ts'
 import { feishuGateLayer, migrateFeishuProfileName } from './feishu-gate.ts'
 import { randomUUID } from 'node:crypto'
 import type { PluginOperationRunId } from '@deepseek-ai/dsh-plugin-manager/diagnostic'
@@ -26,14 +27,12 @@ import { shutdownDesktopHost } from './shutdown.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
 import { installPlatformSessionPublisher } from './platform-session.ts'
 import { attentionSoundForEvent } from './attention-sound.ts'
-import { installOfficeEngineResolution } from './office-engine.ts'
 import { installOperationDiagnostics } from './operation-diagnostics.ts'
 import { desktopDownloadEnvironment } from './download-runtime.ts'
 import { installDesktopDouyinBrowser } from './douyin-browser.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION, DESKTOP_HOST_SHUTDOWN_GRACE_MS } from './host-protocol.ts'
 import { workspaceStorageLayer } from './workspace-storage-composition.ts'
 import { generationLoopLayer } from './generation-loop-composition.ts'
-import { packagedModuleOverrides } from './packaged-modules.ts'
 
 const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
 
@@ -52,6 +51,7 @@ function isProjectPath(projectDir: string, target: string): boolean {
 interface DesktopComposition {
   readonly profile: Profile
   readonly patches: PatchOptions[]
+  /** Exact plugin specifiers mapped to the file: URLs of their packaged modules. */
   readonly moduleOverrides: Readonly<Record<string, string>>
 }
 
@@ -127,8 +127,7 @@ async function desktopComposition(
   }])
   // Resolve bridge Config only after the setup service installs its startup hook.
   layers.push(feishuGateLayer([...rows.values()]))
-  return { profile, patches: layers.slice(profile.layers.length + 1).flat(),
-    moduleOverrides: { ...bundledBridgeModules(runtimeDir), ...packagedModuleOverrides(import.meta.url) } }
+  return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: productModuleOverrides(runtimeDir) }
 }
 
 async function main(): Promise<void> {
@@ -142,7 +141,8 @@ async function main(): Promise<void> {
     || (pnpm === undefined) !== (nodeBin === undefined) || process.send === undefined) {
     throw new Error('muse-med: expected runtime and profile directories, optional primary runtime and paired package-manager paths, and Node IPC')
   }
-  const primarySource = primaryRuntime ?? join(runtimeDir, '..', 'runtime', 'primary-runtime')
+  const primarySource = primaryRuntime || join(runtimeDir, '..', 'runtime', 'primary-runtime')
+  process.env.DSH_PRIMARY_RUNTIME = primarySource
   process.env.MUSE_OCR_PYTHON_PATH = workspaceDependencyPaths(primarySource, await readPrimaryRuntime(primarySource)).python
   const downloadEnvironment = await desktopDownloadEnvironment(primarySource, process.env)
   process.env.MUSE_DOUYIN_PYTHON_PATH = downloadEnvironment.MUSE_DOUYIN_PYTHON_PATH
@@ -153,7 +153,6 @@ async function main(): Promise<void> {
   }
   // The shipped driver runs in its own process; no PATH lookup or user installation is needed.
   process.env.MUSE_COMPUTER_USE_EXECUTABLE = join(primarySource, '..', 'cua', process.platform === 'win32' ? 'cua-driver.exe' : 'cua-driver')
-  installOfficeEngineResolution(runtimeDir)
   const installAnchor = join(runtimeDir, 'package.json')
   const { profile, patches, moduleOverrides } = await desktopComposition(runtimeDir, projectDir, allowLinkedPackages)
   reportSkippedBundles('muse-med', profile)
@@ -270,13 +269,13 @@ async function main(): Promise<void> {
     throw new Error('Forced product subtitle visual is missing from the Desktop environment')
   }
   await ctx.plugin(desktopOffice, {
-    runtimeDir,
     source: primarySource,
-    root: join(resolveDshHome(), 'dsh-runtimes', 'dsh-primary-runtime'),
     docxReviewMode: 'advisory',
     ...(forceDraftSubtitleVisual && productSubtitleVisual !== undefined ? { jianyingDraft: {
       enforceSubtitleVisual: true,
       defaultSubtitleVisual: JSON.parse(productSubtitleVisual) as NonNullable<NonNullable<desktopOffice.Config['jianyingDraft']>['defaultSubtitleVisual']>,
+      ...(process.env.MUSE_FONTS_DIR === undefined ? {} : { fontsDir: process.env.MUSE_FONTS_DIR }),
+      ...(process.env.MUSE_SUBTITLE_FONT_FAMILY === undefined ? {} : { subtitleFontFamily: process.env.MUSE_SUBTITLE_FONT_FAMILY }),
     } } : {}),
   })
   installPlatformSessionPublisher(ctx, (session) => {

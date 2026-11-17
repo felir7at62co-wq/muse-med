@@ -14,6 +14,7 @@ import { copyPrimaryRuntime, parsePrimaryRuntime, workspaceDependencyPaths, type
 import { acceptsNpmPlatform } from '../npm-platform.ts'
 import lock from './lock.json' with { type: 'json' }
 import { prunePrimaryRuntimePythonTests } from './prune-python-tests.ts'
+import { patchPrimaryRuntimeWindowsCrypto } from './windows-crypto.ts'
 
 /** OCR model notices copied into each primary runtime payload. */
 export const PRIMARY_RUNTIME_NOTICE_FILES = ['ocr-models-notice.txt', 'ocr-models-license.txt'] as const
@@ -129,7 +130,7 @@ export function primaryRuntimePayloadDigest(
   // Identity preserves key order within the selected target, wheel records and distribution map, plus wheel-entry order.
   // Bump format when extraction or assembly changes payload bytes without changing locked inputs.
   return createHash('sha256').update(JSON.stringify({
-    format: 8, target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
+    format: target === 'win-x64' ? 9 : 8, target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
     artifact: runtimeLock.targets[target], wheels, pythonPackages, pnpm: pnpmVersion,
     ocrNotices: PRIMARY_RUNTIME_NOTICE_FILES.map(filename =>
       createHash('sha256').update(readFileSync(join(import.meta.dirname, filename))).digest('hex')),
@@ -178,17 +179,6 @@ export function prunePnpmForeignNativePackages(pnpm: string, platform: NodeJS.Pl
   }
 }
 
-/**
- * Copy the skill package's complete asset tree to ordinary filesystem resources.
- * @param source - The package's assets directory.
- * @param destination - External Office skill resource directory.
- * @returns Resolves after replacing the external assets with the complete package tree.
- */
-export async function prepareOfficeSkillAssets(source: string, destination: string): Promise<void> {
-  rmSync(destination, { recursive: true, force: true })
-  await cp(source, destination, { recursive: true, dereference: true })
-}
-
 /** A locked interpreter and wheel target. */
 export type PrimaryRuntimeTarget = keyof typeof lock.targets
 
@@ -196,7 +186,7 @@ export type PrimaryRuntimeTarget = keyof typeof lock.targets
 export interface PreparePrimaryRuntimeOptions {
   /** Target whose archives and wheels are downloaded. */
   readonly target: PrimaryRuntimeTarget
-  /** Resource directory receiving primary-runtime/ and office-skills/. */
+  /** Resource directory receiving primary-runtime/. */
   readonly output: string
   /** SHA-256-addressed archive cache. */
   readonly cache: string
@@ -204,16 +194,14 @@ export interface PreparePrimaryRuntimeOptions {
   readonly version: string
   /** Locked npm pnpm tarball for installed carriers; build hosts otherwise copy their installed pnpm. */
   readonly pnpmArchive?: RuntimeNpmArchive
-  /** Ordinary filesystem Office assets; build hosts otherwise resolve the workspace package. */
-  readonly skillSource?: string
   /** Omit Node.js and pnpm for carriers providing only Python. */
   readonly pythonOnly?: boolean
 }
 
 /**
- * Materialize locked interpreters, libraries and Office resources without executing target code.
+ * Materialize locked interpreters and libraries without executing target code.
  * @param options - Explicit target and carrier-owned output locations.
- * @returns Resolves after the complete payload and skills have been copied to the output directory.
+ * @returns Resolves after the complete payload has been copied to the output directory.
  */
 export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOptions): Promise<void> {
   const { target } = options
@@ -257,6 +245,7 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
     for (const wheel of [...lock.targets[target].wheels, ...lock.wheels]) {
       await unpackPrimaryRuntimeWheel(await downloadPrimaryRuntimeAsset(wheel.url, wheel.sha256, paths.downloads), entries.pythonPackages)
     }
+    if (target === 'win-x64') patchPrimaryRuntimeWindowsCrypto(entries.pythonPackages)
     for (const filename of PRIMARY_RUNTIME_NOTICE_FILES) {
       writeFileSync(join(output, filename), readFileSync(join(import.meta.dirname, filename)))
     }
@@ -268,9 +257,6 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
   } finally {
     rmSync(staging, { recursive: true, force: true })
   }
-  const assets = options.skillSource ?? join(dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-skill-office/package.json')), 'assets')
-  await prepareOfficeSkillAssets(assets,
-    join(paths.runtime, 'office-skills'))
 }
 
 /**

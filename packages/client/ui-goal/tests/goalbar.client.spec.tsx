@@ -40,6 +40,13 @@ describe('GoalBar', () => {
     expect(view.getByText('等待新情况')).toBeTruthy()
     expect(view.getByRole('button', { name: '恢复目标' })).toBeTruthy()
   })
+  it('pauses an armed waiting goal from the pause action beside resume', () => {
+    const actions = makeActions()
+    render(<GoalBar goal={makeGoal()} activation="armed" wait={{ sequence: 1, reason: 'input', message: 'Waiting for new work' }} {...actions} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '暂停目标' }))
+    expect(actions.onPause).toHaveBeenCalledTimes(1)
+    expect(actions.onResume).not.toHaveBeenCalled()
+  })
   it('renders nothing while loading, absent, or when the goal is complete', () => {
     const actions = makeActions()
     const loading = render(<GoalBar goal={undefined} {...actions} t={t} />)
@@ -152,26 +159,45 @@ describe('GoalBar', () => {
     expect(screen.getByRole('textbox', { name: '目标内容' })).toBeTruthy()
   })
 
-  it('active goal: the pause action pauses', () => {
+  it('active goal: the pause action follows edit and clear, and pauses', () => {
     const actions = makeActions()
     render(<GoalBar goal={makeGoal()} activation="armed" {...actions} t={t} />)
+    expect(screen.getAllByRole('button').map(b => b.getAttribute('aria-label'))).toEqual(['编辑目标', '清除目标', '暂停目标'])
     fireEvent.click(screen.getByRole('button', { name: '暂停目标' }))
     expect(actions.onPause).toHaveBeenCalledTimes(1)
   })
 
-  it('active disarmed goal: "已暂停的目标" with a resume action instead of pause', () => {
+  it('active goal with unknown activation: keeps a disabled pause after edit and clear', () => {
+    const actions = makeActions()
+    render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    expect(screen.getAllByRole('button').map(b => b.getAttribute('aria-label'))).toEqual(['编辑目标', '清除目标', '暂停目标'])
+    expect(screen.getByRole('button', { name: '暂停目标' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('active disarmed goal: "待继续的目标" with a resume action instead of pause', () => {
     const actions = makeActions()
     render(<GoalBar goal={makeGoal()} activation="disarmed" {...actions} t={t} />)
-    expect(screen.getByText('已暂停的目标')).toBeTruthy()
+    expect(screen.getByText('待继续的目标')).toBeTruthy()
+    expect(screen.queryByText('已暂停的目标')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '恢复目标' }))
     expect(actions.onResume).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('button', { name: '暂停目标' })).toBeNull()
   })
 
-  it('paused goal: "已暂停的目标" with a resume action before edit', () => {
+  it('active disarmed goal with a stop wait: the wait message is the strip tooltip beside resume', () => {
+    const actions = makeActions()
+    const message = 'Automatic resume limit (3) reached; last model error SERVER. Resume the goal to continue.'
+    render(<GoalBar goal={makeGoal()} activation="disarmed" wait={{ sequence: 1, reason: 'input', message }} {...actions} t={t} />)
+    expect(screen.getByText('待继续的目标').closest('[title]')?.getAttribute('title')).toBe(message)
+    fireEvent.click(screen.getByRole('button', { name: '恢复目标' }))
+    expect(actions.onResume).toHaveBeenCalledTimes(1)
+  })
+
+  it('paused goal: "已暂停的目标" with a resume action after edit and clear', () => {
     const actions = makeActions()
     render(<GoalBar goal={makeGoal({ phase: 'paused' })} {...actions} t={t} />)
     expect(screen.getByText('已暂停的目标')).toBeTruthy()
+    expect(screen.getAllByRole('button').map(b => b.getAttribute('aria-label'))).toEqual(['编辑目标', '清除目标', '恢复目标'])
     fireEvent.click(screen.getByRole('button', { name: '恢复目标' }))
     expect(actions.onResume).toHaveBeenCalledTimes(1)
   })

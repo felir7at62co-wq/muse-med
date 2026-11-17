@@ -20,13 +20,16 @@ import MuseMarket from '../src/index.ts'
 import MuseMarketCloud, { parseMarketPublicationId, parseMarketPublisherId, parseMarketUploadRequestId } from '../src/cloud.ts'
 import { createMarketPackage, marketDigest } from '../src/package.ts'
 import { parseMarketPublication } from '../src/cloud-protocol.ts'
+import { parseMarketLegacyCatalog } from '../src/legacy.ts'
 import { bundle, limits, manifest, metadata, resources } from './fixtures.ts'
+import { originalCatalogEntry, originalSkillArchive } from './legacy-fixtures.ts'
 import { COVERAGE_TEST_TIMEOUT_ENV, coverageTestTimeoutOptions } from '../../../../scripts/coverage-partitions.ts'
 
 let host: TypertContribution, remote: TypertRemoteInfo
 beforeAll(async () => {
+  // The Host build owns TypeScript diagnostics; this owner validates the source-generated wire codecs.
   const [face] = new WorkspaceAnalyzer({ root: resolve(import.meta.dirname, '../../../..'),
-    packages: ['@deepseek-ai/dsh-muse-market'], faces: ['host'], rejectBuildOutputs: true }).analyze().faces
+    packages: ['@deepseek-ai/dsh-muse-market'], faces: ['host'], checkDiagnostics: false, rejectBuildOutputs: true }).analyze().faces
   if (face === undefined) throw new Error('Missing market Host program')
   const artifact = new FaceModelEmitter(face).emit('@deepseek-ai/dsh-muse-market')
   if (artifact?.remote === undefined) throw new Error('Missing source-generated market Remote')
@@ -37,18 +40,25 @@ beforeAll(async () => {
 async function fixture() {
   const source = await bundle(), ctx = new Context()
   const archive = Buffer.from(createMarketPackage(manifest, resources, limits))
+  const original = originalSkillArchive(), entry = originalCatalogEntry(original)
+  const legacy = parseMarketLegacyCatalog({ schemaVersion: 1, entries: [entry] }, '', limits, 100)[0]!
   let publication = parseMarketPublication({ id: 'a'.repeat(32), publisherId: 'b'.repeat(32), publisher: 'Writing team',
     manifest, sha256: marketDigest(archive), bytes: archive.byteLength, status: 'draft', reviewNote: '', revision: 1,
     createdAt: '2026-11-09T00:00:00.000Z' }, limits)
   const paths: string[] = []
   const server = createServer((req, res) => {
     paths.push(req.url ?? '')
+    if (req.url === '/market/' + entry.package) {
+      res.writeHead(200, { 'content-type': 'application/zip', 'content-length': String(original.byteLength) })
+      res.end(original); return
+    }
     if (req.url?.endsWith('/download')) {
       res.writeHead(200, { 'content-type': 'application/zip', 'content-length': String(archive.byteLength), 'x-content-sha256': publication.sha256 })
       res.end(archive); return
     }
     let result: unknown = publication
     if (req.url?.startsWith('/api/market/v1/catalog?')) result = { items: [publication] }
+    if (req.url === '/market/catalog.json') result = { schemaVersion: 1, entries: [entry] }
     if (req.url === '/api/market/v1/me') result = { accountId: 'd'.repeat(16), publishers: [{ id: publication.publisherId, title: publication.publisher }], admin: true }
     if (req.url?.endsWith('/review')) { publication = { ...publication, revision: 2, status: 'pending' }; result = publication }
     res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(result))
@@ -84,13 +94,13 @@ async function fixture() {
     expect(descriptor.result.create().parse(result)).toEqual(result)
     return result
   }
-  return { source, ctx, call, consume, paths, publication, archive, beforeSkills: await ctx.skills.list() }
+  return { source, ctx, call, consume, paths, publication, archive, legacy, beforeSkills: await ctx.skills.list() }
 }
 
-it('dispatches all six generated operations with whole DTOs and independent local storage', async () => {
+it('dispatches all eight generated operations with whole DTOs and independent local storage', async () => {
   const f = await fixture(), initial = f.publication
   expect(remoteMethods(f.ctx.museMarketCloud).map(row => row.method)).toEqual([
-    'catalog', 'identity', 'getPublication', 'publishDraft', 'installPublication', 'review',
+    'catalog', 'legacyCatalog', 'installLegacy', 'identity', 'getPublication', 'publishDraft', 'installPublication', 'review',
   ])
   expect(await f.consume('catalog', { q: 'fixture-skill', mine: true })).toEqual([initial])
   expect(await f.consume('identity', {})).toEqual({ accountId: 'd'.repeat(16), publishers: [{ id: initial.publisherId, title: initial.publisher }], admin: true })
@@ -105,6 +115,10 @@ it('dispatches all six generated operations with whole DTOs and independent loca
   const pending = await f.consume('review', { id: initial.id, revision: 1, action: 'submit', note: '' })
   expect(pending).toEqual({ ...initial, status: 'pending', revision: 2 })
   expect(f.paths.filter(path => path.endsWith('/review'))).toHaveLength(1)
+  expect(await f.consume('legacyCatalog', { query: 'Original' })).toEqual([f.legacy])
+  const imported = await f.consume('installLegacy', { id: f.legacy.id, expectedSha256: f.legacy.sha256 })
+  expect(imported).toMatchObject({ resource: f.legacy, installation: { enabled: false,
+    release: { manifest: { name: f.legacy.name, version: f.legacy.version } } } })
   expect(f.ctx.get('museMarketActivation')).toBeUndefined()
   expect(await f.ctx.skills.list()).toEqual(f.beforeSkills)
 })
@@ -113,6 +127,7 @@ it('rejects malformed wire arguments before HTTP and preserves structured domain
   const f = await fixture()
   for (const [method, args] of [
     ['catalog', { q: 7, mine: false }], ['catalog', { q: '', mine: 'yes' }],
+    ['legacyCatalog', { query: 7 }], ['installLegacy', { id: 7, expectedSha256: 'a'.repeat(64) }],
     ['getPublication', { id: 7 }], ['review', { id: f.publication.id, revision: 1, action: 'activate', note: '' }],
   ] as const) {
     const descriptor = remote.methods[`museMarketCloud/${method}`]
@@ -125,6 +140,51 @@ it('rejects malformed wire arguments before HTTP and preserves structured domain
   }
   await expect(f.call('getPublication', { id: 'a'.repeat(64) })).rejects.toMatchObject({
     code: 'muse-market/cloud-failed', details: { code: 'invalid-publication', status: 400 },
+  })
+  await expect(f.call('getPublication', { id: '../../outside?query=1\r\n' })).rejects.toMatchObject({
+    code: 'muse-market/cloud-failed', details: { code: 'invalid-publication', status: 400 },
+  })
+  await expect(f.call('publishDraft', { localId: 'not-a-release-digest', publisherId: f.publication.publisherId,
+    requestId: 'invalid-local-release-attempt' })).rejects.toMatchObject({
+    code: 'muse-market/cloud-failed', details: { code: 'invalid-local-release', status: 400 },
+  })
+  await expect(f.call('installPublication', { id: f.publication.id, expectedSha256: 'not-a-digest' })).rejects.toMatchObject({
+    code: 'muse-market/cloud-failed', details: { code: 'invalid-digest', status: 400 },
+  })
+  expect(f.paths).toEqual([])
+})
+
+it('dispatches portrait preparation through generated local codecs and rejects invalid input without HTTP', async () => {
+  const f = await fixture()
+  const prepare = remote.methods['museMarket/prepare']
+  const upload = remote.methods['museMarket/prepareUpload']
+  if (prepare === undefined || upload === undefined) throw new Error('Missing portrait preparation descriptors')
+  const authorInput = { metadata: { ...metadata, presetPortrait: 'episode-planner' }, skillName: f.source.skill.name }
+  expect(prepare.input({ strict: true }).create().parse(authorInput)).toEqual(authorInput)
+  const original = await f.ctx.museMarket.prepare(metadata, f.source.skill.name)
+  const sources = remote.methods['museMarket/sources']
+  if (sources === undefined) throw new Error('Missing retained source descriptor')
+  const candidates = await f.ctx.museMarket.sources()
+  expect(sources.result.create().parse(candidates)).toEqual(candidates)
+  expect(candidates.skills).toContainEqual({ name: f.source.skill.name, description: metadata.description,
+    sourceId: `market:${original.release.id}`, version: metadata.version })
+  const retainedInput = { metadata: { ...metadata, version: '2.0.0' }, skillName: `market:${original.release.id}` }
+  expect(prepare.input({ strict: true }).create().parse(retainedInput)).toEqual(retainedInput)
+  const args = { id: original.release.id, presetPortrait: 'episode-planner' }
+  const schema = upload.input({ strict: true }).jsonSchema
+  if (schema === undefined) throw new Error('Missing portrait preparation schema')
+  assertSupportedJsonSchema(schema)
+  expect(validateJsonSchemaValue(schema, args)).toEqual([])
+  const invoke = (payload: Record<string, unknown>) => f.ctx.typertGateway.invoke({
+    namespace: 'museMarket', method: 'prepareUpload', args: payload,
+    peer: new Peer(f.ctx, { principal: { kind: 'owner' } }),
+  })
+  const result = await invoke(args)
+  expect(upload.result.create().parse(result)).toEqual(result)
+  expect(result).toMatchObject({ release: { manifest: { presetPortrait: 'episode-planner' } } })
+  await expect(invoke({ ...args, presetPortrait: 7 })).rejects.toMatchObject({ code: 'gateway/input-invalid' })
+  await expect(invoke({ ...args, presetPortrait: '../unsafe' })).rejects.toMatchObject({
+    code: 'muse-market/operation-failed', details: { code: 'invalid-manifest' },
   })
   expect(f.paths).toEqual([])
 })

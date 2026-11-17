@@ -2,6 +2,7 @@
 import { expect, it } from 'vitest'
 import { foldVideoSources, sourceStateSchema, type VideoSourceState } from '../src/sources.ts'
 import { productionVideoEvents } from './fixtures/production.ts'
+import { productionFacts, resolveVideoProduction, videoProduction } from '../src/production.ts'
 
 const bounds = { maxSources: 20, maxResultBytes: 10_000 }
 const empty = (): VideoSourceState => ({ sources: [], calls: [], complete: true, issues: [] })
@@ -124,4 +125,40 @@ it('marks bounded metadata as unavailable instead of retaining a misleading comp
   expect(state.complete).toBe(false)
   expect(state.issues).toContain('video production metadata limit reached')
   expect(state.productionFacts).toHaveLength(1)
+})
+
+it('ignores malformed production rows and correlates only matching card snapshots', () => {
+  const catalog = { name: 'jubian_catalog', method: 'episodes', scriptId: 10, taskId: null }
+  expect(productionFacts(catalog, { episodes: { rows: [null, {}, { episode_id: 1 }, { episode_count: 2 }] } })).toEqual([])
+  const plan = { name: 'muse_production', taskId: null }
+  expect(productionFacts(plan, { method: 'read', episode: 31 })).toEqual([])
+  expect(productionFacts(plan, { method: 'read', script_id: 10, episode: 31, section: 'packages', rows: [
+    null, {}, { storyboard_id: 51 }, { index: 2 }, { storyboard_id: 51, index: 2 }, { storyboard_id: 52, index: 3, shots: [0] },
+  ] })).toEqual([{ scriptId: 10, episodeNumber: 31, storyboardId: 51, packageIndex: 2 }])
+  const card = { name: 'jubian_storyboard', method: 'read', taskId: null }
+  const result = { storyboard: { script_id: 10, storyboard_id: 51, snapshot: { episodeId: 131 } } }
+  expect(productionFacts(card, result)).toEqual([{ scriptId: 10, storyboardId: 51, episodeId: 131 }])
+  expect(productionFacts({ ...card, storyboardId: 51 }, { storyboard: { script_id: 10, storyboard_id: 51 } }))
+    .toEqual([{ scriptId: 10, storyboardId: 51 }])
+  for (const malformed of [{}, { storyboard: { script_id: 10 } }, result]) {
+    expect(productionFacts({ ...card, storyboardId: 99 }, malformed)).toEqual([])
+  }
+  expect(productionFacts({ name: 'jubian_video', taskId: null }, { task: { task_id: 17, script_id: 10 },
+    sources: { script_id: 10, storyboard_id: 51, sources: [{}, { task_id: -1 }, { task_id: 18 }] } }))
+    .toEqual([{ scriptId: 10, taskId: 17 }, { scriptId: 10, storyboardId: 51, taskId: 18 }])
+})
+
+it('rejects mismatched generated-source cards and retains observed timing without inventing missing identities', () => {
+  const call = { name: 'jubian_video', taskId: null, storyboardId: 51 }
+  expect(videoProduction(call, { sources: { script_id: 10, storyboard_id: 99 } }, undefined, [])).toBeUndefined()
+  expect(videoProduction(call, { sources: { script_id: 10, storyboard_id: 51 } }, undefined, []))
+    .toEqual({ scriptId: 10, storyboardId: 51 })
+  const source = { scriptId: 10, shotNumbers: [1], shotRanges: [{ shotNumber: 1, startSeconds: 0, endSeconds: 1 }] }
+  const enriched = resolveVideoProduction(source, [{ scriptId: 10, episodeId: 1 }, { scriptId: 10, episodeId: 2 }])
+  expect(enriched).toEqual(source)
+  expect(enriched?.shotRanges).not.toBe(source.shotRanges)
+  expect(resolveVideoProduction({ scriptId: 10, taskId: 17, shotNumbers: [1] }, [
+    { scriptId: 10, taskId: 17, episodeId: 1, storyboardId: 51, shotNumbers: [2] },
+    { scriptId: 10, storyboardId: 51, episodeId: 2, shotNumbers: [2] },
+  ])).toEqual({ scriptId: 10, taskId: 17, storyboardId: 51 })
 })

@@ -31,19 +31,21 @@ function utf8Tail(text: string, maxBytes: number): { text: string; truncated: bo
   const byteLength = Buffer.byteLength(text)
   if (byteLength <= maxBytes) return { text, truncated: false }
   if (byteLength === text.length) {
-    // Own the bounded result instead of retaining the complete input through a string slice.
     return { text: Buffer.from(text.slice(text.length - maxBytes)).toString(), truncated: true }
   }
-  const chars = Array.from(text)
   let bytes = 0
-  let start = chars.length
+  let start = text.length
   while (start > 0) {
-    const next = Buffer.byteLength(chars[start - 1] as string)
+    const last = text.charCodeAt(start - 1)
+    const previous = start > 1 ? text.charCodeAt(start - 2) : 0
+    const paired = last >= 0xdc00 && last <= 0xdfff && previous >= 0xd800 && previous <= 0xdbff
+    const next = paired ? 4 : last < 0x80 ? 1 : last < 0x800 ? 2 : 3
     if (bytes + next > maxBytes) break
     bytes += next
-    start -= 1
+    start -= paired ? 2 : 1
   }
-  return { text: chars.slice(start).join(''), truncated: true }
+  // Own only the bounded suffix without replacing lone surrogates.
+  return { text: Buffer.from(text.slice(start), 'utf16le').toString('utf16le'), truncated: true }
 }
 
 // Bound pending string fragments independently of deployment retention limits.
@@ -319,8 +321,8 @@ export class LocalPtySession implements TerminalBackendSession {
     try {
       const operation = this.startSend({ text: '', submit: false, ...signal !== undefined ? { signal } : {} })
       const result = await operation.done
-      if (result.waitReason === 'session_exit') throw new Error('PTY shell exited during startup')
-      if (result.waitReason === 'timeout') throw new Error('PTY shell did not reach readiness before startup timeout')
+      if (result.waitReason === 'session_exit') throw new TerminalError('PTY shell exited during startup', 'STARTUP_EXITED')
+      if (result.waitReason === 'timeout') throw new TerminalError('PTY shell did not reach readiness before startup timeout', 'STARTUP_TIMEOUT')
       this.motd = result.viewport
     } catch (error: unknown) {
       signal?.throwIfAborted()
@@ -331,8 +333,8 @@ export class LocalPtySession implements TerminalBackendSession {
   }
 
   startSend(request: TerminalSendRequest): TerminalSendOperation {
-    if (this.closing) throw new Error('PTY session is closing')
-    if (this.statusValue.kind === 'exited') throw new Error('PTY session has exited')
+    if (this.closing) throw new TerminalError('PTY session is closing', 'SESSION_CLOSING')
+    if (this.statusValue.kind === 'exited') throw new TerminalError('PTY session has exited', 'SESSION_EXITED')
     if (this.active !== undefined) {
       const draining = this.activeWrite !== undefined
         ? ' or draining provider write'
@@ -341,7 +343,12 @@ export class LocalPtySession implements TerminalBackendSession {
           : ''
       throw new TerminalError(`PTY session already has an active send${draining}`, 'SEND_ACTIVE')
     }
-    if (request.signal?.aborted === true) throw new Error('PTY send aborted before write')
+    if (request.signal?.aborted === true) {
+      // Named as a cancellation so the tool registry classifies it as the caller's abort.
+      const aborted = new Error('PTY send aborted before write')
+      aborted.name = 'AbortError'
+      throw aborted
+    }
 
     const operation = new LocalSendOperation(
       this.config.maxReadBytes,
@@ -457,7 +464,7 @@ export class LocalPtySession implements TerminalBackendSession {
   }
 
   async signal(signal: TerminalSignal): Promise<TerminalSignalResult> {
-    if (this.closing) throw new Error('PTY session is closing')
+    if (this.closing) throw new TerminalError('PTY session is closing', 'SESSION_CLOSING')
     const targetPgid = await this.terminal.signalForeground(signal)
     return { delivered: true, targetPgid }
   }

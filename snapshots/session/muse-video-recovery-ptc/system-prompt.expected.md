@@ -46,7 +46,7 @@ interface ToolArgsMap {
     task_id?: number;
     /** 剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，不必单独提供；其余方法按上面的必填说明传入。 */
     script_id?: number;
-    /** erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。 */
+    /** erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型时使用 MediaKit，SeedVR2 等其他模型须显式指定。 */
     model_id?: string;
     /** erase_subtitle 可选：任务名，省略时按「<源任务名>-去字幕」生成。 */
     task_name?: string;

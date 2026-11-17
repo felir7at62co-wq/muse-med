@@ -4,17 +4,18 @@
 import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import type { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { z } from 'zod'
 
 /** Persisted authority and exact workspace membership observed at submission. */
 export const generationWorkspaceIdentitySchema = z.object({
   version: z.literal(1),
   authorityId: z.uuid().brand<'GenerationAuthorityId'>(),
-  workspaceId: z.string().min(1).transform(WorkspaceId),
+  workspaceId: z.string().min(1).transform(brandString<WorkspaceId>),
   workspaceCreatedAt: z.string().min(1),
   workspacePath: z.string().refine(isAbsolute),
   membershipEpoch: z.uuid().brand<'GenerationMembershipEpoch'>(),
@@ -27,7 +28,7 @@ export const generationSessionBindingSchema = generationWorkspaceIdentitySchema.
   model: z.object({
     provider: z.string().min(1),
     model: z.string().min(1),
-    reasoningEffort: z.string().min(1).transform(ReasoningEffortId).optional(),
+    reasoningEffort: z.string().min(1).transform(brandString<ReasoningEffortId>).optional(),
   }).strict(),
 }).strict()
 
@@ -114,7 +115,9 @@ export async function acquireGenerationSessionBinding(
     working?.release()
     model?.release()
     workspace.release()
-    void detachOwner?.()
+    void Promise.resolve().then(() => detachOwner?.()).catch((error: unknown) => {
+      ctx.logger.warn(`generation binding cleanup failed: ${String(error)}`)
+    })
   }
   try {
     model = agent.model.guard({ provider: binding.model.provider, model: binding.model.model,
@@ -128,6 +131,7 @@ export async function acquireGenerationSessionBinding(
       if (registry.get(agent.session.id) !== agent || sessions.get(agent.session.id) !== agent.session) throw new Error('generation Session owner changed')
       workspace.assertCurrent()
       heldModel.assertCurrent()
+      if (directory.get(agent.session) !== binding.workingDirectory) throw new Error('generation working directory changed')
     }
     active.addEventListener('abort', release, { once: true })
     detachOwner = agent.ctx.effect(() => release, 'generation.executionBinding')

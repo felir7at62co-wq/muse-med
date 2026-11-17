@@ -6,11 +6,73 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Locator, Page } from 'playwright'
 import { expect, vi, type MockInstance } from 'vitest'
+import type { RegionRect } from '@deepseek-ai/dsh-client-web/src/window-drag/regions.ts'
 
 /** The built page under test; `pnpm run test:web` rebuilds it before running. */
 export const DIST_INDEX = fileURLToPath(new URL('../dist/index.html', import.meta.url))
 
 export const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+
+/** A visible control, including controls that declare no native window region. */
+interface WindowControlBox extends Omit<RegionRect, 'draggable'> {
+  /** Sample points where the browser hit test reaches this control or its content. */
+  readonly hits: readonly (readonly [number, number])[]
+}
+
+/** Native region owners and optional control probes from one browser evaluation. */
+export interface CollectedWindowSurface {
+  readonly regions: readonly RegionRect[]
+  /** Empty when no control probe was requested. */
+  readonly controls: readonly WindowControlBox[]
+}
+
+/** Controls to probe alongside the native region owners. */
+interface WindowControlProbe {
+  readonly selector: string
+  /** Containers whose nested drag rows own their pixels independently of the container. */
+  readonly containersWithDragRows: string
+}
+
+/**
+ * Collect visible native window regions in DOM order and optionally probe controls in the same frame.
+ * Controls with computed `none` contribute no native rectangle but still receive hit-test probes.
+ * @param page - Page whose current layout is sampled.
+ * @param controlProbe - Control selectors; omit when only native regions are needed.
+ * @returns Native regions with unclipped bounds and independently sampled controls.
+ */
+export async function collectWindowSurface(page: Page, controlProbe?: WindowControlProbe): Promise<CollectedWindowSurface> {
+  return page.evaluate((probe) => {
+    const regions: RegionRect[] = []
+    const controls: WindowControlBox[] = []
+    for (const element of document.querySelectorAll('*')) {
+      const style = getComputedStyle(element)
+      const region = style.getPropertyValue('-webkit-app-region')
+      if (style.visibility === 'hidden' || style.display === 'none') continue
+      const rect = element.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) continue
+      const box = { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+      if (region === 'drag' || region === 'no-drag') regions.push({ ...box, draggable: region === 'drag' })
+      if (probe === undefined || !element.matches(probe.selector)) continue
+      const insetX = Math.min(2, rect.width / 4)
+      const insetY = Math.min(2, rect.height / 4)
+      const samples: [number, number][] = [
+        [rect.x + rect.width / 2, rect.y + rect.height / 2],
+        [rect.x + insetX, rect.y + insetY],
+        [rect.x + rect.width - insetX, rect.y + insetY],
+        [rect.x + insetX, rect.y + rect.height - insetY],
+        [rect.x + rect.width - insetX, rect.y + rect.height - insetY],
+      ]
+      const hits = samples.filter(([x, y]) => {
+        const top = document.elementFromPoint(x, y)
+        const strip = top?.closest('[data-window-drag]')
+        if (element.matches(probe.containersWithDragRows) && strip != null && element.contains(strip)) return false
+        return top !== null && (top === element || element.contains(top))
+      })
+      controls.push({ ...box, hits })
+    }
+    return { regions, controls }
+  }, controlProbe)
+}
 
 /**
  * Read the `meta.description` an experimental bundle's plugin page shows for one locale.
@@ -24,6 +86,36 @@ export function experimentalBundleDescription(bundle: string, locale: string): s
 }
 
 const installationRequire = createRequire(join(REPO_ROOT, 'apps/cli/package.json'))
+
+/**
+ * Check the shared warning title, theme color, and compact body alignment.
+ * @param dialog - visible warning dialog under test.
+ */
+export async function assertWarningDialogLayout(dialog: Locator): Promise<void> {
+  const layout = await dialog.evaluate((element) => {
+    const title = element.querySelector('h2')!
+    const icon = title.querySelector('svg')!
+    const paragraph = element.querySelector('p')!
+    const titleRect = title.getBoundingClientRect()
+    const bodyRect = paragraph.getBoundingClientRect()
+    const color = getComputedStyle(icon).color
+    const previous = icon.style.color
+    icon.style.color = 'var(--dsw-alias-state-warn-primary)'
+    const warningColor = getComputedStyle(icon).color
+    icon.style.color = previous
+    return {
+      decorative: icon.getAttribute('aria-hidden'),
+      matchesWarningColor: color === warningColor,
+      leftGap: Math.abs(bodyRect.left - titleRect.left),
+      topGap: bodyRect.top - titleRect.bottom,
+    }
+  })
+  expect(layout.decorative).toBe('true')
+  expect(layout.matchesWarningColor).toBe(true)
+  expect(layout.leftGap).toBeLessThan(1)
+  expect(layout.topGap).toBeGreaterThanOrEqual(0)
+  expect(layout.topGap).toBeLessThanOrEqual(16)
+}
 
 /**
  * The built copy of a workspace package, as the dsh installation resolves it.
@@ -73,9 +165,15 @@ export const PLUGIN_TOGGLE_SETTLE_MS = 10_000
  *
  * The pinned clock advances with real elapsed time, so turn deadlines, session
  * ordering, and durations keep running.
+ * @param sharedOrigin - optional native `performance.timeOrigin + performance.now()`
+ * anchor shared with a browser; without it, this call starts its own fixture clock.
  * @returns the installed `Date.now` spy, restored by the caller in teardown.
  */
-export function pinHostClock(): MockInstance<typeof Date.now> {
+export function pinHostClock(sharedOrigin?: number): MockInstance<typeof Date.now> {
+  if (sharedOrigin !== undefined) {
+    return vi.spyOn(Date, 'now').mockImplementation(() =>
+      WEB_FIXTURE_TIME + Math.floor(performance.timeOrigin + performance.now() - sharedOrigin))
+  }
   const startedAt = performance.now()
   return vi.spyOn(Date, 'now').mockImplementation(() =>
     WEB_FIXTURE_TIME + Math.floor(performance.now() - startedAt))
@@ -90,17 +188,21 @@ export function pinHostClock(): MockInstance<typeof Date.now> {
  * keep running even when the Host's Date.now is also pinned; Playwright's full
  * clock derives timer history from that Host clock and cannot provide this isolation.
  * @param page - page whose clock is pinned.
+ * @param sharedOrigin - optional native epoch anchor shared with the Host; it
+ * preserves elapsed time across reloads. Without it, each document starts its own clock.
  * @returns the disposer that restores the current document's native Date. Page
  * closure releases the navigation initializer; call the disposer in teardown.
  */
-export async function pinBrowserClock(page: Page): Promise<() => Promise<void>> {
-  const install = (time: number): void => {
+export async function pinBrowserClock(page: Page, sharedOrigin?: number): Promise<() => Promise<void>> {
+  const install = ({ time, origin }: { time: number; origin?: number }): void => {
     const state = globalThis as typeof globalThis & { __dshFixtureNativeDate?: DateConstructor }
     if (state.__dshFixtureNativeDate !== undefined) return
     const NativeDate = Date
     state.__dshFixtureNativeDate = NativeDate
     const startedAt = performance.now()
-    const now = (): number => time + Math.floor(performance.now() - startedAt)
+    const now = origin === undefined
+      ? (): number => time + Math.floor(performance.now() - startedAt)
+      : (): number => time + Math.floor(performance.timeOrigin + performance.now() - origin)
     globalThis.Date = new Proxy(NativeDate, {
       construct: (target, args, newTarget) => Reflect.construct(target, args.length === 0 ? [now()] : args, newTarget) as Date,
       apply: () => new NativeDate(now()).toString(),
@@ -111,8 +213,9 @@ export async function pinBrowserClock(page: Page): Promise<() => Promise<void>> 
       },
     })
   }
-  await page.addInitScript(install, WEB_FIXTURE_TIME)
-  await page.evaluate(install, WEB_FIXTURE_TIME)
+  const clock = { time: WEB_FIXTURE_TIME, ...sharedOrigin === undefined ? {} : { origin: sharedOrigin } }
+  await page.addInitScript(install, clock)
+  await page.evaluate(install, clock)
   return async () => {
     if (page.isClosed()) return
     try {

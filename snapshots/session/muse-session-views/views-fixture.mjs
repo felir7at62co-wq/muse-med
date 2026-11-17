@@ -2,9 +2,12 @@
 import assert from 'node:assert/strict'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { readViewReply } from '../../../third_party/plugins/deep-view/src/core/reply.js'
+import { createRequire } from 'node:module'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
+
+const profileRequire = createRequire(join(process.cwd(), '.dsh/profiles/headless/package.json'))
+const { readViewReply } = await import(pathToFileURL(profileRequire.resolve('deep-view/core')).href)
 
 const { loadOverlayPatches } = await importSnapshotModule(new URL('../../../packages/boot/app-boot/src/index.ts', import.meta.url),
   new URL('../../../packages/boot/app-boot/lib/index.js', import.meta.url))

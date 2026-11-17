@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type {
   ChatConversationViewNode, ChatSnapshot,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -7,7 +8,8 @@ import type {
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   ConversationNodeAssembler,
-  type ConversationNodeDefinition,
+  ConversationEventRegistry,
+  type ConversationNodeDefinitionInput,
   type ConversationViewDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
@@ -35,7 +37,7 @@ import type {
   AssistantChatData, ChatNode, ManualCompactionChatData, RetryChatData, ToolChatData, TurnTailChatData,
 } from '../src/client/contract/chat-nodes.ts'
 
-const DEFINITIONS: readonly ConversationNodeDefinition[] = [
+const DEFINITIONS: readonly ConversationNodeDefinitionInput[] = [
   nextStepInboxDefinition,
   nextTurnInboxDefinition,
   messageDefinition,
@@ -54,14 +56,13 @@ const DEFINITIONS: readonly ConversationNodeDefinition[] = [
   turnTailDefinition,
 ]
 
-class TestEventDefinitions {
-  entries(): readonly ConversationNodeDefinition[] {
-    return DEFINITIONS
-  }
-
-  fallbackEntry(): ConversationNodeDefinition {
-    return unknownFallbackDefinition
-  }
+function eventDefinitions(): ConversationEventRegistry {
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  const registry = new ConversationEventRegistry(ctx)
+  for (const definition of DEFINITIONS) registry.register(definition)
+  registry.registerFallback(unknownFallbackDefinition)
+  return registry
 }
 
 class TestViewDefinitions {
@@ -153,7 +154,7 @@ function packedInputs(entries: readonly SessionLiveEventEntry[]): SessionEventLi
 }
 
 function assembler(entries: readonly SessionEventLikeEntry[] = [], hasMore = false): ConversationNodeAssembler {
-  const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
+  const value = new ConversationNodeAssembler(eventDefinitions(), new TestViewDefinitions())
   value.replaceWindow(entries, hasMore)
   value.activateTarget('chat')
   return value
@@ -237,7 +238,34 @@ function toolResult(callId: string, text: string, isError = false) {
 }
 
 describe('built-in conversation node Definitions', () => {
-  it.each(['replay', 'live', 'prepend'] as const)('keeps developer tool changes visible while hiding ordinary Context (%s)', (mode) => {
+  it('keeps unrelated business matchers off live Assistant dispatch', () => {
+    const ctx = new Context()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    const registry = new ConversationEventRegistry(ctx)
+    const handlers = [
+      nextStepInboxDefinition, nextTurnInboxDefinition, messageDefinition,
+      requestPromptDefinition(inspectRequestPrompt), commandDefinition,
+      compactionDefinition, retryDefinition, turnErrorDefinition, turnMaxTokensDefinition,
+    ].flatMap((definition) => {
+      const match = definition.match
+      if (typeof match === 'function') {
+        const handler = vi.fn(match)
+        registry.register({ ...definition, match: handler })
+        return [handler]
+      }
+      const entries = Object.entries(match).map(([type, handler]) => [type, vi.fn(handler)] as const)
+      registry.register({ ...definition, match: Object.fromEntries(entries) })
+      return entries.map(([, handler]) => handler)
+    })
+    const value = new ConversationNodeAssembler(registry, new TestViewDefinitions())
+    value.replaceWindow([], false)
+    for (let seq = 1; seq <= 64; seq++) {
+      appendAssistantChunk(value, seq, { type: 'text-delta', index: 0, text: 'streamed reply' })
+    }
+    for (const handler of handlers) expect(handler).not.toHaveBeenCalled()
+  })
+
+  it.each(['replay', 'live', 'prepend'] as const)('shows ordinary Context and developer tool changes in Chat order (%s)', (mode) => {
     const entries = [
       at(0, 'request/header', { reason: 'initial', header: {
         config: { provider: 'test', model: 'test' },
@@ -266,11 +294,11 @@ describe('built-in conversation node Definitions', () => {
     }
     const current = snapshot(value)
     const visible = current.order.map(key => current.nodes.get(key))
-    expect(visible.map(candidate => candidate?.kind)).toEqual(['context'])
-    expect(visible[0]?.data).toMatchObject({
+    expect(visible.map(candidate => candidate?.kind)).toEqual(['context', 'context'])
+    expect(visible[0]?.data).toMatchObject({ kind: 'context', content: [{ type: 'text', text: 'workspace context' }] })
+    expect(visible[1]?.data).toMatchObject({
       kind: 'context', content: [{ type: 'tool-addition', toolName: 'search' }, { type: 'tool-removal', toolName: 'old_search' }],
     })
-    expect(current.nodes.values().filter(candidate => candidate.kind === 'context')).toHaveLength(2)
   })
 
   it('preserves tool removals without a loaded header', () => {
@@ -379,7 +407,7 @@ describe('built-in conversation node Definitions', () => {
     expect(hasAssistantReplyContent([{ kind: 'other', block: { type: 'future' } }])).toBe(true)
   })
 
-  it.each(['replay', 'live', 'prepend'] as const)('retains permission and Context data outside visible Chat order (%s)', (mode) => {
+  it.each(['replay', 'live', 'prepend'] as const)('retains permission data outside visible Chat order and shows Context (%s)', (mode) => {
     const entries = [
       at(1, 'command/run', { commandId: 'permission-1', name: 'permission', source: { kind: 'user' } }),
       at(2, 'command/done', { commandId: 'permission-1', kind: 'success', text: 'Granted' }),
@@ -407,13 +435,13 @@ describe('built-in conversation node Definitions', () => {
     }
     const current = snapshot(value)
     const visible = current.order.map(key => current.nodes.get(key))
-    expect(visible.map(candidate => candidate?.kind)).toEqual(['command', 'turn-process'])
+    expect(visible.map(candidate => candidate?.kind)).toEqual(['command', 'turn-process', 'context'])
     expect(visible[0]?.data).toMatchObject({ name: 'plan' })
+    expect(visible[2]?.data).toMatchObject({ content: [{ type: 'text', text: 'workspace context' }] })
     expect(current.nodes.values().filter(candidate => candidate.kind === 'command')).toHaveLength(2)
     expect(node(current, 'command')?.data).toMatchObject({
       name: 'permission', outcome: { kind: 'success', text: 'Granted' },
     })
-    expect(node(current, 'context')?.data).toMatchObject({ content: [{ type: 'text', text: 'workspace context' }] })
   })
 
   it('projects one reversible process window before the finalized answer', () => {
@@ -564,7 +592,7 @@ describe('built-in conversation node Definitions', () => {
     ])
     const opening = snapshot(value)
     expect(opening.order.map(key => opening.nodes.get(key)?.kind)).toEqual([
-      'user', 'turn-process',
+      'user', 'turn-process', 'context',
     ])
     expect(node(opening, 'context')?.data).toMatchObject({ content: [{ type: 'text', text: 'runtime context' }] })
 
@@ -574,7 +602,7 @@ describe('built-in conversation node Definitions', () => {
     value.flush()
     const running = snapshot(value)
     expect(running.order.map(key => running.nodes.get(key)?.kind)).toEqual([
-      'user', 'turn-process', 'assistant-step',
+      'user', 'turn-process', 'context', 'assistant-step',
     ])
 
     value.append(at(6, 'agent/inbox/spliced', {
@@ -595,7 +623,7 @@ describe('built-in conversation node Definitions', () => {
     const current = snapshot(value)
 
     expect(current.order.map(key => current.nodes.get(key)?.kind)).toEqual([
-      'user', 'turn-process', 'steering', 'assistant-step', 'assistant-step', 'turn-tail',
+      'user', 'turn-process', 'context', 'steering', 'assistant-step', 'assistant-step', 'turn-tail',
     ])
   })
 
@@ -625,6 +653,39 @@ describe('built-in conversation node Definitions', () => {
       expect(running.order.map(key => running.nodes.get(key)?.kind)).toEqual([kind, 'turn-process', 'assistant-step'])
     },
   )
+
+  it.each(['replay', 'live', 'prepend'] as const)('presents empty retry receipts through %s while retaining other input', (mode) => {
+    const retry = { id: 'empty-retry', role: 'user', content: [], source: { kind: 'retry' } }
+    const before = [
+      at(1, 'agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [retry] }),
+      at(2, 'turn/start', { turn: 1 }),
+      at(3, 'agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
+      at(4, 'step/start', { turn: 1, step: 1 }),
+    ]
+    const message = at(5, 'user/message', retry, { surfaceOp: 'append' })
+    const value = assembler(mode === 'replay' ? [...before, message] : mode === 'prepend' ? [message] : [], mode === 'prepend')
+    if (mode === 'live') for (const entry of [...before, message]) value.append(entry)
+    if (mode === 'prepend') value.prepend(before, false)
+    value.flush()
+    const current = snapshot(value)
+    const receipt = node(current, 'turn-trigger')
+    expect(receipt).toMatchObject({ anchorSeq: 5, groupTree: 'input', data: { content: [], source: { kind: 'retry' } } })
+    expect(current.order).toContain(receipt?.key)
+    expect(node(current, 'unknown')).toBeUndefined()
+
+    value.append(at(6, 'user/message', { ...retry, id: 'retry-with-content',
+      content: [{ type: 'text', text: 'retained context' }],
+    }, { surfaceOp: 'append' }))
+    value.append(at(7, 'user/message', { ...retry, id: 'ordinary-empty', source: { kind: 'user' } }, { surfaceOp: 'append' }))
+    value.append(at(8, 'developer/message', { turn: 1, step: 1,
+      message: { ...retry, id: 'developer-empty', role: 'developer' },
+    }, { surfaceOp: 'append' }))
+    value.flush()
+    expect(node(snapshot(value), 'context')?.data).toMatchObject({ content: [{ type: 'text', text: 'retained context' }] })
+    expect(node(snapshot(value), 'user')?.data).toMatchObject({ content: [], source: { kind: 'user' } })
+    expect(snapshot(value).nodes.values().find(candidate => candidate.anchorSeq === 8)?.data)
+      .toMatchObject({ content: [], source: { kind: 'retry' } })
+  })
 
   it.each(['replay', 'live', 'prepend'] as const)('classifies waking Inbox messages through %s', (mode) => {
     const notice = { ...textMessage('notice', 'scheduled work'), source: { kind: 'schedule' } }
@@ -667,7 +728,8 @@ describe('built-in conversation node Definitions', () => {
       const current = snapshot(value)
       const input = node(current, test.waking ? 'turn-trigger' : 'context')
       expect(input, test.name).toMatchObject({ data: { waking: test.waking, source: { kind: 'schedule' } } })
-      expect(current.order.includes(input!.key), test.name).toBe(test.waking)
+      expect(current.order.includes(input!.key), test.name).toBe(true)
+      expect(node(current, test.waking ? 'context' : 'turn-trigger'), test.name).toBeUndefined()
     }
   })
 
@@ -973,7 +1035,7 @@ describe('built-in conversation node Definitions', () => {
     ])
   })
 
-  it('keeps Process before Assistant work and retains excluded Context as answer eligibility changes', () => {
+  it('keeps Process before Context and Assistant work as answer eligibility changes', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'user/message', {
@@ -987,7 +1049,7 @@ describe('built-in conversation node Definitions', () => {
     ])
     const running = snapshot(value)
     expect(running.order.map(key => running.nodes.get(key)?.kind)).toEqual([
-      'turn-process', 'assistant-step',
+      'turn-process', 'context', 'assistant-step',
     ])
     expect(node(running, 'context')?.data).toMatchObject({ content: [{ type: 'text', text: 'runtime context' }] })
 
@@ -999,7 +1061,7 @@ describe('built-in conversation node Definitions', () => {
     value.flush()
     const answered = snapshot(value)
     expect(answered.order.map(key => answered.nodes.get(key)?.kind)).toEqual([
-      'turn-process', 'assistant-step', 'assistant-step',
+      'turn-process', 'context', 'assistant-step', 'assistant-step',
     ])
     expect(node(answered, 'context')?.data).toMatchObject({ content: [{ type: 'text', text: 'runtime context' }] })
 
@@ -1011,7 +1073,7 @@ describe('built-in conversation node Definitions', () => {
     value.flush()
     const retried = snapshot(value)
     expect(retried.order.map(key => retried.nodes.get(key)?.kind)).toEqual([
-      'turn-process', 'assistant-step', 'model-retry',
+      'turn-process', 'context', 'assistant-step', 'model-retry',
     ])
     expect(node(retried, 'context')?.data).toMatchObject({ content: [{ type: 'text', text: 'runtime context' }] })
   })
@@ -1051,12 +1113,15 @@ describe('built-in conversation node Definitions', () => {
     expect(processSource.getSnapshot()?.spec.answerAnchorSeq).toBe(44)
   })
 
-  it('reuses the open Turn-process projection across continuing Assistant chunks', () => {
+  it.each(['text-delta', 'reasoning-delta'] as const)('reuses the open Turn-process projection across continuing %s chunks', (type) => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'step/start', { turn: 1, step: 1 }),
       at(3, 'assistant/live-chunk', {
-        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'first' },
+        turn: 1, step: 1, chunk: { type, index: 0, text: '  ' },
+      }),
+      at(4, 'assistant/live-chunk', {
+        turn: 1, step: 1, chunk: { type, index: 0, text: 'first' },
       }),
     ])
     const before = snapshot(value)
@@ -1064,13 +1129,14 @@ describe('built-in conversation node Definitions', () => {
     const processData = before.timeline.turns.get(1)?.data.get('turn-process')
     const assistantNode = node(before, 'assistant-step')
     if (assistantNode === undefined) throw new Error('Assistant node is unavailable')
+    expect(assistantNode.anchorSeq).toBe(4)
     const processSource = before.nodes.processSource(assistantNode.key)
     const processPresentation = processSource.getSnapshot()
     let processNotifications = 0
     processSource.subscribe(() => { processNotifications++ })
 
-    value.append(at(4, 'assistant/live-chunk', {
-      turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: ' second' },
+    value.append(at(5, 'assistant/live-chunk', {
+      turn: 1, step: 1, chunk: { type, index: 0, text: ' second' },
     }))
     value.flush()
 
@@ -1455,6 +1521,45 @@ describe('built-in conversation node Definitions', () => {
     expect(replacement?.key).toBe(visible?.key)
     expect(replacement?.visibility).toBe('visible')
     expect(replacement?.data).toMatchObject({ blocks: [{ kind: 'text', text: 'Replacement reply' }] })
+  })
+
+  it.each(['abandoned', 'settled'] as const)('refreshes the completed Turn footer after an attempt is %s', (outcome) => {
+    const attemptId = LlmAttemptId('closed-turn-attempt')
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+    ])
+    value.append({
+      type: 'transient',
+      event: {
+        type: 'assistant/live-chunk', seq: 2.5, time: 1_030,
+        data: {
+          attemptId, turn: 1, step: 1,
+          chunk: { type: 'text-delta', index: 0, text: 'Unsettled reply' },
+        },
+      },
+    })
+    value.append(at(4, 'step/end', { turn: 1, step: 1 }))
+    value.append(at(5, 'turn/end', { turn: 1, reason: { kind: 'completed' } }))
+    value.flush()
+    const before = node(snapshot(value), 'turn-tail')
+    expect(before?.data).toMatchObject({ closing: { blocks: [{ kind: 'text', text: 'Unsettled reply' }] } })
+
+    if (outcome === 'settled') {
+      const settlement = at(3, 'assistant/message', {
+        turn: 1, step: 1, message: assistantMessage('closed-turn-answer', 'Settled reply'),
+      }, { surfaceOp: 'append' })
+      if (settlement.event.type !== 'assistant/message') throw new Error('expected Assistant message')
+      value.settleAssistant(attemptId, { type: 'event', event: settlement.event })
+    } else value.settleAssistant(attemptId)
+    value.flush()
+
+    const after = node(snapshot(value), 'turn-tail')
+    expect(after?.key).toBe(before?.key)
+    expect(after?.data).toMatchObject(outcome === 'settled'
+      ? { closing: { blocks: [{ kind: 'text', text: 'Settled reply' }] }, branchUnavailable: false }
+      : { closing: null, branchUnavailable: true })
+    expect(node(snapshot(value), 'assistant-step')?.visibility).toBe(outcome === 'settled' ? 'visible' : 'hidden')
   })
 
   it('omits first-token metrics after live settlement and after reopening the same history', () => {
@@ -2188,6 +2293,7 @@ describe('built-in conversation node Definitions', () => {
     expect(current.order.map(key => current.nodes.get(key)?.kind)).toEqual([
       'user',
       'turn-process',
+      'context',
     ])
     expect(node(current, 'context')?.data).toMatchObject({ content: [{ type: 'text', text: 'runtime facts' }] })
     expect(node(current, 'system-prompt')?.anchorSeq).toBe(1)
@@ -2376,14 +2482,14 @@ describe('built-in conversation node Definitions', () => {
     }
     const promptKey = node(snapshot(value), 'system-prompt')?.key
 
-    expect(kinds()).toEqual(['user', 'turn-process'])
+    expect(kinds()).toEqual(['user', 'turn-process', 'context'])
 
     value.append(at(7, 'assistant/live-chunk', {
       turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
     }))
     value.flush()
     expect(kinds()).toEqual([
-      'user', 'turn-process', 'assistant-step',
+      'user', 'turn-process', 'context', 'assistant-step',
     ])
 
     value.append(at(8, 'step/end', { turn: 1, step: 1 }))
@@ -2396,7 +2502,7 @@ describe('built-in conversation node Definitions', () => {
     value.flush()
 
     expect(kinds()).toEqual([
-      'user', 'turn-process', 'assistant-step', 'assistant-step', 'turn-tail',
+      'user', 'turn-process', 'context', 'assistant-step', 'assistant-step', 'turn-tail',
     ])
     expect(node(snapshot(value), 'system-prompt')?.key).toBe(promptKey)
     expect(node(snapshot(value), 'context')?.data).toMatchObject({ content: [{ type: 'text', text: 'runtime facts' }] })

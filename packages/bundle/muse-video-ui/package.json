@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-muse-video-ui",
-  "description": "Optional Muse conversation bubbles, video timeline and reversible collection animation",
-  "version": "0.2.2-rc.1",
+  "description": "Optional Muse chat video cards, shot timelines and conversation video history",
+  "version": "0.2.2-rc.2",
   "type": "module",
   "license": "MIT",
   "publishConfig": {
@@ -25,7 +25,10 @@
     "locale/*.json",
     "lib/index.js",
     "cordis.patch.yml",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
+    "src"
   ],
   "dsh": {
     "bundle": {

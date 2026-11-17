@@ -7,9 +7,9 @@ kind: "package-bundle"
 
 [English](README.md) | 中文
 
-模型目录支持 task_type 1（视频）、2（生图）、10（去字幕）和20（转高清）。单张及批量生图可用目录中的 `image_model_id`、`image_platform_id`、`image_resolution` 与可选的精确规格 `image_spec_id`，显式模型选择不继承其他模型的部署固定行。转高清接受 model_id、platform_id 与 resolution，三项均省略时沿用 SeedVR2。新增去字幕模型接受实时 model_id 及显式 erase_mode（automatic 或 region）。这些选择保留预算、身份与幂等检查；目录可用及请求准备成功不代表实际付费生成成功。
+模型目录支持 task_type 1（视频）、2（生图）、10（去字幕）和20（转高清）。单张及批量生图可用目录中的 `image_model_id`、`image_platform_id`、`image_resolution` 与可选的精确规格 `image_spec_id`，显式模型选择不继承其他模型的部署固定行。转高清接受 model_id、platform_id 与 resolution；省略模型时以 1080p 使用 MediaKit，SeedVR2 或其他实时模型须显式指定。新增去字幕模型接受实时 model_id 及显式 erase_mode（automatic 或 region）。这些选择保留预算、身份与幂等检查；目录可用及请求准备成功不代表实际付费生成成功。
 
-每次新转高清都读取 task_type 20 实时目录，请求与预算预留绑定同一模型、平台和计价行。单位为 `元/条` 的正数 `unitPrice` 生成向上取整到分的人民币预留；缺少价格或单位不受支持时，仍须有既有的操作者批准估算。无效价格或无法读取目录时停止提交。已有记录的键不会重复读取目录或发送付费请求。
+每次新转高清都读取 task_type 20 实时目录，请求与预算预留绑定同一模型、平台和计价行。单位为 `元/条` 的正数 `unitPrice` 生成向上取整到分的人民币预留。MediaKit 所列的 `元/分钟(1系数)` 以价格乘以所选规格的系数，再乘以源片开始计费的每一分钟。缺少价格、单位不受支持或系数无法读取时，仍须有既有的操作者批准估算。无效价格或无法读取目录时停止提交。已有记录的键不会重复读取目录或发送付费请求。
 
 Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary`、`productionCard` 和 `publishProductionCard` 复用原生免费写入；模型入口由[镜头脚本工具](../../drama/tool-shot-script/README.zh.md#muse-batch-production)负责。可读的旧卡片可以缺少集号或排序元数据，版本摘要保留其未设置状态，不修改原卡。仅当提示词已无图片标记时，图片选择才可显式为空；这只清除卡片引用，保留音频，不删除父资产。
 
@@ -30,6 +30,25 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 <a id="use-this-package"></a>
 ## 使用本包
+
+### 上传剧本与创建项目
+
+`jubian_manuscript` 读取当前登记选项和稿件身份，原样上传本地 DOC/DOCX/UTF-8 TXT 对象，登记 Word 剧本与原文文件，并通过 `start_produce` 创建绑定稿件的手动项目。`jubian_project` 创建或读取手动项目，并查询原操作回执。版权、原文文件、团队和项目设置须明确提供。上传、登记和项目创建分别报告；项目回读须核对精确 ID 和稿件绑定。`start_produce` 本身已经创建项目，同一请求不要再调用 `create`。这些操作不会启动 AI 解析或视频生成。
+
+内容项目创建前检查平台是否已有同稿件、同工作台的关联。在同一账本内，两个创建入口共用持久关联锁：已有提交会阻止不同 key 再建，即使原结果未知。此保护不协调不同账本目录或电脑。
+
+每次上传、登记和创建均使用稳定的 `idempotency_key` 与持久业务回执。结果未知时保留原 key，通过 `jubian_project operation` 查询；回放不会重复提交原写入。上传回放标识原文件哈希，不表示后续本地修订也已上传。`documentUploadMaxBytes` 默认将本地文档读取限制为 33554432 字节。`documentUploadTimeoutMs` 默认将目标发现与传输限制为 120000 毫秒；停止工具会取消网络请求，并保留已提交但结果未知的上传供对账。对象上传支持 TXT，但稿件登记接受 Word。[项目上传 Skill](../../drama/skills/skills/jubian-project-upload/SKILL.md) 说明账号与文件流程。
+
+<a id="share-an-existing-project"></a>
+### 分享已有项目
+
+`jubian_project share_targets` 读取可选用户与部门，姓名不能代替精确接收人 ID。`shares` 读取提供方可见的项目分享记录。`share_preview` 冻结选定项目、操作者、接收人、当前分享与请求。用户确认具体接收人与目标后，`share_apply` 要求原预览 ID、指纹、`confirm: true` 和稳定的 `idempotency_key`。账号、目录身份或分享基线改变时停止提交。一次请求链固定凭证快照，不在预览或结果中保存 token。
+
+分享目标 1 是漫剧视频、2 是无限画布，不代表只读或编辑权限。工具不创建公开链接。已有接收人类型混合、其他目标、无法读取的记录和不完整清单会阻止提交。请求受理和回读核实分别报告：只有看到指定接收人及保留的可见记录时，才报告已核实。结果未知保留原 key 供 `operation` 查询，并阻止对该未解决项目操作换本地 key 再发。
+
+提供方可见清单不是全局访问权限审计。本地锁不协调其他电脑，提供方未提供条件写入保证。离线夹具验证已观察到的官方前端请求；真实账号分享、不可见授权的保留与接收人访问仍须在目标账号实际验证。工具不删除已有分享，不自动重试提交。
+
+`projectSharePageSize`（100，范围 1–1000）和 `projectSharePageLimit`（20，范围 1–100）限制单次项目或分享清单扫描。`projectShareMaxDirectoryItems`（10000，范围 1–100000）限制接收人解析，`projectShareMaxPreviewBytes`（2097152，范围 1024–33554432）限制冻结预览，`projectShareMaxResultChars`（24000，范围 2048–1000000）限制查询结果。达到限制不能形成可安全提交的基线。
 
 在需要读取或改变剧变制作的任意 preset 里挂载这一行，然后把任务交给模型；工具会在描述中说明各自的副作用。
 
@@ -52,7 +71,7 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 通过当前会话聊天框菜单选择视频模型和分辨率。
 
-配置 `sessionVideoSelection: true` 会增加会话视频模型／分辨率菜单与 `jubian_video_model` 提问工具。菜单沿用语言模型选择器的不透明、受窗口高度限制的样式：“模型／分辨率”入口进入同一面板内的可滚动列表，按通道分组并标记当前选择。会话聊天框挂载时提前读取账号模型目录；打开菜单时保留已有选项并刷新，重叠读取共用一个请求。只有尚无目录数据时才在已打开的菜单内部显示加载提示，聊天框与按钮位置保持稳定。可选 `defaultVideoModel` 用 `modelId`、`platformId` 和 `resolution` 指定未保存选择的会话默认值；Muse 配置为 FANG_ZHOU 通道的 Seedance 2.5、480p。读取选择工具或准备新生成时，核对实时目录并只记录一次默认值，已有选择始终保留；默认值不可用时报告错误，用户仍可明确选择其他可用规格。读取项目不替用户选模型，也不修改项目默认值。用户确认后记录 `jubian/video-selection`，在下一个正常模型步骤前注入带来源的上下文消息；不会单独发起模型请求或替换系统提示词。动态上下文在压缩或恢复后重建最新选择。
+配置 `sessionVideoSelection: true` 会增加会话视频模型／分辨率菜单与 `jubian_video_model` 提问工具。菜单沿用语言模型选择器的不透明、受窗口高度限制的样式：“模型／分辨率”入口进入同一面板内的可滚动列表，按通道分组并标记当前选择。会话聊天框挂载时提前读取账号模型目录；打开菜单时保留已有选项并刷新，重叠读取共用一个请求。只有尚无目录数据时才在已打开的菜单内部显示加载提示，聊天框与按钮位置保持稳定。可选 `defaultVideoModel` 用 `modelId`、`platformId` 和 `resolution` 指定未保存选择的会话默认值；Muse 配置为 FZ_HUAN_CHANG 通道的 Seedance 2.5（`doubao-seedance-2.5`）、480p。该通道的短模型 ID 保留已核实的 Seedance 时长限制，不改写目录身份。读取选择工具或准备新生成时，核对实时目录并只记录一次默认值，已有选择始终保留；默认值不可用时报告错误，用户仍可明确选择其他可用规格。读取项目不替用户选模型，也不修改项目默认值。用户确认后记录 `jubian/video-selection`，在下一个正常模型步骤前注入带来源的上下文消息；不会单独发起模型请求或替换系统提示词。动态上下文在压缩或恢复后重建最新选择。
 
 没有已存选择的全新子代理，在创建时记录父级当前视频选择，并使用自己的修订序号。继承对话的子代理保留已有选择，不重复追加事件；子代理已有选择不会被替换。父级切换只影响新建子代理，子代理后续选择不会修改父级。父级未选择时，子代理沿用正常的配置默认值流程。这些记录和上下文注入不读取目录，也不发起付费请求。
 
@@ -273,6 +292,8 @@ inherited process environment (read-only, highest)
 
 原通知 ID 与持久 inbox claim 在重启后区分排队、已领取与已完成的输入。尚未送入模型请求的输入，在重新核实原绑定后可以恢复；已经送入请求但结果不明的输入保留，不自动重放。用户取消和续聊失败需要复核。生产者卸载前先暂停自己排队的自动输入，再释放守卫；重载须重新核实原绑定才能恢复。提供方成功只证明任务与子结果身份，不代表画面、语音内容或交付验收。下载、审查和组装继续沿用原 key。
 
+所有权核实要求项目与预览使用绝对路径，且原普通 Session 仍可读取；子代理 Session 不能提供该模型身份。送达流程在解析 Agent 后及重新核实待续聊绑定后再次检查所有权。恢复通知投影时，持久记录中的领取、结算或 inbox 拼接关系不一致，会阻止继续执行。未取得执行绑定的原生通知保留在队列中，不得进入模型请求。
+
 提交返回已受理的**本次操作**任务 ID 后，调用 `jubian_watch({ task_id, stage })`；不要用源视频任务 ID 代替。`task_id` 必须是正安全整数，`stage` 为 `generate`、`upscale` 或 `erase_subtitle`。接纳后立即返回 `{ job_id, task_id, stage, status: "running" }`。缺少 `jobs` 只会使本工具失败；接纳任务还要求有已挂载的任务控制器。观察器只读同一任务及其分页子结果，不写账本，也不重投收费请求。
 
 完成要求本次操作以所请求类型成功，且子结果列表完整、身份唯一并全部属于该操作。每个子项都必须成功且能确认输出属于请求阶段；属于本次生成的原始文件无需下游阶段标记。缺失 ID、未知阶段、不完整总数、源任务的旧成功状态和历史高清标记都不能确认完成。这些情况保持未验证，直到配置期限到达而使任务失败。提供方失败或读取失败也会使观察任务失败；都不授权重新收费提交。
@@ -376,7 +397,7 @@ voice_reference_pending 与协调等待不同，reason_code 为 asset-missing、
 
 统一角色声音时，加载[声线参考技能](../../drama/skills/skills/tweet-drama-voice-continuity/SKILL.md)。`jubian_asset upload_audio` 接受 `audio_path`，测量实际 16 位 PCM WAV 样本，在上传前拒绝超过 15 秒的文件，返回 `materialUrl`、`audioDuration`、SHA-256 和 `duration_verified: true`。它不创建资产或生成任务。`select_assets` 更新图片选源时保留已有上传音频；音频有独立组内顺序，无需图片父资产 ID。原生准备冻结这些参考，分别报告已保存时长与字节验证状态；未知远端时长保持未核实。提交的音频必须在子结果有序 `audioMaterials[].audioUrl` 中回读一致，才能认领任务。参考错误时修复并保存原分镜。
 
-`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。它识别有标签的对白和旁白、引用或声明的说话人台词、明确人物列表中的角色台词，以及角色名下的引号台词。具名角色的台词也可位于带编号的镜头描述内部；有标签的台词字段可以在同一行的非空场景或画面文字值之后用空格分隔。嵌套的场景、画面文字和负面字段、引号内的道具文字及空台词占位不算发声。未识别的发声仍须人工核对。这是免费预检提示，不会自动生成、绑定或改写台词，也不批准提交或证明实际录音合格。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
+`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。它识别有标签的对白和旁白、引用或声明的说话人台词、明确人物列表中的角色台词，以及角色名下的引号台词。姓名台词支持括号内的表演指示和编号镜头内的句末边界；画外心声即使不动嘴也算发声。有标签的台词字段可以在同一行的非空场景或画面文字值之后用空格分隔。明确不发声的指示、动作描述、嵌套场景、画面文字和负面字段、引号内的道具文字及空台词占位不算发声。句末边界或明确的发声字段可结束动作描述；单独的句末边界不能结束画面文字或负面字段，发声标签也不能结束负面字段。未识别的发声仍须人工核对。这是免费预检提示，不会自动生成、绑定或改写台词，也不批准提交或证明实际录音合格。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
 
 主体视频由提供方从一次 `isGenerate=1` 的分镜 `PUT` 创建；直接的建任务 `POST` 不会保留主体身份。生产证据把这条差异钉死了：任务 `335343` 来自分镜 `PUT`，七项身份全部保留并成功；`335470` 来自 direct `POST /admin/aigc/video/task/create`，丢失 `assetId`/`materialName` 并失败。因此本包不支持那条路径，也没有任何方法调用它。
 
@@ -491,7 +512,7 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 
 ### 提交异步阶段
 
-`upscale` 将源身份与 SeedVR2 选择字段提交到 `/aigc/storyboard/hdConversion`，不发送 `videoResolution` 字段。任何端点（包括错误路径）产生的 `unknown` 记录，在路由修复后仍受同一账本 key 保护。考虑再次提交前必须核对提供方任务与费用；修改路径不构成换新 key 的授权（[路由证据](../../../.agents/notes/implemented/bug-fix/2026-09-21-jubian-upscale-route.zh.md)）。
+`upscale` 将源身份与从实时目录解析出的选择字段（未指定模型时为 MediaKit）提交到 `/aigc/storyboard/hdConversion`，不发送 `videoResolution` 字段。任何端点（包括错误路径）产生的 `unknown` 记录，在路由修复后仍受同一账本 key 保护。考虑再次提交前必须核对提供方任务与费用；修改路径不构成换新 key 的授权（[路由证据](../../../.agents/notes/implemented/bug-fix/2026-09-21-jubian-upscale-route.zh.md)）。
 
 `1080p` 等高清分辨率表示目标档位，不保证精确像素。报告须区分目标与输出文件探测得到的实际宽高；成功任务的实际尺寸不同，不因此判为高清失败。目标档位和成功解码都不证明画质已经改善。
 
@@ -548,7 +569,7 @@ Settings 子区域只在明确发起检查后执行成本较高的就绪检查�
 <a id="episode-execution-library"></a>
 ### 整集执行库
 
-`@deepseek-ai/dsh-tool-jubian/episode-delivery` 库把一个逻辑任务绑定到不可变的输入与审批身份，并为每次实际执行保留独立身份。严格的版本化记录区分文件缺失与内容无效。登记执行时，先持久化执行引用，再写运行记录或启动首个媒体命令。后续执行必须具有与前次运行相符的退出证据；任务推进后，所有已登记执行 UUID 仍被占用。调用方须在登记前核验当前人工批准，记录中的审批引用不授权新的决定。
+`@deepseek-ai/dsh-tool-jubian/episode-delivery` 库把一个逻辑任务绑定到不可变的输入与审批身份，并为每次实际执行保留独立身份。严格的版本化记录区分文件缺失与内容无效。登记与渲染共用流式摘要读取，分别保留各自的文件身份和修改检查。登记执行时，先持久化执行引用，再写运行记录或启动首个媒体命令。后续执行必须具有与前次运行相符的退出证据；任务推进后，所有已登记执行 UUID 仍被占用。调用方须在登记前核验当前人工批准，记录中的审批引用不授权新的决定。
 
 `EpisodeExecutionOwner` 将短暂的持久化登记与串行工作分开。相同的重复登记共享同一次完成结果。dispose（资源释放）同步停止接收登记，取消排队及运行中的工作，并等待全部已登记操作结束。队列结束本身不能证明媒体进程已退出，调用方仍须核验守护者证据。该库不注册模型工具、Remote 方法或自动启动扫描。进程所有权由 [Desktop 守护者](../../../apps/desktop-host/README.zh.md#episode-execution-supervision)负责。
 
@@ -568,7 +589,7 @@ Host 调用方通过 `jubianVideoRecovery.withApprovedSources` 在同一所选�
 
 Client TypeScript 项目引用 `dsh-jubian`，由后者拥有生成的 Remote 声明使用的共享项目预算类型。该项目将这些类型编译到自己的 `lib/types` 目录。
 
-Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的调用通过 peer 依赖解析。部署提供共享的传输构造函数和错误构造函数，以及每个已解析账本根目录唯一的队列；安装独立包副本不得拆分同一运行时内的额度预留。
+Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的调用通过 peer 依赖解析。部署提供共享的传输构造函数和错误构造函数，以及每个已解析账本根目录唯一的队列；安装独立包副本不得拆分同一运行时内的额度预留。生成续跑也将 `dsh-llm` 和 `dsh-workspace` 保留为共享 peer，用于路由和工作区身份；会话持久化的类型导入仅列在开发依赖中。
 
 生成检查点与归属索引共用一把写入锁。创建只在原始 Session、key、预览及绑定进入索引后发布检查点；替换保留这些输入、截止时间及已发布通知的身份。归属证明将持久化 Session 事件与供应商账本核对，并拒绝在 Host 验证期间发生变化的版本或归属。受管媒体检查等待解码器退出后才删除捕获的输入，无法确认退出时保留这些输入。
 
@@ -721,6 +742,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 - **生图回读超时是一个结论，不是一次失败** —— `image_generate` 报 `asset_status: timeout` 而不抛错，因为计费写已被受理、账本也已记账。只有受理响应给出明确身份的新建父资产才进入轮询；缺少身份，或现有父资产的旧图，仍是未验证。调用方仍需自己回读；到底是提供方慢还是生成失败，本包无法从截止时间上看出来。
 - **`upload_reference` 处理不合规图片时需要本地 `ffmpeg`** —— 提供方图片流水线要求两条边都是 16 的倍数，Node 没有内置图像编解码器，而本包不增加运行时依赖，所以已经合规的文件按原字节上传，其余文件交给外部 `ffmpeg` 重编码；该二进制按 `DSH_JUBIAN_FFMPEG`、`FFMPEG_PATH`、`MUSE_FFMPEG_EXECUTABLE`、`PATH` 的顺序解析。找不到 `ffmpeg` 时该调用返回 `alignment_required` 并给出应有的尺寸，一个字节都不会上传；它永远不会把不合规的文件送上去。
 - **prepared preview 绑定在本包的序列化器上** —— fingerprint 哈希的是本插件的规范化 JSON，因此流水线 Python 客户端写出的 preview 与这里写出的 preview 不能互换，任一方都会把另一方的产物判为过期而拒绝。
+- **MediaKit 系数读自未标注的目录字段** —— 实时目录以 `元/分钟(1系数)` 为 MediaKit 定价，没有给出系数字段。其规格中 1080p 的 `height` 为 4、720p 为 2，`width` 为 0，预留把该值当作系数。尚未拿已结算的 MediaKit 费用与之核对；规格的 `width` 不为 0 或缺少正整数 `height` 时，该次转高清没有报价。
 - **`retry` 有前置门禁，但看不到尚未写回的费用** —— 它在发送任何请求前先读父任务与子结果，并在任务已有结果文件、有活动或成功的子结果、或已记录真实费用时拒绝。它看不到提供方还没写到任务上的扣费，所以刚失败后的重试仍然是调用方的判断。
 - **端点集合是从抓包转写的** —— 每个路径、查询参数与请求形状都以抓到的证据存在于 `dsh-jubian-api`，而不是已发布的契约。提供方一变，表现出来就是 `CONTRACT_CHANGED` 或某个字段读回 `null`；验证一条新路径需要重新抓包，所以这里没有哪个方法可以当作有 schema 版本。对象存储签名是唯一的例外：它照实时 bundle 里的 SDK 复刻，并对真实 bucket 做过验证。
 - **结果未知要靠账本而不是靠本包来判定** —— 超时后这一行记录 `outcome: unknown` 并抛错。只有调用方能决定要不要用同一个 key 回读，也没有任何东西会自动对账"只有 intent 没有 settle"的那条。`submit_video` 是最严格的一例：它记录这次不明确的 `PUT`、返回对账指引，并且在任何情况下都不会用同一个 key 发出第二次 `PUT`。

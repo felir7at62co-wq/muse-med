@@ -14,10 +14,10 @@ import type {
   InboxTarget,
   InboxWireState,
 } from '@deepseek-ai/dsh-agent'
-import { z } from 'zod'
 import { isJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
+import { z } from 'zod'
 
-const inboxWireMessage = z.custom<JsonValue>(isJsonValue, { error: 'Inbox wire messages must be lossless JSON' })
+const wireMessageSchema = z.custom<JsonValue>(isJsonValue, { message: 'inbox message must be losslessly JSON-serializable' })
 
 /** Wire validation for pending agent input reconstructed from durable inbox splices. */
 export const inboxProjectionSchema = z.object({
@@ -103,16 +103,14 @@ export const inboxProjectionDefinition = {
   wire: {
     // Pending messages round-trip the session log as lossless JSON. Claims expose
     // only the identities and positions needed to follow later queue restoration.
-    viewSchema: z.object({ 'next-turn': z.array(inboxWireMessage),
-      'next-step': z.array(inboxWireMessage),
+    viewSchema: z.object({ 'next-turn': z.array(wireMessageSchema),
+      'next-step': z.array(wireMessageSchema),
       activeClaim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
-        nextStep: z.array(z.custom<MessageId>()).readonly(), nextTurn: z.array(z.custom<MessageId>()).readonly() }).optional(),
-    }).transform(({ activeClaim, ...pending }): InboxWireState => ({
-      ...pending, ...activeClaim === undefined ? {} : { activeClaim },
-    })) satisfies z.ZodType<InboxWireState>,
+        nextStep: z.array(z.custom<MessageId>()).readonly(), nextTurn: z.array(z.custom<MessageId>()).readonly() }).exactOptional(),
+    }),
     view: (state: InboxState): InboxWireState => ({
-      'next-turn': state['next-turn'].map(message => inboxWireMessage.parse(message)),
-      'next-step': state['next-step'].map(message => inboxWireMessage.parse(message)),
+      'next-turn': state['next-turn'].map(message => wireMessageSchema.parse(message)),
+      'next-step': state['next-step'].map(message => wireMessageSchema.parse(message)),
       ...state.claim === undefined ? {} : { activeClaim: { turn: state.claim.turn, step: state.claim.step,
         nextStep: state.claim.nextStep.map(message => message.id), nextTurn: state.claim.nextTurn.map(message => message.id) } },
     }),

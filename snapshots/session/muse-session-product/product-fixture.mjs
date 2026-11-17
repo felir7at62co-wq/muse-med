@@ -4,12 +4,11 @@ import { createRequire } from 'node:module'
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { applyLoopbackServerEffect } from '../loopback-fixture-server.mjs'
-import { importSnapshotModule } from '../muse-fixture-import.mjs'
+import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 import { apply as mountPreset } from '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
 
-const { loadOverlayPatches } = await importSnapshotModule(new URL('../../../packages/boot/app-boot/src/index.ts', import.meta.url),
-  new URL('../../../packages/boot/app-boot/lib/index.js', import.meta.url))
-
+const { loadOverlayPatches } = await importSnapshotPackage('@deepseek-ai/dsh-app-boot',
+  new URL('../../../apps/desktop-host/package.json', import.meta.url))
 const { PiAiAdapter, resolveProfiles } = await importSnapshotModule(
   new URL('../../../packages/llm/llm-pi-ai/src/index.ts', import.meta.url),
   new URL('../../../packages/llm/llm-pi-ai/lib/index.js', import.meta.url),
@@ -131,7 +130,8 @@ export async function apply(ctx) {
     assert.equal(requests, 5); assert.equal(mcpCalls, 1)
     assert.equal(ctx.agentPresets.composedPreset(agent.ctx), 'short-drama')
     const registered = ctx.tools.schemas(agent).map(tool => tool.name)
-    for (const tool of ['qimao_rankings', 'source_snapshot', 'source_report', 'work_mapping', 'lvpaopao', 'douyin_download', 'douyin_download_task']) assert.ok(registered.includes(tool), tool)
+    for (const tool of ['qimao_rankings', 'source_snapshot', 'source_report', 'work_mapping', 'lvpaopao']) assert.ok(registered.includes(tool), tool)
+    for (const tool of ['douyin_data', 'douyin_download_task']) assert.ok(!registered.includes(tool), `Retired Douyin tool registered: ${tool}`)
     const calls = agent.session.snapshotEvents().filter(event => event.type === 'tool/call')
     assert.deepEqual(calls.map(event => event.data.name), ['job_list', 'tool_search', 'tool_search', mcpTool])
   })

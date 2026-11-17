@@ -5,7 +5,7 @@ import Sessions, { Session, SessionId, SessionLogOffset } from '@deepseek-ai/dsh
 import Projections from '@deepseek-ai/dsh-session-projection'
 import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
-import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
+import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 import { expect, it, onTestFinished } from 'vitest'
 import { installSourceQaState, sourceQaStateOf, sourceQaOwnsReview } from '../src/source-qa-state.ts'
 import { VideoReviewId } from '../src/review-state.ts'

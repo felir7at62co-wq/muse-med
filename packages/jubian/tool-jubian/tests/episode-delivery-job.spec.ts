@@ -1,7 +1,7 @@
 /** Durable admission, strict records and one-shot arm ownership use actual files. */
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import * as files from 'node:fs/promises'
@@ -16,6 +16,100 @@ import type { VideoRecoveryDigest } from '../src/types.ts'
 vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>() }))
 
 const hash = (value: string): Sha256 => brandString<Sha256>(createHash('sha256').update(value).digest('hex'))
+
+async function observePosixState(...args: Parameters<typeof readEpisodeStateSnapshot>) {
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  if (descriptor === undefined) throw new Error('Expected process platform descriptor')
+  try {
+    Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux' })
+    return await readEpisodeStateSnapshot(...args)
+  } finally { Object.defineProperty(process, 'platform', descriptor) }
+}
+
+it('reads absent and bounded POSIX state snapshots through actual descriptors on every host', async () => {
+  const f = await fixture(), path = join(f.root, 'posix-state.json')
+  expect(await observePosixState(path, 4)).toBeUndefined()
+  await writeFile(path, '{}')
+  expect(await observePosixState(path, 2)).toEqual({})
+  await writeFile(path, '{')
+  await expect(observePosixState(path, 4)).rejects.toThrow(SyntaxError)
+  await writeFile(path, '12345')
+  await expect(observePosixState(path, 4)).rejects.toThrow('bounded regular file')
+})
+
+it.each([
+  { name: 'non-Error rejection', failure: 'state open rejected', link: false },
+  { name: 'error without a code', failure: new Error('state open failed'), link: false },
+  { name: 'permission refusal', failure: Object.assign(new Error('state open denied'), { code: 'EACCES' }), link: false },
+  { name: 'no-follow link refusal', failure: Object.assign(new Error('state link refused'), { code: 'ELOOP' }), link: true },
+])('preserves POSIX state-open $name on every host', async ({ failure, link }) => {
+  const f = await fixture(), path = join(f.root, 'posix-state.json')
+  const open = files.open
+  const spy = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    if (args[0] === path) throw failure
+    return open(...args)
+  })
+  try {
+    if (link) await expect(observePosixState(path, 4)).rejects.toThrow('bounded regular file')
+    else await expect(observePosixState(path, 4)).rejects.toBe(failure)
+  } finally { spy.mockRestore() }
+})
+
+it('closes a POSIX state descriptor rejected as nonregular before reading', async () => {
+  const f = await fixture(), path = join(f.root, 'posix-state.json')
+  await writeFile(path, '{}')
+  const open = files.open
+  let opened: Awaited<ReturnType<typeof open>> | undefined
+  const spy = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    const handle = await open(...args)
+    if (args[0] === path) {
+      opened = handle
+      const stat = handle.stat.bind(handle)
+      Object.defineProperty(handle, 'stat', { value: async () => {
+        const info = await stat()
+        info.isFile = () => false
+        return info
+      } })
+    }
+    return handle
+  })
+  try {
+    await expect(observePosixState(path, 4)).rejects.toThrow('bounded regular file')
+    expect(opened?.fd).toBe(-1)
+  } finally { spy.mockRestore() }
+})
+
+it('refuses a directory staged as an episode input without admitting it', async () => {
+  const f = await fixture(), path = join(f.job.attemptRoot, 'input-directory')
+  await mkdir(path)
+  await expect(f.job.admit({ ...f.admission, inputs: [{ ...f.admission.inputs[0], path }] }))
+    .rejects.toThrow('regular file')
+  expect(await f.job.read()).toBeUndefined()
+  expect(await readFile(f.input, 'utf8')).toBe('approved source')
+})
+
+it('rejects a linked private job directory without changing its target', async () => {
+  const f = await fixture(), other = join(f.root, 'other-project')
+  await mkdir(other)
+  await symlink(f.job.attemptRoot, join(other, '.muse'), process.platform === 'win32' ? 'junction' : 'dir')
+  await expect(createEpisodeDeliveryJob({ ...f.options, projectDir: other })).rejects.toThrow('canonical and regular')
+  expect(await readFile(f.input, 'utf8')).toBe('approved source')
+})
+
+it('propagates a candidate inspection refusal without arming the execution', async () => {
+  const f = await fixture()
+  await f.job.admit(f.admission)
+  const execution = await f.execution(), failure = Object.assign(new Error('Candidate inspection denied'), { code: 'EACCES' })
+  const inspect = files.lstat
+  const spy = vi.spyOn(files, 'lstat').mockImplementation(async (...args) => {
+    if (args[0] === execution.candidatePath) throw failure
+    return inspect(...args)
+  })
+  try { await expect(f.job.assertAdmission(execution.identity)).rejects.toBe(failure) }
+  finally { spy.mockRestore() }
+  expect((await f.job.read())?.executionRef).toBeNull()
+  expect(await f.job.readExecution(execution.identity.execution)).toEqual(execution)
+})
 
 it('propagates a journal inspection failure without treating it as an absent record', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'episode-journal-read-')))
@@ -66,6 +160,49 @@ async function fixture(recordBytes = 16384) {
   }
   return { root, job, options, identity, input, admission, execution, running, finish }
 }
+
+it('refuses a pre-existing linked private directory without changing its owned target or the original admission', async () => {
+  const f = await fixture(), selected = join(f.root, 'linked-project'), alias = join(selected, '.muse')
+  await mkdir(selected)
+  const originalBytes = await readFile(f.input), originalEntries = await readdir(f.job.attemptRoot)
+  await symlink(f.job.attemptRoot, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  try {
+    await expect(createEpisodeDeliveryJob({ ...f.options, projectDir: selected }))
+      .rejects.toThrow('Episode job directory must be canonical and regular')
+    expect(await readdir(f.job.attemptRoot)).toEqual(originalEntries)
+    expect(await readFile(f.input)).toEqual(originalBytes)
+    expect(await f.job.read()).toBeUndefined()
+  } finally { await unlink(alias) }
+  const original = await createEpisodeDeliveryJob(f.options)
+  expect(await original.admit(f.admission)).toEqual(await f.job.read())
+})
+
+it('refuses a static directory selected as an input before admitting any job and allows a later valid admission', async () => {
+  const f = await fixture(), selected = join(f.job.attemptRoot, 'directory-input')
+  await mkdir(selected)
+  await expect(f.job.admit({ ...f.admission, inputs: [{ path: selected, sha256: hash(''), bytes: 0 }] }))
+    .rejects.toThrow('Episode input must be a regular file')
+  expect(await f.job.read()).toBeUndefined()
+  expect(await readdir(selected)).toEqual([])
+  expect(await readFile(f.input, 'utf8')).toBe('approved source')
+  const admitted = await f.job.admit(f.admission)
+  expect(await f.job.read()).toEqual(admitted)
+})
+
+it('preserves a native invalid candidate-path error instead of admitting an armed execution', async () => {
+  const f = await fixture(); await f.job.admit(f.admission)
+  const id = randomUUID(), stage = join(f.job.attemptRoot, id)
+  await mkdir(stage)
+  const descriptor = JSON.stringify({ attempt: f.identity.attempt, execution: id }), descriptorPath = join(stage, 'descriptor.json')
+  await writeFile(descriptorPath, descriptor)
+  const identity = executionIdentitySchema.parse({ ...f.identity, execution: id, descriptorSha256: hash(descriptor) })
+  const proposed: EpisodeExecutionAdmission = { identity, descriptorPath, candidatePath: join(stage, 'candidate\0.mp4'), retry: 'initial' }
+  await f.job.admitExecution(proposed)
+  await expect(f.job.assertAdmission(identity)).rejects.toMatchObject({ code: 'ERR_INVALID_ARG_VALUE' })
+  expect((await f.job.read())?.executionRef).toBeNull()
+  expect(await f.job.readExecution(identity.execution)).toEqual(proposed)
+  expect(await readFile(f.input, 'utf8')).toBe('approved source')
+})
 
 it('accepts typed full execution facts as an attempt and shares one durable admission', async () => {
   const f = await fixture()
@@ -249,6 +386,22 @@ it('observes bounded state JSON and rejects I/O errors, malformed JSON and overs
   await writeFile(path, '{'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow(SyntaxError)
   await writeFile(path, '12345'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('bounded regular file')
   await expect(readEpisodeStateSnapshot(f.root, 4)).rejects.toThrow('bounded regular file')
+})
+
+it('reads bounded state through the POSIX open branch on either lane', async () => {
+  const f = await fixture(), path = join(f.root, 'posix-state.json')
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  expect(await observePosixState(join(f.root, 'absent-state.json'), 4)).toBeUndefined()
+  await writeFile(path, '{}')
+  expect(await observePosixState(path, 2)).toEqual({})
+  await writeFile(path, '12345')
+  await expect(observePosixState(path, 4)).rejects.toThrow('bounded regular file')
+  await expect(observePosixState(f.root, 4096)).rejects.toThrow('bounded regular file')
+  const loop = join(f.root, 'posix-loop.json')
+  await symlink('posix-loop.json', loop, 'file')
+  await expect(observePosixState(loop, 4)).rejects.toThrow('bounded regular file')
+  await expect(observePosixState(join(f.root, 'posix-nul\u0000name.json'), 4)).rejects.toThrow(/\u0000|null byte/iu)
+  expect(Object.getOwnPropertyDescriptor(process, 'platform')).toEqual(platform)
 })
 
 it('retains the complete opened state when its path is atomically replaced', async () => {

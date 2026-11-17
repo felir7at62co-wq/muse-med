@@ -108,7 +108,7 @@ test('packs subscriptions twice with complete runtime exports, recoverable crede
   const metadata = JSON.parse(read('SOURCE.json'))
   assert.deepEqual(metadata.upstream, pin)
   assert.equal(metadata.upstream.commit, 'b8023110864494acefc6f5963c2a197d85dda20c')
-  assert.equal(metadata.hostVersion, '0.2.2-rc.1')
+  assert.equal(metadata.hostVersion, reviewedHostVersion)
   assert.deepEqual(metadata.hostRuntimeCompatibility, hostRuntimeCompatibility)
   assert.deepEqual(metadata.compatibilityOverlay, subscriptionsDesktopCompatibility)
 })

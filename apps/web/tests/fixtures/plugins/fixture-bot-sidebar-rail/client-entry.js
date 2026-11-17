@@ -3,6 +3,7 @@ import { createElement as h, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { TeamSidebar, SIDEBAR_CSS } from '../../../../../../third_party/plugins/ds-bot/src/client/sidebar.js'
 import { SHELL_CSS } from '../../../../../../third_party/plugins/ds-bot/src/client/styles.js'
+import { listedOpener } from '../../../../../../third_party/plugins/ds-bot/src/client/open-listed.js'
 
 export const inject = ['slots', 'layout', 'locale']
 
@@ -17,7 +18,9 @@ export function apply(ctx) {
   const sessions = { ids: [], byId: {} }
   const noStatus = new Map()
   const note = (id) => { document.documentElement.dataset.fixtureBotSelected = id }
-  const actions = { toggleSidebar: () => ctx.layout.toggleSidebar(), openSession: note,
+  const landing = listedOpener({ list: { getSnapshot: () => sessions, subscribe: () => () => {} }, open: note })
+  const actions = { toggleSidebar: () => ctx.layout.toggleSidebar(), openSession: (id) => { landing.cancel(); note(id) },
+    prepareLanding: () => landing.guard(),
     openPalette: () => note('search'), openSettings: () => note('settings'), openNewChat: () => note('new'),
     prepareLanding: () => () => true, clearUnread() {}, landOn() {}, openMenu() {} }
   function Sidebar(props) {
@@ -34,12 +37,20 @@ export function apply(ctx) {
     const releaseRail = ctx.layout.retainSidebarRail()
     const style = document.createElement('style')
     style.dataset.plugin = '@fixture/bot-sidebar-rail'
-    style.textContent = SHELL_CSS + SIDEBAR_CSS
+    // The current workspace seat is a max-content grid row; its occupant owns
+    // the bounded viewport used for scrolling its rows.
+    style.textContent = SHELL_CSS + SIDEBAR_CSS + '.bt-side:not(.bt-rail){height:100cqh;flex:none;box-sizing:border-box}'
     document.head.append(style)
     const releaseSlot = ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register({
       name: 'sidebar.workspaces', priority: -100,
     }, Sidebar))
-    releaseShell = () => { releaseSlot(); style.remove(); releaseRail() }
+    releaseShell = () => {
+      const prior = landing.guard()
+      document.documentElement.dataset.fixtureLandingBeforeRelease = String(prior())
+      landing.cancel()
+      document.documentElement.dataset.fixtureLandingAfterRelease = String(prior())
+      releaseSlot(); style.remove(); releaseRail()
+    }
   }
   function Controls({ t }) {
     const [active, setActive] = useState(true)

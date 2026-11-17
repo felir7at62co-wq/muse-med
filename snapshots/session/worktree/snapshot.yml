@@ -1,12 +1,13 @@
 version: 1
+writerOutput: true
 scenario: worktree
 profile: headless
 composition: worktree
 recording: authored
-writerOutput: true
 header:
   class: worktree
   pin: true
+  systemPromptSource: text-turn
 platform: posix
 workspace:
   setup: git-worktree

@@ -15,6 +15,8 @@ export const VIDEO_REVIEW_REQUEST = '<!-- muse-video-review: use muse_video revi
 export interface VideoWorkspaceNavigation {
   readonly sessionId: SessionId
   readonly target?: VideoTarget
+  /** Presentation-only moves retain the navigation already applied to this workspace. */
+  readonly retainedNavigationKey?: string
 }
 
 declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
@@ -91,7 +93,6 @@ export function parseVideoWorkspaceAddress(address: string): VideoWorkspaceNavig
   if (encodedSession === undefined) return null
   let session: string
   try { session = decodeURIComponent(encodedSession) } catch (_error: unknown) { return null /* Invalid URL escaping. */ }
-  if (session === '') return null
   const sessionId = brandString<SessionId>(session)
   const source = url.searchParams.get('source'), version = url.searchParams.get('version')
   const shot = url.searchParams.get('shot'), start = url.searchParams.get('start'), end = url.searchParams.get('end')

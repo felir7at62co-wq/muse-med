@@ -14,6 +14,23 @@ afterEach(async () => { for (const ctx of contexts.splice(0)) await ctx.fiber.di
 async function setup() { const ctx = await harness(); contexts.push(ctx); return ctx }
 
 describe('declarative preset revisions', () => {
+  it('retains but ignores the saved default when the deployment fixes a default', async () => {
+    const ctx = await harness({ live: true, default: 'creation', selectablePresets: ['creation', 'editing'], allowUserDefault: false })
+    contexts.push(ctx)
+    await declare(ctx, contribution('creation'))
+    await declare(ctx, contribution('editing'))
+    const live = liveRegistries.get(ctx)!
+    await live.update({ selectedDefault: 'editing' })
+    expect(live.entry.options.config).toMatchObject({ selectedDefault: 'editing' })
+    expect(ctx.agentPresets.defaultId).toBe('creation')
+    expect(await ctx.agentPresets.resolveForCreation()).toEqual({ id: 'creation' })
+    expect(await ctx.agentPresets.resolveForCreation('editing')).toEqual({ id: 'editing' })
+    const ordinary = await agentOn(ctx, 'fixed-default')
+    expect(ctx.agentPresets.composedPreset(ordinary.ctx)).toBe('creation')
+    await live.update({ allowUserDefault: true })
+    expect(ctx.agentPresets.defaultId).toBe('editing')
+  })
+
   it('offers only selectable presets while retaining historical composition and ignores a retired saved default', async () => {
     const ctx = await harness({ live: true, default: 'creation', selectablePresets: ['creation'] })
     contexts.push(ctx)

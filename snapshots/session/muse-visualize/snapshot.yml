@@ -10,6 +10,5 @@ header:
   class: muse-visualize
   pin: true
 workspace:
-  setup: muse-visualize
   parent: outside-temp
   final: true

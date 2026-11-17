@@ -1,5 +1,5 @@
 /** Account authorization dialog; errors allow retry after cancelling any active attempt. */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button, IconCloseOutlineRegular, IconLoadingOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AccountSnapshot } from './AccountSection.tsx'
 import type { SignInAttemptId } from '@deepseek-ai/dsh-deepseek-account/types'
@@ -8,7 +8,7 @@ import { authorizeUrlWithTheme } from './authorize-url.ts'
 import css from './SignInDialog.module.css'
 
 /** @param props - safe account state, localized copy, and user actions. @returns login dialog. */
-export function SignInDialog({ account, colorScheme, start, cancel, close, useApiKey, t }: {
+export function SignInDialog({ account, colorScheme, start, cancel, close, useApiKey, onVisible, t }: {
   account: AccountSnapshot
   /** Resolved scheme of the active application theme; the copied link carries it. */
   colorScheme: 'light' | 'dark'
@@ -16,11 +16,16 @@ export function SignInDialog({ account, colorScheme, start, cancel, close, useAp
   cancel: (id: SignInAttemptId) => Promise<void>
   close: () => void
   useApiKey: () => void
+  /** Optional onboarding notification on DOM attachment; ordinary sign-in dialogs omit it. */
+  onVisible?: () => void
   t: (key: AccountKey) => string
 }) {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const [copyResult, setCopyResult] = useState<{ messageKey: 'copiedLink' | 'copyFailed' } | null>(null)
+  const mounted = useCallback((element: HTMLDivElement | null) => {
+    if (element !== null) onVisible?.()
+  }, [onVisible])
   const attempt = account.view?.attempt
   useEffect(() => { setCopyResult(null) }, [attempt?.id, attempt?.authorizeUrl])
   useEffect(() => {
@@ -61,7 +66,7 @@ export function SignInDialog({ account, colorScheme, start, cancel, close, useAp
   }
   const title = error ? t('failureTitle') : active ? t('browserTitle') : expired ? t('timeoutTitle') : t('loginTitle')
   return <Modal open headless title={title} onClose={dismiss} className={css.dialog as string}>
-    <div className={css.content}>
+    <div ref={mounted} className={css.content}>
       <div className={css.header}>
         <h2 className={css.title}>{title}</h2>
         <button type="button" className={css.close} aria-label={t('close')} onClick={dismiss}>

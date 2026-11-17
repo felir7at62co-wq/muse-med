@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/testing.md
 /testing-policy:
-  en: b634f44e94b8bd5f
-  zh: d823e0579ea48964
+  en: a77c610ddf725d1c
+  zh: 5fb89164793d520c
 /testing-policy/tiers:
   en: 05d47ecc3a1416be
   zh: 29072bc4359b5299
@@ -21,14 +21,14 @@
   en: e7cbafc4f96b72c2
   zh: 0c5a0aa2afd9a812
 /testing-policy/test-the-real-entry-path:
-  en: aed1f7bd7d0d42d7
-  zh: c97b881a36783d2e
+  en: fa37e93ef5780d7c
+  zh: 640d053fe61e28a1
 /testing-policy/test-resolution-source-plane-only:
-  en: 00e130787e7755a6
-  zh: 17dd8d6e1a5fce75
+  en: 5b21ed3a8469c0a5
+  zh: ff62315a762d6d61
 /testing-policy/test-subprocess-launch-modes:
-  en: 5ea1c7ff7a9a5728
-  zh: bbae70e0cd2d5cbf
+  en: b6aa5a72dbe9fb2d
+  zh: b33c1d577dc4ddb5
 /testing-policy/when-a-snapshot-test-is-required:
   en: 055966993c5392c0
   zh: eb35536ad2c4320b

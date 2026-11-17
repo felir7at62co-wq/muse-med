@@ -1,0 +1,7 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write third_party/optional-plugins/dsh-purge-community/tests/README.md
+/portable-adapter-tests:
+  en: 63d20d54c53c244c
+  zh: 77339e98f31dc791

@@ -3,18 +3,28 @@
 import { Context } from '@deepseek-ai/cordis'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { resolveSlotLabel, type PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import { expect, it, onTestFinished } from 'vitest'
+import { resolveSlotLabel, type GlobalStandardProps, type PropsLocale, type PropsRenderSlots, type PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type { ComponentType } from 'react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import { MarketController } from '../src/client/market-controller.ts'
-import type { MarketActions } from '../src/client/market-actions.ts'
+import type { MarketActions, MarketInjected } from '../src/client/market-actions.ts'
+import type { MarketFeedback } from '../src/client/market-feedback.tsx'
 import { registerMuseMarket } from '../src/client/market-registration.tsx'
+import { createMarketViewStore } from '../src/client/market-view-store.ts'
+import type { BoundActions } from '@deepseek-ai/dsh-client-store'
+
+afterEach(cleanup)
 
 const unavailable = async (): Promise<never> => { throw new Error('Data operations are outside this registration test') }
 const operations: MarketActions = {
-  sources: unavailable, prepare: unavailable, installed: unavailable, importPackage: unavailable,
+  sources: unavailable, prepare: unavailable, prepareUpload: unavailable, installed: unavailable, importPackage: unavailable,
   exportPackage: unavailable, removePackage: unavailable, defaults: unavailable, setDefault: unavailable,
   binding: unavailable, catalog: unavailable, identity: unavailable, getPublication: unavailable,
-  installPublication: unavailable, publishDraft: unavailable, review: unavailable,
+  installPublication: unavailable, installLegacy: unavailable, legacyCatalog: unavailable, publishDraft: unavailable, review: unavailable,
 }
 
 function MarketRoot({ renderSlot }: PropsRenderSlots<'main' | 'sidebar.panellist' | 'settings.section' | 'shell.overlay'>) {
@@ -32,7 +42,8 @@ it('unloads and remounts market entries while preserving the original account se
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx); ctx.provide('locale', locale)
   ctx.effect(() => locale.addLanguage({ id: 'ja', label: '日本語', fallback: 'en' }))
-  ctx.provide('layout', { selectPanel: () => {} })
+  const selectPanel = vi.fn()
+  ctx.provide('layout', { selectPanel })
   ctx.slots.register({ name: 'root', children: {
     main: { kind: 'keyed', scope: 'root' },
     'sidebar.panellist': { kind: 'list', scope: 'root' },
@@ -44,7 +55,7 @@ it('unloads and remounts market entries while preserving the original account se
   const mount = () => registerMuseMarket(ctx, controller.operations, controller.access, revision => controller.isCurrentAccess(revision))
   for (let round = 0; round < 2; ++round) {
     const dispose = await mount()
-    expect(ctx.slots.entries('main')).toHaveLength(1)
+    expect(ctx.slots.entries('main')).toHaveLength(2)
     expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(1)
     expect(ctx.slots.entries('shell.overlay')).toHaveLength(1)
     expect(ctx.slots.entries('settings.section')).toHaveLength(2)
@@ -52,6 +63,47 @@ it('unloads and remounts market entries while preserving the original account se
     if (entry === undefined) throw new Error('Market navigation was not registered')
     locale.setLocale('ja')
     expect(resolveSlotLabel(entry.options.label)).toBe('Skill マーケット')
+    const Icon = entry.component as ComponentType<PropsRuntime<'sidebar.panellist'>>
+    const icon = render(<Icon {...({} as GlobalStandardProps)} size={20} active={false} />)
+    expect(icon.container.querySelector('svg')).not.toBeNull()
+    icon.unmount()
+    const settings = ctx.slots.entries('settings.section').find(value => value.options.id === 'muse-market')
+    if (settings === undefined) throw new Error('Market settings link was not registered')
+    expect(resolveSlotLabel(settings.options.label)).toBe('Skill マーケット')
+    const injected = settings.inject?.() as { onOpen: () => void }
+    const Settings = settings.component as ComponentType<PropsLocale<'settings.museMarket'> & SettingsSectionOwnerProps & typeof injected>
+    const close = vi.fn(), t = locale.bind('settings.museMarket')
+    const page = render(<Settings {...({} as GlobalStandardProps)} {...injected} t={t} close={close} />)
+    fireEvent.click(screen.getByRole('button', { name: t('openMarket') }))
+    expect(selectPanel).toHaveBeenLastCalledWith('muse-market')
+    expect(close).toHaveBeenCalledOnce()
+    page.unmount()
+    const overlay = ctx.slots.entries('shell.overlay')[0]?.inject?.() as Pick<MarketFeedback, 'hooks' | 'dismiss'>
+    const panels = ctx.slots.entries('main')
+    const market = panels.find(item => item.options.key === 'muse-market')
+    const creator = panels.find(item => item.options.key === 'muse-market-creator')
+    if (!market?.store || typeof market.store === 'function' || !market.inject || !creator?.inject) {
+      throw new Error('Market and creator need their shared store and navigation')
+    }
+    expect(creator.store).toBe(market.store)
+    const instance = market.store.create()
+    const inject = market.inject as (actions: BoundActions<ReturnType<typeof createMarketViewStore>>)
+    => MarketInjected & Record<string, unknown>
+    const face = inject(instance.actions)
+    face.reportOutcome('installedDone', false)
+    expect(overlay.hooks.outcome.getSnapshot()).toMatchObject({ key: 'installedDone', failed: false })
+    overlay.dismiss()
+    expect(overlay.hooks.outcome.getSnapshot()).toBeNull()
+    face.onOpenCreator('upload')
+    expect(instance.getSnapshot()).toMatchObject({ creatorMode: 'upload' })
+    expect(selectPanel).toHaveBeenLastCalledWith('muse-market-creator')
+    face.onOpenCreator('skill')
+    expect(instance.getSnapshot()).toMatchObject({ creatorMode: 'skill' })
+    face.onBackMarket()
+    expect(selectPanel).toHaveBeenLastCalledWith('muse-market')
+    face.onOpenPublications()
+    expect(instance.getSnapshot()).toMatchObject({ marketTab: 'publish' })
+    expect(selectPanel).toHaveBeenLastCalledWith('muse-market')
     await dispose()
     expect(ctx.slots.entries('main')).toEqual([])
     expect(ctx.slots.entries('sidebar.panellist')).toEqual([])

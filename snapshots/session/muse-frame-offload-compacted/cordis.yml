@@ -1,0 +1,8 @@
+- insert:
+    - id: tool-video-inspect
+      name: '@deepseek-ai/dsh-tool-video-inspect'
+      config:
+        requireCompleteReview: true
+        offloadObservedFrames: true
+    - id: compacted-frame-fixture
+      name: './fixture.mjs'

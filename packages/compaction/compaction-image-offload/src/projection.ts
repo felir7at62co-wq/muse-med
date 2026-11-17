@@ -22,8 +22,26 @@ declare module '@deepseek-ai/dsh-session/types' {
      * results and already omitted images. Message nodes and identities remain unchanged.
      * @messageProjection
      */
-    'image/offload': { targets: ImageOffloadTarget[] }
+    'image/offload': {
+      targets: ImageOffloadTarget[]
+      /**
+       * Model-visible reason the selecting plugin gives for these omissions, sent after each image identity instead of
+       * the request-limit placeholder; absent in request-limit decisions and in logs written before this field existed.
+       */
+      notice?: string
+    }
   }
+}
+
+/** Longest accepted `notice`; the text reaches every later request once per selected occurrence. */
+const MAX_NOTICE_LENGTH = 1000
+
+/** A durable `notice` value, validated. */
+function noticeOf(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '' || value.length > MAX_NOTICE_LENGTH) {
+    throw new Error(`image/offload: notice must be nonblank text of at most ${MAX_NOTICE_LENGTH} characters`)
+  }
+  return value
 }
 
 /** Whether a durable value is a JSON object. */
@@ -41,9 +59,11 @@ export const imageOffloadProjection: SessionMessageProjection<'image/offload'> =
   type: 'image/offload',
   project(event, context) {
     const data: unknown = event.data
-    if (!isRecord(data) || Object.keys(data).length !== 1 || !Array.isArray(data['targets']) || data['targets'].length === 0) {
-      throw new Error('image/offload: data must contain a nonempty targets array')
+    if (!isRecord(data) || !Array.isArray(data['targets']) || data['targets'].length === 0
+      || Object.keys(data).some(key => key !== 'targets' && key !== 'notice')) {
+      throw new Error('image/offload: data must contain a nonempty targets array and an optional notice')
     }
+    const notice = data['notice'] === undefined ? undefined : noticeOf(data['notice'])
     const messages = new Map<SessionSeq, Message>()
     const nodes = new Set(context.nodes)
     for (const target of data['targets'] as unknown[]) {
@@ -67,7 +87,7 @@ export const imageOffloadProjection: SessionMessageProjection<'image/offload'> =
       }
       const message = context.messages.get(seq)
         ?? (source.type === 'user/message' ? source.data : source.data.message)
-      messages.set(seq, offloadMessageImages(message, target['imageIndexes'] as number[]))
+      messages.set(seq, offloadMessageImages(message, target['imageIndexes'] as number[], notice))
     }
     return messages
   },

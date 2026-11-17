@@ -44,7 +44,15 @@ kind: "package-reference"
 
 每个 ZIP 包含一个 Skill、其完整资源目录，以及记录所有资源 SHA-256 和字节数的 `muse-package.json`。路径必须同时适用于 Windows 和 POSIX，且不能包含私有配置名称。Bot 清单和插件行会被拒绝。导入版本以原始归档的 SHA-256 标识，重复导入保留同一安装记录。
 
-六个基础发行包方法保持原有存储语义。`installed()` 记录保留 `enabled: false` 这一旧有存储字段，不表示激活状态；激活状态请通过下述观察接口读取。仅挂载存储时不会注册 Skill provider，也不会执行指令、插件或脚本。`sources()` 保留发现完整性；不完整或空的观察结果不能证明其他 provider 中没有 Skill。
+作者准备、云端清单、归档和本地记录保留可选的 `presetPortrait` 资源标识；不含此字段的清单仍然有效。云端清单拒绝未知字段，形象标识不能包含路径或 URL。
+
+`prepareUpload(id, presetPortrait)` 校验已安装包并保留其已绑定形象。若包未绑定形象，则另行安装包含所选形象和相同资源字节的包。原包和激活默认值保持不变；重复进行相同准备会复用同一安装记录。
+
+`sources()` 同时列出注册表中的 Skill 和本地保留的包版本，包括停用的安装。保留版本候选使用真实的 Skill 调用 `name`、`version` 和精确的 `sourceId`（`market:<归档sha256>`）。将 `sourceId` 传给 `prepare(metadata, skillName)` 可从该已校验包准备新包；注册表候选仍使用 `name`。返回的 `complete` 标志描述注册表发现的完整性。准备过程保留来源包、Skill 条目和资源字节，应用新的作者元数据，不执行或激活 Skill。
+
+浏览器安全入口 `./browser` 导出异步方法 `readMarketPackageBrowser`、`createMarketPackageBrowser`、`marketReleaseBrowser`、`prepareMarketUploadBrowser` 和 `createLegacySkillPackageBrowser`。这些方法与 Node 编解码器共用归档校验、确定性编码和原资源转换逻辑，通过 Web Crypto 计算 SHA-256，不依赖 Node 全局对象；运行环境必须支持安全上下文中的 Web Crypto。上传准备保留已绑定形象并返回不变的归档字节；未绑定的包获得所选安全标识，同时保留资源字节。这些方法不会上传或激活包。
+
+基础发行包方法保持原有存储语义。`installed()` 记录保留 `enabled: false` 这一旧有存储字段，不表示激活状态；激活状态请通过下述观察接口读取。仅挂载存储时不会注册 Skill provider，也不会执行指令、插件或脚本。`sources()` 保留发现完整性；不完整或空的观察结果不能证明其他 provider 中没有 Skill。
 
 准备目录包时，会保留原始 `SKILL.md`、`whenToUse`、metadata、调用设置及全部资源字节。虚拟 Skill 保留其注册的指令和元数据。如果平铺 Markdown Skill 的资源目录还与其他 Skill 共享，则不能直接准备：请另建仅包含 `SKILL.md` 和预期资源的独立目录，注册该目录包后显式选中。服务不会移动或移除原 Skill。
 
@@ -67,15 +75,23 @@ kind: "package-reference"
 <a id="account-bound-cloud"></a>
 ### 账号绑定的云端服务
 
-在具名 profile 中添加 `@deepseek-ai/dsh-muse-market/cloud`，将 `baseUrl` 设为登录所用的同一规范化 HTTPS Muse Account origin；允许回环 HTTP。独立的 `sessionFile` 默认使用 Harness 主目录下的 `muse-account/session.json`。服务通过 [Host 账号读取器](../muse-account/README.zh.md#host-credential-reads)读取该文件，拒绝重定向与账号修订变化，且不会返回凭据。`requestTimeoutMs` 覆盖每次完整 HTTP 响应；`jsonRequestBytes` 与 `jsonResponseBytes` 限制完整 JSON，本地归档限制另行约束 ZIP 字节。超限 JSON 响应会明确拒绝，不会截断元数据。
+在具名 profile 中添加 `@deepseek-ai/dsh-muse-market/cloud`，将 `baseUrl` 设为登录所用的同一规范化 HTTPS Muse Account origin；允许回环 HTTP。独立的 `sessionFile` 默认使用 Harness 主目录下的 `muse-account/session.json`。服务通过 [Host 账号读取器](../muse-account/README.zh.md#host-credential-reads)读取该文件，拒绝重定向与账号修订变化，且不会返回凭据。`requestTimeoutMs` 默认 120000 毫秒，覆盖响应头和完整正文，包括 ZIP 传输；profile 中的显式配置可覆盖此值。`jsonRequestBytes` 与 `jsonResponseBytes` 限制完整 JSON，本地归档限制另行约束 ZIP 字节。超限 JSON 响应会明确拒绝，不会截断元数据。
 
-`ctx.museMarketCloud.catalog(q, mine)` 最多返回 `catalogLimit` 条记录，该值上限为 100；空搜索获取当前有界目录，不代表完整枚举。搜索同时匹配 Skill 清单名称、调用 id 及发行包元数据。`identity()` 包含已认证的 `accountId`，使结果不确定的上传仅能由原账号恢复。`mine: true` 和 `identity()` 要求登录；公开目录与 `getPublication(id)` 可匿名访问。云端发行包和发布团队 id 为 32 位十六进制字符；本地版本 id 为 64 位 ZIP SHA-256。账号 id 则是独立的 16 位服务端身份。请从 `@deepseek-ai/dsh-muse-market/cloud` 导入 `parseMarketPublicationId`、`parseMarketPublisherId` 与 `parseMarketUploadRequestId`，校验外部保留的字符串，并构造 Host 调用方所需的品牌类型值。
+`ctx.museMarketCloud.catalog(q, mine)` 最多获取 `catalogLimit` 条记录，该值上限为 100，并在本地过滤该当前目录。搜索同时匹配 Skill 清单名称、调用 id 及发行包元数据，不会枚举上限以外的记录。`identity()` 包含已认证的 `accountId`，使结果不确定的上传仅能由原账号恢复。`mine: true` 和 `identity()` 要求登录。公开目录读取不会读取本地账号文件或发送 cookie；本地登录缺失、过期或格式损坏不会阻止公开浏览。`getPublication(id)` 允许匿名访问已发布记录。云端发行包和发布团队 id 为 32 位十六进制字符；本地版本 id 为 64 位 ZIP SHA-256。账号 id 则是独立的 16 位服务端身份。请从 `@deepseek-ai/dsh-muse-market/cloud` 导入 `parseMarketPublicationId`、`parseMarketPublisherId` 与 `parseMarketUploadRequestId`，校验外部保留的字符串，并构造 Host 调用方所需的品牌类型值。
+
+原有 `/api/market/v1/me` 响应仅包含 `publishers` 和 `admin` 时，Host 会在同一会话修订下从固定的 `/api/muse.account` 端点取得必需的账号 id。市场权限仍来自市场响应；账号 id 缺失、格式无效或账号发生变化时，会拒绝该操作。
 
 `publishDraft(localId, publisherId, requestId)` 将已核验的本地原始 ZIP 上传为私有草稿。调用前保留原账号范围的请求 key 与归档；上传结果不确定时，仅使用同一 key 和同一归档重试。上传不会自动提交审核。显式调用 `review(id, revision, 'submit', '')` 才请求审核；通过、拒绝和撤回同样要求原先查看的修订号及当前服务端权限。响应丢失时，服务 GET 原 id 对账；只有精确匹配的下一修订才能确认请求状态。冲突与未确认响应在结构化错误详情中保留原 id、查看过的修订号及可获取的完整观察记录，不会自动提交更新的修订。网关在请求准入时检查权限；后续账号或角色变化不会追溯取消已提交的服务端操作。
 
 `installPublication(id, expectedSha256)` 核对所选目录摘要、完整 ZIP 字节数和清单后，调用基础服务进行停用状态的导入，不会改变默认值或激活版本。浏览器消费者使用与 Host 共用的公共 `./cloud-values` 解析器；独立的 `lib/cloud-values.browser.js` 构建不依赖 Node、Cordis 或凭据。云端失败通过 `muse-market/cloud-failed` 返回有界的 `code` 和 HTTP `status`；原本的本地存储失败保持 `muse-market/operation-failed`。卸载会等待所属请求结束，并拒绝后续调用。
 
 独立的 `./cloud-host` provider 在专用具名 `dsh` profile 下提供私有回环存储，使用管理员拥有的 `policyFile`、明确的归档与 JSON 限制，以及仅供网关使用的 secret。[网关部署](../../../services/muse-accounts/README.zh.md)负责账号准入与代理配置。请独立于 Desktop 存储备份整个云端存储，包括 SQLite 与不可变 blob；未知 schema 版本会被拒绝。私有端点与已保存草稿均不代表发行审核通过，也不授予 Skill 执行权限。
+
+`legacyCatalog(query)` 从 `/market/catalog.json` 读取原有 Skill 发行目录，不读取或发送账号凭据。`installLegacy(id, expectedSha256)` 重新读取该目录，核对所选原包的摘要与字节数，并且只从同源 `/market/downloads/` 下下载 ZIP。原目录 id、审核发行 id 和本地归档哈希互不混用。元数据变化、不安全路径、重定向或归档超限都会拒绝安装。
+
+原有 Skill 目录先转换为确定性的单 Skill 发布包，再走普通的停用状态导入。生成的本地版本 id 标识转换后的 ZIP，同一来源重复导入会得到同一个版本。资源字节保持不变；三个 Office Skill 会把已核对的共享辅助脚本移入各自 Skill 目录并更新该脚本引用。转换既不会启用 Skill，也不会补齐其指令要求的外部工具、账号权限或授权许可。
+
+原有资源导入完成后，会在存储根目录下的 version-1 `legacy-installations.json` 中记录原始 id、SHA-256 与规范本地 id 的对应关系。重启后，`legacyCatalog()` 仅在原始摘要精确匹配、且本地记录和完整归档仍通过校验时返回 `installationId`。缺失、已移除或已修改的归档不会显示为已安装。本地标注读取失败时，公开浏览仍返回已校验目录、不标注安装状态，并记录 `muse-market/legacy-markers-unavailable`；安装操作仍明确报告标注写入失败，保留原有标注文件。此附加文件不改变归档字节、安装账本或 Session 绑定。原目录的 `requiredSkills` 会返回用于展示，不会自动安装。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
@@ -84,6 +100,12 @@ kind: "package-reference"
 <summary>实现细节——点击展开</summary>
 
 [归档编解码器](src/package.ts) 校验清单和资源摘要；[本地存储](src/local.ts) 负责不可变包及原子记录。[基础服务](src/index.ts) 串行处理发行包操作。[激活组件](src/activation.ts)、[绑定投影](src/session.ts)和 [Skill provider](src/skills.ts) 保留并解析精确的 Session 选择。[云端传输](src/cloud.ts)核验远端元数据与归档；[私有服务端](src/server.ts)负责发布团队成员、不可变 blob 与带修订检查的审核转换。
+
+归档读取器返回已校验的单 Skill 清单、完整资源，以及必需指令文件的 `skillInstructions`。绑定捕获和 Skill 加载会在核对完整版本身份后，使用这份已校验的字节。该解码结果不会为持久化清单或 Session 绑定增加字段；确定性的 ZIP 资源顺序和字节保持不变。
+
+冷视图先选已记录版本，已执行但未绑定的 Session 返回空集合，其余读取当前默认值。显式分支仅在捕获默认值时执行 `await`，保留已绑定与旧 Session 路径的同步时序，并避免 V8 覆盖率误计汇合后的路径。
+
+账本解析和默认值捕获使用同一项安装记录检查，在提交任何 Session 选择前拒绝缺失的发行包。文件读取在 Windows 上选择只读标志，在 POSIX 上增加禁止跟随链接和非阻塞标志。HTTP 请求限制按收集到的字节计算；字符串分块先编码为 UTF-8 字节再计数。
 
 </details>
 
@@ -115,7 +137,7 @@ kind: "package-reference"
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- 有界云端目录并非完整枚举；达到数量上限时请缩小搜索范围。云端访问需要匹配且已配置的服务端。
+- 有界云端目录并非完整枚举；搜索仅过滤已获取的记录。云端访问需要匹配且已配置的服务端。
 - URL、opaque 以及由平铺 Skill 共享的资源根目录不能被准备为本地目录包。
 
 <a id="dev-note"></a>

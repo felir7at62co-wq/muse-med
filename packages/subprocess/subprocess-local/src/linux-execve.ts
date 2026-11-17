@@ -1,7 +1,6 @@
 /** Lazy libc execve and descriptor bindings used by the one-shot Linux bootstrap. */
 
 import { getSystemErrorMessage, getSystemErrorName } from 'node:util'
-import { constants } from 'node:fs'
 import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 import { createLazyRequire } from '@deepseek-ai/dsh-lazy-require'
 
@@ -13,6 +12,7 @@ export type LinuxExecve = (
   argv: string[],
   env: Record<string, string>,
   control?: 'pipe',
+  pipeFds?: readonly number[],
 ) => never
 
 type NativeExecve = (
@@ -26,9 +26,10 @@ type NativeFcntl = (fd: number, command: number, argument: number) => number
 const STANDARD_FILE_DESCRIPTORS = [0, 1, 2] as const
 const F_GETFD = 1
 const F_SETFD = 2
+const FD_CLOEXEC = 1
 const F_GETFL = 3
 const F_SETFL = 4
-const FD_CLOEXEC = 1
+const O_NONBLOCK = 0x800
 
 let cachedExecve: LinuxExecve | undefined
 
@@ -47,7 +48,7 @@ function systemError(errno: number, syscall: string, path?: string): Error {
 
 /**
  * Load libc's execve and fcntl symbols on first use and retain the native bindings.
- * Native targets inherit blocking standard streams; the optional control stream retains its status flags.
+ * Child-created standard-stream pipes use blocking I/O; inherited streams, PTYs and control fd 7 retain their status flags.
  * @returns a process-replacing execve operation that throws Node-style errors on failure.
  */
 export function loadLinuxExecve(): LinuxExecve {
@@ -60,7 +61,7 @@ export function loadLinuxExecve(): LinuxExecve {
   const nativeFcntl = libc.func(
     'int fcntl(int fd, int cmd, int arg)',
   ) as NativeFcntl
-  cachedExecve = (file, argv, env, control) => {
+  cachedExecve = (file, argv, env, control, pipeFds = []) => {
     const descriptors = control === 'pipe'
       ? [...STANDARD_FILE_DESCRIPTORS, SUBPROCESS_CONTROL_FD]
       : STANDARD_FILE_DESCRIPTORS
@@ -72,11 +73,12 @@ export function loadLinuxExecve(): LinuxExecve {
         throw systemError(koffi.errno(), 'fcntl')
       }
     }
-    for (const fd of STANDARD_FILE_DESCRIPTORS) {
+    // F_SETFL changes the open file description in every process sharing it.
+    // Only pipes created for this child are safe to make blocking for native targets.
+    for (const fd of pipeFds) {
       const flags = nativeFcntl(fd, F_GETFL, 0)
       if (flags === -1) throw systemError(koffi.errno(), 'fcntl')
-      if ((flags & constants.O_NONBLOCK) === 0) continue
-      if (nativeFcntl(fd, F_SETFL, flags & ~constants.O_NONBLOCK) === -1) {
+      if ((flags & O_NONBLOCK) !== 0 && nativeFcntl(fd, F_SETFL, flags & ~O_NONBLOCK) === -1) {
         throw systemError(koffi.errno(), 'fcntl')
       }
     }

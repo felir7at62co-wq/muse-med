@@ -37,12 +37,18 @@ function containsBlockedTerm(value: string): boolean {
  * @param file - repository-relative tracked path.
  * @param source - text contents or symlink target.
  * @returns Violations outside retained source copies, frozen Agent Notes, historical schemas and their generated regions.
- * @throws When the pinned upstream OCR notice has changed.
+ * @throws When the pinned upstream OCR notice or Hongguo engine has changed.
  */
 export function findConcreteTermViolations(file: string, source: string): ConcreteTermViolation[] {
   if (file === 'scripts/primary-runtime/ocr-models-notice.txt') {
     if (createHash('sha256').update(source).digest('hex') !== 'c5fd0e8603d3df743355b546121e6fe0f4ef8ff455c5a85c1681fd3ae520e153') {
       throw new Error('verify-concrete-terms: pinned upstream OCR notice changed')
+    }
+    return []
+  }
+  if (file === 'third_party/plugins/muse-hongguo-download/upstream/engine.cjs') {
+    if (createHash('sha256').update(source).digest('hex') !== 'c0e1d150e401e61af33a3f507700bc1c2b7fe6256b015c551c4487b53348d3c4') {
+      throw new Error('verify-concrete-terms: pinned upstream Hongguo engine changed')
     }
     return []
   }

@@ -65,6 +65,7 @@ describe('desktop macOS release signature', () => {
     }
     expect(config.extraResources).toHaveLength(2)
     expect(config.extraResources[0]?.to).toBe('runtime')
+    expect(config.extraResources[0]?.filter).toEqual(['**/*', '!hongguo', '!hongguo/**/*'])
     expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
     const [dshFiles, dshNodeModules] = config.files.slice(-2)
     if (!dshFiles || !dshNodeModules || typeof dshFiles === 'string' || typeof dshNodeModules === 'string') {
@@ -81,9 +82,10 @@ describe('desktop macOS release signature', () => {
       '**/@deepseek-ai/dsh-desktop-host/skills/**',
       '**/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/**',
       '**/muse-douyin-download/python/**',
-      '**/muse-hongguo-download/python/**',
+      '**/muse-hongguo-download/**',
       '**/muse-lvpaopao/native/**',
       '**/@openai/codex*/**',
+      '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/native/bin/**/*',
     ]))
     expect(config.icon).toMatch(/[/\\]renderer[/\\]icon\.png$/u)
     expect(config).toHaveProperty('win.icon', expect.stringMatching(/[/\\]renderer[/\\]icon\.ico$/u))
@@ -228,7 +230,7 @@ describe('desktop macOS release signature', () => {
       DSH_DESKTOP_UNSIGNED: '1',
     }, 'darwin', arch)
     expect(portablePath(config.directories.output)).toContain(`/targets/mac-${arch}/unsigned-artifacts`)
-    expect(config.artifactName).toBe('muse-med-${version}-${os}-${arch}-unsigned.${ext}')
+    expect(config.artifactName).toBe('muse-med-${version}-${os}-${arch}.${ext}')
     expect(config.mac).toMatchObject({ identity: '-', forceCodeSigning: false, notarize: false, target: ['dmg', 'zip'] })
     expect(config.dmg).toMatchObject({ sign: false, writeUpdateInfo: false })
     expect(config.publish).toEqual([{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel: 'latest' }])

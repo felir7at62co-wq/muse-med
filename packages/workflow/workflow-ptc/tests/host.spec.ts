@@ -63,6 +63,25 @@ async function setup(execute?: (bindings: HostBindings, spec: PtcRunSpec) => Pro
 }
 
 describe('workflow host callback validation', () => {
+  it('marks a completed child with a missing required property as an invalid artifact', async () => {
+    const schema = { type: 'object', properties: { answer: { type: 'number' } }, required: ['answer'] }
+    const { ctx, start } = await setup(async (bindings) => {
+      const child = await bindings.startChild!({ prompt: 'answer', schema })
+      expect(await bindings.childResult!(child)).toEqual({ output: [], structured: { other: 42 }, diagnostic: 'provider warning',
+        stopReason: 'completed', artifactFailure: 'the structured result is missing the required property "answer"' })
+      await bindings.disposeChild!(child)
+      return completed
+    })
+    const disposed = vi.fn(async () => {})
+    vi.spyOn(ctx.subagents, 'startActivation').mockResolvedValue({ childId: SessionId('invalid-child'), name: 'invalid-child',
+      result: Promise.resolve({ output: [], structured: { other: 42 }, diagnostic: 'provider warning', stopReason: 'completed' }), dispose: disposed })
+    const run = start()
+    try {
+      await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+      expect(disposed).toHaveBeenCalledOnce()
+    } finally { await run.dispose() }
+  })
+
   it('runs an unconfined provider under full access without forwarding a sandbox policy', async () => {
     const { runtime, parent, start } = await setup(async (_bindings, spec) => {
       expect(spec.sandboxPolicy).toBeUndefined()
@@ -119,7 +138,7 @@ describe('workflow host callback validation', () => {
       expect(childStart).toHaveBeenCalledOnce()
       const selected = childStart.mock.calls[0]![0]
       expect(selected.provider).toBe('stub')
-      expect(selected.request.cwd).toBe(initial)
+      expect(selected.cwd).toBe(initial)
       expect(ensureDirectory).toHaveBeenCalledOnce()
     } finally {
       release.resolve(undefined)
@@ -197,7 +216,7 @@ describe('workflow runtime outcomes', () => {
       await bindings.disposeChild!(child)
       return completed
     })
-    vi.spyOn(ctx.subagents, 'startActivation').mockResolvedValue({ childId: SessionId('diagnostic-child'),
+    vi.spyOn(ctx.subagents, 'startActivation').mockResolvedValue({ childId: SessionId('diagnostic-child'), name: 'diagnostic-child',
       result: Promise.resolve({ output: [], stopReason: 'error', diagnostic }), dispose: disposed })
     const handle = start()
     try { await expect(handle.result).resolves.toMatchObject({ stopReason: 'completed' }) }
@@ -217,7 +236,7 @@ describe('workflow runtime outcomes', () => {
       return completed
     })
     const activation = vi.spyOn(ctx.subagents, 'startActivation').mockResolvedValue({
-      childId: SessionId('ready-child'),
+      childId: SessionId('ready-child'), name: 'ready-child',
       result: Promise.resolve({ output: [], structured: { answer: 42 }, stopReason: 'completed' }),
       dispose: () => { disposing.resolve(undefined); return released.promise },
     })
@@ -228,16 +247,13 @@ describe('workflow runtime outcomes', () => {
       await disposing.promise
       expect(settled).toBe(false)
       expect(activation).toHaveBeenCalledOnce()
-      const { signal, ...delegation } = activation.mock.calls[0]![0]
+      const { signal, parent: delegatedParent, ...delegation } = activation.mock.calls[0]![0]
       expect(signal).toBeInstanceOf(AbortSignal)
-      const { parent: delegatedParent, ...request } = delegation.request
       expect(delegatedParent).toBe(parent)
-      expect({ ...delegation, request }).toEqual({
+      expect(delegation).toEqual({
         provider: 'stub', label: 'host-test child 1', delivery: 'caller',
-        request: {
-          cwd: ctx.workingDirectory.get(parent.session),
-          prompt: [{ type: 'text', text: `${STRUCTURED_RETURN_NOTICE}\n\nanswer` }], outputSchema: schema, agentOptions: { model: 'selected' },
-        },
+        cwd: ctx.workingDirectory.get(parent.session),
+        prompt: [{ type: 'text', text: `${STRUCTURED_RETURN_NOTICE}\n\nanswer` }], outputSchema: schema, agentOptions: { model: 'selected' },
       })
       released.resolve(undefined)
       await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
@@ -298,7 +314,7 @@ describe('workflow runtime outcomes', () => {
       return publication.promise
     })
     const child: SubagentActivation = {
-      childId: SessionId('late-child'),
+      childId: SessionId('late-child'), name: 'late-child',
       result: Promise.resolve({ output: [], stopReason: 'aborted' }),
       dispose: disposed,
     }
@@ -326,7 +342,7 @@ describe('workflow runtime outcomes', () => {
       return completed
     })
     vi.spyOn(ctx.subagents, 'startActivation').mockResolvedValue({
-      childId: SessionId('output-pending'), result: childResult.promise, dispose: disposed,
+      childId: SessionId('output-pending'), name: 'output-pending', result: childResult.promise, dispose: disposed,
     })
     const handle = start()
     let settled = false

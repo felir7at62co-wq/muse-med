@@ -5,7 +5,7 @@ import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { JsonStorageBackend } from '@deepseek-ai/dsh-storage-json'
 import { OwnedWorkspaceStorage } from '../src/workspace-owned-storage.ts'
@@ -14,7 +14,9 @@ const isolatedScan = vi.hoisted(() => ({ read: vi.fn<(timeoutMs: number) => Prom
 vi.mock('../src/workspace-process-snapshot.ts', () => ({
   readWorkspaceProcessSnapshot: (timeoutMs: number) => isolatedScan.read(timeoutMs),
 }))
-isolatedScan.read.mockImplementation(() => Promise.resolve({ platform: 'posix', stdout: `${process.pid} test-runner\n`, stderr: '' }))
+beforeEach(() => {
+  isolatedScan.read.mockReset().mockResolvedValue({ platform: 'posix', stdout: `${process.pid} test-runner\n`, stderr: '' })
+})
 
 const ID = SessionId('session-original')
 const descriptor = { name: 'workspace', version: 2, hasGlobal: true, tables: ['workspaces'] }
@@ -34,9 +36,94 @@ async function harness() {
 }
 
 describe('Desktop workspace successor ownership', () => {
+  it('refuses a selected backend that is not the configured JSON implementation', async () => {
+    const h = await harness()
+    const backend = new OwnedWorkspaceStorage({ sourceBackend: 'json', root: h.root }, { close: () => Promise.resolve() })
+    onTestFinished(() => backend.close())
+    await expect(backend.kv.open(descriptor)).rejects.toThrow('not a live JSON storage backend')
+    expect(await readFile(h.sourcePath, 'utf8')).toBe(h.source)
+  })
+
+  it('initializes an independent empty store while another Host is running and retains exclusive ownership', async () => {
+    const h = await harness()
+    await rm(h.sourcePath)
+    const scan = vi.spyOn(isolatedScan, 'read').mockResolvedValue({ platform: 'posix',
+      stdout: `${process.pid} self\n999999 node /other/dsh-desktop-host/lib/index.js\n`, stderr: '' })
+    onTestFinished(() => { scan.mockRestore() })
+    const read = vi.spyOn(h.sourceBackend, 'readSource')
+    const unit = await h.backend.kv.open(descriptor)
+    expect(await unit.loadAll()).toEqual({ global: null, tables: { workspaces: {} } })
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(scan).not.toHaveBeenCalled()
+    expect(JSON.parse(await readFile(join(h.root, 'migration.json'), 'utf8'))).toMatchObject({ sourceSha256: null })
+    const second = new OwnedWorkspaceStorage({ sourceBackend: 'json', root: h.root }, h.sourceBackend)
+    onTestFinished(() => second.close())
+    await expect(second.kv.open(descriptor)).rejects.toThrow()
+    await expect(stat(h.sourcePath)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('still refuses an existing source while another Host can drain it', async () => {
+    const h = await harness()
+    const scan = vi.spyOn(isolatedScan, 'read').mockResolvedValue({ platform: 'posix',
+      stdout: `${process.pid} self\n999999 node /other/dsh-desktop-host/lib/index.js\n`, stderr: '' })
+    onTestFinished(() => { scan.mockRestore() })
+    await expect(h.backend.kv.open(descriptor)).rejects.toMatchObject({ reason: 'other-host' })
+    await expect(stat(h.root)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(h.sourcePath, 'utf8')).toBe(h.source)
+  })
+
+  it('refuses a source that appears before first-use publication', async () => {
+    const h = await harness()
+    await rm(h.sourcePath)
+    const read = h.sourceBackend.readSource.bind(h.sourceBackend)
+    vi.spyOn(h.sourceBackend, 'readSource').mockImplementationOnce(read).mockImplementationOnce(async (input) => {
+      await writeFile(h.sourcePath, h.source)
+      return read(input)
+    })
+    await expect(h.backend.kv.open(descriptor)).rejects.toThrow('appeared or changed')
+    await expect(stat(h.root)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(h.sourcePath, 'utf8')).toBe(h.source)
+  })
+
+  it('refuses a changed backend source path before first-use publication', async () => {
+    const h = await harness()
+    await rm(h.sourcePath)
+    const read = h.sourceBackend.readSource.bind(h.sourceBackend)
+    vi.spyOn(h.sourceBackend, 'readSource').mockImplementationOnce(read)
+      .mockResolvedValueOnce({ path: join(h.dir, 'different-source.json'), text: undefined })
+    await expect(h.backend.kv.open(descriptor)).rejects.toThrow('appeared or changed')
+    await expect(stat(h.root)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each([1, 2])('propagates a source read permission error at read %s without publishing an empty store', async (readNumber) => {
+    const h = await harness()
+    await rm(h.sourcePath)
+    const read = h.sourceBackend.readSource.bind(h.sourceBackend)
+    const sourceRead = vi.spyOn(h.sourceBackend, 'readSource')
+    if (readNumber === 2) sourceRead.mockImplementationOnce(read)
+    const error = Object.assign(new Error('source permission denied'), { code: 'EACCES' })
+    sourceRead.mockRejectedValueOnce(error)
+    await expect(h.backend.kv.open(descriptor)).rejects.toBe(error)
+    await expect(stat(h.root)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('does not treat an existing source removed during handoff as first use', async () => {
+    const h = await harness()
+    const scan = vi.spyOn(isolatedScan, 'read').mockImplementationOnce(async () => {
+      await rm(h.sourcePath)
+      return { platform: 'posix', stdout: `${process.pid} self\n`, stderr: '' }
+    })
+    onTestFinished(() => { scan.mockRestore() })
+    await expect(h.backend.kv.open(descriptor)).rejects.toThrow('changed after handoff')
+    await expect(stat(h.root)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('migrates the full original identity and keeps a source hash while preserving the source bytes', async () => {
     const h = await harness()
+    const sourceRead = vi.spyOn(h.sourceBackend, 'readSource')
     const unit = await h.backend.kv.open(descriptor)
+    expect(isolatedScan.read).toHaveBeenCalledTimes(2)
+    expect(sourceRead).toHaveBeenCalledTimes(2)
     expect(await unit.loadAll()).toEqual({ global: globalState, tables: { workspaces: { 'ws-original': record } } })
     expect(await readFile(h.sourcePath, 'utf8')).toBe(h.source)
     expect(JSON.parse(await readFile(join(h.root, 'migration.json'), 'utf8'))).toMatchObject({ schemaVersion: 1, sourcePath: await realpath(h.sourcePath) })
@@ -160,23 +247,26 @@ describe('Desktop workspace successor ownership', () => {
       fileURLToPath(new URL('./fixtures/workspace-owned-process.ts', import.meta.url)), h.dir, h.root, 'crash-before-publish'], {
       cwd: process.cwd(), stdio: ['pipe', 'pipe', 'pipe'],
     })
-    let stderr = '', stdout = ''
-    child.stderr.on('data', (chunk) => { stderr += String(chunk) })
-    child.stdout.on('data', (chunk) => { stdout += String(chunk) })
-    const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-      child.once('close', (code, signal) => { resolve({ code, signal }) })
-      child.once('error', reject)
-    })
+    const closed = once(child, 'close')
     void closed.catch(() => {})
+    let stderr = '', output = '', reachedPublication = false
+    child.stderr.on('data', (chunk) => { stderr += String(chunk) })
+    child.stdout.on('data', (chunk) => {
+      output += String(chunk)
+      if (!reachedPublication && output.includes('WORKSPACE_BEFORE_PUBLICATION\n')) {
+        reachedPublication = true
+        child.kill('SIGKILL')
+      }
+    })
+    const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+      const timer = setTimeout(() => { reject(new Error(`migration child did not exit: ${stderr}`)) }, 5000)
+      child.once('exit', (code, signal) => { clearTimeout(timer); resolve({ code, signal }) })
+      child.once('error', (error) => { clearTimeout(timer); reject(error) })
+    })
     onTestFinished(async () => { child.kill('SIGKILL'); await closed })
-    let timer: ReturnType<typeof setTimeout> | undefined
-    try {
-      const result = await Promise.race([closed, new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => { reject(new Error(`migration child did not exit: ${stderr}`)) }, 5000)
-      })])
-      expect(result, stderr).toEqual(process.platform === 'win32' ? { code: 1, signal: null } : { code: null, signal: 'SIGKILL' })
-      expect(stdout).toBe('MIGRATION_BEFORE_PUBLICATION\n')
-    } finally { clearTimeout(timer) }
+    const { code, signal } = await exit
+    expect(reachedPublication).toBe(true)
+    expect({ code, signal }, stderr).toEqual({ code: null, signal: 'SIGKILL' })
     await expect(stat(h.root)).rejects.toMatchObject({ code: 'ENOENT' })
     expect((await readdir(h.dir)).some(name => name.startsWith('.owned.v1-migration-'))).toBe(true)
     expect(await readFile(h.sourcePath, 'utf8')).toBe(h.source)

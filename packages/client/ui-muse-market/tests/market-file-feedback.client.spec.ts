@@ -72,10 +72,10 @@ it('keeps the original Session id and structured refusal through generated Remot
   const binding = vi.fn<ClientRemote['museMarketActivation']['binding']>()
     .mockResolvedValue({ ok: true, value: { phase: 'legacy', releases: [] } })
   const operations = createMarketOperations({
-    museMarket: { sources: unused, prepare: unused, installed: async () => ({ ok: false, error }),
+    museMarket: { sources: unused, prepare: unused, prepareUpload: unused, installed: async () => ({ ok: false, error }),
       importPackage: unused, exportPackage: unused, removePackage: unused },
     museMarketActivation: { defaults: unused, setDefault: unused, binding },
-    museMarketCloud: { catalog: unused, identity: unused, getPublication: unused,
+    museMarketCloud: { catalog: unused, legacyCatalog: unused, installLegacy: unused, identity: unused, getPublication: unused,
       installPublication: unused, publishDraft: unused, review: unused },
   })
   const controller = new MarketController(operations)

@@ -1,7 +1,7 @@
 /** Native video playback and controls above the proportional shot timeline. */
 import { useEffect, useRef, useState } from 'react'
 import { Button, IconPlayTriangleOutlineRegular, IconPauseBarsOutlineRegular, IconZoomInOutlineRegular, IconZoomOutOutlineRegular, Tooltip, DOCUMENT_ZOOM } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SessionVideoAnalysis, SessionVideoSource } from '@deepseek-ai/dsh-session-video/types'
+import type { SessionVideoAnalysis } from '@deepseek-ai/dsh-session-video'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { VideoTimeline, type VideoTimelineShot } from './VideoTimeline.tsx'
 import css from './VideoShelf.module.css'
@@ -10,7 +10,13 @@ import css from './VideoShelf.module.css'
 export interface VideoPlayerProps extends PropsLocale<'sessionVideo'> {
   /** Pause playback while the retained curtain finishes closing. */
   readonly active?: boolean
-  readonly source: SessionVideoSource
+  /** Retain browser volume, seeking and fullscreen controls for inline deliveries. */
+  readonly nativeControls?: boolean
+  /** Report a user-started playback or seek so its owner can retain that media. */
+  readonly onUserInteract?: () => void
+  /** Report media failures and successful metadata loading to the owning card. */
+  readonly onPlaybackFailureChange?: (failed: boolean) => void
+  readonly source: { readonly id: string; readonly label: string; readonly playbackUrl: string | null }
   readonly analysis: SessionVideoAnalysis | undefined
   readonly shots: readonly VideoTimelineShot[]
   readonly offset: number
@@ -20,7 +26,7 @@ export interface VideoPlayerProps extends PropsLocale<'sessionVideo'> {
   readonly zoom: number
   readonly onZoom: (zoom: number) => void
   readonly selectedShot: string | null
-  /** Equal request identities retain playback position across parent renders. */
+  /** Equal request identities preserve playback across parent renders. */
   readonly seekRequest: { readonly time: number; readonly revision: number | string } | null
   readonly onSeek: (time: number) => void
   readonly onSelectShot: (id: string) => void
@@ -33,7 +39,8 @@ export interface VideoPlayerProps extends PropsLocale<'sessionVideo'> {
  * @returns Player, compact play control and filmstrip.
  */
 export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsPerSecond, selectedShot,
-  seekRequest, onSeek, onSelectShot, onRetrySource, t, zoom, onZoom, active = true }: VideoPlayerProps) {
+  seekRequest, onSeek, onSelectShot, onRetrySource, t, zoom, onZoom, active = true, nativeControls = false, onUserInteract,
+  onPlaybackFailureChange }: VideoPlayerProps) {
   const player = useRef<HTMLVideoElement>(null)
   const playAttempt = useRef(0)
   const [playback, setPlayback] = useState({ sourceId: source.id, time: 0, playing: false, failed: false })
@@ -48,8 +55,8 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
   const [thumbnails, setThumbnails] = useState<{ url: string | null; frames: Readonly<Record<string, string>> }>({ url: null, frames: {} })
   useEffect(() => { if (!active) { playAttempt.current++; player.current?.pause() } }, [active])
   useEffect(() => {
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- React attaches the always-rendered video before this effect runs.
-    const video = player.current!
+    // This unconditional video is mounted before React commits its effect.
+    const video = player.current as HTMLVideoElement
     video.src = source.playbackUrl ?? ''
     video.load()
     return () => { playAttempt.current++; video.pause(); video.removeAttribute('src'); video.load() }
@@ -64,7 +71,7 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
   }, [source.id, source.playbackUrl, seekTime, seekRevision])
   useEffect(() => {
     const playbackUrl = source.playbackUrl
-    if (analysis?.state !== 'ready' || playbackUrl === null) return
+    if (!active || analysis?.state !== 'ready' || playbackUrl === null) return
     const video = document.createElement('video')
     const canvas = document.createElement('canvas')
     const controller = new AbortController()
@@ -95,27 +102,34 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
     }
     void capture().catch((_error: unknown) => { /* Playback remains usable when a source disallows frame capture. */ })
     return () => { controller.abort(); video.pause(); video.removeAttribute('src'); video.load() }
-  }, [analysis, source.playbackUrl])
+  }, [active, analysis, source.playbackUrl])
   const frames = thumbnails.url === source.playbackUrl ? thumbnails.frames : {}
   const timelineShots = shots.map(shot => ({ ...shot, thumbnail: frames[shot.id] ?? shot.thumbnail }))
   return <>
     <div className={css.picture}>
-      <video key={source.id} ref={player} playsInline preload="metadata" aria-label={source.label} data-muse-shelf-video
-        onLoadedMetadata={(event) => { updatePlayback({ failed: false, playing: false, time: event.currentTarget.currentTime }) }}
+      <video key={source.id} ref={player} controls={nativeControls} playsInline preload="metadata" aria-label={source.label} data-muse-shelf-video
+        onPointerDown={() => { onUserInteract?.() }} onKeyDown={() => { onUserInteract?.() }}
+        onLoadedMetadata={(event) => {
+          onPlaybackFailureChange?.(false); updatePlayback({ failed: false, playing: false, time: event.currentTarget.currentTime })
+        }}
         onTimeUpdate={(event) => { updatePlayback({ time: event.currentTarget.currentTime }) }}
-        onPlay={() => { updatePlayback({ playing: true }) }} onPause={() => { updatePlayback({ playing: false }) }}
-        onError={() => { updatePlayback({ failed: true }) }} />
+        onPlay={() => { onUserInteract?.(); updatePlayback({ playing: true }) }}
+        onSeeking={() => { onUserInteract?.() }} onPause={() => { updatePlayback({ playing: false }) }}
+        onError={() => { onPlaybackFailureChange?.(true); updatePlayback({ failed: true }) }} />
       {failed && <div className={css.mediaError} role="alert">{t('unavailable')} <Button size="sm" onClick={() => {
         onRetrySource?.(); setRetry(value => value + 1)
       }}>{t('retry')}</Button></div>}
     </div>
     <div className={css.controls} data-muse-video-controls>
       <Button className={css.play} aria-label={t(playing ? 'pause' : 'play')} onClick={() => {
-        // oxlint-disable-next-line typescript/no-non-null-assertion -- This mounted control shares the component's attached video ref.
-        const video = player.current!
+        onUserInteract?.()
+        const video = player.current
+        if (video === null) return
         const attempt = ++playAttempt.current
         if (!video.paused) video.pause()
-        else void video.play().catch((_error: unknown) => { if (playAttempt.current === attempt) updatePlayback({ failed: true }) })
+        else void video.play().catch((_error: unknown) => {
+          if (playAttempt.current === attempt) { onPlaybackFailureChange?.(true); updatePlayback({ failed: true }) }
+        })
       }}>{playing ? <IconPauseBarsOutlineRegular /> : <IconPlayTriangleOutlineRegular />}</Button>
       <div className={css.zoom} data-muse-video-zoom role="group" aria-label={t('zoomControls')}>
         <Tooltip label={t('zoomOut')} portal>

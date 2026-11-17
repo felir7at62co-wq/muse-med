@@ -1,8 +1,8 @@
 version: 1
+writerOutput: true
 scenario: bash-spill
 profile: headless
 composition: fs
 recording: authored
-writerOutput: true
 header:
   class: fs

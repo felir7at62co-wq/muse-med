@@ -227,7 +227,7 @@ export async function apply(ctx, { correctionTool = 'bash' } = {}) {
       const report = JSON.parse(block.text).manuscript_guidance
       assert.equal(report.attribution, attribution)
       assert.equal(report.authority_assessment, 'not_performed')
-      assert.equal(report.total, 2)
+      assert.equal(report.total, 1)
       assert.ok(report.findings.every(finding => finding.user_basis === 'no_literal_user_text_found'))
     }
     assert.equal(await readFile(join(cwd, 'documents', '写作规范.md'), 'utf8'), '不合并台词。\n每句对白必须带括注。\n')

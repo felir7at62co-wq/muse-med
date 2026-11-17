@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-short-drama-upload
+profile: headless
+composition: muse-short-drama-upload
+recording: authored
+header:
+  class: muse-short-drama-upload
+  pin: true
+writerOutput: true
+workspace:
+  final: true

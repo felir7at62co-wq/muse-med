@@ -1,5 +1,6 @@
 /** Late-reply conversation node: source matching and payload projection. */
-import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ChatConversationViewNode } from '../../ui-chat/src/client/contract/chat-nodes.ts'
@@ -9,7 +10,8 @@ import { assistantDefinition } from '../../ui-chat/src/client/conversation-nodes
 import { toolDefinition } from '../../ui-chat/src/client/conversation-nodes/tool.ts'
 import { turnProcessDefinition } from '../../ui-chat/src/client/conversation-nodes/turn-process.ts'
 import { isAtOrOutside } from '../../ui-chat/src/client/contract/group-tree.ts'
-import type { ConversationViewNode } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { ConversationEventRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ConversationNodeDefinitionInput, ConversationViewNode } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { messageDefinition } from '../../ui-chat/src/client/conversation-nodes/message.ts'
 import { ConversationNodeAssembler } from '../../ui-conversation/src/client/conversation/assembler.ts'
 import { en } from '../src/client/locales.ts'
@@ -92,10 +94,18 @@ function ptcResult(text = JSON.stringify({ answers: [{ id: 'notes', selected: []
       content: [{ type: 'text', text }] } } as never
 }
 
+function eventDefinitions(definitions: readonly ConversationNodeDefinitionInput[]): ConversationEventRegistry {
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  const registry = new ConversationEventRegistry(ctx)
+  for (const definition of definitions) registry.register(definition)
+  return registry
+}
+
 function answerAssembler() {
   let nodes: readonly ConversationViewNode[] = []
   const assembler = new ConversationNodeAssembler(
-    { entries: () => [answeredQuestionDefinition, questionReplyDefinition, messageDefinition], fallbackEntry: () => undefined },
+    eventDefinitions([answeredQuestionDefinition, questionReplyDefinition, messageDefinition]),
     { entries: () => [{ target: 'chat', create: () => ({
       empty: nodes,
       replace: input => (nodes = input.nodes),
@@ -133,11 +143,8 @@ describe('answeredQuestionDefinition', () => {
       data: { turn: 1, step: 1, callId: 'root', name: 'run_code', arguments: '{}' },
     } as never })
     const run = new ConversationNodeAssembler(
-      {
-        entries: () => [answeredQuestionDefinition, questionReplyDefinition, messageDefinition,
-          assistantDefinition, toolDefinition, turnProcessDefinition],
-        fallbackEntry: () => undefined,
-      },
+      eventDefinitions([answeredQuestionDefinition, questionReplyDefinition, messageDefinition,
+        assistantDefinition, toolDefinition, turnProcessDefinition]),
       { entries: () => [chatViewDefinition] },
     )
     if (mode === 'live') {
@@ -343,11 +350,11 @@ describe('questionReplyDefinition', () => {
 
   it('claims the message the generic projection also matches, so Chat holds one Node for it', () => {
     const event = message(replySource('answered'), answered)
-    expect(messageDefinition.match(event)).toEqual({ id: 'msg-1', role: 'start' })
+    const definitions = eventDefinitions([messageDefinition, questionReplyDefinition])
+    expect(definitions.entries()[0]!.match(event)).toEqual({ id: 'msg-1', role: 'start' })
     let chat: readonly ConversationViewNode[] = []
-    const definitions = [messageDefinition, questionReplyDefinition]
     const assembler = new ConversationNodeAssembler(
-      { entries: () => definitions, fallbackEntry: () => undefined },
+      definitions,
       { entries: () => [{
         target: 'chat',
         create: () => ({

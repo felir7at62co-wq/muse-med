@@ -27,7 +27,9 @@ English | [中文](README.zh.md)
 
 Users switch the color scheme, font sizes, and fonts from rows in Settings (General section); the choices persist across restarts in every authenticated browser. Feature plugins consume the current snapshot through `ctx.theme` and read the `--dsw-*` tokens in CSS; they do not manage theme state themselves.
 
-User chat fills use `--dsw-alias-chat-user-bg`. Muse video controls use the independent `--dsw-alias-video-shelf-*` material: a dark fill and readable light labels in both palettes, shared by the expanded player, inline video card and absorption preview.
+Muse video controls use the independent `--dsw-alias-video-shelf-*` material: a dark fill and readable light labels in both palettes, shared by the expanded player, inline video card and absorption preview.
+
+The `--dsw-alias-market-*` tokens provide the Muse market’s purple surfaces, borders, action colors and foregrounds in both palettes. Market components consume these aliases without changing the global accent.
 
 ### Appearance and font size
 
@@ -47,7 +49,7 @@ A composition can register a third-party theme id with alias-token overrides thr
 
 ### Pre-plugin palette
 
-When the host composition includes an HTTP server, the host half embeds the registered `ui-theme` settings, or schema defaults, into each index response. Head CSS selects the document canvas color scheme before any script runs, including a `prefers-color-scheme` query for the `system` preference. A body script then sets `body[data-ds-dark-theme]`, `--dsh-content-font-size`, `--dsh-code-font-size`, `--dsh-terminal-font-size`, and each non-empty `--dsh-font-family-<role>` list before the loading page and application scripts, so the first paint uses the selected palette and text and code sizes, and `ThemeRuntime` starts from the saved sizes and fonts instead of rendering the defaults first.
+When the host composition includes an HTTP server, the host half embeds the registered `ui-theme` settings, or schema defaults, into each index response. Head CSS selects the document canvas color scheme before any script runs, including a `prefers-color-scheme` query for the `system` preference. A body script then sets `body[data-ds-dark-theme]`, `--dsh-content-font-size`, `--dsh-code-font-size`, `--dsh-terminal-font-size`, and each non-empty `--dsh-font-family-<role>` list before the loading page and application scripts, so the first paint uses the selected palette and text and code sizes, and `ThemeRuntime` starts from the saved preference, sizes, and fonts instead of rendering the defaults first.
 
 -----
 
@@ -79,7 +81,7 @@ The `--dsw-alias-illustration-*` tokens separate layered decorative artwork back
 
 `base.css` suppresses only the outline of focused elements marked `data-dsh-automatic-focus` by the [primitive focus helper](../ui-primitives/README.md); ordinary keyboard focus styling, borders, shadows, and error states remain intact.
 
-System toasts use `--dsw-alias-toast-bg` and `--dsw-alias-toast-label` for a shared background and text color across callers. Document previews pair `--dsw-alias-bg-document-preview` with `--dsw-alias-label-document-preview` so the backdrop and status text follow the same theme. Tooltip keycaps use `--dsw-alias-tooltip-key-bg`, a lighter fill derived from the tooltip background in each palette. Switch thumbs read `--dsw-alias-switch-thumb`: white in light mode and neutral-bluish 400 in dark mode, so an off switch stays lighter than its track without the glare of pure white.
+System toasts use `--dsw-alias-toast-bg`, `--dsw-alias-toast-label`, and `--dsw-alias-toast-action` for a shared background, text, and action color across callers. Hover cards use `--dsw-alias-hovercard-bg`, three `--dsw-alias-hovercard-label-*` steps, and the `--dsw-alias-hovercard-state-done` and `--dsw-alias-hovercard-state-error` state colors; the surface stays dark in both palettes. `--dsw-alias-label-on-color` is the white ink on saturated fills such as the send button. Plan, schedule, and deliverable cards share `--dsw-alias-card-fill`, `--dsw-alias-card-fill-hover`, and `--dsw-alias-card-tile-fill`; `--dsw-alias-json-tree-*` colors JSON tree syntax, `--dsw-alias-chart-*` the context-meter categories, `--dsw-alias-border-selected` selected choice cards, and `--dsw-alias-trajectory-accent` the trajectory turn highlight. Component-specific values use `--dsw-specific-*`: the guide hero ink, the file-upload progress track, the right-sidebar reveal-flash color, and on macOS the sidebar glass controls, washes, and tint. Document previews pair `--dsw-alias-bg-document-preview` with `--dsw-alias-label-document-preview` so the backdrop and status text follow the same theme. Tooltip keycaps use `--dsw-alias-tooltip-key-bg`, a lighter fill derived from the tooltip background in each palette. Switch thumbs read `--dsw-alias-switch-thumb`: white in light mode and neutral-bluish 400 in dark mode, so an off switch stays lighter than its track without the glare of pure white.
 
 `--dsw-alias-label-shimmer` supplies an overlay for the shared text shimmer: black at 30% alpha in the light palette and white at 45% alpha in the dark palette. `--dsw-alias-label-deep-diving` and `--dsw-alias-label-deep-diving-shimmer` supply the blue activity label and sweep; the dark palette uses a lighter, less saturated label with a brighter blue sweep.
 

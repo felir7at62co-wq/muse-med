@@ -75,7 +75,7 @@ describe('readSubtaskPage', () => {
       model_id: 'doubao-seedance-2-0-260128', standard_id: 8, resolution: '720p',
       first_result_id: 11, parent_result_id: 12, last_task_type: null, last_stage: null,
       hd_count: null, expiration_time: null, versions: [],
-      subtitle_erased: false, upscaled: false })
+      subtitle_erased: false, upscaled: false, upscale_model_id: null })
   })
 
   it('reads the live payload shape, where the finished file sits on resultList', () => {
@@ -121,6 +121,7 @@ describe('readSubtaskPage', () => {
     // The newest file is the one to use; the generation file stays behind.
     expect(row.video_url).toBe('https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/2026/09/18/hd.mp4')
     expect(row.base_video_url).toBe('https://jubian-aigc.tos-cn-beijing.volces.com/prod/media/2026/09/17/base.mp4')
+    expect(row.upscale_model_id).toBe('2074071626416742401')
     expect(needsUpscale(row, '1080p')).toBe(false)
   })
 
@@ -134,7 +135,20 @@ describe('readSubtaskPage', () => {
     expect(row.resolution).toBe('1080p')
     expect(row.model_id).toBe('2074071626416742401')
     expect(row.upscaled).toBe(true)
+    expect(row.upscale_model_id).toBe('2074071626416742401')
     expect(row.video_url).toBe(row.base_video_url)
+  })
+
+  it.each([
+    { label: 'a source row whose newest stage is an upscale', taskType: 1, lastTaskType: 20,
+      lastModelId: 'AI MediaKit', expected: 'AI MediaKit' },
+    { label: 'the upscale row itself', taskType: 20, lastTaskType: 20, lastModelId: undefined, expected: 'row-model' },
+    { label: 'an upscale followed by erasure on a source row', taskType: 1, lastTaskType: 10,
+      lastModelId: 'ark-erase-video-subtitle-pro', expected: null },
+  ])('names the upscale model from $label', ({ taskType, lastTaskType, lastModelId, expected }) => {
+    const row = readSubtaskPage({ rows: [{ id: 1, modelId: 'row-model', resolution: '720p', resultList: [{
+      taskType, lastTaskType, hdCount: 1, lastModelId, tosVideoUrl: 'https://media.example/current.mp4' }] }] }).rows[0]!
+    expect(row.upscale_model_id).toBe(expected)
   })
 
   it.each(['failed', 'running', undefined])('does not treat an erasure stage with status %s as clean', (status) => {
@@ -188,15 +202,54 @@ describe('readSubtaskPage', () => {
 })
 
 describe('needsUpscale', () => {
+  const SEEDVR2 = '2074071626416742401'
+  const generated = { model_id: 'doubao-seedance-2-0-260128', upscale_model_id: null, upscaled: false }
+
   it('flags a source below the delivery target and clears one at or above it', () => {
-    expect(needsUpscale({ resolution: '480p', upscaled: false }, '1080p')).toBe(true)
-    expect(needsUpscale({ resolution: '720p', upscaled: false }, '1080p')).toBe(true)
-    expect(needsUpscale({ resolution: '1080p', upscaled: true }, '1080p')).toBe(false)
-    expect(needsUpscale({ resolution: '1080p', upscaled: true }, '720p')).toBe(false)
+    expect(needsUpscale({ ...generated, resolution: '480p' }, '1080p')).toBe(true)
+    expect(needsUpscale({ ...generated, resolution: '720p' }, '1080p')).toBe(true)
+    expect(needsUpscale({ ...generated, resolution: '1080p' }, '1080p')).toBe(false)
+    expect(needsUpscale({ ...generated, resolution: '1080p' }, '720p')).toBe(false)
   })
 
   it('returns null rather than a guess when a label is unrecognised', () => {
-    expect(needsUpscale({ resolution: null, upscaled: false }, '1080p')).toBeNull()
-    expect(needsUpscale({ resolution: '480p', upscaled: false }, 'ultra')).toBeNull()
+    expect(needsUpscale({ ...generated, resolution: null }, '1080p')).toBeNull()
+    expect(needsUpscale({ ...generated, resolution: '480p' }, 'ultra')).toBeNull()
+  })
+
+  it('ranks a source row after a recorded SeedVR2 pass at its single 1080p standard', () => {
+    const row = { ...generated, upscaled: true, upscale_model_id: SEEDVR2 }
+    expect(needsUpscale({ ...row, resolution: '720p' }, '1080p')).toBe(false)
+    expect(needsUpscale({ ...row, resolution: null }, '1080p')).toBe(false)
+    expect(needsUpscale({ ...row, resolution: '720p' }, '2K')).toBe(true)
+  })
+
+  it.each([
+    { resolution: '1080p', target: '1080p', expected: false },
+    { resolution: null, target: '1080p', expected: false },
+    { resolution: null, target: '2K', expected: true },
+  ])('ranks the SeedVR2 upscale row labelled $resolution at its single 1080p standard against $target',
+    ({ resolution, target, expected }) => {
+      expect(needsUpscale({ model_id: SEEDVR2, upscale_model_id: SEEDVR2, upscaled: true, resolution }, target))
+        .toBe(expected)
+    })
+
+  it.each([
+    { label: 'MediaKit', upscale_model_id: 'AI MediaKit' },
+    { label: 'an unnamed model', upscale_model_id: null },
+  ])('leaves a source row after a $label pass unranked below the target', ({ upscale_model_id }) => {
+    const row = { ...generated, upscaled: true, upscale_model_id }
+    expect(needsUpscale({ ...row, resolution: '720p' }, '1080p')).toBeNull()
+    expect(needsUpscale({ ...row, resolution: null }, '1080p')).toBeNull()
+    expect(needsUpscale({ ...row, resolution: '720p' }, '720p')).toBe(false)
+  })
+
+  it.each([
+    { resolution: '1080p', expected: false },
+    { resolution: '720p', expected: true },
+    { resolution: null, expected: null },
+  ])('reads the upscale row\'s own $resolution label as the pass output', ({ resolution, expected }) => {
+    expect(needsUpscale({ model_id: 'AI MediaKit', upscale_model_id: 'AI MediaKit', upscaled: true, resolution },
+      '1080p')).toBe(expected)
   })
 })

@@ -1,6 +1,6 @@
 /** Recorded-session SDK projection for SIGTERM while an in-process child is still active. */
 import { existsSync, readFileSync, watch } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -47,7 +47,8 @@ function rows(content: string): Record<string, unknown>[] {
 
 describe.skipIf(process.platform === 'win32')('SDK factory shutdown (POSIX SIGTERM)', () => {
   it('joins the active child before releasing inbox projections and closes both durable turns', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'dsh-sdk-factory-shutdown-'))
+    // A symlinked temp root (macOS /var) would make the child record a canonicalizing directory change.
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-sdk-factory-shutdown-')))
     const receiptFile = join(root, 'receipt.jsonl')
     const readyFile = join(root, 'model.ready')
     const overrideFile = join(root, 'replay.override.json')

@@ -1,34 +1,37 @@
 /** Revision-fenced cloud review; local installation and defaults are separate actions. */
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarketActions, MarketIdentity, MarketInjected, MarketPublication, MarketTranslate } from './market-actions.ts'
 import css from './MarketSection.module.css'
+import { MarketResourceCard, type MarketResourceAction } from './MarketResource.tsx'
 
 type ReviewAction = Parameters<MarketActions['review']>[2]
 
 /** Render only review actions allowed by the current server identity and publication status. */
 export function MarketPublications({
-  accessRevision, isCurrentAccess, items, identity, actions, busy, onReplace, onDetails, onInstall, reportOutcome, t,
+  accessRevision, isCurrentAccess, items, identity, actions, busy, onReplace, onDetails, onInstall, reportOutcome, t, downloadLabel,
 }: {
   readonly accessRevision: number
   readonly isCurrentAccess: (revision: number) => boolean
   readonly items: readonly MarketPublication[]
   readonly identity: MarketIdentity
-  readonly actions: MarketActions
+  readonly actions: Pick<MarketActions, 'review' | 'getPublication'>
   readonly busy: boolean
   readonly onReplace: (item: MarketPublication) => void
   readonly onDetails: (item: MarketPublication) => void
   readonly onInstall: (item: MarketPublication) => void
   readonly reportOutcome: MarketInjected['reportOutcome']
   readonly t: MarketTranslate
+  readonly downloadLabel?: string
 }): ReactNode {
   const [selection, setSelection] = useState<{ item: MarketPublication; action: ReviewAction }>()
   const [note, setNote] = useState('')
   const [pending, setPending] = useState(false)
+  const reviewPending = useRef(false)
   const review = async (): Promise<void> => {
-    if (!isCurrentAccess(accessRevision)) return
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- Only the selected form submits, with a disabled pending button.
-    const { item, action } = selection!
+    if (!selection || reviewPending.current || !isCurrentAccess(accessRevision)) return
+    const { item, action } = selection
+    reviewPending.current = true
     setPending(true)
     try {
       const returned = await actions.review(item.id, item.revision, action, note.trim())
@@ -41,7 +44,7 @@ export function MarketPublications({
       try { const observed = await actions.getPublication(item.id); if (isCurrentAccess(accessRevision)) onReplace(observed) }
       catch (_readError) { /* The existing row remains visible if original-identity readback also fails. */ }
       if (isCurrentAccess(accessRevision)) { setSelection(undefined); reportOutcome('reviewUnconfirmed', true) }
-    } finally { setPending(false) }
+    } finally { reviewPending.current = false; setPending(false) }
   }
   return <><div className={css.grid}>{items.map((item) => {
     const owned = identity.admin || identity.publishers.some(row => row.id === item.publisherId)
@@ -49,15 +52,14 @@ export function MarketPublications({
     if (owned && (item.status === 'draft' || item.status === 'rejected')) choices.push('submit')
     if (identity.admin && item.status === 'pending') choices.push('approve', 'reject')
     if (owned && item.status === 'published') choices.push('withdraw')
-    return <article className={css.card} key={item.id} data-market-publication={item.id}>
-      <h2>{item.manifest.title}</h2><p>{item.publisher} · {item.manifest.version}</p>
-      <span>{t(`publication.${item.status}`)}</span>{item.reviewNote && <p>{item.reviewNote}</p>}
-      <div className={css.actions}><Button variant="outline" onClick={() => { onDetails(item) }}>{t('details')}</Button>
-        <Button disabled={busy || pending} onClick={() => { onInstall(item) }}>{t('install')}</Button>
-        {choices.map(action => <Button key={action} disabled={busy || pending} onClick={() => {
-          setSelection({ item, action }); setNote('')
-        }}>{t(`review.${action}`)}</Button>)}</div>
-    </article>
+    const cardActions: MarketResourceAction[] = [
+      { id: 'details', label: t('details'), variant: 'outline', onSelect: () => { onDetails(item) } },
+      { id: 'download', label: downloadLabel ?? t('install'), disabled: busy || pending, onSelect: () => { onInstall(item) } },
+      ...choices.map(action => ({ id: action, label: t(`review.${action}`), disabled: busy || pending,
+        onSelect: () => { setSelection({ item, action }); setNote('') } })),
+    ]
+    return <MarketResourceCard key={item.id} metadata={item.manifest} publisher={item.publisher}
+      source={{ kind: 'publication', id: item.id }} status={item.status} note={item.reviewNote} actions={cardActions} t={t} />
   })}</div><Modal open={Boolean(selection)} title={selection ? t(`review.${selection.action}`) : t('publish')}
     closeLabel={t('close')} onClose={() => { if (!pending) setSelection(undefined) }}>
     {selection && <form className={css.form} onSubmit={(event) => { event.preventDefault(); void review() }}>

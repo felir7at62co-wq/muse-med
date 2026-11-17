@@ -45,6 +45,8 @@ describe('installer preparation preserves application dependencies', () => {
     }, 'win32', 'x64')
     // NSIS excludes these extensions recursively but its separate collector skips node_modules.
     expect(config.nsis.preCompressedFileExtensions).toEqual([])
+    expect(config.extraResources.find(resource => resource.to === 'runtime')?.filter)
+      .toEqual(['**/*', '!hongguo', '!hongguo/**/*'])
   })
 
   it('packages Muse artwork for the About dialog and macOS icon', async () => {
@@ -150,7 +152,7 @@ describe('installer preparation preserves application dependencies', () => {
       DSH_DESKTOP_TARGET_ARCH: 'x64',
       DSH_DESKTOP_UNSIGNED: '1',
     }, 'win32', 'x64')
-    expect(config.artifactName).toBe('muse-med-${version}-${os}-${arch}-unsigned.${ext}')
+    expect(config.artifactName).toBe('muse-med-${version}-${os}-${arch}.${ext}')
     expect(config.directories.output).toMatch(/unsigned-artifacts$/u)
   })
 

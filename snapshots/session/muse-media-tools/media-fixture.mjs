@@ -100,7 +100,7 @@ export async function apply(ctx) {
             }
             if (tool === 'download_media') {
               assert.ok(args.request_id === requestId || args.request_id === partialRequestId)
-              assert.equal(args.url, 'https://www.douyin.com/video/7100000000000000001')
+              assert.equal(args.url, 'https://www.bilibili.com/video/BV1xx411c7mD')
               assert.equal(args.skip_existing, true)
               downloads.push(args)
               const existing = records.get(args.request_id)

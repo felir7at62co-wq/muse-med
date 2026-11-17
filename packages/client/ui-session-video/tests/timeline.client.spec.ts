@@ -28,14 +28,16 @@ it('does not present failed, pending or stale media as detected shots', () => {
   expect(assembleTimeline([a, b], [analysis(a), { ...analysis(b), sourceVersion: 'old' }]).shots).toHaveLength(2)
   expect(assembleTimeline([a], [{ ...analysis(a), state: 'failed' }]).shots).toEqual([])
   expect(assembleTimeline([a], []).duration).toBe(0)
+  expect(assembleTimeline([{ ...a, status: 'remote-only' }], [analysis(a)]).shots).toEqual([])
+  expect(assembleTimeline([{ ...a, playbackUrl: null }], [analysis(a)]).shots).toEqual([])
 })
 
-it('does not invent a duration or shift following sources when a ready inventory omits duration', () => {
-  const first = source('first'), second = source('second')
-  const result = assembleTimeline([first, second], [{ ...analysis(first), durationSeconds: null, shots: [] }, analysis(second)])
+it('keeps later source coordinates stable when a completed analysis has no duration', () => {
+  const a = source('first'), b = source('second')
+  const result = assembleTimeline([a, b], [{ ...analysis(a), durationSeconds: null, shots: [] }, analysis(b)])
   expect(result.duration).toBe(6)
-  expect(result.offsets[second.id]).toBe(0)
-  expect(result.shots.map(shot => shot.source.id)).toEqual([second.id, second.id])
+  expect(result.offsets[b.id]).toBe(0)
+  expect(result.shots.map(shot => [shot.startSeconds, shot.endSeconds])).toEqual([[0, 2], [2, 6]])
 })
 
 it('locates authored shot 12 by observed timing independently of detected segment numbering', () => {

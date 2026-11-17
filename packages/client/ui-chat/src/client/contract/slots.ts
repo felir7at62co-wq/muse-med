@@ -17,7 +17,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { ConnectionStateSource } from '@deepseek-ai/dsh-client-connection/client'
-import type { FileDragActions, MarkdownFileMentions, MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { FileDragActions, MarkdownDelegateFenceInfo, MarkdownFileMentions, MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ContextMenuTriggerProps } from '@deepseek-ai/dsh-client-ui-context-menu/client'
 import type { ChatKey } from '../locale.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -349,7 +349,10 @@ export interface ChatViewInjected {
   /** Open an application resource in the native Sidebar, reporting refusal through this Session's composer. */
   openResourceLink: (address: string) => void
   openFile: (path: string, options?: OpenFileOptions) => Promise<void>
+  /** Prepare one older page without publishing it. */
   loadOlder: () => void
+  /** Consume the prepared page synchronously; false when none is ready. */
+  consumeOlder: () => boolean
   /** Jump loader: page history back through seq; resolves when the window covers it. */
   loadThrough: (seq: SessionSeq) => Promise<void>
   loadImage: MessageImageLoader
@@ -389,7 +392,9 @@ export type ChatFlowSlotProps =
 /** Full Chat view props. */
 export type ChatViewSlotProps =
   PropsRuntime<'conversation.view'>
-  & PropsRenderSlots<'conversation.chat.flow' | 'conversation.chat.text-interaction' | 'conversation.chat.pinned'>
+  & PropsRenderSlots<
+    'conversation.chat.flow' | 'conversation.chat.text-interaction' | 'conversation.chat.pinned' | 'conversation.chat.markdown.fence'
+  >
   & PropsStore<ChatStore>
   & InjectFace<ChatViewInjected>
   & PropsLocale<'chat'>
@@ -428,6 +433,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /** Area-local text gestures and surfaces; each consumer registers its own synchronous admission. */
     'conversation.chat.text-interaction': { kind: 'keyed'; scope: 'session'; owner: TextInteractionSurface }
+    /** Language-keyed layers around one Markdown fence in the Chat flow; the content is the plain code block. */
+    'conversation.chat.markdown.fence': { kind: 'hoc'; scope: 'session'; owner: MarkdownDelegateFenceInfo }
 
     /** Session contributions above the scrolling Chat rows. */
     'conversation.chat.pinned': { kind: 'list'; scope: 'session' }

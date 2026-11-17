@@ -21,6 +21,8 @@ import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
+import { renderMenuButton } from './menu-button.tsx'
+import rowCss from '../src/client/rows/Rows.module.css'
 import { zh } from '../src/client/locales.ts'
 
 // Every fixture carries the resource hook the resources plugin merges into GlobalStandardProps.
@@ -107,18 +109,20 @@ const renderDirectoryFlowOnly: WorkspaceBrowserProps['renderSlot'] = (name: stri
     ? <div data-testid="directory-flow" />
     : null
 
+// Mounted outside a sidebar, the browser binds its list area to nothing.
+const SECTION_SCROLLER = { bindScrollerRef: () => {} }
+
 function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
   const controls = createWorkspaceShortcutControls()
   const request = createSnapshotStore<WorkspaceActionRequest | null>(null)
   const store = createWorkspaceViewStore().create()
   const props: WorkspaceBrowserProps = {
-    openWorkspaceMenu: vi.fn(),
     useWorkspaceActionRequest: bindSnapshotSelector(request),
     settleWorkspaceAction: () => { request.set(null) },
-    openSessionMenu: vi.fn(),
     useContextMenuTarget: selector => selector(null),
     useShortcuts: select => select([]),
     useWorkspaceShortcuts: bindSnapshotSelector(controls.state),
+    useHiddenSessionIds: hook([]),
     requestSearch: controls.search,
     requestAddWorkspace: controls.add,
     closeAddWorkspace: controls.closeAdd,
@@ -140,6 +144,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     open: vi.fn(),
     searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
     searchResultLimit: 20,
+    useSectionScroller: () => SECTION_SCROLLER,
     notifyArchivedNotOpenable: vi.fn(),
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
@@ -149,6 +154,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
     renderSlot: renderDirectoryFlowOnly,
+    renderFactorySlot: renderMenuButton,
     t,
     ...overrides,
   }
@@ -166,6 +172,42 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it.each(['workspace', 'flat', 'ungrouped'] as const)('passes the standard menu factory through the %s list', (mode) => {
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupBy(mode === 'flat' ? 'flat' : 'workspace')
+    preferences.actions.setGroupExpanded(mode === 'ungrouped' ? UNGROUPED_KEY : 'alpha', true)
+    const renderFactorySlot = vi.fn(renderMenuButton)
+    mount({
+      useSessions: hook(sessionState([summary('session-one', 10)])),
+      useWorkspaces: hook(workspaceState(mode === 'ungrouped' ? [] : [workspace('alpha', ['session-one'])])),
+      renderFactorySlot,
+    })
+    expect(renderFactorySlot).toHaveBeenCalledWith('contextMenu.button', {
+      target: { kind: 'session', value: { sessionId: sid('session-one'), displayTitle: 'session-one' } },
+      label: '会话“session-one”的操作', className: rowCss.iconButton,
+    })
+    if (mode === 'workspace') {
+      expect(renderFactorySlot).toHaveBeenCalledWith('contextMenu.button', {
+        target: { kind: 'workspace', value: { workspaceId: wid('alpha'), path: '/projects/alpha', displayTitle: 'alpha' } },
+        label: '工作区“alpha”的操作', className: rowCss.iconButton,
+      })
+    }
+  })
+
+  it('binds the list area as the section scroller only while the sidebar is wide', () => {
+    const bindScrollerRef = vi.fn()
+    const browser = mount({ useSectionScroller: () => ({ bindScrollerRef }) })
+    const list = browser.view.container.querySelector<HTMLElement>('[data-sidebar-list-area]')!
+    expect(bindScrollerRef).toHaveBeenLastCalledWith(list)
+    rerender(browser, { wide: false })
+    expect(bindScrollerRef).toHaveBeenLastCalledWith(null)
+    expect(browser.view.container.querySelector('[data-sidebar-list-area]')).toBe(list)
+    rerender(browser, { wide: true })
+    expect(bindScrollerRef).toHaveBeenLastCalledWith(list)
+    browser.view.unmount()
+    expect(bindScrollerRef).toHaveBeenLastCalledWith(null)
+  })
+
   it.each(['workspace', 'flat', 'ungrouped'] as const)('keeps %s recency independent of arrival order and saved manual positions', (mode) => {
     localStorage.clear()
     const preferences = createWorkspaceViewStore().create()
@@ -1330,18 +1372,15 @@ describe('WorkspaceBrowser', () => {
     expect(startSession).toHaveBeenCalledWith(wid('alpha'))
   })
 
-  it('auto-expands the Ungrouped bucket for a loose current session; its header has no menu and its ＋ is inert', () => {
-    const startSession = vi.fn()
+  it('auto-expands the Ungrouped bucket for a loose current session; its header has neither menu nor ＋', () => {
     mount({
       useSessions: hook(sessionState([summary('loose', 1)], { main: sid('loose') })),
       useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
-      startSession,
     })
     // The loose session's group is UNGROUPED_KEY: expanded by the effect.
     expect(screen.getByText('loose')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '工作区“未分组”的操作' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '在“未分组”中新建会话' }))
-    expect(startSession).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: '在“未分组”中新建会话' })).toBeNull()
   })
 
   it('keeps an already-expanded group when the selection moves within it', () => {
@@ -1387,6 +1426,60 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('新会话')).toBeNull()
     fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: '新会话' } })
     expect(screen.queryByText('新会话')).toBeNull()
+  })
+
+  it.each(['workspace', 'flat'] as const)('hides only the contributed Session in %s view and restores it when the contribution ends', (mode) => {
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupBy(mode)
+    preferences.actions.setGroupExpanded('alpha', true)
+    const hidden = createSnapshotStore<readonly SessionId[]>([sid('main')])
+    mount({
+      useHiddenSessionIds: bindSnapshotSelector(hidden),
+      useSessions: hook(sessionState([summary('main', 2), summary('ordinary', 1)], { main: sid('main') })),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['main', 'ordinary'])])),
+    })
+    expect(screen.queryByText('main')).toBeNull()
+    expect(screen.getByText('ordinary')).toBeTruthy()
+    act(() => { hidden.set([]) })
+    expect(screen.getByText('main')).toBeTruthy()
+    expect(screen.getByText('ordinary')).toBeTruthy()
+  })
+
+  it('hides only a Workspace containing the hidden Session alone', () => {
+    mount({
+      useHiddenSessionIds: hook([sid('main')]),
+      useSessions: hook(sessionState([summary('main', 2)])),
+      useWorkspaces: hook(workspaceState([
+        workspace('main-only', ['main']),
+        workspace('empty', []),
+        workspace('pending', ['main', 'still-loading']),
+      ])),
+    })
+    expect(screen.queryByText('main-only')).toBeNull()
+    expect(screen.getByText('empty')).toBeTruthy()
+    expect(screen.getByText('pending')).toBeTruthy()
+  })
+
+  it('omits the contributed Session from both local and Host content search', async () => {
+    vi.useFakeTimers()
+    try {
+      const searchSessions = vi.fn(async () => ({ items: [
+        { sessionId: sid('main'), snippet: 'hidden content' },
+        { sessionId: sid('ordinary'), snippet: 'visible content' },
+      ], hasMore: false }))
+      mount({
+        useHiddenSessionIds: hook([sid('main')]),
+        useSessions: hook(sessionState([summary('main', 2, { displayTitle: 'main report' }), summary('ordinary', 1, { displayTitle: 'ordinary report' })])),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['main', 'ordinary'])])),
+        searchSessions,
+      })
+      fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: 'report' } })
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      expect(screen.queryByText('main report')).toBeNull()
+      expect(screen.queryByText('hidden content')).toBeNull()
+      expect(screen.getByText('ordinary report')).toBeTruthy()
+      expect(screen.getByText('visible content')).toBeTruthy()
+    } finally { vi.useRealTimers() }
   })
 
   it.each(['workspace', 'flat', 'ungrouped'] as const)('keeps a new blank first across %s mode switches and enables drag after the first prompt', (mode) => {
@@ -1873,6 +1966,14 @@ describe('WorkspaceBrowser', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('keeps workspace controls available when the section label is hidden', () => {
+    mount({ showSectionLabel: false })
+    expect(screen.queryByText('工作区')).toBeNull()
+    expect(screen.getByRole('button', { name: '添加工作区' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    expect(document.activeElement).toBe(screen.getByPlaceholderText('搜索会话名称'))
   })
 
   it.each(['clear', 'escape', 'outside'] as const)('animates %s search dismissal without carrying spacing motion through the rail', (dismissal) => {

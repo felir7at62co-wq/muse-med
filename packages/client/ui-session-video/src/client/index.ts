@@ -16,7 +16,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 import remote from '@deepseek-ai/dsh-session-video/remote'
 import { createVideoStore } from './store.ts'
 import { NS, en, zh, ja, es, fr, de, ru, pt } from './locales.ts'
-import { VideoShelf, VideoShelfSpacer } from './VideoShelf.tsx'
+import { VideoHeader } from './VideoHeader.tsx'
 import { DeliveredVideoCard, GeneratedVideoCards } from './InlineVideoCard.tsx'
 import type { VideoInjected } from './face.ts'
 import { readSessionVideoConfig, SETTINGS_ENTRY } from '../config.ts'
@@ -53,7 +53,7 @@ PropsRuntime<'sidebar.right.pane.tab.title'> & PropsLocale<'sessionVideo'>): str
   return source?.label ?? t('library')
 }
 
-/** Mount source queries, the spider shelf, and native delivery cards.
+/** Mount source queries, native video navigation, and delivery cards.
  * @param ctx - Browser plugin scope with native slots and locale.
  * @returns Disposer for all registrations and the generated Remote namespace.
  */
@@ -76,7 +76,6 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
     const runtime = new PresentationRuntime(async () => {
       const childScope = scope.inject(['slots', 'remote.sessionVideo', 'uiConversation', 'conversation',
         'sidebarRight', 'sidebarRightTabs', 'resources', 'sessions'], (child) => {
-        child.uiConversation.headerPresentations.register({ id: SETTINGS_ENTRY, presentation: 'floating' })
         const sessions = child.sessions
         const store = createVideoStore()
         const operations = {
@@ -154,12 +153,9 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
           faces.set(sessionId, value)
           return value
         }
-        child.slots.inject('conversation.chat.pinned', () => child.slots.register({
-          name: 'conversation.chat.pinned', id: 'muse-session-video-spacer',
-        }, VideoShelfSpacer))
-        child.slots.inject('conversation.content.overlay', () => child.slots.register({
-          name: 'conversation.content.overlay', id: 'muse-session-video', locale: NS, store, inject: injected,
-        }, VideoShelf))
+        child.slots.inject('conversation.session.header.utilities', () => child.slots.register({
+          name: 'conversation.session.header.utilities', id: 'muse-session-video-menu', locale: NS, store, inject: injected,
+        }, VideoHeader))
         child.slots.inject('sidebar.right.pane.tab', () => child.slots.register({
           name: 'sidebar.right.pane.tab', key: WORKSPACE_ID, locale: NS, store, inject: injected,
         }, VideoWorkspace))

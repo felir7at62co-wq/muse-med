@@ -1,5 +1,5 @@
 import * as Protocol from '@deepseek-ai/dsh-llm-deepseek'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1991,7 +1991,9 @@ describe('plugin registration and config', () => {
   })
 
   it('allows an explicit empty model catalog', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
     const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmDeepSeek, {
       baseURL: 'http://127.0.0.1:1',

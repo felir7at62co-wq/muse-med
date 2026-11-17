@@ -74,7 +74,7 @@ Agent advice links reopen the same workspace at the recorded source version and 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The settings controller owns a serialized child Cordis scope for optional contributions and a reversible native header preference. Disposal restores the preceding preference or deployment default. The Session video Host service remains separate and available to other consumers. Disabling the workspace stops its inventory observation and visual analysis; its input-reference codec stays registered so existing video references can still be sent through ordinary chat, reading the current inventory only when the user submits them.
+The settings controller owns a serialized child Cordis scope for optional contributions. The native Session-header video utility opens the workspace independently of the coordinator. The Session video Host service remains separate and available to other consumers. Disabling the workspace stops its inventory observation and visual analysis; its input-reference codec stays registered so existing video references can still be sent through ordinary chat, reading the current inventory only when the user submits them.
 
 The plugin mounts the generated `sessionVideo` Remote contribution and registers a native right-Sidebar tab. The resource provider retains the owning Session, refreshes its inventory from recorded changes, and cancels released reads. A Session-scoped view store retains browsing and source-local selections across presentation changes. Composer references use the existing input-trigger codec and ordinary message submission; the plugin owns no second message pipeline. Unmounting players releases media, and optional thumbnail failure leaves playback available.
 

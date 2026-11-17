@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/hongguo-open-engine/guide.md
+/:
+  en: 65be9f3f0d2b570f
+  zh: 54a4d44afdbbc63a
+/hongguo-open-source-engine:
+  en: 5e9f7fda3fc092f5
+  zh: 6ed5037665ffd63c
+/hongguo-open-source-engine/change:
+  en: b50c645cb73e4a12
+  zh: f58d8a444f7e9d86
+/hongguo-open-source-engine/migration:
+  en: 4041872fab14c8bb
+  zh: 47ed43001e9e6f58

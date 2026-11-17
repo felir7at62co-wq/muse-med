@@ -33,7 +33,7 @@ function matchesReadContext(message: Message, hash: string, observed: boolean): 
   if (!observed) return false
   const content = message.content.map((block) => {
     if (block.type !== 'image' || block.offloaded !== true) return block
-    const { offloaded: _offloaded, ...original } = block
+    const { offloaded: _offloaded, offloadNotice: _offloadNotice, ...original } = block
     return original
   })
   return sha256(JSON.stringify({ ...message, content })) === hash

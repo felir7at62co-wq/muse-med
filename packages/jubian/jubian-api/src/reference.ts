@@ -210,10 +210,25 @@ export function alignedReferenceSize(image: Pick<ReferenceImage, 'width' | 'heig
  * @returns The full object key inside the bucket.
  */
 export function buildReferenceObjectKey(now: Date, token: string, extension: string): string {
+  return buildObjectKey(REFERENCE_OBJECT_PREFIX, now, token, extension)
+}
+
+/**
+ * Build the object key used by the workbench's manuscript document uploader.
+ * @param now - The moment the key is minted; its local date is part of the key prefix.
+ * @param token - A unique hex token, so two uploads never collide.
+ * @param extension - The file extension including its dot, e.g. `.docx`.
+ * @returns The full document object key inside the bucket.
+ */
+export function buildDocumentObjectKey(now: Date, token: string, extension: string): string {
+  return buildObjectKey('prod/sys-material-video', now, token, extension)
+}
+
+function buildObjectKey(prefix: string, now: Date, token: string, extension: string): string {
   if (!/^[0-9a-f]{8,}$/i.test(token) || !/^\.[a-z0-9]{2,5}$/.test(extension)) invalid()
   const date = [now.getFullYear(), now.getMonth() + 1, now.getDate()]
     .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, '0'))).join('/')
-  return `${REFERENCE_OBJECT_PREFIX}/${date}/${token.toLowerCase()}${extension}`
+  return `${prefix}/${date}/${token.toLowerCase()}${extension}`
 }
 
 /**

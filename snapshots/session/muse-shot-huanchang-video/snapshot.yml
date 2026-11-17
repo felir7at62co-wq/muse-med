@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-shot-huanchang-video
+profile: headless
+composition: muse-shot-huanchang-video
+recording: authored
+header:
+  class: muse-shot-huanchang-video
+  pin: true
+workspace:
+  final: true
+writerOutput: true

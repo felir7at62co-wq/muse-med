@@ -54,7 +54,7 @@ it('shows only generated sources in the current Turn and omits a path already ow
     { ...source('unavailable'), playbackUrl: null }, duplicate,
     { ...source('duplicate-delivered'), path: duplicate.path, presentedIndex: 2 },
   ]
-  const { runtime, reference } = await fixture(sources)
+  const { runtime, reference, resource } = await fixture(sources)
   const cards = runtime.renderSlot('conversation.chat.turnTail', { turn: turn(), seq: 10, openFile: () => {} }, { session: reference })
   expect(cards.container.querySelectorAll('video')).toHaveLength(1)
   expect(cards.view.getByRole('button', { name: makeTranslate(en)('source', { name: original.label }) })).toBeTruthy()
@@ -62,6 +62,15 @@ it('shows only generated sources in the current Turn and omits a path already ow
   expect(cards.container.querySelectorAll('video')).toHaveLength(0)
   cards.update({ turn: turn(true, false), seq: 20, openFile: () => {} })
   expect(cards.container.querySelectorAll('video')).toHaveLength(2)
+  act(() => { resource.set({ status: 'loading', value: undefined, failure: undefined }) })
+  expect(cards.container.querySelectorAll('video')).toHaveLength(0)
+})
+
+it('opens the video workspace from the native Session header without adding another coordinator', async () => {
+  const { panel, openWorkspace } = await fixture()
+  fireEvent.click(panel.view.getByRole('button', { name: 'Conversation videos' }))
+  expect(openWorkspace).toHaveBeenCalledOnce()
+  expect(panel.container.querySelector('[data-muse-video-launcher]')).toBeNull()
 })
 
 /** Reproduce the header crossing where the legacy collection canvas appeared. */

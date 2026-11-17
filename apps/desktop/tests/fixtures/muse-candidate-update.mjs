@@ -11,7 +11,7 @@ import updaterModule from 'electron-updater'
 import { getNetSession } from 'electron-updater/out/electronHttpExecutor.js'
 import { dump } from 'js-yaml'
 import { DesktopUpdateCoordinator } from '../../lib/types/update-coordinator.js'
-import { DesktopUpdateHttpExecutor } from '../../lib/types/update-http-executor.js'
+import { DesktopUpdateHttpExecutor } from '../../lib/types/updates/electron-updater/http-executor.js'
 import { createMacOSManualUpdater } from '../../lib/types/macos-manual-updater.js'
 
 const root = process.env.MUSE_CANDIDATE_UPDATE_ROOT
@@ -26,6 +26,17 @@ async function fileDigest(path) {
   let size = 0
   for await (const chunk of createReadStream(path)) { size += chunk.length; sha256.update(chunk); sha512.update(chunk) }
   return { size, sha256: sha256.digest('hex'), sha512: sha512.digest('base64') }
+}
+
+/** Keep the failed retry reason in the private receipt without URLs, credentials or arbitrary updater fields. */
+function updateStateDiagnostic(state) {
+  const diagnostic = { phase: state.phase }
+  if (state.phase !== 'error') return diagnostic
+  const redact = value => value.replaceAll(root, '[private-root]')
+    .replace(/https?:\/\/\S+/giu, '[url]').replace(/\bBearer\s+\S+/giu, 'Bearer [redacted]').slice(0, 4096)
+  return { ...diagnostic,
+    ...(typeof state.message === 'string' ? { message: redact(state.message) } : {}),
+    ...(typeof state.preparationFailure === 'string' ? { preparationFailure: redact(state.preparationFailure) } : {}) }
 }
 
 async function main() {
@@ -115,7 +126,7 @@ async function main() {
       const states = []
       const coordinator = new DesktopUpdateCoordinator(state => { states.push(state); return state }, async () => false,
         updater, () => true, () => currentVersion, undefined,
-        [{ provider: 'generic', url: `${origin}/${lane}/`, channel: 'latest', useMultipleRangeRequest: false }])
+        [{ provider: 'generic', url: `${origin}/${lane}/`, channel: 'latest', useMultipleRangeRequest: false }], process.platform, 'latest')
       const result = { lane, coordinator, updater, states, downloadedFile: () => downloadedFile, installerCalls: () => installerCalls }
       fixtures.push(result)
       return result
@@ -160,7 +171,10 @@ async function main() {
     assert.equal(report.requests.length, requestCount, 'Automatic check must not retry a failed candidate download')
     report.cases.push({ name: 'partial-real-installer-download-fails-without-automatic-retry', passed: true, bytes: partial.bytes })
     await persist()
-    assert.equal((await recovery.coordinator.download(spec.version)).phase, 'ready')
+    const retried = await recovery.coordinator.download(spec.version)
+    report.explicitRetry = updateStateDiagnostic(retried)
+    await persist()
+    assert.equal(retried.phase, 'ready')
     assert.equal(typeof recovery.downloadedFile(), 'string')
     const { filename, ...identity } = spec.payload
     const downloaded = await fileDigest(recovery.downloadedFile())

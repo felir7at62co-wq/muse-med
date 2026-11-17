@@ -24,7 +24,7 @@ import { AUDIO_MIX_RESULT_SCHEMA, previewAudio } from './audio.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { createVideoSourceQaVerifier, type VideoSourceQaVerifier } from '@deepseek-ai/dsh-tool-video-inspect'
+import { createVideoSourceQaVerifier, type VideoSourceQaVerifier } from '@deepseek-ai/dsh-tool-video-inspect/source-qa'
 import z from '@deepseek-ai/schemastery'
 import { FONT_FAMILY_PATTERN, deliveryRenderSettings } from './delivery.ts'
 import { deliveryPolicyFor, resolveDeliveryPolicy } from './delivery-policy.ts'
@@ -50,14 +50,11 @@ import { fitSubtitleCues } from './subtitle-fit.ts'
 import { formatSrtDocument, normalizeSubtitleDisplay, readSubtitleCues, subtitleDisplayWarnings } from './subtitles.ts'
 import { StaleSubtitleClockError, subtitleClockPath, writeDerivedSubtitleClock } from './subtitle-clock.ts'
 import type { SourceQaVerifier } from './source-qa.ts'
-
-export { findShortDramaProject, isShortDramaProject } from './delivery-policy.ts'
+import { createContentReviewVerifier, type ContentReviewVerifier } from './content-review.ts'
 
 export type { MediaCommandOutcome, ProcessChannel, RenderSettings } from './types.ts'
-export { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets, preparedSubtitleClockInputs } from './prepare.ts'
-export { captureEpisodeSourceReview } from './episode-source-capture.ts'
+export { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets } from './prepare.ts'
 export type { EpisodeSourceCapture } from './episode-source-capture.ts'
-export { createSourceQaStagedAccess } from './source-qa.ts'
 export type { SourceQaStagedAccess } from './source-qa.ts'
 export type { PreparedSubtitleClockInputs } from './prepare.ts'
 
@@ -675,6 +672,7 @@ async function prepareWithSubtitleRepair(call: PrepareCall, toolkit: MediaToolki
  * @param stagedSubtitleAudio - Optional Host-verified mapping from original audio references to private stage files.
  * @param sourceQaStage - Optional Host-captured source evidence in a private stage.
  * @param sourceQaExpectedSha - Host-verified source review digest for that stage.
+ * @param contentReviewVerifier - Optional Host-only observation and listening-answer validation for delivery.
  * @returns The canonical result; `ok` is false when a delivery check failed.
  * @throws {Error} When an argument is missing, an input is unusable, or a media command fails.
  */
@@ -685,6 +683,7 @@ export async function runDramaRender(
   stagedSubtitleAudio?: (sourceAudio: string) => string,
   sourceQaStage?: import('./source-qa.ts').SourceQaStagedAccess,
   sourceQaExpectedSha?: string,
+  contentReviewVerifier?: ContentReviewVerifier,
 ): Promise<DramaRenderReport> {
   const call = resolveCall(args)
   const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
@@ -809,6 +808,7 @@ export async function runDramaRender(
   return call.method === 'stage_delivery'
     ? await stageEpisodeDelivery({ ...verification,
       ...(sourceQaVerifier === undefined ? {} : { sourceQaVerifier }),
+      ...(contentReviewVerifier === undefined ? {} : { contentReviewVerifier }),
       ...(call.transcriptsPath === undefined ? {} : { transcriptsPath: call.transcriptsPath }),
       ...(call.decisionsPath === undefined ? {} : { decisionsPath: call.decisionsPath }),
     }, call.draft)
@@ -1117,16 +1117,21 @@ function toolSpeechCoverage(report: SpeechCoverageReport) {
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const settings = resolveSettings(config)
-  let sourceQaScope: { readonly verify: VideoSourceQaVerifier; readonly signal: AbortSignal } | undefined
+  let sourceQaScope: {
+    readonly verify: VideoSourceQaVerifier
+    readonly signal: AbortSignal
+    readonly contentReview: Awaited<ReturnType<typeof createContentReviewVerifier>> } | undefined
   ctx.inject(['tools', 'fs', 'sandboxPolicy', 'sessionProjections'], async (scope) => {
     const verify = await createVideoSourceQaVerifier(scope)
+    const contentReview = await createContentReviewVerifier(scope)
     scope.fiber.assertActive()
     scope.effect(() => {
       const owner = new AbortController()
-      const binding = { verify, signal: owner.signal }
+      const binding = { verify, contentReview, signal: owner.signal }
       sourceQaScope = binding
       return () => {
         owner.abort(Error('SOURCE_QA_HOST_UNAVAILABLE: 源片复验服务已卸载。'))
+        // Cordis finishes this injected scope before activating its replacement.
         sourceQaScope = undefined
       }
     })
@@ -1245,6 +1250,12 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (scope === undefined) throw Error('SOURCE_QA_HOST_UNAVAILABLE: 当前会话缺少源片复验服务，请恢复文件、沙箱策略和会话审看服务后重试。')
         const signal = AbortSignal.any([exec.signal, scope.signal])
         await scope.verify(session, binding, signal)
+        signal.throwIfAborted()
+      }, undefined, undefined, undefined, async (binding) => {
+        const scope = sourceQaScope
+        if (scope === undefined) throw Error('CONTENT_REVIEW_HOST: 缺少实际观察记录服务。')
+        const signal = AbortSignal.any([exec.signal, scope.signal])
+        await scope.contentReview(session, signal)(binding)
         signal.throwIfAborted()
       })
       return coverage === undefined ? report : { ...report, speech_coverage: toolSpeechCoverage(coverage) }

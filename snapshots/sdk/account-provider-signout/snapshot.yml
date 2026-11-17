@@ -8,4 +8,4 @@ header:
   class: sdk-account-provider-signout
   pin: true
   systemPromptSource: text-turn
-  toolSchemasSource: text-turn
+  toolSchemasSource: session/text-turn

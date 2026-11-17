@@ -30,7 +30,5 @@
       name: '@deepseek-ai/dsh-api-session-controller'
     - id: snapshot-native-question
       name: '@deepseek-ai/dsh-tool-ask-user'
-    - id: snapshot-deep-view
-      name: '../../../third_party/plugins/deep-view/index.js'
     - id: snapshot-session-views
       name: './views-fixture.mjs'

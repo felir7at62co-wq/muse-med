@@ -527,6 +527,33 @@ describe('web e2e: conversation video review', () => {
     await expect.poll(() => workspace().locator(PLAYER).evaluate(element => (element as HTMLVideoElement).currentTime))
       .toBeCloseTo(shot.startSeconds, 2)
     expect(await editor().innerText()).toBe(draft)
+    const linkedTabId = await workspace().locator(PLAYER).evaluate(element =>
+      element.closest('[data-dockkit-content]')?.getAttribute('data-dockkit-content'))
+    if (!linkedTabId) throw Error('Linked video has no retained tab')
+    const linkedWorkspace = page.locator(`[data-dockkit-content="${linkedTabId}"] ${WORKSPACE}`)
+    for (const selectAnotherVideo of [false, true]) {
+      if (selectAnotherVideo) {
+        await linkedWorkspace.getByRole('button', { name: 'Video selection', exact: true }).click()
+        await linkedWorkspace.getByRole('combobox', { name: 'Choose episode', exact: true }).selectOption('31')
+        await linkedWorkspace.getByRole('button', { name: `Switch video: ${previous.label}`, exact: true }).click()
+      }
+      const selected = selectAnotherVideo ? previous : source
+      const player = linkedWorkspace.locator(PLAYER)
+      await expect.poll(() => player.getAttribute('aria-label')).toBe(selected.label)
+      await linkedWorkspace.getByRole('slider', { name: 'Playback position', exact: true }).press('ArrowRight')
+      await expect.poll(() => player.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeGreaterThan(0)
+      const position = await player.evaluate(element => (element as HTMLVideoElement).currentTime)
+      for (const action of [/^Float/u, /^(?:Dock|Send back)/u]) {
+        await linkedWorkspace.getByRole('button', { name: action }).click()
+        await expect.poll(() => player.getAttribute('aria-label')).toBe(selected.label)
+        expect(await player.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(position, 2)
+      }
+      expect(await editor().innerText()).toBe(draft)
+    }
+    await advice.click()
+    await expect.poll(() => linkedWorkspace.locator(PLAYER).getAttribute('aria-label')).toBe(source.label)
+    await expect.poll(() => linkedWorkspace.locator(PLAYER).evaluate(element => (element as HTMLVideoElement).currentTime))
+      .toBeCloseTo(shot.startSeconds, 2)
     await page.getByRole('link', { name: 'Inspect the earlier revision', exact: true }).click()
     const staleNotice = workspace().getByRole('status').filter({ hasText: 'This video or segment changed. Please select it again.' })
     await staleNotice.waitFor()

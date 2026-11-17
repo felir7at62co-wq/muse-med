@@ -1,0 +1,10 @@
+# The pinned DTK API image with this directory's patches applied to its Python package.
+# Built by build-patched.sh from a patched copy of the pinned source; the upstream
+# revision and version labels are inherited unchanged and the patch set is labelled.
+FROM evil0ctal/douyin_tiktok_download_api:5.1.10
+USER root
+COPY src/dtk/ /app/.venv/lib/python3.12/site-packages/dtk/
+# The upstream image ships compiled bytecode; rebuild it so no stale module survives.
+RUN find /app/.venv/lib/python3.12/site-packages/dtk -name __pycache__ -type d -prune -exec rm -rf {} + \
+    && python -m compileall -q /app/.venv/lib/python3.12/site-packages/dtk
+USER dtk

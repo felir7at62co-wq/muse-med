@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-12-muse-rc2-retry-attribution-review.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-12-muse-rc2-retry-attribution-review.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-12-muse-rc2-retry-attribution-review:
+  en: e0a082a2e4c5fe52
+  zh: 59ea69126676092d
+/2026-11-12-muse-rc2-retry-attribution-review/summary:
+  en: 07407763e56290fe
+  zh: bae9557c4c2ce329
+/2026-11-12-muse-rc2-retry-attribution-review/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-12-muse-rc2-retry-attribution-review/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-12-muse-rc2-retry-attribution-review/compatibility:
+  en: 6ec19c5ee5636d0c
+  zh: 1937b71632547b88
+/2026-11-12-muse-rc2-retry-attribution-review/verification:
+  en: 3de9d00b6723c17f
+  zh: c5fd7e167e7c34cb
+/2026-11-12-muse-rc2-retry-attribution-review/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

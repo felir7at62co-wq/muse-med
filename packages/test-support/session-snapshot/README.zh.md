@@ -80,9 +80,11 @@ Headless/ACP 与 SDK 适配器在规范化之前，将原始目录中的子创�
 
 ### 录制、回放与刷新
 
-Headless、SDK 或 ACP owner 可以声明 `writerOutput: true`，保留规范 replay 输入，并在 `writer.expected.jsonl` 及每个子会话的 `writer.<ordinal>.expected.jsonl` 中比较完整当前输出。refresh 更新这些输出比较基准及 owner 自有的 header 伴随文件；record 跳过该 owner。Headless 的 stdout 和 stderr 同样以当前输出比较基准为准，因此更新错误分类无需改写历史 replay 输入。SDK owner 保留 `notifications.expected.jsonl` 路径；只有显式声明 `sessionFormat` 的 owner 使用 `notifications.current.expected.jsonl`。此选项不声明历史迁移覆盖，不能与 `session` 或 `sessionFormat` 同时使用。replay 要求输出比较基准清单完全匹配，并比较每个规范化事件，不移除结构差异。ACP suite 的可选 `onReplayResult` 观察器在比较前接收采集日志和规范化上下文，供调用方将只读失败证据保存到忽略目录；观察器失败会使该场景失败。
+Headless、SDK 或 ACP owner 可以声明 `writerOutput: true`，保留规范 replay 输入，并在 `writer.expected.jsonl` 及每个子会话的 `writer.<ordinal>.expected.jsonl` 中比较完整当前输出。refresh 更新这些输出比较基准及 owner 自有的 header 伴随文件；record 跳过该 owner。Headless 的 stdout 和 stderr 同样以当前输出比较基准为准，因此更新错误分类无需改写历史 replay 输入。SDK owner 保留 `notifications.expected.jsonl` 路径；只有显式声明 `sessionFormat` 的 owner 使用 `notifications.current.expected.jsonl`。ACP 在 writer refresh 期间也保持已有 stdout 协议比较基准只读，并且不会写入引用的 header 伴随文件。此选项不声明历史迁移覆盖，不能与 `session` 或 `sessionFormat` 同时使用。replay 要求输出比较基准清单完全匹配，并比较每个规范化事件，不移除结构差异。
 
-Web owner 也可以为其驱动的根 Session 声明 `writerOutput: true`。Web scaffold 会拒绝此选项下的规范子会话角色；Headless 和 SDK 对子会话的支持保持不变。refresh 更新 `writer.expected.jsonl` 及 owner 自有的 header 伴随文件，规范 replay 输入保持不变，record 写回也会禁用。replay 要求 writer 文件存在，并比较每个规范化的根会话事件；缺失、改变或多余的输出比较基准都会失败。header pin 继续将当前模型请求的提示词与工具 schema 同 owner 自有的伴随文件比较。Web borrower 继续使用源 owner 的 replay 输入，不能声明此选项。
+Web owner 也可以为其驱动的根 Session 声明 `writerOutput: true`。Web scaffold 会拒绝此选项下的规范子会话角色；Headless、SDK 和 ACP 对子会话的支持保持不变。refresh 更新 `writer.expected.jsonl` 及 owner 自有的 header 伴随文件，规范 replay 输入保持不变，record 写回也会禁用。replay 要求 writer 文件存在，并比较每个规范化的根会话事件；缺失、改变或多余的输出比较基准都会失败。header pin 继续将当前模型请求的提示词与工具 schema 同 owner 自有的伴随文件比较。Web borrower 继续使用源 owner 的 replay 输入，不能声明此选项。
+
+刷新在复用易变字段之前，会规范化每份完整的 Session 日志，使作业 id 在注册事件、工具输出和后续工具调用中保持相同的引用关系。
 
 `pnpm run test:snapshot:record` 调用在线 LLM（大语言模型），并在规范具名版本文件下写入收集到的当前 generation。record 与 refresh 绝不重命名或删除已完成的 generation，即使后续运行不再产生某个 child 角色也一样；受审阅的源树整理只有在同角色存在已验证的当前替代文件后才移除前代。显式声明 `sessionFormat` 的场景在录制模式下保持只读。`pnpm run test:snapshot:refresh` 保持无密钥，运行选定的最高 replay 输入，并写入 stdout、各 pin 自有的提示词与工具 schema 伴随文件，以及新鲜当前 generation 的可比较 Session 输出；保留历史输入的场景写入单独的 writer 输出比较基准，而非规范当前格式 replay 代际。Headless 与 SDK 场景可通过本地 `runtime.cordis.yml` patch 添加执行 fixture。每个组合 owner 把 replay patch 放在 live patch 旁；顶层 `snapshots/` 拥有 Session 驱动场景，其他预期输出留在其 package owner 旁。[`dsh-llm-replay`](../llm-replay/README.zh.md) 提供通过 `DSH_SNAPSHOT_*` 环境值选择的已记录流。
 
@@ -94,7 +96,7 @@ SDK 回放副本在 JSONL 字符串值和序列化工具参数中展开 `{{cwd}}
 
 ### 固定请求 header 与系统提示
 
-每个 pin 默认拥有其生成的 `system-prompt.expected.md` 或 `tool-schemas.expected.json` 伴随文件；当完整的对应序列相同时，`systemPromptSource` 与 `toolSchemasSource` 指定另一个 pin 作为来源，因此每个不同版本只提交一次。系统提示是 surface 节点 0，作为 `system/message` 事件记录在该步骤第一个 `request/header` 之前；每个 fixture 把其文本块存储为 `"text":"{{system}}"`，提示词伴随文件保留完整文本。该 pin 的 `request/header` 事件存储 `"tools":"{{tools}}"`，同时保留配置与原因，结构化 schema 伴随文件保留完整目录。包含 developer 消息的日志会在各 header 中保留有序工具名，而不使用 token，以便继续校验历史工具添加引用。自身作用域组合出不同请求的 child Session 按 fixture 索引以 `pinsChildToolSchemas` 与 `pinsChildSystemPrompts` 单独声明。运行中改变请求 header 的场景声明 `expectedHeaderChanges`；运行中提示词发生变化的场景——替换节点 0，或在 `in-history` 路由上追加到已缓存历史之后——声明 `expectedPromptChanges`，每次变化在提示词伴随文件中增加一个 `<!-- system/message change N -->` 小节。manifest 中对应字段为 `header.changes` 与 `header.promptChanges`。
+每个 pin 默认拥有其生成的 `system-prompt.expected.md` 或 `tool-schemas.expected.json` 伴随文件；当完整的对应序列相同时，`systemPromptSource` 与 `toolSchemasSource` 指定另一个 pin 作为来源，因此每个不同版本只提交一次。系统提示是 surface 节点 0，作为 `system/message` 事件记录在该步骤第一个 `request/header` 之前；每个 fixture 把其文本块存储为 `"text":"{{system}}"`，提示词伴随文件保留完整文本。该 pin 的 `request/header` 事件存储 `"tools":"{{tools}}"`，同时保留配置与原因，结构化 schema 伴随文件保留完整目录。包含 developer 消息的日志会在各 header 中保留有序工具名，而不使用 token，以便继续校验历史工具添加引用。自身作用域组合出不同请求的 child Session 按 fixture 索引以 `pinsChildToolSchemas` 与 `pinsChildSystemPrompts` 单独声明。运行中改变请求 header 的场景声明 `expectedHeaderChanges`；运行中提示词发生变化的场景——替换节点 0，或在 `in-history` 路由上追加到已缓存历史之后——声明 `expectedPromptChanges`，每次变化在提示词伴随文件中增加一个 `<!-- system/message change N -->` 小节。manifest 中对应字段为 `header.changes` 与 `header.promptChanges`。没有工具的请求头在 sidecar 中保留空 schema 集，使后续首次添加仍与其请求头对齐。
 
 ### 平台与组合变体
 
@@ -103,6 +105,8 @@ Headless manifest 用 `platform: posix` 指定非 Windows 执行，用 `platform
 记录会话 patch 使用的可选插件声明在仓库根目录的 `devDependencies` 中。patch 启动器只把可解析的裸包条目链接到各自的临时 profile；这些测试依赖不进入 CLI 或 Desktop 的生产依赖清单。构建模式的 fixture 辅助模块从声明所需包的工作区解析依赖，不假定 CLI 拥有每项间接依赖。
 
 需要非 Windows 主机的场景声明 `posixOnly`，在 Windows 上跳过运行测试，但 fixture 保护仍在所有平台覆盖其已提交文件；组合需要可用 `pwsh` 的场景声明 `pwshOnly`。当临时目录授权自身待测时，`workspaceParent` 将生成子级 cwd 移出平台临时区域；场景签入的 `workspace/` 会先复制到该子级，随后 `prepareWorkspace` 在 agent 启动前针对生成 cwd 运行。默认生成的 workspace 在会话 fixture 中存储为 `{{cwd}}`，使平台临时根目录与随机 basename 不影响录制。headless manifest 在测试 Session workspace 授权本身时使用 `workspace.parent: outside-temp`。适配器在父目录可写且位于系统临时授权之外时，于平台临时根目录旁分配目录，否则使用 home，并拒绝已被自动临时写授权覆盖的生成 cwd。
+
+部分 headless 场景在记录请求预算前，将 JSON 引号内的工作区路径固定为 192 个字符。每次运行仍使用独立目录；预算数字和保护提示保留原值比较，不做脱敏。观察流的 fixture 将监听器前置，避免回放传输绕过其中的断言。
 
 ### 可能出什么问题
 

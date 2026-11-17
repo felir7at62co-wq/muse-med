@@ -83,9 +83,9 @@ interface ResolvedSource {
 }
 
 function trimCache<T>(cache: Map<string, T>, maximum: number): void {
-  while (cache.size > maximum) {
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- Size exceeds the positive limit, so an oldest key exists.
-    cache.delete(cache.keys().next().value!)
+  for (const oldest of cache.keys()) {
+    if (cache.size <= maximum) return
+    cache.delete(oldest)
   }
 }
 
@@ -298,7 +298,7 @@ export default class SessionVideo extends TypertRemoteService {
    * @param sourceId - Identity returned by this Session's inventory.
    * @param sourceVersion - Inventory version the user selected.
    * @param signal - Cancels download, probe and cut detection.
-   * @returns Complete original-video intervals, or a failed result with no invented shots.
+   * @returns Complete original-video intervals bound to the downloaded local version, or a failure without invented shots.
    */
   @Remote({ resources: { session: sessionId => sessionId } })
   async detect(sessionId: SessionId, sourceId: SessionVideoSourceId, sourceVersion: string,
@@ -315,8 +315,7 @@ export default class SessionVideo extends TypertRemoteService {
         const candidate = this.candidate(session, sourceId)
         let source = await this.resolve(session, candidate, operation)
         if (source.source.version !== sourceVersion) return failed('Video source changed; reload the video inventory')
-        const cacheKey = `${sessionId}:${sourceId}:${sourceVersion}`
-        const cached = this.analyses.get(cacheKey)
+        const cached = this.analyses.get(`${sessionId}:${sourceId}:${sourceVersion}`)
         if (cached !== undefined && source.fileVersion === cached.fileVersion) return structuredClone(cached.value)
         if (source.target === null && candidate.remoteUrl !== null && publicJubianVideo(candidate.remoteUrl)) {
           const downloaded = await downloadMedia(candidate.remoteUrl, { kind: 'video', maxBytes: this.config.maxSourceBytes,
@@ -328,7 +327,9 @@ export default class SessionVideo extends TypertRemoteService {
           trimCache(this.downloads, this.config.maxCachedAnalyses)
           source = await this.resolve(session, candidate, operation)
         }
-        if (source.target === null || source.fileVersion === null) return failed(source.source.issue ?? 'Video is not available as a local source')
+        if (source.target === null || source.fileVersion === null || source.source.version === null) return failed(source.source.issue ?? 'Video is not available as a local source')
+        const boundVersion = source.source.version
+        const cacheKey = `${sessionId}:${sourceId}:${boundVersion}`
         const configuredPolicy = this.ctx.sandboxPolicy.resolve({ session })
         // Probe and scene analysis write only to stdout and null; confined analysis needs no workspace write grants.
         const policy: SandboxExecutionPolicy = { ...configuredPolicy,
@@ -346,8 +347,8 @@ export default class SessionVideo extends TypertRemoteService {
           `scale=${this.config.analysisWidth}:-2,select='gt(scene,${this.config.sceneThreshold})',metadata=print:file=-`, '-f', 'null', '-'],
         policy, operation, this.config)
         if ((await this.ctx.fs.stat(source.target, operation))?.version !== source.fileVersion) return failed('Video changed during detection; reload it')
-        const result: SessionVideoAnalysis = { sourceId, sourceVersion, state: 'ready', ...metadata,
-          shots: shotRanges(cuts, metadata.durationSeconds, sourceId, sourceVersion, this.config.minShotSeconds, this.config.maxShots),
+        const result: SessionVideoAnalysis = { sourceId, sourceVersion: boundVersion, state: 'ready', ...metadata,
+          shots: shotRanges(cuts, metadata.durationSeconds, sourceId, boundVersion, this.config.minShotSeconds, this.config.maxShots),
           method: 'ffmpeg-scene', threshold: this.config.sceneThreshold, issue: null }
         operation.throwIfAborted()
         this.analyses.set(cacheKey, { value: result, fileVersion: source.fileVersion })
@@ -383,6 +384,7 @@ export default class SessionVideo extends TypertRemoteService {
       eventSeq: candidate.eventSeq, presentedIndex: candidate.presentedIndex, callId: candidate.callId, remoteUrl: candidate.remoteUrl,
       status: 'missing', version: null, playbackUrl: null, issue: null, ...(production === undefined ? {} : { production }) }
     let path = candidate.path
+    let downloadedIdentity: string | null = null
     if (candidate.attachment !== null) {
       const hostPath = this.ctx.attachments.fileHostPath({ ...candidate.attachment,
         attachmentId: AttachmentId(candidate.attachment.attachmentId) })
@@ -396,6 +398,7 @@ export default class SessionVideo extends TypertRemoteService {
       if (downloaded?.version === source.version) {
         const hostPath = this.ctx.attachments.fileHostPath(downloaded.attachment)
         path = hostPath === undefined ? null : this.ctx.fs.processPathFromHostPath(hostPath) ?? null
+        downloadedIdentity = downloaded.attachment.attachmentId
       }
       if (path === null) return { source, target: null, fileVersion: null }
     }
@@ -403,9 +406,12 @@ export default class SessionVideo extends TypertRemoteService {
     try {
       const target = await this.ctx.fs.resolve(path, { cwd: session.header.cwd ?? this.ctx.sandboxPolicy.workspaceRoot, signal })
       const info = await this.ctx.fs.stat(target, signal)
-      if (info?.type !== 'file') return { source: { ...source, status: 'missing', issue: 'Recorded video file is missing' }, target: null, fileVersion: null }
+      if (info?.type !== 'file') {
+        if (downloadedIdentity !== null) return { source, target: null, fileVersion: null }
+        return { source: { ...source, status: 'missing', issue: 'Recorded video file is missing' }, target: null, fileVersion: null }
+      }
       if (info.size === undefined || info.size > this.config.maxSourceBytes) return { source: { ...source, status: 'unsupported', issue: 'Recorded video exceeds the configured byte limit' }, target: null, fileVersion: null }
-      const version = source.version ?? info.version
+      const version = downloadedIdentity === null ? info.version : `${downloadedIdentity}:${info.version}`
       const binding = state.bindings?.[candidate.key]
       if (binding?.sourceVersion === version) source = { ...source, production: binding.production }
       const query = new URLSearchParams({ sessionId: session.id, sourceId: id, version })
@@ -462,6 +468,7 @@ export default class SessionVideo extends TypertRemoteService {
       let offset = start, pending: Promise<void> | undefined, closed = false
       let controller: ReadableStreamDefaultController<Uint8Array>
       const release = (): void => { closed = true; if (pending === undefined) this.streams.delete(owner); operation.removeEventListener('abort', abort) }
+      // release removes this one-shot listener before another cancellation can reach the closed stream.
       const abort = (): void => { release(); controller.error(operation.reason) }
       const body = new ReadableStream<Uint8Array>({
         start(value) { controller = value; operation.addEventListener('abort', abort, { once: true }); if (operation.aborted) abort() },

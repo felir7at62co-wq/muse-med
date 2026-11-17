@@ -1,89 +1,82 @@
-/** Cordis tools use the initiating Muse session's workspace and persist source-free result metadata. */
+/** Cordis tools retain session permissions, recovery and source-free download receipts. */
 import { HongguoDownloadClient } from './client.js';
 import { resolveConfig } from './config.js';
-
+import { HongguoTasks } from './tasks.js';
+import { HongguoMerger } from './merger.js';
 export const name = 'muse-hongguo-download';
 export const inject = ['tools', 'agents', 'subprocess'];
 export { HongguoDownloadClient, resolveConfig } from './client.js';
 
-const common = {
-  seriesIds: { type: 'array', items: { type: 'string' }, description: '一部或多部系列 ID；红果 ID 保持十进制字符串，默认最多10部' },
-  sourceMode: { type: 'string', enum: ['legacy', 'manifest', 'public'], description: '默认legacy使用用户提供源码的原接口。manifest仅用于已配置的授权直链目录。public必须明确指定，仅使用官网开放集，试看不是全剧' },
-};
-const schema = { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, complete: { type: 'boolean' },
-  sourceMode: { type: 'string' }, code: { type: 'string' }, message: { type: 'string' }, upstreamCode: { type: 'integer' },
-  sourceStage: { type: 'string', enum: ['catalog', 'video_model', 'source_api'] }, retryable: { type: 'boolean' },
-  httpStatus: { type: 'integer' }, responseBytes: { type: 'integer' },
-  checkpoint: { type: 'string' }, cleanupPendingPath: { type: 'string' }, retainedEpisodeCount: { type: 'integer' }, reusedEpisodeCount: { type: 'integer' },
-  remainingEpisodeCount: { type: 'integer' }, newlyDownloadedEpisodeCount: { type: 'integer' },
-  discoveryTruncated: { type: 'boolean' }, resume: { type: 'object', additionalProperties: true },
-  items: { type: 'array', items: { type: 'object', additionalProperties: true } } }, required: ['ok'] };
-
-const healthLimits = { authorization: { type: 'string', const: 'not_checked' },
-  mediaAvailability: { type: 'string', const: 'not_tested' }, verifiedDownload: { type: 'boolean', const: false } };
-const healthSchema = { oneOf: [
-  { type: 'object', additionalProperties: false, properties: {
-    ok: { type: 'boolean', const: true }, sourceBackend: { type: 'string', const: 'v2' },
-    scope: { type: 'string', enum: ['local', 'catalog'] }, sourceIdentity: { type: 'string' }, ...healthLimits,
-    checks: { type: 'object', additionalProperties: false, properties: {
-      runtimeIntegrity: { type: 'string', const: 'passed' }, physicalDevice: { type: 'string', const: 'matched' },
-      engineHandshake: { type: 'string', const: 'passed' }, licenseBrokerHandshake: { type: 'string', const: 'passed' },
-      localLicenseStatus: { type: 'string', const: 'read' }, catalog: { type: 'string', enum: ['passed', 'not_requested'] },
-      shutdown: { type: 'string', const: 'confirmed' },
-    }, required: ['runtimeIntegrity', 'physicalDevice', 'engineHandshake', 'licenseBrokerHandshake', 'localLicenseStatus', 'catalog', 'shutdown'] },
-    engine: { type: 'object', additionalProperties: false, properties: { engineVersion: { type: 'string' },
-      protocol: { type: 'integer', const: 2 }, build: { type: 'integer' } }, required: ['engineVersion', 'protocol', 'build'] },
-    localLicenseStatus: { type: 'object', additionalProperties: false, properties: {
-      mode: { type: 'string', enum: ['Checking', 'Licensed', 'Grace', 'Unlicensed'] }, reason: { type: 'string' },
-      refreshed: { type: 'boolean', const: false } }, required: ['mode', 'reason', 'refreshed'] },
-    items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
-      seriesId: { type: 'string' }, title: { type: 'string' }, episodeCount: { type: 'integer' },
-      completeCatalog: { type: 'boolean', const: true }, mediaUrlsVerified: { type: 'boolean', const: false },
-      fullSeriesAvailable: { type: 'null' },
-    }, required: ['seriesId', 'title', 'episodeCount', 'completeCatalog', 'mediaUrlsVerified', 'fullSeriesAvailable'] } },
-  }, required: ['ok', 'sourceBackend', 'scope', 'sourceIdentity', 'authorization', 'mediaAvailability', 'verifiedDownload', 'checks', 'engine', 'localLicenseStatus', 'items'] },
-  { type: 'object', additionalProperties: false, properties: {
-    ok: { type: 'boolean', const: false }, sourceBackend: { type: 'string', enum: ['v1', 'v2'] },
-    scope: { type: 'string', enum: ['local', 'catalog'] }, code: { type: 'string' }, message: { type: 'string' }, ...healthLimits,
-    safeReason: { type: 'string' }, freeUsed: { type: 'integer' }, freeLimit: { type: 'integer' },
-    upstreamCode: { type: 'integer' }, sourceStage: { type: 'string', enum: ['catalog', 'video_model', 'source_api'] },
-    retryable: { type: 'boolean' }, httpStatus: { type: 'integer' }, responseBytes: { type: 'integer' },
-  }, required: ['ok', 'code', 'message', 'authorization', 'mediaAvailability', 'verifiedDownload'] },
-] };
-
-/** Register source inspection and resumable multi-series download; unload waits for owned cleanup. */
+/** Register the pinned open-source engine in the initiating session's scope. */
 export function apply(ctx, config = {}) {
-  const settings = resolveConfig(config);
-  const client = new HongguoDownloadClient(settings, { subprocess: ctx.subprocess });
-  ctx.effect(() => () => client.dispose(), 'hongguo-download: abort and await cleanup');
-  const definitions = [
-    { name: 'hongguo_download_info', title: '检查红果全剧下载来源', method: 'info', kind: 'read', properties: common,
-      description: settings.legacyBackend === 'v2' ? '使用已配置的红果 2.0.0 本地引擎检查一部或多部剧的目录和连续集号。仅查询目录，不请求媒体地址，不消耗剧目下载许可。completeCatalog 不代表可下载，mediaUrlsVerified 为 false，只有实际下载与完整解码后才能确认可用。原授权、设备标识、签名和媒体直链不会返回给模型。' : '先检查一部或多部红果的声明总集数与连续集号。此工具只查询目录，不查询媒体地址；completeCatalog不代表可下载，mediaUrlsVerified为false，fullSeriesAvailable为null表示尚未验证，不得据此宣称全集可用。默认使用 Hongguo source 的原接口；全集范围按原源真实总集数确定，不另设集数上限。Muse 安装包内置本地运行环境，首次使用初始化本机设备并自动启动原签名器；独立配置缺少原源或运行时明确失败。不返回Cookie、设备值、签名或媒体直链。公开播放器仅开放的试看集不能充作全剧。' },
-    { name: 'hongguo_download', title: '下载红果全剧或多部剧', method: 'download', kind: 'write', properties: { ...common,
-      episodes: { type: 'array', items: { type: 'integer' }, description: '省略下载完整全集；若提供，对每部剧只下载这些集号，complete可能false。不能将试看当全剧' },
-      outputDir: { type: 'string', description: '默认当前会话工作区的downloads目录；相对路径位于工作区内。完全权限下可直接指定工作区外绝对目录，文件和收据都写入该目录，无需先下载再搬运。只读或工作区权限不放宽；拒绝子目录链接' } },
-      description: settings.legacyBackend === 'v2' ? '通过已配置的红果 2.0.0 原版授权和完整取流流程下载。省略 episodes 请求声明的全集，提供 episodes 仅下载指定集。首次下载剧目会向原版许可服务申请资格，遵守其授权和额度；被拒绝时停止，不换设备重试。原引擎成功后还需逐集完成 MP4、FFprobe、完整 FFmpeg 解码和 SHA256 检查，只有所有请求集验证成功才返回 ok；complete 只代表声明全集均已验证。失败和取消保留已有验证文件及续下载收据，不能把部分成功说成全集。默认输出当前会话工作区 downloads，完全权限时可直接指定外部绝对 outputDir。不会返回授权密钥、设备标识、签名或媒体直链。public 仍仅是显式选择的官网公开集。' : '按 seriesIds 下载一部或多部完整剧集，默认用户提供源码的原红果接口。按配置每批最多5集通过当前video-tab接口请求媒体模型，预取下一批地址并与当前批下载重叠，累积全部结果。批次取流按配置间隔等待；媒体按连接预算并发，支持可靠字节范围的较大文件可分段下载，可恢复的分段异常停止并收取全部工作后回退一次完整下载。已成功解析媒体后遇到偶发空正文，同一查询可保留原设备配置等待接口恢复后最多重试一次，默认等待120秒；这不是电脑降温，也不能据此断定提供方限流；可取消，等待期间不要重复提交相同任务。检查声明总集数、连续集号、每集媒体长度；加密集使用本机原版离线解密模块，所有视频经MP4、ffprobe、完整ffmpeg解码及SHA256检查，全批完成才返回成功与真实文件路径。失败或取消只清理未完成传输；已验证视频及resume-state.json保留，按原参数再次调用自动续下，只请求缺失或校验失效的集。返回retainedEpisodeCount、remainingEpisodeCount、checkpoint和resume参数，不能把部分完成说成全集成功。会先在输出目录范围内查找已有完整收据并核对文件大小、SHA256和容器，找到的集不重复下载；结果中的每集path为真实位置，可能位于早先的下载目录。省略episodes按原源真实总集数下载全集，不另设集数上限。默认写当前会话工作区downloads；完全权限下按用户指定的绝对outputDir直接落盘，收据记录最终路径。public只能显式选择；官网未开放的集明确拒绝。Muse 安装包内置原源、Java、Python 和视频运行时，首次使用自动启动本机原签名器；独立配置缺少所需运行时明确失败。失败结果包含sourceStage与upstreamCode时按实际阶段和错误码诊断；retryable为false时不要立即重复相同请求。empty_source_response表示HTTP成功但正文为空，不能据此判断全平台停服或自动重建设备。不能仅凭目录成功或文件齐全断言本地无问题、提供方临时故障。' },
-  ];
-  if (settings.legacyBackend === 'v2') definitions.push({
-    name: 'hongguo_download_health', title: '检查红果下载状态', method: 'health', kind: 'read', required: [],
-    properties: { seriesIds: common.seriesIds },
-    description: '检查红果 v2 本地运行资源、当前物理设备绑定、原引擎及许可桥接进程握手，并读取未刷新的本地许可状态。默认不访问网络、不刷新授权、不申请剧目许可、不下载视频；提供 seriesIds 时只额外查询对应目录。检查成功仅表示这些检查项通过，authorization 始终为 not_checked，mediaAvailability 始终为 not_tested，不能据此宣称已授权或全集可下载。错误保留固定安全诊断，不输出设备标识、密钥、签名和媒体直链。',
-  });
-  for (const definition of definitions) {
+  const client = new HongguoDownloadClient(resolveConfig(config), { subprocess: ctx.subprocess });
+  const tasks = new HongguoTasks(config, { client, jobs: ctx.get('jobs'), agents: ctx.agents,
+    resolvePolicy: agent => ctx.get('sandboxPolicy')?.resolve({ session: agent.session }) });
+  const merger = new HongguoMerger({ tasks, subprocess: ctx.subprocess, config });
+  ctx.effect(() => async () => {
+    const outcomes = await Promise.allSettled([merger.dispose(), tasks.dispose(), client.dispose()]);
+    const errors = outcomes.filter(outcome => outcome.status === 'rejected').map(outcome => outcome.reason);
+    if (errors.length) throw new AggregateError(errors, 'Hongguo plugin cleanup failed');
+  }, 'hongguo-download: abort and await cleanup');
+  for (const method of ['info', 'download']) {
+    const title = method === 'info' ? '检查红果剧集目录' : '下载红果短剧';
     ctx.effect(() => ctx.tools.register({
-      name: definition.name, description: definition.description,
-      parameters: { type: 'object', additionalProperties: false, properties: definition.properties, required: definition.required ?? ['seriesIds'] },
-      output: { schema: definition.method === 'health' ? healthSchema : schema, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      name: method === 'info' ? 'hongguo_download_info' : 'hongguo_download',
+      description: method === 'info'
+        ? '通过 jackotom/hongguo-drama 开源引擎读取红果系列的真实分集目录。不返回签名地址或密钥；目录完整不表示视频已下载。'
+        : '使用 jackotom/hongguo-drama 引擎下载红果短剧。抖音上有的完整短剧也用本工具下载：按剧名用 hongguo_search 取得 seriesId 后下载全集或指定集，不逐条下载抖音视频。quality 可选1080p、720p、auto；省略采用插件默认画质（通常1080p），固定画质不可用时停止，不自动降级；auto沿来源兼容优先规则选源。回执分别记录requestedQuality和实际尺寸、画质；更高分辨率保留原样，不放大冒充高清。seriesIds 为十进制字符串；省略 episodes 下载全集，指定则仅下这些集。下载经过容器、尺寸、完整解码和SHA256校验。已验证文件及进度保留，重复同一请求及画质可续下。只读权限拒绝写入，工作区权限仅写工作区，完全权限可写显式外部绝对目录。遇到来源拒绝停止，不盲目重试；ByteVC2 通过内置组件转换为 H.264/AAC 后完整校验；缺少解码组件时停止。不返回媒体直链、签名、设备信息或解密密钥。部分完成不可称为全集。',
+      parameters: { type: 'object', additionalProperties: false, required: ['seriesIds'], properties: {
+        seriesIds: { type: 'array', items: { type: 'string', pattern: '^[0-9]+$' }, minItems: 1, maxItems: client.config.maxSeries },
+        ...(method === 'download' ? { episodes: { type: 'array', items: { type: 'integer', minimum: 1 }, uniqueItems: true, minItems: 1 },
+          quality: { type: 'string', enum: ['1080p', '720p', 'auto'], description: '本次下载画质；省略采用插件默认值。固定画质不自动降级，auto兼容优先' },
+          mode: { type: 'string', enum: ['wait', 'background'], description: 'wait等待验证完成（默认）；background返回持久taskId，通过hongguo_download_task管理' },
+          outputDir: { type: 'string', description: '默认当前会话 downloads；完全权限可指定外部绝对路径' } } : {}),
+      } },
+      output: { schema: { type: 'object', additionalProperties: true, required: ['ok'], properties: { ok: { type: 'boolean' } } },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
       timeoutMs: client.config.callTimeoutMs,
       async execute(args, exec) {
-        if (definition.method === 'info') return client.info(args, exec.signal);
-        if (definition.method === 'health') return client.health(args, exec.signal);
-        const { session } = ctx.agents.requireInitiator();
-        const policy = ctx.get('sandboxPolicy')?.resolve({ session });
-        return client.download(args, exec.signal, session.header.cwd, policy);
+        if (method === 'info') return client.info(args, exec.signal);
+        const agent = ctx.agents.requireInitiator();
+        return tasks.download(args, { kind: 'session', agent }, exec);
       },
-      presentCall() { return { card: 'generic', title: definition.title, kind: definition.kind }; },
-      presentResult(_args, result) { return { card: 'generic', title: definition.title, content: result.content }; },
-    }), `hongguo-download: ${definition.name}`);
+      presentCall() { return { card: 'generic', title, kind: method === 'info' ? 'read' : 'write' }; },
+      presentResult(_args, result) { return { card: 'generic', title, content: result.content }; },
+    }), `hongguo-download: ${method}`);
   }
+  ctx.effect(() => ctx.tools.register({
+    name: 'hongguo_download_task',
+    description: '管理当前会话和工作区中的红果下载任务。list/status查询；pause暂停，resume继续，cancel取消，retry按原清晰度重试；remove仅移除已结束的任务记录，保留视频和原下载进度。暂停/取消须带status返回的expectedRunId，只有控制确认acknowledged才表示已停止。重启不自动下载；清理未知的任务保持blocked，不得强行恢复。taskId不同于Jobs的jobId。',
+    parameters: { type: 'object', additionalProperties: false, required: ['action'], properties: {
+      action: { type: 'string', enum: ['list', 'status', 'pause', 'resume', 'cancel', 'retry', 'remove'] },
+      taskId: { type: 'string', pattern: '^hgt-[a-f0-9]{32}$' },
+      expectedRunId: { type: 'string', pattern: '^hgr-[a-f0-9]{32}$' },
+      requestId: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,160}$' },
+      mode: { type: 'string', enum: ['wait', 'background'] },
+    } },
+    output: { schema: { type: 'object', additionalProperties: true, required: ['ok'], properties: { ok: { type: 'boolean' } } },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+    timeoutMs: client.config.callTimeoutMs,
+    execute: (args, exec) => tasks.control(args, { kind: 'session', agent: ctx.agents.requireInitiator() }, exec.signal, exec),
+    presentCall(args) { return { card: 'generic', title: '管理红果下载任务', kind: ['list', 'status'].includes(args.action) ? 'read' : 'write' }; },
+    presentResult(_args, result) { return { card: 'generic', title: '管理红果下载任务', content: result.content }; },
+  }), 'hongguo-download: task controls');
+  ctx.effect(() => ctx.tools.register({
+    name: 'hongguo_merge',
+    description: '将当前会话和工作区中已有红果下载任务的分集合并为一个MP4。taskId使用下载工具返回的任务ID；多剧任务须选seriesId。episodes省略时合并原任务选集或该剧完整目录，缺集停止，不自动补下载；显式选集按数字顺序合并。每个输入重新检查原回执、路径、大小和SHA256。auto仅在流参数完全一致时直接拼接，否则统一为H.264/AAC；copy不兼容时拒绝；compatible统一格式。outputFile仅为.mp4文件名，保存在原任务下载目录；已有文件不覆盖，原始分集保留。只读权限拒绝，外部目录仍须当前完全权限。前台等待完整解码、时长和SHA256验证后返回，部分选集不可称为全集。',
+    parameters: { type: 'object', additionalProperties: false, required: ['taskId'], properties: {
+      taskId: { type: 'string', pattern: '^hgt-[a-f0-9]{32}$' },
+      seriesId: { type: 'string', pattern: '^[0-9]+$' },
+      episodes: { type: 'array', items: { type: 'integer', minimum: 1 }, minItems: 1,
+        maxItems: client.config.maxMergeEpisodes, uniqueItems: true },
+      mode: { type: 'string', enum: ['auto', 'copy', 'compatible'] },
+      outputFile: { type: 'string', description: '原任务下载目录中的MP4文件名，不含路径；省略使用按剧和集号生成的名称' },
+    } },
+    output: { schema: { type: 'object', additionalProperties: true, required: ['ok'], properties: { ok: { type: 'boolean' } } },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+    timeoutMs: client.config.mergeTimeoutMs,
+    execute: (args, exec) => merger.merge(args, { kind: 'session', agent: ctx.agents.requireInitiator() }, exec.signal),
+    presentCall() { return { card: 'generic', title: '合并红果分集', kind: 'write' }; },
+    presentResult(_args, result) { return { card: 'generic', title: '合并红果分集', content: result.content }; },
+  }), 'hongguo-download: merge');
 }

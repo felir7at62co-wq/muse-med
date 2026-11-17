@@ -17,7 +17,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { AppWebEntry } from '@deepseek-ai/dsh-client-web'
 import { createClientModuleSystem } from '@deepseek-ai/dsh-client-modules/client'
@@ -39,16 +39,27 @@ const REMOTE_ACCESS_PACKAGE = '@deepseek-ai/dsh-api-remote-access'
 /** Read budget the carrier receives; production pages receive the Relay's configured value. */
 const READ_TIMEOUT_MS = 30_000
 
-/** Host-face module that writes the generated Remote faces; see viewer-remote-faces.ts. */
+/** Host-face source-generation utility, loaded outside the Client compilation face. */
 interface RemoteFaceGenerator {
-  readonly generateViewerRemoteFaces: (workspaceRoot: string, dir: string) => ReadonlyMap<string, string>
+  readonly startViewerRemoteFacesProcess: (options: {
+    readonly workspaceRoot: string
+    readonly directory: string
+    readonly timeoutMs: number
+    readonly generatorModule: string
+  }) => {
+    readonly result: Promise<ReadonlyMap<string, string>>
+    dispose(): Promise<void>
+  }
 }
 
 let preparing: Promise<void> | undefined
 let stagingDir: string | undefined
+let generation: ReturnType<RemoteFaceGenerator['startViewerRemoteFacesProcess']> | undefined
 
-afterAll(() => {
+afterAll(async () => {
+  await generation?.dispose()
   disposeViewerStaging(stagingDir, stagingParent)
+  generation = undefined
   stagingDir = undefined
 })
 
@@ -62,11 +73,15 @@ afterAll(() => {
 async function generateRemoteFaces(): Promise<void> {
   const dir = allocateViewerStaging(stagingParent, 'viewer-remote-faces-')
   stagingDir = dir
-  // The generator is Host-face Node code, so this jsdom module loads it by path rather than by a
-  // static import the client program would have to type.
-  const generatorModule = join(testsDir, 'viewer-remote-faces.ts')
-  const { generateViewerRemoteFaces } = await import(/* @vite-ignore */ generatorModule) as RemoteFaceGenerator
-  const faces = generateViewerRemoteFaces(workspaceRoot, dir)
+  // Only pure Host source generation runs in the child. The viewer still imports and renders every
+  // generated contribution in this process. Its deadline leaves 30s of the case's 120s for that UI.
+  const generatorModule = join(testsDir, 'viewer-remote-faces-process.ts')
+  const { startViewerRemoteFacesProcess } = await import(/* @vite-ignore */ generatorModule) as RemoteFaceGenerator
+  generation = startViewerRemoteFacesProcess({
+    workspaceRoot, directory: dir, timeoutMs: 90_000,
+    generatorModule: pathToFileURL(join(testsDir, 'viewer-remote-faces.ts')).href,
+  })
+  const faces = await generation.result
   const assembly = readFileSync(join(workspaceRoot, 'packages/api/remotes/src/client/index.ts'), 'utf8')
     .replace(/^(import \w+ from )'(@deepseek-ai\/[^']+)\/remote'$/gmu, (_line, head: string, name: string) => {
       const file = faces.get(name)

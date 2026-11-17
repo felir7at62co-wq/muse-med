@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session activity",
+    "description": "Deliver compact progress digests of watched sessions to the session that dispatched them."
+  }
+}

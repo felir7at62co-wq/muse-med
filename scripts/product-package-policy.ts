@@ -18,7 +18,7 @@ export interface ProductPackagePolicy {
 export const PRODUCT_PACKAGE_POLICY: Readonly<Record<string, ProductPackagePolicy>> = {
   'packages/bundle/muse-video-ui': {
     category: 'optional',
-    reason: 'Installable Muse conversation presentation bundle for explicitly selected Web profiles; Desktop composes its providers directly.',
+    reason: 'Explicitly selected Web bundle that installs Muse video presentation and its recorded-video service together; Desktop directly mounts its constituents.',
   },
   'packages/guard/composition-guard': { category: 'optional', reason: 'Explicit profile-reload diagnostics for deployments that opt into tool-withdrawal notices.' },
   'packages/util/session-workspace': { category: 'optional', reason: 'Maintained Node plugin compatibility helpers for recorded initial session directories and trusted production-root checks; not effective-directory or sandbox authority.' },
@@ -33,12 +33,12 @@ export const PRODUCT_PACKAGE_POLICY: Readonly<Record<string, ProductPackagePolic
   'packages/ssh/sandbox-ssh': { category: 'optional', reason: 'Remote confinement provider selected in an SSH composition.' },
   'packages/ssh/subprocess-ssh': { category: 'optional', reason: 'Remote process provider selected in an SSH composition.' },
   'packages/storage/storage-sqlite': { category: 'optional', reason: 'Persistent storage requires an explicit database path and backend selection.' },
+  'packages/drama/tool-hit-queue': { category: 'optional', reason: 'Requires a data station service token reference; selected by the cloud transcription composition, not the Desktop default.' },
+  'packages/drama/tool-drama-tos-upload': { category: 'optional', reason: 'Requires deployment TOS credential references; selected by the cloud transcription composition, not the Desktop default.' },
   'packages/subagent/subagent-acp': { category: 'optional', reason: 'Requires a configured external ACP agent command.' },
   'packages/subagent/subagent-claude-code': { category: 'optional', reason: 'Separately installed native Claude Code agent integration.' },
   'packages/subagent/subagent-codex': { category: 'optional', reason: 'Separately installed native Codex agent integration.' },
   'packages/subagent/subagent-dsh-sdk': { category: 'optional', reason: 'Requires an explicitly configured external DSH home.' },
-  'packages/web/web-search-exa': { category: 'optional', reason: 'Alternative search provider requiring its own API credentials.' },
-  'packages/web/web-search-perplexity': { category: 'optional', reason: 'Alternative search provider requiring its own API credentials.' },
   'packages/context/tmux-context': { category: 'optional', reason: 'Context contribution requiring a tmux pane.' },
   'packages/fs/tool-str-replace-editor': { category: 'optional', reason: 'Explicit alternative to the default filesystem editing tools.' },
   'packages/fs/fs-observation-policy': { category: 'optional', reason: 'Read-before-mutation guard that a deployment enables on the disabled dsh-base row.' },

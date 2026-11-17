@@ -20,8 +20,9 @@ import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Video from '../src/index.ts'
+import { createVideoSourceQaVerifier } from '../src/source-qa-evidence.ts'
 import * as ImageOffload from '@deepseek-ai/dsh-compaction-image-offload'
-import { LlmError, IMAGE_OFFLOAD_REQUIRED_CODE } from '@deepseek-ai/dsh-llm'
+import { LlmError, IMAGE_OFFLOAD_REQUIRED_CODE, projectOffloadedImages } from '@deepseek-ai/dsh-llm'
 import * as Present from '@deepseek-ai/dsh-tool-present'
 import { runMedia } from '../src/media.ts'
 import * as Media from '../src/media.ts'
@@ -123,7 +124,7 @@ async function fixture(options: {
     agentOptions: { provider: 'synthetic', model: 'vision' }, meta: { cwd: root } })
   const agent = handle.agent
   const readReviews = await installReviewState(ctx)
-  const verifySourceQa = await Video.createVideoSourceQaVerifier(ctx)
+  const verifySourceQa = await createVideoSourceQaVerifier(ctx)
   const reviewTool = options.companion ? 'video_source_review' : 'video_inspect'
   const call = (method: string, extra = {}) => ({ name: reviewTool, args: { file_path: input, method, episode: '第80集', ...extra } })
   const run = async (...plans: Plan[]) => {
@@ -625,24 +626,159 @@ it('closes a removed source by its provider-resolved saved path without changing
   expect(stat.mock.calls.every(([target]) => target.displayPath === h.root)).toBe(true)
 })
 
-it('ignores an unresolvable saved source while selecting one exact provider alias', async () => {
-  const h = await fixture(), missing = 'unresolvable-saved.mp4', alias = relative(h.root, h.input)
-  const fields = { episode: 'episode-1', source_version: 'recorded-source', duration: 80,
-    scanned_until: 0, scan_complete: false, frames: [] }
-  saveReview(h.readReviews, h.agent.session, { ...fields, id: VideoReviewId('unresolvable-saved'), path: missing })
-  saveReview(h.readReviews, h.agent.session, { ...fields, id: VideoReviewId('selected-alias'), path: alias })
-  const original = h.ctx.fs.resolve.bind(h.ctx.fs)
-  const resolve = vi.spyOn(h.ctx.fs, 'resolve').mockImplementation(async (path, options) => {
-    if (path === missing) throw Error('Saved source cannot be resolved')
-    return await original(path, options)
-  })
+it('retains an unresolvable old review when another source has no saved review and still accepts its ID', async () => {
+  const h = await fixture(), directory = join(h.root, 'retired-project'), oldSource = join(directory, 'episode-80.mp4')
+  await mkdir(directory)
+  await copyFile(h.input, oldSource)
+  await h.run(h.call('scan', { file_path: oldSource }), undefined)
+  const saved = reviewsOf(h.readReviews, h.agent.session), before = saved[oldSource]!
+  expect(before).toBeDefined()
+  await rm(directory, { recursive: true, force: true })
+  await writeFile(directory, 'The former source directory is now a regular file.')
+  await expect(h.ctx.fs.resolve(oldSource, { cwd: h.root })).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_REQUIRED')
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  expect(saved[oldSource]).toBe(before)
+  await h.run({ name: 'video_inspect', args: { method: 'status', review_id: before.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  await h.run({ name: 'video_inspect', args: { method: 'close', review_id: before.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)[oldSource]).toEqual({ ...before, follow_up: { status: 'closed' } })
+})
+
+it('requires a review ID when formerly separate saved sources become filesystem aliases', async () => {
+  const h = await fixture(), primary = join(h.root, 'primary'), secondary = join(h.root, 'secondary')
+  const alias = join(h.root, 'source-alias'), primaryFile = join(primary, 'episode.mp4'), secondaryFile = join(secondary, 'episode.mp4')
+  await mkdir(primary)
+  await mkdir(secondary)
+  await copyFile(h.input, primaryFile)
+  await copyFile(h.input, secondaryFile)
+  await symlink(primary, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  await h.run(h.call('scan', { file_path: primaryFile }), h.call('scan', { file_path: secondaryFile }), undefined)
+  const saved = reviewsOf(h.readReviews, h.agent.session), first = saved[primaryFile]!, second = saved[secondaryFile]!
+  expect(first.id).not.toBe(second.id)
+  const aliasFile = join(alias, 'episode.mp4')
+  expect((await h.ctx.fs.resolve(aliasFile)).targetKey).toBe((await h.ctx.fs.resolve(primaryFile)).targetKey)
+  await h.run({ name: 'video_inspect', args: { method: 'status', file_path: aliasFile, review_id: first.id } },
+    { name: 'video_inspect', args: { method: 'status', file_path: aliasFile } }, undefined)
+  expect(h.results().slice(-2).map(result => result.isError)).toEqual([false, false])
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  await rm(secondary, { recursive: true, force: true })
+  await symlink(primary, secondary, process.platform === 'win32' ? 'junction' : 'dir')
+  expect((await h.ctx.fs.resolve(secondaryFile)).targetKey).toBe((await h.ctx.fs.resolve(primaryFile)).targetKey)
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: aliasFile } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: aliasFile, review_id: first.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)[primaryFile]).toEqual({ ...first, follow_up: { status: 'closed' } })
+  expect(reviewsOf(h.readReviews, h.agent.session)[secondaryFile]).toBe(second)
+})
+
+it('accepts matching file path and review ID without changing saved evidence', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  const before = h.review(), saved = reviewsOf(h.readReviews, h.agent.session)
+  await h.run({ name: 'video_inspect', args: { method: 'status', file_path: h.input, review_id: before.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  const output = z.object({ review_id: z.string() }).loose().parse(JSON.parse(
+    h.results().at(-1)!.content.filter(block => block.type === 'text')[0]!.text))
+  expect(output.review_id).toBe(before.id)
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  expect(h.review()).toBe(before)
+})
+
+it('finds a saved review through a stable native directory alias without decoding it again', async () => {
+  const h = await fixture(), directory = join(h.root, 'physical'), alias = join(h.root, 'stable-alias')
+  const physical = join(directory, 'episode-80.mp4')
+  await mkdir(directory)
+  await copyFile(h.input, physical)
+  await symlink(directory, alias, process.platform === 'win32' ? 'junction' : 'dir')
   try {
-    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input } }, undefined)
+    await h.run(h.call('scan', { file_path: physical }), undefined)
+    const before = reviewsOf(h.readReviews, h.agent.session)[physical]!
+    expect(before).toBeDefined()
+    const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: join(alias, 'episode-80.mp4') } }, undefined)
     expect(h.results().at(-1)?.isError).toBe(false)
-    const reviews = reviewsOf(h.readReviews, h.agent.session)
-    expect(reviews[alias]?.follow_up?.status).toBe('closed')
-    expect(reviews[missing]?.follow_up).toBeUndefined()
-  } finally { resolve.mockRestore() }
+    expect(reviewsOf(h.readReviews, h.agent.session)).toEqual({ [physical]: { ...before, follow_up: { status: 'closed' } } })
+    expect(spawn).not.toHaveBeenCalled()
+  } finally { await unlink(alias) }
+})
+
+it('requires a review ID for recovered records behind stable native directory aliases', async () => {
+  const h = await fixture(), directory = join(h.root, 'physical')
+  const physical = join(directory, 'episode-80.mp4'), aliases: string[] = []
+  await mkdir(directory)
+  await copyFile(h.input, physical)
+  try {
+    for (const name of ['saved-alias', 'query-alias']) {
+      const alias = join(h.root, name)
+      await symlink(directory, alias, process.platform === 'win32' ? 'junction' : 'dir')
+      aliases.push(alias)
+    }
+    await h.run(h.call('scan', { file_path: physical }), undefined)
+    const first = reviewsOf(h.readReviews, h.agent.session)[physical]!
+    expect(first).toBeDefined()
+    const secondPath = join(aliases[0]!, 'episode-80.mp4')
+    const second = { ...first, id: VideoReviewId('recovered-stable-provider-alias'), path: secondPath }
+    saveReview(h.readReviews, h.agent.session, second)
+    const recovered = reviewsOf(h.readReviews, h.agent.session), queryPath = join(aliases[1]!, 'episode-80.mp4')
+    const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: queryPath } }, undefined)
+    expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+    expect(h.results().at(-1)?.isError).toBe(true)
+    expect(reviewsOf(h.readReviews, h.agent.session)).toBe(recovered)
+    expect(recovered[physical]).toBe(first)
+    expect(recovered[secondPath]).toEqual(second)
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: queryPath, review_id: first.id } }, undefined)
+    expect(h.results().at(-1)?.isError).toBe(false)
+    expect(reviewsOf(h.readReviews, h.agent.session)).toEqual({
+      [physical]: { ...first, follow_up: { status: 'closed' } }, [secondPath]: second,
+    })
+    expect(spawn).not.toHaveBeenCalled()
+  } finally { for (const alias of aliases.toReversed()) await unlink(alias) }
+})
+
+it('accepts one file path that resolves to the selected saved review', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  const before = h.review(), saved = reviewsOf(h.readReviews, h.agent.session)
+  expect(before).toBeDefined()
+  await h.run({ name: 'video_inspect', args: { method: 'status', file_path: h.input, review_id: before.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  expect(h.review()).toBe(before)
+})
+
+it('requires a review ID when native directory aliases identify one source through two saved records', async () => {
+  const h = await fixture(), physical = join(h.root, 'physical'), file = join(physical, 'episode-80.mp4')
+  await mkdir(physical)
+  await copyFile(h.input, file)
+  const savedAlias = join(h.root, 'saved-alias'), queryAlias = join(h.root, 'query-alias')
+  for (const alias of [savedAlias, queryAlias]) await symlink(physical, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  try {
+    await h.run(h.call('scan', { file_path: file }), undefined)
+    const first = reviewsOf(h.readReviews, h.agent.session)[file]!
+    expect(first).toBeDefined()
+    const secondPath = join(savedAlias, 'episode-80.mp4')
+    saveReview(h.readReviews, h.agent.session, { ...first, id: VideoReviewId('native-alias-second'), path: secondPath })
+    const recovered = reviewsOf(h.readReviews, h.agent.session), queryPath = join(queryAlias, 'episode-80.mp4')
+    expect(recovered[queryPath]).toBeUndefined()
+    const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: queryPath } }, undefined)
+    expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+    expect(h.results().at(-1)?.isError).toBe(true)
+    expect(reviewsOf(h.readReviews, h.agent.session)).toBe(recovered)
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: queryPath, review_id: first.id } }, undefined)
+    expect(h.results().at(-1)?.isError).toBe(false)
+    expect(reviewsOf(h.readReviews, h.agent.session)).toEqual({
+      [file]: { ...first, follow_up: { status: 'closed' } }, [secondPath]: recovered[secondPath],
+    })
+    expect(spawn).not.toHaveBeenCalled()
+  } finally { for (const alias of [queryAlias, savedAlias]) await unlink(alias) }
 })
 
 it.skipIf(process.platform === 'win32')('passes symlink-parent traversal to the filesystem provider before probing the source', async () => {
@@ -2058,6 +2194,147 @@ it.each(['offload', 'offload-throw'] as const)('keeps transport batches after %s
   expect(h.review().frames.filter(frame => frame.observation !== undefined)).toHaveLength(2)
 })
 
+it.each([true, false])('offloads the images of observed frames only when offloadObservedFrames is %s', async (enabled) => {
+  const h = await fixture({ offload: true, config: { offloadObservedFrames: enabled } })
+  await h.run(h.call('scan'), h.record, h.call('next'), undefined)
+  const review = h.review()
+  const observed = new Set(review.frames.filter(frame => frame.observation !== undefined).map(frame => `${review.id}/${frame.id}`))
+  const images: { label: string | undefined; offloaded: boolean }[] = []
+  for (const message of h.agent.session.deriveMessages()) {
+    let label: string | undefined
+    for (const block of message.content) {
+      if (block.type === 'text') label = /^VIDEO_FRAME (\S+) /u.exec(block.text)?.[1] ?? label
+      if (block.type === 'image') images.push({ label, offloaded: block.offloaded === true })
+    }
+  }
+  expect(observed.size).toBeGreaterThan(0)
+  expect(images.some(image => image.label !== undefined && !observed.has(image.label))).toBe(true)
+  for (const image of images) expect(image.offloaded).toBe(enabled && image.label !== undefined && observed.has(image.label))
+})
+
+const FRAME_REMOVED = '该帧图已在之前的步骤中展示给你，为控制请求大小已从之后的请求中移除。你当时记录的observe仍有效；需要再看时，已记录帧用video_inspect的revisit，未记录帧用next。'
+const retainedImages = (h: Awaited<ReturnType<typeof fixture>>, index: number) => h.adapter.requests[index]!.messages
+  .flatMap(message => message.content).filter(block => block.type === 'image' && block.offloaded !== true).length
+
+it.each([true, false])('keeps an unrecorded batch as images through a busy error, retries and detours when offloadObservedFrames is %s',
+  async (enabled) => {
+    const h = await fixture({ offload: true, config: { offloadObservedFrames: enabled } })
+    let busy = true
+    h.ctx.tools.guard(exec => exec.name === 'video_inspect' && busy && JSON.stringify(exec.arguments).includes('"next"')
+      ? (busy = false, 'VIDEO_INSPECT_BUSY: Video inspection is busy. Call the tool again.') : undefined)
+    const invalid = h.call('observe', { observations: [{ frame_id: 'F99999', visible: '画面为红色背景，没有可见人物。', change: '无变化说明。', uncertainty: '' }] })
+    await h.run(h.call('scan'), h.call('next'), invalid, h.call('status'), { name: 'screenplay_export_docx', args: {} }, 'fail')
+    expect(h.results().filter(result => result.isError)).toHaveLength(2)
+    const batch = retainedImages(h, 1), detours = h.adapter.requests.length
+    expect(batch).toBeGreaterThan(0)
+    for (let index = 2; index < detours; index++) expect(retainedImages(h, index)).toBe(batch)
+    await h.run(h.call('next'), h.call('status'), undefined)
+    expect(retainedImages(h, detours)).toBe(batch)
+    expect(retainedImages(h, detours + 1)).toBe(batch * 2)
+    expect(retainedImages(h, detours + 2)).toBe(enabled ? batch : batch * 2)
+    expect(h.review().frames.every(frame => frame.observation === undefined)).toBe(true)
+    await h.run(h.record, undefined)
+    expect(retainedImages(h, h.adapter.requests.length - 1)).toBe(enabled ? 0 : batch * 2)
+    const removed = h.agent.session.deriveMessages().flatMap(message => message.content)
+      .filter(block => block.type === 'image' && block.offloaded === true)
+    expect(removed).toHaveLength(enabled ? batch * 2 : 0)
+    for (const block of removed) expect(block).toMatchObject({ offloadNotice: FRAME_REMOVED })
+    const text = projectOffloadedImages(h.adapter.requests.at(-1)!.messages, () => 'request-limit placeholder')
+      .flatMap(message => message.content).flatMap(block => block.type === 'text' ? [block.text] : [])
+    expect(text.filter(line => line.endsWith(`: ${FRAME_REMOVED}]`))).toHaveLength(enabled ? batch * 2 : 0)
+    expect(text).not.toContain('request-limit placeholder')
+  })
+
+it('removes a revisit result after one reply and keeps the request-limit text for request-limit omissions', async () => {
+  const h = await fixture({ offload: true, config: { offloadObservedFrames: true } })
+  await h.run(h.call('scan'), h.record, undefined)
+  const recorded = h.review().frames.filter(frame => frame.observation !== undefined).map(frame => frame.id)
+  await h.run(h.call('revisit', { frame_ids: recorded }), h.call('status'), undefined)
+  const revisit = h.results().find(result => result.content.some(block => block.type === 'text' && block.text.includes('重看缓存原图')))!
+  const shown = (index: number) => h.adapter.requests[index]!.messages.find(message => message.id === revisit.id)!.content
+    .filter(block => block.type === 'image' && block.offloaded !== true).length
+  const replied = h.adapter.requests.length - 2
+  expect(shown(replied)).toBe(recorded.length)
+  expect(shown(replied + 1)).toBe(0)
+  await h.run(h.call('next'), 'offload', undefined)
+  const limited = h.agent.session.deriveMessages().flatMap(message => message.content)
+    .filter(block => block.type === 'image' && block.offloaded === true && block.offloadNotice === undefined)
+  expect(limited.length).toBeGreaterThan(0)
+  expect(projectOffloadedImages(h.agent.session.deriveMessages(), () => 'request-limit placeholder')
+    .flatMap(message => message.content).filter(block => block.type === 'text' && block.text === 'request-limit placeholder'))
+    .toHaveLength(limited.length)
+})
+
+it.each(['close', 'fresh_scan'] as const)('removes frame images whose review stopped awaiting them after %s', async (method) => {
+  const h = await fixture({ offload: true, config: { offloadObservedFrames: true } })
+  await h.run(h.call('scan'), method === 'close' ? h.call('close') : h.call('scan', { fresh_scan: true }), h.call('status'), undefined)
+  const last = h.adapter.requests.length - 1
+  expect(retainedImages(h, 1)).toBeGreaterThan(0)
+  expect(retainedImages(h, last)).toBe(method === 'close' ? 0 : retainedImages(h, 1))
+  const current = h.review().id
+  const labels = h.agent.session.deriveMessages().flatMap((message) => {
+    let label: string | undefined
+    return message.content.flatMap((block) => {
+      if (block.type === 'text') label = /^VIDEO_FRAME (\S+) /u.exec(block.text)?.[1] ?? label
+      return block.type === 'image' && block.offloaded !== true ? [label] : []
+    })
+  })
+  expect(labels.every(label => method === 'fresh_scan' && label?.startsWith(`${current}/`))).toBe(true)
+})
+
+it.each([true, false])('tells the model how seen frame images leave context only when offloadObservedFrames is %s', async (enabled) => {
+  const h = await fixture({ offload: true, config: { offloadObservedFrames: enabled } })
+  await h.run(h.call('scan'), h.call('status'), undefined)
+  const note = (index: number) => h.results()[index]!.content.some(block => block.type === 'text' && block.text.startsWith('帧图说明：'))
+  expect(note(0)).toBe(enabled)
+  expect(note(1)).toBe(enabled)
+  if (enabled) {
+    const results = h.results().map(result => result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
+    expect(results[0]).toContain('本次工具结果附带2张图片')
+    expect(results[1]).toContain('本次工具结果仅返回文字，没有新图片')
+    expect(results[1]).toContain('status等进度查询不会重新附图')
+    expect(h.results()[1]!.content.some(block => block.type === 'image')).toBe(false)
+  }
+  expect(h.ctx.tools.get('video_inspect')!.description.includes('已在之前的步骤中展示给你')).toBe(enabled)
+})
+
+it('omits a labelled frame image in a Host user message after one reply while its unrecorded tool-result copy stays', async () => {
+  const h = await fixture({ offload: true, config: { offloadObservedFrames: true } })
+  await h.run(h.call('scan'), undefined)
+  const review = h.review(), frame = review.frames.find(row => row.image !== undefined)!
+  const image = h.results()[0]!.content.find(block => block.type === 'image')!
+  h.adapter.plans = [h.call('status'), undefined]
+  h.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [
+    { type: 'text', text: `VIDEO_FRAME ${review.id}/${frame.id} evidence` }, image] }))
+  await h.agent.whenIdle()
+  const evidence = (index: number) => h.adapter.requests[index]!.messages.filter(message => message.role === 'user')
+    .flatMap(message => message.content).filter(block => block.type === 'image' && block.offloaded !== true).length
+  expect(evidence(2)).toBe(1)
+  expect(evidence(3)).toBe(0)
+  expect(retainedImages(h, 3)).toBe(retainedImages(h, 1))
+  const messages = h.agent.session.deriveMessages().filter(message => message.role === 'user')
+  expect(messages.flatMap(message => message.content).filter(block => block.type === 'image'))
+    .toEqual([{ ...image, offloaded: true, offloadNotice: FRAME_REMOVED }])
+})
+
+it.each([true, false])('returns the next batch from observe only when reviewObserveNextBatch is %s', async (enabled) => {
+  const h = await fixture({ config: { reviewObserveNextBatch: enabled } })
+  await h.run(h.call('scan'), h.record, undefined)
+  const pending = h.review().frames.filter(frame => frame.observation === undefined)
+  expect(pending.length).toBeGreaterThan(0)
+  const images = h.results()[1]!.content.filter(block => block.type === 'image').length
+  expect(images).toBe(enabled ? Math.min(2, pending.length) : 0)
+  expect(h.ctx.tools.get('video_inspect')!.description.includes('不必再调用next')).toBe(enabled)
+})
+
+it('returns no further images from observe once every frame is recorded', async () => {
+  const h = await fixture({ config: { reviewObserveNextBatch: true } })
+  await h.run(h.call('scan'), undefined)
+  for (let step = 0; step < 40 && h.review().frames.some(frame => frame.observation === undefined); step++) await h.run(h.record, undefined)
+  expect(h.review().frames.every(frame => frame.observation !== undefined)).toBe(true)
+  expect(h.results().at(-1)!.content.some(block => block.type === 'image')).toBe(false)
+})
+
 it('shrinks a partially oversized new batch to its retained pending count rather than always to one', async () => {
   const h = await fixture({ offload: true, config: { reviewBatchFrames: 3 } })
   await h.run(h.call('scan'), 'offload', undefined)
@@ -2236,3 +2513,45 @@ it('allows a fork to explicitly start its own scan without changing the inherite
     expect(h.review()).toEqual(parentReview)
   } finally { await child.dispose() }
 }, 30_000)
+
+it('ignores an unresolvable saved source while selecting one exact provider alias', async () => {
+  const h = await fixture(), missing = 'unresolvable-saved.mp4', alias = relative(h.root, h.input)
+  const fields = { episode: 'episode-1', source_version: 'recorded-source', duration: 80,
+    scanned_until: 0, scan_complete: false, frames: [] }
+  saveReview(h.readReviews, h.agent.session, { ...fields, id: VideoReviewId('unresolvable-saved'), path: missing })
+  saveReview(h.readReviews, h.agent.session, { ...fields, id: VideoReviewId('selected-alias'), path: alias })
+  const original = h.ctx.fs.resolve.bind(h.ctx.fs)
+  const resolve = vi.spyOn(h.ctx.fs, 'resolve').mockImplementation(async (path, options) => {
+    if (path === missing) throw Error('Saved source cannot be resolved')
+    return await original(path, options)
+  })
+  try {
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input } }, undefined)
+    expect(h.results().at(-1)?.isError).toBe(false)
+    const reviews = reviewsOf(h.readReviews, h.agent.session)
+    expect(reviews[alias]?.follow_up?.status).toBe('closed')
+    expect(reviews[missing]?.follow_up).toBeUndefined()
+  } finally { resolve.mockRestore() }
+})
+
+it('requires one saved review when portable provider aliases resolve to the same source', async () => {
+  const h = await fixture(), alias = relative(h.root, h.input), secondPath = `./${alias}`
+  const fields = { episode: 'episode-1', source_version: 'recorded-source', duration: 80,
+    scanned_until: 0, scan_complete: false, frames: [] }
+  const first = { ...fields, id: VideoReviewId('first-portable-alias'), path: alias }
+  const second = { ...fields, id: VideoReviewId('second-portable-alias'), path: secondPath }
+  saveReview(h.readReviews, h.agent.session, first)
+  saveReview(h.readReviews, h.agent.session, second)
+  const other = join(h.root, 'other-source.mp4')
+  await copyFile(h.input, other)
+  await h.run({ name: 'video_inspect', args: { method: 'close', review_id: first.id, file_path: other } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+  expect(reviewsOf(h.readReviews, h.agent.session)[alias]?.follow_up).toBeUndefined()
+  expect(reviewsOf(h.readReviews, h.agent.session)[secondPath]?.follow_up).toBeUndefined()
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input, review_id: first.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)[alias]?.follow_up?.status).toBe('closed')
+  expect(reviewsOf(h.readReviews, h.agent.session)[secondPath]?.follow_up).toBeUndefined()
+})

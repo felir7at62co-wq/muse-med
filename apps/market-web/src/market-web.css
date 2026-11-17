@@ -1,0 +1,11 @@
+html { font-family: var(--dsw-font-family); }
+html, body, #root { height: 100%; }
+body { margin: 0; overflow: hidden; }
+button, input, select, textarea { font: inherit; }
+*, *::before, *::after { box-sizing: border-box; }
+.market-web-shell { height: 100dvh; display: flex; flex-direction: column; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
+.market-web-shell > [data-market-carrier] { flex: 1; min-height: 0; height: auto; }
+.market-web-tools { display: flex; flex-shrink: 0; justify-content: flex-end; align-items: center; gap: 16px; width: 100%; max-width: 1440px; margin: 0 auto; padding: 12px 32px 0; font-size: 14px; }
+.market-web-tools a { color: inherit; }
+.market-web-error { display: grid; justify-content: center; align-content: center; min-height: 70dvh; gap: 16px; padding: 24px; }
+@media (max-width: 640px) { .market-web-tools { padding-inline: 16px; gap: 12px; } }

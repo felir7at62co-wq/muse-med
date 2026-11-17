@@ -30,7 +30,7 @@ export const BUNDLED_SKILL_RANK = 600
 export { isSkillName } from './name.ts'
 
 /** Origin bucket for a skill contribution. The value is prompt-visible metadata, not precedence by itself. */
-export type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | 'bundled' | (string & {})
+export type SkillSource = 'project-muse' | 'project-dsh' | 'project-agents' | 'runtime' | 'user-muse' | 'user-dsh' | 'user-agents' | 'custom' | 'bundled' | (string & {})
 
 /** Optional provider-specific base used by loaded skill bodies to resolve relative resources. */
 export type SkillResourceBase =

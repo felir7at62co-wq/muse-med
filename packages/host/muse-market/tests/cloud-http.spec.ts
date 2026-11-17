@@ -1,5 +1,5 @@
 /** Real loopback admission, uncertain-response reconciliation and owned HTTP teardown. */
-import { expect, it, onTestFinished, vi } from 'vitest'
+import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { DatabaseSync } from 'node:sqlite'
@@ -16,6 +16,39 @@ import type { MarketActor } from '../src/cloud-protocol.ts'
 import { createMarketPackage, marketDigest } from '../src/package.ts'
 import { limits, manifest, resources } from './fixtures.ts'
 
+const permissionUnit = vi.hoisted(() => {
+  const state: { file?: string; bits: number; modeReads: number; restore?: () => void } = { bits: 0, modeReads: 0 }
+  return state
+})
+vi.mock('node:fs/promises', async (original) => {
+  const fs = await original<typeof import('node:fs/promises')>()
+  return { ...fs, lstat: async (...args: Parameters<typeof fs.lstat>) => {
+    const metadata = await fs.lstat(...args)
+    if (args[0] !== permissionUnit.file) return metadata
+    const observed = Object.create(metadata) as typeof metadata
+    return Object.defineProperties(observed, {
+      isFile: { value: () => {
+        const regular = metadata.isFile()
+        if (regular) {
+          const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+          if (platform === undefined) throw new Error('Missing platform descriptor')
+          permissionUnit.restore = () => { Object.defineProperty(process, 'platform', platform) }
+          Object.defineProperty(process, 'platform', { ...platform, value: 'linux' })
+        }
+        return regular
+      } },
+      mode: { get: () => {
+        try { permissionUnit.modeReads++; return Number(metadata.mode) | permissionUnit.bits }
+        finally { permissionUnit.restore?.(); delete permissionUnit.restore }
+      } },
+    })
+  } }
+})
+afterEach(() => {
+  permissionUnit.restore?.(); delete permissionUnit.restore; delete permissionUnit.file
+  permissionUnit.bits = 0; permissionUnit.modeReads = 0
+})
+
 const secret = 'test-market-private-secret-'.repeat(2)
 const admin = { id: parseMarketAccountId('a'.repeat(16)), username: 'admin', admin: true }
 const author = { id: parseMarketAccountId('b'.repeat(16)), username: 'author', admin: false }
@@ -24,6 +57,136 @@ const prefix = '/api/market/v1'
 const encoded = (actor: MarketActor) => Buffer.from(JSON.stringify(actor)).toString('base64url')
 const post = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 const archive = () => Buffer.from(createMarketPackage(manifest, resources, limits))
+
+it('returns the package validation refusal over native HTTP and releases upload capacity for the next request', async () => {
+  const f = await fixture(), publisher = await f.invite()
+  const options = { method: 'POST', headers: { 'content-type': 'application/zip', 'x-market-publisher': publisher,
+    'idempotency-key': 'invalid-then-valid-package' } }
+  const refused = await f.api('/uploads', author, { ...options, body: 'not a ZIP archive' })
+  expect(refused.status).toBe(400)
+  expect(await refused.json()).toEqual({ error: 'invalid-archive' })
+  const admitted = await f.api('/uploads', author, { ...options, body: new Uint8Array(archive()) })
+  expect(admitted.status).toBe(201)
+  expect(parseMarketPublication(await admitted.json(), limits)).toMatchObject({ status: 'draft', revision: 1 })
+  const database = f.database()
+  try { expect(database.prepare('SELECT COUNT(*) AS count FROM releases').get()?.count).toBe(1) }
+  finally { database.close() }
+})
+
+it.each(['destroyed', 'ended'] as const)('unit: ignores late delivery after the native response is %s', async (ending) => {
+  for (const operation of ['refusal', 'catalog', 'missing', 'download'] as const) {
+    const f = await fixture()
+    let path = operation === 'missing' ? '/absent' : '/catalog'
+    if (operation === 'download') {
+      const publisher = await f.invite()
+      const uploaded = await f.api('/uploads', author, { method: 'POST', body: new Uint8Array(archive()),
+        headers: { 'content-type': 'application/zip', 'x-market-publisher': publisher, 'idempotency-key': 'closed-carrier-cache' } })
+      expect(uploaded.status).toBe(201)
+      const record = parseMarketPublication(await uploaded.json(), limits)
+      path = `/releases/${record.id}/download`
+    }
+    await f.close()
+    const done = Promise.withResolvers<undefined>(), register = f.ctx.webServer.register.bind(f.ctx.webServer)
+    let deliveries = 0, writes = 0
+    const installing = vi.spyOn(f.ctx.webServer, 'register').mockImplementation((route) => {
+      if (route.kind !== 'prefix' || route.path !== prefix || !('handler' in route)) return register(route)
+      return register({ ...route, handler: async (request, response) => {
+        deliveries++
+        if (ending === 'destroyed') response.destroy()
+        else response.end('carrier completed')
+        const writing = vi.spyOn(response, 'writeHead')
+        try { await route.handler(request, response) }
+        finally { writes += writing.mock.calls.length; writing.mockRestore(); done.resolve(undefined) }
+      } })
+    })
+    onTestFinished(() => { installing.mockRestore() })
+    try {
+      await f.open(); installing.mockRestore()
+      const pending = (operation === 'refusal'
+        ? fetch(f.origin + prefix + path)
+        : f.api(path, author)).then(async response => ({ status: response.status, body: await response.text() }),
+        (error: unknown) => ({ error }))
+      await done.promise
+      const result = await pending
+      expect(deliveries).toBe(1)
+      expect(writes).toBe(0)
+      if (ending === 'destroyed') expect(result).toHaveProperty('error')
+      else expect(result).toEqual({ status: 200, body: 'carrier completed' })
+    } finally { installing.mockRestore(); await f.close() }
+  }
+})
+
+it.each([
+  { revision: '1', action: 'submit', note: '' },
+  { revision: 1, action: 7, note: '' },
+  { revision: 1, action: 'submit', note: 7 },
+  { revision: 1, action: 'unsupported', note: '' },
+])('refuses a malformed review DTO before any publication lookup or mutation %#', async (body) => {
+  const f = await fixture(), response = await f.api(`/releases/${'0'.repeat(32)}/review`, author, post(body))
+  expect(response.status).toBe(400)
+  expect(await response.json()).toEqual({ error: 'invalid-request' })
+  const database = f.database()
+  try { expect(database.prepare('SELECT COUNT(*) AS count FROM releases').get()?.count).toBe(0) }
+  finally { database.close() }
+})
+
+it.each([
+  { file: 'policy.json', bits: 0o022, code: 'unsafe-policy' },
+  { file: 'secret', bits: 0o077, code: 'unsafe-secret' },
+])('unit: rejects POSIX mode bits on $file with a scoped OS/stat face', async ({ file, bits, code }) => {
+  const f = await fixture(); await f.close()
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  permissionUnit.file = join(f.root, file); permissionUnit.bits = bits
+  try {
+    // Only the synchronous isFile/size/platform/mode expression sees this
+    // OS face; the mode getter restores the descriptor before rejection.
+    await expect(f.open()).rejects.toMatchObject({ code })
+    expect(permissionUnit.modeReads).toBe(1)
+    expect(permissionUnit.restore).toBeUndefined()
+    expect(Object.getOwnPropertyDescriptor(process, 'platform')).toEqual(platform)
+    expect((await fetch(f.origin + prefix + '/catalog')).status).toBe(404)
+  } finally { permissionUnit.restore?.(); delete permissionUnit.restore; delete permissionUnit.file }
+})
+
+it.each(['policy.json', 'secret'])('refuses an oversized %s before re-registering the cloud route', async (file) => {
+  const f = await fixture(); await f.close()
+  await writeFile(join(f.root, file), 'x'.repeat(file === 'policy.json' ? 65537 : 1025))
+  await expect(f.open()).rejects.toMatchObject({ code: file === 'policy.json' ? 'unsafe-policy' : 'unsafe-secret' })
+  expect((await fetch(f.origin + prefix + '/catalog')).status).toBe(404)
+})
+
+it('refuses a noncanonical actor assertion before catalog admission', async () => {
+  const f = await fixture()
+  expect(Buffer.from('e31', 'base64url').toString()).toBe('{}')
+  const response = await fetch(f.origin + prefix + '/catalog', {
+    headers: { authorization: `Bearer ${secret}`, 'x-muse-market-actor': 'e31' },
+  })
+  expect(response.status).toBe(400)
+  expect(await response.json()).toEqual({ error: 'invalid-actor' })
+})
+
+it('requires the dedicated IPv4 carrier even when the service reports another loopback address', async () => {
+  const f = await fixture(), ctx = new Context()
+  onTestFinished(() => ctx.fiber.dispose())
+  await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 }).await()
+  // macOS does not bind additional 127/8 aliases without interface configuration.
+  const host = vi.spyOn(ctx.webServer, 'host', 'get').mockReturnValue('127.0.0.2')
+  onTestFinished(() => { host.mockRestore() })
+  await expect(ctx.plugin(CloudHost, { policyFile: join(f.root, 'policy.json') }).await())
+    .rejects.toMatchObject({ code: 'loopback-required' })
+})
+
+it('releases a failed duplicate route acquisition before a later clean cloud boot', async () => {
+  const f = await fixture(); await f.close()
+  const release = f.ctx.webServer.register({ kind: 'prefix', path: prefix, handler: (_request, response) => { response.end('occupied') } })
+  onTestFinished(release)
+  try { await expect(f.open()).rejects.toThrow('duplicate prefix route') }
+  finally { await f.close(); release() }
+  await f.open()
+  const response = await f.api('/catalog', null)
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ items: [] })
+})
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'muse-market-http-')), ctx = new Context()
@@ -93,79 +256,69 @@ it('authenticates the private gateway before reading a complete actor assertion'
   expect(await identity.json()).toEqual({ accountId: reader.id, publishers: [], admin: false })
 })
 
-it('rejects unsupported public catalog queries and authenticated unknown routes through real HTTP', async () => {
-  const f = await fixture()
-  for (const [path, actor, status, code] of [
-    ['/catalog?kind=bot', null, 400, 'skill-only'],
-    ['/catalog?mine=invalid', null, 400, 'invalid-query'],
-    ['/catalog?mine=true', null, 401, 'login-required'],
-    ['/releases/' + '0'.repeat(32), author, 404, 'not-found'],
-    ['/unknown', author, 404, 'not-found'],
-    ['/me', null, 401, 'login-required'],
-  ] as const) {
-    const response = await f.api(path, actor)
-    expect(response.status).toBe(status)
-    expect(await response.json()).toEqual({ error: code })
-  }
-  for (const path of ['/catalog?kind=', '/catalog?kind=skill&mine=false']) {
-    const response = await f.api(path, null)
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ items: [] })
-  }
+it.each([
+  { maxReleases: 0 }, { maxActiveUploads: 33 }, { catalogLimit: 101 },
+  { jsonRequestBytes: 1023 }, { jsonResponseBytes: 64 * 1024 * 1024 + 1 },
+  { root: 'relative-catalog' }, { limits: { ...limits, fileCount: 1 } },
+])('rejects invalid deployment policy before reopening its cloud route %#', async (change) => {
+  const f = await fixture(); await f.close(); await f.writePolicy(change)
+  await expect(f.open()).rejects.toMatchObject({ code: 'invalid-policy' })
+  const response = await fetch(f.origin + prefix + '/catalog')
+  expect(response.status).toBe(404)
 })
 
-it('refuses malformed publisher and review JSON without committing a state change', async () => {
-  const f = await fixture(), publisher = await f.invite()
-  const upload = await f.api('/uploads', author, { method: 'POST', headers: {
-    'content-type': 'application/zip', 'x-market-publisher': publisher, 'idempotency-key': 'review-json-inputs',
-  }, body: archive() })
-  const draft = parseMarketPublication(await upload.json(), limits)
-  for (const [path, body, code] of [
-    ['/publishers', '{incomplete', 'invalid-json'], ['/publishers', '[]', 'invalid-request'],
-    ['/publishers', JSON.stringify({ title: 'Extra field', accountId: author.id, extra: true }), 'invalid-request'],
-    ['/unknown', '{}', 'invalid-request'],
-    [`/releases/${draft.id}/review`, JSON.stringify({ revision: 0, action: 'submit', note: '' }), 'invalid-request'],
-    [`/releases/${draft.id}/review`, JSON.stringify({ revision: 1, action: 'unknown', note: '' }), 'invalid-request'],
-    [`/releases/${draft.id}/review`, JSON.stringify({ revision: 1, action: 'submit', note: 1 }), 'invalid-request'],
-    [`/releases/${draft.id}/review`, JSON.stringify({ revision: 1, action: 'submit', note: '', extra: true }), 'invalid-request'],
-  ] as const) {
-    const response = await f.api(path, admin, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
-    expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({ error: code })
-  }
-  const read = await f.api(`/releases/${draft.id}`, author)
-  expect(parseMarketPublication(await read.json(), limits)).toEqual(draft)
+it('requires an absolute policy file and a bounded secret before registering a cloud route', async () => {
+  const f = await fixture(); await f.close()
+  const relative = f.ctx.plugin(CloudHost, { policyFile: 'relative-policy.json' })
+  try { await expect(relative.await()).rejects.toMatchObject({ code: 'invalid-policy' }) }
+  finally { await relative.dispose() }
+  await writeFile(join(f.root, 'secret'), 'too-short')
+  await expect(f.open()).rejects.toMatchObject({ code: 'invalid-secret' })
+  expect((await fetch(f.origin + prefix + '/catalog')).status).toBe(404)
 })
 
-it('carries each explicit moderation action over HTTP with exact inspected revisions', async () => {
-  const f = await fixture(), publisher = await f.invite()
-  const upload = await f.api('/uploads', author, { method: 'POST', headers: {
-    'content-type': 'application/zip', 'x-market-publisher': publisher, 'idempotency-key': 'moderation-http-actions',
-  }, body: archive() })
-  let current = parseMarketPublication(await upload.json(), limits)
-  for (const [actor, action, status] of [
-    [author, 'submit', 'pending'], [admin, 'reject', 'rejected'], [author, 'submit', 'pending'],
-    [admin, 'approve', 'published'], [author, 'withdraw', 'withdrawn'],
-  ] as const) {
-    const response = await f.api(`/releases/${current.id}/review`, actor,
-      post({ revision: current.revision, action, note: 'Explicit review decision' }))
-    expect(response.status).toBe(200)
-    const next = parseMarketPublication(await response.json(), limits)
-    expect(next).toMatchObject({ id: current.id, revision: current.revision + 1, status })
-    current = next
-  }
+it.each([
+  ['/catalog?kind=bot', 400, 'skill-only'], ['/catalog?mine=perhaps', 400, 'invalid-query'],
+  ['/catalog?q=' + 'x'.repeat(201), 400, 'invalid-query'], ['/absent', 404, 'not-found'],
+] as const)('returns the explicit catalog refusal for %s', async (path, status, error) => {
+  const f = await fixture(), response = await f.api(path, author)
+  expect(response.status).toBe(status)
+  expect(await response.json()).toEqual({ error })
 })
 
-it('returns a safe package refusal for an invalid uploaded ZIP and releases the upload slot', async () => {
-  const f = await fixture(), publisher = await f.invite()
-  const headers = { 'content-type': 'application/zip', 'x-market-publisher': publisher,
-    'idempotency-key': 'invalid-uploaded-package' }
-  const invalid = await f.api('/uploads', author, { method: 'POST', headers, body: Buffer.from('not a ZIP archive') })
-  expect(invalid.status).toBe(400)
-  expect(await invalid.json()).toEqual({ error: 'invalid-archive' })
-  const accepted = await f.api('/uploads', author, { method: 'POST',
-    headers: { ...headers, 'idempotency-key': 'valid-after-refusal' }, body: archive() })
-  expect(accepted.status).toBe(201)
+it.each(['{', '[]', '{"title":"HTTP team"}'])('refuses an invalid publisher request body %#', async (body) => {
+  const f = await fixture(), response = await f.api('/publishers', admin, { method: 'POST', body })
+  expect(response.status).toBe(400)
+  expect(await response.json()).toEqual({ error: body === '{' ? 'invalid-json' : 'invalid-request' })
+  const database = f.database()
+  try { expect(database.prepare('SELECT COUNT(*) AS count FROM publishers').get()?.count).toBe(0) }
+  finally { database.close() }
+})
+
+it('keeps draft downloads private and allows another ordinary account to download after approval', async () => {
+  const f = await fixture(), publisher = await f.invite(), bytes = archive()
+  const uploaded = await f.api('/uploads', author, { method: 'POST', headers: {
+    'content-type': 'application/zip', 'x-market-publisher': publisher, 'idempotency-key': 'ordinary-download',
+  }, body: bytes })
+  const draft = parseMarketPublication(await uploaded.json(), limits)
+  const path = `/releases/${draft.id}/download`
+  const own = await f.api(path, author)
+  expect(own.status).toBe(200)
+  expect(Buffer.from(await own.arrayBuffer())).toEqual(bytes)
+  for (const actor of [reader, null]) {
+    const hidden = await f.api(path, actor)
+    expect(hidden.status).toBe(actor === null ? 401 : 404)
+    await hidden.body?.cancel()
+  }
+  const submitted = await f.api(`/releases/${draft.id}/review`, author, post({ revision: 1, action: 'submit', note: '' }))
+  const pending = parseMarketPublication(await submitted.json(), limits)
+  const approved = await f.api(`/releases/${draft.id}/review`, admin, post({ revision: pending.revision, action: 'approve', note: '' }))
+  expect(approved.status).toBe(200)
+  await approved.body?.cancel()
+  const shared = await f.api(path, reader)
+  expect(shared.status).toBe(200)
+  expect(shared.headers.get('x-content-sha256')).toBe(draft.sha256)
+  expect(Buffer.from(await shared.arrayBuffer())).toEqual(bytes)
 })
 
 it('reconciles a committed upload after its original HTTP response is deliberately unobserved', async () => {

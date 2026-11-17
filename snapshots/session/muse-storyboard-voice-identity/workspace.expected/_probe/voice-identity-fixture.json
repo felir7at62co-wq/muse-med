@@ -12,6 +12,62 @@
     {
       "method": "GET",
       "path": "/prod-api/aigc/asset/77"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/storyboard/916953"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/asset/11"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/asset/12"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/material/list"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/model/charge/getSelectList"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/storyboard/916953"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/storyboard/byStoryboard/916953"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/storyboard/916954"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/asset/11"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/asset/12"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/material/list"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/model/charge/getSelectList"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/storyboard/916954"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/storyboard/byStoryboard/916954"
     }
   ],
   "writes": 0

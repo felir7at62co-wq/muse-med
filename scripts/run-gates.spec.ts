@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi, type MockInstance } from 'vitest'
 import {
   cliGateOptions,
@@ -9,6 +11,7 @@ import {
   gatesForMode,
   parsePidPpidLines,
   runGate,
+  runGateWithRetry,
   runGates,
   taskkillArgs,
   type Gate,
@@ -380,7 +383,7 @@ describe('gate graph validation', () => {
       'rescope-vendor', 'publint', 'constraints', 'default-product-isolation', 'product-use', 'official-bundle-catalog', 'provider-data', 'package-dependencies', 'application-entrypoints',
       'dsh-package-licenses', 'node-next-types',
       'optional-dependency-imports', 'client-packages', 'installer-locales', 'locale-metadata', 'client-ui-i18n', 'client-route-resolution', 'no-bare-dispatcher',
-      'plugin-record-callers', 'no-unknown-casts', 'no-top-level-await',
+      'plugin-record-callers', 'no-unknown-casts', 'no-top-level-await', 'plugin-entry-exports',
       'cordis-config', 'runtime-closure',
     ])
   })
@@ -435,6 +438,12 @@ describe('gate graph validation', () => {
       expect(ids).toContain('dsh-package-licenses')
     },
   )
+
+  it('keeps snapshot findings advisory while script failures still fail the static gate', () => {
+    const gate = withPnpmEntrypoint(() => gatesForMode('ci-static').find(subject => subject.id === 'snapshot-drift'))
+    expect(gate?.args).toEqual(['/private/pnpm.cjs', 'exec', 'tsx', 'scripts/verify-snapshot-drift.ts', '--warn-only'])
+    expect(gate?.allowFailure).not.toBe(true)
+  })
 
   it.each(['ci-primary', 'ci-static', 'check-all', 'hygiene'] as const)(
     'rejects new unknown casts in %s',
@@ -511,6 +520,62 @@ describe('gate graph validation', () => {
     },
   )
 
+  it.each([undefined, '3'])('builds CLI and Web artifacts before standalone coverage with partitions %s', async (partitions) => {
+    for (const platform of ['linux', 'win32'] as const) {
+      const gates = withPlatform(platform, () => withEnv('DSH_COVERAGE_PARTITIONS', partitions, () =>
+        withPnpmEntrypoint(() => gatesForMode('ci-coverage'))))
+      const build = gates.find(subject => subject.id === 'build')
+      expect(build).toMatchObject({
+        displayCommand: 'pnpm run build:artifacts',
+        args: ['/private/pnpm.cjs', 'run', 'build:artifacts'],
+        env: { DSH_BUILD_CLIENT_PROFILE: 'official' },
+      })
+      expect(gates.filter(subject => subject.id === 'build')).toHaveLength(1)
+      // build:artifacts owns the native addon as well as CLI and Web outputs.
+      expect(gates.some(subject => subject.id === 'native-system')).toBe(false)
+      let built = false
+      const results = await runGates(gates, 8, async (subject) => {
+        if (subject.id === 'build') { await Promise.resolve(); built = true }
+        if (subject.id === 'coverage' || subject.id === 'coverage-exempt-heavy') {
+          expect(built).toBe(true)
+          expect(subject.needs).toContain('build')
+          expect(subject.allowFailure).not.toBe(true)
+        }
+        return resultFor(subject)
+      })
+      expect(results.every(result => result.status === 'passed')).toBe(true)
+    }
+  })
+
+  it.each(['linux', 'win32'] as const)('does not start either %s coverage reader after an artifact build failure', async (platform) => {
+    const gates = withPlatform(platform, () => withPnpmEntrypoint(() => gatesForMode('ci-coverage')))
+    const started: string[] = []
+    const results = await runGates(gates, 8, async (subject) => {
+      started.push(subject.id)
+      return resultFor(subject, subject.id === 'build' ? 'failed' : 'passed')
+    })
+    expect(results.find(result => result.gate.id === 'build')?.status).toBe('failed')
+    for (const id of ['coverage', 'coverage-exempt-heavy']) {
+      expect(started).not.toContain(id)
+      expect(results.find(result => result.gate.id === id)?.status).toBe('skipped')
+    }
+    if (platform === 'win32') expect(started).toContain('electron-install')
+  })
+
+  it.each(['ci-primary', 'ci-linux-primary', 'ci-windows-complete'] as const)('reuses the existing build for %s coverage in a closed dependency graph', async (mode) => {
+    const gates = withPnpmEntrypoint(() => gatesForMode(mode))
+    expect(gates.filter(subject => subject.id === 'build')).toHaveLength(1)
+    expect(gates.filter(subject => subject.displayCommand === 'pnpm run build:artifacts')).toHaveLength(0)
+    expect(gates.some(subject => subject.id === 'native-system')).toBe(false)
+    let built = false
+    const results = await runGates(gates, 8, async (subject) => {
+      if (subject.id === 'build') { await Promise.resolve(); built = true }
+      if (subject.id === 'coverage' || subject.id === 'coverage-exempt-heavy') expect(built).toBe(true)
+      return resultFor(subject)
+    })
+    expect(results.every(result => result.status === 'passed')).toBe(true)
+  })
+
   it('keeps native Windows coverage blocking and behind the complete build', () => {
     const complete = withPnpmEntrypoint(() => gatesForMode('ci-windows-complete'))
     const observational = withPnpmEntrypoint(() => gatesForMode('ci-windows-observational-ready'))
@@ -560,7 +625,7 @@ describe('gate graph validation', () => {
 
     expect(scripts['check:ci:windows-observational-ready']).toBe('tsx scripts/run-gates.ts ci-windows-observational-ready')
     expect(scripts['check:ci:windows-observational']).toBe(scripts['check:ci:windows-observational-ready'])
-    const completeOnly = new Set(['build', 'windows-site', 'native-system', 'coverage', 'coverage-exempt-heavy'])
+    const completeOnly = new Set(['build', 'windows-site', 'coverage', 'coverage-exempt-heavy'])
     const shared = complete.filter(gate => !completeOnly.has(gate.id))
     expect(ready.map(gate => gate.id).sort()).toEqual([...shared.map(gate => gate.id), 'docs-site-build'].sort())
     expect(ready.some(gate => gate.id === 'build')).toBe(false)
@@ -617,6 +682,8 @@ describe('gate graph validation', () => {
         command: process.execPath,
         args: ['/private/pnpm.cjs', '--filter', '@deepseek-ai/dsh-desktop', 'exec', 'install-electron'],
         env: { ELECTRON_GET_USE_PROXY: '1' },
+        retries: 2,
+        retryDelayMs: 15000,
       })
       expect(gates.find(gate => gate.id === 'built-bin-smoke')?.needs).toContain('electron-install')
       expect(gates.filter(gate => gate.id !== 'electron-install').every(gate => gate.env?.ELECTRON_GET_USE_PROXY === undefined)).toBe(true)
@@ -867,7 +934,7 @@ describe('Typert contract preparation', () => {
 })
 
 describe('Node compatibility graph', () => {
-  it.each(['24.9.0', '24.19.0', '26.0.0'])('runs all source compatibility smokes serially on Node %s', (version) => {
+  it.each(['24.15.0', '24.19.0', '26.0.0'])('runs all source compatibility smokes serially on Node %s', (version) => {
     const subject = withNodeVersion(version, () =>
       withPnpmEntrypoint(() => gatesForMode('node-compat')))
 
@@ -908,8 +975,8 @@ describe('Node compatibility graph', () => {
     expect(subject.map(item => item.id)).not.toContain('cli-lazy-search-startup-smoke')
   })
 
-  it.each([undefined, '1'])('builds the complete Node 24.9 artifacts once with skip-typecheck=%s', (skipTypecheck) => {
-    const subject = withNodeVersion('24.9.0', () =>
+  it.each([undefined, '1'])('builds the complete Node 24.15 artifacts once with skip-typecheck=%s', (skipTypecheck) => {
+    const subject = withNodeVersion('24.15.0', () =>
       withEnv('DSH_NODE_COMPAT_SKIP_TYPECHECK', skipTypecheck, () =>
         withPnpmEntrypoint(() => gatesForMode('node-compat'))))
 
@@ -924,8 +991,8 @@ describe('Node compatibility graph', () => {
     })
   })
 
-  it.each(['passed', 'failed'] as const)('runs the Node 24.9 lazy-search smoke only after a passed build (%s)', async (buildStatus) => {
-    const subject = withNodeVersion('24.9.0', () =>
+  it.each(['passed', 'failed'] as const)('runs the Node 24.15 lazy-search smoke only after a passed build (%s)', async (buildStatus) => {
+    const subject = withNodeVersion('24.15.0', () =>
       withEnv('DSH_NODE_COMPAT_SKIP_TYPECHECK', '1', () =>
         withPnpmEntrypoint(() => gatesForMode('node-compat'))))
     let buildCompleted = false
@@ -1006,14 +1073,32 @@ describe('Node 24 lane ownership', () => {
       expect.arrayContaining([
         'apps/cli/tests/profiles/headless/tests/source-tool.built.e2e.ts',
         'apps/desktop/tests/acl-skill.built.e2e.ts',
+        'apps/desktop/tests/episode-code-asar.built.e2e.ts',
         'apps/desktop/tests/attention-audio.e2e.ts',
         'apps/desktop/tests/completion-notice.e2e.ts',
+        'apps/desktop/tests/installed-docs-asar.built.e2e.ts',
+        'apps/desktop/tests/desktop-host-package.e2e.ts',
+        'apps/desktop-host/tests/manuscript-revision-basis.spec.ts',
+        'apps/desktop-host/tests/manuscript-continuity-submission.spec.ts',
+        'apps/desktop-host/tests/manuscript-ptc-delivery.spec.ts',
+        'apps/desktop-host/tests/hongguo-public-download-loader.spec.ts',
+        'apps/desktop-host/tests/manuscript-video-source-delivery.spec.ts',
+        'apps/desktop-host/tests/manuscript-cross-episode-loader.spec.ts',
+        'apps/desktop-host/tests/hongguo-search-loader.spec.ts',
+        'apps/desktop-host/tests/manuscript-video-source-binding-loader.spec.ts',
+        'apps/desktop-host/tests/manuscript-repetition-loader.spec.ts',
+        'apps/desktop-host/tests/manuscript-notes-loader.spec.ts',
+        'apps/desktop-host/tests/source-research-discovery.built.e2e.ts',
         'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',
         'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
         'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
-        'packages/experimental/agent-team/tests/built-lib.e2e.ts',
+        'packages/team/agent-team/tests/built-lib.e2e.ts',
       ]),
     )
+    const e2eConfig = readFileSync(new URL('../vitest.e2e.config.ts', import.meta.url), 'utf8')
+    for (const path of subject.find(item => item.id === 'built-bin-smoke')?.args ?? []) {
+      if (path.startsWith('apps/desktop-host/tests/')) expect(e2eConfig).toContain(`'${path}'`)
+    }
     expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
       displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
       env: { DSH_SNAPSHOT: 'replay' },
@@ -1025,6 +1110,17 @@ describe('Node 24 lane ownership', () => {
         'node-next-types',
         'built-bin-smoke',
       ],
+    })
+  })
+
+  it('uses isolated web snapshot processes when the browser lane selects them', () => {
+    const subject = withEnv('DSH_WEB_SNAPSHOT_WORKERS', '1', () =>
+      withPnpmEntrypoint(() => gatesForMode('ci-consumers')))
+
+    expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
+      displayCommand: 'DSH_SNAPSHOT=replay DSH_WEB_SNAPSHOT_WORKERS=1 pnpm run test:web:ci',
+      env: { DSH_SNAPSHOT: 'replay' },
+      streamOutput: true,
     })
   })
 })
@@ -1068,6 +1164,62 @@ describe('gate process outcomes', () => {
     expect(result.exitCode).toBeNull()
     expect(result.signalCode).toBe('SIGTERM')
     expect(formatGateResultReason(result)).toBe('signal SIGTERM')
+  })
+})
+
+describe('gate retries', () => {
+  it('runs a gate that declares no retries exactly once', async () => {
+    const subject = gate('single')
+    const execute = vi.fn(async () => resultFor(subject, 'passed'))
+
+    const result = await runGateWithRetry(subject, undefined, execute)
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ status: 'passed', exitCode: 0 })
+  })
+
+  it('repeats a failed gate until a later attempt passes', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'run-gates-retry-'))
+    onTestFinished(() => { rmSync(directory, { recursive: true, force: true }) })
+    const marker = join(directory, 'attempts')
+    const result = await runGateWithRetry(gate('fetch', {
+      args: ['-e', [
+        "const fs = require('node:fs')",
+        `const marker = ${JSON.stringify(marker)}`,
+        "const attempts = fs.existsSync(marker) ? Number(fs.readFileSync(marker, 'utf8')) + 1 : 1",
+        'fs.writeFileSync(marker, String(attempts))',
+        'if (attempts === 1) process.exit(1)',
+      ].join(';')],
+      // One attempt remains unused after the second attempt passes, so the
+      // loop also exercises its status check rather than only its attempt cap.
+      retries: 2,
+      retryDelayMs: 0,
+    }))
+
+    expect(result).toMatchObject({ status: 'passed', exitCode: 0 })
+    expect(readFileSync(marker, 'utf8')).toBe('2')
+  })
+
+  it('stops at the declared attempt count and keeps the last failure', async () => {
+    const subject = gate('fetch', { retries: 2 })
+    const execute = vi.fn(async () => resultFor(subject, 'failed'))
+
+    const result = await runGateWithRetry(subject, undefined, execute)
+
+    expect(execute).toHaveBeenCalledTimes(3)
+    expect(result).toMatchObject({ status: 'failed', exitCode: 1 })
+  })
+
+  it('does not repeat a gate that the fail-fast signal terminated', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const subject = gate('fetch', { retries: 2, retryDelayMs: 0 })
+    const execute = vi.fn(async () => ({ ...resultFor(subject, 'failed'), aborted: true }))
+
+    const result = await runGateWithRetry(subject, controller.signal, execute)
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ status: 'failed', aborted: true })
   })
 })
 

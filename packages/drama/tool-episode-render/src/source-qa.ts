@@ -4,7 +4,7 @@ import { constants } from 'node:fs'
 import { lstat, open, readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileSha256 } from './cache.ts'
-import { normalizeOcrText } from '@deepseek-ai/dsh-tool-video-inspect'
+import { normalizeOcrText } from '@deepseek-ai/dsh-tool-video-inspect/source-qa'
 
 /** Exact local artifacts whose successful execution the Host must establish. */
 export interface SourceQaEvidenceBinding {
@@ -103,16 +103,18 @@ export function createSourceQaStagedAccess(project: string, stage: string, files
     }
     copies.add(fileKey(file.stagedPath))
   }
-  const logical = (file: string): string => {
+  const mappedFile = (file: string): SourceQaStagedFile => {
     const path = resolve(project, file)
     const mapped = originals.get(fileKey(path))
     if (mapped === undefined) throw new Error('Source QA stage has no captured mapping')
-    return mapped.originalPath
+    return mapped
   }
-  const inspect = async (path: string, collect: boolean): Promise<{ sha256: string; bytes?: Buffer }> => {
+  const logical = (file: string): string => mappedFile(file).originalPath
+  async function inspect(path: string, collect: true): Promise<{ sha256: string; bytes: Buffer }>
+  async function inspect(path: string, collect: false): Promise<{ sha256: string }>
+  async function inspect(path: string, collect: boolean): Promise<{ sha256: string; bytes?: Buffer }> {
     signal.throwIfAborted()
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- logical returns an original identity in this immutable map.
-    const file = originals.get(fileKey(logical(path)))!
+    const file = mappedFile(path)
     if (await realpath(stage) !== stage || await realpath(file.stagedPath) !== file.stagedPath) {
       throw new Error('Source QA stage file is not canonical')
     }
@@ -122,6 +124,9 @@ export function createSourceQaStagedAccess(project: string, stage: string, files
     const handle = await open(file.stagedPath, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
       const start = await handle.stat()
+      /* v8 ignore if -- the swap must land in the single lstat-to-open gap of this probe; the
+      continuous-rename regression does trigger it on some runs (proven on a Linux lane) but the
+      window is one microtask wide, so the gate counts the arm as not deterministically reachable. */
       if (!start.isFile() || start.ino !== before.ino || start.dev !== before.dev) throw new Error('Source QA stage file changed')
       const sha = createHash('sha256'), buffer = Buffer.alloc(65536), chunks: Buffer[] = []
       let size = 0
@@ -148,20 +153,13 @@ export function createSourceQaStagedAccess(project: string, stage: string, files
       return { sha256: digest, ...(collect ? { bytes: Buffer.concat(chunks) } : {}) }
     } finally { await handle.close() }
   }
-  return { project, logical, stagedPath: (path) => {
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- logical returns an original identity in this immutable map.
-    const file = originals.get(fileKey(logical(path)))!
-    return file.stagedPath
-  }, list: (directory) => {
+  return { project, logical, stagedPath: path => mappedFile(path).stagedPath, list: (directory) => {
     const target = resolve(project, directory)
     const names = listed.get(fileKey(target))
     if (names === undefined) throw new Error('Source QA stage has no captured directory snapshot')
     return [...names]
-  }, read: async (path) => {
-    const result = await inspect(path, true)
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- Successful collection always returns its bytes.
-    return result.bytes!
-  }, hash: async path => (await inspect(path, false)).sha256 }
+  }, read: async path => (await inspect(path, true)).bytes,
+  hash: async path => (await inspect(path, false)).sha256 }
 }
 
 type ObjectValue = Record<string, unknown>
@@ -351,14 +349,14 @@ async function evidence(project: string, value: unknown, expectedMedia: string, 
 }
 
 async function evidenceSet(project: string, value: unknown, expectedMedia: string, expectedSha256: string,
-  verifier: SourceQaVerifier, staged?: SourceQaStagedAccess): Promise<[Evidence, ...Evidence[]]> {
+  verifier: SourceQaVerifier, staged?: SourceQaStagedAccess): Promise<readonly [Evidence, ...Evidence[]]> {
   if (!object(value)) fail('复验没有绑定本次实际源片。')
   const refs: readonly unknown[] = Array.isArray(value.ocr) ? value.ocr : [value.ocr]
   if (!refs.length) fail('复验缺少OCR文件。')
   const first = await evidence(project, { ...value, ocr: refs[0] }, expectedMedia, expectedSha256, verifier, staged)
   const parts: [Evidence, ...Evidence[]] = [first]
-  for (const ref of refs.slice(1)) {
-    parts.push(await evidence(project, { ...value, ocr: ref }, expectedMedia, expectedSha256, verifier, staged))
+  for (let index = 1; index < refs.length; index++) {
+    parts.push(await evidence(project, { ...value, ocr: refs[index] }, expectedMedia, expectedSha256, verifier, staged))
   }
   let end = 0
   for (const part of parts) {
@@ -400,13 +398,13 @@ export async function verifySourceQa(input: {
   if (!object(qa) || qa.version !== 1 || !object(qa.selected)) fail('缺少当前源片的source_qa记录。先对实际源片运行video_ocr完整扫描（间隔0.5秒），再优先用video_source_review，或已启用完整模式的video_inspect执行scan→next实际查看图片→observe。按渲染工具README记录工具返回的真实路径、摘要和身份后重验。')
   if (input.verifier === undefined) fail('缺少真实OCR执行和审看记录核验，请在Muse正常drama_render入口，沿video_source_review或已启用完整模式的video_inspect补齐真实审看后重验。')
   const selectedParts = await evidenceSet(input.project, qa.selected, input.videoPath, input.videoSha256, input.verifier, input.staged)
-  const selected = selectedParts[0]
+  const [selected] = selectedParts
   const files = selectedParts.flatMap(part => part.files)
-  let originalParts: [Evidence, ...Evidence[]] | undefined
+  let originalParts: readonly [Evidence, ...Evidence[]] | undefined
   if (input.review.subtitle_cleanup === 'clean') {
     if (input.originalSha256 === input.videoSha256) fail('清理片与原片字节相同，须核对实际去字幕结果。')
     originalParts = await evidenceSet(input.project, qa.original, input.originalPath, input.originalSha256, input.verifier, input.staged)
-    const original = originalParts[0]
+    const [original] = originalParts
     if (!sameTime(original.duration, selected.duration)) fail('清理片与原片时长不一致，不能沿用原声。')
     const intervals = rows(qa.affected_intervals, '处理时段')
     if (!intervals.length) fail('清理片缺少实际处理时段。')

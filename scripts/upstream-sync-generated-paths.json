@@ -18,6 +18,8 @@
     { "path": "docs/persistence-catalog.md", "generator": "scripts/gen-persistence-catalog.ts" },
     { "path": "docs/persistence-catalog.zh.md", "generator": "scripts/gen-persistence-catalog.ts" },
     { "path": "docs/persistence-schema.json", "generator": "scripts/gen-persistence-catalog.ts" },
-    { "path": "docs/cordis-api/inherited.md", "generator": "scripts/gen-cordis-api.ts" }
+    { "path": "docs/cordis-api/inherited.md", "generator": "scripts/gen-cordis-api.ts" },
+    { "path": "packages/util/official-bundles/src/catalog.generated.ts", "generator": "scripts/gen-official-bundle-catalog.ts" },
+    { "path": "packages/preset/agent-preset/skills/dsh-doc/references/packages.md", "generator": "scripts/gen-plugin-packages.ts" }
   ]
 }

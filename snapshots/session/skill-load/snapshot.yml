@@ -1,13 +1,11 @@
 version: 1
+writerOutput: true
 scenario: skill-load
 profile: headless
 composition: default
 recording: authored
-writerOutput: true
 header:
   class: skill
   pin: true
   systemPromptSource: text-turn
   toolSchemasSource: text-turn
-workspace:
-  setup: editing-cordis-skill

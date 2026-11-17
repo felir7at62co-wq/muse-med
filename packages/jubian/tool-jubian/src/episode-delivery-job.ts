@@ -8,10 +8,10 @@ import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { attemptIdentitySchema, executionIdentitySchema, runningExecutionSchema,
   executionDrainSchema, episodeHashSchema, readEpisodeRecord } from './episode-delivery.ts'
+import { readEpisodeDigest } from './episode-digest.ts'
 import type { AttemptIdentity, ExecutionIdentity, EpisodeApprovedSource, EpisodeExecutionId,
   RunningExecution, Sha256 } from './episode-delivery.ts'
 import type { VideoRecoveryDigest } from './types.ts'
-import { hashEpisodeFileHandle } from './episode-file-hash.ts'
 
 /** Actual staged inputs and the original human-approved source identities. */
 export interface EpisodeDeliveryAdmission {
@@ -148,7 +148,7 @@ async function hashFile(path: string, signal?: AbortSignal): Promise<{ sha256: s
     if (opened.dev !== before.dev || opened.ino !== before.ino || !opened.isFile()) {
       throw new Error('Episode input changed while opening')
     }
-    const { sha256, bytes } = await hashEpisodeFileHandle(file, signal)
+    const { sha256, bytes } = await readEpisodeDigest(file, signal)
     const after = await file.stat(), current = await lstat(path)
     if (bytes !== opened.size || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs
       || !current.isFile() || current.dev !== opened.dev || current.ino !== opened.ino) {

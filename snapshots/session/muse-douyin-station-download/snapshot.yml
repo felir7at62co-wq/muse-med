@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-douyin-station-download
+profile: headless
+composition: muse-douyin-station-download
+recording: authored
+header:
+  class: muse-douyin-station-download
+  pin: true
+workspace:
+  final: true

@@ -3,7 +3,8 @@
 import { copyFile, cp, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runDramaRender, captureEpisodeSourceReview } from '../src/index.ts'
+import { runDramaRender } from '../src/index.ts'
+import { captureEpisodeSourceReview } from '../src/episode-source-capture.ts'
 import { readSourceRecord, sourceRecordPathFor, writeSourceRecord } from '../src/source-record.ts'
 import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
@@ -11,14 +12,9 @@ import { episodePaths, shotFileName } from '../src/paths.ts'
 import { renderEpisode, type RenderInput } from '../src/render.ts'
 import { writeSubtitleClock } from '../src/subtitle-clock.ts'
 import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
-import * as approvedSources from '../src/approved-sources.ts'
-import * as renderResume from '../src/render-resume.ts'
 import { sourceQaFixture } from './source-qa-fixture.ts'
 import { createSourceQaStagedAccess, type SourceQaVerifier } from '../src/source-qa.ts'
 import type { RenderSettings } from '../src/types.ts'
-
-vi.mock('../src/approved-sources.ts', async original => ({ ...await original<typeof import('../src/approved-sources.ts')>() }))
-vi.mock('../src/render-resume.ts', async original => ({ ...await original<typeof import('../src/render-resume.ts')>() }))
 import {
   cleanup,
   decodeHandler,
@@ -286,41 +282,14 @@ async function render(
 }
 
 describe('renderEpisode', () => {
-  it('refuses an expected Host review digest under a policy that did not verify sources', async () => {
+  it('refuses a Host source-review digest when the delivery never requested strict source QA', async () => {
     const prepared = await preparedProject(), channel = renderChannel(prepared)
-    await expect(render(prepared, channel, false, undefined, { sourceQaExpectedSha: '0'.repeat(64) }))
+    await expect(render(prepared, channel, false, undefined, { sourceQaExpectedSha: 'a'.repeat(64) }))
       .rejects.toThrow('Host 指定的源片审核未在严格交付策略下核验')
     expect(channel.calls).toEqual([])
+    await expect(readFile(prepared.output)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('retains explicit staged Host requirements through the public render entry', async () => {
-    const prepared = await preparedProject(), channel = renderChannel(prepared)
-    const stage = join(prepared.project, 'private-host-stage'); await mkdir(stage)
-    const access = createSourceQaStagedAccess(prepared.project, stage, [], new AbortController().signal)
-    await expect(runDramaRender({ method: 'render', project: prepared.project, episode: 2,
-      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, lastShot: 2, bgm: prepared.bgm,
-      endingAudio: prepared.endingAudio, endingEffect: prepared.endingEffect, output: prepared.output },
-    { ...settings, channel: channel.channel }, undefined, source => source, access, '0'.repeat(64)))
-      .rejects.toThrow('Host 指定的源片审核未在严格交付策略下核验')
-    expect(channel.calls).toEqual([])
-  })
-
-  it('rejects source evidence replaced after review but before the resume input capture', async () => {
-    const prepared = await reviewedProject(), channel = renderChannel(prepared, { resume: true })
-    const artifact = prepared.artifacts[0]
-    if (artifact === undefined) throw Error('Missing review artifact')
-    const file = await realpath(artifact)
-    const replacement = vi.fn(async () => { await writeFile(file, 'Evidence replaced after Host verification') })
-    const read = renderResume.readRenderResumeFile
-    const capture = vi.spyOn(renderResume, 'readRenderResumeFile').mockImplementation(async (...args) => {
-      if (args[0] === file) await replacement()
-      return read(...args)
-    })
-    try { await expect(render(prepared, channel, false, undefined, { resume: true, sourceQaVerifier: prepared.verifier }))
-      .rejects.toThrow('源片复验后文件发生变化') }
-    finally { capture.mockRestore() }
-    expect(replacement).toHaveBeenCalledOnce()
-  })
   it('refuses partial-episode resume before probing or encoding any source', async () => {
     const prepared = await preparedProject(), channel = renderChannel(prepared)
     await expect(render(prepared, channel, false, undefined, { resume: true, lastShot: 1 }))
@@ -442,8 +411,9 @@ describe('renderEpisode', () => {
   })
 
   it('renders strict reviewed sources from private copies after originals are unavailable', async () => {
-    const original = await reviewedProject(), stage = await realpath(await tempProject())
-    temporary.push(stage)
+    const original = await reviewedProject(), stageRoot = await tempProject()
+    temporary.push(stageRoot)
+    const stage = await realpath(stageRoot)
     const originalRoot = await realpath(original.project)
     await cp(original.project, stage, { recursive: true })
     const files: { originalPath: string; stagedPath: string; sha256: string; bytes: number; aliases: string[] }[] = []
@@ -476,16 +446,69 @@ describe('renderEpisode', () => {
     const held = original.project + '-unavailable'
     await rename(original.project, held)
     try {
+      const args = { method: 'render' as const, project: stage, episode: 2, timeline: staged.timeline,
+        subtitleSrt: staged.subtitle, lastShot: 2, bgm: staged.bgm, endingAudio: staged.endingAudio,
+        endingEffect: staged.endingEffect, output: staged.output }
       const invalid = renderChannel(staged)
-      await expect(render(staged, invalid, false, undefined,
-        { sourceQaVerifier: verifier, sourceQaStage: access, sourceQaExpectedSha: '0'.repeat(64) }))
+      await expect(runDramaRender(args, { ...settings, channel: invalid.channel },
+        verifier, undefined, access, '0'.repeat(64)))
         .rejects.toThrow('暂存的源片审核事实与 Host 核验不一致')
       expect(invalid.calls).toEqual([])
       verifier.mockClear()
-      const result = await render(staged, renderChannel(staged), false, undefined,
-        { sourceQaVerifier: verifier, sourceQaStage: access, sourceQaExpectedSha: captured.sourceQaSha256 })
+      const channel = renderChannel(staged)
+      const result = await runDramaRender(args, { ...settings, channel: channel.channel },
+        verifier, undefined, access, captured.sourceQaSha256)
       expect(result.ok).toBe(true)
       expect(verifier).toHaveBeenCalledTimes(2)
+      expect(await readFile(result.output, 'utf8')).toBe('media')
+    } finally { await rename(held, original.project) }
+  })
+
+  it('renders a captured subtitle clock only with the matching private audio copies', async () => {
+    const original = await preparedProject(), stageRoot = await tempProject()
+    temporary.push(stageRoot)
+    const stage = await realpath(stageRoot)
+    const clips = [5_050_000, 109_683_332].map((durationUs, index) => {
+      const shot = index + 1, video = join(original.paths.videoDir, shotFileName(shot))
+      const audio = join(original.project, 'selected', `source-${String(shot)}.wav`)
+      return { source: { shot, video, audio }, video, audio, durationUs }
+    })
+    for (const clip of clips) await writePlaceholder(clip.audio, `selected voice ${String(clip.source.shot)}`)
+    await writePlaceholder(original.paths.sources, JSON.stringify({ shots: clips.map(clip => clip.source) }))
+    await writeSubtitleClock(original.subtitle, await readFile(original.subtitle, 'utf8'), '02', clips)
+    await cp(original.project, stage, { recursive: true })
+    const replace = (file: string): string => join(stage, relative(original.project, file))
+    const staged = { ...original, project: stage, paths: episodePaths(stage, '02'), timeline: replace(original.timeline),
+      subtitle: replace(original.subtitle), bgm: replace(original.bgm), endingAudio: replace(original.endingAudio),
+      endingEffect: replace(original.endingEffect), output: replace(original.output) }
+    const args = { method: 'render' as const, project: stage, episode: 2, timeline: staged.timeline,
+      subtitleSrt: staged.subtitle, lastShot: 2, bgm: staged.bgm, endingAudio: staged.endingAudio,
+      endingEffect: staged.endingEffect, output: staged.output }
+    const audioCopies = new Map(clips.map(clip => [clip.audio, replace(clip.audio)]))
+    const stagedAudio = (sourceAudio: string): string => {
+      const path = audioCopies.get(sourceAudio)
+      if (path === undefined) throw Error('Audio reference was not captured')
+      return path
+    }
+    const held = original.project + '-unavailable'
+    temporary.push(held)
+    await rename(original.project, held)
+    try {
+      for (const clip of clips) await expect(readFile(clip.audio)).rejects.toMatchObject({ code: 'ENOENT' })
+      const missing = renderChannel(staged)
+      await expect(runDramaRender(args, { ...settings, channel: missing.channel })).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(missing.calls).toEqual([])
+      const wrong = renderChannel(staged)
+      await expect(runDramaRender(args, { ...settings, channel: wrong.channel }, undefined, () => staged.paths.masterAudio))
+        .rejects.toThrow(/生成字幕与当前集/u)
+      expect(wrong.calls).toEqual([])
+      await expect(readFile(staged.output)).rejects.toMatchObject({ code: 'ENOENT' })
+      const channel = renderChannel(staged)
+      const result = await runDramaRender(args, { ...settings, channel: channel.channel }, undefined, stagedAudio)
+      expect(result.ok).toBe(true)
+      expect(await readFile(result.output, 'utf8')).toBe('media')
+      for (const clip of clips) expect(await readFile(stagedAudio(clip.audio), 'utf8'))
+        .toBe(`selected voice ${String(clip.source.shot)}`)
     } finally { await rename(held, original.project) }
   })
 
@@ -503,27 +526,23 @@ describe('renderEpisode', () => {
       .rejects.toThrow('选源或审核已变化')
   })
 
-  it('leaves ordinary rendering outside strict source capture without consulting Host evidence', async () => {
-    const prepared = await preparedProject(), verifier = vi.fn<SourceQaVerifier>()
-    await expect(captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, verifier)).resolves.toBeUndefined()
-    expect(verifier).not.toHaveBeenCalled()
-  })
-
-  it('refuses a changed local shot copy despite unchanged approved source records', async () => {
-    const prepared = await reviewedProject()
-    await writePlaceholder(join(prepared.paths.videoDir, shotFileName(1)), 'changed local shot copy')
-    await expect(captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier))
-      .rejects.toThrow('镜头副本与已审看源片字节不符')
-  })
-
-  it('requires the review reader to supply actual Host verification callbacks before strict capture completes', async () => {
-    const prepared = await reviewedProject()
-    const reviews = await verifySelectedSourceReviews(prepared.paths, prepared.manifest.shots, true, true, prepared.verifier)
-    const read = vi.spyOn(approvedSources, 'verifySelectedSourceReviews').mockResolvedValue(reviews)
-    try {
-      await expect(captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier))
-        .rejects.toThrow('Strict source review has no verified Session bindings')
-    } finally { read.mockRestore() }
+  // Real entry: `renderEpisode` resumed over a strict project. While the first source probe runs,
+  // the Host rewrites the shot's OCR record that the strict review had just bound. The resume
+  // request re-reads every source-QA file at publication time, and its digest no longer matches
+  // the reviewed evidence, so the render refuses before encoding anything.
+  it('refuses source-review evidence rewritten after capture while a resumed render re-reads it', async () => {
+    const prepared = await reviewedProject(), base = renderChannel(prepared, { resume: true })
+    const evidence = prepared.artifacts[0]
+    if (evidence === undefined) throw Error('Missing captured OCR evidence')
+    const probeOf = join(prepared.paths.videoDir, 'shot_001.mp4')
+    const channel = { calls: base.calls, channel: { run: async (command: string, args: readonly string[]) => {
+      const result = await base.channel.run(command, args)
+      if (command === 'ffprobe' && args.at(-1) === probeOf) await writePlaceholder(evidence, 'rewritten OCR evidence')
+      return result
+    } } }
+    await expect(render(prepared, channel, false, undefined, { resume: true, sourceQaVerifier: prepared.verifier }))
+      .rejects.toThrow('源片复验后文件发生变化')
+    await expect(readFile(prepared.output)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('binds all current source-review artifacts and independently reuses a strict candidate', async () => {
@@ -562,10 +581,18 @@ describe('renderEpisode', () => {
 
   it('rejects a replaced prepared picture even when original source review remains current', async () => {
     const prepared = await reviewedProject(), channel = renderChannel(prepared)
-    await writePlaceholder(join(prepared.paths.videoDir, 'shot_001.mp4'), 'unreviewed copied picture')
+    const picture = join(prepared.paths.videoDir, 'shot_001.mp4'), original = await readFile(picture)
+    const captured = await captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier)
+    if (captured === undefined) throw Error('Strict source review was not captured')
+    await writePlaceholder(picture, 'unreviewed copied picture')
+    for (const file of captured.files) expect(await fileSha256(file.path)).toBe(file.sha256)
+    await expect(captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier))
+      .rejects.toThrow('镜头副本与已审看源片字节不符')
     await expect(render(prepared, channel, false, undefined, { sourceQaVerifier: prepared.verifier }))
       .rejects.toThrow('镜头副本与已审看源片字节不符')
     expect(channel.calls).toEqual([])
+    await writeFile(picture, original)
+    expect(await captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier)).toEqual(captured)
   })
 
   it('refuses a review replaced during source evidence verification before rendering', async () => {

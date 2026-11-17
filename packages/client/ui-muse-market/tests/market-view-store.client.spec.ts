@@ -12,12 +12,36 @@ function attempt(key: string): NonNullable<MarketCreatorDraft['uploadRequest']> 
     accountId: parseMarketAccountId('c'.repeat(16)), publisherId: parseMarketPublisherId('d'.repeat(32)) }
 }
 
+it('changes the creator entry mode without replacing a retained author draft', () => {
+  const store = createMarketViewStore().create()
+  store.actions.setCreator({ ...store.getSnapshot().creator, source: 'retained-skill' })
+  const before = store.getSnapshot().creator
+  store.actions.setCreatorMode('upload')
+  expect(store.getSnapshot().creatorMode).toBe('upload')
+  expect(store.getSnapshot().creator).toBe(before)
+  store.actions.setCreatorMode('skill')
+  expect(store.getSnapshot().creatorMode).toBe('skill')
+  expect(store.getSnapshot().creator).toBe(before)
+  store.actions.setMarketTab('publish')
+  expect(store.getSnapshot().marketTab).toBe('publish')
+  expect(store.getSnapshot().creator).toBe(before)
+})
+
 it('does not select an older preparation result over a newer form edit', () => {
   const store = createMarketViewStore().create()
   const initial = store.getSnapshot().creator
   store.actions.setCreator({ ...initial, metadata: { ...initial.metadata, title: 'New author title' } })
   store.actions.prepared(initial.revision, firstRelease)
   expect(store.getSnapshot().creator).toMatchObject({ selectedId: null, metadata: { title: 'New author title' } })
+})
+
+it('selects the prepared release only for the current draft revision', () => {
+  const store = createMarketViewStore().create()
+  const initial = store.getSnapshot().creator
+  store.actions.prepared(initial.revision, firstRelease)
+  expect(store.getSnapshot().creator).toEqual({ ...initial, selectedId: firstRelease, revision: initial.revision + 1 })
+  store.actions.prepared(initial.revision, secondRelease)
+  expect(store.getSnapshot().creator.selectedId).toBe(firstRelease)
 })
 
 it('keeps an unresolved attempt when an earlier preparation finishes', () => {

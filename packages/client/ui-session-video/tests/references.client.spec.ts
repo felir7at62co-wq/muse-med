@@ -17,6 +17,11 @@ it('serializes selected media through its own codec and preserves exact advice l
   expect(list).toHaveBeenCalledExactlyOnceWith(sessionId, signal)
   expect(parseVideoReference(ref)).toEqual({ sessionId, target: selected })
   expect(parseVideoReference(videoWorkspaceAddress(sessionId))).toBeNull()
+  expect(await provider.candidates({ sessionId }, { query: '', position: 'inline', drilled: false, signal })).toEqual([])
+  expect(provider.onPick({ candidate: { name: 'video' }, session: { sessionId }, position: 'inline', via: 'menu',
+    action: 'pick', span: { start: 0, end: 0, draftRev: 0 } })).toBeUndefined()
+  expect(provider.codec?.clipboardText(ref)).toBe(ref)
+  expect(provider.openReference?.({ sessionId }, { ref: videoWorkspaceAddress(sessionId) })).toBe(false)
   expect(provider.openReference?.({ sessionId }, { ref })).toBe(true)
   expect(open).toHaveBeenCalledExactlyOnceWith(ref)
   open.mockReturnValueOnce(false)

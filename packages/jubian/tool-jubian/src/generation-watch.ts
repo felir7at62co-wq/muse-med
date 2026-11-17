@@ -223,6 +223,7 @@ export class GenerationWatchRuntime {
             await this.finishDispatchOwned(id, report, true)
             if (failures.length === 1) throw failures[0]
             if (failures.length > 1) throw new AggregateError(failures, 'Generation dispatch and checkpoint failed')
+            // A rejected operation is rethrown above; the typed successful operation supplies its report.
             return report as Record<string, unknown>
           })
       } finally {
@@ -316,6 +317,7 @@ export class GenerationWatchRuntime {
   }
 
   private async advance(run: GenerationWatchRun): Promise<void> {
+    this.controller.signal.throwIfAborted()
     let current = run
     if (!current.notice) {
       const packs = await this.readPacks(current)

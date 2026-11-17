@@ -83,5 +83,111 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { /** Conversation video workspace copy. */ sessionVideo: VideoKey }
 }
 
-/** English fallbacks for Japanese, Spanish, French, German, Russian and Portuguese. */
-export const ja = en, es = en, fr = en, de = en, ru = en, pt = en
+/** ja copy with English fallback for workspace actions. */
+export const ja: Record<VideoKey, string> = {
+  ...en,
+  settingError: '設定を適用できませんでした。もう一度お試しください。',
+  library: '会話の動画',
+  empty: 'この会話にはまだ動画がありません',
+  loading: '動画を読み込み中…',
+  unavailable: '動画を再生できません',
+  retry: '再試行',
+  play: '再生',
+  pause: '一時停止',
+  zoomControls: '動画タイムラインの拡大率',
+  zoomIn: 'タイムラインを拡大',
+  zoomOut: 'タイムラインを縮小',
+  zoomValue: 'タイムラインの拡大率 {percent}%',
+  playhead: '再生位置',
+  source: '動画を切り替え：{name}',
+}
+/** es copy with English fallback for workspace actions. */
+export const es: Record<VideoKey, string> = {
+  ...en,
+  settingError: 'No se pudo aplicar el ajuste. Inténtalo de nuevo.',
+  library: 'Vídeos de la conversación',
+  empty: 'Todavía no hay vídeos en esta conversación',
+  loading: 'Cargando vídeo…',
+  unavailable: 'El vídeo no está disponible',
+  retry: 'Reintentar',
+  play: 'Reproducir',
+  pause: 'Pausar',
+  zoomControls: 'Zoom de la línea de tiempo',
+  zoomIn: 'Ampliar la línea de tiempo',
+  zoomOut: 'Reducir la línea de tiempo',
+  zoomValue: 'Zoom de la línea de tiempo {percent}%',
+  playhead: 'Posición de reproducción',
+  source: 'Cambiar vídeo: {name}',
+}
+/** fr copy with English fallback for workspace actions. */
+export const fr: Record<VideoKey, string> = {
+  ...en,
+  settingError: 'Le paramètre n’a pas pu être appliqué. Réessayez.',
+  library: 'Vidéos de la conversation',
+  empty: 'Cette conversation ne contient pas encore de vidéo',
+  loading: 'Chargement de la vidéo…',
+  unavailable: 'La vidéo est indisponible',
+  retry: 'Réessayer',
+  play: 'Lire',
+  pause: 'Mettre en pause',
+  zoomControls: 'Zoom de la chronologie',
+  zoomIn: 'Agrandir la chronologie',
+  zoomOut: 'Réduire la chronologie',
+  zoomValue: 'Zoom de la chronologie {percent}%',
+  playhead: 'Position de lecture',
+  source: 'Changer de vidéo : {name}',
+}
+/** de copy with English fallback for workspace actions. */
+export const de: Record<VideoKey, string> = {
+  ...en,
+  settingError: 'Die Einstellung konnte nicht angewendet werden. Bitte erneut versuchen.',
+  library: 'Videos der Unterhaltung',
+  empty: 'In dieser Unterhaltung gibt es noch keine Videos',
+  loading: 'Video wird geladen…',
+  unavailable: 'Das Video ist nicht verfügbar',
+  retry: 'Erneut versuchen',
+  play: 'Wiedergeben',
+  pause: 'Pausieren',
+  zoomControls: 'Zoom der Zeitleiste',
+  zoomIn: 'Zeitleiste vergrößern',
+  zoomOut: 'Zeitleiste verkleinern',
+  zoomValue: 'Zoom der Zeitleiste {percent}%',
+  playhead: 'Wiedergabeposition',
+  source: 'Video wechseln: {name}',
+}
+/** ru copy with English fallback for workspace actions. */
+export const ru: Record<VideoKey, string> = {
+  ...en,
+  settingError: 'Не удалось применить настройку. Повторите попытку.',
+  library: 'Видео беседы',
+  empty: 'В этой беседе пока нет видео',
+  loading: 'Загрузка видео…',
+  unavailable: 'Видео недоступно',
+  retry: 'Повторить',
+  play: 'Воспроизвести',
+  pause: 'Приостановить',
+  zoomControls: 'Масштаб временной шкалы',
+  zoomIn: 'Увеличить временную шкалу',
+  zoomOut: 'Уменьшить временную шкалу',
+  zoomValue: 'Масштаб временной шкалы {percent}%',
+  playhead: 'Позиция воспроизведения',
+  source: 'Переключить видео: {name}',
+}
+/** pt copy with English fallback for workspace actions. */
+export const pt: Record<VideoKey, string> = {
+  ...en,
+  settingError: 'Não foi possível aplicar a configuração. Tente novamente.',
+  library: 'Vídeos da conversa',
+  empty: 'Ainda não há vídeos nesta conversa',
+  loading: 'Carregando vídeo…',
+  unavailable: 'O vídeo está indisponível',
+  retry: 'Tentar novamente',
+  play: 'Reproduzir',
+  pause: 'Pausar',
+  zoomControls: 'Zoom da linha do tempo',
+  zoomIn: 'Ampliar a linha do tempo',
+  zoomOut: 'Reduzir a linha do tempo',
+  zoomValue: 'Zoom da linha do tempo {percent}%',
+  playhead: 'Posição de reprodução',
+  source: 'Trocar vídeo: {name}',
+}

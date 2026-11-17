@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.2/jubian-upscale-mediakit-default/guide.md
+/:
+  en: ef382b24ad1a4af9
+  zh: 6848a806c35e6d58
+/jubian-upscaling-defaults-to-mediakit:
+  en: 48675d5a52adbf5d
+  zh: 7f68e9d6d0f816d7
+/jubian-upscaling-defaults-to-mediakit/change:
+  en: 1848becb376a6626
+  zh: 237bca7e75b18bc6
+/jubian-upscaling-defaults-to-mediakit/migration:
+  en: 6b1b4edc78cf8868
+  zh: 3197cccfcc11b8e6

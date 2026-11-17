@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { z } from 'zod'
-import { exportScreenplayDocx } from '../src/screenplay-docx.ts'
+import { exportScreenplayDocx, resolveEpisodeLayout } from '../src/screenplay-docx.ts'
 import { validateVideoDelivery } from '../src/video-delivery.ts'
 import { sha256 } from '@deepseek-ai/dsh-screenplay-project'
 import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependencies'
@@ -135,7 +135,11 @@ it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('refuses unaccepted Markdown i
 })
 
 
-it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('exports ordered Chinese Markdown using the configured Python runtime', async () => {
+it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME).each([
+  { layout: undefined, secondPageBreak: false },
+  { layout: 'continuous', secondPageBreak: false },
+  { layout: 'page_per_episode', secondPageBreak: true },
+] as const)('exports ordered Chinese Markdown using the configured Python runtime with episode_layout $layout', async ({ layout, secondPageBreak }) => {
   const root = await mkdtemp(join(tmpdir(), 'screenplay-docx-runtime-'))
   try {
     const first = join(root, '第2集.md')
@@ -143,7 +147,7 @@ it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('exports ordered Chinese Markd
     const output = join(root, '完整剧本.docx')
     await writeFile(first, '# 第2集\n2-1 老屋 夜 内\n人物：林遥、周宁\n▲林遥放下信。\n林遥 OS：不能告诉他。\n周宁：你怎么了？\n林遥：没事。\n')
     await writeFile(second, '# 第10集\n10-1 门口 日 外\n人物：林遥\n▲林遥推开门。\n**【下集钩子】**\n林遥：是你？\n')
-    expect(await exportScreenplayDocx({ inputs: [first, second], output }, {
+    expect(await exportScreenplayDocx({ inputs: [first, second], output, ...(layout === undefined ? {} : { episode_layout: layout }) }, {
       source: process.env.MUSE_TEST_PRIMARY_RUNTIME!, maxProjectBytes: 1000000, maxInputBytes: 10000, timeoutMs: 30000,
     })).toEqual({ output })
     const bytes = await readFile(output)
@@ -158,18 +162,34 @@ it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('exports ordered Chinese Markd
       'normal = doc.styles["Normal"]',
       'print(json.dumps({"paragraphs": [p.text for p in doc.paragraphs], "font": normal.font.name,',
       '  "eastAsia": normal.element.rPr.rFonts.get(qn("w:eastAsia")),',
-      '  "secondPageBreak": doc.paragraphs[7].paragraph_format.page_break_before}, ensure_ascii=False))',
+      '  "pageBreaks": [p.paragraph_format.page_break_before for p in doc.paragraphs if p.text.startswith("第")],',
+      '  "headingKeepWithNext": doc.paragraphs[7].paragraph_format.keep_with_next}, ensure_ascii=False))',
     ].join('\n'), output], { windowsHide: true, timeout: 30000, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } })
     expect(JSON.parse(stdout)).toEqual({
       paragraphs: ['第2集', '2-1 老屋 夜 内', '人物：林遥、周宁', '▲林遥放下信。', '林遥 OS：不能告诉他。',
         '周宁：你怎么了？', '林遥：没事。', '第10集', '10-1 门口 日 外', '人物：林遥', '▲林遥推开门。', '【下集钩子】', '林遥：是你？'],
-      font: 'SimSun', eastAsia: '宋体', secondPageBreak: true,
+      font: 'SimSun', eastAsia: '宋体', pageBreaks: [null, secondPageBreak || null], headingKeepWithNext: true,
     })
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
+it('resolves the episode layout from the call, then the deployment, then continuous, and rejects other values', () => {
+  expect(resolveEpisodeLayout(undefined, {})).toBe('continuous')
+  expect(resolveEpisodeLayout(undefined, { episodeLayout: 'page_per_episode' })).toBe('page_per_episode')
+  expect(resolveEpisodeLayout('continuous', { episodeLayout: 'page_per_episode' })).toBe('continuous')
+  expect(resolveEpisodeLayout('page_per_episode', {})).toBe('page_per_episode')
+  const invalid = JSON.parse('"per_page"') as 'continuous'
+  expect(() => resolveEpisodeLayout(invalid, {})).toThrow('episode_layout must be one of')
+  expect(() => resolveEpisodeLayout(undefined, { episodeLayout: invalid })).toThrow('episode_layout must be one of')
+})
+
+it('rejects an invalid episode layout before touching the filesystem or runtime', async () => {
+  const invalid = JSON.parse('"per_page"') as 'continuous'
+  await expect(exportScreenplayDocx({ inputs: ['/missing/a.md'], output: '/missing/a.docx', episode_layout: invalid },
+    { source: 'unused', maxProjectBytes: 1000000, maxInputBytes: 1000, timeoutMs: 1000 })).rejects.toThrow('episode_layout must be one of')
+})
 
 it.skipIf(!process.env.MUSE_TEST_PRIMARY_RUNTIME)('accepts a directory alias for the same project but rejects a different project receipt', async () => {
   const root = await mkdtemp(join(tmpdir(), 'video-project-alias-'))

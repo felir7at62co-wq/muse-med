@@ -1,5 +1,5 @@
 ---
-description: "guard 家族的包映射：建议性重复工具提醒、单次工具调用超时策略、报告被热加载撤走工具的组装守卫，以及拒绝破坏短剧格式规则的写入或付费提交的短剧门禁，供选择或组合 guard 的用户与维护者阅读。"
+description: "guard 家族的包映射：建议性重复工具提醒、单次工具调用超时策略、报告被热加载撤走工具的组装守卫、拒绝破坏短剧格式规则的写入或付费提交的短剧门禁，以及针对循环工具参数和不完整请求回复的流式守卫，供选择或组合 guard 的用户与维护者阅读。"
 kind: "package-group"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## 概述
 
-`guard/` 下的包会提示重复工具调用、结束超过声明时限的调用，并报告热加载撤走的工具。短剧门禁拒绝违反发声轨道或镜头限制的工作区写入，以及正式资产检查通过前的付费生成。`repeat-tool-reminder` 与 `timeout-policy` 随 `dsh` 基础组合包提供；各包 README 说明配置与恢复方式。
+`guard/` 下的包会提示重复工具调用、结束超过声明时限的调用，并报告热加载撤走的工具。短剧门禁拒绝违反发声轨道或镜头限制的工作区写入，以及正式资产检查通过前的付费生成。两个流式守卫分别停止循环的工具参数，并丢弃供应商只收到部分请求时给出的回复。`repeat-tool-reminder` 与 `timeout-policy` 随 `dsh` 基础组合包提供；各包 README 说明配置与恢复方式。
 
 ## 目录
 
@@ -22,11 +22,12 @@ kind: "package-group"
 <a id="packages"></a>
 ## 包
 
-五个小插件覆盖这些模式；下文每个 README 都说明何时保留、调优或移除它。
+六个小插件覆盖这些模式；下文每个 README 都说明何时保留、调优或移除它。
 
 | 包 | 提供什么 |
 |---|---|
 | [`argument-loop/`](argument-loop/README.zh.md) | 停止流式工具响应中的同名 JSON 成员重复，不自动重试或重放工具；Muse 显式选择阈值 |
+| [`prompt-usage/`](prompt-usage/README.zh.md) | 回复没有调用工具、且报告的提示 token 同时低于请求的工具定义和上下文估算时丢弃它，由路由的重试策略重新发送；Muse 显式列出云映 Gemini 路由 |
 | [`repeat-tool-reminder/`](repeat-tool-reminder/README.zh.md) | 在模型重复完全相同的工具调用时提醒它，使其改变方法或结束任务 |
 | [`timeout-policy/`](timeout-policy/README.zh.md) | 为声明了限时的工具调用设置超时，让模型得到清晰错误而不是无限等待 |
 | [`composition-guard/`](composition-guard/README.zh.md) | 报告工具被一次热加载组装撤走的会话，让人知道该重启宿主 |

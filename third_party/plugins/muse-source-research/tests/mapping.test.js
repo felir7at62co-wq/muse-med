@@ -31,8 +31,8 @@ async function fixture(config = {}) {
   await ctx.plugin(UserQuestionService);
   await mountAgentLoopTestHarness(ctx);
   let agentOrdinal = 0;
-  const makeAgent = async (meta = {}, parentAgent) => {
-    const handle = await ctx.agents.create({ sessionId: SessionId('mapping-agent-' + ++agentOrdinal), meta: { cwd: directory, ...meta }, ...(parentAgent === undefined ? {} : { parentAgent }) });
+  const makeAgent = async (meta = {}) => {
+    const handle = await ctx.agents.create({ sessionId: SessionId('mapping-agent-' + ++agentOrdinal), meta: { cwd: directory, ...meta } });
     cleanup.push(() => handle.dispose());
     return handle.agent;
   };
@@ -188,9 +188,9 @@ describe('work mapping through real agents, questions and project files', () => 
     expect((await f.call({ action: 'read', mappingId: proposal.mappingId })).status).toBe('needs_human_review');
   });
 
-  it('lets an owned child propose but rejects its review before reaching any answerer', async () => {
+  it('lets a delegated Session propose but rejects its review before reaching any answerer', async () => {
     const f = await fixture();
-    const child = await f.makeAgent({}, f.root);
+    const child = await f.makeAgent({ parentSession: f.root.session.id, delegationDepth: 1, origin: 'subagent' });
     const proposal = await f.proposal({}, child);
     const provider = f.answerer(labels[0]);
     await expect(f.call(revisionArgs(proposal), child)).rejects.toMatchObject({ name: 'UserQuestionError', code: 'DELEGATED_CALLER' });
@@ -200,10 +200,10 @@ describe('work mapping through real agents, questions and project files', () => 
     expect(provider.seen[0].agent).toBe(f.root);
   });
 
-  it('allows a live root with durable subagent lineage to review normally', async () => {
+  it('allows an ordinary live fork with historical parent metadata to review normally', async () => {
     const f = await fixture(), proposal = await f.proposal();
-    const resumedRoot = await f.makeAgent({ parentSession: f.root.session.id, delegationDepth: 2, origin: 'subagent' });
-    expect(f.ctx.agents.roots()).toContain(resumedRoot);
+    const resumedRoot = await f.makeAgent({ parentSession: f.root.session.id, delegationDepth: 2 });
+    expect(f.ctx.agents.get(resumedRoot.id)).toBe(resumedRoot);
     const provider = f.answerer(labels[1]);
     const decision = await f.call(revisionArgs(proposal), resumedRoot);
     expect(decision.latestRevision).toMatchObject({ status: 'rejected', reviewerSessionId: resumedRoot.session.id });

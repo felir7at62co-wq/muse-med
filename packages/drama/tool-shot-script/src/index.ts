@@ -53,6 +53,10 @@ export interface Config {
   actionShotSeconds?: number
   /** Effective spoken characters per second used for estimates; defaults to eight. */
   speechCharsPerSecond?: number
+  /** Advisory content ceiling for explicitly declared environment inserts; defaults to two seconds. */
+  emptyShotMaxSeconds?: number
+  /** Consecutive explicit close-up or fixed-camera plans reviewed for repetition; defaults to three. */
+  repetitiveShotThreshold?: number
   /** Strict blocks content failures; advisory returns suggestions and separate drafts. Defaults to strict. */
   reviewMode?: DramaShotReviewMode
   /** Read the calling session's video choice and recheck its last packaging review on changes; defaults to false. */
@@ -69,6 +73,8 @@ export const Config: z<Config> = z.object({
     maxSourceBytes: z.number(), maxShots: z.number(), maxPackages: z.number() }),
   actionShotSeconds: z.number().step(1).min(1).max(4).default(DEFAULT_ACTION_SHOT_SECONDS),
   speechCharsPerSecond: z.number().min(1).default(DEFAULT_SPEECH_CHARS_PER_SECOND),
+  emptyShotMaxSeconds: z.number().min(0.001).default(2),
+  repetitiveShotThreshold: z.number().step(1).min(2).default(3),
   reviewMode: z.union(['strict', 'advisory']).default('strict'),
   sessionVideoSelection: z.boolean().default(false),
   selectionReviewMaxChars: z.number().step(1).min(400).default(2000),
@@ -80,6 +86,10 @@ interface ResolvedConfig {
   actionShotSeconds: number
   /** Validated speech-estimate rate shared by compiler and production packaging. */
   speechCharsPerSecond: number
+  /** Advisory empty-shot budget for actual prepared text. */
+  emptyShotMaxSeconds: number
+  /** Explicit repeated-plan count needed before an advisory finding. */
+  repetitiveShotThreshold: number
   /** Whether content diagnostics remain suggestions. */
   reviewMode: DramaShotReviewMode
   /** Whether session-owned video capabilities replace the old budget argument. */
@@ -501,6 +511,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const resolved: ResolvedConfig = {
     actionShotSeconds: config.actionShotSeconds ?? DEFAULT_ACTION_SHOT_SECONDS,
     speechCharsPerSecond: config.speechCharsPerSecond ?? DEFAULT_SPEECH_CHARS_PER_SECOND,
+    emptyShotMaxSeconds: config.emptyShotMaxSeconds ?? 2,
+    repetitiveShotThreshold: config.repetitiveShotThreshold ?? 3,
     reviewMode: config.reviewMode ?? 'strict',
     sessionVideoSelection: config.sessionVideoSelection ?? false,
     selectionReviewMaxChars: config.selectionReviewMaxChars ?? 2000,
@@ -552,7 +564,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       },
     })
     owner.tools.register(definition)
-    installPreparedQualityReview(owner, definition, resolved.actionShotSeconds, resolved.speechCharsPerSecond)
+    installPreparedQualityReview(owner, definition, resolved.actionShotSeconds, resolved.speechCharsPerSecond, resolved)
     if (resolved.sessionVideoSelection) await installSessionReview(owner, definition, resolved.selectionReviewMaxChars)
   }
   if (resolved.sessionVideoSelection) await ctx.inject(['jubianVideoSelection', 'sessionProjections'], register)

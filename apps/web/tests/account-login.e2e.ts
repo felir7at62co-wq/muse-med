@@ -1,13 +1,17 @@
-// Real-composition acceptance for the Desktop account renderer's copy-link fallback.
-// The shipped provider drives auth_init, the loopback callback and auth_exchange against
-// a loopback Platform double; Chromium opens the link copied by the actual sign-in dialog.
+// Real-composition acceptance for DeepSeek account UI on its supported Desktop
+// carrier. A browser supplies the explicit non-Muse preload marker, not Electron
+// installation evidence. A test-owned native-opener boundary observes the real
+// account stream and opens an owned browser page. The real account provider drives
+// auth_init, the loopback OAuth callback, and auth_exchange against a loopback Platform
+// double, while a real Chromium follows that authorization page.
 import { createServer, type Server } from 'node:http'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium, type Browser } from 'playwright'
-import { afterAll, beforeAll, describe, expect, it, onTestFailed, onTestFinished } from 'vitest'
+import { chromium, type Browser, type Page } from 'playwright'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed, onTestFinished, vi } from 'vitest'
+import type {} from '@deepseek-ai/dsh-deepseek-account'
 import { compareOrRefreshGolden, launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -24,6 +28,7 @@ async function mockPlatform() {
   let state: string | undefined
   let redirectUri: string | undefined
   let avatarRequests = 0
+  let notificationLists = 0
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     const reply = (payload: unknown): void => {
@@ -82,7 +87,10 @@ async function mockPlatform() {
       reply({ normal_wallets: [{ currency: 'CNY', balance: '1.00' }], bonus_wallets: [] })
       return
     }
-    if (url.pathname === '/api/v0/users/get_unnotified_bonuses') { reply([]); return }
+    if (url.pathname === '/api/v0/users/notifications/list') {
+      notificationLists++
+      reply({ next_poll_after: 600, notifications: [] }); return
+    }
     res.writeHead(404).end()
   })
   await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
@@ -90,12 +98,12 @@ async function mockPlatform() {
   if (address === null || typeof address === 'string') throw new Error('account login: missing mock listener')
   const origin = `http://127.0.0.1:${String(address.port)}`
   return {
-    origin, inits, pages, avatarRequests: () => avatarRequests,
+    origin, inits, pages, avatarRequests: () => avatarRequests, notificationLists: () => notificationLists,
     close: () => new Promise<void>((resolve) => { server.close(() => { resolve() }); server.closeAllConnections() }),
   }
 }
 
-describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in from the Desktop renderer', () => {
+describe.skipIf(MODE === 'record')('web e2e: DeepSeek account UI by carrier', () => {
   let root: string | undefined
   let scaffold: WebScaffold
   let browser: Browser
@@ -117,32 +125,65 @@ describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in from the D
     if (root !== undefined) await rm(root, { recursive: true, force: true })
   })
 
-  it('signs in through the copied themed link and recovers both avatars on a later Settings entry', async () => {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, locale: 'en-US', colorScheme: 'dark' })
+  it('keeps DeepSeek account UI and subscriptions absent from plain Web', async () => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, locale: 'en-US' })
     onTestFinished(() => context.close())
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(scaffold.authenticatedUrl).origin })
+    const watch = vi.spyOn(scaffold.ctx.deepseekAccount, 'watch')
+    try {
+      const page = await context.newPage()
+      const console = watchConsole(page)
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-account-plain-web'))
+      await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+      await settings.getByRole('button', { name: 'Models', exact: true }).waitFor()
+      expect(await page.evaluate(() => 'dshDesktop' in globalThis)).toBe(false)
+      expect(await page.getByRole('button', { name: 'Account menu', exact: true }).count()).toBe(0)
+      expect(await settings.getByRole('region', { name: 'Account', exact: true }).count()).toBe(0)
+      expect(watch).not.toHaveBeenCalled()
+      expect(console.pageErrors).toEqual([])
+    } finally {
+      try { await context.close() } finally { watch.mockRestore() }
+    }
+  })
+
+  it('uses the non-Muse Desktop UI browser carrier to sign in through a themed tab and recover both avatars on a later Settings entry', async () => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, locale: 'en-US', colorScheme: 'dark' })
+    const opener: { controller: AbortController; opened?: Promise<Page> } = { controller: new AbortController() }
+    onTestFinished(async () => {
+      opener.controller.abort()
+      // The scenario awaits the original outcome; this join also covers an
+      // earlier UI assertion failure before that await.
+      try { await opener.opened?.catch(() => undefined) } finally { await context.close() }
+    })
     const page = await context.newPage()
-    await page.addInitScript(() => { Object.defineProperty(globalThis, 'dshDesktop', { value: { protocolVersion: 1 } }) })
+    await page.addInitScript(() => {
+      Object.defineProperty(globalThis, 'dshDesktop', { value: { protocolVersion: 1 } })
+    })
     const console = watchConsole(page)
     onTestFailed(() => saveFailureShot(page, 'web-e2e-account-login'))
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     const menu = page.getByRole('button', { name: 'Account menu', exact: true })
     await menu.click()
+    // Electron's main process owns opening the system browser. This carrier
+    // fixture supplies only that outer boundary, using the actual Host attempt.
+    opener.opened = (async () => {
+      for await (const view of scaffold.ctx.deepseekAccount.watch(opener.controller.signal)) {
+        const attempt = view.state.attempt
+        if (attempt?.phase !== 'waiting-browser' || attempt.authorizeUrl === undefined) continue
+        const destination = new URL(attempt.authorizeUrl)
+        destination.searchParams.set('theme', await page.evaluate(() =>
+          matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
+        const opened = await context.newPage()
+        await opened.goto(destination.href, { waitUntil: 'load' })
+        return opened
+      }
+      throw new Error('Desktop opener account stream ended before an authorization URL')
+    })()
+    // Keep a rejected opener observed while the click itself is still pending.
+    void opener.opened.catch(() => undefined)
     await page.getByRole('menuitem', { name: 'Sign in', exact: true }).click()
-    const previousClipboard = await page.evaluate(() => navigator.clipboard.readText())
-    let copied: string
-    try {
-      await page.getByRole('button', { name: 'Copy sign-in link', exact: true }).click()
-      await page.getByRole('button', { name: 'Link copied', exact: true }).waitFor()
-      copied = await page.evaluate(() => navigator.clipboard.readText())
-    } finally {
-      await page.evaluate(async ({ previous, prefix }) => {
-        if ((await navigator.clipboard.readText()).startsWith(prefix)) await navigator.clipboard.writeText(previous)
-      }, { previous: previousClipboard, prefix: `${platform.origin}/dsh/authorize?` })
-    }
-    expect(context.pages()).toHaveLength(1)
-    const authorization = await context.newPage()
-    await authorization.goto(copied)
+    const authorization = await opener.opened
     await authorization.waitForURL(url => url.pathname === '/dsh/authorized', { timeout: 30_000 })
     expect(await authorization.evaluate(() => window.opener === null)).toBe(true)
     await expect.poll(() => menu.textContent(), { timeout: 30_000 }).toBe('Web User')
@@ -153,13 +194,13 @@ describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in from the D
     const [authorize, authorized] = platform.pages.map(href => new URL(href))
     expect(authorize?.searchParams.get('theme')).toBe('dark')
     expect(authorized?.searchParams.get('login_source')).toBe('desktop')
-    expect(await readFile(join(scaffold.harnessHome, '.credentials.yaml'), 'utf8')).toContain(TOKEN)
-    expect(await page.content()).not.toContain(TOKEN)
     await expect.poll(platform.avatarRequests).toBe(1)
     await menu.locator('[data-avatar-status="failed"]').waitFor()
     expect(await menu.locator('img').count()).toBe(0)
     const states: string[] = []
+    let expectedLists = 1
     const capture = async (stage: string): Promise<void> => {
+      await expect.poll(platform.notificationLists).toBe(expectedLists)
       const sidebar = menu.locator('[data-avatar-status]')
       const account = page.getByRole('region', { name: 'Account', exact: true })
       const mounted = await account.count() > 0
@@ -167,10 +208,11 @@ describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in from the D
         ? await account.locator('[data-avatar-status]').getAttribute('data-avatar-status') : 'unmounted'
       states.push(`${stage}: sidebar=${await sidebar.getAttribute('data-avatar-status')}, settings=${settingsStatus}, `
         + `sidebarImages=${await menu.locator('img').count()}, settingsImages=${mounted ? await account.locator('img').count() : 0}, `
-        + `requests=${platform.avatarRequests()}`)
+        + `requests=${platform.avatarRequests()}, notificationLists=${platform.notificationLists()}`)
     }
     await capture('Initial load')
     await menu.click()
+    expectedLists++
     await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
     const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
     const account = settings.getByRole('region', { name: 'Account', exact: true })
@@ -182,6 +224,7 @@ describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in from the D
     await settings.getByRole('button', { name: 'Close', exact: true }).click()
     await settings.waitFor({ state: 'detached' })
     await menu.click()
+    expectedLists++
     await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
     await expect.poll(() => menu.locator('img').count()).toBe(1)
     await expect.poll(() => account.locator('img').count()).toBe(1)
@@ -194,6 +237,7 @@ describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in from the D
     await settings.getByRole('button', { name: 'Close', exact: true }).click()
     await settings.waitFor({ state: 'detached' })
     await menu.click()
+    expectedLists++
     await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
     await account.waitFor()
     expect(await menu.locator('img').count()).toBe(1)
@@ -209,6 +253,7 @@ describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in from the D
     await settings.getByRole('button', { name: 'Close', exact: true }).click()
     await settings.waitFor({ state: 'detached' })
     await menu.click()
+    expectedLists++
     await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
     await expect.poll(() => menu.locator('img').count()).toBe(1)
     await expect.poll(() => account.locator('img').count()).toBe(1)

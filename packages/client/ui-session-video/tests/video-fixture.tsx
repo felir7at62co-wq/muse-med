@@ -9,7 +9,7 @@ import type { SessionVideoAnalysis, SessionVideoInventory, SessionVideoSource, S
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { createVideoStore } from '../src/client/store.ts'
-import { VideoShelf, VideoShelfSpacer } from '../src/client/VideoShelf.tsx'
+import { VideoHeader } from '../src/client/VideoHeader.tsx'
 import { DeliveredVideoCard, GeneratedVideoCards } from '../src/client/InlineVideoCard.tsx'
 import type { VideoInjected } from '../src/client/face.ts'
 import { NS, en, zh } from '../src/client/locales.ts'
@@ -98,23 +98,20 @@ export async function fixture(items: SessionVideoSource[] = [source()]) {
   const openWorkspace = vi.fn(), refreshVideos = vi.fn(), addTargetReference = vi.fn().mockReturnValue(true),
     removeTargetReference = vi.fn().mockReturnValue(true)
   const injected = { detectShots, pixelsPerSecond: 48, openWorkspace, refreshVideos, addTargetReference, removeTargetReference }
-  await runtime.declare({ 'conversation.content.overlay': { kind: 'list', scope: 'session' },
-    'conversation.chat.pinned': { kind: 'list', scope: 'session' },
+  await runtime.declare({ 'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
     'test.video.delivered': { kind: 'list', scope: 'session' }, 'conversation.chat.turnTail': { kind: 'list', scope: 'session' } })
   await runtime.mount({ inject: ['slots'], apply(ctx) {
     ctx.slots.register({ name: 'test.video.delivered', id: 'owner',
       children: { 'deliverables.video': { kind: 'chain', scope: 'session' } } },
     ({ renderSlotChain, sourceUrl, label, path, seq, index }) => renderSlotChain('deliverables.video', { sourceUrl, label, path, seq, index }))
-    ctx.slots.register({ name: 'conversation.content.overlay', id: 'video', store, locale: NS,
-      inject: () => injected }, VideoShelf)
-    ctx.slots.register({ name: 'conversation.chat.pinned', id: 'video-spacer' }, VideoShelfSpacer)
+    ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'video', store, locale: NS,
+      inject: () => injected }, VideoHeader)
     ctx.slots.register({ name: 'deliverables.video', store, locale: NS, select: () => true,
       inject: () => injected }, DeliveredVideoCard)
     ctx.slots.register({ name: 'conversation.chat.turnTail', id: 'generated', store, locale: NS,
       inject: () => injected }, GeneratedVideoCards)
   } })
-  const panel = runtime.renderSlot('conversation.content.overlay', { activeView: 'chat' }, { session: reference })
-  runtime.renderSlot('conversation.chat.pinned', {}, { session: reference })
-  const instance = runtime.storeOf('conversation.content.overlay', reference) as ReturnType<typeof store.create>
+  const panel = runtime.renderSlot('conversation.session.header.utilities', { activeView: null, selectView: vi.fn() }, { session: reference })
+  const instance = runtime.storeOf('conversation.session.header.utilities', reference) as ReturnType<typeof store.create>
   return { runtime, panel, reference, instance, detectShots, inputActions, input, openWorkspace, resource }
 }

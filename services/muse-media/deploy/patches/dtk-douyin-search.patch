@@ -1,0 +1,2600 @@
+diff --git a/documents/en/11-api.md b/documents/en/11-api.md
+index 7d9a1c7..6d4a24b 100644
+--- a/documents/en/11-api.md
++++ b/documents/en/11-api.md
+@@ -556,7 +556,7 @@ Bookmark folders are the sharpest case of that asymmetry. A folder is public or
+ 
+ These are measured per platform like everything else, and the differences are declared rather than discovered. `GET /api/v1/system/capabilities` lists them, including what a guest identity loses on each.
+ 
+-- **Search.** Bilibili pages both its video and its account search for a guest identity, up to the 50 pages it ever offers. TikTok's post search refuses a guest outright since 2026-11-02 — `status_code 2483`, "Please login your account first" — so it needs a signed-in identity and answers `IDENTITY_LOGIN_REQUIRED` at once when rotation has none; its account search gives a guest a first page of ten and an empty second one, so later pages need a signed-in identity. Douyin refuses search to a guest by name (`status_code 2483`, "sign in before searching"); no signed-in answer has been measured, so it is not offered and answers `UNSUPPORTED_CONTENT`. Search draws from the slowest bucket the scheduler has.
++- **Search.** Bilibili pages both its video and its account search for a guest identity, up to the 50 pages it ever offers. TikTok's post search refuses a guest outright since 2026-11-02 — `status_code 2483`, "Please login your account first" — so it needs a signed-in identity and answers `IDENTITY_LOGIN_REQUIRED` at once when rotation has none; its account search gives a guest a first page of ten and an empty second one, so later pages need a signed-in identity. Douyin refuses search to a guest by name (`status_code 2483`, "sign in before searching"), so both its searches need a signed-in identity on every page and answer `IDENTITY_LOGIN_REQUIRED` when rotation has none; the cursor carries the offset and the first page's search session. Search draws from the slowest bucket the scheduler has.
+ - **Sounds and hashtags.** A sound's id is the `music.music_id` of any post that uses it; a hashtag's is in a Douyin hashtag link, and on TikTok `/hashtag` looks one up by `name` (a TikTok tag link carries only the name). `/hashtag/posts` takes the numeric id, so on TikTok look the name up first. Douyin answers the posts under a hashtag to a guest with an empty body — so did its own hashtag page in a browser that was not signed in — and that list is not offered on Douyin yet. A sound or a hashtag nobody has is `NOT_FOUND`.
+ - **Related posts** is a recommendation, so the same call can answer differently a minute later, and all three platforms answer an id that names no post with a full batch of unrelated ones — `/video` is the call that says whether a post exists.
+ - **Live rooms** are addressed the way their links address them: the number in `live.douyin.com/<n>`, the @handle in TikTok's `/@<handle>/live`, the number in `live.bilibili.com/<n>`. While a room is live the answer carries `viewer_count`, `started_at` where the platform states it, and `streams`, one per protocol (`flv` or `hls`) and quality in the platform's own quality names. Pull URLs are signed and expire within hours; this reads a room and records nothing, and the URLs go to your own player or recorder straight from the platform's CDN. On Bilibili the pull URLs are a second request, made only while the room is on, and its `viewer_count` is the "watched" figure it prints rather than who is in the room now.
+diff --git a/documents/zh/11-api.md b/documents/zh/11-api.md
+index 5cd91c1..ace4075 100644
+--- a/documents/zh/11-api.md
++++ b/documents/zh/11-api.md
+@@ -555,7 +555,7 @@ B 站上的 `/video` 还接受 `part`——见[视频的分 P](#视频的分-p)
+ 
+ 这些和其他接口一样逐平台实测，差异是声明出来的，而不是等你撞上才发现。`GET /api/v1/system/capabilities` 会把它们列出来，包括游客身份在每个接口上会少拿到什么。
+ 
+-- **搜索。** B 站的视频搜索和用户搜索对游客身份都能翻页，最多到它本身提供的 50 页。TikTok 的作品搜索从 2026-11-02 起直接拒绝游客（`status_code 2483`，"Please login your account first"），所以必须用已登录身份，轮换里没有时立即返回 `IDENTITY_LOGIN_REQUIRED`；账号搜索给游客第一页十个账号、第二页为空，所以之后的页需要已登录身份。抖音明确拒绝游客搜索（`status_code 2483`，「请先登录，再继续搜索吧」）；已登录时的答复还没有实测过，所以暂未提供，返回 `UNSUPPORTED_CONTENT`。搜索走调度器里最慢的那个令牌桶。
++- **搜索。** B 站的视频搜索和用户搜索对游客身份都能翻页，最多到它本身提供的 50 页。TikTok 的作品搜索从 2026-11-02 起直接拒绝游客（`status_code 2483`，"Please login your account first"），所以必须用已登录身份，轮换里没有时立即返回 `IDENTITY_LOGIN_REQUIRED`；账号搜索给游客第一页十个账号、第二页为空，所以之后的页需要已登录身份。抖音明确拒绝游客搜索（`status_code 2483`，「请先登录，再继续搜索吧」），所以两种搜索的每一页都需要已登录身份，轮换里没有时返回 `IDENTITY_LOGIN_REQUIRED`；游标里带着偏移量和第一页的搜索会话。搜索走调度器里最慢的那个令牌桶。
+ - **音乐与话题。** 音乐 ID 就是任意使用它的作品里的 `music.music_id`；话题 ID 在抖音的话题链接里，TikTok 上 `/hashtag` 可以按 `name` 查（TikTok 的话题链接只带名称）。`/hashtag/posts` 只接受数字 ID，所以在 TikTok 上要先按名称查出来。抖音对游客身份返回的话题作品是空响应体——没登录的浏览器打开它自己的话题页也一样——所以抖音上暂未提供这个列表。不存在的音乐或话题返回 `NOT_FOUND`。
+ - **相关推荐**是推荐结果，同一个请求一分钟后可能答得不一样；而且三个平台对不存在的作品 ID 都会返回一整批不相关的作品——作品存不存在，要用 `/video` 来判断。
+ - **直播间**按它的链接来定位：`live.douyin.com/<n>` 里的数字、TikTok `/@<用户名>/live` 里的用户名、`live.bilibili.com/<n>` 里的数字。正在直播时，答复里有 `viewer_count`、平台给出时的 `started_at`，以及 `streams`：每种协议（`flv` 或 `hls`）、每档清晰度各一条，清晰度用平台自己的名称。拉流地址带签名，几小时内过期；这里只读取直播间，不做任何录制，地址交给你自己的播放器或录制工具，直接从平台 CDN 拉流。B 站的拉流地址是第二个请求，只在直播间正在直播时才发；它的 `viewer_count` 是它自己显示的「看过」人数，而不是此刻在线的人数。
+diff --git a/src/dtk/api/routes/discovery.py b/src/dtk/api/routes/discovery.py
+index da99fca..f111dfd 100644
+--- a/src/dtk/api/routes/discovery.py
++++ b/src/dtk/api/routes/discovery.py
+@@ -941,16 +941,17 @@ async def search_posts(
+     - **TikTok** gives a guest a thin first page and nothing after it, so a
+       signed-in identity is used when the pool has one and is needed for every
+       later page.
+-    - **Douyin** refuses search to a guest by name (`status_code 2483`) and
+-      the signed-in answer has not been measured, so it is not offered yet and
+-      answers `UNSUPPORTED_CONTENT`.
++    - **Douyin** refuses search to a guest by name (`status_code 2483`), so
++      every page needs a signed-in identity; with none in rotation the answer
++      is `IDENTITY_LOGIN_REQUIRED`. The cursor carries the offset and the search
++      session of the first page, so pass it back unchanged.
+ 
+     Search is what platforms watch most closely, so these endpoints draw from
+     the slowest bucket the scheduler has.
+ 
+     **Parameters**
+ 
+-    - `platform` - `tiktok` or `bilibili`.
++    - `platform` - `douyin`, `tiktok` or `bilibili`.
+     - `keyword` - what to search for.
+     - `cursor` - the cursor returned by the previous page. Omit it for the
+       first page; a response with no cursor is the last page.
+@@ -1006,11 +1007,11 @@ async def search_users(
+ 
+     Bilibili pages it for a guest identity; TikTok answers a guest's first
+     page in full and no later one, and answers ten a page whatever `count`
+-    asks. Douyin is not offered, for the reason `/search/posts` gives.
++    asks. Douyin answers a signed-in identity only, as `/search/posts` says.
+ 
+     **Parameters**
+ 
+-    - `platform` - `tiktok` or `bilibili`.
++    - `platform` - `douyin`, `tiktok` or `bilibili`.
+     - `keyword`, `cursor`, `count`, `include_raw`, `wait`, `proxy`, `identity`,
+       `refresh`, `explain` - as on `/search/posts`.
+ 
+diff --git a/src/dtk/i18n/locales/en.json b/src/dtk/i18n/locales/en.json
+index f51f627..1371957 100644
+--- a/src/dtk/i18n/locales/en.json
++++ b/src/dtk/i18n/locales/en.json
+@@ -692,11 +692,11 @@
+       },
+       "search_posts": {
+         "summary": "Search posts",
+-        "description": "One page of the posts a keyword finds. Bilibili pages it for a guest identity; TikTok gives a guest a thin first page and needs a signed-in identity for every later one; Douyin refuses search to a guest and is not offered yet."
++        "description": "One page of the posts a keyword finds. Bilibili pages it for a guest identity; TikTok gives a guest a thin first page and needs a signed-in identity for every later one; Douyin answers a signed-in identity only, and its cursor must be passed back unchanged."
+       },
+       "search_authors": {
+         "summary": "Search accounts",
+-        "description": "One page of the accounts a keyword finds, each with the id the author endpoints take. Bilibili pages it for a guest; TikTok answers a guest's first page only."
++        "description": "One page of the accounts a keyword finds, each with the id the author endpoints take. Bilibili pages it for a guest; TikTok answers a guest's first page only; Douyin answers a signed-in identity only."
+       },
+       "author_mixes": {
+         "summary": "An author's own series",
+diff --git a/src/dtk/i18n/locales/zh.json b/src/dtk/i18n/locales/zh.json
+index 222e67d..baf5e89 100644
+--- a/src/dtk/i18n/locales/zh.json
++++ b/src/dtk/i18n/locales/zh.json
+@@ -692,11 +692,11 @@
+       },
+       "search_posts": {
+         "summary": "搜索作品",
+-        "description": "按关键词搜索作品，一次一页。B 站的游客身份可以翻页；TikTok 只给游客一页较少的结果，之后的每一页都需要已登录的身份；抖音拒绝游客搜索，暂未提供。"
++        "description": "按关键词搜索作品，一次一页。B 站的游客身份可以翻页；TikTok 只给游客一页较少的结果，之后的每一页都需要已登录的身份；抖音只回答已登录的身份，翻页时要原样传回上一页的游标。"
+       },
+       "search_authors": {
+         "summary": "搜索账号",
+-        "description": "按关键词搜索账号，一次一页，每个账号都带有作者类接口所用的 ID。B 站的游客身份可以翻页；TikTok 只回答游客的第一页。"
++        "description": "按关键词搜索账号，一次一页，每个账号都带有作者类接口所用的 ID。B 站的游客身份可以翻页；TikTok 只回答游客的第一页；抖音只回答已登录的身份。"
+       },
+       "author_mixes": {
+         "summary": "作者的合集列表",
+diff --git a/src/dtk/platforms/douyin/adapter.py b/src/dtk/platforms/douyin/adapter.py
+index 5bf03c7..9d81d1a 100644
+--- a/src/dtk/platforms/douyin/adapter.py
++++ b/src/dtk/platforms/douyin/adapter.py
+@@ -199,25 +199,10 @@ class DouyinAdapter:
+     def parse_search_posts(
+         self, payload: Mapping[str, Any], *, fetched_at: datetime
+     ) -> Page[Content]:
+-        """Not registered: Douyin refuses search to a guest by name.
+-
+-        Measured 2026-10-20 on the general and the video search: `status_code
+-        2483` and a message asking to sign in before searching, to a healthy
+-        guest. As with the posts under a hashtag, no signed-in answer has been
+-        seen to write a parser against.
+-        """
+-        raise UnsupportedContent(
+-            "Douyin answers search only to a signed-in session, and that answer "
+-            "has not been measured here yet",
+-            details={"platform": self.platform.value, "capability": "search_posts"},
+-        )
++        return parser.parse_search_posts(payload, fetched_at=fetched_at)
+ 
+     def parse_search_authors(self, payload: Mapping[str, Any]) -> Page[Author]:
+-        raise UnsupportedContent(
+-            "Douyin answers search only to a signed-in session, and that answer "
+-            "has not been measured here yet",
+-            details={"platform": self.platform.value, "capability": "search_authors"},
+-        )
++        return parser.parse_search_authors(payload)
+ 
+     def parse_author_mixes(self, payload: Mapping[str, Any]) -> Page[Mix]:
+         return parser.parse_author_mixes(payload)
+diff --git a/src/dtk/platforms/douyin/endpoints.py b/src/dtk/platforms/douyin/endpoints.py
+index dd42ee8..b12ab95 100644
+--- a/src/dtk/platforms/douyin/endpoints.py
++++ b/src/dtk/platforms/douyin/endpoints.py
+@@ -37,6 +37,8 @@ from dtk.platforms.douyin.params import (
+     music_detail_params,
+     music_posts_params,
+     related_posts_params,
++    search_authors_params,
++    search_posts_params,
+     session_check_params,
+     trending_params,
+ )
+@@ -248,6 +250,8 @@ LIVE_ROOM_BY_ID: Final = "douyin.live_room_by_id"
+ LIVE_STATUS: Final = "douyin.live_status"
+ LIVE_RANKING: Final = "douyin.live_ranking"
+ TRENDING: Final = "douyin.trending"
++SEARCH_POSTS: Final = "douyin.search_posts"
++SEARCH_AUTHORS: Final = "douyin.search_authors"
+ 
+ #: Sent on every Douyin request. Cookies and User-Agent are injected by the
+ #: transport from the identity; only the platform-specific referer belongs here.
+@@ -438,6 +442,29 @@ ENDPOINTS: Final = EndpointTable.of(
+         # with three (2026-10-20).
+         summary="The mixes an author has published",
+     ),
++    EndpointSpec(
++        name=SEARCH_POSTS,
++        path=DouyinAPIEndpoints.VIDEO_SEARCH,
++        required=("keyword",),
++        build=search_posts_params,
++        risk_weight=1.8,
++        # A healthy guest is refused with `status_code: 2483` and a message
++        # asking it to sign in before searching (measured 2026-10-20), so
++        # rotation sends only a signed-in identity, first page and later.
++        login=LoginNeed.REQUIRED,
++        paging_login=LoginNeed.REQUIRED,
++        summary="Posts matching a keyword",
++    ),
++    EndpointSpec(
++        name=SEARCH_AUTHORS,
++        path=DouyinAPIEndpoints.USER_SEARCH,
++        required=("keyword",),
++        build=search_authors_params,
++        risk_weight=1.8,
++        login=LoginNeed.REQUIRED,
++        paging_login=LoginNeed.REQUIRED,
++        summary="Accounts matching a keyword",
++    ),
+     EndpointSpec(
+         name=LIVE_ROOM,
+         path=DouyinAPIEndpoints.LIVE_INFO,
+@@ -554,6 +581,8 @@ __all__ = [
+     "MUSIC_DETAIL",
+     "MUSIC_POSTS",
+     "RELATED_POSTS",
++    "SEARCH_AUTHORS",
++    "SEARCH_POSTS",
+     "TRENDING",
+     "DouyinAPIEndpoints",
+ ]
+diff --git a/src/dtk/platforms/douyin/params.py b/src/dtk/platforms/douyin/params.py
+index ee60728..694a743 100644
+--- a/src/dtk/platforms/douyin/params.py
++++ b/src/dtk/platforms/douyin/params.py
+@@ -618,6 +618,83 @@ def comment_replies_params(
+     }
+ 
+ 
++#: What the search page says a query came from when it is typed into the box.
++SEARCH_SOURCE: Final = "normal_search"
++
++#: Separates the offset from the search session id inside a search cursor.
++_SEARCH_CURSOR_SEPARATOR: Final = ":"
++
++
++def _keyword(keyword: str) -> str:
++    text = str(keyword).strip()
++    if not text:
++        raise InvalidParam("a search needs a keyword", details={"field": "keyword"})
++    return text
++
++
++def search_cursor(offset: str, search_id: str | None) -> str:
++    """Encode the next search page as one opaque cursor.
++
++    Douyin pages a search by ``offset`` and ties the later pages to the first
++    answer's search session (``log_pb.impr_id``) through ``search_id``; both
++    have to come back, so both travel in the cursor.
++    """
++    return f"{offset}{_SEARCH_CURSOR_SEPARATOR}{search_id or ''}"
++
++
++def _search_page(cursor: str | None) -> tuple[str, str]:
++    """Decode a search cursor into ``(offset, search_id)``."""
++    if cursor is None or not cursor.strip():
++        return "0", ""
++    offset, _, search_id = cursor.strip().partition(_SEARCH_CURSOR_SEPARATOR)
++    return offset or "0", search_id
++
++
++def _search_params(
++    channel: str, keyword: str, cursor: str | None, count: int, profile: ClientProfile
++) -> dict[str, str]:
++    offset, search_id = _search_page(cursor)
++    params = {
++        **base_params(profile),
++        "search_channel": channel,
++        "enable_history": "1",
++        "keyword": _keyword(keyword),
++        "search_source": SEARCH_SOURCE,
++        "query_correct_type": "1",
++        "is_filter_search": "0",
++        "from_group_id": "",
++        "offset": offset,
++        "count": str(count),
++        "list_type": "single",
++        "search_id": search_id,
++    }
++    if offset == "0":
++        params["need_filter_settings"] = "1"
++    return params
++
++
++def search_posts_params(
++    *,
++    keyword: str,
++    cursor: str | None = None,
++    count: int = DEFAULT_PAGE_SIZE,
++    profile: ClientProfile = DEFAULT_PROFILE,
++) -> dict[str, str]:
++    """Parameters for ``/aweme/v1/web/search/item/``: the search page's video tab."""
++    return _search_params("aweme_video_web", keyword, cursor, count, profile)
++
++
++def search_authors_params(
++    *,
++    keyword: str,
++    cursor: str | None = None,
++    count: int = DEFAULT_PAGE_SIZE,
++    profile: ClientProfile = DEFAULT_PROFILE,
++) -> dict[str, str]:
++    """Parameters for ``/aweme/v1/web/discover/search/``: the search page's user tab."""
++    return _search_params("aweme_user_web", keyword, cursor, count, profile)
++
++
+ def _cursor(cursor: str | None) -> str:
+     """Decode the opaque page cursor into Douyin's numeric cursor."""
+     if cursor is None:
+@@ -638,4 +715,7 @@ __all__ = [
+     "comments_params",
+     "content_detail_params",
+     "profile_for",
++    "search_authors_params",
++    "search_cursor",
++    "search_posts_params",
+ ]
+diff --git a/src/dtk/platforms/douyin/parser.py b/src/dtk/platforms/douyin/parser.py
+index b7019a7..b744ea6 100644
+--- a/src/dtk/platforms/douyin/parser.py
++++ b/src/dtk/platforms/douyin/parser.py
+@@ -67,6 +67,7 @@ from dtk.platforms.common import (
+     seconds_to_ms,
+     split_title,
+ )
++from dtk.platforms.douyin.params import search_cursor
+ 
+ _PLATFORM: Final = Platform.DOUYIN
+ _NAME: Final = _PLATFORM.value
+@@ -541,6 +542,61 @@ def parse_related_posts(payload: Mapping[str, Any], *, fetched_at: datetime) ->
+     return Page(items=items, cursor=None, has_more=False)
+ 
+ 
++#: ``search_nil_info.search_nil_type`` when Douyin wants the searcher to pass
++#: a verification instead of answering; any other nil type is "nothing found".
++_SEARCH_VERIFY_NIL_TYPE: Final = "verify_check"
++
++
++def _search_root(payload: Mapping[str, Any]) -> Node:
++    root = _guard(payload)
++    nil = root.opt_child("search_nil_info")
++    if nil is not None and nil.get("search_nil_type") == _SEARCH_VERIFY_NIL_TYPE:
++        raise UpstreamRiskControl(
++            "douyin search asked for verification",
++            details={"platform": _NAME, "signal": f"search_nil:{_SEARCH_VERIFY_NIL_TYPE}"},
++        )
++    return root
++
++
++def _search_next(root: Node) -> tuple[str | None, bool]:
++    """The cursor of the next search page: the offset and the search session id."""
++    has_more = optional_bool(root.get("has_more"))
++    if not has_more:
++        return None, False
++    offset = optional_id(root.get("cursor"))
++    if offset is None:
++        raise root.missing("cursor")
++    log_pb = root.opt_child("log_pb")
++    search_id = optional_id(log_pb.get("impr_id")) if log_pb is not None else None
++    return search_cursor(offset, search_id), True
++
++
++def parse_search_posts(payload: Mapping[str, Any], *, fetched_at: datetime) -> Page[Content]:
++    """Parse ``/aweme/v1/web/search/item/``.
++
++    Each ``data`` entry wraps one post in ``aweme_info``. Entries without one
++    are cards the search page draws between posts, not posts, and are left out.
++    """
++    root = _search_root(payload)
++    items = [
++        content_from_node(post, fetched_at=fetched_at)
++        for entry in root.listed_children("data")
++        if (post := entry.opt_child("aweme_info")) is not None
++    ]
++    cursor, has_more = _search_next(root)
++    return Page(items=items, cursor=cursor, has_more=has_more)
++
++
++def parse_search_authors(payload: Mapping[str, Any]) -> Page[Author]:
++    """Parse ``/aweme/v1/web/discover/search/``: each ``user_list`` entry wraps ``user_info``."""
++    root = _search_root(payload)
++    items = [
++        author_from_node(entry.child("user_info")) for entry in root.listed_children("user_list")
++    ]
++    cursor, has_more = _search_next(root)
++    return Page(items=items, cursor=cursor, has_more=has_more)
++
++
+ def music_web_url(music_id: str) -> str:
+     return f"{WEB_DOMAIN}/music/{music_id}"
+ 
+@@ -1034,5 +1090,7 @@ __all__ = [
+     "parse_music_posts",
+     "parse_related_posts",
+     "parse_reply_previews",
++    "parse_search_authors",
++    "parse_search_posts",
+     "parse_trending",
+ ]
+diff --git a/src/dtk/scheduler/policies.py b/src/dtk/scheduler/policies.py
+index 47462e1..aca7227 100644
+--- a/src/dtk/scheduler/policies.py
++++ b/src/dtk/scheduler/policies.py
+@@ -70,6 +70,10 @@ _POLICIES: dict[str, EndpointPolicy] = {
+         EndpointPolicy("douyin.music_posts", capacity=3, refill_per_sec=0.15, risk_weight=1.5),
+         EndpointPolicy("douyin.hashtag_detail", capacity=4, refill_per_sec=0.20, risk_weight=1.0),
+         EndpointPolicy("douyin.author_mixes", capacity=3, refill_per_sec=0.15, risk_weight=1.5),
++        # The same slow bucket as TikTok's search: one signed-in account serves
++        # every search, and search is what the platform watches hardest.
++        EndpointPolicy("douyin.search_posts", capacity=2, refill_per_sec=0.08, risk_weight=1.8),
++        EndpointPolicy("douyin.search_authors", capacity=2, refill_per_sec=0.08, risk_weight=1.8),
+         EndpointPolicy("douyin.live_room", capacity=4, refill_per_sec=0.20, risk_weight=1.2),
+         EndpointPolicy("douyin.live_room_by_id", capacity=4, refill_per_sec=0.20, risk_weight=1.2),
+         # One call answers for up to a hundred rooms, so a poller spends one
+diff --git a/src/dtk/worker/registry.py b/src/dtk/worker/registry.py
+index 1772987..0ea6ffe 100644
+--- a/src/dtk/worker/registry.py
++++ b/src/dtk/worker/registry.py
+@@ -310,6 +310,8 @@ _ARGUMENTS: Final[Mapping[Platform, Mapping[Capability, Mapping[str, str]]]] = {
+         Capability.LIVE_STATUS: {LIVE_IDS: "room_ids"},
+         Capability.LIVE_RANKING: {LIVE_ID: "room_id"},
+         Capability.TRENDING: {BOARD: "board"},
++        Capability.SEARCH_POSTS: {KEYWORD: "keyword", CURSOR: "cursor", COUNT: "count"},
++        Capability.SEARCH_AUTHORS: {KEYWORD: "keyword", CURSOR: "cursor", COUNT: "count"},
+     },
+     Platform.TIKTOK: {
+         Capability.CONTENT_DETAIL: {CONTENT_ID: "item_id"},
+diff --git a/tests/fixtures/douyin/search_authors_page1.json b/tests/fixtures/douyin/search_authors_page1.json
+new file mode 100644
+index 0000000..ee6d496
+--- /dev/null
++++ b/tests/fixtures/douyin/search_authors_page1.json
+@@ -0,0 +1,210 @@
++{
++ "type": 0,
++ "user_list": [
++  {
++   "user_info": {
++    "uid": "0000000000000000001",
++    "short_id": "0000000000000000002",
++    "nickname": "Synthetic Creator",
++    "signature": "Synthetic signature",
++    "avatar_thumb": {
++     "uri": "0000000000000000003",
++     "url_list": [
++      "https://p3.example-cdn.invalid/synthetic/0000000000000000004"
++     ],
++     "width": 720,
++     "height": 720
++    },
++    "follow_status": 0,
++    "follower_count": 370912,
++    "total_favorited": 3416501,
++    "custom_verify": "",
++    "unique_id": "0000000000000000005",
++    "room_id": 0,
++    "enterprise_verify_reason": "",
++    "followers_detail": null,
++    "platform_sync_info": null,
++    "secret": 0,
++    "geofencing": null,
++    "follower_status": 0,
++    "item_list": null,
++    "new_story_cover": null,
++    "type_label": null,
++    "ad_cover_url": null,
++    "relative_users": null,
++    "cha_list": null,
++    "sec_uid": "0000000000000000006",
++    "need_points": null,
++    "homepage_bottom_toast": null,
++    "room_data": "",
++    "can_set_geofencing": null,
++    "room_id_str": "Synthetic room_id_str",
++    "white_cover_url": null,
++    "user_tags": [
++     {
++      "icon_url": "",
++      "type": "click_query_label",
++      "description": "Synthetic description"
++     }
++    ],
++    "ban_user_functions": null,
++    "versatile_display": "Synthetic versatile_display",
++    "card_entries": null,
++    "display_info": null,
++    "card_entries_not_display": null,
++    "card_sort_priority": null,
++    "interest_tags": null,
++    "link_item_list": null,
++    "user_permissions": null,
++    "offline_info_list": null,
++    "signature_extra": null,
++    "personal_tag_list": null,
++    "cf_list": null,
++    "im_role_ids": null,
++    "not_seen_item_id_list": null,
++    "follower_list_secondary_information_struct": null,
++    "endorsement_info_list": null,
++    "text_extra": null,
++    "contrail_list": null,
++    "data_label_list": null,
++    "not_seen_item_id_list_v2": null,
++    "special_people_labels": null,
++    "familiar_visitor_user": null,
++    "avatar_schema_list": null,
++    "profile_mob_params": null,
++    "verification_permission_ids": null,
++    "batch_unfollow_relation_desc": null,
++    "batch_unfollow_contain_tabs": null,
++    "creator_tag_list": null,
++    "private_relation_list": null,
++    "follower_count_str": "",
++    "identity_labels": null,
++    "profile_component_disabled": null,
++    "webcast_preview_labels": null,
++    "follow_area": null
++   },
++   "position": null,
++   "uniqid_position": null,
++   "effects": null,
++   "musics": null,
++   "items": null,
++   "mix_list": null,
++   "challenges": null,
++   "product_info": null,
++   "product_list": null,
++   "is_red_uniqueid": false,
++   "baikes": null,
++   "userSubLightApp": null,
++   "shop_product_info": null,
++   "user_service_info": null,
++   "fandoms": null
++  },
++  {
++   "user_info": {
++    "uid": "0000000000000000007",
++    "short_id": "0000000000000000008",
++    "nickname": "Synthetic Creator",
++    "signature": "Synthetic signature",
++    "avatar_thumb": {
++     "uri": "0000000000000000009",
++     "url_list": [
++      "https://p3.example-cdn.invalid/synthetic/0000000000000000010"
++     ],
++     "width": 720,
++     "height": 720
++    },
++    "follow_status": 0,
++    "follower_count": 85250,
++    "total_favorited": 659733,
++    "custom_verify": "",
++    "unique_id": "0000000000000000011",
++    "room_id": 0,
++    "enterprise_verify_reason": "",
++    "followers_detail": null,
++    "platform_sync_info": null,
++    "secret": 0,
++    "geofencing": null,
++    "follower_status": 0,
++    "item_list": null,
++    "new_story_cover": null,
++    "type_label": null,
++    "ad_cover_url": null,
++    "relative_users": null,
++    "cha_list": null,
++    "sec_uid": "0000000000000000012",
++    "need_points": null,
++    "homepage_bottom_toast": null,
++    "room_data": "",
++    "can_set_geofencing": null,
++    "room_id_str": "Synthetic room_id_str",
++    "white_cover_url": null,
++    "user_tags": [],
++    "ban_user_functions": null,
++    "versatile_display": "Synthetic versatile_display",
++    "card_entries": null,
++    "display_info": null,
++    "card_entries_not_display": null,
++    "card_sort_priority": null,
++    "interest_tags": null,
++    "link_item_list": null,
++    "user_permissions": null,
++    "offline_info_list": null,
++    "signature_extra": null,
++    "personal_tag_list": null,
++    "cf_list": null,
++    "im_role_ids": null,
++    "not_seen_item_id_list": null,
++    "follower_list_secondary_information_struct": null,
++    "endorsement_info_list": null,
++    "text_extra": null,
++    "contrail_list": null,
++    "data_label_list": null,
++    "not_seen_item_id_list_v2": null,
++    "special_people_labels": null,
++    "familiar_visitor_user": null,
++    "avatar_schema_list": null,
++    "profile_mob_params": null,
++    "verification_permission_ids": null,
++    "batch_unfollow_relation_desc": null,
++    "batch_unfollow_contain_tabs": null,
++    "creator_tag_list": null,
++    "private_relation_list": null,
++    "follower_count_str": "",
++    "identity_labels": null,
++    "profile_component_disabled": null,
++    "webcast_preview_labels": null,
++    "follow_area": null
++   },
++   "position": null,
++   "uniqid_position": null,
++   "effects": null,
++   "musics": null,
++   "items": null,
++   "mix_list": null,
++   "challenges": null,
++   "product_info": null,
++   "product_list": null,
++   "is_red_uniqueid": false,
++   "baikes": null,
++   "userSubLightApp": null,
++   "shop_product_info": null,
++   "user_service_info": null,
++   "fandoms": null
++  }
++ ],
++ "challenge_list": null,
++ "music_list": null,
++ "cursor": 10,
++ "has_more": 1,
++ "status_code": 0,
++ "log_pb": {
++  "impr_id": "0000000000000000013"
++ },
++ "extra": {
++  "now": 1794727169000,
++  "logid": "0000000000000000014",
++  "search_request_id": "",
++  "scenes": null
++ },
++ "input_keyword": "Synthetic input_keyword"
++}
+diff --git a/tests/fixtures/douyin/search_posts_page1.json b/tests/fixtures/douyin/search_posts_page1.json
+new file mode 100644
+index 0000000..6119133
+--- /dev/null
++++ b/tests/fixtures/douyin/search_posts_page1.json
+@@ -0,0 +1,971 @@
++{
++ "status_code": 0,
++ "aweme_list": null,
++ "has_more": 1,
++ "cursor": 10,
++ "guide_search_words": [
++  {
++   "id": "0000000000000000001",
++   "word": "Synthetic word",
++   "type": "recom",
++   "query_id": "0000000000000000002",
++   "attached_text": null
++  },
++  {
++   "id": "0000000000000000003",
++   "word": "Synthetic word",
++   "type": "recom",
++   "query_id": "0000000000000000004",
++   "attached_text": null
++  },
++  {
++   "id": "0000000000000000005",
++   "word": "Synthetic word",
++   "type": "recom",
++   "query_id": "0000000000000000006",
++   "attached_text": null
++  },
++  {
++   "id": "0000000000000000007",
++   "word": "Synthetic word",
++   "type": "recom",
++   "query_id": "0000000000000000008",
++   "attached_text": null
++  },
++  {
++   "id": "0000000000000000009",
++   "word": "Synthetic word",
++   "type": "recom",
++   "query_id": "0000000000000000010",
++   "attached_text": null
++  },
++  {
++   "id": "0000000000000000011",
++   "word": "Synthetic word",
++   "type": "recom",
++   "query_id": "0000000000000000012",
++   "attached_text": null
++  },
++  {
++   "id": "0000000000000000013",
++   "word": "Synthetic word",
++   "type": "recom",
++   "query_id": "0000000000000000014",
++   "attached_text": null
++  },
++  {
++   "id": "0000000000000000015",
++   "word": "Synthetic word",
++   "type": "recom",
++   "query_id": "0000000000000000016",
++   "attached_text": null
++  }
++ ],
++ "extra": {
++  "now": 1794727137000,
++  "logid": "0000000000000000017",
++  "search_request_id": "",
++  "scenes": null
++ },
++ "log_pb": {
++  "impr_id": "0000000000000000018"
++ },
++ "data": [
++  {
++   "type": 1,
++   "aweme_info": {
++    "aweme_id": "0000000000000000019",
++    "desc": "Synthetic desc",
++    "create_time": 1794227262,
++    "author": {
++     "uid": "0000000000000000020",
++     "nickname": "Synthetic Creator",
++     "avatar_thumb": {
++      "uri": "0000000000000000021",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000022"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "follow_status": 0,
++     "follower_count": 47452,
++     "total_favorited": 0,
++     "custom_verify": "",
++     "room_id": 0,
++     "enterprise_verify_reason": "",
++     "followers_detail": null,
++     "platform_sync_info": null,
++     "secret": 0,
++     "geofencing": null,
++     "follower_status": 0,
++     "item_list": null,
++     "new_story_cover": null,
++     "type_label": null,
++     "ad_cover_url": null,
++     "relative_users": null,
++     "cha_list": null,
++     "sec_uid": "0000000000000000023",
++     "need_points": null,
++     "homepage_bottom_toast": null,
++     "room_data": "",
++     "can_set_geofencing": null,
++     "room_id_str": "Synthetic room_id_str",
++     "white_cover_url": null,
++     "user_tags": null,
++     "ban_user_functions": null,
++     "card_entries": null,
++     "display_info": null,
++     "card_entries_not_display": null,
++     "card_sort_priority": null,
++     "interest_tags": null,
++     "link_item_list": null,
++     "user_permissions": null,
++     "offline_info_list": null,
++     "signature_extra": null,
++     "personal_tag_list": null,
++     "cf_list": null,
++     "im_role_ids": null,
++     "not_seen_item_id_list": null,
++     "follower_list_secondary_information_struct": null,
++     "endorsement_info_list": null,
++     "text_extra": null,
++     "contrail_list": null,
++     "data_label_list": null,
++     "not_seen_item_id_list_v2": null,
++     "special_people_labels": null,
++     "familiar_visitor_user": null,
++     "avatar_schema_list": null,
++     "profile_mob_params": null,
++     "verification_permission_ids": null,
++     "batch_unfollow_relation_desc": null,
++     "batch_unfollow_contain_tabs": null,
++     "creator_tag_list": null,
++     "account_cert_info": "Synthetic account_cert_info",
++     "private_relation_list": null,
++     "identity_labels": null,
++     "profile_component_disabled": null,
++     "webcast_preview_labels": null,
++     "follow_area": null
++    },
++    "music": {
++     "id": 24,
++     "id_str": "0000000000000000025",
++     "title": "Synthetic title",
++     "author": "Synthetic author",
++     "album": "",
++     "cover_medium": {
++      "uri": "0000000000000000026",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000027"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "cover_thumb": {
++      "uri": "0000000000000000028",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000029"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "play_url": {
++      "uri": "https://p3.example-cdn.invalid/synthetic/0000000000000000030",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000031",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000032"
++      ],
++      "width": 720,
++      "height": 720,
++      "url_key": "0000000000000000033"
++     },
++     "duration": 266,
++     "extra": "Synthetic extra",
++     "user_count": 0,
++     "position": null,
++     "collect_stat": 0,
++     "status": 1,
++     "owner_id": "0000000000000000034",
++     "owner_nickname": "Synthetic owner_nickname",
++     "is_original": false,
++     "mid": "0000000000000000035",
++     "binded_challenge_id": 0,
++     "author_position": null,
++     "unshelve_countries": null,
++     "external_song_info": null,
++     "sec_uid": "0000000000000000036",
++     "avatar_thumb": {
++      "uri": "0000000000000000037",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000038"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "artists": null,
++     "lyric_short_position": null,
++     "tag_list": null,
++     "music_chart_ranks": null,
++     "artist_user_infos": null,
++     "musician_user_infos": null,
++     "talent_hashtag_name_list": null
++    },
++    "cha_list": null,
++    "video": {
++     "play_addr": {
++      "uri": "0000000000000000039",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000040",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000041"
++      ],
++      "width": 1280,
++      "height": 720,
++      "url_key": "Synthetic url_key",
++      "data_size": 35395951,
++      "file_hash": "Synthetic file_hash",
++      "file_cs": "Synthetic file_cs"
++     },
++     "cover": {
++      "uri": "0000000000000000042",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000043",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000044"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "height": 720,
++     "width": 1280,
++     "ratio": "720p",
++     "play_addr_lowbr": {
++      "uri": "0000000000000000045",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000046",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000047"
++      ],
++      "width": 1280,
++      "height": 720,
++      "url_key": "Synthetic url_key",
++      "data_size": 35395951,
++      "file_hash": "Synthetic file_hash",
++      "file_cs": "Synthetic file_cs"
++     },
++     "bit_rate": [
++      {
++       "gear_name": "normal_720_0",
++       "quality_type": 10,
++       "bit_rate": 1061936,
++       "play_addr": {
++        "uri": "0000000000000000048",
++        "url_list": [
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000049",
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000050"
++        ],
++        "width": 1280,
++        "height": 720,
++        "url_key": "Synthetic url_key",
++        "data_size": 35395951,
++        "file_hash": "Synthetic file_hash",
++        "file_cs": "Synthetic file_cs"
++       },
++       "is_h265": 0,
++       "is_bytevc1": 0,
++       "HDR_type": "",
++       "HDR_bit": "",
++       "FPS": 25,
++       "video_extra": "Synthetic video_extra",
++       "format": "mp4"
++      },
++      {
++       "gear_name": "adapt_lowest_720_1",
++       "quality_type": 15,
++       "bit_rate": 510339,
++       "play_addr": {
++        "uri": "0000000000000000051",
++        "url_list": [
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000052",
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000053"
++        ],
++        "width": 1280,
++        "height": 720,
++        "url_key": "Synthetic url_key",
++        "data_size": 17010318,
++        "file_hash": "Synthetic file_hash",
++        "file_cs": "Synthetic file_cs"
++       },
++       "is_h265": 1,
++       "is_bytevc1": 1,
++       "HDR_type": "",
++       "HDR_bit": "",
++       "FPS": 25,
++       "video_extra": "Synthetic video_extra",
++       "format": "mp4"
++      }
++     ],
++     "duration": 266652,
++     "download_suffix_logo_addr": {
++      "uri": "0000000000000000054",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000055",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000056"
++      ],
++      "width": 720,
++      "height": 720,
++      "data_size": 49708075,
++      "file_cs": "Synthetic file_cs"
++     },
++     "has_download_suffix_logo_addr": true,
++     "video_model": "",
++     "tags": null,
++     "meta": "Synthetic meta",
++     "gaussian_cover": {
++      "uri": "0000000000000000057",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000058",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000059"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "raw_cover": {
++      "uri": "0000000000000000060",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000061",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000062"
++      ],
++      "width": 720,
++      "height": 720
++     }
++    },
++    "user_digged": 0,
++    "statistics": {
++     "comment_count": 0,
++     "digg_count": 2,
++     "download_count": 0,
++     "play_count": 0,
++     "share_count": 0,
++     "forward_count": 0,
++     "live_watch_count": 0,
++     "collect_count": 1
++    },
++    "status": {
++     "is_delete": false,
++     "allow_share": true,
++     "is_private": false,
++     "private_status": 0,
++     "in_reviewing": false,
++     "is_prohibited": false,
++     "review_result": {
++      "review_status": 0
++     },
++     "part_see": 0
++    },
++    "text_extra": [
++     {
++      "start": 22,
++      "end": 25,
++      "type": 1,
++      "hashtag_name": "Synthetic hashtag_name",
++      "hashtag_id": "0000000000000000063",
++      "is_commerce": false
++     },
++     {
++      "start": 27,
++      "end": 30,
++      "type": 1,
++      "hashtag_name": "Synthetic hashtag_name",
++      "hashtag_id": "0000000000000000064",
++      "is_commerce": false
++     }
++    ],
++    "is_top": 0,
++    "video_labels": null,
++    "aweme_type": 0,
++    "position": null,
++    "uniqid_position": null,
++    "comment_list": null,
++    "author_user_id": 65,
++    "geofencing": null,
++    "video_text": null,
++    "collect_stat": 0,
++    "label_top_text": null,
++    "promotions": null,
++    "group_id": "0000000000000000066",
++    "prevent_download": false,
++    "nickname_position": null,
++    "challenge_position": null,
++    "long_video": null,
++    "origin_comment_ids": null,
++    "commerce_config_data": null,
++    "video_control": {
++     "allow_download": true,
++     "share_type": 1,
++     "show_progress_bar": 1,
++     "draft_progress_bar": 1,
++     "allow_duet": true,
++     "allow_react": false,
++     "prevent_download_type": 0,
++     "allow_dynamic_wallpaper": false,
++     "timer_status": 1,
++     "allow_music": true,
++     "allow_stitch": false,
++     "allow_douplus": true,
++     "allow_share": true,
++     "share_grayed": false,
++     "download_ignore_visibility": false,
++     "duet_ignore_visibility": false,
++     "share_ignore_visibility": false,
++     "download_info": {
++      "level": 1,
++      "fail_info": {
++       "code": 200142,
++       "reason": "Synthetic reason",
++       "msg": "Synthetic msg"
++      }
++     },
++     "duet_info": {
++      "level": 2,
++      "fail_info": {
++       "code": 100014,
++       "reason": "Synthetic reason"
++      }
++     },
++     "allow_record": true,
++     "disable_record_reason": "",
++     "timer_info": {
++      "timer_status": 0
++     },
++     "show_ai_corner": false,
++     "show_watermark": false
++    },
++    "mix_info": {
++     "mix_id": "0000000000000000067",
++     "mix_name": "Synthetic Series",
++     "status": {
++      "status": 2,
++      "is_collected": 0
++     },
++     "statis": {
++      "play_vv": 0,
++      "collect_vv": 0,
++      "current_episode": 238,
++      "updated_to_episode": 372
++     },
++     "extra": "Synthetic extra",
++     "mix_type": 0,
++     "ids": null,
++     "watched_item": "",
++     "paid_episodes": null
++    },
++    "anchors": null,
++    "rawdata": "",
++    "hybrid_label": null,
++    "geofencing_regions": null,
++    "cover_labels": null,
++    "images": null,
++    "relation_labels": null,
++    "impression_data": {
++     "group_id_list_a": null,
++     "group_id_list_b": null,
++     "similar_id_list_a": null,
++     "similar_id_list_b": null,
++     "group_id_list_c": null,
++     "group_id_list_d": null
++    },
++    "social_tag_list": null,
++    "original_images": null,
++    "img_bitrate": null,
++    "chapter_list": null,
++    "dislike_dimension_list": null,
++    "standard_bar_info_list": null,
++    "danmaku_control": {
++     "enable_danmaku": true,
++     "post_privilege_level": 0,
++     "is_post_denied": false,
++     "post_denied_reason": "",
++     "activities": null
++    },
++    "image_list": null,
++    "origin_text_extra": null,
++    "packed_clips": null,
++    "tts_id_list": null,
++    "ref_tts_id_list": null,
++    "voice_modify_id_list": null,
++    "ref_voice_modify_id_list": null,
++    "dislike_dimension_list_v2": null,
++    "yumme_recreason": null,
++    "slides_music_beats": null,
++    "jump_tab_info_list": null,
++    "media_type": 4,
++    "reply_smart_emojis": null,
++    "create_scale_type": null,
++    "entertainment_product_info": {
++     "sub_title": null,
++     "market_info": {
++      "limit_free": {
++       "in_free": false
++      },
++      "marketing_tag": null
++     },
++     "biz": 0
++    },
++    "trends_infos": null,
++    "chapter_bar_color": null,
++    "mv_info": null,
++    "interest_points": null,
++    "nearby_hot_comment": null,
++    "ai_follow_images": null,
++    "follow_shot_assets": null,
++    "effect_inflow_effects": null,
++    "image_follow_shot_assets": null,
++    "diversion_bar_info": null,
++    "encrypt_interest_point_list": null,
++    "encrypt_key_phrase_list": null,
++    "common_left_top_labels": null
++   },
++   "tab": null,
++   "show_tab": null,
++   "aweme_list": null
++  },
++  {
++   "type": 1,
++   "aweme_info": {
++    "aweme_id": "0000000000000000068",
++    "desc": "Synthetic desc",
++    "create_time": 1794259008,
++    "author": {
++     "uid": "0000000000000000069",
++     "nickname": "Synthetic Creator",
++     "avatar_thumb": {
++      "uri": "0000000000000000070",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000071"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "follow_status": 0,
++     "follower_count": 88830,
++     "total_favorited": 0,
++     "custom_verify": "",
++     "room_id": 0,
++     "enterprise_verify_reason": "",
++     "followers_detail": null,
++     "platform_sync_info": null,
++     "secret": 0,
++     "geofencing": null,
++     "follower_status": 0,
++     "item_list": null,
++     "new_story_cover": null,
++     "type_label": null,
++     "ad_cover_url": null,
++     "relative_users": null,
++     "cha_list": null,
++     "sec_uid": "0000000000000000072",
++     "need_points": null,
++     "homepage_bottom_toast": null,
++     "room_data": "",
++     "can_set_geofencing": null,
++     "room_id_str": "Synthetic room_id_str",
++     "white_cover_url": null,
++     "user_tags": null,
++     "ban_user_functions": null,
++     "card_entries": null,
++     "display_info": null,
++     "card_entries_not_display": null,
++     "card_sort_priority": null,
++     "interest_tags": null,
++     "link_item_list": null,
++     "user_permissions": null,
++     "offline_info_list": null,
++     "signature_extra": null,
++     "personal_tag_list": null,
++     "cf_list": null,
++     "im_role_ids": null,
++     "not_seen_item_id_list": null,
++     "follower_list_secondary_information_struct": null,
++     "endorsement_info_list": null,
++     "text_extra": null,
++     "contrail_list": null,
++     "data_label_list": null,
++     "not_seen_item_id_list_v2": null,
++     "special_people_labels": null,
++     "familiar_visitor_user": null,
++     "avatar_schema_list": null,
++     "profile_mob_params": null,
++     "verification_permission_ids": null,
++     "batch_unfollow_relation_desc": null,
++     "batch_unfollow_contain_tabs": null,
++     "creator_tag_list": null,
++     "account_cert_info": "Synthetic account_cert_info",
++     "private_relation_list": null,
++     "identity_labels": null,
++     "profile_component_disabled": null,
++     "webcast_preview_labels": null,
++     "follow_area": null
++    },
++    "music": {
++     "id": 73,
++     "id_str": "0000000000000000074",
++     "title": "Synthetic title",
++     "author": "Synthetic author",
++     "album": "",
++     "cover_medium": {
++      "uri": "0000000000000000075",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000076"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "cover_thumb": {
++      "uri": "0000000000000000077",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000078"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "play_url": {
++      "uri": "https://p3.example-cdn.invalid/synthetic/0000000000000000079",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000080",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000081"
++      ],
++      "width": 720,
++      "height": 720,
++      "url_key": "0000000000000000082"
++     },
++     "duration": 1763,
++     "extra": "Synthetic extra",
++     "user_count": 0,
++     "position": null,
++     "collect_stat": 0,
++     "status": 1,
++     "owner_id": "0000000000000000083",
++     "owner_nickname": "Synthetic owner_nickname",
++     "is_original": false,
++     "mid": "0000000000000000084",
++     "binded_challenge_id": 0,
++     "author_position": null,
++     "unshelve_countries": null,
++     "external_song_info": null,
++     "sec_uid": "0000000000000000085",
++     "avatar_thumb": {
++      "uri": "0000000000000000086",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000087"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "artists": null,
++     "lyric_short_position": null,
++     "tag_list": null,
++     "music_chart_ranks": null,
++     "artist_user_infos": null,
++     "musician_user_infos": null,
++     "talent_hashtag_name_list": null
++    },
++    "cha_list": null,
++    "video": {
++     "play_addr": {
++      "uri": "0000000000000000088",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000089",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000090"
++      ],
++      "width": 1282,
++      "height": 720,
++      "url_key": "Synthetic url_key",
++      "data_size": 203953949,
++      "file_hash": "Synthetic file_hash",
++      "file_cs": "Synthetic file_cs"
++     },
++     "cover": {
++      "uri": "0000000000000000091",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000092",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000093"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "height": 1080,
++     "width": 1922,
++     "ratio": "default",
++     "play_addr_lowbr": {
++      "uri": "0000000000000000094",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000095",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000096"
++      ],
++      "width": 1282,
++      "height": 720,
++      "url_key": "Synthetic url_key",
++      "data_size": 203953949,
++      "file_hash": "Synthetic file_hash",
++      "file_cs": "Synthetic file_cs"
++     },
++     "bit_rate": [
++      {
++       "gear_name": "normal_720_0",
++       "quality_type": 10,
++       "bit_rate": 925021,
++       "play_addr": {
++        "uri": "0000000000000000097",
++        "url_list": [
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000098",
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000099"
++        ],
++        "width": 1282,
++        "height": 720,
++        "url_key": "Synthetic url_key",
++        "data_size": 203953949,
++        "file_hash": "Synthetic file_hash",
++        "file_cs": "Synthetic file_cs"
++       },
++       "is_h265": 0,
++       "is_bytevc1": 0,
++       "HDR_type": "",
++       "HDR_bit": "",
++       "FPS": 30,
++       "video_extra": "Synthetic video_extra",
++       "format": "mp4"
++      },
++      {
++       "gear_name": "low_720_0",
++       "quality_type": 211,
++       "bit_rate": 821954,
++       "play_addr": {
++        "uri": "0000000000000000100",
++        "url_list": [
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000101",
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000102"
++        ],
++        "width": 1282,
++        "height": 720,
++        "url_key": "Synthetic url_key",
++        "data_size": 181229117,
++        "file_hash": "Synthetic file_hash",
++        "file_cs": "Synthetic file_cs"
++       },
++       "is_h265": 0,
++       "is_bytevc1": 0,
++       "HDR_type": "",
++       "HDR_bit": "",
++       "FPS": 30,
++       "video_extra": "Synthetic video_extra",
++       "format": "mp4"
++      }
++     ],
++     "duration": 1763884,
++     "download_suffix_logo_addr": {
++      "uri": "0000000000000000103",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000104",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000105"
++      ],
++      "width": 720,
++      "height": 720,
++      "data_size": 285225173,
++      "file_cs": "Synthetic file_cs"
++     },
++     "has_download_suffix_logo_addr": true,
++     "video_model": "",
++     "tags": null,
++     "meta": "Synthetic meta",
++     "gaussian_cover": {
++      "uri": "0000000000000000106",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000107",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000108"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "raw_cover": {
++      "uri": "0000000000000000109",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000110",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000111"
++      ],
++      "width": 720,
++      "height": 720
++     }
++    },
++    "user_digged": 0,
++    "statistics": {
++     "comment_count": 3,
++     "digg_count": 129,
++     "download_count": 0,
++     "play_count": 0,
++     "share_count": 19,
++     "forward_count": 0,
++     "live_watch_count": 0,
++     "collect_count": 36
++    },
++    "status": {
++     "is_delete": false,
++     "allow_share": true,
++     "is_private": false,
++     "private_status": 0,
++     "in_reviewing": false,
++     "is_prohibited": false,
++     "review_result": {
++      "review_status": 0
++     },
++     "part_see": 0
++    },
++    "text_extra": [
++     {
++      "start": 92,
++      "end": 101,
++      "type": 1,
++      "hashtag_name": "Synthetic hashtag_name",
++      "hashtag_id": "0000000000000000112",
++      "is_commerce": false
++     },
++     {
++      "start": 102,
++      "end": 113,
++      "type": 1,
++      "hashtag_name": "Synthetic hashtag_name",
++      "hashtag_id": "0000000000000000113",
++      "is_commerce": false
++     }
++    ],
++    "is_top": 0,
++    "video_labels": null,
++    "aweme_type": 0,
++    "position": null,
++    "uniqid_position": null,
++    "comment_list": null,
++    "author_user_id": 114,
++    "geofencing": null,
++    "video_text": null,
++    "collect_stat": 0,
++    "label_top_text": null,
++    "promotions": null,
++    "group_id": "0000000000000000115",
++    "prevent_download": false,
++    "nickname_position": null,
++    "challenge_position": null,
++    "long_video": null,
++    "origin_comment_ids": null,
++    "commerce_config_data": null,
++    "video_control": {
++     "allow_download": false,
++     "share_type": 1,
++     "show_progress_bar": 1,
++     "draft_progress_bar": 1,
++     "allow_duet": true,
++     "allow_react": false,
++     "prevent_download_type": 1,
++     "allow_dynamic_wallpaper": false,
++     "timer_status": 1,
++     "allow_music": false,
++     "allow_stitch": false,
++     "allow_douplus": true,
++     "allow_share": true,
++     "share_grayed": false,
++     "download_ignore_visibility": false,
++     "duet_ignore_visibility": false,
++     "share_ignore_visibility": false,
++     "download_info": {
++      "level": 1,
++      "fail_info": {
++       "code": 200142,
++       "reason": "Synthetic reason",
++       "msg": "Synthetic msg"
++      }
++     },
++     "duet_info": {
++      "level": 2,
++      "fail_info": {
++       "code": 100014,
++       "reason": "Synthetic reason"
++      }
++     },
++     "allow_record": true,
++     "disable_record_reason": "",
++     "timer_info": {
++      "timer_status": 0
++     },
++     "show_ai_corner": false,
++     "show_watermark": false
++    },
++    "anchors": null,
++    "rawdata": "",
++    "hybrid_label": null,
++    "geofencing_regions": null,
++    "cover_labels": null,
++    "images": null,
++    "relation_labels": null,
++    "impression_data": {
++     "group_id_list_a": null,
++     "group_id_list_b": null,
++     "similar_id_list_a": null,
++     "similar_id_list_b": null,
++     "group_id_list_c": null,
++     "group_id_list_d": null
++    },
++    "social_tag_list": null,
++    "original_images": null,
++    "img_bitrate": null,
++    "chapter_list": null,
++    "dislike_dimension_list": null,
++    "standard_bar_info_list": null,
++    "danmaku_control": {
++     "enable_danmaku": true,
++     "post_privilege_level": 0,
++     "is_post_denied": false,
++     "post_denied_reason": "",
++     "activities": null
++    },
++    "image_list": null,
++    "origin_text_extra": null,
++    "packed_clips": null,
++    "tts_id_list": null,
++    "ref_tts_id_list": null,
++    "voice_modify_id_list": null,
++    "ref_voice_modify_id_list": null,
++    "dislike_dimension_list_v2": null,
++    "yumme_recreason": null,
++    "slides_music_beats": null,
++    "jump_tab_info_list": null,
++    "media_type": 4,
++    "reply_smart_emojis": null,
++    "create_scale_type": null,
++    "entertainment_product_info": {
++     "sub_title": null,
++     "market_info": {
++      "limit_free": {
++       "in_free": false
++      },
++      "marketing_tag": null
++     },
++     "biz": 0
++    },
++    "trends_infos": null,
++    "chapter_bar_color": null,
++    "mv_info": null,
++    "interest_points": null,
++    "nearby_hot_comment": null,
++    "ai_follow_images": null,
++    "douyin_p_c_video_extra": "Synthetic douyin_p_c_video_extra",
++    "follow_shot_assets": null,
++    "effect_inflow_effects": null,
++    "image_follow_shot_assets": null,
++    "diversion_bar_info": null,
++    "encrypt_interest_point_list": null,
++    "encrypt_key_phrase_list": null,
++    "common_left_top_labels": null
++   },
++   "tab": null,
++   "show_tab": null,
++   "aweme_list": null
++  }
++ ]
++}
+diff --git a/tests/fixtures/douyin/search_posts_page2.json b/tests/fixtures/douyin/search_posts_page2.json
+new file mode 100644
+index 0000000..8f38619
+--- /dev/null
++++ b/tests/fixtures/douyin/search_posts_page2.json
+@@ -0,0 +1,893 @@
++{
++ "status_code": 0,
++ "aweme_list": null,
++ "has_more": 1,
++ "cursor": 20,
++ "extra": {
++  "now": 1794727153000,
++  "logid": "0000000000000000001",
++  "search_request_id": "",
++  "scenes": null
++ },
++ "log_pb": {
++  "impr_id": "0000000000000000002"
++ },
++ "data": [
++  {
++   "type": 1,
++   "aweme_info": {
++    "aweme_id": "0000000000000000003",
++    "desc": "Synthetic desc",
++    "create_time": 1794419193,
++    "author": {
++     "uid": "0000000000000000004",
++     "nickname": "Synthetic Creator",
++     "avatar_thumb": {
++      "uri": "0000000000000000005",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000006"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "follow_status": 0,
++     "follower_count": 3986,
++     "total_favorited": 0,
++     "custom_verify": "",
++     "room_id": 0,
++     "enterprise_verify_reason": "",
++     "followers_detail": null,
++     "platform_sync_info": null,
++     "secret": 0,
++     "geofencing": null,
++     "follower_status": 0,
++     "item_list": null,
++     "new_story_cover": null,
++     "type_label": null,
++     "ad_cover_url": null,
++     "relative_users": null,
++     "cha_list": null,
++     "sec_uid": "0000000000000000007",
++     "need_points": null,
++     "homepage_bottom_toast": null,
++     "room_data": "",
++     "can_set_geofencing": null,
++     "room_id_str": "Synthetic room_id_str",
++     "white_cover_url": null,
++     "user_tags": null,
++     "ban_user_functions": null,
++     "card_entries": null,
++     "display_info": null,
++     "card_entries_not_display": null,
++     "card_sort_priority": null,
++     "interest_tags": null,
++     "link_item_list": null,
++     "user_permissions": null,
++     "offline_info_list": null,
++     "signature_extra": null,
++     "personal_tag_list": null,
++     "cf_list": null,
++     "im_role_ids": null,
++     "not_seen_item_id_list": null,
++     "follower_list_secondary_information_struct": null,
++     "endorsement_info_list": null,
++     "text_extra": null,
++     "contrail_list": null,
++     "data_label_list": null,
++     "not_seen_item_id_list_v2": null,
++     "special_people_labels": null,
++     "familiar_visitor_user": null,
++     "avatar_schema_list": null,
++     "profile_mob_params": null,
++     "verification_permission_ids": null,
++     "batch_unfollow_relation_desc": null,
++     "batch_unfollow_contain_tabs": null,
++     "creator_tag_list": null,
++     "private_relation_list": null,
++     "identity_labels": null,
++     "profile_component_disabled": null,
++     "webcast_preview_labels": null,
++     "follow_area": null
++    },
++    "music": {
++     "id": 8,
++     "id_str": "0000000000000000009",
++     "title": "Synthetic title",
++     "author": "Synthetic author",
++     "album": "",
++     "cover_medium": {
++      "uri": "0000000000000000010",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000011"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "cover_thumb": {
++      "uri": "0000000000000000012",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000013"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "play_url": {
++      "uri": "https://p3.example-cdn.invalid/synthetic/0000000000000000014",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000015",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000016"
++      ],
++      "width": 720,
++      "height": 720,
++      "url_key": "0000000000000000017"
++     },
++     "duration": 1586,
++     "extra": "Synthetic extra",
++     "user_count": 0,
++     "position": null,
++     "collect_stat": 0,
++     "status": 1,
++     "owner_id": "0000000000000000018",
++     "owner_nickname": "Synthetic owner_nickname",
++     "is_original": false,
++     "mid": "0000000000000000019",
++     "binded_challenge_id": 0,
++     "author_position": null,
++     "unshelve_countries": null,
++     "external_song_info": null,
++     "sec_uid": "0000000000000000020",
++     "avatar_thumb": {
++      "uri": "0000000000000000021",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000022"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "artists": null,
++     "lyric_short_position": null,
++     "tag_list": null,
++     "music_chart_ranks": null,
++     "artist_user_infos": null,
++     "musician_user_infos": null,
++     "talent_hashtag_name_list": null
++    },
++    "cha_list": null,
++    "video": {
++     "play_addr": {
++      "uri": "0000000000000000023",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000024",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000025"
++      ],
++      "width": 720,
++      "height": 1280,
++      "url_key": "Synthetic url_key",
++      "data_size": 205872339,
++      "file_hash": "Synthetic file_hash",
++      "file_cs": "Synthetic file_cs"
++     },
++     "cover": {
++      "uri": "0000000000000000026",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000027",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000028"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "height": 1920,
++     "width": 1080,
++     "ratio": "720p",
++     "play_addr_lowbr": {
++      "uri": "0000000000000000029",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000030",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000031"
++      ],
++      "width": 720,
++      "height": 1280,
++      "url_key": "Synthetic url_key",
++      "data_size": 205872339,
++      "file_hash": "Synthetic file_hash",
++      "file_cs": "Synthetic file_cs"
++     },
++     "bit_rate": [
++      {
++       "gear_name": "normal_720_0",
++       "quality_type": 10,
++       "bit_rate": 1037981,
++       "play_addr": {
++        "uri": "0000000000000000032",
++        "url_list": [
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000033",
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000034"
++        ],
++        "width": 720,
++        "height": 1280,
++        "url_key": "Synthetic url_key",
++        "data_size": 205872339,
++        "file_hash": "Synthetic file_hash",
++        "file_cs": "Synthetic file_cs"
++       },
++       "is_h265": 0,
++       "is_bytevc1": 0,
++       "HDR_type": "",
++       "HDR_bit": "",
++       "FPS": 25,
++       "video_extra": "Synthetic video_extra",
++       "format": "mp4"
++      },
++      {
++       "gear_name": "low_720_0",
++       "quality_type": 211,
++       "bit_rate": 875729,
++       "play_addr": {
++        "uri": "0000000000000000035",
++        "url_list": [
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000036",
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000037"
++        ],
++        "width": 720,
++        "height": 1280,
++        "url_key": "Synthetic url_key",
++        "data_size": 173691401,
++        "file_hash": "Synthetic file_hash",
++        "file_cs": "Synthetic file_cs"
++       },
++       "is_h265": 0,
++       "is_bytevc1": 0,
++       "HDR_type": "",
++       "HDR_bit": "",
++       "FPS": 25,
++       "video_extra": "Synthetic video_extra",
++       "format": "mp4"
++      }
++     ],
++     "duration": 1586713,
++     "download_suffix_logo_addr": {
++      "uri": "0000000000000000038",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000039",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000040"
++      ],
++      "width": 720,
++      "height": 720,
++      "data_size": 277933844,
++      "file_cs": "Synthetic file_cs"
++     },
++     "has_download_suffix_logo_addr": true,
++     "video_model": "",
++     "tags": null,
++     "meta": "Synthetic meta",
++     "gaussian_cover": {
++      "uri": "0000000000000000041",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000042",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000043"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "raw_cover": {
++      "uri": "0000000000000000044",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000045",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000046"
++      ],
++      "width": 720,
++      "height": 720
++     }
++    },
++    "user_digged": 0,
++    "statistics": {
++     "comment_count": 0,
++     "digg_count": 9,
++     "download_count": 0,
++     "play_count": 0,
++     "share_count": 0,
++     "forward_count": 0,
++     "live_watch_count": 0,
++     "collect_count": 2
++    },
++    "status": {
++     "is_delete": false,
++     "allow_share": true,
++     "is_private": false,
++     "private_status": 0,
++     "in_reviewing": false,
++     "is_prohibited": false,
++     "review_result": {
++      "review_status": 0
++     },
++     "part_see": 0
++    },
++    "text_extra": [
++     {
++      "start": 233,
++      "end": 245,
++      "type": 1,
++      "hashtag_name": "Synthetic hashtag_name",
++      "hashtag_id": "0000000000000000047",
++      "is_commerce": false
++     },
++     {
++      "start": 246,
++      "end": 260,
++      "type": 1,
++      "hashtag_name": "Synthetic hashtag_name",
++      "hashtag_id": "0000000000000000048",
++      "is_commerce": false
++     }
++    ],
++    "is_top": 0,
++    "video_labels": null,
++    "aweme_type": 0,
++    "position": null,
++    "uniqid_position": null,
++    "comment_list": null,
++    "author_user_id": 49,
++    "geofencing": null,
++    "video_text": null,
++    "collect_stat": 0,
++    "label_top_text": null,
++    "promotions": null,
++    "group_id": "0000000000000000050",
++    "prevent_download": false,
++    "nickname_position": null,
++    "challenge_position": null,
++    "long_video": null,
++    "origin_comment_ids": null,
++    "commerce_config_data": null,
++    "video_control": {
++     "allow_download": false,
++     "share_type": 0,
++     "show_progress_bar": 1,
++     "draft_progress_bar": 1,
++     "allow_duet": true,
++     "allow_react": false,
++     "prevent_download_type": 1,
++     "allow_dynamic_wallpaper": false,
++     "timer_status": 1,
++     "allow_music": false,
++     "allow_stitch": false,
++     "allow_douplus": true,
++     "allow_share": true,
++     "share_grayed": false,
++     "download_ignore_visibility": false,
++     "duet_ignore_visibility": false,
++     "share_ignore_visibility": false,
++     "download_info": {
++      "level": 1,
++      "fail_info": {
++       "code": 200142,
++       "reason": "Synthetic reason",
++       "msg": "Synthetic msg"
++      }
++     },
++     "duet_info": {
++      "level": 2,
++      "fail_info": {
++       "code": 100014,
++       "reason": "Synthetic reason"
++      }
++     },
++     "allow_record": true,
++     "disable_record_reason": "",
++     "timer_info": {
++      "timer_status": 0
++     },
++     "show_ai_corner": false,
++     "show_watermark": false
++    },
++    "anchors": null,
++    "rawdata": "",
++    "hybrid_label": null,
++    "geofencing_regions": null,
++    "cover_labels": null,
++    "images": null,
++    "relation_labels": null,
++    "impression_data": {
++     "group_id_list_a": [
++      7706908141144919350
++     ],
++     "group_id_list_b": null,
++     "similar_id_list_a": null,
++     "similar_id_list_b": null,
++     "group_id_list_c": null,
++     "group_id_list_d": null
++    },
++    "social_tag_list": null,
++    "original_images": null,
++    "img_bitrate": null,
++    "chapter_list": null,
++    "dislike_dimension_list": null,
++    "standard_bar_info_list": null,
++    "danmaku_control": {
++     "enable_danmaku": true,
++     "post_privilege_level": 0,
++     "is_post_denied": false,
++     "post_denied_reason": "",
++     "activities": null
++    },
++    "image_list": null,
++    "origin_text_extra": null,
++    "packed_clips": null,
++    "tts_id_list": null,
++    "ref_tts_id_list": null,
++    "voice_modify_id_list": null,
++    "ref_voice_modify_id_list": null,
++    "dislike_dimension_list_v2": null,
++    "yumme_recreason": null,
++    "slides_music_beats": null,
++    "jump_tab_info_list": null,
++    "media_type": 4,
++    "reply_smart_emojis": null,
++    "create_scale_type": null,
++    "entertainment_product_info": {
++     "sub_title": null,
++     "market_info": {
++      "limit_free": {
++       "in_free": false
++      },
++      "marketing_tag": null
++     },
++     "biz": 0
++    },
++    "trends_infos": null,
++    "chapter_bar_color": null,
++    "mv_info": null,
++    "interest_points": null,
++    "nearby_hot_comment": null,
++    "ai_follow_images": null,
++    "follow_shot_assets": null,
++    "effect_inflow_effects": null,
++    "image_follow_shot_assets": null,
++    "diversion_bar_info": null,
++    "encrypt_interest_point_list": null,
++    "encrypt_key_phrase_list": null,
++    "common_left_top_labels": null
++   },
++   "tab": null,
++   "show_tab": null,
++   "aweme_list": null
++  },
++  {
++   "type": 1,
++   "aweme_info": {
++    "aweme_id": "0000000000000000051",
++    "desc": "Synthetic desc",
++    "create_time": 1794278076,
++    "author": {
++     "uid": "0000000000000000052",
++     "nickname": "Synthetic Creator",
++     "avatar_thumb": {
++      "uri": "0000000000000000053",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000054"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "follow_status": 0,
++     "follower_count": 2321,
++     "total_favorited": 0,
++     "custom_verify": "",
++     "room_id": 0,
++     "enterprise_verify_reason": "",
++     "followers_detail": null,
++     "platform_sync_info": null,
++     "secret": 0,
++     "geofencing": null,
++     "follower_status": 0,
++     "item_list": null,
++     "new_story_cover": null,
++     "type_label": null,
++     "ad_cover_url": null,
++     "relative_users": null,
++     "cha_list": null,
++     "sec_uid": "0000000000000000055",
++     "need_points": null,
++     "homepage_bottom_toast": null,
++     "room_data": "",
++     "can_set_geofencing": null,
++     "room_id_str": "Synthetic room_id_str",
++     "white_cover_url": null,
++     "user_tags": null,
++     "ban_user_functions": null,
++     "card_entries": null,
++     "display_info": null,
++     "card_entries_not_display": null,
++     "card_sort_priority": null,
++     "interest_tags": null,
++     "link_item_list": null,
++     "user_permissions": null,
++     "offline_info_list": null,
++     "signature_extra": null,
++     "personal_tag_list": null,
++     "cf_list": null,
++     "im_role_ids": null,
++     "not_seen_item_id_list": null,
++     "follower_list_secondary_information_struct": null,
++     "endorsement_info_list": null,
++     "text_extra": null,
++     "contrail_list": null,
++     "data_label_list": null,
++     "not_seen_item_id_list_v2": null,
++     "special_people_labels": null,
++     "familiar_visitor_user": null,
++     "avatar_schema_list": null,
++     "profile_mob_params": null,
++     "verification_permission_ids": null,
++     "batch_unfollow_relation_desc": null,
++     "batch_unfollow_contain_tabs": null,
++     "creator_tag_list": null,
++     "private_relation_list": null,
++     "identity_labels": null,
++     "profile_component_disabled": null,
++     "webcast_preview_labels": null,
++     "follow_area": null
++    },
++    "music": {
++     "id": 56,
++     "id_str": "0000000000000000057",
++     "title": "Synthetic title",
++     "author": "Synthetic author",
++     "album": "",
++     "cover_medium": {
++      "uri": "0000000000000000058",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000059"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "cover_thumb": {
++      "uri": "0000000000000000060",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000061"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "play_url": {
++      "uri": "https://p3.example-cdn.invalid/synthetic/0000000000000000062",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000063",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000064"
++      ],
++      "width": 720,
++      "height": 720,
++      "url_key": "0000000000000000065"
++     },
++     "duration": 658,
++     "extra": "Synthetic extra",
++     "user_count": 0,
++     "position": null,
++     "collect_stat": 0,
++     "status": 1,
++     "owner_id": "0000000000000000066",
++     "owner_nickname": "Synthetic owner_nickname",
++     "is_original": false,
++     "mid": "0000000000000000067",
++     "binded_challenge_id": 0,
++     "author_position": null,
++     "unshelve_countries": null,
++     "external_song_info": null,
++     "sec_uid": "0000000000000000068",
++     "avatar_thumb": {
++      "uri": "0000000000000000069",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000070"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "artists": null,
++     "lyric_short_position": null,
++     "tag_list": null,
++     "music_chart_ranks": null,
++     "artist_user_infos": null,
++     "musician_user_infos": null,
++     "talent_hashtag_name_list": null
++    },
++    "cha_list": null,
++    "video": {
++     "play_addr": {
++      "uri": "0000000000000000071",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000072",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000073"
++      ],
++      "width": 960,
++      "height": 720,
++      "url_key": "Synthetic url_key",
++      "data_size": 74425754,
++      "file_hash": "Synthetic file_hash",
++      "file_cs": "Synthetic file_cs"
++     },
++     "cover": {
++      "uri": "0000000000000000074",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000075",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000076"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "height": 1080,
++     "width": 1440,
++     "ratio": "720p",
++     "play_addr_lowbr": {
++      "uri": "0000000000000000077",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000078",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000079"
++      ],
++      "width": 960,
++      "height": 720,
++      "url_key": "Synthetic url_key",
++      "data_size": 74425754,
++      "file_hash": "Synthetic file_hash",
++      "file_cs": "Synthetic file_cs"
++     },
++     "bit_rate": [
++      {
++       "gear_name": "normal_720_0",
++       "quality_type": 10,
++       "bit_rate": 904668,
++       "play_addr": {
++        "uri": "0000000000000000080",
++        "url_list": [
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000081",
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000082"
++        ],
++        "width": 960,
++        "height": 720,
++        "url_key": "Synthetic url_key",
++        "data_size": 74425754,
++        "file_hash": "Synthetic file_hash",
++        "file_cs": "Synthetic file_cs"
++       },
++       "is_h265": 0,
++       "is_bytevc1": 0,
++       "HDR_type": "",
++       "HDR_bit": "",
++       "FPS": 30,
++       "video_extra": "Synthetic video_extra",
++       "format": "mp4"
++      },
++      {
++       "gear_name": "low_720_0",
++       "quality_type": 211,
++       "bit_rate": 790544,
++       "play_addr": {
++        "uri": "0000000000000000083",
++        "url_list": [
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000084",
++         "https://p3.example-cdn.invalid/synthetic/0000000000000000085"
++        ],
++        "width": 960,
++        "height": 720,
++        "url_key": "Synthetic url_key",
++        "data_size": 65036909,
++        "file_hash": "Synthetic file_hash",
++        "file_cs": "Synthetic file_cs"
++       },
++       "is_h265": 0,
++       "is_bytevc1": 0,
++       "HDR_type": "",
++       "HDR_bit": "",
++       "FPS": 30,
++       "video_extra": "Synthetic video_extra",
++       "format": "mp4"
++      }
++     ],
++     "duration": 658148,
++     "download_suffix_logo_addr": {
++      "uri": "0000000000000000086",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000087",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000088"
++      ],
++      "width": 720,
++      "height": 720,
++      "data_size": 103123409,
++      "file_cs": "Synthetic file_cs"
++     },
++     "has_download_suffix_logo_addr": true,
++     "video_model": "",
++     "tags": null,
++     "meta": "Synthetic meta",
++     "gaussian_cover": {
++      "uri": "0000000000000000089",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000090",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000091"
++      ],
++      "width": 720,
++      "height": 720
++     },
++     "raw_cover": {
++      "uri": "0000000000000000092",
++      "url_list": [
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000093",
++       "https://p3.example-cdn.invalid/synthetic/0000000000000000094"
++      ],
++      "width": 720,
++      "height": 720
++     }
++    },
++    "user_digged": 0,
++    "statistics": {
++     "comment_count": 0,
++     "digg_count": 0,
++     "download_count": 0,
++     "play_count": 0,
++     "share_count": 0,
++     "forward_count": 0,
++     "live_watch_count": 0,
++     "collect_count": 0
++    },
++    "status": {
++     "is_delete": false,
++     "allow_share": true,
++     "is_private": false,
++     "private_status": 0,
++     "in_reviewing": false,
++     "is_prohibited": false,
++     "review_result": {
++      "review_status": 0
++     },
++     "part_see": 0
++    },
++    "text_extra": [
++     {
++      "start": 18,
++      "end": 27,
++      "type": 1,
++      "hashtag_name": "Synthetic hashtag_name",
++      "hashtag_id": "0000000000000000095",
++      "is_commerce": false
++     },
++     {
++      "start": 28,
++      "end": 39,
++      "type": 1,
++      "hashtag_name": "Synthetic hashtag_name",
++      "hashtag_id": "0000000000000000096",
++      "is_commerce": false
++     }
++    ],
++    "is_top": 0,
++    "video_labels": null,
++    "aweme_type": 0,
++    "position": null,
++    "uniqid_position": null,
++    "comment_list": null,
++    "author_user_id": 97,
++    "geofencing": null,
++    "video_text": null,
++    "collect_stat": 0,
++    "label_top_text": null,
++    "promotions": null,
++    "group_id": "0000000000000000098",
++    "prevent_download": false,
++    "nickname_position": null,
++    "challenge_position": null,
++    "long_video": null,
++    "origin_comment_ids": null,
++    "commerce_config_data": null,
++    "video_control": {
++     "allow_download": false,
++     "share_type": 1,
++     "show_progress_bar": 1,
++     "draft_progress_bar": 1,
++     "allow_duet": true,
++     "allow_react": false,
++     "prevent_download_type": 1,
++     "allow_dynamic_wallpaper": false,
++     "timer_status": 1,
++     "allow_music": true,
++     "allow_stitch": false,
++     "allow_douplus": true,
++     "allow_share": true,
++     "share_grayed": false,
++     "download_ignore_visibility": false,
++     "duet_ignore_visibility": false,
++     "share_ignore_visibility": false,
++     "download_info": {
++      "level": 1,
++      "fail_info": {
++       "code": 200142,
++       "reason": "Synthetic reason",
++       "msg": "Synthetic msg"
++      }
++     },
++     "duet_info": {
++      "level": 2,
++      "fail_info": {
++       "code": 100014,
++       "reason": "Synthetic reason"
++      }
++     },
++     "allow_record": true,
++     "disable_record_reason": "",
++     "timer_info": {
++      "timer_status": 0
++     },
++     "show_ai_corner": false,
++     "show_watermark": false
++    },
++    "anchors": null,
++    "rawdata": "",
++    "hybrid_label": null,
++    "geofencing_regions": null,
++    "cover_labels": null,
++    "images": null,
++    "relation_labels": null,
++    "impression_data": {
++     "group_id_list_a": null,
++     "group_id_list_b": null,
++     "similar_id_list_a": null,
++     "similar_id_list_b": null,
++     "group_id_list_c": null,
++     "group_id_list_d": null
++    },
++    "social_tag_list": null,
++    "original_images": null,
++    "img_bitrate": null,
++    "chapter_list": null,
++    "dislike_dimension_list": null,
++    "standard_bar_info_list": null,
++    "danmaku_control": {
++     "enable_danmaku": true,
++     "post_privilege_level": 0,
++     "is_post_denied": false,
++     "post_denied_reason": "",
++     "activities": null
++    },
++    "image_list": null,
++    "origin_text_extra": null,
++    "packed_clips": null,
++    "tts_id_list": null,
++    "ref_tts_id_list": null,
++    "voice_modify_id_list": null,
++    "ref_voice_modify_id_list": null,
++    "dislike_dimension_list_v2": null,
++    "yumme_recreason": null,
++    "slides_music_beats": null,
++    "jump_tab_info_list": null,
++    "media_type": 4,
++    "reply_smart_emojis": null,
++    "create_scale_type": null,
++    "entertainment_product_info": {
++     "sub_title": null,
++     "market_info": {
++      "limit_free": {
++       "in_free": false
++      },
++      "marketing_tag": null
++     },
++     "biz": 0
++    },
++    "trends_infos": null,
++    "chapter_bar_color": null,
++    "mv_info": null,
++    "interest_points": null,
++    "nearby_hot_comment": null,
++    "ai_follow_images": null,
++    "follow_shot_assets": null,
++    "effect_inflow_effects": null,
++    "image_follow_shot_assets": null,
++    "diversion_bar_info": null,
++    "encrypt_interest_point_list": null,
++    "encrypt_key_phrase_list": null,
++    "common_left_top_labels": null
++   },
++   "tab": null,
++   "show_tab": null,
++   "aweme_list": null
++  }
++ ]
++}
+diff --git a/tests/replay/support.py b/tests/replay/support.py
+index a725c4d..b85ee46 100644
+--- a/tests/replay/support.py
++++ b/tests/replay/support.py
+@@ -109,6 +109,11 @@ DOUYIN_FIXTURE_NAMES: tuple[str, ...] = (
+     # A broadcast's audience ranking, which only Douyin has measured.
+     "live_ranking",
+     "live_ranking_missing",
++    # Search, which Douyin answers only to a signed-in session: two pages of
++    # one query and a page of accounts, captured 2026-11-15.
++    "search_posts_page1",
++    "search_posts_page2",
++    "search_authors_page1",
+ )
+ 
+ #: TikTok's adds the posts under a hashtag, which Douyin serves only to a
+@@ -116,7 +121,7 @@ DOUYIN_FIXTURE_NAMES: tuple[str, ...] = (
+ TIKTOK_FIXTURE_NAMES: tuple[str, ...] = (
+     *FIXTURE_NAMES,
+     "hashtag_posts_page1",
+-    # And search, which Douyin refuses to a guest.
++    # And the end of a search, which no Douyin capture has reached yet.
+     "search_posts_page1",
+     "search_posts_end",
+     "search_authors_page1",
+diff --git a/tests/replay/test_discovery_parsers.py b/tests/replay/test_discovery_parsers.py
+index 1664976..24778f1 100644
+--- a/tests/replay/test_discovery_parsers.py
++++ b/tests/replay/test_discovery_parsers.py
+@@ -417,13 +417,71 @@ def test_searches_resolve_through_the_registry(name: str) -> None:
+         assert definition.cache_ttl_key == "cache.list_ttl"
+ 
+ 
+-def test_douyin_does_not_offer_search() -> None:
+-    from dtk.core.errors import UnsupportedContent
++def test_douyin_search_pages_carry_the_offset_and_the_search_session() -> None:
++    adapter = get_adapter("douyin")
++    first = adapter.parse_search_posts(load("douyin", "search_posts_page1"), fetched_at=FETCHED_AT)
++    second = adapter.parse_search_posts(load("douyin", "search_posts_page2"), fetched_at=FETCHED_AT)
+ 
+-    assert "douyin.search_posts" not in registry.ENDPOINTS
+-    assert "douyin.search_authors" not in registry.ENDPOINTS
+-    with pytest.raises(UnsupportedContent):
+-        get_adapter("douyin").parse_search_authors({})
++    assert [item.platform for item in first.items] == [Platform.DOUYIN, Platform.DOUYIN]
++    assert first.items[0].author.nickname == "Synthetic Creator"
++    # Douyin's web search reports a constant 0 plays; that is not a fact.
++    assert first.items[0].stats.play_count is None
++    impr = load("douyin", "search_posts_page1")["log_pb"]["impr_id"]
++    assert first.has_more and first.cursor == f"10:{impr}"
++    assert second.has_more and second.cursor.startswith("20:")
++
++
++def test_douyin_search_cursor_round_trips_into_the_next_request() -> None:
++    from dtk.platforms.douyin.params import search_posts_params
++
++    first = search_posts_params(keyword=" drama ")
++    assert (first["keyword"], first["offset"], first["search_id"]) == ("drama", "0", "")
++    assert first["need_filter_settings"] == "1"
++    later = search_posts_params(keyword="drama", cursor="10:2026111515185600000")
++    assert (later["offset"], later["search_id"]) == ("10", "2026111515185600000")
++    assert "need_filter_settings" not in later
++
++
++def test_douyin_account_search_reads_each_user_info() -> None:
++    page = get_adapter("douyin").parse_search_authors(load("douyin", "search_authors_page1"))
++
++    assert len(page.items) == 2
++    assert page.items[0].nickname == "Synthetic Creator"
++    assert page.items[0].sec_uid == page.items[0].uid
++    assert page.has_more and page.cursor.startswith("10:")
++
++
++def test_douyin_search_verification_is_risk_control_and_nothing_found_is_an_empty_page() -> None:
++    from dtk.core.errors import UpstreamRiskControl
++
++    adapter = get_adapter("douyin")
++    with pytest.raises(UpstreamRiskControl):
++        adapter.parse_search_posts(
++            {"status_code": 0, "data": [], "search_nil_info": {"search_nil_type": "verify_check"}},
++            fetched_at=FETCHED_AT,
++        )
++    empty = adapter.parse_search_posts(
++        {
++            "status_code": 0,
++            "data": None,
++            "has_more": 0,
++            "cursor": 0,
++            "search_nil_info": {"search_nil_type": "search_result_nil"},
++        },
++        fetched_at=FETCHED_AT,
++    )
++    assert (empty.items, empty.cursor, empty.has_more) == ([], None, False)
++
++
++def test_douyin_search_is_offered_to_signed_in_identities_only() -> None:
++    from dtk.core.types import LoginNeed
++    from dtk.platforms.douyin.endpoints import ENDPOINTS
++
++    for capability in ("search_posts", "search_authors"):
++        definition = registry.definition_for(f"douyin.{capability}")
++        assert definition.required == (registry.KEYWORD,)
++        spec = ENDPOINTS[f"douyin.{capability}"]
++        assert (spec.login, spec.paging_login) == (LoginNeed.REQUIRED, LoginNeed.REQUIRED)
+ 
+ 
+ # --------------------------------------------------------------------------

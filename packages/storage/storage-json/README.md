@@ -59,7 +59,7 @@ An unmaterialized `per-record` tree can initialize its declared tables from a va
 
 A synchronous serialization failure restores the open `single` unit's previous memory and permits retry on that handle. An I/O failure can occur after file replacement, so a rejected write does not prove that disk data or its stamp stayed unchanged. Stop using and close the backend and its domains, then reopen to reload saved state before deciding whether to retry. See [domain versioning](../../../docs/subsystems/storage.md#domain-versioning) for mixed records and downgrade behavior.
 
-`jsonUnitSourcePath(backend, descriptor)` resolves the configured location of a live JSON backend for a declared `single` unit. `readJsonUnitSource` reads and validates the complete on-disk document, rejects a concurrent replacement or in-place modification, and returns undefined content only for a missing file. These explicit migration helpers bypass the open unit's memory cache and reject closed, non-JSON, and `per-record` sources; they do not lock writers or change source data.
+A live `JsonStorageBackend` exposes `sourcePath(descriptor)` for its configured `single` unit and `readSource(descriptor)` for a complete validated disk snapshot. The methods bypass the open unit's memory cache, reject closed and `per-record` sources, and reject concurrent replacement or in-place modification; undefined content means the file is missing. Migration consumers require the actual JSON backend instance rather than deriving a path from an arbitrary backend. These reads do not lock writers or change source data.
 
 -----
 

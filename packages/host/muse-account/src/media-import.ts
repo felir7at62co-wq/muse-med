@@ -252,11 +252,12 @@ export class MuseMediaImporter {
     let published: z.infer<typeof facts> & { path: string; receipt: string } | undefined
     let error: MuseMediaImportError | undefined
     const output = (async () => {
-      // oxlint-disable-next-line typescript/no-non-null-assertion -- The subprocess provider exposes raw stdout for pipe mode.
-      const stdout: AsyncIterable<Buffer> = child.stdout!
+      const stdout = child.stdout
+      if (stdout === undefined) throw new MuseMediaImportError('unavailable')
       let text = '', bytes = 0
       const decoder = new TextDecoder('utf-8', { fatal: true })
       for await (const chunk of stdout) {
+        if (!Buffer.isBuffer(chunk)) throw new MuseMediaImportError('invalid-media')
         bytes += chunk.byteLength
         if (bytes > this.options.maxOutputBytes) throw new MuseMediaImportError('invalid-media')
         text += decoder.decode(chunk, { stream: true })

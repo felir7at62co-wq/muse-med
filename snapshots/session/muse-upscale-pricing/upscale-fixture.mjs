@@ -9,6 +9,9 @@ const { JubianLedger, readProjectBudget } = await importSnapshotPackage('@deepse
 export const name = 'upscale-fixture'
 export const inject = ['tools', 'llm', 'settings']
 const catalogue = [
+  { id: 27, modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT',
+    unitPrice: 0.375, unit: '元/分钟(1系数)', genTypes: [],
+    videoStandards: [{ id: 165, modelId: 'AI MediaKit', resolution: '1080p', height: 4, width: 0 }] },
   { id: 55, modelId: '2074071626416742401', platformId: 'RUNNING_HUB',
     unitPrice: 1, unit: '元/条', genTypes: [],
     videoStandards: [{ id: 303, modelId: '2074071626416742401', resolution: '1080p' }] },
@@ -55,16 +58,16 @@ export async function apply(ctx) {
       } else if (method === 'POST' && path === '/aigc/storyboard/hdConversion') {
         const payload = JSON.parse(init.body)
         assert.equal(payload.scriptId, 2708)
-        assert.equal(payload.modelId, '2074071626416742401')
-        assert.equal(payload.standardId, 55); assert.equal(payload.videoStandardId, 303)
-        assert.equal(payload.platformId, 'RUNNING_HUB'); assert.equal(payload.taskType, 20)
+        assert.equal(payload.modelId, 'AI MediaKit')
+        assert.equal(payload.standardId, 27); assert.equal(payload.videoStandardId, 165)
+        assert.equal(payload.platformId, 'AI_MEDIA_KIT'); assert.equal(payload.taskType, 20)
         assert.equal(payload.videoUrl, 'https://media.example.test/source.mp4')
         assert.equal(payload.firstResultId, 1007193); assert.equal(payload.parentResultId, 1007193)
         assert.equal(payload.duration, 13.5)
         const reservation = await ledger.find('offline-upscale-priced')
         assert.equal(reservation?.outcome, null)
-        assert.equal(reservation?.quoted_amount, '1.00'); assert.equal(reservation?.quote_unit, 'CNY')
-        assert.equal(reservation?.quote_standard_id, 55)
+        assert.equal(reservation?.quoted_amount, '1.50'); assert.equal(reservation?.quote_unit, 'CNY')
+        assert.equal(reservation?.quote_standard_id, 27)
         reservationBeforePaid = true
         assert.equal(++paidPosts, 1, 'Only one paid mock request is authorized')
         data = 429001
@@ -113,7 +116,7 @@ export async function apply(ctx) {
     assert.equal(replayed.replayed, true); assert.equal(replayed.outcome, 'accepted')
     assert.match(refused, /没有报价/)
     assert.equal(budget.source, 'default'); assert.equal(budget.limit_cents, 400000)
-    assert.equal(budget.settled_cents, 100); assert.equal(budget.reserved_cents, 0)
+    assert.equal(budget.settled_cents, 150); assert.equal(budget.reserved_cents, 0)
     assert.equal(budget.accounting_complete, true)
     const section = ctx.settings.describe().find(row => row.ns === 'drama-settings')
     assert.equal(section?.value.seriesBudgetCents, 400000)
@@ -123,8 +126,8 @@ export async function apply(ctx) {
     const record = records[0]
     assert.equal(record.idempotency_key, 'offline-upscale-priced'); assert.equal(record.method, 'video_upscale')
     assert.equal(record.script_id, 2708); assert.equal(record.outcome, 'accepted')
-    assert.equal(record.quoted_amount, '1.00'); assert.equal(record.quote_unit, 'CNY')
-    assert.equal(record.quote_standard_id, 55); assert.ok(Number.isFinite(Date.parse(record.quote_observed_at)))
+    assert.equal(record.quoted_amount, '1.50'); assert.equal(record.quote_unit, 'CNY')
+    assert.equal(record.quote_standard_id, 27); assert.ok(Number.isFinite(Date.parse(record.quote_observed_at)))
     assert.equal(await ledger.find('offline-upscale-unpriced'), undefined)
     assert.equal(paidPosts, 1); assert.equal(reservationBeforePaid, true)
     assert.equal(replayHttpRequests, 0); assert.equal(missingPricePaidRequests, 0)

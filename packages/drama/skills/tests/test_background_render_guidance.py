@@ -19,7 +19,8 @@ class BackgroundRenderGuidance(unittest.TestCase):
     def test_upscale_uses_live_catalogue_and_explicit_paid_authority(self):
         text = (Path(__file__).resolve().parents[1] / "skills" /
                 "tweet-drama-background-render" / "SKILL.md").read_text(encoding="utf-8")
-        for required in ("method=models, task_type=20", "默认 SeedVR2", "不保证精确 1080×1920",
+        for required in ("method=models, task_type=20", "默认 MediaKit", "SeedVR2 等其他模型须显式指定",
+                         "不保证精确 1080×1920",
                          "仿真人剧默认使用已认可原片", "不因画质判断自动购买"):
             self.assertIn(required, text)
         self.assertNotIn("models` 入口不接受 task_type=20", text)

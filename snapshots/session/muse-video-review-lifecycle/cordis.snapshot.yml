@@ -30,6 +30,7 @@
       config:
         requireCompleteReview: true
         reviewBatchFrames: 2
+        offloadObservedFrames: true
 
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'

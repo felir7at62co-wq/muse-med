@@ -13,7 +13,7 @@ import { workspaceDomainState, workspaceRecord } from '@deepseek-ai/dsh-workspac
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { generationWorkspaceIdentitySchema } from '@deepseek-ai/dsh-tool-jubian/generation-binding'
 import type { GenerationWorkspaceAuthority, GenerationWorkspaceIdentity, GenerationWorkspaceLease } from '@deepseek-ai/dsh-tool-jubian/generation-binding'
-import { jsonUnitSourcePath, readJsonUnitSource } from '@deepseek-ai/dsh-storage-json'
+import { JsonStorageBackend } from '@deepseek-ai/dsh-storage-json'
 import { acquireWorkspaceOwner, publishWorkspacePath } from './workspace-owner-lease.ts'
 import { assertWorkspaceMigrationHandoff } from './workspace-handoff.ts'
 import type { WorkspaceOwnerLease } from './workspace-owner-lease.ts'
@@ -60,8 +60,10 @@ const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 const encode = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`
 
 /**
- * One process owns the successor while its workspace domain is open. The old
- * store remains untouched and is never read again after migration publication.
+ * One process owns the successor while its workspace domain is open. Existing
+ * source bytes require prior Hosts to exit; a missing source is rechecked before
+ * first-use publication. The old store remains untouched and is never read
+ * again after migration publication.
  */
 export class OwnedWorkspaceStorage implements StorageBackend, GenerationWorkspaceAuthority {
   readonly kv = { open: (descriptor: KvUnitDescriptor) => this.openUnit(descriptor) }
@@ -89,6 +91,11 @@ export class OwnedWorkspaceStorage implements StorageBackend, GenerationWorkspac
     this.handoffScanTimeoutMs = config.handoffScanTimeoutMs ?? 5000
   }
 
+  private requireJsonSource(): JsonStorageBackend {
+    if (!(this.sourceBackend instanceof JsonStorageBackend)) throw new Error('migration source is not a live JSON storage backend')
+    return this.sourceBackend
+  }
+
   private openUnit(descriptor: KvUnitDescriptor): Promise<KvUnit> {
     if (this.closing || this.closed) return Promise.reject(new StorageError('closed', 'workspace successor is closed'))
     if (this.opening !== undefined) return Promise.reject(new Error('workspace successor unit is already open'))
@@ -109,7 +116,7 @@ export class OwnedWorkspaceStorage implements StorageBackend, GenerationWorkspac
     this.owner = await acquireWorkspaceOwner(`${this.config.root}.lock`)
     try {
       this.assertUnitInitialization()
-      const sourcePath = await jsonUnitSourcePath(this.sourceBackend, descriptor)
+      const sourcePath = await this.requireJsonSource().sourcePath(descriptor)
       if (sourcePath === join(resolve(this.config.root), 'state.json')) {
         throw new Error('workspace successor must differ from its source')
       }
@@ -165,9 +172,14 @@ export class OwnedWorkspaceStorage implements StorageBackend, GenerationWorkspac
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
-    await assertWorkspaceMigrationHandoff(this.handoffScanTimeoutMs)
-    const snapshot = await readJsonUnitSource(this.sourceBackend, descriptor)
-    if (snapshot.path !== sourcePath) throw new Error('workspace migration source changed location')
+    const initial = await this.requireJsonSource().readSource(descriptor)
+    if (initial.path !== sourcePath) throw new Error('workspace migration source changed location')
+    let snapshot = initial
+    if (initial.text !== undefined) {
+      await assertWorkspaceMigrationHandoff(this.handoffScanTimeoutMs)
+      snapshot = await this.requireJsonSource().readSource(descriptor)
+      if (snapshot.path !== sourcePath || snapshot.text === undefined) throw new Error('workspace migration source changed after handoff')
+    }
     const source = snapshot.text
     const legacy = source === undefined ? undefined : legacySchema.parse(JSON.parse(source))
     if (legacy !== undefined && legacy.unit.version !== descriptor.version
@@ -190,7 +202,12 @@ export class OwnedWorkspaceStorage implements StorageBackend, GenerationWorkspac
     await durableReplace(join(staging, 'migration.json'), encode({ schemaVersion: 1, sourceBackend: this.config.sourceBackend, sourcePath,
       sourceSha256: source === undefined ? null : digest(source), authorityId: state.authorityId, initialStateSha256: digest(text) }))
     this.assertUnitInitialization()
-    await assertWorkspaceMigrationHandoff(this.handoffScanTimeoutMs)
+    if (source === undefined) {
+      const current = await this.requireJsonSource().readSource(descriptor)
+      if (current.path !== sourcePath || current.text !== undefined) throw new Error('workspace source appeared or changed before first-use publication')
+    } else {
+      await assertWorkspaceMigrationHandoff(this.handoffScanTimeoutMs)
+    }
     await publishWorkspacePath(staging, this.config.root, false)
     await syncDirectory(dirname(this.config.root))
   }

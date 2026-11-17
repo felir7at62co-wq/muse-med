@@ -6,7 +6,7 @@ import type { JubianLedger } from '@deepseek-ai/dsh-jubian'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-working-directory'
-import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
+import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 import { z } from 'zod'
 import type { GenerationWatchOwnerAttestor, GenerationWatchStore, GenerationWatchVerifiedOwner } from './generation-watch-store.ts'
 import { recordedVideoPreview, recoveryProject } from './video-recovery-project.ts'
@@ -206,11 +206,12 @@ function recordedSubmission(events: readonly SessionEvent[], inherited: number,
   } else {
     if (ends.get(candidate.subKey) !== 1) return undefined
     let current: string | undefined = candidate.subKey
+    const seen = new Set<string>()
     while (current !== undefined) {
-      // A unique dispatch start can reference only an earlier registered parent.
-      const start: DispatchStart = ptc.get(current) as DispatchStart
-      if (starts.get(current) !== 1
+      const start = ptc.get(current)
+      if (seen.has(current) || start === undefined || start.rootKey !== candidate.rootKey || starts.get(current) !== 1
         || (ends.get(current) ?? 0) > 1 || invalidDispatches.has(current) || unscopedSubIds.has(start.subId)) return undefined
+      seen.add(current)
       current = start.parentKey
     }
   }

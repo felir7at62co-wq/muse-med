@@ -111,6 +111,14 @@ export type GenerationWatchGroupOrigin = z.infer<typeof generationWatchGroupOrig
 /** Host-owned run and checkpoint for the original submitting Session. */
 export type GenerationWatchRun = z.infer<typeof runSchema>
 
+function sameInputs(previous: GenerationWatchRun, next: GenerationWatchRun): boolean {
+  return previous.sessionId === next.sessionId && previous.packs.length === next.packs.length
+    && JSON.stringify(previous.binding) === JSON.stringify(next.binding)
+    && previous.packs.every(pack => next.packs.some(candidate => candidate.key === pack.key
+      && candidate.previewPath === pack.previewPath))
+}
+
+
 /** Original submitting identity returned only after Host attestation. */
 export interface GenerationWatchVerifiedOwner {
   runId: string
@@ -509,7 +517,7 @@ export class GenerationWatchStore {
       await withFileLock(path, async () => {
         const prior = await this.load(candidate.id)
         if (prior !== undefined) {
-          if (prior.createdAt !== candidate.createdAt || prior.deadlineAt !== candidate.deadlineAt) {
+          if (!sameInputs(prior, candidate) || prior.createdAt !== candidate.createdAt || prior.deadlineAt !== candidate.deadlineAt) {
             throw new Error('Generation watch run inputs or deadline changed')
           }
           if (JSON.stringify(prior.groupOrigin) !== JSON.stringify(candidate.groupOrigin)) {

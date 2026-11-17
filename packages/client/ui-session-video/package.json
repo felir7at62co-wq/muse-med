@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-session-video",
-  "description": "Muse dockable video workspace, source selection and conversation references",
-  "version": "0.2.2-rc.1",
+  "description": "Muse conversation video workspace, shot selection and chat editing",
+  "version": "0.2.2-rc.2",
   "publishConfig": {
     "access": "public"
   },
@@ -89,7 +89,7 @@
     "@deepseek-ai/dsh-client-resources": "workspace:*",
     "@deepseek-ai/dsh-api-session-controller": "workspace:*",
     "@deepseek-ai/dsh-client-ui-input-trigger": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "4.6.6"
   },
   "files": [
     "locale/*.json",
@@ -97,6 +97,9 @@
     "lib/client.js",
     "lib/assets",
     "lib/types/*.js",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
+    "src"
   ]
 }

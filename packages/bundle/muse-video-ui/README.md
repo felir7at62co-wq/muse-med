@@ -23,7 +23,7 @@ An independent optional bundle for a dockable Muse video workspace: select episo
 
 Select this bundle over a Web profile that provides native Chat, Deliverables, configuration forms and the conversation shell. Its patch supplies the canonical `session-video` and `ui-session-video` rows; do not mount duplicate rows. Muse Desktop already ships these contributions and requires no separate installation.
 
-Use **Settings → General → Muse video workspace** to switch the presentation immediately. The saved preference survives page reloads and application restarts. Disabling restores native navigation and video playback while preserving conversation history, drafts, attachments and background jobs. The setting remains available for re-enabling. Package removal follows the profile's ordinary plugin-management lifecycle; the live switch requires no configuration HMR.
+Use **Settings → General → Muse video workspace** to switch the presentation immediately. The saved preference survives page reloads and application restarts. Disabling restores native delivered-video playback while preserving conversation history, drafts, attachments and background jobs. The setting remains available for re-enabling. Package removal follows the profile's ordinary plugin-management lifecycle; the live switch requires no configuration HMR.
 
 ## Understand the implementation
 

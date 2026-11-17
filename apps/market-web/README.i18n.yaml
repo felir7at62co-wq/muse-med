@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write apps/market-web/README.md
+/:
+  en: 49e976eb20458b4c
+  zh: c969533ec5c7b8f4
+/muse-skill-market-website:
+  en: 485f594cb6422fc4
+  zh: 43c359540ae99e1d
+/muse-skill-market-website/summary:
+  en: 2bb201bfc5c2a6f9
+  zh: b6a5e6144efdda10
+/muse-skill-market-website/table-of-contents:
+  en: 836056cf70dcef10
+  zh: 485dffa6bb417105
+/muse-skill-market-website/build-and-deployment:
+  en: 11223fc46005cd9a
+  zh: 1b9b6ed9005dc885
+/muse-skill-market-website/packages-and-account-access:
+  en: 4fa5ccad6fc89bcc
+  zh: fbe9403b1aac72a2
+/muse-skill-market-website/verification:
+  en: ecc0254360c53074
+  zh: 59d9bd92b1c300b7
+/muse-skill-market-website/dev-note:
+  en: bcf84752e22bb3c1
+  zh: 2b8bd43bcc9f9bbb

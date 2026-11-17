@@ -33,6 +33,11 @@ function reply(text: string, kind: 'stop' | 'max-tokens' = 'stop'): StreamChunk[
   return [{ type: 'block-start', index: 0, blockType: 'text' },
     { type: 'block-end', index: 0, block: { type: 'text', text } }, { type: 'finish', reason: { kind } }]
 }
+/** A normal stop whose only content is hidden reasoning. */
+function silent(reasoning = 'Planning the next tool call.'): StreamChunk[] {
+  return [{ type: 'block-start', index: 0, blockType: 'reasoning' },
+    { type: 'block-end', index: 0, block: { type: 'reasoning', text: reasoning } }, { type: 'finish', reason: { kind: 'stop' } }]
+}
 const roots: Context[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => root.fiber.dispose())) })
 async function harness(script: Script[], config: Config = {}) {
@@ -224,7 +229,97 @@ it('does not let recovery reporting mask cancellation', async () => {
   expect(end(agent)?.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
 })
 
-it.each([{ maxContinuations: 0 }, { maxContinuations: -1 }, { maxContinuations: 1.5 }, { maxNoProgressResponses: 0 }, { repeatWindowChars: 0 }, { continuationTailChars: 0 }])('rejects invalid continuation configuration %j', (value) => {
+it('asks again in the same turn after a stop that carried only hidden reasoning', async () => {
+  const { agent, adapter } = await harness([silent(), reply('The file is ready.')])
+  await run(agent)
+  expect(adapter.requests).toHaveLength(2)
+  expect(sources(agent)).toEqual([{ kind: 'output-continuation' }])
+  const instruction = adapter.requests[1]?.messages.at(-1)?.content.find(block => block.type === 'text')?.text
+  expect(instruction).toContain('ended without any visible reply and without a tool call')
+  expect(instruction).not.toContain('was cut off')
+  expect(end(agent)).toEqual({ turn: 1, reason: { kind: 'completed' } })
+  expect(hasPending(agent)).toBe(false)
+})
+
+it.each([
+  ['whitespace-only text', reply(' \n\t ')],
+  ['no content block', [{ type: 'finish', reason: { kind: 'stop' } }] satisfies StreamChunk[]],
+])('treats a stop with %s as silent', async (_name, first) => {
+  const { agent, adapter } = await harness([first, reply('Done')])
+  await run(agent)
+  expect(adapter.requests).toHaveLength(2); expect(sources(agent)).toEqual([{ kind: 'output-continuation' }])
+  expect(end(agent)?.reason).toEqual({ kind: 'completed' })
+})
+
+it('bounds silent-stop recovery per turn and restores the budget for a new human request', async () => {
+  const { agent, adapter } = await harness([silent(), silent(), silent(), reply('Done')])
+  await run(agent)
+  expect(adapter.requests).toHaveLength(2); expect(sources(agent)).toHaveLength(1)
+  expect(end(agent)).toEqual({ turn: 1, reason: { kind: 'completed' } }); expect(hasPending(agent)).toBe(false)
+  await run(agent, 'Where is my file?')
+  expect(adapter.requests).toHaveLength(4); expect(sources(agent)).toHaveLength(2)
+  expect(end(agent)).toEqual({ turn: 2, reason: { kind: 'completed' } })
+})
+
+it('follows the configured silent-stop budget and can be disabled', async () => {
+  const twice = await harness([silent(), silent(), reply('Done')], { maxSilentStopRecoveries: 2 })
+  await run(twice.agent)
+  expect(twice.adapter.requests).toHaveLength(3); expect(sources(twice.agent)).toHaveLength(2)
+  const off = await harness([silent()], { maxSilentStopRecoveries: 0 })
+  await run(off.agent)
+  expect(off.adapter.requests).toHaveLength(1); expect(sources(off.agent)).toEqual([])
+  expect(end(off.agent)?.reason).toEqual({ kind: 'completed' })
+})
+
+it('does not treat a tool call, an unreported finish or visible text as a silent stop', async () => {
+  const call: StreamChunk[] = [{ type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('echo-1'), name: 'echo', arguments: '{"text":"ok"}' } },
+    { type: 'finish', reason: { kind: 'stop' } }]
+  const tool = await harness([call, reply('Done')])
+  tool.ctx.effect(() => tool.ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'Echo the text.',
+    parameters: { text: { type: 'string', required: true } }, async execute({ text }) { return [{ type: 'text', text }] },
+  })))
+  await run(tool.agent)
+  expect(tool.adapter.requests).toHaveLength(2); expect(sources(tool.agent)).toEqual([])
+  const unreported = await harness([silent().slice(0, -1)])
+  await run(unreported.agent)
+  expect(unreported.adapter.requests).toHaveLength(1); expect(sources(unreported.agent)).toEqual([])
+})
+
+it('recovers a silent stop that follows an output-limit continuation and still reports the limit as recovered', async () => {
+  const { agent, adapter } = await harness([reply('First part ', 'max-tokens'), silent(), reply('second part.')])
+  await run(agent)
+  expect(adapter.requests).toHaveLength(3)
+  expect(sources(agent)).toEqual([{ kind: 'output-continuation' }, { kind: 'output-continuation' }])
+  expect(adapter.requests[1]?.messages.at(-1)?.content.find(block => block.type === 'text')?.text).toContain('was cut off')
+  expect(adapter.requests[2]?.messages.at(-1)?.content.find(block => block.type === 'text')?.text).toContain('without any visible reply')
+  expect(end(agent)).toEqual({ turn: 1, reason: { kind: 'completed' } })
+})
+
+it('prioritizes a queued human request over silent-stop recovery', async () => {
+  const first: Script = async function * () {
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'New request' }], source: { kind: 'user' } }))
+    yield * silent()
+  }
+  const { agent, adapter } = await harness([first, reply('New response')]); await run(agent)
+  expect(adapter.requests).toHaveLength(2); expect(sources(agent)).toEqual([])
+  expect(end(agent)).toEqual({ turn: 2, reason: { kind: 'completed' } })
+})
+
+it('does not restart silent-stop recovery after cancellation', async () => {
+  const { ctx, agent, adapter } = await harness([silent(), reply('Manual response')])
+  const stop = ctx.on('agent/inbox/inserted', ({ agent: target, message }) => {
+    if (target === agent && message.source.kind === 'output-continuation') target.cancel({ kind: 'user' }, { keepInbox: true })
+  })
+  await run(agent); stop()
+  expect(adapter.requests).toHaveLength(1); expect(hasPending(agent)).toBe(false)
+  expect(end(agent)?.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
+})
+
+it.each([
+  { maxContinuations: 0 }, { maxContinuations: -1 }, { maxContinuations: 1.5 }, { maxNoProgressResponses: 0 },
+  { repeatWindowChars: 0 }, { continuationTailChars: 0 }, { maxSilentStopRecoveries: -1 }, { maxSilentStopRecoveries: 1.5 },
+])('rejects invalid continuation configuration %j', (value) => {
   expect(() => continuation.Config.parse(value)).toThrow()
 })
 

@@ -14,6 +14,8 @@ import { copyDevelopmentUserPatch, prepareDevelopmentProject } from './developme
 import { prepareDevelopmentApp } from './development-app.ts'
 import { preparePrimaryRuntime, smokePrimaryRuntime } from './prepare-primary-runtime.ts'
 import { prepareDevelopmentRuntime } from './development-runtime.ts'
+import { prepareBytevc2Runtime, validateBytevc2RuntimeLock } from './prepare-bytevc2-runtime.ts'
+import { resolveDevelopmentProtocolRegistration } from '../src/development-protocol.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
@@ -60,7 +62,7 @@ async function runPackageScript(script: string, cwd: string): Promise<void> {
   await run(invocation.command, invocation.args, cwd)
 }
 
-async function launchElectron(): Promise<void> {
+async function launchElectron(registerProtocol: '0' | '1'): Promise<void> {
   const require = createRequire(import.meta.url)
   const electron: unknown = require('electron')
   if (typeof electron !== 'string') throw new Error('desktop development: electron executable is unavailable')
@@ -75,6 +77,7 @@ async function launchElectron(): Promise<void> {
     ...process.env,
     DSH_HOME: home,
     MUSE_HOME: museHome,
+    DSH_DESKTOP_DEV_REGISTER_PROTOCOL: registerProtocol,
     DSH_DESKTOP_PRIMARY_RUNTIME_DIR: process.env.DSH_DESKTOP_PRIMARY_RUNTIME_DIR ?? developmentRuntimeDirectory(),
     DSH_DESKTOP_HOST_INSPECT_PORT: String(hostPort),
     DSH_DESKTOP_OPEN_DEVTOOLS: process.env.DSH_DESKTOP_OPEN_DEVTOOLS ?? '1',
@@ -85,8 +88,9 @@ async function launchElectron(): Promise<void> {
   console.log(`desktop development: inspectors main=${String(mainPort)}, renderer=${String(rendererPort)}, host=${String(hostPort)}`)
   if (process.platform === 'darwin') {
     const executable = prepareDevelopmentApp({ electron, appRoot: APP_ROOT, directory: DEVELOPMENT_ROOT,
-      home, museHome, userData, productVersion,
+      home, museHome, userData, productVersion, registerProtocol,
       primaryRuntime: environment.DSH_DESKTOP_PRIMARY_RUNTIME_DIR!,
+      bytevc2Runtime: environment.DSH_DESKTOP_BYTEVC2_RUNTIME_DIR!,
       mainPort, rendererPort, hostPort, openDevtools: environment.DSH_DESKTOP_OPEN_DEVTOOLS!,
       ...(environment.MUSE_BASE_URL === undefined ? {} : { museBaseUrl: environment.MUSE_BASE_URL }) })
     await run(executable, [], APP_ROOT, environment)
@@ -101,6 +105,7 @@ async function launchElectron(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const registerProtocol = resolveDevelopmentProtocolRegistration(process.env)
   const { values } = parseArgs({ options: { 'skip-build': { type: 'boolean', default: false } } })
   if (!values['skip-build']) {
     await runPackageScript('build:artifacts', REPOSITORY_ROOT)
@@ -140,7 +145,12 @@ async function main(): Promise<void> {
     verify: smokePrimaryRuntime,
   })
   if (primaryRuntime !== undefined) process.env.DSH_DESKTOP_PRIMARY_RUNTIME_DIR = primaryRuntime
-  await launchElectron()
+  const runtimeRoot = resolve(developmentRuntimeDirectory(), '..')
+  const bytevc2Lock = validateBytevc2RuntimeLock(JSON.parse(readFileSync(new URL('./bytevc2-runtime.lock.json', import.meta.url), 'utf8')))
+  await prepareBytevc2Runtime({ target: resolveDesktopBuildTarget(), output: join(runtimeRoot, 'bytevc2'),
+    cache: join(APP_ROOT, '.desktop-build', 'downloads', 'bytevc2'), lock: bytevc2Lock })
+  process.env.DSH_DESKTOP_BYTEVC2_RUNTIME_DIR = join(runtimeRoot, 'bytevc2')
+  await launchElectron(registerProtocol)
 }
 
 await main().catch((error: unknown) => {

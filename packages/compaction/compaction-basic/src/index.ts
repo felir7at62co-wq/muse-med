@@ -284,13 +284,15 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
-   * Summarize the replayed conversation region through a direct one-shot
+   * Summarize the replayed conversation region through a direct
    * `ctx.llm.stream()` call whose prefix reuses the conversation's own system
    * prompt, tools, and messages so the provider's KV cache is not invalidated.
+   * A transient terminal error is retried with the identical request under the
+   * summary route's normal-mode retry policy.
    * Override this sole hook for a template or remote summarizer.
    * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
    * @param agent - supplies routed-model history, fallback model, and session id.
-   * @param signal - optional cancellation forwarded to the adapter.
+   * @param signal - optional cancellation forwarded to the adapter and the retry wait.
    * @returns safe text summary blocks and the exact auxiliary call envelope and output.
    */
   protected async summarize(

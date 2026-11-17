@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
 import { bundledBridgeModules, verifyBundledImClient } from '../../desktop-host/src/bundled-bridge.ts'
+import { productModuleOverrides } from '../../desktop-host/src/product-modules.ts'
 
 const roots: string[] = []
 
@@ -53,6 +54,20 @@ it('pins both entries to bundled exports without changing the installed profile'
     '@xmanrui/dsh-im': pathToFileURL(join(feishu, 'index.js')).href,
   })
   expect(readFileSync(join(profile, 'package.json'), 'utf8')).toBe(original)
+})
+
+it('selects every application-owned plugin through a file: URL beside the Host entry', () => {
+  const { runtime } = fixture()
+  const overrides = productModuleOverrides(runtime)
+  const hostModule = (file: string): string => new URL(`../../desktop-host/src/${file}`, import.meta.url).href
+  expect(overrides).toEqual({
+    ...bundledBridgeModules(runtime),
+    'muse-workspace-owned-storage': hostModule('workspace-owned-storage.js'),
+    'ds-bot': hostModule('retired-bot.js'),
+    'muse-bot': hostModule('retired-bot.js'),
+  })
+  // The root Include refuses anything else; a path would load on POSIX hosts and fail only on Windows.
+  for (const target of Object.values(overrides)) expect(URL.parse(target)?.protocol).toBe('file:')
 })
 
 it.each(['root', 'remote'] as const)('refuses a runtime package missing its %s export', (name) => {

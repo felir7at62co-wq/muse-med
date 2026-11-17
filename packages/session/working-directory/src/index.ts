@@ -13,8 +13,27 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { WorkingDirectoryError } from './error.ts'
+
+export { WorkingDirectoryError, type WorkingDirectoryErrorCode } from './error.ts'
 
 declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * Coordinate directory validation and publication with a resource operation
+     * on the directory, such as a checkout being removed. A listener that must
+     * wait awaits that operation, then calls `next()`; every other listener
+     * calls `next()` at once. A rejection fails this access and leaves the
+     * recorded directory unchanged; it is not a fallback.
+     * @param request - owner, requested path (null validates the current directory), and the access's cancellation.
+     * @param next - perform validation and commit.
+     * @mode waterfall
+     */
+    'working-directory/access'(
+      request: { agent: Agent; path: string | null; signal: AbortSignal },
+      next: () => Promise<string>,
+    ): Promise<string>
+  }
   interface Context {
     workingDirectory: WorkingDirectoryService
   }
@@ -59,7 +78,7 @@ export interface WorkingDirectoryGuard {
   readonly directory: string
   /** Aborts on release, owner cancellation, Session change, or service disposal. */
   readonly signal: AbortSignal
-  /** Release this guard and abort its signal. */
+  /** Release this guard and abort its signal; repeated calls do not affect later guards. */
   release(): void
 }
 
@@ -69,7 +88,10 @@ interface ActiveDirectoryGuard {
   release(): void
 }
 
-/** One owner for each Session's effective directory and its model-visible changes. */
+/**
+ * One owner for each Session's effective directory and its model-visible changes.
+ * Agent and service disposal cancel queued operations and await in-flight filesystem work.
+ */
 export class WorkingDirectoryService extends Service {
   static inject = ['fs', 'sessionProjections', 'systemPrompt']
 
@@ -136,7 +158,7 @@ export class WorkingDirectoryService extends Service {
     })
     ctx.effect(() => async () => {
       for (const guard of this.guards.values()) guard.release()
-      this.lifecycle.abort(new Error('working-directory service disposed'))
+      this.lifecycle.abort(new WorkingDirectoryError('working-directory service disposed', 'WORKING_DIRECTORY_UNAVAILABLE'))
       await Promise.allSettled(this.operations)
     })
   }
@@ -156,13 +178,13 @@ export class WorkingDirectoryService extends Service {
    * @param signal - cancellation for filesystem inspection.
    * @returns the existing directory; recovery is committed before fulfillment.
    * A notice failure is warned without reverting the committed state.
-   * @throws when the original project is also unavailable.
+   * @throws {@link WorkingDirectoryError} `WORKING_DIRECTORY_UNAVAILABLE` when the original project is also
+   *   unavailable or the service is disposed, or the rejection of a `working-directory/access` listener.
    */
   ensure(agent: Agent, signal?: AbortSignal): Promise<string> {
-    return this.serialize(agent, signal, async (control) => {
-      const current = this.get(agent.session)
+    return this.serialize(agent, signal, control => this.ctx.waterfall('working-directory/access', { agent, path: null, signal: control }, async () => {
       const guard = this.guards.get(agent.session)
-      if (guard !== undefined && guard.directory !== current) { guard.release(); throw new Error('working-directory: guarded directory changed') }
+      const current = guard?.directory ?? this.get(agent.session)
       const target = await this.ctx.fs.resolve(current, { signal: control })
       const info = await this.ctx.fs.stat(target, control)
       control.throwIfAborted()
@@ -178,10 +200,13 @@ export class WorkingDirectoryService extends Service {
       }
       if (guard !== undefined) { guard.release(); throw new Error('working-directory: guarded directory unavailable') }
       const original = agent.session.header.cwd ?? this.defaultDirectory
-      const restored = await this.directory(original, original, control)
+      const restored = await this.directory(original, original, control, () => new WorkingDirectoryError(
+        `working-directory: directory does not exist: ${JSON.stringify(original)}; the current working directory ${JSON.stringify(current)} is also unavailable`,
+        'WORKING_DIRECTORY_UNAVAILABLE',
+      ))
       this.commit(agent, restored, true, control)
       return restored
-    })
+    }))
   }
 
   /**
@@ -191,15 +216,19 @@ export class WorkingDirectoryService extends Service {
    * @param signal - cancellation before the durable change.
    * @returns the canonical absolute directory, committed before fulfillment.
    * A notice failure is warned; the next request still receives the committed directory.
-   * @throws when the requested path is not an existing directory.
+   * @throws {@link WorkingDirectoryError} `WORKING_DIRECTORY_INVALID` for an empty path and
+   *   `WORKING_DIRECTORY_NOT_FOUND` when the path is not an existing directory, or the rejection of a
+   *   `working-directory/access` listener.
    */
   set(agent: Agent, path: string, signal?: AbortSignal): Promise<string> {
     return this.serialize(agent, signal, async (control) => {
       if (this.guards.has(agent.session)) throw new Error('working-directory: guarded directory cannot change')
-      if (path.length === 0) throw new Error('working-directory: cd must not be empty')
-      const directory = await this.directory(path, this.get(agent.session), control)
-      this.commit(agent, directory, false, control)
-      return directory
+      return this.ctx.waterfall('working-directory/access', { agent, path, signal: control }, async () => {
+        if (path.length === 0) throw new WorkingDirectoryError('working-directory: cd must not be empty', 'WORKING_DIRECTORY_INVALID')
+        const directory = await this.directory(path, this.get(agent.session), control)
+        this.commit(agent, directory, false, control)
+        return directory
+      })
     })
   }
 
@@ -237,6 +266,7 @@ export class WorkingDirectoryService extends Service {
         void detachOwner()
       }
       const state: ActiveDirectoryGuard = { agent, directory: current, release }
+      control.throwIfAborted()
       const detachOwner = agent.ctx.effect(() => release, 'working-directory.guard')
       this.guards.set(agent.session, state)
       signal.addEventListener('abort', release, { once: true })
@@ -264,13 +294,19 @@ export class WorkingDirectoryService extends Service {
     return `Current working directory: ${JSON.stringify(this.get(session))}.`
   }
 
-  private async directory(path: string, cwd: string, signal: AbortSignal): Promise<string> {
+  private async directory(
+    path: string,
+    cwd: string,
+    signal: AbortSignal,
+    missing = (): WorkingDirectoryError => new WorkingDirectoryError(
+      `working-directory: directory does not exist: ${JSON.stringify(path)}`,
+      'WORKING_DIRECTORY_NOT_FOUND',
+    ),
+  ): Promise<string> {
     const target = await this.ctx.fs.resolve(path, { cwd, signal })
     const info = await this.ctx.fs.stat(target, signal)
     signal.throwIfAborted()
-    if (info?.type !== 'directory') {
-      throw new Error(`working-directory: directory does not exist: ${JSON.stringify(path)}`)
-    }
+    if (info?.type !== 'directory') throw missing()
     return this.ctx.fs.processPath(target)
   }
 
@@ -298,15 +334,37 @@ export class WorkingDirectoryService extends Service {
 
   private serialize<T>(agent: Agent, signal: AbortSignal | undefined, action: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const session = agent.session
-    const control = signal === undefined
-      ? this.lifecycle.signal
-      : AbortSignal.any([this.lifecycle.signal, signal])
+    const owner = new AbortController()
+    const control = AbortSignal.any(signal === undefined
+      ? [this.lifecycle.signal, owner.signal]
+      : [this.lifecycle.signal, owner.signal, signal])
     const operation = (this.pending.get(session) ?? Promise.resolve()).then(() => {
       control.throwIfAborted()
       agent.ctx.fiber.assertActive()
       return action(control)
     })
-    const settled = operation.finally(() => this.operations.delete(settled))
+    let detachOwner: (() => Promise<void> | void) | undefined
+    try {
+      detachOwner = agent.ctx.effect(() => () => {
+        owner.abort(new Error('working-directory: Agent disposed'))
+        // Cleanup joins the action, not the finalizer that releases this effect.
+        return operation.then(() => {}, () => {})
+      }, 'working-directory.operation')
+    } catch (error: unknown) {
+      owner.abort(error)
+    }
+    const finish = async (): Promise<T> => {
+      try {
+        return await operation
+      } finally {
+        try {
+          await detachOwner?.()
+        } finally {
+          this.operations.delete(settled)
+        }
+      }
+    }
+    const settled = finish()
     this.operations.add(settled)
     this.pending.set(session, settled.then(() => {}, () => {}))
     return settled

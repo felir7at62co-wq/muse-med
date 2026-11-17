@@ -227,7 +227,7 @@ export function AgentNotesSection(props: AgentNotesSectionProps): ReactNode {
         : { status: 'error', message: failureText(outcome.code, outcome.message) })
     })
     return () => { current = false }
-  }, [list, reloads, t])
+  }, [list, reloads])
 
   /** Open one note, replacing any note already open. */
   const openNote = useCallback((id: string) => {
@@ -243,7 +243,7 @@ export function AgentNotesSection(props: AgentNotesSectionProps): ReactNode {
         : { status: 'error', id, message: failureText(outcome.code, outcome.message) })
       if (outcome.ok) setDraft(outcome.note.text)
     })
-  }, [read, t])
+  }, [read])
 
   const closeNote = useCallback(() => {
     generation.current += 1

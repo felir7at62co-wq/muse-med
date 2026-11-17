@@ -9,6 +9,9 @@ import Group from '@deepseek-ai/cordis-plugin-group'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import TeamService from '@deepseek-ai/dsh-agent-team'
+import * as TeamTools from '../../../packages/team/tool-agent-team/src/index.ts'
+import { TestSessionQuery } from '../../../packages/team/agent-team/tests/test-session-query.ts'
 import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
 import Llm, { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -77,9 +80,12 @@ it.each(['subagent', 'subagent_fork'])('runs %s from the product preset with inh
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] }).await()
     await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions') }).await()
+    await ctx.plugin(TestSessionQuery).await()
     await ctx.plugin(Subagents)
     await ctx.plugin(Spawn, { providerName: 'spawn' })
     await ctx.plugin(Fork, { providerName: 'fork' })
+    await ctx.plugin(TeamService).await()
+    await ctx.plugin(TeamTools).await()
     await ctx.plugin(AgentPresets, { default: 'short-drama' })
     for (const name of reminderTools) ctx.tools.register(defineContentToolFixture({ name,
       description: 'Parent-only reminder fixture', parameters: {}, execute: async () => [] }))
@@ -109,7 +115,7 @@ it.each(['subagent', 'subagent_fork'])('runs %s from the product preset with inh
       } }
     await ctx.plugin(NativePreset, { id: 'short-drama', directory })
     const parentScript = new MockAdapter([
-      toolCallResponse('delegate-review', toolName, { description: 'Review episode continuity', prompt: '核对本集角色身份与上下集衔接，返回依据。' }),
+      toolCallResponse('delegate-review', toolName, { description: 'Review episode continuity', prompt: '核对本集角色身份与上下集衔接，返回依据。第三集不要动。' }),
       textResponse('子代理正在核对，等待实际完成通知。'),
       textResponse('已收集子代理核对结果，继续由主编导验收。'),
     ])
@@ -119,8 +125,11 @@ it.each(['subagent', 'subagent_fork'])('runs %s from the product preset with inh
     ])
     const adapter = new DelegationAdapter(parentScript, childScript, childGate.promise, () => { childEntered.resolve(undefined) })
     ctx.llm.registerAdapter(['mock'], adapter)
-    const parent = await ctx.agentLoop.create(SessionId(`short-drama-${toolName}`), { provider: 'mock', model: 'mock' }, { cwd: root })
-    await ctx.agentPresets.mount(parent.ctx, 'short-drama')
+    const parent = (await ctx.agents.create({ sessionId: SessionId(`short-drama-${toolName}`),
+      agentOptions: { provider: 'mock', model: 'mock' }, meta: { cwd: root },
+      setup: async (scope) => { await ctx.agentPresets.mount(scope, 'short-drama') },
+    })).agent
+    expect(ctx.agentTeams.isEnabled(parent)).toBe(true)
     let childScheduleExecutions = 0
     const childScheduleResults: boolean[] = []
     let liveChild: Agent | undefined
@@ -141,6 +150,7 @@ it.each(['subagent', 'subagent_fork'])('runs %s from the product preset with inh
     expect(started?.data.message.isError, JSON.stringify(started?.data.message.content)).toBe(false)
     await childEntered.promise
     if (liveChild === undefined) throw new Error('The real subagent did not reach request assembly')
+    expect(ctx.agentTeams.isEnabled(liveChild)).toBe(true)
     for (const name of reminderTools) {
       const result = await executeModelToolFixture(liveChild.ctx, { agent: liveChild, name, arguments: {},
         callId: ToolCallId(`child-own-${name}`), signal: new AbortController().signal })
@@ -156,7 +166,8 @@ it.each(['subagent', 'subagent_fork'])('runs %s from the product preset with inh
     const first = parentScript.requests[0]!
     const child = childScript.requests[0]!
     const names = (first.tools ?? []).map(tool => tool.name).sort()
-    expect(names).toEqual([...reminderTools, 'skill', 'subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents'].sort())
+    expect(names).toEqual([...reminderTools, 'skill', 'subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'wait_agent',
+      'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update'].sort())
     expect(child.provider).toBe(first.provider)
     expect(child.model).toBe(first.model)
     const childNames = (child.tools ?? []).map(tool => tool.name)
@@ -166,11 +177,13 @@ it.each(['subagent', 'subagent_fork'])('runs %s from the product preset with inh
     const system = child.messages.filter(message => message.role === 'system').flatMap(message => message.content)
       .flatMap(part => part.type === 'text' ? [part.text] : []).join('\n')
     expect(system).toContain('你是 muse-med 短剧编导 Agent')
+    expect(JSON.stringify(child.messages)).toContain('第三集不要动。')
     expect(system).toContain('符合题材的上镜效果、角色魅力、辨识度和情绪表现')
     expect(JSON.stringify(childScript.requests[1]!.messages)).toContain('核对本集实际素材与相邻集衔接，不凭上一集已通过推定本集已通过。')
     const result = parent.session.snapshotEvents().find(event => event.type === 'tool/result')
     expect(result?.data.message.isError).toBeFalsy()
-    expect(JSON.stringify(result?.data.message.content)).toContain(`started subagent ${liveChild.id}`)
+    expect(JSON.stringify(result?.data.message.content)).toContain('started subagent agent-1')
+    expect(await ctx.subagents.resolveName(parent, 'agent-1', new AbortController().signal)).toBe(liveChild.id)
     expect(JSON.stringify(parentScript.requests[2]!.messages)).toContain('未替代主编导验收')
     expect({ tools: first.tools, childTools: childNames.sort() })
       .toMatchSnapshot(`${toolName} model-visible delegation`)

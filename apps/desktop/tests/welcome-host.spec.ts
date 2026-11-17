@@ -10,7 +10,7 @@ function transport(preference?: string) {
     { ns: 'locale', value: preference === undefined ? {} : { preference } },
   ]
   const send = vi.fn<Parameters<typeof connectDesktopWelcome>[1]>(async (_input, init) => {
-    if (init?.method !== 'POST') return new Response('index')
+    if (init?.method === undefined) return new Response(null, { status: 200 })
     const { rpcId, method, payload } = JSON.parse(init.body as string) as {
       rpcId: string
       method: string
@@ -29,27 +29,48 @@ function transport(preference?: string) {
   return { send, keys, namespaces }
 }
 
-const url = 'http://127.0.0.1:19387/?token=fixture'
+const url = 'http://127.0.0.1:19387/'
+const cookie = 'dsh-auth-fixture=signed'
 
 describe('desktop welcome Web operations', () => {
-  it('authenticates through Web and stores only through the configured credential reference', async () => {
+  it.each(['light', 'dark', 'system'] as const)('reads the live %s theme in the existing settings request', async (preference) => {
     const host = transport()
-    const backend = await connectDesktopWelcome(url, host.send)
-    expect(host.send).toHaveBeenCalledExactlyOnceWith(url, { credentials: 'include' })
+    host.namespaces.push({ ns: 'ui-theme', value: { preference } })
+    const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
+    expect(await backend.read()).toMatchObject({ themePreference: preference })
+    expect(host.send.mock.calls.filter(([input]) => input.endsWith('/api/settings/describe'))).toHaveLength(1)
+    host.namespaces.find(item => item.ns === 'ui-theme')!.value.preference = 'system'
+    expect(await backend.read()).toMatchObject({ themePreference: 'system' })
+  })
+
+  it('falls back for an invalid optional theme without blocking startup metadata', async () => {
+    const host = transport()
+    host.namespaces.push({ ns: 'ui-theme', value: { preference: 'invalid' } })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(await (await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))).read()).toMatchObject({ themePreference: 'system' })
+      expect(warn).toHaveBeenCalledOnce()
+    } finally { warn.mockRestore() }
+  })
+
+  it('uses the owned Host transport and stores only through the configured credential reference', async () => {
+    const host = transport()
+    const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
     expect(await backend.analyticsEnabled()).toBe(true)
     expect(await backend.save('sk-example')).toEqual({ ok: true })
     expect(host.keys.get('CUSTOM_DEEPSEEK_KEY')).toBe('sk-example')
-    expect(await backend.read()).toEqual({ loggedIn: false, hasApiKey: true, writable: true, localePreference: null })
-    for (const [input, init] of host.send.mock.calls.slice(1)) {
+    expect(await backend.read()).toEqual({ loggedIn: false, hasApiKey: true, writable: true, localePreference: null, themePreference: 'system' })
+    for (const [input, init] of host.send.mock.calls) {
+      if (input === url) { expect(init).toMatchObject({ credentials: 'include' }); continue }
       expect(input).toMatch(/^http:\/\/127\.0\.0\.1:19387\/api\//u)
-      expect(init).toMatchObject({ credentials: 'include', redirect: 'error' })
+      expect(init).toMatchObject({ redirect: 'error', credentials: 'include' })
     }
   })
 
   it('reads the explicit language preference and recognizes another provider key', async () => {
     const host = transport('zh')
     host.keys.set('EXAMPLE_API_KEY', 'sk-other')
-    const backend = await connectDesktopWelcome(url, host.send)
+    const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
     expect(await backend.read()).toMatchObject({ localePreference: 'zh', hasApiKey: true })
     host.keys.clear()
     expect(await backend.read()).toMatchObject({ hasApiKey: false })
@@ -58,7 +79,7 @@ describe('desktop welcome Web operations', () => {
 
   it('reads language without querying account or model providers', async () => {
     const host = transport('zh')
-    const backend = await connectDesktopWelcome(url, host.send)
+    const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
     host.send.mockClear()
     expect(await backend.readLocalePreference()).toBe('zh')
     expect(host.send).toHaveBeenCalledOnce()
@@ -68,7 +89,7 @@ describe('desktop welcome Web operations', () => {
   it('allows profiles without the official provider and retains custom key detection', async () => {
     const host = transport()
     host.namespaces.splice(0, 1)
-    const backend = await connectDesktopWelcome(url, host.send)
+    const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
     expect(await backend.read()).toMatchObject({ hasApiKey: false, writable: false })
     host.keys.set('EXAMPLE_API_KEY', 'custom-key')
     expect(await backend.read()).toMatchObject({ hasApiKey: true, writable: false })
@@ -78,7 +99,7 @@ describe('desktop welcome Web operations', () => {
 
   it.each(['', 'bad key', 'key\n'])('rejects malformed keys without contacting a provider: %s', async (value) => {
     const host = transport()
-    const backend = await connectDesktopWelcome(url, host.send)
+    const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
     host.send.mockClear()
     expect(await backend.save(value)).toEqual({ ok: false })
     expect(host.send).not.toHaveBeenCalled()
@@ -86,17 +107,16 @@ describe('desktop welcome Web operations', () => {
 
   it('keeps provider diagnostics out of failures and rejects unmatched RPC envelopes', async () => {
     const host = transport()
-    const backend = await connectDesktopWelcome(url, host.send)
+    const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
     host.send.mockRejectedValueOnce(new Error('private credential sk-must-not-leak'))
     expect(await backend.save('sk-example')).toEqual({ ok: false })
     host.send.mockResolvedValueOnce(Response.json({ type: 'server-response', rpcId: 'other', result: { ok: true } }))
     await expect(backend.read()).rejects.toThrow('Web RPC failed')
   })
 
-
   it('submits native analytics through authenticated RPC with a bounded request', async () => {
     const host = transport()
-    const backend = await connectDesktopWelcome(url, host.send)
+    const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
     const event = { eventName: 'desktop_app_launch' as const, timestamp: 100, attributes: {} }
     await backend.report(event)
     const [input, init] = host.send.mock.calls.at(-1)!

@@ -79,6 +79,8 @@ const status = z.object({ ready: z.boolean(), limits: z.object({
   downloads_per_day: count.positive(), concurrent_downloads: count.positive(),
 }) })
 const rpc = z.object({ jsonrpc: z.literal('2.0'), id: z.string(), result: z.object({ isError: z.boolean(), structuredContent: receipt }) })
+// Douyin downloads belong to the data station; any Douyin host in a URL or share text is refused before transport.
+const douyinHost = /(?:^|[^a-z0-9-])(?:[a-z0-9-]+\.)*(?:douyin|iesdouyin)\.com(?![a-z0-9-])/iu
 
 /** Fixed media failure; neither upstream response bodies nor credentials are retained. */
 export class MuseMediaError extends Error {
@@ -136,13 +138,14 @@ export class MuseMediaClient {
   }
 
   /**
-   * Submit one cloud download with a stable account-owned key.
+   * Submit one TikTok or Bilibili cloud download with a stable account-owned key; Douyin targets fail with `douyin-unsupported`.
    * Receipts identifying a job must acknowledge this request key.
    * @param request - Stable submission key and media target.
    * @param signal - Optional caller cancellation.
    * @returns Cloud receipt; no automatic retry is performed.
    */
   async download(request: MuseMediaDownloadRequest, signal?: AbortSignal): Promise<MuseMediaReceipt> {
+    if (request.platform === 'douyin' || douyinHost.test(request.url ?? '')) throw new MuseMediaError('douyin-unsupported')
     const { requestId: key, ...target } = request
     return await this.run(signal, false, true, async (operation) => {
       const value = await this.call(operation, 'download_media', { ...target, request_id: key })

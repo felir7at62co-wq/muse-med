@@ -32,7 +32,7 @@ Status: implemented
 
 代价是同一个引用有了第二条写路径：`ctx.remote.credentials` 与 `ctx.remote.jubianToken` 都会到达 `ctx.credentials.set` 写 `JUBIANAI_ADMIN_TOKEN`。两者不可互换——通用命名空间需要引用名，这一个根本不能接受引用名——但要单点审计的部署必须盯住 seam，而不是盯住其中任何一个命名空间。
 
-本包现在是双面的，所以构建有两个编译面，浏览器入口导入的生成产物只在宿主构建之后才存在。因此 `packages/jubian/tool-jubian/src/client/index.ts` 在逐文件覆盖率门禁之外，理由与 `packages/experimental/client-ui-agent-team/src/client/index.ts` 相同：它绑定的那个导入没有可供执行的源形态。
+本包现在是双面的，所以构建有两个编译面，浏览器入口导入的生成产物只在宿主构建之后才存在。因此 `packages/jubian/tool-jubian/src/client/index.ts` 在逐文件覆盖率门禁之外，理由与 `packages/client/ui-agent-team/src/client/index.ts` 相同：它绑定的那个导入没有可供执行的源形态。
 
 页面无法清除由只读来源提供的令牌：`describe` 报告 `writable: false`，两个按钮都被禁用，文案说明原因。这是凭据 seam 的遮蔽规则透出来的结果，不是页面的缺口。
 

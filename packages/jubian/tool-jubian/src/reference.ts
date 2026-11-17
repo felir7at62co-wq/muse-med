@@ -112,8 +112,12 @@ export async function scaleImageWithFfmpeg(request: ScaleRequest, explicitPath?:
   }
 }
 
-/** Read the upload destination from the live frontend bundle. */
-async function loadTosConfig(transport: typeof fetch): Promise<TosUploadConfig> {
+/**
+ * Read the upload destination from the live frontend bundle.
+ * @param transport - HTTP transport used for frontend discovery.
+ * @returns Current object-storage configuration; credentials remain Host-local.
+ */
+export async function loadTosConfig(transport: typeof fetch): Promise<TosUploadConfig> {
   let html: string
   let appJs: string
   try {
@@ -137,9 +141,16 @@ function asBody(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   return copy
 }
 
-/** Put one object and confirm the provider accepted it. */
-async function putObject(transport: typeof fetch, url: string, headers: Record<string, string>,
-  payload: Uint8Array): Promise<void> {
+/**
+ * Put one object and confirm the provider accepted it.
+ * @param transport - Object-upload HTTP transport.
+ * @param url - Signed object destination.
+ * @param headers - Host-local signing headers.
+ * @param payload - Unchanged upload bytes.
+ * @returns Accepted object-storage HTTP status.
+ */
+export async function putObject(transport: typeof fetch, url: string, headers: Record<string, string>,
+  payload: Uint8Array): Promise<number> {
   let response: Response
   try {
     response = await transport(url, { method: 'PUT', headers, body: asBody(payload) })
@@ -148,6 +159,7 @@ async function putObject(transport: typeof fetch, url: string, headers: Record<s
     await response.body?.cancel().catch(() => undefined)
     return fail('NETWORK_ERROR')
   }
+  return response.status
 }
 
 /** The refusal a caller gets when an unaligned image cannot be re-encoded locally. */

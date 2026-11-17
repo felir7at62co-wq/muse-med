@@ -3,23 +3,23 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/README.md
 /community-plugin-source-and-builds:
-  en: 6ff3c0bac4e76cb0
-  zh: b22b04c95b8a246a
+  en: 1680ca1481a8b391
+  zh: 3b035ce27b13afb2
 /community-plugin-source-and-builds/build:
-  en: 2caa2eca0f19414b
-  zh: 849a2975de0c3482
+  en: 809a3090e8371c9c
+  zh: 1901554b5b24dbdd
 /community-plugin-source-and-builds/compatibility-and-desktop-integration:
   en: b09e75fe38733964
   zh: 1acabf5dcf0f7e53
 /community-plugin-source-and-builds/compatibility-and-desktop-integration/subscription-providers:
-  en: dbff3a4f11cc7302
-  zh: 2b192a0c39e3bd7a
+  en: a000a80b060b7af9
+  zh: 09d308b7065de89e
 /community-plugin-source-and-builds/compatibility-and-desktop-integration/muse-remote-desktop-and-feishu:
   en: f5ea1a6a8ea5671e
   zh: 61f1adfcf8be3478
 /community-plugin-source-and-builds/compatibility-and-desktop-integration/ordinary-session-cards:
-  en: 6d5f52638b0286f5
-  zh: de43fd4e5524fe49
+  en: 065aa735ea5eaa1c
+  zh: 30fc0351d86c6e5e
 /community-plugin-source-and-builds/compatibility-and-desktop-integration/archived-muse-bot:
   en: c1449bb2d6676caf
   zh: a161b639fcf9a97e
@@ -33,8 +33,8 @@
   en: bc6c866c7b0265d2
   zh: 3e54a633315c0f67
 /community-plugin-source-and-builds/compatibility-and-desktop-integration/muse-local-tools:
-  en: 799eafb72596fc91
-  zh: 9bb247d59ccd7725
+  en: 36f0ffd5e6e61b8f
+  zh: 65d515421f01e8f8
 /community-plugin-source-and-builds/licenses:
   en: c3b3d30f0293f569
   zh: 4e82b1878b25ec0a

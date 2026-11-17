@@ -5,8 +5,13 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 /** SHA-256 identity of one immutable publication archive. */
 export type MarketReleaseId = Branded<'MarketReleaseId'>
 
+/** Exact retained authoring candidate, containing a market prefix and immutable archive SHA-256. */
+export type MarketSourceId = Branded<'MarketSourceId'>
+
 /** Author-supplied publication information, without executable plugin rows. */
 export interface MarketMetadata {
+  /** Stable presentation asset key retained across preparation, publication and import. */
+  readonly presetPortrait?: string
   readonly name: string
   readonly title: string
   readonly description: string

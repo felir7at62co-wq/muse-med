@@ -1,6 +1,6 @@
 /**
- * Paid video upscaling requests use taskType 20, live model selectors and the
- * provider's source-result identities. Omitted model selectors retain SeedVR2.
+ * Paid video upscaling requests use taskType 20, model selectors resolved from
+ * the live catalogue and the provider's source-result identities.
  */
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 
@@ -9,15 +9,11 @@ function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
 /** The provider's task type for video upscaling, as the workbench submits it. */
 export const VIDEO_UPSCALE_TASK_TYPE = 20
 
-/** The SeedVR2 upscaling model the workbench selects by default. */
-export const VIDEO_UPSCALE_MODEL = {
-  modelId: '2074071626416742401',
-  platformId: 'RUNNING_HUB',
-  /** The model row's own id in the live catalogue. */
-  standardId: 55,
-  /** The 1080p video standard that row offers. */
-  videoStandardId: 303,
-} as const
+/** The MediaKit upscaling model's catalogue identity; its live row offers 1080p and 720p standards. */
+export const MEDIAKIT_UPSCALE_MODEL = { modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT' } as const
+
+/** The SeedVR2 upscaling model's catalogue identity; its live row offers one 1080p standard. */
+export const SEEDVR2_UPSCALE_MODEL = { modelId: '2074071626416742401', platformId: 'RUNNING_HUB' } as const
 
 /** Exact selectors of one live post-processing model and optional output specification. */
 export interface PostProcessModel {
@@ -96,11 +92,10 @@ function positive(value: unknown): number {
 /**
  * Build the exact upscale request body.
  * @param input - Source identity, duration, URL and a task name.
- * @param model - Live selectors; omitted legacy calls retain the SeedVR2 configuration.
+ * @param model - Selectors from {@link resolvePostProcessModel} over the live taskType 20 catalogue.
  * @returns The wire body for one upscaling submission.
  */
-export function buildVideoUpscaleRequest(input: VideoUpscaleInput,
-  model: PostProcessModel = VIDEO_UPSCALE_MODEL): Record<string, unknown> {
+export function buildVideoUpscaleRequest(input: VideoUpscaleInput, model: PostProcessModel): Record<string, unknown> {
   const videoUrl = input.videoUrl
   if (typeof videoUrl !== 'string' || !videoUrl.startsWith('https://')) invalid()
   if (typeof input.taskName !== 'string' || !input.taskName.trim() || !input.taskName.isWellFormed()

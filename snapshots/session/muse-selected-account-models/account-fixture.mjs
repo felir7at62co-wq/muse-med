@@ -31,15 +31,15 @@ class PersonalAdapter extends LlmAdapter {
 /** Loader name for the account-backed model recording. */
 export const name = 'snapshot-selected-account-models'
 /** Account, tool and default-model services provided by the shipped headless composition. */
-export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel']
+export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'systemPrompt']
 
-function completion(message) {
+function completion(message, cacheHitTokens = 0) {
   const chunks = message.content.map((block, index) => ({ choices: [{ index: 0, finish_reason: null,
     delta: block.type === 'text' ? { content: block.text } : block.type === 'reasoning' ? { reasoning_content: block.text }
       : { tool_calls: [{ index, id: block.id, type: 'function', function: { name: block.name, arguments: block.arguments } }] },
   }] }))
   chunks.push({ choices: [{ index: 0, delta: {}, finish_reason: message.content.some(block => block.type === 'tool-call') ? 'tool_calls' : 'stop' }],
-    usage: { prompt_tokens: 30, completion_tokens: 4 } })
+    usage: { prompt_tokens: 30, completion_tokens: 4, ...(cacheHitTokens ? { prompt_cache_hit_tokens: cacheHitTokens } : {}) } })
   return [...chunks.map(chunk => JSON.stringify(chunk)), '[DONE]'].map(chunk => `data: ${chunk}\n\n`).join('')
 }
 
@@ -48,9 +48,15 @@ function completion(message) {
  * @returns {Promise<void>} Completion after account, tool and stream fixture registration.
  */
 export async function apply(ctx) {
+  const promptUpdate = process.env.DSH_SNAPSHOT_DEEPSEEK_PROMPT_UPDATE === 'true'
+  const flashModelId = process.env.DSH_SNAPSHOT_DEEPSEEK_DATED_MODEL === 'true' ? 'deepseek-v4.1-flash-261017' : 'deepseek-flash'
+  const promptGuidance = 'Keep the signed-in model catalog answer brief.'
+  let guidance = ''
   const direct = process.env.DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS === 'true'
   const refusal = process.env.DSH_SNAPSHOT_SUPPLIER_REFUSAL === 'true'
   const contentRefusal = process.env.DSH_SNAPSHOT_CONTENT_REFUSAL === 'true'
+  const providerFailover = process.env.DSH_SNAPSHOT_PROVIDER_FAILOVER === 'true'
+  const earlyLogin = process.env.DSH_SNAPSHOT_EARLY_ACCOUNT_LOGIN === 'true'
   const officialGlm = process.env.DSH_SNAPSHOT_GLM_TOOL_STREAM === 'true'
   const pooledZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_RELAY === 'true'
   const leasedZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_DIRECT === 'true'
@@ -62,6 +68,10 @@ export async function apply(ctx) {
   assert.ok(!pooledZhipu || direct && officialGlm)
   assert.ok(!refusal || direct)
   assert.ok(!contentRefusal || direct && !refusal && !admissionFailure)
+  assert.ok(!promptUpdate || !officialGlm && !refusal && !contentRefusal && !admissionFailure)
+  assert.ok(!providerFailover || !direct && !refusal && !contentRefusal && !admissionFailure)
+  assert.ok(!earlyLogin || providerFailover)
+
   const excludedProvider = process.env.DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER
   assert.ok(excludedProvider === undefined || excludedProvider === 'aa')
   const excludesStandaloneAa = excludedProvider === 'aa'
@@ -79,6 +89,11 @@ export async function apply(ctx) {
   const home = await mkdtemp(join(tmpdir(), 'muse-selected-snapshot-'))
   ctx.effect(() => () => rm(home, { recursive: true, force: true }))
   const catalog = desktopModelCatalog({ metadata: () => ({ providers: selectedModelProviders('https://wy6688.token6688.com/v1') }) })
+  if (flashModelId !== 'deepseek-flash') {
+    const official = catalog.providers.find(provider => provider.id === 'deepseek-official')
+    assert.ok(official)
+    official.models = official.models.map(model => model.id === 'deepseek-flash' ? { ...model, id: flashModelId } : model)
+  }
   if (excludesStandaloneAa) catalog.providers.unshift({ id: 'aa', name: 'Gemini', models: [{
     id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', contextWindow: 128000, maxTokens: 8192,
     input: ['text', 'image'], reasoningEfforts: false,
@@ -87,13 +102,17 @@ export async function apply(ctx) {
   const selection = recorded.find(event => event.type === 'request/header')?.data.header.config
   const selectedModel = officialGlm ? { provider: 'muse-cloud-zhipu-official', model: 'glm-5.3-flash' } : preservesNewerDefault
     ? { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro' }
-    : { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }
+    : { provider: 'muse-cloud-deepseek-official', model: flashModelId }
   assert.deepEqual({ provider: selection?.provider, model: selection?.model }, selectedModel)
+  if (refusal) catalog.providers = catalog.providers.filter(provider => `muse-cloud-${provider.id}` === selectedModel.provider)
   const directCompletion = direct && (!pooledZhipu || leasedZhipu)
   const completionPath = `${directCompletion ? '/supplier' : '/api/desktop-models'}/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
+  const fallbackModel = { provider: 'muse-cloud-yunying', model: 'gpt-6-sol' }
+  const fallbackCompletionPath = `/api/desktop-models/${fallbackModel.provider.slice('muse-cloud-'.length)}/chat/completions`
   const script = recorded.filter(event => event.type === 'assistant/message').map(event => event.data.message)
   assert.equal(script.length, refusal || contentRefusal || admissionFailure ? 0 : 2)
   const requests = []
+  const fallbackRequests = []
   let admissionSubmissions = 0
   let supplierSubmissions = 0
   let baseUrl
@@ -152,13 +171,15 @@ export async function apply(ctx) {
           assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
           response.writeHead(200, { 'content-type': 'application/json' }); response.end('{"released":true}'); return
         }
-        if (request.url === completionPath) {
+        if (request.url === completionPath || providerFailover && request.url === fallbackCompletionPath) {
           supplierSubmissions++
           const payload = JSON.parse(body)
-          assert.equal(request.headers.authorization, directCompletion ? `Bearer supplier-fixture-${selectedModel.provider.slice('muse-cloud-'.length)}` : 'Bearer snapshot-session')
+          const fallback = providerFailover && request.url === fallbackCompletionPath
+          const routeModel = fallback ? fallbackModel : selectedModel
+          assert.equal(request.headers.authorization, directCompletion ? `Bearer supplier-fixture-${routeModel.provider.slice('muse-cloud-'.length)}` : 'Bearer snapshot-session')
           if (directCompletion) { assert.equal(request.headers.cookie, undefined); assert.equal(request.headers.origin, undefined) }
           else assert.equal(request.headers.origin, baseUrl)
-          assert.equal(payload.model, selectedModel.model)
+          assert.equal(payload.model, routeModel.model)
           if (officialGlm) {
             assert.equal(payload.max_tokens, 128000)
             assert.equal(payload.reasoning_effort, 'max')
@@ -168,14 +189,35 @@ export async function apply(ctx) {
             assert.equal(payload.max_tokens, 65536)
             assert.equal(payload.reasoning_effort, undefined)
             assert.equal(payload.thinking, undefined)
+          } else if (fallback) {
+            assert.equal(payload.max_tokens, 128000)
+            assert.equal(payload.reasoning_effort, 'low')
+            assert.equal(payload.thinking, undefined)
           } else {
             assert.equal(payload.max_tokens, 393216)
             assert.equal(payload.reasoning_effort, 'low')
             assert.deepEqual(payload.thinking, { type: 'enabled' })
           }
-          const message = script[requests.length]
-          if (!refusal && !contentRefusal) assert.ok(message)
           requests.push(payload)
+          if (promptUpdate && requests.length === 2) {
+            const first = requests[0]
+            assert.deepEqual(payload.messages.slice(0, first.messages.length), first.messages)
+            assert.deepEqual(payload.tools, first.tools)
+            const systems = payload.messages.filter(row => row.role === 'system')
+            assert.equal(systems.length, 2)
+            assert.notEqual(systems[1].content, systems[0].content)
+            assert.ok(systems[1].content.includes(promptGuidance))
+          }
+          if (providerFailover && !fallback) {
+            assert.ok(requests.length <= 6)
+            response.writeHead(503, { 'content-type': 'application/json', 'retry-after': '0.001' })
+            response.end('{"error":{"message":"Snapshot provider unavailable"}}')
+            return
+          }
+          const message = script[providerFailover ? fallbackRequests.length : requests.length - 1]
+          if (!refusal && !contentRefusal) assert.ok(message)
+          if (fallback) fallbackRequests.push(payload)
+
           if (contentRefusal) {
             assert.equal(payload.stream, true)
             response.writeHead(200, { 'content-type': 'text/event-stream' })
@@ -191,7 +233,7 @@ export async function apply(ctx) {
             response.end(JSON.stringify({ error: { message: 'Opaque supplier refusal' } }))
             return
           }
-          if (requests.length === 2) {
+          if ((providerFailover ? fallbackRequests.length : requests.length) === 2) {
             const result = payload.messages.find(message => message.role === 'tool')
             assert.ok(result?.content.includes('gemini-3.1-pro'))
             assert.ok(result?.content.includes('deepseek-v4-pro'))
@@ -214,7 +256,8 @@ export async function apply(ctx) {
               assert.deepEqual(catalogResult.defaultSelectionConflict, defaultSelectionConflict)
             }
           }
-          response.writeHead(200, { 'content-type': 'text/event-stream' }); response.end(completion(message)); return
+          response.writeHead(200, { 'content-type': 'text/event-stream' })
+          response.end(completion(message, promptUpdate && requests.length === 2 ? 20 : 0)); return
         }
         response.writeHead(404); response.end()
       } catch (error) {
@@ -281,12 +324,25 @@ export async function apply(ctx) {
   await mounted.await()
   const service = ctx.get('museAccount')
   assert.ok(service instanceof account.MuseAccountService)
-  ctx.on('agent/created', async () => {
+  if (promptUpdate) {
+    ctx.systemPrompt.section({ name: 'snapshot:muse-cache-prefix', order: 400, text: () => guidance })
+    ctx.on('tools/post-execute', async (exec, result, next) => {
+      const downstream = await next()
+      if (!result.isError && exec.name === 'muse_selected_models') guidance = promptGuidance
+      return downstream
+    })
+  }
+  const login = async () => {
     const attempt = await service.startBrowserLogin()
     assert.ok(!JSON.stringify(attempt).includes('s'.repeat(43)))
     const login = await service.checkBrowserLogin(attempt.id)
     assert.equal(login.state, 'signed-in')
-  })
+  }
+  if (earlyLogin) {
+    await login()
+    ctx.provide('snapshotProviderFailoverReady', { ready: true })
+  }
+  else ctx.on('agent/created', login)
   ctx.effect(() => ctx.tools.register(defineContentToolFixture({
     name: 'muse_selected_models', description: 'Read the signed-in Muse account model catalog.', parameters: {},
     async execute() {
@@ -306,9 +362,9 @@ export async function apply(ctx) {
         })) })
       }
       assert.deepEqual(available.flatMap(provider => provider.models.map(model => model.id)), onlyYunyingGemini
-        ? ['deepseek-flash', 'deepseek-v4-pro', 'gemini-3.1-pro', 'glm-5.3-flashx', 'glm-5.3-flash'] : excludesYunyingModels
-        ? ['deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flashx', 'glm-5.3-flash']
-        : ['deepseek-flash', 'deepseek-v4-pro', 'gpt-6-sol', 'gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.3-flash'])
+        ? [flashModelId, 'deepseek-v4-pro', 'gemini-3.1-pro', 'glm-5.3-flashx', 'glm-5.3-flash'] : excludesYunyingModels
+        ? [flashModelId, 'deepseek-v4-pro', 'gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flashx', 'glm-5.3-flash']
+        : [flashModelId, 'deepseek-v4-pro', 'gpt-6-sol', 'gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'gemini-3.1-pro', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.3-flash'])
       if (excludesStandaloneAa) {
         assert.equal(catalog.providers[0].id, 'aa')
         assert.ok(!providerIds.includes('muse-cloud-aa'))
@@ -383,10 +439,20 @@ export async function apply(ctx) {
   ctx.on('agent/turn-stopping', async ({ agent }) => {
     if (admissionFailure || contentRefusal) return
     if (rejected) throw rejected
-    assert.equal(requests.length, refusal ? 6 : 2)
+    assert.equal(requests.length, providerFailover ? 8 : refusal ? 6 : 2)
+    if (providerFailover) {
+      assert.equal(fallbackRequests.length, 2)
+      const events = agent.session.snapshotEvents()
+      assert.equal(events.filter(event => event.type === 'llm/retry').length, 5)
+      assert.equal(events.filter(event => event.type === 'assistant/attempt').length, 6)
+      assert.equal(events.filter(event => event.type === 'user/message' && event.data.source?.kind === 'user').length, 1)
+      assert.deepEqual(events.filter(event => event.type === 'model/selection').map(event => ({
+        provider: event.data.provider, model: event.data.model,
+      })), [fallbackModel])
+    }
     const config = agent.session.requestHeader()?.config
     assert.equal(config.reasoningEffort, officialGlm ? 'max' : preservesNewerDefault ? undefined : 'low')
-    assert.deepEqual({ provider: config.provider, model: config.model }, selectedModel)
+    assert.deepEqual({ provider: config.provider, model: config.model }, providerFailover ? fallbackModel : selectedModel)
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('snapshot-session'))
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('s'.repeat(43)))
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('fixture-password'))

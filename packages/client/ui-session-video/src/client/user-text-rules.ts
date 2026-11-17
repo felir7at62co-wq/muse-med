@@ -55,8 +55,8 @@ export function parseVideoSelectionData(text: string): VideoSelectionData | null
   try { value = JSON.parse(text) } catch (_error: unknown) { return null /* Invalid evidence remains ordinary user text. */ }
   const parsed = selections.safeParse(value)
   if (!parsed.success) return null
-  const first = parsed.data.at(0)
-  if (first === undefined) return null
+  // oxlint-disable-next-line typescript/no-non-null-assertion -- The parsed schema requires a nonempty array.
+  const first = parsed.data[0]!
   const sessionId = parseVideoWorkspaceAddress(first.review_link)?.sessionId
   if (sessionId === undefined || parsed.data.some(item => parseVideoWorkspaceAddress(item.review_link)?.sessionId !== sessionId)
     || new Set(parsed.data.map(item => item.review_link)).size !== parsed.data.length) return null

@@ -1,0 +1,27 @@
+# This authored recovery case must only run keyless replay/refresh.
+# Keep this failure oracle independent of bundled operating-system skills.
+# This zero-dispatch guard owner does not test Sandbox backends.
+# The unused operator sentinel avoids OS skills; accidental process dispatch must fail.
+- id: sandbox
+  config:
+    runnerCommand: [operator-runner]
+    runnerFailureSignatures: [operator runner unavailable]
+
+- id: skill-filesystem
+  disabled: true
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek-api-key'
+  disabled: true
+
+- insert:
+    - id: prompt-usage-guard
+      name: ./guard-fixture.mjs
+      config:
+        routes:
+          - { provider: deepseek-official, model: deepseek-v4-flash, minToolSchemaRatio: 1.0, minEstimateRatio: 0.5 }
+
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true

@@ -11,7 +11,8 @@ import Llm, { ReasoningEffortId, ToolCallId, createUserMessage } from '@deepseek
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import Tools, { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
+import Tools from '@deepseek-ai/dsh-tools'
+import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
@@ -164,6 +165,21 @@ it.each([0, 3])('leaves a batch of %s previews to normal preflight without enrol
   expect(f.requests.every(row => row.method === 'GET')).toBe(true)
 })
 
+it('refuses a submission from a Session that has not recorded a request header yet', async () => {
+  const f = await host()
+  // A real Agent created by the same Host whose first turn never reached a model:
+  // requestHeader() stays undefined, so the submission has no original selection to bind.
+  const unrequested = await f.ctx.agentLoop.create(SessionId('no-request-header-owner'), selection, { cwd: f.root })
+  const result = await executeToolFixture(f.ctx, { callId: ToolCallId('no-request-header-submit'), name: 'jubian_storyboard',
+    arguments: { method: 'submit_video', preview_path: f.plan.preview_path, idempotency_key: f.plan.idempotencyKey },
+    signal: new AbortController().signal, agent: unrequested })
+  expect(result.isError).toBe(true)
+  expect(result.content).toMatchObject([{ type: 'text',
+    text: 'Error: Video submission requires the original native Session, model and owned Workspace' }])
+  expect(await f.store.listActive()).toEqual([])
+  expect(f.requests.every(row => row.method === 'GET')).toBe(true)
+})
+
 it('refuses a session that the Host cannot resolve before enrolling or dispatching', async () => {
   const f = await host()
   const resolve = vi.spyOn(f.ctx.sessionController, 'resolveAgent').mockResolvedValueOnce({
@@ -241,7 +257,7 @@ it('does not acquire a binding for a different or unregistered native Session', 
   const model = await f.ctx.sessionProjections.register(modelSelectionProjectionDefinition)
   const inbox = await f.ctx.sessionProjections.register(inboxProjectionDefinition)
   const agent = new ReactLoopAgent(f.ctx, session.id, selection, session,
-    { modelSelection: model.readerFor(session), inbox: inbox.readerFor(session) }, 0)
+    { modelSelection: model.readerFor(session), inbox: inbox.readerFor(session) }, 0, new AbortController().signal)
   onTestFinished(async () => { await agent.scope.dispose() })
   await expect(acquireGenerationSessionBinding(f.ctx, agent, { ...captured.binding, sessionId: agent.id }, signal))
     .rejects.toThrow('does not name the live native Session')
@@ -265,9 +281,9 @@ it.each(['agent', 'session'] as const)('rechecks an advanced native %s owner bef
   const model = await f.ctx.sessionProjections.register(modelSelectionProjectionDefinition)
   const inbox = await f.ctx.sessionProjections.register(inboxProjectionDefinition)
   const agent = new ReactLoopAgent(f.ctx, id, selection, session,
-    { modelSelection: model.readerFor(session), inbox: inbox.readerFor(session) }, 0)
+    { modelSelection: model.readerFor(session), inbox: inbox.readerFor(session) }, 0, new AbortController().signal)
   const detachSession = f.ctx.sessions.enter(session)
-  const detachAgent = f.ctx.agents.enter(agent, undefined)
+  const detachAgent = f.ctx.agents.enter(agent)
   onTestFinished(async () => { detachAgent(); detachSession(); await agent.scope.dispose() })
   await f.workspace.attachSession(id)
   const captured = await captureGenerationSessionBinding(f.ctx, agent, new AbortController().signal)
@@ -295,8 +311,8 @@ it('does not allow a subagent to inherit an ordinary Session generation binding'
   const captured = await captureGenerationSessionBinding(f.ctx, f.agent, signal)
   if (!captured) throw new Error('Expected owned native binding')
   captured.lease.release()
-  const child = await f.ctx.agents.create({ sessionId: SessionId('generation-binding-child'), parentAgent: f.agent,
-    meta: { origin: 'subagent', cwd: f.root }, agentOptions: selection })
+  const child = await f.ctx.agents.create({ sessionId: SessionId('generation-binding-child'),
+    meta: { origin: 'subagent', parentSession: f.agent.id, cwd: f.root }, agentOptions: selection })
   await expect(acquireGenerationSessionBinding(f.ctx, child.agent, { ...captured.binding, sessionId: child.agent.id }, signal))
     .rejects.toThrow('does not name the live native Session')
 })

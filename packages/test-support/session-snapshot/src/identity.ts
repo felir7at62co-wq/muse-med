@@ -107,6 +107,14 @@ export function redactSessionSnapshotIds(logs: readonly string[]): string[] {
       if (record.type === 'feedback/message-put' && isRecord(record.data) && isRecord(record.data.item)) {
         claim(record.data.item.version, 'id')
       }
+      if (record.type === 'tool/call' && isRecord(record.data)
+        && (record.data.name === 'job_output' || record.data.name === 'job_cancel')
+        && typeof record.data.arguments === 'string') {
+        let args: unknown
+        try { args = JSON.parse(record.data.arguments) }
+        catch (error) { if (!(error instanceof SyntaxError)) throw error }
+        if (isRecord(args)) claim(args.job_id, 'id')
+      }
       collect(record, record.type)
     }
   }
