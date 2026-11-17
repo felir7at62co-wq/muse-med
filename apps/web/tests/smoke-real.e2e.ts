@@ -658,9 +658,10 @@ describe('dsh web keyless CLI smoke', () => {
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
         const parsed = JSON.parse(body) as ExecutorProviderRequest
-        if (isExecutorProviderRequest(parsed, promptMarker)) resolveProviderRequest(parsed)
+        const isExecutorRequest = isExecutorProviderRequest(parsed, promptMarker)
+        if (isExecutorRequest) resolveProviderRequest(parsed)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
-        response.end(messagesResponse('done'))
+        response.end(messagesResponse(isExecutorRequest ? 'done' : 'Web executor smoke title'))
       })
     })
     await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve))

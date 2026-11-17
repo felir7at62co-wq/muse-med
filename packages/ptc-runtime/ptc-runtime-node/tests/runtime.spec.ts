@@ -203,6 +203,17 @@ describe('Node program process', () => {
     } finally { controller.abort(); await pending }
   })
 
+  it('retains console output delivered before a non-yielding program', async () => {
+    const { run } = await setup({ timeoutMs: 1000, graceMs: 50 })
+    const result = await run({
+      // This response follows the log on the control pipe, proving host admission before the loop blocks the child.
+      program: 'console.log("before hot loop"); await tools.delivered({}); for (;;) {}',
+      bindings: bindings({ delivered: async () => null }),
+    })
+    expect(result.error?.kind).toBe('timeout')
+    expect(result.logs).toEqual(['before hot loop'])
+  })
+
   it('does not pause the deadline while a binding is pending', async () => {
     const { run } = await setup({ timeoutMs: 1000, graceMs: 50 })
     const result = await run({ program: 'void tools.wait({}); for (;;) {}', bindings: bindings({ wait: () => new Promise(() => {}) }) })
