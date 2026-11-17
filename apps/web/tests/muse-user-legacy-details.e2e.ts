@@ -22,18 +22,25 @@ interface LegacyAccountDetailsStack {
   close(): Promise<void>
 }
 interface LegacyAccountDetailsFixture {
-  startLegacyAccountDetailsStack(): Promise<LegacyAccountDetailsStack>
+  startLegacyAccountDetailsStack(options?: {
+    readonly profile?: boolean
+    readonly organization?: boolean
+  }): Promise<LegacyAccountDetailsStack>
 }
 const fixtureUrl = new URL('./fixtures/muse-user-legacy-details/stack.mjs', import.meta.url)
 
-it('shows private relay totals and cursor pages when the account details endpoint is unavailable', async () => {
+it.each([
+  { label: 'legacy', profile: false, organization: false },
+  { label: 'profile', profile: true, organization: false },
+  { label: 'workbench', profile: false, organization: true },
+])('shows private relay totals and cursor pages through $label', async ({ profile, organization }) => {
   const root = await mkdtemp(join(tmpdir(), 'muse-legacy-details-browser-'))
   let account: LegacyAccountDetailsStack | undefined
   let scaffold: WebScaffold | undefined
   let browser: Browser | undefined
   try {
     const fixture = await import(fixtureUrl.href) as LegacyAccountDetailsFixture
-    account = await fixture.startLegacyAccountDetailsStack()
+    account = await fixture.startLegacyAccountDetailsStack({ profile, organization })
     const accountHome = join(root, 'account')
     await mkdir(accountHome, { mode: 0o700 })
     await writeFile(join(accountHome, 'session.json'), JSON.stringify({ baseUrl: account.origin,
@@ -67,8 +74,17 @@ it('shows private relay totals and cursor pages when the account details endpoin
     const dialog = page.getByRole('dialog', { name: '设置', exact: true })
     await dialog.getByRole('button', { name: 'MUSE', exact: true }).click()
     const details = dialog.locator('[data-muse-account-details]')
-    await details.getByText('当前服务尚未提供分组信息，请联系管理员', { exact: true }).waitFor()
-    await details.getByText('当前服务尚未提供飞书部门信息，请联系管理员开通同步', { exact: true }).waitFor()
+    if (profile) {
+      await details.getByText('测试编剧', { exact: true }).waitFor()
+      await details.getByText('长剧创作组', { exact: true }).waitFor()
+      await details.getByText('长剧项目协作', { exact: true }).waitFor()
+      await details.getByText('示例公司 / 创作中心 / 编剧部', { exact: true }).waitFor()
+      expect(await details.getByText('当前服务尚未提供分组信息，请联系管理员', { exact: true }).count()).toBe(0)
+    } else {
+      await details.getByText('当前服务尚未提供分组信息，请联系管理员', { exact: true }).waitFor()
+      if (organization) await details.getByText('示例公司 / 创作中心 / 编剧部', { exact: true }).waitFor()
+      else await details.getByText('当前服务尚未提供飞书部门信息，请联系管理员开通同步', { exact: true }).waitFor()
+    }
     expect(await details.getByText('管理员尚未分配分组', { exact: true }).count()).toBe(0)
     expect(await details.getByText('飞书未返回所属部门', { exact: true }).count()).toBe(0)
     expect(await details.getByText(account.accountId, { exact: true }).count()).toBe(1)
@@ -104,12 +120,19 @@ it('shows private relay totals and cursor pages when the account details endpoin
     expect(account.requests.every(request => request.authenticated)).toBe(true)
     expect(account.requests.some(request => request.path === '/api/muse.account/details')).toBe(true)
     expect(account.requests.some(request => request.path === '/api/muse/identity')).toBe(true)
+    expect(account.requests.some(request => request.path === '/api/muse/profile')).toBe(true)
+    if (profile) expect(account.requests.some(request => request.path === '/api/workbench')).toBe(false)
+    else expect(account.requests.filter(request => request.path === '/api/workbench').every(request => request.query.scope === 'self')).toBe(true)
     expect(account.requests.some(request => request.path.startsWith('/api/admin/'))).toBe(false)
     expect(account.violations).toEqual([])
     expect(externalRequests).toEqual([])
     expect(await details.innerText()).not.toContain(account.cookie)
-    const snapshot = { headings: await details.getByRole('heading').allTextContents(), summary: firstSummary }
-    await expect(JSON.stringify(snapshot, null, 2) + '\n').toMatchFileSnapshot(join(REPO_ROOT, 'apps/web/tests/fixtures/muse-user-legacy-details/account.expected.json'))
+    const snapshot = { headings: await details.getByRole('heading').allTextContents(), summary: firstSummary,
+      ...(organization ? { department: await details.getByText('示例公司 / 创作中心 / 编剧部', { exact: true }).innerText() } : {}),
+    }
+    await expect(JSON.stringify(snapshot, null, 2) + '\n').toMatchFileSnapshot(join(REPO_ROOT,
+      'apps/web/tests/fixtures/muse-user-legacy-details/'
+      + (profile ? 'account-profile.expected.json' : organization ? 'account-organization.expected.json' : 'account.expected.json')))
   } finally {
     try { await browser?.close() }
     finally {

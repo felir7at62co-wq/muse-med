@@ -1,4 +1,4 @@
-/** Current-account relay observations when the service does not provide profile details. */
+/** Current-account profile and relay observations from account-data-v1 services. */
 
 import type { ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -6,6 +6,8 @@ import type { MuseAccountRelayDetails as RelayDetails } from '@deepseek-ai/dsh-m
 import type { MuseAccountSectionProps } from './MuseAccountSection.tsx'
 import type { MuseAccountLocaleKey } from './locales.ts'
 import css from './MuseAccountDetails.module.css'
+import { MuseAccountProfileSections } from './MuseAccountProfileSections.tsx'
+import { MuseAccountOrganization } from './MuseAccountOrganization.tsx'
 
 type RelayPeriod = 'today' | '7d' | '30d'
 interface RelayDetailsProps extends Pick<MuseAccountSectionProps, 't'> {
@@ -45,17 +47,22 @@ export function MuseAccountRelayDetails({ t, value, period, offset, busy, failed
   const nextCursor = usage.nextCursor
   const number = (count: number | null | undefined): string => count === null || count === undefined ? t('notReported') : count.toLocaleString()
   return <div className={css.details} data-muse-account-details aria-busy={busy}>
-    <section className={css.card} aria-label={t('profileTitle')}>
-      <h4 className={css.heading}>{t('profileTitle')}</h4>
-      <dl className={css.profile}><div><dt>{t('accountId')}</dt><dd>{value.account.id}</dd></div></dl>
-      <p className={css.note}>{t('profileNotProvided')}</p>
-      <h4 className={css.heading}>{t('feishuDepartments')}</h4>
-      <p className={css.note}>{t('departmentsNotProvided')}</p>
-    </section>
-    <section className={css.card} aria-label={t('groupsTitle')}>
-      <h4 className={css.heading}>{t('groupsTitle')}</h4>
-      <p className={css.note}>{t('groupsNotProvided')}</p>
-    </section>
+    {value.profile === undefined ? <>
+      <section className={css.card} aria-label={t('profileTitle')}>
+        <h4 className={css.heading}>{t('profileTitle')}</h4>
+        <dl className={css.profile}><div><dt>{t('accountId')}</dt><dd>{value.account.id}</dd></div></dl>
+        <p className={css.note}>{t('profileNotProvided')}</p>
+        {value.organization === undefined ? <>
+          <h4 className={css.heading}>{t('feishuDepartments')}</h4>
+          <p className={css.note}>{t('departmentsNotProvided')}</p>
+        </> : <MuseAccountOrganization t={t} organization={value.organization} />}
+      </section>
+      <section className={css.card} aria-label={t('groupsTitle')}>
+        <h4 className={css.heading}>{t('groupsTitle')}</h4>
+        <p className={css.note}>{t('groupsNotProvided')}</p>
+      </section>
+    </> : <MuseAccountProfileSections t={t} account={value.profile.account}
+      groups={value.profile.groups} organization={value.profile.organization} />}
     <section className={css.card} aria-label={t('usageTitle')}>
       <div className={css.toolbar}>
         <h4 className={css.heading}>{t('usageTitle')}</h4>

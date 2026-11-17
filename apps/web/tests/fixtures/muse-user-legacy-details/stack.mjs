@@ -5,9 +5,10 @@ import {createServer} from 'node:http';
 
 /**
  * Start the legacy account protocol without external services or account storage.
+ * @param {object} options Whether the existing gateway serves a safe personal profile or self-workbench directory.
  * @returns {Promise<object>} Private Host login, observed request metadata and awaited shutdown.
  */
-export async function startLegacyAccountDetailsStack(){
+export async function startLegacyAccountDetailsStack({profile=false,organization=false}={}){
  const username='legacy_browser_writer',accountId='a123456789abcdef';
  const cookie='__Host-muse='+randomBytes(32).toString('base64url');
  const requests=[],violations=[],nextCursor='fixture-next-page';
@@ -27,6 +28,19 @@ export async function startLegacyAccountDetailsStack(){
   if(url.pathname==='/api/desktop-models/providers'){json(res,200,{providers:[]});return;}
   if(url.pathname==='/api/muse.account/details'){res.writeHead(404,{'content-type':'text/plain'});res.end('Not Found');return;}
   if(url.pathname==='/api/muse/identity'){json(res,200,{version:1,accountId,username,admin:false});return;}
+  if(url.pathname==='/api/muse/profile'){
+   if(!profile){json(res,404,{});return;}
+   json(res,200,{version:1,account:{id:accountId,username,createdAt:'2026-01-01T00:00:00.000Z',lastLoginAt:null,lastActivityAt:null,
+    feishuIdentities:[{name:'测试编剧',tenantKey:'tenant_fixture',boundAt:'2026-01-01T00:00:00.000Z',lastLoginAt:null}]},
+    groups:[{id:'group-0123456789abcdef',name:'长剧创作组',description:'长剧项目协作'}],
+    organization:{status:'available',updatedAt:'2026-11-17T00:00:00.000Z',departments:[{id:'od_writer',name:'编剧部',path:'示例公司 / 创作中心 / 编剧部',pathIds:['0','od_creation','od_writer']}]}});return;
+  }
+  if(url.pathname==='/api/workbench'){
+   if(!organization){json(res,404,{});return;}
+   if(query.scope!=='self'||Object.keys(query).length!==1){violations.push('organization-scope-overridden');json(res,400,{});return;}
+   json(res,200,{scope:'self',me:{id:accountId,name:'测试编剧'},organization:{status:'partial',updatedAt:'2026-11-17T00:00:00.000Z'},
+    members:[{id:accountId,username,name:'测试编剧',departmentPaths:[[{id:'0',name:'示例公司'},{id:'od_creation',name:'创作中心'},{id:'od_writer',name:'编剧部'}]]}]});return;
+  }
   if(url.pathname==='/api/muse/usage'){
    if(Object.keys(query).some(key=>!['from','to','limit','cursor'].includes(key))){
     violations.push('account-scope-overridden');json(res,400,{error:{code:'invalid_usage_query'}});return;

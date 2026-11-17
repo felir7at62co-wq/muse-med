@@ -3,11 +3,12 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { MuseAccountRelayDetails as RelayDetails } from '@deepseek-ai/dsh-muse-account/types'
+import type { MuseAccountProfile, MuseAccountRelayDetails as RelayDetails } from '@deepseek-ai/dsh-muse-account/types'
 import { MuseAccountDetails } from '../src/client/MuseAccountDetails.tsx'
 import type { MuseAccountInjected, MuseAccountSectionProps } from '../src/client/MuseAccountSection.tsx'
 import { en, zh } from '../src/client/locales.ts'
 import type { MuseAccountLocaleKey } from '../src/client/locales.ts'
+import { ACCOUNT_DETAILS } from './account-details.fixture.ts'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
@@ -36,6 +37,16 @@ const RELAY: RelayDetails = {
         upstreamStatus: null, clientStatus: 502, errorKind: 'transport' },
     ],
   },
+}
+
+const PROFILE: MuseAccountProfile = {
+  version: 1,
+  account: { ...ACCOUNT_DETAILS.account,
+    feishuIdentities: ACCOUNT_DETAILS.account.feishuIdentities.map(({ organization: _organization, ...identity }) => identity) },
+  groups: ACCOUNT_DETAILS.groups,
+  organization: { status: 'available', updatedAt: '2026-11-17T01:00:00.000Z',
+    departments: [{ id: 'dep-production' as MuseAccountProfile['organization']['departments'][number]['id'],
+      name: '动画组', path: '星河工作室 / 制作部 / 动画组', pathIds: [] }] },
 }
 
 function copy(dictionary: typeof en): MuseAccountSectionProps['t'] {
@@ -78,6 +89,102 @@ it('shows the actual relay summary and request fields with explicit unavailable 
     rows: rows.map(row => Array.from(row.children).map(cell => cell.textContent)),
   }
   await expect(JSON.stringify(snapshot, null, 2) + '\n').toMatchFileSnapshot('./expected/relay-account-details.zh.json')
+})
+
+it('shows personal profile and account-level Feishu paths independently of the relay usage coverage', async () => {
+  const value: RelayDetails = { ...RELAY, profile: PROFILE,
+    availability: { profile: 'available', groups: 'available', feishuOrganization: 'available' } }
+  mount(async () => ({ ok: true, value }), zh)
+  await screen.findByText('星河工作室 / 制作部 / 动画组')
+  const profile = screen.getByRole('region', { name: zh.profileTitle })
+  expect(within(profile).getByText('writer')).toBeDefined()
+  expect(within(profile).getByText('林编剧')).toBeDefined()
+  expect(screen.getByText('编剧团队')).toBeDefined()
+  expect(screen.queryByText(zh.feishuDepartmentsRelogin)).toBeNull()
+  expect(screen.queryByText(zh.profileNotProvided)).toBeNull()
+  expect(screen.queryByText(zh.groupsNotProvided)).toBeNull()
+  expect(screen.queryByText(zh.departmentsNotProvided)).toBeNull()
+  expect(screen.getByText(zh.relayUsageScope)).toBeDefined()
+  expect(document.querySelector('[data-muse-usage-summary]')?.textContent).toContain('总 Token1,218,000')
+  const groups = screen.getByRole('region', { name: zh.groupsTitle })
+  const snapshot = {
+    profile: Array.from(profile.querySelectorAll('dl > div')).map(item => ({
+      label: item.querySelector('dt')?.textContent, value: item.querySelector('dd')?.textContent,
+    })),
+    identity: within(profile).getByText('林编剧').parentElement?.textContent,
+    departmentPaths: within(profile).getByRole('list', { name: zh.feishuDepartments }).textContent,
+    synchronized: within(profile).getByText('部门同步时间：2026/11/17 09:00:00').textContent,
+    groups: within(groups).getByRole('list').textContent,
+    usageScope: screen.getByText(zh.relayUsageScope).textContent,
+  }
+  await expect(JSON.stringify(snapshot, null, 2) + '\n').toMatchFileSnapshot('./expected/relay-account-profile.zh.json')
+})
+
+it('shows verified department paths while detailed profile and Muse groups remain unavailable', async () => {
+  const value: RelayDetails = { ...RELAY, organization: PROFILE.organization,
+    availability: { ...RELAY.availability, feishuOrganization: 'available' } }
+  mount(async () => ({ ok: true, value }), zh)
+  const path = await screen.findByText('星河工作室 / 制作部 / 动画组')
+  expect(screen.getByText(zh.profileNotProvided)).toBeDefined()
+  expect(screen.getByText(zh.groupsNotProvided)).toBeDefined()
+  expect(screen.queryByText(zh.departmentsNotProvided)).toBeNull()
+  expect(screen.queryByText(zh.noGroups)).toBeNull()
+  expect(screen.queryByText(zh.feishuDepartmentsRelogin)).toBeNull()
+  expect(screen.getByText('deepseek-flash')).toBeDefined()
+  const snapshot = {
+    profile: screen.getByText(zh.profileNotProvided).textContent,
+    groups: screen.getByText(zh.groupsNotProvided).textContent,
+    departmentPath: path.textContent,
+    synchronized: screen.getByText('部门同步时间：2026/11/17 09:00:00').textContent,
+    usageScope: screen.getByText(zh.relayUsageScope).textContent,
+  }
+  await expect(JSON.stringify(snapshot, null, 2) + '\n').toMatchFileSnapshot('./expected/relay-account-organization.zh.json')
+})
+
+it.each(['available', 'unavailable'] as const)('keeps Muse group availability independent from %s directory membership', async (status) => {
+  const value: RelayDetails = { ...RELAY, organization: { status, updatedAt: null, departments: [] },
+    availability: { ...RELAY.availability, feishuOrganization: status } }
+  mount(async () => ({ ok: true, value }))
+  await screen.findByText(status === 'available' ? en.feishuDepartmentsEmpty : en.feishuDepartmentsPending)
+  expect(screen.getByText(en.groupsNotProvided)).toBeDefined()
+  expect(screen.queryByText(en.noGroups)).toBeNull()
+  expect(screen.queryByText(en.departmentsNotProvided)).toBeNull()
+  expect(screen.queryByText(status === 'available' ? en.feishuDepartmentsPending : en.feishuDepartmentsEmpty)).toBeNull()
+})
+
+it('shows confirmed empty memberships without replacing real usage records', async () => {
+  const value: RelayDetails = { ...RELAY,
+    profile: { ...PROFILE, groups: [], organization: { ...PROFILE.organization, departments: [] } },
+    availability: { profile: 'available', groups: 'available', feishuOrganization: 'available' } }
+  mount(async () => ({ ok: true, value }))
+  await screen.findByText(en.noGroups)
+  expect(screen.getByText(en.feishuDepartmentsEmpty)).toBeDefined()
+  expect(screen.queryByText(en.groupsNotProvided)).toBeNull()
+  expect(screen.getByText('deepseek-flash')).toBeDefined()
+})
+
+it('keeps unavailable directory sync distinct from an empty department membership', async () => {
+  const value: RelayDetails = { ...RELAY,
+    profile: { ...PROFILE, organization: { status: 'unavailable', updatedAt: null, departments: [] } },
+    availability: { profile: 'available', groups: 'available', feishuOrganization: 'unavailable' } }
+  mount(async () => ({ ok: true, value }))
+  await screen.findByText(en.feishuDepartmentsPending)
+  expect(screen.queryByText(en.feishuDepartmentsEmpty)).toBeNull()
+  expect(screen.queryByText(en.feishuDepartmentsRelogin)).toBeNull()
+  expect(screen.queryByText('Departments synced: Not reported')).toBeNull()
+  expect(screen.getByText('编剧团队')).toBeDefined()
+  expect(screen.getByText('deepseek-flash')).toBeDefined()
+})
+
+it('uses an account-level department name when its formatted path is missing', async () => {
+  const department = PROFILE.organization.departments[0]!
+  const value: RelayDetails = { ...RELAY,
+    profile: { ...PROFILE, organization: { ...PROFILE.organization, departments: [{ ...department, path: '' }] } },
+    availability: { profile: 'available', groups: 'available', feishuOrganization: 'available' } }
+  mount(async () => ({ ok: true, value }))
+  await screen.findByText('动画组')
+  expect(screen.queryByText('星河工作室 / 制作部 / 动画组')).toBeNull()
+  expect(screen.getByText('deepseek-flash')).toBeDefined()
 })
 
 it('uses server cursors for forward and backward pages without changing global totals', async () => {

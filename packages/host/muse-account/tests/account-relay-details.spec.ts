@@ -34,10 +34,194 @@ function usageFixture() {
 function relayFetcher(usage: object = usageFixture()): typeof fetch {
   return async (url) => {
     const path = new URL(url instanceof Request ? url.url : url).pathname
-    return path === '/api/muse.account/details' ? new Response('missing', { status: 404 })
+    return path === '/api/muse.account/details' || path === '/api/muse/profile' || path === '/api/workbench' ? new Response('missing', { status: 404 })
       : Response.json(path === '/api/muse/identity' ? identity : usage)
   }
 }
+
+function profileFixture() {
+  return { version: 1, account: { id: identity.accountId, username: identity.username,
+    createdAt: '2026-10-01T00:00:00.000Z', lastLoginAt: '2026-11-17T00:00:00.000Z', lastActivityAt: null,
+    feishuIdentities: [{ name: 'Writer', tenantKey: 'tenant', boundAt: '2026-10-01T00:00:00.000Z',
+      lastLoginAt: '2026-11-17T00:00:00.000Z', openId: 'PRIVATE_OPEN_ID' }], secret: 'PRIVATE_ACCOUNT' },
+  groups: [{ id: 'group-0123456789abcdef', name: 'Production', description: 'Assigned by Muse administrator' }],
+  organization: { status: 'available', updatedAt: '2026-11-17T00:00:00.000Z', departments: [
+    { id: 'department-team', name: 'Team', path: 'Company / Team', pathIds: ['department-root', 'department-team'], private: 'PRIVATE_DEPARTMENT' },
+  ] }, private: 'PRIVATE_PROFILE' }
+}
+
+function profileFetcher(profile: object): typeof fetch {
+  const source = relayFetcher()
+  return async (input, init) => new URL(input instanceof Request ? input.url : input).pathname === '/api/muse/profile'
+    ? Response.json(profile) : source(input, init)
+}
+
+function workbenchFixture() {
+  return { scope: 'self', me: { id: identity.accountId, name: 'Writer' },
+    organization: { status: 'partial', updatedAt: '2026-11-17T00:00:00.000Z' },
+    members: [{ id: identity.accountId, username: identity.username, departmentPaths: [[
+      { id: '0', name: 'Company' }, { id: 'department-team', name: 'Team' },
+    ]], tasks: ['PRIVATE_MEMBER_TASK'] }],
+    coordination: { tasks: [{ prompt: 'PRIVATE_PROMPT' }] }, production: { private: 'PRIVATE_PRODUCTION' } }
+}
+
+function workbenchFetcher(workbench: object): typeof fetch {
+  const source = relayFetcher()
+  return async (input, init) => new URL(input instanceof Request ? input.url : input).pathname === '/api/workbench'
+    ? Response.json(workbench) : source(input, init)
+}
+
+it.each(['ready', 'partial'])('reads only the authenticated self workbench departments when organization is %s', async (status) => {
+  const fixture = workbenchFixture(), source = workbenchFetcher({ ...fixture, organization: { ...fixture.organization, status } })
+  const calls: URL[] = []
+  const gateway = createMuseAccountGateway(baseUrl, 1000, async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input)
+    calls.push(url)
+    expect(new Headers(init?.headers).get('cookie')).toBe(cookie)
+    return source(input, init)
+  })
+  const result = await gateway.details(cookie, {})
+  if (result.protocol !== 'account-data-v1') throw new Error('Expected relay protocol')
+  expect(result.profile).toBeUndefined()
+  expect(result.organization).toEqual({ status: 'available', updatedAt: fixture.organization.updatedAt,
+    departments: [{ id: 'department-team', name: 'Team', path: 'Company / Team', pathIds: ['0', 'department-team'] }] })
+  expect(result.availability).toEqual({ profile: 'unavailable', groups: 'unavailable', feishuOrganization: 'available' })
+  expect(calls.map(url => url.pathname)).toEqual(['/api/muse.account/details', '/api/muse/identity', '/api/muse/profile', '/api/workbench', '/api/muse/usage'])
+  expect(calls.find(url => url.pathname === '/api/workbench')?.search).toBe('?scope=self')
+  expect(result.usage.summary.totalTokens).toBe(96_284_261)
+  expect(JSON.stringify(result)).not.toContain('PRIVATE_')
+})
+
+it.each(['null paths', 'global unavailable', 'empty departments', 'shared ancestor'])(
+  'preserves the meaning of self workbench %s', async (kind) => {
+    const fixture = workbenchFixture(), member = fixture.members[0]!
+    const organization = kind === 'global unavailable' ? { ...fixture.organization, status: 'unavailable' } : fixture.organization
+    const departmentPaths = kind === 'null paths' ? null : kind === 'empty departments' ? []
+      : kind === 'shared ancestor' ? [...member.departmentPaths, [{ id: '0', name: 'Company' }, { id: 'department-other', name: 'Other' }]]
+        : member.departmentPaths
+    const result = await createMuseAccountGateway(baseUrl, 1000, workbenchFetcher({ ...fixture,
+      organization: { ...organization, updatedAt: null }, members: [{ ...member, departmentPaths }],
+    })).details(cookie, {})
+    if (result.protocol !== 'account-data-v1') throw new Error('Expected relay protocol')
+    const available = kind === 'empty departments' || kind === 'shared ancestor'
+    expect(result.organization?.status).toBe(available ? 'available' : 'unavailable')
+    expect(result.organization?.updatedAt).toBeNull()
+    expect(result.organization?.departments).toHaveLength(kind === 'shared ancestor' ? 2 : 0)
+    expect(result.availability).toEqual({ profile: 'unavailable', groups: 'unavailable', feishuOrganization: available ? 'available' : 'unavailable' })
+  },
+)
+
+it.each(['scope', 'me id', 'member id', 'username', 'extra member', 'status', 'date', 'empty path', 'missing node',
+  'cycle', 'duplicate path', 'inconsistent name', 'inconsistent parent', 'depth', 'path count', 'blank name', 'node id'])(
+  'rejects invalid self workbench %s without returning task content', async (kind) => {
+    const fixture = workbenchFixture(), member = fixture.members[0]!, path = member.departmentPaths[0]!
+    const departmentPaths = kind === 'empty path' ? [[]] : kind === 'missing node' ? [[{ id: '0' }]]
+      : kind === 'cycle' ? [[...path, path[0]]]
+        : kind === 'duplicate path' ? [path, path]
+          : kind === 'inconsistent name' ? [path, [{ id: '0', name: 'Wrong' }, { id: 'other', name: 'Other' }]]
+            : kind === 'inconsistent parent' ? [path, [{ id: 'root-other', name: 'Other' }, path[1]]]
+              : kind === 'depth' ? [Array.from({ length: 101 }, (_, index) => ({ id: 'department-' + String(index), name: 'Department' }))]
+                : kind === 'path count' ? Array(101).fill(path)
+                  : kind === 'blank name' ? [[{ id: '0', name: '  ' }]]
+                    : kind === 'node id' ? [[{ id: 'bad id', name: 'Company' }]] : member.departmentPaths
+    const value = { ...fixture, scope: kind === 'scope' ? 'organization' : fixture.scope,
+      me: { ...fixture.me, id: kind === 'me id' ? 'fedcba9876543210' : fixture.me.id },
+      organization: { status: kind === 'status' ? 'unknown' : fixture.organization.status,
+        updatedAt: kind === 'date' ? 'invalid date' : fixture.organization.updatedAt },
+      members: kind === 'extra member' ? [member, member] : [{ ...member,
+        id: kind === 'member id' ? 'fedcba9876543210' : member.id,
+        username: kind === 'username' ? 'other' : member.username, departmentPaths }],
+    }
+    await expect(createMuseAccountGateway(baseUrl, 1000, workbenchFetcher(value)).details(cookie, {}))
+      .rejects.toMatchObject({ code: 'gateway-rejected', message: 'MUSE account gateway: gateway-rejected' })
+  },
+)
+
+it.each([303, 401, 403, 429, 503])('does not treat self workbench HTTP %i as absent support', async (status) => {
+  const source = relayFetcher()
+  const fetcher: typeof fetch = async (input, init) => new URL(input instanceof Request ? input.url : input).pathname === '/api/workbench'
+    ? new Response('PRIVATE_WORKBENCH_ERROR', { status }) : source(input, init)
+  await expect(createMuseAccountGateway(baseUrl, 1000, fetcher).details(cookie, {})).rejects.toMatchObject({
+    code: status === 303 || status === 401 ? 'invalid-credentials' : status === 429 ? 'rate-limited' : 'gateway-rejected',
+  })
+})
+
+it.each([false, true])('keeps relay data when the missing self workbench has no readable body (empty: %s)', async (empty) => {
+  const source = relayFetcher()
+  const gateway = createMuseAccountGateway(baseUrl, 1000, async (input, init) => new URL(input instanceof Request ? input.url : input).pathname === '/api/workbench'
+    ? new Response(empty ? null : new ReadableStream({ cancel() { throw new Error('PRIVATE_CANCEL_ERROR') } }), { status: 404 }) : source(input, init))
+  const result = await gateway.details(cookie, {})
+  if (result.protocol !== 'account-data-v1') throw new Error('Expected relay protocol')
+  expect(result.profile).toBeUndefined()
+  expect(result.organization).toBeUndefined()
+  expect(result.usage.summary.requests).toBe(461)
+})
+
+it.each(['2026-11-17T00:00:00.000Z', null])('joins verified profile data and retains its organization timestamp %s', async (updatedAt) => {
+  const profile = profileFixture()
+  const fetcher = vi.fn<typeof fetch>(profileFetcher({ ...profile,
+    organization: { ...profile.organization, updatedAt },
+  }))
+  const result = await createMuseAccountGateway(baseUrl, 1000, fetcher).details(cookie, {})
+  if (result.protocol !== 'account-data-v1') throw new Error('Expected relay protocol')
+  expect(result.profile).toMatchObject({ version: 1, account: { id: identity.accountId, username: identity.username },
+    groups: [{ name: 'Production' }], organization: { status: 'available', departments: [{ name: 'Team', path: 'Company / Team' }] } })
+  expect(result.availability).toEqual({ profile: 'available', groups: 'available', feishuOrganization: 'available' })
+  expect(result.profile?.organization.updatedAt).toBe(updatedAt)
+  expect(result.organization).toEqual(result.profile?.organization)
+  expect(fetcher.mock.calls.some(([input]) => new URL(input instanceof Request ? input.url : input).pathname === '/api/workbench')).toBe(false)
+  expect(result.usage.coverage).toEqual({ transport: 'relay-only', direct: 'unobserved' })
+  expect(result.usage.summary.totalTokens).toBe(96_284_261)
+  expect(JSON.stringify(result)).not.toContain('PRIVATE_')
+})
+
+it('retains verified empty Muse groups separately from unavailable organization data', async () => {
+  const result = await createMuseAccountGateway(baseUrl, 1000, profileFetcher({ ...profileFixture(), groups: [],
+    organization: { status: 'unavailable', updatedAt: null, departments: [] },
+  })).details(cookie, {})
+  if (result.protocol !== 'account-data-v1') throw new Error('Expected relay protocol')
+  expect(result.profile?.groups).toEqual([])
+  expect(result.availability).toEqual({ profile: 'available', groups: 'available', feishuOrganization: 'unavailable' })
+})
+
+it.each(['account id', 'username', 'date', 'group id', 'organization', 'departments'])(
+  'rejects invalid personal-profile %s before returning any relay data', async (kind) => {
+    const source = profileFixture()
+    const profile = kind === 'account id' ? { ...source, account: { ...source.account, id: 'fedcba9876543210' } }
+      : kind === 'username' ? { ...source, account: { ...source.account, username: 'another-user' } }
+        : kind === 'date' ? { ...source, account: { ...source.account, createdAt: 'invalid' } }
+          : kind === 'group id' ? { ...source, groups: [{ ...source.groups[0], id: 'invalid' }] }
+            : kind === 'organization' ? { ...source, organization: { ...source.organization, status: 'unknown' } }
+              : { ...source, organization: { ...source.organization, departments: Array(101).fill(source.organization.departments[0]) } }
+    await expect(createMuseAccountGateway(baseUrl, 1000, profileFetcher(profile)).details(cookie, {}))
+      .rejects.toMatchObject({ code: 'gateway-rejected', message: 'MUSE account gateway: gateway-rejected' })
+  },
+)
+
+it.each([303, 401, 403, 429, 503])('does not treat personal-profile HTTP %i as absent support', async (status) => {
+  const source = relayFetcher(), calls: string[] = []
+  const fetcher: typeof fetch = async (input, init) => {
+    const path = new URL(input instanceof Request ? input.url : input).pathname
+    calls.push(path)
+    return path === '/api/muse/profile' ? new Response('PRIVATE_PROFILE_ERROR', { status }) : source(input, init)
+  }
+  await expect(createMuseAccountGateway(baseUrl, 1000, fetcher).details(cookie, {})).rejects.toMatchObject({
+    code: status === 303 || status === 401 ? 'invalid-credentials' : status === 429 ? 'rate-limited' : 'gateway-rejected',
+  })
+  expect(calls).toEqual(['/api/muse.account/details', '/api/muse/identity', '/api/muse/profile'])
+})
+
+it.each([false, true])('keeps relay data when the missing-profile response has no readable body (empty: %s)', async (empty) => {
+  const source = relayFetcher()
+  const gateway = createMuseAccountGateway(baseUrl, 1000, async (input, init) => {
+    if (new URL(input instanceof Request ? input.url : input).pathname !== '/api/muse/profile') return source(input, init)
+    return new Response(empty ? null : new ReadableStream({ cancel() { throw new Error('PRIVATE_CANCEL_ERROR') } }), { status: 404 })
+  })
+  const result = await gateway.details(cookie, {})
+  if (result.protocol !== 'account-data-v1') throw new Error('Expected relay protocol')
+  expect(result.profile).toBeUndefined()
+  expect(result.usage.summary.requests).toBe(461)
+})
 
 it('uses authenticated personal APIs only after a missing details endpoint and strips private fields', async () => {
   const calls: URL[] = []
@@ -62,7 +246,7 @@ it('uses authenticated personal APIs only after a missing details endpoint and s
   expect(result.usage.coverage).toEqual({ transport: 'relay-only', direct: 'unobserved' })
   expect(result.usage.health).toEqual({ state: 'degraded' })
   expect(JSON.stringify(result)).not.toContain('PRIVATE_')
-  expect(calls.map(url => url.pathname)).toEqual(['/api/muse.account/details', '/api/muse/identity', '/api/muse/usage'])
+  expect(calls.map(url => url.pathname)).toEqual(['/api/muse.account/details', '/api/muse/identity', '/api/muse/profile', '/api/workbench', '/api/muse/usage'])
   expect(calls.every(url => !url.searchParams.has('accountId'))).toBe(true)
 })
 

@@ -7,6 +7,7 @@ import type { MuseAccountInjected, MuseAccountSectionProps } from './MuseAccount
 import type { MuseAccountLocaleKey } from './locales.ts'
 import css from './MuseAccountDetails.module.css'
 import { MuseAccountRelayDetails } from './MuseAccountRelayDetails.tsx'
+import { MuseAccountProfileSections } from './MuseAccountProfileSections.tsx'
 
 type Period = NonNullable<MuseAccountDetailsRequest['period']>
 type DetailsProps = Pick<MuseAccountSectionProps, 't'> & Pick<MuseAccountInjected, 'details'> & {
@@ -32,8 +33,8 @@ const metrics = [
   ['requests', 'requestCount'], ['reportedRequests', 'reportedRequestCount'], ...tokenMetrics,
 ] as const satisfies ReadonlyArray<readonly [keyof MuseAccountFullDetails['usage']['summary'], MuseAccountLocaleKey]>
 
-function timestamp(value: string | null, unknown: string): string {
-  return value === null ? unknown : new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+function timestamp(value: string): string {
+  return new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
 }
 
 /**
@@ -95,44 +96,7 @@ export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProp
     }} />
   const usage = value.usage
   return <div className={css.details} data-muse-account-details aria-busy={busy}>
-    <section className={css.card} aria-label={t('profileTitle')}>
-      <h4 className={css.heading}>{t('profileTitle')}</h4>
-      <dl className={css.profile}>
-        <div><dt>{t('accountId')}</dt><dd>{value.account.id}</dd></div>
-        <div><dt>{t('createdAt')}</dt><dd>{timestamp(value.account.createdAt, unknown)}</dd></div>
-        <div><dt>{t('lastLoginAt')}</dt><dd>{timestamp(value.account.lastLoginAt, unknown)}</dd></div>
-        <div><dt>{t('lastActivityAt')}</dt><dd>{timestamp(value.account.lastActivityAt, unknown)}</dd></div>
-      </dl>
-      <h4 className={css.heading}>{t('feishuIdentities')}</h4>
-      {value.account.feishuIdentities.length === 0 ? <p className={css.note}>{t('noFeishuIdentity')}</p>
-        : <ul className={css.list}>{value.account.feishuIdentities.map(identity => <li key={`${identity.name}:${identity.boundAt}`}>
-          <span>{identity.name}</span>
-          <span className={css.note}>{t('feishuOrganization', { organization: identity.tenantKey ?? t('notReported') })}</span>
-          <span className={css.note}>{t('feishuBoundAt', { date: timestamp(identity.boundAt, unknown) })}</span>
-          <span className={css.note}>{t('feishuLastLogin', { date: timestamp(identity.lastLoginAt, unknown) })}</span>
-          {identity.organization === undefined ? <span className={css.note}>{t('feishuDepartmentsRelogin')}</span>
-            : <>
-              <span className={css.note}>{t('feishuDepartmentsUpdated', { date: timestamp(identity.organization.syncedAt, unknown) })}</span>
-              {identity.organization.status === 'permission-required' ? <span className={css.note}>{t('feishuDepartmentsPermission')}</span>
-                : identity.organization.status === 'unavailable' ? <span className={css.note}>{t('feishuDepartmentsUnavailable')}</span>
-                  : identity.organization.departments.length === 0 ? <span className={css.note}>{t('feishuDepartmentsEmpty')}</span>
-                    : <ul className={css.list} aria-label={t('feishuDepartments')}>
-                      {identity.organization.departments.map(department => <li key={department.id}>
-                        {department.path || department.name}
-                      </li>)}
-                    </ul>}
-            </>}
-        </li>)}</ul>}
-    </section>
-    <section className={css.card} aria-label={t('groupsTitle')}>
-      <h4 className={css.heading}>{t('groupsTitle')}</h4>
-      <p className={css.note}>{t('groupsDescription')}</p>
-      {value.groups.length === 0 ? <p className={css.note}>{t('noGroups')}</p>
-        : <ul className={css.list}>{value.groups.map(group => <li key={group.id}>
-          <span>{group.name}</span>
-          {group.description ? <span className={css.note}>{group.description}</span> : null}
-        </li>)}</ul>}
-    </section>
+    <MuseAccountProfileSections t={t} account={value.account} groups={value.groups} />
     <section className={css.card} aria-label={t('usageTitle')}>
       <div className={css.toolbar}>
         <h4 className={css.heading}>{t('usageTitle')}</h4>
@@ -146,8 +110,8 @@ export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProp
         <Button disabled={busy} onClick={reload}>{t('refreshUsage')}</Button>
       </div>
       <p className={css.note}>{t('usageScope')}</p>
-      <p className={css.note}>{t('usageTrackingSince', { date: timestamp(usage.since, unknown) })}</p>
-      <p className={css.note}>{t('usageUpdatedAt', { date: timestamp(usage.updatedAt, unknown) })}</p>
+      <p className={css.note}>{t('usageTrackingSince', { date: timestamp(usage.since) })}</p>
+      <p className={css.note}>{t('usageUpdatedAt', { date: timestamp(usage.updatedAt) })}</p>
       <p className={css.note}>{t('usageDisplayedPeriod', { period: t(periodCopy[result.query.period]) })}</p>
       <dl className={css.metrics} data-muse-usage-summary>{metrics.map(([key, label]) => <div key={key}>
         <dt>{t(label)}</dt><dd>{number(usage.summary[key])}</dd>
@@ -175,7 +139,7 @@ export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProp
           <th>{t('requestId')}</th><th>{t('date')}</th><th>{t('provider')}</th><th>{t('model')}</th><th>{t('requestStatus')}</th><th>{t('usageSource')}</th>
           {tokenMetrics.map(([key, label]) => <th key={key}>{t(label)}</th>)}
         </tr></thead><tbody>{usage.recent.map(row => <tr key={row.id}>
-          <td className={css.requestId}>{row.id}</td><td>{timestamp(row.at, unknown)}</td><td>{row.provider}</td><td>{row.model}</td><td>{row.status === null ? unknown : t('httpStatus', { status: row.status })}</td>
+          <td className={css.requestId}>{row.id}</td><td>{timestamp(row.at)}</td><td>{row.provider}</td><td>{row.model}</td><td>{row.status === null ? unknown : t('httpStatus', { status: row.status })}</td>
           <td>{t(row.source === 'desktop-direct' ? 'sourceDesktop' : 'sourceGateway')}</td>
           {tokenMetrics.map(([key]) => <td key={key}>{number(row[key])}</td>)}
         </tr>)}</tbody></table>

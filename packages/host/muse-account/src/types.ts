@@ -167,14 +167,35 @@ export interface MuseAccountRelayUsage {
   readonly health: { readonly state: 'ok' | 'degraded' }
 }
 
-/** Account-data-v1 gateways expose identity and relay measurements without personal profile or membership APIs. */
+/** Verified current-account profile and organization data, independent of usage measurement coverage. */
+export interface MuseAccountProfile {
+  readonly version: 1
+  readonly account: MuseAccountFullDetails['account']
+  readonly groups: MuseAccountFullDetails['groups']
+  readonly organization: {
+    readonly status: 'available' | 'unavailable'
+    readonly updatedAt: string | null
+    readonly departments: readonly {
+      readonly id: MuseFeishuDepartmentId
+      readonly name: string
+      readonly path: string
+      readonly pathIds: readonly MuseFeishuDepartmentId[]
+    }[]
+  }
+}
+
+/** Account-data-v1 identity and relay measurements, with optional verified personal profile support. */
 export interface MuseAccountRelayDetails {
   readonly protocol: 'account-data-v1'
   readonly account: { readonly id: MuseAccountId; readonly username: string }
+  /** Omission means the gateway does not implement the personal-profile endpoint. */
+  readonly profile?: MuseAccountProfile
+  /** Account-level departments from the profile or the authenticated self workbench. */
+  readonly organization?: MuseAccountProfile['organization']
   readonly availability: {
-    readonly profile: 'unavailable'
-    readonly groups: 'unavailable'
-    readonly feishuOrganization: 'unavailable'
+    readonly profile: 'available' | 'unavailable'
+    readonly groups: 'available' | 'unavailable'
+    readonly feishuOrganization: 'available' | 'unavailable'
   }
   readonly usage: MuseAccountRelayUsage
 }

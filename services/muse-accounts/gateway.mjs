@@ -4,6 +4,7 @@ import {createDesktopLogin} from './desktop-login.mjs';
 import {createFeishuLogin,loadFeishuLoginConfig} from './feishu-login.mjs';
 import {renderAccountIdentity,renderAdminAccounts,renderAccountDetails,renderAccountGroups} from './account-pages.mjs';
 import {accountDetailsQuery,createMemoryUsageLedger,openUsageLedger} from './account-details.mjs';
+import {accountProfile} from './account-profile.mjs';
 import {randomBytes} from 'node:crypto';
 import {readFile,access,stat} from 'node:fs/promises';
 import {realpathSync} from 'node:fs';
@@ -139,7 +140,12 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
    reply(res,result.status,result.body??'',result.headers);
    return;
   }
-  const s=session(req);if(!s){if(path==='/api/muse.activity'||path.startsWith('/api/muse.account/')||path.startsWith('/api/jubian/voice-slots'))reply(res,401,JSON.stringify({error:'Please sign in to Muse',error_code:'account_session_expired'}),{'content-type':'application/json'});else if(path.startsWith('/api/desktop-models/'))reply(res,401,JSON.stringify({error:{message:'请先登录 Muse'}}),{'content-type':'application/json'});else reply(res,303,'',{location:'/login'});return;}if(!originOK(req,!['GET','HEAD','OPTIONS'].includes(req.method))){reply(res,403);return;}if(workspaceMode==='cloud')touchAccount(s.id);
+  const s=session(req);if(!s){if(path==='/api/muse.activity'||path==='/api/muse/profile'||path.startsWith('/api/muse.account/')||path.startsWith('/api/jubian/voice-slots'))reply(res,401,JSON.stringify({error:'Please sign in to Muse',error_code:'account_session_expired'}),{'content-type':'application/json'});else if(path.startsWith('/api/desktop-models/'))reply(res,401,JSON.stringify({error:{message:'请先登录 Muse'}}),{'content-type':'application/json'});else reply(res,303,'',{location:'/login'});return;}if(!originOK(req,!['GET','HEAD','OPTIONS'].includes(req.method))){reply(res,403);return;}if(workspaceMode==='cloud')touchAccount(s.id);
+  if(!mount&&path==='/api/muse/profile'){
+   if(req.method!=='GET'){reply(res,405,'',{allow:'GET'});return;}
+   if(new URL(req.url,publicOrigin).search){reply(res,400);return;}
+   reply(res,200,JSON.stringify(accountProfile(s.account)),{'content-type':'application/json; charset=utf-8'});return;
+  }
   if(path==='/api/muse.account/details'){
    if(req.method!=='GET'){reply(res,405,'',{allow:'GET'});return;}
    const query=accountDetailsQuery(new URL(req.url,publicOrigin).searchParams),details=await usageLedger.details(s.account,query,{tracking:'gateway-and-desktop'});

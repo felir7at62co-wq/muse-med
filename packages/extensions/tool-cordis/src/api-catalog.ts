@@ -8413,8 +8413,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MuseAccountLoginResult {\n    readonly outcome: \'signed-in\' | \'registered\';\n    readonly status: Extract<MuseAccountStatus, {\n        readonly state: \'signed-in\';\n    }>;\n}',
   },
   {
+    name: 'MuseAccountProfile',
+    declaration: 'export interface MuseAccountProfile {\n    readonly version: 1;\n    readonly account: MuseAccountFullDetails[\'account\'];\n    readonly groups: MuseAccountFullDetails[\'groups\'];\n    readonly organization: {\n        readonly status: \'available\' | \'unavailable\';\n        readonly updatedAt: string | null;\n        readonly departments: readonly {\n            readonly id: MuseFeishuDepartmentId;\n            readonly name: string;\n            readonly path: string;\n            readonly pathIds: readonly MuseFeishuDepartmentId[];\n        }[];\n    };\n}',
+  },
+  {
     name: 'MuseAccountRelayDetails',
-    declaration: 'export interface MuseAccountRelayDetails {\n    readonly protocol: \'account-data-v1\';\n    readonly account: {\n        readonly id: MuseAccountId;\n        readonly username: string;\n    };\n    readonly availability: {\n        readonly profile: \'unavailable\';\n        readonly groups: \'unavailable\';\n        readonly feishuOrganization: \'unavailable\';\n    };\n    readonly usage: MuseAccountRelayUsage;\n}',
+    declaration: 'export interface MuseAccountRelayDetails {\n    readonly protocol: \'account-data-v1\';\n    readonly account: {\n        readonly id: MuseAccountId;\n        readonly username: string;\n    };\n    readonly profile?: MuseAccountProfile;\n    readonly organization?: MuseAccountProfile[\'organization\'];\n    readonly availability: {\n        readonly profile: \'available\' | \'unavailable\';\n        readonly groups: \'available\' | \'unavailable\';\n        readonly feishuOrganization: \'available\' | \'unavailable\';\n    };\n    readonly usage: MuseAccountRelayUsage;\n}',
   },
   {
     name: 'MuseAccountRelayTokenFields',

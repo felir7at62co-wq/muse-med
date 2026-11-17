@@ -1,7 +1,7 @@
 /** Validate the account gateway's content-free profile and usage response. */
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { MuseAccountFullDetails, MuseAccountGroupId, MuseAccountId, MuseAccountUsageId, MuseFeishuDepartmentId } from './types.ts'
+import type { MuseAccountFullDetails, MuseAccountGroupId, MuseAccountId, MuseAccountProfile, MuseAccountUsageId, MuseFeishuDepartmentId } from './types.ts'
 import { MuseGatewayError } from './gateway.ts'
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
@@ -38,6 +38,12 @@ const schema = z.object({
       source: z.enum(['gateway-relay', 'desktop-direct']), inputTokens: count.nullable(), outputTokens: count.nullable(),
       totalTokens: count.nullable(), cachedInputTokens: count.nullable(), reasoningTokens: count.nullable(),
     })).max(100),
+  }),
+})
+const profileSchema = schema.pick({ account: true, groups: true }).extend({
+  version: z.literal(1),
+  organization: z.object({ status: z.enum(['available', 'unavailable']), updatedAt: instant.nullable(),
+    departments: z.array(department.extend({ path: z.string().max(20000), pathIds: z.array(departmentId).max(100) })).max(100),
   }),
 })
 
@@ -80,4 +86,19 @@ export async function readMuseAccountDetails(response: Response): Promise<MuseAc
   const value = await readMuseAccountJson(response)
   try { return schema.parse(value) }
   catch (_error) { throw new MuseGatewayError('gateway-rejected') }
+}
+
+/**
+ * Validate a personal profile against the separately authenticated account identity.
+ * @param response - Successful personal-profile response, bounded to 4 MiB.
+ * @param account - Identity returned by the same gateway and saved session.
+ * @returns Verified profile and memberships, excluding private and unrecognized fields.
+ */
+export async function readMuseAccountProfile(response: Response, account: Pick<MuseAccountProfile['account'], 'id' | 'username'>): Promise<MuseAccountProfile> {
+  const value = await readMuseAccountJson(response)
+  try {
+    const profile = profileSchema.parse(value)
+    if (profile.account.id !== account.id || profile.account.username !== account.username) throw new MuseGatewayError('gateway-rejected')
+    return profile
+  } catch (_error) { throw new MuseGatewayError('gateway-rejected') }
 }
