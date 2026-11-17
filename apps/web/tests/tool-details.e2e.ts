@@ -135,6 +135,7 @@ describe.skipIf(MODE === 'record')('web e2e: compact Tool details', () => {
     const snapshot = snapshots.join('\n')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
     await page.setViewportSize({ width: 360, height: 800 })
+    await page.locator('[data-sidebar-drawer]').waitFor()
     const cards = page.locator('[data-chat-call-id] [data-tool="schedule_create"]')
     expect(await cards.count()).toBe(recordedCalls.filter(call => call.name === 'schedule_create').length)
     for (const card of await cards.all()) {
