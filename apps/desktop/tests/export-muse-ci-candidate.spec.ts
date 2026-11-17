@@ -118,8 +118,8 @@ it('rejects unauthorized CI identity, destinations, signed headers and expired a
   expect(calls).toBe(0)
 })
 
-it('refuses changed build bytes, unsuccessful receipts, environment files and directory links', async () => {
-  for (const invalid of ['digest', 'receipt', 'legacy-version', 'environment', 'link']) {
+it.each(['digest', 'receipt', 'legacy-version', 'environment', 'link'] as const)(
+  'refuses %s before uploading build bytes or evidence', async (invalid) => {
     const f = await fixture()
     if (invalid === 'digest') await writeFile(join(f.artifacts, `muse-med-${f.config.version}-win-x64.exe`), 'changed')
     if (invalid === 'receipt') await writeFile(join(f.installed, 'acceptance.json'), '{"success":false}')
@@ -139,8 +139,7 @@ it('refuses changed build bytes, unsuccessful receipts, environment files and di
     await expect(exportMuseCiCandidate({ ...f.options, fetchImpl })).rejects.toThrow('Muse candidate export:')
     expect(calls).toBe(0)
     expect((await readdir(f.runner)).filter(name => name.startsWith('muse-ci-export-'))).toEqual([])
-  }
-})
+  })
 
 it('redacts metadata upload failures, stops before the candidate and removes temporary data', async () => {
   for (const kind of ['network', 'http']) {
