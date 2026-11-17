@@ -18,6 +18,15 @@ it('counts scenes, actions, dialogue and speakers of a conforming screenplay wit
   expect(facts.episodes[0]?.speakers).toEqual([{ name: '金蟾', lines: 1 }, { name: '林墨', lines: 1 }, { name: '刘老四', lines: 1 }])
 })
 
+it.each(['内', '外'])('keeps an explicit unconfirmed time as a warning for an %s scene', (setting) => {
+  const text = `第1集\n1-1 室内（地点待核） 日夜待核 ${setting}\n人物：甲\n▲甲看着桌上的白纸。\n甲：先核对。`
+  const facts = screenplayFacts(text, limits)
+  expect(facts.error_count).toBe(0)
+  expect(facts.warning_count).toBe(1)
+  expect(facts.episodes[0]).toMatchObject({ scenes: 1, action_lines: 1, dialogue_lines: 1,
+    errors: [], warnings: [expect.stringContaining('日夜待核，尚未确认来源时段')] })
+})
+
 it.each([
   ['a scene without a cast line', '第1集\n1-1 门口 日 外\n▲甲开门。\n甲：进来。', '下一行不是「人物：」行'],
   ['a placeholder speaker', '第1集\n1-1 门口 日 外\n人物：甲\n▲甲开门。\n某人：进来。', '是占位名'],
@@ -25,6 +34,8 @@ it.each([
   ['an episode without action lines', '第1集\n1-1 门口 日 外\n人物：甲\n甲：进来。', '没有一行▲动作'],
   ['a bare trailing hook marker', '第1集\n1-1 门口 日 外\n人物：甲\n▲甲开门。\n【下集钩子】', '最后一行'],
   ['a scene heading without time and setting', '第1集\n1-1 门口\n人物：甲\n▲甲开门。', '缺少日/夜与内/外'],
+  ['an unconfirmed time without interior or exterior', '第1集\n1-1 门口 日夜待核\n人物：甲\n▲甲开门。', '缺少日/夜与内/外'],
+  ['an arbitrary time placeholder', '第1集\n1-1 门口 随便填 内\n人物：甲\n▲甲开门。', '缺少日/夜与内/外'],
   ['body before the first scene', '第1集\n▲甲开门。\n1-1 门口 日 外\n人物：甲\n▲甲进屋。', '正文出现在第1集第一个场次标题之前'],
   ['a document without episode headings', '1-1 门口 日 外\n人物：甲\n▲甲开门。', '没有可识别的「第N集」标题'],
   ['a scene number of another episode', '第1集\n2-1 门口 日 外\n人物：甲\n▲甲开门。', '场次集号2与第1集标题不一致'],

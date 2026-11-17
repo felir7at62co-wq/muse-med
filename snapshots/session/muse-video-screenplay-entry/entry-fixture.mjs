@@ -11,18 +11,19 @@ const files = await importSnapshotPackage('@deepseek-ai/dsh-skill-filesystem',
 const { renderSkillContent } = await importSnapshotPackage('@deepseek-ai/dsh-skill',
   new URL('../../../apps/desktop-host/package.json', import.meta.url))
 const productRoot = fileURLToPath(new URL('../../../apps/desktop-host/skills/', import.meta.url))
-const skillName = 'video-to-screenplay'
 
 export const name = 'snapshot-video-screenplay-entry'
 export const inject = ['skills', 'llm', 'agents', 'tools', 'systemPrompt', 'workingDirectory', 'agentPresets']
 
 /** Mount the maintained resources and compare complete tool output with the actual registry. */
 export async function apply(ctx, config) {
+  const skillName = config.skillName ?? 'video-to-screenplay'
+  assert.ok(['video-to-screenplay', 'screenplay-format'].includes(skillName))
   const root = join(process.cwd(), '.dsh', 'product-video-skills')
   await cp(productRoot, root, { recursive: true })
   await ctx.plugin(files, { includeDefaultRoots: false, includeProjectRoots: false, bundledSkillDir: root, watch: false }).await()
   if (config.creation === true) await mountPreset(ctx, { presetId: 'creation', hidePlatformShellTools: true })
-  const reference = 'references/video-workflow.md'
+  const reference = skillName === 'screenplay-format' ? 'references/writing-quality.md' : 'references/video-workflow.md'
   let requests = 0, calls = 0
   ctx.on('session/event', (_session, event) => {
     if (event.type === 'tool/call') {

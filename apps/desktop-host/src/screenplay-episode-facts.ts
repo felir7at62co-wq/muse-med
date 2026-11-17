@@ -46,7 +46,7 @@ export interface ScreenplayFacts {
 }
 
 const CAST_LINE = /^(?:人物|出场人物)\s*[:：]\s*(.*)$/u
-const SCENE_TIME = /(?:日|夜|晨|昏|白天|夜晚|清晨|早晨|傍晚|黄昏|凌晨|上午|中午|下午|午后)\s*[/／]?\s*(?:内|外)/u
+const SCENE_TIME = /(?:(日夜待核)|日|夜|晨|昏|白天|夜晚|清晨|早晨|傍晚|黄昏|凌晨|上午|中午|下午|午后)\s*[/／]?\s*(?:内|外)/u
 const PLACEHOLDER_SPEAKER = /^(?:某人|某男|某女|男主|女主|男主角|女主角|主角|未知|unknown|说话人\s*\d*|speaker\s*[_-]?\d*)$/iu
 const NON_CAST_LABELS = new Set(['旁白', '字幕', '字卡', '画外音', '屏幕', '画面字幕'])
 
@@ -89,7 +89,9 @@ function assessEpisode(lines: readonly string[], range: { episode: number; start
     const plain = plainLine(raw)
     if (kind.kind === 'scene_heading') {
       const description = plain.replace(/^\d+\s*[-—－]\s*\d+\s*[.、]?\s*/u, '').trim()
-      if (!SCENE_TIME.test(description)) errors.add(`第${number}行场次「${plain}」缺少日/夜与内/外，应写成「${range.episode}-1 地点 日 内」。`)
+      const time = SCENE_TIME.exec(description)
+      if (time === null) errors.add(`第${number}行场次「${plain}」缺少日/夜与内/外，应写成「${range.episode}-1 地点 日 内」；来源无法确认日夜时写「日夜待核」。`)
+      else if (time[1] !== undefined) warnings.add(`第${number}行场次「${plain}」的日夜待核，尚未确认来源时段。`)
       scenes.push({ line: number, description, cast: undefined, awaitingCast: true, actions: 0 })
       lastBody = { line: number, hookOnly: false }
       continue

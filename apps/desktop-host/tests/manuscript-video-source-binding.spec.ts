@@ -407,6 +407,14 @@ it('labels an unreviewed video delivery as a finished transcription once every f
   const f = await runtime()
   expect((await f.declare('draft', 'video')).files[0]?.label).toBe('转写完成：第1集画面已逐帧记录，格式检查无误；未做独立来源与语义复核')
 })
+it('delivers an unconfirmed source time with a visible warning instead of requiring an invented day or night', async () => {
+  const f = await runtime()
+  await writeFile(join(f.root, 'final.md'), body.replace(' 日 外', ' 日夜待核 外'))
+  const file = (await f.declare('draft', 'video')).files[0]
+  expect(file?.video_check?.format_error_count).toBe(0)
+  expect(file?.video_check?.warnings).toEqual([expect.stringContaining('日夜待核，尚未确认来源时段')])
+  expect(file?.label).toBe('转写完成：第1集画面已逐帧记录，格式检查无误；未做独立来源与语义复核')
+})
 it('labels per-episode frame facts in draft and reviewed video delivery without refusing either', async () => {
   const f = await runtime()
   const state = (frames: 'not_viewed' | 'incomplete') => ({ video_dir: '/videos', videos: 1,

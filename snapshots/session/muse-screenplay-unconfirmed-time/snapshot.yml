@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-screenplay-unconfirmed-time
+profile: headless
+composition: muse-screenplay-unconfirmed-time
+recording: authored
+writerOutput: true
+header:
+  class: muse-screenplay-unconfirmed-time
+  pin: true
