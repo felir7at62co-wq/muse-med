@@ -45,16 +45,28 @@ it.each(['allowOnlyOneInstallerInstance.nsh', 'installUtil.nsh'])('cleans staged
 it('removes only the superseded destructive uninstall function from the pinned helper', () => {
   const source = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis/include/installUtil.nsh'), 'utf8').replaceAll('\r\n', '\n')
   const adapted = directoryInstallUtil(source)
-  const start = source.indexOf('Function uninstallOldVersion\n')
-  const end = source.indexOf('\nFunctionEnd\n', start) + '\nFunctionEnd\n'.length
-  expect(start).toBeGreaterThanOrEqual(0)
-  expect(adapted).toBe(directoryInstallerExits(source.slice(0, start) + source.slice(end)))
+  let expected = source
+  for (const name of ['GetInQuotes', 'GetFileParent', 'uninstallOldVersion']) {
+    const marker = `Function ${name}\n`
+    const start = expected.indexOf(marker)
+    const end = expected.indexOf('\nFunctionEnd\n', start) + '\nFunctionEnd\n'.length
+    expect(start).toBeGreaterThanOrEqual(0)
+    expected = expected.slice(0, start) + expected.slice(end)
+    expect(adapted).not.toContain(marker)
+    expect(() => directoryInstallUtil(source.replace(marker, ''))).toThrow('template changed')
+    expect(() => directoryInstallUtil(`${source}\n${marker}`)).toThrow('template changed')
+  }
+  const macroStart = expected.indexOf('!macro GetInQuotes Var Str\n')
+  const macroEnd = expected.indexOf('\n!macroend\n', macroStart) + '\n!macroend\n'.length
+  expect(macroStart).toBeGreaterThanOrEqual(0)
+  expected = expected.slice(0, macroStart) + expected.slice(macroEnd)
+  expect(adapted).toBe(directoryInstallerExits(expected))
+  expect(adapted).not.toContain('!macro GetInQuotes Var Str')
+  expect(adapted).toContain('Function handleUninstallResult\n')
   expect(adapted).toContain('!macro uninstallOldVersion ROOT_KEY')
-  expect(adapted).not.toContain('Function uninstallOldVersion\n')
   expect(directoryInstallUtil(source.replaceAll('\n', '\r\n'))).toBe(adapted)
-  expect(() => directoryInstallUtil(source.replace('Function uninstallOldVersion\n', ''))).toThrow('template changed')
-  expect(() => directoryInstallUtil(`${source}\nFunction uninstallOldVersion\n`)).toThrow('template changed')
-  expect(() => directoryInstallUtil(source.slice(0, end - '\nFunctionEnd\n'.length) + source.slice(end))).toThrow('template changed')
+  const end = source.indexOf('\nFunctionEnd\n', source.indexOf('Function uninstallOldVersion\n'))
+  expect(() => directoryInstallUtil(source.slice(0, end) + source.slice(end + '\nFunctionEnd\n'.length))).toThrow('template changed')
   expect(() => directoryInstallUtil(source.replace('!macro uninstallOldVersion ROOT_KEY', '!macro changed ROOT_KEY'))).toThrow('template changed')
 })
 

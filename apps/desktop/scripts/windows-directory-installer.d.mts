@@ -14,7 +14,7 @@ export function directoryInstallSection(source: string): string
  */
 export function directoryInstallerExits(source: string): string
 
-/** Remove the unused destructive upstream uninstall function from the pinned helper. */
+/** Remove the unused destructive upstream uninstall function and its private helpers. */
 export function directoryInstallUtil(source: string): string
 
 /**
