@@ -1,16 +1,19 @@
 /** Compact presentation applies only to this plugin's validated selection envelope. */
 import { z } from 'zod'
 import type { UserTextRule } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { parseVideoWorkspaceAddress, VIDEO_SELECTION_CLOSE, VIDEO_SELECTION_OPEN } from './target-selection.ts'
+import { parseVideoWorkspaceAddress, VIDEO_SELECTION_CLOSE, VIDEO_SELECTION_OPEN, VIDEO_REVIEW_REQUEST } from './target-selection.ts'
 
 const positiveId = z.number().int().positive()
 const production = z.object({ scriptId: positiveId, episodeId: positiveId.optional(), episodeNumber: positiveId.optional(),
   packageIndex: positiveId.optional(), storyboardId: positiveId.optional(), taskId: positiveId.optional(),
-  subtaskId: positiveId.optional(), shotNumbers: z.array(positiveId).optional() }).strict()
+  subtaskId: positiveId.optional(), shotNumbers: z.array(positiveId).optional(),
+  shotRanges: z.array(z.object({ shotNumber: positiveId,
+    startSeconds: z.number().nonnegative(), endSeconds: z.number().positive() }).strict()).optional() }).strict()
 const selection = z.object({ source_id: z.string().min(1), source_version: z.string().min(1), label: z.string().min(1),
   path: z.string().nullable(), remote_url: z.string().nullable(), review_link: z.string().min(1),
   event_seq: z.number().int().nonnegative(), presented_index: z.number().int().nonnegative().nullable(),
   call_id: z.string().nullable(), production: production.optional(), shot_id: z.string().min(1).optional(),
+  review_tool: z.literal('muse_video').optional(), authored_shot_number: positiveId.optional(),
   start_seconds: z.number().nonnegative().optional(), end_seconds: z.number().positive().optional(),
 }).strict().superRefine((value, context) => {
   const parsed = parseVideoWorkspaceAddress(value.review_link)
@@ -38,6 +41,8 @@ declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
   interface UserTextDataMap {
     /** Explicit plugin evidence rendered compactly without changing the logged user message. */
     'muse-video-selection': VideoSelectionData
+    /** Machine-readable review intent; the normal request supplies its visible copy. */
+    'muse-video-review': { readonly mode: 'read-only' }
   }
 }
 
@@ -73,5 +78,15 @@ export const videoSelectionRule: UserTextRule<'muse-video-selection'> = {
       if (data !== null) return { id: 'muse-video-selection', start, end: close + VIDEO_SELECTION_CLOSE.length, data }
     }
     return undefined
+  },
+}
+
+/** Hide only the exact owned review intent, preserving it in logged model input. */
+export const videoReviewRule: UserTextRule<'muse-video-review'> = {
+  id: 'muse-video-review', order: 21,
+  match(text, from) {
+    const start = text.indexOf(VIDEO_REVIEW_REQUEST, from)
+    return start === -1 ? undefined : { id: 'muse-video-review', start,
+      end: start + VIDEO_REVIEW_REQUEST.length, data: { mode: 'read-only' } }
   },
 }

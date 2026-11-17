@@ -26,7 +26,7 @@ import { VideoWorkspace } from './VideoWorkspace.tsx'
 import { createVideoResources } from './resource-provider.ts'
 import { parseVideoWorkspaceAddress, videoWorkspaceAddress } from './target-selection.ts'
 import { createVideoReferenceSource, VIDEO_REFERENCE_SOURCE } from './references.ts'
-import { videoSelectionRule } from './user-text-rules.ts'
+import { videoSelectionRule, videoReviewRule } from './user-text-rules.ts'
 import { VideoSelectionText, type VideoSelectionTextInjected } from './VideoSelectionText.tsx'
 
 export { createVideoStore } from './store.ts'
@@ -104,6 +104,10 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
         }, 'session-video: inventory resources')
         const t = child.locale.bind(NS)
         child.uiConversation.userText.register(videoSelectionRule)
+        child.uiConversation.userText.register(videoReviewRule)
+        child.slots.inject('conversation.user.text.node', () => child.slots.register({
+          name: 'conversation.user.text.node', key: 'muse-video-review',
+        }, () => null))
         child.slots.inject('conversation.user.text.node', () => child.slots.register({
           name: 'conversation.user.text.node', key: 'muse-video-selection', locale: NS,
           inject: (sessionId: SessionId): VideoSelectionTextInjected => ({

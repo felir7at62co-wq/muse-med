@@ -1,11 +1,15 @@
 /** Real Loader, local filesystem, attachment storage and FFmpeg over synthetic media only. */
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { boot } from '@deepseek-ai/dsh-app-boot'
 import Sessions, { Session, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
+import Tools from '@deepseek-ai/dsh-tools'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as Jsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import Query from '@deepseek-ai/dsh-session-query'
@@ -41,7 +45,7 @@ async function fixture(overrides: Partial<Config> = {}, mode: SandboxMode = 'dan
   const routes = new Map<string, { fetch(request: Request): Response | Promise<Response> }>()
   const configPath = join(root, 'cordis.yml')
   writeFileSync(configPath, JSON.stringify([
-    { name: 'cordis:sessions' }, { name: 'cordis:projections' }, { name: 'cordis:query' },
+    { name: 'cordis:sessions' }, { name: 'cordis:projections' }, { name: 'cordis:query' }, { name: 'cordis:prompt' }, { name: 'cordis:tools' },
     { name: 'cordis:fs', config: { cwd: root } }, { name: 'cordis:attachments', config: { dshHome: root } },
     { name: 'cordis:subprocess' }, { name: 'cordis:policy', config: { mode, workspaceRoot: root } },
     { id: 'video', name: 'cordis:video', config: { analysisWidth: 64, ...overrides } },
@@ -51,7 +55,7 @@ async function fixture(overrides: Partial<Config> = {}, mode: SandboxMode = 'dan
       routes.set(route.path, route); return () => routes.delete(route.path)
     } } } as never)
     Object.assign(host.loader.builtins, { sessions: Sessions, projections: Projections, query: Query, fs: FileSystem,
-      attachments: Attachments, subprocess: Subprocess, policy: SandboxPolicy, video: SessionVideo })
+      attachments: Attachments, subprocess: Subprocess, policy: SandboxPolicy, video: SessionVideo, tools: Tools, prompt: SystemPrompt })
   })
   contexts.push(ctx)
   const session = ctx.sessions.create(SessionId('fixture-session'), { meta: { cwd: root } })
@@ -89,6 +93,64 @@ it('detects three shot intervals through the real Loader and preserves original 
   const fiber = [...f.ctx.loader.entries()].find(entry => entry.options.id === 'video')?.fiber
   await fiber?.dispose()
   expect(f.routes.size).toBe(0)
+})
+
+it('binds observed authored-shot timing to exact bytes and drops it when the source changes', async () => {
+  const f = await fixture(), evidence = join(f.root, 'production.json')
+  f.user('@three-shots.mp4'); writeFileSync(evidence, JSON.stringify({ episode: 46, shots: [10, 11, 12] }))
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const args = { method: 'bind', source_id: source.id, source_version: source.version,
+    sha256: createHash('sha256').update(readFileSync(f.file)).digest('hex'), evidence_paths: [evidence],
+    production: { scriptId: 4660, episodeNumber: 46, packageIndex: 3, shotNumbers: [10, 11, 12],
+      shotRanges: [{ shotNumber: 12, startSeconds: 1, endSeconds: 2 }] } }
+  const run = (arguments_: Record<string, unknown>) => executeToolFixture(f.ctx, {
+    callId: ToolCallId('bind-fixture'), name: 'muse_video', arguments: arguments_, signal: f.signal,
+    agent: { id: f.session.id, session: f.session } as never,
+  })
+  expect((await run({ ...args, sha256: '0'.repeat(64) })).isError).toBe(true)
+  const invalidRange = { ...args.production, shotRanges: [{ shotNumber: 12, startSeconds: 1, endSeconds: 4 }] }
+  expect((await run({ ...args, production: invalidRange })).isError).toBe(true)
+  const result = await run(args)
+  expect(result.isError, JSON.stringify(result.content)).toBe(false)
+  if (typeof result.value !== 'string') throw Error('Missing binding result')
+  f.tool('muse_video', args, JSON.parse(result.value))
+  expect((await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]?.production).toEqual(args.production)
+  appendFileSync(f.file, 'new-version')
+  expect((await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]?.production).toBeUndefined()
+})
+
+it('returns only selected-interval images and rejects a wider review or a complete-video scan', async () => {
+  const f = await fixture({ reviewFrames: 2 }); f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const owner = { id: f.session.id, session: f.session } as never
+  f.user(`<muse-video-selection>${JSON.stringify([{ source_id: source.id, source_version: source.version,
+    start_seconds: 1, end_seconds: 2 }])}</muse-video-selection>\n<!-- muse-video-review: use the bounded review -->`)
+  const run = (name: string, args: Record<string, unknown>) => executeToolFixture(f.ctx, {
+    callId: ToolCallId('review-fixture'), name, arguments: args, signal: f.signal, agent: owner,
+  })
+  const args = { method: 'review', source_id: source.id, source_version: source.version, start_seconds: 1, end_seconds: 2 }
+  const wider = await run('muse_video', { ...args, start_seconds: 0 })
+  expect(wider.isError).toBe(true)
+  const result = await run('muse_video', args)
+  expect(result.isError, JSON.stringify(result.content)).toBe(false)
+  expect(result.content.filter(block => block.type === 'image')).toHaveLength(2)
+  if (typeof result.value !== 'string') throw Error('Missing review result')
+  const description = JSON.parse(result.value) as { interval: unknown; frames: { requested_seconds: number }[] }
+  expect(description.interval).toEqual({ start_seconds: 1, end_seconds: 2 })
+  expect(description.frames.map(frame => frame.requested_seconds)).toEqual([1.25, 1.75])
+  f.ctx.tools.register({ name: 'video_inspect', description: 'Forbidden scan fixture', parameters: {},
+    output: { schema: { type: 'string' }, render: () => [] }, execute: async () => { throw Error('scan reached its body') } })
+  const scan = await run('video_inspect', {})
+  expect(scan.isError).toBe(true)
+  expect(JSON.stringify(scan.content)).toContain('Use muse_video review')
+  f.ctx.tools.register({ name: 'pwsh', description: 'Forbidden script fixture', parameters: {},
+    output: { schema: { type: 'string' }, render: () => [] }, execute: async () => { throw Error('script reached its body') } })
+  expect(JSON.stringify((await run('pwsh', {})).content)).toContain('Use muse_video review')
+  f.user('Now make the requested local edit.')
+  expect(JSON.stringify((await run('pwsh', {})).content)).toContain('script reached its body')
+  const fiber = [...f.ctx.loader.entries()].find(entry => entry.options.id === 'video')?.fiber
+  await fiber?.dispose()
+  expect(f.ctx.tools.get('muse_video')).toBeUndefined()
 })
 
 it.each(['read-only', 'workspace-write', 'danger-full-access'] as const)

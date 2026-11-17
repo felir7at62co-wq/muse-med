@@ -25,7 +25,7 @@ Browse videos recorded in a conversation and detect chronological shot intervals
 <a id="use-this-package"></a>
 ## Use this package
 
-A Host composition mounts this plugin alongside Session queries and projections, filesystem and attachment providers, subprocess execution, sandbox policy, and the authenticated Client connection. The Client consumes the generated `sessionVideo` Remote service.
+A Host composition mounts this plugin alongside Session queries and projections, the tool registry, filesystem and attachment providers, subprocess execution, sandbox policy, and the authenticated Client connection. The Client consumes the generated `sessionVideo` Remote service.
 
 ### Recorded sources and detection
 
@@ -37,6 +37,10 @@ Sources may include `production` coordinates reconstructed from successful recor
 
 Local playback uses a Session-bound authenticated byte-range route. Verified public Jubian URLs can play directly; detection obtains their bytes through the existing restricted Jubian downloader and saves them in the attachment store. Downloads omit credentials, refuse redirects, and obey configured byte and timeout limits. No method accepts an arbitrary source path or URL from the Client.
 
+`muse_video list` exposes the inventory to the Agent. `bind` records explicit production coordinates and optional observed `shotRanges` for an already recorded source version after checking its SHA-256, video duration and existing evidence-file identities. Evidence semantics remain the caller's responsibility: planned durations and cut order do not establish authored-shot timing. Bindings survive Session replay, including retained tool metadata, and disappear from the inventory when the video version changes. Present and bind an edited preview separately to retain both versions in the same episode.
+
+`muse_video review` returns sampled images from a bounded source-local interval without starting a complete-episode task. The latest user selection restricts its source, version and interval; runtime context does not replace that selection. The Review action records a read-only intent that permits only video listing/review and tool-discovery operations; shell scripts, other images and media mutations are rejected. Complete-review and contact-sheet tools remain outside selected-interval inspection. A new user message without that intent restores ordinary tool access; its video references define the next interval scope. A message without video references clears that scope. Samples support advice about visible frames, not continuous viewing or audio judgments. Seeks with no frame before the exclusive end are reported in `unavailable_seconds`; an interval with no decodable frame fails visibly. Original media remains unchanged; extracted images use the attachment store.
+
 ### Configuration
 
 The plugin accepts no required configuration fields. The owning Host composition supplies its injected services; executable paths and processing limits are deployment configuration.
@@ -47,9 +51,10 @@ The plugin accepts no required configuration fields. The owning Host composition
 | `sceneThreshold`, `analysisWidth`, `minShotSeconds` | `0.3`, `320`, `0.08` | Visual-change threshold, analysis width, and minimum retained interval separation |
 | `maxSources`, `maxResultBytes` | `500`, `4194304` | Inventory and structured tool-result parsing bounds |
 | `maxSourceBytes`, `maxDurationSeconds`, `maxSourcePixels` | `536870912`, `3600`, `33177600` | Maximum input bytes, duration, and video-track pixel count |
-| `maxShots`, `maxConcurrent`, `maxCachedAnalyses` | `500`, `2`, `128` | Complete interval count, simultaneous detections, and process-local cached results |
+| `maxShots`, `maxConcurrent`, `maxCachedAnalyses` | `500`, `2`, `128` | Complete interval count, simultaneous media operations, and process-local cached results |
 | `commandTimeoutMs`, `downloadTimeoutMs`, `graceMs` | `180000`, `60000`, `1000` | Subprocess deadline, download deadline, and process termination grace |
 | `maxOutputBytes`, `playbackChunkBytes`, `maxPlaybackStreams` | `8388608`, `262144`, `8` | Captured command output, playback read size, and active playback limit |
+| `reviewFrames`, `maxReviewSeconds`, `reviewFrameDimension` | `6`, `60`, `960` | Sample count, interval duration limit and largest review-frame dimension |
 
 The validated schema in [`src/index.ts`](src/index.ts) owns accepted ranges. Raising a source-processing limit does not widen the fixed Jubian download origin allowlist.
 
@@ -96,15 +101,15 @@ The related packages own source storage, execution, and provider-download rules.
 
 #### What the model sees
 
-The `sessionVideo` service adds no tools, prompts, model requests, or Session messages. Inventory and cut ranges remain Client inspection data. A consumer that submits a user-authored modification draft owns that later model input.
+The `muse_video` tool exposes list, binding and bounded review operations. Results retain source versions, explicit production coordinates and sampled images in ordinary tool history. Inventory, playback and cut detection remain Client inspection data; they do not request a model turn.
 
 #### Token effect
 
-Zero direct request tokens. Listing, playback, downloads, and FFmpeg detection do not build model input.
+Tool schemas and results consume request tokens; review images consume image input tokens. Client listing, playback, downloads and FFmpeg detection do not build model input.
 
 #### KV Cache effect
 
-Inspection preserves the existing request prefix. This package neither changes model history nor owns provider cache availability.
+Tool calls append normal history; review images can increase the request suffix. Client-only inspection preserves the request prefix. Provider cache availability remains provider-owned.
 
 ## Known Limitations and Deferred Work
 

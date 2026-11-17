@@ -2,11 +2,14 @@
 import type { SessionVideoShotId, SessionVideoSource, SessionVideoSourceId } from '@deepseek-ai/dsh-session-video/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { authoredShots } from './timeline.ts'
 
 /** Opening delimiter for this plugin's model-visible selection evidence. */
 export const VIDEO_SELECTION_OPEN = '<muse-video-selection>'
 /** Closing delimiter for this plugin's model-visible selection evidence. */
 export const VIDEO_SELECTION_CLOSE = '</muse-video-selection>'
+/** Recorded intent consumed by the bounded, read-only review operation. */
+export const VIDEO_REVIEW_REQUEST = '<!-- muse-video-review: use muse_video review for the selected source/version/interval and include its review_link with every suggestion. -->'
 
 /** A Session video address optionally points at one exact recorded source version. */
 export interface VideoWorkspaceNavigation {
@@ -146,6 +149,7 @@ export function serializeVideoTargets(
   const records = selected.map((target) => {
     // oxlint-disable-next-line typescript/no-non-null-assertion -- Selected sources match this unchanged inventory.
     const source = sources.find(source => source.id === target.sourceId)!
+    const authoredNumber = target.kind === 'source' ? undefined : authoredShots(source).find(shot => shot.id === target.shotId)?.authoredNumber
     return {
       source_id: source.id,
       source_version: target.sourceVersion,
@@ -156,11 +160,13 @@ export function serializeVideoTargets(
       event_seq: source.eventSeq,
       presented_index: source.presentedIndex,
       call_id: source.callId,
+      review_tool: 'muse_video',
       ...(source.production === undefined ? {} : { production: source.production }),
       ...(target.kind === 'source' ? {} : {
         shot_id: target.shotId,
         start_seconds: target.startSeconds,
         end_seconds: target.endSeconds,
+        ...(authoredNumber === undefined ? {} : { authored_shot_number: authoredNumber }),
       }),
     }
   })

@@ -50,13 +50,17 @@ The Host validates this non-secret presentation policy and includes it in the pa
 
 The conversation entry and recorded-video cards open the same video workspace. The native right Sidebar owns docking, floating, resizing and tab navigation; these operations keep the same conversation, playback selection and composer. The video workspace does not create a new Session for an episode.
 
+The preview uses the panel height remaining after navigation and controls. Portrait and landscape media fit the available width and height without cropping or stretching. Resizing or floating the panel preserves playback. Short panels scroll internally while retaining a usable preview and access to the controls.
+
 The video picker filters the recorded inventory by display episode number. Only structured production facts establish episode membership; sources without a verified display number remain **Unassigned**. Changing the filter does not clear cross-episode selections. Missing media, incomplete inventory and failed detection retain explicit status and Retry controls. A failed analysis contributes no invented visual segment.
 
-Select a whole video in the picker, or choose an FFmpeg-detected visual segment in its timeline and add that segment to the selection. Each choice retains the source identity, version and original time range. These visual segments are independent of authored production shot numbers and video-package indexes. Timeline zoom adjusts horizontal scale while preserving original media time and segment ranges.
+**Add to chat** adds the current video or selected timeline segment to the same composer. **Whole video** clears the preview's segment scope without changing playback time or existing composer references. The picker also supports whole-video selection across episodes. Each choice retains the source identity, version and original time range. FFmpeg-detected visual segments are independent of authored production shot numbers and video-package indexes. Timeline zoom adjusts horizontal scale while preserving original media time and segment ranges.
 
 Pressing the playhead preserves its position. Dragging maps the pointer through the filmstrip's actual on-screen bounds and retains the initial grab offset, including at different page zoom levels.
 
-**Review selected videos** prepares a request for the main Agent to delegate read-only inspection of the selected media, report specific issues and actionable suggestions, and attach the supplied `review_link` to each suggestion. The review request forbids file, prompt, card or asset edits and image or video generation. An empty composer without attachments can submit this request directly; existing unfinished input is retained for the user to review and send. This prompt expresses the requested scope; it is not a separate authorization mechanism.
+**Review selected videos** uses existing selected references; when none exist, it adds the current video or selected segment directly. It requests a bounded, read-only review with at most three issues and actionable suggestions, each linking to the supplied source location. An empty composer without attachments can submit directly; existing unfinished input is retained. Structured references identify `muse_video` as the review tool. The Host enforces its selected interval; the prompt alone grants no editing or generation permission.
+
+Authored shot buttons use observed, version-bound `shotRanges` independently of detected cuts. Shots without observed timing remain disabled with an explanation. Selecting an authored shot seeks to its real interval and includes that shot number in the ordinary conversation reference.
 
 Selected-video references can accompany a natural-language modification request in the same composer. Reference serialization checks the latest inventory before submitting source evidence; a changed or unavailable source refuses submission and keeps the draft for reselection. **Prepare edit** adds an editable modification request without sending it. Modification and regeneration requests instruct the Agent to retain the original version and unaffected content. Media selection alone authorizes neither operation.
 
@@ -106,7 +110,7 @@ Selection evidence uses the owned `<muse-video-selection>` text envelope. While 
 
 #### What the model sees
 
-The submitted user message contains the review or modification request and delimited structured source evidence, including source identity and version, local path or recorded provider URL, event coordinates, optional production metadata and original segment range, and `review_link`. The review request starts with `Delegate an Agent to perform a read-only review` and asks for advice rather than generation. References remain editable in the normal composer, and the model receives the complete recorded evidence. Inventory, playback, episode filtering and visual-cut detection add no model input.
+The submitted user message contains the review or modification request and delimited structured source evidence, including source identity and version, local path or recorded provider URL, event coordinates, optional production metadata and authored shot number, original segment range, review tool and `review_link`. References remain editable in the normal composer, and the model receives the complete recorded evidence. Inventory, playback, episode filtering and visual-cut detection add no model input.
 
 #### Token effect
 

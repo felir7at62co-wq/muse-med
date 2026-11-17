@@ -1,5 +1,6 @@
 /** Keyless video review through the native right Sidebar and ordinary conversation drafts. */
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -24,6 +25,10 @@ const MODE = webSnapshotMode()
 const SESSION = 'session-video-keyless-web-e2e'
 const TITLE = 'Session video inspection'
 const VIDEO = 'three-shots.mp4'
+const ORIENTATIONS = [
+  { name: 'portrait', width: 180, height: 320 },
+  { name: 'landscape', width: 320, height: 180 },
+] as const
 const PROVIDER_URL = 'https://101.aigc.jubianai.net/synthetic-jubian-three-shots.mp4'
 const TAIL = 'SESSION_VIDEO_TRANSCRIPT_END'
 const WORKSPACE = '[data-muse-video-workspace]'
@@ -39,6 +44,7 @@ function fixture(firstPath: string, secondPath: string): string {
   session.append('step/start', { turn: 1, step: 1 })
   session.append('deliverables/presented', { turn: 1, callId: ToolCallId('present-synthetic-video'), files: [
     { path: VIDEO, description: 'Synthetic black, white, black video; three seconds.' },
+    ...ORIENTATIONS.map(({ name }) => ({ path: `${name}.mp4`, description: `Synthetic ${name} video; three seconds.` })),
   ] })
   appendToolResult(session, 1, 'production-episodes', 'jubian_model', { method: 'episodes', script_id: 10 },
     { episodes: { total: 2, rows: [{ episode_id: 131, episode_count: 31, name: 'First production episode' },
@@ -107,11 +113,11 @@ describe('web e2e: conversation video review', () => {
     await workspace().locator(PLAYER).waitFor()
   }
   const golden = (name: string) => fileURLToPath(new URL(`./expected/session-video/${name}.expected.md`, import.meta.url))
-  const screenshot = async (name?: string) => {
+  const screenshot = async (name?: string, colorScheme: 'light' | 'dark' = 'light') => {
     const requested = process.env.DSH_VIDEO_SCREENSHOT
     if (requested === undefined) return
     await mkdir(dirname(requested), { recursive: true })
-    await page.emulateMedia({ colorScheme: 'light' })
+    await page.emulateMedia({ colorScheme })
     await page.screenshot({ path: name === undefined ? requested : join(dirname(requested), name) })
   }
   const submitDraft = async (submit: () => Promise<void> = () => editor().press('Enter'),
@@ -146,6 +152,10 @@ describe('web e2e: conversation video review', () => {
       '-f', 'lavfi', '-i', 'color=c=white:s=64x64:r=10:d=1', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=10:d=1',
       '-filter_complex_threads', '1', '-filter_complex', '[0:v][1:v][2:v]concat=n=3:v=1:a=0', '-c:v', 'libx264', '-threads', '1',
       '-pix_fmt', 'yuv420p', join(scaffold.workspaceCwd, VIDEO)])
+    for (const { name, width, height } of ORIENTATIONS) {
+      execFileSync('ffmpeg', ['-v', 'error', '-nostdin', '-f', 'lavfi', '-i', `testsrc2=s=${width}x${height}:r=10:d=3`,
+        '-c:v', 'libx264', '-threads', '1', '-pix_fmt', 'yuv420p', join(scaffold.workspaceCwd, `${name}.mp4`)])
+    }
     const firstPath = join(scaffold.workspaceCwd, 'production-first.mp4'), secondPath = join(scaffold.workspaceCwd, 'production-second.mp4')
     await Promise.all([copyFile(join(scaffold.workspaceCwd, VIDEO), firstPath), copyFile(join(scaffold.workspaceCwd, VIDEO), secondPath)])
     await seedSession(scaffold, fixture(firstPath, secondPath), SESSION)
@@ -265,6 +275,86 @@ describe('web e2e: conversation video review', () => {
     expect(consoleWatch.pageErrors).toEqual([])
   })
 
+  it('reviews the current whole video directly without opening the picker or selecting a reference first', async () => {
+    onTestFailed(() => saveFailureShot(page, 'session-video-direct-whole-review'))
+    await editor().fill('')
+    await selectSecondSegment()
+    const video = workspace().locator(PLAYER)
+    await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(1, 1)
+    await workspace().getByRole('button', { name: 'Whole video', exact: true }).click()
+    expect(await video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(1, 1)
+    await expect.poll(() => workspace().getByRole('button', { name: 'Add current video to chat', exact: true }).isEnabled()).toBe(true)
+    expect(await editor().locator('[data-composer-chip="muse-video"]').count()).toBe(0)
+    expect(await workspace().locator('[data-muse-video-picker]').count()).toBe(0)
+    const before = await eventCounts()
+    const submitted = await submitDraft(() => workspace().getByRole('button', { name: 'Review selected videos', exact: true }).click())
+    const selections = serializedSelections(submitted)
+    expect(selections).toEqual([expect.objectContaining({ label: VIDEO, path: join(scaffold.workspaceCwd, VIDEO) })])
+    expect(selections[0]).not.toHaveProperty('shot_id')
+    expect(selections[0]).not.toHaveProperty('start_seconds')
+    expect(submitted).toContain('read-only review')
+    expect((await eventCounts()).messages).toBe(before.messages + 1)
+    await expect.poll(() => editor().locator('[data-composer-chip="muse-video"]').count()).toBe(0)
+    expect(consoleWatch.pageErrors).toEqual([])
+  })
+
+  it('adds the current whole video for an ordinary modification request without sending it automatically', async () => {
+    onTestFailed(() => saveFailureShot(page, 'session-video-direct-whole-modification'))
+    const draft = 'Make the pacing gentler and keep the dialogue.'
+    await editor().fill(draft)
+    const before = await eventCounts()
+    await workspace().getByRole('button', { name: 'Add current video to chat', exact: true }).click()
+    await expect.poll(() => editor().locator('[data-composer-chip="muse-video"]').count()).toBe(1)
+    expect((await editor().innerText()).startsWith(draft)).toBe(true)
+    expect(await editor().innerText()).not.toContain('read-only review')
+    expect(await workspace().getByRole('button', { name: 'Add current video to chat', exact: true }).isDisabled()).toBe(true)
+    expect(await eventCounts()).toEqual(before)
+    const submitted = await submitDraft()
+    expect(submitted.startsWith(draft)).toBe(true)
+    const selections = serializedSelections(submitted)
+    expect(selections).toEqual([expect.objectContaining({ label: VIDEO })])
+    expect(selections[0]).not.toHaveProperty('shot_id')
+    expect(consoleWatch.pageErrors).toEqual([])
+  })
+
+  it('brings the current segment into an unfinished review draft without sending or adding it twice', async () => {
+    onTestFailed(() => saveFailureShot(page, 'session-video-direct-segment-draft'))
+    const draft = 'Slow down the gesture here and keep the dialogue.'
+    await editor().fill(draft)
+    await selectSecondSegment()
+    const before = await eventCounts()
+    await workspace().getByRole('button', { name: 'Review selected videos', exact: true }).click()
+    await expect.poll(() => editor().locator('[data-composer-chip="muse-video"]').count()).toBe(1)
+    expect((await editor().innerText()).startsWith(draft)).toBe(true)
+    expect(await editor().innerText()).toContain('read-only review')
+    expect(await workspace().getByRole('button', { name: 'Add selected segment', exact: true }).isDisabled()).toBe(true)
+    expect(await eventCounts()).toEqual(before)
+    await screenshot('session-video-direct-review.png')
+    const viewport = page.viewportSize()
+    if (viewport === null) throw new Error('Review workspace has no viewport')
+    try {
+      await page.setViewportSize({ width: 1280, height: 820 })
+      for (const colorScheme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme })
+        const bounds = await workspace().boundingBox()
+        if (bounds === null) throw new Error('Review workspace is outside the compact viewport')
+        for (const name of ['Add selected segment', 'Review selected videos']) {
+          const action = await workspace().getByRole('button', { name, exact: true }).boundingBox()
+          if (action === null) throw new Error(`Review action is outside the compact viewport: ${name}`)
+          expect(action.x).toBeGreaterThanOrEqual(bounds.x)
+          expect(action.x + action.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1)
+        }
+        await screenshot(`session-video-direct-review-${colorScheme}.png`, colorScheme)
+      }
+    } finally {
+      await page.setViewportSize(viewport)
+      await page.emulateMedia({ colorScheme: 'light' })
+    }
+    const submitted = await submitDraft()
+    expect(serializedSelections(submitted)).toEqual([expect.objectContaining({ label: VIDEO, start_seconds: 1, end_seconds: 2 })])
+    expect(consoleWatch.pageErrors).toEqual([])
+  })
+
   it('zooms and drags the timeline without changing the composer draft', async () => {
     onTestFailed(() => saveFailureShot(page, 'session-video-native-timeline'))
     const video = workspace().locator(PLAYER)
@@ -377,6 +467,10 @@ describe('web e2e: conversation video review', () => {
     await expect.poll(() => workspace().locator('[data-muse-video-picker]').isVisible()).toBe(false)
     expect(await workspace().getByRole('button', { name: 'Video selection', exact: true })
       .evaluate(element => element === document.activeElement)).toBe(true)
+    await workspace().getByRole('button', { name: 'Video selection', exact: true }).click()
+    await page.getByRole('combobox', { name: 'Choose episode', exact: true }).selectOption('unassigned')
+    await workspace().getByRole('button', { name: `Switch video: ${VIDEO}`, exact: true }).click()
+    await workspace().getByRole('button', { name: 'Review selected videos', exact: true }).click()
     const text = await editor().innerText()
     expect(text.startsWith(draft)).toBe(true)
     expect(await editor().locator('[data-composer-chip="muse-video"]').count()).toBe(2)
@@ -521,6 +615,119 @@ describe('web e2e: conversation video review', () => {
         const settled = await scaffold.ctx.jobs.wait(jobId, 15000, agent.id)
         expect(settled.status).toBe('completed')
       } finally { await scaffold.ctx.settings.update('ui-session-video', { enabled: true }) }
+    }
+    expect(consoleWatch.pageErrors).toEqual([])
+  })
+  it('binds a local episode, selects an observed authored shot and bounds real review images', async () => {
+    onTestFailed(() => saveFailureShot(page, 'session-video-authored-shot'))
+    await editor().fill('Prepare this conversation for an existing-video review.')
+    await submitDraft()
+    const agent = scaffold.ctx.agents.get(SessionId(SESSION))
+    if (agent === undefined) throw Error('Conversation Agent is unavailable')
+    const signal = new AbortController().signal
+    const inventory = await scaffold.ctx.sessionVideo.list(agent.id, signal)
+    const source = inventory.sources.find(item => item.path === join(scaffold.workspaceCwd, VIDEO))
+    if (source?.version === null || source === undefined || source.path === null) throw Error('Recorded local video is unavailable')
+    const evidence = join(scaffold.workspaceCwd, 'video-production-evidence.json')
+    await writeFile(evidence, JSON.stringify({ scriptId: 4660, episodeNumber: 46, shotNumbers: [10, 11, 12] }))
+    const args = { method: 'bind', source_id: source.id, source_version: source.version,
+      sha256: createHash('sha256').update(readFileSync(source.path)).digest('hex'), evidence_paths: [evidence],
+      production: { scriptId: 4660, episodeNumber: 46, packageIndex: 3, shotNumbers: [10, 11, 12],
+        shotRanges: [{ shotNumber: 12, startSeconds: 1, endSeconds: 2 }] } }
+    const result = await executeToolFixture(scaffold.ctx, { agent, signal, callId: ToolCallId('bind-observed-shot'), name: 'muse_video', arguments: args })
+    expect(result.isError, JSON.stringify(result.content)).toBe(false)
+    if (typeof result.value !== 'string') throw Error('Binding produced no result')
+    appendToolResult(agent.session, 2, 'bound-observed-shot', 'muse_video', args, JSON.parse(result.value) as Record<string, unknown>)
+    await workspace().getByRole('button', { name: 'Video selection', exact: true }).click()
+    const picker = workspace().locator('[data-muse-video-picker]')
+    await expect.poll(() => picker.getByRole('option', { name: 'Episode 46', exact: true }).count()).toBe(1)
+    await picker.locator('select').selectOption('46')
+    await picker.getByRole('button', { name: `Switch video: ${VIDEO}`, exact: true }).click()
+    await workspace().getByRole('button', { name: 'Shot 12', exact: true }).click()
+    expect(await workspace().getByRole('button', { name: 'Shot 10', exact: true }).isDisabled()).toBe(true)
+    await expect.poll(() => workspace().locator(PLAYER).evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(1, 1)
+    await compareOrRefreshGolden(golden('authored-shot'), await captureStableAria(page, WORKSPACE, scaffold.workspaceCwd), MODE)
+    await editor().fill('')
+    const submitted = await submitDraft(() => workspace().getByRole('button', { name: 'Review selected videos', exact: true }).click())
+    expect(serializedSelections(submitted)).toEqual([expect.objectContaining({ authored_shot_number: 12, start_seconds: 1, end_seconds: 2, review_tool: 'muse_video' })])
+    expect(submitted).toContain('<!-- muse-video-review:')
+    expect(await page.locator('body').innerText()).not.toContain('<!-- muse-video-review:')
+    const review = { method: 'review', source_id: source.id, source_version: source.version, start_seconds: 1, end_seconds: 2 }
+    const outside = await executeToolFixture(scaffold.ctx, { agent, signal, callId: ToolCallId('outside-shot'), name: 'muse_video', arguments: { ...review, start_seconds: 0 } })
+    expect(outside.isError).toBe(true)
+    const observed = await executeToolFixture(scaffold.ctx, { agent, signal, callId: ToolCallId('inside-shot'), name: 'muse_video', arguments: review })
+    expect(observed.isError, JSON.stringify(observed.content)).toBe(false)
+    const images = observed.content.filter(block => block.type === 'image')
+    expect(images.length).toBeGreaterThan(0)
+    expect(images.length).toBeLessThanOrEqual(6)
+    expect(consoleWatch.pageErrors).toEqual([])
+  })
+
+  it('fits portrait and landscape media into the available panel and retains controls in short floating panes', async () => {
+    onTestFailed(() => saveFailureShot(page, 'session-video-orientation-fit'))
+    const preview = workspace().filter({ has: page.locator(PLAYER) })
+    const draft = 'Keep this instruction while resizing the preview.'
+    await editor().fill(draft)
+    for (const { name, width, height } of ORIENTATIONS) {
+      await preview.getByRole('button', { name: 'Video selection', exact: true }).click()
+      await preview.getByRole('combobox', { name: 'Choose episode', exact: true }).selectOption('all')
+      await preview.getByRole('button', { name: `Switch video: ${name}.mp4`, exact: true }).click()
+      const video = preview.locator(PLAYER)
+      await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(width)
+      expect(await video.evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(height)
+      await preview.getByRole('button', { name: /^Video segment 1 ·/u }).waitFor()
+      await preview.getByRole('slider', { name: 'Playback position', exact: true }).press('ArrowRight')
+      await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeGreaterThan(0)
+      const time = await video.evaluate(element => (element as HTMLVideoElement).currentTime)
+      const mounted = await video.elementHandle()
+      if (mounted === null) throw Error('Selected video is not mounted')
+      try {
+        for (const viewport of [{ width: 1280, height: 820 }, { width: 1680, height: 1000 }, { width: 390, height: 844 }]) {
+          await page.setViewportSize(viewport)
+          await expect.poll(async () => {
+            const box = await video.boundingBox()
+            return box?.height ?? 0
+          }).toBeGreaterThan(viewport.height * 0.45)
+          const box = await video.boundingBox()
+          if (box === null) throw Error('Video preview is not rendered')
+          expect(await video.evaluate(element => getComputedStyle(element).objectFit)).toBe('contain')
+          const renderedWidth = Math.min(box.width, box.height * width / height)
+          const renderedHeight = renderedWidth * height / width
+          expect(name === 'portrait' ? renderedHeight / box.height : renderedWidth / box.width).toBeCloseTo(1, 2)
+          expect(await video.evaluate((element, original) => element === original, mounted)).toBe(true)
+          expect(await video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(time, 2)
+          expect(await preview.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
+          await screenshot(`session-video-${name}-${viewport.width}.png`)
+        }
+        await page.setViewportSize({ width: 1680, height: 1000 })
+        await preview.getByRole('button', { name: /^Float/u }).click()
+        const floating = page.locator('[data-dockkit-float]').filter({ has: preview })
+        await expect.poll(() => floating.count()).toBe(1)
+        const handle = floating.locator('[data-dockkit-float-resize]')
+        await expect.poll(() => handle.evaluate((element) => {
+          const box = element.getBoundingClientRect()
+          return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+        })).toBe(true)
+        const pane = await floating.boundingBox(), grip = await handle.boundingBox()
+        if (pane === null || grip === null) throw Error('Floating resize control is not rendered')
+        await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+        await page.mouse.down()
+        await page.mouse.move(grip.x + grip.width / 2 + 360 - pane.width,
+          grip.y + grip.height / 2 + 340 - pane.height, { steps: 12 })
+        await page.mouse.up()
+        await expect.poll(async () => (await floating.boundingBox())?.height).toBeCloseTo(340, 0)
+        await expect.poll(() => preview.evaluate(element => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0)
+        expect((await video.boundingBox())?.height).toBeGreaterThanOrEqual(140)
+        await preview.getByRole('button', { name: 'Review selected videos', exact: true }).scrollIntoViewIfNeeded()
+        const action = await preview.getByRole('button', { name: 'Review selected videos', exact: true }).boundingBox()
+        const panel = await floating.boundingBox()
+        if (action === null || panel === null) throw Error('Review control is not rendered')
+        expect(action.y + action.height).toBeLessThanOrEqual(panel.y + panel.height)
+        await screenshot(`session-video-${name}-short-float.png`)
+        await preview.getByRole('button', { name: /^(?:Dock|Send back)/u }).click()
+        expect(await video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(time, 2)
+        expect(await editor().innerText()).toBe(draft)
+      } finally { await mounted.dispose() }
     }
     expect(consoleWatch.pageErrors).toEqual([])
   })

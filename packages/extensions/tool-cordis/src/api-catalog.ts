@@ -9996,7 +9996,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionVideoProduction',
-    declaration: 'export interface SessionVideoProduction {\n    readonly scriptId: number;\n    readonly episodeId?: number | undefined;\n    readonly episodeNumber?: number | undefined;\n    readonly packageIndex?: number | undefined;\n    readonly storyboardId?: number | undefined;\n    readonly taskId?: number | undefined;\n    readonly subtaskId?: number | undefined;\n    readonly shotNumbers?: readonly number[] | undefined;\n}',
+    declaration: 'export interface SessionVideoProduction {\n    readonly scriptId: number;\n    readonly episodeId?: number | undefined;\n    readonly episodeNumber?: number | undefined;\n    readonly packageIndex?: number | undefined;\n    readonly storyboardId?: number | undefined;\n    readonly taskId?: number | undefined;\n    readonly subtaskId?: number | undefined;\n    readonly shotNumbers?: readonly number[] | undefined;\n    readonly shotRanges?: readonly {\n        readonly shotNumber: number;\n        readonly startSeconds: number;\n        readonly endSeconds: number;\n    }[] | undefined;\n}',
   },
   {
     name: 'SessionVideoSelection',

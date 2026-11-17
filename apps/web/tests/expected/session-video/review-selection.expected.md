@@ -22,12 +22,14 @@
     - button "Video segment 2 · 1.00–2.00"
     - button "Video segment 3 · 2.00–3.00"
     - slider "Playback position"
-  - button "Add selected segment" [disabled]
+  - text: Current video
+  - button "Add current video to chat" [disabled]: Added to chat
+  - button "Review selected videos"
+  - paragraph: Choose a video or segment, then describe your changes in chat.
   - text: 2 selected
   - button "Clear selection"
   - text: production-first.mp4
   - 'button "Target remove: production-first.mp4"'
   - text: production-second.mp4
   - 'button "Target remove: production-second.mp4"'
-  - button "Review selected videos"
   - button "Prepare edit"

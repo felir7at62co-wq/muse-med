@@ -19,6 +19,12 @@ export interface SessionVideoProduction {
   readonly subtaskId?: number | undefined
   /** Authored production shot numbers, independent of detected visual cuts. */
   readonly shotNumbers?: readonly number[] | undefined
+  /** Observed source-local intervals; absent authored shots remain unlocated. */
+  readonly shotRanges?: readonly {
+    readonly shotNumber: number
+    readonly startSeconds: number
+    readonly endSeconds: number
+  }[] | undefined
 }
 
 /** One video explicitly recorded by the selected conversation. */

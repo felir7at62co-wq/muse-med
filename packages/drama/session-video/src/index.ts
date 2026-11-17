@@ -1,6 +1,10 @@
 /** Session-owned video discovery, bounded playback and visual cut detection. */
 import { Service, type Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
+import { createHash } from 'node:crypto'
+import { z } from 'zod'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { AttachmentId, type FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { FsTarget, FsVersion } from '@deepseek-ai/dsh-fs'
@@ -14,7 +18,8 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import { currentSessionMessageProjections } from '@deepseek-ai/dsh-session-format-catalog/message-projections'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { command, facts, shotRanges } from './media.ts'
-import { digest, foldVideoSources, publicJubianVideo, sourceStateSchema, type VideoCandidate, type VideoSourceState } from './sources.ts'
+import { digest, foldVideoSources, publicJubianVideo, record, sourceStateSchema, type VideoCandidate, type VideoSourceState } from './sources.ts'
+import { productionSchema, videoBindingSchema } from './production.ts'
 import type { SessionVideoAnalysis, SessionVideoInventory, SessionVideoSource, SessionVideoSourceId } from './types.ts'
 
 export type * from './types.ts'
@@ -25,6 +30,12 @@ declare module '@deepseek-ai/cordis' {
 
 /** Deployment-controlled subprocess, source, cache and playback limits. */
 export interface Config {
+  /** Maximum timestamped observations returned by a quick review. */
+  readonly reviewFrames: number
+  /** Longest interval accepted by a quick review, in seconds. */
+  readonly maxReviewSeconds: number
+  /** Largest extracted review-frame dimension, in pixels. */
+  readonly reviewFrameDimension: number
   /** FFmpeg executable name or path in the configured execution world. */
   readonly ffmpegPath: string
   /** FFprobe executable name or path in the configured execution world. */
@@ -80,8 +91,11 @@ function trimCache<T>(cache: Map<string, T>, maximum: number): void {
 
 /** Native Host plugin; Remote methods take only Session-bound source identities. */
 export default class SessionVideo extends TypertRemoteService {
-  static inject = ['sessions', 'sessionQuery', 'sessionProjections', 'fs', 'attachments', 'subprocess', 'sandboxPolicy', 'connection']
+  static inject = ['sessions', 'sessionQuery', 'sessionProjections', 'fs', 'attachments', 'subprocess', 'sandboxPolicy', 'connection', 'tools']
   static Config: Schema<Config> = Schema.object({
+    reviewFrames: Schema.number().step(1).min(2).max(12).default(6),
+    maxReviewSeconds: Schema.number().min(1).max(300).default(60),
+    reviewFrameDimension: Schema.number().step(1).min(64).max(1920).default(960),
     ffmpegPath: Schema.string().default('ffmpeg'), ffprobePath: Schema.string().default('ffprobe'),
     maxSources: Schema.number().step(1).min(1).max(10000).default(500),
     maxResultBytes: Schema.number().step(1).min(1024).default(4 * 1024 * 1024),
@@ -129,10 +143,132 @@ export default class SessionVideo extends TypertRemoteService {
 
   protected async [Service.init](): Promise<void> {
     // Fold limits affect persisted state; each configuration must replay incompatible checkpoints.
-    const stateVersion = Number.parseInt(digest(JSON.stringify([2, this.config.maxSources, this.config.maxResultBytes])).slice(0, 12), 16)
+    const stateVersion = Number.parseInt(digest(JSON.stringify([4, this.config.maxSources, this.config.maxResultBytes])).slice(0, 12), 16)
     this.sources = await this.ctx.sessionProjections.register({ key: 'sessionVideoSources', stateVersion,
       stateSchema: sourceStateSchema, init: () => ({ sources: [], calls: [], complete: true, issues: [] }),
       apply: (state, event) => foldVideoSources(state, event, this.config) })
+    this.installTools()
+  }
+
+  private installTools(): void {
+    const parameters = z.object({ method: z.enum(['list', 'bind', 'review']), source_id: z.string().optional(),
+      source_version: z.string().optional(), sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+      production: productionSchema.optional(), evidence_paths: z.array(z.string().min(1)).min(1).max(this.config.maxSources).optional(),
+      start_seconds: z.number().nonnegative().optional(), end_seconds: z.number().positive().optional() }).strict()
+    this.ctx.effect(() => this.ctx.tools.register(defineTool({
+      name: 'muse_video',
+      description: 'List this conversation’s videos, bind verified episode/package and observed authored-shot intervals, or review only a selected interval. '
+        + 'bind requires the actual video SHA-256 and existing production evidence files; never infer IDs or shot timing from filenames or planned durations. '
+        + 'review returns bounded sampled images for concise advice, without a full-video scan or generation. Use the supplied review_link in advice. '
+        + 'After a local edit, present the new video and bind its own episode and observed shot intervals; preserve the original.',
+      parameters: {
+        method: { type: 'string', required: true, enum: ['list', 'bind', 'review'] },
+        source_id: { type: 'string', description: 'Exact source ID from list or the user’s video selection.' },
+        source_version: { type: 'string', description: 'Exact current source version; required for bind and review.' },
+        sha256: { type: 'string', description: 'bind: SHA-256 of the actual video bytes.' },
+        production: { type: 'object', description: 'bind: verified scriptId, episodeNumber, optional episodeId/packageIndex/storyboardId/taskId/shotNumbers; shotRanges contains only observed {shotNumber,startSeconds,endSeconds} intervals in this file.',
+          additionalProperties: true },
+        evidence_paths: { type: 'array', items: { type: 'string' }, description: 'bind: existing local production records or observed timing evidence supporting this association.' },
+        start_seconds: { type: 'number', description: 'review: original source interval start; must remain within the user’s selection.' },
+        end_seconds: { type: 'number', description: 'review: exclusive original source interval end; must remain within the user’s selection.' },
+      },
+      output: { schema: { type: 'string' }, preserveBodyMeta: true,
+        presentationMeta: (_args, serialized) => {
+          const value = z.object({ binding: videoBindingSchema.optional() }).parse(JSON.parse(serialized))
+          return value.binding === undefined ? {} : z.json().parse({ museVideoBinding: value.binding })
+        }, render: (_args, serialized): ContentBlock[] => {
+          const result = z.object({ frames: z.array(z.object({ requested_seconds: z.number(), image: z.object({
+            attachmentId: z.string(), mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+            width: z.number(), height: z.number(), bytes: z.number(),
+          }) })).optional() }).loose().parse(JSON.parse(serialized))
+          return [{ type: 'text', text: serialized }, ...(result.frames ?? []).flatMap((frame): ContentBlock[] => [
+            { type: 'text', text: `Source observation at ${frame.requested_seconds.toFixed(3)} seconds (sampled, not continuous viewing).` },
+            { type: 'image', attachment: { ...frame.image, attachmentId: AttachmentId(frame.image.attachmentId) } },
+          ])]
+        } },
+      isConcurrencySafe: args => args.method === 'list',
+      execute: async (raw, exec) => this.tracked(async () => {
+        const args = parameters.parse(raw)
+        if (exec.agent === undefined) throw Error('Muse video operations require an initiating conversation')
+        const session = exec.agent.session
+        const signal = AbortSignal.any([exec.signal, this.lifetime.signal])
+        if (args.method === 'list') return JSON.stringify(await this.list(session.id, signal))
+        if (args.source_id === undefined || args.source_version === undefined) throw Error('source_id and source_version are required; call muse_video list')
+        const candidate = this.candidate(session, brandString<SessionVideoSourceId>(args.source_id))
+        const resolved = await this.resolve(session, candidate, signal)
+        if (resolved.source.version !== args.source_version || resolved.target === null || resolved.fileVersion === null) throw Error('Video changed or is unavailable; call muse_video list again')
+        if (this.detecting >= this.config.maxConcurrent) throw Error('Video processing is busy; retry when the current operation finishes')
+        this.detecting++
+        try {
+          const target = resolved.target, version = resolved.fileVersion
+          const configured = this.ctx.sandboxPolicy.resolve({ session })
+          const policy = { ...configured, mode: configured.mode === 'workspace-write' ? 'read-only' as const : configured.mode }
+          const executable = await this.ctx.subprocess.resolveExecutable(this.config.ffprobePath, undefined, signal)
+          const metadata = facts(await command(this.ctx, [executable, '-v', 'error', '-show_entries', 'format=duration:stream=codec_type,width,height', '-of', 'json', this.ctx.fs.processPath(target)], policy, signal, this.config))
+          if (args.method === 'bind') {
+            if (args.production === undefined || args.sha256 === undefined || args.evidence_paths === undefined) throw Error('bind requires production, sha256 and evidence_paths')
+            const bytes = await this.ctx.fs.readBytes(target, signal, this.config.maxSourceBytes)
+            if (createHash('sha256').update(bytes).digest('hex') !== args.sha256) throw Error('Video SHA-256 does not match; binding was not saved')
+            const ranges = args.production.shotRanges ?? []
+            if ((args.production.shotNumbers?.length ?? 0) > this.config.maxShots
+              || Buffer.byteLength(JSON.stringify(args.production)) > this.config.maxResultBytes
+              || ranges.length > this.config.maxShots || ranges.some(range => range.endSeconds > metadata.durationSeconds
+              || !args.production?.shotNumbers?.includes(range.shotNumber))
+              || new Set(ranges.map(range => range.shotNumber)).size !== ranges.length) throw Error('Observed shot intervals must belong to shotNumbers and fit this video')
+            const evidence = []
+            for (const path of args.evidence_paths) {
+              const file = await this.ctx.fs.resolve(path, { cwd: session.header.cwd ?? configured.workspaceRoot, signal })
+              const info = await this.ctx.fs.stat(file, signal)
+              if (info?.type !== 'file') throw Error(`Production evidence is unavailable: ${path}`)
+              evidence.push({ path: file.displayPath, version: info.version })
+            }
+            if ((await this.ctx.fs.stat(target, signal))?.version !== version) throw Error('Video changed during binding; binding was not saved')
+            return JSON.stringify({ binding: { key: candidate.key, sourceVersion: args.source_version, production: args.production },
+              sha256: args.sha256, evidence })
+          }
+          const start = args.start_seconds ?? 0, end = args.end_seconds ?? metadata.durationSeconds
+          const scope = this.sources.stateOf(session).reviewTargets ?? []
+          const selectedTarget = scope.find(item => item.source_id === args.source_id && item.source_version === args.source_version
+            && start >= (item.start_seconds ?? 0) && end <= (item.end_seconds ?? metadata.durationSeconds))
+          if (scope.length > 0 && selectedTarget === undefined) throw Error('Review exceeds the user’s selected video interval; use its exact source and time range')
+          if (end <= start || end > metadata.durationSeconds || end - start > this.config.maxReviewSeconds) throw Error('Review interval is invalid or exceeds maxReviewSeconds; select a smaller interval')
+          if (metadata.width * metadata.height > this.config.maxSourcePixels) throw Error('Video dimensions exceed the review limit')
+          const ffmpeg = await this.ctx.subprocess.resolveExecutable(this.config.ffmpegPath, undefined, signal)
+          const frames = []
+          const unavailableSeconds = []
+          for (let index = 0; index < this.config.reviewFrames; index++) {
+            const time = start + (end - start) * (index + 0.5) / this.config.reviewFrames
+            const bytes = await command(this.ctx, [ffmpeg, '-nostdin', '-v', 'error', '-protocol_whitelist', 'file,pipe',
+              '-ss', String(time), '-copyts', '-i', this.ctx.fs.processPath(target), '-map', '0:v:0', '-an', '-sn', '-dn',
+              '-frames:v', '1', '-vf', `trim=start=${time}:end=${end},scale=w='min(${this.config.reviewFrameDimension},iw)':h='min(${this.config.reviewFrameDimension},ih)':force_original_aspect_ratio=decrease`,
+              '-c:v', 'png', '-f', 'image2pipe', 'pipe:1'], policy, signal, this.config)
+            if (bytes.length === 0) { unavailableSeconds.push(time); continue }
+            const image = await this.ctx.attachments.saveImage({ data: bytes, mediaType: 'image/png', name: `muse-review-${time.toFixed(3)}.png` })
+            frames.push({ requested_seconds: time, image })
+          }
+          if ((await this.ctx.fs.stat(target, signal))?.version !== version) throw Error('Video changed during review; discard these observations')
+          if (frames.length === 0) throw Error('The selected interval contains no decodable frame; choose a wider interval')
+          return JSON.stringify({ source_id: args.source_id, source_version: args.source_version, path: target.displayPath,
+            interval: { start_seconds: start, end_seconds: end }, frames, unavailable_seconds: unavailableSeconds,
+            ...selectedTarget?.review_link === undefined ? {} : { review_link: selectedTarget.review_link },
+            notice: 'Give at most three suggestions only about these sampled observations and this selected interval. '
+              + (selectedTarget?.review_link === undefined ? '' : `Include [画面定位](${selectedTarget.review_link}) with EACH suggestion. `)
+              + 'Audio was not transcribed. Do not use shell scripts, other images, complete-video scans, edits, or generation for this read-only request.' })
+        } finally { this.detecting-- }
+      }),
+    })), 'sessionVideo: video binding and bounded review')
+    this.ctx.effect(() => this.ctx.tools.guard((exec) => {
+      if (exec.agent === undefined) return undefined
+      const state = this.sources.stateOf(exec.agent.session), scope = state.reviewTargets ?? []
+      if (scope.length === 0) return undefined
+      const controls = ['tool_context', 'tool_search', 'tool_docs', 'run_code', 'todo_write']
+      const videoRead = exec.name === 'muse_video' && ['list', 'review'].includes(String(record(exec.arguments)?.method))
+      if ((state.reviewOnly === true && !controls.includes(exec.name) && !videoRead)
+        || ['video_inspect', 'video_source_review', 'video_contact_sheet'].includes(exec.name)) {
+        return 'This is a selected-video review. Use muse_video review with the selected source_id, source_version, start_seconds and end_seconds. Include its review_link with each suggestion. Shell scripts, other images, complete-video scans, edits and generation are outside this read-only operation.'
+      }
+      return undefined
+    }), 'sessionVideo: selected review scope')
   }
 
   /**
@@ -270,6 +406,8 @@ export default class SessionVideo extends TypertRemoteService {
       if (info?.type !== 'file') return { source: { ...source, status: 'missing', issue: 'Recorded video file is missing' }, target: null, fileVersion: null }
       if (info.size === undefined || info.size > this.config.maxSourceBytes) return { source: { ...source, status: 'unsupported', issue: 'Recorded video exceeds the configured byte limit' }, target: null, fileVersion: null }
       const version = source.version ?? info.version
+      const binding = state.bindings?.[candidate.key]
+      if (binding?.sourceVersion === version) source = { ...source, production: binding.production }
       const query = new URLSearchParams({ sessionId: session.id, sourceId: id, version })
       return { source: { ...source, path: target.displayPath, status: 'local', version, playbackUrl: `api/session-video?${query}`, issue: null }, target, fileVersion: info.version }
     } catch (error) {

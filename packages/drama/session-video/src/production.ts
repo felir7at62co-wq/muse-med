@@ -7,7 +7,12 @@ const id = z.number().int().positive()
 export const productionSchema = z.object({
   scriptId: id, episodeId: id.optional(), episodeNumber: id.optional(), packageIndex: id.optional(),
   storyboardId: id.optional(), taskId: id.optional(), subtaskId: id.optional(), shotNumbers: z.array(id).optional(),
+  shotRanges: z.array(z.object({ shotNumber: id, startSeconds: z.number().nonnegative(), endSeconds: z.number().positive() })
+    .refine(range => range.endSeconds > range.startSeconds)).optional(),
 })
+
+/** Version-bound production metadata retained in tool results and the private source projection. */
+export const videoBindingSchema = z.object({ key: z.string(), sourceVersion: z.string(), production: productionSchema })
 type ProductionFact = z.infer<typeof productionSchema>
 
 /** Recorded request coordinates used only to correlate a successful result. */
@@ -63,7 +68,7 @@ function unique(values: readonly (number | undefined)[]): number | undefined {
 export function productionFacts(call: ProductionCall, result: Record<string, unknown>): ProductionFact[] {
   const facts: ProductionFact[] = []
   const add = (value: unknown) => { const fact = parse(value); if (fact !== undefined) facts.push(fact) }
-  if (call.name === 'jubian_model' && call.method === 'episodes' && call.scriptId !== undefined) {
+  if (['jubian_model', 'jubian_catalog'].includes(call.name) && call.method === 'episodes' && call.scriptId !== undefined) {
     for (const row of rows(object(result.episodes)?.rows)) {
       if (positive(row.episode_id) !== undefined && positive(row.episode_count) !== undefined) {
         add({ scriptId: call.scriptId, episodeId: row.episode_id, episodeNumber: row.episode_count })
@@ -158,5 +163,6 @@ export function resolveVideoProduction(source: SessionVideoProduction | undefine
     ...(source.subtaskId === undefined ? {} : { subtaskId: source.subtaskId }),
     ...(storyboardId === undefined ? {} : { storyboardId }), ...(episodeId === undefined ? {} : { episodeId }),
     ...(episodeNumber === undefined ? {} : { episodeNumber }), ...(packageIndex === undefined ? {} : { packageIndex }),
-    ...(shotNumbers === undefined ? {} : { shotNumbers: [...shotNumbers] }) }
+    ...(shotNumbers === undefined ? {} : { shotNumbers: [...shotNumbers] }),
+    ...(source.shotRanges === undefined ? {} : { shotRanges: source.shotRanges.map(range => ({ ...range })) }) }
 }

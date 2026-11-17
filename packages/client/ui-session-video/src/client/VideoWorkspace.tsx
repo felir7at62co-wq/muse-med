@@ -1,17 +1,17 @@
 /** Session-owned video browsing and source-local editing in the native right Sidebar. */
 import { useEffect, useId, useRef, useState } from 'react'
 import {
-  Button, Checkbox, IconChevronDownOutlineRegular, IconCloseOutlineRegular,
+  Button, Checkbox, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconCloseOutlineRegular,
   IconFullscreenOutlineRegular, IconLoadingOutlineRegular, IconPanelLeftOutlineRegular,
-  IconPlayTriangleOutlineRegular, MenuSurface, Tooltip,
+  IconPlayTriangleOutlineRegular, IconPlusOutlineRegular, IconSparkleRegular, MenuSurface, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionVideoSource } from '@deepseek-ai/dsh-session-video/types'
 import type { VideoWorkspaceProps } from './face.ts'
 import {
-  parseVideoWorkspaceAddress, serializeVideoTargets, targetKey, videoWorkspaceAddress,
+  parseVideoWorkspaceAddress, serializeVideoTargets, targetKey, videoWorkspaceAddress, VIDEO_REVIEW_REQUEST,
   type VideoEpisodeFilter, type VideoPromptIntent, type VideoTarget,
 } from './target-selection.ts'
-import { assembleTimeline } from './timeline.ts'
+import { assembleTimeline, authoredShots } from './timeline.ts'
 import { VideoPlayer } from './VideoPlayer.tsx'
 import { parseVideoReference, VIDEO_REFERENCE_SOURCE } from './references.ts'
 import type {} from './resource-provider.ts'
@@ -66,10 +66,12 @@ export function VideoWorkspace(props: VideoWorkspaceProps) {
   const analysis = source === undefined ? undefined : analyses[source.id]
   const currentAnalysis = analysis?.sourceVersion === source?.version ? analysis : undefined
   const timeline = assembleTimeline(source === undefined ? [] : [source], currentAnalysis === undefined ? [] : [currentAnalysis])
+  const authored = source === undefined ? [] : authoredShots(source)
+  const selectableShots = [...timeline.shots, ...authored]
   const requestedShot = requestedSource !== undefined && requested?.kind === 'shot'
-    ? timeline.shots.find(shot => shot.id === requested.shotId
+    ? selectableShots.find(shot => shot.id === requested.shotId
       && shot.localStart === requested.startSeconds && shot.localEnd === requested.endSeconds) : undefined
-  const shot = requestedSource !== undefined ? requestedShot : timeline.shots.find(shot => shot.id === selectedShot)
+  const shot = requestedSource !== undefined ? requestedShot : selectableShots.find(shot => shot.id === selectedShot)
   const staleNavigation = requested !== undefined && resource.status === 'live'
     && (requestedSource === undefined || requested.kind === 'shot' && currentAnalysis?.state === 'ready' && requestedShot === undefined)
   const seekRequest = requestedShot !== undefined
@@ -102,14 +104,21 @@ export function VideoWorkspace(props: VideoWorkspaceProps) {
       ? item.production?.episodeNumber === undefined : item.production?.episodeNumber === value))
     if (first !== undefined) actions.select(first.id)
   }
-  const prepare = (intent: VideoPromptIntent) => {
-    const result = serializeVideoTargets(targets, sources, sessionId)
+  const prepare = (intent: VideoPromptIntent, current?: { target: VideoTarget; label: string }) => {
+    const requestedTargets = targets.length > 0 ? targets : current === undefined ? [] : [current.target]
+    const result = serializeVideoTargets(requestedTargets, sources, sessionId)
     if (!result.ok) { setNotice(t(result.reason === 'empty' ? 'noSelection' : 'selectionStale')); return }
+    if (targets.length === 0 && current !== undefined
+      && !addTargetReference(current.target, current.label, inputActions.captureInsertion())) {
+      setNotice(t('draftRefused')); return
+    }
     const span = inputActions.captureInsertion()
     const request = t(intent === 'review' ? 'requestReview' : intent === 'edit' ? 'requestEdit' : 'requestRegenerate')
-    if (!inputActions.insertText(`\n\n${request}`,
+    const mode = intent === 'review' ? `${VIDEO_REVIEW_REQUEST}\n` : ''
+    if (!inputActions.insertText(`\n\n${mode}${request}`,
       { start: span.end, end: span.end, draftRev: span.draftRev })) { setNotice(t('draftRefused')); return }
     inputActions.persistDraft()
+    setPickerOpen(false)
     setNotice(t('draftReady'))
     let remaining = draft
     for (const { occurrence } of [...selections].sort((a, b) => b.occurrence.offset - a.occurrence.offset)) {
@@ -120,7 +129,7 @@ export function VideoWorkspace(props: VideoWorkspaceProps) {
   const episodes = [...new Set(sources.flatMap(source => source.production?.episodeNumber === undefined
     ? [] : [source.production.episodeNumber]))].sort((a, b) => a - b)
   const sourceTitle = (item: SessionVideoSource): string => item.production?.packageIndex === undefined
-    ? item.label : t('videoLabel', { index: item.production.packageIndex })
+    ? item.label : `${t('videoLabel', { index: item.production.packageIndex })} · ${item.label}`
   const pickerTitle = source === undefined ? t('library') : `${source.production?.episodeNumber === undefined
     ? t('unassigned') : t('episodeLabel', { episode: source.production.episodeNumber })} · ${sourceTitle(source)}`
   const selectedKeys = new Set(targets.map(targetKey))
@@ -136,6 +145,11 @@ export function VideoWorkspace(props: VideoWorkspaceProps) {
   const shotTarget: VideoTarget | null = source?.version !== null && source !== undefined && shot !== undefined
     ? { kind: 'shot', sourceId: source.id, sourceVersion: source.version, shotId: shot.id,
       startSeconds: shot.localStart, endSeconds: shot.localEnd } : null
+  const currentTarget = shotTarget ?? (source === undefined ? null : wholeTarget(source))
+  const currentLabel = source === undefined ? '' : shot === undefined ? source.label
+    : t('selectedSegmentReference', { name: source.label, start: shot.localStart.toFixed(2), end: shot.localEnd.toFixed(2) })
+  const currentAvailable = currentTarget !== null && source?.playbackUrl !== null && source !== undefined
+  const currentIncluded = currentTarget !== null && selectedKeys.has(targetKey(currentTarget))
   return <section className={css.workspace} data-muse-video-shelf data-muse-video-workspace aria-label={t('library')}>
     <div className={css.toolbar}>
       <Button ref={pickerAnchor} size="sm" variant="ghost" aria-label={t('picker')}
@@ -209,12 +223,45 @@ export function VideoWorkspace(props: VideoWorkspaceProps) {
               refreshVideos(); actions.retryFailed(); setRetry(value => value + 1)
             }}>{t('retry')}</Button>}
           </div>}
+          {(source.production?.shotNumbers?.length ?? 0) > 0 && <div className={css.authoredShots} aria-label={t('authoredShots')}>
+            <span>{t('authoredShots')}</span>
+            {source.production?.shotNumbers?.map((number) => {
+              const located = authored.find(item => item.authoredNumber === number)
+              return <Tooltip key={number} portal label={located === undefined ? t('shotUnlocated')
+                : t('authoredRange', { index: number, start: located.localStart.toFixed(2), end: located.localEnd.toFixed(2) })}>
+                <span><Button size="sm" variant={shot?.id === located?.id && located !== undefined ? 'primary' : 'ghost'}
+                  disabled={located === undefined} aria-label={t('authoredShot', { index: number })}
+                  onClick={() => {
+                    if (located !== undefined) {
+                      dismissNavigation(); actions.selectShot({ sourceId: source.id, shotId: located.id, time: located.localStart })
+                    }
+                  }}>{t('authoredShot', { index: number })}</Button></span>
+              </Tooltip>
+            })}
+            {authored.length < (source.production?.shotNumbers?.length ?? 0) && <small>{t('shotUnlocated')}</small>}
+          </div>}
         </div>}
-    {source !== undefined && <div className={css.selectionAction}>
-      <Button size="sm" disabled={shotTarget === null || selectedKeys.has(targetKey(shotTarget))} onClick={() => {
-        if (shotTarget !== null && shot !== undefined) toggleTarget(shotTarget,
-          `${source.label} · ${shot.localStart.toFixed(2)}–${shot.localEnd.toFixed(2)}`)
-      }}>{t('addSelectedShot')}</Button>
+    {(source !== undefined || targets.length > 0) && <div className={css.selectionAction}>
+      {source !== undefined && <div className={css.currentScope}>
+        <span>{shot === undefined ? t('currentVideo') : t(shot.authoredNumber === undefined ? 'shot' : 'authoredRange', { index: shot.index,
+          start: shot.localStart.toFixed(2), end: shot.localEnd.toFixed(2) })}</span>
+        {shot !== undefined && <Button size="sm" variant="ghost" onClick={() => {
+          dismissNavigation(); actions.select(source.id)
+        }}>{t('wholeVideo')}</Button>}
+      </div>}
+      <div className={css.quickActions}>
+        {source !== undefined && <Button size="sm" variant="outline"
+          aria-label={t(shot === undefined ? 'addCurrentVideo' : 'addSelectedShot')}
+          disabled={phase !== 'plain' || !currentAvailable || currentIncluded} onClick={() => {
+            if (currentTarget !== null) toggleTarget(currentTarget, currentLabel)
+          }}>{currentIncluded ? <IconCheckOutlineRegular /> : <IconPlusOutlineRegular />}
+          {t(currentIncluded ? 'addedToChat' : 'addToChat')}</Button>}
+        <Button size="sm" variant="primary" disabled={phase !== 'plain' || targets.length === 0 && !currentAvailable}
+          onClick={() => { prepare('review', currentAvailable
+            ? { target: currentTarget, label: currentLabel } : undefined) }}>
+          <IconSparkleRegular />{t('reviewSelected')}</Button>
+      </div>
+      <p className={css.actionHint}>{t('chatHint')}</p>
     </div>}
     {targets.length > 0 && <div className={css.selectedTargets} aria-label={t('selectedScope')}>
       <div className={css.selectedHeading}><span>{t('selectedCount', { count: targets.length })}</span>
@@ -233,7 +280,6 @@ export function VideoWorkspace(props: VideoWorkspaceProps) {
         </div>
       })}
       <div className={css.promptActions}>
-        <Button size="sm" disabled={phase !== 'plain'} onClick={() => { prepare('review') }}>{t('reviewSelected')}</Button>
         <Button size="sm" variant="ghost" disabled={phase !== 'plain'} onClick={() => { prepare('edit') }}>{t('prepareEdit')}</Button></div>
     </div>}
     {(notice !== null || staleNavigation || resource.status === 'failed' || resource.value?.complete === false)

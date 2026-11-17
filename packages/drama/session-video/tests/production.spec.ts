@@ -34,6 +34,31 @@ it('enriches an existing source when its episode directory is recorded later wit
   expect(next.sources[0]?.key).toBe(state.sources[0]?.key)
 })
 
+it('reads the shipped Jubian catalog episode directory without requiring the retired tool name', () => {
+  const events = productionVideoEvents('catalog.mp4').map(event => event.type !== 'tool/call' ? event
+    : { ...event, data: { ...event.data as Record<string, unknown>,
+      name: (event.data as { name: string }).name === 'jubian_model' ? 'jubian_catalog' : (event.data as { name: string }).name } })
+  expect(output(fold(events))?.episodeNumber).toBe(31)
+})
+
+it('retains version-bound production and the current selected interval through checkpoints and tool metadata', () => {
+  const production = { scriptId: 4660, episodeNumber: 46, shotNumbers: [10, 11, 12],
+    shotRanges: [{ shotNumber: 12, startSeconds: 7, endSeconds: 10.958 }] }
+  const state = fold([
+    { seq: 1, type: 'deliverables/presented', data: { files: [{ path: 'video.mp4' }] } },
+    { seq: 2, type: 'tool/call', data: { name: 'muse_video', callId: 'binding', arguments: '{"method":"bind"}' } },
+    { seq: 3, type: 'tool/result', data: { message: { toolCallId: 'binding', content: [] },
+      meta: { museVideoBinding: { key: '1:0', sourceVersion: 'v1', production } } } },
+    { seq: 4, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text',
+      text: '<muse-video-selection>[{"source_id":"selected","source_version":"v1","start_seconds":7,"end_seconds":10.958}]</muse-video-selection>' }] } },
+    { seq: 5, type: 'user/message', data: { source: { kind: 'runtime-context' }, content: [{ type: 'text', text: 'Current time' }] } },
+  ])
+  expect(state.bindings?.['1:0']?.production).toEqual(production)
+  expect(state.reviewTargets).toEqual([{ source_id: 'selected', source_version: 'v1', start_seconds: 7, end_seconds: 10.958 }])
+  expect(sourceStateSchema.parse(JSON.parse(JSON.stringify(state)))).toEqual(state)
+  expect(fold([{ seq: 6, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'A different request' }] } }], state).reviewTargets).toEqual([])
+})
+
 it('joins successful card history to recorded production package and authored shot numbers', () => {
   const state = fold([
     ...tool('muse_production', { method: 'read', plan_path: 'plan.json' }, { method: 'read', script_id: 10, episode: 31,

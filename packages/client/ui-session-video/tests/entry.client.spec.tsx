@@ -125,8 +125,8 @@ it('keeps settings mounted while disabling and remounting every optional contrib
   act(() => { form.publish({ status: 'ready', writable: true, value: { enabled: true } }) })
   await waitFor(() => { expect(ctx.slots.entries('conversation.content.overlay')).toHaveLength(1) })
   expect(ctx.uiConversation.headerPresentations.getSnapshot()).toBe('floating')
-  expect(ctx.uiConversation.userText.entries().map(value => value.id)).toEqual(['muse-video-selection'])
-  expect(ctx.slots.entries('conversation.user.text.node')).toHaveLength(1)
+  expect(ctx.uiConversation.userText.entries().map(value => value.id)).toEqual(['muse-video-selection', 'muse-video-review'])
+  expect(ctx.slots.entries('conversation.user.text.node')).toHaveLength(2)
   const overlay = ctx.slots.entries('conversation.content.overlay')[0]
   if (!overlay?.inject) throw Error('Enabled shelf has no Host operations')
   const id = inventory([]).sessionId
