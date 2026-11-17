@@ -59,13 +59,14 @@ class BrowserConfigForms extends Service {
   describe() { return this.mirror }
 }
 
-async function fixture() {
+async function fixture(configure?: (configForms: BrowserConfigForms) => void) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(SlotRegistry).await()
   ctx.provide('locale', new LocaleRuntime(ctx))
   const remote = new BrowserRemote(ctx)
   const configForms = new BrowserConfigForms(ctx)
+  configure?.(configForms)
   await ctx.plugin({ apply: resources, inject: ['slots'] }).await()
   const root = new TestRoot(ctx.slots, async (action) => { await action() })
   onTestFinished(() => { root.release() })
@@ -79,6 +80,25 @@ it('validates the synchronization interval and supplies the ordinary default', (
   expect(Config().syncIntervalMs).toBe(30_000)
   for (const syncIntervalMs of [0, 999, 300_001, 1000.5]) {
     expect(() => Config({ syncIntervalMs })).toThrow()
+  }
+})
+
+it('registers character library copy for every supported locale', async () => {
+  const { ctx } = await fixture()
+  const titles = {
+    zh: '人物库', en: 'Character library', ja: '人物ライブラリ',
+    es: 'Biblioteca de personajes', fr: 'Bibliothèque de personnages',
+    de: 'Figurenbibliothek', ru: 'Библиотека персонажей', pt: 'Biblioteca de personagens',
+  }
+  const t = ctx.locale.bind('characterLibrary')
+  for (const [locale, title] of Object.entries(titles)) {
+    if (locale !== 'zh' && locale !== 'en') {
+      onTestFinished(ctx.locale.addLanguage({ id: locale, label: title, fallback: 'en' }))
+    }
+    ctx.locale.setLocale(locale)
+    expect(t('title')).toBe(title)
+    expect(t('count', { count: 2 })).toContain('2')
+    expect(t('count', { count: 2 })).not.toContain('{count}')
   }
 })
 
@@ -106,22 +126,123 @@ it('uses the projected Host interval and reads a later live configuration value'
   expect(vi.getTimerCount()).toBe(0)
 })
 
-it('fails loading when the Host does not expose synchronization settings', async () => {
-  const { ctx, configForms, dispose } = await fixture()
-  await dispose()
-  configForms.form.publish({ status: 'unavailable', value: undefined })
-  await expect(apply(ctx)).rejects.toThrow('synchronization settings are unavailable')
-  expect(ctx.get('remote.characterLibraryBrowser')).toBeUndefined()
+it('registers while settings are pending and starts polling only after the Host interval arrives', async () => {
+  const pending = Promise.withResolvers<undefined>()
+  const reading = Promise.withResolvers<undefined>()
+  onTestFinished(() => { pending.resolve(undefined) })
+  const { ctx, remote, configForms } = await fixture((forms) => {
+    forms.form.publish({ status: 'loading', value: undefined })
+    forms.mirror.ensure.mockImplementation(() => { reading.resolve(undefined); return pending.promise })
+  })
+  vi.useFakeTimers()
+  const browse = vi.spyOn(remote, 'browse').mockResolvedValue({ ok: true, value: catalog('first') })
+  expect(ctx.slots.entries('main')).toHaveLength(1)
+  expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(1)
+  const source = ctx.resources.source('dsh-resource://character-library-catalog/current')
+  const release = source.subscribe(() => {})
+  onTestFinished(release)
+  await reading.promise
+  expect(browse).not.toHaveBeenCalled()
+  expect(source.getSnapshot().status).toBe('loading')
+  expect(vi.getTimerCount()).toBe(0)
+  configForms.form.publish({ status: 'ready', value: { syncIntervalMs: 2000 } })
+  pending.resolve(undefined)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(browse).toHaveBeenCalledTimes(1)
+  expect(source.getSnapshot()).toMatchObject({ status: 'live', value: catalog('first') })
+  await vi.advanceTimersByTimeAsync(1999)
+  expect(browse).toHaveBeenCalledTimes(1)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(browse).toHaveBeenCalledTimes(2)
+  release()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(vi.getTimerCount()).toBe(0)
 })
 
-it('does not mount a Remote namespace when the settings description fails', async () => {
-  const { ctx, configForms, dispose } = await fixture()
-  await dispose()
-  configForms.mirror.ensure.mockRejectedValueOnce(new Error('Settings are offline'))
-  await expect(apply(ctx)).rejects.toThrow('Settings are offline')
-  expect(ctx.get('remote.characterLibraryBrowser')).toBeUndefined()
-  expect(ctx.slots.entries('main')).toHaveLength(0)
-  expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(0)
+it.each(['resolve', 'reject'] as const)('does not read the catalog after leaving while settings later %s', async (settlement) => {
+  const pending = Promise.withResolvers<undefined>()
+  const reading = Promise.withResolvers<undefined>()
+  onTestFinished(() => { pending.resolve(undefined) })
+  const { ctx, remote } = await fixture((forms) => {
+    forms.mirror.ensure.mockImplementation(() => { reading.resolve(undefined); return pending.promise })
+  })
+  vi.useFakeTimers()
+  const browse = vi.spyOn(remote, 'browse')
+  const source = ctx.resources.source('dsh-resource://character-library-catalog/current')
+  const release = source.subscribe(() => {})
+  onTestFinished(release)
+  await reading.promise
+  release()
+  if (settlement === 'resolve') pending.resolve(undefined)
+  else pending.reject(new Error('Settings are offline'))
+  await vi.advanceTimersByTimeAsync(10_000)
+  expect(browse).not.toHaveBeenCalled()
+  expect(source.getSnapshot()).toMatchObject({ status: 'loading', value: undefined, failure: undefined })
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('reports unavailable Host synchronization settings as a catalog failure', async () => {
+  const { ctx, remote } = await fixture((forms) => {
+    forms.form.publish({ status: 'unavailable', value: undefined })
+  })
+  vi.useFakeTimers()
+  const browse = vi.spyOn(remote, 'browse')
+  const source = ctx.resources.source('dsh-resource://character-library-catalog/current')
+  const release = source.subscribe(() => {})
+  onTestFinished(release)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(source.getSnapshot()).toMatchObject({
+    status: 'failed', value: undefined,
+    failure: { name: 'RemoteError', code: 'gateway/internal', cause: { message: 'character-library: synchronization settings are unavailable' } },
+  })
+  expect(browse).not.toHaveBeenCalled()
+  expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(1)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('reports a settings read failure without preventing registration', async () => {
+  const failure = new Error('Settings are offline')
+  const { ctx, remote } = await fixture((forms) => { forms.mirror.ensure.mockRejectedValueOnce(failure) })
+  vi.useFakeTimers()
+  const browse = vi.spyOn(remote, 'browse')
+  const source = ctx.resources.source('dsh-resource://character-library-catalog/current')
+  const release = source.subscribe(() => {})
+  onTestFinished(release)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(source.getSnapshot()).toMatchObject({ status: 'failed', value: undefined, failure: { name: 'RemoteError', code: 'gateway/internal', cause: failure } })
+  expect(browse).not.toHaveBeenCalled()
+  expect(ctx.slots.entries('main')).toHaveLength(1)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('retains the catalog when the Host interval becomes invalid and retries after settings are corrected', async () => {
+  const { ctx, remote, configForms } = await fixture()
+  vi.useFakeTimers()
+  const previous = catalog('first')
+  const browse = vi.spyOn(remote, 'browse').mockResolvedValue({ ok: true, value: previous })
+  const source = ctx.resources.source('dsh-resource://character-library-catalog/current')
+  const release = source.subscribe(() => {})
+  onTestFinished(release)
+  await vi.advanceTimersByTimeAsync(0)
+  configForms.form.publish({ value: { syncIntervalMs: 0 } })
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(source.getSnapshot()).toMatchObject({ status: 'failed', value: previous, failure: { name: 'RemoteError', code: 'gateway/internal' } })
+  expect(source.getSnapshot().failure?.cause).toBeInstanceOf(Error)
+  expect(browse).toHaveBeenCalledTimes(1)
+  expect(vi.getTimerCount()).toBe(0)
+  release()
+  configForms.form.publish({ value: { syncIntervalMs: 2000 } })
+  const retried = ctx.resources.source('dsh-resource://character-library-catalog/current?revision=1')
+  const stopRetry = retried.subscribe(() => {})
+  onTestFinished(stopRetry)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(retried.getSnapshot()).toMatchObject({ status: 'live', value: previous, failure: undefined })
+  expect(browse).toHaveBeenCalledTimes(2)
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(browse).toHaveBeenCalledTimes(3)
+  stopRetry()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(vi.getTimerCount()).toBe(0)
 })
 
 it('shares one polling stream and discovers added and removed people without a manual refresh', async () => {

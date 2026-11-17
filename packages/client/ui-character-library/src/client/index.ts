@@ -12,10 +12,11 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CharacterLibraryBrowseResult, CharacterLibraryImage, CharacterLibraryStatus } from '@deepseek-ai/dsh-api-character-library/types'
 import remote from '@deepseek-ai/dsh-api-character-library/remote'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { IconUsersOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createElement } from 'react'
 import { LibraryPage } from './LibraryPage.tsx'
-import { en, zh, type CharacterLibraryKey } from './locales.ts'
+import { de, en, es, fr, ja, pt, ru, zh, type CharacterLibraryKey } from './locales.ts'
 import { SETTINGS_NAMESPACE, syncIntervalField } from '../sync-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -67,17 +68,15 @@ export const inject = ['slots', 'locale', 'remote', 'resources', 'configForms']
  * @returns Disposer for the generated Remote namespace and UI registrations.
  */
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
-  await ctx.configForms.describe().ensure()
   const form = ctx.configForms.get<Config>(SETTINGS_NAMESPACE)
   const readDelay = (): number => {
     const value = form.getSnapshot().value
     if (value === undefined) throw new Error('character-library: synchronization settings are unavailable')
     return Config(value).syncIntervalMs
   }
-  readDelay()
   const disposeRemote = await ctx.remote.$mount(remote)
   const section = ctx.inject(['slots', 'locale', 'resources', 'remote.characterLibraryBrowser'], (scope) => {
-    scope.effect(() => scope.locale.register(NS, { zh, en }), 'character-library: dictionaries')
+    scope.effect(() => scope.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'character-library: dictionaries')
     scope.effect(() => scope.resources.register<'character-library-status'>({
       protocol: 'character-library-status',
       async *open() { yield await scope.remote.characterLibraryBrowser.status() },
@@ -89,15 +88,24 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
         const collection = params.get('collection')
         const cursor = params.get('cursor')
         const query = params.get('query')
-        while (!signal.aborted) {
-          const frame = await scope.remote.characterLibraryBrowser.browse({
-            collection: collection === 'ancient' || collection === 'urban' ? collection : 'all',
-            limit: 12,
-            ...(query == null || query === '' ? {} : { query }),
-            ...(cursor === null ? {} : { cursor }),
-          }, signal)
-          yield frame
-          await waitForSync(readDelay, signal)
+        try {
+          await scope.configForms.describe().ensure()
+          while (!signal.aborted) {
+            readDelay()
+            const frame = await scope.remote.characterLibraryBrowser.browse({
+              collection: collection === 'ancient' || collection === 'urban' ? collection : 'all',
+              limit: 12,
+              ...(query == null || query === '' ? {} : { query }),
+              ...(cursor === null ? {} : { cursor }),
+            }, signal)
+            yield frame
+            await waitForSync(readDelay, signal)
+          }
+        } catch (error) {
+          if (!signal.aborted) yield {
+            ok: false,
+            error: new RemoteError('gateway/internal', 'Character library synchronization could not continue', {}, { cause: error }),
+          }
         }
       },
     }), 'character-library: catalog resource')
