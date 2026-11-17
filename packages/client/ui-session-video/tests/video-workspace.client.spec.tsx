@@ -67,7 +67,7 @@ function setup(items = [source()], initial: Partial<InputState> = {}, overrides:
 
 function reference(item = source()): Occurrence {
   return { occurrenceId: 1, source: VIDEO_REFERENCE_SOURCE, ref: videoWorkspaceAddress(sessionId, whole(item)),
-    label: item.label, offset: 0, length: 1 }
+    label: item.label, clipboardText: item.label, offset: 0, length: 1 }
 }
 
 it('browses episodes, selects an observed authored shot, and preserves its navigation when floating', async () => {
