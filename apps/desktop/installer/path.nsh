@@ -1,5 +1,8 @@
 Var InstallerPath
 Var InstallerError
+!ifndef DSH_UPGRADE_REPORT_ROOT
+!define DSH_UPGRADE_REPORT_ROOT "$LOCALAPPDATA\Muse-Upgrade-Reports"
+!endif
 !macro InstallerRejectProtectedDirectory PATH SELECTED
     ${If} ${PATH} == $WINDIR
     ${OrIf} ${PATH} == $PROGRAMFILES32
@@ -126,9 +129,41 @@ Function ${PREFIX}InstallerValidatePath
     ${If} $0 <= 3
         Return
     ${EndIf}
+    ; Neither tree may contain the other; inspect the report root and its ancestors
+    ; for reparse points before a report can be created or an installation moved.
+    System::Call 'kernel32::GetFullPathNameW(w "${DSH_UPGRADE_REPORT_ROOT}", i ${NSIS_MAX_STRLEN}, w .r5, p 0) i.r0'
+    ${If} $0 < 4
+    ${OrIf} $0 >= ${NSIS_MAX_STRLEN}
+        Return
+    ${EndIf}
+    !insertmacro InstallerTrimDirectorySeparators $5
+    StrCpy $2 $5
+    ${Do}
+        ${If} $2 == $4
+            Return
+        ${EndIf}
+        System::Call 'kernel32::GetFileAttributesW(w r2) i.r0 ?e'
+        Pop $1
+        ${If} $0 == -1
+            ${If} $1 != 2
+            ${AndIf} $1 != 3
+                Return
+            ${EndIf}
+        ${Else}
+            IntOp $1 $0 & 0x400
+            ${If} $1 != 0
+                Return
+            ${EndIf}
+        ${EndIf}
+        ${GetParent} $2 $2
+        StrLen $0 $2
+    ${LoopWhile} $0 > 3
     ; Canonical separators must not bypass protected-directory comparisons.
     StrCpy $2 $4
     ${Do}
+        ${If} $2 == $5
+            Return
+        ${EndIf}
         !insertmacro InstallerRejectProtectedDirectory $2 $4
         ${GetParent} $2 $2
         StrLen $0 $2

@@ -328,6 +328,13 @@ async function main(): Promise<void> {
     assertMuseInstalledIdentity(previousManifest, previous)
     upgrade.previousInstalledIdentity = true
     const sentinels = await createMuseUpgradeSentinels(preserved)
+    const userFile = join('workspace-用户', '.agents', 'skills', 'custom', 'SKILL.md')
+    const userBytes = Buffer.from('Custom skill and workspace data, retained across upgrade.\n', 'utf8')
+    if (target === 'win-x64') {
+      const userPath = join(installed, userFile)
+      await mkdir(dirname(userPath), { recursive: true })
+      await writeFile(userPath, userBytes, { flag: 'wx' })
+    }
     if (target === 'win-x64') await installWindows(installer, 'upgrade-original-exe')
     else {
       const replacement = join(root, 'replacement.app')
@@ -338,6 +345,13 @@ async function main(): Promise<void> {
       try { await rename(replacement, installed) }
       catch (error) { await rename(backup, installed); throw error }
       await rm(backup, { recursive: true, force: true })
+    }
+    if (target === 'win-x64') {
+      const backups = (await readdir(root)).filter(name => name.startsWith('installed.old-'))
+      assert.equal(backups.length, 1, 'Installer acceptance: expected one retained old installation')
+      assert.deepEqual(await readFile(join(root, backups[0]!, userFile)), userBytes,
+        'Installer acceptance: user workspace or custom skill was not retained')
+      upgrade.installDirectoryUserFilePreserved = true
     }
     assertMuseInstalledUnchanged(sentinels, await payloadInventory(preserved))
     await verifyCurrent()

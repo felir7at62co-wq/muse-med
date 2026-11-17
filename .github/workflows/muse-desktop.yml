@@ -157,6 +157,9 @@ jobs:
           pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/macos-update-package.e2e.ts --retry 0 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/muse-candidate-update-native/result.json"
       - name: Build and verify the assembled application
         run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
+      - name: Verify isolated Windows upgrade safety
+        if: matrix.target == 'win-x64'
+        run: node apps/desktop/scripts/run-isolated-upgrade-smoke.mjs
       - name: Check bundled Host integrations against built dependencies
         run: |
           pnpm exec vitest run apps/desktop-host/tests/feishu-migration.spec.ts apps/desktop-host/tests/permission-settings.spec.ts apps/desktop-host/tests/tool-discovery-catalog.spec.ts apps/desktop/tests/smoke-runtime.spec.ts apps/desktop/tests/bundled-bridge.spec.ts apps/desktop/tests/feishu-setup-loader.spec.ts packages/boot/app-boot/tests/compatibility-preflight.spec.ts apps/cli/tests/resolved-profile-boot.spec.ts

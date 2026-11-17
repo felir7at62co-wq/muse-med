@@ -28,12 +28,25 @@ export function directoryInstallSection(source) {
 !macroundef uninstallOldVersion
 !macro uninstallOldVersion ROOT_KEY
   !insertmacro readReg $R4 "\${ROOT_KEY}" "\${INSTALL_REGISTRY_KEY}" InstallLocation
+  \${If} $R4 == ""
+    Push $R5
+    !insertmacro readReg $R5 "\${ROOT_KEY}" "\${UNINSTALL_REGISTRY_KEY}" UninstallString
+    !ifdef UNINSTALL_REGISTRY_KEY_2
+      \${If} $R5 == ""
+        !insertmacro readReg $R5 "\${ROOT_KEY}" "\${UNINSTALL_REGISTRY_KEY_2}" UninstallString
+      \${EndIf}
+    !endif
+    \${If} $R5 != ""
+      StrCpy $R4 "<unknown-registered-path>"
+    \${EndIf}
+    Pop $R5
+  \${EndIf}
   \${If} $R4 != ""
     Push $0
     Push $1
     Push $2
     System::Call 'kernel32::GetFullPathNameW(w R4, i \${NSIS_MAX_STRLEN}, w .r2, p 0) i.r1'
-    StrCpy $R4 ""
+    StrCpy $R4 "<invalid-registered-path>"
     \${If} $1 > 0
     \${AndIf} $1 < \${NSIS_MAX_STRLEN}
       !insertmacro InstallerTrimDirectorySeparators $2
@@ -47,11 +60,21 @@ export function directoryInstallSection(source) {
     Pop $0
   \${EndIf}
   \${If} $R4 == $INSTDIR
+  \${OrIf} $R4 == ""
     StrCpy $R0 0
     ClearErrors
   \${Else}
-    Push "\${ROOT_KEY}"
-    Call uninstallOldVersion
+    Call dshRecordBlockedDirectory
+    \${If} \${Errors}
+      Call dshCleanupDirectories
+      MessageBox MB_OK|MB_ICONEXCLAMATION "$(MuseUpgradeReceiptFailed)$\\r$\\n$INSTDIR$\\r$\\n$R4" /SD IDOK
+      SetErrorLevel 1603
+      Quit
+    \${EndIf}
+    Call dshCleanupDirectories
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(MuseUpgradeDifferentDirectory)" /SD IDOK
+    SetErrorLevel 2
+    Quit
   \${EndIf}
 !macroend`)
   result = replaceOnce(result, '!insertmacro setLinkVars', `!insertmacro setLinkVars

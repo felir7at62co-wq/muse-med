@@ -29,7 +29,32 @@ try {
   $brokenArchive = Join-Path $scratch 'broken.7z'
   [System.IO.File]::WriteAllText($brokenArchive, 'invalid archive')
 
-  foreach ($mode in @('first', 'upgrade', 'transient-lock', 'locked', 'locked-stage', 'missing-stage', 'restore-conflict', 'broken', 'cancelled')) {
+  $guardRoot = Join-Path $scratch 'path-guard'
+  $reportRoot = Join-Path $guardRoot 'reports'
+  $linkedRoot = Join-Path $guardRoot 'junction'
+  [IO.Directory]::CreateDirectory($reportRoot) | Out-Null
+  New-Item -ItemType Junction -Path $linkedRoot -Target $reportRoot | Out-Null
+  $guardFixture = Join-Path $PSScriptRoot '../tests/fixtures/installer-path-guard-smoke.nsi'
+  $guardCases = @(
+    @{ target = $reportRoot; report = $reportRoot; expected = 2 },
+    @{ target = $reportRoot.ToUpperInvariant(); report = $reportRoot; expected = 2 },
+    @{ target = (Join-Path $reportRoot 'child'); report = $reportRoot; expected = 2 },
+    @{ target = $guardRoot; report = $reportRoot; expected = 2 },
+    @{ target = "$reportRoot-neighbor"; report = $reportRoot; expected = 0 },
+    @{ target = (Join-Path $guardRoot 'safe'); report = (Join-Path $linkedRoot 'reports'); expected = 2 }
+  )
+  for ($index = 0; $index -lt $guardCases.Count; $index++) {
+    $case = $guardCases[$index]
+    $probe = Join-Path $guardRoot "guard-$index.exe"
+    Invoke-Checked $Makensis @('/V2', "/DOUTPUT_FILE=$probe", "/DTARGET_DIR=$($case.target)", "/DDSH_UPGRADE_REPORT_ROOT=$($case.report)", $guardFixture)
+    $process = Start-Process -FilePath $probe -ArgumentList '/S' -WindowStyle Hidden -PassThru
+    try {
+      if (-not $process.WaitForExit(30000)) { $process.Kill($true); $process.WaitForExit(); throw 'Path guard probe timed out' }
+      if ($process.ExitCode -ne $case.expected) { throw "Path guard case $index exited $($process.ExitCode), expected $($case.expected)" }
+    } finally { $process.Dispose() }
+  }
+
+  foreach ($mode in @('first', 'upgrade', 'transient-lock', 'locked', 'locked-stage', 'missing-stage', 'restore-conflict', 'broken', 'cancelled', 'post-promote-failure')) {
     $caseRoot = Join-Path $scratch $mode
     $target = Join-Path $caseRoot 'Application'
     New-Item -ItemType Directory -Path $caseRoot | Out-Null
@@ -44,12 +69,15 @@ try {
     $probe = Join-Path $caseRoot 'probe.exe'
     $caseArchive = if ($mode -eq 'broken') { $brokenArchive } else { $archive }
     $reportDir = Join-Path $caseRoot 'installer-logs'
+    $upgradeReports = Join-Path $scratch "$mode-upgrade-reports"
     $compileArgs = @('/V2', "/DOUTPUT_FILE=$probe", "/DPAYLOAD_FILE=$caseArchive", "/DTARGET_DIR=$target", "/DDSH_SEVENZIP_PATH=$SevenZip")
+    $compileArgs += "/DDSH_UPGRADE_REPORT_ROOT=$upgradeReports"
     if ($FrameLibrary) { $compileArgs += @("/DSOURCE_DLL=$FrameLibrary", "/DREPORT_DIR=$reportDir") }
     if ($mode -eq 'missing-stage') { $compileArgs += '/DMISSING_STAGE' }
     if ($mode -eq 'locked-stage') { $compileArgs += '/DLOCKED_STAGE' }
     if ($mode -eq 'restore-conflict') { $compileArgs += '/DRESTORE_CONFLICT' }
     if ($mode -eq 'cancelled') { $compileArgs += '/DCANCELLED' }
+    if ($mode -eq 'post-promote-failure') { $compileArgs += '/DPOST_PROMOTE_FAILURE' }
     Invoke-Checked $Makensis ($compileArgs + $fixture)
     if ($null -ne $SignExecutable) { & $SignExecutable $probe }
     $handle = $null
@@ -98,6 +126,17 @@ try {
         $process.Dispose()
       }
     }
+    if ($mode -eq 'post-promote-failure') {
+      $backups = @(Get-ChildItem -LiteralPath $caseRoot -Directory -Filter 'Application.old-*')
+      if ($backups.Count -ne 1 -or [IO.File]::ReadAllText((Join-Path $backups[0].FullName 'obsolete.txt')) -ne 'old only' -or
+          [IO.File]::ReadAllText((Join-Path $target 'user-created-after-promotion.txt')) -ne 'preserve new user data') {
+        throw 'Post-promotion failure did not preserve both old and newly written files'
+      }
+      if (@(Get-ChildItem -LiteralPath $upgradeReports -Filter '*.completed').Count -ne 0) {
+        throw 'Failed upgrade incorrectly recorded completion'
+      }
+      continue
+    }
     if ($mode -eq 'restore-conflict') {
       $backups = @(Get-ChildItem -LiteralPath $caseRoot -Directory -Filter 'Application.old-*')
       if ($backups.Count -ne 1 -or [IO.File]::ReadAllText((Join-Path $backups[0].FullName 'asset.txt')) -ne 'old asset' -or
@@ -127,7 +166,19 @@ try {
     if ((Test-Path -LiteralPath (Join-Path $target 'obsolete.txt')) -ne $expectObsolete) {
       throw "Directory smoke $mode did not preserve the expected old-only file state"
     }
-    if (@(Get-ChildItem -LiteralPath $caseRoot -Directory | Where-Object Name -notin @('Application', 'installer-logs')).Count -ne 0) {
+    $backups = @(Get-ChildItem -LiteralPath $caseRoot -Directory -Filter 'Application.old-*')
+    if ($mode -in @('upgrade', 'transient-lock')) {
+      if ($backups.Count -ne 1 -or [IO.File]::ReadAllText((Join-Path $backups[0].FullName 'obsolete.txt')) -ne 'old only') {
+        throw "Directory smoke $mode did not retain the complete previous directory"
+      }
+      $prepared = @(Get-ChildItem -LiteralPath $upgradeReports -Filter '*.txt')
+      $completed = @(Get-ChildItem -LiteralPath $upgradeReports -Filter '*.completed')
+      if ($prepared.Count -ne 1 -or $completed.Count -ne 1 -or
+          -not ([IO.File]::ReadAllText($completed[0].FullName, [Text.Encoding]::Unicode)).Contains($backups[0].FullName)) {
+        throw "Directory smoke $mode did not record the retained directory"
+      }
+    } elseif ($backups.Count -ne 0) { throw "Directory smoke $mode retained an unexpected backup" }
+    if (@(Get-ChildItem -LiteralPath $caseRoot -Directory | Where-Object { $_.Name -notin @('Application', 'installer-logs') -and $_.Name -notlike 'Application.old-*' }).Count -ne 0) {
       throw "Directory smoke $mode left transaction directories behind"
     }
     if ($FrameLibrary) {
@@ -164,6 +215,11 @@ try {
   $resolvedScratch = [System.IO.Path]::GetFullPath($scratch)
   if (-not $resolvedScratch.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing cleanup outside the temporary root: $resolvedScratch"
+  }
+  if ($linkedRoot -and (Test-Path -LiteralPath $linkedRoot)) {
+    $linkItem = Get-Item -LiteralPath $linkedRoot -Force
+    if (-not ($linkItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Path guard fixture link changed type' }
+    Remove-Item -LiteralPath $linkedRoot -Force
   }
   Remove-Item -LiteralPath $resolvedScratch -Recurse -Force
 }

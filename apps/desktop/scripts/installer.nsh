@@ -3,12 +3,47 @@
 !include "StdUtils.nsh"
 InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
 !include "${__FILEDIR__}\restart-banner.nsh"
+!ifndef DSH_UPGRADE_REPORT_ROOT
+!define DSH_UPGRADE_REPORT_ROOT "$LOCALAPPDATA\Muse-Upgrade-Reports"
+!endif
 !include "FileFunc.nsh"
 !define INSTALLER_SOURCE_DIR "${__FILEDIR__}\..\installer"
 !define /ifndef INSTALLER_BUILD_DIR "${__FILEDIR__}\..\.desktop-build\targets\win-x64\installer-ui"
 
+!macro MuseUpgradeDefaultStrings LANGUAGE
+  LangString MuseUpgradeDifferentDirectory ${LANGUAGE} "A previous installation uses a different directory. To protect its files, this upgrade was stopped. Back up your files and upgrade using the existing installation directory."
+  LangString MuseUpgradeBackup ${LANGUAGE} "The previous installation is preserved at the path below. Move workspaces and custom skills to a safe location. Their original paths are not restored automatically. The backup uses disk space and is not deleted automatically."
+  LangString MuseUpgradeReceiptFailed ${LANGUAGE} "The upgrade could not safely finish. Preserve the original and planned backup paths shown below; the backup may not yet exist. Contact support."
+!macroend
+
 ; customHeader runs after electron-builder registers the installer languages.
 !macro customHeader
+  !ifdef LANG_ENGLISH
+    !insertmacro MuseUpgradeDefaultStrings ${LANG_ENGLISH}
+  !endif
+  !ifdef LANG_GERMAN
+    !insertmacro MuseUpgradeDefaultStrings ${LANG_GERMAN}
+  !endif
+  !ifdef LANG_SPANISHINTERNATIONAL
+    !insertmacro MuseUpgradeDefaultStrings ${LANG_SPANISHINTERNATIONAL}
+  !endif
+  !ifdef LANG_FRENCH
+    !insertmacro MuseUpgradeDefaultStrings ${LANG_FRENCH}
+  !endif
+  !ifdef LANG_JAPANESE
+    !insertmacro MuseUpgradeDefaultStrings ${LANG_JAPANESE}
+  !endif
+  !ifdef LANG_PORTUGUESEBR
+    !insertmacro MuseUpgradeDefaultStrings ${LANG_PORTUGUESEBR}
+  !endif
+  !ifdef LANG_RUSSIAN
+    !insertmacro MuseUpgradeDefaultStrings ${LANG_RUSSIAN}
+  !endif
+  !ifdef LANG_SIMPCHINESE
+    LangString MuseUpgradeDifferentDirectory ${LANG_SIMPCHINESE} "检测到旧版本安装在其他目录。为保护旧文件，本次升级已停止。请先备份文件，并使用原安装目录升级。"
+    LangString MuseUpgradeBackup ${LANG_SIMPCHINESE} "旧版安装目录保留在下方路径。请将其中的工作区和自定义技能转移到安全位置。原路径不会自动恢复。备份会占用磁盘空间，不会自动删除。"
+    LangString MuseUpgradeReceiptFailed ${LANG_SIMPCHINESE} "升级未能安全完成。请保留以下原位置和计划备份位置；如果移动尚未开始，备份目录可能不存在。请联系支持人员。"
+  !endif
 ; The header hook runs after builder finishes adding its official plugin directories.
 !ifndef BUILD_UNINSTALLER
 ; This function installs only the bundled Microsoft x64 prerequisite after user consent.
@@ -344,7 +379,6 @@ ManifestDPIAware true
     StrCpy $0 1
   ${EndIf}
   !insertmacro InstallerPublishStage 4
-  !insertmacro dshFinishDirectories
   ${If} $RestartStatusJob != ""
   ${AndIf} $RestartStatusJob != 0
     System::Call 'kernel32::CloseHandle(p $RestartStatusJob)'
@@ -363,5 +397,16 @@ ManifestDPIAware true
     Abort "$(INSTALLER_VC_PRIOR_FAILED)"
   ${EndIf}
   Call MuseEnsureVCRuntime
+  Call dshRecordRetainedCompletion
+  ${If} ${Errors}
+    StrCpy $dshRecoveryStopped "1"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(MuseUpgradeReceiptFailed)$\r$\n$dshFinalDirectory$\r$\n$dshOldDirectory" /SD IDOK
+    SetErrorLevel 1603
+    Abort "$(MuseUpgradeReceiptFailed)"
+  ${EndIf}
+  ${If} $dshOldMoved == "1"
+    MessageBox MB_OK|MB_ICONINFORMATION "$(MuseUpgradeBackup)$\r$\n$dshOldDirectory" /SD IDOK
+  ${EndIf}
+  !insertmacro dshFinishDirectories
   !insertmacro InstallerRecordTiming 5
 !macroend
