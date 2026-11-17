@@ -182,7 +182,9 @@ it('keeps active source plugin artifacts out of Git and lint source discovery', 
   await mkdir(oldLayout)
   await writeFile(join(oldLayout, 'legacy-source.ts'), invalidDeclaration)
   expect(await sources()).toContain('.source-muse-plugins/legacy-source.ts')
-  await expect(scan()).rejects.toMatchObject({ code: 1, stdout: expect.stringContaining('legacy-source.ts') })
+  const invalid = scan()
+  await expect(invalid).rejects.toMatchObject({ code: 1 })
+  await expect(invalid).rejects.toHaveProperty('stdout', expect.stringContaining('legacy-source.ts'))
 })
 
 it('resolves staged source peers through the source launcher without a second Cordis registry', async () => {
