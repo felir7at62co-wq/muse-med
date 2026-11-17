@@ -20,15 +20,12 @@ import { createHash, randomBytes } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { promisify } from 'node:util'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import {
   alignedReferenceSize, buildReferenceObjectKey, extractAppScriptUrl, extractTosUploadConfig,
   readReferenceAudio, readReferenceImage, referenceMaterialItem, signTosObjectPut,
 } from '@deepseek-ai/dsh-jubian-api'
 import type { ReferenceFormat, ReferenceImage, TosUploadConfig } from '@deepseek-ai/dsh-jubian-api'
-
-const run = promisify(execFile)
 
 /** The workbench origin whose bundle carries the upload destination. */
 const FRONTEND_URL = 'https://web.jubianai.net/'
@@ -43,6 +40,8 @@ export interface ScaleRequest {
   format: ReferenceFormat
   /** The size the provider's pipeline requires. */
   target: { width: number; height: number }
+  /** Cancel local preparation; omission lets the re-encode finish normally. */
+  signal?: AbortSignal
 }
 
 /** Everything the upload path takes from the outside world, injectable for tests. */
@@ -83,12 +82,14 @@ function ffmpegBinary(explicit: string | undefined): string {
  * The scale filter is the only transformation: the provider's rule is about the
  * frame's edges, not about its content, and re-encoding at all is what makes the
  * new size true of the pixels rather than only of a header.
- * @param request - Source bytes, detected format and target size.
+ * @param request - Source bytes, detected format, target size and optional cancellation signal.
  * @param explicitPath - Configured binary path, or undefined to use the environment.
- * @returns The normalized file's bytes, in the source's own container format.
+ * @returns The normalized bytes in the source format, after the child closes and temporary files are removed.
  * @throws {JubianError} `CONTRACT_CHANGED` when no usable `ffmpeg` produced a readable result.
+ * @throws The cancellation reason when the supplied signal aborts preparation.
  */
 export async function scaleImageWithFfmpeg(request: ScaleRequest, explicitPath?: string): Promise<Uint8Array> {
+  request.signal?.throwIfAborted()
   const directory = await mkdtemp(join(tmpdir(), 'jubian-reference-'))
   const extension = EXTENSIONS[request.format]
   const source = join(directory, `source${extension}`)
@@ -96,13 +97,24 @@ export async function scaleImageWithFfmpeg(request: ScaleRequest, explicitPath?:
   try {
     await writeFile(source, request.bytes)
     try {
-      await run(ffmpegBinary(explicitPath),
-        ['-y', '-hide_banner', '-loglevel', 'error', '-i', source,
-          '-vf', `scale=${request.target.width}:${request.target.height}`, '-frames:v', '1', target],
-        { windowsHide: true, maxBuffer: 4 * 1024 * 1024 })
-    } catch {
+      await new Promise<void>((resolve, reject) => {
+        let failure: Error | null = null
+        const child = execFile(ffmpegBinary(explicitPath),
+          ['-y', '-hide_banner', '-loglevel', 'error', '-i', source,
+            '-vf', `scale=${request.target.width}:${request.target.height}`, '-frames:v', '1', target],
+          { windowsHide: true, maxBuffer: 4 * 1024 * 1024,
+            ...(request.signal === undefined ? {} : { signal: request.signal }) },
+          (error) => { failure = error })
+        child.once('close', () => {
+          if (failure === null) resolve()
+          else reject(failure)
+        })
+      })
+    } catch (_error) {
+      request.signal?.throwIfAborted()
       return fail()
     }
+    request.signal?.throwIfAborted()
     const bytes = await readFile(target)
     const normalized = readReferenceImage(bytes)
     if (normalized.width !== request.target.width || normalized.height !== request.target.height) return fail()

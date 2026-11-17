@@ -63,7 +63,8 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = await ctx.agentLoop.create(SessionId('short-drama-aesthetics'), { provider: 'mock', model: 'mock' }, { cwd: home })
     await ctx.agentPresets.mount(agent.ctx, 'short-drama-aesthetics')
-    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '为短剧设计有魅力的3D角色，并沿用我认可的妆造。' }] }))
+    const request = '为短剧设计有魅力的3D角色，并沿用我认可的妆造。只要一个单画面全身立绘，面容清晰。'
+    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: request }] }))
     await agent.whenIdle()
     const system = adapter.requests[0]!.messages.filter(message => message.role === 'system')
       .flatMap(message => message.content).filter(part => part.type === 'text').map(part => part.text).join('\n')
@@ -90,10 +91,14 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(system).toContain('所有资产图默认16:9横版')
     expect(system).toContain('用户明确指定其他比例时按指定执行')
     expect(system).toContain('资产图比例与视频成片比例分别处理')
-    for (const requirement of ['人物角色资产图：16:9横版白底', '五官清晰的面部特写',
+    for (const requirement of ['人物素材未指定版式时，默认使用16:9横版白底设定板', '五官清晰的面部特写',
       '完整保留头部、发型和双脚', '仅将右侧可见脸部覆盖为纯白', '背面保留后脑与发型', '严禁无头、截头']) {
       expect(system).toContain(requirement)
     }
+    expect(system).not.toContain('人物角色资产图：16:9横版白底')
+    expect(system).toContain('本轮用户明确要求单画面全身图、单视图或人物立绘时，只展示一个完整、面容可见的人物')
+    expect(system).toContain('实际生图提示词用“单个人物、一个全身视图、面容清晰”等正向描述表达本次构图')
+    expect(system).toContain('项目风格中的旧版式文字不覆盖本轮明确要求')
     expect(system).not.toContain('未指定时可用16:9横版白底设定板')
     expect(system).not.toContain('不强套横版拼贴和三视图')
     expect(system).toContain('不凭提示词、参数或任务成功就宣称艺术效果达标')
@@ -107,6 +112,7 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     })
     expect(adapter.requests).toHaveLength(names.length + 1)
     const finalMessages = JSON.stringify(adapter.requests.at(-1)!.messages)
+    expect(finalMessages).toContain(request)
     for (const result of results) expect(finalMessages).toContain(JSON.stringify(result.data.message.content[0]).slice(1, -1))
     expect(bodies[1]).toContain('次世代高精度建模 CG、物理可信 PBR 材质')
     expect(bodies[1]).toContain('保留人物身份、物种、关键形态、剧情尺度、动作、道具功能与原台词')
@@ -117,6 +123,11 @@ it('keeps shot requirements resident and loads creative direction with skills', 
       '只遮脸，不覆盖整个头或头发', '背面保留完整后脑与发型', '严禁无头、截头或裁掉脚部']) {
       expect(bodies[0]).toContain(requirement)
     }
+    expect(bodies[0]).toContain('本次需要人物设定板且未指定其他版式时')
+    expect(bodies[0]).toContain('单画面全身图或立绘只展示一个完整、面容可见的人物')
+    const firstPass = await readFile(new URL('anime-3d-assets/references/first-pass-cg.md', `file://${skillRoot}`), 'utf8')
+    expect(firstPass).toContain('未指定其他版式的人物设定板提示词')
+    expect(firstPass).toContain('用户明确要求单画面全身图或立绘时，使用单个人物的一个完整全身视图并保留清晰面容')
     expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('preflight <集号> --script <本集镜头脚本>')
     expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('重复短句按出现次数核对')
     const summaries = await ctx.skills.list()

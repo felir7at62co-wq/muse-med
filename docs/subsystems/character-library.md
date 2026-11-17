@@ -2,7 +2,7 @@
 
 English | [中文](character-library.zh.md)
 
-The Host-owned [character library](../../packages/drama/character-library/README.md) reads historical character references through an object-store service. The [TOS provider](../../packages/drama/character-library-tos/README.md) supplies bounded reads from fixed prefixes using Host credential references. [Model tools](../../packages/drama/tool-character-reference/README.md) search candidates and attach verified images to the Session; they do not approve, upload, bind or generate assets.
+The Host-owned [character library](../../packages/drama/character-library/README.md) reads historical character references through an object-store service. Web and Muse Desktop enable the [TOS provider](../../packages/drama/character-library-tos/README.md)'s `publicRead` mode by default, discovering current characters through bounded cloud listings and object reads under fixed prefixes without Muse-account or TOS credentials. The [browser](../../packages/client/ui-character-library/README.md) synchronizes the displayed catalog while it is open. [Model tools](../../packages/drama/tool-character-reference/README.md) search candidates and attach verified images to the Session; they do not approve, upload, bind or generate assets.
 
 For an image personally commissioned/generated and uploaded by the signed-in user, the separate Jubian tool can ask that user to attest to its source and rights for one project-private reference generation. The Host rechecks project, role, Catalog identity and SHA before issuing a one-shot private grant, uploading exact bytes and allowing a budgeted generation. This is not public-library approval: `pending_review` remains unchanged, and the image or derivative cannot be automatically cast, formally bound, published or reused by another user or project. An unknown paid result remains blocked until reconciled under the original idempotency key.
 
@@ -69,6 +69,38 @@ async matchCandidates( request: CharacterRecommendationRequest, signal?: AbortSi
 ```
 
 Source: [`packages/drama/character-library/src/library.ts`](../../packages/drama/character-library/src/library.ts)
+
+<a id="ctxcharacterlibrarybrowser--characterlibrarybrowser"></a>
+
+### `ctx.characterLibraryBrowser` — `CharacterLibraryBrowser`
+
+Browser facade exposing catalog reads and verified previews only.
+
+```ts cordis-catalog
+/**
+ * Report whether the library is available without reading storage.
+ * @returns Configured state and the library's read-only status.
+ */
+@Remote status(): Promise<CharacterLibraryStatus>
+
+/**
+ * Read one bounded catalog page without modifying its metadata.
+ * @param request - Collection, search text and optional continuation cursor.
+ * @param signal - Caller cancellation.
+ * @returns Catalog entries and their next-page cursor.
+ */
+@Remote async browse(request: CharacterLibraryBrowseRequest, signal: AbortSignal): Promise<CharacterLibraryBrowseResult>
+
+/**
+ * Read and verify one catalog image without returning a storage location.
+ * @param request - Exact catalog identity and optional expected image digest.
+ * @param signal - Caller cancellation.
+ * @returns Verified image bytes encoded as a data URL and their digest.
+ */
+@Remote async preview(request: CharacterLibraryPreviewRequest, signal: AbortSignal): Promise<CharacterLibraryImage>
+```
+
+Source: [`packages/api/character-library/src/index.ts`](../../packages/api/character-library/src/index.ts)
 
 <a id="ctxcharacterlibraryobjectstore--characterlibraryobjectstore-abstract-seam"></a>
 

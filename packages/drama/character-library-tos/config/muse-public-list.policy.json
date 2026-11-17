@@ -1,0 +1,19 @@
+{
+  "Statement": [
+    {
+      "Sid": "MuseCharacterCatalogList",
+      "Effect": "Allow",
+      "Principal": ["*"],
+      "Action": ["tos:ListBucket"],
+      "Resource": ["trn:tos:::muse"],
+      "Condition": {
+        "StringEquals": {
+          "tos:prefix": [
+            "assets/reference/characters/stylized/ancient/ancient/",
+            "assets/reference/characters/stylized/urban/urban/"
+          ]
+        }
+      }
+    }
+  ]
+}

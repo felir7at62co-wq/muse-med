@@ -121,7 +121,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'character-library',
     title: 'Read-only character reference catalog',
     mode: 'core',
-    consumers: ['tool-character-reference'],
+    consumers: ['tool-character-reference', 'api-character-library'],
     note: 'Validates historical metadata and bounded images for character-reference search; recommendations grant no publication, binding or generation permission.',
   },
   {
@@ -131,7 +131,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'seam',
     implementations: ['character-library-tos'],
     consumers: ['character-library'],
-    note: 'Lists objects, reads metadata and retrieves bounded image bytes from fixed historical prefixes through Host-owned credentials.',
+    note: 'Discovers current metadata and reads bounded images from fixed historical prefixes; publicRead uses live cloud listings without storage credentials.',
+  },
+  {
+    key: 'characterLibraryBrowser',
+    pkg: 'api-character-library',
+    title: 'Read-only character library Remote',
+    mode: 'core',
+    consumers: ['client-ui-character-library'],
+    note: 'Exposes catalog browsing and verified image previews to the browser without storage credentials or mutation methods.',
   },
   {
     key: 'characterReferenceAuthority',

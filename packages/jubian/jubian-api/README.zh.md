@@ -38,6 +38,8 @@ kind: "package-reference"
 
 `ImageRequestInput.imageStyle` 选择 `anime` 或 `live_action`，分别向提供方发送 `style: 1` 或 `style: 0`。省略字段时，`resolveImageStyle` 识别提示词开头的正向动漫或真人声明，可带首行内精确的 `项目风格:` 或 `项目风格：` 前缀；未标记的旧提示词保留真人。其他位置的文字及否定指令不提供媒介。显式选择与开头声明冲突时，在提交前失败。完整提示词保持原字节，包括3D细分画风。该选择只描述请求媒介，不证明生成图像质量。
 
+`buildImageRequest` 发送 `modelConfig.skipAssetReferenceTemplate: true`，与工作台对所有资产类型、有无参考图的显式提示词提交一致。该字段关闭提供方自动追加的资产参考模板，并保留调用方的提示词和资产类别。单画面人物图或人物设定板仍由提示词明确指定；生成图仍需实际审看。
+
 `readImageGeneration(data)` 独立读取生成图接口中的任务与结果身份、状态，不以图片 URL 是否存在替代状态。它将参考图上限、内容拒绝与其他供应商失败分类，不返回远端错误原文。仅含 URL 的旧回复返回 null。`buildImageRequest` 在构造付费请求前拒绝 KU_AI 超过五张参考图的参数。
 
 `readGeneratedImage(data)` 接受单个对象或仅有一行的列表。多行缺少已核实任务身份时属于歧义，不能按提供方行序选择。工具回读会核对所请求的父资产；只读的 `generated_image` 方法在多个任务并存时，仅选择任务 ID 唯一最大的记录。

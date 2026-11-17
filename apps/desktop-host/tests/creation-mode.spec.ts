@@ -140,7 +140,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(f.raw).not.toContain('tools.skill({name: "muse-creation"})')
     expect(f.rows.filter(row => /subagent|workflow|ralph|agent-team/u.test(row.name))).toEqual([])
     expect(new Set(f.rows.map(row => row.id)).size).toBe(f.rows.length)
-    for (const id of ['tool-drama-assets', 'tool-audio-transcribe', 'tool-video-inspect', 'drama-gate']) {
+    for (const id of ['tool-drama-assets', 'tool-audio-transcribe', 'tool-video-inspect', 'drama-gate', 'character-reference']) {
       expect(f.rows.map(row => row.id)).toContain(id)
     }
     f.ctx.tools.register(tool('read'))
@@ -193,6 +193,8 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     const text = assembly.sections.map(entry => entry.text).join('\n')
     expect(text).toContain('Program-only SDK bindings')
     expect(text).toContain('tools.skill')
+    expect(text).toContain('加载 character-reference-library，检索并实际看图后决定是否参考')
+    expect(text).toContain('人物库只读，候选不等于已批准使用')
     expect(text).not.toContain('再加载 muse-creation')
     expect(CreationPolicy.CREATION_TOOL_NAMES).toContain('video_ocr')
     expect(CreationPolicy.CREATION_TOOL_NAMES).toContain('video_source_review')
@@ -370,7 +372,8 @@ it('permits manuscript revision comparison through the real creation PTC policy'
   } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
 })
 
-it.each(['dsh_im_return_file', 'muse_media_data', 'muse_media_download', 'muse_media_task', 'muse_media_import'])(
+it.each(['dsh_im_return_file', 'muse_media_data', 'muse_media_download', 'muse_media_task', 'muse_media_import',
+  'drama_character_reference_project', 'drama_character_reference_view', 'drama_character_references'])(
   'permits the scoped %s binding through the real creation PTC policy', async (name) => {
     const f = await fixture()
     try {

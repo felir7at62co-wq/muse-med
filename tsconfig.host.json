@@ -8,6 +8,7 @@
     "rewriteRelativeImportExtensions": false
   },
   "include": [
+    "apps/web/tests/character-library.e2e.ts",
     "snapshots/session/working-budget-oracle.ts",
     "snapshots/session/muse-session-product/budget.ts",
     "apps/web/tests/pwa-manifest.e2e.ts",
@@ -1329,6 +1330,8 @@
     },
     {
       "path": "./packages/host/muse-market"
-    }
+    },
+    { "path": "./packages/api/character-library" },
+    { "path": "./packages/client/ui-character-library/tsconfig.host.json" }
   ]
 }

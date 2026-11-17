@@ -1582,6 +1582,26 @@ describe('jubian_video', () => {
     expect(replayed.material_id).toBeNull()
   })
 
+  it.each(['accepted', 'unknown'] as const)('preserves a legacy template-default %s image record without resending', async (outcome) => {
+    const args = { method: 'image_generate', script_id: 2708, idempotency_key: 'legacy-template-default',
+      asset_name: '旧候选', asset_type: 1, prompt: '白底单人全身肖像。' } as const
+    const body = buildImageRequest({ scriptId: args.script_id, assetName: args.asset_name,
+      assetType: args.asset_type, prompt: args.prompt, references: [] }, IMAGE_CATALOGUE)
+    const config = JSON.parse(String(body.modelConfig)) as Record<string, unknown>
+    delete config.skipAssetReferenceTemplate
+    body.modelConfig = JSON.stringify(config)
+    await ledger.begin({ idempotencyKey: args.idempotency_key, method: 'image_generate',
+      scriptId: args.script_id, requestSha256: bodyHash(body) })
+    await ledger.settle(args.idempotency_key, { httpStatus: outcome === 'accepted' ? 200 : null,
+      applicationCode: outcome === 'accepted' ? 200 : null, responseSha256: null, outcome })
+    const recorded = await ledger.records()
+    const { client, calls } = imageProvider()
+    await expect(videoMethod(client, ledger, args, imageDeps()))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED', detail: 'Idempotency key belongs to a different image request' })
+    expect(calls.map(call => call.method)).toEqual(['GET'])
+    expect(await ledger.records()).toEqual(recorded)
+  })
+
   it.each([
     ['another project', 2709, 'x', 'p'],
     ['another asset', 2708, 'y', 'p'],

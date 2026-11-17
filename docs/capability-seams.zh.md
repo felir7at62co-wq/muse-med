@@ -14,8 +14,11 @@ flowchart LR
   pkg_character_library["character-library"]
   svc_characterLibrary["ctx.characterLibrary<br/>Read-only character reference catalog"]
   pkg_tool_character_reference["tool-character-reference"]
+  pkg_api_character_library["api-character-library"]
   svc_characterLibraryObjectStore["ctx.characterLibraryObjectStore<br/>Character reference object reads"]
   pkg_character_library_tos["character-library-tos"]
+  svc_characterLibraryBrowser["ctx.characterLibraryBrowser<br/>Read-only character library Remote"]
+  pkg_client_ui_character_library["client-ui-character-library"]
   svc_characterReferenceAuthority["ctx.characterReferenceAuthority<br/>Current-project character reference identity"]
   pkg_tool_jubian["tool-jubian"]
   pkg_api_agent_notes["api-agent-notes"]
@@ -359,6 +362,7 @@ flowchart LR
   pkg_agent_loop --> svc_agentLoop
   pkg_agent_preset_registry --> svc_agentPresets
   pkg_api_agent_notes --> svc_agentNotes
+  pkg_api_character_library --> svc_characterLibraryBrowser
   pkg_api_gateway --> svc_typertGateway
   pkg_api_job_controller --> svc_jobController
   pkg_api_remote_access --> svc_remoteAccess
@@ -567,7 +571,9 @@ flowchart LR
   svc_browserUse --> pkg_experimental_browser_use_chrome_devtools_mcp
   svc_browserUse --> pkg_experimental_browser_use_playwright_mcp
   svc_browserUse --> pkg_experimental_browser_use_stagehand_native
+  svc_characterLibrary --> pkg_api_character_library
   svc_characterLibrary --> pkg_tool_character_reference
+  svc_characterLibraryBrowser --> pkg_client_ui_character_library
   svc_characterLibraryObjectStore --> pkg_character_library
   svc_characterReferenceAuthority --> pkg_tool_jubian
   svc_clientModules --> pkg_client_hmr
@@ -734,8 +740,9 @@ flowchart LR
 | ctx 键 | 角色 | 所属包 | 实现 | 直接消费方 | 配套插件 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.toolDiscovery` | `core` | [`tool-discovery`](../packages/core/tool-discovery) | - | [`tool-discovery`](../packages/core/tool-discovery) | - | 选择已授权工具定义并记录会话加载，Bot 适配器可保存常驻名称。 |
-| `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | 校验历史 metadata 与有界图片，供人物参考检索使用；推荐结果不授予发布、绑定或生成权限。 |
-| `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | 通过 Host 管理的凭据，列出固定历史前缀下的对象、读取 metadata，并获取有界图片字节。 |
+| `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference), [`api-character-library`](../packages/api/character-library) | - | 校验历史 metadata 与有界图片，供人物参考检索使用；推荐结果不授予发布、绑定或生成权限。 |
+| `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | 从固定历史前缀发现当前元数据并读取有界图片；publicRead 使用实时云端列表，无需存储凭据。 |
+| `ctx.characterLibraryBrowser` | `core` | [`api-character-library`](../packages/api/character-library) | - | [`client-ui-character-library`](../packages/client/ui-character-library) | - | 向浏览器提供目录浏览与经过校验的图片预览，不暴露存储凭据或修改方法。 |
 | `ctx.characterReferenceAuthority` | `service` | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 为托管参考图使用重新读取当前项目、登记角色和 Catalog 图片摘要；不授予图片使用权。 |
 | `ctx.agentNotes` | `core` | [`api-agent-notes`](../packages/api/agent-notes) | - | [`api-remotes`](../packages/api/remotes), `client-ui-agent-notes` | - | 在配置根目录内列出和编辑已有笔记，使用文件系统版本检查；浏览器通过 Typert Remote 接收笔记内容。 |
 | `ctx.generationWorkspaceAuthority` | `seam` | [`tool-jubian`](../packages/jubian/tool-jubian) | `desktop-host` | [`tool-jubian`](../packages/jubian/tool-jubian), `desktop-host` | - | 在原生 Session 的提交、自动续聊或严格来源复验发布期间，持有独占的持久工作区成员关系；所有权缺失或变化时拒绝受理。 |

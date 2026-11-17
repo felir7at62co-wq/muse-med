@@ -266,6 +266,7 @@ export function validateImageRequestInput(input: ImageRequestInput): void {
 
 /**
  * Build the exact `/aigc/asset` body.
+ * Uses the workbench's asset-reference-template opt-out while preserving the caller's prompt and asset type.
  * @param input - Caller-supplied identity, prompt, optional aspect ratio and ordered reference URLs.
  * @param catalogue - Live `taskType=2` catalogue.
  * @param selection - The catalogue row this deployment pinned.
@@ -282,7 +283,8 @@ export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
   const references = input.references.map((materialUrl, index) =>
     ({ materialUrl, materialType: 'image', sortOrder: index + 1 }))
   const config = { ...selectors, duration: 1, resolution, ratio: aspectRatio, genNum: 1, backupModelList: [],
-    prompt: input.prompt, style: resolveImageStyle(input.prompt, input.imageStyle) === 'anime' ? 1 : 0, materialList: references, quality: '' }
+    prompt: input.prompt, style: resolveImageStyle(input.prompt, input.imageStyle) === 'anime' ? 1 : 0,
+    materialList: references, quality: '', skipAssetReferenceTemplate: true }
   return { scriptId: input.scriptId, assetName: input.assetName, assetType: input.assetType,
     modelConfig: JSON.stringify(config), isLocal: 0, isGenerate: 1,
     ...(input.parentAssetId === undefined ? {} : { id: input.parentAssetId }) }

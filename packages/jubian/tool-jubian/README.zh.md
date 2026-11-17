@@ -446,6 +446,8 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 
 用返回的授权 ID 与版本调用 `jubian_asset upload_character_reference`，再把 Host 私有的 `managed_reference_id` 交给一次 `jubian_video image_generate`。不得传路径、TOS key、原始 URL 或 `references`。可选的 `episode` 只说明剧情来源，不改变已核验的项目角色身份。Host 为这张一次性衍生图生成稳定且绑定授权的候选资产名，避免与该角色已有的正式资产或回退生成资产重名。项目预算与付费幂等账本照常生效；上传或生成结果未知时，只用原 key 做只读对账，不得换 key。生图结果标明 `project_private_only: true`、`qa_only: false`，但原图和衍生图仍不得自动确认出演、正式绑定、发布、供他人使用或跨项目复用；这些动作需要另行审核。本人确认只是**项目私有权利声明**，不是公共库权威审核。
 
+申请上传额度前，Host 使用现有 FFmpeg 路径，在本地临时副本中对齐尺寸不合规的项目私有图片。TOS 原图字节与授权 SHA 保持不变。规范化后，Host 重新核对所有者与授权，并校验上传副本的摘要。取消时会等待 FFmpeg 子进程关闭后再清理临时文件。隔离 QA 仍只接受尺寸合规且字节不变的原图。
+
 ### 隔离 QA 托管人物参考
 
 只有 Host 挂载 `characterReferenceAuthority`，并把 `characterReferenceQaAuthorizationDataRoot` 与 `characterReferenceQaAuthorizationDatabasePath` 都配成仓库外的绝对路径、且数据库严格位于该受信根目录之下时，这条**独立的隔离 QA 路径**才会启用。只配一项、逃逸根目录或使用符号链接都会关闭失败；在 POSIX 上，已有目录、数据库文件与 SQLite sidecar 必须已经仅限所有者访问。只追加的 Host 私有授权带版本，并精确绑定当前项目、人物、角色级别、Catalog 素材 ID、原图 SHA-256 与 `pending_review` 状态。Agent 可把这些身份交给 `jubian_asset upload_character_reference` 和 `jubian_video image_generate`，但没有任何 Tool 能创建、扩大或撤销隔离 QA 授权；这些操作只属于 Host 操作面。启用此路径不会将旧 QA 授权转成用户项目私有授权。

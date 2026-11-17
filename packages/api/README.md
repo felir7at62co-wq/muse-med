@@ -26,6 +26,7 @@ The packages below provide the Remote layer; the package READMEs own the exhaust
 
 | Package | Role | ctx key |
 |---|---|---|
+| [`character-library/`](character-library/README.md) | Reads character reference catalogs and verified image previews. | `ctx.characterLibraryBrowser` / `ctx.remote.characterLibraryBrowser` |
 | [`remotes/`](remotes/README.md) | Chooses which Host capabilities and events the Client can consume. | — |
 | [`gateway/`](gateway/README.md) | Carries typed unary calls, multiplexed streams with their Client uplinks, and forwarded Host events. | `ctx.typertGateway` / `ctx.remote` |
 | [`remote-access/`](remote-access/README.md) | Decides which Remote methods non-owner Peers may call, filters list results, and streams each Peer's access snapshot. | `ctx.remoteAccess` / `ctx.remote.remoteAccess` |

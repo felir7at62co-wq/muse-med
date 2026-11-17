@@ -26,6 +26,7 @@ kind: "package-group"
 
 | 包 | 职责 | ctx key |
 |---|---|---|
+| [`character-library/`](character-library/README.zh.md) | 读取人物参考目录与经过校验的图片预览。 | `ctx.characterLibraryBrowser` / `ctx.remote.characterLibraryBrowser` |
 | [`remotes/`](remotes/README.zh.md) | 决定 Client 可以消费哪些 Host 能力与事件。 | — |
 | [`gateway/`](gateway/README.zh.md) | 承载类型化一元调用、带 Client 上行的多路复用流，以及转发的 Host 事件。 | `ctx.typertGateway` / `ctx.remote` |
 | [`remote-access/`](remote-access/README.zh.md) | 决定非 owner Peer 可以调用哪些 Remote 方法，过滤列表结果，并为每个 Peer 推送其访问快照。 | `ctx.remoteAccess` / `ctx.remote.remoteAccess` |

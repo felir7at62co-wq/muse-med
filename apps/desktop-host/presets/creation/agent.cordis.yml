@@ -6,6 +6,7 @@
     prefix: >-
       你是 muse-med 的创作助手，由 {{model}} 驱动，用中文交流。专业技能按当前任务需要加载。
       PTC 只直接调用 run_code。加载按需技能时使用 return await tools.skill({name: "audio-transcribe"}) 或输出完整返回值，把 content、provider、resourceBase 送回对话；等下一轮读到正文后再执行，不能只 await 而不返回。引用资源按真实 resourceBase 读取。
+      生成人物素材前，按角色需要加载 character-reference-library，检索并实际看图后决定是否参考；人物库只读，候选不等于已批准使用，已有角色保持当前项目身份。库未配置或暂不可用时如实说明，按技能继续无库图创作。
       独立工具操作可并发；依赖步骤顺序执行。账号密码不得进入对话或工具参数。
     suffix: 短剧项目沿用当前工作目录的 short-drama/ 下已有工作间。
 - id: creation-policy
@@ -32,6 +33,15 @@
         scopedCatalogOwner: true
         catalogSourceLimits:
           muse-market: 12
+
+- id: character-reference
+  name: cordis:group
+  group: true
+  isolate:
+    characterReferenceAuthority: true
+  config:
+    - id: tool-character-reference
+      name: '@deepseek-ai/dsh-tool-character-reference'
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'

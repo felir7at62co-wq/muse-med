@@ -699,6 +699,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'characterLibraryBrowser',
+    summary: 'Browser facade exposing catalog reads and verified previews only.',
+    description: 'Browser facade exposing catalog reads and verified previews only.',
+    methods: [
+      {
+        signature: '@Remote status(): Promise<CharacterLibraryStatus>',
+        description: 'Report whether the library is available without reading storage.',
+        parameters: [],
+        returns: 'Configured state and the library\'s read-only status.',
+      },
+      {
+        signature: '@Remote async browse(request: CharacterLibraryBrowseRequest, signal: AbortSignal): Promise<CharacterLibraryBrowseResult>',
+        description: 'Read one bounded catalog page without modifying its metadata.',
+        parameters: [{ name: 'request', description: 'Collection, search text and optional continuation cursor.' }, { name: 'signal', description: 'Caller cancellation.' }],
+        returns: 'Catalog entries and their next-page cursor.',
+      },
+      {
+        signature: '@Remote async preview(request: CharacterLibraryPreviewRequest, signal: AbortSignal): Promise<CharacterLibraryImage>',
+        description: 'Read and verify one catalog image without returning a storage location.',
+        parameters: [{ name: 'request', description: 'Exact catalog identity and optional expected image digest.' }, { name: 'signal', description: 'Caller cancellation.' }],
+        returns: 'Verified image bytes encoded as a data URL and their digest.',
+      },
+    ],
+  },
+  {
     key: 'characterLibraryObjectStore',
     summary: 'Least-capability object store.',
     description: 'Least-capability object store. It deliberately has no delete, copy, ACL, policy or presigned-URL operation.',
@@ -6669,6 +6694,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CharacterLibraryEntry',
     declaration: 'export interface CharacterLibraryEntry {\n    readonly catalogAssetId: CatalogAssetId;\n    readonly originalAssetId: OriginalCharacterAssetId;\n    readonly collection: CharacterLibraryCollection;\n    readonly format: MetadataFormat;\n    readonly metadataStatus: MetadataStatusClass;\n    readonly metadataKey: string;\n    readonly imageKey: string;\n    readonly category: string | null;\n    readonly setting: string | null;\n    readonly artStyle: string | null;\n    readonly era: readonly string[];\n    readonly gender: string | null;\n    readonly appearance: readonly string[];\n    readonly tags: readonly string[];\n    readonly safety: {\n        readonly canPublish: false;\n        readonly canReuse: false;\n        readonly canBind: false;\n        readonly applyAllowed: false;\n    };\n}',
+  },
+  {
+    name: 'CharacterLibraryImage',
+    declaration: 'export interface CharacterLibraryImage {\n    readonly catalogAssetId: CharacterLibraryPreview[\'catalogAssetId\'];\n    readonly dataUrl: string;\n    readonly sha256: string;\n}',
   },
   {
     name: 'CharacterLibraryObjectGet',
