@@ -8,6 +8,7 @@ import type { MuseAccountLocaleKey } from './locales.ts'
 import css from './MuseAccountDetails.module.css'
 import { MuseAccountRelayDetails } from './MuseAccountRelayDetails.tsx'
 import { MuseAccountProfileSections } from './MuseAccountProfileSections.tsx'
+import { MuseAccountUsageFooter } from './MuseAccountUsageFooter.tsx'
 
 type Period = NonNullable<MuseAccountDetailsRequest['period']>
 type DetailsProps = Pick<MuseAccountSectionProps, 't'> & Pick<MuseAccountInjected, 'details'> & {
@@ -150,17 +151,14 @@ export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProp
           {tokenMetrics.map(([key]) => <td key={key}>{number(row[key])}</td>)}
         </tr>)}</tbody></table>
       </div>}
-      <div className={css.toolbar}>
-        <Button disabled={busy || usage.pagination.offset === 0} onClick={() => {
+      <MuseAccountUsageFooter t={t} busy={busy} failed={failed}
+        start={usage.pagination.total === 0 ? 0 : usage.pagination.offset + 1}
+        end={usage.pagination.offset + usage.recent.length} total={usage.pagination.total}
+        onPrevious={usage.pagination.offset === 0 ? undefined : () => {
           setQuery(current => ({ ...current, offset: Math.max(0, usage.pagination.offset - usage.pagination.limit) }))
-        }}>{t('previousPage')}</Button>
-        <p className={css.note}>{t('usagePage', { start: usage.pagination.total === 0 ? 0 : usage.pagination.offset + 1,
-          end: usage.pagination.offset + usage.recent.length, total: usage.pagination.total })}</p>
-        <Button disabled={busy || !usage.pagination.hasMore} onClick={() => {
+        }} onNext={usage.pagination.hasMore ? () => {
           setQuery(current => ({ ...current, offset: usage.pagination.offset + usage.pagination.limit }))
-        }}>{t('nextPage')}</Button>
-      </div>
-      {failed ? <p className={css.note} role="status">{t('detailsUnavailable')}</p> : null}
+        } : undefined} />
     </section>
   </div>
 }

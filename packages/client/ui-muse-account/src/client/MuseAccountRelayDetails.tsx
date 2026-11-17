@@ -9,6 +9,7 @@ import css from './MuseAccountDetails.module.css'
 import { MuseAccountProfileSections } from './MuseAccountProfileSections.tsx'
 import { MuseAccountOrganization } from './MuseAccountOrganization.tsx'
 import { MuseAccountHistory } from './MuseAccountHistory.tsx'
+import { MuseAccountUsageFooter } from './MuseAccountUsageFooter.tsx'
 
 type RelayPeriod = 'today' | '7d' | '30d'
 interface RelayDetailsProps extends Pick<MuseAccountSectionProps, 't'> {
@@ -112,14 +113,9 @@ export function MuseAccountRelayDetails({ t, value, period, offset, busy, failed
           </tr>
         })}</tbody></table>
       </div>}
-      <div className={css.toolbar}>
-        <Button disabled={busy || onPrevious === undefined} onClick={onPrevious}>{t('previousPage')}</Button>
-        <p className={css.note}>{t('usagePage', { start: usage.items.length === 0 ? 0 : offset + 1,
-          end: offset + usage.items.length, total: usage.summary.requests })}</p>
-        <Button disabled={busy || nextCursor === null}
-          onClick={nextCursor === null ? undefined : () => { onNext(nextCursor) }}>{t('nextPage')}</Button>
-      </div>
-      {failed ? <p className={css.note} role="status">{t('detailsUnavailable')}</p> : null}
+      <MuseAccountUsageFooter t={t} busy={busy} failed={failed}
+        start={usage.items.length === 0 ? 0 : offset + 1} end={offset + usage.items.length} total={usage.summary.requests}
+        onPrevious={onPrevious} onNext={nextCursor === null ? undefined : () => { onNext(nextCursor) }} />
     </section>
   </div>
 }
