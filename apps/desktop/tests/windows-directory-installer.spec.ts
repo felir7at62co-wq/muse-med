@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { expect, it } from 'vitest'
-import { directoryInstallerExits, directoryInstallSection, directoryUninstaller } from '../scripts/windows-directory-installer.mjs'
+import { directoryInstallerExits, directoryInstallSection, directoryInstallUtil, directoryUninstaller } from '../scripts/windows-directory-installer.mjs'
 
 const require = createRequire(import.meta.url)
 const section = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')),
@@ -40,6 +40,22 @@ it.each(['allowOnlyOneInstallerInstance.nsh', 'installUtil.nsh'])('cleans staged
   const adapted = directoryInstallerExits(source)
   expect(adapted.match(/Call dshCleanupDirectories/g)).toHaveLength(exits.length)
   expect(adapted).toContain('!ifndef BUILD_UNINSTALLER')
+})
+
+it('removes only the superseded destructive uninstall function from the pinned helper', () => {
+  const source = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis/include/installUtil.nsh'), 'utf8').replaceAll('\r\n', '\n')
+  const adapted = directoryInstallUtil(source)
+  const start = source.indexOf('Function uninstallOldVersion\n')
+  const end = source.indexOf('\nFunctionEnd\n', start) + '\nFunctionEnd\n'.length
+  expect(start).toBeGreaterThanOrEqual(0)
+  expect(adapted).toBe(directoryInstallerExits(source.slice(0, start) + source.slice(end)))
+  expect(adapted).toContain('!macro uninstallOldVersion ROOT_KEY')
+  expect(adapted).not.toContain('Function uninstallOldVersion\n')
+  expect(directoryInstallUtil(source.replaceAll('\n', '\r\n'))).toBe(adapted)
+  expect(() => directoryInstallUtil(source.replace('Function uninstallOldVersion\n', ''))).toThrow('template changed')
+  expect(() => directoryInstallUtil(`${source}\nFunction uninstallOldVersion\n`)).toThrow('template changed')
+  expect(() => directoryInstallUtil(source.slice(0, end - '\nFunctionEnd\n'.length) + source.slice(end))).toThrow('template changed')
+  expect(() => directoryInstallUtil(source.replace('!macro uninstallOldVersion ROOT_KEY', '!macro changed ROOT_KEY'))).toThrow('template changed')
 })
 
 it('stages before stopping the application and promotes before registering the installation', () => {

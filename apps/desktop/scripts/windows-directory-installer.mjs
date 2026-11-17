@@ -95,6 +95,21 @@ export function directoryInstallerExits(source) {
   return source.replaceAll(/^(\s*)Quit\s*$/gm, '$1!ifndef BUILD_UNINSTALLER\n$1Call dshCleanupDirectories\n$1!endif\n$1Quit')
 }
 
+/** Remove the upstream destructive uninstaller function: our replacement macro never calls it. */
+export function directoryInstallUtil(source) {
+  const normalized = source.replaceAll('\r\n', '\n')
+  const startMarker = 'Function uninstallOldVersion\n'
+  const endMarker = '\nFunctionEnd\n'
+  const macroMarker = '\n!macro uninstallOldVersion ROOT_KEY\n'
+  if (normalized.split(startMarker).length !== 2) throw new Error('Desktop NSIS template changed: uninstallOldVersion')
+  if (normalized.split(macroMarker).length !== 2) throw new Error('Desktop NSIS template changed: uninstallOldVersion macro')
+  const start = normalized.indexOf(startMarker)
+  const macro = normalized.indexOf(macroMarker)
+  if (macro <= start || normalized.slice(start, macro).split(endMarker).length !== 2) throw new Error('Desktop NSIS template changed: uninstallOldVersion end')
+  const end = normalized.indexOf(endMarker, start)
+  return directoryInstallerExits(normalized.slice(0, start) + normalized.slice(end + endMarker.length))
+}
+
 /** Install the build-only NSIS adapter without replacing electron-builder's signed bootstrap path. */
 export function installWindowsDirectoryInstaller() {
   // The package entry initializes the platform classes before their mutually dependent leaves.
@@ -117,7 +132,8 @@ export function installWindowsDirectoryInstaller() {
     let adapted = replaceOnce(source, '!include "installSection.nsh"', `!include "${section}"`)
     for (const helper of ['allowOnlyOneInstallerInstance.nsh', 'installUtil.nsh']) {
       const path = join(directory, helper)
-      await writeFile(path, directoryInstallerExits(await readFile(join(templates, 'include', helper), 'utf8')))
+      const original = await readFile(join(templates, 'include', helper), 'utf8')
+      await writeFile(path, helper === 'installUtil.nsh' ? directoryInstallUtil(original) : directoryInstallerExits(original))
       adapted = replaceOnce(adapted, `!include "${helper}"`, `!include "${path}"`)
     }
     const uninstaller = join(directory, 'uninstaller.nsh')

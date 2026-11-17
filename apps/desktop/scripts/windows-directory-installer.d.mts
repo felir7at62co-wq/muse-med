@@ -14,6 +14,9 @@ export function directoryInstallSection(source: string): string
  */
 export function directoryInstallerExits(source: string): string
 
+/** Remove the unused destructive upstream uninstall function from the pinned helper. */
+export function directoryInstallUtil(source: string): string
+
 /**
  * Keep user-data removal in the native helper, which refuses unsafe roots and never follows links.
  * @param source - Pinned upstream uninstaller source.
