@@ -3,6 +3,7 @@
 param([Parameter(Mandatory)][string]$Installer, [Parameter(Mandatory)][string]$ProductName,
     [Parameter(Mandatory)][string]$RegistryKey,
     [Parameter(Mandatory)][string]$OutputDirectory, [Parameter(Mandatory)][string]$Language,
+    [Parameter(Mandatory)][string]$UpgradeReportDirectory,
     [switch]$FailAfterAutomaticRelaunch)
 $ErrorActionPreference = 'Stop'
 $runtimeProcess = [Diagnostics.Process]::GetCurrentProcess()
@@ -247,6 +248,18 @@ function Read-NativeFailureObserver([Diagnostics.Process]$Process) {
         # Failed termination leaves the registered Process for the ordinary final cleanup.
     }
 }
+function Read-OwnUpgradeReports {
+    foreach ($report in @(Get-ChildItem -LiteralPath $UpgradeReportDirectory -Filter '*.completed' -File -ErrorAction SilentlyContinue)) {
+        try { $receipt = [IO.File]::ReadAllText($report.FullName, [Text.Encoding]::Unicode) }
+        catch [IO.IOException] { continue } # The writer owns the receipt exclusively until it flushes and closes.
+        if ($receipt -notmatch '^Upgrade completed\. Retained backup: ([^\r\n]+)\r\nCurrent directory: ([^\r\n]+)\r\n$') { throw 'Malformed completed upgrade receipt' }
+        $backup = $Matches[1]
+        if ($Matches[2] -cne $installPath) { continue }
+        if (-not $backup.StartsWith($installPath + '.old-', [StringComparison]::OrdinalIgnoreCase) -or
+            -not (Test-Path -LiteralPath (Join-Path $backup ($ProductName + '.exe')) -PathType Leaf)) { throw 'Upgrade receipt did not identify the retained test installation' }
+        [pscustomobject]@{ FullName = $report.FullName; Backup = $backup }
+    }
+}
 function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$Theme, [string]$Bounds,
     [bool]$InjectLaunchFailure = $true, [bool]$ExpectBackup = $true) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
@@ -255,15 +268,10 @@ function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$The
     $acknowledgedBackups = 0
     while ([InstallerCapture]::FindButton($Process.Id, $copy.INSTALLER_FINISH) -eq [IntPtr]::Zero) {
         if ($Process.HasExited -or $timer.Elapsed.TotalSeconds -gt 30) { throw 'Installer did not complete' }
-        foreach ($report in @(Get-ChildItem -LiteralPath (Join-Path $OutputDirectory 'upgrade-reports') -Filter '*.completed' -File -ErrorAction SilentlyContinue)) {
+        foreach ($report in @(Read-OwnUpgradeReports)) {
             if ($seenUpgradeReports.Contains($report.FullName)) { continue }
             if (-not $ExpectBackup) { throw 'Fresh installation unexpectedly retained an old directory' }
-            try { $receipt = [IO.File]::ReadAllText($report.FullName, [Text.Encoding]::Unicode) }
-            catch [IO.IOException] { continue } # The writer opens the receipt exclusively until it flushes and closes.
-            if ($receipt -notmatch '^Upgrade completed\. Retained backup: ([^\r\n]+)\r\nCurrent directory: ([^\r\n]+)\r\n$') { throw 'Malformed completed upgrade receipt' }
-            $backup = $Matches[1]
-            if ($Matches[2] -cne $installPath -or -not $backup.StartsWith($installPath + '.old-', [StringComparison]::OrdinalIgnoreCase) -or
-                -not (Test-Path -LiteralPath (Join-Path $backup ($ProductName + '.exe')) -PathType Leaf)) { throw 'Upgrade receipt did not identify the retained test installation' }
+            $backup = $report.Backup
             $control = [InstallerCapture]::FindDialogText($Process.Id, $backup)
             if ($control -eq [IntPtr]::Zero) { continue }
             [void][InstallerCapture]::SaveNative([InstallerCapture]::TopLevel($control), (Join-Path $OutputDirectory ($Theme + '-backup.png')), $false)
@@ -635,7 +643,7 @@ try {
     if ($registration.InstallLocation -cne $installPath) { throw 'Silent update changed InstallLocation' }
     $results.Add('silent-update-retains-directory-and-ignores-unrelated-process')
     # The /S argument models older Muse updaters; this automatic restart must still expose installation progress.
-    $beforeAutomaticReports = @(Get-ChildItem -LiteralPath (Join-Path $OutputDirectory 'upgrade-reports') -Filter '*.completed' -File | ForEach-Object { $_.FullName })
+    $beforeAutomaticReports = @(Read-OwnUpgradeReports | ForEach-Object { $_.FullName })
     Set-RegisteredPathForUpdate ($installPath + '\\')
     $process = Start-TestProcess $Installer '/S --updated --force-run /THEME=dark'
     $window = [InstallerCapture]::Find($process.Id)
@@ -666,13 +674,8 @@ try {
         throw 'Automatic update did not canonicalize historical InstallLocation'
     }
     if ($process.ExitCode -ne 0 -or -not $observedProgress -or -not $observedComplete -or -not $capturedProgress) { throw 'Automatic update did not paint verified progress through successful completion' }
-    $automaticReports = @(Get-ChildItem -LiteralPath (Join-Path $OutputDirectory 'upgrade-reports') -Filter '*.completed' -File | Where-Object { $_.FullName -notin $beforeAutomaticReports })
+    $automaticReports = @(Read-OwnUpgradeReports | Where-Object { $_.FullName -notin $beforeAutomaticReports })
     if ($automaticReports.Count -ne 1) { throw 'Automatic update did not retain exactly one completed backup receipt' }
-    $receipt = [IO.File]::ReadAllText($automaticReports[0].FullName, [Text.Encoding]::Unicode)
-    if ($receipt -notmatch '^Upgrade completed\. Retained backup: ([^\r\n]+)\r\nCurrent directory: ([^\r\n]+)\r\n$') { throw 'Automatic update backup receipt was malformed' }
-    $automaticBackup = $Matches[1]
-    if ($Matches[2] -cne $installPath -or -not $automaticBackup.StartsWith($installPath + '.old-', [StringComparison]::OrdinalIgnoreCase) -or
-        -not (Test-Path -LiteralPath (Join-Path $automaticBackup ($ProductName + '.exe')) -PathType Leaf)) { throw 'Automatic update did not retain the previous test installation' }
     if ($FailAfterAutomaticRelaunch) {
         $timer.Restart()
         $unregisteredApp = $null
