@@ -621,9 +621,12 @@ describe('dsh web keyless CLI smoke', () => {
       request.setEncoding('utf8')
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
-        resolveProviderRequest(JSON.parse(body) as PtcModeProviderRequest)
+        const parsed = JSON.parse(body) as PtcModeProviderRequest
+        // Session title requests race the prompted turn and carry no executor tools.
+        const titleRequest = JSON.stringify(parsed.messages ?? null).includes(TITLE_PROMPT_MARKER)
+        if (!titleRequest) resolveProviderRequest(parsed)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
-        response.end(messagesResponse('done'))
+        response.end(messagesResponse(titleRequest ? 'Web executor smoke title' : 'done'))
       })
     })
     await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve))
