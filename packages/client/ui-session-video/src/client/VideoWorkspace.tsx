@@ -185,11 +185,15 @@ export function VideoWorkspace(props: VideoWorkspaceProps) {
         <div className={css.sourceList}>
           {visible.map((item) => {
             const target = wholeTarget(item)
+            const selectTarget = () => {
+              // oxlint-disable-next-line typescript/no-non-null-assertion -- Unversioned sources have a disabled checkbox.
+              toggleTarget(target!, item.label)
+            }
             return <div className={css.sourceRow} key={item.id}>
               <Checkbox label={t('selectVideo', { name: item.label })}
                 checked={target !== null && selectedKeys.has(targetKey(target))}
                 disabled={target === null || item.playbackUrl === null}
-                onChange={target === null ? undefined : () => { toggleTarget(target, item.label) }} />
+                onChange={selectTarget} />
               <Button size="sm" variant="ghost" aria-label={t('source', { name: item.label })}
                 onClick={() => { chooseSource(item) }}><IconPlayTriangleOutlineRegular /><span>{sourceTitle(item)}</span></Button>
             </div>
