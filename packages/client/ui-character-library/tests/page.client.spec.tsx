@@ -20,10 +20,15 @@ const entry: CharacterLibraryEntry = {
   safety: { canPublish: false, canReuse: false, canBind: false, applyAllowed: false },
 }
 
-function props({ configured = true, failed = false, imageFailed = false, emptyNextPage = false }: {
+function props({ configured = true, failed = false, imageFailed = false, imageLoading = false,
+  catalogLoading = false, metadata = true, retainedCatalog = false, emptyNextPage = false }: {
   configured?: boolean
   failed?: boolean
   imageFailed?: boolean
+  imageLoading?: boolean
+  catalogLoading?: boolean
+  metadata?: boolean
+  retainedCatalog?: boolean
   emptyNextPage?: boolean
 } = {}) {
   const addresses: string[] = []
@@ -33,10 +38,17 @@ function props({ configured = true, failed = false, imageFailed = false, emptyNe
     if (host === 'character-library-status') return { status: 'live', value: { configured, readOnly: true }, failure: undefined }
     const nextPageEmpty = emptyNextPage && new URL(address).searchParams.has('cursor')
     if (host === 'character-library-catalog') return {
-      status: failed ? 'failed' : 'live', value: failed ? undefined : { entries: nextPageEmpty ? [] : [entry], nextCursor: nextPageEmpty ? null : 'next-page', scanned: 1 },
+      status: catalogLoading ? 'loading' : failed ? 'failed' : 'live',
+      value: catalogLoading || (failed && !retainedCatalog) ? undefined : {
+        entries: nextPageEmpty ? [] : [metadata ? entry : { ...entry, artStyle: '', appearance: [], tags: [] }],
+        nextCursor: nextPageEmpty ? null : 'next-page', scanned: 1,
+      },
       failure: undefined,
     }
-    if (host === 'character-library-image') return { status: imageFailed ? 'failed' : 'live', value: imageFailed ? undefined : { dataUrl: 'data:image/png;base64,AQID', sha256: 'a'.repeat(64) }, failure: undefined }
+    if (host === 'character-library-image') return {
+      status: imageLoading ? 'loading' : imageFailed ? 'failed' : 'live',
+      value: imageFailed || imageLoading ? undefined : { dataUrl: 'data:image/png;base64,AQID', sha256: 'a'.repeat(64) }, failure: undefined,
+    }
     return { status: 'none', value: undefined, failure: undefined }
   }) as Props['useResource']
   return { addresses, value: { useResource, t: makeTranslate(en) } as Props }
@@ -98,4 +110,35 @@ it('keeps a route back from an empty later page and refreshes from the first pag
   expect(screen.getByRole('button', { name: 'View character reference: ancient-a' })).toBeTruthy()
   const refreshed = fixture.addresses.filter(address => address.includes('character-library-catalog') && address.includes('revision=1'))
   expect(refreshed.every(address => !address.includes('cursor='))).toBe(true)
+})
+
+it('shows catalog skeletons while a first read is pending', () => {
+  const fixture = props({ catalogLoading: true })
+  render(<LibraryPage {...fixture.value} />)
+  expect(screen.getByRole('tabpanel').getAttribute('aria-busy')).toBe('true')
+  expect(screen.getByLabelText(en.loading)).toBeTruthy()
+  expect(screen.queryByText(en.empty)).toBeNull()
+  expect(screen.queryByRole('button', { name: 'View character reference: ancient-a' })).toBeNull()
+})
+
+it('keeps unloaded images pending in cards and previews and names a sparse entry by collection', () => {
+  const fixture = props({ imageLoading: true, metadata: false })
+  const view = render(<LibraryPage {...fixture.value} />)
+  const card = screen.getByRole('button', { name: 'View character reference: ancient-a' })
+  expect(card.querySelector('[aria-busy="true"]')).toBeTruthy()
+  expect(card.textContent).toContain(en.ancient)
+  expect(view.container.querySelector('img')).toBeNull()
+  fireEvent.click(card)
+  expect(screen.getByRole('dialog', { name: 'ancient-a' })).toBeTruthy()
+  expect(screen.getByLabelText(en.loading)).toBeTruthy()
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.queryByRole('img')).toBeNull()
+})
+
+it('retains cards next to the retry notice after a refresh fails', () => {
+  const fixture = props({ failed: true, retainedCatalog: true })
+  render(<LibraryPage {...fixture.value} />)
+  expect(screen.getByRole('alert').textContent).toContain(en.failed)
+  expect(screen.getByRole('button', { name: 'View character reference: ancient-a' })).toBeTruthy()
+  expect(screen.queryByText(en.empty)).toBeNull()
 })

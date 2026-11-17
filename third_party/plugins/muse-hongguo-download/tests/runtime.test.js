@@ -1,5 +1,6 @@
 /** Managed-process fixtures cover private stdin, complete decoding and cancellation quiescence. */
-import test from 'node:test';
+import test, { after } from 'node:test';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,19 +10,26 @@ import { createDeviceBootstrap, createMediaProcessor } from '../src/runtime.js';
 
 const config = () => ({ legacyAppDir: join(tmpdir(), 'source-app'), pythonExecutable: join(tmpdir(), 'runtime', 'python'),
   ffmpegExecutable: join(tmpdir(), 'runtime', 'ffmpeg'), ffprobeExecutable: join(tmpdir(), 'runtime', 'ffprobe'),
+  bytevc2Executable: join(tmpdir(), 'runtime', 'librempeg'), bytevc2Concurrency: 1, bytevc2Threads: 2, decryptionConcurrency: 1, maxDecryptionBytes: 268435456, decryptionWorkerHeapMb: 128,
   downloadTimeoutMs: 600000, maxEpisodeBytes: 1024 ** 3, mediaProcessGraceMs: 1000, deviceBootstrapTimeoutMs: 30000 });
-const paths = () => ({ inputPath: join(tmpdir(), 'owned-staging', 'episode.part'), outputPath: join(tmpdir(), 'owned-staging', 'episode.decoded.part'),
-  workspace: join(tmpdir(), 'owned-staging'), signal: new AbortController().signal });
+const fixtureRoot = mkdtempSync(join(tmpdir(), 'muse-media-owner-'));
+after(() => rm(fixtureRoot, { recursive: true, force: true }));
+const paths = () => {
+  const workspace = mkdtempSync(join(fixtureRoot, 'case-'));
+  const inputPath = join(workspace, 'episode.part');
+  writeFileSync(inputPath, 'encrypted fixture');
+  return { inputPath, outputPath: join(workspace, 'episode.decoded.part'), workspace, signal: new AbortController().signal };
+};
 const probe = overrides => JSON.stringify({ format: { duration: '12.34' }, streams: [{ codec_type: 'video', codec_name: 'h264', width: 720, height: 1280 }], ...overrides });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
 function fixture(outputs, settings = config(), processor = createMediaProcessor) {
-  const calls = [], resolutions = [], exits = [];
+  const calls = [], resolutions = [], exits = [], decryptions = [];
   const subprocess = {
     async resolveExecutable(value, _env, signal) { signal.throwIfAborted(); resolutions.push(value); return value; },
     spawn(spec) {
       calls.push(spec);
-      const entry = outputs[calls.length - 1];
+      const entry = typeof outputs === 'function' ? outputs(spec) : outputs[calls.length - 1];
       assert.ok(entry, 'test fixture must own each process');
       const reader = stream => ({ readFrom(offset) { assert.equal(offset, 0); return { text: entry[stream] ?? '', lossy: false, ...entry[`${stream}Read`] }; } });
       return { collected: { stdout: reader('stdout'), stderr: reader('stderr') },
@@ -30,7 +38,8 @@ function fixture(outputs, settings = config(), processor = createMediaProcessor)
         async waitForExit(signal) { exits.push(calls.length); return entry.waitForExit ? entry.waitForExit(signal) : true; } };
     },
   };
-  return { process: processor(subprocess, settings), subprocess, calls, resolutions, exits, settings };
+  return { process: processor(subprocess, settings, { decrypt: async request => { decryptions.push(request); await writeFile(request.outputPath, 'decrypted fixture'); } }),
+    subprocess, calls, resolutions, exits, decryptions, settings };
 }
 
 test('archived plugin passes its unpacked bridge to external Python', async () => {
@@ -41,7 +50,7 @@ test('archived plugin passes its unpacked bridge to external Python', async () =
     const python = join(root, 'app.asar.unpacked', 'node_modules', 'muse-hongguo-download', 'python');
     await mkdir(source, { recursive: true });
     await mkdir(python, { recursive: true });
-    for (const file of ['runtime.js', 'errors.js']) await copyFile(new URL('../src/' + file, import.meta.url), join(source, file));
+    for (const file of ['runtime.js', 'errors.js', 'media-ownership.js', 'decryption.js']) await copyFile(new URL('../src/' + file, import.meta.url), join(source, file));
     await writeFile(join(python, 'decrypt.py'), 'print("native bridge")\n');
     const plugin = await import(pathToFileURL(join(source, 'runtime.js')).href);
     const f = fixture([{ stdout: '{"ok":true}' }, { stdout: probe() }, {}], config(), plugin.createMediaProcessor);
@@ -55,7 +64,7 @@ test('plaintext requires only media executables and validates every video and au
   const f = fixture([{ stdout: probe() }, {}], { ...config(), pythonExecutable: '', legacyAppDir: '' });
   const local = paths();
   const result = await f.process({ encryption: null }, local);
-  assert.deepEqual(result, { processedPath: local.inputPath, durationSeconds: 12.34, fullDecodeChecked: true, validationLevel: 'ffprobe-full-decode-sha256' });
+  assert.deepEqual(result, { processedPath: local.inputPath, durationSeconds: 12.34, width: 720, height: 1280, videoCodec: 'h264', fullDecodeChecked: true, validationLevel: 'ffprobe-full-decode-sha256' });
   assert.deepEqual(f.resolutions, [f.settings.ffprobeExecutable, f.settings.ffmpegExecutable]);
   assert.equal(f.calls.length, 2); assert.equal(f.exits.length, 2);
   for (const call of f.calls) {
@@ -137,7 +146,9 @@ test('spawn and provider failures expose only fixed diagnostics', async () => {
   const f = fixture([]);
   f.subprocess.spawn = () => { throw new Error('PRIVATE_SPAWN_PATH'); };
   await assert.rejects(f.process({ encryption: null }, paths()), error => error.code === 'invalid_media' && !error.message.includes('PRIVATE'));
-  const g = fixture([{ stdout: probe(), done: Promise.reject(new Error('PRIVATE_PROVIDER_ERROR')) }]);
+  const rejected = Promise.reject(new Error('PRIVATE_PROVIDER_ERROR'));
+  void rejected.catch(() => {});
+  const g = fixture([{ stdout: probe(), done: rejected }]);
   await assert.rejects(g.process({ encryption: null }, paths()), error => error.code === 'invalid_media' && !error.message.includes('PRIVATE'));
   assert.equal(g.exits.length, 1);
 });
@@ -300,4 +311,181 @@ test('device bootstrap disposal aborts startup and waits for complete child clea
   range.resolve(true);
   await disposing;
   await assert.rejects(work, error => error.code === 'cancelled');
+});
+
+test('open-engine encrypted media uses FFmpeg without Python and validates the requested resolution', async () => {
+  const local = paths(), key = 'a'.repeat(32);
+  const metadata = probe({ streams: [{ codec_type: 'video', codec_name: 'hevc', width: 1080, height: 1920 }] });
+  const f = fixture([{}, { stdout: metadata }, {}], { ...config(), pythonExecutable: '', legacyAppDir: '' });
+  const result = await f.process({ encryption: { contentKey: key }, quality: '1080p', expectedWidth: 1080, expectedHeight: 1920 }, local);
+  assert.equal(result.processedPath, local.outputPath);
+  assert.equal(f.calls[0].argv[0], f.settings.ffmpegExecutable);
+  assert.equal(f.resolutions.length, 2);
+  assert.equal(JSON.stringify(result).includes(key), false);
+  for (const media of [{ quality: '1080p' }, { expectedWidth: 1920, expectedHeight: 1080 }, { expectedDuration: 30 }]) {
+    const mismatch = fixture([{ stdout: probe() }]);
+    await assert.rejects(mismatch.process({ encryption: null, ...media }, paths()), { code: 'invalid_media' });
+    assert.equal(mismatch.calls.length, 1);
+  }
+});
+
+
+const byteMedia = { codec: 'bytevc2', expectedDuration: 12.34, expectedWidth: 1080, expectedHeight: 1920 };
+const bytevc2Probe = () => probe({ streams: [{ codec_type: 'video', codec_name: 'h264', width: 1080, height: 1920 },
+  { codec_type: 'audio', codec_name: 'aac' }] });
+async function conversionPaths(t) {
+  const root = await mkdtemp(join(tmpdir(), 'muse-bytevc2-runtime-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const local = { inputPath: join(root, 'input.part'), outputPath: join(root, 'output.part'), workspace: root, signal: new AbortController().signal };
+  await writeFile(local.inputPath, 'original ByteVC2 source');
+  return local;
+}
+const decoderHelp = { stdout: 'Decoder bvc2 [ByteDance video codec 2]:\n    General capabilities: dr1 threads\n' };
+
+
+test('ByteVC2 converts encrypted source through its actual decoder and validates H264 and AAC', async t => {
+  const local = await conversionPaths(t), key = 'a'.repeat(32);
+  const f = fixture([decoderHelp, {}, { stdout: bytevc2Probe() }, {}]);
+  const spawn = f.subprocess.spawn;
+  f.subprocess.spawn = spec => {
+    if (f.calls.length === 1) {
+      const handle = spawn(spec);
+      handle.done = writeFile(local.outputPath, 'converted H264 video').then(() => ({ exitCode: 0, signal: null }));
+      return handle;
+    }
+    return spawn(spec);
+  };
+  const result = await f.process({ ...byteMedia, encryption: { contentKey: key }, quality: '1080p' }, local);
+  assert.equal(result.processedPath, local.outputPath);
+  assert.equal(result.convertedFrom, 'bytevc2');
+  assert.equal(result.fullDecodeChecked, true);
+  assert.equal(f.calls[1].argv[0], f.settings.bytevc2Executable);
+  assert.equal(f.calls[1].argv[f.calls[1].argv.indexOf('-c:v') + 1], 'libx264');
+  assert.equal(f.calls[1].argv[f.calls[1].argv.indexOf('-c:a') + 1], 'aac');
+  assert.equal(f.calls[1].argv[f.calls[1].argv.indexOf('-protocol_whitelist') + 1], 'file,pipe');
+  assert.equal(f.calls.some(call => call.argv.includes(key) || call.argv.includes('-decryption_key')), false);
+  assert.equal(f.decryptions[0].contentKey, key);
+  assert.ok(f.calls.slice(2).every(call => call.argv[call.argv.indexOf('-i') + 1] === local.outputPath));
+  assert.equal(JSON.stringify(result).includes(key), false);
+  assert.equal(await readFile(local.inputPath, 'utf8'), 'original ByteVC2 source');
+  await result.cleanup();
+  await assert.rejects(readFile(local.outputPath), { code: 'ENOENT' });
+});
+
+test('ByteVC2 rejects missing or incompatible decoders without creating output', async t => {
+  const local = await conversionPaths(t);
+  const missing = fixture([], { ...config(), bytevc2Executable: '' });
+  await assert.rejects(missing.process({ ...byteMedia, encryption: null }, local), { code: 'missing_bytevc2_runtime' });
+  assert.equal(missing.calls.length, 0);
+  const incompatible = fixture([{ stdout: 'Codec bvc2 is not recognized by FFmpeg.' }]);
+  await assert.rejects(incompatible.process({ ...byteMedia, encryption: null }, local), { code: 'missing_bytevc2_runtime' });
+  assert.equal(incompatible.calls.length, 1);
+  await assert.rejects(readFile(local.outputPath), { code: 'ENOENT' });
+});
+
+test('ByteVC2 preserves existing output and removes only its own failed conversion', async t => {
+  const local = await conversionPaths(t);
+  await writeFile(local.outputPath, 'existing destination');
+  const existing = fixture([decoderHelp]);
+  await assert.rejects(existing.process({ ...byteMedia, encryption: null }, local), { code: 'output_exists' });
+  assert.equal(await readFile(local.outputPath, 'utf8'), 'existing destination');
+  assert.equal(existing.calls.length, 1);
+  await rm(local.outputPath);
+  const failed = fixture([decoderHelp, { exitCode: 1, stderr: 'PRIVATE_KEY_AND_NATIVE_DIAGNOSTIC' }]);
+  await assert.rejects(failed.process({ ...byteMedia, encryption: null }, local), error => error.code === 'conversion_failed' && !error.message.includes('PRIVATE'));
+  await assert.rejects(readFile(local.outputPath), { code: 'ENOENT' });
+  assert.equal(await readFile(local.inputPath, 'utf8'), 'original ByteVC2 source');
+});
+
+test('ByteVC2 queued cancellation never starts and running cancellation joins native exit', async t => {
+  const first = await conversionPaths(t), second = await conversionPaths(t);
+  const started = deferred(), done = deferred(), range = deferred();
+  const f = fixture([decoderHelp, { done: done.promise, waitForExit: () => range.promise }]);
+  const spawn = f.subprocess.spawn;
+  f.subprocess.spawn = spec => { const handle = spawn(spec); if (f.calls.length === 2) started.resolve(); return handle; };
+  const controller = new AbortController(), queuedController = new AbortController();
+  const running = f.process({ ...byteMedia, encryption: null }, { ...first, signal: controller.signal });
+  await started.promise;
+  const queued = f.process({ ...byteMedia, encryption: null }, { ...second, signal: queuedController.signal });
+  queuedController.abort();
+  await assert.rejects(queued, { code: 'cancelled' });
+  assert.equal(f.calls.length, 2);
+  controller.abort();
+  let settled = false;
+  void running.catch(() => { settled = true; });
+  done.resolve({ exitCode: 0, signal: null });
+  await Promise.resolve();
+  assert.equal(settled, false);
+  range.resolve(true);
+  await assert.rejects(running, { code: 'cancelled' });
+  assert.equal(f.calls.length, 2);
+  await assert.rejects(readFile(first.outputPath), { code: 'ENOENT' });
+});
+
+
+test('ByteVC2 refuses non-H264 output, invalid audio and oversized conversions', async t => {
+  const cases = [{ streams: [{ codec_type: 'video', codec_name: 'hevc', width: 1080, height: 1920 }] },
+    { streams: [{ codec_type: 'video', codec_name: 'h264', width: 1080, height: 1920 }, { codec_type: 'audio', codec_name: 'mp3' }] }, null];
+  for (const metadata of cases) {
+    const local = await conversionPaths(t);
+    const settings = { ...config(), ...(metadata ? {} : { maxEpisodeBytes: 4 }) };
+    const f = fixture([decoderHelp, {}, { stdout: probe(metadata ?? {}) }], settings);
+    const spawn = f.subprocess.spawn;
+    f.subprocess.spawn = spec => {
+      const conversion = f.calls.length === 1, handle = spawn(spec);
+      if (conversion) handle.done = writeFile(local.outputPath, 'converted H264 video').then(() => ({ exitCode: 0, signal: null }));
+      return handle;
+    };
+    await assert.rejects(f.process({ ...byteMedia, encryption: null }, local), { code: metadata ? 'conversion_failed' : 'media_size' });
+    await assert.rejects(readFile(local.outputPath), { code: 'ENOENT' });
+  }
+});
+
+
+test('unknown process exit retains its lease and files and quarantines queued and future work', async t => {
+  const local = await conversionPaths(t);
+  const f = fixture([decoderHelp, { waitForExit: async () => { throw new Error('PRIVATE_OBSERVATION'); } }]);
+  const spawn = f.subprocess.spawn;
+  f.subprocess.spawn = spec => {
+    const conversion = f.calls.length === 1, handle = spawn(spec);
+    if (conversion) handle.done = writeFile(local.outputPath, 'native output').then(() => ({ exitCode: 0, signal: null }));
+    return handle;
+  };
+  let pending;
+  await assert.rejects(f.process({ ...byteMedia, encryption: null }, local), error => {
+    pending = error.cleanupPendingPath;
+    return error.code === 'cleanup_unconfirmed' && !error.message.includes('PRIVATE');
+  });
+  assert.equal(await readFile(local.outputPath, 'utf8'), 'native output');
+  assert.ok(await readFile(join(pending, 'lease.json'), 'utf8'));
+  await assert.rejects(f.process({ ...byteMedia, encryption: null }, await conversionPaths(t)), { code: 'cleanup_unconfirmed' });
+  assert.equal(f.calls.length, 2);
+  const restarted = fixture([]);
+  await assert.rejects(restarted.process({ ...byteMedia, encryption: null }, local), { code: 'cleanup_unconfirmed' });
+  assert.equal(restarted.calls.length, 0);
+});
+
+test('concurrent ordinary media processing shares its live leases without false quarantine', async () => {
+  const f = fixture(spec => ({ stdout: spec.argv.includes('-of') ? probe() : '' }));
+  const local = paths();
+  const results = await Promise.all([f.process({ encryption: null }, local), f.process({ encryption: null }, { ...local })]);
+  assert.equal(results.length, 2);
+  assert.equal(f.calls.length, 4);
+});
+
+
+test('ByteVC2 requires source duration and dimensions and refuses shortened conversion', async t => {
+  for (const fields of [{ expectedDuration: null }, { expectedDuration: 0 }, { expectedWidth: null }, { expectedHeight: -1 }]) {
+    const f = fixture([]);
+    await assert.rejects(f.process({ ...byteMedia, ...fields, encryption: null }, paths()), { code: 'invalid_source_metadata' });
+    assert.equal(f.calls.length, 0);
+  }
+  const local = await conversionPaths(t), f = fixture([decoderHelp, {}, { stdout: bytevc2Probe() }]);
+  const spawn = f.subprocess.spawn;
+  f.subprocess.spawn = spec => { const conversion = f.calls.length === 1, handle = spawn(spec);
+    if (conversion) handle.done = writeFile(local.outputPath, 'converted H264 video').then(() => ({ exitCode: 0, signal: null }));
+    return handle;
+  };
+  await assert.rejects(f.process({ ...byteMedia, expectedDuration: 50, encryption: null }, local), { code: 'invalid_media' });
+  await assert.rejects(readFile(local.outputPath), { code: 'ENOENT' });
 });

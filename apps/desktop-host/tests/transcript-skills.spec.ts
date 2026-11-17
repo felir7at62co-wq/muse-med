@@ -97,7 +97,13 @@ it('keeps cloud transcription receipts and versioned raw results in the project'
     expect(input).toContain('`subtitles`（极速识别）')
     expect(input).toContain('`screenplay`（标准识别）')
     expect(input).toContain('查询与重试保持原用途')
+    expect(input).toContain('"inputs":[')
+    expect(input).toContain('不要删除或改写 `transcript/jobs/` 里的收据')
     expect(input).toContain('按当前会话的剧本格式整理正文')
+    expect(input).toContain('已完成、`silent` 或已失败的集需要重转时单独用 `input`')
+    expect(input).toMatch(/有字幕的集返回 `silent` 时按可疑结果处理.*`video_ocr`/su)
+    expect(input).toMatch(/有烧录字幕的集另用 `video_ocr` 校对 ASR.*不代替 ASR/su)
+    expect(input).toContain('`output_json` 各段的 `start`、`end`、`speaker_id` 和 `text`')
     expect(input).not.toContain('transcript-to-script')
   } finally {
     await ctx.fiber.dispose()

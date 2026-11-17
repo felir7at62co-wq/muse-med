@@ -142,7 +142,7 @@ export const ja = {
   ...guideJa,
   'builtInGroup': '組み込み',
   'customGroup': 'カスタム',
-  'sectionIntro': 'エージェントのツールと動作を選択します。日々のタスクには標準モードを、DSH に機能を追加するにはクリエイターモードを使用してください。',
+  'sectionIntro': 'このアプリケーションで利用できるプリセットから、新しいタスクで使うツールと作業スタイルを選択します。',
   'seatHint': '新しいタスクで使用するエージェントプリセットを選択',
   'headerHint': 'このタスクの開始時に選択されたエージェントプリセット',
   'nav': 'エージェントプリセット',
@@ -176,7 +176,7 @@ export const es = {
   'presetCreationDescription': en['presetCreationDescription'],
   ...guideEs,
   builtInGroup: 'Incorporado', customGroup: 'personalizado',
-  sectionIntro: 'Elija las herramientas del agente y cómo funciona. Utilice el modo Estándar para las tareas diarias o el modo Creador para agregar capacidades a DSH.',
+  sectionIntro: 'Elija las herramientas y el estilo de trabajo para las tareas nuevas entre los ajustes preestablecidos disponibles en esta aplicación.',
 
   seatHint: 'Elija el agente preestablecido para su nueva tarea',
   headerHint: 'El agente preestablecido elegido cuando comenzó esta tarea',
@@ -223,7 +223,7 @@ export const fr = {
   'presetCreationDescription': en['presetCreationDescription'],
   ...guideFr,
   builtInGroup: 'Intégré', customGroup: 'Personnalisé',
-  sectionIntro: 'Choisissez les outils de l’agent et son fonctionnement. Utilisez le mode Standard pour les tâches quotidiennes ou le mode Créateur pour ajouter des fonctionnalités à DSH.',
+  sectionIntro: 'Choisissez les outils et le mode de travail des nouvelles tâches parmi les préréglages disponibles dans cette application.',
 
   seatHint: "Choisissez le préréglage d'agent pour votre nouvelle tâche",
   headerHint: "Le préréglage d'agent choisi au démarrage de cette tâche",
@@ -270,7 +270,7 @@ export const de = {
   'presetCreationDescription': en['presetCreationDescription'],
   ...guideDe,
   builtInGroup: 'Eingebaut', customGroup: 'Benutzerdefiniert',
-  sectionIntro: 'Wählen Sie die Tools des Agenten und deren Funktionsweise aus. Verwenden Sie den Standardmodus für alltägliche Aufgaben oder den Creator-Modus, um DSH Funktionen hinzuzufügen.',
+  sectionIntro: 'Wählen Sie aus den in dieser Anwendung verfügbaren Voreinstellungen die Tools und die Arbeitsweise für neue Aufgaben aus.',
 
   seatHint: 'Wählen Sie die Agentenvoreinstellung für Ihre neue Aufgabe',
   headerHint: 'Die Agentenvoreinstellung, die beim Start dieser Aufgabe ausgewählt wurde',
@@ -317,7 +317,7 @@ export const ru = {
   'presetCreationDescription': en['presetCreationDescription'],
   ...guideRu,
   builtInGroup: 'Встроенный', customGroup: 'Пользовательский',
-  sectionIntro: 'Выбирайте инструменты агента и то, как они работают. Используйте стандартный режим для повседневных задач или режим Creator, чтобы расширить возможности DSH.',
+  sectionIntro: 'Выберите инструменты и стиль работы для новых задач из предустановок, доступных в этом приложении.',
 
   seatHint: 'Выберите предустановку агента для вашей новой задачи',
   headerHint: 'Предварительная настройка агента, выбранная при запуске этой задачи',
@@ -364,7 +364,7 @@ export const pt = {
   'presetCreationDescription': en['presetCreationDescription'],
   ...guidePt,
   builtInGroup: 'Integrado', customGroup: 'Personalizado',
-  sectionIntro: 'Escolha as ferramentas do agente e como funciona. Use o modo Padrão para tarefas diárias ou o modo Criador para adicionar recursos ao DSH.',
+  sectionIntro: 'Escolha as ferramentas e o estilo de trabalho para novas tarefas entre as predefinições disponíveis nesta aplicação.',
 
   seatHint: 'Escolha a predefinição de agente para sua nova tarefa',
   headerHint: 'A predefinição do agente escolhida quando esta tarefa foi iniciada',

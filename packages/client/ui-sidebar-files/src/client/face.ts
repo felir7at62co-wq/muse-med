@@ -1,11 +1,17 @@
 /**
  * The navigator's half outside React. The injected face (`filesFace`) lists
  * directories into the store through its own actions, reveals the tab's file,
- * carries scroll and keyboard focus between drawings of a pane's tree, and
- * measures the navigator's row. The component never awaits or observes
- * anything: it registers what it draws and calls the face. The per-pane
- * lifetimes are stated on `attach` and `hold`. Beside the face live its
- * inputs: the Remote listing and watch bindings and `canOpenOf`.
+ * carries scroll and keyboard focus between drawings of a pane's tree, runs
+ * each pane's search, and measures the navigator's row. The component never
+ * awaits or observes anything: it registers what it draws and calls the face.
+ * The per-pane lifetimes are stated on `attach` and `hold`. A search asks the
+ * Host whenever the query or the workspace's search preferences change; each
+ * pane runs one search at a time, a newer one aborting the older, whose answer
+ * is dropped. It writes its pending state and its result to the store, and the
+ * results keep a scroll offset apart from the tree's. The workspace's search
+ * preferences come from a book shared by every Session. Beside the face live
+ * its inputs: the Remote listing and watch bindings, and `canOpenOf`; the
+ * search's binding lives in `search-workspace.ts`.
  */
 import type { ClientRemote, RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -13,11 +19,15 @@ import type { PaneId, TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { SidebarRightTabDefinition, SidebarRightTabNavigation } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { childPath, locateFile, relativeFileOf, type DirLevel, type FilesStoreInstance } from './store.ts'
+import { childPath, locateFile, relativeFileOf, type DirLevel, type FilesSearchResult, type FilesStoreInstance } from './store.ts'
 import type { WorkspaceFileWatchFrame } from '@deepseek-ai/dsh-api-workspace-files/types'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { DirectoryNode } from './directory-node.ts'
 import { FILL_BELOW, FULLSCREEN_QUERY } from './navigator-layout.ts'
+import type { WorkspaceSearchPreferenceBook } from './search-preferences.ts'
+import { enabledPaths, type WorkspaceSearchPreferences } from './search-rules.ts'
+import type { SearchWorkspace } from './search-workspace.ts'
+import { buildSearchTree } from './search-tree.ts'
 
 /**
  * The box an element is laid out in: its nearest ancestor that generates one,
@@ -156,7 +166,11 @@ export interface FilesInjected {
    * @returns the release; the listing closes once no hold remains when the current task ends.
    */
   readonly hold: (paneId: PaneId, root: string) => () => void
-  /** Refresh the open directory tree. @param paneId - owning pane. */
+  /**
+   * Refresh the open directory tree, and run the pane's search again when it
+   * has a query, since its results are a snapshot of one search.
+   * @param paneId - owning pane.
+   */
   readonly refresh: (paneId: PaneId) => void
   /** Control automatic rereads without closing watches. @param paneId - owning pane. @param enabled - automatic-refresh setting. */
   readonly setAutoRefresh: (paneId: PaneId, enabled: boolean) => void
@@ -169,7 +183,8 @@ export interface FilesInjected {
    */
   readonly toggle: (paneId: PaneId, parentPath: string, path: string, expanded: readonly string[]) => void
   /**
-   * Record where a pane's tree is scrolled to, without rendering anything.
+   * Record where a pane's tree, or its search results while they are shown,
+   * is scrolled to, without rendering anything.
    * @param paneId - the pane being drawn.
    * @param scrollTop - the scroll offset in px.
    */
@@ -181,17 +196,61 @@ export interface FilesInjected {
    */
   readonly hide: (paneId: PaneId) => void
   /**
-   * Show a pane's navigator and give its tree keyboard focus now, or when it
-   * is next drawn; a pane drawn but not yet attached shows it once attached.
+   * Show a pane's navigator and its search bar, and give the field keyboard focus now,
+   * or when it is next drawn; a pane drawn but not yet attached shows it once attached.
+   * Focusing the always-visible files page leaves the pane's preview-navigator show choice unchanged.
    * A pane with no drawing recorded is left alone.
-   * @param paneId - the pane whose tree takes focus.
+   * @param paneId - the pane whose search field takes focus.
    */
   readonly focus: (paneId: PaneId) => void
   /**
+   * Record an attached pane's search text. Text with more than whitespace
+   * searches the whole workspace with the workspace's current preferences,
+   * aborting the pane's running search and dropping its answer; while it holds
+   * such text, a change to those preferences searches again. Blank text ends
+   * the search, aborting a running one, and the pane draws its tree again.
+   * @param paneId - the pane being drawn.
+   * @param cwd - the Session's working directory, the search's root; fixed for the Session once known, so a
+   *   result always shares the pane's tree root.
+   * @param query - the text as typed.
+   */
+  readonly setQuery: (paneId: PaneId, cwd: string, query: string) => void
+  /**
+   * Open or collapse one directory of a pane's search results, leaving the tree's own expansion alone.
+   * @param paneId - the pane being drawn.
+   * @param path - absolute directory path.
+   */
+  readonly toggleSearch: (paneId: PaneId, path: string) => void
+  /**
+   * Run an attached pane's search again with its current query and the
+   * workspace's current preferences, as after a failure; a pane without a
+   * query is left alone.
+   * @param paneId - the pane being drawn.
+   */
+  readonly retrySearch: (paneId: PaneId) => void
+  /**
+   * Change the search preferences of a workspace for every Session and pane
+   * rooted there. Only the fields the patch names change; the others keep
+   * their value at the time of the call, not at the time the caller read them.
+   * @param cwd - the Session's working directory.
+   * @param patch - any of the exclusion rules, the hidden-entry choice, and the `.gitignore` choice.
+   */
+  readonly setSearchPreferences: (cwd: string, patch: Partial<WorkspaceSearchPreferences>) => void
+  /**
+   * Register the drawn search field, or with `null` as gone. Drawing takes
+   * keyboard focus that `focus` asked for, or that the previous drawing's
+   * field held when it went in the same task.
+   * @param paneId - the pane being drawn.
+   * @param input - the field, or `null` once it is removed.
+   */
+  readonly searchDrawn: (paneId: PaneId, input: HTMLElement | null) => void
+  /**
    * Register the tree's scroll container as drawn for one tab, or with `null`
-   * as gone. Drawing restores the pane's scroll offset, takes keyboard focus
-   * that the previous drawing held when it went or that `focus` asked for, and
-   * reveals the tab's file unless the pane revealed it last.
+   * as gone. Drawing restores the pane's scroll offset for what it shows — the
+   * tree, or the search results, each with its own offset — takes keyboard
+   * focus that the previous drawing held when it went, and reveals the tab's
+   * file in the tree unless the pane revealed it last. A drawing registers
+   * again when it switches between the tree and the results.
    * @param paneId - the pane being drawn.
    * @param address - the tab's content address.
    * @param body - the scroll container, or `null` once it is removed.
@@ -214,8 +273,6 @@ export interface FilesInjected {
    * so does focus that hiding the covered content left on the document body,
    * unless the reader moved the keyboard or pointer or the window lost focus
    * before the width was reported.
-   * Its direct DOM parent owns the covering stylesheet scope while at least
-   * one navigator is drawn there; removing the last drawing restores the parent.
    * @param paneId - the pane being drawn.
    * @param navigator - the navigator element, or `null` once it is removed.
    * @param closable - whether Escape closes this drawing; the `files` page's tree stays shown.
@@ -234,6 +291,8 @@ export interface FilesInjected {
   readonly keyedHooks: {
     /** The measured width of the row a pane's navigator is laid out in, in CSS pixels, keyed by pane id; `undefined` until measured. */
     readonly rowWidth: (paneId: string) => HostObservable<number | undefined>
+    /** A workspace's search preferences, keyed by the Session's working directory; shared by every Session rooted there. */
+    readonly searchPreferences: (cwd: string) => HostObservable<WorkspaceSearchPreferences>
   }
 }
 
@@ -282,6 +341,16 @@ interface PaneRecord {
   root: DirectoryNode | undefined
   /** Where the tree was last scrolled to, in px. */
   scrollTop: number
+  /** Where the search results were last scrolled to, in px. */
+  searchScrollTop: number
+  /** The trimmed query the pane's search asks for; empty while no search is shown. */
+  searchQuery: string
+  /** The preferences the pane's search follows, while its query is not blank. */
+  following: { readonly cwd: string; readonly stop: () => void } | undefined
+  /** The running search, whose answer the pane draws only while it is still this one. */
+  searching: AbortController | undefined
+  /** The drawn search field. */
+  input: HTMLElement | undefined
   /** The file whose row was revealed last, so a remount does not reveal it again. */
   revealed: string | undefined
   /** The file whose row a reveal is walking to. */
@@ -292,8 +361,8 @@ interface PaneRecord {
   current: HTMLElement | undefined
   /** A completed reveal waits for its row to be drawn. */
   scrollToCurrent: boolean
-  /** Who asked for keyboard focus at the tree's next drawing. */
-  focus: object | undefined
+  /** Who asked for keyboard focus at the next drawing, and whether the tree or the search field takes it. */
+  focus: { readonly target: 'tree' | 'search' } | undefined
   /** `focus` asked to show the navigator before the pane attached; attaching shows it. */
   show: boolean
   /** The measured width of the row the navigator shares with the preview or the page's line. */
@@ -317,8 +386,8 @@ interface TabHome {
   readonly navigation: HostObservable<SidebarRightTabNavigation>
 }
 
-/** `focus` asked for the tree's keyboard focus. */
-const REQUESTED = {}
+/** `focus` asked for the search field's keyboard focus. */
+const REQUESTED = { target: 'search' } as const
 
 /**
  * Place a face beside a tab's content, where the workspace command finds it,
@@ -330,11 +399,13 @@ const REQUESTED = {}
 export type PlaceFace = (tabId: TabId, face: FilesInjected) => () => void
 
 /**
- * Bind the tree's face to one directory listing.
+ * Bind the tree's face to one directory listing and one workspace search.
  * @param list - the bound `workspaceFiles.list` call.
  * @param watch - target-scoped directory observation.
  * @param canOpen - whether some tab type can open an address.
  * @param navigationOf - the attached tab's navigation; subscriptions end with this plugin or their disposer.
+ * @param search - the workspace search.
+ * @param preferences - every workspace's search preferences, shared by every Session.
  * @returns the face factory: session, its store instance, and where to place the face beside tabs in, face out.
  */
 export function filesFace(
@@ -342,6 +413,8 @@ export function filesFace(
   watch: WatchWorkspaceDirectory,
   canOpen: HostObservable<(address: string) => boolean>,
   navigationOf: (sessionId: SessionId, tabId: TabId) => HostObservable<SidebarRightTabNavigation>,
+  search: SearchWorkspace,
+  preferences: WorkspaceSearchPreferenceBook,
 ): (
   sessionId: SessionId,
   store: Pick<FilesStoreInstance, 'actions' | 'getSnapshot' | 'subscribe'>,
@@ -350,29 +423,12 @@ export function filesFace(
   return (sessionId, store, place): FilesInjected => {
     const { actions } = store
     const panes = new Map<PaneId, PaneRecord>()
-    const navigatorHosts = new Map<HTMLElement, { count: number; readonly previous: string | null }>()
-    // Scope the navigator's covering rules to its direct DOM parent, including
-    // slot wrappers without a layout box. Several drawings may share that parent.
-    const markNavigatorHost = (parent: HTMLElement): (() => void) => {
-      const host = navigatorHosts.get(parent) ?? { count: 0, previous: parent.getAttribute('data-files-navigator-host') }
-      if (host.count === 0) {
-        navigatorHosts.set(parent, host)
-        if (host.previous === null) parent.setAttribute('data-files-navigator-host', '')
-      }
-      host.count++
-      return () => {
-        host.count--
-        if (host.count !== 0) return
-        navigatorHosts.delete(parent)
-        if (host.previous === null) parent.removeAttribute('data-files-navigator-host')
-        else parent.setAttribute('data-files-navigator-host', host.previous)
-      }
-    }
     const record = (paneId: PaneId): PaneRecord => {
       let pane = panes.get(paneId)
       if (pane === undefined) {
         pane = {
           lifetime: undefined, mounts: 0, tabs: new Set(), holds: 0, root: undefined, scrollTop: 0,
+          searchScrollTop: 0, searchQuery: '', following: undefined, searching: undefined, input: undefined,
           revealed: undefined, revealing: undefined, drawn: undefined, current: undefined, scrollToCurrent: false,
           focus: undefined, show: false,
           width: createSnapshotStore<number | undefined>(undefined),
@@ -389,6 +445,7 @@ export function filesFace(
       void pane.root?.close()
       pane.root = undefined
       pane.unobserve?.()
+      endSearch(pane)
       panes.delete(paneId)
       actions.forget(paneId)
     }
@@ -461,8 +518,73 @@ export function filesFace(
       })
       reveal()
     }
+    const resultsShown = (paneId: PaneId): boolean => store.getSnapshot().byPane[paneId]?.search !== undefined
+    const endSearch = (pane: PaneRecord): void => {
+      pane.searchQuery = ''
+      // The next search's results start at their top, even before its answer arrives.
+      pane.searchScrollTop = 0
+      pane.following?.stop()
+      pane.following = undefined
+      pane.searching?.abort()
+      pane.searching = undefined
+    }
+    const runSearch = (paneId: PaneId, pane: PaneRecord, cwd: string): void => {
+      pane.searching?.abort()
+      const controller = new AbortController()
+      pane.searching = controller
+      const query = pane.searchQuery
+      const { rules, showHidden, respectGitignore } = preferences.source(cwd).getSnapshot()
+      const excludedPaths = enabledPaths(rules)
+      actions.searching(paneId)
+      const settle = (result: FilesSearchResult): void => {
+        // A newer search, the end of the search, or the pane's end replaced this one.
+        if (pane.searching !== controller) return
+        pane.searching = undefined
+        // New results start at their top; the tree drawn in their place keeps its offset.
+        pane.searchScrollTop = 0
+        if (pane.drawn !== undefined) pane.drawn.body.scrollTop = 0
+        actions.searched(paneId, result)
+      }
+      search(sessionId, { query, excludedPaths, includeHidden: showHidden, respectGitignore }, controller.signal).then((answer) => {
+        settle(answer.ok
+          ? {
+            kind: 'found', query, tree: buildSearchTree(cwd, answer.value.matches), count: answer.value.matches.length,
+            truncated: answer.value.truncated, incomplete: answer.value.incomplete,
+            hiddenLeftOut: !showHidden, excluded: excludedPaths.length > 0, ignored: respectGitignore,
+          }
+          : { kind: 'failed', query, failure: answer.error })
+      }).catch((error: unknown) => {
+        // A Remote call rejects only on an assembly fault, and drawing the answer
+        // fails only on a defect; the pane reports either rather than wait forever.
+        settle({ kind: 'failed', query, failure: new RemoteError('gateway/internal', error instanceof Error ? error.message : String(error), {}) })
+      })
+    }
+    /** Run an attached pane's search again with its current query; a pane without a query is left alone. */
+    const searchAgain = (paneId: PaneId): void => {
+      const pane = panes.get(paneId)
+      if (pane?.following === undefined) return
+      runSearch(paneId, pane, pane.following.cwd)
+    }
+    const follow = (paneId: PaneId, pane: PaneRecord, cwd: string): void => {
+      if (pane.following?.cwd === cwd) return
+      pane.following?.stop()
+      const source = preferences.source(cwd)
+      let seen = source.getSnapshot()
+      const stop = source.subscribe(() => {
+        const now = source.getSnapshot()
+        if (now === seen) return
+        seen = now
+        runSearch(paneId, pane, cwd)
+      })
+      pane.following = { cwd, stop }
+    }
+    const focusInput = (pane: PaneRecord): void => {
+      pane.focus = undefined
+      // As for the tree: the dock's inert host lifts later in this commit.
+      queueMicrotask(() => { pane.input?.focus() })
+    }
     const focusTree = (pane: PaneRecord): void => {
-      const handoff = {}
+      const handoff = { target: 'tree' } as const
       pane.focus = handoff
       // The dock keeps a newly shown tab's host inert until its own layout
       // effect, later in this drawing's commit, and the tab's body may draw the
@@ -557,7 +679,8 @@ export function filesFace(
         pane.lifetime ??= new AbortController()
         if (pane.show) {
           pane.show = false
-          actions.shown(paneId, true)
+          if (pane.navigator === undefined || pane.closable) actions.shown(paneId, true)
+          else actions.searchBarShown(paneId, true)
         }
         pane.mounts += 1
         let home = homes.get(tabId)
@@ -607,7 +730,11 @@ export function filesFace(
           })
         }
       },
-      refresh: (paneId) => { void panes.get(paneId)?.root?.refreshTree() },
+      refresh: (paneId) => {
+        const pane = panes.get(paneId)
+        void pane?.root?.refreshTree()
+        searchAgain(paneId)
+      },
       setAutoRefresh: (paneId, enabled) => {
         actions.autoRefresh(paneId, enabled)
         panes.get(paneId)?.root?.setAutomatic(enabled)
@@ -615,7 +742,9 @@ export function filesFace(
       toggle: (paneId, parentPath, path, expanded) => { expand(paneId, parentPath, path, expanded, true) },
       scrolled: (paneId, scrollTop) => {
         const pane = panes.get(paneId)
-        if (pane?.lifetime !== undefined) pane.scrollTop = scrollTop
+        if (pane?.lifetime === undefined) return
+        if (resultsShown(paneId)) pane.searchScrollTop = scrollTop
+        else pane.scrollTop = scrollTop
       },
       hide(paneId) {
         const pane = panes.get(paneId)
@@ -636,9 +765,46 @@ export function filesFace(
         const pane = panes.get(paneId)
         if (pane === undefined) return
         if (pane.lifetime === undefined) pane.show = true
-        else actions.shown(paneId, true)
-        if (pane.drawn === undefined) pane.focus = REQUESTED
-        else focusTree(pane)
+        else {
+          if (pane.navigator === undefined || pane.closable) actions.shown(paneId, true)
+          else actions.searchBarShown(paneId, true)
+        }
+        if (pane.input === undefined) pane.focus = REQUESTED
+        else focusInput(pane)
+      },
+      setQuery(paneId, cwd, query) {
+        const pane = panes.get(paneId)
+        if (pane?.lifetime === undefined) return
+        actions.queried(paneId, query)
+        const trimmed = query.trim()
+        if (trimmed === '') {
+          endSearch(pane)
+          return
+        }
+        // Whitespace around the text does not change what the search matches.
+        if (pane.searchQuery === trimmed && pane.following?.cwd === cwd) return
+        pane.searchQuery = trimmed
+        follow(paneId, pane, cwd)
+        runSearch(paneId, pane, cwd)
+      },
+      toggleSearch: (paneId, path) => { actions.searchToggled(paneId, path) },
+      retrySearch: searchAgain,
+      setSearchPreferences: (cwd, patch) => { preferences.update(cwd, patch) },
+      searchDrawn(paneId, input) {
+        if (input === null) {
+          const pane = panes.get(paneId)
+          if (pane === undefined) return
+          const gone = pane.input
+          pane.input = undefined
+          if (gone === undefined || gone.ownerDocument.activeElement !== gone) return
+          const handoff = { target: 'search' } as const
+          pane.focus = handoff
+          queueMicrotask(() => { if (pane.focus === handoff) pane.focus = undefined })
+          return
+        }
+        const pane = record(paneId)
+        pane.input = input
+        if (pane.focus?.target === 'search') focusInput(pane)
       },
       bodyDrawn(paneId, address, body) {
         if (body === null) {
@@ -652,15 +818,15 @@ export function filesFace(
           drop(paneId)
           if (gone?.contains(gone.ownerDocument.activeElement) !== true) return
           // Only a drawing in the same commit, the next tab's, takes the keyboard over.
-          const handoff = {}
+          const handoff = { target: 'tree' } as const
           pane.focus = handoff
           queueMicrotask(() => { if (pane.focus === handoff) pane.focus = undefined })
           return
         }
         const pane = record(paneId)
         pane.drawn = { body, address }
-        body.scrollTop = pane.scrollTop
-        if (pane.focus !== undefined) focusTree(pane)
+        body.scrollTop = resultsShown(paneId) ? pane.searchScrollTop : pane.scrollTop
+        if (pane.focus?.target === 'tree') focusTree(pane)
         pane.revealing = pane.revealed === address ? undefined : address
         step(paneId, pane)
       },
@@ -688,10 +854,6 @@ export function filesFace(
           drop(paneId)
           return
         }
-        const parent = navigator.parentElement
-        if (parent === null) return
-        const unmarkHost = markNavigatorHost(parent)
-        pane.unobserve = unmarkHost
         const row = layoutParent(navigator)
         if (row === null) return
         const document = row.ownerDocument
@@ -790,7 +952,6 @@ export function filesFace(
           window.removeEventListener('blur', forget)
           navigator.removeEventListener('focusin', focusin)
           navigator.removeEventListener('focusout', focusout)
-          unmarkHost()
         }
       },
       toggleDrawn(paneId, toggle) {
@@ -803,7 +964,7 @@ export function filesFace(
         drop(paneId)
       },
       hooks: { canOpen },
-      keyedHooks: { rowWidth: paneId => record(paneId as PaneId).width },
+      keyedHooks: { rowWidth: paneId => record(paneId as PaneId).width, searchPreferences: cwd => preferences.source(cwd) },
     }
     return face
   }

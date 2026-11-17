@@ -65,6 +65,28 @@ async function expectUnpublished(): Promise<void> {
 }
 
 describe('Windows CI FFmpeg preparation', () => {
+  it('verifies and uses an archive downloaded by the authenticated runner without a second request', async () => {
+    const archive = join(parent(), 'locked-ffmpeg.zip')
+    await writeFile(archive, fixture)
+    const bin = await prepareCiFfmpeg(parent(), pathFile, resource(), environmentFile, archive)
+    expect(await readFile(pathFile, 'utf8')).toBe(`original-path\n${bin}\n`)
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    expect(await readFile(archive)).toEqual(fixture)
+  })
+
+  it('rejects an invalid predownloaded archive before running executables or publishing its path', async () => {
+    const archive = join(parent(), 'locked-ffmpeg.zip')
+    await writeFile(archive, fixture)
+    const locked = resource()
+    locked.sha256 = '0'.repeat(64)
+    await expect(prepareCiFfmpeg(parent(), pathFile, locked, environmentFile, archive)).rejects.toThrow('checksum mismatch')
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    expect(commands.execute).not.toHaveBeenCalled()
+    expect(await readFile(pathFile, 'utf8')).toBe('original-path\n')
+    expect(await readFile(environmentFile, 'utf8')).toBe('ORIGINAL_ENV=retained\n')
+    expect(await readdir(parent())).toEqual(['github-env', 'github-path', 'locked-ffmpeg.zip'])
+  })
+
   it('qualifies exact private executables and media streams before publishing their path', async () => {
     const bin = await prepareCiFfmpeg(parent(), pathFile, resource(), environmentFile)
     expect(await readFile(pathFile, 'utf8')).toBe(`original-path\n${bin}\n`)

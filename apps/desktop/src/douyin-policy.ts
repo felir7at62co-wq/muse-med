@@ -104,11 +104,14 @@ export function parseDouyinDataRequest(value: unknown): DouyinDesktopDataRequest
     || typeof selection.source !== 'string' || !['public', 'creator', 'auto'].includes(selection.source)
     || typeof selection.timeoutMs !== 'number' || !Number.isSafeInteger(selection.timeoutMs)
     || selection.timeoutMs < 1000 || selection.timeoutMs > 300_000
+    || (selection.aggregationWaitMs !== undefined && (typeof selection.aggregationWaitMs !== 'number'
+      || !Number.isSafeInteger(selection.aggregationWaitMs) || selection.aggregationWaitMs < 0
+      || selection.aggregationWaitMs > selection.timeoutMs))
     || typeof comments?.enabled !== 'boolean' || typeof comments.count !== 'number' || !Number.isSafeInteger(comments.count)
     || comments.count < 1 || comments.count > 200
     || (comments.cursor !== undefined && (typeof comments.cursor !== 'string' || !/^\d{1,64}$/.test(comments.cursor)))
     || (!comments.enabled && comments.cursor !== undefined)) return undefined
-  return value as DouyinDesktopDataRequest
+  return { ...request, selection: { ...selection, aggregationWaitMs: selection.aggregationWaitMs ?? 0 } } as DouyinDesktopDataRequest
 }
 
 /** @param value - transient signed URL. @returns a receipt-safe identity digest. */

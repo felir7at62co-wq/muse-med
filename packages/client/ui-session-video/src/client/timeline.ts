@@ -24,7 +24,7 @@ export function assembleTimeline(sources: readonly SessionVideoSource[], analyse
   for (const source of sources) {
     const analysis = analyses.find(value => value.sourceId === source.id && value.sourceVersion === source.version && value.state === 'ready')
     offsets[source.id] = duration
-    if (analysis === undefined) continue
+    if (analysis === undefined || source.status !== 'local' || source.playbackUrl === null) continue
     for (const shot of analysis.shots) shots.push({ ...shot, index: shots.length + 1, source,
       localStart: shot.startSeconds, localEnd: shot.endSeconds,
       startSeconds: duration + shot.startSeconds, endSeconds: duration + shot.endSeconds })

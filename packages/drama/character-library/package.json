@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-character-library",
   "description": "Host-owned read-only character reference browsing, preview and recommendation service",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "publishConfig": {
     "access": "public"
   },
@@ -29,7 +29,10 @@
   "files": [
     "lib/index.js",
     "lib/types/**/*.js",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
+    "src"
   ],
   "dependencies": {
     "@deepseek-ai/dsh-character-asset-catalog": "workspace:*",

@@ -8,7 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { PeerId } from '@deepseek-ai/dsh-typert-protocol'
 import SubprocessLocal from '@deepseek-ai/dsh-subprocess-local'
-import { beforeEach, expect, it, onTestFinished, vi } from 'vitest'
+import { expect, it, onTestFinished, vi } from 'vitest'
 import { z } from 'zod'
 import { JubianEpisodeDelivery, resolveEpisodeDelivery } from '../src/episode-delivery-service.ts'
 import { JubianVideoRecovery } from '../src/video-recovery-service.ts'
@@ -16,15 +16,6 @@ import * as library from '../src/episode-delivery.ts'
 import { createEpisodeDeliveryFixture } from './fixtures/episode-delivery.ts'
 
 vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>() }))
-beforeEach(() => { onTestFinished(() => { vi.restoreAllMocks() }) })
-
-/** Restore metadata observers only after their owned reads have settled. */
-function ownCleanup(run: () => Promise<void>): () => Promise<void> {
-  let pending: Promise<void> | undefined
-  const cleanup = () => pending ??= run()
-  onTestFinished(cleanup)
-  return cleanup
-}
 
 async function completed() {
   const f = await createEpisodeDeliveryFixture(), ready = await f.service.episodeReadiness(f.planInput)
@@ -32,6 +23,7 @@ async function completed() {
   const target = { ...f.planInput, digest: ready.digest }, initial = await f.service.admitEpisode(target)
   f.renderer.release()
   await expect.poll(async () => (await f.service.episodeStatus(target)).state).toBe('completed')
+  await expect.poll(() => f.service.hasActiveWork()).toBe(false)
   const status = await f.service.episodeStatus(target)
   if (status.attempt === null || status.execution === undefined || status.output === undefined) throw new Error('Expected actual completed admission')
   expect(status.attempt).toBe(initial.attempt)
@@ -252,7 +244,8 @@ it.each(['link', 'directory', 'read-denied', 'oversized'] as const)('retains ori
 
 it('closes its directory and refuses completion when its caller retires during metadata IO', async () => {
   const f = await completed(), read = library.readEpisodeBytes, open = files.opendir
-  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>(), controller = new AbortController()
+  const release = Promise.withResolvers<undefined>(), controller = new AbortController()
+  let entered = false
   let observedDirectory: Dir | undefined
   const directory = vi.spyOn(files, 'opendir').mockImplementation(async (...args) => {
     const handle = await open(...args)
@@ -260,7 +253,7 @@ it('closes its directory and refuses completion when its caller retires during m
     return handle
   })
   const metadata = vi.spyOn(library, 'readEpisodeBytes').mockImplementation(async (...args) => {
-    if (basename(args[0]) === 'intent.json') { entered.resolve(undefined); await release.promise }
+    if (basename(args[0]) === 'intent.json') { entered = true; await release.promise }
     return read(...args)
   })
   const scoped = f.ctx.extend({ invocation: {
@@ -268,50 +261,36 @@ it('closes its directory and refuses completion when its caller retires during m
     service: 'jubianEpisodeDelivery', signal: controller.signal,
     peer: { id: brandString<PeerId>('history-observer'), ctx: f.ctx, dispose: async () => {} }, async *uplink() {},
   } }).jubianEpisodeDelivery
-  const operation = scoped.episodeHistory(f.planInput)
-  const outcome = operation.then(value => ({ value }), (error: unknown) => ({ error }))
-  const cleanup = ownCleanup(async () => {
-    controller.abort(new Error('History observer fixture cleanup')); release.resolve(undefined)
-    try { await outcome } finally { metadata.mockRestore(); directory.mockRestore() }
-  })
+  const operation = scoped.episodeHistory(f.planInput), rejected = expect(operation).rejects.toThrow('History observer retired')
   try {
-    await entered.promise; expect(f.service.hasActiveWork()).toBe(false)
-    controller.abort(new Error('History observer retired')); release.resolve(undefined)
-    const result = await outcome
-    if (!('error' in result)) throw Error('Cancelled history read unexpectedly completed')
-    expect(result.error).toBeInstanceOf(Error)
-    expect(String(result.error)).toContain('History observer retired')
+    await vi.waitFor(() => { expect(entered).toBe(true) }, { timeout: 5000 })
+    expect(f.service.hasActiveWork()).toBe(false)
+    controller.abort(new Error('History observer retired')); release.resolve(undefined); await rejected
     if (observedDirectory === undefined) throw new Error('History did not open its actual directory')
     await expect(observedDirectory.read()).rejects.toMatchObject({ code: 'ERR_DIR_CLOSED' })
-  } finally { await cleanup() }
+  } finally {
+    controller.abort(); release.resolve(undefined); await Promise.allSettled([operation, rejected])
+    metadata.mockRestore(); directory.mockRestore()
+  }
 })
 
 it('joins metadata reads during parent disposal and never starts work from historical labels', async () => {
-  const f = await completed(), read = library.readEpisodeBytes, entered = Promise.withResolvers<undefined>()
+  const f = await completed(), read = library.readEpisodeBytes
+  let entered = false
   const release = Promise.withResolvers<undefined>()
   const spy = vi.spyOn(library, 'readEpisodeBytes').mockImplementation(async (...args) => {
-    if (basename(args[0]) === 'intent.json') { entered.resolve(undefined); await release.promise }
+    if (basename(args[0]) === 'intent.json') { entered = true; await release.promise }
     return read(...args)
   })
-  const operation = f.service.episodeHistory(f.planInput)
-  const outcome = operation.then(value => ({ value }), (error: unknown) => ({ error }))
+  const operation = f.service.episodeHistory(f.planInput), rejected = expect(operation).rejects.toThrow('provider disposed')
   let disposed = false
-  let disposal: Promise<unknown> | undefined
-  const cleanup = ownCleanup(async () => {
-    release.resolve(undefined)
-    try { await outcome; await disposal } finally { spy.mockRestore() }
-  })
   try {
-    await entered.promise
-    disposal = f.ctx.fiber.dispose().then(() => { disposed = true })
+    await vi.waitFor(() => { expect(entered).toBe(true) }, { timeout: 5000 })
+    const disposal = f.ctx.fiber.dispose().then(() => { disposed = true })
     expect(disposed).toBe(false); release.resolve(undefined)
-    const result = await outcome
-    if (!('error' in result)) throw Error('History read completed after provider disposal')
-    expect(result.error).toBeInstanceOf(Error)
-    expect(String(result.error)).toContain('provider disposed')
-    await disposal
+    await Promise.all([rejected, disposal])
     expect(disposed).toBe(true); expect(f.renderer.encodes).toBe(1)
-  } finally { await cleanup() }
+  } finally { release.resolve(undefined); await Promise.allSettled([operation, rejected]); spy.mockRestore() }
 })
 
 it('limits aggregate bytes after an unstable record read instead of silently continuing to scan', async () => {

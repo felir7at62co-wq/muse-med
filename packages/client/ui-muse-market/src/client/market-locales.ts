@@ -1,5 +1,96 @@
 /** Locale-owned Skill market copy. */
 export const marketZh = {
+  'browserAccount':
+    '我的账号',
+  'browserSignIn':
+    '登录 Muse',
+  'browserSignInHint':
+    '登录后可查看团队发布和上传 Skill',
+  'browserDownload':
+    '下载发布包',
+  'browserDownloaded':
+    '已开始下载，请在 Muse 中导入后启用',
+  'browserDownloadHint':
+    '网页下载发布包；在 Muse 的 Skill 市场导入，再选择新会话使用的版本',
+  'browserUploadDescription':
+    '选择已有的 Skill ZIP，先检查预览，再上传为私有草稿；制作新 Skill 请在 Muse 中完成',
+  'browserChooseArchive':
+    '选择 Skill ZIP',
+  'browserPreparedArchive':
+    '预览来自即将上传的实际发布包，形象会随版本保存',
+  'browserArchivePending':
+    '选择一个 Skill ZIP，预览名称、用途和自动匹配的形象',
+  'browserUploadRetained':
+    '上传结果尚未确认，重试会沿用原账号、文件和请求编号',
+  'browserArchiveTooLarge':
+    'ZIP 为空或超过当前上传大小限制',
+  'guideWebInstall':
+    '下载 Skill 发布包',
+  'guideWebInstallBody':
+    '选择需要的版本并下载 ZIP。原有技能会转换成可直接导入 Muse 的发布包。浏览器下载不会自动安装或启用技能。',
+  'guideWebUse':
+    '在 Muse 中导入并使用',
+  'guideWebUseBody':
+    '打开 Muse 的 Skill 市场，在“已安装”页导入 ZIP，再选择新会话使用的默认版本。启用对应技能后，例如输入 /transcript-to-novel 调用它。',
+  'installedSearch': '搜索已安装的技能',
+  'administrator': '管理员',
+  'publicationFilter': '筛选发布状态',
+  'allPublications': '全部发布',
+  'noPublications': '这里还没有对应的发布',
+  'noPublicationsHint': '你可以制作一个 Skill，或上传已有发布包开始分享',
+  'containedSkills': '包含的 Skill',
+  'requiredSkills': '需要配合使用的技能',
+  'requiredSkillsHint': '请先检查这些技能是否已安装，并按需要为新会话启用',
+  'validation': '资源说明',
+  'creatorBack': '返回市场',
+  'creatorSourcesFailed': '本地 Skill 来源暂时无法读取，仍可上传已有 ZIP',
+  'creatorRetrySources': '重新读取 Skill 来源',
+  'creatorInstalledFailed': '本地发布包暂时无法读取，仍可导入 ZIP',
+  'creatorRetryInstalled': '重新读取本地发布包',
+  'creatorIdentityFailed': '暂时无法读取发布权限，请检查登录状态后重试',
+  'creatorRetryIdentity': '重新读取发布权限',
+  'creatorNoSkills': '还没有可制作的本地 Skill，可以先上传已有 ZIP',
+  'guideEntry': '市场指引',
+  'guideTitle': '欢迎来到 Muse Skill 市场',
+  'guideClose': '关闭指引',
+  'guideSkip': '跳过指引',
+  'guidePrevious': '上一步',
+  'guideNext': '下一步',
+  'guideStart': '开始使用',
+  'guideProgress': '第 {step} 步，共 {total} 步',
+  'guideFind': '找到适合你的 Skill',
+  'guideFindBody': '按用途搜索或选择分类。每张卡片都展示技能的名称、介绍和版本；将鼠标停在角色上，或选择“认识一下”，了解它能帮你做什么。',
+  'guideInstall': '下载到 Muse，也可以导入 ZIP',
+  'guideInstallBody': '选择需要的版本并下载到本机。已有发布包时，可在“已安装”页导入完整 ZIP。安装会保留技能文件，暂时不会改变会话使用的版本。',
+  'guideUse': '启用后，在新会话中使用',
+  'guideUseBody':
+    '在“已安装”页把技能设为新会话默认版本，再新建会话使用。已经执行过任务的会话继续使用原来绑定的版本；更换默认值不会覆盖旧会话。 启用对应技能后，例如输入 /transcript-to-novel 调用它。',
+  'brand': 'MUSE',
+  'createEntry': '制作 / 上传 Skill',
+  'discoverEyebrow': '由创作者共建',
+  'installedEyebrow': '我的创作工具箱',
+  'creatorEyebrow': '把好方法分享给更多人',
+  'discoverTitle': '找到你的下一位创作伙伴',
+  'installedTitle': '让好方法，随时为你所用',
+  'creatorTitle': '制作与分享你的 Skill',
+  'discoverDescription': '发现实用的 Skills，让专业方法加入你的创作流程',
+  'installedDescription': '管理已下载的技能，选择新会话要使用的版本',
+  'creatorDescription': '整理你的创作方法，预览专属形象，再发布到市场',
+  'skillBadge': 'Skill',
+  'meetSkill': '认识一下',
+  'myPublications': '我的发布',
+  'publicationsDescription': '在这里管理草稿、审核进度和已发布的版本',
+  'contributeTitle': '让你的好方法，被更多人发现',
+  'contributeDescription': '将实践中积累的方法制作成 Skill，与 Muse 创作者一起分享',
+  'packageSize': '发布包大小',
+  'noRequirements': '此发布包未列出额外使用前提',
+  'packageVerification': '查看文件校验信息',
+  'publishedReadFailed': '已发布资源暂时无法刷新，已保留现有内容',
+  'retryPublished': '重新加载已发布资源',
+  'originalReadFailed': '原有技能暂时无法刷新，已保留现有内容',
+  'retryOriginal': '重新加载原有技能',
+  'publishedResources': '已发布',
+  'originalResources': '原有技能',
   'discardUpload': '放弃这次上传尝试',
   'discardUploadHint': '这不会撤回服务端可能已保存的草稿。请先使用原账号刷新创作者列表核对。',
   'nav': 'Skill 市场',
@@ -81,6 +172,20 @@ export const marketZh = {
   'signInRequired': '请重新登录原账号，再核对当前状态。',
   'permissionDenied': '当前账号没有执行此操作的权限。',
   'cloudUnavailable': '云端暂不可用，本地包管理仍可继续。',
+  'creatorNewSkill': '制作 Skill',
+  'creatorUploadZip': '上传 ZIP',
+  'creatorSourceHint': '选择已有的本地 Skill，保留它的指令和配套资源',
+  'creatorMetadataTitle': '发布信息',
+  'creatorMetadataHint': '介绍它能解决什么问题，让其他创作者更容易找到它',
+  'creatorPreviewTitle': '卡片预览',
+  'creatorPreviewHint': '填写名称和介绍后，这里会展示自动匹配的角色',
+  'creatorUntitled': '未命名 Skill',
+  'creatorPreparedTitle': '确认发布包',
+  'creatorPreparedHint': '先导出检查，或选择团队将这一版本保存到云端',
+  'creatorZipHint': '选择已有的 Muse ZIP 发布包，校验通过后可预览并上传',
+  'creatorPublisherHint': '此版本将归属所选发布团队，上传后仍为私有草稿',
+  'creatorDraftBadge': '本地预览',
+  'creatorReadyBadge': '本地包已准备',
 } as const
 
 /** Complete key set shared by all market language dictionaries. */
@@ -88,8 +193,108 @@ export type MarketLocaleKey = keyof typeof marketZh
 
 /** English Skill market interface copy. */
 export const marketEn: Record<MarketLocaleKey, string> = {
+  'browserAccount':
+    'My account',
+  'browserSignIn':
+    'Sign in to Muse',
+  'browserSignInHint':
+    'Sign in to view team publications and upload Skills',
+  'browserDownload':
+    'Download package',
+  'browserDownloaded':
+    'Download started. Import the package in Muse, then enable it.',
+  'browserDownloadHint':
+    'Download a package here, import it in the Muse Skill market, then select its version for new chats',
+  'browserUploadDescription':
+    'Choose an existing Skill ZIP, review its preview and upload a private draft. Create new Skills in Muse.',
+  'browserChooseArchive':
+    'Choose Skill ZIP',
+  'browserPreparedArchive':
+    'This preview uses the actual upload package. Its character is saved with the version.',
+  'browserArchivePending':
+    'Choose a Skill ZIP to preview its name, purpose and automatically matched character',
+  'browserUploadRetained':
+    'The upload is unconfirmed. Retrying keeps the original account, file and request key.',
+  'browserArchiveTooLarge':
+    'The ZIP is empty or exceeds the upload limit',
+  'guideWebInstall':
+    'Download a Skill package',
+  'guideWebInstallBody':
+    'Download the version you need as a ZIP. Original Skills are converted into packages that Muse can ' +
+    'import directly. A browser download does not install or enable a Skill.',
+  'guideWebUse':
+    'Import and use it in Muse',
+  'guideWebUseBody':
+    'Open the Muse Skill market and import the ZIP on the Installed page. Select its default version for ' +
+    'new chats. After enabling the corresponding Skill, enter /transcript-to-novel, for example, to call it.',
+  'installedSearch': 'Search installed Skills',
+  'administrator': 'Administrator',
+  'publicationFilter': 'Filter publication status',
+  'allPublications': 'All publications',
+  'noPublications': 'No matching publications',
+  'noPublicationsHint': 'Create a Skill or upload a package to start sharing',
+  'containedSkills': 'Included Skills',
+  'requiredSkills': 'Companion Skills',
+  'requiredSkillsHint': 'Check whether these Skills are installed and enable them for new chats as needed',
+  'validation': 'Resource notes',
+  'creatorBack': 'Back to market',
+  'creatorSourcesFailed': 'Local Skills could not be read. You can still upload an existing ZIP.',
+  'creatorRetrySources': 'Reload local Skills',
+  'creatorInstalledFailed': 'Local packages could not be read. You can still import a ZIP.',
+  'creatorRetryInstalled': 'Reload local packages',
+  'creatorIdentityFailed': 'Publishing permissions are unavailable. Check your sign-in and retry.',
+  'creatorRetryIdentity': 'Reload publishing permissions',
+  'creatorNoSkills': 'There are no local Skills to package yet. You can upload an existing ZIP.',
+  'guideEntry': 'Market guide',
+  'guideTitle': 'Welcome to the Muse Skill market',
+  'guideClose': 'Close guide',
+  'guideSkip': 'Skip guide',
+  'guidePrevious': 'Previous',
+  'guideNext': 'Next',
+  'guideStart': 'Get started',
+  'guideProgress': 'Step {step} of {total}',
+  'guideFind': 'Find a Skill for your task',
+  'guideFindBody':
+    'Search by purpose or choose a category. Each card shows its name, description and version. Hover over its ' +
+    'character or choose “Meet this Skill” to learn what it can do.',
+  'guideInstall': 'Download to Muse or import a ZIP',
+  'guideInstallBody':
+    'Download the version you need. You can also import a complete ZIP from the Installed page. Installation ' +
+    'retains the Skill files without changing the version used by a chat.',
+  'guideUse': 'Enable it for new chats',
+  'guideUseBody':
+    'On the Installed page, select the Skill as the default for new chats, then start a new chat. Chats ' +
+    'that have run a task retain their bound version; changing the default does not replace it. After ' +
+    'enabling the corresponding Skill, enter /transcript-to-novel, for example, to call it.',
+  'brand': 'MUSE',
+  'createEntry': 'Create / upload Skill',
+  'discoverEyebrow': 'Made by creators',
+  'installedEyebrow': 'Your creative toolkit',
+  'creatorEyebrow': 'Share the way you create',
+  'discoverTitle': 'Find your next creative spark',
+  'installedTitle': 'Keep good methods close at hand',
+  'creatorTitle': 'Create and share your Skill',
+  'discoverDescription': 'Discover practical Skills and bring proven methods into your creative process',
+  'installedDescription': 'Manage downloaded Skills and choose the versions used in new chats',
+  'creatorDescription': 'Package your method, preview its character and share it with other creators',
+  'skillBadge': 'Skill',
+  'meetSkill': 'Meet this Skill',
+  'myPublications': 'My publications',
+  'publicationsDescription': 'Manage drafts, review progress and published versions',
+  'contributeTitle': 'Help more creators discover your methods',
+  'contributeDescription': 'Turn what you have learned into a Skill and share it with the Muse community',
+  'packageSize': 'Package size',
+  'noRequirements': 'This package lists no additional requirements',
+  'packageVerification': 'View file verification',
+  'publishedReadFailed': 'Published resources could not be refreshed. Existing content is retained.',
+  'retryPublished': 'Retry published resources',
+  'originalReadFailed': 'Original Skills could not be refreshed. Existing content is retained.',
+  'retryOriginal': 'Retry original Skills',
+  'publishedResources': 'Published',
+  'originalResources': 'Original Skill',
   'discardUpload': 'Discard upload attempt',
-  'discardUploadHint': 'This does not withdraw a draft the server may have saved. Refresh the creator list with the original account first.',
+  'discardUploadHint':
+    'This does not withdraw a draft the server may have saved. Refresh the creator list with the original account first.',
   'nav': 'Skill market',
   'description': 'Find creative methods, install resources and choose a version for new chats',
   'discover': 'Discover',
@@ -115,7 +320,9 @@ export const marketEn: Record<MarketLocaleKey, string> = {
   'stored': 'Stored locally',
   'disable': 'Disable for new chats',
   'remove': 'Remove local version',
-  'defaultsHint': 'The default applies to new chats and blank chats before their first task. Chats that have run a task keep their original version.',
+  'defaultsHint':
+    'The default applies to new chats and blank chats before their first task. Chats that have run a task keep ' +
+    'their original version.',
   'confirm': 'Confirm',
   'bytes': 'bytes',
   'creator': 'Create and upload a Skill',
@@ -169,10 +376,117 @@ export const marketEn: Record<MarketLocaleKey, string> = {
   'signInRequired': 'Sign in with the original account and verify the current state.',
   'permissionDenied': 'This account does not have permission for this operation.',
   'cloudUnavailable': 'Cloud access is unavailable. Local package management remains available.',
+  'creatorNewSkill': 'Create a Skill',
+  'creatorUploadZip': 'Upload ZIP',
+  'creatorSourceHint': 'Choose an existing local Skill and retain its instructions and supporting resources',
+  'creatorMetadataTitle': 'Publication details',
+  'creatorMetadataHint': 'Describe the problem it solves so other creators can find it',
+  'creatorPreviewTitle': 'Card preview',
+  'creatorPreviewHint': 'Add a name and introduction to preview the automatically matched character',
+  'creatorUntitled': 'Untitled Skill',
+  'creatorPreparedTitle': 'Review the package',
+  'creatorPreparedHint': 'Export it for inspection, or choose a team to save this version to the cloud',
+  'creatorZipHint': 'Choose an existing Muse ZIP package to validate, preview and upload',
+  'creatorPublisherHint': 'This version will belong to the selected publishing team and remain a private draft after upload',
+  'creatorDraftBadge': 'Local preview',
+  'creatorReadyBadge': 'Local package ready',
 }
 
 /** Ja Skill market interface copy. */
 export const marketJa: Record<MarketLocaleKey, string> = {
+  'browserAccount':
+    'マイアカウント',
+  'browserSignIn':
+    'Muse にログイン',
+  'browserSignInHint':
+    'ログインしてチームの公開物を確認し、Skill をアップロードできます',
+  'browserDownload':
+    'パッケージをダウンロード',
+  'browserDownloaded':
+    'ダウンロードを開始しました。Muse にインポートしてから有効にしてください',
+  'browserDownloadHint':
+    'ここでパッケージをダウンロードし、Muse の Skill マーケットでインポートして、新しいチャットで使うバージョンを選びます',
+  'browserUploadDescription':
+    '既存の Skill ZIP を選び、プレビューを確認して非公開の下書きをアップロードします。新しい Skill は Muse で作成してください',
+  'browserChooseArchive':
+    'Skill ZIP を選ぶ',
+  'browserPreparedArchive':
+    '実際にアップロードするパッケージのプレビューです。キャラクターはバージョンとともに保存されます',
+  'browserArchivePending':
+    'Skill ZIP を選ぶと名前、用途、自動で選ばれたキャラクターを確認できます',
+  'browserUploadRetained':
+    'アップロード結果は未確認です。再試行では元のアカウント、ファイル、リクエスト番号を使います',
+  'browserArchiveTooLarge':
+    'ZIP が空か、アップロード上限を超えています',
+  'guideWebInstall':
+    'Skill パッケージをダウンロード',
+  'guideWebInstallBody':
+    '必要なバージョンの ZIP をダウンロードします。元の Skill は Muse に直接インポートできるパッケージに変換されます。ダウンロードだけではインストールや有効化は行われません',
+  'guideWebUse':
+    'Muse にインポートして使う',
+  'guideWebUseBody':
+    'Muse の Skill マーケットを開き、「インストール済み」で ZIP をインポートして新しいチャットの既定バージョンを選びます。対応する Skill を有効にした後、例えば ' +
+    '/transcript-to-novel で呼び出します',
+  'installedSearch': 'インストール済みの Skill を検索',
+  'administrator': '管理者',
+  'publicationFilter': '公開状態で絞り込む',
+  'allPublications': 'すべての公開物',
+  'noPublications': '該当する公開物がありません',
+  'noPublicationsHint': 'Skill を作成するか、既存のパッケージをアップロードして共有を始めましょう',
+  'containedSkills': '含まれる Skill',
+  'requiredSkills': '併用する Skill',
+  'requiredSkillsHint': 'これらの Skill がインストール済みか確認し、必要に応じて新しいチャットで有効にしてください',
+  'validation': 'リソースについて',
+  'creatorBack': 'マーケットに戻る',
+  'creatorSourcesFailed': 'ローカル Skill を読み取れません。既存の ZIP はアップロードできます',
+  'creatorRetrySources': 'ローカル Skill を再読み込み',
+  'creatorInstalledFailed': 'ローカルパッケージを読み取れません。ZIP はインポートできます',
+  'creatorRetryInstalled': 'ローカルパッケージを再読み込み',
+  'creatorIdentityFailed': '公開権限を取得できません。ログイン状態を確認して再試行してください',
+  'creatorRetryIdentity': '公開権限を再取得',
+  'creatorNoSkills': 'パッケージ化できるローカル Skill がありません。既存の ZIP をアップロードできます',
+  'guideEntry': '市場ガイド',
+  'guideTitle': 'Muse Skill マーケットへようこそ',
+  'guideClose': 'ガイドを閉じる',
+  'guideSkip': 'ガイドをスキップ',
+  'guidePrevious': '戻る',
+  'guideNext': '次へ',
+  'guideStart': '使い始める',
+  'guideProgress': 'ステップ {step} / {total}',
+  'guideFind': '目的に合った Skill を見つける',
+  'guideFindBody': '用途で検索するか、カテゴリを選んでください。各カードに名前、紹介、バージョンが表示されます。キャラクターにポインターを合わせるか「この Skill を知る」を選ぶと、できることを確認できます。',
+  'guideInstall': 'Muse にダウンロード、または ZIP をインポート',
+  'guideInstallBody': '必要なバージョンをダウンロードしてください。「インストール済み」ページから完全な ZIP をインポートすることもできます。インストールしても、チャットで使用中のバージョンは変わりません。',
+  'guideUse': '有効にして新しいチャットで使う',
+  'guideUseBody':
+    '「インストール済み」ページで、新しいチャットの既定バージョンに設定してからチャットを作成します。タスクを実行済みのチャットは、紐付けられたバージョンを引き続き使用します。既定値の変更で置き換わることは' +
+    'ありません。 対応する Skill を有効にした後、例えば /transcript-to-novel と入力して呼び出します。',
+  'brand': 'MUSE',
+  'createEntry': 'Skill を作成 / アップロード',
+  'discoverEyebrow': 'クリエイターとともに',
+  'installedEyebrow': '自分の制作ツール',
+  'creatorEyebrow': '制作の方法をみんなに共有',
+  'discoverTitle': '次の制作パートナーを見つけよう',
+  'installedTitle': '役立つ方法をいつでも手元に',
+  'creatorTitle': 'Skill を作って共有しよう',
+  'discoverDescription': '実用的な Skill を見つけて、専門的な方法を制作に取り入れましょう',
+  'installedDescription': 'ダウンロードした Skill を管理し、新しいチャットで使うバージョンを選びます',
+  'creatorDescription': '制作方法をまとめ、キャラクターを確認してマーケットに公開します',
+  'skillBadge': 'Skill',
+  'meetSkill': 'この Skill を知る',
+  'myPublications': '自分の公開物',
+  'publicationsDescription': '下書き、審査状況、公開済みバージョンを管理します',
+  'contributeTitle': 'あなたの方法をもっと多くの人へ',
+  'contributeDescription': '経験で培った方法を Skill にして、Muse のクリエイターと共有しましょう',
+  'packageSize': 'パッケージサイズ',
+  'noRequirements': 'このパッケージに追加の要件はありません',
+  'packageVerification': 'ファイルの検証情報を表示',
+  'publishedReadFailed': '公開済みリソースを更新できません。既存の内容を保持しています。',
+  'retryPublished': '公開リソースを再読み込み',
+  'originalReadFailed': '既存のスキルを更新できません。内容を保持しています。',
+  'retryOriginal': '既存のスキルを再読み込み',
+  'publishedResources': '公開済み',
+  'originalResources': '既存のスキル',
   'discardUpload': 'アップロード試行を破棄',
   'discardUploadHint': 'サーバーに保存済みの草稿は取り消されません。先に元のアカウントで制作者一覧を更新して確認してください。',
   'nav': 'Skill マーケット',
@@ -254,12 +568,129 @@ export const marketJa: Record<MarketLocaleKey, string> = {
   'signInRequired': '元のアカウントでログインし、現在の状態を確認してください。',
   'permissionDenied': 'このアカウントには操作権限がありません。',
   'cloudUnavailable': 'クラウドに接続できません。ローカルパッケージの管理は続行できます。',
+  'creatorNewSkill': 'Skill を作成',
+  'creatorUploadZip': 'ZIP をアップロード',
+  'creatorSourceHint': '既存のローカル Skill を選び、指示と関連リソースを保持します',
+  'creatorMetadataTitle': '公開情報',
+  'creatorMetadataHint': '他のクリエイターが見つけやすいように、解決できる問題を説明してください',
+  'creatorPreviewTitle': 'カードのプレビュー',
+  'creatorPreviewHint': '名前と紹介を入力すると、自動で選ばれたキャラクターが表示されます',
+  'creatorUntitled': '無題の Skill',
+  'creatorPreparedTitle': 'パッケージを確認',
+  'creatorPreparedHint': 'エクスポートして確認するか、チームを選んでこのバージョンをクラウドに保存します',
+  'creatorZipHint': '既存の Muse ZIP パッケージを選び、検証後にプレビューしてアップロードします',
+  'creatorPublisherHint': 'このバージョンは選んだ公開チームに所属し、アップロード後も非公開の下書きになります',
+  'creatorDraftBadge': 'ローカルプレビュー',
+  'creatorReadyBadge': 'ローカルパッケージ準備完了',
 }
 
 /** Es Skill market interface copy. */
 export const marketEs: Record<MarketLocaleKey, string> = {
+  'browserAccount':
+    'Mi cuenta',
+  'browserSignIn':
+    'Iniciar sesión en Muse',
+  'browserSignInHint':
+    'Inicia sesión para ver publicaciones del equipo y subir Skills',
+  'browserDownload':
+    'Descargar paquete',
+  'browserDownloaded':
+    'Descarga iniciada. Importa el paquete en Muse y actívalo.',
+  'browserDownloadHint':
+    'Descarga un paquete aquí, impórtalo en el mercado de Skills de Muse y elige su versión para chats nuevos',
+  'browserUploadDescription':
+    'Elige un Skill ZIP existente, revisa su vista previa y sube un borrador privado. Crea Skills nuevos en ' +
+    'Muse.',
+  'browserChooseArchive':
+    'Elegir Skill ZIP',
+  'browserPreparedArchive':
+    'La vista previa corresponde al paquete que se subirá. El personaje se guarda con la versión.',
+  'browserArchivePending':
+    'Elige un Skill ZIP para ver su nombre, finalidad y personaje asignado automáticamente',
+  'browserUploadRetained':
+    'La subida no está confirmada. Al reintentar se conservan la cuenta, el archivo y la clave originales.',
+  'browserArchiveTooLarge':
+    'El ZIP está vacío o supera el límite de subida',
+  'guideWebInstall':
+    'Descarga un paquete de Skill',
+  'guideWebInstallBody':
+    'Descarga la versión que necesites en ZIP. Los Skills originales se convierten en paquetes que Muse ' +
+    'puede importar directamente. La descarga no instala ni activa un Skill.',
+  'guideWebUse':
+    'Impórtalo y úsalo en Muse',
+  'guideWebUseBody':
+    'Abre el mercado de Skills de Muse e importa el ZIP en Instalados. Elige la versión predeterminada para ' +
+    'chats nuevos. Tras activar el Skill correspondiente, escribe, por ejemplo, /transcript-to-novel para ' +
+    'invocarlo.',
+  'installedSearch': 'Buscar Skills instalados',
+  'administrator': 'Administrador',
+  'publicationFilter': 'Filtrar por estado de publicación',
+  'allPublications': 'Todas las publicaciones',
+  'noPublications': 'No hay publicaciones coincidentes',
+  'noPublicationsHint': 'Crea un Skill o sube un paquete para empezar a compartir',
+  'containedSkills': 'Skills incluidos',
+  'requiredSkills': 'Skills complementarios',
+  'requiredSkillsHint': 'Comprueba si estos Skills están instalados y actívalos para chats nuevos según sea necesario',
+  'validation': 'Notas del recurso',
+  'creatorBack': 'Volver al mercado',
+  'creatorSourcesFailed': 'No se pudieron leer los Skills locales. Puedes subir un ZIP existente.',
+  'creatorRetrySources': 'Recargar Skills locales',
+  'creatorInstalledFailed': 'No se pudieron leer los paquetes locales. Puedes importar un ZIP.',
+  'creatorRetryInstalled': 'Recargar paquetes locales',
+  'creatorIdentityFailed': 'No se pudieron leer los permisos de publicación. Comprueba tu sesión y vuelve a intentarlo.',
+  'creatorRetryIdentity': 'Recargar permisos de publicación',
+  'creatorNoSkills': 'Aún no hay Skills locales para empaquetar. Puedes subir un ZIP existente.',
+  'guideEntry': 'Guía del mercado',
+  'guideTitle': 'Te damos la bienvenida al mercado de Skills de Muse',
+  'guideClose': 'Cerrar guía',
+  'guideSkip': 'Omitir guía',
+  'guidePrevious': 'Anterior',
+  'guideNext': 'Siguiente',
+  'guideStart': 'Empezar',
+  'guideProgress': 'Paso {step} de {total}',
+  'guideFind': 'Encuentra un Skill para tu tarea',
+  'guideFindBody':
+    'Busca por finalidad o elige una categoría. Cada tarjeta muestra el nombre, la descripción y la versión. Pasa ' +
+    'el cursor sobre su personaje o elige «Conoce este Skill» para descubrir qué puede hacer.',
+  'guideInstall': 'Descarga en Muse o importa un ZIP',
+  'guideInstallBody':
+    'Descarga la versión que necesites. También puedes importar un ZIP completo desde la página Instalados. La ' +
+    'instalación conserva los archivos del Skill sin cambiar la versión que usa un chat.',
+  'guideUse': 'Actívalo para chats nuevos',
+  'guideUseBody':
+    'En Instalados, elige el Skill como versión predeterminada para chats nuevos y después crea un chat. ' +
+    'Los chats que ya han ejecutado una tarea conservan su versión vinculada; cambiar la predeterminada no ' +
+    'la sustituye. Tras activar el Skill correspondiente, escribe, por ejemplo, /transcript-to-novel para ' +
+    'invocarlo.',
+  'brand': 'MUSE',
+  'createEntry': 'Crear / subir Skill',
+  'discoverEyebrow': 'Creado en comunidad',
+  'installedEyebrow': 'Tus herramientas creativas',
+  'creatorEyebrow': 'Comparte tu forma de crear',
+  'discoverTitle': 'Encuentra tu próximo compañero creativo',
+  'installedTitle': 'Ten siempre a mano los métodos útiles',
+  'creatorTitle': 'Crea y comparte tu Skill',
+  'discoverDescription': 'Descubre Skills prácticos e incorpora métodos profesionales a tu proceso creativo',
+  'installedDescription': 'Gestiona los Skills descargados y elige las versiones para los chats nuevos',
+  'creatorDescription': 'Organiza tu método, previsualiza su personaje y publícalo en el mercado',
+  'skillBadge': 'Skill',
+  'meetSkill': 'Conoce este Skill',
+  'myPublications': 'Mis publicaciones',
+  'publicationsDescription': 'Gestiona borradores, revisiones y versiones publicadas',
+  'contributeTitle': 'Haz que más creadores descubran tus métodos',
+  'contributeDescription': 'Convierte tu experiencia en un Skill y compártelo con la comunidad de Muse',
+  'packageSize': 'Tamaño del paquete',
+  'noRequirements': 'Este paquete no indica requisitos adicionales',
+  'packageVerification': 'Ver verificación de archivos',
+  'publishedReadFailed': 'No se actualizaron los recursos publicados. Se conserva el contenido anterior.',
+  'retryPublished': 'Reintentar recursos publicados',
+  'originalReadFailed': 'No se actualizaron los Skills originales. Se conserva el contenido anterior.',
+  'retryOriginal': 'Reintentar Skills originales',
+  'publishedResources': 'Publicado',
+  'originalResources': 'Skill original',
   'discardUpload': 'Descartar intento de subida',
-  'discardUploadHint': 'Esto no retira un borrador que el servidor pueda haber guardado. Actualiza primero la lista con la cuenta original.',
+  'discardUploadHint':
+    'Esto no retira un borrador que el servidor pueda haber guardado. Actualiza primero la lista con la cuenta original.',
   'nav': 'Mercado de Skills',
   'description': 'Descubre métodos creativos, instala recursos y elige una versión para chats nuevos',
   'discover': 'Descubrir',
@@ -285,7 +716,9 @@ export const marketEs: Record<MarketLocaleKey, string> = {
   'stored': 'Guardado localmente',
   'disable': 'Desactivar en chats nuevos',
   'remove': 'Eliminar versión local',
-  'defaultsHint': 'El valor predeterminado se aplica a chats nuevos y vacíos antes de su primera tarea. Los chats que ya ejecutaron una tarea conservan su versión original.',
+  'defaultsHint':
+    'El valor predeterminado se aplica a chats nuevos y vacíos antes de su primera tarea. Los chats que ya ' +
+    'ejecutaron una tarea conservan su versión original.',
   'confirm': 'Confirmar',
   'bytes': 'bytes',
   'creator': 'Crear y subir un Skill',
@@ -339,12 +772,131 @@ export const marketEs: Record<MarketLocaleKey, string> = {
   'signInRequired': 'Inicia sesión con la cuenta original y verifica el estado actual.',
   'permissionDenied': 'Esta cuenta no tiene permiso para esta operación.',
   'cloudUnavailable': 'La nube no está disponible. Puedes seguir gestionando paquetes locales.',
+  'creatorNewSkill': 'Crear un Skill',
+  'creatorUploadZip': 'Subir ZIP',
+  'creatorSourceHint': 'Elige un Skill local existente y conserva sus instrucciones y recursos asociados',
+  'creatorMetadataTitle': 'Datos de publicación',
+  'creatorMetadataHint': 'Describe el problema que resuelve para que otros creadores puedan encontrarlo',
+  'creatorPreviewTitle': 'Vista previa de la tarjeta',
+  'creatorPreviewHint': 'Añade un nombre y una descripción para ver el personaje asignado automáticamente',
+  'creatorUntitled': 'Skill sin título',
+  'creatorPreparedTitle': 'Revisar el paquete',
+  'creatorPreparedHint': 'Expórtalo para revisarlo o elige un equipo para guardar esta versión en la nube',
+  'creatorZipHint': 'Elige un paquete ZIP de Muse existente para validarlo, previsualizarlo y subirlo',
+  'creatorPublisherHint': 'Esta versión pertenecerá al equipo de publicación elegido y seguirá siendo un borrador privado al subirla',
+  'creatorDraftBadge': 'Vista previa local',
+  'creatorReadyBadge': 'Paquete local preparado',
 }
 
 /** Fr Skill market interface copy. */
 export const marketFr: Record<MarketLocaleKey, string> = {
+  'browserAccount':
+    'Mon compte',
+  'browserSignIn':
+    'Se connecter à Muse',
+  'browserSignInHint':
+    'Connectez-vous pour voir les publications de l’équipe et importer des Skills',
+  'browserDownload':
+    'Télécharger le paquet',
+  'browserDownloaded':
+    'Téléchargement lancé. Importez le paquet dans Muse, puis activez-le.',
+  'browserDownloadHint':
+    'Téléchargez un paquet ici, importez-le dans le marché des Skills Muse, puis choisissez sa version pour ' +
+    'les nouvelles conversations',
+  'browserUploadDescription':
+    'Choisissez un Skill ZIP existant, vérifiez son aperçu et envoyez un brouillon privé. Créez les ' +
+    'nouveaux Skills dans Muse.',
+  'browserChooseArchive':
+    'Choisir un Skill ZIP',
+  'browserPreparedArchive':
+    'Cet aperçu correspond au paquet à envoyer. Son personnage est enregistré avec la version.',
+  'browserArchivePending':
+    'Choisissez un Skill ZIP pour voir son nom, son usage et le personnage associé automatiquement',
+  'browserUploadRetained':
+    'L’envoi n’est pas confirmé. Réessayer conserve le compte, le fichier et la clé d’origine.',
+  'browserArchiveTooLarge':
+    'Le ZIP est vide ou dépasse la limite d’envoi',
+  'guideWebInstall':
+    'Téléchargez un paquet de Skill',
+  'guideWebInstallBody':
+    'Téléchargez la version souhaitée en ZIP. Les Skills d’origine sont convertis en paquets directement ' +
+    'importables dans Muse. Le téléchargement n’installe ni n’active un Skill.',
+  'guideWebUse':
+    'Importez-le et utilisez-le dans Muse',
+  'guideWebUseBody':
+    'Ouvrez le marché des Skills Muse et importez le ZIP dans Installés. Choisissez sa version par défaut ' +
+    'pour les nouvelles conversations. Après activation du Skill correspondant, saisissez par exemple ' +
+    '/transcript-to-novel pour l’appeler.',
+  'installedSearch': 'Rechercher les Skills installés',
+  'administrator': 'Administrateur',
+  'publicationFilter': 'Filtrer par état de publication',
+  'allPublications': 'Toutes les publications',
+  'noPublications': 'Aucune publication correspondante',
+  'noPublicationsHint': 'Créez un Skill ou importez un paquet pour commencer à partager',
+  'containedSkills': 'Skills inclus',
+  'requiredSkills': 'Skills complémentaires',
+  'requiredSkillsHint': 'Vérifiez que ces Skills sont installés et activez-les pour les nouvelles conversations si nécessaire',
+  'validation': 'Notes sur la ressource',
+  'creatorBack': 'Retour au marché',
+  'creatorSourcesFailed': 'Impossible de lire les Skills locaux. Vous pouvez toujours importer un ZIP existant.',
+  'creatorRetrySources': 'Recharger les Skills locaux',
+  'creatorInstalledFailed': 'Impossible de lire les paquets locaux. Vous pouvez toujours importer un ZIP.',
+  'creatorRetryInstalled': 'Recharger les paquets locaux',
+  'creatorIdentityFailed': 'Les droits de publication sont indisponibles. Vérifiez votre connexion et réessayez.',
+  'creatorRetryIdentity': 'Recharger les droits de publication',
+  'creatorNoSkills': 'Aucun Skill local à empaqueter pour le moment. Vous pouvez importer un ZIP existant.',
+  'guideEntry': 'Guide du marché',
+  'guideTitle': 'Bienvenue sur le marché des Skills Muse',
+  'guideClose': 'Fermer le guide',
+  'guideSkip': 'Ignorer le guide',
+  'guidePrevious': 'Précédent',
+  'guideNext': 'Suivant',
+  'guideStart': 'Commencer',
+  'guideProgress': 'Étape {step} sur {total}',
+  'guideFind': 'Trouvez un Skill adapté à votre tâche',
+  'guideFindBody':
+    'Recherchez par usage ou choisissez une catégorie. Chaque carte affiche le nom, la description et la version. ' +
+    'Survolez son personnage ou choisissez « Découvrir ce Skill » pour voir ce qu’il peut faire.',
+  'guideInstall': 'Téléchargez dans Muse ou importez un ZIP',
+  'guideInstallBody':
+    'Téléchargez la version souhaitée. Vous pouvez aussi importer un ZIP complet depuis la page Installés. ' +
+    'L’installation conserve les fichiers du Skill sans changer la version utilisée par une conversation.',
+  'guideUse': 'Activez-le pour les nouvelles conversations',
+  'guideUseBody':
+    'Dans Installés, choisissez le Skill comme version par défaut pour les nouvelles conversations, puis ' +
+    'créez-en une. Les conversations ayant déjà exécuté une tâche conservent leur version liée ; changer la ' +
+    'valeur par défaut ne la remplace pas. Après avoir activé le Skill correspondant, saisissez par exemple ' +
+    '/transcript-to-novel pour l’appeler.',
+  'brand': 'MUSE',
+  'createEntry': 'Créer / importer un Skill',
+  'discoverEyebrow': 'Créé par la communauté',
+  'installedEyebrow': 'Vos outils de création',
+  'creatorEyebrow': 'Partagez votre façon de créer',
+  'discoverTitle': 'Trouvez votre prochain partenaire de création',
+  'installedTitle': 'Gardez les méthodes utiles à portée de main',
+  'creatorTitle': 'Créez et partagez votre Skill',
+  'discoverDescription': 'Découvrez des Skills pratiques et intégrez des méthodes professionnelles à votre création',
+  'installedDescription': 'Gérez les Skills téléchargés et choisissez les versions des nouvelles conversations',
+  'creatorDescription': 'Préparez votre méthode, prévisualisez son personnage et publiez-la sur le marché',
+  'skillBadge': 'Skill',
+  'meetSkill': 'Découvrir ce Skill',
+  'myPublications': 'Mes publications',
+  'publicationsDescription': 'Gérez les brouillons, les validations et les versions publiées',
+  'contributeTitle': 'Faites découvrir vos méthodes à d’autres créateurs',
+  'contributeDescription': 'Transformez votre expérience en Skill et partagez-le avec la communauté Muse',
+  'packageSize': 'Taille du paquet',
+  'noRequirements': 'Ce paquet ne mentionne aucun prérequis supplémentaire',
+  'packageVerification': 'Voir la vérification des fichiers',
+  'publishedReadFailed': 'Les ressources publiées ne sont pas actualisées. Le contenu précédent est conservé.',
+  'retryPublished': 'Réessayer les ressources publiées',
+  'originalReadFailed': 'Les Skills d’origine ne sont pas actualisés. Le contenu précédent est conservé.',
+  'retryOriginal': 'Réessayer les Skills d’origine',
+  'publishedResources': 'Publié',
+  'originalResources': 'Skill d’origine',
   'discardUpload': 'Abandonner cette tentative d’envoi',
-  'discardUploadHint': 'Cela ne retire pas un brouillon déjà enregistré sur le serveur. Actualisez d’abord la liste avec le compte d’origine.',
+  'discardUploadHint':
+    'Cela ne retire pas un brouillon déjà enregistré sur le serveur. Actualisez d’abord la liste avec le compte ' +
+    'd’origine.',
   'nav': 'Marché des Skills',
   'description': 'Découvrez des méthodes créatives, installez des ressources et choisissez une version pour les nouvelles discussions',
   'discover': 'Découvrir',
@@ -359,7 +911,8 @@ export const marketFr: Record<MarketLocaleKey, string> = {
   'details': 'Détails',
   'close': 'Fermer',
   'retry': 'Réessayer',
-  'readFailedRetained': 'L’actualisation a échoué. Le contenu précédent est conservé ; vérifiez le compte ou la connexion, puis réessayez.',
+  'readFailedRetained':
+    'L’actualisation a échoué. Le contenu précédent est conservé ; vérifiez le compte ou la connexion, puis réessayez.',
   'empty': 'Aucun contenu correspondant',
   'import': 'Importer un paquet ZIP',
   'export': 'Exporter le paquet',
@@ -370,11 +923,15 @@ export const marketFr: Record<MarketLocaleKey, string> = {
   'stored': 'Enregistré localement',
   'disable': 'Désactiver pour les nouvelles discussions',
   'remove': 'Supprimer la version locale',
-  'defaultsHint': 'La version par défaut s’applique aux discussions nouvelles ou vides avant leur première tâche. Les discussions déjà exécutées conservent leur version d’origine.',
+  'defaultsHint':
+    'La version par défaut s’applique aux discussions nouvelles ou vides avant leur première tâche. Les ' +
+    'discussions déjà exécutées conservent leur version d’origine.',
   'confirm': 'Confirmer',
   'bytes': 'octets',
   'creator': 'Créer et envoyer un Skill',
-  'prepareHint': 'Choisissez un Skill local et préparez un paquet avec ses ressources d’origine. Exportez-le pour le vérifier avant l’envoi.',
+  'prepareHint':
+    'Choisissez un Skill local et préparez un paquet avec ses ressources d’origine. Exportez-le pour le vérifier ' +
+    'avant l’envoi.',
   'sourcesIncomplete': 'Seules les sources de Skills actuellement lisibles sont affichées.',
   'source': 'Skill local',
   'chooseSource': 'Choisir un Skill',
@@ -424,12 +981,131 @@ export const marketFr: Record<MarketLocaleKey, string> = {
   'signInRequired': 'Connectez-vous avec le compte d’origine et vérifiez l’état actuel.',
   'permissionDenied': 'Ce compte n’a pas l’autorisation nécessaire.',
   'cloudUnavailable': 'Le cloud est indisponible. La gestion des paquets locaux reste accessible.',
+  'creatorNewSkill': 'Créer un Skill',
+  'creatorUploadZip': 'Importer un ZIP',
+  'creatorSourceHint': 'Choisissez un Skill local existant en conservant ses instructions et ses ressources associées',
+  'creatorMetadataTitle': 'Informations de publication',
+  'creatorMetadataHint': 'Décrivez le problème résolu pour aider les autres créateurs à le trouver',
+  'creatorPreviewTitle': 'Aperçu de la carte',
+  'creatorPreviewHint': 'Ajoutez un nom et une présentation pour voir le personnage associé automatiquement',
+  'creatorUntitled': 'Skill sans titre',
+  'creatorPreparedTitle': 'Vérifier le paquet',
+  'creatorPreparedHint': 'Exportez-le pour le vérifier ou choisissez une équipe pour enregistrer cette version dans le cloud',
+  'creatorZipHint': 'Choisissez un paquet ZIP Muse existant pour le valider, le prévisualiser et l’importer',
+  'creatorPublisherHint': 'Cette version appartiendra à l’équipe de publication choisie et restera un brouillon privé après l’envoi',
+  'creatorDraftBadge': 'Aperçu local',
+  'creatorReadyBadge': 'Paquet local prêt',
 }
 
 /** De Skill market interface copy. */
 export const marketDe: Record<MarketLocaleKey, string> = {
+  'browserAccount':
+    'Mein Konto',
+  'browserSignIn':
+    'Bei Muse anmelden',
+  'browserSignInHint':
+    'Melde dich an, um Teamveröffentlichungen anzusehen und Skills hochzuladen',
+  'browserDownload':
+    'Paket herunterladen',
+  'browserDownloaded':
+    'Download gestartet. Importiere das Paket in Muse und aktiviere es.',
+  'browserDownloadHint':
+    'Lade hier ein Paket herunter, importiere es im Muse-Skill-Marktplatz und wähle seine Version für neue ' +
+    'Chats',
+  'browserUploadDescription':
+    'Wähle eine vorhandene Skill-ZIP, prüfe die Vorschau und lade einen privaten Entwurf hoch. Neue Skills ' +
+    'erstellst du in Muse.',
+  'browserChooseArchive':
+    'Skill-ZIP auswählen',
+  'browserPreparedArchive':
+    'Die Vorschau zeigt das tatsächliche Upload-Paket. Die Figur wird mit der Version gespeichert.',
+  'browserArchivePending':
+    'Wähle eine Skill-ZIP, um Name, Einsatzzweck und automatisch zugeordnete Figur zu sehen',
+  'browserUploadRetained':
+    'Der Upload ist unbestätigt. Beim Wiederholen bleiben Konto, Datei und Anfragekennung unverändert.',
+  'browserArchiveTooLarge':
+    'Die ZIP-Datei ist leer oder überschreitet das Upload-Limit',
+  'guideWebInstall':
+    'Ein Skill-Paket herunterladen',
+  'guideWebInstallBody':
+    'Lade die gewünschte Version als ZIP herunter. Ursprüngliche Skills werden in direkt importierbare ' +
+    'Muse-Pakete umgewandelt. Ein Download installiert oder aktiviert keinen Skill.',
+  'guideWebUse':
+    'In Muse importieren und verwenden',
+  'guideWebUseBody':
+    'Öffne den Muse-Skill-Marktplatz und importiere die ZIP unter Installiert. Wähle die Standardversion ' +
+    'für neue Chats. Nach dem Aktivieren des entsprechenden Skills rufst du ihn zum Beispiel mit ' +
+    '/transcript-to-novel auf.',
+  'installedSearch': 'Installierte Skills suchen',
+  'administrator': 'Administrator',
+  'publicationFilter': 'Nach Veröffentlichungsstatus filtern',
+  'allPublications': 'Alle Veröffentlichungen',
+  'noPublications': 'Keine passenden Veröffentlichungen',
+  'noPublicationsHint': 'Erstelle einen Skill oder lade ein Paket hoch, um es zu teilen',
+  'containedSkills': 'Enthaltene Skills',
+  'requiredSkills': 'Ergänzende Skills',
+  'requiredSkillsHint': 'Prüfe, ob diese Skills installiert sind, und aktiviere sie bei Bedarf für neue Chats',
+  'validation': 'Ressourcenhinweise',
+  'creatorBack': 'Zurück zum Marktplatz',
+  'creatorSourcesFailed': 'Lokale Skills konnten nicht gelesen werden. Du kannst weiterhin eine vorhandene ZIP-Datei hochladen.',
+  'creatorRetrySources': 'Lokale Skills neu laden',
+  'creatorInstalledFailed': 'Lokale Pakete konnten nicht gelesen werden. Du kannst weiterhin eine ZIP-Datei importieren.',
+  'creatorRetryInstalled': 'Lokale Pakete neu laden',
+  'creatorIdentityFailed': 'Veröffentlichungsrechte sind nicht verfügbar. Prüfe deine Anmeldung und versuche es erneut.',
+  'creatorRetryIdentity': 'Veröffentlichungsrechte neu laden',
+  'creatorNoSkills': 'Es gibt noch keine lokalen Skills zum Verpacken. Du kannst eine vorhandene ZIP-Datei hochladen.',
+  'guideEntry': 'Marktplatz-Anleitung',
+  'guideTitle': 'Willkommen auf dem Muse-Skill-Marktplatz',
+  'guideClose': 'Anleitung schließen',
+  'guideSkip': 'Anleitung überspringen',
+  'guidePrevious': 'Zurück',
+  'guideNext': 'Weiter',
+  'guideStart': 'Loslegen',
+  'guideProgress': 'Schritt {step} von {total}',
+  'guideFind': 'Finde einen Skill für deine Aufgabe',
+  'guideFindBody':
+    'Suche nach Einsatzzweck oder wähle eine Kategorie. Jede Karte zeigt Name, Beschreibung und Version. Bewege ' +
+    'den Zeiger auf die Figur oder wähle „Skill kennenlernen“, um ihre Möglichkeiten zu entdecken.',
+  'guideInstall': 'In Muse herunterladen oder ZIP importieren',
+  'guideInstallBody':
+    'Lade die gewünschte Version herunter. Unter Installiert kannst du auch eine vollständige ZIP-Datei ' +
+    'importieren. Die Installation bewahrt die Skill-Dateien, ohne die in einem Chat verwendete Version zu ändern.',
+  'guideUse': 'Für neue Chats aktivieren',
+  'guideUseBody':
+    'Wähle unter Installiert den Skill als Standardversion für neue Chats und öffne dann einen Chat. Chats, ' +
+    'in denen bereits eine Aufgabe ausgeführt wurde, behalten ihre gebundene Version. Ein neuer Standard ' +
+    'ersetzt sie nicht. Nach dem Aktivieren des entsprechenden Skills kannst du ihn zum Beispiel mit ' +
+    '/transcript-to-novel aufrufen.',
+  'brand': 'MUSE',
+  'createEntry': 'Skill erstellen / hochladen',
+  'discoverEyebrow': 'Von Kreativen gestaltet',
+  'installedEyebrow': 'Deine kreativen Werkzeuge',
+  'creatorEyebrow': 'Teile deine kreative Arbeitsweise',
+  'discoverTitle': 'Finde deinen nächsten kreativen Partner',
+  'installedTitle': 'Bewährte Methoden immer griffbereit',
+  'creatorTitle': 'Erstelle und teile deinen Skill',
+  'discoverDescription': 'Entdecke praktische Skills und ergänze deinen kreativen Ablauf um professionelle Methoden',
+  'installedDescription': 'Verwalte heruntergeladene Skills und wähle die Versionen für neue Chats',
+  'creatorDescription': 'Stelle deine Methode zusammen, sieh dir die Figur an und veröffentliche den Skill im Marktplatz',
+  'skillBadge': 'Skill',
+  'meetSkill': 'Skill kennenlernen',
+  'myPublications': 'Meine Veröffentlichungen',
+  'publicationsDescription': 'Verwalte Entwürfe, Prüfungen und veröffentlichte Versionen',
+  'contributeTitle': 'Mach deine Methoden für mehr Kreative sichtbar',
+  'contributeDescription': 'Verwandle deine Erfahrung in einen Skill und teile ihn mit der Muse-Community',
+  'packageSize': 'Paketgröße',
+  'noRequirements': 'Dieses Paket nennt keine zusätzlichen Voraussetzungen',
+  'packageVerification': 'Dateiprüfung anzeigen',
+  'publishedReadFailed': 'Veröffentlichte Ressourcen konnten nicht aktualisiert werden. Bisherige Inhalte bleiben erhalten.',
+  'retryPublished': 'Veröffentlichte Ressourcen neu laden',
+  'originalReadFailed': 'Ursprüngliche Skills konnten nicht aktualisiert werden. Bisherige Inhalte bleiben erhalten.',
+  'retryOriginal': 'Ursprüngliche Skills neu laden',
+  'publishedResources': 'Veröffentlicht',
+  'originalResources': 'Ursprünglicher Skill',
   'discardUpload': 'Upload-Versuch verwerfen',
-  'discardUploadHint': 'Ein bereits gespeicherter Entwurf wird dadurch nicht zurückgezogen. Aktualisiere zuerst die Liste mit dem ursprünglichen Konto.',
+  'discardUploadHint':
+    'Ein bereits gespeicherter Entwurf wird dadurch nicht zurückgezogen. Aktualisiere zuerst die Liste mit dem ' +
+    'ursprünglichen Konto.',
   'nav': 'Skill-Markt',
   'description': 'Kreative Methoden finden, Ressourcen installieren und eine Version für neue Chats auswählen',
   'discover': 'Entdecken',
@@ -444,7 +1120,9 @@ export const marketDe: Record<MarketLocaleKey, string> = {
   'details': 'Details',
   'close': 'Schließen',
   'retry': 'Erneut versuchen',
-  'readFailedRetained': 'Die Aktualisierung wurde nicht abgeschlossen. Vorherige Inhalte bleiben erhalten. Prüfe Konto oder Verbindung und versuche es erneut.',
+  'readFailedRetained':
+    'Die Aktualisierung wurde nicht abgeschlossen. Vorherige Inhalte bleiben erhalten. Prüfe Konto oder Verbindung ' +
+    'und versuche es erneut.',
   'empty': 'Keine passenden Inhalte',
   'import': 'ZIP-Paket importieren',
   'export': 'Paket exportieren',
@@ -455,11 +1133,15 @@ export const marketDe: Record<MarketLocaleKey, string> = {
   'stored': 'Lokal gespeichert',
   'disable': 'Für neue Chats deaktivieren',
   'remove': 'Lokale Version entfernen',
-  'defaultsHint': 'Der Standard gilt für neue und leere Chats vor ihrer ersten Aufgabe. Bereits ausgeführte Chats behalten ihre ursprüngliche Version.',
+  'defaultsHint':
+    'Der Standard gilt für neue und leere Chats vor ihrer ersten Aufgabe. Bereits ausgeführte Chats behalten ihre ' +
+    'ursprüngliche Version.',
   'confirm': 'Bestätigen',
   'bytes': 'Bytes',
   'creator': 'Skill erstellen und hochladen',
-  'prepareHint': 'Wähle einen lokalen Skill und erstelle ein Paket mit seinen ursprünglichen Ressourcen. Exportiere es vor dem Upload zur Prüfung.',
+  'prepareHint':
+    'Wähle einen lokalen Skill und erstelle ein Paket mit seinen ursprünglichen Ressourcen. Exportiere es vor dem ' +
+    'Upload zur Prüfung.',
   'sourcesIncomplete': 'Es werden nur aktuell lesbare Skill-Quellen angezeigt.',
   'source': 'Lokaler Skill',
   'chooseSource': 'Skill auswählen',
@@ -509,10 +1191,126 @@ export const marketDe: Record<MarketLocaleKey, string> = {
   'signInRequired': 'Melde dich mit dem ursprünglichen Konto an und prüfe den aktuellen Status.',
   'permissionDenied': 'Dieses Konto hat keine Berechtigung für diesen Vorgang.',
   'cloudUnavailable': 'Die Cloud ist nicht verfügbar. Lokale Pakete können weiter verwaltet werden.',
+  'creatorNewSkill': 'Skill erstellen',
+  'creatorUploadZip': 'ZIP hochladen',
+  'creatorSourceHint': 'Wähle einen vorhandenen lokalen Skill und behalte seine Anweisungen und zugehörigen Ressourcen bei',
+  'creatorMetadataTitle': 'Angaben zur Veröffentlichung',
+  'creatorMetadataHint': 'Beschreibe das gelöste Problem, damit andere Kreative den Skill finden können',
+  'creatorPreviewTitle': 'Kartenvorschau',
+  'creatorPreviewHint': 'Gib einen Namen und eine Beschreibung ein, um die automatisch zugeordnete Figur zu sehen',
+  'creatorUntitled': 'Unbenannter Skill',
+  'creatorPreparedTitle': 'Paket prüfen',
+  'creatorPreparedHint': 'Exportiere das Paket zur Prüfung oder wähle ein Team, um diese Version in der Cloud zu speichern',
+  'creatorZipHint': 'Wähle ein vorhandenes Muse-ZIP-Paket, um es zu prüfen, anzusehen und hochzuladen',
+  'creatorPublisherHint':
+    'Diese Version gehört zum ausgewählten Veröffentlichungsteam und bleibt nach dem Hochladen ein privater Entwurf',
+  'creatorDraftBadge': 'Lokale Vorschau',
+  'creatorReadyBadge': 'Lokales Paket bereit',
 }
 
 /** Ru Skill market interface copy. */
 export const marketRu: Record<MarketLocaleKey, string> = {
+  'browserAccount':
+    'Мой аккаунт',
+  'browserSignIn':
+    'Войти в Muse',
+  'browserSignInHint':
+    'Войдите, чтобы просматривать публикации команды и загружать Skills',
+  'browserDownload':
+    'Скачать пакет',
+  'browserDownloaded':
+    'Загрузка началась. Импортируйте пакет в Muse и включите его.',
+  'browserDownloadHint':
+    'Скачайте пакет здесь, импортируйте его в маркете Skills Muse и выберите версию для новых чатов',
+  'browserUploadDescription':
+    'Выберите готовый Skill ZIP, проверьте предпросмотр и загрузите частный черновик. Создавайте новые ' +
+    'Skills в Muse.',
+  'browserChooseArchive':
+    'Выбрать Skill ZIP',
+  'browserPreparedArchive':
+    'Предпросмотр показывает пакет, который будет загружен. Персонаж сохраняется вместе с версией.',
+  'browserArchivePending':
+    'Выберите Skill ZIP, чтобы увидеть название, назначение и автоматически подобранного персонажа',
+  'browserUploadRetained':
+    'Результат загрузки не подтверждён. Повторная попытка сохранит исходные аккаунт, файл и ключ запроса.',
+  'browserArchiveTooLarge':
+    'ZIP пуст или превышает допустимый размер загрузки',
+  'guideWebInstall':
+    'Скачайте пакет Skill',
+  'guideWebInstallBody':
+    'Скачайте нужную версию в ZIP. Исходные Skills преобразуются в пакеты для прямого импорта в Muse. ' +
+    'Загрузка в браузере не устанавливает и не включает Skill.',
+  'guideWebUse':
+    'Импортируйте и используйте в Muse',
+  'guideWebUseBody':
+    'Откройте маркет Skills Muse и импортируйте ZIP на странице «Установленные». Выберите версию по ' +
+    'умолчанию для новых чатов. После включения соответствующего Skill введите, например, ' +
+    '/transcript-to-novel для его вызова.',
+  'installedSearch': 'Поиск установленных Skills',
+  'administrator': 'Администратор',
+  'publicationFilter': 'Фильтр по статусу публикации',
+  'allPublications': 'Все публикации',
+  'noPublications': 'Подходящих публикаций нет',
+  'noPublicationsHint': 'Создайте Skill или загрузите пакет, чтобы начать делиться',
+  'containedSkills': 'Включённые Skills',
+  'requiredSkills': 'Сопутствующие Skills',
+  'requiredSkillsHint': 'Убедитесь, что эти Skills установлены, и при необходимости включите их для новых чатов',
+  'validation': 'Примечания к ресурсу',
+  'creatorBack': 'Вернуться в маркет',
+  'creatorSourcesFailed': 'Не удалось прочитать локальные Skills. Можно загрузить готовый ZIP.',
+  'creatorRetrySources': 'Перечитать локальные Skills',
+  'creatorInstalledFailed': 'Не удалось прочитать локальные пакеты. Можно импортировать ZIP.',
+  'creatorRetryInstalled': 'Перечитать локальные пакеты',
+  'creatorIdentityFailed': 'Не удалось получить права публикации. Проверьте вход в аккаунт и повторите попытку.',
+  'creatorRetryIdentity': 'Проверить права публикации снова',
+  'creatorNoSkills': 'Пока нет локальных Skills для создания пакета. Можно загрузить готовый ZIP.',
+  'guideEntry': 'Руководство по маркету',
+  'guideTitle': 'Добро пожаловать в маркет Skills Muse',
+  'guideClose': 'Закрыть руководство',
+  'guideSkip': 'Пропустить руководство',
+  'guidePrevious': 'Назад',
+  'guideNext': 'Далее',
+  'guideStart': 'Начать',
+  'guideProgress': 'Шаг {step} из {total}',
+  'guideFind': 'Найдите Skill для своей задачи',
+  'guideFindBody':
+    'Ищите по назначению или выберите категорию. На каждой карточке указаны название, описание и версия. Наведите ' +
+    'указатель на персонажа или выберите «Познакомиться со Skill», чтобы узнать его возможности.',
+  'guideInstall': 'Скачайте в Muse или импортируйте ZIP',
+  'guideInstallBody':
+    'Скачайте нужную версию. Также можно импортировать полный ZIP на странице «Установленные». Установка сохраняет ' +
+    'файлы Skill, не меняя версию, используемую в чате.',
+  'guideUse': 'Включите для новых чатов',
+  'guideUseBody':
+    'На странице «Установленные» выберите Skill по умолчанию для новых чатов, затем создайте чат. Чаты, в ' +
+    'которых уже выполнялись задачи, сохраняют привязанную версию. Изменение версии по умолчанию её не ' +
+    'заменяет. После включения соответствующего Skill введите, например, /transcript-to-novel, чтобы вызвать его.',
+  'brand': 'MUSE',
+  'createEntry': 'Создать / загрузить Skill',
+  'discoverEyebrow': 'Создано сообществом',
+  'installedEyebrow': 'Ваши творческие инструменты',
+  'creatorEyebrow': 'Поделитесь своим подходом к творчеству',
+  'discoverTitle': 'Найдите нового творческого помощника',
+  'installedTitle': 'Полезные методы всегда под рукой',
+  'creatorTitle': 'Создайте и опубликуйте свой Skill',
+  'discoverDescription': 'Откройте полезные Skills и добавьте профессиональные методы в свой творческий процесс',
+  'installedDescription': 'Управляйте скачанными Skills и выбирайте версии для новых чатов',
+  'creatorDescription': 'Подготовьте свой метод, посмотрите персонажа и опубликуйте Skill в маркете',
+  'skillBadge': 'Skill',
+  'meetSkill': 'Познакомиться со Skill',
+  'myPublications': 'Мои публикации',
+  'publicationsDescription': 'Управляйте черновиками, проверкой и опубликованными версиями',
+  'contributeTitle': 'Помогите другим авторам открыть ваши методы',
+  'contributeDescription': 'Превратите накопленный опыт в Skill и поделитесь им с сообществом Muse',
+  'packageSize': 'Размер пакета',
+  'noRequirements': 'Для этого пакета не указаны дополнительные требования',
+  'packageVerification': 'Посмотреть проверку файлов',
+  'publishedReadFailed': 'Не удалось обновить опубликованные ресурсы. Предыдущее содержимое сохранено.',
+  'retryPublished': 'Повторить загрузку публикаций',
+  'originalReadFailed': 'Не удалось обновить исходные Skills. Предыдущее содержимое сохранено.',
+  'retryOriginal': 'Повторить загрузку исходных Skills',
+  'publishedResources': 'Опубликовано',
+  'originalResources': 'Исходный Skill',
   'discardUpload': 'Отменить попытку загрузки',
   'discardUploadHint': 'Это не отзовёт черновик, который сервер уже мог сохранить. Сначала обновите список из исходной учётной записи.',
   'nav': 'Каталог Skills',
@@ -529,7 +1327,9 @@ export const marketRu: Record<MarketLocaleKey, string> = {
   'details': 'Подробнее',
   'close': 'Закрыть',
   'retry': 'Повторить',
-  'readFailedRetained': 'Обновление не завершено. Предыдущее содержимое сохранено; проверьте учётную запись или соединение и повторите попытку.',
+  'readFailedRetained':
+    'Обновление не завершено. Предыдущее содержимое сохранено; проверьте учётную запись или соединение и повторите ' +
+    'попытку.',
   'empty': 'Подходящих материалов нет',
   'import': 'Импортировать ZIP-пакет',
   'export': 'Экспортировать пакет',
@@ -540,11 +1340,15 @@ export const marketRu: Record<MarketLocaleKey, string> = {
   'stored': 'Сохранено локально',
   'disable': 'Отключить для новых чатов',
   'remove': 'Удалить локальную версию',
-  'defaultsHint': 'Версия по умолчанию применяется к новым и пустым чатам до первой задачи. Чаты, уже выполнявшие задачи, сохраняют исходную версию.',
+  'defaultsHint':
+    'Версия по умолчанию применяется к новым и пустым чатам до первой задачи. Чаты, уже выполнявшие задачи, ' +
+    'сохраняют исходную версию.',
   'confirm': 'Подтвердить',
   'bytes': 'байт',
   'creator': 'Создать и загрузить Skill',
-  'prepareHint': 'Выберите локальный Skill и подготовьте пакет с исходными ресурсами. Перед загрузкой его можно экспортировать для проверки.',
+  'prepareHint':
+    'Выберите локальный Skill и подготовьте пакет с исходными ресурсами. Перед загрузкой его можно экспортировать ' +
+    'для проверки.',
   'sourcesIncomplete': 'Показаны только доступные для чтения источники Skills.',
   'source': 'Локальный Skill',
   'chooseSource': 'Выбрать Skill',
@@ -594,10 +1398,126 @@ export const marketRu: Record<MarketLocaleKey, string> = {
   'signInRequired': 'Войдите в исходную учётную запись и проверьте текущее состояние.',
   'permissionDenied': 'У этой учётной записи нет прав на данную операцию.',
   'cloudUnavailable': 'Облако недоступно. Управление локальными пакетами остаётся доступным.',
+  'creatorNewSkill': 'Создать Skill',
+  'creatorUploadZip': 'Загрузить ZIP',
+  'creatorSourceHint': 'Выберите существующий локальный Skill, сохранив его инструкции и сопутствующие ресурсы',
+  'creatorMetadataTitle': 'Сведения о публикации',
+  'creatorMetadataHint': 'Опишите решаемую задачу, чтобы другим авторам было легче найти Skill',
+  'creatorPreviewTitle': 'Предпросмотр карточки',
+  'creatorPreviewHint': 'Добавьте название и описание, чтобы увидеть автоматически подобранного персонажа',
+  'creatorUntitled': 'Skill без названия',
+  'creatorPreparedTitle': 'Проверить пакет',
+  'creatorPreparedHint': 'Экспортируйте пакет для проверки или выберите команду для сохранения этой версии в облаке',
+  'creatorZipHint': 'Выберите существующий ZIP-пакет Muse для проверки, предпросмотра и загрузки',
+  'creatorPublisherHint': 'Эта версия будет принадлежать выбранной команде публикации и после загрузки останется частным черновиком',
+  'creatorDraftBadge': 'Локальный предпросмотр',
+  'creatorReadyBadge': 'Локальный пакет готов',
 }
 
 /** Pt Skill market interface copy. */
 export const marketPt: Record<MarketLocaleKey, string> = {
+  'browserAccount':
+    'A minha conta',
+  'browserSignIn':
+    'Iniciar sessão no Muse',
+  'browserSignInHint':
+    'Inicie sessão para ver publicações da equipa e enviar Skills',
+  'browserDownload':
+    'Transferir pacote',
+  'browserDownloaded':
+    'Transferência iniciada. Importe o pacote no Muse e ative-o.',
+  'browserDownloadHint':
+    'Transfira um pacote aqui, importe-o no mercado de Skills do Muse e escolha a versão para novas conversas',
+  'browserUploadDescription':
+    'Escolha um Skill ZIP existente, verifique a pré-visualização e envie um rascunho privado. Crie novos ' +
+    'Skills no Muse.',
+  'browserChooseArchive':
+    'Escolher Skill ZIP',
+  'browserPreparedArchive':
+    'A pré-visualização corresponde ao pacote que será enviado. A personagem é guardada com a versão.',
+  'browserArchivePending':
+    'Escolha um Skill ZIP para ver o nome, a finalidade e a personagem associada automaticamente',
+  'browserUploadRetained':
+    'O envio não está confirmado. Ao repetir, mantêm-se a conta, o ficheiro e a chave originais.',
+  'browserArchiveTooLarge':
+    'O ZIP está vazio ou excede o limite de envio',
+  'guideWebInstall':
+    'Transfira um pacote de Skill',
+  'guideWebInstallBody':
+    'Transfira a versão necessária em ZIP. Os Skills originais são convertidos em pacotes diretamente ' +
+    'importáveis no Muse. A transferência não instala nem ativa um Skill.',
+  'guideWebUse':
+    'Importe e utilize no Muse',
+  'guideWebUseBody':
+    'Abra o mercado de Skills do Muse e importe o ZIP na página Instalados. Escolha a versão predefinida ' +
+    'para novas conversas. Após ativar o Skill correspondente, introduza, por exemplo, /transcript-to-novel ' +
+    'para o invocar.',
+  'installedSearch': 'Pesquisar Skills instalados',
+  'administrator': 'Administrador',
+  'publicationFilter': 'Filtrar por estado de publicação',
+  'allPublications': 'Todas as publicações',
+  'noPublications': 'Não há publicações correspondentes',
+  'noPublicationsHint': 'Crie um Skill ou envie um pacote para começar a partilhar',
+  'containedSkills': 'Skills incluídos',
+  'requiredSkills': 'Skills complementares',
+  'requiredSkillsHint': 'Verifique se estes Skills estão instalados e ative-os para novas conversas conforme necessário',
+  'validation': 'Notas do recurso',
+  'creatorBack': 'Voltar ao mercado',
+  'creatorSourcesFailed': 'Não foi possível ler os Skills locais. Pode enviar um ZIP existente.',
+  'creatorRetrySources': 'Recarregar Skills locais',
+  'creatorInstalledFailed': 'Não foi possível ler os pacotes locais. Pode importar um ZIP.',
+  'creatorRetryInstalled': 'Recarregar pacotes locais',
+  'creatorIdentityFailed': 'As permissões de publicação estão indisponíveis. Verifique o início de sessão e tente novamente.',
+  'creatorRetryIdentity': 'Recarregar permissões de publicação',
+  'creatorNoSkills': 'Ainda não há Skills locais para criar um pacote. Pode enviar um ZIP existente.',
+  'guideEntry': 'Guia do mercado',
+  'guideTitle': 'Bem-vindo ao mercado de Skills do Muse',
+  'guideClose': 'Fechar guia',
+  'guideSkip': 'Ignorar guia',
+  'guidePrevious': 'Anterior',
+  'guideNext': 'Seguinte',
+  'guideStart': 'Começar',
+  'guideProgress': 'Passo {step} de {total}',
+  'guideFind': 'Encontre um Skill para a sua tarefa',
+  'guideFindBody':
+    'Pesquise por finalidade ou escolha uma categoria. Cada cartão apresenta o nome, a descrição e a versão. Passe ' +
+    'o ponteiro sobre a personagem ou escolha «Conhecer este Skill» para descobrir o que pode fazer.',
+  'guideInstall': 'Transfira para o Muse ou importe um ZIP',
+  'guideInstallBody':
+    'Transfira a versão de que precisa. Também pode importar um ZIP completo na página Instalados. A instalação ' +
+    'guarda os ficheiros do Skill sem alterar a versão usada numa conversa.',
+  'guideUse': 'Ative-o para novas conversas',
+  'guideUseBody':
+    'Na página Instalados, escolha o Skill como versão predefinida para novas conversas e depois crie uma ' +
+    'conversa. As conversas que já executaram uma tarefa mantêm a versão associada; alterar a predefinição ' +
+    'não a substitui. Depois de ativar o Skill correspondente, introduza, por exemplo, /transcript-to-novel ' +
+    'para o invocar.',
+  'brand': 'MUSE',
+  'createEntry': 'Criar / enviar Skill',
+  'discoverEyebrow': 'Criado pela comunidade',
+  'installedEyebrow': 'As suas ferramentas criativas',
+  'creatorEyebrow': 'Partilhe a sua forma de criar',
+  'discoverTitle': 'Encontre o seu próximo parceiro criativo',
+  'installedTitle': 'Tenha os métodos úteis sempre à mão',
+  'creatorTitle': 'Crie e partilhe o seu Skill',
+  'discoverDescription': 'Descubra Skills práticos e acrescente métodos profissionais ao seu processo criativo',
+  'installedDescription': 'Gira os Skills transferidos e escolha as versões usadas em novas conversas',
+  'creatorDescription': 'Organize o seu método, pré-visualize a personagem e publique-o no mercado',
+  'skillBadge': 'Skill',
+  'meetSkill': 'Conhecer este Skill',
+  'myPublications': 'As minhas publicações',
+  'publicationsDescription': 'Gira rascunhos, revisões e versões publicadas',
+  'contributeTitle': 'Ajude mais criadores a descobrir os seus métodos',
+  'contributeDescription': 'Transforme a sua experiência num Skill e partilhe-o com a comunidade Muse',
+  'packageSize': 'Tamanho do pacote',
+  'noRequirements': 'Este pacote não indica requisitos adicionais',
+  'packageVerification': 'Ver verificação dos ficheiros',
+  'publishedReadFailed': 'Não foi possível atualizar os recursos publicados. O conteúdo anterior foi mantido.',
+  'retryPublished': 'Recarregar recursos publicados',
+  'originalReadFailed': 'Não foi possível atualizar os Skills originais. O conteúdo anterior foi mantido.',
+  'retryOriginal': 'Recarregar Skills originais',
+  'publishedResources': 'Publicado',
+  'originalResources': 'Skill original',
   'discardUpload': 'Descartar tentativa de envio',
   'discardUploadHint': 'Isto não retira um rascunho que o servidor possa ter guardado. Atualize primeiro a lista com a conta original.',
   'nav': 'Mercado de Skills',
@@ -625,7 +1545,9 @@ export const marketPt: Record<MarketLocaleKey, string> = {
   'stored': 'Guardado localmente',
   'disable': 'Desativar em novas conversas',
   'remove': 'Remover versão local',
-  'defaultsHint': 'A predefinição aplica-se a conversas novas e vazias antes da primeira tarefa. As conversas que já executaram uma tarefa mantêm a versão original.',
+  'defaultsHint':
+    'A predefinição aplica-se a conversas novas e vazias antes da primeira tarefa. As conversas que já executaram ' +
+    'uma tarefa mantêm a versão original.',
   'confirm': 'Confirmar',
   'bytes': 'bytes',
   'creator': 'Criar e enviar um Skill',
@@ -679,4 +1601,18 @@ export const marketPt: Record<MarketLocaleKey, string> = {
   'signInRequired': 'Entre com a conta original e verifique o estado atual.',
   'permissionDenied': 'Esta conta não tem permissão para esta operação.',
   'cloudUnavailable': 'A nuvem está indisponível. Pode continuar a gerir os pacotes locais.',
+  'creatorNewSkill': 'Criar um Skill',
+  'creatorUploadZip': 'Enviar ZIP',
+  'creatorSourceHint': 'Escolha um Skill local existente e mantenha as suas instruções e recursos associados',
+  'creatorMetadataTitle': 'Dados da publicação',
+  'creatorMetadataHint': 'Descreva o problema que resolve para que outros criadores o possam encontrar',
+  'creatorPreviewTitle': 'Pré-visualização do cartão',
+  'creatorPreviewHint': 'Adicione um nome e uma apresentação para ver a personagem associada automaticamente',
+  'creatorUntitled': 'Skill sem título',
+  'creatorPreparedTitle': 'Verificar o pacote',
+  'creatorPreparedHint': 'Exporte-o para verificação ou escolha uma equipa para guardar esta versão na nuvem',
+  'creatorZipHint': 'Escolha um pacote ZIP do Muse existente para o validar, pré-visualizar e enviar',
+  'creatorPublisherHint': 'Esta versão pertencerá à equipa de publicação escolhida e continuará a ser um rascunho privado após o envio',
+  'creatorDraftBadge': 'Pré-visualização local',
+  'creatorReadyBadge': 'Pacote local pronto',
 }

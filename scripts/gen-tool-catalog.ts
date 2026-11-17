@@ -16,8 +16,10 @@ import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type OfficeKit from '@deepseek-ai/dsh-office-kit'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
 import GoalService from '@deepseek-ai/dsh-goal'
@@ -40,7 +42,7 @@ import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, St
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import PlanModeController from '@deepseek-ai/dsh-plan-mode'
 import WebRuntime from '@deepseek-ai/dsh-web'
-import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
+import * as WebDeepSeekApi from '@deepseek-ai/dsh-web-deepseek-api'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-http'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
@@ -58,11 +60,13 @@ import * as ToolPwshPersistent from '@deepseek-ai/dsh-tool-pwsh-persistent'
 import CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolPresent from '@deepseek-ai/dsh-tool-present'
+import * as ToolOffice from '@deepseek-ai/dsh-tool-office'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
 import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
+import * as TerminalPanel from '@deepseek-ai/dsh-terminal-panel'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolSchedule from '@deepseek-ai/dsh-tool-schedule'
 import ScheduleService from '@deepseek-ai/dsh-schedule'
@@ -74,8 +78,8 @@ import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import * as ToolJobs from '@deepseek-ai/dsh-tool-jobs'
 import BrowserUseRegistry from '@deepseek-ai/dsh-browser-use'
 import * as StagehandBrowserTools from '@deepseek-ai/dsh-experimental-browser-use-stagehand-native'
-import type TeamService from '@deepseek-ai/dsh-experimental-agent-team'
-import * as ToolTeam from '@deepseek-ai/dsh-experimental-tool-agent-team'
+import TeamService from '@deepseek-ai/dsh-agent-team'
+import * as ToolTeam from '@deepseek-ai/dsh-tool-agent-team'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import type PluginManager from '@deepseek-ai/dsh-plugin-manager'
 import * as PluginManagerTools from '@deepseek-ai/dsh-plugin-manager/tools'
@@ -85,9 +89,12 @@ import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolJubian from '@deepseek-ai/dsh-tool-jubian'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import * as ToolAudioTranscribe from '@deepseek-ai/dsh-tool-audio-transcribe'
+import * as ToolDramaTosUpload from '@deepseek-ai/dsh-tool-drama-tos-upload'
+import * as ToolHitQueue from '@deepseek-ai/dsh-tool-hit-queue'
 import * as ScreenplayProject from '@deepseek-ai/dsh-screenplay-project'
 import * as ToolVideoInspect from '@deepseek-ai/dsh-tool-video-inspect'
-import { mountMuseFeedbackTools, type MuseAccountService } from '@deepseek-ai/dsh-muse-account'
+import { Config as MuseAccountConfig, mountMuseFeedbackTools, type MuseAccountService } from '@deepseek-ai/dsh-muse-account'
+import { mountMuseDouyinTools } from '../packages/host/muse-account/src/douyin-tools.ts'
 import * as ToolShotScript from '@deepseek-ai/dsh-tool-shot-script'
 import * as DramaSettings from '@deepseek-ai/dsh-drama-settings'
 import SettingsForms from '@deepseek-ai/dsh-settings'
@@ -164,6 +171,20 @@ async function mountCatalogSettings(ctx: Context, scope: string): Promise<void> 
   await ctx.plugin(CatalogSettingsForms)
 }
 
+/** Schema collection needs the persistence service but must never access stored Sessions. */
+class CatalogSessionPersistence extends SessionPersistence {
+  create = unavailableCatalogPersistence
+  open = unavailableCatalogPersistence
+  flush = unavailableCatalogPersistence
+  stat = unavailableCatalogPersistence
+  list = unavailableCatalogPersistence
+}
+
+/** Storage operations are unreachable during schema collection. */
+function unavailableCatalogPersistence(): never {
+  throw new Error('gen-tool-catalog: persistence access is unavailable during schema harvest')
+}
+
 /**
  * Register the descriptor needed to mount schema-producing consumers. Declares
  * the full capability set of the shipped in-process providers so consumers
@@ -233,17 +254,25 @@ const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-muse-account',
     dir: 'muse-account',
-    source: 'packages/host/muse-account/src/feedback-tools.ts',
-    requires: ['ctx.tools', 'signed-in Muse account for execution'],
-    writes: ['tool/call', 'tool/result', 'explicit feedback submission to the central inbox'],
+    source: {
+      muse_feedback_submit: 'packages/host/muse-account/src/feedback-tools.ts',
+      muse_feedback_status: 'packages/host/muse-account/src/feedback-tools.ts',
+      douyin_download: 'packages/host/muse-account/src/douyin-tools.ts',
+    },
+    requires: ['ctx.tools', 'signed-in Muse account for execution', 'data station on the account origin for douyin_download'],
+    writes: ['tool/call', 'tool/result', 'explicit feedback submission to the central inbox', 'Douyin download queue entries on the data station'],
     mount(ctx) {
       mountMuseFeedbackTools(ctx, {
         submit: () => Promise.reject(new Error('Catalog collection cannot submit feedback')),
         get: () => Promise.reject(new Error('Catalog collection cannot query feedback')),
       })
+      // Schema harvest renders the plugin's default waiting bounds and never contacts the station.
+      const defaults = MuseAccountConfig({ baseUrl: 'https://muse.invalid' })
+      mountMuseDouyinTools(ctx, { run: () => Promise.reject(new Error('Catalog collection cannot reach the data station')) },
+        { maxWaitSeconds: defaults.douyinMaxWaitSeconds, pollIntervalMs: defaults.douyinPollIntervalMs })
       return Promise.resolve()
     },
-    note: 'Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed.',
+    note: 'Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files.',
   },
   {
     pkg: '@deepseek-ai/dsh-plugin-manager',
@@ -353,6 +382,28 @@ const TOOL_PACKAGES: ToolPackage[] = [
       + 'The same tool is available in every Muse mode, with provider credentials held by the account gateway.',
   },
   {
+    pkg: '@deepseek-ai/dsh-tool-drama-tos-upload',
+    dir: 'tool-drama-tos-upload',
+    source: 'packages/drama/tool-drama-tos-upload/src/index.ts',
+    requires: ['ctx.tools', 'TOS access key credential references', 'network access to Volcengine TOS'],
+    writes: ['tool/call', 'tool/result', 'public TOS objects below download-video-date/{platform}/{date}/{work_id}/', 'local file deletion only when remove_local is true'],
+    async mount(ctx) {
+      await ctx.plugin(ToolDramaTosUpload, { accessKeyIdRef: 'VOLCENGINE_ACCESS_KEY_ID', secretAccessKeyRef: 'VOLCENGINE_SECRET_ACCESS_KEY' })
+    },
+    note: 'Optional package: only the cloud transcription deployment composes it, with its credential references.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-hit-queue',
+    dir: 'tool-hit-queue',
+    source: 'packages/drama/tool-hit-queue/src/index.ts',
+    requires: ['ctx.tools', 'data station service token credential reference', 'network access to the data station service API'],
+    writes: ['tool/call', 'tool/result', 'data station transcription job state'],
+    async mount(ctx) {
+      await ctx.plugin(ToolHitQueue, { tokenRef: 'MUSE_DATA_SERVICE_TOKEN' })
+    },
+    note: 'Optional package: only the cloud transcription deployment composes it. Each dispatched worker claims its own work; the Main Session router does not call it.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-video-inspect',
     dir: 'tool-video-inspect',
     source: 'packages/perception/tool-video-inspect/src/index.ts',
@@ -384,7 +435,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(NodePtcRuntime)
     },
     note:
-      'The PTC executor exposes only run_code to the model and declares other visible capabilities in a generated SDK in the runtime’s language. Program bindings enter the shared guarded tool pipeline in submission order; concurrency-safe bodies overlap up to maxParallelSubCalls, and nested results remain linked to the outer program.',
+      'The PTC executor exposes only run_code to the model and declares other visible capabilities in a generated SDK in the runtime’s language. Program bindings enter the shared guarded tool pipeline in submission order; concurrency-safe bodies overlap up to maxParallelSubCalls, and nested results remain linked to the outer program. The resolved timeout and maxSubCallsPerMinute set the total call allowance; exceeding it terminates the program.',
   },
   {
     pkg: '@deepseek-ai/dsh-plan-mode',
@@ -416,6 +467,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The bash tool is the model-facing consumer of the bash executor seam. With a job registry composed every call registers with the generic `ctx.jobs` runtime as it starts, collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; without one, or with `enableRunInBackground: false`, the tool registers a foreground-only schema without the `run_in_background` parameter.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-office',
+    dir: 'tool-office',
+    source: 'packages/document/tool-office/src/index.ts',
+    requires: ['ctx.workingDirectory', 'ctx.tools', 'ctx.fs', 'ctx.agents', 'ctx.officeKit', 'ctx.attachments and ctx.llm for office_render'],
+    writes: ['tool/call', 'tool/result with rendered image attachments', 'temporary converted files in the Office kit output store'],
+    async mount(ctx) {
+      // Schema harvest never renders or converts a document.
+      ctx.provide('officeKit', {} as OfficeKit)
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(ToolOffice)
+    },
+    note: 'Declared to an Agent from the step after it successfully loads an Office skill, and kept while the previous request header declares an Office tool. Admitted calls fail with the Office service\'s unavailable error when LibreOffice Kit is not installed.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-present',
@@ -545,6 +610,22 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The six terminal tools are opt-in and complement one-shot shell/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.jobs`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-terminal-panel',
+    dir: 'terminal-panel',
+    source: 'packages/experimental/terminal-panel/src/tools.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.terminals', 'ctx.terminalController', 'ctx.sandboxPolicy', 'a calling Agent'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // Schema harvest never opens or reads a terminal.
+      ctx.provide('terminalController', {} as Context['terminalController'])
+      await ctx.plugin(SandboxPolicy)
+      await ctx.plugin(TerminalSessionService)
+      await ctx.plugin(TerminalPanel, TerminalPanel.Config({}))
+    },
+    note:
+      'The package also serves the six `terminal_*` tools from Web sidebar terminals. `user_terminal_list` and `user_terminal_read` only read terminals the user controls; `readUserTerminals: false` removes both.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-goal',
@@ -683,7 +764,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSubagent, { provider: 'mock', modelDiscovery: true })
     },
     note:
-      'The load-time `toolName` selects the delegation name (default `subagent`); `modelSelection` adds optional route fields. `modelDiscovery` defaults off and registers shared discovery on one instance per scope. Web and Desktop presets enable spawn discovery and route fields and leave `subagent_fork` route fields disabled. The Host settings service records authorization for each new top-level Session; child Sessions inherit it. Without a recorded policy, discovery and explicit selection permit only the current parent route. Every delegation returns a child id promptly; local children accept follow-ups, while external backends report their single execution automatically.',
+      'The load-time `toolName` selects the delegation name (default `subagent`); `modelSelection` adds optional route fields. `modelDiscovery` defaults off and registers shared discovery on one instance per scope. Web and Desktop presets enable spawn discovery and route fields and leave `subagent_fork` route fields disabled. The Host settings service records authorization for each new top-level Session; child Sessions inherit it. Without a recorded policy, discovery and explicit selection permit only the current parent route. Every delegation returns the child\'s name promptly; local children accept follow-ups, while external backends report their single execution automatically.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',
@@ -692,6 +773,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       interrupt_agent: 'packages/subagent/tool-subagent-control/src/index.ts',
       list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
       send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
+      wait_agent: 'packages/subagent/tool-subagent-control/src/wait-agent.ts',
     },
     requires: ['ctx.tools', 'ctx.subagents', 'ctx.agents'],
     writes: ['tool/call', 'tool/result', 'child session events through ctx.subagents'],
@@ -703,7 +785,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSubagentControl)
     },
     note:
-      'The globally named discovery, interruption, and local-message tools over managed subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while one instance of this package registers `send_message`, `interrupt_agent`, and `list_agents`.',
+      'The shared control tools discover and contact agents in the subagent tree, interrupt owned descendants, and wait for input in the caller’s inbox. Provider-bound `tool-subagent` instances supply delegation tools.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-jobs',
@@ -719,26 +801,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
       'The kind-agnostic background-job controller: background bash commands and PTY sends are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers\' `ctx.jobs.start()`.',
   },
   {
-    pkg: '@deepseek-ai/dsh-experimental-tool-agent-team',
+    pkg: '@deepseek-ai/dsh-tool-agent-team',
     dir: 'tool-agent-team',
-    source: 'packages/experimental/tool-agent-team/src/index.ts',
-    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.agentTeams', 'an exact live Team member Agent'],
-    writes: ['tool/call', 'team/member', 'team/task', 'agent/inbox/spliced', 'user/message on inbox claim', 'tool/result'],
+    source: 'packages/team/tool-agent-team/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.agentTeams', 'ctx.subagents', 'an exact live Team member Agent'],
+    writes: ['tool/call', 'team/task', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(AgentRegistry)
       await ctx.plugin(SessionStore)
+      await ctx.plugin(SubagentRuntime)
+      await ctx.plugin(CatalogSessionPersistence)
+      await ctx.plugin(TeamService)
       const session = ctx.sessions.create(SessionId('tool-catalog-team-lead'))
       let agent!: Agent
-      const membership = {
-        get root() { return agent },
-        id: session.id,
-        role: 'lead' as const,
-        name: 'lead',
-      }
-      ctx.provide('agentTeams', {
-        tryMembership: (candidate: Agent) => candidate === agent ? membership : undefined,
-        membership: () => membership,
-      } as unknown as TeamService)
       await ctx.plugin(Object.assign(async (inner: Context) => {
         agent = {
           id: session.id,
@@ -749,12 +824,13 @@ const TOOL_PACKAGES: ToolPackage[] = [
         Object.assign(agent, { ctx: createScope(inner, agent).ctx })
         await inner.agents.register(agent)
       }, { inject: ['tools', 'systemPrompt', 'agents', 'agentTeams'] }))
+      await ctx.agentTeams.setEnabled(agent, true)
       await ctx.plugin(ToolTeam)
       catalogChildScopes.set(ctx, agent)
     },
     scope: ctx => catalogChildScopes.get(ctx) as Agent,
     note:
-      'All nine tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names.',
+      'Four task-board tools share the subagent tree’s root Session. Enabling Team mode on the root Session adds task-board guidance alongside standard subagent delegation and control tools. Standard subagent controls provide required identity independently of Team mode.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-todo',
@@ -827,7 +903,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       // Mount search and fetch providers so both tools register. Their schemas
       // do not depend on provider identity or availability.
       await ctx.plugin(WebRuntime)
-      await ctx.plugin(WebSearchExa)
+      await ctx.plugin(WebDeepSeekApi)
       await ctx.plugin(WebFetchLocal)
       await ctx.plugin(ToolWeb)
     },
@@ -844,9 +920,11 @@ const TOOL_PACKAGES: ToolPackage[] = [
       jubian_character_reference_authorize: 'packages/jubian/tool-jubian/src/index.ts',
       jubian_claim: 'packages/jubian/tool-jubian/src/index.ts',
       jubian_find: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_manuscript: 'packages/jubian/tool-jubian/src/index.ts',
       jubian_media: 'packages/jubian/tool-jubian/src/index.ts',
       jubian_model: 'packages/jubian/tool-jubian/src/index.ts',
       jubian_organize: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_project: 'packages/jubian/tool-jubian/src/index.ts',
       jubian_snatch: 'packages/jubian/tool-jubian/src/index.ts',
       jubian_storyboard: 'packages/jubian/tool-jubian/src/index.ts',
       jubian_video: 'packages/jubian/tool-jubian/src/index.ts',

@@ -29,6 +29,8 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.upstream_calls, self.auth_calls = [], []
         self.on_upstream = None
         self.on_auth = None
+        self.on_rest = None
+        self.rest_calls = []
         self.media_bytes = b"controlled-test-video"
         self.media_served = 0
         await self.start()
@@ -66,6 +68,9 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.headers.get("authorization"), "Bearer " + self.key)
         self.assertNotIn("cookie", request.headers)
         if request.method == "GET":
+            if request.url.path.startswith(("/api/v1/douyin/", "/api/v1/tiktok/", "/api/v1/bilibili/")):
+                self.rest_calls.append(request)
+                return self.on_rest(request)
             if request.url.path == "/api/v1/downloads/upstream-download-private":
                 return httpx.Response(200, json={"success": True, "data": {"state": "running", "files": []}})
             self.assertEqual(str(request.url), "http://127.0.0.1:19580/api/v1/downloads/upstream-download-private/files/video.mp4")
@@ -99,7 +104,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.rpc(method="tools/list", actor="C")).status_code, 403)
         response = await self.rpc(method="tools/list")
         tools = response.json()["result"]["tools"]
-        self.assertEqual(len(tools), 8)
+        self.assertEqual(len(tools), 12)
         self.assertNotIn("pool_status", [tool["name"] for tool in tools])
         self.assertNotIn("transcribe_video", [tool["name"] for tool in tools])
         self.tool_failure(await self.rpc("get_video", {"platform": "douyin", "content_id": "1", "account_id": "b" * 16}), "invalid_tool_arguments")
@@ -443,3 +448,71 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def page(self, title="Public sample"):
+        return {"items": [{"platform": "douyin", "content_id": "post-one", "title": title, "web_url": "https://www.douyin.com/video/post-one?previous_page=search", "author": {"nickname": "Author", "sec_uid": "author-one", "raw": {"private": True}}, "stats": {"play_count": None, "digg_count": 3}, "raw": {"mix_info": {"mix_id": "1"}}}], "cursor": "10:search-session", "has_more": True}
+
+    async def test_rest_reads_search_and_mixes_without_forwarding_identity(self):
+        self.on_rest = lambda _request: httpx.Response(200, json={"success": True, "data": self.page(), "error": None, "meta": {"cached": False, "request_id": "private"}})
+        receipt = self.output(await self.rpc("search_posts", {"platform": "douyin", "keyword": "鉴宝 短剧", "cursor": "10:search-session", "count": 10}))
+        self.assertEqual(receipt["state"], "ok")
+        self.assertEqual(receipt["tool"], "search_posts")
+        self.assertEqual(receipt["data"]["items"][0]["title"], "Public sample")
+        self.assertEqual(receipt["data"]["items"][0]["web_url"], "https://www.douyin.com/video/post-one")
+        self.assertEqual(receipt["data"]["items"][0]["author"], {"nickname": "Author", "sec_uid": "author-one"})
+        self.assertNotIn("raw", receipt["data"]["items"][0])
+        self.assertEqual(receipt["data"]["cursor"], "10:search-session")
+        self.assertIs(receipt["data"]["has_more"], True)
+        self.assertIs(receipt["cached"], False)
+        request = self.rest_calls[-1]
+        self.assertEqual(request.url.path, "/api/v1/douyin/search/posts")
+        self.assertEqual(dict(request.url.params), {"keyword": "鉴宝 短剧", "cursor": "10:search-session", "count": "10", "wait": "0"})
+        self.assertNotIn("cookie", request.headers)
+        await self.rpc("search_users", {"platform": "douyin", "keyword": "短剧"})
+        self.assertEqual((self.rest_calls[-1].url.path, dict(self.rest_calls[-1].url.params)), ("/api/v1/douyin/search/users", {"keyword": "短剧", "wait": "0"}))
+        await self.rpc("list_mix_posts", {"platform": "douyin", "mix_id": "7300000000000000001"})
+        self.assertEqual((self.rest_calls[-1].url.path, dict(self.rest_calls[-1].url.params)), ("/api/v1/douyin/mix/posts", {"mix_id": "7300000000000000001", "wait": "0"}))
+        await self.rpc("list_user_mixes", {"platform": "douyin", "uid": "author-one", "count": 20})
+        self.assertEqual((self.rest_calls[-1].url.path, dict(self.rest_calls[-1].url.params)), ("/api/v1/douyin/user/mixes", {"sec_user_id": "author-one", "count": "20", "wait": "0"}))
+        self.assertEqual(self.upstream_calls, [])
+
+    async def test_rest_read_still_running_settles_through_the_original_task(self):
+        self.on_rest = lambda _request: httpx.Response(202, json={"success": True, "data": {"task_id": "upstream-task-private", "state": "queued"}, "error": None, "meta": {}})
+        receipt = self.output(await self.rpc("search_posts", {"platform": "douyin", "keyword": "短剧"}))
+        self.assertEqual(receipt["state"], "pending")
+        self.assertNotIn("upstream-task-private", json.dumps(receipt))
+        async def finished(params):
+            self.assertEqual(params, {"name": "get_task_result", "arguments": {"task_id": "upstream-task-private"}})
+            return {"status": "ok", "data": self.page("Finished later")}
+        self.on_upstream = finished
+        settled = self.output(await self.rpc("get_task_result", {"job_id": receipt["job_id"]}))
+        self.assertEqual(settled["state"], "ok")
+        self.assertEqual(settled["data"]["items"][0]["title"], "Finished later")
+        self.assertEqual(len(self.rest_calls), 1)
+
+    async def test_rest_refusals_are_settled_with_fixed_codes(self):
+        cases = [
+            (503, {"code": "IDENTITY_LOGIN_REQUIRED", "message": "private " + self.key}, "upstream_login_unavailable"),
+            (503, {"code": "IDENTITY_POOL_EXHAUSTED", "message": "private"}, "upstream_login_unavailable"),
+            (429, {"code": "RATE_LIMITED", "message": "private"}, "upstream_rate_limited"),
+            (502, {"code": "UPSTREAM_RISK_CONTROL", "message": "private"}, "upstream_risk_control"),
+            (400, {"code": "UNSUPPORTED_CONTENT", "message": "private"}, "upstream_rejected"),
+        ]
+        for index, (status, error, code) in enumerate(cases):
+            self.on_rest = lambda _request, status=status, error=error: httpx.Response(status, json={"success": False, "data": None, "error": error, "meta": {}})
+            response = await self.rpc("search_posts", {"platform": "douyin", "keyword": f"refused {index}"})
+            self.assertTrue(response.json()["result"]["isError"])
+            receipt = self.output(response)
+            self.assertEqual((receipt["state"], receipt["code"]), ("failed", code))
+            self.assertNotIn("private", json.dumps(receipt))
+        self.on_rest = lambda _request: httpx.Response(500, content=b"not json")
+        receipt = self.output(await self.rpc("search_posts", {"platform": "douyin", "keyword": "garbled"}))
+        self.assertEqual((receipt["state"], receipt["code"]), ("unconfirmed", "upstream_invalid_response"))
+
+    async def test_rest_reads_validate_keywords_and_ids_before_upstream(self):
+        self.tool_failure(await self.rpc("search_posts", {"platform": "douyin", "keyword": ""}), "invalid_tool_arguments")
+        self.tool_failure(await self.rpc("search_posts", {"platform": "douyin", "keyword": "x" * 101}), "invalid_tool_arguments")
+        self.tool_failure(await self.rpc("search_users", {"platform": "weibo", "keyword": "短剧"}), "invalid_tool_arguments")
+        self.tool_failure(await self.rpc("list_mix_posts", {"platform": "douyin"}), "invalid_tool_arguments")
+        self.tool_failure(await self.rpc("list_user_mixes", {"platform": "douyin", "uid": "a", "count": 51}), "invalid_tool_arguments")
+        self.assertEqual(self.rest_calls, [])

@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-用户可以在桌面版设置中登录 MUSE，无需在模型会话中输入密码。通过已配置的 Muse 网关，使用账号模型目录、可选网页搜索、云转写、意见反馈和桌面远程访问。账号凭据保留在 Host 存储中。
+用户可以在桌面版设置中登录 MUSE，无需在模型会话中输入密码。通过已配置的 Muse 网关，使用账号模型目录、可选网页搜索、云转写、意见反馈、数据站抖音下载和桌面远程访问。账号凭据保留在 Host 存储中。
 
 ## 目录
 
@@ -41,6 +41,8 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 模型拒绝与取消流只提供固定诊断，以及可用的错误类别、HTTP 状态和重试延迟。Host 诊断日志只记录 provider、model、错误类别、HTTP 状态和有长度限制的供应商请求 ID；供应商错误原文、凭据、Authorization 标头、诊断请求标识和异常原因链不会进入会话日志。成功的模型内容与重放元数据保持原样。内容安全拒绝保留 `CONTENT_FILTER`，不会变成暂时性重试类别。
 
+Muse 账号模型在当前供应商的有界重试结束后，遇到已归类的额度、限流、服务、超时、连接或空响应故障，会在同一轮次依次尝试其他已授权且可选择的供应商，每个供应商最多选择一个模型；同一模型优先，其次同系列模型。候选须支持当前完整会话中的图片、原模型的上下文容量、显式输出上限及显式思考档位。每次切换都记录正常模型选择并在新步骤重新组装提示词和工具，失败流不会执行其中的工具调用。候选耗尽后会停止并报告错误。账号注销、用户取消、账号或供应商认证失败、内容安全拒绝、无效请求、结果不确定的准入和请求截止不会触发切换；个人配置的供应商不会被自动选用。
+
 每次 Muse 模型调用生成随机 `client_request_id`。Host 诊断将其会话、提供方、模型与用途关联到可用的、长度受限的响应标识、结束原因及用量。诊断中的 Token 计数只接受非负安全整数；无效字段省略，不改动模型流中的原始数据块。适配器经过公开的请求标头准备 waterfall；仅向已配置 Muse 中转 origin 的请求携带 `x-muse-client-request-id`，供应商直连不携带该标头。诊断不记录消息正文、凭据、完整标头或异常原文；这些请求标识不增加 Session 事件，也不改写重放元数据。客户端标识对应一次准备好的调用，网关的每次 HTTP 尝试另有独立标识。
 
 模型使用账号目录为各模型声明的默认思考档位，直到用户显式选择其他受支持的档位。准备调用时，模型默认档位会进入实际请求日志；没有思考能力的模型不会收到默认思考档位。云映的精确 `gpt-6.1-sol` 模型使用 `max_completion_tokens` 设置输出上限。
@@ -65,9 +67,16 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 ### 公司媒体
 
-启用 `mediaTools: true` 后，`muse_media_data`、`muse_media_download`、`muse_media_task`、`muse_media_import` 四个延迟加载工具使用当前私密 Muse 登录。桌面默认启用，员工无需填写上游 API Key。匹配的[公司媒体网关](../../../services/muse-media/gateway/README.zh.md)检查公司成员身份、任务归属与按账号限流。权限拒绝不会删除 Muse 登录。每次调用捕获当前登录修订，账号变化后拒绝交付；卸载会取消并等待网络请求和本地辅助进程结束。
+启用 `mediaTools: true` 后，`muse_media_data`、`muse_media_download`、`muse_media_task`、`muse_media_import` 四个延迟加载工具使用当前私密 Muse 登录。`muse_media_download` 只保存 TikTok 和 Bilibili 作品；平台为抖音，或 URL、分享文本中含抖音域名时，在读取登录前以 `douyin-unsupported` 失败，结果引导模型改用 `douyin_download`。桌面默认启用，员工无需填写上游 API Key。匹配的[公司媒体网关](../../../services/muse-media/gateway/README.zh.md)检查公司成员身份、任务归属与按账号限流。权限拒绝不会删除 Muse 登录。每次调用捕获当前登录修订，账号变化后拒绝交付；卸载会取消并等待网络请求和本地辅助进程结束。
 
-云端提交必须携带稳定 `requestId`；结果不确定时查询原任务，不得换编号重新提交。`cloud_saved` 仅表示云端完整保存。`partial` 只公开逐项接受的文件，导入其中一个文件后整个任务仍为部分完成。导入原样使用云端清单中的文件名，包括允许的空格和括号，不做重命名。清单与导入共用同一文件名规则：以 ASCII 字母或数字开头，长度最多 128 个字符，仅含字母、数字、点、下划线、连字符、空格和括号，不含 `..` 或路径分隔符。导入要求发起会话有本机工作区，拒绝只读策略和覆盖已有文件，工作区写入辅助进程及媒体验证均通过已配置的操作系统沙箱执行。完整字节数、SHA-256、FFprobe 元数据和 FFmpeg 完整解码通过后才发布文件。`local_ready` 仅代表一个校验过的图片或视频，同时保留源任务状态和文件覆盖信息；图片不代表视频成功。使用现有 `present` 工具展示返回路径，生成文件卡并进入视频清单。私有辅助进程以内联代码打包，没有公开可执行入口，也不接收账号凭据。
+云端提交必须携带稳定 `requestId`；结果不确定时查询原任务，不得换编号重新提交。`cloud_saved` 仅表示云端完整保存。`partial` 只公开逐项接受的文件，导入其中一个文件后整个任务仍为部分完成。导入原样使用云端清单中的文件名，包括允许的空格和括号，不做重命名。清单与导入共用同一文件名规则：以 ASCII 字母或数字开头，长度最多 128 个字符，仅含字母、数字、点、下划线、连字符、空格和括号，不含 `..` 或路径分隔符。导入要求发起会话有本机工作区，拒绝只读策略和覆盖已有文件，工作区写入辅助进程通过已配置的操作系统沙箱执行。完整字节数、SHA-256、FFprobe 元数据和 FFmpeg 完整解码通过后才发布文件。元数据和解码通过已配置的受管子进程服务执行，采用相同工作区策略并限制输出。接收辅助进程在私有控制管道上收到这些校验事实后才接受提交。`local_ready` 仅代表一个校验过的图片或视频，同时保留源任务状态和文件覆盖信息；图片不代表视频成功。使用现有 `present` 工具展示返回路径，生成文件卡并进入视频清单。私有辅助进程以内联代码打包，没有公开可执行入口，也不接收账号凭据。
+
+<a id="data-station-douyin-downloads"></a>
+### 数据站抖音下载
+
+启用 `douyinDownloadTool: true` 后，延迟加载的 `douyin_download` 是唯一的抖音视频下载工具。它把当前 Muse 会话令牌放在 `X-Muse-Account-Token` 中，发送到 `baseUrl` 源站上 `douyinStationPath` 处的数据站；公网 `/data/` 代理会清空 `Authorization`，数据站拒绝带 `Origin` 的请求。请求不带 cookie、`Origin` 或请求人姓名，拒绝重定向，用 `douyinMaxReplyBytes` 限制完整 JSON 响应，并拒绝回显令牌的响应。数据站向 Muse 网关核对令牌，只放行成员名单中的账号，并把核对出的成员记为请求人。
+
+`action: download` 按 URL、分享文本或 `aweme_id` 排队一个作品，或按 `mix_id`、`douyin.com/collection/<编号>` 链接排队一个合集的全部剧集。`v.douyin.com` 分享短链在 `douyinLinkTimeoutMs` 内读取一次重定向解析，不读取正文，也不携带任何账号凭据。`action: query` 只读取已有记录、不提交；`action: quota` 报告可用状态以及数据站网页与 Muse 共用的每日额度。`wait_seconds` 取 0 至 `douyinMaxWaitSeconds`，按 `douyinPollIntervalMs` 轮询记录，直到每个作品为 `done` 或 `failed`；取消会结束等待。一次查询最多请求 `douyinListLimit` 条记录。结果列出每个作品的状态，完成时附公开存储地址；私有模式的记录会读取签名地址与 `expiresAt`。这些地址不是本地文件。数据站不会重复下载已排队或已保存的作品，再次提交失败的作品会重新排队。固定代码报告登录、成员名单、每日额度、数据站可用性、账号变化、提交未确认、超时与取消，不包含数据站响应文本。每次请求都会复核调用开始时捕获的登录修订。
 
 ### 共享声线登记
 
@@ -110,6 +119,7 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 | `webSearch` | `false` | web 服务存在时注册 `muse` 搜索提供方；Muse Desktop 启用此项。 |
 | `searchRequestTimeoutMs` | 60,000 | 独立的账号授权搜索超时毫秒数，可设为 1,000 至 120,000。 |
 | `modelRequestImageMaxBytes` | 适配器默认值（`20 MiB`） | 每次模型请求累计 base64 图片字节上限，可设为正安全整数。挂载 `compaction-image-offload` 后记录最早图片的卸载并重试，来源附件仍可读取；不限制正文输出。 |
+| `modelRetryPolicy` | 适配器默认值（normal，重试 5 次，0.5–10 秒） | 每条账号模型路由的可选提供方 `retryPolicy`，加载时校验。`dsh-llm-retry` 将其用于失败的步骤，`compaction-basic` 将其用于摘要请求。 |
 | `feedbackTools` | `false` | 注册明确的用户反馈提交及本人收据查询工具；Muse 桌面启用。 |
 | `mediaTools` | `false` | 注册四个延迟加载的公司媒体工具；桌面默认启用。 |
 | `mediaRequestTimeoutMs` | 60,000 | 元数据与收据请求时限，范围 1,000–120,000 毫秒。 |
@@ -125,6 +135,14 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 | `mediaCommandMaxOutputBytes` | 65,536 | 完整辅助进程报告与诊断上限，范围 1 KiB–1 MiB。 |
 | `mediaMaxPixels` | 67,108,864 | 导入媒体宽乘高上限，正安全整数。 |
 | `mediaMaxDurationSeconds` | 7,200 | 视频时长上限，范围 1–86,400 秒。 |
+| `douyinDownloadTool` | `false` | 注册延迟加载的数据站 `douyin_download` 工具；桌面默认启用。 |
+| `douyinStationPath` | `/data/api/muse-client/douyin` | 拼接到 `baseUrl` 源站的绝对路由前缀；以斜杠分隔的路径段仅含字母、数字、`.`、`_`、`~` 或 `-`，不得含 `.` 或 `..` 路径段，也不得以斜杠结尾。 |
+| `douyinRequestTimeoutMs` | 15,000 | 单次数据站请求及完整响应时限，范围 1,000–120,000 毫秒。 |
+| `douyinLinkTimeoutMs` | 10,000 | 单次分享短链重定向读取时限，范围 1,000–60,000 毫秒。 |
+| `douyinMaxReplyBytes` | 1,048,576 | 数据站完整 JSON 响应上限，范围 1 KiB–16 MiB。 |
+| `douyinMaxWaitSeconds` | 60 | `wait_seconds` 上限，范围 0–600。 |
+| `douyinPollIntervalMs` | 5,000 | 等待期间两次记录查询的间隔，范围 1,000–60,000 毫秒。 |
+| `douyinListLimit` | 300 | 一次查询请求的记录数，范围 1–500；数据站单页最多 500 条。 |
 | `feedbackExcerptChars` | 1,000 | 每条可选相关请求或回答摘录的可见字数，可设为 100 至 1,200。 |
 | `activityReportIntervalMs` | 30,000 | 同一登录两次使用情况上报的最短间隔，范围 1,000–3,600,000 毫秒。 |
 | `activityRequestTimeoutMs` | 5,000 | 尽力上报使用情况的请求时限，范围 100–30,000 毫秒。 |
@@ -188,15 +206,15 @@ Host 转写调用同时接受调用方取消信号与请求超时。取消会终
 
 #### What the model sees
 
-模型请求使用选定的账号提供方与模型。可选账号搜索通过原有 `web_search` 工具返回校验过的来源。本包不提供账号状态或知识库工具 schema。密码和 cookie 不进入工具参数及结果。模型图片预算超出时，已组合的图片卸载执行器会记录最早图片的占位文字；模型仍可重新读取原附件。
+模型请求使用选定的账号提供方与模型。可选账号搜索通过原有 `web_search` 工具返回校验过的来源。启用 `douyinDownloadTool` 时，延迟加载的 [`douyin_download`](../../../docs/tool-catalog.zh.md#deepseek-aidsh-muse-account) schema 以中文描述数据站抖音下载；结果包含作品状态、公开存储地址和固定失败代码。本包不提供账号状态或知识库工具 schema。密码和 cookie 不进入工具参数及结果。模型图片预算超出时，已组合的图片卸载执行器会记录最早图片的占位文字；模型仍可重新读取原附件。
 
 #### Token effect
 
-启用 `feedbackTools` 时，模型请求增加两个反馈工具 schema，收据结果进入正常工具历史。反馈和媒体工具均关闭时，本包不增加工具 schema 或系统提示词文本。启用 `mediaTools` 注册四个延迟加载 schema，由发现机制控制请求准入，接受的结果进入正常工具历史。可选账号搜索沿用原有网页工具 schema，并将返回的来源追加到会话。
+启用 `feedbackTools` 时，模型请求增加两个反馈工具 schema，收据结果进入正常工具历史。反馈和媒体工具均关闭时，本包不增加工具 schema 或系统提示词文本。启用 `mediaTools` 注册四个延迟加载 schema，由发现机制控制请求准入，接受的结果进入正常工具历史。启用 `douyinDownloadTool` 注册一个延迟加载 schema；整部合集的结果列出每个返回剧集及其地址，因此最多 `douyinListLimit` 个作品条目进入工具历史。可选账号搜索沿用原有网页工具 schema，并将返回的来源追加到会话。
 
 #### KV Cache effect
 
-账号设置与状态保留为 Host 和 Client 数据。模型选择与原有工具历史规则决定请求前缀的复用。
+账号设置与状态保留为 Host 和 Client 数据。官方账号的 `deepseek-flash` 与 `deepseek-v4.1-flash-261017` 路由按会话顺序保留变化后的系统文本，使此前的请求前缀保持不变。其他账号路由沿用各自声明的提示词行为；工具新增仍取决于各路由的工具历史支持。模型选择仍决定可复用哪个提供方的缓存。
 
 ## Known Limitations and Deferred Work
 
@@ -206,6 +224,7 @@ Host 转写调用同时接受调用方取消信号与请求超时。取消会终
 
 - **同一系统用户的文件访问** — 保存的 cookie 不在模型会话中，但以同一系统用户身份运行的智能体进程，仍可能通过文件工具读取会话文件。设置页和 Remote 路由不提供完整隔离；更强的隔离需要系统凭据库、独立账号或更严格的沙箱读取权限。
 - **依赖网关** — 账号授权的模型、网页搜索和语音需要已部署的匹配网关服务。只发布源码不会启用这些能力。
+- **依赖数据站** — `douyin_download` 需要数据站在 `douyinStationPath` 下的账号令牌路由及其成员名单。缺少时每个操作都报告 `unavailable` 或 `team-access-required`，不会改用本地下载器。
 
 <a id="dev-note"></a>
 ### 开发备注

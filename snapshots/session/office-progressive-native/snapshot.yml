@@ -7,5 +7,7 @@ writerOutput: true
 header:
   class: office-render-tools
   pin: true
+  systemPromptSource: office-skills
+  changes: 1
 workspace:
   setup: office-skills

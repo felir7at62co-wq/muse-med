@@ -53,7 +53,7 @@ async function wrapperPowerShellCalls(language: string): Promise<{ file: string;
     ts.forEachChild(node, visit)
   }
   visit(parsed)
-  expect(expressions).toHaveLength(4)
+  expect(expressions).toHaveLength(5)
   const calls: { file: string; args: string[] }[] = []
   const appRoot = join(tmpdir(), 'installer-argv-only')
   const output = join(appRoot, 'output'), languageOutput = join(output, language)
@@ -63,6 +63,7 @@ async function wrapperPowerShellCalls(language: string): Promise<{ file: string;
       execute(file: string, args: string[], _options: object) { calls.push({ file, args }) },
       join, appRoot, output, languageOutput, language,
       prerequisiteDirectory: join(output, 'prerequisites'), receiptFile: join(output, 'vc-runtime-receipt.json'),
+      owner: join(output, 'restart-status-owner.exe'),
       negativeOutput: join(languageOutput, 'negative-cleanup'), productName: 'Harness argv test',
       guid: 'private-argv-test', packageName: 'private-argv-test', uninstallOnly: false,
       childOptions: { windowsHide: true },
@@ -163,7 +164,6 @@ it('copies production prerequisite checks and confines the reboot switch to priv
   const fixture = createInstallerTestSource(source, root)
   expect(source).not.toContain('TEST_REBOOT_REQUIRED')
   expect(fixture).toContain(`!define INSTALLER_SOURCE_DIR "${join(root, 'installer')}"`)
-  expect(fixture).toContain(`!include "${join(root, 'scripts', 'installer-directories.nsh')}"`)
   expect(source).not.toContain('INSTALLER_TEST_PAGES_FILE')
   expect(fixture).toContain('!include "${INSTALLER_TEST_PAGES_FILE}"')
   expect(fixture).toContain('ReadRegDWORD $4 HKLM "SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64" "Installed"')
@@ -171,6 +171,20 @@ it('copies production prerequisite checks and confines the reboot switch to priv
   expect(fixture).toMatch(/Call MuseEnsureVCRuntime[\s\S]*?GetOptions[\s\S]*?SetRebootFlag true[\s\S]*?ClearErrors/u)
   expect(() => createInstallerTestSource(source.replace('  Call MuseEnsureVCRuntime', ''), root)).toThrow('requires one production marker')
   expect(() => createInstallerTestSource(source + '\n  Call MuseEnsureVCRuntime', root)).toThrow('requires one production marker')
+})
+
+it('resolves every copied installer include against the original scripts directory', async () => {
+  const source = await readFile(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const fixture = createInstallerTestSource(source, root)
+  const relativeIncludes = [...source.matchAll(/!include "\$\{__FILEDIR__\}\\([^"\n]+)"/gu)].map(match => match[1])
+  expect(relativeIncludes).toEqual(['restart-banner.nsh', 'installer-directories.nsh'])
+  for (const name of ['restart-banner.nsh', 'installer-directories.nsh']) expect(fixture).toContain(`!include "${join(root, 'scripts', name)}"`)
+  expect(fixture).not.toContain('!include "${__FILEDIR__}')
+  expect(() => createInstallerTestSource(source.replace('!include "${__FILEDIR__}\\restart-banner.nsh"', ''), root))
+    .toThrow('requires one production marker')
+  expect(() => createInstallerTestSource(source + '\n!include "${__FILEDIR__}\\unexpected.nsh"\n', root))
+    .toThrow('unresolved source-relative include')
 })
 
 it('retains each actual page operation and confines stage receipts to the private fixture', async () => {

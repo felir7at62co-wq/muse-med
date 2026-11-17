@@ -118,8 +118,8 @@ it('rejects unauthorized CI identity, destinations, signed headers and expired a
   expect(calls).toBe(0)
 })
 
-it('refuses changed build bytes, unsuccessful receipts, environment files and directory links', async () => {
-  for (const invalid of ['digest', 'receipt', 'legacy-version', 'environment', 'link']) {
+it.each(['digest', 'receipt', 'legacy-version', 'environment', 'link'] as const)(
+  'refuses %s before uploading build bytes or evidence', async (invalid) => {
     const f = await fixture()
     if (invalid === 'digest') await writeFile(join(f.artifacts, `muse-med-${f.config.version}-win-x64.exe`), 'changed')
     if (invalid === 'receipt') await writeFile(join(f.installed, 'acceptance.json'), '{"success":false}')
@@ -139,8 +139,7 @@ it('refuses changed build bytes, unsuccessful receipts, environment files and di
     await expect(exportMuseCiCandidate({ ...f.options, fetchImpl })).rejects.toThrow('Muse candidate export:')
     expect(calls).toBe(0)
     expect((await readdir(f.runner)).filter(name => name.startsWith('muse-ci-export-'))).toEqual([])
-  }
-})
+  })
 
 it('redacts metadata upload failures, stops before the candidate and removes temporary data', async () => {
   for (const kind of ['network', 'http']) {
@@ -158,8 +157,8 @@ it('redacts metadata upload failures, stops before the candidate and removes tem
   }
 })
 
-it('refuses secret-bearing text evidence before either upload', async () => {
-  for (const secret of ['environment', 'encryption-key', 'signed-url', 'private-key', 'github-token', 'bearer-token']) {
+it.each(['environment', 'encryption-key', 'signed-url', 'private-key', 'github-token', 'bearer-token'] as const)(
+  'refuses %s secret-bearing text evidence before either upload', async (secret) => {
     const f = await fixture()
     const samples = {
       environment: 'fixture-sensitive-value-4829',
@@ -170,14 +169,14 @@ it('refuses secret-bearing text evidence before either upload', async () => {
       'bearer-token': 'Authorization: Bearer fixture-live-token-4829',
     }
     const environment = { ...f.environment, MUSE_TEST_SECRET: samples.environment }
-    await writeFile(join(f.installed, 'processes', 'output.log'), samples[secret as keyof typeof samples])
+    await writeFile(join(f.installed, 'processes', 'output.log'), samples[secret])
     let calls = 0
     const fetchImpl: typeof fetch = async () => { calls++; return new Response() }
     await expect(exportMuseCiCandidate({ ...f.options, environment, fetchImpl })).rejects.toThrow('Muse candidate export: evidence contains secret data')
     expect(calls).toBe(0)
     expect((await readdir(f.runner)).filter(name => name.startsWith('muse-ci-export-'))).toEqual([])
-  }
-})
+  },
+)
 
 it('uses the remaining authorized window for each upload after the clock advances', async () => {
   const f = await fixture()

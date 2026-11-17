@@ -144,7 +144,7 @@ describe('Python runtime executable builder CLI', () => {
     expect(result.stdout.split('--config.allow-unused-patches=true')).toHaveLength(2)
     expect(result.stdout).not.toContain(resolve(root, 'python/sdk-runtime/runtime-bootstrap.mjs'))
     expect(result.stdout).toContain('"bin":"runtime-bootstrap.mjs"')
-    expect(result.stdout).toContain(`${process.execPath} ${pkgCli}`)
+    expect(result.stdout).toContain([process.execPath, pkgCli].map(part => part.includes(' ') ? JSON.stringify(part) : part).join(' '))
     expect(result.stdout).not.toContain('exec pkg')
     expect(result.stdout).not.toMatch(/pnpm\.cmd/i)
   })
@@ -179,10 +179,11 @@ describe('Python runtime executable builder CLI', () => {
     )
 
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain(`${process.execPath} ${pkgCli}`)
+    expect(result.stdout).toContain([process.execPath, pkgCli].map(part => part.includes(' ') ? JSON.stringify(part) : part).join(' '))
     expect(result.stdout).toContain('--sea --compress Brotli --targets node24-macos-x64')
     expect(result.stdout).toContain('keep only node-pty prebuilds darwin-x64')
-    expect(result.stdout).toContain('lock optional resource downloads and copy Office skills')
+    expect(result.stdout).toContain(`lock optional resource downloads in ${join(root, 'dist-exe', 'macos-x64')}`)
+    expect(result.stdout).not.toContain('office-skills')
     expect(result.stdout).toContain(join(root, 'dist-exe', 'macos-x64'))
   })
 

@@ -1,0 +1,13 @@
+{
+  "name": "dsh-profile-hongguo",
+  "private": true,
+  "dependencies": {},
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "muse-hongguo-download"
+      ]
+    }
+  }
+}

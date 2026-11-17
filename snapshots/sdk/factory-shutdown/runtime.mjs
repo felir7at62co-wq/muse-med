@@ -50,7 +50,8 @@ export function apply(ctx, config) {
     const run = await ctx.subagents.startActivation({
       provider: 'spawn',
       label: 'shutdown-child',
-      request: { prompt: [{ type: 'text', text: 'Reply with exactly: child answer 42.' }], parent: agent },
+      prompt: [{ type: 'text', text: 'Reply with exactly: child answer 42.' }],
+      parent: agent,
       signal: controller.signal,
       delivery: 'caller',
     })

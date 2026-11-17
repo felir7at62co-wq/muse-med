@@ -11,7 +11,7 @@ import { projectToolSchema } from './schema.ts'
 import { assertSupportedJsonSchema } from './json-schema.ts'
 import { RUN_CODE_NAME, ToolActivationError } from './contracts.ts'
 import type {
-  ToolDefinition, ToolRestriction, ToolExecution, ToolGuard,
+  ToolDefinition, ToolRestriction, ToolExecution, ToolGuard, ToolGuardDenial,
   ResolvedToolSet, ToolActivationContext, ToolRegistrationOptions,
 } from './contracts.ts'
 
@@ -158,9 +158,10 @@ export class ToolsService extends Service {
 
   /**
    * Restrict global tools for the calling agent scope. Empty filters, unknown
-   * names, scope-local names, and reserved transport names fail. Restrictions
-   * intersect; scoped registrations remain visible.
-   * @param filter - global-tool mask: `allow` (keep only) and/or `deny` (remove).
+   * `allow`/`deny` names, scope-local names, and reserved transport names fail;
+   * `futureAllow`/`futureDeny` may name tools registered later. Restrictions
+   * intersect; scoped registrations remain visible unless `includeOwn` is set.
+   * @param filter - global-tool mask: `allow`/`futureAllow` (keep only) and/or `deny`/`futureDeny` (remove).
    * @returns the exact disposer that lifts this restriction.
    */
   restrict(filter: ToolRestriction): () => void {
@@ -200,7 +201,8 @@ export class ToolsService extends Service {
   /**
    * Resolve visible tools and pre-restriction names. Restrictions across the
    * scope chain intersect over inherited global and ancestor tools; the viewing
-   * scope's own registrations remain exempt. Nearer registrations shadow
+   * scope's own registrations remain exempt unless a restriction sets
+   * `includeOwn`. Nearer registrations shadow
    * farther ones. Pre-restriction names support restriction and prompt-order validation.
    * @param scope - the viewing scope (the agent), or undefined for the global view.
    * @returns the complete derived view for that scope.
@@ -422,13 +424,13 @@ export class ToolsService extends Service {
   /**
    * Check global and inherited guards after pre-execute policy and approval resolve.
    * @param exec - invocation whose guards are checked before dispatch.
-   * @returns the first denial reason, or undefined when no guard denies.
+   * @returns the first denial with its optional structured identity, or undefined when no guard denies.
    */
-  checkGuards(exec: ToolExecution): string | undefined {
+  checkGuards(exec: ToolExecution): ToolGuardDenial | undefined {
     for (const layer of [this.guards.global, ...this.guards.chainLayers(exec.agent)]) {
       for (const guard of layer.guards.values()) {
-        const reason = guard(exec)
-        if (reason !== undefined) return reason
+        const denial = guard(exec)
+        if (denial !== undefined) return typeof denial === 'string' ? { reason: denial } : denial
       }
     }
     return undefined

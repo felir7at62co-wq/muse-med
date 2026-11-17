@@ -39,6 +39,7 @@ The kernel packages boot and serve the page; the UI feature packages present it.
 | [`ui-renderer/`](ui-renderer/README.md) | Binds slot data to React and mounts the assembled application | `ctx.uiRenderer` |
 | [`ui-slots/`](ui-slots/README.md) | Defines typed extension Slots and reusable Component Factories | — |
 | [`ui-session/`](ui-session/README.md) | Adapts Session Controller state into standard Slot sources and hooks | — |
+| [`ui-session-coordinator/`](ui-session-coordinator/README.md) | Main Session task cards, execution-session navigation and native delivery opening | — |
 | [`ui-theme/`](ui-theme/README.md) | Applies the selected color theme | — |
 | [`ui-primitives/`](ui-primitives/README.md) | Provides shared React controls, icons, and content renderers | — |
 | [`ui-attachment/`](ui-attachment/README.md) | Registers composer and message-image attachment presentation | — |
@@ -55,6 +56,9 @@ The kernel packages boot and serve the page; the UI feature packages present it.
 | [`ui-conversation/`](ui-conversation/README.md) | Presents the active conversation and its input surface | — |
 | [`ui-chat/`](ui-chat/README.md) | Projects and renders the Chat conversation target | — |
 | [`ui-session-video/`](ui-session-video/README.md) | Collects conversation videos into one curtain with a shot timeline and draft-edit actions | — |
+| [`ui-muse-account/`](ui-muse-account/README.md) | Muse account sign-in and status in Desktop Settings | — |
+| [`ui-muse-market/`](ui-muse-market/README.md) | Manages local Skill releases and optional cloud publication | — |
+| [`ui-settings-agent-notes/`](ui-settings-agent-notes/README.md) | Agent Notes Settings section: browse, search, and edit notes in place | — |
 | [`ui-approval/`](ui-approval/README.md) | Presents approval requests and returns user decisions | — |
 | [`ui-tool/`](ui-tool/README.md) | Composes Tool call trees and keyed per-Tool views | — |
 | [`ui-workflow-run/`](ui-workflow-run/README.md) | Replays durable workflow runs as nested chat disclosures | — |
@@ -66,6 +70,7 @@ The kernel packages boot and serve the page; the UI feature packages present it.
 | [`ui-reference/`](ui-reference/README.md) | Unified Web `@file` / `@session` reference source | — |
 | [`ui-character-library/`](ui-character-library/README.md) | Opens the read-only character reference catalog and image previews from the left navigation | — |
 | [`ui-secret-mask/`](ui-secret-mask/README.md) | Masks recognized credentials in sent user text | — |
+| [`ui-agent-team/`](ui-agent-team/README.md) | Session Team switch and shared tasks below the Subagent tree | — |
 | [`ui-subagent/`](ui-subagent/README.md) | Provides subagent navigation, child transcript states, and inline references | — |
 | [`ui-jobs/`](ui-jobs/README.md) | Lists this session's background jobs with on-demand streaming record panels | — |
 | [`ui-schedule/`](ui-schedule/README.md) | Provides the sidebar Automation tasks page and right Sidebar task tab, which create, edit, run, pause, resume, and delete Host scheduled tasks, plus the Session header clock and row mark | — |
@@ -82,7 +87,7 @@ The kernel packages boot and serve the page; the UI feature packages present it.
 | [`ui-settings-agent-loop/`](ui-settings-agent-loop/README.md) | Provides the agent-loop settings page on the Plugins page | — |
 | [`ui-settings-session-log/`](ui-settings-session-log/README.md) | Controls API Session-log upload in General settings | — |
 | [`ui-settings-subagent/`](ui-settings-subagent/README.md) | Provides the Subagent settings page on the Plugins page | — |
-| [`ui-settings-web-search/`](ui-settings-web-search/README.md) | Provides the web-search settings page on the Plugins page | — |
+| [`ui-settings-web-search/`](ui-settings-web-search/README.md) | Provides the web search and fetch settings page on the Plugins page | — |
 | [`ui-plugin-manager/`](ui-plugin-manager/README.md) | Contributes the sidebar Plugins panel: install, enable, disable, retry, and compose installed packages | — |
 | [`ui-entry-customization/`](ui-entry-customization/README.md) | Adds region-local More menus that pin or unpin plugin launchers and start a plugin draft | — |
 | [`ui-plugin-market/`](ui-plugin-market/README.md) | Contributes the Discover tab to the Plugins page: browse market indexes and install their bundles | — |

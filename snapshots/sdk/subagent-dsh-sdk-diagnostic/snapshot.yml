@@ -4,8 +4,8 @@ profile: sdk
 writerOutput: true
 composition: sdk-dsh-sdk-diagnostic
 recording: live
+replay:
+  override: true
 header:
   class: sdk-dsh-sdk-diagnostic
   pin: true
-replay:
-  override: true

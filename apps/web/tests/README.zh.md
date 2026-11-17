@@ -30,6 +30,8 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 构建产物的 jsdom 用例共用 `installAssembledBootEnv`，提供不匹配的媒体查询，并在每项测试后恢复浏览器全局对象；真实媒体查询行为由浏览器用例验证。
 
+每个场景都要求整个客户端组合全部激活。产品启动只对必需名单外的未激活 entry 告警，但 `watchConsole` 绊线、[真实 Host 冒烟](smoke-real.e2e.ts)与[组装 jsdom 启动](assembled-boot.ts)把 `web boot: warning` 视为失败。没有任何场景选项放宽这一点：产品组合中出现未激活插件就是需要修复的缺陷。
+
 [Bot 侧栏夹具](bot-sidebar-rail.e2e.ts)以合成名单和空 Sessions 挂载内置导航，释放时取消其公开导航 guard。窄屏 Web 和 macOS 用例检查可见抽屉、命中、键盘焦点和不占侧栏列的主区；Windows 保留图标栏。这些几何检查不验证原生 Session 操作。
 
 ## 完成状态观察

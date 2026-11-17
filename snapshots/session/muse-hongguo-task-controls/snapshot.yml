@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-hongguo-task-controls
+profile: headless
+composition: muse-hongguo-task-controls
+recording: authored
+writerOutput: true
+header:
+  class: muse-hongguo-task-controls
+  pin: true
+workspace:
+  final: true

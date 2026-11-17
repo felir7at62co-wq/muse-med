@@ -1,0 +1,9 @@
+{
+  "interruptedPollCancelled": true,
+  "lockCompletedBeforeDeadline": true,
+  "activeTasksRetained": true,
+  "resumedPollCount": 1,
+  "resumedReadCompleted": true,
+  "pendingPolls": 0,
+  "pendingHandlers": 0
+}

@@ -1,4 +1,5 @@
 /** Grounded citations, real isolated review loops, bounded requests and awaited cancellation. */
+import { unlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -34,7 +35,7 @@ const config: ManuscriptContinuityConfig = { maxFileBytes: 65536, maxTextChars: 
   maxLedgerBytes: 1024 * 1024, lockWaitMs: 5000,
   maxDocuments: 8, maxMaterialChars: 40000, continuityMaxRequests: 3,
   continuityMaxOutputTokens: 4096, continuityTimeoutMs: 120000, continuityMaxFindings: 8,
-  continuityMaxCorrections: 1, continuityMaxEpisodeChecks: 12,
+  continuityMaxCorrections: 1, continuityMaxEpisodeChecks: 12, continuityMaxConcurrentReviews: 4, continuityMaxWindowRetries: 0,
   videoEvidenceWindowSeconds: 8, videoEvidenceMaxScenes: 4, videoEvidenceMaxFrames: 4,
   videoEvidenceMaxBytes: 256 * 1024, videoEvidenceMaxTranscriptBytes: 2 * 1024 * 1024,
   repeatMinChars: 32, repeatMaxSeedPairs: 50000, repeatMaxCandidates: 12, repeatMaxOutputChars: 20000 }
@@ -86,7 +87,7 @@ function episodeCheck(document: ManuscriptMaterialsDocument) {
 }
 
 it('requires exact pair coverage instead of accepting an empty global consistent assessment', async () => {
-  const { materials, current, target } = await materialFixture(), plan = buildEpisodePlan(current, 12)
+  const { materials, current, target } = await materialFixture(), plan = buildEpisodePlan(current)
   const empty = { status: 'consistent', findings: [], unknowns: [] }
   expect(validateContinuityAssessment(empty, materials, target, 8, plan).status).toBe('unknown')
   const report = { ...empty, episode_checks: [episodeCheck(current)] }
@@ -576,4 +577,183 @@ it('keeps an invalid structured submission within the same total request cap', a
   const events = fixture.childSessions[0]!.snapshotEvents().filter(event => event.type === 'tool/result')
   expect(events[0]?.data.message.isError).toBe(true)
   expect(fixture.ctx.agents.list().map(agent => agent.id)).toEqual([fixture.parent.id])
+})
+
+const fourEpisodes = ['第1集', '1-1 门口 日 外', '▲甲在门口等候。', '第2集', '2-1 走廊 日 内', '▲甲走进走廊。',
+  '第3集', '3-1 客厅 日 内', '▲甲坐进客厅。', '第4集', '4-1 卧室 夜 内', '▲甲关灯睡下。'].join('\n')
+
+interface WindowPrompt {
+  episode_plan: { checks: { from_episode: number; to_episode: number }[] }
+  materials: { documents: ManuscriptMaterialsDocument[] }
+}
+
+function windowPrompt(options: GenerateOptions): WindowPrompt {
+  const prompt = options.messages.flatMap(message => message.role === 'user' ? message.content : [])
+    .flatMap(block => block.type === 'text' && block.text.includes('"episode_plan"') ? [block.text] : [])[0]
+  if (prompt === undefined) throw Error('Window reviewer prompt is missing its episode plan')
+  return JSON.parse(prompt) as WindowPrompt
+}
+
+/** Each episode's action line is its third line, so both sides of every scheduled pair are quoted. */
+function windowAnswer(options: GenerateOptions): StreamChunk[] {
+  const prompt = windowPrompt(options), document = prompt.materials.documents[0]!
+  const quote = (episode: number) => ({ role: document.role, path: document.path, file_sha256: document.file_sha256,
+    text_sha256: document.text_sha256, line: episode * 3, quote: document.lines.find(line => line.number === episode * 3)!.text })
+  return toolCallResponse(`window-${prompt.episode_plan.checks[0]!.from_episode}`, 'structured_output', {
+    status: 'consistent', findings: [], unknowns: [], episode_checks: prompt.episode_plan.checks.map(pair => ({ ...pair,
+      status: 'consistent', explanation: '前集结尾与后集开场的人物位置顺次推进。', evidence: [quote(pair.from_episode), quote(pair.to_episode)] })) })
+}
+
+type StartActivation = Context['subagents']['startActivation']
+
+/** Delays the first window's result until a second reviewer starts, so only overlapping windows can finish. */
+function holdFirstActivation(fixture: Awaited<ReturnType<typeof runtime>>, second: (call: number) => Promise<void> | void) {
+  const start: StartActivation = fixture.ctx.subagents.startActivation.bind(fixture.ctx.subagents)
+  const started = Promise.withResolvers<undefined>()
+  let calls = 0
+  vi.spyOn(fixture.ctx.subagents, 'startActivation').mockImplementation(async (spec) => {
+    const call = ++calls
+    if (call === 2) { started.resolve(undefined); await second(call) }
+    const activation = await start(spec)
+    if (activation.messageId === undefined) throw Error('Expected a local child inbox receipt')
+    return call === 1 ? { ...activation, messageId: activation.messageId, result: started.promise.then(() => activation.result) }
+      : { ...activation, messageId: activation.messageId }
+  })
+  return { calls: () => calls }
+}
+
+it('splits an oversized schedule into bounded concurrent windows and merges one passing result', async () => {
+  const alive: number[] = []
+  const fixture = await runtime([0, 1, 2].map(() => (options: GenerateOptions) => {
+    alive.push(fixture.ctx.agents.list().length - 1)
+    return windowAnswer(options)
+  }), { continuityMaxEpisodeChecks: 1, continuityMaxConcurrentReviews: 2 })
+  await writeFile(join(fixture.root, 'current.md'), fourEpisodes)
+  holdFirstActivation(fixture, () => undefined)
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对整剧集间承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'consistent', reason: 'reviewed', findings: [], unknowns: [], file_verification: 'verified',
+    reviewer: { session_id: null, requests: 3 },
+    episode_plan: { checks: [{ from_episode: 1, to_episode: 2 }, { from_episode: 2, to_episode: 3 }, { from_episode: 3, to_episode: 4 }] },
+    windows: [{ checks: [{ from_episode: 1, to_episode: 2 }], lines: { start: 1, end: 6 }, status: 'consistent', reason: 'reviewed' },
+      { checks: [{ from_episode: 2, to_episode: 3 }], lines: { start: 4, end: 9 }, status: 'consistent', reason: 'reviewed' },
+      { checks: [{ from_episode: 3, to_episode: 4 }], lines: { start: 7, end: 12 }, status: 'consistent', reason: 'reviewed' }] })
+  expect(result.episode_checks?.map(check => [check.from_episode, check.to_episode])).toEqual([[1, 2], [2, 3], [3, 4]])
+  expect(new Set(result.windows?.map(window => window.reviewer.session_id)).size).toBe(3)
+  expect(result.documents[0]?.coverage.full_document).toBe(true)
+  expect(Math.max(...alive)).toBeLessThanOrEqual(2)
+  expect(fixture.childSessions).toHaveLength(3)
+  expect(fixture.ctx.agents.list().map(agent => agent.id)).toEqual([fixture.parent.id])
+})
+
+it('keeps the merged result unknown and names the window when one window has no structured result', async () => {
+  const fixture = await runtime([windowAnswer, textResponse('The handoff looks fine.'), windowAnswer],
+    { continuityMaxEpisodeChecks: 1, continuityMaxConcurrentReviews: 1, continuityMaxCorrections: 0 })
+  await writeFile(join(fixture.root, 'current.md'), fourEpisodes)
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对整剧集间承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'unknown', reason: 'reviewer_failed', findings: [],
+    unknowns: [expect.stringMatching(/^第2–3集：/u)],
+    windows: [{ status: 'consistent' }, { status: 'unknown', reason: 'reviewer_failed' }, { status: 'consistent' }] })
+  expect(result.episode_checks?.map(check => check.from_episode)).toEqual([1, 3])
+})
+
+it('returns unknown when the manuscript changes while its windows are reviewed', async () => {
+  const fixture = await runtime([(options) => {
+    writeFileSync(join(fixture.root, 'current.md'), fourEpisodes.replace('等候', '徘徊'))
+    return windowAnswer(options)
+  }, windowAnswer, windowAnswer], { continuityMaxEpisodeChecks: 1, continuityMaxConcurrentReviews: 1 })
+  await writeFile(join(fixture.root, 'current.md'), fourEpisodes)
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对整剧集间承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'unknown', reason: 'file_changed', findings: [], file_verification: 'changed' })
+  expect(fixture.ctx.agents.list().map(agent => agent.id)).toEqual([fixture.parent.id])
+})
+
+it('names the rejected fields so the reviewer corrects an extra per-pair key and a missing status', async () => {
+  const fixture = await runtime([
+    () => toolCallResponse('extra-key', 'structured_output', { findings: [], unknowns: [],
+      episode_checks: [{ ...episodeCheck(fixture.current), unknowns: [] }] }),
+    (options) => {
+      const feedback = options.messages.filter(message => message.role === 'tool').flatMap(message => message.content)
+        .flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+      expect(feedback).toContain('CONTINUITY_INVALID_SUBMISSION')
+      expect(feedback).toContain('episode_checks[]: Unrecognized key: "unknowns"')
+      expect(feedback).toMatch(/status: /u)
+      return toolCallResponse('corrected', 'structured_output', { status: 'consistent', findings: [], unknowns: [],
+        episode_checks: [episodeCheck(fixture.current)] })
+    },
+  ])
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对集间实际承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'consistent', reason: 'reviewed', reviewer: { requests: 2 } })
+})
+
+it('retries a window that found no free subagent slot after another window of the same call finishes', async () => {
+  const fixture = await runtime([windowAnswer, windowAnswer, windowAnswer],
+    { continuityMaxEpisodeChecks: 1, continuityMaxConcurrentReviews: 2 })
+  await writeFile(join(fixture.root, 'current.md'), fourEpisodes)
+  const starts = holdFirstActivation(fixture, () => { throw Object.assign(Error('subagent limit reached'), { code: 'ACTIVATION_LIMIT_REACHED' }) })
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对整剧集间承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'consistent', reason: 'reviewed', reviewer: { requests: 3 },
+    windows: [{ reason: 'reviewed' }, { reason: 'reviewed' }, { reason: 'reviewed' }] })
+  expect(starts.calls()).toBe(4)
+})
+
+it('reports capacity instead of a setup failure when no window of the call can release a slot', async () => {
+  const fixture = await runtime([], { continuityMaxEpisodeChecks: 1, continuityMaxConcurrentReviews: 1 })
+  await writeFile(join(fixture.root, 'current.md'), fourEpisodes)
+  vi.spyOn(fixture.ctx.subagents, 'startActivation').mockRejectedValue(
+    Object.assign(Error('subagent limit reached'), { code: 'ACTIVATION_LIMIT_REACHED' }))
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对整剧集间承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'unknown', reason: 'capacity',
+    windows: [{ reason: 'capacity' }, { reason: 'capacity' }, { reason: 'capacity' }] })
+  expect(result.unknowns[0]).toContain('No subagent slot was free')
+})
+
+it('keeps a window that cannot reread a shortened manuscript unknown instead of failing the whole call', async () => {
+  const fixture = await runtime([(options) => {
+    writeFileSync(join(fixture.root, 'current.md'), fourEpisodes.split('\n').slice(0, 9).join('\n'))
+    return windowAnswer(options)
+  }, windowAnswer], { continuityMaxEpisodeChecks: 1, continuityMaxConcurrentReviews: 1 })
+  await writeFile(join(fixture.root, 'current.md'), fourEpisodes)
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对整剧集间承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'unknown', reason: 'file_changed', file_verification: 'changed' })
+  expect(result.windows?.[2]).toMatchObject({ status: 'unknown', reason: 'file_changed', reviewer: { requests: 0 } })
+  expect(fixture.ctx.agents.list().map(agent => agent.id)).toEqual([fixture.parent.id])
+})
+
+it('keeps the merged status unknown when one window found issues and another was not reviewed', async () => {
+  const conflict = (options: GenerateOptions): StreamChunk[] => {
+    const prompt = windowPrompt(options), document = prompt.materials.documents[0]!
+    const quote = (line: number) => ({ role: document.role, path: document.path, file_sha256: document.file_sha256,
+      text_sha256: document.text_sha256, line, quote: document.lines.find(item => item.number === line)!.text })
+    return toolCallResponse('window-conflict', 'structured_output', { status: 'issues', unknowns: [],
+      findings: [{ category: 'character_state', description: '人物位置前后矛盾。', evidence: [quote(3), quote(6)] }],
+      episode_checks: [{ from_episode: 1, to_episode: 2, status: 'issues', explanation: '门口与走廊衔接矛盾。', evidence: [quote(3), quote(6)] }] })
+  }
+  const fixture = await runtime([conflict, textResponse('No structured result.'), windowAnswer],
+    { continuityMaxEpisodeChecks: 1, continuityMaxConcurrentReviews: 1, continuityMaxCorrections: 0 })
+  await writeFile(join(fixture.root, 'current.md'), fourEpisodes)
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对整剧集间承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'unknown', reason: 'reviewer_failed', findings: [{ category: 'character_state' }],
+    windows: [{ status: 'issues' }, { status: 'unknown' }, { status: 'consistent' }] })
+})
+
+it('keeps a window unknown when the manuscript disappears before its reread', async () => {
+  const fixture = await runtime([(options) => {
+    unlinkSync(join(fixture.root, 'current.md'))
+    return windowAnswer(options)
+  }], { continuityMaxEpisodeChecks: 1, continuityMaxConcurrentReviews: 1 })
+  await writeFile(join(fixture.root, 'current.md'), fourEpisodes)
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对整剧集间承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'unknown', file_verification: 'changed' })
+  expect(result.windows?.slice(1)).toMatchObject([{ reason: 'file_unavailable' }, { reason: 'file_unavailable' }])
+  expect(fixture.ctx.agents.list().map(agent => agent.id)).toEqual([fixture.parent.id])
+})
+
+it('runs a failed window again with a fresh reviewer and counts every attempt', async () => {
+  const fixture = await runtime([windowAnswer, textResponse('The handoff looks fine.'), windowAnswer, windowAnswer],
+    { continuityMaxEpisodeChecks: 1, continuityMaxConcurrentReviews: 1, continuityMaxCorrections: 0, continuityMaxWindowRetries: 1 })
+  await writeFile(join(fixture.root, 'current.md'), fourEpisodes)
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对整剧集间承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'consistent', reason: 'reviewed', reviewer: { requests: 4 },
+    windows: [{ attempts: 1 }, { attempts: 2, reason: 'reviewed', reviewer: { requests: 2 } }, { attempts: 1 }] })
+  expect(fixture.childSessions).toHaveLength(4)
 })

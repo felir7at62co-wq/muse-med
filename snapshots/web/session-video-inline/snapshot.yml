@@ -1,0 +1,9 @@
+version: 1
+scenario: session-video-inline
+profile: web
+composition: web-default
+recording: authored
+header:
+  class: web-default
+session:
+  source: ../../session/muse-media-import-safe-filename/session.v4.jsonl

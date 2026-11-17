@@ -15,7 +15,7 @@ const adopted = { id: 501, assetId: 77, assetName: '演员甲', assetUrl: 'https
 const request = { method: 'image_generate', script_id: 2708, asset_name: '演员甲（冬装）', asset_type: 1,
   parent_asset_id: 77, prompt: '真人写实，保留同一人的面孔，改穿冬装。', idempotency_key: 'winter' }
 
-async function fixture() {
+async function fixture(candidate: Record<string, unknown> = {}, extras: Record<string, unknown>[] = []) {
   const root = await mkdtemp(join(tmpdir(), 'jubian-image-continuity-'))
   onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
   await writeFile(join(root, 'authorization.json'), JSON.stringify({ version: 1,
@@ -42,10 +42,10 @@ async function fixture() {
         total: state.materials.length + Number(state.incomplete) }
     } else if (endpoint === '/aigc/asset' && ['POST', 'PUT'].includes(method)) data = Number(body?.id ?? 88)
     else if (/\/aigc\/asset\/\d+$/u.test(endpoint)) data = {
-      id: Number(endpoint.split('/').at(-1)), assetType: 1, hsAssetStatus: 'Active' }
+      id: Number(endpoint.split('/').at(-1)), assetType: 1, hsAssetStatus: candidate.resultStatus === undefined ? 'Active' : null }
     else if (endpoint.endsWith('getGeneratedImageByAssetId')) data = [{ id: 600,
       assetId: Number(address.searchParams.get('assetId')), assetUrl: 'https://media.example.test/new-candidate.png',
-      isUsed: 0, hsAssetStatus: 'Active' }]
+      isUsed: 0, hsAssetStatus: 'Active', ...candidate }, ...extras]
     else throw new Error(`Unexpected fixture request ${method} ${address.pathname}`)
     return new Response(JSON.stringify({ code: 200, data }))
   } })
@@ -262,4 +262,14 @@ it('checks cancellation before its first inventory page', async () => {
   const resolve = createImageReferenceResolver(client, resolveImageReferenceScanOptions(), controller.signal)
   await expect(resolve({ scriptId: 2708, assetType: 1, parentAssetId: 77 })).rejects.toThrow('inventory cancelled')
   expect(calls).toEqual([])
+})
+
+it('reports a failed unselected candidate among other pending image records', async () => {
+  const { client, ledger, calls } = await fixture({ resultStatus: 'failed' }, [
+    { id: 601, assetId: 88, hsAssetStatus: 'Inactive', isUsed: 0, resultStatus: 'pending' },
+  ])
+  const { parent_asset_id: _parentAssetId, ...newRequest } = request
+  const result = await videoMethod(client, ledger, { ...newRequest, references: [] })
+  expect(result).toMatchObject({ generation_status: 'failed', asset_status: 'failed', material_id: null })
+  expect(paid(calls)).toHaveLength(1)
 })

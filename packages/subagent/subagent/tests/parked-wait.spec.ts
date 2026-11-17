@@ -54,7 +54,7 @@ async function setup() {
       label: 'child task',
       delivery: 'caller',
       signal: new AbortController().signal,
-      request: { parent: owner, prompt: [{ type: 'text', text: 'child task' }] },
+      parent: owner, prompt: [{ type: 'text', text: 'child task' }],
     })
     starts.push(started)
     return started
@@ -95,6 +95,69 @@ async function setup() {
 }
 
 describe('completion around parked child inboxes', () => {
+  it('keeps parked child messages when its root interrupts the tree and rejects a non-root caller', async () => {
+    const harness = await setup()
+    const { ctx, parent } = harness
+    try {
+      const { child } = await harness.park()
+      const pending = [...child.inbox.nextStep]
+      expect(() => { ctx.subagents.interruptTree(child) }).toThrow('exact live root')
+      ctx.subagents.interruptTree(parent)
+      expect(child.inbox.nextStep).toEqual(pending)
+      expect(ctx.subagents.hasTreeWork(parent)).toBe(false)
+    } finally {
+      await harness.dispose()
+    }
+  })
+
+  it('leaves another root\'s admitted and running children untouched when one root interrupts its tree', async () => {
+    const harness = await setup()
+    const { ctx, parent, gate } = harness
+    try {
+      const { agent: other } = await ctx.agents.create({
+        sessionId: SessionId('parked-wait-other-root'),
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      const entered = gate()
+      const releaseTurn = gate()
+      ctx.on('agent/pre-step', async ({ agent }, next) => {
+        if (agent !== parent && agent !== other) {
+          entered.resolve(undefined)
+          await releaseTurn.promise
+        }
+        return next()
+      })
+      const running = await harness.start(other)
+      await entered.promise
+      const preparing = gate()
+      const releasePrepare = gate()
+      ctx.subagents.registerProvider({
+        name: 'preparing',
+        capabilities: NO_START_CAPABILITIES,
+        inheritsParentContext: false,
+        prepareContinuable: async () => {
+          preparing.resolve(undefined)
+          await releasePrepare.promise
+          return {}
+        },
+      })
+      const admitted = harness.start(other, 'preparing')
+      await preparing.promise
+      expect(ctx.subagents.hasTreeWork(parent)).toBe(false)
+      expect(ctx.subagents.hasTreeWork(other)).toBe(true)
+
+      ctx.subagents.interruptTree(parent)
+      releasePrepare.resolve(undefined)
+      releaseTurn.resolve(undefined)
+
+      const published = await admitted
+      await expect(running.result).resolves.toMatchObject({ stopReason: 'completed' })
+      await expect(published.result).resolves.toMatchObject({ stopReason: 'completed' })
+    } finally {
+      await harness.dispose()
+    }
+  })
+
   it('rechecks a revived sibling after another parked child finishes maintenance', async () => {
     const harness = await setup()
     const { ctx, parent, gate, track } = harness
@@ -104,7 +167,7 @@ describe('completion around parked child inboxes', () => {
       const finishMaintenance = gate()
       const maintenance = track(second.runMaintenance(async () => { await finishMaintenance.promise }))
       let settled = false
-      const waiting = track(ctx.subagents.waitForChildren(parent).then((value) => { settled = true; return value }))
+      const waiting = track(ctx.subagents.waitForTreeWork(parent).then((value) => { settled = true; return value }))
       // Drain the already queued idle observations while maintenance stays gated.
       await setImmediate()
 
@@ -141,6 +204,8 @@ describe('completion around parked child inboxes', () => {
     const { ctx, parent, gate, track } = harness
     try {
       const { child: owner } = await harness.park()
+      expect(ctx.subagents.hasTreeWork(parent)).toBe(false)
+      expect(ctx.subagents.hasTreeWork(owner)).toBe(false)
       const preparing = gate()
       const releasePrepare = gate()
       ctx.subagents.registerProvider({
@@ -166,8 +231,9 @@ describe('completion around parked child inboxes', () => {
       const started = harness.start(owner, 'preparing')
       const rejected = outcome === 'rollback' ? expect(started).rejects.toThrow('preparation rejected') : undefined
       await preparing.promise
+      expect(ctx.subagents.hasTreeWork(parent)).toBe(true)
       let settled = false
-      const waiting = track(ctx.subagents.waitForChildren(parent).then((value) => { settled = true; return value }))
+      const waiting = track(ctx.subagents.waitForTreeWork(parent).then((value) => { settled = true; return value }))
       await setImmediate()
       expect(settled).toBe(false)
       expect(managerState(ctx).resident.size).toBe(1)
@@ -183,6 +249,7 @@ describe('completion around parked child inboxes', () => {
         await rejected
       }
       await expect(waiting).resolves.toBe(true)
+      expect(ctx.subagents.hasTreeWork(parent)).toBe(false)
       expect(owner.inbox.nextStep).toHaveLength(1)
       expect(ctx.agents.get(owner.id)).toBe(owner)
     } finally {
@@ -213,7 +280,7 @@ describe('completion around parked child inboxes', () => {
       })
       let resultSettled = false
       void started.result.then(() => { resultSettled = true })
-      const waiting = track(ctx.subagents.waitForChildren(parent))
+      const waiting = track(ctx.subagents.waitForTreeWork(parent))
       await joinedResult.promise
       child.inject(message('context for a future turn'))
       await expect(waiting).resolves.toBe(true)
@@ -235,7 +302,7 @@ describe('completion around parked child inboxes', () => {
       const finishMaintenance = gate()
       const maintenance = track(parked.runMaintenance(async () => { await finishMaintenance.promise }))
       let settled = false
-      const waiting = track(ctx.subagents.waitForChildren(parent).then((value) => { settled = true; return value }))
+      const waiting = track(ctx.subagents.waitForTreeWork(parent).then((value) => { settled = true; return value }))
       await setImmediate()
 
       const creating = gate()

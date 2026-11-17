@@ -8,6 +8,8 @@
     "src/types.ts",
     "src/format.ts",
     "src/package.ts",
+    "src/package-content.ts",
+    "src/browser.ts",
     "src/author.ts",
     "src/local.ts",
     "src/index.ts",
@@ -19,7 +21,11 @@
     "src/server.ts",
     "src/cloud-host.ts",
     "src/format-values.ts",
-    "src/cloud-values.ts"
+    "src/cloud-values.ts",
+    "src/legacy.ts",
+    "src/legacy-skill.ts",
+    "src/legacy-content.ts",
+    "src/legacy-installations.ts"
   ],
   "references": [
     {

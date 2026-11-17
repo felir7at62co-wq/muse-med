@@ -46,5 +46,5 @@ export function apply(ctx: Context): void {
       assert.equal(options.tools?.some(tool => tool.name === 'snapshot_ping'), false)
     }
     return next()
-  })
+  }, { prepend: true })
 }

@@ -29,7 +29,11 @@ pnpm --dir third_party/plugins/toolchain run test:im
 
 [build.mjs](build.mjs) 按独立的[工具链锁文件](toolchain/pnpm-lock.yaml)执行冻结安装并禁用安装脚本，使用自身的工作区配置，避免自动安装由临时构建提供的四个 deep-view Host peer，再在临时目录中逐个编译和打包插件。`--only dsh-ffmpeg` 可选择单个源码目录。临时目录链接当前仓库已构建的 Host 包，不使用在线用户配置。子进程检查使用临时 Harness 主目录，并排除含凭据的环境变量和继承的 `NODE_PATH`，避免包管理器启动脚本将仅存在于工作区的依赖暴露给产物验收。启动器和 preload 选项保持不变。脚本先移除链接，再删除临时目录；源码目录不会产生构建输出或 `node_modules`。桥接的上游 JavaScript 源码本就位于 `lib`。
 
+订阅插件的 Host 检查显式隔离缺失的可选 Codex 子任务运行时，防止 Host 回退解析在设置重载后重新引入该依赖。检查结束时释放进程内的解析钩子。
+
 每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、已审核的 Host/vendor 版本及工具链锁文件摘要。[Host 版本审核](compatibility/host-runtime.mjs)拒绝未审核的 Host 或 vendor 版本。产物清单禁用生命周期脚本、固定运行时依赖，并在 peer 候选中显式允许已审核的 Host 和 vendor 预发行版本。产物移除已退役的 `dsh-invariants` 依赖。构建覆盖不修改保留的清单与源码文件。
+
+当前审核面向 Host `0.2.2-rc.2`，保留上游版本与固定修订。私有构建检查使用已构建的 Host 和 Client，覆盖订阅 RPC 与图片流、账号传输、原生 IM 会话恢复与权限控制、公开数据工具、FFmpeg、Skill 管理及交互卡片。供应商与平台响应均为测试数据；这些检查不登录真实账号，也不代表在线下载服务当前可用。
 
 归档的 Codex 兼容构建在 `SOURCE.json` 记录修改：子任务检查与准备仅接受已审核的 Host provider 版本，CLI 仍固定为 `0.153.4`。provider 与 Host adapter 共用 Host 安装的 pi-ai `1.3.0`；复制后的运行时与产物 peer 仅接受该精确版本。覆盖检查保留的 provider 模块和目录测试的 SHA-256。复制后的检查使用当前模型目录，并通过 GPT-5.6 Luna 验证自定义上下文；不会给已移除的离线模型虚构别名。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
 
@@ -59,6 +63,8 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。归档的 Codex 构
 
 默认 Desktop 源码清单选择 [dsh-plugin-subscriptions](dsh-plugin-subscriptions/README.md)，其 MIT 发行版固定于 [sources.json](sources.json)。私有构建覆盖层将保留的 Host 和 Client 入口适配到已审核的 DSH 运行时；已安装用户 profile 与凭据不作为构建输入。旧 `dsh-codex-subscription` 源码仍保留，默认 Desktop 构建不选用它。
 
+订阅用量入口通过构建覆盖层使用每实例独立的 CSS 锚点，不再依赖已移除的 `useAnchoredPosition` 基础组件。Client 产物检查会实际挂载有账号和无账号的入口，并验证面板关闭与卸载。
+
 订阅运行产物仅导出 JavaScript，不发布 TypeScript 声明文件。保留的上游 TypeScript 源码保持不变。归档恢复构建保留旧 Codex native-CLI 子代理路径；替换插件使用普通 DSH 子代理。旧画板、PSD、标注与增强偏好不直接迁移。
 
 [订阅迁移指南](../../docs/upgrade-guide/v0.2.2-rc.1/muse-subscriptions/guide.zh.md)说明账号存储、保留的会话历史，以及旧增强预览与标注数据。导入失败会持久记录 `manual-login-required`，要求用户主动登录；标记无法保存时，状态明确提示重启后可能重试自动导入。新供应商注册、图片附件、真实账号访问和成功推理分别验收；只有压缩包不能证明这些结果。
@@ -82,6 +88,8 @@ Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence
 ### 普通会话卡片
 
 保留的 [Deep View](deep-view/README.md) 插件为普通 Muse 会话提供 `show_view`，支持表格、图表、选择和表单等结构化视图。交互回答通过所属 Session 返回；简单问题仍可使用原生 `ask_user_question`。源码固定记录公开 fork 与上游修订，构建器使用当前运行时验证其 Host 和浏览器入口。Bot 团队保持归档。
+
+[私有 Host 覆盖](compatibility/deep-view-host.mjs)将 Deep View 适配到已审阅 Host 的 Agent Registry API。只有 Registry 中确切的活跃根 Agent 可以创建交互卡片；回答投递前还会确认解析出的 Agent 对应请求中的 Session。暂存清单保留原有 DSH engine 范围，并显式接受已审阅的 Host 版本；原生兼容检查无需豁免。覆盖层已审阅的输入摘要必须与维护中的源码清单一致。构建使用真实 Agent Registry 和 AgentLoop、隔离数据且不请求外部模型来验证这些检查；保留的上游文件及源码哈希保持不变。
 
 独立的 [Skill 进化插件](muse-skill-evolution/README.zh.md)复盘新完成的工具任务，创建自有技能并保留提案及回退版本。原生持久化复盘会话使用任务所选模型。其 README 说明复盘限制、正常模型用量及文件权限。
 
@@ -117,7 +125,7 @@ Muse 自有的[选材研究插件](muse-source-research/README.zh.md)调用经�
 node third_party/plugins/build-downloads.mjs --out .artifacts/download-plugins
 ```
 
-标准、PTC、创造、短剧和编辑预设在各自的智能体作用域内启用 `hongguo_download_info`、`hongguo_download`、`douyin_download`、`reverse_skill`、`reverse_analyze`、`fanqie_download_info` 和 `fanqie_download`；极简预设不提供这些工具。工具以发起调用的会话工作区为输出位置。通过 `dsh plugin --profile headless add <tarball>` 安装压缩包会在该 profile 启用对应 bundle 补丁；构建新的桌面发行版则通过预设组合内置它们。
+标准、PTC、创造、短剧和编辑预设在各自的智能体作用域内启用 `hongguo_download_info`、`hongguo_download`、`reverse_skill`、`reverse_analyze`、`fanqie_download_info` 和 `fanqie_download`；极简预设不提供这些工具。桌面预设均不加载 `muse-douyin-download`；桌面只通过 [Muse 账号包](../../packages/host/muse-account/README.zh.md#data-station-douyin-downloads)的数据站 `douyin_download` 工具下载抖音视频。工具以发起调用的会话工作区为输出位置。通过 `dsh plugin --profile headless add <tarball>` 安装压缩包会在该 profile 启用对应 bundle 补丁；构建新的桌面发行版则通过预设组合内置它们。
 
 下载 bundle 打包支持 npm 与 pnpm 的生命周期入口；生命周期入口为原生程序时，解析已安装 pnpm 的 JavaScript bin 或 Corepack 启动器，并通过包管理器环境禁用生命周期脚本。Node 打包器不会将原生 pnpm 程序当成 JavaScript；桌面进程编排可以不经过 shell 直接运行该程序。`node --test third_party/plugins/download-pack.test.mjs` 使用已安装的 JavaScript 启动器和 pnpm 的实际生命周期入口分别验证所有自有压缩包，检查凭证文件排除规则，并保持源码清单不变。Node tar 解析器按精确 Unicode 路径读取归档成员。逆向与番茄压缩包必须包含 `SOURCE.json` 声明的文件，且 SHA-256 完全一致；npm 排除的上游 `.gitignore` 元数据除外。
 

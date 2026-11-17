@@ -24,7 +24,7 @@
   margin: 0;
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-label-error);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .failureBlock {
@@ -75,7 +75,7 @@
 }
 
 .count {
-  color: var(--dsw-alias-label-quaternary);
+  color: var(--dsw-alias-label-caption);
 }
 
 .group {
@@ -218,7 +218,7 @@
   border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
-  font-family: var(--dsw-font-mono);
+  font-family: var(--ds-font-family-code);
   font-size: 12px;
   line-height: 18px;
   resize: vertical;

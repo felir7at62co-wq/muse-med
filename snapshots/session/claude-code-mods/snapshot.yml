@@ -6,6 +6,8 @@ recording: live
 header:
   class: claude-code-mods
   pin: true
+  systemPromptSource: text-turn
+  toolSchemasSource: text-turn
 workspace:
   final: true
 writerOutput: true

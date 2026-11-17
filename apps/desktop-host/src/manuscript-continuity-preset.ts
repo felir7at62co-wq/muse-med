@@ -7,7 +7,7 @@ import { PERSONA_PREFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
 import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent'
 import Schema from '@deepseek-ai/schemastery'
 import type {} from './manuscript-revisions.ts'
-import { continuityAssessmentSchema, continuityAssessmentProblem } from './manuscript-continuity-assessment.ts'
+import { continuityAssessmentSchema, continuityAssessmentProblem, submissionIssueSummary } from './manuscript-continuity-assessment.ts'
 import { videoSourceAssessmentSchema, videoSourceAssessmentProblem } from './manuscript-video-source-review.ts'
 
 /** Loader identity for the private review composition. */
@@ -41,10 +41,19 @@ export function apply(ctx: Context, config: Config): void {
       return 'Manuscript continuity review permits only structured_output; no execution or file access is allowed.'
     }
     const parsed = continuityAssessmentSchema.safeParse(execution.arguments)
-    const source = parsed.success ? undefined : videoSourceAssessmentSchema.safeParse(execution.arguments)
-    if (!parsed.success && !source?.success) return 'CONTINUITY_INVALID_SUBMISSION: supply the required structured review fields and evidence arrays.'
-    const problem = parsed.success ? continuityAssessmentProblem(parsed.data)
-      : source?.success ? videoSourceAssessmentProblem(source.data) : undefined
+    if (parsed.success) {
+      const problem = continuityAssessmentProblem(parsed.data)
+      return problem === undefined ? undefined : `CONTINUITY_INVALID_SUBMISSION: ${problem}`
+    }
+    const source = videoSourceAssessmentSchema.safeParse(execution.arguments)
+    if (!source.success) {
+      // A source review is the only result kind with source_checks, so its issues describe the intended submission.
+      const intended = typeof execution.arguments === 'object' && execution.arguments !== null
+        && 'source_checks' in execution.arguments ? source.error : parsed.error
+      return 'CONTINUITY_INVALID_SUBMISSION: remove unrecognized keys, add missing required fields, correct these fields and call structured_output again with the complete result: '
+        + submissionIssueSummary(intended.issues)
+    }
+    const problem = videoSourceAssessmentProblem(source.data)
     return problem === undefined ? undefined : `CONTINUITY_INVALID_SUBMISSION: ${problem}`
   })
   ctx.effect(() => ctx.systemPrompt.section({ name: PERSONA_PREFIX_SECTION,

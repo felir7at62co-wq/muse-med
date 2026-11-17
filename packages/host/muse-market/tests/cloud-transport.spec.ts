@@ -1,20 +1,25 @@
 /** Real HTTP requests, origin-bound credentials and verified disabled imports. */
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import Skills from '@deepseek-ai/dsh-skill'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { once } from 'node:events'
 import { join } from 'node:path'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { writeMuseSession } from '../../muse-account/src/session.ts'
 import MuseMarket from '../src/index.ts'
 import MuseMarketCloud from '../src/cloud.ts'
 import type { MuseMarketCloudConfig } from '../src/cloud.ts'
-import { createMarketPackage, marketDigest } from '../src/package.ts'
+import type { MarketReleaseId } from '../src/types.ts'
+import { createMarketPackage, marketDigest, readMarketPackage } from '../src/package.ts'
+import { parseMarketLegacyResourceId } from '../src/legacy.ts'
+import { parseMarketPublication, parseMarketPublicationId, parseMarketPublisherId, parseMarketUploadRequestId } from '../src/cloud-protocol.ts'
 import { MarketError } from '../src/format.ts'
-import { parseMarketPublication, parseMarketPublisherId, parseMarketUploadRequestId } from '../src/cloud-protocol.ts'
+import { MuseMarketLocal } from '../src/local.ts'
 import { bundle, limits, manifest, metadata, resources } from './fixtures.ts'
+import { originalCatalogEntry, originalSkillArchive } from './legacy-fixtures.ts'
 
 type Route = (req: IncomingMessage, res: ServerResponse) => Promise<void> | void
 const publisher = parseMarketPublisherId('b'.repeat(32))
@@ -27,11 +32,11 @@ const json = (res: ServerResponse, value: unknown, status = 200) => {
   res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value))
 }
 
-it('encodes untrusted search controls inside the catalog query without admitting a raw path', async () => {
+it('keeps search controls in local matching without admitting them into the request path', async () => {
   const f = await fixture()
-  expect(await f.cloud.catalog('line\\break\r\n#../场景', false)).toEqual([publication])
+  expect(await f.cloud.catalog('line\\break\r\n#../场景', false)).toEqual([])
   expect(f.requests).toHaveLength(1)
-  expect(f.requests[0]?.path).toBe('/api/market/v1/catalog?q=line%5Cbreak%0D%0A%23..%2F%E5%9C%BA%E6%99%AF&mine=false')
+  expect(f.requests[0]?.path).toBe('/api/market/v1/catalog?q=&mine=false')
 })
 
 it('times out an actual HTTP request before response headers arrive', async () => {
@@ -163,16 +168,16 @@ it('rejects a relative credential path before making an HTTP request', async () 
 it('refuses a corrupt private account record and permits a later repaired login', async () => {
   const f = await fixture()
   await writeFile(f.config.sessionFile, '{')
-  await expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'account-unavailable', status: 503 } })
+  await expect(f.cloud.catalog('', true)).rejects.toMatchObject({ details: { code: 'account-unavailable', status: 503 } })
   expect(f.requests).toEqual([])
   await f.login()
-  expect(await f.cloud.catalog('', false)).toEqual([publication])
+  expect(await f.cloud.catalog('', true)).toEqual([publication])
 })
 
 it('rejects an admitted response when its account record becomes unreadable before completion', async () => {
   const f = await fixture(); await f.login()
   f.route(async (_req, res) => { await writeFile(f.config.sessionFile, '{'); json(res, { items: [publication] }) })
-  await expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'account-unavailable', status: 503 } })
+  await expect(f.cloud.catalog('', true)).rejects.toMatchObject({ details: { code: 'account-unavailable', status: 503 } })
   expect(f.requests).toHaveLength(1)
 })
 
@@ -271,11 +276,11 @@ async function fixture(extra: Partial<MuseMarketCloudConfig> = {}) {
   }
 }
 
-it('uses the configured origin and exact account file while preserving complete catalog metadata', async () => {
+it('separates public catalog reads from the origin-bound account used by private identity', async () => {
   const f = await fixture(); await f.login()
-  expect(await f.cloud.catalog('fixture-skill 场景', false)).toEqual([publication])
-  expect(f.requests).toEqual([{ path: '/api/market/v1/catalog?q=fixture-skill+%E5%9C%BA%E6%99%AF&mine=false',
-    cookie: '__Host-muse=author', origin: f.origin, method: 'GET' }])
+  expect(await f.cloud.catalog('fixture-skill', false)).toEqual([publication])
+  expect(f.requests).toEqual([{ path: '/api/market/v1/catalog?q=&mine=false',
+    origin: f.origin, method: 'GET' }])
   f.route((_req, res) => { json(res, { accountId: 'd'.repeat(16), publishers: [{ id: publisher, title: 'Writing team' }], admin: false }) })
   expect(await f.cloud.identity()).toEqual({ accountId: 'd'.repeat(16), publishers: [{ id: publisher, title: 'Writing team' }], admin: false })
 })
@@ -312,6 +317,266 @@ it('refuses malformed JSON instead of returning a partial catalog', async () => 
   const f = await fixture()
   f.route((_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{') })
   await expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'invalid-response', status: 502 } })
+})
+
+
+it('refuses a relative private account file before making any cloud request', async () => {
+  await expect(fixture({ sessionFile: 'relative-session.json' })).rejects.toThrow('invalid-session-file')
+})
+
+it('rejects oversized searches and unpublished public rows before returning a catalog', async () => {
+  const f = await fixture()
+  await expect(f.cloud.catalog('x'.repeat(201), false)).rejects.toMatchObject({ details: { code: 'invalid-query', status: 400 } })
+  expect(f.requests).toEqual([])
+  f.route((_req, res) => { json(res, { items: [{ ...publication, status: 'draft' }] }) })
+  await expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'invalid-response', status: 502 } })
+})
+
+it.each([[404, 'not-found'], [409, 'cloud-conflict'], [413, 'response-too-large'], [429, 'rate-limited'], [500, 'cloud-unavailable']] as const)(
+  'keeps HTTP %s diagnostics bounded without returning an upstream response body', async (status, code) => {
+    const f = await fixture(); await f.login()
+    f.route((_req, res) => { json(res, { private: 'account-secret' }, status) })
+    await expect(f.cloud.identity()).rejects.toMatchObject({ details: { code, status } })
+  })
+
+it('rejects incomplete JSON bodies and malformed completed JSON separately', async () => {
+  const f = await fixture()
+  f.route((_req, res) => { res.writeHead(200, { 'content-type': 'application/json', 'content-length': '20', connection: 'close' }); res.end('{}') })
+  await expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'cloud-unavailable', status: 503 } })
+  f.route((_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{invalid-json') })
+  await expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'invalid-response', status: 502 } })
+})
+
+it('refuses a publication response for another requested identity', async () => {
+  const f = await fixture()
+  f.route((_req, res) => { json(res, { ...publication, id: 'd'.repeat(32) }) })
+  await expect(f.cloud.getPublication(publication.id)).rejects.toMatchObject({ details: { code: 'invalid-response', status: 502 } })
+})
+
+it('refuses a damaged account snapshot replaced while a private response is being read', async () => {
+  const f = await fixture(); await f.login()
+  f.route(async (_req, res) => {
+    await writeFile(f.config.sessionFile, '{invalid-json')
+    json(res, { accountId: 'd'.repeat(16), publishers: [], admin: false })
+  })
+  await expect(f.cloud.identity()).rejects.toMatchObject({ details: { code: 'account-unavailable', status: 503 } })
+})
+
+it('joins cancellation before request admission and while waiting for response headers', async () => {
+  const first = await fixture(); await first.login()
+  const admitted = expect(first.cloud.identity()).rejects.toMatchObject({ details: { code: 'closing', status: 503 } })
+  await first.close(); await admitted
+  expect(first.requests).toEqual([])
+  const second = await fixture(), entered = Promise.withResolvers<undefined>()
+  second.route(() => { entered.resolve(undefined) })
+  const pending = expect(second.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'closing', status: 503 } })
+  await entered.promise; await second.close(); await pending
+})
+
+it('rejects malformed local release and download digest selectors before an HTTP request', async () => {
+  const f = await fixture(); await f.login()
+  await expect(f.cloud.publishDraft(brandString<MarketReleaseId>('invalid-local-id'), publisher, key))
+    .rejects.toMatchObject({ details: { code: 'invalid-local-release', status: 400 } })
+  await expect(f.cloud.installPublication(publication.id, 'invalid-digest'))
+    .rejects.toMatchObject({ details: { code: 'invalid-digest', status: 400 } })
+  expect(f.requests).toEqual([])
+})
+
+it('searches Skill identifiers in the bounded directory when the server indexes only display metadata', async () => {
+  const f = await fixture(); await f.login()
+  f.route((req, res) => {
+    const query = new URL(req.url!, f.origin).searchParams.get('q')!
+    const display = [manifest.title, manifest.description, manifest.category, publication.publisher].join(' ').toLowerCase()
+    json(res, { items: display.includes(query.toLowerCase()) ? [publication] : [] })
+  })
+  expect(await f.cloud.catalog('fixture-skill WRITING', false)).toEqual([publication])
+  expect(await f.cloud.catalog('fixture-release', true)).toEqual([publication])
+  expect(await f.cloud.catalog('missing-skill', false)).toEqual([])
+  expect(f.requests.map(request => request.path)).toEqual([
+    '/api/market/v1/catalog?q=&mine=false', '/api/market/v1/catalog?q=&mine=true', '/api/market/v1/catalog?q=&mine=false',
+  ])
+  expect(f.requests.map(request => request.cookie)).toEqual([undefined, '__Host-muse=author', undefined])
+})
+
+it.each(['signed-out', 'expired', 'damaged'] as const)('keeps the public catalog readable with a %s account while private operations refuse', async (state) => {
+  const f = await fixture()
+  if (state === 'expired') await f.login('expired')
+  if (state === 'damaged') await writeFile(f.config.sessionFile, '{invalid-json')
+  f.route((req, res) => {
+    if (req.headers.cookie) json(res, { error: 'login-required' }, 401)
+    else json(res, { items: [publication] })
+  })
+  expect(await f.cloud.catalog('', false)).toEqual([publication])
+  expect(f.requests).toEqual([{ path: '/api/market/v1/catalog?q=&mine=false', origin: f.origin, method: 'GET' }])
+  const refusal = { details: { code: state === 'damaged' ? 'account-unavailable' : 'login-required',
+    status: state === 'damaged' ? 503 : 401 } }
+  await expect(f.cloud.catalog('', true)).rejects.toMatchObject(refusal)
+  await expect(f.cloud.installPublication(publication.id, publication.sha256)).rejects.toMatchObject(refusal)
+})
+
+it('completes an original cloud identity with the authoritative account id under the same login', async () => {
+  const f = await fixture(); await f.login()
+  const publishers = [{ id: publisher, title: 'Writing team' }]
+  f.route((req, res) => {
+    json(res, req.url === '/api/market/v1/me' ? { publishers, admin: false }
+      : { accountId: 'd'.repeat(16), username: 'author', admin: false, environment: 'production' })
+  })
+  expect(await f.cloud.identity()).toEqual({ accountId: 'd'.repeat(16), publishers, admin: false })
+  expect(f.requests).toEqual(['/api/market/v1/me', '/api/muse.account'].map(path => ({
+    path, cookie: '__Host-muse=author', origin: f.origin, method: 'GET',
+  })))
+})
+
+it.each([null, {}, { accountId: 'd'.repeat(32) }])('refuses an original identity without a valid gateway account: %j', async (account) => {
+  const f = await fixture(); await f.login()
+  f.route((req, res) => { json(res, req.url === '/api/market/v1/me' ? { publishers: [], admin: false } : account) })
+  await expect(f.cloud.identity()).rejects.toMatchObject({ details: { code: 'invalid-response', status: 502 } })
+})
+
+it('refuses a changed login between original market membership and account identity responses', async () => {
+  const f = await fixture(); await f.login()
+  f.route(async (req, res) => {
+    if (req.url === '/api/market/v1/me') json(res, { publishers: [], admin: false })
+    else { await f.login('other'); json(res, { accountId: 'd'.repeat(16), username: 'other' }) }
+  })
+  await expect(f.cloud.identity()).rejects.toMatchObject({ details: { code: 'account-changed', status: 409 } })
+})
+
+it('keeps strict original identity fields and does not fetch an account for an unexpected response', async () => {
+  const f = await fixture(); await f.login()
+  f.route((_req, res) => { json(res, { publishers: [], admin: false, cookie: 'unexpected' }) })
+  await expect(f.cloud.identity()).rejects.toMatchObject({ details: { code: 'invalid-response', status: 502 } })
+  expect(f.requests.map(request => request.path)).toEqual(['/api/market/v1/me'])
+})
+
+it('reads a mixed catalog and imports a portrait-bound Skill without changing its manifest', async () => {
+  const f = await fixture(); await f.login()
+  const bound = { ...manifest, presetPortrait: 'storyboard-reviewer' }
+  const bytes = Buffer.from(createMarketPackage(bound, resources, limits))
+  const withPortrait = { ...publication, id: parseMarketPublicationId('d'.repeat(32)), manifest: bound,
+    sha256: marketDigest(bytes), bytes: bytes.byteLength }
+  const catalog = [publication, withPortrait, { ...publication, id: 'e'.repeat(32) }]
+  f.route((req, res) => {
+    if (req.url?.startsWith('/api/market/v1/catalog?')) json(res, { items: catalog })
+    else if (req.url?.endsWith('/download')) {
+      res.writeHead(200, { 'content-type': 'application/zip', 'content-length': String(bytes.byteLength),
+        'x-content-sha256': withPortrait.sha256 })
+      res.end(bytes)
+    } else json(res, withPortrait)
+  })
+  expect(await f.cloud.catalog('', false)).toEqual(catalog)
+  const installed = await f.cloud.installPublication(withPortrait.id, withPortrait.sha256)
+  expect(installed.publication).toEqual(withPortrait)
+  expect(installed.installation.release.manifest).toEqual(bound)
+  expect(Buffer.from((await f.ctx.museMarket.exportPackage(installed.installation.release.id)).base64, 'base64')).toEqual(bytes)
+})
+
+it('reads original public resources without account access and deduplicates their canonical imports', async () => {
+  const f = await fixture(); await f.login()
+  await writeFile(f.config.sessionFile, 'malformed private account file')
+  const original = originalSkillArchive(), entry = originalCatalogEntry(original)
+  f.route((req, res) => {
+    if (req.url === '/market/catalog.json') json(res, { schemaVersion: 1, entries: [entry] })
+    else {
+      res.writeHead(200, { 'content-type': 'application/zip', 'content-length': String(original.byteLength) })
+      res.end(original)
+    }
+  })
+  const catalog = await f.cloud.legacyCatalog('Original')
+  expect(catalog).toHaveLength(1)
+  const selected = catalog[0]!
+  const first = await f.cloud.installLegacy(selected.id, selected.sha256)
+  expect(first.resource).toEqual(selected)
+  expect(first.installation.enabled).toBe(false)
+  expect(first.installation.release.sha256).not.toBe(selected.sha256)
+  const exported = Buffer.from((await f.ctx.museMarket.exportPackage(first.installation.release.id)).base64, 'base64')
+  expect(readMarketPackage(exported, limits).manifest).toMatchObject({ name: entry.slug, title: entry.name, version: entry.version })
+  expect(await f.cloud.installLegacy(selected.id, selected.sha256)).toEqual(first)
+  expect(await f.cloud.legacyCatalog('Original')).toEqual([{ ...selected, installationId: first.installation.release.id }])
+  expect(await f.ctx.museMarket.installed()).toEqual([first.installation])
+  expect(f.requests.every(request => request.cookie === undefined && request.method === 'GET')).toBe(true)
+  expect(f.requests.map(request => request.path)).toEqual(['/market/catalog.json', '/market/catalog.json',
+    '/market/' + entry.package, '/market/catalog.json', '/market/' + entry.package, '/market/catalog.json'])
+})
+
+it.each(['malformed', 'directory'] as const)('keeps public original resources visible while refusing installation with a %s local marker file', async (mode) => {
+  const f = await fixture(), original = originalSkillArchive(), entry = originalCatalogEntry(original)
+  const marker = join(f.root, 'market', 'legacy-installations.json'), originalMarker = '{invalid-local-installation-links\n'
+  const local = new MuseMarketLocal(f.ctx.museMarket.publicationStorage())
+  await local.initializeActivation()
+  const beforeDefaults = await local.defaults()
+  if (mode === 'malformed') await writeFile(marker, originalMarker)
+  else await mkdir(marker)
+  f.route((req, res) => {
+    if (req.url === '/market/catalog.json') json(res, { schemaVersion: 1, entries: [entry] })
+    else {
+      res.writeHead(200, { 'content-type': 'application/zip', 'content-length': String(original.byteLength) })
+      res.end(original)
+    }
+  })
+  const catalog = await f.cloud.legacyCatalog('Original')
+  expect(catalog).toHaveLength(1)
+  const resource = catalog[0]!
+  expect(resource).toMatchObject({ id: entry.id, title: entry.name, sha256: entry.sha256 })
+  expect(resource).not.toHaveProperty('installationId')
+  await expect(f.cloud.installLegacy(resource.id, resource.sha256)).rejects.toMatchObject({ details: {
+    code: mode === 'malformed' ? 'invalid-legacy-installations' : 'invalid-storage', status: 400,
+  } })
+  expect(await local.defaults()).toEqual(beforeDefaults)
+  if (mode === 'malformed') expect(await readFile(marker, 'utf8')).toBe(originalMarker)
+  else expect((await stat(marker)).isDirectory()).toBe(true)
+  expect(await f.cloud.legacyCatalog('Original')).toEqual(catalog)
+})
+
+it('rejects invalid original-resource selectors before any public request', async () => {
+  const f = await fixture()
+  await expect(f.cloud.legacyCatalog('x'.repeat(201))).rejects.toMatchObject({ details: { code: 'invalid-query', status: 400 } })
+  await expect(f.cloud.installLegacy(parseMarketLegacyResourceId('muse/skills/fixture-skill'), 'bad'))
+    .rejects.toMatchObject({ details: { code: 'invalid-digest', status: 400 } })
+  expect(f.requests).toEqual([])
+})
+
+it('disposes a pending anonymous catalog read before releasing the cloud service', async () => {
+  const f = await fixture(), received = Promise.withResolvers<undefined>()
+  f.route((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"schemaVersion":1,"entries":')
+    received.resolve(undefined)
+  })
+  const pending = expect(f.cloud.legacyCatalog('')).rejects.toMatchObject({ details: { code: 'closing', status: 503 } })
+  await received.promise
+  await f.close()
+  await pending
+  expect(f.requests).toHaveLength(1)
+})
+
+it.each(['catalog', 'archive'] as const)('does not follow an original-resource %s redirect', async (stage) => {
+  const destination = await fixture(), f = await fixture(); await f.login()
+  const original = originalSkillArchive(), entry = originalCatalogEntry(original)
+  f.route((req, res) => {
+    if (stage === 'archive' && req.url === '/market/catalog.json') json(res, { schemaVersion: 1, entries: [entry] })
+    else { res.writeHead(302, { location: destination.origin + '/market/catalog.json' }); res.end() }
+  })
+  await expect(f.cloud.installLegacy(parseMarketLegacyResourceId(entry.id), entry.sha256))
+    .rejects.toMatchObject({ details: { code: 'redirect-refused', status: 302 } })
+  expect(destination.requests).toEqual([])
+  expect(await f.ctx.museMarket.installed()).toEqual([])
+})
+
+it.each(['missing', 'digest', 'body', 'path'] as const)('refuses an original-resource %s mismatch before import', async (mode) => {
+  const f = await fixture(), original = originalSkillArchive(), entry = originalCatalogEntry(original)
+  f.route((req, res) => {
+    if (req.url === '/market/catalog.json') json(res, { schemaVersion: 1,
+      entries: mode === 'missing' ? [] : [{ ...entry, ...(mode === 'path' ? { package: 'downloads/../escape.zip' } : {}) }] })
+    else {
+      const altered = Buffer.from(original); altered[0] = 0
+      res.writeHead(200, { 'content-type': 'application/zip', 'content-length': String(original.byteLength) }); res.end(altered)
+    }
+  })
+  await expect(f.cloud.installLegacy(parseMarketLegacyResourceId(entry.id), mode === 'digest' ? 'a'.repeat(64) : entry.sha256))
+    .rejects.toMatchObject({ details: { code: mode === 'missing' ? 'not-found' : mode === 'digest' ? 'catalog-changed'
+      : mode === 'path' ? 'invalid-response' : 'digest-mismatch' } })
+  expect(await f.ctx.museMarket.installed()).toEqual([])
+  expect(f.requests.some(request => request.path.includes('escape'))).toBe(false)
 })
 
 it('treats another origin account as anonymous and refuses authenticated operations before HTTP', async () => {
@@ -385,6 +650,15 @@ it('uploads the retained local archive with its original key and never submits i
     expect(await body(req)).toEqual(archive); json(res, draft, 201)
   })
   expect(await f.cloud.publishDraft(prepared.release.id, publisher, key)).toEqual(draft)
+  expect(f.requests).toHaveLength(1)
+})
+
+it('preserves an explicit publishing refusal without treating it as an uncertain write', async () => {
+  const f = await fixture(); await f.login()
+  const prepared = await f.ctx.museMarket.prepare(metadata, f.skill.name)
+  f.route(async (req, res) => { await body(req); json(res, { error: 'publisher-required' }, 403) })
+  await expect(f.cloud.publishDraft(prepared.release.id, publisher, key))
+    .rejects.toMatchObject({ details: { code: 'permission-denied', status: 403 } })
   expect(f.requests).toHaveLength(1)
 })
 
@@ -501,7 +775,7 @@ it('refuses an over-budget JSON request before HTTP and does not expose an upstr
 it('rejects a reply admitted under an account file replaced before its body completes', async () => {
   const f = await fixture(); await f.login()
   f.route(async (_req, res) => { await f.login('replacement'); json(res, { items: [publication] }) })
-  await expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'account-changed', status: 409 } })
+  await expect(f.cloud.catalog('', true)).rejects.toMatchObject({ details: { code: 'account-changed', status: 409 } })
 })
 
 it('aborts and joins an owned response reader on unload and rejects later calls', async () => {
@@ -518,3 +792,234 @@ it('times out the complete response body without waiting for the server to finis
   f.route((_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"items":') })
   await expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'cloud-timeout', status: 503 } })
 })
+
+it('times out a server that accepts the request without sending response headers', async () => {
+  const f = await fixture({ requestTimeoutMs: 100 })
+  f.route(() => {})
+  await expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'cloud-timeout', status: 503 } })
+})
+
+it('joins an active response reader after a large body crosses server backpressure', async () => {
+  const f = await fixture({ jsonResponseBytes: 16 * 1024 * 1024 }), flowing = Promise.withResolvers<undefined>()
+  f.route(async (_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    if (!res.write(' '.repeat(8 * 1024 * 1024))) await once(res, 'drain')
+    flowing.resolve(undefined)
+  })
+  const pending = expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'closing', status: 503 } })
+  await flowing.promise; await f.close(); await pending
+})
+
+
+it.each([
+  ['approve', 'published', 'Reviewed'], ['reject', 'rejected', 'Needs revision'], ['withdraw', 'withdrawn', 'Retained'],
+] as const)('confirms an explicit %s response only for the inspected next revision', async (action, status, note) => {
+  const f = await fixture(); await f.login()
+  const result = { ...publication, status, revision: 2, reviewNote: note }
+  f.route(async (req, res) => {
+    expect(JSON.parse((await body(req)).toString())).toEqual({ revision: 1, action, note })
+    json(res, result)
+  })
+  expect(await f.cloud.review(publication.id, 1, action, note)).toEqual(result)
+  expect(f.requests.map(request => request.method)).toEqual(['POST'])
+})
+
+it.each([
+  { revision: 0, action: 'submit', note: '' }, { revision: 1.5, action: 'submit', note: '' },
+  { revision: 1, action: 'reject', note: '   ' }, { revision: 1, action: 'submit', note: 'x'.repeat(2001) },
+] as const)('refuses an invalid review before HTTP: %j', async ({ revision, action, note }) => {
+  const f = await fixture(); await f.login()
+  await expect(f.cloud.review(publication.id, revision, action, note)).rejects.toMatchObject({ details: { code: 'invalid-review', status: 400 } })
+  expect(f.requests).toEqual([])
+})
+
+it.each(['id', 'revision', 'status', 'note'] as const)('does not accept a mismatched review %s or retry its write', async (field) => {
+  const f = await fixture(); await f.login()
+  const correct = { ...publication, status: 'pending', revision: 2 }
+  const wrong = { ...correct, ...(field === 'id' ? { id: 'd'.repeat(32) } : field === 'revision' ? { revision: 5 }
+    : field === 'status' ? { status: 'published' } : { reviewNote: 'Other review' }) }
+  f.route((req, res) => { json(res, req.method === 'POST' ? wrong : publication) })
+  await expect(f.cloud.review(publication.id, 1, 'submit', '')).rejects.toMatchObject({ details: {
+    code: 'review-unconfirmed', status: 503, publicationId: publication.id, reviewedRevision: 1, observed: publication,
+  } })
+  expect(f.requests.map(request => request.method)).toEqual(['POST', 'GET'])
+})
+
+it.each(['wrong-id', 'missing', 'account-changed'] as const)('retains the review identity when readback is %s', async (mode) => {
+  const f = await fixture(); await f.login()
+  f.route(async (req, res) => {
+    if (req.method === 'POST') { await body(req); json(res, { error: 'upstream-unavailable' }, 503) }
+    else if (mode === 'missing') json(res, { error: 'missing' }, 404)
+    else {
+      if (mode === 'account-changed') await f.login('replacement')
+      json(res, mode === 'wrong-id' ? { ...publication, id: 'd'.repeat(32) } : publication)
+    }
+  })
+  await expect(f.cloud.review(publication.id, 1, 'submit', '')).rejects.toMatchObject({ details: {
+    code: mode === 'account-changed' ? 'account-changed' : 'review-unconfirmed',
+    status: mode === 'account-changed' ? 409 : 503, publicationId: publication.id, reviewedRevision: 1,
+  } })
+  expect(f.requests.map(request => request.method)).toEqual(['POST', 'GET'])
+})
+
+it('retains the inspected publication when the account changes during a review write', async () => {
+  const f = await fixture(); await f.login()
+  f.route(async (req, res) => {
+    await body(req); await f.login('replacement'); json(res, { ...publication, status: 'pending', revision: 2 })
+  })
+  await expect(f.cloud.review(publication.id, 1, 'submit', '')).rejects.toMatchObject({ details: {
+    code: 'account-changed', status: 409, publicationId: publication.id, reviewedRevision: 1,
+  } })
+  expect(f.requests.map(request => request.method)).toEqual(['POST'])
+})
+it('requires an absolute session file before acquiring its transport', async () => {
+  await expect(fixture({ sessionFile: 'relative' })).rejects.toMatchObject({ code: 'invalid-session-file' })
+})
+
+it.each([401, 403, 404, 409, 413, 429, 500] as const)('maps HTTP %s without reading private upstream error details', async (status) => {
+  const f = await fixture()
+  const codes = { 401: 'login-required', 403: 'permission-denied', 404: 'not-found', 409: 'cloud-conflict',
+    413: 'response-too-large', 429: 'rate-limited', 500: 'cloud-unavailable' }
+  f.route((_req, res) => { json(res, { private: 'must stay upstream' }, status) })
+  await expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: codes[status], status } })
+})
+
+it.each(['invalid-json', 'wrong-type', 'no-type', 'empty-body', 'private-record', 'wrong-id'] as const)('rejects malformed or mismatched %s wire replies', async (mode) => {
+  const f = await fixture()
+  f.route((_req, res) => {
+    if (mode === 'private-record') { json(res, { items: [{ ...publication, status: 'draft' }] }); return }
+    if (mode === 'wrong-id') { json(res, { ...publication, id: 'c'.repeat(32) }); return }
+    res.writeHead(mode === 'empty-body' ? 204 : 200,
+      mode === 'no-type' ? {} : { 'content-type': mode === 'wrong-type' ? 'text/plain' : 'application/json' })
+    res.end(mode === 'invalid-json' ? '{' : '{}')
+  })
+  await expect(mode === 'wrong-id' ? f.cloud.getPublication(publication.id) : f.cloud.catalog('', false))
+    .rejects.toMatchObject({ details: { code: 'invalid-response', status: 502 } })
+})
+
+it('refuses invalid query, digest and review choices before any HTTP request', async () => {
+  const f = await fixture(); await f.login()
+  await expect(f.cloud.catalog('x'.repeat(201), false)).rejects.toMatchObject({ details: { code: 'invalid-query' } })
+  await expect(f.cloud.installPublication(publication.id, 'bad')).rejects.toMatchObject({ details: { code: 'invalid-digest' } })
+  await expect(f.cloud.review(publication.id, 0, 'submit', '')).rejects.toMatchObject({ details: { code: 'invalid-review' } })
+  await expect(f.cloud.review(publication.id, 1, 'reject', '')).rejects.toMatchObject({ details: { code: 'invalid-review' } })
+  await expect(f.cloud.publishDraft('bad' as MarketReleaseId, publisher, key)).rejects.toMatchObject({ details: { code: 'invalid-local-release' } })
+  expect(f.requests).toEqual([])
+})
+
+it.each(['initial', 'after-reply'] as const)('refuses an unreadable account session %s', async (phase) => {
+  const f = await fixture(); await f.login()
+  if (phase === 'initial') await writeFile(f.config.sessionFile, '{')
+  else f.route(async (_req, res) => { await writeFile(f.config.sessionFile, '{'); json(res, { items: [] }) })
+  await expect(f.cloud.catalog('', true)).rejects.toMatchObject({ details: { code: 'account-unavailable', status: 503 } })
+})
+
+it('contains an HTTP-incompatible cookie from the durable account file', async () => {
+  const f = await fixture(); await f.login('中文')
+  await expect(f.cloud.catalog('', true)).rejects.toMatchObject({ details: { code: 'cloud-unavailable', status: 503 } })
+  expect(f.requests).toEqual([])
+})
+
+it.each(['close', 'timeout'] as const)('settles a request whose headers never arrive on %s', async (mode) => {
+  const f = await fixture({ requestTimeoutMs: mode === 'timeout' ? 100 : 2000 }), entered = Promise.withResolvers<undefined>()
+  f.route(() => { entered.resolve(undefined) })
+  const result = f.cloud.catalog('', false).then(value => ({ value }), (error: unknown) => ({ error }))
+  await entered.promise
+  if (mode === 'close') await f.close()
+  expect(await result).toMatchObject({ error: { details: { code: mode === 'close' ? 'closing' : 'cloud-timeout', status: 503 } } })
+})
+
+it('refuses a response stream that disconnects after admitting its JSON header', async () => {
+  const f = await fixture()
+  f.route((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json', 'content-length': '1000' })
+    res.write('{', () => { res.destroy() })
+  })
+  await expect(f.cloud.catalog('', false)).rejects.toMatchObject({ details: { code: 'cloud-unavailable' } })
+})
+
+it('maps malformed downloaded archive bytes to the package parser failure', async () => {
+  const f = await fixture(); await f.login()
+  f.route((req, res) => {
+    if (!req.url?.endsWith('/download')) { json(res, publication); return }
+    res.writeHead(200, { 'content-type': 'application/zip', 'content-length': String(archive.byteLength), 'x-content-sha256': publication.sha256 })
+    res.end(Buffer.alloc(archive.byteLength))
+  })
+  await expect(f.cloud.installPublication(publication.id, publication.sha256)).rejects.toMatchObject({ details: { code: 'invalid-archive', status: 400 } })
+  expect(await f.ctx.museMarket.installed()).toEqual([])
+})
+
+it('aborts an admitted response reader before completing its partial JSON body', async () => {
+  const f = await fixture(), entered = Promise.withResolvers<undefined>(), original = globalThis.fetch
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (...args) => {
+    const response = await original(...args)
+    if (typeof args[0] === 'string' && args[0].startsWith(f.origin) && response.body !== null) {
+      const reader = response.body.getReader(), read = reader.read.bind(reader)
+      let calls = 0
+      vi.spyOn(reader, 'read').mockImplementation((...input) => {
+        if (++calls === 2) entered.resolve(undefined)
+        return read(...input)
+      })
+      vi.spyOn(response.body, 'getReader').mockReturnValue(reader)
+    }
+    return response
+  })
+  f.route((_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{') })
+  const result = f.cloud.catalog('', false).then(value => ({ value }), (error: unknown) => ({ error }))
+  try {
+    await entered.promise; await f.close()
+    expect(await result).toMatchObject({ error: { details: { code: 'closing', status: 503 } } })
+  } finally { await f.close(); await result; fetch.mockRestore() }
+})
+
+it('keeps an admitted upload owned through account transport shutdown before HTTP', async () => {
+  const f = await fixture(); await f.login()
+  const prepared = await f.ctx.museMarket.prepare(metadata, f.skill.name)
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const original = f.ctx.museMarket.exportPackage.bind(f.ctx.museMarket)
+  const capture = vi.spyOn(f.ctx.museMarket, 'exportPackage').mockImplementation(async (...args) => {
+    const result = await original(...args); entered.resolve(undefined); await release.promise; return result
+  })
+  const outcome = f.cloud.publishDraft(prepared.release.id, publisher, key).then(value => ({ value }), (error: unknown) => ({ error }))
+  try {
+    await entered.promise
+    const closed = f.close(); release.resolve(undefined); await closed
+    expect(await outcome).toMatchObject({ error: { details: { code: 'publication-unconfirmed', requestId: key } } })
+    expect(f.requests).toEqual([])
+  } finally { release.resolve(undefined); await outcome; capture.mockRestore() }
+})
+
+it('propagates a definite upload rejection without manufacturing an uncertain write', async () => {
+  const f = await fixture(); await f.login()
+  const prepared = await f.ctx.museMarket.prepare(metadata, f.skill.name)
+  f.route(async (req, res) => { await body(req); json(res, {}, 403) })
+  await expect(f.cloud.publishDraft(prepared.release.id, publisher, key)).rejects.toMatchObject({ details: { code: 'permission-denied', status: 403 } })
+})
+
+it.each(['approve', 'reject', 'withdraw'] as const)('confirms an exact %s transition without a reconciliation read', async (action) => {
+  const f = await fixture(); await f.login()
+  const value = { ...publication, revision: 2, status: action === 'approve' ? 'published' : action === 'reject' ? 'rejected' : 'withdrawn', reviewNote: 'Reviewed.' }
+  f.route(async (req, res) => { await body(req); json(res, value) })
+  expect(await f.cloud.review(publication.id, 1, action, 'Reviewed.')).toEqual(value)
+  expect(f.requests).toHaveLength(1)
+})
+
+it.each(['bad-success', 'read-failure', 'read-wrong-id', 'newer-read', 'account-on-write', 'account-on-read', 'forbidden'] as const)(
+  'preserves the original reviewed revision after %s', async (mode) => {
+    const f = await fixture(); await f.login()
+    f.route(async (req, res) => {
+      if (req.method === 'POST') {
+        await body(req)
+        if (mode === 'account-on-write') await f.login('replacement')
+        json(res, publication, mode === 'forbidden' ? 403 : mode === 'bad-success' || mode === 'account-on-write' ? 200 : 500)
+        return
+      }
+      if (mode === 'account-on-read') await f.login('replacement')
+      json(res, mode === 'read-wrong-id' ? { ...publication, id: 'c'.repeat(32) } : { ...publication, revision: 3 }, mode === 'read-failure' ? 503 : 200)
+    })
+    const code = mode.startsWith('account-') ? 'account-changed' : mode === 'forbidden' ? 'permission-denied' : 'review-unconfirmed'
+    await expect(f.cloud.review(publication.id, 1, 'submit', '')).rejects.toMatchObject({ details: { code,
+      ...(mode === 'forbidden' ? {} : { publicationId: publication.id, reviewedRevision: 1 }) } })
+    expect(f.requests.filter(row => row.method === 'POST')).toHaveLength(1)
+  },
+)

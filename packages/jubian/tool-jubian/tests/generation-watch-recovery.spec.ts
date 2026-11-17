@@ -64,7 +64,9 @@ it('refuses dispatch before enrollment without calling the supplied operation or
 })
 
 it('refuses a callback fence for a key outside the enrolled batch and preserves an unpaid retry receipt', async () => {
-  const f = await fixture(), runtime = f.runtime()
+  const f = await fixture(), polling = Promise.withResolvers<undefined>()
+  releases.push(() => { polling.resolve(undefined) })
+  const runtime = f.runtime({ withoutInitiator: async (action) => { await polling.promise; await action() } })
   const original = await runtime.enroll(owner, f.packs)
   const operation = vi.fn<Parameters<GenerationWatchRuntime['executeDispatch']>[1]>(async (beforeSend) => {
     await beforeSend(secondKey)
@@ -73,7 +75,9 @@ it('refuses a callback fence for a key outside the enrolled batch and preserves 
   await expect(runtime.executeDispatch(original.id, operation)).rejects.toThrow('ownership is ambiguous')
   const repeated = vi.fn<Parameters<GenerationWatchRuntime['executeDispatch']>[1]>(async () => ({ status: 'unexpected' }))
   await expect(runtime.executeDispatch(original.id, repeated)).rejects.toThrow('Generation dispatch is not owned by this invocation')
-  await runtime.close()
+  const closed = runtime.close()
+  polling.resolve(undefined)
+  await closed
   expect(operation).toHaveBeenCalledOnce()
   expect(repeated).not.toHaveBeenCalled()
   expect(await f.store.hasNoSend(original.id)).toBe(true)

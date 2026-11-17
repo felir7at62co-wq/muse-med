@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-muse-market",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "private": true,
   "description": "Skill publications with separate local storage, activation and optional account-bound cloud services",
   "type": "module",
@@ -14,6 +14,10 @@
     "./package": {
       "types": "./lib/types/package.d.ts",
       "default": "./lib/package.js"
+    },
+    "./browser": {
+      "types": "./lib/types/browser.d.ts",
+      "default": "./lib/browser.js"
     },
     "./format": {
       "types": "./lib/types/format.d.ts",
@@ -50,6 +54,10 @@
       "types": "./lib/types/cloud-host.d.ts",
       "default": "./lib/cloud-host.js"
     },
+    "./legacy": {
+      "types": "./lib/types/legacy.d.ts",
+      "default": "./lib/legacy.js"
+    },
     "./cloud-values": {
       "types": "./lib/types/cloud-values.d.ts",
       "default": "./lib/cloud-values.js"
@@ -62,19 +70,25 @@
     "locale/*.json",
     "lib/index.js",
     "lib/package.js",
+    "lib/browser.js",
     "lib/format.js",
     "lib/activation.js",
     "lib/cloud.js",
     "lib/cloud-host.js",
     "lib/shared-*.js",
     "lib/cloud-values.js",
+    "lib/legacy.js",
     "lib/cloud-values.browser.js",
     "lib/types/**/*.js",
     "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",
-    "lib/typert.remote-client.d.ts"
+    "lib/typert.remote-client.d.ts",
+    "lib/typert.remote-client.d.ts.map",
+    "src"
   ],
   "license": "MIT",
   "dependencies": {
@@ -86,7 +100,7 @@
     "@deepseek-ai/schemastery": "workspace:~",
     "fflate": "^0.8.3",
     "yaml": "^2.4.2",
-    "zod": "^4.4.3",
+    "zod": "4.6.6",
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-projection": "workspace:*",

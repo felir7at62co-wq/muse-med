@@ -7,8 +7,8 @@ import { isAbsolute } from 'node:path'
 import { collectMarketSkill } from './author.ts'
 import { MarketError, marketMetadata } from './format.ts'
 import { MuseMarketLocal, type MarketLocalConfig } from './local.ts'
-import { createMarketPackage } from './package.ts'
-import type { MuseMarketInstallation, MarketLimits, MarketMetadata, MarketReleaseId } from './types.ts'
+import { createMarketPackage, readMarketPackage } from './package.ts'
+import type { MuseMarketInstallation, MarketLimits, MarketMetadata, MarketReleaseId, MarketSourceId } from './types.ts'
 
 export type * from './types.ts'
 
@@ -68,32 +68,66 @@ export default class MuseMarket extends TypertRemoteService {
     })
   }
 
-  /** List current authoring candidates without reading or uploading resource directories.
-   * @returns Discovered metadata and whether every provider completed this observation.
+  /** List registry Skills and retained local versions without reading or uploading resource directories.
+   * @returns Candidate metadata, exact selectors for retained versions, and registry discovery completeness.
    */
   @Remote('sources')
-  async sources(): Promise<{ skills: { name: string; description: string; whenToUse?: string }[]; complete: boolean }> {
+  async sources(): Promise<{
+    skills: { name: string; description: string; whenToUse?: string; sourceId?: MarketSourceId; version?: string }[]
+    complete: boolean
+  }> {
     return await this.serial(async () => {
       const snapshot = await this.ctx.skills.snapshot()
-      return { skills: snapshot.skills.map(skill => ({ name: skill.name, description: skill.description,
-        ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }) })), complete: snapshot.complete }
+      const retained = (await this.local.list()).flatMap(({ release }) => release.manifest.skills.map(skill => ({
+        name: skill.name, description: release.manifest.description,
+        sourceId: `market:${release.id}` as MarketSourceId, version: release.manifest.version,
+      })))
+      return { skills: [...snapshot.skills.map(skill => ({ name: skill.name, description: skill.description,
+        ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }) })), ...retained], complete: snapshot.complete }
     })
   }
 
   /** Prepare one selected local Skill as a disabled publication without uploading it.
    * @param metadata - Explicit author metadata.
-   * @param skillName - Exact registry invocation name.
+   * @param skillName - Exact registry invocation name or sourceId returned by sources() for a retained version.
    * @returns Verified disabled installation containing the selected complete bundle.
    */
   @Remote('prepare')
   async prepare(metadata: MarketMetadata, skillName: string): Promise<MuseMarketInstallation> {
     return await this.serial(async () => {
-      const info = marketMetadata(metadata), skill = await this.ctx.skills.get(skillName)
+      const info = marketMetadata(metadata)
+      if (skillName.startsWith('market:')) {
+        if (!/^market:[a-f0-9]{64}$/u.test(skillName)) throw new MarketError('invalid-selection')
+        const source = (await this.local.list()).find(({ release }) => `market:${release.id}` === skillName)
+        if (source === undefined) throw new MarketError('not-installed')
+        const { manifest, files } = readMarketPackage(await this.local.verify(source.release), this.config)
+        return await this.local.install(createMarketPackage({ ...info, formatVersion: 1, kind: 'skill',
+          skills: manifest.skills }, files, this.config))
+      }
+      const skill = await this.ctx.skills.get(skillName)
       if (!skill) throw new MarketError('missing-skill')
       const files = await collectMarketSkill(skill, this.config)
       const archive = createMarketPackage({ ...info, formatVersion: 1, kind: 'skill',
         skills: [{ name: skill.name, path: `skills/${skill.name}/SKILL.md` }] }, files, this.config)
       return await this.local.install(archive)
+    }, true)
+  }
+
+  /** Retain a publication's existing portrait or bind an unassigned portrait in a separate immutable package.
+   * @param id - Exact installed release whose archive and extracted resources must verify.
+   * @param presetPortrait - Safe presentation asset key assigned by the creator preview.
+   * @returns Existing portrait-bearing installation or a new disabled installation; originals and defaults remain unchanged.
+   */
+  @Remote('prepareUpload')
+  async prepareUpload(id: MarketReleaseId, presetPortrait: string): Promise<MuseMarketInstallation> {
+    return await this.serial(async () => {
+      const item = (await this.local.list()).find(row => row.release.id === id)
+      if (!item) throw new MarketError('not-installed')
+      const archive = await this.local.verify(item.release)
+      const { manifest, files } = readMarketPackage(archive, this.config)
+      const metadata = marketMetadata({ ...manifest, presetPortrait })
+      if (manifest.presetPortrait !== undefined) return item
+      return await this.local.install(createMarketPackage({ ...manifest, ...metadata }, files, this.config))
     }, true)
   }
 

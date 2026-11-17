@@ -2,7 +2,7 @@
 import { z } from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
+import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from './review-state.ts'
 

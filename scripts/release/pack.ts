@@ -293,6 +293,8 @@ async function main(): Promise<void> {
   const rows = new Array<PackManifestMember>(members.length)
   let reused = 0
   let cursor = 0
+  // A failed member does not stop the pool: every started pack finishes and is validated before the run fails.
+  const failures: Error[] = []
   await Promise.all(Array.from({ length: Math.min(concurrency, members.length) }, async () => {
     while (cursor < members.length) {
       const index = cursor
@@ -300,20 +302,29 @@ async function main(): Promise<void> {
       const plan = plans[index]
       if (plan === undefined) break
       const shown = relative(root, plan.tarball).replaceAll('\\', '/')
-      if (plan.reuse) {
-        const recorded = plan.recorded
-        if (recorded === undefined) throw new Error(`release pack: ${plan.member.name} reused without a record`)
-        family.validatePackedManifest(plan.member, packedManifest(plan.tarball))
-        reused += 1
-        console.log(`release pack: reuse ${plan.member.name} digest=${plan.digest.slice(0, 16)} ${shown} (${plan.reason})`)
-        rows[index] = reusedMember(plan, recorded)
-      } else {
-        console.log(`release pack: pack ${plan.member.name} (${plan.reason})`)
-        rows[index] = await packMember(family, plan, destination)
+      try {
+        if (plan.reuse) {
+          const recorded = plan.recorded
+          if (recorded === undefined) throw new Error(`release pack: ${plan.member.name} reused without a record`)
+          family.validatePackedManifest(plan.member, packedManifest(plan.tarball))
+          reused += 1
+          console.log(`release pack: reuse ${plan.member.name} digest=${plan.digest.slice(0, 16)} ${shown} (${plan.reason})`)
+          rows[index] = reusedMember(plan, recorded)
+        } else {
+          console.log(`release pack: pack ${plan.member.name} (${plan.reason})`)
+          rows[index] = await packMember(family, plan, destination)
+        }
+        order[index] = plan.filename
+      } catch (error) {
+        failures.push(error instanceof Error ? error : new Error(String(error)))
       }
-      order[index] = plan.filename
     }
   }))
+  const [failure] = failures
+  if (failure !== undefined && failures.length === 1) throw failure
+  if (failures.length > 1) {
+    throw new AggregateError(failures, `release pack: ${String(failures.length)} members failed: ${failures.map(error => error.message).join('; ')}`)
+  }
 
   // A tarball the previous run left and this run does not produce is a member
   // that was removed, renamed, or version-bumped; only the record names it, so

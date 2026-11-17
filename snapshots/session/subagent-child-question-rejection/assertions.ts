@@ -36,10 +36,10 @@ function assertManagedChild(logs: readonly ManagedChildLog[], completedText: str
   if (result?.type !== 'tool/result') throw new Error('Missing managed delegation acknowledgement')
   expect(result.data).toMatchObject({ turn: 1, step: 1 })
   expect(result.data.message.isError).toBe(false)
-  expect(textOf(result.data.message.content)).toBe(`started subagent ${String(child.header.id)}`)
-  expect(events.filter(event => event.type === 'subagent/catalog')).toContainEqual(expect.objectContaining({
-    data: expect.objectContaining({ childId: child.header.id, mode: 'continuable' }),
-  }))
+  const entry = events.find(event => event.type === 'subagent/catalog' && event.data.childId === child.header.id)
+  if (entry?.type !== 'subagent/catalog' || entry.data.version !== 3) throw new Error('Missing named parent catalog entry for the child Session')
+  expect(entry.data.mode).toBe('continuable')
+  expect(textOf(result.data.message.content)).toBe(`started subagent ${entry.data.name}`)
   const replies = events.filter(event => event.type === 'assistant/message')
     .map(event => ({ event, text: textOf(event.data.message.content) })).filter(reply => reply.text !== '')
   expect(replies.map(reply => reply.text), 'parent waits for child terminal notice before completion').toEqual(['PARENT_WAITING', completedText])

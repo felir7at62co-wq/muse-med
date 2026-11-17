@@ -530,7 +530,8 @@ export async function preparedSubtitleClockInputs(project: string, episode: stri
   const clock = prepared.timeline_clips
   const hasSubtitleClock = await pathExists(subtitleClockPath(subtitlePath))
   const hasPreparedMetadata = prepared.master_audio_sha256 !== undefined || clock !== undefined
-  if (rows.length !== timeline.clips.length || timeline.clips.some((clip, index) => rows[index]?.shot !== clip.shot)) {
+  // Both readers require contiguous shot numbers starting at one.
+  if (rows.length !== timeline.clips.length) {
     throw new Error('字幕来源清单与当前时间线不一致。')
   }
   if (hasSubtitleClock || hasPreparedMetadata || timeline.delivery?.subtitle?.require_speech_coverage === true) {

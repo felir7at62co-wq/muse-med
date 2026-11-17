@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { parsePtcFixtureResult } from '../ptc-result.mjs'
 import { importSnapshotModule, importSnapshotPackage } from '../../../../../snapshots/session/muse-fixture-import.mjs'
 import { evidence, DRAFT, SOURCE, ASR, SELECTION, ROWS } from './evidence.mjs'
 import { parsePtcJsonResult, PARTIAL_SANDBOX_NOTICE } from '../ptc-json-result.mjs'
@@ -13,7 +14,7 @@ const revisions = await importSnapshotModule(new URL('../../../src/manuscript-re
 const present = await importSnapshotPackage('@deepseek-ai/dsh-tool-present', owner)
 const PROVIDER = 'manuscript-video-binding-fixture', MODEL = 'selected-visual-model'
 const TASK = '请依据这段视频新写一集短剧并交付Markdown文件；仅对实际抽样画面和保存ASR声明来源范围。'
-const LABEL = '已复核本文件全部提取正文（仅当前版本）；来源仅核对抽样范围：source.mp4 0–6秒内2个原帧及保存ASR→正文第1–6行（未校听原音，未核验全片）'
+const LABEL = '已复核本文件全部提取正文（仅当前版本）；来源仅核对抽样范围：source.mp4 0–6秒内2个原帧及保存ASR→正文第1–6行（未校听原音，未核验全片）；交付登记没有给出 video_dir（本剧原片目录），画面未核对'
 const sourceArgs = (task = '核对明确映射的缓存原图和保存ASR，不声称原音或全片已核验。') => ({ action: 'source_fidelity', task,
   documents: [{ role: 'current', path: 'final.md' }], video_sources: SELECTION })
 const textArgs = (task = '核对最终稿全部提取正文的因果衔接，不编辑文件。') => ({ action: 'continuity', task,

@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-16-frame-offload-notice.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-16-frame-offload-notice.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-16-frame-offload-notice:
+  en: cafdebdf6e168274
+  zh: 49aaba7d96369f6c
+/2026-11-16-frame-offload-notice/summary:
+  en: 864bf647e12fa785
+  zh: 9cd13fdab762c447
+/2026-11-16-frame-offload-notice/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-16-frame-offload-notice/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-16-frame-offload-notice/compatibility:
+  en: 863485b8c1dcfdad
+  zh: 9b6d8494620eb642
+/2026-11-16-frame-offload-notice/verification:
+  en: f0585619b7a6ffac
+  zh: 1d441f42816224ed
+/2026-11-16-frame-offload-notice/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

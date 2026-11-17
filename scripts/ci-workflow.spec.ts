@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
@@ -16,6 +16,20 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it.each([['ci.yml', 'node-24-consumers', 'pnpm run check:ci:consumers'],
+    ['ci-windows.yml', 'windows-build', 'pnpm run check:ci:windows-blocking']])(
+    'checks browser poll cancellation after the Host build in %s', (file, jobName, command) => {
+      const job = workflowJob(loadWorkflow(`.github/workflows/${file}`), jobName)
+      if (!Array.isArray(job.steps)) throw new TypeError('Update cancellation checks require workflow steps')
+      const steps = job.steps.filter(isRecord)
+      const check = steps.findIndex(step => step.name === 'Verify browser poll cancellation during update')
+      const build = steps.findIndex(step => step.run === command)
+      expect(build).toBeGreaterThanOrEqual(0)
+      expect(check).toBeGreaterThan(build)
+      expect(steps[check]).not.toHaveProperty('continue-on-error')
+      expect(steps[check]?.run).toBe('node --import tsx/esm --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test third_party/plugins/ds-bot/test/browser-channel.test.js third_party/plugins/ds-bot/test/update-drain.test.js')
+    })
+
   it.each([
     ['ci.yml', 'node-24-lint', 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core'],
     ['ci-windows.yml', 'windows-build', 'windows-2025', 'dsh-windows-2025-16core'],
@@ -83,8 +97,15 @@ describe('CI workflow', () => {
     }))
     const modelCheck = steps.find(step => step.name === 'Check model relay behavior')
     const packagingCheck = steps.find(step => step.name === 'Check packaging behavior')
+    const macPrewarm = steps.find(step => step.name === 'Prewarm locked Mac media sources')
     expect(modelCheck?.run).toBe('node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs')
     expect(packagingCheck?.run).toMatch(/^pnpm exec vitest run /)
+    expect(macPrewarm).toMatchObject({
+      if: "matrix.target == 'mac-arm64'",
+      env: { GH_TOKEN: '${{ github.token }}' },
+    })
+    expect(macPrewarm?.run).toContain('gh release download v1.2.0 --repo felir7at62co-wq/muse-med')
+    expect(macPrewarm?.run).toContain('--archive "$RUNNER_TEMP/mac-source-archive/muse-macos-media-9.0.2-locked-source-inputs.tar.gz"')
     expect(modelCheck).not.toHaveProperty('continue-on-error')
     expect(packagingCheck).not.toHaveProperty('continue-on-error')
     const installerUi = steps.find(step => step.name === 'Check native Windows install and automatic update UI')
@@ -93,6 +114,44 @@ describe('CI workflow', () => {
     const gatewayInstall = steps.findIndex(step => step.run === 'npm ci --prefix services/muse-accounts --ignore-scripts')
     expect(gatewayInstall).toBeGreaterThanOrEqual(0)
     expect(steps.indexOf(modelCheck ?? {})).toBeGreaterThan(gatewayInstall)
+  })
+
+  it('expires Muse installer artifacts after their only reader, keeping dispatched candidates for a week', () => {
+    const workflow = loadWorkflow('.github/workflows/muse-desktop.yml')
+    const build = workflowJob(workflow, 'build')
+    if (!Array.isArray(build.steps)) throw new TypeError('Muse packaging must define steps')
+    const uploads = build.steps.filter(isRecord).filter(step => String(step.uses).startsWith('actions/upload-artifact@'))
+    const retention = (name: string, event: string): unknown => {
+      const step = uploads.find(upload => isRecord(upload.with) && upload.with.name === name)
+      if (!step || !isRecord(step.with)) throw new TypeError(`Missing upload ${name}`)
+      const days = step.with['retention-days']
+      return typeof days === 'string' ? evaluateRunsOn(days, { github: { event_name: event } }) : days
+    }
+    const installers = 'muse-${{ matrix.target }}-${{ github.sha }}'
+    const installerUi = 'muse-win-x64-installer-ui-${{ github.sha }}'
+    expect([retention(installers, 'pull_request'), retention(installers, 'workflow_dispatch')]).toEqual([1, 7])
+    expect([retention(installerUi, 'pull_request'), retention(installerUi, 'workflow_dispatch')]).toEqual([3, 7])
+    for (const upload of uploads) {
+      expect(isRecord(upload.with) && upload.with['retention-days']).toBeTruthy()
+    }
+
+    // A cross-run reader would outlive the short retention, so every reader stays inside the producing run.
+    const readers: string[] = []
+    for (const file of readdirSync(resolve(root, '.github/workflows')).filter(name => name.endsWith('.yml'))) {
+      const jobs = loadWorkflow(`.github/workflows/${file}`).jobs
+      if (!isRecord(jobs)) continue
+      for (const [jobName, job] of Object.entries(jobs)) {
+        if (!isRecord(job) || !Array.isArray(job.steps)) continue
+        for (const step of job.steps.filter(isRecord)) {
+          if (!String(step.uses).startsWith('actions/download-artifact@') || !isRecord(step.with)) continue
+          if (!/^muse-(?:mac-arm64|win-x64|\$\{\{ matrix\.target \}\})-/u.test(String(step.with.name))) continue
+          expect(step.with).not.toHaveProperty('run-id')
+          readers.push(`${file}#${jobName}`)
+        }
+      }
+    }
+    expect([...new Set(readers)]).toEqual(['muse-desktop.yml#upload-drafts'])
+    expect(workflowJob(workflow, 'upload-drafts').needs).toBe('build')
   })
 
   it('keeps at most eleven worker jobs active across PR workflows while Python runtime targets follow the SDK suite', () => {
@@ -117,7 +176,7 @@ describe('CI workflow', () => {
     expect(compatibilityLimit).toBeGreaterThan(0)
     expect(compatibility.strategy).toMatchObject({
       'fail-fast': false,
-      matrix: { include: [{ node: '24.9' }, { node: 26 }] },
+      matrix: { include: [{ node: '24.15' }, { node: 26 }] },
     })
     expect(workflowJob(ci, 'all-checks-passed').needs).toContain('node-compat')
     const ordinaryJobs = Object.entries(ci.jobs)
@@ -334,15 +393,23 @@ describe('CI workflow', () => {
     if (!Array.isArray(coverage.steps)) throw new TypeError('Windows coverage must define steps')
     const steps = coverage.steps.filter(isRecord)
     const install = steps.findIndex(step => step.name === 'Install (immutable)')
+    const download = steps.findIndex(step => step.name === 'Download locked media test archive')
     const prepare = steps.findIndex(step => step.name === 'Prepare media test executables')
     const verify = steps.findIndex(step => step.name === 'Verify media test executables')
     const run = steps.findIndex(step => step.run === 'pnpm run check:ci:coverage')
     expect(install).toBeGreaterThanOrEqual(0)
-    expect(prepare).toBeGreaterThan(install)
+    expect(download).toBeGreaterThan(install)
+    expect(prepare).toBeGreaterThan(download)
     expect(verify).toBeGreaterThan(prepare)
     expect(run).toBeGreaterThan(verify)
     expect(steps[prepare]).toEqual({
-      name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts',
+      name: 'Prepare media test executables', shell: 'pwsh',
+      run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts "$env:RUNNER_TEMP/muse-ffmpeg-9.0.2-win-x64.zip"',
+    })
+    expect(steps[download]).toEqual({
+      name: 'Download locked media test archive', shell: 'pwsh',
+      env: { GH_TOKEN: '${{ github.token }}' },
+      run: 'gh release download muse-desktop-v0.1.6-alpha.1 --repo felir7at62co-wq/muse-med --pattern muse-ffmpeg-9.0.2-win-x64.zip --dir $env:RUNNER_TEMP --clobber',
     })
     expect(steps[verify]).toEqual({
       name: 'Verify media test executables', shell: 'pwsh', run: [
@@ -614,6 +681,12 @@ describe('CI workflow', () => {
 
     expect(windowsWorkflow.jobs['windows-observational']).toBeUndefined()
     expect(windowsBuild['continue-on-error']).not.toBe(true)
+    const channelCheck = buildCommands.find(step => step.name === 'Verify Desktop updater dependency versions')
+    expect(channelCheck).toMatchObject({ shell: 'pwsh' })
+    expect(channelCheck?.['continue-on-error']).not.toBe(true)
+    expect(channelCheck?.run).toContain('node apps/desktop/tests/updates/electron-updater/check-versions.mjs')
+    expect(buildCommands.indexOf(channelCheck!))
+      .toBeGreaterThan(buildCommands.findIndex(step => step.run === 'pnpm run check:ci:windows-blocking'))
     const observational = buildCommands.find(step => step.id === 'observational')
     expect(observational).toMatchObject({
       run: 'pnpm run check:ci:windows-observational-ready',
@@ -777,6 +850,26 @@ describe('CI workflow', () => {
       run: 'pnpm run check:ci:unit',
       env: { DSH_COVERAGE_TEST_TIMEOUT_MS: coverage.env.DSH_COVERAGE_TEST_TIMEOUT_MS },
     })
+  })
+
+  it.each([
+    ['ci.yml', 'node-24-lint', 'DSH_CI_FAILOVER_LINUX', 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core', 'blacksmith-8vcpu-ubuntu-2404', ['self-hosted', 'linux', 'x64', 'vm-backup']],
+    ['ci-windows.yml', 'windows-build', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'dsh-windows-2025-16core', 'blacksmith-16vcpu-windows-2025', ['self-hosted', 'dsh-win-ci', 'windows']],
+    ['ci-windows.yml', 'windows-coverage', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'dsh-windows-2025-16core', 'blacksmith-16vcpu-windows-2025', ['self-hosted', 'dsh-win-ci', 'windows']],
+    ['ci-windows.yml', 'windows-native-tests', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'dsh-windows-2025-16core', 'blacksmith-2vcpu-windows-2025', ['self-hosted', 'dsh-win-ci', 'windows']],
+  ] as const)('%s / %s uses public runners in forks and preserves configured pools', (file, name, variable, hosted, upstream, blacksmith, pool) => {
+    const job = workflowJob(loadWorkflow(`.github/workflows/${file}`), name)
+    for (const repository of ['deepseek-harness/deepseek-harness', 'felir7at62co-wq/muse-med', 'contributor/fork']) {
+      const evaluate = (mode: string, login = 'maintainer'): unknown => evaluateRunsOn(job['runs-on'], {
+        vars: { [variable]: mode }, fromJSON: JSON.parse,
+        github: { repository, event: { pull_request: { user: { login } } } },
+      })
+      const fallback = repository === 'deepseek-harness/deepseek-harness' ? upstream : hosted
+      for (const mode of ['', 'hosted', 'unexpected']) expect(evaluate(mode), `${repository} ${mode}`).toBe(fallback)
+      expect(evaluate('blacksmith'), `${repository} Blacksmith`).toBe(blacksmith)
+      expect(evaluate('selfhosted'), `${repository} self-hosted`).toEqual(pool)
+      expect(evaluate('selfhosted', 'dependabot[bot]'), `${repository} Dependabot fallback`).toBe(fallback)
+    }
   })
 
   it('gates standalone keyless blacksmith jobs and benchmark tiers on the failover variables', () => {
@@ -1629,7 +1722,7 @@ describe('Weighted approval workflow', () => {
     const token = steps.find(step => step.id === 'decision-token')
     expect(token).toMatchObject({
       'continue-on-error': true,
-      uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
+      uses: 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510',
       with: {
         'client-id': '${{ vars.DSH_APPROVAL_APP_CLIENT_ID }}',
         'private-key': '${{ secrets.DSH_APPROVAL_APP_PRIVATE_KEY }}',
@@ -1748,7 +1841,7 @@ describe('Issue lifecycle workflow', () => {
     expect(tokenStep).toMatchObject({
       id: 'app-token',
       if: "${{ steps.preflight.outputs.needs-project == 'true' }}",
-      uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
+      uses: 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510',
       with: {
         'client-id': '${{ vars.DSH_ISSUE_APP_CLIENT_ID }}',
         'private-key': '${{ secrets.DSH_ISSUE_APP_PRIVATE_KEY }}',
@@ -1881,6 +1974,15 @@ describe('Documentation site publication', () => {
 })
 
 describe('Git hooks', () => {
+  it('reports heuristic snapshot text findings without blocking a checked push', () => {
+    const hook = loadWorkflow('lefthook.yml')['pre-push']
+    if (!isRecord(hook) || !Array.isArray(hook.jobs)) throw new TypeError('pre-push jobs are required')
+    expect(hook.jobs).toContainEqual(expect.objectContaining({
+      name: 'snapshot sidecar drift', use_stdin: true,
+      run: 'node_modules/.bin/tsx scripts/verify-snapshot-drift.ts --pre-push --warn-only',
+    }))
+  })
+
   it('leaves frozen Agent Note sidecars to the archive verifier', () => {
     const lefthook = loadWorkflow('lefthook.yml')
 
@@ -1947,7 +2049,8 @@ describe('Recovery decoder coverage preparation', () => {
 
   it('uses the locked Windows preparation before coverage without extra secrets', () => {
     const step = preparation('.github/workflows/ci-windows.yml', 'windows-coverage', 'Run Windows coverage')
-    expect(step).toEqual({ name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts' })
+    expect(step).toEqual({ name: 'Prepare media test executables', shell: 'pwsh',
+      run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts "$env:RUNNER_TEMP/muse-ffmpeg-9.0.2-win-x64.zip"' })
     expect(JSON.stringify(step)).not.toContain('secrets.')
   })
 
@@ -2025,6 +2128,20 @@ describe('Policy workflows', () => {
       if (check === undefined || !isRecord(check.env)) throw new TypeError(`${file} ${job} must run the check action with env`)
       expect(String(check.env.CHECK_MODE)).toContain('vars.MERGE_POLICY_')
     }
+  })
+
+  it('runs on the release branches as well as master, on both pull requests and base-branch pushes', () => {
+    const branches = ['master', 'release/dsh-[0-9]+.[0-9]+.[0-9]+']
+    for (const file of ['pr-check-on-head-branch.yml', 'pr-check-after-approve.yml']) {
+      const workflow = loadWorkflow('.github/workflows/' + file)
+      const events = workflow.on
+      if (!isRecord(events) || !isRecord(events.pull_request_target)) throw new TypeError(`${file} must trigger on pull_request_target`)
+      expect(events.pull_request_target.branches).toEqual(branches)
+    }
+    const workflow = loadWorkflow('.github/workflows/pr-check-on-base-branch.yml')
+    const events = workflow.on
+    if (!isRecord(events) || !isRecord(events.push)) throw new TypeError('the base-branch workflow must trigger on push')
+    expect(events.push.branches).toEqual(branches)
   })
 
   it('decides the review verdict in one Approve Check job that can publish the check run', () => {

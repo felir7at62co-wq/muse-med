@@ -16,6 +16,8 @@ EXPECTED = {
     "anime-3d-assets",
     "character-reference-library",
     "jubian-snatch",
+    "jubian-project-upload",
+    "protagonist-asset-sheet",
     "shot-script-creator-16-9-3d", "shot-script-creator-9-16",
     "tweet-drama-asset-vision-check",
     "tweet-drama-background-render", "tweet-drama-core", "tweet-drama-delivery",

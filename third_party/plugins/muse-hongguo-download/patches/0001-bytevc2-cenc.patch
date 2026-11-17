@@ -1,0 +1,31 @@
+--- a/src/native/hongguo.js
++++ b/src/native/hongguo.js
+@@ -993,9 +993,12 @@
+               ? data.toString('latin1', frma.off + frma.hdr, frma.off + frma.hdr + 4) : null;
+             const avc = children.some(child => child.typ === 'avcC');
+             const hevc = children.some(child => child.typ === 'hvcC');
+-            newType = original || (avc && !hevc ? 'avc1' : hevc && !avc ? 'hvc1' : null);
+-            if (!['avc1', 'avc3', 'hvc1', 'hev1'].includes(newType)
+-              || (newType.startsWith('avc') ? !avc || hevc : !hevc || avc)) {
++            const bvc2 = children.some(child => child.typ === 'bv2C');
++            newType = original || (avc && !hevc && !bvc2 ? 'avc1' : hevc && !avc && !bvc2 ? 'hvc1' : null);
++            const matchingConfiguration = newType === 'bvc2' ? bvc2 && !avc && !hevc
++              : newType?.startsWith('avc') ? avc && !hevc && !bvc2 : hevc && !avc && !bvc2;
++            if (!['avc1', 'avc3', 'hvc1', 'hev1', 'bvc2'].includes(newType)
++              || !matchingConfiguration) {
+               throw new Error('无法确定加密视频的原始编码（codec），请更换片源重试。');
+             }
+           }
+@@ -1119,7 +1122,12 @@
+
+     const ivs = [];
+     if (senc) {
++      if (senc.hdr !== 8 || senc.size < 16) throw new Error('Unsupported CENC sample encryption layout');
+       const sc = data.readUInt32BE(senc.off + 12);
++      if (data.readUInt32BE(senc.off + 8) !== 0
++        || sc !== n || senc.size !== 16 + sc * 8) {
++        throw new Error('Unsupported CENC sample encryption layout');
++      }
+       for (let i = 0; i < sc; i++) {
+         ivs.push(data.subarray(senc.off + 16 + i * 8, senc.off + 24 + i * 8));
+       }

@@ -476,6 +476,17 @@ describe('character-reference isolated QA bridge', () => {
     expect(store.listEvents(binding()).filter(event => event.type === 'generation_unknown')).toHaveLength(1)
     store.close()
   })
+  it('preserves a failed default upload as unknown and blocks another send', async () => {
+    const store = await opened()
+    const fetcher = vi.fn<typeof fetch>(async () => { throw new Error('offline') })
+    const bridge = createCharacterReferenceQaBridge({ store,
+      authority: { read: async () => authoritative() }, referenceUploadDeps: { fetch: fetcher } })
+    await expect(bridge.upload(session, request())).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+    expect(store.inspect(binding()).upload.state).toBe('unknown')
+    await expect(bridge.upload(session, request())).rejects.toThrow('reconciled by the Host')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects misaligned bytes, invalid clocks and non-preserving upload receipts without resending', async () => {
     for (const receipt of [
       { materialUrl: 'http://insecure.invalid/a', reencoded: false, sha256: `sha256:${IMAGE_SHA}` },

@@ -31,10 +31,12 @@ const MANIFEST_BIN_ALLOWLIST = new Map<string, ManifestBin>([
 
 /** Every JavaScript executable in an application or packaging workspace has one explicit role. */
 const EXECUTABLE_SOURCE_ALLOWLIST = new Map<string, string>([
+  ['apps/cli/src/installed-bin.ts', 'installed dsh command entry'],
   ['apps/cli/src/bin.ts', 'supported dsh application launcher'],
   ['apps/desktop/scripts/logged-notarytool.mjs', 'build-only notarization logging wrapper'],
   ['packages/context/time-context/tests/fixtures/driver.ts', 'test-only subprocess driver'],
   ['packages/guard/argument-loop/tests/fixtures/driver.ts', 'test-only real-Loader stream guard driver with a local synthetic model'],
+  ['packages/guard/prompt-usage/tests/fixtures/driver.ts', 'test-only real-Loader prompt-usage guard driver with a synthetic Yunying route'],
   ['packages/experimental/webworker-packer/bin.js', 'build-only wrapper'],
   ['packages/experimental/webworker-packer/src/bin.ts', 'build-only implementation'],
   ['packages/sdk/client/tests/fake-runtime.ts', 'test-only SDK runtime peer'],

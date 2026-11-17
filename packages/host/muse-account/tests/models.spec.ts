@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createAssistantMessage, createToolResultMessage, createUserMessage, LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createAssistantMessage, createToolResultMessage, createUserMessage, LlmAdapter, LlmError, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { MuseModels } from '../src/models.ts'
@@ -16,9 +16,12 @@ import { mockServer, closeMockServers, textEvents } from '../../../llm/llm-pi-ai
 import { assemble } from '../../../llm/llm-pi-ai/tests/assemble.ts'
 import { writeMuseSession, readMuseSession, clearMuseSessionIfUnchanged } from '../src/session.ts'
 import { buildModelCatalog, modelAvailable } from '../../../api/session-controller/src/catalog.ts'
-import { agentEvents } from '@deepseek-ai/dsh-agent'
+import { agentEvents, modelSelectionProjectionDefinition } from '@deepseek-ai/dsh-agent'
+import { ReactLoopAgent } from '../../../core/agent-loop/src/agent.ts'
+import { inboxProjectionDefinition } from '../../../core/agent-loop/src/inbox.ts'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { directProviderFixture, oldSessionFixture as routingFixture, waitForIdle } from './model-routing-fixture.ts'
+import * as sessionStorage from '../src/session.ts'
 
 const suppliedCatalog = { providers: [
   { id: 'aa', name: 'aa', models: [{ id: 'gemini-3.8-flash', name: 'gemini-3.8-flash',
@@ -398,6 +401,53 @@ it('publishes the supplied Gemini and DeepSeek metadata through the browser cata
   ])
   expect(browser.failures.filter(group => group.id.startsWith('muse-cloud-'))).toEqual([])
 })
+
+it.each(['deepseek-flash', 'deepseek-v4.1-flash-261017'])(
+  'keeps %s system updates in history without enabling that mode for other account routes', async (modelId) => {
+    await login()
+    const model = { ...suppliedCatalog.providers[1]!.models[0]!, id: modelId }
+    const providers = [...suppliedCatalog.providers,
+      { id: 'studio', name: 'Studio', models: [model] }]
+      .map(provider => provider.id === 'deepseek-official' ? { ...provider, models: [model] } : provider)
+    models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      fetcher: async () => Response.json({ providers }) })
+    await models.refresh()
+    await expect(ctx.llm.resolveModelInfo('muse-cloud-deepseek-official', modelId))
+      .resolves.toMatchObject({ systemPromptUpdate: 'in-history' })
+    const other = await ctx.llm.resolveModelInfo('muse-cloud-aa', 'gemini-3.8-flash')
+    expect(other.systemPromptUpdate).toBeUndefined()
+    expect((await ctx.llm.resolveModelInfo('muse-cloud-studio', modelId)).systemPromptUpdate).toBeUndefined()
+  })
+
+it.each(['deepseek-flash', 'deepseek-v4.1-flash-261017'])(
+  'keeps earlier %s wire messages when the system prompt changes', async (modelId) => {
+    const fixture = await oldSessionFixture(false)
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const providers = suppliedCatalog.providers.map(provider => provider.id === 'deepseek-official'
+      ? { ...provider, models: provider.models.map(model => ({ ...model, id: modelId })) } : provider)
+    await login()
+    models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
+        ? { providers, transport: 'direct' }
+        : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
+          access: { baseURL: `${server.url}/v1`, apiKey: 'test-only-key' } })) }) })
+    try {
+      await models.refresh()
+      fixture.agent.model.select({ provider: 'muse-cloud-deepseek-official', model: modelId })
+      for (const [index, text] of ['first', 'second'].entries()) {
+        if (index === 1) fixture.ctx.systemPrompt.section({ name: 'test:later-guidance',
+          order: fixture.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
+          text: 'Keep the earlier script context.', interpolate: false })
+        const idle = waitForIdle(fixture.ctx, fixture.agent)
+        fixture.agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
+        await idle
+      }
+      const [first, second] = server.requests as { messages: { role: string; content: unknown }[] }[]
+      expect(server.paths).toEqual(['/v1/chat/completions', '/v1/chat/completions'])
+      expect(second!.messages.slice(0, first!.messages.length)).toEqual(first!.messages)
+      expect(second!.messages.filter(message => message.role === 'system')).toHaveLength(2)
+    } finally { await fixture.ctx.fiber.dispose() }
+  })
 
 it('excludes only the specified account provider and retains Yunying Gemini and personal adapters', async () => {
   await login()
@@ -1134,6 +1184,113 @@ it('repairs a newly created Agent before its first request and keeps omitted eff
     .toEqual([{ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }])
 })
 
+it.each(['active', 'disposed'] as const)('keeps a failed advertised-model read observable only while the catalog is %s', async (state) => {
+  const fixture = await oldSessionFixture(false); await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>(), failure = Error('Model metadata unavailable')
+  vi.spyOn(fixture.ctx.llm, 'listModels').mockImplementationOnce(async () => {
+    entered.resolve(undefined); await release.promise; throw failure
+  })
+  const outcome = models.refresh().then(value => ({ value }), (error: unknown) => ({ error }))
+  await entered.promise
+  let disposed: Promise<void> | undefined
+  try { if (state === 'disposed') disposed = models.dispose() } finally { release.resolve(undefined) }
+  if (state === 'active') expect(await outcome).toEqual({ error: failure })
+  else expect(await outcome).toEqual({ value: undefined })
+  await disposed
+  expect(fixture.agent.model.current()).toEqual(fixture.initialSelection)
+})
+
+it.each(['unsupported', 'active-error', 'disposed-error'] as const)('retains the direct selection after a %s resolution failure', async (state) => {
+  const fixture = await oldSessionFixture(false); await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const failure = state === 'unsupported' ? new LlmError('Requested effort is unavailable', 'UNSUPPORTED_REASONING_EFFORT') : Error('Resolution unavailable')
+  vi.spyOn(fixture.ctx.llm, 'resolveCallConfig').mockImplementationOnce(async () => {
+    entered.resolve(undefined); await release.promise; throw failure
+  })
+  const outcome = models.refresh().then(value => ({ value }), (error: unknown) => ({ error }))
+  await entered.promise
+  let disposed: Promise<void> | undefined
+  try { if (state === 'disposed-error') disposed = models.dispose() } finally { release.resolve(undefined) }
+  expect(await outcome).toEqual(state === 'active-error' ? { error: failure } : { value: undefined })
+  await disposed
+  expect(fixture.agent.model.current()).toEqual(fixture.initialSelection)
+})
+
+it('does not repair a newly announced Agent after account ownership has been disposed', async () => {
+  const fixture = await oldSessionFixture(false); await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const off = fixture.ctx.on('agent/created', async () => { entered.resolve(undefined); await release.promise }, { prepend: true })
+  const creating = fixture.driver.create(SessionId('creation-overlaps-disposal'), { provider: 'deepseek-official', model: 'deepseek-flash' }, { cwd: root })
+  try {
+    await entered.promise; await models.dispose(); release.resolve(undefined)
+    expect((await creating).model.current()).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
+  } finally { release.resolve(undefined); await creating; off() }
+})
+
+it('repairs an externally registered startup Agent using the account-owned cancellation signal', async () => {
+  const fixture = await oldSessionFixture(false); await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  const selection = await fixture.ctx.sessionProjections.register(modelSelectionProjectionDefinition)
+  const inbox = await fixture.ctx.sessionProjections.register(inboxProjectionDefinition)
+  const session = fixture.ctx.sessions.create(SessionId('registered-account-startup'))
+  const agent = new ReactLoopAgent(fixture.ctx, session.id, { provider: 'deepseek-official', model: 'deepseek-flash' }, session,
+    { modelSelection: selection.readerFor(session), inbox: inbox.readerFor(session) }, 0, new AbortController().signal)
+  await fixture.ctx.agents.register(agent)
+  expect(agent.model.current()).toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+})
+
+it('stops a pending credential lookup before reading model metadata after disposal', async () => {
+  const fixture = await oldSessionFixture(false); await login()
+  const section = fixture.ctx.settings.describe().find(row => String(row.ns) === 'agent-default-model')
+  if (section === undefined) throw Error('Missing default settings')
+  await fixture.ctx.settings.replace('agent-default-model', { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }, section.revision)
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const describe = fixture.ctx.credentials.describe.bind(fixture.ctx.credentials), list = vi.spyOn(fixture.ctx.llm, 'listModels')
+  vi.spyOn(fixture.ctx.credentials, 'describe').mockImplementationOnce(async (...args) => {
+    const value = await describe(...args); entered.resolve(undefined); await release.promise; return value
+  })
+  const refreshing = models.refresh(); await entered.promise
+  const disposed = models.dispose(); release.resolve(undefined)
+  await Promise.all([refreshing, disposed])
+  expect(list).not.toHaveBeenCalled(); expect(fixture.agent.model.current()).toEqual(fixture.initialSelection)
+})
+
+it.each(['dispose', 'account', 'agent'] as const)('preserves the direct route when %s changes before the final account read', async (owner) => {
+  const fixture = await oldSessionFixture(false); await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  const resolve = fixture.ctx.llm.resolveCallConfig.bind(fixture.ctx.llm), read = sessionStorage.readMuseSession
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>(); let verifying = false
+  vi.spyOn(fixture.ctx.llm, 'resolveCallConfig').mockImplementation(async (...args) => {
+    const result = await resolve(...args); verifying = true; return result
+  })
+  vi.spyOn(sessionStorage, 'readMuseSession').mockImplementation(async (...args) => {
+    if (verifying) { verifying = false; entered.resolve(undefined); await release.promise }
+    return read(...args)
+  })
+  const outcome = models.refresh().then(value => ({ value }), (error: unknown) => ({ error }))
+  await entered.promise
+  let disposed: Promise<void> | undefined
+  try {
+    if (owner === 'dispose') disposed = models.dispose()
+    else if (owner === 'account') await login('bob')
+    else await fixture.ctx.agentLoop.shutdown()
+  } finally { release.resolve(undefined) }
+  expect(await outcome).toEqual({ value: undefined }); await disposed
+  expect(fixture.agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data).toEqual(fixture.initialSelection)
+})
+
 it('repairs only Agents covered by the account plugin scope', async () => {
   const fixture = await oldSessionFixture(false)
   const other = await fixture.driver.create(SessionId('outside-account-scope'), {
@@ -1435,4 +1592,28 @@ it.each([
   })]))
   expect(server.headers[0]?.authorization).toBe('Bearer alice-session')
   expect(server.paths).toEqual([`/api/desktop-models/${provider}/chat/completions`])
+})
+
+it('gives every account route the configured retry policy', async () => {
+  await login()
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog),
+    modelRetryPolicy: { mode: 'normal', maxRetries: 8, backoff: { initialDelayMs: 2000, maxDelayMs: 60000 } } })
+  await models.refresh()
+  const expected = { mode: 'normal', maxRetries: 8,
+    retryableCodes: ['EMPTY_RESPONSE', 'INVALID_TOOL_ARGUMENTS', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
+    initialDelayMs: 2000, maxDelayMs: 60000, jitterRatio: 0.1 }
+  for (const [provider, model] of [['muse-cloud-aa', 'gemini-3.8-flash'], ['muse-cloud-deepseek-official', 'deepseek-flash']] as const) {
+    expect(ctx.llm.providerRetryPolicy(provider)).toEqual(expected)
+    expect((await ctx.llm.prepareCall({ provider, model })).retryPolicy).toEqual(expected)
+  }
+  expect(ctx.llm.providerRetryPolicy('personal')).toMatchObject({ mode: 'normal', maxRetries: 5 })
+})
+
+it('keeps the adapter default retry policy when none is configured', async () => {
+  await login()
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, fetcher: async () => Response.json(catalog) })
+  await models.refresh()
+  expect(ctx.llm.providerRetryPolicy('muse-cloud-studio'))
+    .toMatchObject({ mode: 'normal', maxRetries: 5, initialDelayMs: 500, maxDelayMs: 10000 })
 })

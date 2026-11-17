@@ -28,6 +28,7 @@ function droppedDirectories(dataTransfer: DataTransfer, files: readonly File[]):
  * @param setDragActive - publish whether a file drag is active.
  * @param readFileDrag - resolve an original image retained by this application during a browser drag.
  * @param workspaceDrop - optional same-connection workspace drag intake.
+ * @param owner - mounted marker identifying this composer and its enclosing Conversation.
  * @returns cleanup for exactly these listeners.
  */
 export function installDocumentDropEvents(
@@ -36,9 +37,21 @@ export function installDocumentDropEvents(
   dragDepth: { current: number },
   setDragActive: (active: boolean, workspace?: boolean) => void,
   readFileDrag: (transfer: DataTransfer) => File | undefined,
-  workspaceDrop?: ComposerAttachmentsProps['workspaceDrop'],
+  workspaceDrop: ComposerAttachmentsProps['workspaceDrop'],
+  owner: { readonly current: HTMLElement | null },
 ): () => void {
+  const ownsTarget = (event: globalThis.DragEvent): boolean => {
+    const marker = owner.current
+    if (marker === null) return false
+    const target = event.target instanceof Element ? event.target : null
+    const region = marker.closest('[data-conversation-content]')
+    const targetRegion = target?.closest('[data-conversation-content]')
+    if (targetRegion !== undefined && targetRegion !== null) return targetRegion === region
+    // A page-wide drop has an owner only when one composer is mounted.
+    return document.querySelectorAll('[data-attachment-drop-owner]').length === 1
+  }
   const fileTransfer = (event: globalThis.DragEvent): DataTransfer | null => {
+    if (!ownsTarget(event)) return null
     const dataTransfer = event.dataTransfer
     if (dataTransfer === null || !(dataTransfer.types.includes('Files')
       || dataTransfer.types.includes(FILE_DRAG_TOKEN_TYPE)
@@ -67,12 +80,15 @@ export function installDocumentDropEvents(
     dataTransfer.dropEffect = accepts(dataTransfer) ? 'copy' : 'none'
   }
   const onDragLeave = (event: globalThis.DragEvent): void => {
+    const leftViewport = event.clientX <= 0 || event.clientY <= 0
+      || event.clientX >= window.innerWidth || event.clientY >= window.innerHeight
+    if ((event.target === document.documentElement || event.target === document.body) && leftViewport) {
+      reset()
+      return
+    }
     if (fileTransfer(event) === null) return
     dragDepth.current = Math.max(0, dragDepth.current - 1)
     if (dragDepth.current === 0) setDragActive(false)
-    const leftViewport = event.clientX <= 0 || event.clientY <= 0
-      || event.clientX >= window.innerWidth || event.clientY >= window.innerHeight
-    if ((event.target === document.documentElement || event.target === document.body) && leftViewport) reset()
   }
   const onDrop = (event: globalThis.DragEvent): void => {
     const dataTransfer = fileTransfer(event)

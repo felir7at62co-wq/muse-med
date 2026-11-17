@@ -129,8 +129,10 @@ export interface SessionSnapshotComparisonOptions extends Omit<NormalizeOptions,
 
 /** Return every known spelling of the generated cwd, most specific first. */
 function cwdSpellings(ctx: NormalizeContext): string[] {
-  const nestedJsonCwd = JSON.stringify(JSON.stringify(ctx.cwd).slice(1, -1)).slice(1, -1)
-  const spellings = [...new Set([ctx.cwd, ...ctx.cwdAliases ?? [], nestedJsonCwd])]
+  const spellings = [...new Set([ctx.cwd, ...ctx.cwdAliases ?? []].flatMap((path) => {
+    const jsonPath = JSON.stringify(path).slice(1, -1)
+    return [path, jsonPath, JSON.stringify(jsonPath).slice(1, -1)]
+  }))]
     .filter(spelling => spelling.length > 0)
   const macAliases = spellings
     .filter(spelling => spelling.startsWith('/') && !spelling.startsWith('/private/'))

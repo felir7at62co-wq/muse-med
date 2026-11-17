@@ -255,12 +255,13 @@ describe('package dependency scope', () => {
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-experimental-forge'])
       .toEqual(['changeRequestKey'])
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-experimental-worktree'])
-      .toEqual(['generatedWorktreeName'])
+      .toEqual(['generatedWorktreeName', 'CREATED_RECORD', 'createdWorktreeSchema'])
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-fs']).toEqual(['FsError'])
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-session'])
       .toEqual(['SESSION_FORMAT_VERSION', 'appendPluginRecord', 'pluginRecordOf'])
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-timeout']).toEqual(['deadline'])
-    expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-tools']).toEqual(['defineTool', 'TOOL_BODY_META_KEY'])
+    expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-tools']).toEqual(['defineTool'])
+    expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-tools/pipeline']).toEqual(['TOOL_BODY_META_KEY'])
     expect(PACKAGE_DEPENDENCY_POLICY.safeHostDependencyExports['@deepseek-ai/dsh-tools']).toBeUndefined()
   })
 
@@ -1080,29 +1081,29 @@ describe('dependency sections', () => {
   })
 
   it.each([
-    ['@deepseek-ai/dsh-llm', 'MessageId'],
-    ['@deepseek-ai/dsh-scope', 'carrierKeyOf'],
-    ['@deepseek-ai/dsh-tools', 'TOOL_BODY_META_KEY'],
-  ])('retains message and scope identity plus tool metadata on shared peers: %s#%s', (specifier, exportName) => {
+    ['@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-llm', 'MessageId'],
+    ['@deepseek-ai/dsh-scope', '@deepseek-ai/dsh-scope', 'carrierKeyOf'],
+    ['@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-tools/pipeline', 'TOOL_BODY_META_KEY'],
+  ])('retains message and scope identity plus tool metadata on shared peers: %s via %s#%s', (packageName, specifier, exportName) => {
     const sourcePath = 'packages/core/probe/src/index.ts'
     const manifest: PackageDependencyManifest = { name: '@deepseek-ai/dsh-probe',
-      peerDependencies: { [CORDIS]: 'workspace:~', [specifier]: 'workspace:*' },
-      devDependencies: { [CORDIS]: 'workspace:~', [specifier]: 'workspace:*' } }
+      peerDependencies: { [CORDIS]: 'workspace:~', [packageName]: 'workspace:*' },
+      devDependencies: { [CORDIS]: 'workspace:~', [packageName]: 'workspace:*' } }
     const subject: PackageDependencyFacts = { ...facts(manifest),
-      workspaceNames: new Set([CORDIS, specifier]),
-      allSourceUses: new Map([[specifier, [sourcePath]]]),
-      hostRuntimeSourceUses: new Map([[specifier, [sourcePath]]]),
-      hostRuntimeExportUses: [{ packageName: specifier, specifier, exportName, sourcePath, line: 1, column: 10,
+      workspaceNames: new Set([CORDIS, packageName]),
+      allSourceUses: new Map([[packageName, [sourcePath]]]),
+      hostRuntimeSourceUses: new Map([[packageName, [sourcePath]]]),
+      hostRuntimeExportUses: [{ packageName, specifier, exportName, sourcePath, line: 1, column: 10,
         sourceLine: `import { ${exportName} } from '${specifier}'` }],
-      peerRequiredHostDependencies: new Set([specifier]) }
+      peerRequiredHostDependencies: new Set([packageName]) }
     expect(PACKAGE_DEPENDENCY_POLICY.safeHostDependencyExports[specifier]).not.toEqual(expect.arrayContaining([exportName]))
     const reviewed = { safeHostDependencyExports: {}, peerRequiredHostExports: {
       [specifier]: PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports[specifier]?.filter(name => name === exportName) ?? [] } }
     expect(collectHostDependencyExportPolicyViolations([subject], subject.workspaceNames, reviewed)).toEqual([])
     repairPackageDependencyManifest(subject)
-    expect(manifest.dependencies?.[specifier]).toBeUndefined()
-    expect(manifest.peerDependencies?.[specifier]).toBe('workspace:*')
-    expect(manifest.devDependencies?.[specifier]).toBe('workspace:*')
+    expect(manifest.dependencies?.[packageName]).toBeUndefined()
+    expect(manifest.peerDependencies?.[packageName]).toBe('workspace:*')
+    expect(manifest.devDependencies?.[packageName]).toBe('workspace:*')
     const unknown = { ...subject, hostRuntimeExportUses: subject.hostRuntimeExportUses.map(value => ({
       ...value, exportName: 'unreviewedRuntimeExport' })) }
     expect(collectHostDependencyExportPolicyViolations([unknown], subject.workspaceNames, reviewed))
@@ -1172,6 +1173,34 @@ describe('dependency sections', () => {
       'verify-package-dependencies: 1 Host runtime edge(s) remain in peerDependencies for shared exports or required services across 1 package(s):',
       '  @deepseek-ai/dsh-probe -> @deepseek-ai/dsh-runtime: @deepseek-ai/dsh-runtime#runtimeValue',
     ])
+  })
+
+  it('keeps native generation binding imports on shared peers', async () => {
+    const imports = {
+      '@deepseek-ai/dsh-jubian-api': ['buildDocumentObjectKey', 'MANUSCRIPT_SCRIPT_FORMATS', 'buildProjectShareUsersRequest'],
+      '@deepseek-ai/dsh-tools/pipeline': ['TOOL_BODY_META_KEY'],
+    }
+    const providers = ['@deepseek-ai/dsh-jubian-api', '@deepseek-ai/dsh-tools']
+    const root = mkdtempSync(join(tmpdir(), 'dsh-generation-dependencies-'))
+    roots.push(root)
+    const subject = pkg('@f/generation', 'packages/core/generation/package.json', {
+      dependencies: Object.fromEntries(providers.map(name => [name, 'workspace:*'])),
+      devDependencies: { [CORDIS]: 'workspace:~' },
+      peerDependencies: { [CORDIS]: 'workspace:~' },
+    })
+    mkdirSync(join(root, subject.dir, 'src'), { recursive: true })
+    writeFileSync(join(root, subject.dir, 'src/index.ts'), Object.entries(imports)
+      .map(([specifier, names]) => `import { ${names.join(', ')} } from ${JSON.stringify(specifier)}`).join('\n') + '\n')
+    const found = await readPackageDependencyFacts(root, subject, 'configured-host',
+      new Set([CORDIS, subject.name, ...providers]), PACKAGE_DEPENDENCY_POLICY)
+    const expected = expectedPackageDependencies(found)
+    for (const provider of providers) expect(expected.get(provider)?.section).toBe('peer-dev')
+    repairPackageDependencyManifest(found)
+    expect(subject.manifest.dependencies).toBeUndefined()
+    for (const provider of providers) {
+      expect(subject.manifest.peerDependencies?.[provider]).toBe('workspace:*')
+      expect(subject.manifest.devDependencies?.[provider]).toBe('workspace:*')
+    }
   })
 
   it('requires both peer and development declarations for a service without a value import', () => {

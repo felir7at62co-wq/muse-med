@@ -25,6 +25,8 @@ kind: "package-bundle"
 <a id="use-this-package"></a>
 ## 使用本包
 
+看片记录的 `observations` 接受非空字符串或非空字符串数组。每项仍是实际检查记录；对象条目、空记录、编造引文和变化的视频字节不会通过。格式错误会说明所需字段，并区分被引用的 JSON 文件与 `story.evidence` 条目。
+
 组合包的[补丁](cordis.patch.yml)向已有工具注册表的 profile 贡献一行 `perception-bgm`。本包不会在运行中的 profile 自动安装或启用自身。桌面组装与 profile 安装验证仍由发布维护者负责。
 
 不配置 `catalogUrl` 时，`match` 读取 `indexPath`，保持本地候选的 `path` 结果。缺失或空的本地索引会提示先建库。配置 `catalogUrl` 后，`match` 仅读取该公开曲库，返回 `track_id`、原始 `name`、公开 `url` 和测量值，绝不返回不存在的本地路径，也不自动下载音频。用选定的 `track_id` 调用 `download`，其已校验的 `path` 可直接作为 `drama_bgm` 的曲目来源。复用缓存时仍校验 SHA-256，且仍需读取在线曲库。`index` 和 `inspect` 保持为本地可选分析方法；只有启动对应 worker 才可能报 Python 依赖错误。

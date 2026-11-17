@@ -29,7 +29,7 @@ it('lists live metadata pages anonymously and preserves the service continuation
       Name: 'muse', Prefix: ancient, MaxKeys: 4, KeyCount: 4, IsTruncated: true, NextContinuationToken: token,
       Contents: [{ Key: key, Size: 3, ETag: headers.etag },
         { Key: ancient + 'char_3d_0004/portrait.png', Size: 30 },
-        { Key: ancient + 'folder/', Size: 0 }, { Key: ancient + 'metadata.json', Size: 4 }],
+        { Key: ancient + 'folder/', Size: 0 }, { Key: ancient, Size: 0 }],
     })
   })
   const adapter = new PublicTosCharacterLibraryAdapter(1000, fetcher)
@@ -214,6 +214,11 @@ it('sanitizes network errors, caller cancellation and response cleanup failures'
   const controller = new AbortController(); controller.abort()
   await expect(failed.list({ prefix: ancient, limit: 1 }, controller.signal)).rejects.toMatchObject({ code: 'READ_FAILED' })
   await expect(failed.head(key, controller.signal)).rejects.toMatchObject({ code: 'READ_FAILED' })
+  const disconnected = new PublicTosCharacterLibraryAdapter(1000, async () => new Response(new ReadableStream({
+    start(stream) { stream.error(Error('private-body-disconnection')) },
+  })))
+  await expect(disconnected.list({ prefix: ancient, limit: 1 }))
+    .rejects.toMatchObject({ code: 'READ_FAILED', message: 'READ_FAILED' })
   const cleanup = new PublicTosCharacterLibraryAdapter(1000, async () => new Response(new ReadableStream({
     cancel() { throw Error('private') },
   }), { status: 404 }))

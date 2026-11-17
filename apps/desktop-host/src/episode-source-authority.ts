@@ -12,7 +12,7 @@ import {
   captureGenerationSessionBinding,
   type GenerationExecutionLease,
 } from '@deepseek-ai/dsh-tool-jubian/generation-binding'
-import { createVideoSourceQaVerifier } from '@deepseek-ai/dsh-tool-video-inspect'
+import { createVideoSourceQaVerifier } from '@deepseek-ai/dsh-tool-video-inspect/source-qa'
 import type { EpisodeSourceAuthorityFactory, EpisodeSourceQaAuthority } from './episode-source-authority-types.ts'
 
 const evidenceTools = new Set(['video_ocr', 'video_inspect', 'video_source_review'])

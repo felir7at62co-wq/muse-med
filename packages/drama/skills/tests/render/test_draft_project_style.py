@@ -384,7 +384,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
                        snapshot_visual=None, has_visual_snapshot=False, expected_ready=True):
         temporary = tempfile.TemporaryDirectory(prefix='draft-project-style-')
         self.addCleanup(temporary.cleanup)
-        project = Path(temporary.name)
+        project = Path(temporary.name).resolve()
         delivery = {'visual_medium': medium, 'width': 2560, 'height': 1440, 'fps': 30}
         delivery.update(geometry or {})
         project_delivery = {} if style is None else {'draft_style': style}

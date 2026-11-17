@@ -3,6 +3,7 @@ scenario: muse-session-views
 profile: headless
 composition: muse-session-views
 recording: authored
+writerOutput: true
 header:
   class: muse-session-views
   pin: true

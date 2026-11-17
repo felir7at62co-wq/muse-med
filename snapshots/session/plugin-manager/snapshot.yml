@@ -7,4 +7,5 @@ permission: danger-full-access
 header:
   class: plugin-manager
   pin: true
+  systemPromptSource: text-turn
 writerOutput: true

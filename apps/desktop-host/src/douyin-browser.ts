@@ -20,6 +20,8 @@ interface BrowserAcquisition {
   readonly supportsBackgroundDownload: true
   /** Bound native requests reject a changed accepted directory before any IPC. */
   readonly supportsExpectedCwd: true
+  /** The Host validates target-bound aggregation results. */
+  readonly supportsDataAggregation: true
   /** Observe normal-page data with the initiating Agent's cancellation and workspace lifetime. */
   readonly data: DouyinDataMethod
   /**
@@ -223,6 +225,7 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
         version: 4,
         supportsBackgroundDownload: true,
         supportsExpectedCwd: true,
+        supportsDataAggregation: true,
         data,
         download(agent, url, callerSignal, maxDownloadBytes, nativeTimeoutMs, options) {
           const owner = new AbortController()

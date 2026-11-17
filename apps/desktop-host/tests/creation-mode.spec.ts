@@ -166,7 +166,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     for (const removed of ['jubian-asset-library', 'muse-creation', 'tweet-drama-asset-extract', 'xiaohongshu-reference']) {
       expect(initialNames).not.toContain(removed)
     }
-    for (const name of ['audio-transcribe', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d',
+    for (const name of ['audio-transcribe', 'jubian-project-upload', 'protagonist-asset-sheet', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d',
       'muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']) {
       expect(initialNames).toContain(name)
     }
@@ -372,7 +372,7 @@ it('permits manuscript revision comparison through the real creation PTC policy'
   } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
 })
 
-it.each(['dsh_im_return_file', 'muse_media_data', 'muse_media_download', 'muse_media_task', 'muse_media_import',
+it.each(['jubian_manuscript', 'jubian_project', 'dsh_im_return_file', 'muse_media_data', 'muse_media_download', 'muse_media_task', 'muse_media_import',
   'drama_character_reference_project', 'drama_character_reference_view', 'drama_character_references'])(
   'permits the scoped %s binding through the real creation PTC policy', async (name) => {
     const f = await fixture()

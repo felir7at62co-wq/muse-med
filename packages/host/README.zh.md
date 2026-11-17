@@ -37,6 +37,7 @@ kind: "package-group"
 | [`product-telemetry-otel/`](product-telemetry-otel/README.zh.md) | 通过 OTLP/HTTP 显式上报产品使用事件 | `ctx.productTelemetry` |
 | [`feishu-settings/`](feishu-settings/README.zh.md) | 桌面版飞书设置及扫码注册页面 | Remote `feishuSetup` |
 | [`muse-account/`](muse-account/README.zh.md) | 桌面版 MUSE 登录与授权云服务 | Remote `museAccount` |
+| [`muse-market/`](muse-market/README.zh.md) | 准备并绑定精确的 Skill 版本，可选接入账号绑定的云端发布 | Remote `museMarket` |
 
 -----
 

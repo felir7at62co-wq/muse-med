@@ -1,6 +1,6 @@
 /** Literal episode endings and action locations; screenplay placement remains an editorial decision. */
 import { manuscriptDialogue } from './manuscript-advisories.ts'
-import type { ManuscriptScene } from './manuscript-scenes.ts'
+import { MANUSCRIPT_PREAMBLE_EPISODE, type ManuscriptScene } from './manuscript-scenes.ts'
 
 type Scene = ManuscriptScene & { path: string }
 interface Location { path: string; episode: string; scene: string; line: number; quote: string }
@@ -21,7 +21,7 @@ interface SourceEnding {
 export function manuscriptFormatReference() {
   return {
     action_line: '▲写观众需要看懂的画面事件：进出、走位、物品交接、无对白反应，以及改变局面的动作过程和结果。按剧情作用区分，不按动作长短或是否同步说话机械拆分。',
-    parenthetical: '人物名（括注）：台词。括注服务于这句话怎样说，写语气、神态或局部伴随表现；重要事件不靠括注代替。同一动作不重复写，每句不必都有括注。',
+    parenthetical: '人物名（括注）：台词。每句对白都带括注，写这句话怎样说：语气、神态或局部伴随表现；说话人不在画面时写声音来源或可见状态，不编造表情。重要事件不靠括注代替，同一动作不重复写。',
     dialogue: '同一人连续表达同一层意思，不因ASR分段机械拆行；保留真实的插话、转折和动作节拍。',
     ending: '本集已有留悬内容时，【下集钩子】只是格式标注，不改变剧情；标在原有末段之前，下接正常动作或对白，不另抄一遍末段。标识存在不证明悬念有效，缺少标识不证明剧情有错；完全收束或大结局不强编悬念。',
     source_scope: '依用户当前任务区分忠实转写与改编；格式整理不授权新增或改写原片事实。',
@@ -39,9 +39,12 @@ function material(location: Location): Material | undefined {
   return speech ? { ...location, kind: 'dialogue', parentheticals: speech.parentheticals } : undefined
 }
 
+/** A line-leading episode-ending marker such as `【下集钩子】`; the label is in capture group 1, 2 or 3. */
+export const MANUSCRIPT_HOOK_MARKER
+  = /^\s*(?:#{1,6}\s*)?(?:【(下集钩子|集尾钩子|结尾钩子|钩子|下集悬念)】|\[(下集钩子|集尾钩子|结尾钩子|钩子|下集悬念)\]|(下集钩子|集尾钩子|结尾钩子|下集悬念)\s*(?:[：:]|$))\s*/u
+
 function marker(location: Location) {
-  const pattern = /^\s*(?:#{1,6}\s*)?(?:【(下集钩子|集尾钩子|结尾钩子|钩子|下集悬念)】|\[(下集钩子|集尾钩子|结尾钩子|钩子|下集悬念)\]|(下集钩子|集尾钩子|结尾钩子|下集悬念)\s*(?:[：:]|$))\s*/u
-  const match = pattern.exec(location.quote), label = match?.[1] ?? match?.[2] ?? match?.[3]
+  const match = MANUSCRIPT_HOOK_MARKER.exec(location.quote), label = match?.[1] ?? match?.[2] ?? match?.[3]
   return match && label ? { ...location, marker: label,
     inline_content: location.quote.slice(match[0].length) } : undefined
 }
@@ -73,7 +76,8 @@ function endpoints<T extends Location>(all: readonly T[], materialLines: readonl
 
 /**
  * Return exact ending lines and action/parenthetical locations without rating suspense or moving text.
- * @param scenes - Complete current scenes in document order, including file paths.
+ * @param scenes - Complete current scenes in document order, including file paths;
+ * text before the first heading has no episode ending and is left out.
  * @param limits - Existing result-count and text budgets; omitted quotes remain explicitly counted.
  * @param changedLines - Optional saved-file lines limiting action locations and affected episodes.
  * @param endingEpisodes - Explicit current-file episode labels retaining endings for deletions with no new action line.
@@ -83,6 +87,7 @@ export function manuscriptPresentationEvidence(scenes: readonly Scene[], limits:
   changedLines?: ReadonlyMap<string, ReadonlySet<number>>, endingEpisodes?: ReadonlyMap<string, ReadonlySet<string>>) {
   const grouped = new Map<string, Scene[]>()
   for (const scene of scenes) {
+    if (scene.episode === MANUSCRIPT_PREAMBLE_EPISODE) continue
     const key = JSON.stringify([scene.path, scene.episode])
     grouped.set(key, [...grouped.get(key) ?? [], scene])
   }

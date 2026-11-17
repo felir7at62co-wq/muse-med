@@ -95,16 +95,30 @@ async function fixture() {
   return { scaffold, stack, evidence, browser, modelCalls: () => modelCalls, localModelCalls: () => adapter.calls }
 }
 
-const marketNavigation = (page: Page) => page.getByRole('navigation').getByRole('button', { name: /Skill.*市场|技能市场|Skill.*market/i })
+// Anchored so the row's separate unpin control, whose label names the market, is not a second match.
+const marketNavigation = (page: Page) => page.getByRole('navigation').getByRole('button', { name: /^(Skill.*市场|技能市场|Skill.*market)$/i })
 const panel = (page: Page) => page.locator('[data-muse-skill-market]')
 const tab = (root: Locator, name: string) => root.getByRole('tab', { name, exact: true }).or(root.getByRole('button', { name, exact: true }))
 
-async function openMarket(page: Page, language: 'zh' | 'en' = 'zh'): Promise<Locator> {
+async function openMarket(page: Page, language: 'zh' | 'en' = 'zh', firstVisit = true): Promise<Locator> {
   await revealNavigationDrawer(page, language)
   await marketNavigation(page).click()
   const root = panel(page)
   await expect.poll(() => root.count()).toBe(1)
   await root.waitFor({ state: 'visible' })
+  const guide = page.getByRole('dialog', { name: language === 'zh' ? '欢迎来到 Muse Skill 市场' : 'Welcome to the Muse Skill market', exact: true })
+  if (firstVisit) {
+    await guide.waitFor()
+    const lessons = language === 'zh'
+      ? ['找到适合你的 Skill', '下载到 Muse，也可以导入 ZIP', '启用后，在新会话中使用']
+      : ['Find a Skill for your task', 'Download to Muse or import a ZIP', 'Enable it for new chats']
+    for (const [index, title] of lessons.entries()) {
+      await guide.getByRole('heading', { name: title, exact: true }).waitFor()
+      if (index < lessons.length - 1) await guide.getByRole('button', { name: language === 'zh' ? '下一步' : 'Next', exact: true }).click()
+    }
+    await guide.getByRole('button', { name: language === 'zh' ? '跳过指引' : 'Skip guide', exact: true }).click()
+  }
+  await expect.poll(() => guide.count()).toBe(0)
   return root
 }
 
@@ -270,10 +284,12 @@ it('imports exact disabled archives, activates real Skill bodies and restores th
     expect(cloudInstalled?.enabled).toBe(false)
     expect(await scaffold.ctx.museMarketActivation.defaults()).toEqual(beforeCloudInstall)
     await proveSkill(scaffold, stack.cloudArchive, false)
-    await tab(root, '创作者中心').click()
-    const creator = root.getByRole('region', { name: '制作与上传 Skill', exact: true })
+    await root.getByRole('button', { name: '制作 Skill', exact: true }).click()
+    const creator = page.getByRole('region', { name: '制作与上传 Skill', exact: true })
     await creator.waitFor()
-    await creator.getByRole('combobox', { name: '本地 Skill', exact: true }).selectOption(stack.authorName)
+    await page.getByRole('heading', { name: '制作与分享你的 Skill', exact: true }).waitFor()
+    expect(await root.count()).toBe(0)
+    await creator.getByRole('combobox', { name: /^本地 Skill/ }).selectOption(stack.authorName)
     for (const [label, value] of [['发布标识', 'browser-authored-package'], ['显示名称', 'Browser-authored review'],
       ['介绍', 'Review the original events and motives.'], ['版本号', '1.0.0'], ['授权协议', 'MIT'], ['分类', 'writing']]) {
       await creator.getByLabel(label!, { exact: true }).fill(value!)
@@ -286,7 +302,8 @@ it('imports exact disabled archives, activates real Skill bodies and restores th
     const authored = (await scaffold.ctx.museMarket.installed()).find(item => item.release.manifest.name === 'browser-authored-package')!
     expect(authored.enabled).toBe(false)
     expect(await scaffold.ctx.museMarketActivation.defaults()).toEqual(beforeCloudInstall)
-    await creator.getByRole('combobox', { name: '选择已安装的发布包', exact: true }).selectOption(authored.release.id)
+    const authoredPortrait = await creator.getByRole('complementary', { name: '卡片预览', exact: true }).locator('[data-market-portrait]').getAttribute('data-market-portrait')
+    expect(authored.release.manifest.presetPortrait).toBe(authoredPortrait)
     const preparingDownload = page.waitForEvent('download')
     await creator.getByRole('button', { name: '导出发布包', exact: true }).click()
     const preparedDownload = await preparingDownload, preparedPath = join(f.evidence, 'native-authored.zip')
@@ -297,13 +314,31 @@ it('imports exact disabled archives, activates real Skill bodies and restores th
     for (const [path, bytes] of Object.entries(stack.authorFiles)) {
       expect(Buffer.from(contents.files[`skills/${stack.authorName}/${path}`]!)).toEqual(bytes)
     }
-    await creator.getByRole('combobox', { name: '发布团队', exact: true }).selectOption(stack.publisherId)
+    await page.getByRole('button', { name: '返回市场', exact: true }).click()
+    await root.waitFor()
+    await root.getByRole('button', { name: '上传 ZIP', exact: true }).click()
+    await creator.waitFor()
+    expect(await root.count()).toBe(0)
+    const archiveSelection = creator.getByRole('combobox', { name: '选择已安装的发布包', exact: true })
+    await archiveSelection.selectOption('')
+    await expect.poll(() => archiveSelection.inputValue()).toBe('')
+    await expect.poll(() => creator.getByRole('button', { name: '导出发布包', exact: true }).count()).toBe(0)
+    await creator.locator('input[type="file"]').setInputFiles({ name: 'native-authored.zip', mimeType: 'application/zip', buffer: preparedBytes })
+    await expect.poll(() => archiveSelection.inputValue()).toBe(authored.release.id)
+    await expect.poll(() => creator.getByRole('button', { name: '导出发布包', exact: true }).isEnabled()).toBe(true)
+    await expect.poll(() => creator.getByRole('complementary', { name: '卡片预览', exact: true })
+      .locator('[data-market-portrait]').getAttribute('data-market-portrait')).toBe(authoredPortrait)
+    expect(await scaffold.ctx.museMarket.installed()).toHaveLength(4)
+    await creator.getByRole('combobox', { name: /^发布团队/ }).selectOption(stack.publisherId)
     await creator.getByRole('button', { name: '上传私有草稿', exact: true }).click()
     await expect.poll(async () => (await scaffold.ctx.museMarketCloud.catalog('', true))
       .filter(item => item.manifest.name === 'browser-authored-package').length).toBe(1)
     const authoredDraft = (await scaffold.ctx.museMarketCloud.catalog('', true))
       .find(item => item.manifest.name === 'browser-authored-package')!
     expect(authoredDraft).toMatchObject({ status: 'draft', revision: 1, sha256: authored.release.id })
+    await root.waitFor()
+    await expect.poll(() => root.locator(`[data-market-publication="${authoredDraft.id}"] [data-market-portrait]`)
+      .getAttribute('data-market-portrait')).toBe(authoredPortrait)
     expect(await scaffold.ctx.museMarketActivation.defaults()).toEqual(beforeCloudInstall)
     await stack.login('reader')
     await root.getByRole('button', { name: '刷新', exact: true }).click()
@@ -326,7 +361,7 @@ it('imports exact disabled archives, activates real Skill bodies and restores th
     expect(await scaffold.ctx.museMarketActivation.defaults()).toEqual(beforeCloudInstall)
     await ui.update({ disabled: false }); await scaffold.ctx.loader.await()
     await expect.poll(() => marketNavigation(page).count()).toBe(1)
-    await openMarket(page)
+    await openMarket(page, 'zh', false)
     expect(await panel(page).count()).toBe(1)
     expect(await marketNavigation(page).count()).toBe(1)
     const responsive = await screenshots(f.browser, scaffold, f.evidence)
@@ -339,7 +374,9 @@ it('imports exact disabled archives, activates real Skill bodies and restores th
       actualSkillBodyAndResourcesRead: true, defaultDisableRemovedSkill: true,
       importingV2DidNotChangeV1Default: true, explicitModalCasSelectedV2: true,
       executedSessionPinnedToV1AfterSwitchAndDisable: true, blankAndFreshAgentsReadV2: true,
+      firstVisitGuideCompletedAndDismissed: true, returningVisitDidNotReopenGuide: true,
       actualFilesystemSkillPreparedThroughForm: true, preparedExportPreservedOriginalResources: true,
+      dedicatedCreatorAndZipUploadUsed: true, creatorZipAndDraftPortraitIdentical: true,
       explicitNativeUploadCreatedOnlyPrivateDraft: true, creatorDraftHiddenAfterReaderSwitch: true,
       removedLocalCopyDidNotRemoveCloudPublication: true,
       cloudInstallDidNotChangeDefaults: true, uiUnloadPreservedLocalStorage: true,
@@ -348,7 +385,7 @@ it('imports exact disabled archives, activates real Skill bodies and restores th
     }, null, 2) + '\n')
     await mkdir(dirname(expected), { recursive: true })
     await compareOrRefreshGolden(expected,
-      '# Skill market browser behavior\n\n- ZIP import and cloud installation retain exact archives and remain disabled.\n- An explicit default loads the real Skill body, text references and binary resources in a new agent scope.\n- Importing V2 preserves the V1 default; an explicit confirmation selects V2 through compare-and-swap.\n- An executed Session retains V1 after the switch and disable; a blank Session and a fresh agent read V2.\n- Disabling removes the default from new agents, while installation does not change defaults.\n- A real filesystem Skill is prepared through the creator form, exported with its original text and binary resources, and explicitly uploaded as a private draft.\n- A creator draft disappears when a different reader account refreshes the page.\n- UI disable restores the original composer draft and preserves stored releases; re-enable restores one page and navigation entry.\n- Both languages and both themes fit at 1280px and 420px.\n- One scripted local model completion binds V1; no external model calls or cloud tenant starts occur.', webSnapshotMode())
+      '# Skill market browser behavior\n\n- First-visit guidance presents all three lessons and closes through its skip button; returning visits keep it dismissed.\n- ZIP import and cloud installation retain exact archives and remain disabled.\n- An explicit default loads the real Skill body, text references and binary resources in a new agent scope.\n- Importing V2 preserves the V1 default; an explicit confirmation selects V2 through compare-and-swap.\n- An executed Session retains V1 after the switch and disable; a blank Session and a fresh agent read V2.\n- Disabling removes the default from new agents, while installation does not change defaults.\n- A real filesystem Skill is prepared on its dedicated page, exported with its original text and binary resources, then imported through the dedicated ZIP page and explicitly uploaded as a private draft.\n- Creation, ZIP preview and the uploaded draft retain the same automatically matched character.\n- A creator draft disappears when a different reader account refreshes the page.\n- UI disable restores the original composer draft and preserves stored releases; re-enable restores one page and navigation entry.\n- Both languages and both themes fit at 1280px and 420px.\n- One scripted local model completion binds V1; no external model calls or cloud tenant starts occur.', webSnapshotMode())
   } catch (error) {
     await Promise.allSettled([...nativeReads])
     await writeFile(join(f.evidence, 'native-api.json'), JSON.stringify({ responses: nativeResponses,

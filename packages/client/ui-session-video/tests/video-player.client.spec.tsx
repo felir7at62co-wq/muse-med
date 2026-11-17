@@ -22,11 +22,10 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
 function props(): VideoPlayerProps & { source: VideoPlayerProps['source'] & { version: string } } {
-  return { source: { id: brandString<SessionVideoSourceId>('first'), label: 'Actual source', origin: 'generated', path: '/work/a.mp4', eventSeq: 4,
-    presentedIndex: null, callId: null, status: 'local', version: 'v1', playbackUrl: '/api/session-video?id=first', remoteUrl: null, issue: null },
-  analysis: undefined, shots: [], offset: 0, duration: 0, pixelsPerSecond: 48, zoom: 1, onZoom: vi.fn(),
-  selectedShot: null, seekRequest: null,
-  onSeek: vi.fn(), onSelectShot: vi.fn(), t: makeTranslate(en) }
+  return { source: { id: brandString<SessionVideoSourceId>('first'), label: 'Actual source', playbackUrl: '/api/session-video?id=first', version: 'v1' },
+    analysis: undefined, shots: [], offset: 0, duration: 0, pixelsPerSecond: 48, zoom: 1, onZoom: vi.fn(),
+    selectedShot: null, seekRequest: null,
+    onSeek: vi.fn(), onSelectShot: vi.fn(), t: makeTranslate(en) }
 }
 
 function thumbnailProps(count = 2): VideoPlayerProps & { analysis: SessionVideoAnalysis } {
@@ -36,7 +35,7 @@ function thumbnailProps(count = 2): VideoPlayerProps & { analysis: SessionVideoA
     startSeconds: index * 2, endSeconds: (index + 1) * 2, thumbnail: null,
   }))
   return { ...input, shots, duration: count * 2, analysis: {
-    sourceId: input.source.id, sourceVersion: input.source.version, state: 'ready', durationSeconds: count * 2,
+    sourceId: brandString<SessionVideoSourceId>(input.source.id), sourceVersion: input.source.version, state: 'ready', durationSeconds: count * 2,
     width: 1920, height: 1080, shots, method: 'ffmpeg-scene', threshold: 0.3, issue: null,
   } }
 }
@@ -360,4 +359,14 @@ it('does not restart a player hidden by a suspended parent', () => {
   expect(loadVideo).not.toHaveBeenCalled()
   fireEvent.click(play)
   expect(playVideo).not.toHaveBeenCalled()
+})
+
+it('reports a user interaction when the viewer presses the picture or uses the keyboard on it', () => {
+  const onUserInteract = vi.fn()
+  const view = render(<VideoPlayer {...props()} onUserInteract={onUserInteract} />)
+  const video = view.getByLabelText('Actual source')
+  fireEvent.pointerDown(video)
+  expect(onUserInteract).toHaveBeenCalledTimes(1)
+  fireEvent.keyDown(video, { key: ' ' })
+  expect(onUserInteract).toHaveBeenCalledTimes(2)
 })

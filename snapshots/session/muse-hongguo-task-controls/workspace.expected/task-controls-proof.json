@@ -1,0 +1,34 @@
+{
+  "taskOwner": "original-session",
+  "frozenQuality": "720p",
+  "declaredEpisodes": 3,
+  "selectedEpisodes": [
+    1,
+    2
+  ],
+  "downloadedEpisodes": [
+    1,
+    2
+  ],
+  "complete": false,
+  "pauseAcknowledgedAfterTransferClosed": true,
+  "pausedCompletedEpisodes": 1,
+  "resumedWithNewRun": true,
+  "reusedEpisodes": 1,
+  "mediaTransfers": [
+    1,
+    2,
+    2
+  ],
+  "statusMediaRequests": 0,
+  "removedTaskRecords": true,
+  "mediaPreservedAfterRemove": true,
+  "checkpointPreservedAfterRemove": true,
+  "bytesPerEpisode": 80,
+  "sha256": "bb4ae60d19de68a3da3239a2db519de91b0a4f979cdd56aba68632ba135dbc1a",
+  "width": 1280,
+  "height": 720,
+  "codecValidation": "controlled-external-verdict",
+  "actualMp4ContainerAndHashChecked": true,
+  "realExternalRequests": 0
+}

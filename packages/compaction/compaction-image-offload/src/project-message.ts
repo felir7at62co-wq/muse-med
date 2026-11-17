@@ -7,10 +7,11 @@ import { deepFreeze } from '@deepseek-ai/dsh-util-values'
  * Project selected image occurrences to immutable offloaded blocks.
  * @param message - message projected before this decision.
  * @param indexes - nonempty, strictly increasing depth-first image indexes.
+ * @param notice - model-visible omission reason the decision logged, copied to each selected block as `offloadNotice`.
  * @returns an immutable message with the same identity and selected images marked.
  * @throws when a selected occurrence is missing or already offloaded.
  */
-export function offloadMessageImages(message: Message, indexes: readonly number[]): Message {
+export function offloadMessageImages(message: Message, indexes: readonly number[], notice?: string): Message {
   let imageIndex = 0
   let selected = 0
   const visit = (blocks: readonly ContentBlock[]): ContentBlock[] => {
@@ -20,7 +21,7 @@ export function offloadMessageImages(message: Message, indexes: readonly number[
       if (block.type === 'image') {
         if (imageIndex === indexes[selected]) {
           if (block.offloaded === true) throw new Error(`image/offload: image index ${imageIndex} is already offloaded`)
-          projected = { ...block, offloaded: true }
+          projected = { ...block, offloaded: true, ...notice === undefined ? {} : { offloadNotice: notice } }
           selected += 1
         }
         imageIndex += 1

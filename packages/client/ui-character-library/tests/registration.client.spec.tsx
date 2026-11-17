@@ -114,6 +114,16 @@ it('fails loading when the Host does not expose synchronization settings', async
   expect(ctx.get('remote.characterLibraryBrowser')).toBeUndefined()
 })
 
+it('does not mount a Remote namespace when the settings description fails', async () => {
+  const { ctx, configForms, dispose } = await fixture()
+  await dispose()
+  configForms.mirror.ensure.mockRejectedValueOnce(new Error('Settings are offline'))
+  await expect(apply(ctx)).rejects.toThrow('Settings are offline')
+  expect(ctx.get('remote.characterLibraryBrowser')).toBeUndefined()
+  expect(ctx.slots.entries('main')).toHaveLength(0)
+  expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(0)
+})
+
 it('shares one polling stream and discovers added and removed people without a manual refresh', async () => {
   const { ctx, remote } = await fixture()
   vi.useFakeTimers()

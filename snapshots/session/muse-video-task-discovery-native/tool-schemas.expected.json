@@ -2,13 +2,13 @@
   "initial": [
     {
       "name": "apply_patch",
-      "description": "Create, update, delete, or move UTF-8 text files with one Codex-style patch; prefer it over multiple edit calls when a change spans several files or separated regions.",
+      "description": "Create, update, delete, or move UTF-8 text files with one patch; prefer it over multiple edit calls when a change spans several files or separated regions.",
       "parameters": {
         "type": "object",
         "properties": {
           "input": {
             "type": "string",
-            "description": "Codex patch text: start with *** Begin Patch and end with *** End Patch. Use *** Add File: path with + lines; *** Update File: path, optionally followed by *** Move to: path, with @@ or @@ context and space-prefixed context, + added, or - removed lines; *** End of File anchors the last hunk to the file end. Use *** Delete File: path to delete. Paths are relative to the Session working directory."
+            "description": "Patch text: start with *** Begin Patch and end with *** End Patch. Use *** Add File: path with + lines; *** Update File: path, optionally followed by *** Move to: path, with @@ or @@ context and space-prefixed context, + added, or - removed lines; *** End of File anchors the last hunk to the file end. Use *** Delete File: path to delete. Paths are relative to the Session working directory."
           },
           "sandbox_permissions": {
             "type": "string",
@@ -139,22 +139,6 @@
         },
         "required": [
           "pattern"
-        ]
-      }
-    },
-    {
-      "name": "interrupt_agent",
-      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a local direct child's conversation later with send_message. External executions stop permanently and cannot receive follow-ups. Subagents it started will keep running.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "agent_id": {
-            "type": "string",
-            "description": "The id of an agent created under you: your direct child or a deeper descendant."
-          }
-        },
-        "required": [
-          "agent_id"
         ]
       }
     },
@@ -596,6 +580,231 @@
       }
     },
     {
+      "name": "jubian_manuscript",
+      "description": "剧变项目制作接入：上传 Word/TXT 对象、登记已有 Word 稿件、由已登记稿件创建手动制作项目。options/get/file/bindable 读取所需表单选项和精确稿件身份。上传对象不等于登记稿件；稿件 ID 不等于制作项目 ID。版权、来源和团队按实际信息填写。上传、登记、创建均需原 idempotency_key，结果未知时用 jubian_project.operation 查询原回执，不换 key 重发；受理与回读核实分别报告。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "options",
+              "bindable",
+              "get",
+              "file",
+              "upload_document",
+              "register",
+              "start_produce"
+            ]
+          },
+          "manuscript_id": {
+            "type": "integer",
+            "description": "已存在的稿件 ID，用于 get/file/start_produce；与项目 script_id 不同。"
+          },
+          "name": {
+            "type": "string",
+            "description": "bindable 的名称检索。"
+          },
+          "page_num": {
+            "type": "number",
+            "description": "页码，默认 1。"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "每页条数，默认 20，上限 1000。"
+          },
+          "owner": {
+            "type": "string",
+            "description": "register 必填：选择账号实际使用的生产侧或编辑侧已有稿件入口。",
+            "enum": [
+              "produce",
+              "editor"
+            ]
+          },
+          "document_path": {
+            "type": "string",
+            "description": "upload_document 必填，同时提供 idempotency_key：本地 DOC/DOCX/UTF-8 TXT 绝对路径；返回 URL、object_key 和文件哈希。稿件登记只接受 Word。"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "register 的真实稿件信息。先 options 读取当前标签。两份 Word 分别是剧本稿和原文文件，不自动将同一文件冒充原文。",
+            "additionalProperties": false,
+            "properties": {
+              "scriptName": {
+                "type": "string"
+              },
+              "scriptFormat": {
+                "type": "integer",
+                "enum": [
+                  1,
+                  2,
+                  3,
+                  4
+                ]
+              },
+              "creationType": {
+                "type": "integer",
+                "description": "当前 creationType 标签 ID。"
+              },
+              "sourceScriptName": {
+                "type": "string",
+                "description": "迭代/换梗所依据的原本名称。"
+              },
+              "producerType": {
+                "type": "integer",
+                "description": "真实制作团队，当前选项见 options。",
+                "enum": [
+                  1,
+                  2
+                ]
+              },
+              "episodeCount": {
+                "type": "integer"
+              },
+              "genreTagIds": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "eraTagId": {
+                "type": "integer"
+              },
+              "audienceTagId": {
+                "type": "integer"
+              },
+              "hasCopyright": {
+                "type": "string",
+                "description": "用户实际提供的版权声明；不因上传就推断有版权。",
+                "enum": [
+                  "0",
+                  "1"
+                ]
+              },
+              "copyrightOwner": {
+                "type": "string"
+              },
+              "assignLeaderId": {
+                "type": "integer"
+              },
+              "manuscriptFile": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "objectKey": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "url",
+                  "objectKey"
+                ]
+              },
+              "originalFile": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "objectKey": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "url",
+                  "objectKey"
+                ]
+              }
+            },
+            "required": [
+              "scriptName",
+              "scriptFormat",
+              "creationType",
+              "producerType",
+              "episodeCount",
+              "genreTagIds",
+              "eraTagId",
+              "audienceTagId",
+              "hasCopyright",
+              "manuscriptFile",
+              "originalFile"
+            ]
+          },
+          "project": {
+            "type": "object",
+            "description": "start_produce 的手动项目表单；内外 manuscriptId 必须一致。",
+            "additionalProperties": false,
+            "properties": {
+              "scriptName": {
+                "type": "string"
+              },
+              "createType": {
+                "type": "integer",
+                "enum": [
+                  1
+                ]
+              },
+              "productionType": {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1
+                ]
+              },
+              "produceType": {
+                "type": "integer",
+                "enum": [
+                  1
+                ]
+              },
+              "manuscriptId": {
+                "type": "integer"
+              },
+              "scriptStyle": {
+                "type": "integer"
+              },
+              "episodeCount": {
+                "type": "integer"
+              },
+              "storyboardCountPerEpisode": {
+                "type": "integer"
+              },
+              "globalConfig": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "scriptName",
+              "createType",
+              "productionType",
+              "produceType",
+              "manuscriptId"
+            ]
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
+          }
+        },
+        "required": [
+          "method"
+        ]
+      }
+    },
+    {
       "name": "jubian_media",
       "description": "把剧变（Jubian）CDN 上的媒体下载到本地文件，返回本地路径、字节数与 sha256。不产生费用、不需要凭证（该 CDN 是公开的）。下载后请用你自己的看图工具（如 read_image）或抽帧工具读取该路径——本工具不会把图片或视频内容放进返回值。",
       "parameters": {
@@ -763,6 +972,122 @@
       }
     },
     {
+      "name": "jubian_project",
+      "description": "创建、查询与分享剧变项目。create 创建手动项目；get 读取项目身份及稿件绑定；operation 用原 key 查询原业务回执。share_targets 查询真实用户/部门，shares 查询提供方可见分享，share_preview 冻结具体接收人与保留对象，share_apply 在用户确认后提交原预览并回读。分享不创建公开链接；目标类型不是读写权限；复杂/不完整既有分享停止提交。内容项目绑定真实 manuscript_id；start_produce 本身创建绑定项目，不重复 create。所有写入保留原 key，未知不换 key 重发；创建不自动解析或生成。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "operation",
+              "get",
+              "create",
+              "share_targets",
+              "shares",
+              "share_preview",
+              "share_apply"
+            ]
+          },
+          "script_id": {
+            "type": "number",
+            "description": "剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，不必单独提供；其余方法按上面的必填说明传入。"
+          },
+          "manuscript_id": {
+            "type": "integer",
+            "description": "内容项目绑定的剧变稿件 ID；与项目 script_id 不同。"
+          },
+          "script_name": {
+            "type": "string",
+            "description": "create 使用的项目名称。"
+          },
+          "production_type": {
+            "type": "integer",
+            "description": "create 必填：0=分镜工作台，1=画布工作台。",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "produce_type": {
+            "type": "integer",
+            "description": "create 必填：1=剧本内容（必填 manuscript_id），2=前贴素材；按用户实际用途选择。",
+            "enum": [
+              1,
+              2
+            ]
+          },
+          "script_style": {
+            "type": "integer",
+            "description": "分镜工作台 create 必填：使用剧变的风格代码。"
+          },
+          "episode_count": {
+            "type": "integer",
+            "description": "分镜工作台 create 必填：项目集数。"
+          },
+          "storyboard_count_per_episode": {
+            "type": "integer",
+            "description": "分镜工作台 create 必填：每集初始分镜数。"
+          },
+          "global_config": {
+            "type": "object",
+            "description": "已选择的项目设置；保留真实目录中的模型参数，不自动发起生成。",
+            "additionalProperties": true
+          },
+          "share_type": {
+            "type": "integer",
+            "description": "分享接收人类型：1=部门，2=用户；每次预览只选一类。",
+            "enum": [
+              1,
+              2
+            ]
+          },
+          "share_target_type": {
+            "type": "integer",
+            "description": "分享项目目标：1=漫剧视频，2=无限画布；不是只读或编辑权限。",
+            "enum": [
+              1,
+              2
+            ]
+          },
+          "user_ids": {
+            "type": "array",
+            "description": "从 share_targets 取得并由用户选定的接收人 ID，不按姓名猜测。",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "department_id": {
+            "type": "integer",
+            "description": "从 share_targets 取得的单个明确部门 ID；不得猜全员部门。"
+          },
+          "query": {
+            "type": "string",
+            "description": "share_targets 的用户或部门名称筛选；同名保留各自 ID。"
+          },
+          "preview_id": {
+            "type": "string",
+            "description": "share_preview 返回的原预览 ID。"
+          },
+          "preview_fingerprint": {
+            "type": "string",
+            "description": "share_preview 返回的原预览指纹，不自行构造。"
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "share_apply 必须在用户确认具体项目、接收人与分享范围后设为 true。"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
+          }
+        },
+        "required": [
+          "method"
+        ]
+      }
+    },
+    {
       "name": "jubian_snatch",
       "description": "剧变剧本池有界后台认领。只有用户明确授权目标范围和 UTC 时间窗口才启动；每本仅在当前账号 canClaim=1 时尝试一次。返回 job_id，用 job_output 查看；job_kill 只停后续尝试，已提交认领不会撤销，进程重启不恢复。未知结果先只读对账，不换 key 重投。",
       "parameters": {
@@ -866,7 +1191,7 @@
           },
           "model_id": {
             "type": "string",
-            "description": "erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。"
+            "description": "erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型时使用 MediaKit，SeedVR2 等其他模型须显式指定。"
           },
           "task_name": {
             "type": "string",
@@ -1178,7 +1503,7 @@
     },
     {
       "name": "jubian_video",
-      "description": "剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks/sources 只读。提取或复用已有视频时，先 sources(script_id,storyboard_id) 查询原卡已生成来源；返回原任务、成片、运行状态与查询完整性，不要求与当前模型配置一致。任务分页只说明本页状态，complete=false 或 unknown 不能推断没有成片；缺声线不等于授权重新生成。tasks 默认不按任务类型筛选；显式 task_type 只查该类型，total_verified/complete 仅对应返回的 scope，筛选结果为空不能推断项目没有任务。project_complete 仅表示本次读全未按类型筛选的提供方列表。（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。ASR 等未返回费用时保持未知，不填零，也不把已知任务行合计称为整集官方总实扣。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；使用人物库参考图时只传 upload_character_reference 返回的 managed_reference_id 及同一组授权身份；Host 会重读当前项目、角色、Catalog 原图、SHA、授权版本和一次性范围，再私下注入参考 URL。本人上传图的逐项目自授权只允许一次项目私有参考生图；结果仍须人工验收，不得自动 confirm_casting、正式绑定、发布或跨项目复用。仅当用户明确要求替换现有资产时给 parent_asset_id 做重生成（PUT）；否则新建候选资产（POST）。它只在同一个 idempotency_key 下发送一次；新建后核实新父资产的生成图，才返回 material_id 与 image_url。重生成旧资产时不以其旧 Active 状态或旧材质认领新图，回显 requested_parent_asset_id 并保持未核实，须只读核对该资产最新任务与新材质。候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理后尚未核实可用图片，不要换 key 重投，稍后用精确资产的 jubian_asset generated_image 续读；failed 表示提供方判失败，先核对实际费用与原因，不自动换 key；unverified 表示本次新图尚未证实，不能用同名资产或旧材质代替。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定时沿用 SeedVR2；具体价格以当前目录为准。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
+      "description": "剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks/sources 只读。提取或复用已有视频时，先 sources(script_id,storyboard_id) 查询原卡已生成来源；返回原任务、成片、运行状态与查询完整性，不要求与当前模型配置一致。任务分页只说明本页状态，complete=false 或 unknown 不能推断没有成片；缺声线不等于授权重新生成。tasks 默认不按任务类型筛选；显式 task_type 只查该类型，total_verified/complete 仅对应返回的 scope，筛选结果为空不能推断项目没有任务。project_complete 仅表示本次读全未按类型筛选的提供方列表。（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。ASR 等未返回费用时保持未知，不填零，也不把已知任务行合计称为整集官方总实扣。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；使用人物库参考图时只传 upload_character_reference 返回的 managed_reference_id 及同一组授权身份；Host 会重读当前项目、角色、Catalog 原图、SHA、授权版本和一次性范围，再私下注入参考 URL。本人上传图的逐项目自授权只允许一次项目私有参考生图；结果仍须人工验收，不得自动 confirm_casting、正式绑定、发布或跨项目复用。仅当用户明确要求替换现有资产时给 parent_asset_id 做重生成（PUT）；否则新建候选资产（POST）。它只在同一个 idempotency_key 下发送一次；新建后核实新父资产的生成图，才返回 material_id 与 image_url。重生成旧资产时不以其旧 Active 状态或旧材质认领新图，回显 requested_parent_asset_id 并保持未核实，须只读核对该资产最新任务与新材质。候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理后尚未核实可用图片，不要换 key 重投，稍后用精确资产的 jubian_asset generated_image 续读；failed 表示提供方判失败，先核对实际费用与原因，不自动换 key；unverified 表示本次新图尚未证实，不能用同名资产或旧材质代替。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定模型时默认 MediaKit，SeedVR2 等其他模型用 model_id 显式指定；具体价格以当前目录为准。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1425,7 +1750,7 @@
           },
           "model_id": {
             "type": "string",
-            "description": "erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。"
+            "description": "erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型时使用 MediaKit，SeedVR2 等其他模型须显式指定。"
           },
           "platform_id": {
             "type": "string",
@@ -1473,19 +1798,10 @@
     },
     {
       "name": "list_agents",
-      "description": "List subagents you started, with their ids, labels, and status. running means it is working; inactive means it is not currently working. You will be notified when a subagent finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
+      "description": "List your entire subagent tree: the root agent and all reachable continuable descendants, including yourself. Rows carry names, descriptions, and status. A descendant's name is its path from the root, such as reviewer/checker. You can message any other agent in the subagent tree. running means it is working; inactive means no turn is executing; it does not indicate task completion, success, or failure. corrupt, unsupported, or unavailable means this row's own descendants could not be read; the row itself is still a member you can message. While you remain active, you will be notified when a direct child finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
       "parameters": {
         "type": "object",
-        "properties": {
-          "scope": {
-            "type": "string",
-            "description": "children (default) lists direct children, which accept send_message in any status. descendants lists the whole tree below you with each entry's parent session id and depth; entries deeper than 1 accept only interrupt_agent.",
-            "enum": [
-              "children",
-              "descendants"
-            ]
-          }
-        }
+        "properties": {}
       }
     },
     {
@@ -1534,13 +1850,13 @@
     },
     {
       "name": "send_message",
-      "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.",
+      "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation.",
       "parameters": {
         "type": "object",
         "properties": {
-          "agent_id": {
+          "agent": {
             "type": "string",
-            "description": "The agent id of your direct continuable child, or your direct parent when you are a resident continuable child."
+            "description": "The name of another agent in your subagent tree, as shown by list_agents."
           },
           "message": {
             "type": "string",
@@ -1548,14 +1864,14 @@
           }
         },
         "required": [
-          "agent_id",
+          "agent",
           "message"
         ]
       }
     },
     {
       "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its name. If you are still online when it finishes, the runtime automatically delivers its completion notice. The notice includes the final answer unless the child sent you a message just before finishing. Use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1565,7 +1881,11 @@
           },
           "description": {
             "type": "string",
-            "description": "A short (3-5 word) description of the delegated task, for display."
+            "description": "A short (3-5 word) description of the delegated task, for display. Use the language of the user's current request."
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional short name for the subagent, unique among the subagents you create: lower-case letters, digits, and hyphens, starting with a letter, at most 32 characters; lead is reserved for the root agent. Omitted names default to agent-1, agent-2, and so on."
           },
           "prompt": {
             "type": "string",
@@ -1580,7 +1900,7 @@
     },
     {
       "name": "subagent_fork",
-      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its id. The runtime notifies you when it finishes. The child reports results with `send_message`; use `send_message` to steer it while running or continue its conversation after it finishes.",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its name. If you are still online when it finishes, the runtime automatically delivers its completion notice. The notice includes the final answer unless the child sent you a message just before finishing. Use `send_message` to steer it while running or continue its conversation after it finishes.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1590,7 +1910,11 @@
           },
           "description": {
             "type": "string",
-            "description": "A short (3-5 word) description of the delegated task, for display."
+            "description": "A short (3-5 word) description of the delegated task, for display. Use the language of the user's current request."
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional short name for the subagent, unique among the subagents you create: lower-case letters, digits, and hyphens, starting with a letter, at most 32 characters; lead is reserved for the root agent. Omitted names default to agent-1, agent-2, and so on."
           },
           "prompt": {
             "type": "string",
@@ -1728,6 +2052,19 @@
           "revision",
           "action"
         ]
+      }
+    },
+    {
+      "name": "wait_agent",
+      "description": "Wait for input at your next step, including agent messages, completion notifications, and user steering. Returns immediately if new input is pending. `timedOut: false` means new input is pending. Pending input is delivered to the model after code execution finishes.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "timeout_ms": {
+            "type": "integer",
+            "description": "Wait duration in milliseconds, from 10000 through 3600000. Defaults to 30000."
+          }
+        }
       }
     },
     {

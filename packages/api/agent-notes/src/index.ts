@@ -6,8 +6,8 @@
  * **Root.** The notes root is a deployment fact, not a session fact. A Web
  * Settings panel is not scoped to a session, and the tree a person keeps their
  * notes in is frequently not the workspace their sessions run in, so the row
- * configures `root` explicitly; the constructor's fallback is
- * `<process cwd>/.agents/notes`, which is the repository-local convention.
+ * must configure `root`; the service has no fallback. The shipped Web
+ * composition supplies `<process cwd>/.agents/notes`.
  *
  * **Boundary.** Every operation resolves a caller-supplied note id inside that
  * root and refuses anything else. The id grammar (`note-text.ts`) admits only
@@ -60,8 +60,8 @@ export interface Config {
   /**
    * Directory holding the notes tree.
    *
-   * No schema default: the constructor resolves it so the stored root is
-   * absolute whatever form it arrived in, and a deployment that omits the key
+   * No schema default: the service stores `join(root)`, so a relative value
+   * resolves against the Host working directory, and a deployment that omits the key
    * fails at mount instead of silently reading a tree nobody named. That is the
    * loud half of the rule; the quiet half is that this is the deployment's own
    * choice, not the service's guess.

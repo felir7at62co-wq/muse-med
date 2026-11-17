@@ -257,6 +257,39 @@ describe('creative guidance and explicit provider budget', () => {
 })
 
 describe('compile', () => {
+  it('keeps two characters mapped to their own images without exporting their costume descriptions', async () => {
+    const script = speakingShot(1, '苏晚：你衣领歪了。', ['核心场景：后厨', '出镜人物：苏晚、林晚',
+      '【林晚】-位置：【场景图视角后厨右侧靠近柜门处】；',
+      '身体状态：【非孕期；青年；白色衬衫；长发】；',
+      '动作状态：【右手整理衣领】；',
+      '素材映射：@[林晚](guest) @[苏晚](lead)'])
+      .replace('非孕期；青年；家常装', '非孕期；青年；蓝色外套；短发')
+    const files = await project({ script, assets: [
+      assetRow('苏晚', '角色', { jubian_asset_id: '70001', state_or_costume: '非孕期；青年；蓝色外套；短发' }),
+      assetRow('林晚', '角色', { jubian_asset_id: '70005', state_or_costume: '非孕期；青年；白色衬衫；长发' }),
+      assetRow('后厨', '场景', { jubian_asset_id: '70002' }),
+    ] })
+    for (const method of ['preview', 'compile']) {
+      const report = await run({ method, script: files.scriptPath, assets: files.manifestPath,
+        project: files.root, episode: 1, max_submit_seconds: 15 })
+      expect(report.ok).toBe(true)
+      expect(report.packages[0]).toMatchObject({
+        material_names: ['苏晚', '林晚', '后厨'],
+        material_keys: ['guest', 'lead', 'asset_70002'],
+      })
+      const prompt = report.packages[0]?.prompt ?? ''
+      for (const metadata of ['身体状态', '蓝色外套', '白色衬衫', '短发', '长发']) {
+        expect(prompt).not.toContain(metadata)
+      }
+      expect(prompt).toContain('素材映射：@[林晚](guest) @[苏晚](lead)')
+      expect(prompt).toContain('台词：苏晚：你衣领歪了。')
+      expect(prompt).toContain('动作状态：【右手整理衣领】；')
+    }
+    expect(await readFile(files.scriptPath, 'utf8')).toBe(script)
+    expect(await readFile(join(files.root, 'prompts', '01.txt'), 'utf8')).toBe(script)
+  })
+
+
   it('includes visually bound animals and props without authored material markers', async () => {
     const script = actionShot(1, ['出镜人物：赵大刚', '核心场景：后厨', '关键道具：奶瓶',
       '四层朝向链：【目光落在小鸡身上，小鸡啄米】；', '动作复杂度：较复杂',
@@ -278,12 +311,14 @@ describe('compile', () => {
     })
     expect(report.packages[0]?.prompt).toContain('@[黄色雏鸡](asset_71002)')
     const matched = JSON.parse(await readFile(join(files.root, 'matches', '01.matched.json'), 'utf8')) as MatchedPayload
-    expect(matched.shots[0]?.visual).toContain(script)
+    expect(matched.shots[0]?.visual).toContain('目光落在小鸡身上，小鸡啄米')
+    expect(matched.shots[0]?.visual).not.toContain('身体状态')
     expect(matched.shots[0]?.visual).toContain('@[奶瓶](asset_71004)')
     expect(matched.video_tasks[0]).toMatchObject({
       material_keys: ['human', 'scene', 'asset_71002', 'asset_71004'],
     })
-    expect(matched.video_tasks[0]?.prompt).toContain(script)
+    expect(matched.video_tasks[0]?.prompt).not.toContain('身体状态')
+    expect(matched.video_tasks[0]?.prompt).not.toContain('家常装')
     expect(await readFile(join(files.root, 'prompts', '01.txt'), 'utf8')).toBe(script)
   })
 

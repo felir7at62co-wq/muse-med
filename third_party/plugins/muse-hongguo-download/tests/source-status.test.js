@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { HongguoDownloadClient } from '../src/client.js';
+import { SourceCatalog } from '../src/source.js';
 import { safeError } from '../src/errors.js';
 const reply=value=>Object.assign(Readable.from([Buffer.from(JSON.stringify(value))]),{statusCode:200,headers:{}});
 const signal=()=>new AbortController().signal;
@@ -31,6 +32,7 @@ async function fixture(t,respond,{retries=0,count=2}={}){
   },
  });
  t.after(()=>client.dispose());
+ client.source = new SourceCatalog(client.config, { request: client.request, sign: async()=>reply({}) });
  client.source.randomIndex=()=>0;
  return {client,root,calls};
 }

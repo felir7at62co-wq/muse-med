@@ -19,9 +19,14 @@ import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deep
 import FsLocal from '@deepseek-ai/dsh-fs-local'
 import SubprocessLocal from '@deepseek-ai/dsh-subprocess-local'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
-import SandboxLocal from '@deepseek-ai/dsh-sandbox-local'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+
+import SandboxLocal from '@deepseek-ai/dsh-sandbox-local'
 import { oldSessionFixture } from './model-routing-fixture.ts'
 
 const homes: string[] = [], contexts: Context[] = []
@@ -103,6 +108,40 @@ it('rejects invalid model image budgets before activation', () => {
   for (const modelRequestImageMaxBytes of [0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1, '1024']) {
     expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, modelRequestImageMaxBytes }]) }).toThrow()
   }
+})
+
+it('rejects invalid model retry policies before activation', async () => {
+  expect(Config({ baseUrl }).modelRetryPolicy).toBeUndefined()
+  for (const modelRetryPolicy of [{ mode: 'sometimes' }, { mode: 'normal', maxRetries: -1 }, { mode: 'normal', maxRetries: 1.5 },
+    { mode: 'normal', retryableCodes: [] }, { mode: 'normal', backoff: { jitterRatio: 2 } }]) {
+    expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, modelRetryPolicy }]) }).toThrow()
+  }
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json(catalog))
+  vi.stubGlobal('fetch', fetcher)
+  for (const [modelRetryPolicy, message] of [
+    [{ mode: 'normal', backoff: { initialDelayMs: 70000, maxDelayMs: 60000 } },
+      'muse-account: modelRetryPolicy.backoff.initialDelayMs must be less than or equal to maxDelayMs'],
+    [{ mode: 'normal', maxRetry: 8 }, 'muse-account: modelRetryPolicy: unknown key "maxRetry"'],
+    // Assertions skip excess-property checks, so these invalid policies reach the runtime validator.
+  ] as Array<[NonNullable<Config['modelRetryPolicy']>, string]>) {
+    const { ctx, home, sessionFile } = await fixture()
+    await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
+    const config = Config({ baseUrl, accountHome: home, modelRetryPolicy })
+    await expect(apply(ctx, config)).rejects.toThrow(message)
+    expect(ctx.llm.listProviders().some(provider => provider.id.startsWith('muse-cloud-'))).toBe(false)
+  }
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+it('applies the configured retry policy to account model routes', async () => {
+  const { ctx, home, sessionFile } = await fixture()
+  await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => Response.json(catalog)))
+  await apply(ctx, Config({ baseUrl, accountHome: home,
+    modelRetryPolicy: { mode: 'normal', maxRetries: 8, backoff: { initialDelayMs: 2000, maxDelayMs: 60000 } } }))
+  await account(ctx).status({})
+  expect(ctx.llm.providerRetryPolicy('muse-cloud-studio'))
+    .toMatchObject({ mode: 'normal', maxRetries: 8, initialDelayMs: 2000, maxDelayMs: 60000, jitterRatio: 0.1 })
 })
 
 it('keeps company media opt-in and validates its destination and resource limits', async () => {
@@ -219,6 +258,26 @@ it('mounts the account service using the configured product home without an MCP 
     .rejects.toMatchObject({ code: 'muse-feedback/sign-in-required' })
 })
 
+it('mounts opt-in feedback tools in the same account service lifetime', async () => {
+  const { ctx, home } = await fixture()
+  await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime)
+  await apply(ctx, Config({ baseUrl, accountHome: home, feedbackTools: true, webSearch: true }))
+  expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['muse_feedback_submit', 'muse_feedback_status'])
+})
+
+it('owns optional sandbox-backed media tool registrations with their providers', async () => {
+  const { ctx, home } = await fixture()
+  class UnavailableSandbox extends SandboxProvider {
+    confine(): Promise<never> { return Promise.reject(Error('No confinement backend installed')) }
+  }
+  await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime)
+  await ctx.plugin(FsLocal, { cwd: home }); await ctx.plugin(SubprocessLocal)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access' }); await ctx.plugin(UnavailableSandbox)
+  await apply(ctx, Config({ baseUrl, accountHome: home, mediaTools: true }))
+  expect(ctx.tools.schemas().some(tool => tool.name === 'muse_media_import')).toBe(true)
+})
+
 it.each(['none', 'bridge', 'connection'] as const)('refuses remote access before its complete Host provider composition exists (%s)', async (part) => {
   const { ctx, home } = await fixture()
   if (part !== 'none') await host(ctx, part)
@@ -266,9 +325,11 @@ it('exchanges the real loopback Host token for a cookie and stops the account tu
   expect(stops).toEqual(tunnels)
 })
 
-it.each(['http', 'no-cookie'] as const)('keeps the saved account signed in after local Host bootstrap failure and can refresh again (%s)', async (failure) => {
+it.each(['http', 'no-cookie', 'not-listening'] as const)('keeps the saved account signed in after local Host bootstrap failure and can refresh again (%s)', async (failure) => {
   const { ctx, home, sessionFile } = await fixture()
   const { tunnels } = await host(ctx)
+  const port = ctx.webServer.port
+  const listening = failure === 'not-listening' ? vi.spyOn(ctx.webServer, 'port', 'get').mockReturnValue(undefined) : undefined
   await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
   let failed = true
   vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input) => {
@@ -287,6 +348,7 @@ it.each(['http', 'no-cookie'] as const)('keeps the saved account signed in after
   )
   expect(tunnels).toHaveLength(0)
   failed = false
+  listening?.mockReturnValue(port)
   expect(await account(ctx).status({})).toMatchObject({ state: 'signed-in', username: 'alice' })
   expect(tunnels).toHaveLength(1)
 })
@@ -468,6 +530,62 @@ it('loads explicit feedback tools through Loader, submits one authenticated rece
   expect(bodies[0]).toHaveProperty('body', expect.stringContaining('The requested panel stayed closed.'))
   expect(JSON.stringify(bodies)).not.toContain('Private conversation request')
   expect(JSON.stringify(receipt)).not.toContain(cookie)
+  await plugin.dispose()
+  expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(previous)
+})
+
+it('keeps the data-station Douyin tool opt-in and validates its route prefix and bounds', () => {
+  expect(Config({ baseUrl })).toMatchObject({ douyinDownloadTool: false, douyinStationPath: '/data/api/muse-client/douyin',
+    douyinRequestTimeoutMs: 15_000, douyinLinkTimeoutMs: 10_000, douyinMaxReplyBytes: 1_048_576, douyinMaxWaitSeconds: 60,
+    douyinPollIntervalMs: 5_000, douyinListLimit: 300 })
+  for (const douyinStationPath of ['data/api', '/data/', '/data/../api', '/data/./api', '/data api', '/data?x=1']) {
+    expect(() => Config({ baseUrl, douyinStationPath }), douyinStationPath).toThrow()
+  }
+  for (const bound of [{ douyinListLimit: 501 }, { douyinPollIntervalMs: 999 }, { douyinMaxWaitSeconds: 601 },
+    { douyinRequestTimeoutMs: 999 }]) {
+    expect(() => Config({ baseUrl, ...bound })).toThrow()
+  }
+})
+
+it('loads the data-station Douyin tool through Loader, sends only the account token and removes it on unload', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'muse-douyin-plugin-')); homes.push(home)
+  const loaded = await oldSessionFixture(false, home), ctx = loaded.ctx
+  contexts.push(ctx)
+  const token = 'douyin-account-private', awemeId = '7570000000000000001'
+  const requests: { method: string | undefined; url: string; headers: Headers; body: unknown }[] = []
+  const url = `https://muse.tos-cn-beijing.volces.com/download-video-date/douyin/20261115/${awemeId}/video/000-${awemeId}.mp4`
+  await writeMuseSession(join(home, 'session.json'), { baseUrl, username: 'alice', cookie: `__Host-muse=${token}` })
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input, init) => {
+    const target = new URL(input instanceof Request ? input.url : input)
+    // An empty catalog keeps model registration and default-selection writes out of this tool lifecycle.
+    if (target.pathname === '/api/desktop-models/providers') return Response.json({ providers: [] })
+    if (!target.pathname.startsWith('/station/douyin/')) throw Error('Unexpected fixture request')
+    requests.push({ method: init?.method, url: target.href, headers: new Headers(init?.headers), body: init?.body })
+    const record = { id: 'r1', awemeId, mixId: null, episode: null, title: '作品', state: 'done', url, error: null }
+    if (init?.method === 'POST') return Response.json({ queued: [record], existing: [], skipped: 0 }, { status: 202 })
+    return Response.json([record])
+  }))
+  const previous = ctx.tools.schemas().map(tool => tool.name)
+  ctx.loader.builtins['douyin-account'] = { inject: accountInject, Config, apply }
+  const id = await ctx.loader.create({ name: 'cordis:douyin-account', config: { baseUrl, accountHome: home, douyinDownloadTool: true,
+    douyinStationPath: '/station/douyin', douyinListLimit: 20 } })
+  await ctx.loader.await()
+  const plugin = ctx.loader.resolve(id).fiber
+  if (plugin === undefined) throw Error('Account plugin fiber was not created')
+  await plugin.await()
+  expect(ctx.tools.schemas().map(tool => tool.name)).toEqual([...previous, 'douyin_download'])
+  const result = await executeToolFixture(ctx, { name: 'douyin_download', callId: ToolCallId('douyin-opt-in'),
+    signal: new AbortController().signal, arguments: { action: 'download', url: `https://www.douyin.com/video/${awemeId}` } })
+  expect(result.value).toMatchObject({ state: 'done', works: [{ awemeId, state: 'done', url }] })
+  expect(requests.map(request => [request.method, request.url, request.body])).toEqual([
+    ['POST', `${baseUrl}/station/douyin/downloads`, JSON.stringify({ awemeId })],
+    ['GET', `${baseUrl}/station/douyin/downloads?limit=20&awemeIds=${awemeId}`, undefined]])
+  for (const request of requests) {
+    expect(request.headers.get('x-muse-account-token')).toBe(token)
+    expect(request.headers.has('origin')).toBe(false)
+    expect(request.headers.has('cookie')).toBe(false)
+  }
+  expect(JSON.stringify(result)).not.toContain(token)
   await plugin.dispose()
   expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(previous)
 })

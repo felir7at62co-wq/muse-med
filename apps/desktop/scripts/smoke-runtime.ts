@@ -103,7 +103,7 @@ async function disposeSmokeAgents(preset, handles, primaryFailure) {
       'desktop runtime: preset ' + preset + ' lifecycle failed')
   }
 }
-export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer', 'museAccount', 'toolDiscovery']
+export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer', 'museAccount', 'toolDiscovery', 'agentTeams']
 export function apply(ctx) {
   const callerFiber = ctx.fiber
   const callerAgents = ctx.agents
@@ -219,8 +219,8 @@ export function apply(ctx) {
   const observeCreated = ({ agent, signal }) => {
     try {
       if (!agent.session.id.startsWith('desktop-product-smoke-') || signal === undefined || observedAgents.has(agent)) return
-      // Seven ordinary presets own two Agents each; the private reviewer owns one.
-      if (signalReleases.length >= 15) { observerError('agent-created-capacity', new Error('Smoke Agent observation limit reached')); return }
+      // Eight ordinary presets own two Agents each; the private reviewer owns one.
+      if (signalReleases.length >= 17) { observerError('agent-created-capacity', new Error('Smoke Agent observation limit reached')); return }
       const context = agent.ctx, fiber = context.fiber, agentIdentity = identity(agent), contextIdentity = identity(context)
       const alreadyAborted = signal.aborted
       let recorded = false
@@ -286,7 +286,7 @@ export function apply(ctx) {
   let failed = false, failure
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
-  const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
+  const ids = ['short-drama', 'main-session', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
   const reviewerId = 'muse-manuscript-continuity-reviewer'
   const roster = [...ids, reviewerId]
   const presets = await ctx.agentPresets.list()
@@ -330,6 +330,60 @@ export function apply(ctx) {
     checkpoint('before-tools', id, index, phase)
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
     checkpoint('after-tools', id, index, phase)
+    if (id === 'main-session') {
+      if (ctx.agentTeams.isEnabled(handle.agent)) throw new Error('desktop runtime: Main Session unexpectedly enables Team work')
+      const required = ['coordinator_sessions', 'coordinator_read', 'coordinator_view_image', 'coordinator_jobs', 'coordinator_settings',
+        'coordinator_dispatch', 'coordinator_reconcile', 'coordinator_tasks', 'coordinator_stop',
+        'coordinator_show_report', 'coordinator_display_skill']
+      // Other plugins own these human-facing tools; the Desktop main-session preset loads none of them itself.
+      const routing = [...required, 'ask_user_question', 'show_view', 'visualize']
+      const missing = required.filter(name => !names.has(name))
+      const unexpected = [...names].filter(name => !routing.includes(name)).sort()
+      if (missing.length > 0 || unexpected.length > 0) {
+        // The coordinator tools register only while the coordination service runs; name its absent dependencies.
+        const services = ['sessionCoordinator', 'agents', 'sessions', 'sessionQuery', 'sessionController', 'workspaceController', 'storageDomain',
+          'workspaceRegistry', 'jobs', 'typert', 'tools', 'sessionProjections', 'storage']
+        const absent = () => services.filter(name => ctx.get(name) === undefined)
+        const before = absent()
+        const deadline = Date.now() + 60_000
+        while (absent().includes('sessionCoordinator') && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 500))
+        const later = required.filter(name => !new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name)).has(name))
+        // Name the loader state of the plugins that provide those dependencies; a failed fiber keeps its error.
+        const states = ['pending', 'loading', 'active', 'failed', 'disposed', 'unloading']
+        const loader = ctx.get('loader')
+        const entries = []
+        for (const entry of loader === undefined ? [] : loader.entries()) {
+          if (!/storage|workspace|session-controller|session-coordinator/.test(String(entry.options.name))) continue
+          let state
+          if (entry.disabled) state = 'disabled'
+          else if (entry.fiber === undefined) {
+            // The loader only logs an import failure; repeat the import through the entry's tree to name it.
+            try {
+              await entry.parent.tree.import(entry.options.name, entry.getOuterStack)
+              state = 'not loaded (imports now)'
+            } catch (error) {
+              state = 'not loaded (' + String(error?.message ?? error).slice(0, 400) + ')'
+            }
+          } else {
+            state = (states[entry.fiber.state] ?? String(entry.fiber.state))
+              + (entry.fiber._error === undefined ? '' : ' (' + String(entry.fiber._error?.message ?? entry.fiber._error).slice(0, 300) + ')')
+          }
+          entries.push(String(entry.options.name) + '=' + state)
+        }
+        throw new Error('desktop runtime: Main Session routing tool roster differs; missing: ' + (missing.join(', ') || 'none')
+          + '; unexpected: ' + (unexpected.join(', ') || 'none') + '; absent services: ' + (before.join(', ') || 'none')
+          + '; absent after 60 s: ' + (absent().join(', ') || 'none') + '; still missing after 60 s: ' + (later.join(', ') || 'none')
+          + '; loader entries: ' + (loader === undefined ? 'loader unavailable' : entries.join(', ') || 'none'))
+      }
+      const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      if (!assembly.sections.some(section => section.name === 'muse:main-session' && section.text.includes('只负责'))) {
+        throw new Error('desktop runtime: Main Session routing guidance is missing')
+      }
+      if (assembly.tools.some(tool => !routing.includes(tool.name))) {
+        throw new Error('desktop runtime: Main Session exposes business model tools')
+      }
+      continue
+    }
     const retiredTools = ['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user']
     for (const name of retiredTools) if (names.has(name)) throw new Error('desktop runtime: archived Bot tool remains active: ' + name + ' in ' + id)
     for (const name of names) if (name.startsWith('mcp__muse-account__')) {
@@ -368,6 +422,7 @@ export function apply(ctx) {
       if (local.length !== 1 || local[0] !== shell) throw new Error('desktop runtime: minimal must add only its persistent shell; found ' + local.join(', '))
     }
     if (id === 'short-drama') {
+      if (!ctx.agentTeams.isEnabled(handle.agent)) throw new Error('desktop runtime: new short-drama Session must enable official Team tasks')
       const assembly = modelInput
       const persona = assembly.sections.find(section => section.name === 'deployment:persona-prefix')?.text
       if (!persona?.startsWith(editingModelInput.personaPrefix)) {
@@ -632,8 +687,22 @@ export function apply(ctx) {
 /** Select immutable package qualification or the linked project used by the local Dev application. */
 export type DesktopSmokeMode = 'strict' | 'development'
 
+const OFFICE_SKILLS = ['office', 'office-docx', 'office-pptx', 'office-xlsx']
+
 /**
- * Check CLI package operations, Host startup, its frontend, external plugins and real Office-to-PDF conversion.
+ * Require each bundled Office skill to be listed and loaded with a nonempty body.
+ * @param results - Host probe results; `bytes` is the loaded body length, 0 when unlisted or not loaded.
+ * @throws Error listing every result when a bundled Office skill is missing or empty.
+ */
+export function assertOfficeSkillsLoadable(results: ReadonlyArray<{ readonly name: string; readonly bytes: number }>): void {
+  if (!OFFICE_SKILLS.every(name => results.some(skill => skill.name === name && skill.bytes > 0))) {
+    throw new Error(`desktop runtime: packaged Office skills are not loadable: ${JSON.stringify(results)}`)
+  }
+}
+
+/**
+ * Check CLI package operations, Host startup, its frontend, external plugins, packaged Office skill loading,
+ * and real Office rendering, conversion, and recalculation.
  * @param root - Materialized dsh resources.
  * @param node - Prepared target Electron executable.
  * @param runtime - Verified resource descriptor.
@@ -717,8 +786,7 @@ export function apply(ctx) {
     }))
     writeFileSync(join(plugin, 'index.js'), `
 import { Context } from '@deepseek-ai/cordis'
-import { inspect, promisify } from 'node:util'
-import { execFile } from 'node:child_process'
+import { inspect } from 'node:util'
 import { readFile } from 'node:fs/promises'
 export function apply(ctx) {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
@@ -733,18 +801,16 @@ export function apply(ctx) {
         response.end(inspect(error, { depth: 5 }))
       }
     } }))
-  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-smoke-office-cli',
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-smoke-skills',
     async handler(_request, response) {
       try {
-        const skill = await ctx.skills.get('office-export-pdf')
-        const json = skill?.content.match(/\\n(\\{\\n[\\s\\S]+)$/u)?.[1]
-        if (json === undefined) throw new Error('Office skill did not supply CLI paths')
-        const { libreofficeKit: { node, cli } } = JSON.parse(json)
-        const options = { cwd: ${JSON.stringify(home)}, env: { ...process.env, PATH: '' }, timeout: 120_000 }
-        const capabilities = await promisify(execFile)(node, [cli, 'capabilities'], options)
-        const output = ${JSON.stringify(join(home, 'cli.pdf'))}
-        await promisify(execFile)(node, [cli, 'convert', '--input', ${JSON.stringify(join(home, 'input.docx'))}, '--output', output], options)
-        response.end(JSON.stringify({ capabilities: JSON.parse(capabilities.stdout), pdf: (await readFile(output)).toString('base64') }))
+        const names = ${JSON.stringify(OFFICE_SKILLS)}
+        const listed = new Set((await ctx.skills.list()).map(skill => skill.name))
+        const loaded = await Promise.all(names.map(async name => {
+          const skill = listed.has(name) ? await ctx.skills.get(name) : undefined
+          return { name, bytes: skill?.content.length ?? 0 }
+        }))
+        response.end(JSON.stringify(loaded))
       } catch (error) {
         response.statusCode = 500
         response.end(inspect(error, { depth: 5 }))
@@ -755,7 +821,7 @@ export function apply(ctx) {
       async handler(_request, response) {
         try {
           const bytes = Buffer.from(input.bytes, 'base64')
-          const result = await ctx.officeToPdf.convert({ extension: input.extension, priority: 'foreground',
+          const result = await ctx.officeKit.convert({ extension: input.extension, priority: 'foreground',
             source: { key: 'desktop-smoke-' + input.extension, version: 'fixture', bytes: bytes.length,
               async read() { return { bytes, version: 'fixture' } } } })
           response.end(Buffer.from(result.pdf))
@@ -764,10 +830,35 @@ export function apply(ctx) {
           response.end(inspect(error, { depth: 5 }))
         }
       } }))
+    ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-smoke-office-operations/' + input.extension,
+      async handler(_request, response) {
+        try {
+          const bytes = Buffer.from(input.bytes, 'base64')
+          const source = (operation) => ({ key: 'desktop-smoke-' + operation + '-' + input.extension, version: 'fixture', bytes: bytes.length,
+            async read() { return { bytes, version: 'fixture' } } })
+          const rendered = await ctx.officeKit.renderImages({ extension: input.extension, source: source('images'),
+            maxImages: 4, maxPixels: 16777216, maxDimension: 8192, maxBytes: 64 * 1024 * 1024 })
+          const format = { docx: 'odt', xlsx: 'ods', pptx: 'odp' }[input.extension]
+          const converted = await ctx.officeKit.convertTo({ extension: input.extension, format,
+            source: source('convert'), output: { owner: 'desktop-smoke', name: 'converted.' + format } })
+          const recalculated = input.extension === 'xlsx'
+            ? await ctx.officeKit.recalculate({ extension: 'xlsx', format: 'xlsx', source: source('recalculate'),
+              output: { owner: 'desktop-smoke', name: 'recalculated.xlsx' } })
+            : undefined
+          response.end(JSON.stringify({
+            images: rendered.images.map(image => Buffer.from(image.png.subarray(0, 8)).toString('hex')),
+            converted: (await readFile(converted.path)).subarray(0, 4).toString('hex'),
+            recalculated: recalculated === undefined ? null : (await readFile(recalculated.path)).subarray(0, 4).toString('hex'),
+          }))
+        } catch (error) {
+          response.statusCode = 500
+          response.end(inspect(error, { depth: 5 }))
+        }
+      } }))
   }
 }
 `)
-    writeFileSync(join(plugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-smoke-plugin\n      name: desktop-runtime-smoke-plugin\n      inject: [webServer, officeToPdf, skills, pluginManager]\n')
+    writeFileSync(join(plugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-smoke-plugin\n      name: desktop-runtime-smoke-plugin\n      inject: [webServer, officeKit, pluginManager, skills]\n')
     const productPluginName = 'desktop-runtime-product-smoke-plugin'
     const productPlugin = join(profile, 'node_modules', productPluginName)
     mkdirSync(productPlugin, { recursive: true })
@@ -825,6 +916,11 @@ export function apply(ctx) {
     if (!installation.ok || !installed.ok || await installed.text() !== 'installed plugin ready') {
       throw new Error(`desktop runtime: bundled pnpm plugin installation failed: ${installationResult}`)
     }
+    const skills = await fetch(new URL('/desktop-smoke-skills', ready.url), { headers: { cookie }, signal: AbortSignal.timeout(120_000) })
+    if (!skills.ok) throw new Error(`desktop runtime: Office skill loading failed: ${await skills.text()}`)
+    const loadedSkills = await skills.json() as { name: string; bytes: number }[]
+    assertOfficeSkillsLoadable(loadedSkills)
+    console.log('desktop runtime: packaged Office skills listed and loaded')
     for (const { extension } of inputs) {
       const converted = await fetch(new URL(`/desktop-smoke-office/${extension}`, ready.url), {
         headers: { cookie }, signal: AbortSignal.timeout(120_000),
@@ -836,15 +932,19 @@ export function apply(ctx) {
         throw new Error(`desktop runtime: invalid ${extension} PDF output`)
       }
     }
-    const cliResponse = await fetch(new URL('/desktop-smoke-office-cli', ready.url), {
-      headers: { cookie }, signal: AbortSignal.timeout(120_000),
-    })
-    if (!cliResponse.ok) throw new Error(`desktop runtime: skill CLI failed: ${await cliResponse.text()}`)
-    const cliResult = await cliResponse.json() as { capabilities: { runtime: { cliPath: string } }; pdf: string }
-    if (!cliResult.capabilities.runtime.cliPath.endsWith('cli.js') || Buffer.from(cliResult.pdf, 'base64').subarray(0, 5).toString() !== '%PDF-') {
-      throw new Error('desktop runtime: skill CLI did not return capabilities and a PDF')
+    for (const { extension } of inputs) {
+      const operations = await fetch(new URL(`/desktop-smoke-office-operations/${extension}`, ready.url), {
+        headers: { cookie }, signal: AbortSignal.timeout(240_000),
+      })
+      if (!operations.ok) throw new Error(`desktop runtime: ${extension} Office operations failed: ${await operations.text()}`)
+      const result = await operations.json() as { images: string[]; converted: string; recalculated: string | null }
+      // PNG images, then ZIP containers for OpenDocument and XLSX outputs.
+      if (result.images.length === 0 || result.images.some(signature => signature !== '89504e470d0a1a0a')
+        || result.converted !== '504b0304' || (extension === 'xlsx' ? result.recalculated !== '504b0304' : result.recalculated !== null)) {
+        throw new Error(`desktop runtime: invalid ${extension} Office operation output: ${JSON.stringify(result)}`)
+      }
     }
-    console.log('desktop runtime: DOCX, XLSX, PPTX to PDF and skill CLI discovery passed')
+    console.log('desktop runtime: DOCX, XLSX, PPTX to PDF, image rendering, conversion, and recalculation passed')
   } finally {
     clearTimeout(timer)
     try { await host.stop() } finally {

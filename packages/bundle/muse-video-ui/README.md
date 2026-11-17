@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-An independent optional bundle for Muse conversation bubbles, the spider video curtain, shot timeline and scroll-driven collection animation. It composes the [presentation plugin](../../client/ui-session-video/README.md) and [Session video service](../../drama/session-video/README.md).
+An independent optional bundle for chat video cards, shot timelines and conversation video history. It composes the [presentation plugin](../../client/ui-session-video/README.md) and [Session video service](../../drama/session-video/README.md).
 
 ## Table of Contents
 
@@ -23,7 +23,7 @@ An independent optional bundle for Muse conversation bubbles, the spider video c
 
 Select this bundle over a Web profile that provides native Chat, Deliverables, configuration forms and the conversation shell. Its patch supplies the canonical `session-video` and `ui-session-video` rows; do not mount duplicate rows. Muse Desktop already ships these contributions and requires no separate installation.
 
-Use **Settings → General → Video bubble and timeline** to switch the entire presentation immediately. The saved preference survives page reloads and application restarts. Disabling restores native navigation and video playback while preserving conversation history, drafts, attachments and background jobs. The setting remains available for re-enabling. Package removal follows the profile's ordinary plugin-management lifecycle; the live switch requires no configuration HMR.
+Use **Settings → General → Video cards and timeline** to switch the entire presentation immediately. The saved preference survives page reloads and application restarts. Disabling restores native delivered-video playback while preserving conversation history, drafts, attachments and background jobs. The setting remains available for re-enabling. Package removal follows the profile's ordinary plugin-management lifecycle; the live switch requires no configuration HMR.
 
 ## Understand the implementation
 

@@ -6,7 +6,7 @@
 
 Desktop 在原生应用中运行 Harness 工作区。本参考文档说明应用行为、开发与集成；打包、Windows 签名和发布指南分别维护构建与发布操作。
 
-Desktop 也支持产品目录下可选的私有红果 v2 安装。[插件说明](../../third_party/plugins/muse-hongguo-download/README.zh.md#v2-local-runtime)介绍了安装指针和显式环境配置；选择 v2 会保留现有 v1 资源与收据。
+Desktop 使用固定版本的[红果开源下载引擎](../../third_party/plugins/muse-hongguo-download/README.zh.md)。旧 v1/v2 下载后端选择已退役，已有媒体和收据保留在磁盘。
 
 ## 目录
 
@@ -29,13 +29,15 @@ Desktop 也支持产品目录下可选的私有红果 v2 安装。[插件说明]
 
 ## 应用概览
 
+Desktop 在显示欢迎页或工作区窗口前，从 Host 启动设置响应读取有效的应用主题。可选主题设置缺失或无效时使用系统外观；无效值会记录日志。Windows 工作区底色保持不透明，并跟随有效的浅色／深色主题及运行中的变化；自定义配色使用内置浅色／深色底色近似。macOS 窗口使用透明背景和侧边栏毛玻璃效果。
+
 Electron 在 `userData/desktop/locale-cache` 缓存最近确认的界面语言，使启动恢复弹窗在 Host 设置尚不可用时也能使用该语言。缓存缺失、无效或不可读时回退到系统语言；缓存写入失败不阻断启动。Host 成功启动或界面语言变更时会刷新缓存；在此之前，变更后的系统语言可能与缓存语言不同。
 
 桌面埋点遵循[产品采集策略](../../packages/client/product-analytics/README.zh.md)及其动态应用配置，不包含 Web 使用情况。安装更新会等待该操作的本地埋点接收请求结束，再锁定 API 准入并停止 Host。接收请求的时限为一秒，失败不会阻止安装，也不等待收集端完成发送。
 
 桌面应用是完整 dsh Web 应用外的一层 Electron 壳。Electron RunAsNode 子进程启动共享 profile runner，Electron 立即从 `dsh-app://app/` 加载打包内的 Web 入口。共享加载页等待 Host 启动注入，然后在同一文档中启动客户端。Electron 将应用 HTTP 请求转发给已认证的 Web Host，转发时丢弃描述 Node fetch 连接而非资源本身的响应头（`transfer-encoding`、`connection`、`keep-alive`），并把插件 bundle 响应标记为 `no-store`，因为其每次启动都变化的 revision 只会在 Chromium 磁盘缓存中累积；WebSocket 流连接到该 Host，仅为归属的应用窗口附加凭据。Node IPC 承载启动注入、就绪与关闭。muse-med 只绑定 `127.0.0.1`，由系统分配端口，避免占用官方 DSH 应用的端口。共享 profile runner 提供设置和插件管理服务；生成的产品覆盖层保留产品预设、内置技能及飞书开关。共享包通过运行时解析，不创建指向 ASAR 内部的目录链接。
 
-原生欢迎页和 RPC 请求只使用当前 Host 握手返回的 cookie，拒绝重定向和其他源，不读取 Chromium 的 cookie 存储。账号状态流使用同一次捕获的 cookie。
+原生欢迎页和 RPC 请求只使用当前 Host 握手返回的 cookie，拒绝重定向和其他源，不读取 Chromium 的 cookie 存储。账号状态流从归属 Host 的传输层获取捕获的 cookie。启动时保留属于其他本地 Host 的 cookie。
 
 桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
@@ -49,7 +51,7 @@ Desktop 在 `resources/runtime/primary-runtime/dependencies/pnpm` 中携带一�
 
 Platform 内嵌文档使用持久化 WebContentsView 分区，分区名由 Platform 来源和稳定账号 ID 的哈希决定。localStorage 中的页面偏好（包括已关闭的通知）在关闭视图和重启应用后保留；不同账号和来源使用独立存储。账号 ID 来自 Host 最近一次成功的资料读取；尚无该 ID 时，文档在一次性分区中打开，该分区不跨次保留偏好。打开持久分区会先清理 Cookie、文件系统、IndexedDB、Cache Storage、HTTP 与着色器缓存、Service Worker 及 HTTP 认证状态；一次性分区则清理其全部存储。关闭视图会销毁文档、移除请求拦截器并安排相同的清理，因此异常退出遗留的认证会在下一个文档加载前被清除。下次打开和应用退出都会等待该清理完成，更新安装也会在安装器接管退出前等待。清理失败会使该次打开失败，并在后续清理成功前阻止同一账号打开；其他账号不受影响。退出登录会销毁文档，但保留账号偏好供下次登录使用。同一凭证下账号 ID 迟到时，已以一次性分区打开的文档保持挂载；下次打开使用账号分区。[存储决策](../../.agents/notes/implemented/architecture/2026-09-22-platform-browser-storage.zh.md)说明保留策略。Host 通过私有 Node IPC 发送账号凭证；账号 RPC 和 Harness 渲染进程不接收 token。Platform preload 在页面脚本执行前通过一次同步 IPC 读取主进程中已准备的凭证。它暴露 displayMode、同步的 getAuthToken() 和 getLocale() getter，以及返回取消订阅函数的 onLocaleChange(listener)。两个 getter 都只读取 preload 内存，不再调用 IPC。bootstrap 包含 Desktop 已解析的语言（`zh_CN` 或 `en_US`）；Settings 语言变更会更新 preload 缓存并通知已打开的 Platform 文档，无需重载。Platform 在首屏渲染前应用该语言，且不将其持久化为浏览器偏好。主进程处理器仅校验调用来源并读取内存，不等待 Host、磁盘或网络。可信页面初始化失败时保留内嵌模式，由 getter 抛错，避免回退到浏览器凭证。只有受控 Platform 页面中、位于所配置签发来源的主 frame 能完成初始化。退登、凭证替换、Host 关闭及视图关闭都会销毁文档。跨来源文档导航被阻止。请求新窗口的 HTTPS 链接在系统浏览器中打开，不携带内嵌会话或 token；其他协议及带 URL 凭证的链接被拒绝。原生视图占据 Account 功能返回栏下方的视口。
 
-Desktop Host 的 Platform API 请求与更新策略请求用相同的 Platform 客户端请求头标识已安装客户端：平台、客户端版本、语言、以秒为单位的时区偏移，以及有意保持为空的 bundle id。账号操作按调用逐次传入调用界面的身份；账号 provider 管理[仅 API 使用的请求头配置](../../packages/credentials/deepseek-account-platform/README.zh.md#use-this-package)。更新策略额外上报架构、更新通道和内置运行时版本。 原生账号状态解析器接受 `no-response` 登录失败，并在供 UI 使用的安全投影中保留该错误码。
+Desktop Host 的 Platform API 请求与更新策略请求用相同的 Platform 客户端请求头标识已安装客户端：平台、客户端版本、语言、以秒为单位的时区偏移，以及有意保持为空的 bundle id。账号操作按调用逐次传入调用界面的身份；账号 provider 管理[仅 API 使用的请求头配置](../../packages/credentials/deepseek-account/README.zh.md#use-this-package)。更新策略额外上报架构、更新通道和内置运行时版本。 原生账号状态解析器接受 `no-response` 登录失败，并在供 UI 使用的安全投影中保留该错误码。
 
 账号凭据被服务端判定失效后，未配置官方 API key 时返回 Welcome；有可用 API key 时保持工作区打开。主动退出登录遵循相同规则。Welcome 和工作区均显示本地化的登录失效提示。
 
@@ -59,7 +61,7 @@ Desktop Host 的 Platform API 请求与更新策略请求用相同的 Platform �
 
 <a id="terminal-command"></a>
 
-Muse 会在同一轮次中[自动续写达到输出上限的回答](../../packages/core/agent-output-continuation/README.zh.md)。模型输出设置限制单次请求；有进展的续写默认没有次数上限。取消和提供方错误仍正常显示。
+Muse 会在同一轮次中[自动续写达到输出上限的回答](../../packages/core/agent-output-continuation/README.zh.md)。模型输出设置限制单次请求；有进展的续写默认没有次数上限。模型只做了隐藏推理、既没有可见回复也没有工具调用就停止时，Muse 会在同一轮次中再次请求，最多两次，而不是什么都不显示就结束轮次。取消和提供方错误仍正常显示。
 
 新建任务提供**短剧模式**。其他内置预设继续注册，用于恢复历史 Session，不能用于新建任务。
 
@@ -106,13 +108,13 @@ Windows 签名打包按 PE 文件内容扫描第一方运行时和应用生产�
 
 Desktop 携带独立的 Python、Node.js 和 pnpm 分发包。Python 包含 numpy、pandas、python-docx、python-pptx、openpyxl、Pillow、lxml、XlsxWriter 及其完整依赖。`load_workspace_dependencies` 工具首次使用时，将该产物离线安装到 `$DSH_HOME/dsh-runtimes/dsh-primary-runtime`（通常为 `~/.dsh/dsh-runtimes/dsh-primary-runtime`），并返回解释器、pnpm 脚本和库目录的绝对路径，以及记录内置分发包名称与版本的 `pythonDistributions`。版本报告不包含用户自行安装的包。Office 任务默认使用这些库，用户或工作区指令指定其他环境时遵循其要求。pnpm 脚本通过返回的 Node 可执行文件运行。打包时按照共享运行时锁校验目标平台的 pnpm 可执行文件，并将其打入安装包供离线使用。返回的 Node 库目录为随包交付的库预留，不是 pnpm 的全局安装目录。
 
-Host 在加载创作预设前验证内置主运行时，并将抖音下载工具绑定到其 Python 绝对入口。工具以隔离模式运行 Python，不会查找系统解释器。下载插件的 Python 文件放在 ASAR 外；打包时先用内置解释器执行下载器帮助命令，再启动 Host。Windows 和 macOS 均使用内置 ffmpeg 和 ffprobe。Mac 构建按架构编译哈希锁定的 FFmpeg、x264、libass、FreeType、HarfBuzz 和 FriBidi 源码，静态链接这些外部库并启用 GPL；nonfree、version3 和外部依赖自动发现仍禁用。x264 网络获取失败时可以使用锁中声明的 GitHub 镜像；两条入口都必须匹配同一提交、归档大小和 SHA-256，其他失败仍报错。CoreText 提供系统字体发现，PNG 核查使用 macOS 系统 zlib。准备和复用拒绝 Apple 系统库以外的动态依赖，要求 `/usr/lib/libz.1.dylib`，并验证 H264/AAC 编码、可见的 SRT/ASS 字幕像素、PNG 缩放、源时间戳和完整 PNG 解码。缓存身份包含源码锁、依赖构建配方和目标配置；复用时核对两个可执行文件的哈希、保留的全部依赖源码和许可声明，以及保留的构建配方。可执行文件随附对应源码归档、构建脚本和许可声明。CMake 仅为构建机器所需。[Mac 制作检查](scripts/smoke-macos-creation.py)另用指定的中文字体执行生产 Python 渲染器，完整解码产物、核对字幕时间与像素，并读回可编辑草稿的媒体和轨道；它不打开剪映，也不验证原生导出。配置及受阻结果见[下载组合包](../../third_party/plugins/muse-douyin-download/README.zh.md)。原生提供者下载仅在播放器地址出现在已验证目标响应中时优先选择该地址；其他渲染器地址不能授权下载。
+Host 在加载创作预设前验证内置主运行时，并为随包发布的[抖音下载组合包](../../third_party/plugins/muse-douyin-download/README.zh.md)导出其 Python 绝对入口；没有预设加载该组合包。下载插件的 Python 文件放在 ASAR 外；打包时先用内置解释器执行下载器帮助命令，再启动 Host。Windows 和 macOS 均使用内置 ffmpeg 和 ffprobe。Mac 构建按架构编译哈希锁定的 FFmpeg、x264、libass、FreeType、HarfBuzz 和 FriBidi 源码，静态链接这些外部库并启用 GPL；nonfree、version3 和外部依赖自动发现仍禁用。x264 网络获取失败时可以使用锁中声明的 GitHub 镜像；两条入口都必须匹配同一提交、归档大小和 SHA-256，其他失败仍报错。CoreText 提供系统字体发现，PNG 核查使用 macOS 系统 zlib。准备和复用拒绝 Apple 系统库以外的动态依赖，要求 `/usr/lib/libz.1.dylib`，并验证 H264/AAC 编码、可见的 SRT/ASS 字幕像素、PNG 缩放、源时间戳和完整 PNG 解码。缓存身份包含源码锁、依赖构建配方和目标配置；复用时核对两个可执行文件的哈希、保留的全部依赖源码和许可声明，以及保留的构建配方。可执行文件随附对应源码归档、构建脚本和许可声明。CMake 仅为构建机器所需。[Mac 制作检查](scripts/smoke-macos-creation.py)另用指定的中文字体执行生产 Python 渲染器，完整解码产物、核对字幕时间与像素，并读回可编辑草稿的媒体和轨道；它不打开剪映，也不验证原生导出。原生提供者下载仅在播放器地址出现在已验证目标响应中时优先选择该地址；其他渲染器地址不能授权下载。
 
 Desktop Main 与 Host 使用私有协议 9，在 Host 就绪消息及运行时描述中核对。浏览器服务版本 4 提供 `data(agent, selection, signal)`，并要求 `download(agent, url, signal, maxDownloadBytes, nativeTimeoutMs)`。内置插件在 IPC 前拒绝版本 2 和 3；应用与插件必须配套更新。数据观察读取确切作品的有界详情 GET 响应或当前公开页的初始数据；Creator 观察仅读取正常本人作品列表 GET 响应。它返回带精度及不可用原因的公开计数、独立评论分页；响应正文、认证字段、媒体地址与作者标识留在私有进程内。缺失的公开播放量与零占位值均标为不可用。Creator 结果要求字符串作品 ID、同一位置的修改权限和统计中的作品 ID 一致。未核验的归属和不可用评论分页返回明确诊断。可见会话的数据观察及等待模式下载在会话切换、导航、取消或 Host 关闭时等待未完成的读取结束。后台下载使用 Main 持有的隔离 guest，不受聊天及侧栏切换影响；归属结束或取消会撤销 guest 并等待清理。浏览器服务版本 4 通过 supportsBackgroundDownload 声明可选的下载第六参数能力，见[任务升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-download-tasks/guide.zh.md)。数据观察与下载不能同时占用浏览器通道。配套应用及插件的安装见[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-douyin-internal-browser/guide.zh.md)。
 
-红果在 `runtime/hongguo` 下使用独立于 Office 解释器、经哈希锁定的 Java 17、CPython 3.11 和 PyCryptodome。[准备程序](scripts/prepare-hongguo-runtime.ts)在发布产物前检查公开归档的大小、校验和、安全成员、解释器版本及 AES 可用性。产物保留 Temurin 声明及对应源码归档。Java 共享类缓存 `classes.jsa` 和 `classes_nocoops.jsa` 保持为只读数据，由应用资源封装；嵌套签名仍覆盖 Java 可执行文件和动态库。只包含原下载器最小签名、解密文件和通用来源配置，不包含已保存设备或账号请求头。Shell 将验证后的静态文件复制到 `$DSH_HOME/hongguo/source-<digest>`，并向 Host 提供 `MUSE_HONGGUO_JAVA_PATH`、`MUSE_HONGGUO_PYTHON_PATH` 和 `MUSE_HONGGUO_LEGACY_APP_DIR` 的绝对路径。[红果提供者](../../third_party/plugins/muse-hongguo-download/README.zh.md)在首次使用时创建本地设备状态，并在重新启动后保留。不可变文件被修改时明确报错，不会覆盖用户状态。Host 启动会等候安装完成；安装错误会阻止 Host 启动，并显示为启动错误。
+开源红果下载提供者使用内置 FFmpeg 和 FFprobe，不调用旧 Java/Python 签名器或 v2 授权。ByteVC2 下载使用独立的 `runtime/bytevc2` Librempeg 辅助程序。开发启动器与发布打包通过[准备程序](scripts/prepare-bytevc2-runtime.ts)准备目标平台对应、哈希锁定的上游可执行文件、完整对应源码与原始许可；本机准备会检查 ByteVC2 解码器与 H264 编码器。Host 通过 `MUSE_HONGGUO_BYTEVC2_PATH` 接收其绝对路径。开发启动器将 `DSH_DESKTOP_BYTEVC2_RUNTIME_DIR` 指向当前源码目录的目标运行时；选择 primary-runtime 覆盖目录时，不在覆盖目录旁写入资源。持久化开发启动器保留该解码器目录，供 Dock 与 Finder 冷启动使用。打包版本始终使用内置资源。番茄通过 `MUSE_FANQIE_PYTHON_PATH` 使用主 Python 里的 PyCryptodome。当前安装包排除已退役的 `runtime/hongguo` Java、原程序、独立 Python 及其对应源码归档。显式使用旧运行时的载体仍可用[准备程序](scripts/prepare-hongguo-runtime.ts)；已有用户视频与设备文件不删除。
 
-Desktop 展示精简的 `office` 路由及可具名调用的创作／操作子技能。创作使用内置 Python 库；操作技能调用配置的 Node 和 CLI 路径。技能位于 ASAR 外的 `runtime/office-skills`。渐进加载与限制见 [Office 技能包](../../packages/skill/skill-office/README.zh.md)。
+Desktop 从 ASAR 内技能包的 assets 读取 [Office 技能](../../packages/skill/skill-office/README.zh.md)，其 Python 创作使用上述内置库。Office 资源缺失或无效、Office profile 行无法加载时，都不会阻止 Host 启动。
 
 该产物随 Desktop 版本发布。`runtime.json` 记录 Desktop 版本、目标平台、顶层解释器和包管理器版本及 Python 分发包版本表，以及所选目标的锁定产物输入与组装格式的摘要。分发包名称按 PEP 503 归一化；名称归一化后重复时，清单会被拒绝。旧 `components` 清单通过归一化继续可读，并保留其原有库版本一致性校验。匹配的安装会被复用；依赖或压缩包变化后，即使 Desktop 版本不变，也会在完整暂存副本完成后替换目录。不含摘要的旧清单会在下次安装时被替换。用户自行添加的 Python 包仅在产物身份一致时保留。目录替换失败时保留之前的安装；解释器仍在运行时，Windows 可能拒绝替换。
 
@@ -177,7 +179,7 @@ Windows 和 macOS 会在原生全屏切换及每次页面加载后向渲染器�
 
 Windows 使用 40 DIP 顶栏，保留原生窗口按钮，颜色随应用调色板同步。侧栏开关旁的本地化“应用”和“编辑”入口打开原生弹出菜单。仅当应用框架发布 shell overlay 席位后才挂载菜单，启动加载期间不显示。“应用”提供检查更新、管理 dsh 命令和退出；“编辑”向当前编辑器发送对应按键，提供撤销、重做、剪切、复制、粘贴、删除和全选，不受自定义快捷键绑定影响。插件管理使用主应用的“插件”页面。按 Alt 不会出现额外的原生菜单行。其他平台保留原生菜单。可编辑区域保留快捷键和不带快捷键标注的右键菜单；命令可用状态由 Chromium 提供，选中的只读文本提供“复制”命令。
 
-macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏命令，包括 Minimize（⌘M）和 Hide（⌘H）。Linux 保留应用菜单和 Edit 菜单。
+macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏命令，包括 Minimize（⌘M）和 Hide（⌘H）。其 Edit 菜单复制 Electron 的默认菜单，把 Paste and Match Style 绑定到 ⇧⌘V，并保留 Electron 默认的 ⌥⇧⌘V 作为隐藏别名；Substitutions 和 Speech 标题取自桌面端语言包，其余条目保留 Electron 的英文标签。Linux 保留应用菜单和 Edit 菜单。
 
 ### 短剧资源与限制
 
@@ -249,6 +251,8 @@ pnpm run dev:desktop
 
 开发 Harness 状态默认写入 `apps/desktop/.desktop-build/development/home`，一次性 npm 项目位于 `apps/desktop/.desktop-build/development/project`，Electron 浏览器数据则位于 `apps/desktop/.desktop-build/development/electron-user-data`。`MUSE_HOME` 默认使用该 Harness home；显式 `DSH_HOME`、`MUSE_HOME` 或 `DSH_DESKTOP_USER_DATA_DIR` 分别选择对应位置。macOS 启动的 `Muse Dev.app` 使用隔离的 bundle 标识，并在应用元数据中记录 Muse 产品版本。Renderer DevTools 默认自动打开，Main、Renderer 和 dsh Host 调试端口依次为 9229、9222 和 9230。`DSH_DESKTOP_MAIN_INSPECT_PORT`、`DSH_DESKTOP_RENDERER_DEBUG_PORT` 与 `DSH_DESKTOP_HOST_INSPECT_PORT` 可以替换这些端口，`DSH_DESKTOP_OPEN_DEVTOOLS=0` 则保持 Renderer 调试窗口关闭。
 
+与另一个 Muse 实例并行测试时，使用 `DSH_DESKTOP_DEV_REGISTER_PROTOCOL=0 pnpm run start:desktop`。它禁止开发实例注册系统 `dsh://` 协议，并从生成的 macOS 开发应用中移除该 scheme；持久化启动脚本在冷启动时保留这一选择。该变量仅接受 `0` 或 `1`，默认为 `1`。打包应用忽略此变量，继续按原有方式注册协议。
+
 `DSH_DESKTOP_USER_PATCH_FILE` 显式选择一个已有普通文件，在开发 profile 重建后、Electron 启动前复制为其中的 `cordis.patch.yml`。启动器按字节复制，不过滤或记录内容，也不修改源文件；所选 patch 需兼容当前 bundle。POSIX 上项目目录权限为 `0700`，复制后的 patch 为 `0600`。源文件链接、项目目录链接以及非普通文件的目标均被拒绝。
 
 `DSH_DESKTOP_PRIMARY_RUNTIME_DIR` 可以为本地开发选择已准备的 primary runtime。启动器会将其解析为绝对路径，检查平台和架构，并在启动前执行现有运行时自检。无效路径直接失败，不下载替代环境。该运行时必须保留匹配的相邻资源目录；未设置覆盖时，开发启动仍准备完整的锁定运行环境。
@@ -308,9 +312,9 @@ production 发布使用产品版本本身，不传 `--build-version`。其上传
 
 打包后的 `app-update.yml` 记录产品版本派生的通道：Muse `1.0.0` 使用 `latest.yml`，beta 版本使用 `beta.yml`。COS 上传元数据使用相同文件名，macOS 增加 `-mac`。正式版 `1.0.0` 高于 `1.0.0-beta.1` 和所有先前的 `0.1.7-rc.8` 构建。客户端保持自动降级关闭，只接受更高的元数据版本。纠正为较低版本时需要手动安装。
 
-Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-sources.json` 中。检查更新优先访问北京公开存储桶 `https://muse.tos-cn-beijing.volces.com/releases/feeds/<target>/`。更新目录或下载不可用时可以切换到 GitHub；只有已确认的版本、载荷大小和 SHA-512 都一致，下载才会继续。备用源检查失败或不匹配时，重试仍须重新验证，直到确认载荷身份一致；下载完成的元数据也必须匹配，才会允许安装。重新检查更新失败时会清除先前的目标。校验、磁盘和安装准备错误仍然报告失败。正式版本通过 GitHub 的正式 Latest 发布查找更新；预发布版本保留由自身版本选择的发现通道。辅助运行时发布必须排除在 Latest 之外。Muse 正式发布 Apple Silicon Mac 和 Windows x64 安装包，两个源使用相同的载荷元数据。没有该来源记录的旧包继续使用其已封装的 feed。
+Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-sources.json` 中。检查更新优先访问北京公开存储桶 `https://muse.tos-cn-beijing.volces.com/releases/feeds/<target>/`。更新目录或下载不可用时可以切换到 GitHub；只有已确认的版本、载荷大小和 SHA-512 都一致，下载才会继续。用户重试时重新从首选源开始，并重新验证已确认的载荷身份；首选源不可用时可以使用身份一致的备用源。要下载版本、大小或 SHA-512 不同的载荷，必须重新检查并确认；下载完成的元数据也必须匹配，才会允许安装。重新检查更新失败时会清除先前的目标。校验、磁盘和安装准备错误仍然报告失败。正式版本通过 GitHub 的正式 Latest 发布查找更新；预发布版本保留由自身版本选择的发现通道。辅助运行时发布必须排除在 Latest 之外。Muse 正式发布 Apple Silicon Mac 和 Windows x64 安装包，两个源使用相同的载荷元数据。没有该来源记录的旧包继续使用其已封装的 feed。
 
-未签名 CI 允许不使用发布者凭据的 ad-hoc 封装，在打包检查后将安装器、更新载荷、blockmap 和通道文件记录在 `unsigned-build.json` 中。未签名构建在目标独立的 `unsigned-artifacts/` 目录中保留发布文件名，使记录、原生验收和发布计划选择同一组精确文件。手动触发接受 `target=win-x64`、`mac-arm64` 或 `all`；拉取请求保留双平台检查。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求真实产品版本、完整源码提交和已完成目标目录。不写 `--targets` 时要求双平台；`--targets win-x64` 只发布 Windows 二进制与更新 feed，Mac feed 保持不变。`--dry-run` 仅核对记录和本地哈希，不上传；公开下载字节通过核验后才更新通道。
+未签名 CI 允许不使用发布者凭据的 ad-hoc 封装，在打包检查后将安装器、更新载荷、blockmap 和通道文件记录在 `unsigned-build.json` 中。未签名构建在目标独立的 `unsigned-artifacts/` 目录中保留发布文件名，使记录、原生验收和发布计划选择同一组精确文件。手动触发接受 `target=win-x64`、`mac-arm64` 或 `all`；拉取请求保留双平台检查。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求真实产品版本、完整源码提交和已完成目标目录。不写 `--targets` 时要求双平台；`--targets win-x64` 只发布 Windows 二进制与更新 feed，Mac feed 保持不变。`--dry-run` 仅核对记录和本地哈希，不上传；公开下载字节通过核验后才更新通道。拉取请求运行的安装包产物保留 1 天，Windows 安装界面证据保留 3 天；手动触发的运行两者均保留 7 天，因此需在一周内下载用于 TOS 发布的候选版本。
 
 Windows CI 为构建工具选择 Node 26.13.0，并要求 Undici 8.6 或更新版本，以避开 [HTTP 解析器暂停时崩溃](https://github.com/nodejs/undici/issues/5360)；目标运行时按各自的发布锁准备。CI 仅对锁定的私有仓库下载使用鉴权，并将 Windows FFmpeg 放入媒体准备缓存；正常准备流程仍校验大小和 SHA-256。 安装验收通过 `--previous-release-cache` 使用鉴权预热的基线缓存，仍须匹配原安装包与清单的哈希。Windows 手动构建可设置 `export_candidate_to_tos`，绕过 Actions 产物存储。限定对象、有效两小时的 `MUSE_CI_TOS_CANDIDATE_UPLOAD` Secret 仅提供两个 PUT URL 和 AES-256-GCM 密钥。导出器排除图片，拒绝含已知环境秘密、上传凭据或常见密钥格式的文本证据，然后加密精确候选与验收文本；不写更新 feed，日志不含 URL 或密钥。构建前会检查网络连通性。每次 PUT 使用上传凭据剩余有效期；待传元数据先于密文写入，因此仅有元数据不代表传输完成。发布者须独立审阅、核验完整解密构建，再正式推广。
 
@@ -365,11 +369,11 @@ pnpm run package:desktop:win:x64:unsigned -- --only S12
 
 Desktop 在本地打包工作区包，并通过目标捆绑的 Node 和 pnpm 安装外部依赖。[Desktop 文件策略](scripts/runtime-file-policy.ts)随后在签名和完整性封装前过滤不可变的 `resources/app.asar/dsh/node_modules` 副本。它排除 `.gitkeep` 空目录标记、TypeScript 声明、已识别的 JavaScript/CSS/TypeScript source map、TypeScript 构建缓存、Domino 测试目录、选定的原生编译器输出和其他平台的 node-pty 预构建文件。它保留运行时 JavaScript、原生模块及其 DLL/EXE 辅助文件、WASM、未知资源、许可证和 notices。依赖清单在完整性封装前经过 electron-builder 的元数据清理，确保归档保持已记录的字节。该策略不修改 npm tarball、捆绑的包管理器或用户安装的插件文件。
 
-[Office 转换提供方](../../packages/document/office-to-pdf/README.zh.md)携带目标已声明的原生引擎；kit 未声明匹配原生目标时携带 WASM 引擎。准备阶段在打包前拒绝缺少目标引擎的情况。完整 Office 依赖（CLI、JavaScript 库和选定引擎的可执行文件、数据、许可证及 notices）解包到 `resources/app.asar.unpacked/dsh/node_modules/` 下。Desktop Host 将引擎清单解析到这些物理目录，并向加载的技能提供独立 Node 和解包后 CLI 的绝对路径。Node 位于 `resources/runtime/primary-runtime/dependencies/node/bin/`；CLI 位于解包后的 `@deepseek-ai/libreoffice-kit/lib/cli.js`。macOS 上的原生辅助程序获得 [LibreOffice UNO 桥](https://github.com/LibreOffice/core/blob/master/sysui/desktop/macosx/hardened_runtime.xcent.in)所需的 JIT entitlement。
+[Office 转换提供方](../../packages/document/office-kit/README.zh.md)携带目标已声明的原生引擎；kit 未声明匹配原生目标时携带 WASM 引擎。准备阶段在打包前拒绝缺少目标引擎的情况。完整 Office 依赖（CLI、JavaScript 库和选定引擎的可执行文件、数据、许可证及 notices）解包到 `resources/app.asar.unpacked/dsh/node_modules/` 下。Desktop Host 将引擎清单解析到这些物理目录，并向加载的技能提供独立 Node 和解包后 CLI 的绝对路径。Node 位于 `resources/runtime/primary-runtime/dependencies/node/bin/`；CLI 位于解包后的 `@deepseek-ai/libreoffice-kit/lib/cli.js`。macOS 上的原生辅助程序获得 [LibreOffice UNO 桥](https://github.com/LibreOffice/core/blob/master/sysui/desktop/macosx/hardened_runtime.xcent.in)所需的 JIT entitlement。
 
 [Host 冒烟检查](scripts/smoke-runtime.ts) 在隔离 home 中启动，等待 credentials Service 就绪但不提供凭据，并先挂载完整产品预设再转换输入，因此同时检查该预设的工具和随包技能。注册清单包含隐藏且仅供恢复的 `bot-coordinator`；检查其通用工具，拒绝任何组合中出现已归档的 Bot 工具，并对每个预设挂载和释放两次。账号和知识库工具保留完整授权定义，初始时延迟加载；记录到会话中的 `tool_context` 加载与收起调用会核对模型可见定义的原始描述，并还原初始工具集，不请求模型或账号 API。检查将产品 home 与带仓库标记的工作区分开，验证三类项目技能源及其优先级，并拒绝发现共享用户技能源。创作预设转发自定义和项目技能，同时排除未审核的运行时贡献。它要求统一的短剧编导身份、Word 交付指导及本地记忆工具，并检查已退役的编辑模式别名解析到短剧模式。启用的专业技能和镜头脚本技能必须能通过作用域内 registry 从打包路径读取非空正文；对白精修与分集设计还必须随包携带对应方法文档。已退役的 Host 技能保持停用。准备阶段必须读到 Agent 释放后的完成记录，不能仅凭 Host 就绪判定成功；启动 60 秒后仍未就绪即失败。运行时根清单提供预设发现所用的完整 CLI、Desktop Host 和源码插件依赖图。失败报告在 inspect 生成的 cause 详情之外保留原始完整栈，避免共享栈帧被折叠。
 
-打包应用运行编译后的 JavaScript 和预生成的 Typert 元数据，不编译 TypeScript 插件。打包要求包含转写技能、五类默认写作技能（剧本精修、小说转剧本、对白打磨、分集设计和剧本格式）与独立 Word 导出辅助程序；其他已退役的 Host 技能仍被排除。源码级调试导航和编辑器声明仍可从开发包中获取。[复制规则测试](tests/runtime-file-policy.spec.ts)覆盖排除项和保留资源；[产物 smoke](tests/fixtures/runtime-payload-smoke.mjs) 在 Host smoke 和最终清单验证之前，使用内置 Node 执行。产物 smoke 解析搜索工具使用的 ripgrep 可执行文件，并验证文本搜索和文件枚举。本地红果检查创建临时设备，通过回环地址运行原 Java 签名器，加载所提供的 CPython 3.11 离线模块并检查 AES。它等待所有托管子进程退出并删除私有主目录，不访问视频平台。首次启动相互竞争时，只有目标中的每个不可变源码文件都通过验证，才会复用该目标；目标不存在或被修改时仍报告安装失败。Windows 签名构建在依赖签名后运行这些检查；其他构建在 `prepare:dsh` 中运行。 经过验证的包集合选中 Codex provider 时，[Codex 检查](scripts/verify-codex-runtime.ts)要求源码固定的 provider、CLI 及声明的目标平台包全部位于产物内部，再使用内置 Node 在隔离主目录中执行 `--version`。已选中 provider 的可选下载缺失或可执行文件版本不符都会使准备失败。不含 Codex 的包集合不要求其源码清单或运行时。冻结的生产安装阶段为 pnpm 的完整 tarball 响应体设置有界的 30 分钟 `fetch-timeout`。锁文件元数据解析保留 pnpm 的默认截止时间和重试。构建者可将 `DSH_DESKTOP_FETCH_TIMEOUT_MS` 设为不超过 2,147,483,647 的正整数毫秒数；其他继承的 npm 配置仍被排除。[Host smoke](scripts/smoke-runtime.ts) 使用捆绑的 Python 创建 DOCX、XLSX 和 PPTX 输入，通过真实 Office 提供方逐一转换并检查 PDF 输出。每个组装后的应用（包括目录包和 Windows 未签名构建）都会针对 ASAR 重复产物和 Host 检查。归档完整性检查将归档内完整描述符与准备结果比对，并核对归档和解包目录中的文件内容与清单、归档内文件记录的执行标志，以及解包文件的物理权限。转换失败会在写入发布记录前终止打包；macOS DMG/ZIP 构建在公证前执行这些检查。
+打包应用运行编译后的 JavaScript 和预生成的 Typert 元数据，不编译 TypeScript 插件。打包要求包含转写技能、五类默认写作技能（剧本精修、小说转剧本、对白打磨、分集设计和剧本格式）与独立 Word 导出辅助程序；其他已退役的 Host 技能仍被排除。源码级调试导航和编辑器声明仍可从开发包中获取。[复制规则测试](tests/runtime-file-policy.spec.ts)覆盖排除项和保留资源；[产物 smoke](tests/fixtures/runtime-payload-smoke.mjs) 在 Host smoke 和最终清单验证之前，使用内置 Node 执行。产物 smoke 解析搜索工具使用的 ripgrep 可执行文件，并验证文本搜索和文件枚举。本地红果检查加载内置开源引擎，并核对 FFmpeg 与 FFprobe 版本，不访问视频平台。它等待所有托管子进程退出并删除私有主目录，不访问视频平台。Windows 签名构建在依赖签名后运行这些检查；其他构建在 `prepare:dsh` 中运行。 经过验证的包集合选中 Codex provider 时，[Codex 检查](scripts/verify-codex-runtime.ts)要求源码固定的 provider、CLI 及声明的目标平台包全部位于产物内部，再使用内置 Node 在隔离主目录中执行 `--version`。已选中 provider 的可选下载缺失或可执行文件版本不符都会使准备失败。不含 Codex 的包集合不要求其源码清单或运行时。冻结的生产安装阶段为 pnpm 的完整 tarball 响应体设置有界的 30 分钟 `fetch-timeout`。锁文件元数据解析保留 pnpm 的默认截止时间和重试。构建者可将 `DSH_DESKTOP_FETCH_TIMEOUT_MS` 设为不超过 2,147,483,647 的正整数毫秒数；其他继承的 npm 配置仍被排除。[Host smoke](scripts/smoke-runtime.ts) 使用捆绑的 Python 创建 DOCX、XLSX 和 PPTX 输入，通过真实 Office 提供方逐一转换并检查 PDF 输出。每个组装后的应用（包括目录包和 Windows 未签名构建）都会针对 ASAR 重复产物和 Host 检查。归档完整性检查将归档内完整描述符与准备结果比对，并核对归档和解包目录中的文件内容与清单、归档内文件记录的执行标志，以及解包文件的物理权限。转换失败会在写入发布记录前终止打包；macOS DMG/ZIP 构建在公证前执行这些检查。
 
 手动触发还会在一次性原生 runner 中验收本轮真实安装包，以及从按哈希锁定的官方 Muse 1.2.5 安装包进行升级。经验证的发布清单按原生 target 选择构建，并要求原版本、源码身份、安装包大小和 SHA-256 一致。Windows 在同一个私有安装目录运行原始 EXE，并在全新安装和升级用例之间执行真实卸载程序；macOS 将只读 DMG 复制到私有应用路径后替换该副本。两个平台都比对新安装的每个文件、重复运行打包后的 Host smoke，并逐字节核对私有 Muse 与 Electron 数据目录中的会话和设置哨兵文件。独立的[候选更新检查](scripts/muse-candidate-update-acceptance.ts)默认以 1.2.5 为起点，在发布前通过生产更新器下载并验证本轮安装包；Windows 还执行本地更新对话框验收。这些检查不代表旧客户端已经自动重启进入新版界面，也不代表已在界面恢复会话。
 
@@ -405,6 +409,8 @@ Windows 安装器在启动时和选定目标目录后检查应用是否正在运
 
 所有目标（包括未签名目标）的打包记录使用 Muse GitHub Releases 更新源，因此打包不需要更新域名。`DSH_DESKTOP_AUTO_UPDATE_ENV` 同时选择打包写入的 URL 与后续 COS 上传环境，可取 `test` 或 `production`；缺省为 `test`。测试打包通过 `DOWNLOAD_TEST_ORIGIN` 提供 HTTPS origin；生产使用 `https://download.deepseek.com`。上传通过 `DOWNLOAD_TEST_COS_BUCKET` 或 `DOWNLOAD_PROD_COS_BUCKET` 提供所选 bucket。生产清单位于 `dsh-desk/feeds/<target>/`，安装包位于 `dsh-desk/bin/<target>/`。测试发布必须配置 `DOWNLOAD_TEST_RELEASE_ID`：32 位小写十六进制字符，分别插入路径 `dsh-desk/<release-id>/feeds/<target>/` 和 `dsh-desk/<release-id>/bin/<target>/`。YAML 引用、稳定通道别名和 blockmap 都位于该发布目录内。目标为 `mac-arm64`、`mac-x64` 和 `win-x64`。
 
+Windows 更新确认重启后，独立进程显示可拖动的状态提示，直到安装阶段结束。安装器不等待提示窗；提示窗无法启动或失去响应时，安装和重新启动仍会继续。新版应用窗口出现前仍可能有一段空白。可选的 DPI API 在运行时解析，不可用时采用 96 DPI 布局。
+
 Windows 安装程序使用原生 NSIS 页面，提供亮暗配色、系统阴影、可编辑的安装目录，以及默认勾选立即启动的完成页。安装仅面向当前用户。点击安装或按 Enter 均校验当前路径；路径规范化后仍拒绝磁盘根目录，包括带重复末尾分隔符的写法。新安装位置必须为空，非空位置必须是已登记的安装目录。受影响安装路径中的程序运行时显示系统提示，并保持应用运行；其他目录中的同名应用不阻止安装。静默更新最多等待受影响应用退出十秒，若仍在运行则以退出码 2 结束。
 
 主题在启动时跟随 Windows；可用 `/THEME=light`、`/THEME=dark` 和 `/THEME=auto` 显式选择配色。窗口在品牌控件准备完成后显示。欢迎页首次出现时，安装窗口会一次性移到普通窗口前方；若焦点在其他窗口，任务栏按钮会闪烁提示，但安装窗口不会始终置顶。进度读取锁定版本的 7-Zip 解压器百分比；目录替换、注册和清理仍使用有界估算。加权百分比不代表剩余时间。NSIS 报告成功后，进度条用 600 毫秒补满并短暂显示 100%，再显示完成页；切换目标时长为 750 毫秒。完成页保留窗口位置。点击完成后，安装程序先隐藏窗口，再启动已安装的可执行文件；启动失败会恢复页面以供重试。目录替换和失败恢复遵循[安装检查](packaging/README.zh.md#runtime-file-selection)。首次启动的配置档案准备仍属于独立的 Desktop 操作。
@@ -430,7 +436,7 @@ pnpm run upload:mac:arm64
 
 GitHub 备用源使用 `https://github.com/felir7at62co-wq/muse-med` 上的 GitHub Releases。每个已发布 release 都需要语义化版本 tag、安装包、blockmap 和通道 YAML；provider 的 feed 不包含 draft release。`verify:update-feed` 使用真实 provider 校验安装包哈希和元数据资产。COS 上传器记录另一份必需的 GitHub 发布计划，但不会发布 GitHub release。
 
-`muse-product.json` 为 Muse `1.0.7` 启用 `legacyRcDiscovery`。已安装的 rc 客户端只选择 rc tag，因此发布包含正式版 `v1.0.7` 以及仅用于发现的预发布入口 `v1.0.7-rc.muse-stable`。两者包含完全相同的 Muse `1.0.7` 二进制，以及声明版本为 `1.0.7` 的相同 `rc.yml` 和 `latest.yml` 元数据；macOS 使用相应的 `-mac` 名称。COS 计划包含相同的 feed 别名。真实更新器测试验证发现和版本接受，不下载或安装。线上资产和已有 profile 的安装升级仍须经过发布验收。
+`muse-product.json` 启用 `legacyRcDiscovery`。已安装的 rc 客户端只选择 rc tag，因此产品版本 `<version>` 的发布包含正式版 `v<version>` 以及仅用于发现的预发布入口 `v<version>-rc.muse-stable`。两者包含完全相同的二进制，以及声明该版本的相同 `rc.yml` 和 `latest.yml` 元数据；macOS 使用相应的 `-mac` 名称。COS 计划包含相同的 feed 别名。真实更新器测试验证发现和版本接受，不下载或安装。线上资产和已有 profile 的安装升级仍须经过发布验收。
 
 macOS 配置使用必填发布环境，不会接受钥匙串中最先发现的证书。空值、格式错误的 Team ID、包含 electron-builder 不支持的 `Developer ID Application:` 前缀的签名身份，以及不完整的公证凭据都会被拒绝。macOS 打包要求已配置的身份及其私钥可用。运行时准备会把该身份、安全时间戳与 hardened runtime 应用到每个内嵌 Mach-O 文件；应用签名完成后，深度严格检查会拒绝其他叶证书 Authority 或 Team ID，验证通过才生成发布产物。macOS 固定目标安装包命令为已签名应用创建独立副本，并发执行两条产物流。一路先公证 App 并钉票，再生成 ZIP 及其更新元数据。另一路把已签名 App 副本封装进签名 DMG，再公证 DMG、钉票并验证；其中的 App 不单独附加票据。只有两路均成功结束，产物才会移入最终目录并写入发布完成记录。仅生成目录的命令同样需要公证凭据，并等待 Apple 公证和 App 钉票完成。[并行公证决策](../../.agents/notes/implemented/process/2026-09-09-parallel-macos-notarization.zh.md)负责副本隔离与容器票据语义。私钥可以来自登录钥匙串或 electron-builder 的标准 `CSC_LINK` 输入；环境中的 `CSC_NAME` 与证书发现顺序都不能选择发布所有者。公证凭据也可以使用 electron-builder 支持的完整 Apple ID 或钥匙串 profile 方式。手动执行 `pnpm --dir apps/desktop run verify:mac-signature -- <path-to-app>` 重复应用检查时，也必须提供两个 macOS 身份变量。
 
@@ -567,7 +573,7 @@ macOS 在安装准备阶段等待产品主窗口退出全屏，再显示重启�
 
 普通更新弹窗、Windows 首次关闭提示和强更文档共用随壳打包的 UI design token。各文档在显示卡片前通过 `prefers-color-scheme` 解析 Electron 的应用主题，配色变化时同步暗色主题属性。欢迎页与更新文档复用同一初始化脚本。明确选择浅色／暗色及跟随系统共用此路径，隔离文档保持透明背景，仅暗色模式以基于 token 的 1 CSS px 内描边区分卡片，不改变尺寸；浅色模式不描边。
 
-打包应用在启动后异步检查产品更新通道。常规轮询以十分钟为基础间隔，每次独立采样 ±20% 的随机抖动。每次检查失败将基础延迟翻倍，上限为一小时；成功后重置。随机延迟不超过该上限，并从全部复用调用结算后开始计时。本地化的“检查更新…”菜单项（Windows 可从顶栏的“应用”菜单进入）立即执行，并复用正在进行的检查。回到前台和系统恢复时遵守相同的单调时钟截止时间。新收到的强更策略也会立即请求检查更新清单。自动检查从不弹窗或下载安装包。手动检查显示正在检查、失败或包含已安装版本号的无更新反馈。常规更新弹窗原位渐入渐出；连续弹窗替换卡片内容并重置其滚动位置，保留黑色半透明蒙层，不模糊父页面。
+桌面设置可以选择已安装应用的更新通道。使用 `latest` 的 Muse 清单在界面显示为稳定版，并保留 `latest` 更新源；封存的旧版本发现通道会继续使用，直到用户明确切换。切换先等待当前检查与下载结束，撤销其待处理目标，并使此前的下载或重启确认失效。打包应用在启动后异步检查产品更新通道。常规轮询以十分钟为基础间隔，每次独立采样 ±20% 的随机抖动。每次检查失败将基础延迟翻倍，上限为一小时；成功后重置。随机延迟不超过该上限，并从全部复用调用结算后开始计时。本地化的“检查更新…”菜单项（Windows 可从顶栏的“应用”菜单进入）立即执行，并复用正在进行的检查。回到前台和系统恢复时遵守相同的单调时钟截止时间。新收到的强更策略也会立即请求检查更新清单。自动检查从不弹窗或下载安装包。自动重新检查失败时，会静默撤回此前显示的失效版本提示；用户可以手动重新检查。手动检查显示正在检查、失败或包含已安装版本号的无更新反馈。常规更新弹窗原位渐入渐出；连续弹窗替换卡片内容并重置其滚动位置，保留黑色半透明蒙层，不模糊父页面。
 
 `DSH_DESKTOP_UPDATE_CHECK_INTERVAL_MS` 配置常规基础间隔，`DSH_DESKTOP_UPDATE_CHECK_MAX_BACKOFF_MS` 配置上限；两者均接受 1000 至 2147483647 的整数毫秒数，且上限不能小于间隔。省略上限时取一小时与间隔中的较大值。`DSH_DESKTOP_UPDATE_CHECK_JITTER` 配置 0 至 1 的抖动比例，默认 `0.2`；最终延迟至少一秒，且不超过上限。这些配置不改变强更策略轮询，也不授权下载重试。
 
@@ -598,9 +604,19 @@ Electron 主进程在启动时读取一次 `app.getPath('userData')/desktop/sett
 }
 ```
 
-启动时不会改写已有文件；缺少字段时均按 `false` 处理。将 `updates.allowTestAuthPopupWindow` 设为 `true` 后完全退出并重启应用，即可允许测试鉴权弹窗。改回 `false` 并重启即可再次禁止。创建、读取或校验失败时使用默认值 `false`，不阻止启动。Desktop 尝试在 Electron 控制台记录包含文件路径的警告；日志不可用也不阻止启动。修正文件并重启后才会应用显式设置。未知字段会保留。安装更新保留此用户数据文件；Windows 卸载按[卸载规则](#windows-uninstall-rules)删除它。
+启动读取不会覆盖已有文件；缺少 `updates` 对象或该字段时均按 `false` 处理。将字段设为 `true` 后完全退出并重启应用，即可允许测试鉴权弹窗。改回 `false` 并重启即可再次禁止。创建、读取或校验失败时使用默认值 `false`，不阻止启动。Desktop 尝试在 Electron 控制台记录包含文件路径的警告；日志不可用也不阻止启动。修正文件并重启后才会应用显式设置。未知字段会保留。安装更新保留此用户数据文件；Windows 卸载按[卸载规则](#windows-uninstall-rules)删除它。
 
-对于代理返回假 IP 地址的网络，Muse Desktop 可在“设置→通用”中选择系统 DNS 兼容选项。该选项以原子方式保存 `network.useSystemResolver`，完全退出 Muse 并重启后生效。它使整个 Muse Electron 进程优先使用系统解析器，不修改系统代理设置，并保留下载时对私有和保留地址的检查。DNS over HTTPS 和其他网络设置仍可能影响解析结果。关闭选项并重启后恢复 Electron 默认解析器。设置文件无法读取或格式无效时，界面不会覆盖该文件。保存失败后无法读回结果时，界面显示状态未知，并在重试成功读取设置前禁止再次修改。
+对于代理返回假 IP 地址的网络，Muse Desktop 可在“设置→通用”中选择系统 DNS 兼容选项。该选项以原子方式保存 `network.useSystemResolver`，完全退出 Muse 并重启后生效。它使整个 Muse Electron 进程优先使用系统解析器，不修改系统代理设置，并保留下载时对私有和保留地址的检查。DNS over HTTPS 和其他网络设置仍可能影响解析结果。关闭选项并重启后恢复 Electron 默认解析器。设置文件无法读取、JSON 损坏或文档结构无效时，界面不会覆盖该文件。保存失败后无法读回结果时，界面显示状态未知，并在重试成功读取设置前禁止再次修改。
+
+在桌面版**设置 → 通用设置 → 更新渠道**中，**正式版**选择 `stable`，**开发版**选择 `nightly`。发布者独立于版本后缀为各渠道选择版本；正式版渠道也可以提供 alpha 或 RC 版本。主进程在同一文件中保存 `updates.channel`，并通过 IPC 立即应用选择，不依赖 Host 设置服务。省略 channel 时使用打包注入的包内默认值。外部编辑和删除仅在下次启动读取，不运行文件监听器。鉴权弹窗设置仍须重启生效。UI 写入保留最新有效文件中的其他字段；外部编辑器不能与 UI 保存同时写入。
+
+UI 切换期间，选择器显示待应用选项和加载指示；失败时恢复实际运行渠道，并显示简短 toast。普通保存失败不会阻止使用当前渠道及旧更新目标。启动配置无效或无法撤销旧更新安装资格会暂停更新操作；没有强更策略阻塞时，主应用仍可使用。启动配置错误会显示持续十秒、可查看详情的非阻塞提示。更新入口独立于下载进度保留暂停原因；打开后可查看恢复指引、配置路径并在系统文件管理器中定位文件。修正文件后，可在错误详情中选择**重新读取配置**或重启；显式重读只应用更新配置，不改写文件。重读按钮至少显示半秒加载指示，期间不接受重复点击；文件仍无效时继续暂停更新。在设置中选择有效渠道也可恢复无效渠道；JSON 损坏须先修复文件。已知强更阻塞继续生效；强更页面的配置异常入口可打开同一文件定位和重读对话框。渠道切换成功后立即重新检查强更策略；如旧渠道的检查仍在进行，则等待其完成后检查新渠道。切换成功时先收尾检查、下载并撤销安装资格，再检查新渠道；两个渠道版本号相同也遵循该规则。切换不降级，也不自动安装。安装准备期间拒绝 UI 切换；调用 `quitAndInstall()` 交接后，编辑文件不能取消本次安装。
+
+共享设置存储区分文件缺失、读取失败、JSON 损坏、文档结构无效和单项字段无效。鉴权开关与渠道字段分别通过 Zod 校验；鉴权开关无效不会使有效渠道失效，反之亦然。读取不创建文件；启动初始化是显式操作，并与保存共用写锁。保存保留未知字段和无关的无效字段。写入诊断区分未写入、完成情况不确定，以及写入已提交但释放锁失败；最后一种情况不表示文件已回滚。
+
+撤销安装资格后，旧文件删除失败不阻止渠道切换。失败时间、操作、路径及文件系统错误会刷新写入 Electron 日志目录的 `update-cleanup.jsonl`；日志本身无法写入时回退到标准错误输出。后续下载失败独立报告，不归因于之前的清理警告。有结构化文件系统错误时，区分空间不足、无法写入和文件占用；错误弹窗详情保留当次错误码及已提供的文件路径。没有结构化依据时保留通用下载失败提示。
+
+更新适配层兼容性和平台版本记录见 [Electron updater 兼容性](tests/updates/electron-updater/README.zh.md)。
 
 <a id="mandatory-update-policy"></a>
 
@@ -681,6 +697,6 @@ node apps/desktop/node_modules/pnpm/bin/pnpm.mjs --dir apps/desktop run test:upd
 
 内置 `muse-llm-wiki` 技能沿用当前 Muse 登录，支持浏览目录、全文检索、读取原始资料，以及沿链接页和引用查找依据。经审核的笔记和剧本在私人或明确绑定的项目范围内保留不可变原文；Muse 主模型使用原文区间引用和版本检查写入派生页。共享资料需要管理员授权。工具与访问规则见 [Muse LLM Wiki](../../services/muse-accounts/README.zh.md#muse-llm-wiki)。
 
-桌面 Office 组合提供 `screenplay_export_docx`：按给定顺序用内置 python-docx 将 Markdown 合成新的 Word 文件，设置分集分页、中文字体并核对段落正文。支持标题与加粗，其他 Markdown 语法原样保留，不覆盖已有文件。编辑模式保留 Markdown，按 `office-docx` 检查 Word 排版后交付 DOCX。
+桌面 Office 组合提供 `screenplay_export_docx`：按给定顺序用内置 python-docx 将 Markdown 合成新的 Word 文件，默认各集连排（`episode_layout: page_per_episode` 或选项 `docxEpisodeLayout` 可让之后每集另起一页）、设置中文字体并核对段落正文。支持标题与加粗，其他 Markdown 语法原样保留，不覆盖已有文件。编辑模式保留 Markdown，按 `office-docx` 检查 Word 排版后交付 DOCX。
 
-抖音获取使用已注册的 `douyin_download` 和 `douyin_download_task` 工具，保留文件回执，支持有归属的后台 job 和显式恢复；公开播放不可用时使用 Muse 浏览器的正常登录。任务状态及验证限制见[插件参考](../../third_party/plugins/muse-douyin-download/README.zh.md)。旧 `douyin-download` 技能已禁用，这些工具不提供外部浏览器 profile 或 Cookie 文件参数。
+用户提供抖音作品链接并要求作品数据时，短剧预设指导 Agent 搜索 `muse_media_data`；工具调用仍由模型决定。抖音视频只通过账号包的 [`douyin_download`](../../packages/host/muse-account/README.zh.md#data-station-douyin-downloads) 工具下载：它在数据站排队单个作品或整部合集，返回存储地址而非本地文件。没有预设加载带 `douyin_data` 和 `douyin_download_task` 工具的本地下载器，`muse_media_download` 也拒绝抖音链接。旧 `douyin-download` 技能已禁用。

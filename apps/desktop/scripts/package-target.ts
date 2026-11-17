@@ -671,6 +671,9 @@ export async function packageTarget(
       if (mediaArguments !== undefined) {
         await execute(mediaArguments, buildEnv, REPOSITORY_ROOT)
       }
+      await execute(['exec', 'tsx', 'apps/desktop/scripts/prepare-bytevc2-runtime.ts',
+        '--target', target.name, '--output', join(buildPaths.runtime, 'bytevc2'),
+        '--cache', join(buildPaths.downloads, 'bytevc2')], buildEnv, REPOSITORY_ROOT)
     },
     S11: async () => { await execute(['run', 'prepare:packages'], targetEnv) },
     S12: async () => {

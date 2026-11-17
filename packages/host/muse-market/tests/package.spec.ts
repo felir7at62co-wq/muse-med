@@ -22,6 +22,14 @@ function expectFileBytes(actual: Readonly<Record<string, Uint8Array>>, expected:
 }
 
 describe('Skill publications', () => {
+  it.each(['storyboard-reviewer', '3d-asset-artist', 'a'.repeat(64)])(
+    'retains the optional portrait binding %s in archive and release metadata', (presetPortrait) => {
+      const bound = { ...manifest, presetPortrait }
+      const archive = createMarketPackage(bound, resources, limits)
+      expect(readMarketPackage(archive, limits).manifest).toEqual(bound)
+      expect(marketRelease(archive, limits).manifest).toEqual(bound)
+    })
+
   it('roundtrips binary resources, original instructions and deterministic release identity', () => {
     const archive = createMarketPackage(manifest, resources, limits)
     expect(createMarketPackage(manifest, resources, limits)).toEqual(archive)

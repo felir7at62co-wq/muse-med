@@ -53,6 +53,7 @@ export function LibraryPage({ useResource, t }: PageProps): ReactNode {
     ? `dsh-resource://character-library-catalog/current?${parameters}` : 'library://inactive')
   const preview = useResource<'character-library-image'>(selected === null ? 'library://inactive' : imageAddress(selected.catalogAssetId, revision))
   const entries = catalog.value?.entries ?? []
+  const nextCursor = catalog.value?.nextCursor
   const refresh = (): void => { setCursors([]); setRevision(value => value + 1) }
   const chooseCollection = (value: Collection): void => { setCollection(value); setCursors([]); setSelected(null) }
   const search = (): void => { setQuery(draft.trim()); setCursors([]); setSelected(null) }
@@ -92,14 +93,12 @@ export function LibraryPage({ useResource, t }: PageProps): ReactNode {
         <span>{t('count', { count: entries.length })}</span>
         <div className={s.paging}>
           <Button variant="outline" disabled={cursors.length === 0 || loading} onClick={() => { setCursors(value => value.slice(0, -1)) }}>{t('previous')}</Button>
-          <Button variant="outline" disabled={catalog.value?.nextCursor == null || loading} onClick={() => {
-            const next = catalog.value?.nextCursor
-            if (next != null) setCursors(value => [...value, next])
-          }}>{t('next')}</Button>
+          <Button variant="outline" disabled={nextCursor == null || loading} onClick={nextCursor == null
+            ? undefined : () => { setCursors(value => [...value, nextCursor]) }}>{t('next')}</Button>
         </div>
       </footer>}
     </section>
-    <Modal open={selected !== null} onClose={() => { setSelected(null) }} title={previewTitle} closeLabel={t('close')} description={t('referenceOnly')} className={s.modal ?? ''}>
+    <Modal open={selected !== null} onClose={() => { setSelected(null) }} title={previewTitle} closeLabel={t('close')} description={t('referenceOnly')} className={s.modal as string}>
       {preview.status === 'loading' && <div className={s.previewState} aria-label={t('loading')}><IconLoadingOutlineRegular size={24} /></div>}
       {preview.status === 'failed' && <div role="alert" className={s.notice}>{t('previewFailed')}<Button onClick={refresh}>{t('retry')}</Button></div>}
       {preview.value !== undefined && <img className={s.preview} src={preview.value.dataUrl} alt={previewTitle} />}

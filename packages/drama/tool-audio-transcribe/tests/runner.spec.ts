@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { MuseAsrError, type MuseAsrJob } from '@deepseek-ai/dsh-muse-account'
-import { finishAudioTranscription, startAudioTranscription, type AudioAccount } from '../src/runner.ts'
+import { finishAudioTranscription, startAudioTranscription, startAudioTranscriptionBatch, type AudioAccount, type AudioMediaOperations } from '../src/runner.ts'
 
 const directories: string[] = []
 afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))) })
@@ -40,6 +40,20 @@ it('saves an account-bound receipt before submit and publishes versioned timed o
   expect((await finishAudioTranscription(fixture.project, first.receipt, fixture.account)).status).toBe('complete')
   expect(fixture.counts().queries).toBe(1)
   expect(await readdir(join(fixture.project, 'transcript', 'raw'))).toEqual(['clip-v1.json', 'clip-v1.srt', 'clip-v1.txt'])
+})
+
+it('resolves a relative input and receipt against the project root instead of the process directory', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 45, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
+  const first = await startAudioTranscription(fixture.project, join('source', 'clip.mp4'), 'zh', fixture.account, config, media)
+  expect(first.status).toBe('processing')
+  expect(JSON.parse(await readFile(first.receipt, 'utf8'))).toMatchObject({ source: fixture.input })
+  expect((await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)).job_id).toBe(first.job_id)
+  expect(fixture.counts().submits).toBe(1)
+  fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: '相对路径' }] })
+  const done = await finishAudioTranscription(fixture.project, join('transcript', 'jobs', 'clip-v1.json'), fixture.account)
+  expect(done.status).toBe('complete')
+  expect(done.receipt).toBe(first.receipt)
 })
 
 it('reports exhausted provider allowance and later publishes the same original task without submitting again', async () => {
@@ -565,7 +579,7 @@ it.each(['outside', 'basename', 'media'] as const)('rejects receipt %s paths wit
   const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
   if (kind === 'media') await writeFile(first.receipt, JSON.stringify({ ...receipt, mp3: f.input }))
   if (kind === 'basename') await writeFile(first.receipt, JSON.stringify({ ...receipt, stem: 'other' }))
-  await expect(finishAudioTranscription(f.project, kind === 'outside' ? f.input : first.receipt, f.account)).rejects.toThrow(kind === 'outside' ? 'inside this project' : 'paths do not match')
+  await expect(finishAudioTranscription(f.project, kind === 'outside' ? f.input : first.receipt, f.account)).rejects.toThrow(kind === 'outside' ? `inside this project transcript/jobs directory: ${join(f.project, 'transcript', 'jobs')}` : 'paths do not match')
   expect(f.counts().queries).toBe(0)
 })
 
@@ -1135,4 +1149,370 @@ it('cancels native waiting without a later query or publication', async () => {
     expect(f.counts().submits).toBe(1)
     await expect(stat(join(f.project, 'transcript', 'raw'))).rejects.toMatchObject({ code: 'ENOENT' })
   } finally { clearTimeout(timer) }
+})
+
+const batchNote = '各集收据是上次查询的快照，不会自行刷新。按各集 resume_status 继续调用 audio_transcribe，inspect 可带 wait_seconds；把同一 inputs 原样再次 start 会沿用已有收据，不会重复计费。不要用 Bash 循环读取收据，也不要删除收据。'
+
+/** Episodes in one project with a gateway that records every upload attempt and knows only accepted IDs. */
+async function episodes(count: number) {
+  const project = await mkdtemp(join(tmpdir(), 'muse-audio-batch-'))
+  directories.push(project)
+  await mkdir(join(project, 'source'))
+  const inputs = Array.from({ length: count }, (_, index) => join('source', `ep${index + 1}.mp4`))
+  for (const input of inputs) await writeFile(join(project, input), `video ${input}`)
+  const episodeOf = new Map<string, string>(), accepted = new Map<string, MuseAsrJob>()
+  const calls = { probes: [] as string[], encodes: [] as string[], queries: [] as string[],
+    submits: [] as Array<{ episode: string; id: string; accepted: boolean }> }
+  let refuse: (episode: string, attempt: number, id: string) => MuseAsrError | undefined = () => undefined
+  let respond = (id: string): MuseAsrJob => ({ id, status: 'processing' })
+  const media: AudioMediaOperations = {
+    probe: async (source) => { calls.probes.push(basename(source)); return 30 },
+    encode: async (source, target) => { calls.encodes.push(basename(source)); episodeOf.set(target, basename(source)); await writeFile(target, 'audio') },
+  }
+  const account: AudioAccount = {
+    status: async () => ({ state: 'signed-in', username: 'alice', verified: false }),
+    submitAudio: async (file, id) => {
+      const episode = episodeOf.get(file) ?? 'unknown'
+      const error = refuse(episode, calls.submits.filter(row => row.id === id).length + 1, id)
+      calls.submits.push({ episode, id, accepted: error === undefined })
+      if (error !== undefined) throw error
+      accepted.set(id, respond(id))
+      return accepted.get(id)!
+    },
+    audioStatus: async (id) => {
+      calls.queries.push(id)
+      const job = accepted.get(id)
+      if (job === undefined) throw new MuseAsrError('job-not-found')
+      return job
+    },
+  }
+  const jobs = join(project, 'transcript', 'jobs')
+  return { project, inputs, media, account, calls, accepted, jobs,
+    refuse: (next: typeof refuse) => { refuse = next }, respond: (next: typeof respond) => { respond = next } }
+}
+
+it('waits out one upload_busy refusal and offers the same staged upload again under the original ID', async () => {
+  const f = await episodes(1)
+  f.refuse((_episode, attempt) => attempt === 1 ? new MuseAsrError('upload_busy', 1) : undefined)
+  const result = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media, undefined, undefined, { retryBudgetMs: 5000 })
+  expect(result.status).toBe('processing')
+  expect(result).not.toHaveProperty('error_code')
+  expect(f.calls.submits.map(row => row.id)).toEqual([result.job_id, result.job_id])
+  expect(JSON.parse(await readFile(result.receipt, 'utf8'))).toMatchObject({ id: result.job_id, status: 'processing' })
+})
+
+it('returns a request_rate refusal at once when its delay exceeds the waiting budget', async () => {
+  const f = await episodes(1)
+  f.refuse(() => new MuseAsrError('request_rate', 60))
+  const started = Date.now()
+  const result = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media, undefined, undefined, { retryBudgetMs: 5000 })
+  expect(Date.now() - started).toBeLessThan(1000)
+  expect(result).toMatchObject({ error_code: 'request_rate', retry_after_seconds: 60, resume_status: { method: 'status', receipt: result.receipt } })
+  expect(f.calls.submits).toHaveLength(1)
+})
+
+it.each(['queue_full', 'provider_rate', 'server_draining'] as const)('does not retry a %s refusal inside the call', async (code) => {
+  const f = await episodes(1)
+  f.refuse(() => new MuseAsrError(code, 1))
+  const result = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media, undefined, undefined, { retryBudgetMs: 5000 })
+  expect(result.error_code).toBe(code)
+  expect(f.calls.submits).toHaveLength(1)
+})
+
+it('cancels a paced wait with the caller reason and keeps the receipt prepared without another upload', async () => {
+  const f = await episodes(1)
+  const controller = new AbortController(), reason = new Error('stop pacing')
+  let timer: ReturnType<typeof setTimeout> | undefined
+  f.refuse(() => { timer = setTimeout(() => { controller.abort(reason) }, 50); return new MuseAsrError('upload_busy', 1) })
+  try {
+    await expect(startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media, undefined, controller.signal,
+      { retryBudgetMs: 5000 })).rejects.toBe(reason)
+    expect(f.calls.submits).toHaveLength(1)
+    expect(JSON.parse(await readFile(join(f.jobs, 'ep1-v1.json'), 'utf8'))).toMatchObject({ status: 'prepared' })
+  } finally { clearTimeout(timer) }
+})
+
+it.each([false, true])('recovers a never-accepted %s-part receipt through status after one paced refusal', async (split) => {
+  const f = await episodes(1)
+  const media = split ? { ...f.media, probe: async () => 12 } : f.media
+  const settings = { ...config, chunkSeconds: split ? 10 : 600 }
+  f.refuse(() => new MuseAsrError('upload_busy', 2))
+  const start = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, settings, media)
+  expect(start).toMatchObject({ status: 'preparing', error_code: 'upload_busy' })
+  const ids = (JSON.parse(await readFile(start.receipt, 'utf8')) as { parts?: Array<{ id: string }> }).parts?.map(part => part.id) ?? [start.job_id]
+  const last = ids.at(-1)!
+  let refusedOnce = false
+  f.refuse((_episode, _attempt, id) => {
+    if (id !== last || refusedOnce) return undefined
+    refusedOnce = true
+    return new MuseAsrError('upload_busy', 1)
+  })
+  const recovered = await finishAudioTranscription(f.project, start.receipt, f.account, undefined, true, undefined, { retryBudgetMs: 5000 })
+  expect(recovered.status).toBe('processing')
+  expect(recovered).not.toHaveProperty('error_code')
+  expect(f.calls.submits.filter(row => row.id === last).map(row => row.accepted)).toEqual(split ? [false, true] : [false, false, true])
+  for (const id of ids) expect(f.accepted.has(id)).toBe(true)
+})
+
+it('spends the batch budget on waiting only, so a slow extraction keeps its retry', async () => {
+  const f = await episodes(2)
+  const media = { ...f.media, encode: async (source: string, target: string) => {
+    if (basename(source) === 'ep2.mp4') await new Promise(resolveDelay => setTimeout(resolveDelay, 1200))
+    await f.media.encode(source, target)
+  } }
+  f.refuse((episode, attempt) => episode === 'ep2.mp4' && attempt === 1 ? new MuseAsrError('upload_busy', 1) : undefined)
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, media, undefined, undefined, { retryBudgetMs: 1500 })
+  expect(result.items.map(item => 'status' in item ? item.status : item.error)).toEqual(['processing', 'processing'])
+  expect(f.calls.submits.filter(row => row.episode === 'ep2.mp4').map(row => row.accepted)).toEqual([false, true])
+})
+
+it('shares one waiting budget across the batch and stops at the refusal it cannot wait out', async () => {
+  const f = await episodes(3)
+  f.refuse((_episode, attempt) => attempt === 1 ? new MuseAsrError('upload_busy', 1) : undefined)
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media, undefined, undefined, { retryBudgetMs: 1500 })
+  expect(result.items).toHaveLength(2)
+  expect(result.items[0]).toMatchObject({ input: f.inputs[0], status: 'processing' })
+  expect(result.items[1]).toMatchObject({ input: f.inputs[1], status: 'preparing', error_code: 'upload_busy', retry_after_seconds: 1 })
+  expect(result.not_started).toEqual([f.inputs[2]])
+  expect(f.calls.submits.map(row => row.accepted)).toEqual([false, true, false])
+})
+
+it('submits a batch in input order and returns an unfinished receipt without another upload', async () => {
+  const f = await episodes(3)
+  const existing = await startAudioTranscription(f.project, f.inputs[1]!, 'zh', f.account, config, f.media)
+  const before = { encodes: f.calls.encodes.length, submits: f.calls.submits.length }
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
+  expect(result.items.map(item => item.input)).toEqual(f.inputs)
+  const items = result.items.map((item) => {
+    if (!('receipt' in item)) throw new Error(item.error)
+    return item
+  })
+  expect(items.map(item => item.status)).toEqual(['processing', 'processing', 'processing'])
+  expect(new Set(items.map(item => item.receipt)).size).toBe(3)
+  expect(items[1]).toMatchObject({ receipt: existing.receipt, job_id: existing.job_id })
+  expect(f.calls.encodes.slice(before.encodes)).toEqual(['ep1.mp4', 'ep3.mp4'])
+  expect(f.calls.submits.length - before.submits).toBe(2)
+  expect(result).not.toHaveProperty('not_started')
+})
+
+it('returns complete and failed same-purpose receipts from a batch while a single start still adds a version', async () => {
+  const f = await episodes(2)
+  const done = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)
+  const failed = await startAudioTranscription(f.project, f.inputs[1]!, 'zh', f.account, config, f.media)
+  f.accepted.set(done.job_id, { id: done.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: 'speech' }] })
+  f.accepted.set(failed.job_id, { id: failed.job_id, status: 'failed', error_code: 'provider_rejected',
+    recovery: { capability: 'none', next_action: 'inspect_receipt', automatic_resubmit: false } })
+  for (const receipt of [done.receipt, failed.receipt]) await finishAudioTranscription(f.project, receipt, f.account, undefined, false)
+  const before = { encodes: f.calls.encodes.length, submits: f.calls.submits.length }
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
+  expect(result.items).toEqual([
+    { input: f.inputs[0], status: 'complete', receipt: done.receipt, job_id: done.job_id, purpose: 'subtitles' },
+    { input: f.inputs[1], status: 'failed', receipt: failed.receipt, job_id: failed.job_id, purpose: 'subtitles', error_code: 'provider_rejected',
+      recovery: { capability: 'none', next_action: 'inspect_receipt', automatic_resubmit: false } },
+  ])
+  expect(result).not.toHaveProperty('polling_note')
+  expect({ encodes: f.calls.encodes.length, submits: f.calls.submits.length }).toEqual(before)
+  expect((await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)).receipt).toContain('ep1-v2.json')
+})
+
+it('returns the latest complete same-purpose version of a source from a batch', async () => {
+  const f = await episodes(1)
+  for (const text of ['first', 'second']) {
+    const run = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)
+    f.accepted.set(run.job_id, { id: run.job_id, status: 'complete', segments: [{ start: 0, end: 1, text }] })
+    await finishAudioTranscription(f.project, run.receipt, f.account, undefined, false)
+  }
+  const before = { encodes: f.calls.encodes.length, submits: f.calls.submits.length }
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
+  expect(result.items).toEqual([expect.objectContaining({ input: f.inputs[0], status: 'complete', receipt: join(f.jobs, 'ep1-v2.json').replaceAll('\\', '/') })])
+  expect({ encodes: f.calls.encodes.length, submits: f.calls.submits.length }).toEqual(before)
+})
+
+it('reuses a legacy complete receipt without a purpose as subtitles and starts a separate screenplay version', async () => {
+  const f = await episodes(1)
+  const legacy = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)
+  f.accepted.set(legacy.job_id, { id: legacy.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: 'speech' }] })
+  await finishAudioTranscription(f.project, legacy.receipt, f.account, undefined, false)
+  const receipt = JSON.parse(await readFile(legacy.receipt, 'utf8')) as Record<string, unknown>
+  delete receipt.purpose
+  await writeFile(legacy.receipt, JSON.stringify(receipt))
+  const subtitles = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
+  expect(subtitles.items).toEqual([{ input: f.inputs[0], status: 'complete', receipt: legacy.receipt, job_id: legacy.job_id }])
+  expect(f.calls.submits).toHaveLength(1)
+  const screenplay = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media, 'screenplay')
+  expect(screenplay.items).toEqual([expect.objectContaining({ status: 'processing', purpose: 'screenplay', receipt: join(f.jobs, 'ep1-v2.json').replaceAll('\\', '/') })])
+  expect(f.calls.submits).toHaveLength(2)
+})
+
+it.each([false, true])('completes a prepared %s-part receipt in a batch by querying before uploading under the original ID', async (split) => {
+  const f = await episodes(1)
+  const media = split ? { ...f.media, probe: async () => 12 } : f.media
+  const settings = { ...config, chunkSeconds: split ? 10 : 600 }
+  f.refuse(() => new MuseAsrError('upload_busy', 2))
+  const start = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, settings, media)
+  const ids = (JSON.parse(await readFile(start.receipt, 'utf8')) as { parts?: Array<{ id: string }> }).parts?.map(part => part.id) ?? [start.job_id]
+  f.refuse(() => undefined)
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, settings, media)
+  expect(result.items).toEqual([expect.objectContaining({ input: f.inputs[0], status: 'processing', receipt: start.receipt, job_id: start.job_id })])
+  expect(f.calls.queries).toEqual(ids)
+  expect(f.calls.submits.filter(row => row.accepted).map(row => row.id)).toEqual(ids)
+  expect(f.calls.encodes).toHaveLength(ids.length)
+})
+
+it('does not upload a prepared receipt again when the gateway already has its task', async () => {
+  const f = await episodes(1)
+  const start = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)
+  const receipt = JSON.parse(await readFile(start.receipt, 'utf8')) as Record<string, unknown>
+  await writeFile(start.receipt, JSON.stringify({ ...receipt, status: 'prepared' }))
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
+  expect(result.items).toEqual([expect.objectContaining({ status: 'processing', job_id: start.job_id })])
+  expect(f.calls.queries).toEqual([start.job_id])
+  expect(f.calls.submits).toHaveLength(1)
+})
+
+it('stops a batch at its own refused upload and continues it when the same list is sent again', async () => {
+  const f = await episodes(4)
+  f.refuse(episode => episode === 'ep2.mp4' ? new MuseAsrError('upload_busy', 1) : undefined)
+  const first = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media, undefined, undefined, { retryBudgetMs: 500 })
+  expect(first.items).toHaveLength(2)
+  expect(first.items[0]).toMatchObject({ input: f.inputs[0], status: 'processing' })
+  expect(first.items[1]).toMatchObject({ input: f.inputs[1], status: 'preparing', error_code: 'upload_busy', resume_status: { method: 'status' } })
+  expect(first.not_started).toEqual([f.inputs[2], f.inputs[3]])
+  expect(first.polling_note).toBe(batchNote)
+  expect((await readdir(f.jobs)).filter(name => name.endsWith('.json')).sort()).toEqual(['ep1-v1.json', 'ep2-v1.json'])
+  expect((await readdir(f.jobs)).filter(name => name.endsWith('.wav'))).toHaveLength(2)
+  expect(f.calls.encodes).toEqual(['ep1.mp4', 'ep2.mp4'])
+  f.refuse(() => undefined)
+  const second = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media, undefined, undefined, { retryBudgetMs: 500 })
+  expect(second.items.map(item => 'status' in item ? item.status : item.error)).toEqual(['processing', 'processing', 'processing', 'processing'])
+  expect(second).not.toHaveProperty('not_started')
+  const refused = first.items[1]
+  if (refused === undefined || !('job_id' in refused)) throw new Error('missing refused batch item')
+  expect(second.items[1]).toMatchObject({ receipt: refused.receipt, job_id: refused.job_id })
+  expect(f.calls.submits.filter(row => row.id === refused.job_id).map(row => row.accepted)).toEqual([false, true])
+  const acceptedIds = f.calls.submits.filter(row => row.accepted).map(row => row.id)
+  expect(acceptedIds).toHaveLength(4)
+  expect(new Set(acceptedIds).size).toBe(4)
+  expect(f.calls.encodes).toEqual(['ep1.mp4', 'ep2.mp4', 'ep3.mp4', 'ep4.mp4'])
+})
+
+it('continues past a reused receipt whose gateway metadata carries an error code', async () => {
+  const f = await episodes(2)
+  f.respond(id => ({ id, status: 'uncertain', ...flashUnknown }))
+  const first = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)
+  f.respond(id => ({ id, status: 'processing' }))
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
+  expect(result.items[0]).toMatchObject({ job_id: first.job_id, status: 'uncertain', error_code: 'provider_unavailable' })
+  expect(result.items[1]).toMatchObject({ input: f.inputs[1], status: 'processing' })
+  expect(result).not.toHaveProperty('not_started')
+})
+
+it('rejects a missing or repeated batch input before probing or uploading anything', async () => {
+  const f = await episodes(2)
+  await expect(startAudioTranscriptionBatch(f.project, [f.inputs[0]!, join('source', 'missing.mp4')], 'zh', f.account, config, f.media))
+    .rejects.toThrow(`Transcription input is not a file: ${join('source', 'missing.mp4')}`)
+  await expect(startAudioTranscriptionBatch(f.project, [f.inputs[0]!, join('source', 'missing.mp4')], 'zh', f.account, config, f.media))
+    .rejects.toThrow(`(resolved to ${join(f.project, 'source', 'missing.mp4')})`)
+  await expect(startAudioTranscriptionBatch(f.project, [f.inputs[0]!, 'source'], 'zh', f.account, config, f.media))
+    .rejects.toThrow('Transcription input is not a file: source')
+  await expect(startAudioTranscriptionBatch(f.project, [f.inputs[0]!, f.inputs[1]!, join(f.project, f.inputs[0]!)], 'zh', f.account, config, f.media))
+    .rejects.toThrow('same input more than once')
+  expect({ probes: f.calls.probes.length, submits: f.calls.submits.length }).toEqual({ probes: 0, submits: 0 })
+  await expect(stat(f.jobs)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('stops a batch at a local input error and leaves later inputs without receipts', async () => {
+  const f = await episodes(3)
+  const media = { ...f.media, probe: async (source: string) => basename(source) === 'ep2.mp4' ? config.maxDurationSeconds + 1 : 30 }
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, media)
+  expect(result.items).toEqual([expect.objectContaining({ input: f.inputs[0], status: 'processing' }),
+    { input: f.inputs[1], error: 'Media duration exceeds the cloud transcription limit' }])
+  expect(result.not_started).toEqual([f.inputs[2]])
+  expect(result.polling_note).toBe(batchNote)
+  expect((await readdir(f.jobs)).filter(name => name.endsWith('.json'))).toEqual(['ep1-v1.json'])
+})
+
+it('reports a non-Error media adapter rejection as the text of the stopping batch item', async () => {
+  const f = await episodes(2)
+  const media = { ...f.media, probe: async () => { throw 'probe unavailable' } }
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, media)
+  expect(result.items).toEqual([{ input: f.inputs[0], error: 'probe unavailable' }])
+  expect(result.not_started).toEqual([f.inputs[1]])
+  expect(f.calls.submits).toHaveLength(0)
+})
+
+it('cancels a batch during extraction with the caller reason and keeps only finished receipts', async () => {
+  const f = await episodes(3)
+  const controller = new AbortController(), reason = new Error('stop batch')
+  const media = {
+    ...f.media,
+    encode: async (source: string, target: string, range?: { offset: number; duration: number }, signal?: AbortSignal) => {
+      await f.media.encode(source, target, range, signal)
+      if (basename(source) === 'ep2.mp4') { controller.abort(reason); signal?.throwIfAborted() }
+    },
+  }
+  await expect(startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, media, undefined, controller.signal)).rejects.toBe(reason)
+  const files = await readdir(f.jobs)
+  expect(files.filter(name => name.endsWith('.json'))).toEqual(['ep1-v1.json'])
+  expect(files.filter(name => name.endsWith('.wav'))).toEqual([basename((JSON.parse(await readFile(join(f.jobs, 'ep1-v1.json'), 'utf8')) as { mp3: string }).mp3)])
+  expect(f.calls.submits).toHaveLength(1)
+})
+
+it('moves the generic polling note to the batch and keeps a lifetime-quota note on its item', async () => {
+  const f = await episodes(2)
+  const exhausted = { error_code: 'provider_rejected', provider_diagnostic: { operation: 'query', http_status: 429, provider_code: '45000292', quota_type: 'audio_duration_lifetime' },
+    recovery: { capability: 'query_original_task', next_action: 'inspect_receipt', automatic_resubmit: false } } as const
+  f.respond(id => ({ id, status: 'uncertain', ...exhausted }))
+  await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)
+  f.respond(id => ({ id, status: 'processing' }))
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
+  expect(result.items[0]).toMatchObject({ status: 'uncertain', resume_status: { method: 'inspect' } })
+  expect(result.items[0]).toHaveProperty('polling_note', expect.stringContaining('原供应商应用的试用额度已用完'))
+  expect(result.items[1]).toMatchObject({ status: 'processing', resume_status: { method: 'inspect' } })
+  expect(result.items[1]).not.toHaveProperty('polling_note')
+  expect(result.polling_note).toBe(batchNote)
+})
+
+it('returns a status call when inspect finds a task the gateway never accepted', async () => {
+  const f = await episodes(1)
+  f.refuse(() => new MuseAsrError('upload_busy', 2))
+  const start = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)
+  const before = await readFile(start.receipt, 'utf8')
+  const started = Date.now()
+  const result = await finishAudioTranscription(f.project, start.receipt, f.account, undefined, false,
+    { waitMs: 30_000, pollIntervalMs: 1000, probe: f.media.probe.bind(f.media) })
+  expect(Date.now() - started).toBeLessThan(1000)
+  expect(result).toMatchObject({ status: 'preparing', job_id: start.job_id, error_code: 'job-not-found',
+    resume_status: { method: 'status', receipt: start.receipt } })
+  expect(result.polling_note).toContain('不要删除收据')
+  expect(f.calls.queries).toEqual([start.job_id])
+  expect(f.calls.submits).toHaveLength(1)
+  expect(await readFile(start.receipt, 'utf8')).toBe(before)
+})
+
+it('names the never-accepted part when inspect reads a split receipt', async () => {
+  const f = await episodes(1)
+  const media = { ...f.media, probe: async () => 12 }
+  let submitted = 0
+  f.refuse(() => ++submitted === 2 ? new MuseAsrError('upload_busy', 2) : undefined)
+  const start = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, { ...config, chunkSeconds: 10 }, media)
+  const before = await readFile(start.receipt, 'utf8')
+  const parts = (JSON.parse(before) as { parts: Array<{ id: string }> }).parts
+  const result = await finishAudioTranscription(f.project, start.receipt, f.account, undefined, false)
+  expect(result).toMatchObject({ status: 'preparing', job_id: start.job_id, diagnostic_job_id: parts[1]!.id, error_code: 'job-not-found',
+    resume_status: { method: 'status', receipt: start.receipt } })
+  expect(f.calls.submits).toHaveLength(2)
+  expect(await readFile(start.receipt, 'utf8')).toBe(before)
+})
+
+it.each([false, true])('still fails inspect of a never-accepted %s-part task whose staged audio is gone', async (split) => {
+  const f = await episodes(1)
+  const media = split ? { ...f.media, probe: async () => 12 } : f.media
+  let submitted = 0
+  f.refuse(() => ++submitted === (split ? 2 : 1) ? new MuseAsrError('upload_busy', 2) : undefined)
+  const start = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, { ...config, chunkSeconds: split ? 10 : 600 }, media)
+  const receipt = JSON.parse(await readFile(start.receipt, 'utf8')) as { mp3: string; parts?: Array<{ mp3: string }> }
+  await rm(receipt.parts?.[1]?.mp3 ?? receipt.mp3)
+  await expect(finishAudioTranscription(f.project, start.receipt, f.account, undefined, false)).rejects.toMatchObject({ code: 'job-not-found' })
+  expect(f.calls.submits).toHaveLength(split ? 2 : 1)
 })

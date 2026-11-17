@@ -56,3 +56,13 @@
         command: "printf 'escalated\\n' > /tmp/dsh-escalated.txt && cat /tmp/dsh-escalated.txt && rm /tmp/dsh-escalated.txt"
         recordedPath: /tmp/dsh-escalated.txt
         livePath: !!js process.env.DSH_SNAPSHOT_SPILL_ROOT + '/dsh-escalated.txt'
+
+# These recordings pin POSIX shell schemas independently of the replay host.
+- id: bash-sandbox
+  disabled: false
+- id: pwsh-sandbox
+  disabled: true
+- id: tool-bash
+  disabled: false
+- id: tool-pwsh
+  disabled: true

@@ -1,11 +1,12 @@
 /** Recorded-session SDK projection for SIGTERM while an in-process child is still active. */
 import { existsSync, readFileSync, watch } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { HarnessClient, TransportClosedError, type HarnessNotification } from '@deepseek-ai/dsh-sdk-client'
+import { writeReplayDiagnostics } from '../replay-diagnostics.ts'
 import {
   assertSessionFixtureVersion, formatSystemPromptSnapshot, latestPersistedSessionPaths,
   normalizeSessionSnapshot, normalizedSystemPrompts, normalizedToolSchemas, redactSessionSnapshotIds,
@@ -46,7 +47,8 @@ function rows(content: string): Record<string, unknown>[] {
 
 describe.skipIf(process.platform === 'win32')('SDK factory shutdown (POSIX SIGTERM)', () => {
   it('joins the active child before releasing inbox projections and closes both durable turns', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'dsh-sdk-factory-shutdown-'))
+    // A symlinked temp root (macOS /var) would make the child record a canonicalizing directory change.
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-sdk-factory-shutdown-')))
     const receiptFile = join(root, 'receipt.jsonl')
     const readyFile = join(root, 'model.ready')
     const overrideFile = join(root, 'replay.override.json')
@@ -129,6 +131,11 @@ describe.skipIf(process.platform === 'win32')('SDK factory shutdown (POSIX SIGTE
         return event.type
       }).filter(type => !['turn/end', 'step/end', 'assistant/message'].includes(type))
       const projection = JSON.stringify({ exitCode: 0, lateAbortDelivered: true, closedTurns: ends, eventsBeforeClose: stableEvents }, null, 2) + '\n'
+      if (process.env.CI === 'true' && (process.env.DSH_SNAPSHOT ?? 'replay') === 'replay') {
+        const directory = fileURLToPath(new URL('../../.artifacts/snapshot-replay/sdk/factory-shutdown/', import.meta.url))
+        await writeReplayDiagnostics(directory, persisted, { cwd: root, sessionIds: persisted.map(log => String(rows(log)[0]?.['id'])) })
+        await writeFile(join(directory, 'result.expected.json'), projection)
+      }
       if (process.env.DSH_SNAPSHOT === 'refresh') {
         await mkdir(owner, { recursive: true })
         await writeFile(join(owner, 'writer.expected.jsonl'), snapshots[0] ?? '')

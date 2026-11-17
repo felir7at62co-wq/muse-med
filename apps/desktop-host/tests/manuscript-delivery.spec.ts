@@ -24,7 +24,8 @@ const signal = new AbortController().signal
 const config = { maxDocuments: 4, maxFileBytes: 65536, maxTextChars: 20000, maxMaterialChars: 20000,
   maxNotes: 256, maxNoteChars: 40000, maxVersions: 256, maxVersionBytes: 1024 * 1024,
   maxLedgerBytes: 1024 * 1024, lockWaitMs: 5000,
-  continuityDeliveryChecks: true, continuityMaxDeliveryCorrections: 1 }
+  continuityDeliveryChecks: true, continuityMaxDeliveryCorrections: 1, formatDominantSpeakerMinLines: 8,
+  formatDominantSpeakerShare: 0.9, formatRepeatedSceneEpisodes: 12, formatMaxMessages: 20 }
 const body = '第1集\n1-1 门口 日 外\n▲甲来到门口。\n甲：请开门。\n第2集\n2-1 客厅 日 内\n▲甲坐下。\n甲：谢谢。\n第3集\n3-1 院子 日 外\n▲甲离开。'
 let serial = 0
 
@@ -76,7 +77,8 @@ async function runtime(seed?: { session: Session; root: string }) {
     return result
   }
   async function review(status: 'consistent' | 'issues' | 'unknown', lines?: { start: number; end: number }, referenceVersion?: string,
-    selfOnly = false, action: 'continuity' | 'cross_episode' | 'repetitions' = 'continuity') {
+    selfOnly = false, action: 'continuity' | 'cross_episode' | 'repetitions' = 'continuity',
+    checks = [{ from_episode: 1, to_episode: 2 }]) {
     const materials = await readManuscriptMaterials(selfOnly
       ? [{ role: 'current', path: 'final.md', ...(lines === undefined ? {} : { lines }) }]
       : [{ role: 'current', path: 'adopted.md' }, { role: 'candidate', path: 'final.md', ...(lines === undefined ? {} : { lines }) }], root, config, signal)
@@ -91,7 +93,7 @@ async function runtime(seed?: { session: Session; root: string }) {
           text_sha256: target.text_sha256, line: line.number, quote: line.text })) }] : [],
       unknowns: status === 'unknown' ? ['Missing facts'] : [], file_verification: 'verified', reviewer: { session_id: null, selection: null, requests: 1 },
       ...(notes === undefined ? {} : { notes_sha256: notes.notes_sha256 }),
-      ...(action === 'cross_episode' ? { episode_plan: { checks: [{ from_episode: 1, to_episode: 2 }] } } : {}),
+      ...(action === 'cross_episode' ? { episode_plan: { checks } } : {}),
       ...(action === 'repetitions' ? { repetition_review: true } : {}) }
     return logResult(session, 'manuscript_revision', { action }, value)
   }
@@ -122,6 +124,16 @@ it('labels a cross-episode review by its actual pairs instead of declaring the c
   await f.review('consistent', undefined, undefined, false, 'cross_episode')
   const declaration = await f.declare('reviewed')
   expect(declaration.files[0]?.label).toBe('已复核跨集接缝1→2（仅此范围）')
+  expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
+})
+
+it('collapses runs of three or more consecutive reviewed pairs into one episode span in the label', async () => {
+  const f = await runtime()
+  const pairs = (from: number, to: number) => Array.from({ length: to - from }, (_value, index) =>
+    ({ from_episode: from + index, to_episode: from + index + 1 }))
+  await f.review('consistent', undefined, undefined, false, 'cross_episode', [...pairs(1, 65), ...pairs(66, 68)])
+  const declaration = await f.declare('reviewed')
+  expect(declaration.files[0]?.label).toBe('已复核跨集接缝第1–65集逐集共64处、66→67、67→68（仅此范围）')
   expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
 })
 
@@ -247,6 +259,20 @@ it('keeps the current writing task when a later continuation explicitly asks for
   expect(f.injected).toHaveLength(1)
 })
 
+it.each(['我的文件呢', '你给我文件', '把文件给我啊，混蛋', '现在把修改好的本子给我'])(
+  'keeps the writing task and reminds once when the user only asks where the file is: %s', async (request) => {
+    const f = await runtime()
+    human(f.session, '重写剧本，不要文件，只给聊天正文。')
+    await f.service.remind(f.agent, signal)
+    expect(f.injected).toHaveLength(0)
+    human(f.session, request)
+    await f.service.remind(f.agent, signal)
+    await f.service.remind(f.agent, signal)
+    expect(f.injected).toHaveLength(1)
+    expect(f.injected[0]!.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
+      .toContain('当前没有已核实的本机文件交付回执')
+  })
+
 it.each([
   '重写剧本，不需要生成文件，只给聊天正文。',
   '仅解释这段外部执行标签 code_stdout 的含义。',
@@ -268,7 +294,7 @@ it('replays an older delivery checkpoint instead of retaining its report misclas
     val: { ...z.record(z.string(), z.unknown()).parse(current.val), writing: true, file_request: true } }
   const restored = f.ctx.sessionProjections.restore({ [key]: stale }, f.session.snapshotEvents(),
     SessionLogOffset(0), f.session.header, SessionLogOffset(0))
-  expect(restored.checkpoint[key]).toMatchObject({ ver: 9, val: { writing: false, file_request: false } })
+  expect(restored.checkpoint[key]).toMatchObject({ ver: 10, val: { writing: false, file_request: false } })
 })
 
 it('blocks unreviewed direct present, accepts explicit draft and rejects a stale same-path declaration', async () => {
@@ -364,7 +390,7 @@ it('ordinary affirmative intent refolds stale version-four false flags before th
   const result = await executeModelToolFixture(f.ctx, { callId: ToolCallId(`restored-present-${++serial}`), name: 'present',
     arguments: { files: [{ path: 'final.md' }] }, agent, signal })
   expect(result).toMatchObject({ isError: true, error: { info: { code: 'MANUSCRIPT_DELIVERY_REQUIRED' } } })
-  expect(f.ctx.sessionProjections.checkpoint(restored)[key]).toMatchObject({ ver: 9, val: { writing: true, file_request: true } })
+  expect(f.ctx.sessionProjections.checkpoint(restored)[key]).toMatchObject({ ver: 10, val: { writing: true, file_request: true } })
 })
 
 it('does not infer a new creation when only a continuation remains in restored human context', async () => {

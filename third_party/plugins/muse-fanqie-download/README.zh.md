@@ -10,7 +10,7 @@
 
 正文提取优先使用 `<article>` 内的文字，否则使用 `<body>` 内的文字。它排除 `<head>`、`<script>` 和 `<style>` 内容，并保留块元素及 `<br>` 的换行；所选容器之外的文字不能补足章节声明字数。
 
-Desktop 预设挂载工具并复用已打包的红果 Python/PyCryptodome 运行时。不需要额外 Java 服务、外部下载器或 TOS 密钥。独立配置可安装此包，应用 `cordis.patch.yml` 并设置 `MUSE_FANQIE_PYTHON_PATH`，或直接配置 `pythonExecutable`。Python 须包含 PyCryptodome 和正常 TLS 证书库；缺少运行时在首次调用时明确失败。加载插件不发起网络请求。Host 以 `-X utf8` 启动隔离 Python，使 Windows 与 macOS 上的 JSON 输入输出均使用 UTF-8，不受控制台代码页影响。模型工具通过 Host 子进程服务执行；卸载取消并等待引擎退出及文件清理。
+Desktop 预设挂载工具并使用主 Python 运行时内置的 PyCryptodome。不需要额外 Java 服务、外部下载器或 TOS 密钥。独立配置可安装此包，应用 `cordis.patch.yml` 并设置 `MUSE_FANQIE_PYTHON_PATH`，或直接配置 `pythonExecutable`。Python 须包含 PyCryptodome 和正常 TLS 证书库；缺少运行时在首次调用时明确失败。加载插件不发起网络请求。Host 以 `-X utf8` 启动隔离 Python，使 Windows 与 macOS 上的 JSON 输入输出均使用 UTF-8，不受控制台代码页影响。模型工具通过 Host 子进程服务执行；卸载取消并等待引擎退出及文件清理。
 
 配置项包括 `pythonExecutable`（默认空）、`networkMode`（默认 `direct`，接受 `direct` 或 `system`）、`requestTimeoutMs`（30000）、`callTimeoutMs`（1800000）、`graceMs`（1000）、`maxBooks`（10）、`batchSize`（10）、`maxResponseBytes`（16 MiB）、`maxChapterBytes`（2 MiB）、`maxBookBytes`（128 MiB）及 `maxOutputBytes`（16 MiB）。数值须为正安全整数，不限制章节总数。`outputDir` 默认 `downloads/fanqie`，须位于会话工作区内且不含符号链接目录。每批成功下载生成独立目录，不覆盖旧书。拒绝 HTTP 重定向；引擎只访问固定官方注册与阅读主机。
 

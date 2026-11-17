@@ -143,7 +143,7 @@ export class WorkspaceFileReferences extends Service implements WorkspaceFileRef
       const session = binding.session.getSnapshot()
       return !session.removed && session.subagent === null
         && this.blocks.storeFor(sessionId).getSnapshot() === undefined
-        && shell.snapshot.phase !== 'adjudicating' && shell.snapshot.phase !== 'submitting'
+        && shell.snapshot.phase !== 'adjudicating' && shell.snapshot.phase !== 'submitting' && shell.snapshot.phase !== 'sending'
     }
     if (!accepts()) {
       shell.notify('error', this.t('attachment.dropBlocked'))
@@ -169,7 +169,10 @@ export class WorkspaceFileReferences extends Service implements WorkspaceFileRef
       }
       references.push({ source: 'reference', ref: mention, label: workspaceTitleOf(path), appearance: 'file', clipboardText: mention })
     }
-    if (!accepts() || !shell.addFiles(references, [])) return false
+    if (!accepts() || !shell.addFiles(references, [])) {
+      shell.notify('error', this.t('attachment.dropBlocked'))
+      return false
+    }
     shell.focus()
     return true
   }

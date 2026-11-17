@@ -164,52 +164,95 @@ afterEach(() => {
 /** A realistic ~170 KB fragment whose lint time measures this machine's speed. */
 const calibrationFragment = Array.from({ length: 400 }, (_, i) => CARD.replaceAll('%', String(i))).join('')
 
+/** Ms taken by one call of `run`. */
+function timeMs(run: () => void): number {
+  const started = performance.now()
+  run()
+  return performance.now() - started
+}
+
 /**
  * The budget scaled to this machine: the reference budget times how much
- * slower than the reference machine it lints the calibration fragment
- * (never below the reference budget).
+ * slower than the reference machine it currently lints the calibration
+ * fragment (median of `runs`; never below the reference budget).
  */
-function machineBudget(): number {
-  const runs: number[] = []
-  for (let i = 0; i < 7; i++) {
-    const started = performance.now()
-    lintFragment(calibrationFragment, MAX)
-    runs.push(performance.now() - started)
-  }
-  const median = runs.sort((a, b) => a - b)[3]!
+function machineBudget(runs: number): number {
+  const samples = Array.from({ length: runs }, () => timeMs(() => lintFragment(calibrationFragment, MAX)))
+  const median = samples.sort((a, b) => a - b)[Math.floor(runs / 2)]!
   return BUDGET_MS * Math.max(1, median / REFERENCE_CALIBRATION_MS)
 }
 
 // Warm the JIT so neither the calibration nor the first case is charged for compilation.
 lintFragment(CARD.replaceAll('%', 'w').repeat(50), MAX)
-const budget = machineBudget()
+const loadBudget = machineBudget(7)
 
-describe('lintFragment on adversarial input', () => {
-  const timings: [string, number][] = []
+interface TimingSample {
+  elapsed: number
+  budget: number
+}
+
+/** The middle elapsed/budget ratio; every sample contributes to the verdict. */
+function medianTiming(samples: readonly TimingSample[]): TimingSample {
+  return [...samples].sort((a, b) => a.elapsed / a.budget - b.elapsed / b.budget)[Math.floor(samples.length / 2)]!
+}
+
+/**
+ * Measure three paired calibration/work samples regardless of their results.
+ * The median ratio tolerates one scheduling outlier without accepting one
+ * unusually fast run as evidence that a repeated regression has passed.
+ * @param run Work to time; it runs three times.
+ * @param multiple Machine budgets allowed for `run`.
+ * @returns All samples and the sample with the median elapsed/budget ratio.
+ */
+function measureAgainstBudget(run: () => void, multiple = 1): TimingSample & { samples: TimingSample[] } {
+  const samples = Array.from({ length: 3 }, () => {
+    const budget = multiple * machineBudget(3)
+    return { elapsed: timeMs(run), budget }
+  })
+  return { ...medianTiming(samples), samples }
+}
+
+describe('paired timing verdict', () => {
+  it('rejects two over-budget samples even when the third is fast', () => {
+    const result = medianTiming([{ elapsed: 1, budget: 10 }, { elapsed: 30, budget: 10 }, { elapsed: 40, budget: 10 }])
+    expect(result.elapsed).toBeGreaterThan(result.budget)
+  })
+
+  it('uses paired ratios rather than absolute durations', () => {
+    expect(medianTiming([{ elapsed: 20, budget: 10 }, { elapsed: 100, budget: 200 }, { elapsed: 3, budget: 10 }]))
+      .toEqual({ elapsed: 100, budget: 200 })
+  })
+})
+
+// Three paired measurements must fit on a contended runner; the default 5 s does not.
+describe('lintFragment on adversarial input', { timeout: 30_000 }, () => {
+  const timings: { name: string; elapsed: number; samples: TimingSample[] }[] = []
 
   for (const [name, fragment] of Object.entries(ADVERSARIAL)) {
     it(`stays under the machine budget (${BUDGET_MS} ms on the reference machine) and never throws: ${name}`, () => {
       expect(new TextEncoder().encode(fragment).length).toBeLessThanOrEqual(MAX)
-      const started = performance.now()
-      const report = lintFragment(fragment, MAX)
-      const elapsed = performance.now() - started
-      timings.push([name, elapsed])
-      expect(report.skipped).toBeUndefined()
+      let report: ReturnType<typeof lintFragment> | undefined
+      const { elapsed, budget, samples } = measureAgainstBudget(() => { report = lintFragment(fragment, MAX) })
+      timings.push({ name, elapsed, samples })
+      expect(report).toBeDefined()
+      expect(report?.skipped).toBeUndefined()
       expect(elapsed).toBeLessThan(budget)
     })
   }
 
   it('reports the slowest case', () => {
-    const slowest = [...timings].sort((a, b) => b[1] - a[1]).slice(0, 5)
-    console.log(`slowest lint cases (ms): ${slowest.map(([name, ms]) => `${name}=${ms.toFixed(1)}`).join(', ')}`)
+    const slowest = [...timings].sort((a, b) => b.elapsed - a.elapsed).slice(0, 5)
+    console.log(`slowest lint cases (ms, load budget ${loadBudget.toFixed(1)}): ${slowest.map(({ name, elapsed }) => `${name}=${elapsed.toFixed(1)}`).join(', ')}`)
+    console.log(`paired lint samples (elapsed/budget ms): ${JSON.stringify(timings)}`)
     expect(timings.length).toBe(Object.keys(ADVERSARIAL).length)
   })
 
   it('keeps the gate linear when a card carries many errors', () => {
     const fragment = ADVERSARIAL['many fetch( calls']!
-    const started = performance.now()
-    expect(() => new FragmentLintGate().check({ fragment, maxBytes: MAX, sessionId: 's' })).toThrow(/VZ007/u)
-    expect(performance.now() - started).toBeLessThan(2 * budget)
+    const { elapsed, budget } = measureAgainstBudget(() => {
+      expect(() => new FragmentLintGate().check({ fragment, maxBytes: MAX, sessionId: 's' })).toThrow(/VZ007/u)
+    }, 2)
+    expect(elapsed).toBeLessThan(budget)
   })
 })
 
@@ -220,10 +263,9 @@ describe('lintFragment never throws', () => {
     expect(report.findings.filter(f => f.severity === 'error')).toEqual([])
   })
 
-  it('keeps the regex-literal scan linear (Codex repro: 64000 /[ in 128 KB)', () => {
-    const started = performance.now()
-    lintFragment(`<script>${'/['.repeat(64_000)}</script>`, MAX)
-    expect(performance.now() - started).toBeLessThan(budget)
+  it('keeps the regex-literal scan linear (Codex repro: 64000 /[ in 128 KB)', { timeout: 30_000 }, () => {
+    const { elapsed, budget } = measureAgainstBudget(() => lintFragment(`<script>${'/['.repeat(64_000)}</script>`, MAX))
+    expect(elapsed).toBeLessThan(budget)
   })
 
   it('tokenises 300k nested template literals without recursion', () => {

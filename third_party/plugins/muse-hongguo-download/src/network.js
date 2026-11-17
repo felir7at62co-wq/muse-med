@@ -68,7 +68,10 @@ export async function officialRequest(value, kind, signal, options = {}) {
       try { target = new URL(response.headers.location, url).href; } catch (error) { throw new DownloadError('redirect', '媒体重定向地址无效'); }
       try { url = checkedUrl(target, kind, options.allowedHosts, options.allowedPorts); }
       catch (error) {
-        if (error instanceof DownloadError) throw new DownloadError('unsafe_redirect', '媒体重定向到未配置的 HTTPS 主机或端口，下载已拒绝');
+        if (error instanceof DownloadError) {
+          const host = new URL(target).host;
+          throw new DownloadError('unsafe_redirect', `媒体重定向到未配置的 HTTPS 主机或端口（${host}），下载已拒绝；确认是官方 CDN 后可加入 mediaHosts`);
+        }
         throw error;
       }
       continue;
