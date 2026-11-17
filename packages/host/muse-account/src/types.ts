@@ -12,6 +12,87 @@ export type MuseFeedbackId = Branded<'MuseFeedbackId'>
 /** Short-lived Desktop login attempt issued by the account gateway. */
 export type MuseBrowserLoginId = Branded<'MuseBrowserLoginId'>
 
+/** Account identifier assigned by the Muse gateway. */
+export type MuseAccountId = Branded<'MuseAccountId'>
+
+/** Administrator-maintained Muse group identifier. */
+export type MuseAccountGroupId = Branded<'MuseAccountGroupId'>
+
+/** Deduplicated model request identifier in the account usage ledger. */
+export type MuseAccountUsageId = Branded<'MuseAccountUsageId'>
+
+/** Department identifier returned by Feishu organization authorization. */
+export type MuseFeishuDepartmentId = Branded<'MuseFeishuDepartmentId'>
+
+/** Time range and page for the current account's usage; omissions select 30 days and the first 50 requests. */
+export interface MuseAccountDetailsRequest {
+  readonly period?: 'all' | 'today' | '7d' | '30d'
+  readonly offset?: number
+  readonly limit?: number
+}
+
+/** Reported token counts; input includes cached input, which is also shown separately. */
+export interface MuseAccountUsageCounts {
+  readonly requests: number
+  readonly reportedRequests: number
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly totalTokens: number
+  readonly cachedInputTokens: number
+  readonly reasoningTokens: number
+}
+
+/** Current account profile, assigned Muse groups, and content-free model usage. */
+export interface MuseAccountDetails {
+  readonly account: {
+    readonly id: MuseAccountId
+    readonly username: string
+    readonly createdAt: string
+    readonly lastLoginAt: string | null
+    readonly lastActivityAt: string | null
+    readonly feishuIdentities: readonly {
+      readonly name: string
+      readonly tenantKey: string | null
+      readonly boundAt: string
+      readonly lastLoginAt: string | null
+      /** Omission means this identity predates organization synchronization. */
+      readonly organization?: {
+        readonly status: 'available' | 'permission-required' | 'unavailable'
+        readonly syncedAt: string
+        readonly departments: readonly {
+          readonly id: MuseFeishuDepartmentId
+          readonly name: string
+          readonly path: string
+          readonly pathIds: readonly MuseFeishuDepartmentId[]
+        }[]
+      }
+    }[]
+  }
+  readonly groups: readonly { readonly id: MuseAccountGroupId; readonly name: string; readonly description: string }[]
+  readonly usage: {
+    readonly since: string
+    readonly updatedAt: string
+    readonly tracking: 'gateway-and-desktop'
+    readonly summary: MuseAccountUsageCounts
+    readonly byModel: readonly (MuseAccountUsageCounts & { readonly provider: string; readonly model: string })[]
+    readonly byDay: readonly (MuseAccountUsageCounts & { readonly date: string })[]
+    readonly pagination: { readonly offset: number; readonly limit: number; readonly total: number; readonly hasMore: boolean }
+    readonly recent: readonly {
+      readonly id: MuseAccountUsageId
+      readonly at: string
+      readonly provider: string
+      readonly model: string
+      readonly status: number | null
+      readonly source: 'gateway-relay' | 'desktop-direct'
+      readonly inputTokens: number | null
+      readonly outputTokens: number | null
+      readonly totalTokens: number | null
+      readonly cachedInputTokens: number | null
+      readonly reasoningTokens: number | null
+    }[]
+  }
+}
+
 /** Public approval fields; the Host retains the redemption secret privately. */
 export interface MuseBrowserLoginAttempt {
   readonly id: MuseBrowserLoginId

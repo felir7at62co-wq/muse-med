@@ -30,6 +30,7 @@ const attempt = { id, code: 'TEST1234', authorizeUrl: 'https://muse.test/approva
 function props(overrides: Partial<MuseAccountInjected> = {}): MuseAccountSectionProps {
   return { t: (key: string) => key,
     status: async () => ({ ok: true, value: signedOut }),
+    details: async () => ({ ok: false, code: 'muse-account/gateway-unavailable' }),
     login: async () => ({ ok: true, value: { outcome: 'signed-in', status: signedIn } }),
     logout: async () => ({ ok: true, value: signedOut }),
     startBrowserLogin: async () => ({ ok: true, value: attempt }),

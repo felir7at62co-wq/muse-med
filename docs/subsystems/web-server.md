@@ -233,6 +233,13 @@ async audioStatus(id: string, signal?: AbortSignal): Promise<MuseAsrJob>
 @Remote('status') async status(request: MuseAccountStatusRequest): Promise<MuseAccountStatus>
 
 /**
+ * Read profile, assigned groups, and token usage for the saved Muse login.
+ * @param request - Usage period and page; omission of fields selects gateway defaults.
+ * @returns Validated current-account data without credentials or model content.
+ */
+@Remote('details') async details(request: MuseAccountDetailsRequest): Promise<MuseAccountDetails>
+
+/**
  * Sign in using UI-submitted credentials; registration requires an explicit choice.
  * @param request - Username, password and registration choice.
  * @returns The confirmed account identity and actual outcome, without credentials; post-login refresh failures do not replace it.

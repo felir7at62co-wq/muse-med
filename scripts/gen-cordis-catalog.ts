@@ -1085,6 +1085,8 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   MuseDesktopTunnel: 'desktop connection lifetime is owned by packages/host/muse-account/README.md',
   MuseDesktopTunnelOptions: 'desktop provider configuration is owned by packages/host/muse-account/README.md',
   MuseVoiceSlotRequest: 'Muse account operations are owned by packages/host/muse-account/README.md and its source types',
+  MuseAccountDetails: 'Muse account details are owned by packages/host/muse-account/README.md and its source types',
+  MuseAccountDetailsRequest: 'Muse account details are owned by packages/host/muse-account/README.md and its source types',
   MuseAccountStatus: 'Muse account operations are owned by packages/host/muse-account/README.md and its source types',
   MuseAccountStatusRequest: 'Muse account operations are owned by packages/host/muse-account/README.md and its source types',
   MuseAccountLoginRequest: 'Muse account operations are owned by packages/host/muse-account/README.md and its source types',

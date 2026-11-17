@@ -4,22 +4,35 @@ import {readFile,writeFile,rename,mkdir,chmod} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {EventEmitter} from 'node:events';
 import {validDeviceId} from './desktop-route.mjs';
+import {accountGroups} from './account-groups.mjs';
 const scrypt=promisify(derive);
 export const validId=id=>typeof id==='string'&&/^[a-f0-9]{16}$/.test(id);
 function name(value){if(typeof value!=='string')throw Error('用户名格式不正确');const display=value.normalize('NFKC');if(!/^[\p{Script=Han}A-Za-z0-9_-]{2,32}$/u.test(display))throw Error('用户名须为 2–32 位中文、字母、数字、下划线或连字符');return {display,key:display.toLowerCase()};}
 function password(value){if(typeof value!=='string'||value.length<1||value.length>128)throw Error('密码须为 1–128 位');return value;}
 async function hash(value){const salt=randomBytes(24).toString('hex');return {salt,hash:(await scrypt(password(value),salt,64)).toString('hex')};}
 const hasPassword=a=>typeof a.salt==='string'&&typeof a.hash==='string';
-const publicIdentity=({appId,tenantKey=null,openId,unionId,name,avatarUrl,boundAt,lastLoginAt})=>({appId,tenantKey,openId,...unionId!==undefined?{unionId}:{},name,...avatarUrl!==undefined?{avatarUrl}:{},boundAt,lastLoginAt});
-const publicRecord=a=>a?(({id,username,admin,disabled,createdAt,revision,lastLoginAt=null,lastActivityAt=null,feishuIdentities=[]})=>({id,username,admin,disabled,createdAt,revision,passwordLogin:hasPassword(a),lastLoginAt,lastActivityAt,feishuIdentities:feishuIdentities.map(publicIdentity)}))(a):null;
+const publicIdentity=({appId,tenantKey=null,openId,unionId,name,avatarUrl,boundAt,lastLoginAt,organization})=>({appId,tenantKey,openId,...unionId!==undefined?{unionId}:{},name,...avatarUrl!==undefined?{avatarUrl}:{},boundAt,lastLoginAt,...organization===undefined?{}:{organization:validateOrganization(organization)}});
+const publicRecord=a=>a?(({id,username,admin,disabled,createdAt,revision,lastLoginAt=null,lastActivityAt=null,feishuIdentities=[],groups=[]})=>({id,username,admin,disabled,createdAt,revision,passwordLogin:hasPassword(a),lastLoginAt,lastActivityAt,feishuIdentities:feishuIdentities.map(publicIdentity),groups:accountGroups(groups)}))(a):null;
 function reject(code,message){throw Object.assign(Error(message),{code});}
 const externalId=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,256}$/.test(value);
 const instant=value=>typeof value==='string'&&Number.isFinite(new Date(value).getTime())&&new Date(value).toISOString()===value;
+function validateOrganization(value){
+ const label=(item,max)=>typeof item==='string'&&item.length>0&&item.length<=max&&!/[\x00-\x1f\x7f-\x9f]/.test(item);
+ if(!value||!['available','permission-required','unavailable'].includes(value.status)||!instant(value.syncedAt)||!Array.isArray(value.departments)||value.departments.length>100
+  ||value.status!=='available'&&value.departments.length>0)reject('FEISHU_PROFILE_INVALID','Invalid Feishu organization profile');
+ const departments=value.departments.map(department=>{
+  if(!department||!externalId(department.id)||!label(department.name,200)||!label(department.path,20000)||!Array.isArray(department.pathIds)||department.pathIds.length>100||department.pathIds.some(id=>!externalId(id)))reject('FEISHU_PROFILE_INVALID','Invalid Feishu department');
+  return {id:department.id,name:department.name,path:department.path,pathIds:[...department.pathIds]};
+ });
+ if(new Set(departments.map(department=>department.id)).size!==departments.length)reject('FEISHU_PROFILE_INVALID','Duplicate Feishu department');
+ return {status:value.status,syncedAt:value.syncedAt,departments};
+}
 function feishuProfile(value){
  if(!value||!externalId(value.appId)||!externalId(value.openId)||value.tenantKey!=null&&!externalId(value.tenantKey)
   ||value.unionId!==undefined&&!externalId(value.unionId)||typeof value.name!=='string'||!value.name.trim()||value.name.length>200||/[\x00-\x1f\x7f-\x9f]/.test(value.name))reject('FEISHU_PROFILE_INVALID','Invalid Feishu identity profile');
  const profile={appId:value.appId,tenantKey:value.tenantKey??null,openId:value.openId,name:value.name};
  if(value.unionId!==undefined)profile.unionId=value.unionId;
+ if(value.organization!==undefined)profile.organization=validateOrganization(value.organization);
  if(value.avatarUrl!==undefined){
   let avatar;try{avatar=new URL(value.avatarUrl);}catch{reject('FEISHU_PROFILE_INVALID','Invalid Feishu avatar URL');}
   if(typeof value.avatarUrl!=='string'||value.avatarUrl.length>2048||avatar.protocol!=='https:'||avatar.username||avatar.password||avatar.hash)reject('FEISHU_PROFILE_INVALID','Invalid Feishu avatar URL');
@@ -55,7 +68,7 @@ export async function openStore(file){
    const feishuOnly=data.version===2&&a.passwordLogin===false&&a.salt===undefined&&a.hash===undefined&&Array.isArray(a.feishuIdentities)&&a.feishuIdentities.length>0;
    if(!validId(a.id)||ids.has(a.id)||typeof a.key!=='string'||usernames.has(a.key)||!credentials&&!feishuOnly)throw Error('Invalid account record');
    if(a.lastLoginAt!==undefined&&!instant(a.lastLoginAt)||a.lastActivityAt!==undefined&&!instant(a.lastActivityAt))throw Error('Invalid account activity record');
-   ids.add(a.id);usernames.add(a.key);validateDevices(a);validateIdentityRecords(a,identities);
+   ids.add(a.id);usernames.add(a.key);validateDevices(a);validateIdentityRecords(a,identities);accountGroups(a.groups??[]);
   }
  }catch(e){if(e.code!=='ENOENT')throw e;}
  const events=new EventEmitter();let queue=Promise.resolve();
@@ -107,6 +120,8 @@ export async function openStore(file){
   if(!instant(at))throw Error('Invalid account activity time');const a=find(rows,id);if(a.disabled)reject('ACCOUNT_DISABLED','Account disabled');
   if(!a.lastActivityAt||a.lastActivityAt<at)a.lastActivityAt=at;return publicRecord(a);
  }),
+ /** Save informational group assignments without changing sign-in authority or revoking sessions. */
+ setGroups:(id,groups,{validateAssignment}={})=>transaction(rows=>{if(validateAssignment!==undefined&&!validateAssignment())reject('ACCOUNT_REVISION_CHANGED','Group assignment authorization changed');const a=find(rows,id);a.groups=accountGroups(groups);return publicRecord(a);}),
  setDisabled:async(id,disabled)=>{const a=await transaction(rows=>{const a=find(rows,id);a.disabled=!!disabled;a.revision++;return publicRecord(a);});events.emit('change',id);return a;},
  resetPassword:async(id,secret)=>{const a=await transaction(async rows=>{const a=find(rows,id);Object.assign(a,await hash(secret));if(a.passwordLogin===false)a.passwordLogin=true;a.revision++;return publicRecord(a);});events.emit('change',id);return a;},
  // Verification and replacement share the serialized transaction, so a stale

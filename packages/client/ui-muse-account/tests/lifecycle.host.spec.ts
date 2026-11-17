@@ -11,6 +11,7 @@ import { createMuseAccountGateway } from '../../../host/muse-account/src/gateway
 import { MuseAccountService } from '../../../host/muse-account/src/service.ts'
 import { readMuseSession, writeMuseSession } from '../../../host/muse-account/src/session.ts'
 import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from '../../../host/muse-account/src/types.ts'
+import { ACCOUNT_DETAILS } from './account-details.fixture.ts'
 
 // Preserve Node's fetch/URL implementations for the Host while React uses the owned DOM.
 const dom = await vi.hoisted(async () => {
@@ -31,6 +32,7 @@ afterAll(dom.dispose)
 
 interface PageFixture {
   mountAccountPage: (host: {
+    details(request: import('../../../host/muse-account/src/types.ts').MuseAccountDetailsRequest): Promise<RemoteResult<import('../../../host/muse-account/src/types.ts').MuseAccountDetails>>
     status(request: MuseAccountStatusRequest): Promise<RemoteResult<MuseAccountStatus>>
     login(request: MuseAccountLoginRequest): Promise<RemoteResult<MuseAccountLoginResult>>
     logout(): Promise<RemoteResult<MuseAccountStatus>>
@@ -67,6 +69,7 @@ async function bench() {
   const gateway = createMuseAccountGateway(baseUrl, 1000, async (input, init) => {
     const path = new URL(input instanceof Request ? input.url : input).pathname
     requests.push(path)
+    if (path === '/api/muse.account/details') return Response.json(ACCOUNT_DETAILS)
     if (path === '/api/muse.account') {
       expect(new Headers(init?.headers).get('cookie')).toMatch(/^__Host-muse=/u)
       return await response()
@@ -87,6 +90,7 @@ async function bench() {
     return { ctx, page: async () => {
       const page = await mountAccountPage({
         status: request => outcome(() => service.status(request)),
+        details: request => outcome(() => service.details(request)),
         login: request => outcome(() => service.login(request)),
         logout: () => outcome(() => service.logout()),
         startBrowserLogin: () => outcome(() => service.startBrowserLogin()),
@@ -104,6 +108,7 @@ it('verifies each actual settings opening and Host restart, then removes the sav
   const b = await bench(), firstHost = await b.start(), first = await firstHost.page()
   const firstUi = within(first.container)
   await firstUi.findByText('账号已验证。')
+  await firstUi.findByText('编剧团队')
   expect(firstUi.getByText('工作空间：First studio')).toBeDefined()
   const verifiedView = pageView(first.container)
   expect(first.registrations()).toBe(1)
@@ -114,13 +119,15 @@ it('verifies each actual settings opening and Host restart, then removes the sav
   b.respond(async () => Response.json({ username: 'writer', workspaceLabel: 'Changed studio' }))
   const reopened = await firstHost.page()
   await within(reopened.container).findByText('工作空间：Changed studio')
+  await within(reopened.container).findByText('编剧团队')
   const reopenedView = pageView(reopened.container)
   await reopened.dispose()
   await firstHost.ctx.fiber.dispose()
   const restarted = await b.start(), third = await restarted.page(), thirdUi = within(third.container)
   await thirdUi.findByText('账号已验证。')
+  await thirdUi.findByText('编剧团队')
   expect(await readFile(b.sessionFile, 'utf8')).toBe(stored)
-  expect(b.requests).toEqual(['/api/muse.account', '/api/muse.account', '/api/muse.account'])
+  expect(b.requests).toEqual(['/api/muse.account', '/api/muse.account/details', '/api/muse.account', '/api/muse.account/details', '/api/muse.account', '/api/muse.account/details'])
   expect(b.operations).toHaveLength(6)
   expect(b.operations.filter(operation => operation === 'models')).toHaveLength(3)
   expect(b.operations.filter(operation => operation === 'remote')).toHaveLength(3)
@@ -128,7 +135,7 @@ it('verifies each actual settings opening and Host restart, then removes the sav
   await thirdUi.findByRole('button', { name: '飞书登录' })
   expect(await readMuseSession(b.sessionFile, b.baseUrl)).toBeNull()
   expect(b.operations.slice(6)).toEqual(['pause', 'models'])
-  expect(b.requests).toEqual(['/api/muse.account', '/api/muse.account', '/api/muse.account', '/logout'])
+  expect(b.requests).toEqual(['/api/muse.account', '/api/muse.account/details', '/api/muse.account', '/api/muse.account/details', '/api/muse.account', '/api/muse.account/details', '/logout'])
   expect(thirdUi.queryByText('__Host-muse=fixture')).toBeNull()
   await expect(`${JSON.stringify({ verified: verifiedView, reopened: reopenedView, signedOut: pageView(third.container) }, null, 2)}\n`)
     .toMatchFileSnapshot(join(import.meta.dirname, 'expected/account-verification.zh.json'))

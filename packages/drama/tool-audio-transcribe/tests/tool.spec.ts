@@ -32,6 +32,7 @@ async function fixture() {
   contexts.push(ctx)
   const status = async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' })
   await ctx.plugin(MuseAccountService, { controller: {
+    details: async () => { throw new Error('Unused fixture details') },
     status, logout: status, login: async () => { throw new Error('login is not part of a model tool call') },
   } })
   await ctx.plugin(SystemPrompt).await()

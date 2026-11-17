@@ -24,7 +24,7 @@ it('contains an account observer failure after recording the current identity', 
   const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
   context.on('muse-account/session-changed', observer)
   const status = { state: 'signed-out' } as const
-  await context.plugin(MuseAccountService, { controller: {
+  await context.plugin(MuseAccountService, { controller: { details: async () => { throw new Error('Unused fixture details') },
     status: async () => status,
     logout: async () => status,
     login: async () => { throw new Error('unused') },
@@ -46,7 +46,7 @@ it('keeps browser redemption private, refreshes consumers after commit and cance
   const status = { state: 'signed-in', username: 'writer', verified: true } as const
   const check = vi.fn<NonNullable<import('../src/service.ts').MuseAccountServiceOptions['browserLogin']>['check']>()
     .mockResolvedValueOnce({ state: 'pending' }).mockResolvedValueOnce({ state: 'signed-in', status })
-  const controller = { status: async () => status, login: async () => { operations.push('login'); return { outcome: 'signed-in' as const, status } },
+  const controller = { details: async () => { throw new Error('Unused fixture details') }, status: async () => status, login: async () => { operations.push('login'); return { outcome: 'signed-in' as const, status } },
     logout: async () => { operations.push('logout'); return { state: 'signed-out' as const } } }
   await context.plugin(MuseAccountService, { controller, browserLogin: {
     start: async () => attempt, check, cancel: async () => { operations.push('cancel') },
@@ -71,7 +71,7 @@ it('notifies credential-free account changes after real local session persistenc
   const context = new Context(), home = await mkdtemp(join(tmpdir(), 'muse-account-notifications-'))
   contexts.push(context); homes.push(home)
   const baseUrl = 'https://muse.example', sessionFile = join(home, 'session.json')
-  const controller = new MuseAccountController({ baseUrl, sessionFile, gateway: {
+  const controller = new MuseAccountController({ baseUrl, sessionFile, gateway: { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => '__Host-muse=notification-fixture', register: async () => '__Host-muse=notification-fixture',
     signOut: async () => {}, identity: async () => ({ username: 'writer' }),
   } })
@@ -98,7 +98,7 @@ it('notifies credential-free account changes after real local session persistenc
 it('bounds browser login failures and reports unavailable Hosts without exposing errors', async () => {
   const context = new Context()
   contexts.push(context)
-  const controller = { status: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }),
+  const controller = { details: async () => { throw new Error('Unused fixture details') }, status: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }),
     login: async () => { throw new Error('unused') }, logout: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }) }
   const id = 'attempt' as import('../src/types.ts').MuseBrowserLoginId
   const empty = await context.plugin(MuseAccountService, { controller })
@@ -128,7 +128,7 @@ it('returns live administrator navigation through status but omits it after unve
   contexts.push(context); homes.push(home)
   const baseUrl = 'https://muse.example', sessionFile = join(home, 'session.json')
   await writeMuseSession(sessionFile, { baseUrl, cookie: '__Host-muse=owner', username: 'owner' })
-  const controller = new MuseAccountController({ baseUrl, sessionFile, gateway: {
+  const controller = new MuseAccountController({ baseUrl, sessionFile, gateway: { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => '', register: async () => '', signOut: async () => {},
     identity: async () => ({ username: 'owner', admin: true, adminUrl: baseUrl + '/admin' }),
   } })
@@ -142,7 +142,7 @@ it('returns live administrator navigation through status but omits it after unve
 it('publishes account setup and explicit inbox submission over the authenticated Remote namespace', async () => {
   const context = new Context()
   contexts.push(context)
-  const controller = {
+  const controller = { details: async () => { throw new Error('Unused fixture details') },
     status: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }),
     login: async () => { throw new MuseGatewayError('invalid-credentials') },
     logout: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }),
@@ -150,7 +150,7 @@ it('publishes account setup and explicit inbox submission over the authenticated
   await context.plugin(MuseAccountService, { controller })
   const service = context.get('museAccount') as MuseAccountService
 
-  expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
+  expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'details', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
   await expect(service.feedback({ sessionId: 'session' as never, target: { kind: 'session' }, includeDiagnostics: false }))
     .rejects.toMatchObject({ code: 'muse-feedback/unavailable', details: {} })
   await expect(service.login({ username: 'writer', password: 'secret-value', registerIfMissing: false }))
@@ -160,7 +160,7 @@ it('publishes account setup and explicit inbox submission over the authenticated
 it('never forwards an unexpected storage error message across Remote', async () => {
   const context = new Context()
   contexts.push(context)
-  const controller = {
+  const controller = { details: async () => { throw new Error('Unused fixture details') },
     status: async () => { throw new Error('secret-value from a damaged session') },
     login: async () => { throw new Error('unexpected') },
     logout: async () => { throw new Error('unexpected') },
@@ -185,12 +185,12 @@ it('forwards the receipt purpose through the Host service without adding transcr
     const asr = new MuseAsrClient({ baseUrl: 'https://muse.test', sessionFile, requestTimeoutMs: 1000,
       fetcher: async (_url, init) => { headers.push(new Headers(init?.headers)); return new Response(JSON.stringify({ id, status: 'processing', purpose: 'screenplay', service_version: 'standard-v2', app_key: 'private-provider-value' })) },
     })
-    await context.plugin(MuseAccountService, { controller: { status, login: async () => { throw new Error('Unused fixture login') }, logout: status }, asr })
+    await context.plugin(MuseAccountService, { controller: { details: async () => { throw new Error('Unused fixture details') }, status, login: async () => { throw new Error('Unused fixture login') }, logout: status }, asr })
     const service = context.get('museAccount') as MuseAccountService
     expect(await service.submitAudio(file, id, 'a'.repeat(64), 'zh', 'screenplay')).toEqual({ id, status: 'processing', purpose: 'screenplay', service_version: 'standard-v2' })
     await service.audioStatus(id)
     expect(headers.map(row => row.get('x-muse-asr-purpose'))).toEqual(['screenplay', null])
-    expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
+    expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'details', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
     const controller = new AbortController(), reason = new Error('cancelled service call')
     controller.abort(reason)
     await expect(service.submitAudio(file, id, 'a'.repeat(64), 'zh', 'screenplay', controller.signal)).rejects.toBe(reason)
@@ -206,7 +206,7 @@ it('orders account refresh and disconnect operations and returns an explicit fee
   const context = new Context(), operations: string[] = []
   contexts.push(context)
   const signedOut = { state: 'signed-out' } as const
-  await context.plugin(MuseAccountService, { controller: {
+  await context.plugin(MuseAccountService, { controller: { details: async () => { throw new Error('Unused fixture details') },
     status: async () => { operations.push('status'); return signedOut },
     login: async () => { operations.push('login'); return { outcome: 'signed-in', status: { state: 'signed-in', username: 'writer', verified: true } } },
     logout: async () => { operations.push('logout'); return signedOut },
@@ -230,7 +230,7 @@ it('returns login success and keeps the saved session when the model catalog ref
   const sessionFile = join(dir, 'session.json')
   const controller = new MuseAccountController({
     baseUrl: 'https://muse.test', sessionFile,
-    gateway: {
+    gateway: { details: async () => { throw new Error('Unused fixture details') },
       signIn: async () => '__Host-muse=saved-session',
       register: async () => { throw new Error('unexpected registration') },
       identity: async () => ({ username: 'writer' }),
@@ -261,7 +261,7 @@ it('continues to model refresh and returns login success when desktop refresh fa
   const context = new Context(), operations: string[] = []
   contexts.push(context)
   const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
-  await context.plugin(MuseAccountService, { controller: {
+  await context.plugin(MuseAccountService, { controller: { details: async () => { throw new Error('Unused fixture details') },
     status: async () => ({ state: 'signed-out' }),
     login: async () => { operations.push('login'); return { outcome: 'signed-in', status: { state: 'signed-in', username: 'writer', verified: true } } },
     logout: async () => ({ state: 'signed-out' }),
@@ -287,7 +287,7 @@ it('returns the saved account after restart when desktop and model refreshes fai
   const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
   const sessionFile = join(dir, 'session.json')
   await writeMuseSession(sessionFile, { baseUrl: 'https://muse.test', cookie: '__Host-muse=saved-session', username: 'writer' })
-  const controller = new MuseAccountController({ baseUrl: 'https://muse.test', sessionFile, gateway: {
+  const controller = new MuseAccountController({ baseUrl: 'https://muse.test', sessionFile, gateway: { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => { throw new Error('unused') }, register: async () => { throw new Error('unused') },
     identity: async () => { throw new Error('local status must not verify') }, signOut: async () => {},
   } })
@@ -321,7 +321,7 @@ it('clears a session rejected by explicit identity verification even when follow
   vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
   const sessionFile = join(dir, 'session.json')
   await writeMuseSession(sessionFile, { baseUrl: 'https://muse.test', cookie: '__Host-muse=expired-session', username: 'writer' })
-  const controller = new MuseAccountController({ baseUrl: 'https://muse.test', sessionFile, gateway: {
+  const controller = new MuseAccountController({ baseUrl: 'https://muse.test', sessionFile, gateway: { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => { throw new Error('unused') }, register: async () => { throw new Error('unused') },
     identity: async () => { throw new MuseGatewayError('invalid-credentials') }, signOut: async () => {},
   } })
@@ -344,7 +344,7 @@ it('keeps the saved session and skips refreshes when explicit identity verificat
   contexts.push(context)
   const sessionFile = join(dir, 'session.json')
   await writeMuseSession(sessionFile, { baseUrl: 'https://muse.test', cookie: '__Host-muse=saved-session', username: 'writer' })
-  const controller = new MuseAccountController({ baseUrl: 'https://muse.test', sessionFile, gateway: {
+  const controller = new MuseAccountController({ baseUrl: 'https://muse.test', sessionFile, gateway: { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => { throw new Error('unused') }, register: async () => { throw new Error('unused') },
     identity: async () => { throw new MuseGatewayError('gateway-unavailable') }, signOut: async () => {},
   } })
@@ -366,7 +366,7 @@ it('keeps the saved session and skips refreshes when explicit identity verificat
 it.each(['username-taken', 'rate-limited', 'registration-disabled', 'gateway-unavailable', 'gateway-rejected', 'input'] as const)(
   'bounds login failure text for %s', async (failure) => {
     const context = new Context(); contexts.push(context)
-    await context.plugin(MuseAccountService, { controller: {
+    await context.plugin(MuseAccountService, { controller: { details: async () => { throw new Error('Unused fixture details') },
       status: async () => ({ state: 'signed-out' }), logout: async () => ({ state: 'signed-out' }),
       login: async () => { throw failure === 'input' ? new MuseAccountInputError() : new MuseGatewayError(failure) },
     } })
@@ -378,7 +378,7 @@ it.each(['username-taken', 'rate-limited', 'registration-disabled', 'gateway-una
 
 it('keeps logout and feedback failures fixed and reports missing cloud transcription explicitly', async () => {
   const context = new Context(); contexts.push(context)
-  await context.plugin(MuseAccountService, { controller: {
+  await context.plugin(MuseAccountService, { controller: { details: async () => { throw new Error('Unused fixture details') },
     status: async () => ({ state: 'signed-out' }), login: async () => { throw new Error('unused') },
     logout: async () => { throw new Error('PRIVATE_STORAGE') },
   }, feedback: { submit: async () => { throw new Error('PRIVATE_RECEIPT') } } })
@@ -392,7 +392,7 @@ it('keeps logout and feedback failures fixed and reports missing cloud transcrip
 
 it('preserves a recognized feedback refusal without forwarding its local detail', async () => {
   const context = new Context(); contexts.push(context)
-  await context.plugin(MuseAccountService, { controller: {
+  await context.plugin(MuseAccountService, { controller: { details: async () => { throw new Error('Unused fixture details') },
     status: async () => ({ state: 'signed-out' }), login: async () => { throw new Error('unused') }, logout: async () => ({ state: 'signed-out' }),
   }, feedback: { submit: async () => { throw new MuseFeedbackError('account-changed') } } })
   const service = context.get('museAccount') as MuseAccountService
@@ -402,7 +402,7 @@ it('preserves a recognized feedback refusal without forwarding its local detail'
 
 it('keeps voice coordination Host-only and explicitly reports a missing provider', async () => {
   const context = new Context(); contexts.push(context)
-  const controller = { status: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }),
+  const controller = { details: async () => { throw new Error('Unused fixture details') }, status: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }),
     login: async () => { throw new Error('Unused') }, logout: async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' }) }
   await context.plugin(MuseAccountService, { controller })
   const service = context.get('museAccount') as MuseAccountService

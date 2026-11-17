@@ -44,6 +44,7 @@ function registerSection(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   const account: MuseAccountInjected = {
     status: async request => outcomeOf(await ctx.remote.museAccount.status(request)),
+    details: async request => outcomeOf(await ctx.remote.museAccount.details(request)),
     login: async request => outcomeOf(await ctx.remote.museAccount.login(request)),
     logout: async () => outcomeOf(await ctx.remote.museAccount.logout()),
     startBrowserLogin: async () => outcomeOf(await ctx.remote.museAccount.startBrowserLogin()),

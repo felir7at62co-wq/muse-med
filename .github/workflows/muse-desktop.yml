@@ -100,6 +100,8 @@ jobs:
         run: gh release download muse-desktop-v0.1.6-alpha.1 --repo felir7at62co-wq/muse-med --pattern muse-ffmpeg-9.0.2-win-x64.zip --dir apps/desktop/.desktop-build/downloads/media
       - name: Check model relay behavior
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
+      - name: Check user groups, Feishu organization and token history
+        run: node --test services/muse-accounts/account-details.test.mjs services/muse-accounts/account-pages.test.mjs services/muse-accounts/feishu-login.test.mjs services/muse-accounts/feishu-organization.test.mjs
       - name: Build Host peers for plugin packaging
         run: pnpm run build:lib:host
       - name: Check built-in Bot memory, shutdown and packaging policy

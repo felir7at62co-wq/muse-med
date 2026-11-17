@@ -2534,6 +2534,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'A browser-safe status without a cookie.',
       },
       {
+        signature: '@Remote(\'details\') async details(request: MuseAccountDetailsRequest): Promise<MuseAccountDetails>',
+        description: 'Read profile, assigned groups, and token usage for the saved Muse login.',
+        parameters: [{ name: 'request', description: 'Usage period and page; omission of fields selects gateway defaults.' }],
+        returns: 'Validated current-account data without credentials or model content.',
+      },
+      {
         signature: '@Remote(\'login\') async login(request: MuseAccountLoginRequest): Promise<MuseAccountLoginResult>',
         description: 'Sign in using UI-submitted credentials; registration requires an explicit choice.',
         parameters: [{ name: 'request', description: 'Username, password and registration choice.' }],
@@ -8379,6 +8385,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ModTier = \'prepend\' | \'user\' | \'append\' | \'builtin\' | \'core\';',
   },
   {
+    name: 'MuseAccountDetails',
+    declaration: 'export interface MuseAccountDetails {\n    readonly account: {\n        readonly id: MuseAccountId;\n        readonly username: string;\n        readonly createdAt: string;\n        readonly lastLoginAt: string | null;\n        readonly lastActivityAt: string | null;\n        readonly feishuIdentities: readonly {\n            readonly name: string;\n            readonly tenantKey: string | null;\n            readonly boundAt: string;\n            readonly lastLoginAt: string | null;\n            readonly organization?: {\n                readonly status: \'available\' | \'permission-required\' | \'unavailable\';\n                readonly syncedAt: string;\n                readonly departments: readonly {\n                    readonly id: MuseFeishuDepartmentId;\n                    readonly name: string;\n                    readonly path: string;\n                    readonly pathIds: readonly MuseFeishuDepartmentId[];\n                }[];\n            };\n        }[];\n    };\n    readonly groups: readonly {\n        readonly id: MuseAccountGroupId;\n        readonly name: string;\n        readonly description: string;\n    }[];\n    readonly usage: {\n        readonly since: string;\n        readonly updatedAt: string;\n        readonly tracking: \'gateway-and-desktop\';\n        readonly summary: MuseAccountUsageCounts;\n        readonly byModel: readonly (MuseAccountUsageCounts & {\n            readonly provider: string;\n            readonly model: string;\n        })[];\n        readonly byDay: readonly (MuseAcco /* …truncated — full shape in source */',
+  },
+  {
+    name: 'MuseAccountDetailsRequest',
+    declaration: 'export interface MuseAccountDetailsRequest {\n    readonly period?: \'all\' | \'today\' | \'7d\' | \'30d\';\n    readonly offset?: number;\n    readonly limit?: number;\n}',
+  },
+  {
+    name: 'MuseAccountGroupId',
+    declaration: 'export type MuseAccountGroupId = Branded<\'MuseAccountGroupId\'>;',
+  },
+  {
+    name: 'MuseAccountId',
+    declaration: 'export type MuseAccountId = Branded<\'MuseAccountId\'>;',
+  },
+  {
     name: 'MuseAccountLoginRequest',
     declaration: 'export interface MuseAccountLoginRequest {\n    readonly username: string;\n    readonly password: string;\n    readonly registerIfMissing: boolean;\n}',
   },
@@ -8393,6 +8415,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MuseAccountStatusRequest',
     declaration: 'export interface MuseAccountStatusRequest {\n    readonly verify?: boolean;\n}',
+  },
+  {
+    name: 'MuseAccountUsageCounts',
+    declaration: 'export interface MuseAccountUsageCounts {\n    readonly requests: number;\n    readonly reportedRequests: number;\n    readonly inputTokens: number;\n    readonly outputTokens: number;\n    readonly totalTokens: number;\n    readonly cachedInputTokens: number;\n    readonly reasoningTokens: number;\n}',
   },
   {
     name: 'MuseAsrJob',
@@ -8449,6 +8475,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MuseFeedbackRequest',
     declaration: 'export interface MuseFeedbackRequest {\n    readonly sessionId: SessionId;\n    readonly target: {\n        readonly kind: \'session\';\n    } | {\n        readonly kind: \'message\';\n        readonly messageId: MessageId;\n        readonly rating: \'positive\' | \'negative\';\n    };\n    readonly category?: FeedbackCategory;\n    readonly text?: string;\n    readonly includeDiagnostics: boolean;\n    readonly title?: string;\n    readonly kind?: \'bug\' | \'suggestion\' | \'other\';\n    readonly requestId?: string;\n}',
+  },
+  {
+    name: 'MuseFeishuDepartmentId',
+    declaration: 'export type MuseFeishuDepartmentId = Branded<\'MuseFeishuDepartmentId\'>;',
   },
   {
     name: 'MuseMarketBindingEntry',

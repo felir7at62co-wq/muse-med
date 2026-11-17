@@ -12,10 +12,10 @@ import { MuseFeedbackError, type MuseFeedbackClient } from './feedback.ts'
 import type { MuseFeedbackRequest, MuseFeedbackReceipt } from './types.ts'
 import type { MuseDesktopRemote } from './desktop-remote.ts'
 import { MuseVoiceSlotError, type MuseVoiceSlotRequest, type MuseVoiceSlotsClient } from './voice-slots.ts'
-import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
+import type { MuseAccountDetails, MuseAccountDetailsRequest, MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
-type AccountOperations = Pick<MuseAccountController, 'status' | 'login' | 'logout'>
+type AccountOperations = Pick<MuseAccountController, 'status' | 'login' | 'logout' | 'details'>
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -131,6 +131,17 @@ export class MuseAccountService extends TypertRemoteService {
     } catch (error) {
       throw remoteFailure(error)
     }
+  }
+
+  /**
+   * Read profile, assigned groups, and token usage for the saved Muse login.
+   * @param request - Usage period and page; omission of fields selects gateway defaults.
+   * @returns Validated current-account data without credentials or model content.
+   */
+  @Remote('details')
+  async details(request: MuseAccountDetailsRequest): Promise<MuseAccountDetails> {
+    try { return await this.controller.details(request) }
+    catch (error) { throw remoteFailure(error) }
   }
 
   /**

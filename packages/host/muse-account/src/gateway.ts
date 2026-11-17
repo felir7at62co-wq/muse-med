@@ -1,4 +1,6 @@
 /** HTTP adapter for the MUSE account gateway. Credentials stay in request bodies. */
+import type { MuseAccountDetails, MuseAccountDetailsRequest } from './types.ts'
+import { readMuseAccountDetails } from './account-details.ts'
 
 /** Stable failure classes that can cross the authenticated Remote interface. */
 export type MuseGatewayFailure =
@@ -31,6 +33,7 @@ export interface MuseAccountGateway {
   signIn(username: string, password: string): Promise<string>
   register(username: string, password: string): Promise<string>
   identity(cookie: string): Promise<MuseAccountIdentity>
+  details(cookie: string, request: MuseAccountDetailsRequest): Promise<MuseAccountDetails>
   signOut(cookie: string): Promise<void>
 }
 
@@ -98,6 +101,24 @@ export function createMuseAccountGateway(baseUrl: string, requestTimeoutMs: numb
   }
 
   return {
+    async details(cookie, options) {
+      const query = new URLSearchParams()
+      if (options.period !== undefined) query.set('period', options.period)
+      if (options.offset !== undefined) query.set('offset', String(options.offset))
+      if (options.limit !== undefined) query.set('limit', String(options.limit))
+      const response = await request('/api/muse.account/details?' + query.toString(), { headers: { cookie, accept: 'application/json' } })
+      try {
+        if (response.status === 303 || response.status === 401) throw new MuseGatewayError('invalid-credentials')
+        if (response.status === 429) throw new MuseGatewayError('rate-limited')
+        if (!response.ok) throw new MuseGatewayError('gateway-rejected')
+        return await readMuseAccountDetails(response)
+      } finally {
+        if (!response.bodyUsed) {
+          try { await response.body?.cancel() }
+          catch (_error) { /* A rejected response keeps its bounded failure classification. */ }
+        }
+      }
+    },
     async signIn(username, password) {
       const response = await post('/login', new URLSearchParams({ username, password }))
       if (response.status === 401) throw new MuseGatewayError('invalid-credentials')
