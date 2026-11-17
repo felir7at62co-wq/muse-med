@@ -1,6 +1,6 @@
 {
   "name": "muse-hongguo-download",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Muse Hongguo downloads using the pinned jackotom/hongguo-drama engine",
   "type": "module",
   "main": "./src/index.js",

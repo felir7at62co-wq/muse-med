@@ -1,4 +1,4 @@
-/* GPL-3.0: https://github.com/jackotom/hongguo-drama bb4aec994a1fc6336da55b269481ae2196124e8d; corresponding source: source.tar.gz */
+/* GPL-3.0: https://github.com/jackotom/hongguo-drama 4ffff289d6dd289e589a0fd0e65aa7aa5c2a7567; corresponding source: source.tar.gz */
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __commonJS = (cb, mod) => function __require() {
   try {
@@ -17148,10 +17148,13 @@ var require_web_media_guard = __commonJS({
     var globalV6 = new BlockList();
     globalV6.addSubnet("2000::", 3, "ipv6");
     globalV6.addSubnet("::ffff:0:0", 96, "ipv6");
+    var fakeV4 = new BlockList();
+    fakeV4.addSubnet("198.18.0.0", 15, "ipv4");
     function isPublicAddress(address) {
       const family = isIP(address);
       return family === 4 ? !blocked.check(address, "ipv4") : family === 6 && globalV6.check(address, "ipv6") && !blocked.check(address, "ipv6");
     }
+    var isFakeAddress = (address) => isIP(address) === 4 && fakeV4.check(address, "ipv4");
     function isPublicMediaUrl2(value) {
       try {
         const url = new URL(value);
@@ -17166,14 +17169,16 @@ var require_web_media_guard = __commonJS({
     function blockedAddress() {
       return Object.assign(new Error("\u5B98\u7F51\u7247\u6E90\u53CA\u5176\u8DF3\u8F6C\u3001\u89E3\u6790\u7ED3\u679C\u5FC5\u987B\u6307\u5411\u516C\u7F51"), { code: "ERR_WEB_MEDIA_ADDRESS", mediaRetryable: true });
     }
-    var officialDnsCache;
-    var officialDnsPending;
-    function resolveOfficialAddress() {
-      if (officialDnsCache?.expires > Date.now()) return Promise.resolve(officialDnsCache.addresses);
-      if (officialDnsPending) return officialDnsPending;
+    var publicDnsCache = /* @__PURE__ */ new Map();
+    var publicDnsPending = /* @__PURE__ */ new Map();
+    function resolvePublicAddresses(hostname) {
+      const key = hostname.toLowerCase();
+      const cached = publicDnsCache.get(key);
+      if (cached?.expires > Date.now()) return Promise.resolve(cached.addresses);
+      if (publicDnsPending.has(key)) return publicDnsPending.get(key);
       const requests = [];
-      officialDnsPending = Promise.any(["https://1.1.1.1/dns-query", "https://223.5.5.5/resolve"].map((endpoint) => new Promise((resolve, reject) => {
-        const request = https.get(`${endpoint}?name=hongguoduanju.com&type=A`, {
+      const pending = Promise.any(["https://1.1.1.1/dns-query", "https://223.5.5.5/resolve"].map((endpoint) => new Promise((resolve, reject) => {
+        const request = https.get(`${endpoint}?name=${encodeURIComponent(hostname)}&type=A`, {
           agent: new https.Agent({ keepAlive: false }),
           headers: { Accept: "application/dns-json" }
         }, (response) => {
@@ -17202,15 +17207,16 @@ var require_web_media_guard = __commonJS({
         request.on("close", () => clearTimeout(timer));
         request.on("error", reject);
       }))).then((result) => {
-        officialDnsCache = result;
+        publicDnsCache.set(key, result);
         return result.addresses;
       }).catch((error) => {
         throw error.errors?.find((item) => item.code === "ERR_WEB_MEDIA_ADDRESS") || error.errors?.[0] || error;
       }).finally(() => {
         requests.forEach((request) => request.destroy());
-        officialDnsPending = null;
+        publicDnsPending.delete(key);
       });
-      return officialDnsPending;
+      publicDnsPending.set(key, pending);
+      return pending;
     }
     function webMediaRequestOptions2(value, { trustedOfficialDns = false } = {}) {
       if (!isPublicMediaUrl2(value)) throw blockedAddress();
@@ -17230,19 +17236,19 @@ var require_web_media_guard = __commonJS({
             else if (addresses.length) callback(null, addresses[0].address, addresses[0].family);
             else callback(new Error("\u7247\u6E90\u57DF\u540D\u672A\u89E3\u6790\u5230\u5730\u5740"));
           };
-          if (trustedOfficialDns && hosts.get(hostname.toLowerCase())?.origin === "https://hongguoduanju.com") {
+          const target = hosts.get(hostname.toLowerCase());
+          const official = target?.origin === "https://hongguoduanju.com";
+          if (official && trustedOfficialDns) {
             if (settings.family === 6) return callback(blockedAddress());
-            resolveOfficialAddress().then(finish, callback);
+            resolvePublicAddresses(hostname).then(finish, callback);
             return;
           }
           dns.lookup(hostname, { ...settings, all: true }, (error, addresses) => {
             if (error) return callback(error);
-            const target = hosts.get(hostname.toLowerCase());
             if (target && (!addresses.length || addresses.some((item) => !isPublicAddress(item.address)))) {
-              const official = target.origin === "https://hongguoduanju.com";
-              const fakeOnly = addresses.length && addresses.every((item) => isPublicAddress(item.address) || item.family === 4 && /^198\.(18|19)\./.test(item.address));
-              if (official && fakeOnly && settings.family !== 6) {
-                resolveOfficialAddress().then(finish, callback);
+              const fakeOnly = addresses.length > 0 && addresses.every((item) => isFakeAddress(item.address));
+              if (fakeOnly && target.protocol === "https:" && settings.family !== 6) {
+                resolvePublicAddresses(hostname).then(finish, callback);
                 return;
               }
               return callback(blockedAddress());
@@ -17258,7 +17264,7 @@ var require_web_media_guard = __commonJS({
       };
     }
     function warmOfficialDns() {
-      return resolveOfficialAddress().catch(() => {
+      return resolvePublicAddresses("hongguoduanju.com").catch(() => {
       });
     }
     module2.exports = { isPublicMediaUrl: isPublicMediaUrl2, webMediaRequestOptions: webMediaRequestOptions2, warmOfficialDns };
@@ -18605,6 +18611,7 @@ var require_custom_source = __commonJS({
 var require_hema = __commonJS({
   "src/native/hema.js"(exports2, module2) {
     var axios2 = require_axios();
+    var { isPublicMediaUrl: isPublicMediaUrl2 } = require_web_media_guard();
     var ORIGIN = "https://www.kuaikaw.cn";
     var ID = /^\d{1,30}$/;
     var genreCache;
@@ -18614,7 +18621,7 @@ var require_hema = __commonJS({
     function httpsUrl(value) {
       try {
         const url = new URL(value);
-        return url.protocol === "https:" && !url.username && !url.password ? url.href : "";
+        return url.protocol === "https:" && !url.username && !url.password && isPublicMediaUrl2(url.href) ? url.href : "";
       } catch (_) {
         return "";
       }
@@ -18826,6 +18833,7 @@ var require_hema = __commonJS({
 var require_xifan = __commonJS({
   "src/native/xifan.js"(exports2, module2) {
     var axios2 = require_axios();
+    var { isPublicMediaUrl: isPublicMediaUrl2 } = require_web_media_guard();
     var API2 = "https://xifan-api-cn.youlishipin.com";
     var ID = /^[a-zA-Z0-9_-]{1,200}$/;
     var genreCache;
@@ -18842,7 +18850,7 @@ var require_xifan = __commonJS({
     function httpsUrl(value) {
       try {
         const url = new URL(value);
-        return url.protocol === "https:" && !url.username && !url.password ? url.href : "";
+        return url.protocol === "https:" && !url.username && !url.password && isPublicMediaUrl2(url.href) ? url.href : "";
       } catch (_) {
         return "";
       }
@@ -19019,7 +19027,6 @@ var require_playback_device = __commonJS({
     var REGISTER_URL = "https://log5-applog-lf.fqnovel.com/service/2/device_register/?tt_data=a&cronet_version=8d40f833_2026-03-03&ttnet_version=4.2.243.31-douyin&use_store_region_cookie=1";
     var KDF_SALT = Buffer.from("4dd4c2e6b83162090e52b3c7a6733ba41cb2462b829ab58a196b39db57177524f49baf7f08e8d68d26a72e37c1a95a2f1f05a51892aef2949732b62a38aadd58", "hex");
     var registration;
-    var refreshAfter = 0;
     var retryAfter = 0;
     var registrationRetryAfter = 0;
     var lastRegistrationFailure;
@@ -19146,23 +19153,10 @@ var require_playback_device = __commonJS({
         request.dispose();
       }
     }
-    function getPlaybackDevice(requestJson, rejectedDevice) {
+    function getPlaybackDevice(requestJson) {
       if (retryAfter && Date.now() >= retryAfter) {
         registration = void 0;
         retryAfter = 0;
-      }
-      if (rejectedDevice && registration) {
-        const previous = registration;
-        return previous.then((current) => {
-          if (registration !== previous || current !== rejectedDevice || Date.now() < refreshAfter) return registration;
-          refreshAfter = Date.now() + 6e4;
-          const renewal = Promise.resolve().then(() => registerPlaybackDevice(requestJson)).catch((error) => {
-            if (registration === renewal) registration = previous;
-            throw error;
-          });
-          registration = renewal;
-          return registration;
-        });
       }
       registration ||= Promise.resolve().then(() => registerPlaybackDevice(requestJson)).catch((error) => {
         if (error.code === "ERR_CANCELED") registration = void 0;
@@ -19394,6 +19388,365 @@ var require_playback_signature = __commonJS({
   }
 });
 
+// src/native/playback-v5.js
+var require_playback_v5 = __commonJS({
+  "src/native/playback-v5.js"(exports2, module2) {
+    "use strict";
+    var crypto2 = require("node:crypto");
+    var { gunzipSync } = require("node:zlib");
+    var sm3 = require_sm3();
+    var PROCESS_NONCE = crypto2.randomBytes(18).toString("base64url");
+    var PROCESS_STARTED = Date.now();
+    var MAGIC = Buffer.from("2d4b4fca49750d433fb5ae2c226dcc56", "hex");
+    var SIGN_KEY = Buffer.from("b23c2a470a20d105dc3f8c4438f8272ed46d6c89ffdcdedd5108698d26e9489d", "hex");
+    var SBOX = Buffer.from("53290fe9e51f316f90f74a7e034d367784ab49237cd0135cdc632c322fd3be0e2624a417ecd9151a7ff64f60730a87f9445ec6ada2f865d22b696c4188f24c0df37b75510b939f6bc2fe6883e68bc8c722181ba0bdb08c9871b50c9a16b46eea8eed20ba4b8a14e0fcf1468dbbef05a93e5a9d7dcf06898635c1fd99f5de287a80c594daaab19b6279fbd75070cb52eb2555c456e39e7839853874e2f0013ac0b64742d8ca10e4b79c955de8b843ce4ed464a6a72ed508091c92e7b3eedd1e1dd12afac321618fa3d65f9167c982f43d66a53c6a1997585b346dbf9672ff37cdbc073b2dae11453304df00815476b2a13fccdb30b957a8acafe127400248591238922563e36406d37a24100b7902a028044e218453c2a399199c9d13dc40c55ba67e502273850ebdc1a2e2188b8f2d9e3cb909b8c46a2a9f4a6dd93007eafa65b7b3a881aa908cc74f0ad76bbbb58617c37012ca05a469fd44e62eecf1e4272ce860c0ae5eadf99b20d8f0234174006f3f110d7657d01645d4eff8f71471cbfe1cb2f52648727bf3c9de55153e031b4d61757db63dbf7782eeafe9018a8891362fb14759ac32bab03b349aeb5a377c5156be4c8dfbe13a684bda39cf836697c894545fe0f2491acea9fc6252f4ff1e0fe72bd2df6e67a7f635e5bcc6d1a5dd951d89960887a18eb40c785cdb1f80ed42299333ab98cdd67f316cd54346585dccd759fb722789b08807cc0fda293f7e5e1819bb0353517020b31d3d00374952bea2c421e862040a9ec892a05b266b7a0d0cc316f483b81af39715657ffe32ad8de0c13077646035236ee5363e5f900e9a7cf850a81cd9960b6df73317226f99eaa6fff15cec34acb98246639b918ab2851466a7cdfc4ad1b52c2ae95a58d3734e47ddd5b7560193f644ef9c408b7dee39b4d6aabf4de761e3252d4c7ba3843187745d55e6a5db05d42b45caed43c0c5d0b64bfa9d94a4a9d8f2f0e1a108dcfd288fd2bc1fc7bd675412138169cb09249875ba3b68cfb11180afae104fc9789571c6dfce02413886796ae21e3c488cc21b9f423a066c2eabf98e2fdeeb5776e4f5d09a515ba58cbbab3e37b09fd4f6d9244df80512e84cd7956be301cf64f1429d58577cc241f3a2c655144f81aaf95a4e108da894b38970561ae9002619fbbac91fa922ed202bfc62cb08e0de2a7f3631435f8b47c8a3c563b4db4071ce74c46da6fa696a9e282d1e825d663b93bfd56c48dce1884bb10fccea063929f746443fd830a4232e53da21a1f2d1bdfebc3a02c10a1b8ad31d04fd616590d272ac737e98eb33af60528716bee78ec0ee8699031177277d9cff32542c67caf5f44591681335ae0e178f3409a7803db83892dde5b9b7f0c750e24aef077badd678a09b850b84ec1597e4963cb5e675df1c0d6fb618496ecd76c35c798325590c2fb27a5e", "hex");
+    var HASH_TABLE = [3954593711, 128638146, 3476129727, 3759225087, 1829502207, 1513137086, 3021657656, 873991864, 4063488879, 2980414668, 3435335111, 1204935505, 3579204574, 1890078625, 1464286226, 4151247496, 738688778, 3658336976, 4223168364, 4257533696, 1753874957, 3866543782, 2362848139, 440175886, 3437801579, 1792077067, 2689738519, 3698437251, 579197809, 3585400230, 1936688720, 1700802668, 1635574438, 3827515774, 172024131, 1414414386, 2296380202, 1902910176, 1279687304, 95566771, 3788552294, 3131301048, 2922607827, 3275233872, 386070363, 4268598120, 4038381384, 1309670328, 1923797261, 650459709, 4072464630, 3025499521, 1243971549, 2352054946, 2869640070, 1029569300, 1326462516, 3548074711, 1146027798, 3943314385, 1822977902, 2640807, 137919738, 1605596550];
+    var md5 = (value) => crypto2.createHash("md5").update(value).digest();
+    var random32 = () => crypto2.randomBytes(4).readUInt32LE();
+    var rol32 = (value, count) => (value << (count & 31) | value >>> (32 - count & 31)) >>> 0;
+    var ror32 = (value, count) => rol32(value, -count);
+    var u64 = (value) => BigInt.asUintN(64, value);
+    var ror64 = (value, count) => u64(value >> BigInt(count) | value << BigInt(64 - count));
+    function le32(value) {
+      const out = Buffer.alloc(4);
+      out.writeUInt32LE(value >>> 0);
+      return out;
+    }
+    function xor(a, b) {
+      return Buffer.from(a.map((value, i) => value ^ b[i]));
+    }
+    function varint(value) {
+      let n = BigInt(value);
+      const out = [];
+      while (n > 127n) {
+        out.push(Number(n & 127n) | 128);
+        n >>= 7n;
+      }
+      out.push(Number(n));
+      return Buffer.from(out);
+    }
+    function proto(fields) {
+      return Buffer.concat(fields.map(([tag, value, type]) => {
+        if (type === "sint") {
+          const n = BigInt(value);
+          return Buffer.concat([varint(tag * 8), varint(n < 0n ? -n * 2n - 1n : n * 2n)]);
+        }
+        const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);
+        return bytes.length ? Buffer.concat([varint(tag * 8 + 2), varint(bytes.length), bytes]) : Buffer.alloc(0);
+      }));
+    }
+    function getIv(initial, bytes) {
+      let value = initial;
+      for (let i = 0; i < bytes.length; i++) value = (i & 1) === 0 ? value >>> 4 ^ value ^ value << 6 ^ bytes[i] : ~(value >>> 7 ^ value ^ (bytes[i] | value << 12));
+      return value >>> 0;
+    }
+    function branch(query, body, ts) {
+      return getIv(getIv(getIv(539167016, query), body), le32(ts)) & 15;
+    }
+    function sumMd5(bytes) {
+      let check = 539100192;
+      for (let i = 0; i < 12; i++) {
+        const temp = check >>> ((i & 1) === 0 ? 3 : 5) ^ check;
+        check = ((i & 1) === 0 ? bytes[i] ^ check << 7 : ~(bytes[i] | check << 11)) ^ temp;
+      }
+      return ((check | 4) ^ 16777216) >>> 0;
+    }
+    function hashF13(query, body, ts) {
+      if (branch(query, body, ts) !== 12) throw new Error("Unsupported v5 hash branch");
+      const seed = 2638911426, count = seed + ts >>> 0;
+      const table = HASH_TABLE.map((value) => ror32(value, count + 1));
+      const shift = count + 2 & 7;
+      const pad = Buffer.from([250, 69, 97, 215].map((value) => (value | value << 8) >>> shift & 255));
+      const data = Buffer.concat([query, body, le32(ts), pad, Buffer.from("00000000000001a0", "hex")]);
+      const schedule = [];
+      for (let i = 0; i < data.length; i += 4) schedule.push(data.readUInt32BE(i));
+      for (let i = 0; i < 112; i++) {
+        const x = schedule[i + 1], y = schedule[i + 14];
+        schedule.push(schedule[i] + schedule[i + 9] + (rol32(x, 14) ^ rol32(x, 25) ^ x >>> 3) + (rol32(y, 13) ^ rol32(y, 15) ^ y >>> 10) >>> 0);
+      }
+      const initial = [2059030472, 1729520903, 1677982208, 873419055, 984304912, 3005047866, 2874125293, 2152413264].map((value) => ror32(value, count));
+      const state = initial.slice();
+      for (let i = 0; i < 96; i++) {
+        const base = seed + i;
+        const n1 = (state[4] ^ state[0]) & state[1] ^ state[4];
+        const n2 = rol32(state[1], 26) ^ rol32(state[1], 21) ^ rol32(state[1], 7);
+        const n4 = schedule[base & 127] + n1 + n2 + table[base & 63] + state[6] >>> 0;
+        const n5 = rol32(state[3], 30) ^ rol32(state[3], 19) ^ rol32(state[3], 10);
+        const n6 = state[3] & state[5] | (state[3] | state[5]) & state[2];
+        const old = state[7];
+        state.unshift(state.pop());
+        state[7] = n5 + n6 + n4 >>> 0;
+        state[0] = old + n4 >>> 0;
+      }
+      const output = Buffer.alloc(32);
+      for (let i = 0; i < 8; i++) output.writeUInt32BE(state[i] + initial[i] >>> 0, i * 4);
+      const folded = xor(output.subarray(0, 16), output.subarray(16));
+      return Buffer.concat([folded, le32(sumMd5(folded) | 32)]);
+    }
+    var CarrierV5 = class {
+      constructor(key, ts) {
+        const word = ts & 3;
+        this.box = SBOX.subarray(word * 256, (word + 1) * 256);
+        this.con = [[2, 0, 3, 1], [1, 3, 2, 0], [3, 2, 1, 0], [2, 3, 1, 0]][word];
+        this.order = [
+          [0, 9, 14, 15, 4, 13, 2, 7, 8, 1, 6, 3, 12, 5, 10, 11],
+          [0, 9, 14, 11, 4, 13, 2, 3, 8, 1, 6, 15, 12, 5, 10, 7],
+          [0, 9, 14, 3, 4, 13, 2, 15, 8, 1, 6, 11, 12, 5, 10, 7],
+          [0, 9, 14, 15, 4, 13, 2, 3, 8, 1, 6, 11, 12, 5, 10, 7]
+        ][word];
+        const initial = [3149258354, 3563294043, 2460350267, 2314772937][word];
+        const expanded = Buffer.concat([xor(Buffer.concat(Array.from({ length: 4 }, () => le32(initial))), key), Buffer.alloc(32)]);
+        let rounds = 8;
+        for (let i = 4; i < 12; i++) {
+          const at = 4 * (i - 1);
+          let a = expanded[at], b = expanded[at + 1], c = expanded[at + 2], d = expanded[at + 3];
+          if ((i & 3) === 0) {
+            const temp = (initial >> (rounds & 24) ^ this.box[b]) & 255;
+            b = this.box[c];
+            c = this.box[d];
+            d = this.box[a];
+            a = temp;
+          }
+          rounds += 2;
+          expanded[at + 4] = a ^ expanded[at - 12];
+          expanded[at + 5] = b ^ expanded[at - 11];
+          expanded[at + 6] = c ^ expanded[at - 10];
+          expanded[at + 7] = d ^ expanded[at - 9];
+        }
+        this.keys = Array.from({ length: 12 }, (_, i) => expanded.subarray(i * 4, i * 4 + 4));
+      }
+      block(value) {
+        let rows = Array.from({ length: 4 }, (_, i) => Array.from(value.subarray(i * 4, i * 4 + 4)));
+        const add = (offset) => {
+          for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) rows[i][j] ^= this.keys[offset + i][this.con[j]];
+        };
+        add(0);
+        for (let round = 1; round <= 2; round++) {
+          const before = rows.map((row) => row.map((value2) => this.box[value2]));
+          const flat = this.con.flatMap((i) => before[i]);
+          rows = Array.from({ length: 4 }, (_, i) => this.order.slice(i * 4, i * 4 + 4).map((at) => flat[at]));
+          if (round === 1) {
+            rows = rows.map((row) => this.con.map((at) => row[at]));
+            const xt = (x) => (x << 1 ^ (x & 128 ? 27 : 0)) & 255;
+            for (let i = 0; i < 4; i++) {
+              const t = rows[0][i] ^ rows[1][i] ^ rows[2][i] ^ rows[3][i], u = rows[0][i];
+              rows[0][i] ^= t ^ xt(rows[0][i] ^ rows[1][i]);
+              rows[1][i] ^= t ^ xt(rows[1][i] ^ rows[2][i]);
+              rows[2][i] ^= t ^ xt(rows[2][i] ^ rows[3][i]);
+              rows[3][i] ^= t ^ xt(rows[3][i] ^ u);
+            }
+          }
+          add(round * 4);
+        }
+        for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) rows[i][j] ^= this.keys[4 + i][j];
+        return Buffer.from(rows.flat());
+      }
+      encrypt(source, iv) {
+        if (source.length < 248) throw new RangeError("V5 carrier requires at least 248 bytes");
+        const wire = [6, 5, 3, 4, 2, 7, 1, 0], compact = [1, 7, 3, 6, 2, 0, 4, 5];
+        const plaintext = Buffer.alloc(32);
+        for (let i = 0; i < 31; i++) for (let j = 0; j < 8; j++) {
+          plaintext[i] |= (source[i * 8 + j] >>> wire[j] & 1) << compact[j];
+        }
+        plaintext[31] = 1;
+        const first = this.block(xor(plaintext.subarray(0, 16), iv));
+        const key = Buffer.concat([first, this.block(xor(plaintext.subarray(16), first))]);
+        const output = Buffer.from(source);
+        for (let i = 0; i < 31; i++) for (let j = 0; j < 8; j++) {
+          const at = i * 8 + j;
+          output[at] = output[at] & ~(1 << wire[j]) | (key[i] >>> compact[j] & 1) << wire[j];
+        }
+        return Buffer.concat([key.subarray(31), output]);
+      }
+    };
+    function xmxor(data, key) {
+      const encoded = Buffer.alloc(data.length);
+      for (let i = 0; i < data.length; i++) {
+        const at = i * 4 & 28, d0 = key[at], d1 = key[at + 1];
+        let value = ~(((data[i] << 4 | data[i] >>> 4) & 255) + d0) ^ d1;
+        value = ((value & 255) << 3 | (value & 255) >>> 5) & 255;
+        encoded[data.length - i - 1] = ~(value + d1 & 255 ^ d0) & 255;
+      }
+      const last = encoded.at(-1) ^ encoded.at(-2), first = encoded[0];
+      encoded[0] = ~last + first & 255;
+      encoded[1] = (encoded[0] ^ encoded.at(-1) ^ 254) + encoded[1] & 255;
+      encoded[2] = encoded[2] + (last - first ^ (encoded[1] << 3 | encoded[1] >>> 5) & 255 ^ 2) & 255;
+      for (let i = 0; i < encoded.length - 4; i++) {
+        const temp = (encoded[i + 2] << 3 | encoded[i + 2] >>> 5) & 255 ^ encoded[i + 1] ^ i + 3;
+        encoded[i + 3] = ~temp + encoded[i + 3] & 255;
+      }
+      encoded[encoded.length - 1] ^= encoded.at(-2);
+      let sum = 0;
+      for (let i = 1; i < encoded.length; i++) sum += encoded[i];
+      encoded[0] = (encoded[0] ^ encoded[1]) + sum & 255;
+      return encoded;
+    }
+    function medusa(query, f13, ts, who) {
+      const flags = Buffer.alloc(8);
+      const device = proto([
+        [1, 1, "sint"],
+        [2, 2, "sint"],
+        [3, "8662"],
+        [4, who.device_id],
+        [5, PROCESS_NONCE],
+        [6, "!noperm!"],
+        [12, "Asia/Shanghai,8"],
+        [13, "zh_CN"],
+        [22, who.os_version],
+        [25, PROCESS_STARTED, "sint"],
+        [30, who.device_type],
+        [31, "HONOR"],
+        [32, who.device_type],
+        [34, "HONOR"]
+      ]);
+      const env = proto([[6, "v04.10.03.04-bugfix"], [8, who.channel], [12, device], [14, who.version_name]]);
+      const message = proto([
+        [1, MAGIC],
+        [2, 5, "sint"],
+        [3, random32(), "sint"],
+        [4, "8662"],
+        [5, who.device_id],
+        [6, "646637794"],
+        [7, who.version_name],
+        [8, "v04.10.03-ml-android"],
+        [9, 67764992, "sint"],
+        [10, flags],
+        [12, ts, "sint"],
+        [13, f13],
+        [14, query.subarray(0, 6)],
+        [15, proto([[1, 1, "sint"], [2, 1, "sint"], [3, 1, "sint"], [5, 1, "sint"]])],
+        [17, ts, "sint"],
+        [20, "none"],
+        [21, 377, "sint"],
+        [23, env],
+        [24, '{"cmr":16777216,"cmr2":16777216,"un_h":11,"vpn":0,"kd":0,"dyn":"","do":1,"tk":true}']
+      ]);
+      const nonce = random32(), high = nonce >>> 16 & 255;
+      const hash = sm3(Buffer.concat([SIGN_KEY, le32(nonce), SIGN_KEY]));
+      const seed = le32(~((high << 11 | nonce >>> 24) ^ high >>> 5 ^ high));
+      const transformed = Buffer.concat([flags, xmxor(message, hash)]).reverse();
+      for (let i = 0; i < transformed.length; i++) transformed[i] ^= seed[~i & 3];
+      const check = 402653185 | (query[0] & 63) << 14 | (f13[0] & 63) << 8;
+      const packed = Buffer.concat([
+        Buffer.from([202]),
+        le32(random32()),
+        le32(check),
+        transformed,
+        Buffer.from([nonce >>> 16, nonce >>> 24])
+      ]);
+      const encrypted = new CarrierV5(md5(SIGN_KEY.subarray(0, 16)), ts).encrypt(packed, md5(SIGN_KEY.subarray(16)));
+      const prefix = Buffer.concat([le32(5), MAGIC]), time = le32(ts);
+      for (let i = 0; i < prefix.length; i++) prefix[i] ^= time[i & 3];
+      return Buffer.concat([prefix, Buffer.from([nonce, nonce >>> 8, 0, 1]), encrypted]).toString("base64");
+    }
+    function helios(ts) {
+      const nonce = le32(random32());
+      const ascii = Buffer.from(md5(Buffer.concat([nonce, Buffer.from("8662")])).toString("hex"));
+      const words = Array.from({ length: 4 }, (_, i) => ascii.readBigUInt64LE(i * 8));
+      const table = [words[0]];
+      let b0 = words.shift(), b8 = words.shift();
+      for (let i = 0; i < 34; i++) {
+        let value = u64(ror64(b8, 8) + b0) ^ BigInt(i);
+        words.push(value);
+        value = u64(value ^ ror64(b0, 61));
+        table.push(value);
+        b0 = value;
+        b8 = words.shift();
+      }
+      const text = Buffer.from(`${ts}-646637794-8662`);
+      const padding = 16 - text.length % 16;
+      const data = Buffer.concat([text, Buffer.alloc(padding, padding)]), output = Buffer.alloc(data.length);
+      for (let at = 0; at < data.length; at += 16) {
+        let a = data.readBigUInt64LE(at), b = data.readBigUInt64LE(at + 8);
+        for (let i = 0; i < 34; i++) {
+          b = u64(table[i] ^ a + ror64(b, 8));
+          a = u64(b ^ ror64(a, 61));
+        }
+        output.writeBigUInt64LE(a, at);
+        output.writeBigUInt64LE(b, at + 8);
+      }
+      return Buffer.concat([nonce, output]).toString("base64");
+    }
+    function plainObject(value) {
+      if (!value || typeof value !== "object") return false;
+      const prototype = Object.getPrototypeOf(value);
+      return prototype === null || Object.getPrototypeOf(prototype) === null;
+    }
+    function encode(value) {
+      return encodeURIComponent(value).replace(/[!'()]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+    }
+    function validatedValues(values) {
+      if (!plainObject(values) || Object.getOwnPropertySymbols(values).length) throw new TypeError("V5 values must be a plain string record");
+      const result = /* @__PURE__ */ Object.create(null), entries = Object.entries(Object.getOwnPropertyDescriptors(values));
+      if (entries.length > 128) throw new RangeError("Too many V5 query fields");
+      for (const [key, descriptor] of entries) {
+        const value = descriptor.value;
+        if (!descriptor.enumerable || !Object.hasOwn(descriptor, "value") || !key || key.length > 128 || typeof value !== "string" || value.length > 8192 || /[\u0000-\u001f\u007f-\u009f]/.test(key + value)) {
+          throw new TypeError("V5 query fields must be bounded strings without control characters or accessors");
+        }
+        try {
+          encode(key);
+          encode(value);
+        } catch {
+          throw new TypeError("V5 query fields must be valid Unicode");
+        }
+        result[key] = value;
+      }
+      for (const key of ["device_id", "iid"]) {
+        if (!/^[1-9]\d{0,29}$/.test(result[key] || "")) throw new TypeError(`V5 ${key} must be a positive decimal string`);
+      }
+      for (const key of ["cdid", "version_name", "channel", "os_version", "device_type"]) {
+        if (!result[key] || !result[key].trim() || result[key].length > 128) throw new TypeError(`V5 ${key} is required and must be bounded`);
+      }
+      if (result.aid !== void 0 && result.aid !== "8662") throw new TypeError("V5 aid must be 8662");
+      return result;
+    }
+    function signPlaybackV5(input) {
+      if (!plainObject(input)) throw new TypeError("V5 signing options are required");
+      const { base, values, body, now = Date.now() } = input;
+      if (typeof base !== "string" || base.length > 8192 || /[\s?#]/.test(base)) throw new TypeError("V5 base must be an HTTPS URL without query or fragment");
+      let parsed;
+      try {
+        parsed = new URL(base);
+      } catch {
+        throw new TypeError("V5 base must be a valid HTTPS URL");
+      }
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port && parsed.port !== "443") {
+        throw new TypeError("V5 base must use HTTPS without credentials or a custom port");
+      }
+      if (!Number.isSafeInteger(now) || now < 0 || Math.floor(now / 1e3) > 2147483647) throw new RangeError("V5 now must be nonnegative integer milliseconds within signed timestamp range");
+      const who = validatedValues(values);
+      if (!Buffer.isBuffer(body)) throw new TypeError("V5 body must be the original gzip Buffer");
+      if (body.length < 18 || body.length > 2 * 1024 * 1024 || body[0] !== 31 || body[1] !== 139 || body[2] !== 8) {
+        throw new TypeError("V5 body must be a bounded gzip Buffer");
+      }
+      try {
+        gunzipSync(body, { maxOutputLength: 2 * 1024 * 1024 });
+      } catch {
+        throw new TypeError("V5 body must contain valid bounded gzip data");
+      }
+      const ts = Math.floor(now / 1e3), bodyHash = md5(body);
+      if (Object.hasOwn(who, "ts")) who.ts = String(ts);
+      for (let offset = 0; offset < 1024; offset++) {
+        const ticket = String(now + offset);
+        const query = Object.entries({ ...who, _rticket: ticket }).map(([key, value]) => `${encode(key)}=${encode(value)}`).join("&");
+        const queryHash = sm3(Buffer.from(query));
+        if (branch(queryHash, bodyHash, ts) !== 12) continue;
+        const f13 = hashF13(queryHash, bodyHash, ts);
+        return { url: `${parsed.href}?${query}`, headers: {
+          "x-khronos": String(ts),
+          "x-helios": helios(ts),
+          "x-medusa": medusa(queryHash, f13, ts, who),
+          "x-ss-stub": bodyHash.toString("hex").toUpperCase(),
+          "x-ss-req-ticket": ticket
+        } };
+      }
+      throw new Error("Unable to select V5 playback signature branch within 1024 tickets");
+    }
+    module2.exports = { signPlaybackV5 };
+  }
+});
+
 // src/native/app-source.js
 var require_app_source = __commonJS({
   "src/native/app-source.js"(exports2, module2) {
@@ -19402,6 +19755,7 @@ var require_app_source = __commonJS({
     var { setTimeout: delay } = require("node:timers/promises");
     var { registerPlaybackDevice } = require_playback_device();
     var { signPlayer } = require_playback_signature();
+    var { signPlaybackV5 } = require_playback_v5();
     var { abortError: abortError2, throwIfAborted: throwIfAborted2, boundedSignal, networkFailure } = require_request_signal();
     var sm3 = require_sm3();
     var { normalizeDownloadQuality: normalizeDownloadQuality2, meetsDownloadQuality } = require_download_quality();
@@ -19412,7 +19766,7 @@ var require_app_source = __commonJS({
     var playbackReadyAt = 0;
     var playbackRejection = null;
     var VIDEO_API = "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/";
-    var VIDEO_TAB_API = "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/";
+    var PLAYER_API = "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/player/v1";
     var SEARCH_API = "https://api5-normal-sinfonlinea.fqnovel.com/reading/bookapi/search/tab/v";
     var VIDEO_UA = "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)";
     var SEARCH_UA = "com.phoenix.read/72232 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3)";
@@ -19450,14 +19804,6 @@ var require_app_source = __commonJS({
       manifest_version_code: "74332",
       update_version_code: "74332",
       pv_player: "74332"
-    };
-    var VIDEO_TAB_DEVICE = {
-      ...DEVICE,
-      version_code: "73932",
-      version_name: "7.3.9.32",
-      manifest_version_code: "73932",
-      update_version_code: "73932",
-      pv_player: "73932"
     };
     var PLAYBACK_UA = VIDEO_UA.replace(DEVICE.version_code, PLAYBACK_DEVICE.version_code);
     function str(value, fallback = "") {
@@ -19951,23 +20297,42 @@ var require_app_source = __commonJS({
       const low = iv & 15;
       return low - (low * 171 >> 9) * 3;
     }
-    function playbackRequest(payload, identity, videoId = "") {
-      const body = videoId ? null : gzipSync(Buffer.from(payload));
+    function playbackRequest(payload, identity, videoId = "", alternate = false) {
+      if (videoId) {
+        const body2 = gzipSync(Buffer.from(payload));
+        const signed = signPlaybackV5({
+          base: alternate ? PLAYER_API.replace("sinfonlineb.", "sinfonlinea.") : PLAYER_API,
+          values: {
+            aid: "8662",
+            app_name: "novelread",
+            version_code: "74332",
+            version_name: "7.4.3.32",
+            channel: "vivo_8662_64",
+            device_platform: "android",
+            device_type: "PGT-AN10",
+            os_version: "12",
+            update_version_code: "74332",
+            iid: identity.iid,
+            cdid: identity.cdid,
+            device_id: identity.device_id
+          },
+          body: body2,
+          now: Date.now()
+        });
+        return { ...signed, body: body2, method: "POST", headers: {
+          ...signed.headers,
+          "User-Agent": "com.phoenix.read/73932 (Linux; U; Android 12; zh_CN_#Hans; PGT-AN10; Build/V417IR;tt-ok/3.12.13.20)",
+          Accept: "application/json",
+          "Content-Type": "application/json; charset=utf-8",
+          "Content-Encoding": "gzip"
+        } };
+      }
+      const body = gzipSync(Buffer.from(payload));
       const requestTicket = Date.now(), khronos = Math.floor(requestTicket / 1e3);
-      const device = { ...videoId ? VIDEO_TAB_DEVICE : PLAYBACK_DEVICE, ...identity };
-      const values = videoId ? {
-        video_id: videoId,
-        video_id_type: "0",
-        device_level: "1",
-        need_all_video_definition: "1",
-        need_mp4_align: "0",
-        use_os_player: "0",
-        video_platform: "1024",
-        source: "0",
-        from_video_id: ""
-      } : {};
-      const query = pythonUrlEncode({ ...device, ...values, ts: String(khronos), _rticket: String(requestTicket) });
-      const url = `${videoId ? VIDEO_TAB_API : VIDEO_API}?${query}`;
+      const device = { ...PLAYBACK_DEVICE, ...identity };
+      const query = pythonUrlEncode({ ...device, ts: String(khronos), _rticket: String(requestTicket) });
+      const api = VIDEO_API;
+      const url = `${api}?${query}`;
       const signature = signPlayer({ query, body, ts: khronos });
       const headers = {
         "User-Agent": VIDEO_UA.replace(DEVICE.version_code, device.version_code),
@@ -19975,7 +20340,7 @@ var require_app_source = __commonJS({
         "x-ss-req-ticket": signature["x-ss-req-ticket"],
         "sdk-version": "2",
         "x-xs-from-web": "0",
-        "passport-sdk-version": videoId ? "50561" : "5051452",
+        "passport-sdk-version": "5051452",
         "x-ss-dp": String(device.aid),
         "x-khronos": signature["x-khronos"],
         "x-ladon": signature["x-ladon"],
@@ -19984,13 +20349,12 @@ var require_app_source = __commonJS({
         "x-tt-store-region": "cn",
         "x-tt-store-region-src": "did"
       };
-      if (body) Object.assign(headers, {
+      Object.assign(headers, {
         "Content-Type": "application/json; charset=UTF-8",
         "Content-Encoding": "gzip",
         "x-ss-stub": signature["x-ss-stub"]
       });
-      else headers["x-tt-request-tag"] = "t=0;n=0";
-      return { url, body, headers, method: videoId ? "GET" : "POST" };
+      return { url, body, headers, method: "POST" };
     }
     function parseSearchInteger(value) {
       if (typeof value !== "number" && (typeof value !== "string" || !/^\d+$/.test(value.trim()))) return null;
@@ -20291,7 +20655,7 @@ var require_app_source = __commonJS({
           if ([403, 429].includes(error.status) || error.code === "BUSINESS_REJECTED" || error.code === "DEVICE_REGISTRATION_FAILED" && ["BUSINESS_REJECTED", "HTTP_403", "HTTP_429"].includes(error.registrationFailure)) playbackRejection = error;
           throw error;
         } finally {
-          playbackReadyAt = Date.now() + 1e3;
+          playbackReadyAt = Math.max(playbackReadyAt, Date.now() + 1e3);
         }
       });
       playbackQueue = pending.catch(() => {
@@ -20310,8 +20674,9 @@ var require_app_source = __commonJS({
     }
     async function fetchAppPlayUrlFresh(vid, options) {
       const payload = JSON.stringify({
-        biz_param: { detail_page_version: 0, device_level: 3, disable_digg_stat: false, need_all_video_definition: true, need_mp4_align: false, use_os_player: false, use_server_dns: false, video_platform: 1024 },
-        mixed_video_id_map: { "1004": [vid] }
+        biz_param: { detail_page_version: 0, device_level: 3, disable_digg_stat: false, disable_video_relate_book: false, need_all_video_definition: true, need_mp4_align: false, use_os_player: false, use_server_dns: false, video_platform: 1024 },
+        mixed_video_id_map: { "1004": [vid] },
+        dr_scene: "player"
       });
       let identity = await registerPlaybackDevice(requestJson, { signal: options.signal });
       throwIfAborted2(options.signal);
@@ -20325,7 +20690,14 @@ var require_app_source = __commonJS({
           const signed = playbackRequest(payload, identity, attempt ? "" : vid);
           if (attempt) signed.headers.Connection = "close";
           try {
-            response = await requestJson(signed.url, { method: signed.method, headers: signed.headers, data: signed.body }, deadline, signal);
+            try {
+              response = await requestJson(signed.url, { method: signed.method, headers: signed.headers, data: signed.body }, deadline, signal);
+            } catch (error) {
+              throwIfAborted2(signal);
+              if (attempt || error.code !== "EMPTY_RESPONSE" || deadline - Date.now() < 1e3) throw error;
+              const alternate = playbackRequest(payload, identity, vid, true);
+              response = await requestJson(alternate.url, { method: alternate.method, headers: alternate.headers, data: alternate.body }, deadline, signal);
+            }
             throwIfAborted2(signal);
             break;
           } catch (error) {
@@ -20353,7 +20725,7 @@ var require_app_source = __commonJS({
           }
         }
         if (Number(response.Code || response.code || 0) !== 0) throw Object.assign(new Error("App \u63A5\u53E3\u6682\u672A\u63D0\u4F9B\u672C\u96C6\u64AD\u653E\u4FE1\u606F"), { code: "BUSINESS_REJECTED" });
-        const entries = response.data?.video_model_data ?? response.data;
+        const entries = response.data?.["1004"] ?? response.data?.video_model_data ?? response.data;
         const entry = entries?.[vid];
         const model = typeof entry?.video_model === "string" ? jsonBody(entry.video_model) : entry?.video_model;
         if (!model || typeof model !== "object" || Array.isArray(model)) throw Object.assign(new Error("App \u63A5\u53E3\u672A\u8FD4\u56DE\u6240\u9009\u5206\u96C6\uFF0C\u5DF2\u505C\u6B62\u53D6\u5740"), { code: entry?.video_model ? "INVALID_RESPONSE" : "MISSING_MODEL" });
@@ -21064,7 +21436,7 @@ function parseModelVideo(vm) {
     for (const raw of [v.main_url, v.backup_url]) {
       try {
         const candidate = new URL2(normalizeVideoUrl(raw));
-        if (["https:", "http:"].includes(candidate.protocol) && !candidate.username && !candidate.password) {
+        if (["https:", "http:"].includes(candidate.protocol) && !candidate.username && !candidate.password && isPublicMediaUrl(candidate.href)) {
           url = candidate.href;
           break;
         }
@@ -21123,6 +21495,7 @@ function sourceFailure(source, error) {
   const network = typeof error?.networkFailure === "string" && Object.hasOwn(networkDetails, error.networkFailure) ? { networkFailure: error.networkFailure } : {};
   if (code === "DEVICE_REGISTRATION_FAILED") {
     const reason = String(error.registrationFailure || "");
+    const safeReason = /^(?:TIMEOUT|NETWORK_ERROR|EMPTY_RESPONSE|INVALID_RESPONSE|BUSINESS_REJECTED|SECURITY_BLOCKED|HTTP_[3-5]\d{2})$/.test(reason) ? reason : "INVALID_RESPONSE";
     const descriptions = {
       TIMEOUT: "\u8BF7\u6C42\u8D85\u65F6",
       NETWORK_ERROR: "\u7F51\u7EDC\u8FDE\u63A5\u5931\u8D25",
@@ -21135,7 +21508,8 @@ function sourceFailure(source, error) {
     const transient = /^(?:TIMEOUT|NETWORK_ERROR|HTTP_(?:408|5\d\d))$/.test(reason);
     return {
       source,
-      code: /^(?:TIMEOUT|NETWORK_ERROR|HTTP_[3-5]\d{2})$/.test(reason) ? reason : code,
+      code: /^(?:TIMEOUT|NETWORK_ERROR|HTTP_[3-5]\d{2})$/.test(safeReason) ? safeReason : code,
+      registrationFailure: safeReason,
       ...reason === "NETWORK_ERROR" ? network : {},
       message: `\u533F\u540D\u64AD\u653E\u8BBE\u5907\u6CE8\u518C\u5931\u8D25${detail ? `\uFF08${detail}\uFF09` : ""}${transient ? "\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\uFF0C10 \u79D2\u540E\u91CD\u8BD5" : "\uFF1B\u672C\u673A\u51B7\u5374 10 \u79D2\u540E\u53EF\u624B\u52A8\u91CD\u8BD5\uFF0C\u4E0A\u6E38\u4F55\u65F6\u6062\u590D\u6682\u65E0\u6CD5\u786E\u8BA4"}`
     };

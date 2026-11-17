@@ -10,7 +10,7 @@ description: "使用固定版本的 GPL 引擎和 Muse 会话权限下载红果�
 <a id="use"></a>
 ## 使用
 
-0.2.0 使用 [jackotom/hongguo-drama](https://github.com/jackotom/hongguo-drama) 的固定版本 `bb4aec994a1fc6336da55b269481ae2196124e8d` 替换旧 Java/Python 及授权 v2 下载后端，保留 `hongguo_download_info` 和 `hongguo_download`。独立的数据搜索插件仍单独存在。上游源码、GPL-3.0 许可和原始声明位于 `upstream/`。
+0.2.1 使用 [jackotom/hongguo-drama](https://github.com/jackotom/hongguo-drama) 的固定版本 7.5（`4ffff289d6dd289e589a0fd0e65aa7aa5c2a7567`） 替换旧 Java/Python 及授权 v2 下载后端，保留 `hongguo_download_info` 和 `hongguo_download`。独立的数据搜索插件仍单独存在。播放适配使用上游 Android v5 签名和播放器接口，修复旧协议返回 HTTP 200 空响应的取流失败。上游源码、GPL-3.0 许可和原始声明位于 `upstream/`。
 
 创作预设按会话启用插件。部署配置 `quality` 默认 `1080p`，也支持 `720p` 和 `auto`；`ffmpegExecutable`、`ffprobeExecutable`、`bytevc2Executable` 必须是绝对路径。ByteVC2 片源保持分辨率转换为 H.264/AAC；`bytevc2Concurrency` 限制并行转换数（默认 1），`bytevc2Threads` 限制解码及编码线程数（默认 2）。ByteVC2 密钥只在线程内传递，不进入进程参数。`decryptionConcurrency` 默认 1，`maxDecryptionBytes` 默认 256 MiB，`decryptionWorkerHeapMb` 默认 128。桌面预设使用内置媒体工具。新下载引擎不需要旧 Java 签名器、原 Python 模块或 v2 授权服务。共享 Python 准备仍供独立的番茄下载使用。
 

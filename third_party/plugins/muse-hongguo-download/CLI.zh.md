@@ -9,7 +9,7 @@ description: "通过不启用模型的 dsh profile 使用红果下载与任务�
 
 ## Install
 
-`muse-hongguo-download/cli` 导出是 Cordis 插件，不是独立可执行程序。使用 `dsh plugin --profile hongguo add /absolute/path/muse-hongguo-download-0.2.0.tgz` 将普通插件包安装到新的专用 profile，再将包内 `profiles/hongguo/cordis.patch.yml` 用作该 profile 的补丁。示例 manifest 展示 base 加插件的 bundle 列表；安装流程维护实际依赖。不要用示例覆盖已有 profile 的配置。
+`muse-hongguo-download/cli` 导出是 Cordis 插件，不是独立可执行程序。使用 `dsh plugin --profile hongguo add /absolute/path/muse-hongguo-download-0.2.1.tgz` 将普通插件包安装到新的专用 profile，再将包内 `profiles/hongguo/cordis.patch.yml` 用作该 profile 的补丁。示例 manifest 展示 base 加插件的 bundle 列表；安装流程维护实际依赖。不要用示例覆盖已有 profile 的配置。
 
 此 profile 不启动模型执行器、HTTP 服务、桌面账号或浏览器。在 CLI 行配置 `ffmpegExecutable`、`ffprobeExecutable`、`bytevc2Executable` 的绝对路径，或使用示例列出的环境变量。从目标工作区启动；任务记录保存在该工作区配置的任务目录内，专用 profile 仅保存稳定的本地操作员身份。
 

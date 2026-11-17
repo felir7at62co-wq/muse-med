@@ -1,4 +1,5 @@
-Muse Hongguo adapter: modified integration, 2026-11-12.
-Upstream: jackotom/hongguo-drama at bb4aec994a1fc6336da55b269481ae2196124e8d.
+Muse Hongguo adapter: modified integration, 2026-11-17.
+Upstream: jackotom/hongguo-drama at 4ffff289d6dd289e589a0fd0e65aa7aa5c2a7567.
 The combined plugin is distributed under GPL-3.0. Original notices are retained in upstream/NOTICE.
 Local patch: validate the bvc2 sample entry against its bv2C configuration when rebuilding CENC MP4 metadata; reject unsupported CENC sample encryption layouts before decrypting. The original source archive remains unchanged.
+Playback update: the 7.5 source includes the GPL Android v5 JavaScript port credited to N3urda/hongguoTV and ermilylu. Original attribution and license materials remain in the corresponding source archive.

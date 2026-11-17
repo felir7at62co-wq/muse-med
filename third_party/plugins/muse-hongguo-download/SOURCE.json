@@ -1,14 +1,14 @@
 {
   "hostVersion": "0.2.2-rc.2",
   "repository": "https://github.com/jackotom/hongguo-drama",
-  "revision": "bb4aec994a1fc6336da55b269481ae2196124e8d",
-  "version": "7.1.0",
+  "revision": "4ffff289d6dd289e589a0fd0e65aa7aa5c2a7567",
+  "version": "7.5.0",
   "license": "GPL-3.0",
-  "engineSha256": "c0e1d150e401e61af33a3f507700bc1c2b7fe6256b015c551c4487b53348d3c4",
+  "engineSha256": "13c93ea532c2e46d5329635a2fe9a16f5c576dd267b87d2cf4c7f1a5d2070cf2",
   "originalRuntimeIncluded": false,
   "credentialFilesIncluded": false,
   "sourceArchive": "upstream/source.tar.gz",
-  "sourceArchiveSha256": "f288daadc17cf131addcdb29e0d9a1a0bec1ac8bcb1369ea1c87640f8edc3510",
+  "sourceArchiveSha256": "3885f22785a48633ead99c2629b5cda5ae85702bf8847912a2183dcb8732d76f",
   "localPatches": [
     {
       "file": "patches/0001-bytevc2-cenc.patch",
