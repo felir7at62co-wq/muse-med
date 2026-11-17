@@ -2,14 +2,23 @@
 
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { MuseAccountDetails as AccountDetails, MuseAccountDetailsRequest } from '@deepseek-ai/dsh-muse-account/types'
+import type { MuseAccountDetails as AccountDetails, MuseAccountFullDetails, MuseAccountDetailsRequest } from '@deepseek-ai/dsh-muse-account/types'
 import type { MuseAccountInjected, MuseAccountSectionProps } from './MuseAccountSection.tsx'
 import type { MuseAccountLocaleKey } from './locales.ts'
 import css from './MuseAccountDetails.module.css'
+import { MuseAccountRelayDetails } from './MuseAccountRelayDetails.tsx'
 
 type Period = NonNullable<MuseAccountDetailsRequest['period']>
 type DetailsProps = Pick<MuseAccountSectionProps, 't'> & Pick<MuseAccountInjected, 'details'> & {
   readonly onInvalidSession: () => void
+}
+interface DetailsQuery {
+  readonly period: Period
+  readonly offset: number
+  readonly revision: number
+  readonly cursor: string | undefined
+  readonly range: MuseAccountDetailsRequest['range']
+  readonly previous: readonly { readonly cursor: string | undefined; readonly offset: number }[]
 }
 const periods: readonly Period[] = ['today', '7d', '30d', 'all']
 const periodCopy: Record<Period, MuseAccountLocaleKey> = {
@@ -18,10 +27,10 @@ const periodCopy: Record<Period, MuseAccountLocaleKey> = {
 const tokenMetrics = [
   ['inputTokens', 'inputTokens'], ['outputTokens', 'outputTokens'], ['totalTokens', 'totalTokens'],
   ['cachedInputTokens', 'cachedInputTokens'], ['reasoningTokens', 'reasoningTokens'],
-] as const satisfies ReadonlyArray<readonly [keyof AccountDetails['usage']['summary'], MuseAccountLocaleKey]>
+] as const satisfies ReadonlyArray<readonly [keyof MuseAccountFullDetails['usage']['summary'], MuseAccountLocaleKey]>
 const metrics = [
   ['requests', 'requestCount'], ['reportedRequests', 'reportedRequestCount'], ...tokenMetrics,
-] as const satisfies ReadonlyArray<readonly [keyof AccountDetails['usage']['summary'], MuseAccountLocaleKey]>
+] as const satisfies ReadonlyArray<readonly [keyof MuseAccountFullDetails['usage']['summary'], MuseAccountLocaleKey]>
 
 function timestamp(value: string | null, unknown: string): string {
   return value === null ? unknown : new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
@@ -33,8 +42,9 @@ function timestamp(value: string | null, unknown: string): string {
  * @returns Profile and usage sections with independent query recovery.
  */
 export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProps): ReactNode {
-  const [query, setQuery] = useState<{ period: Period; offset: number; revision: number }>({ period: '30d', offset: 0, revision: 0 })
-  const [result, setResult] = useState<{ value: AccountDetails; period: Period }>()
+  const [query, setQuery] = useState<DetailsQuery>({ period: '30d', offset: 0, revision: 0,
+    cursor: undefined, range: undefined, previous: [] })
+  const [result, setResult] = useState<{ value: AccountDetails; query: DetailsQuery }>()
   const [busy, setBusy] = useState(true)
   const [failed, setFailed] = useState(false)
 
@@ -42,9 +52,11 @@ export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProp
     let closed = false
     setBusy(true)
     setFailed(false)
-    void details({ period: query.period, offset: query.offset, limit: 50 }).then((outcome) => {
+    void details({ period: query.period, offset: query.offset, limit: 50,
+      ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+      ...(query.range === undefined ? {} : { range: query.range }) }).then((outcome) => {
       if (closed) return
-      if (outcome.ok) setResult({ value: outcome.value, period: query.period })
+      if (outcome.ok) setResult({ value: outcome.value, query })
       else if (outcome.code === 'muse-account/invalid-credentials') onInvalidSession()
       else setFailed(true)
     }).catch(() => { if (!closed) setFailed(true) }).finally(() => { if (!closed) setBusy(false) })
@@ -62,6 +74,25 @@ export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProp
     </div>
   </div>
   const value = result.value
+  const previousPage = result.query.previous.at(-1)
+  if (value.protocol === 'account-data-v1') return <MuseAccountRelayDetails t={t} value={value}
+    period={query.period} offset={result.query.offset} busy={busy} failed={failed}
+    onRefresh={() => {
+      setQuery(current => ({ ...current, offset: 0, revision: current.revision + 1,
+        cursor: undefined, range: undefined, previous: [] }))
+    }} onPeriod={(period) => {
+      setQuery(current => ({ period, offset: 0, revision: current.revision + 1,
+        cursor: undefined, range: undefined, previous: [] }))
+    }} onPrevious={previousPage === undefined ? undefined : () => {
+      setQuery(current => ({ ...result.query, ...previousPage, revision: current.revision + 1,
+        range: { from: value.usage.from, to: value.usage.to },
+        previous: result.query.previous.slice(0, -1) }))
+    }} onNext={(nextCursor) => {
+      setQuery(current => ({ ...result.query, revision: current.revision + 1, cursor: nextCursor,
+        range: { from: value.usage.from, to: value.usage.to },
+        offset: result.query.offset + value.usage.items.length,
+        previous: [...result.query.previous, { cursor: result.query.cursor, offset: result.query.offset }] }))
+    }} />
   const usage = value.usage
   return <div className={css.details} data-muse-account-details aria-busy={busy}>
     <section className={css.card} aria-label={t('profileTitle')}>
@@ -108,7 +139,8 @@ export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProp
         <label className={css.period}>{t('usagePeriod')}
           <select value={query.period} disabled={busy} onChange={(event) => {
             const period = event.currentTarget.value as Period
-            setQuery(current => ({ period, offset: 0, revision: current.revision + 1 }))
+            setQuery(current => ({ period, offset: 0, revision: current.revision + 1,
+              cursor: undefined, range: undefined, previous: [] }))
           }}>{periods.map(period => <option key={period} value={period}>{t(periodCopy[period])}</option>)}</select>
         </label>
         <Button disabled={busy} onClick={reload}>{t('refreshUsage')}</Button>
@@ -116,7 +148,7 @@ export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProp
       <p className={css.note}>{t('usageScope')}</p>
       <p className={css.note}>{t('usageTrackingSince', { date: timestamp(usage.since, unknown) })}</p>
       <p className={css.note}>{t('usageUpdatedAt', { date: timestamp(usage.updatedAt, unknown) })}</p>
-      <p className={css.note}>{t('usageDisplayedPeriod', { period: t(periodCopy[result.period]) })}</p>
+      <p className={css.note}>{t('usageDisplayedPeriod', { period: t(periodCopy[result.query.period]) })}</p>
       <dl className={css.metrics} data-muse-usage-summary>{metrics.map(([key, label]) => <div key={key}>
         <dt>{t(label)}</dt><dd>{number(usage.summary[key])}</dd>
       </div>)}</dl>

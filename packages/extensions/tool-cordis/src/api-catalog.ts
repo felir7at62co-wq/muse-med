@@ -8386,11 +8386,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MuseAccountDetails',
-    declaration: 'export interface MuseAccountDetails {\n    readonly account: {\n        readonly id: MuseAccountId;\n        readonly username: string;\n        readonly createdAt: string;\n        readonly lastLoginAt: string | null;\n        readonly lastActivityAt: string | null;\n        readonly feishuIdentities: readonly {\n            readonly name: string;\n            readonly tenantKey: string | null;\n            readonly boundAt: string;\n            readonly lastLoginAt: string | null;\n            readonly organization?: {\n                readonly status: \'available\' | \'permission-required\' | \'unavailable\';\n                readonly syncedAt: string;\n                readonly departments: readonly {\n                    readonly id: MuseFeishuDepartmentId;\n                    readonly name: string;\n                    readonly path: string;\n                    readonly pathIds: readonly MuseFeishuDepartmentId[];\n                }[];\n            };\n        }[];\n    };\n    readonly groups: readonly {\n        readonly id: MuseAccountGroupId;\n        readonly name: string;\n        readonly description: string;\n    }[];\n    readonly usage: {\n        readonly since: string;\n        readonly updatedAt: string;\n        readonly tracking: \'gateway-and-desktop\';\n        readonly summary: MuseAccountUsageCounts;\n        readonly byModel: readonly (MuseAccountUsageCounts & {\n            readonly provider: string;\n            readonly model: string;\n        })[];\n        readonly byDay: readonly (MuseAcco /* …truncated — full shape in source */',
+    declaration: 'export type MuseAccountDetails = MuseAccountFullDetails | MuseAccountRelayDetails;',
   },
   {
     name: 'MuseAccountDetailsRequest',
-    declaration: 'export interface MuseAccountDetailsRequest {\n    readonly period?: \'all\' | \'today\' | \'7d\' | \'30d\';\n    readonly offset?: number;\n    readonly limit?: number;\n}',
+    declaration: 'export interface MuseAccountDetailsRequest {\n    readonly period?: \'all\' | \'today\' | \'7d\' | \'30d\';\n    readonly offset?: number;\n    readonly limit?: number;\n    readonly cursor?: string;\n    readonly range?: {\n        readonly from: string;\n        readonly to: string;\n    };\n}',
+  },
+  {
+    name: 'MuseAccountFullDetails',
+    declaration: 'export interface MuseAccountFullDetails {\n    readonly protocol?: \'muse-account-details\';\n    readonly account: {\n        readonly id: MuseAccountId;\n        readonly username: string;\n        readonly createdAt: string;\n        readonly lastLoginAt: string | null;\n        readonly lastActivityAt: string | null;\n        readonly feishuIdentities: readonly {\n            readonly name: string;\n            readonly tenantKey: string | null;\n            readonly boundAt: string;\n            readonly lastLoginAt: string | null;\n            readonly organization?: {\n                readonly status: \'available\' | \'permission-required\' | \'unavailable\';\n                readonly syncedAt: string;\n                readonly departments: readonly {\n                    readonly id: MuseFeishuDepartmentId;\n                    readonly name: string;\n                    readonly path: string;\n                    readonly pathIds: readonly MuseFeishuDepartmentId[];\n                }[];\n            };\n        }[];\n    };\n    readonly groups: readonly {\n        readonly id: MuseAccountGroupId;\n        readonly name: string;\n        readonly description: string;\n    }[];\n    readonly usage: {\n        readonly since: string;\n        readonly updatedAt: string;\n        readonly tracking: \'gateway-and-desktop\';\n        readonly summary: MuseAccountUsageCounts;\n        readonly byModel: readonly (MuseAccountUsageCounts & {\n            readonly provider: string;\n            readonly model: string;\n     /* …truncated — full shape in source */',
   },
   {
     name: 'MuseAccountGroupId',
@@ -8409,6 +8413,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MuseAccountLoginResult {\n    readonly outcome: \'signed-in\' | \'registered\';\n    readonly status: Extract<MuseAccountStatus, {\n        readonly state: \'signed-in\';\n    }>;\n}',
   },
   {
+    name: 'MuseAccountRelayDetails',
+    declaration: 'export interface MuseAccountRelayDetails {\n    readonly protocol: \'account-data-v1\';\n    readonly account: {\n        readonly id: MuseAccountId;\n        readonly username: string;\n    };\n    readonly availability: {\n        readonly profile: \'unavailable\';\n        readonly groups: \'unavailable\';\n        readonly feishuOrganization: \'unavailable\';\n    };\n    readonly usage: MuseAccountRelayUsage;\n}',
+  },
+  {
+    name: 'MuseAccountRelayTokenFields',
+    declaration: 'export interface MuseAccountRelayTokenFields {\n    readonly prompt_tokens?: number | undefined;\n    readonly completion_tokens?: number | undefined;\n    readonly total_tokens?: number | undefined;\n    readonly input_tokens?: number | undefined;\n    readonly output_tokens?: number | undefined;\n    readonly prompt_cache_hit_tokens?: number | undefined;\n    readonly prompt_cache_miss_tokens?: number | undefined;\n    readonly reasoning_tokens?: number | undefined;\n    readonly prompt_tokens_details?: {\n        readonly cached_tokens?: number | undefined;\n        readonly audio_tokens?: number | undefined;\n    } | undefined;\n    readonly completion_tokens_details?: {\n        readonly reasoning_tokens?: number | undefined;\n        readonly audio_tokens?: number | undefined;\n        readonly accepted_prediction_tokens?: number | undefined;\n        readonly rejected_prediction_tokens?: number | undefined;\n    } | undefined;\n    readonly input_tokens_details?: {\n        readonly cached_tokens?: number | undefined;\n        readonly audio_tokens?: number | undefined;\n    } | undefined;\n    readonly output_tokens_details?: {\n        readonly reasoning_tokens?: number | undefined;\n        readonly audio_tokens?: number | undefined;\n    } | undefined;\n}',
+  },
+  {
+    name: 'MuseAccountRelayUsage',
+    declaration: 'export interface MuseAccountRelayUsage {\n    readonly version: 1;\n    readonly coverage: {\n        readonly transport: \'relay-only\';\n        readonly direct: \'unobserved\';\n    };\n    readonly from: string;\n    readonly to: string;\n    readonly summary: {\n        readonly requests: number;\n        readonly completedRequests: number;\n        readonly failedRequests: number;\n        readonly pendingRequests: number;\n        readonly unknownRequests: number;\n        readonly reportedUsageRequests: number;\n        readonly partialUsageRequests: number;\n        readonly unreportedUsageRequests: number;\n        readonly inputTokens: number | null;\n        readonly outputTokens: number | null;\n        readonly totalTokens: number | null;\n    };\n    readonly items: readonly {\n        readonly requestId: MuseAccountUsageId;\n        readonly startedAt: string;\n        readonly finishedAt: string | null;\n        readonly channel: \'cloud-relay\' | \'desktop-relay\';\n        readonly route: string | null;\n        readonly state: \'completed\' | \'failed\' | \'pending\' | \'unknown\';\n        readonly usageStatus: \'reported\' | \'partial\' | \'unreported\';\n        readonly usage: MuseAccountRelayTokenFields | null;\n        readonly requestedModel: string | null;\n        readonly forwardedModel: string | null;\n        readonly responseModel: string | null;\n        readonly upstreamStatus: number | null;\n        readonly clientStatus: number | null;\n        readonly errorKind: \'request_rejected\' | \'upstream /* …truncated — full shape in source */',
+  },
+  {
     name: 'MuseAccountStatus',
     declaration: 'export type MuseAccountStatus = {\n    readonly state: \'signed-out\';\n} | {\n    readonly state: \'signed-in\';\n    readonly username: string;\n    readonly verified: boolean;\n    readonly environment?: string;\n    readonly workspaceLabel?: string;\n    readonly admin?: boolean;\n    readonly adminUrl?: string;\n};',
   },
@@ -8419,6 +8435,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MuseAccountUsageCounts',
     declaration: 'export interface MuseAccountUsageCounts {\n    readonly requests: number;\n    readonly reportedRequests: number;\n    readonly inputTokens: number;\n    readonly outputTokens: number;\n    readonly totalTokens: number;\n    readonly cachedInputTokens: number;\n    readonly reasoningTokens: number;\n}',
+  },
+  {
+    name: 'MuseAccountUsageId',
+    declaration: 'export type MuseAccountUsageId = Branded<\'MuseAccountUsageId\'>;',
   },
   {
     name: 'MuseAsrJob',

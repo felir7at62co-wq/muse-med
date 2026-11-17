@@ -1,6 +1,7 @@
 /** HTTP adapter for the MUSE account gateway. Credentials stay in request bodies. */
 import type { MuseAccountDetails, MuseAccountDetailsRequest } from './types.ts'
 import { readMuseAccountDetails } from './account-details.ts'
+import { museAccountRelayQuery, readMuseAccountRelayIdentity, readMuseAccountRelayUsage } from './account-relay-details.ts'
 
 /** Stable failure classes that can cross the authenticated Remote interface. */
 export type MuseGatewayFailure =
@@ -10,6 +11,7 @@ export type MuseGatewayFailure =
   | 'registration-disabled'
   | 'gateway-unavailable'
   | 'gateway-rejected'
+  | 'unsupported-period'
 
 /** Gateway failure without response bodies or credential-bearing request data. */
 export class MuseGatewayError extends Error {
@@ -100,6 +102,16 @@ export function createMuseAccountGateway(baseUrl: string, requestTimeoutMs: numb
     return cookie
   }
 
+  async function personalGet(path: string, cookie: string): Promise<Response> {
+    const response = await request(path, { headers: { cookie, accept: 'application/json' } })
+    if (response.ok) return response
+    try { await response.body?.cancel() }
+    catch (_error) { /* Keep the bounded HTTP failure when the response connection already closed. */ }
+    if (response.status === 303 || response.status === 401) throw new MuseGatewayError('invalid-credentials')
+    if (response.status === 429) throw new MuseGatewayError('rate-limited')
+    throw new MuseGatewayError('gateway-rejected')
+  }
+
   return {
     async details(cookie, options) {
       const query = new URLSearchParams()
@@ -108,6 +120,15 @@ export function createMuseAccountGateway(baseUrl: string, requestTimeoutMs: numb
       if (options.limit !== undefined) query.set('limit', String(options.limit))
       const response = await request('/api/muse.account/details?' + query.toString(), { headers: { cookie, accept: 'application/json' } })
       try {
+        if (response.status === 404) {
+          try { await response.body?.cancel() }
+          catch (_error) { /* The unsupported details endpoint does not supply account data. */ }
+          const relayQuery = museAccountRelayQuery(options)
+          const account = await readMuseAccountRelayIdentity(await personalGet('/api/muse/identity', cookie))
+          const usage = await readMuseAccountRelayUsage(await personalGet('/api/muse/usage?' + relayQuery.toString(), cookie))
+          return { protocol: 'account-data-v1', account,
+            availability: { profile: 'unavailable', groups: 'unavailable', feishuOrganization: 'unavailable' }, usage }
+        }
         if (response.status === 303 || response.status === 401) throw new MuseGatewayError('invalid-credentials')
         if (response.status === 429) throw new MuseGatewayError('rate-limited')
         if (!response.ok) throw new MuseGatewayError('gateway-rejected')

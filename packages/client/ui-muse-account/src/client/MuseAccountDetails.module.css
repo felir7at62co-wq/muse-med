@@ -70,6 +70,11 @@
   display: block;
 }
 
+.detail {
+  display: block;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .toolbar,
 .period {
   display: flex;

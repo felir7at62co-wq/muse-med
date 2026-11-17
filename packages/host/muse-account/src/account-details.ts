@@ -1,7 +1,7 @@
 /** Validate the account gateway's content-free profile and usage response. */
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { MuseAccountDetails, MuseAccountGroupId, MuseAccountId, MuseAccountUsageId, MuseFeishuDepartmentId } from './types.ts'
+import type { MuseAccountFullDetails, MuseAccountGroupId, MuseAccountId, MuseAccountUsageId, MuseFeishuDepartmentId } from './types.ts'
 import { MuseGatewayError } from './gateway.ts'
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
@@ -42,11 +42,11 @@ const schema = z.object({
 })
 
 /**
- * Read a bounded response, validate its fields, and discard unrecognized data.
- * @param response - Successful current-account gateway response.
- * @returns Browser-safe profile and usage without private gateway fields.
+ * Read a bounded strict UTF-8 JSON response without retaining raw gateway diagnostics.
+ * @param response - Successful content-free account gateway response.
+ * @returns Untrusted JSON for the owning protocol validator.
  */
-export async function readMuseAccountDetails(response: Response): Promise<MuseAccountDetails> {
+export async function readMuseAccountJson(response: Response): Promise<unknown> {
   const reader = response.body?.getReader()
   if (reader === undefined) throw new MuseGatewayError('gateway-rejected')
   const chunks: Uint8Array[] = []
@@ -66,6 +66,18 @@ export async function readMuseAccountDetails(response: Response): Promise<MuseAc
     throw error instanceof MuseGatewayError ? error : new MuseGatewayError('gateway-unavailable')
   } finally { reader.releaseLock() }
   try {
-    return schema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, size))))
+    const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, size)))
+    return value
   } catch (_error) { throw new MuseGatewayError('gateway-rejected') }
+}
+
+/**
+ * Validate current-account profile, memberships and complete usage aggregates, discarding unrecognized fields.
+ * @param response - Successful personal-details gateway response.
+ * @returns Browser-safe profile and measurements without credentials or content.
+ */
+export async function readMuseAccountDetails(response: Response): Promise<MuseAccountFullDetails> {
+  const value = await readMuseAccountJson(response)
+  try { return schema.parse(value) }
+  catch (_error) { throw new MuseGatewayError('gateway-rejected') }
 }

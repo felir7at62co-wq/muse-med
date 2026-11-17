@@ -271,6 +271,7 @@
     "apps/web/tests/yunying-acceptance.e2e.ts",
     "apps/web/tests/muse-personal-models.e2e.ts",
     "apps/web/tests/muse-user-details.e2e.ts",
+    "apps/web/tests/muse-user-legacy-details.e2e.ts",
     "apps/web/tests/muse-multi-computer.e2e.ts",
     "apps/web/tests/websocket-host-diagnostics.ts"
   ],

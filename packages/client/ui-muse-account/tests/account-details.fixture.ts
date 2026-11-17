@@ -1,6 +1,6 @@
 /** Content-free account details shared by the UI's authenticated transport fixtures. */
 
-import type { MuseAccountDetails, MuseFeishuDepartmentId } from '@deepseek-ai/dsh-muse-account/types'
+import type { MuseAccountFullDetails as MuseAccountDetails, MuseFeishuDepartmentId } from '@deepseek-ai/dsh-muse-account/types'
 
 /** Stable profile, hierarchy, assigned group and partial usage reports. */
 export const ACCOUNT_DETAILS: MuseAccountDetails = {

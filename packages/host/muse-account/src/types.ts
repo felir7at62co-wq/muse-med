@@ -29,6 +29,10 @@ export interface MuseAccountDetailsRequest {
   readonly period?: 'all' | 'today' | '7d' | '30d'
   readonly offset?: number
   readonly limit?: number
+  /** Opaque next-page value returned by account-data-v1 gateways. */
+  readonly cursor?: string
+  /** Successful account-data-v1 UTC range retained while following its cursors. */
+  readonly range?: { readonly from: string; readonly to: string }
 }
 
 /** Reported token counts; input includes cached input, which is also shown separately. */
@@ -43,7 +47,8 @@ export interface MuseAccountUsageCounts {
 }
 
 /** Current account profile, assigned Muse groups, and content-free model usage. */
-export interface MuseAccountDetails {
+export interface MuseAccountFullDetails {
+  readonly protocol?: 'muse-account-details'
   readonly account: {
     readonly id: MuseAccountId
     readonly username: string
@@ -92,6 +97,90 @@ export interface MuseAccountDetails {
     }[]
   }
 }
+
+/** Supplier-reported counters retained by the relay-only account-data-v1 ledger. */
+export interface MuseAccountRelayTokenFields {
+  readonly prompt_tokens?: number | undefined
+  readonly completion_tokens?: number | undefined
+  readonly total_tokens?: number | undefined
+  readonly input_tokens?: number | undefined
+  readonly output_tokens?: number | undefined
+  readonly prompt_cache_hit_tokens?: number | undefined
+  readonly prompt_cache_miss_tokens?: number | undefined
+  readonly reasoning_tokens?: number | undefined
+  readonly prompt_tokens_details?: {
+    readonly cached_tokens?: number | undefined
+    readonly audio_tokens?: number | undefined
+  } | undefined
+  readonly completion_tokens_details?: {
+    readonly reasoning_tokens?: number | undefined
+    readonly audio_tokens?: number | undefined
+    readonly accepted_prediction_tokens?: number | undefined
+    readonly rejected_prediction_tokens?: number | undefined
+  } | undefined
+  readonly input_tokens_details?: {
+    readonly cached_tokens?: number | undefined
+    readonly audio_tokens?: number | undefined
+  } | undefined
+  readonly output_tokens_details?: {
+    readonly reasoning_tokens?: number | undefined
+    readonly audio_tokens?: number | undefined
+  } | undefined
+}
+
+/** Authenticated relay-only measurements; summaries cover the full UTC date range, items one cursor page. */
+export interface MuseAccountRelayUsage {
+  readonly version: 1
+  readonly coverage: { readonly transport: 'relay-only'; readonly direct: 'unobserved' }
+  readonly from: string
+  readonly to: string
+  readonly summary: {
+    readonly requests: number
+    readonly completedRequests: number
+    readonly failedRequests: number
+    readonly pendingRequests: number
+    readonly unknownRequests: number
+    readonly reportedUsageRequests: number
+    readonly partialUsageRequests: number
+    readonly unreportedUsageRequests: number
+    readonly inputTokens: number | null
+    readonly outputTokens: number | null
+    readonly totalTokens: number | null
+  }
+  readonly items: readonly {
+    readonly requestId: MuseAccountUsageId
+    readonly startedAt: string
+    readonly finishedAt: string | null
+    readonly channel: 'cloud-relay' | 'desktop-relay'
+    readonly route: string | null
+    readonly state: 'completed' | 'failed' | 'pending' | 'unknown'
+    readonly usageStatus: 'reported' | 'partial' | 'unreported'
+    readonly usage: MuseAccountRelayTokenFields | null
+    readonly requestedModel: string | null
+    readonly forwardedModel: string | null
+    readonly responseModel: string | null
+    readonly upstreamStatus: number | null
+    readonly clientStatus: number | null
+    readonly errorKind: 'request_rejected' | 'upstream_http' | 'invalid_content_type' | 'transport' | 'cancelled' | null
+  }[]
+  readonly nextCursor: string | null
+  readonly health: { readonly state: 'ok' | 'degraded' }
+}
+
+/** Account-data-v1 gateways expose identity and relay measurements without personal profile or membership APIs. */
+export interface MuseAccountRelayDetails {
+  readonly protocol: 'account-data-v1'
+  readonly account: { readonly id: MuseAccountId; readonly username: string }
+  readonly availability: {
+    readonly profile: 'unavailable'
+    readonly groups: 'unavailable'
+    readonly feishuOrganization: 'unavailable'
+  }
+  readonly usage: MuseAccountRelayUsage
+}
+
+/** Current-account data with explicit gateway capabilities and measurement coverage. */
+export type MuseAccountDetails = MuseAccountFullDetails | MuseAccountRelayDetails
 
 /** Public approval fields; the Host retains the redemption secret privately. */
 export interface MuseBrowserLoginAttempt {

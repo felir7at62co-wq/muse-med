@@ -46,6 +46,7 @@
     "src/client/MuseAccountLauncher.tsx",
     "src/client/MuseAccountOnboarding.tsx",
     "src/client/MuseAccountDetails.tsx",
+    "src/client/MuseAccountRelayDetails.tsx",
     "src/client/MuseAccountSection.tsx"
   ]
 }

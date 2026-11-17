@@ -8,6 +8,7 @@
   "files": [
     "src/account.ts",
     "src/account-details.ts",
+    "src/account-relay-details.ts",
     "src/activity.ts",
     "src/web-search.ts",
     "src/browser-login.ts",

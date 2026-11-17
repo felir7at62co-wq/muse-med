@@ -1,12 +1,12 @@
 /** Content-free gateway response shared by account transport tests. */
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { MuseAccountDetails, MuseAccountId, MuseAccountGroupId, MuseAccountUsageId, MuseFeishuDepartmentId } from '../src/types.ts'
+import type { MuseAccountFullDetails, MuseAccountId, MuseAccountGroupId, MuseAccountUsageId, MuseFeishuDepartmentId } from '../src/types.ts'
 
 /**
  * Build one independent, browser-safe profile and usage response.
  * @returns A verified account with an assigned group and one reported model request.
  */
-export function accountDetailsFixture(): MuseAccountDetails {
+export function accountDetailsFixture(): MuseAccountFullDetails {
   const at = '2026-11-17T00:00:00.000Z'
   const counts = { requests: 1, reportedRequests: 1, inputTokens: 12, outputTokens: 4, totalTokens: 16,
     cachedInputTokens: 2, reasoningTokens: 1 }
