@@ -135,33 +135,8 @@ export const zh = {
 /** Locale key set owned by this section. */
 export type MuseAccountLocaleKey = keyof typeof zh
 
-/** English copy checked against the Chinese key set. */
-export const en = {
-  onboardingTitle: 'Welcome to MUSE',
-  onboardingDescription: 'Sign in with Feishu to use MUSE web models and speech services. You can also add your own models in Settings.',
-  onboardingLater: 'Sign in later',
-  nav: 'MUSE',
-  feedback: 'Feedback',
-  title: 'MUSE',
-  description: 'Sign in to MUSE on the official Feishu page.',
-  browserSignIn: 'Sign in with Feishu',
-  browserWaiting: 'Authorize with Feishu, then confirm the matching device code {code}.',
-  browserReopen: 'Reopen sign-in page',
-  browserCheck: 'Check sign-in result',
-  browserCancel: 'Cancel browser sign-in',
-  browserExpired: 'This sign-in link expired. Sign in again.',
-  browserCancelled: 'Browser sign-in cancelled.',
-  loading: 'Reading account status…',
-  retry: 'Retry',
-  signedIn: 'Signed in.',
-  signedOut: 'Signed out.',
-  accountNamed: 'Current account: {username}',
-  workspaceNamed: 'Workspace: {workspace}',
-  verified: 'Account verified.',
-  verificationPending: 'Sign-in saved locally; the service has not verified it yet.',
-  verify: 'Verify sign-in',
-  adminManagement: 'User management',
-  signOut: 'Sign out',
+/** English profile and usage copy shared explicitly by the interface dictionaries. */
+const detailsCopy = {
   profileTitle: 'Account profile',
   accountId: 'Account ID',
   accountName: 'Account name',
@@ -257,6 +232,36 @@ export const en = {
   invalidContentType: 'Unexpected response format',
   requestTransportError: 'Connection interrupted',
   requestCancelled: 'Cancelled',
+} satisfies Record<string, string>
+
+/** English copy checked against the Chinese key set. */
+export const en = {
+  onboardingTitle: 'Welcome to MUSE',
+  onboardingDescription: 'Sign in with Feishu to use MUSE web models and speech services. You can also add your own models in Settings.',
+  onboardingLater: 'Sign in later',
+  nav: 'MUSE',
+  feedback: 'Feedback',
+  title: 'MUSE',
+  description: 'Sign in to MUSE on the official Feishu page.',
+  browserSignIn: 'Sign in with Feishu',
+  browserWaiting: 'Authorize with Feishu, then confirm the matching device code {code}.',
+  browserReopen: 'Reopen sign-in page',
+  browserCheck: 'Check sign-in result',
+  browserCancel: 'Cancel browser sign-in',
+  browserExpired: 'This sign-in link expired. Sign in again.',
+  browserCancelled: 'Browser sign-in cancelled.',
+  loading: 'Reading account status…',
+  retry: 'Retry',
+  signedIn: 'Signed in.',
+  signedOut: 'Signed out.',
+  accountNamed: 'Current account: {username}',
+  workspaceNamed: 'Workspace: {workspace}',
+  verified: 'Account verified.',
+  verificationPending: 'Sign-in saved locally; the service has not verified it yet.',
+  verify: 'Verify sign-in',
+  adminManagement: 'User management',
+  signOut: 'Sign out',
+  ...detailsCopy,
   'error.invalidInput': 'The sign-in details are invalid. Sign in with Feishu again.',
   'error.invalidCredentials': 'Your sign-in expired. Sign in with Feishu again.',
   'error.rateLimited': 'Too many attempts. Try again later.',
@@ -269,7 +274,7 @@ export const en = {
 
 /** Japanese interface copy. */
 export const ja = {
-  ...en,
+  ...detailsCopy,
   'accountNamed': '現在のアカウント：{username}',
   'adminManagement': 'ユーザー管理',
   'browserCancel': 'ブラウザーでのログインをキャンセル',
@@ -307,7 +312,7 @@ export const ja = {
 
 /** Spanish interface copy. */
 export const es = {
-  ...en,
+  ...detailsCopy,
   'accountNamed': 'Cuenta actual: {username}',
   'adminManagement': 'Gestión de usuarios',
   'browserCancel': 'Cancelar el inicio de sesión en el navegador',
@@ -345,7 +350,7 @@ export const es = {
 
 /** French interface copy. */
 export const fr = {
-  ...en,
+  ...detailsCopy,
   'accountNamed': 'Compte actuel : {username}',
   'adminManagement': 'Gestion des utilisateurs',
   'browserCancel': 'Annuler la connexion dans le navigateur',
@@ -383,7 +388,7 @@ export const fr = {
 
 /** German interface copy. */
 export const de = {
-  ...en,
+  ...detailsCopy,
   'accountNamed': 'Aktuelles Konto: {username}',
   'adminManagement': 'Benutzerverwaltung',
   'browserCancel': 'Browser-Anmeldung abbrechen',
@@ -421,7 +426,7 @@ export const de = {
 
 /** Russian interface copy. */
 export const ru = {
-  ...en,
+  ...detailsCopy,
   'accountNamed': 'Текущая учётная запись: {username}',
   'adminManagement': 'Управление пользователями',
   'browserCancel': 'Отменить вход через браузер',
@@ -459,7 +464,7 @@ export const ru = {
 
 /** Portuguese interface copy. */
 export const pt = {
-  ...en,
+  ...detailsCopy,
   'accountNamed': 'Conta atual: {username}',
   'adminManagement': 'Gestão de utilizadores',
   'browserCancel': 'Cancelar o início de sessão no navegador',

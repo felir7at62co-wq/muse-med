@@ -10,7 +10,7 @@
   flex-direction: column;
   gap: 12px;
   padding-top: 16px;
-  border-top: 1px solid var(--dsw-alias-border-l2);
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
   min-width: 0;
 }
 
@@ -116,7 +116,7 @@
 .period select {
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-base);
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-sm);
   padding: 4px 8px;
   font: inherit;
@@ -138,7 +138,7 @@
 .table th,
 .table td {
   padding: 8px 12px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
   white-space: nowrap;
 }
 

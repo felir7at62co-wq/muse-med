@@ -69,6 +69,7 @@ async function bench() {
   const gateway = createMuseAccountGateway(baseUrl, 1000, async (input, init) => {
     const path = new URL(input instanceof Request ? input.url : input).pathname
     requests.push(path)
+    if (path === '/api/muse/identity') return new Response(null, { status: 404 })
     if (path === '/api/muse.account/details') return Response.json(ACCOUNT_DETAILS)
     if (path === '/api/muse.account') {
       expect(new Headers(init?.headers).get('cookie')).toMatch(/^__Host-muse=/u)
@@ -127,7 +128,7 @@ it('verifies each actual settings opening and Host restart, then removes the sav
   await thirdUi.findByText('账号已验证。')
   await thirdUi.findByText('编剧团队')
   expect(await readFile(b.sessionFile, 'utf8')).toBe(stored)
-  expect(b.requests).toEqual(['/api/muse.account', '/api/muse.account/details', '/api/muse.account', '/api/muse.account/details', '/api/muse.account', '/api/muse.account/details'])
+  expect(b.requests).toEqual(['/api/muse.account', '/api/muse/identity', '/api/muse.account/details', '/api/muse.account', '/api/muse/identity', '/api/muse.account/details', '/api/muse.account', '/api/muse/identity', '/api/muse.account/details'])
   expect(b.operations).toHaveLength(6)
   expect(b.operations.filter(operation => operation === 'models')).toHaveLength(3)
   expect(b.operations.filter(operation => operation === 'remote')).toHaveLength(3)
@@ -135,7 +136,7 @@ it('verifies each actual settings opening and Host restart, then removes the sav
   await thirdUi.findByRole('button', { name: '飞书登录' })
   expect(await readMuseSession(b.sessionFile, b.baseUrl)).toBeNull()
   expect(b.operations.slice(6)).toEqual(['pause', 'models'])
-  expect(b.requests).toEqual(['/api/muse.account', '/api/muse.account/details', '/api/muse.account', '/api/muse.account/details', '/api/muse.account', '/api/muse.account/details', '/logout'])
+  expect(b.requests).toEqual(['/api/muse.account', '/api/muse/identity', '/api/muse.account/details', '/api/muse.account', '/api/muse/identity', '/api/muse.account/details', '/api/muse.account', '/api/muse/identity', '/api/muse.account/details', '/logout'])
   expect(thirdUi.queryByText('__Host-muse=fixture')).toBeNull()
   await expect(`${JSON.stringify({ verified: verifiedView, reopened: reopenedView, signedOut: pageView(third.container) }, null, 2)}\n`)
     .toMatchFileSnapshot(join(import.meta.dirname, 'expected/account-verification.zh.json'))
