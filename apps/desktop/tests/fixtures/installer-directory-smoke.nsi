@@ -7,8 +7,7 @@ OutFile "${OUTPUT_FILE}"
 LoadLanguageFile "${NSISDIR}\Contrib\Language files\English.nlf"
 LangString decompressionFailed ${LANG_ENGLISH} "Payload extraction failed"
 LangString MuseUpgradeReceiptFailed ${LANG_ENGLISH} "Upgrade did not complete; keep both directories."
-Var InstallerPath
-Var InstallerError
+!include "..\..\installer\path-vars.nsh"
 ; This transaction-only fixture exercises path validation in a separate guard probe.
 Function InstallerValidatePath
   StrCpy $InstallerError ""

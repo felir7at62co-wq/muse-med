@@ -35,6 +35,8 @@ try {
   [IO.Directory]::CreateDirectory($reportRoot) | Out-Null
   New-Item -ItemType Junction -Path $linkedRoot -Target $reportRoot | Out-Null
   $guardFixture = Join-Path $PSScriptRoot '../tests/fixtures/installer-path-guard-smoke.nsi'
+  $orderFixture = Join-Path $PSScriptRoot '../tests/fixtures/installer-declaration-order-smoke.nsi'
+  Invoke-Checked $Makensis @('/V2', '/WX', "/DOUTPUT_FILE=$guardRoot\declaration-order.exe", "/DDSH_UPGRADE_REPORT_ROOT=$reportRoot", $orderFixture)
   $guardCases = @(
     @{ target = $reportRoot; report = $reportRoot; expected = 2 },
     @{ target = $reportRoot.ToUpperInvariant(); report = $reportRoot; expected = 2 },

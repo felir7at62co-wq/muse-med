@@ -1485,7 +1485,7 @@ async function main(): Promise<void> {
     : undefined
   app.on('will-quit', () => { upgradeBackupNotice?.dispose() })
   app.on('browser-window-focus', (_event, window) => {
-    if (enteredWorkspace && window === mainWindow && !isMandatory() && !updateDialog.isOpen) void upgradeBackupNotice?.show()
+    if ((window === mainWindow || window === welcomeWindow) && !isMandatory() && !updateDialog.isOpen) void upgradeBackupNotice?.show()
   })
   const quitConfirmation = new DesktopQuitConfirmation({
     locale: () => locale,
@@ -1692,7 +1692,10 @@ async function main(): Promise<void> {
         else app.quit()
       })
       if (isQuitting() || recovery.active || enteredWorkspace) window.close()
-      else mainWindow?.hide()
+      else {
+        mainWindow?.hide()
+        if (window.isVisible() && !isMandatory() && !updateDialog.isOpen) void upgradeBackupNotice?.show()
+      }
     })().finally(() => { openingWelcome = undefined })
     return openingWelcome
   }

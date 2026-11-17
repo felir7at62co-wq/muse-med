@@ -8,6 +8,9 @@ InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
 !endif
 !include "FileFunc.nsh"
 !define INSTALLER_SOURCE_DIR "${__FILEDIR__}\..\installer"
+!ifndef BUILD_UNINSTALLER
+  !include "${INSTALLER_SOURCE_DIR}\path-vars.nsh"
+!endif
 !define /ifndef INSTALLER_BUILD_DIR "${__FILEDIR__}\..\.desktop-build\targets\win-x64\installer-ui"
 
 !macro MuseUpgradeDefaultStrings LANGUAGE

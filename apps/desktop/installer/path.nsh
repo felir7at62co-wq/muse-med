@@ -1,5 +1,4 @@
-Var InstallerPath
-Var InstallerError
+!include "${__FILEDIR__}\path-vars.nsh"
 !ifndef DSH_UPGRADE_REPORT_ROOT
 !define DSH_UPGRADE_REPORT_ROOT "$LOCALAPPDATA\Muse-Upgrade-Reports"
 !endif

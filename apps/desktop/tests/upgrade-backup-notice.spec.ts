@@ -123,3 +123,32 @@ it('recognizes a valid identifier without braces and rejects malformed report na
   expect(f.show).toHaveBeenCalledOnce()
   expect(f.show.mock.calls[0]?.[0].detail).toContain('12345678-1234-1234-1234-123456789abc')
 })
+
+it('does not acknowledge an in-flight dialog after disposal', async () => {
+  const f = await setup()
+  await f.put(id)
+  let resolveDialog: ((value: MessageBoxReturnValue) => void) | undefined
+  f.show.mockImplementationOnce(() => new Promise((resolve) => { resolveDialog = resolve }))
+  const notice = new UpgradeBackupNotice(f.options)
+  const pending = notice.show()
+  await vi.waitFor(() => { expect(resolveDialog).toBeDefined() })
+  notice.dispose()
+  resolveDialog?.({ response: 0, checkboxChecked: false })
+  await pending
+  expect(f.show).toHaveBeenCalledOnce()
+  await new UpgradeBackupNotice(f.options).show()
+  expect(f.show).toHaveBeenCalledTimes(2)
+})
+
+it('does not display a dialog when disposed while collecting a receipt', async () => {
+  const f = await setup()
+  await f.put(id)
+  const notice = new UpgradeBackupNotice({ ...f.options, locale: () => {
+    notice.dispose()
+    return resolveDesktopLocale('zh')
+  } })
+  await notice.show()
+  expect(f.show).not.toHaveBeenCalled()
+  await new UpgradeBackupNotice(f.options).show()
+  expect(f.show).toHaveBeenCalledOnce()
+})

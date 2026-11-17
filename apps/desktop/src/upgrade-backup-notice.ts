@@ -29,9 +29,11 @@ export class UpgradeBackupNotice {
   /** Prevent a late dialog response from acknowledging a notice during shutdown. */
   dispose(): void { this.disposed = true }
 
+  private isDisposed(): boolean { return this.disposed }
+
   /** Display unread installer receipts after an application window becomes available. */
   async show(): Promise<void> {
-    if (this.pending || this.disposed) return
+    if (this.pending || this.isDisposed()) return
     this.pending = true
     try {
       let names: string[]
@@ -44,7 +46,7 @@ export class UpgradeBackupNotice {
         throw error
       }
       for (const name of names) {
-        if (this.disposed) return
+        if (this.isDisposed()) return
         const base = join(this.options.reports, name)
         const completed = `${base}.completed`
         const planned = this.validReceipt(name, await this.readReceipt(base), false)
@@ -85,10 +87,12 @@ export class UpgradeBackupNotice {
         try { await lstat(marker); continue } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
         }
+        if (this.isDisposed()) return
         const result = await this.options.show({ type: 'info', title: messages.backupNoticeTitle,
           message, detail: details.join('\n'), buttons: [messages.updateAcknowledge], defaultId: 0, cancelId: -1 })
-        if (this.disposed || result.response !== 0) return
+        if (this.isDisposed() || result.response !== 0) return
         await mkdir(this.options.acknowledgements, { recursive: true })
+        if (this.isDisposed()) return
         try { await writeFile(marker, '', { flag: 'wx' }) } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
         }

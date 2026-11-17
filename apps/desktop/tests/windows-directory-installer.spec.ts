@@ -9,6 +9,16 @@ const require = createRequire(import.meta.url)
 const section = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')),
   'templates/nsis/installSection.nsh'), 'utf8')
 
+it('declares shared path variables before production directory functions and reuses the guarded declaration in the path validator', () => {
+  const installer = readFileSync(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')
+  const path = readFileSync(new URL('../installer/path.nsh', import.meta.url), 'utf8')
+  const declaration = installer.indexOf('!include "${INSTALLER_SOURCE_DIR}\\path-vars.nsh"')
+  const functions = installer.indexOf('!include "${__FILEDIR__}\\installer-directories.nsh"')
+  expect(declaration).toBeGreaterThanOrEqual(0)
+  expect(functions).toBeGreaterThan(declaration)
+  expect(path).toContain('!include "${__FILEDIR__}\\path-vars.nsh"')
+})
+
 it('keeps data cleanup out of the upstream template while retaining application removal and registration cleanup', () => {
   const source = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis/uninstaller.nsh'), 'utf8')
   const adapted = directoryUninstaller(source)
