@@ -1320,9 +1320,6 @@ importers:
 
   apps/market-web:
     dependencies:
-      '@deepseek-ai/dsh-error':
-        specifier: workspace:*
-        version: link:../../packages/util/error
       '@deepseek-ai/dsh-client-ui-muse-market':
         specifier: workspace:*
         version: link:../../packages/client/ui-muse-market
@@ -1332,6 +1329,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-theme':
         specifier: workspace:*
         version: link:../../packages/client/ui-theme
+      '@deepseek-ai/dsh-error':
+        specifier: workspace:*
+        version: link:../../packages/util/error
       '@deepseek-ai/dsh-muse-market':
         specifier: workspace:*
         version: link:../../packages/host/muse-market
@@ -1398,12 +1398,12 @@ importers:
       '@deepseek-ai/cordis-plugin-group':
         specifier: workspace:~
         version: link:../../vendor/group
-      '@deepseek-ai/dsh-character-library':
-        specifier: workspace:*
-        version: link:../../packages/drama/character-library
       '@deepseek-ai/dsh-agent-team':
         specifier: workspace:*
         version: link:../../packages/team/agent-team
+      '@deepseek-ai/dsh-character-library':
+        specifier: workspace:*
+        version: link:../../packages/drama/character-library
       '@deepseek-ai/dsh-client-modules':
         specifier: workspace:*
         version: link:../../packages/client/modules
@@ -4565,6 +4565,10 @@ importers:
         version: 18.3.1(react@18.3.1)
 
   packages/client/ui-character-library:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~
@@ -4608,9 +4612,6 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:*
         version: link:../../typert/protocol
-      '@deepseek-ai/schemastery':
-        specifier: link:../../../vendor/schemastery
-        version: link:../../../vendor/schemastery
       '@testing-library/react':
         specifier: ^16.1.0
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -26609,13 +26610,13 @@ packages:
   hookable@6.1.1:
     resolution: {integrity: sha512-U9LYDy1CwhMCnprUfeAZWZGByVbhd54hwepegYTK7Pi5NvqEj63ifz5z+xukznehT7i6NIZRu89Ay1AZmRsLEQ==}
 
-  hosted-git-info@4.1.0:
-    resolution: {integrity: sha512-kyCuEOWjJqZuDbRHzL8V93NzQhwIB71oFWSyzVo+KPZI+pnQPPxucdkrOZvkLRnrf5URsQM+IJ09Dw29cRALIA==}
-    engines: {node: '>=10'}
-
   hosted-git-info@10.1.1:
     resolution: {integrity: sha512-DeOnSPAvOndYKfw075gt8yZzQ7S2hNztw34zBTfhIzLhmBTswIBg5/y+pqu/VD5cYWm5goAFTusDmUEmKZ0PEQ==}
     engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+
+  hosted-git-info@4.1.0:
+    resolution: {integrity: sha512-kyCuEOWjJqZuDbRHzL8V93NzQhwIB71oFWSyzVo+KPZI+pnQPPxucdkrOZvkLRnrf5URsQM+IJ09Dw29cRALIA==}
+    engines: {node: '>=10'}
 
   hosted-git-info@9.0.3:
     resolution: {integrity: sha512-Hc+ghLoSt6QaYZUv0WBiIvmMDZuZZ7oaDvdH8MbfOO4lOsxdXLEvuC6ePoGs9H1X9oCLyq6+NVN0MKqD+ydxyg==}
@@ -34732,13 +34733,13 @@ snapshots:
 
   hookable@6.1.1: {}
 
-  hosted-git-info@4.1.0:
-    dependencies:
-      lru-cache: 6.0.0
-
   hosted-git-info@10.1.1:
     dependencies:
       lru-cache: 11.5.1
+
+  hosted-git-info@4.1.0:
+    dependencies:
+      lru-cache: 6.0.0
 
   hosted-git-info@9.0.3:
     dependencies:

@@ -55,12 +55,13 @@
     "lib/**/*.js.map",
     "src"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:~"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"
   },
   "devDependencies": {
-    "@deepseek-ai/schemastery": "workspace:~",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-api-character-library": "workspace:*",
     "@deepseek-ai/dsh-api-remotes": "workspace:*",
