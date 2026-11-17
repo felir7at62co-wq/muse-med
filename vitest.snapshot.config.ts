@@ -2,8 +2,16 @@ import { availableParallelism } from 'node:os'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
+import { LOADER_SMOKE_TEST_TIMEOUT_MS } from './packages/test-support/loader-smoke/src/deadline.ts'
 
 const DEFAULT_SNAPSHOT_MAX_CONCURRENCY = 5
+const headlessSnapshot = 'snapshots/session/headless.snapshot.ts'
+const snapshotIncludes = [
+  'scripts/session-snapshot-corpus.corpus.ts',
+  // The assembled Web snapshot executes generated client bundles.
+  ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? ['apps/web/tests/**/*.snapshot.ts'] : []),
+  'snapshots/**/*.snapshot.ts',
+]
 
 function positiveIntFromEnv(name: string, fallback: number): number {
   const raw = process.env[name]
@@ -48,12 +56,15 @@ export default defineConfig({
   test: {
     execArgv: vitestExecArgv,
     setupFiles: ['./scripts/test-proxy-environment.ts'],
-    include: [
-      'scripts/session-snapshot-corpus.corpus.ts',
-      // The assembled Web snapshot executes generated client bundles; source
-      // mode remains the zero-build path, while lib mode requires a prior build.
-      ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? ['apps/web/tests/**/*.snapshot.ts'] : []),
-      'snapshots/**/*.snapshot.ts',
+    projects: [
+      {
+        extends: true,
+        test: { name: 'headless', include: [headlessSnapshot], testTimeout: LOADER_SMOKE_TEST_TIMEOUT_MS },
+      },
+      {
+        extends: true,
+        test: { name: 'snapshots', include: snapshotIncludes, exclude: [headlessSnapshot] },
+      },
     ],
     // Replay never writes committed outputs and every scenario owns its
     // mutable runtime state (the subprocess suites use a unique temp dir and
