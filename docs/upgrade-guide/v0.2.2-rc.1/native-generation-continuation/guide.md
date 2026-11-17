@@ -9,7 +9,7 @@ English | [中文](guide.zh.md)
 
 ## Change
 
-Desktop continues a completed native video task in its original ordinary Session, with the captured chat model, reasoning effort, working directory and Workspace membership. It does not activate the archived DS Bot. A later user selection is preserved; it is not replaced to make a pending task run.
+Desktop continues a completed native video task in its original ordinary Session, with the captured chat model, reasoning effort, working directory and Workspace membership. It does not activate the archived DS Bot. A later user selection is preserved; it is not replaced to make a pending task run. Background notices and authorized submissions in that same live Session share the captured execution guards when their bindings match exactly. Cancelling one operation does not cancel another; owner revocation cancels both.
 
 Desktop opts into `durableInboxClaims`. The new claim events distinguish queued input from input already sent to a model. A parked-notice event records automatic input removed during producer unload. These are required-on-read events within Session format 4: an older reader that does not recognize one refuses the log. Existing log generations are not rewritten, and profiles that do not enable this option retain their old event sequence. The [persistence acknowledgement](../../../persistence-changes/2026-11-10-native-generation-inbox-claims.md) describes both reader directions.
 

@@ -3084,8 +3084,10 @@ describe('headless recorded-session snapshots', () => {
               expect(guidance).toContain('`select_assets` 明确重选并回读两份一致')
               const approvedUrl = 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png'
               expect(JSON.parse(resultText('call_character_regenerate'))).toMatchObject({
-                outcome: 'accepted', generation_status: 'submitted_pending', parent_asset_id: 11, material_id: null,
-                identity_reference: { status: 'inherited', asset_id: 11, material_id: 111, url: approvedUrl },
+                total: 1, returned: 1, errors: 0,
+                results: [{ status: 'returned', outcome: 'accepted', generation_status: 'submitted_pending',
+                  parent_asset_id: 11, material_id: null,
+                  identity_reference: { status: 'inherited', asset_id: 11, material_id: 111, url: approvedUrl } }],
               })
               const conflict = resultText('call_conflicting_prepare', true)
               expect(conflict).toContain('IMAGE_REFERENCE_CONFLICT:')
@@ -3103,7 +3105,8 @@ describe('headless recorded-session snapshots', () => {
                 assetSummary: { count: 1, orderedAssets: [{ materialAssetId: 11, materialKey: 'lead', imageUrl: approvedUrl }] } })
               const receipt = JSON.parse(await readFile(join(cwd, 'provider-receipt.json'), 'utf8'))
               expect(receipt).toEqual(JSON.parse(await readFile(join(scenario.dir, 'workspace.expected/provider-receipt.json'), 'utf8')))
-              expect(receipt).toMatchObject({ confirmation_requests: 0, storyboard_writes: 1 })
+              expect(receipt).toMatchObject({ confirmation_requests: 0, storyboard_writes: 1,
+                image_generation: { ratio: '9:16', resolution: '2K', video_standard_id: 93 } })
               expect(receipt.selected_model_references).toEqual(receipt.selected_storyboard_references)
               const preview = JSON.parse(await readFile(prepared.preview_path, 'utf8'))
               expect(JSON.parse(preview.payload.modelConfig).materialList).toEqual(preview.payload.storyboardMaterialList)

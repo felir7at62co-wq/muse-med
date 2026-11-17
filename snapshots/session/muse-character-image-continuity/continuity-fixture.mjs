@@ -56,7 +56,10 @@ export function apply(ctx) {
               genTypes: [{ id: 71, type: 3 }], videoStandards: [{ id: 337, ratio: '16:9', resolution: '480p', genNum: 1 }] }]
           : [{ id: 42, modelId: 'gpt-image-2', platformId: 'YU_DIAN', unitPrice: 0.5, unit: '张',
               genTypes: [{ id: 7, type: 3 }],
-              videoStandards: [{ id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 }] }]
+              videoStandards: [
+                { id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 },
+                { id: 93, ratio: '9:16', resolution: '2K', width: 1440, height: 2560, genNum: 1 },
+              ] }]
       } else if (url.pathname.endsWith('/aigc/asset/list') && method === 'GET') {
         data = { total: 1, rows: [parent] }
       } else if (url.pathname.endsWith('/aigc/asset/11') && method === 'GET') {
@@ -67,10 +70,12 @@ export function apply(ctx) {
         const body = JSON.parse(init.body)
         const config = JSON.parse(body.modelConfig)
         if (++imageWrites !== 1 || body.id !== 11 || body.scriptId !== 2708 || body.assetType !== 1
-          || config.materialList.length !== 1 || config.materialList[0].materialUrl !== approvedUrl) {
-          throw new Error('Regeneration must inherit exactly the approved character reference')
+          || config.materialList.length !== 1 || config.materialList[0].materialUrl !== approvedUrl
+          || config.ratio !== '9:16' || config.resolution !== '2K' || config.videoStandardId !== 93) {
+          throw new Error('Batch regeneration must retain its approved character reference and requested portrait dimensions')
         }
         receipt.image_generation = { method, parent_asset_id: body.id, asset_type: body.assetType,
+          ratio: config.ratio, resolution: config.resolution, video_standard_id: config.videoStandardId,
           reference_materials: config.materialList }
         data = 11
       } else if (url.pathname.endsWith('/getGeneratedImageByAssetId') && method === 'GET'

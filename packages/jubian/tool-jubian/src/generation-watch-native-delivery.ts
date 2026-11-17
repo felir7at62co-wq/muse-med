@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { MessageId } from '@deepseek-ai/dsh-llm'
-import { acquireGenerationSessionBinding } from './generation-binding.ts'
+import type { GenerationSessionBindings } from './generation-binding.ts'
 import type { GenerationExecutionLease, GenerationSessionBinding } from './generation-binding.ts'
 import { recordedSubmissionBinding } from './generation-watch-attestor.ts'
 import { deliverGenerationWatchNotice } from './generation-watch-delivery.ts'
@@ -31,9 +31,11 @@ const isConversation = (request: { purpose?: string }): boolean => request.purpo
  * Guard pending and running automatic work at actual request and tool dispatch.
  * @param ctx - The real native Host with owned Workspace storage and Session controller.
  * @param projection - Durable notice receipt reader.
+ * @param bindings - This plugin instance's shared native execution guards.
  * @returns Native delivery; missing historical proof remains pending.
  */
-export function createNativeGenerationDelivery(ctx: Context, projection: GenerationWatchDeliveryProjection): NativeGenerationDelivery {
+export function createNativeGenerationDelivery(ctx: Context, projection: GenerationWatchDeliveryProjection,
+  bindings: GenerationSessionBindings): NativeGenerationDelivery {
   const held = new Map<SessionId, HeldContinuation>()
   const notices = new Map<SessionId, { agent: Agent; ids: Set<string> }>()
   const inFlight = new Set<Promise<GenerationNoticeDelivery>>()
@@ -182,7 +184,7 @@ export function createNativeGenerationDelivery(ctx: Context, projection: Generat
     let current = held.get(sessionId)
     if (current !== undefined && (current.agent !== agent || !isDeepStrictEqual(current.binding, binding))) return 'pending'
     if (current === undefined) {
-      const lease = await acquireGenerationSessionBinding(ctx, agent, binding, signal)
+      const lease = await bindings.acquire(agent, binding, signal)
       if (lease === undefined) return 'pending'
       /* v8 ignore next -- a just-acquired lease throws inside acquire when its signal is already
       aborted, and closing is set only inside one synchronous teardown block that returns 'pending'

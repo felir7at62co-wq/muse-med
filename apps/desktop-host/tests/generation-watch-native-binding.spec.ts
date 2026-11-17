@@ -16,7 +16,8 @@ import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { captureGenerationSessionBinding, type GenerationSessionBinding } from '@deepseek-ai/dsh-tool-jubian/generation-binding'
+import { GenerationSessionBindings, captureGenerationSessionBinding,
+  type GenerationSessionBinding } from '@deepseek-ai/dsh-tool-jubian/generation-binding'
 import { createSessionTestController } from '../../../packages/api/session-controller/tests/test-remote.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import { registerGenerationWatchDelivery, createGenerationWatchNotice } from '../../../packages/jubian/tool-jubian/src/generation-watch-delivery.ts'
@@ -41,7 +42,10 @@ async function nativeFixture() {
   await createSessionTestController(ctx, { cwd: root, defaultModelSelection: () => ({ provider: 'mock', model: 'different-default' }) })
   const projection = await registerGenerationWatchDelivery(ctx)
   let deliver: NativeGenerationDelivery | undefined
-  const factory = ctx.plugin({ inject: ['tools', 'agents', 'sessions', 'sessionController', 'sessionPersistence', 'agentLoop'], apply: (scope: Context) => { deliver = createNativeGenerationDelivery(scope, projection) } })
+  const factory = ctx.plugin({ inject: ['tools', 'agents', 'sessions', 'sessionController', 'sessionPersistence', 'agentLoop'],
+    apply: (scope: Context) => {
+      deliver = createNativeGenerationDelivery(scope, projection, new GenerationSessionBindings(scope))
+    } })
   await factory
   if (deliver === undefined) throw new Error('native delivery factory unavailable')
   const agent = await ctx.agentLoop.create(SessionId('original'), { provider: 'mock', model: 'original-model' }, { cwd: root })
@@ -100,6 +104,17 @@ it('automatically continues once in the original Session/model/Workspace using a
   expect(h.adapter.requests).toHaveLength(3)
   expect(h.ctx.get('museTeam')).toBeUndefined()
 }, 20000)
+
+it('leaves execution owners free when a partial composition cannot retain its captured binding', async () => {
+  const h = await nativeFixture(), partial = new Context()
+  onTestFinished(() => partial.fiber.dispose())
+  partial.provide('generationWorkspaceAuthority', h.ctx.generationWorkspaceAuthority)
+  partial.provide('workingDirectory', h.ctx.workingDirectory)
+  const bindings = new GenerationSessionBindings(partial)
+  await expect(bindings.capture(h.agent, new AbortController().signal)).resolves.toBeUndefined()
+  h.agent.model.select({ provider: 'mock', model: 'after-unavailable-owner' })
+  await expect(h.ctx.workingDirectory.set(h.agent, h.root)).resolves.toBe(h.root)
+})
 
 it('preserves a later user model choice and does not continue with that changed model', async () => {
   const h = await nativeFixture(), notice = createGenerationWatchNotice('Existing result.')
@@ -162,7 +177,8 @@ it('reopens actual JSONL and the owned Workspace after Host shutdown and continu
     await ctx.plugin(WorkspaceOwned, { root: join(h.root, 'owned'), sourceBackend: 'json' })
     await ctx.plugin(StorageDomain, { backend: 'json', routes: { workspace: 'muse-workspace-owned' } })
     await ctx.plugin(WorkspaceRegistry)
-    const projection = await registerGenerationWatchDelivery(ctx), deliver = createNativeGenerationDelivery(ctx, projection)
+    const projection = await registerGenerationWatchDelivery(ctx)
+    const deliver = createNativeGenerationDelivery(ctx, projection, new GenerationSessionBindings(ctx))
     const adapter = new MockAdapter([textResponse('Continued from the original durable context.')])
     ctx.llm.registerAdapter(['mock'], adapter)
     expect(await deliver(h.agent.id, notice, new AbortController().signal, undefined, undefined, h.run)).toBe('pending')
@@ -204,7 +220,10 @@ it('parks only its queued input before unloading and re-verifies it after reload
   const restoredAdapter = new MockAdapter([textResponse('Resumed after verified producer reload.')])
   h.ctx.llm.registerAdapter(['mock'], restoredAdapter)
   let restored: NativeGenerationDelivery | undefined
-  await h.ctx.plugin({ inject: ['tools', 'agents', 'sessions', 'sessionController', 'sessionPersistence', 'agentLoop'], apply: (scope: Context) => { restored = createNativeGenerationDelivery(scope, h.projection) } })
+  await h.ctx.plugin({ inject: ['tools', 'agents', 'sessions', 'sessionController', 'sessionPersistence', 'agentLoop'],
+    apply: (scope: Context) => {
+      restored = createNativeGenerationDelivery(scope, h.projection, new GenerationSessionBindings(scope))
+    } })
   if (restored === undefined) throw new Error('reloaded factory missing')
   expect(await restored(h.agent.id, notice, new AbortController().signal, undefined, undefined, h.run)).toBe('pending')
   await h.agent.whenIdle()

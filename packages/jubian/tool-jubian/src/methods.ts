@@ -212,6 +212,8 @@ export interface ImageBatchItem {
   image_model_id?: string
   image_resolution?: string
   image_platform_id?: string
+  /** Overrides the batch's image ratio. */
+  image_aspect_ratio?: ImageAspectRatio
   references?: string[]
   parent_asset_id?: number
 }
@@ -644,7 +646,7 @@ function imageIdentity(args: Pick<MethodArgs, 'asset_category' | 'asset_type' | 
 }
 
 /** Validate every local batch argument before any item reads the provider or writes the ledger. */
-function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number): Array<{
+function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number, selection: ImageModelSelection): Array<{
   item: ImageBatchItem
   key: string
   assetName: string
@@ -667,7 +669,15 @@ function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number):
     if (typeof rawItem !== 'object' || rawItem === null || Array.isArray(rawItem)) {
       throw new JubianError('INVALID_ARGUMENT', `items[${index}] must be an image request`)
     }
-    const item = rawItem as ImageBatchItem
+    const requested = rawItem as ImageBatchItem
+    const resolution = requested.image_resolution ?? args.image_resolution
+    const aspectRatio = requested.image_aspect_ratio ?? args.image_aspect_ratio
+    const item: ImageBatchItem = { ...requested,
+      ...(resolution === undefined ? {} : { image_resolution: resolution }),
+      ...(aspectRatio === undefined ? {} : { image_aspect_ratio: aspectRatio }) }
+    if (item.image_model_id !== undefined && item.image_model_id === selection.modelId) delete item.image_model_id
+    if (item.image_model_id === undefined && item.image_platform_id !== undefined
+      && item.image_platform_id === selection.platformId) delete item.image_platform_id
     const key = requireKey(item.idempotency_key)
     if (key !== key.trim() || !key.isWellFormed() || /[\u0000-\u001f\u007f]/u.test(key) || keys.has(key)) {
       throw new JubianError('INVALID_ARGUMENT', `items[${index}].idempotency_key is blank, padded or duplicated`)
@@ -699,6 +709,7 @@ function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number):
       validateImageRequestInput({ scriptId: need(args.script_id), assetName, assetType,
         prompt: item.prompt, imageStyle: resolveImageStyle(need(item.prompt), item.image_style),
         references: item.references === undefined ? [] : item.references,
+        ...(item.image_aspect_ratio === undefined ? {} : { aspectRatio: item.image_aspect_ratio }),
         ...(item.parent_asset_id === undefined ? {} : { parentAssetId: item.parent_asset_id }) })
     } catch {
       throw new JubianError('INVALID_ARGUMENT', `items[${index}] has an invalid image request`)
@@ -1088,7 +1099,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     case 'image_generate_batch': {
       deps.signal?.throwIfAborted()
       const limits = deps.imageBatch ?? resolveImageBatchOptions()
-      const requests = preparedImageBatch(args, deps.naming ?? resolveNaming(), limits.maxItems)
+      const image = { ...deps.image, selection: imageSelection(args, deps.image?.selection) }
+      const requests = preparedImageBatch(args, deps.naming ?? resolveNaming(), limits.maxItems, image.selection)
       const resolveReferences = createImageReferenceResolver(client,
         deps.imageReferenceScan ?? resolveImageReferenceScanOptions(), deps.signal)
       const prepared: Array<(typeof requests)[number] & { reference: ImageReferenceResolution }> = []
@@ -1099,10 +1111,11 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       const catalogueRows = imageCatalogue((await client.request({
         method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data, deps.image?.allowedStandardIds)
       for (const { item, key, assetName, assetType, reference } of prepared) {
-        const selection: ImageModelSelection = imageSelection(item, deps.image?.selection)
+        const selection: ImageModelSelection = imageSelection(item, image.selection)
         const payload = buildImageRequest({ scriptId: need(args.script_id), assetName,
           assetType, prompt: need(item.prompt), imageStyle: resolveImageStyle(need(item.prompt), item.image_style),
           references: reference.references,
+          ...(item.image_aspect_ratio === undefined ? {} : { aspectRatio: item.image_aspect_ratio }),
           ...(item.parent_asset_id === undefined ? {} : { parentAssetId: item.parent_asset_id }) }, catalogueRows, selection)
         const existing = await ledger.find(key)
         if (existing !== undefined && (existing.method !== 'image_generate' || existing.script_id !== args.script_id
@@ -1123,7 +1136,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           try {
             const result = await videoMethod(client, ledger, {
               ...item, method: 'image_generate', script_id: need(args.script_id),
-            }, { ...deps, imageCatalogue: catalogueRows, deferImageReadback: true,
+            }, { ...deps, image, imageCatalogue: catalogueRows, deferImageReadback: true,
               preparedImageReference: current.reference })
             results[index] = { ...identity, status: 'returned', ...result }
           } catch (error) {

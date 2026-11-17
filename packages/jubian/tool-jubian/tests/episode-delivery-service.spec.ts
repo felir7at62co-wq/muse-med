@@ -26,6 +26,11 @@ function ownCleanup(run: () => Promise<void>): () => Promise<void> {
   return cleanup
 }
 
+/** Wait for durable service state with the current test lane's polling budget. */
+async function waitForState(assertion: () => void | Promise<void>): Promise<void> {
+  await expect.poll(async () => { await assertion(); return true }).toBe(true)
+}
+
 async function selection(f: Awaited<ReturnType<typeof createEpisodeDeliveryFixture>>) {
   const ready = await f.service.episodeReadiness(f.planInput)
   expect(ready.ready, ready.issues.join('; ')).toBe(true)
@@ -64,7 +69,7 @@ describe('approved episode service', () => {
     const input = await selection(f), admitted = await f.service.admitEpisode(input)
     if (admitted.attempt === null) throw new Error('Expected an admitted episode')
     const state = phase === 'admitted' ? 'failed' : 'unknown'
-    await vi.waitFor(async () => {
+    await waitForState(async () => {
       expect(await f.service.episodeStatus(input)).toMatchObject({ state, problem: failure.message,
         attempt: admitted.attempt, canResume: phase === 'admitted' })
       expect(f.service.hasActiveWork()).toBe(phase === 'armed')
@@ -94,7 +99,7 @@ describe('approved episode service', () => {
     const input = await selection(f)
     await f.service.admitEpisode(input)
     f.renderer.release()
-    await vi.waitFor(async () => {
+    await waitForState(async () => {
       const status = await f.service.episodeStatus(input)
       expect(status.state).toBe('unknown')
       expect(status.problem).toContain('Captured subtitle clock changed')
@@ -124,7 +129,7 @@ describe('approved episode service', () => {
     })
     try {
       await f.service.admitEpisode(input); f.renderer.release()
-      await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+      await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
       expect(observed).toBe(true); expect(scopes).toBe(1); expect(released).toBe(true)
       expect(await readFile(output, 'utf8')).toBe('full episode fixture bytes')
       expect(f.fetch).not.toHaveBeenCalled()
@@ -146,7 +151,7 @@ describe('approved episode service', () => {
     }))
     const input = await selection(f)
     await f.service.admitEpisode(input); f.renderer.release()
-    await vi.waitFor(async () => {
+    await waitForState(async () => {
       const status = await f.service.episodeStatus(input)
       expect(status.state).toBe('unknown'); expect(status.problem).toContain(failure === 'refused' ? 'unavailable' : 'revoked')
     })
@@ -178,7 +183,7 @@ describe('approved episode service', () => {
     try {
       await opening.promise
       f.renderer.release()
-      await vi.waitFor(async () => {
+      await waitForState(async () => {
         const state: unknown = JSON.parse(await readFile(statePath, 'utf8'))
         expect(state).toMatchObject({ state: 'completed', attempt: admitted.attempt })
       })
@@ -210,7 +215,7 @@ describe('approved episode service', () => {
     expect(f.renderer.captures).toBe(1)
     expect(f.fetch).not.toHaveBeenCalled()
     f.renderer.release()
-    await vi.waitFor(async () => { const status = await f.service.episodeStatus(input); expect(status.state, status.problem).toBe('completed') })
+    await waitForState(async () => { const status = await f.service.episodeStatus(input); expect(status.state, status.problem).toBe('completed') })
     const done = await f.service.episodeStatus(input)
     expect(done.output?.bytes).toBe(Buffer.byteLength('full episode fixture bytes'))
     expect(await readFile(join(f.project, done.output?.path ?? ''), 'utf8')).toBe('full episode fixture bytes')
@@ -244,12 +249,12 @@ describe('approved episode service', () => {
     f.service.resumeAdmission(); await f.service.admitEpisode(input); await f.renderer.entered
     f.service.pauseAdmission(); expect(f.service.hasActiveWork()).toBe(true)
     f.renderer.release()
-    await vi.waitFor(async () => { const status = await f.service.episodeStatus(input); expect(status.state, status.problem).toBe('completed') })
+    await waitForState(async () => { const status = await f.service.episodeStatus(input); expect(status.state, status.problem).toBe('completed') })
   })
   it('keeps an unknown guardian fenced on repeated admission and status', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     f.renderer.mode = 'unknown'; await f.service.admitEpisode(input); f.renderer.release()
-    await vi.waitFor(async () => { const status = await f.service.episodeStatus(input); expect(status.state, status.problem).toBe('unknown') })
+    await waitForState(async () => { const status = await f.service.episodeStatus(input); expect(status.state, status.problem).toBe('unknown') })
     await f.service.admitEpisode(input)
     expect(f.renderer.calls).toBe(1); expect(f.service.hasActiveWork()).toBe(true)
   })
@@ -264,13 +269,13 @@ describe('approved episode service', () => {
     const path = join(f.project, 'exports', `Muse-episode-01-${input.digest}.mp4`)
     await writeFile(path, 'occupied')
     await f.service.admitEpisode(input); f.renderer.release()
-    await vi.waitFor(async () => { const status = await f.service.episodeStatus(input); expect(status.state, status.problem).toBe('unknown') })
+    await waitForState(async () => { const status = await f.service.episodeStatus(input); expect(status.state, status.problem).toBe('unknown') })
     expect(await readFile(path, 'utf8')).toBe('occupied')
   })
   it('repairs a missing publication receipt offline without source IO or a second encode', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     await f.service.admitEpisode(input); f.renderer.release()
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
     const done = await f.service.episodeStatus(input)
     if (done.attempt === null || done.output === undefined) throw new Error('Expected completed publication')
     const path = join(f.project, done.output.path), before = await stat(path)
@@ -280,7 +285,7 @@ describe('approved episode service', () => {
     const recoverable = await f.service.episodeStatus(input)
     expect(recoverable.canResume).toBe(true)
     expect((await f.service.admitEpisode({ ...input, resume: true })).attempt).toBe(done.attempt)
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
     expect((await stat(path)).ino).toBe(before.ino)
     expect(f.renderer.calls).toBe(1); expect(f.renderer.captures).toBe(1)
     expect(f.fetch).not.toHaveBeenCalled(); expect(f.service.hasActiveWork()).toBe(false)
@@ -288,7 +293,7 @@ describe('approved episode service', () => {
   it('restarts the service and reconciles a completed old execution without encoding it again', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     await f.service.admitEpisode(input); f.renderer.release()
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
     const done = await f.service.episodeStatus(input)
     if (done.output === undefined) throw new Error('Expected output')
     await unlink(join(f.project, done.output.path))
@@ -300,7 +305,7 @@ describe('approved episode service', () => {
     expect((await service.episodeStatus(input)).state).toBe('completed')
     expect((await service.episodeStatus(input)).canResume).toBe(true)
     await service.admitEpisode({ ...input, resume: true })
-    await vi.waitFor(async () => { const state = await service.episodeStatus(input); expect(state.state, state.problem).toBe('completed') })
+    await waitForState(async () => { const state = await service.episodeStatus(input); expect(state.state, state.problem).toBe('completed') })
     expect((await service.episodeStatus(input)).attempt).toBe(done.attempt)
     expect(f.renderer.encodes).toBe(1)
     expect(service.hasActiveWork()).toBe(false)
@@ -311,7 +316,7 @@ describe('approved episode service', () => {
     const admitted = await f.service.admitEpisode(input); await f.renderer.entered
     if (admitted.attempt === null) throw new Error('Expected attempt')
     const root = join(f.project, '.muse', 'episode-delivery', admitted.attempt)
-    await vi.waitFor(async () => { expect(await readdir(root)).toContain('execution.json') })
+    await waitForState(async () => { expect(await readdir(root)).toContain('execution.json') })
     await unlink(join(root, 'intent.json'))
     const status = await f.service.episodeStatus(input)
     expect(status).toMatchObject({ state: 'unknown', attempt: admitted.attempt, canResume: false })
@@ -329,7 +334,7 @@ describe('approved episode service', () => {
     expect((await observer.episodeStatus(input)).state).toBe('unknown')
     expect(observer.hasActiveWork()).toBe(true)
     f.renderer.release()
-    await vi.waitFor(async () => { expect((await observer.episodeStatus(input)).state).toBe('completed') })
+    await waitForState(async () => { expect((await observer.episodeStatus(input)).state).toBe('completed') })
     expect(observer.hasActiveWork()).toBe(false)
   })
   it.skipIf(process.platform === 'win32')('rejects a POSIX prepared publication whose ctime changes after its full hash', async () => {
@@ -349,7 +354,7 @@ describe('approved episode service', () => {
     })
     try {
       await f.service.admitEpisode(input); f.renderer.release()
-      await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('unknown') })
+      await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('unknown') })
       expect(changed).toBe(true)
       if (!proof) throw Error('Publication metadata change was not observed')
       expect(proof.afterMtime).toBe(proof.beforeMtime)
@@ -483,19 +488,19 @@ describe('approved episode service', () => {
     await writeFile(path, 'full episode fixture bytes')
     const before = await stat(path)
     await f.service.admitEpisode(input); f.renderer.release()
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
     expect((await stat(path)).ino).toBe(before.ino)
   })
   it('repairs a missing status from its original completed receipt without touching the lost source', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     await f.service.admitEpisode(input); f.renderer.release()
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
     const done = await f.service.episodeStatus(input)
     await unlink(join(f.project, '.muse', 'episode-delivery', done.attempt ?? '', 'state.json'))
     for (const name of await readdir(f.directory)) if (name.startsWith('original-')) await unlink(join(f.directory, name))
     expect((await f.service.episodeStatus(input)).canResume).toBe(true)
     await f.service.admitEpisode({ ...input, resume: true })
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
     expect(f.renderer.calls).toBe(1)
   })
 
@@ -504,7 +509,7 @@ describe('approved episode service', () => {
     await f.service.admitEpisode(input); await f.renderer.entered
     await writeFile(join(f.project, 'editing', 'subtitles.srt'), '1\n00:00:00,000 --> 00:00:01,000\nNew edit\n')
     f.renderer.release()
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('unknown') })
+    await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('unknown') })
     expect(await readdir(join(f.project, 'exports'))).toEqual([])
     expect(f.renderer.encodes).toBe(1)
   })
@@ -569,13 +574,13 @@ describe('approved episode service', () => {
     f.renderer.mode = 'failed'
     const input = await selection(f), admitted = await f.service.admitEpisode(input)
     f.renderer.release()
-    await vi.waitFor(async () => {
+    await waitForState(async () => {
       expect((await f.service.episodeStatus(input)).state).toBe('failed')
       expect(f.service.hasActiveWork()).toBe(false)
     })
     f.renderer.mode = 'retry-required'
     await f.service.admitEpisode({ ...input, resume: true })
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('unknown') })
+    await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('unknown') })
     const refused = await f.service.episodeStatus(input)
     expect(refused.attempt).toBe(admitted.attempt)
     expect(refused.problem).toContain('explicit reconciliation')
@@ -614,16 +619,21 @@ describe('approved episode service', () => {
         const decoded = z.strictObject({ sha256: library.episodeHashSchema }).parse(JSON.parse(await readFile(facts, 'utf8')))
         return { kind: 'drained', proof: result.proof, candidate: { ...result.candidate, sha256: decoded.sha256 } }
       })
+      onTestFinished(() => { f.renderer.release() })
       try {
-        const input = await selection(f); await f.service.admitEpisode(input); f.renderer.release()
-        await vi.waitFor(async () => {
-          const status = await f.service.episodeStatus(input).catch(() => undefined)
-          expect(status === undefined || status.state === 'unknown').toBe(true)
-        })
+        const input = await selection(f), admitted = await f.service.admitEpisode(input)
+        if (admitted.attempt === null) throw new Error('Expected an admitted episode')
+        await f.renderer.armed; f.renderer.release()
+        const statePath = join(f.project, '.muse', 'episode-delivery', admitted.attempt, 'state.json')
+        await expect.poll(async () => z.object({ state: z.string(), problem: z.string().min(1) }).parse(
+          await library.readEpisodeStateSnapshot(statePath, f.episodeOptions.recordBytes)))
+          .toMatchObject({ state: 'unknown' })
+        const status = await f.service.episodeStatus(input).catch(() => undefined)
+        expect(status === undefined || status.state === 'unknown').toBe(true)
         expect(f.renderer.encodes).toBe(1); expect(f.fetch).not.toHaveBeenCalled()
         const exports = await readdir(join(f.project, 'exports')).catch(() => [])
         expect(exports).toEqual([])
-      } finally { spy.mockRestore() }
+      } finally { f.renderer.release(); spy.mockRestore() }
     },
   )
 
@@ -659,7 +669,7 @@ describe('approved episode service', () => {
       expect(admissions[0]?.attempt).toBe(admissions[1]?.attempt)
       await f.renderer.entered; expect(f.renderer.calls).toBe(1)
       f.renderer.release()
-      await vi.waitFor(async () => { expect((await other.episodeStatus(firstInput)).state).toBe('completed') })
+      await waitForState(async () => { expect((await other.episodeStatus(firstInput)).state).toBe('completed') })
     } finally { await cleanup() }
   })
   it('refuses a changed original ledger intent after its tiny claim and before source consumption', async () => {
@@ -680,7 +690,7 @@ describe('approved episode service', () => {
     })
     try {
       await f.service.admitEpisode(input)
-      await vi.waitFor(async () => {
+      await waitForState(async () => {
         const status = await f.service.episodeStatus(input)
         expect(status.state).toBe('failed'); expect(status.problem).toContain('original approved sources changed')
       })
@@ -694,7 +704,7 @@ describe('approved episode service', () => {
     const spy = observeRenderer(f, missingReply)
     try {
       const input = await selection(f); await f.service.admitEpisode(input); f.renderer.release()
-      await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('unknown') })
+      await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('unknown') })
       const status = await f.service.episodeStatus(input)
       expect(status.problem).toContain(oversized ? 'state exceeds' : 'Renderer reply stream ended')
       expect(f.renderer.encodes).toBe(1)
@@ -721,7 +731,7 @@ describe('approved episode service', () => {
     })
     try {
       await entered.promise; f.renderer.release()
-      await vi.waitFor(() => { expect(f.service.hasActiveWork()).toBe(false) })
+      await waitForState(() => { expect(f.service.hasActiveWork()).toBe(false) })
       release.resolve(undefined)
       const result = await outcome
       if ('error' in result) throw result.error
@@ -736,7 +746,7 @@ describe('approved episode service', () => {
   it('keeps a queued snapshot coherent when a new local recovery is admitted and completes during its read', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     await f.service.admitEpisode(input); f.renderer.release()
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await expect.poll(async () => (await f.service.episodeStatus(input)).state).toBe('completed')
     const first = await f.service.episodeStatus(input)
     await unlink(join(f.project, '.muse', 'episode-delivery', first.attempt ?? '', 'receipt.json'))
     const queued = Promise.withResolvers<undefined>(), releaseClaim = Promise.withResolvers<undefined>()
@@ -770,7 +780,7 @@ describe('approved episode service', () => {
       delayedOutcome = delayed.then(value => ({ value }), (error: unknown) => ({ error }))
       await stateRead.promise
       releaseClaim.resolve(undefined); await admission
-      await vi.waitFor(() => { expect(f.service.hasActiveWork()).toBe(false) })
+      await expect.poll(() => f.service.hasActiveWork()).toBe(false)
       releaseRead.resolve(undefined)
       const observed = await delayed
       expect(['queued', 'completed']).toContain(observed.state)
@@ -798,7 +808,7 @@ describe('approved episode service', () => {
     })
     try {
       await f.service.admitEpisode(input)
-      await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).problem).toContain('source changed before staging') })
+      await waitForState(async () => { expect((await f.service.episodeStatus(input)).problem).toContain('source changed before staging') })
       expect(f.renderer.calls).toBe(0); expect(f.fetch).not.toHaveBeenCalled()
     } finally { spy.mockRestore() }
   })

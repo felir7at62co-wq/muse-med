@@ -415,7 +415,7 @@ async function videoCatalogue(client: JubianClient): Promise<unknown> {
   return Object.hasOwn(record, 'rows') || Object.hasOwn(record, 'list') ? record : [record]
 }
 
-/** Build the exact preview from live provider state, without writing anything. */
+/** Build a read-only preview, retaining the pure builder's package-authored validation details. */
 async function livePreview(client: JubianClient, storyboardId: number, createdAt: string):
 Promise<NativeVideoPreview> {
   let inputs: Awaited<ReturnType<typeof loadLiveInputs>>
@@ -433,7 +433,7 @@ Promise<NativeVideoPreview> {
     if (!(error instanceof JubianError) || error.code === 'INVALID_ARGUMENT'
       || error.detail?.startsWith('IMAGE_REFERENCE_CONFLICT:')) throw error
     throw new JubianError(error.code, 'prepare_video stage=preview_validation; paid_request_sent=false; '
-      + 'check official materials and the saved ratio, model and duration')
+      + (error.detail ?? 'check official materials and the saved ratio, model and duration'))
   }
 }
 

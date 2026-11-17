@@ -3,7 +3,7 @@ import { access, copyFile, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, 
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { expect, it, onTestFinished } from 'vitest'
 import { resolveSettings, runDramaRender } from '../packages/drama/tool-episode-render/src/index.ts'
@@ -109,9 +109,14 @@ it('loads the real peer dependency from the installed fixture owner instead of t
   const importPlugin = (directory: string) => fixture.startNode(['--input-type=module', '--eval',
     `import { fixtureDependency } from ${JSON.stringify(pathToFileURL(join(directory, 'index.js')).href)}; process.stdout.write(fixtureDependency)`]).result
   await expect(importPlugin(linked)).rejects.toThrow('@deepseek-ai/dsh-atomic-write')
+  const foreignPeer = join(original, 'node_modules', '@deepseek-ai', 'dsh-atomic-write')
+  await mkdir(foreignPeer, { recursive: true })
+  await writeFile(join(foreignPeer, 'package.json'), JSON.stringify({ type: 'module', exports: './index.js' }))
+  await writeFile(join(foreignPeer, 'index.js'), 'export const fixtureDependency = "foreign-peer"\n')
 
   await stageSourceMusePlugins(source, nodeModules)
   const installed = join(nodeModules, 'muse-hongguo-download')
+  await expect(access(join(installed, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' })
   expect(await realpath(installed)).not.toBe(await realpath(original))
   expect(await readFile(join(installed, 'index.js'), 'utf8')).toBe(await readFile(join(original, 'index.js'), 'utf8'))
   expect(await realpath(createRequire(join(installed, 'package.json')).resolve('@deepseek-ai/dsh-atomic-write')))
@@ -136,6 +141,39 @@ it('loads the real peer dependency from the installed fixture owner instead of t
     expect(await realpath(createRequire(join(researchInstalled, 'package.json')).resolve(`${client}/client`)))
       .toBe(await realpath(join(nodeModules, client, 'index.js')))
   }
+})
+
+it('resolves staged source peers through the source launcher without a second Cordis registry', async () => {
+  const fixture = await workspace()
+  const source = join(fixture.root, 'source'), nodeModules = join(fixture.root, 'installed', 'node_modules')
+  const peer = join(nodeModules, '@deepseek-ai', 'cordis')
+  await mkdir(peer, { recursive: true })
+  await writeFile(join(peer, 'package.json'), JSON.stringify({ type: 'module', exports: './lib/index.js' }))
+  await writeFile(join(fixture.root, 'tsconfig.json'), JSON.stringify({
+    extends: fileURLToPath(new URL('../tsconfig.base.json', import.meta.url)),
+  }))
+  for (const plugin of ['muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools',
+    'muse-fanqie-download', 'muse-qimao-data', 'muse-source-research', 'muse-lvpaopao']) {
+    const directory = join(source, plugin)
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'package.json'), JSON.stringify({ name: plugin, type: 'module',
+      exports: plugin === 'muse-lvpaopao' ? { '.': { default: './lib/index.js' } } : './index.js' }))
+    await writeFile(join(directory, 'index.js'), 'export { Context } from "@deepseek-ai/cordis"\n')
+    if (plugin === 'muse-lvpaopao') {
+      await mkdir(join(directory, 'src'))
+      await writeFile(join(directory, 'src', 'index.ts'), 'export { Context } from "@deepseek-ai/cordis"\n')
+    }
+  }
+  await stageSourceMusePlugins(source, nodeModules)
+  const staged = pathToFileURL(join(nodeModules, 'muse-source-research', 'index.js')).href
+  const owner = new URL('../vendor/cordis/src/index.ts', import.meta.url).href
+  const result = await fixture.startNode(['--import', import.meta.resolve('tsx/esm'), '--input-type=module', '--eval',
+    `import { Context } from ${JSON.stringify(owner)}; import { Context as StagedContext } from ${JSON.stringify(staged)};
+      if (Context !== StagedContext) throw new Error("Cordis registry split across source peers");
+      const ctx = new Context(); if (!(ctx instanceof StagedContext)) throw new Error("Foreign service owner");
+      process.stdout.write("one-source-registry");`]).result
+  expect(result).toMatchObject({ stdout: 'one-source-registry', stderr: '' })
+  await expect(access(join(peer, 'lib', 'index.js'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 function childReady(child: ChildProcess): Promise<void> {
