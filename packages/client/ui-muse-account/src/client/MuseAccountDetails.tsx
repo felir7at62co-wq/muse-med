@@ -46,7 +46,7 @@ function timestamp(value: string): string {
 /**
  * Read only the verified account's details and discard responses after the account page closes.
  * @param props - Authenticated read action, localized copy and invalid-session handling.
- * @returns Profile and usage sections with independent query recovery.
+ * @returns Profile and usage sections whose pagination retains the displayed query after a failed read.
  */
 export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProps): ReactNode {
   const [query, setQuery] = useState<DetailsQuery>({ period: '30d', offset: 0, revision: 0,
@@ -155,9 +155,11 @@ export function MuseAccountDetails({ t, details, onInvalidSession }: DetailsProp
         start={usage.pagination.total === 0 ? 0 : usage.pagination.offset + 1}
         end={usage.pagination.offset + usage.recent.length} total={usage.pagination.total}
         onPrevious={usage.pagination.offset === 0 ? undefined : () => {
-          setQuery(current => ({ ...current, offset: Math.max(0, usage.pagination.offset - usage.pagination.limit) }))
+          setQuery(current => ({ ...result.query, revision: current.revision + 1,
+            offset: Math.max(0, usage.pagination.offset - usage.pagination.limit) }))
         }} onNext={usage.pagination.hasMore ? () => {
-          setQuery(current => ({ ...current, offset: usage.pagination.offset + usage.pagination.limit }))
+          setQuery(current => ({ ...result.query, revision: current.revision + 1,
+            offset: usage.pagination.offset + usage.pagination.limit }))
         } : undefined} />
     </section>
   </div>

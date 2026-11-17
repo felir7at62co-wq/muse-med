@@ -138,6 +138,28 @@ it('requests the selected period and bounded next page, then returns to its firs
   await waitFor(() => { expect(details).toHaveBeenLastCalledWith({ period: '7d', offset: 0, limit: 50 }) })
 })
 
+it.each(['next', 'previous'] as const)('pages the displayed period after a failed period change: %s', async (direction) => {
+  const details = vi.fn<MuseAccountInjected['details']>(async request => request.period === '7d'
+    ? { ok: false, code: 'muse-account/gateway-unavailable' }
+    : { ok: true, value: { ...ACCOUNT_DETAILS, usage: { ...ACCOUNT_DETAILS.usage,
+      pagination: { offset: request.offset ?? 0, limit: 50, total: 52, hasMore: request.offset === 0 },
+    } } })
+  render(<MuseAccountSection {...props({ details })} />)
+  await screen.findByText('编剧团队')
+  if (direction === 'previous') {
+    fireEvent.click(screen.getByRole('button', { name: en.nextPage }))
+    await waitFor(() => { expect(screen.getByRole('button', { name: en.previousPage }).hasAttribute('disabled')).toBe(false) })
+  }
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: '7d' } })
+  await screen.findByText(en.detailsUnavailable)
+  expect(details).toHaveBeenLastCalledWith({ period: '7d', offset: 0, limit: 50 })
+  expect(screen.getByText(en.usageDisplayedPeriod.replace('{period}', en.periodMonth))).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: direction === 'next' ? en.nextPage : en.previousPage }))
+  await waitFor(() => { expect(details).toHaveBeenLastCalledWith({ period: '30d', offset: direction === 'next' ? 50 : 0, limit: 50 }) })
+  await waitFor(() => { expect(screen.queryByText(en.detailsUnavailable)).toBeNull() })
+  expect(screen.getByRole<HTMLSelectElement>('combobox').value).toBe('30d')
+})
+
 it.each([
   ['verify', false], ['logout', false], ['unmount', false], ['unmount', true],
 ] as const)('discards a pending details response after %s (rejected=%s)', async (operation, rejected) => {
