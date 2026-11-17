@@ -635,6 +635,7 @@ try {
     if ($registration.InstallLocation -cne $installPath) { throw 'Silent update changed InstallLocation' }
     $results.Add('silent-update-retains-directory-and-ignores-unrelated-process')
     # The /S argument models older Muse updaters; this automatic restart must still expose installation progress.
+    $beforeAutomaticReports = @(Get-ChildItem -LiteralPath (Join-Path $OutputDirectory 'upgrade-reports') -Filter '*.completed' -File | ForEach-Object { $_.FullName })
     Set-RegisteredPathForUpdate ($installPath + '\\')
     $process = Start-TestProcess $Installer '/S --updated --force-run /THEME=dark'
     $window = [InstallerCapture]::Find($process.Id)
@@ -665,6 +666,13 @@ try {
         throw 'Automatic update did not canonicalize historical InstallLocation'
     }
     if ($process.ExitCode -ne 0 -or -not $observedProgress -or -not $observedComplete -or -not $capturedProgress) { throw 'Automatic update did not paint verified progress through successful completion' }
+    $automaticReports = @(Get-ChildItem -LiteralPath (Join-Path $OutputDirectory 'upgrade-reports') -Filter '*.completed' -File | Where-Object { $_.FullName -notin $beforeAutomaticReports })
+    if ($automaticReports.Count -ne 1) { throw 'Automatic update did not retain exactly one completed backup receipt' }
+    $receipt = [IO.File]::ReadAllText($automaticReports[0].FullName, [Text.Encoding]::Unicode)
+    if ($receipt -notmatch '^Upgrade completed\. Retained backup: ([^\r\n]+)\r\nCurrent directory: ([^\r\n]+)\r\n$') { throw 'Automatic update backup receipt was malformed' }
+    $automaticBackup = $Matches[1]
+    if ($Matches[2] -cne $installPath -or -not $automaticBackup.StartsWith($installPath + '.old-', [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath (Join-Path $automaticBackup ($ProductName + '.exe')) -PathType Leaf)) { throw 'Automatic update did not retain the previous test installation' }
     if ($FailAfterAutomaticRelaunch) {
         $timer.Restart()
         $unregisteredApp = $null

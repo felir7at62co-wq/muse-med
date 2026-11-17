@@ -408,7 +408,13 @@ ManifestDPIAware true
     Abort "$(MuseUpgradeReceiptFailed)"
   ${EndIf}
   ${If} $dshOldMoved == "1"
-    MessageBox MB_OK|MB_ICONINFORMATION "$(MuseUpgradeBackup)$\r$\n$dshOldDirectory" /SD IDOK
+    ${If} ${isUpdated}
+    ${AndIf} ${isForceRun}
+      ; The next application window consumes the durable receipt. Do not block
+      ; the updater's automatic restart on an installer acknowledgement.
+    ${Else}
+      MessageBox MB_OK|MB_ICONINFORMATION "$(MuseUpgradeBackup)$\r$\n$dshOldDirectory" /SD IDOK
+    ${EndIf}
   ${EndIf}
   !insertmacro dshFinishDirectories
   !insertmacro InstallerRecordTiming 5
