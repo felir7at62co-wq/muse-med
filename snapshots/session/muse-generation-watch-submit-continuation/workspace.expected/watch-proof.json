@@ -1,0 +1,7 @@
+{
+  "completionNoticeQueuedDuringOriginalTurn": true,
+  "reconciledWhileNativeGuardHeld": true,
+  "paidMockPuts": 1,
+  "nativeLedgerRecords": 1,
+  "realProviderRequests": 0
+}

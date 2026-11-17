@@ -43,6 +43,8 @@ const result = await runLoaderSmoke({
 
 源码 smoke 测试支持的 `dsh` 启动器时，设置 `sourceImport: 'tsx/esm'`；built 模式忽略此选项。当场景固定一个设计好的失败面——即一次性轮次以错误结果结束——时设置 `expectedExitCode`；以任何其他方式退出（包括成功退出）都会使冒烟测试失败。
 
+子进程默认时限为 30 秒，`LOADER_SMOKE_TEST_TIMEOUT_MS` 为外层测试提供 45 秒。将 `loaderSmokeProcessTimeout(task.timeout)` 作为 `processTimeoutMs` 传入，即可沿用 Vitest 的有效预算，并为诊断和清理预留时间。测试时限禁用（`0`）时，子进程仍保留 30 秒时限；预算短到无法容纳预留时间时，会在启动前明确报错。
+
 ### 测试交付 profile
 
 Profile 集成 driver 使用仅限仓库内部的 `tests/fixtures/production-profile.ts` helper。它通过 `loadProfile` 加载指定的已交付 profile 及其组合包 patch，计算 runtime resolution，并通过 `PluginPackages` 安装它，然后把组合包 patch 与测试 `*.patch.yml` 文件依次交给 `boot` 挂载的根 `cordis:include`。这些 patch 应只包含测试提供方或模型、隔离持久化路径及被测对象专用变更。只需要 agent loop 而不测试 profile 集成的包级单元测试改为在本地挂载 `dsh-agent-loop-testkit`。
@@ -80,6 +82,7 @@ harness 建立在一个分离之上：冒烟测试在隔离世界中的子进程
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 模式解析器、`runLoaderSmoke` 子进程 harness、选项与结果类型 |
+| [`src/deadline.ts`](src/deadline.ts) | 共享默认时限与测试运行器预算分配 |
 | [`src/agent-turn.ts`](src/agent-turn.ts) | `runFixtureTurn` 直接 agent driver 与结果信封 |
 | [`tests/fixtures/production-profile.ts`](tests/fixtures/production-profile.ts) | 仅限仓库内部、供集成 fixture 使用的交付 profile 组装 helper |
 
