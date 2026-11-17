@@ -8,6 +8,7 @@
     "rewriteRelativeImportExtensions": false
   },
   "include": [
+    "apps/web/tests/character-library.e2e.ts",
     "snapshots/session/working-budget-oracle.ts",
     "snapshots/session/muse-video-novel-ocr-capability/evidence.ts",
     "apps/web/tests/muse-main-display-cards.e2e.ts",
@@ -666,6 +667,8 @@
     { "path": "./packages/guard/prompt-usage" },
     { "path": "./packages/host/feishu-settings/tsconfig.host.json" },
     { "path": "./packages/host/muse-account/tsconfig.host.json" },
-    { "path": "./packages/host/muse-market" }
+    { "path": "./packages/host/muse-market" },
+    { "path": "./packages/api/character-library" },
+    { "path": "./packages/client/ui-character-library/tsconfig.host.json" }
   ]
 }

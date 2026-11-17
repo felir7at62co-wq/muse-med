@@ -215,14 +215,18 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
       await route.continue()
     })
     const warningsBefore = tripwire.warnings.length
-    await page.reload({ waitUntil: 'commit' })
-    await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
-    // The app is painted and interactive while the steps are still deciding.
-    await page.waitForTimeout(600)
-    releaseDescribe()
-    await page.waitForTimeout(400)
-    await page.unroute('**/api/settings/describe')
-    acknowledgeReloadConnectionLoss(tripwire, warningsBefore)
+    try {
+      await page.reload({ waitUntil: 'commit' })
+      await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
+      // The app is painted and interactive while the steps are still deciding.
+      await page.waitForTimeout(600)
+      releaseDescribe()
+      await page.waitForTimeout(400)
+    } finally {
+      releaseDescribe()
+      await page.unroute('**/api/settings/describe')
+      acknowledgeReloadConnectionLoss(tripwire, warningsBefore)
+    }
     expect(await page.evaluate(() =>
       (window as unknown as { __takeoverSightings: string[] }).__takeoverSightings)).toEqual([])
     expect(await page.getByRole('dialog', { name: WELCOME_NOTICE_COPY.zh.title }).count()).toBe(0)

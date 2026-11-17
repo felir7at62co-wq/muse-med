@@ -3,5 +3,5 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/character-library.md
 /character-reference-library:
-  en: 5cce1aa1d00c328a
-  zh: e96aa6c566239eb9
+  en: f84695b4edc21f97
+  zh: 6023a96401d62c43

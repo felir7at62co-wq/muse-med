@@ -28,6 +28,11 @@
     // not declaration path aliases, keep each package/vendor source compiled
     // under its own tsconfig boundary.
     "paths": {
+      "@deepseek-ai/dsh-api-character-library": ["./packages/api/character-library/src/index.ts"],
+      "@deepseek-ai/dsh-api-character-library/types": ["./packages/api/character-library/src/types.ts"],
+      "@deepseek-ai/dsh-client-ui-character-library": ["./packages/client/ui-character-library/src/index.ts"],
+      "@deepseek-ai/dsh-client-ui-character-library/client": ["./packages/client/ui-character-library/src/client/index.ts"],
+      "@deepseek-ai/dsh-character-library/types": ["./packages/drama/character-library/src/types.ts"],
       "@deepseek-ai/dsh-tool-video-inspect/source-qa": ["./packages/perception/tool-video-inspect/src/source-qa-api.ts"],
       "@deepseek-ai/dsh-tool-episode-render/delivery": ["./packages/drama/tool-episode-render/src/delivery-api.ts"],
       "@deepseek-ai/dsh-tool-episode-render/source-qa": ["./packages/drama/tool-episode-render/src/source-qa-api.ts"],

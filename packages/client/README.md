@@ -68,6 +68,7 @@ The kernel packages boot and serve the page; the UI feature packages present it.
 | [`ui-input-trigger/`](ui-input-trigger/README.md) | Coordinates inline command and reference suggestions | — |
 | [`ui-skill/`](ui-skill/README.md) | Adds skill references to inline suggestions | — |
 | [`ui-reference/`](ui-reference/README.md) | Unified Web `@file` / `@session` reference source | — |
+| [`ui-character-library/`](ui-character-library/README.md) | Opens the read-only character reference catalog and image previews from the left navigation | — |
 | [`ui-secret-mask/`](ui-secret-mask/README.md) | Masks recognized credentials in sent user text | — |
 | [`ui-agent-team/`](ui-agent-team/README.md) | Session Team switch and shared tasks below the Subagent tree | — |
 | [`ui-subagent/`](ui-subagent/README.md) | Provides subagent navigation, child transcript states, and inline references | — |

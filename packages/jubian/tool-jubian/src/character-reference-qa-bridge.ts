@@ -1,4 +1,5 @@
-/** Host-only bridge from an authorized Catalog image to one Jubian QA generation. */
+/** Host-only bridge from an authorized Catalog image to one private or QA generation. */
+import { createHash } from 'node:crypto'
 import { alignedReferenceSize, readReferenceImage, stableSha256 } from '@deepseek-ai/dsh-jubian-api'
 import type { JubianLedger } from '@deepseek-ai/dsh-jubian'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -7,6 +8,7 @@ import type {
   CharacterReferenceAuthority,
 } from '@deepseek-ai/dsh-tool-character-reference'
 import {
+  CHARACTER_REFERENCE_PRIVATE_ENVIRONMENT,
   CHARACTER_REFERENCE_QA_LEGACY_SYNTHETIC_UNKNOWN_RECEIPT_SHA256,
   type CharacterReferenceQaAuthorizationStore,
   type CharacterReferenceQaBinding,
@@ -14,6 +16,7 @@ import {
 } from './character-reference-qa-authorization.ts'
 import {
   type ReferenceUploadDeps,
+  scaleImageWithFfmpeg,
   uploadReferenceBytes,
 } from './reference.ts'
 
@@ -160,7 +163,7 @@ export async function authorizeCharacterReferenceQaPreDispatchRecovery(
   return { ledgerOutcome: 'not_sent', qaState: qa.state }
 }
 
-/** Dependencies for the isolated QA bridge. */
+/** Dependencies for one-shot private or isolated QA reference use. */
 export interface CharacterReferenceQaBridgeOptions {
   readonly authority: CharacterReferenceAuthority
   readonly store: CharacterReferenceQaAuthorizationStore
@@ -171,9 +174,9 @@ export interface CharacterReferenceQaBridgeOptions {
   readonly now?: () => Date
 }
 
-/** Host-only operations mounted by the Jubian tool plugin when an isolated QA ledger is configured. */
+/** Host-only operations backed by the selected private or isolated QA authorization ledger. */
 export interface CharacterReferenceQaBridge {
-  /** Upload exact Host-read bytes once and return only a managed identity. */
+  /** Upload Host-read bytes once; private copies may be aligned without changing their authorized source. */
   readonly upload: (
     session: Session,
     request: CharacterReferenceQaUploadRequest,
@@ -234,7 +237,7 @@ function uploadEvidence(result: Record<string, unknown>, expectedSha256: string)
 }
 
 /**
- * Create the Host-only, one-shot QA reference bridge.
+ * Create the Host-only, one-shot private or QA reference bridge.
  * @param options - Current-project authority, append-only authorization store, upload seam, and clock.
  * @returns Managed upload and paid-generation preparation operations.
  */
@@ -292,9 +295,30 @@ export function createCharacterReferenceQaBridge(options: CharacterReferenceQaBr
   ): Promise<CharacterReferenceQaUploadResult> => {
     const current = await readAuthorized(session, request, signal)
     const image = readReferenceImage(current.reference.data)
-    if (!alignedReferenceSize(image).aligned) {
-      throw new Error('Character-reference QA upload requires byte-preserving aligned image dimensions.')
+    const size = alignedReferenceSize(image)
+    let payload = current.reference.data
+    let payloadSha256 = current.binding.imageSha256
+    if (!size.aligned) {
+      if (options.store.environment !== CHARACTER_REFERENCE_PRIVATE_ENVIRONMENT) {
+        throw new Error('Character-reference QA upload requires byte-preserving aligned image dimensions.')
+      }
+      if (options.store.inspect(current.binding).upload.state === 'not_started') {
+        const preparation = { bytes: payload.slice(), width: image.width, height: image.height,
+          format: image.format, target: { width: size.width, height: size.height },
+          ...(signal === undefined ? {} : { signal }) }
+        payload = options.referenceUploadDeps?.scaleImage === undefined
+          ? await scaleImageWithFfmpeg(preparation, options.referenceUploadDeps?.ffmpegPath)
+          : await options.referenceUploadDeps.scaleImage(preparation)
+        signal?.throwIfAborted()
+        const prepared = readReferenceImage(payload)
+        if (prepared.width !== size.width || prepared.height !== size.height || prepared.format !== image.format) {
+          throw new Error('Character-reference normalization did not produce the required image format and dimensions.')
+        }
+        await readAuthorized(session, request, signal)
+        payloadSha256 = createHash('sha256').update(payload).digest('hex')
+      }
     }
+    signal?.throwIfAborted()
     const claim = options.store.claimManagedUpload(current.binding, request.idempotencyKey, iso(now))
     if (claim.action === 'reconcile') {
       if (claim.state !== 'settled') {
@@ -307,8 +331,8 @@ export function createCharacterReferenceQaBridge(options: CharacterReferenceQaBr
     let receipt: Record<string, unknown> | undefined
     try {
       signal?.throwIfAborted()
-      receipt = await uploadBytes(current.reference.data.slice(), options.referenceUploadDeps)
-      const evidence = uploadEvidence(receipt, current.binding.imageSha256)
+      receipt = await uploadBytes(payload.slice(), options.referenceUploadDeps)
+      const evidence = uploadEvidence(receipt, payloadSha256)
       options.store.settleManagedUpload(
         current.binding,
         request.idempotencyKey,

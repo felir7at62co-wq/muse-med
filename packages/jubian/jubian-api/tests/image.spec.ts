@@ -188,9 +188,29 @@ describe('buildImageRequest', () => {
     expect(body).toMatchObject({ scriptId: 2708, assetName: '陆沉舟', assetType: 1, isLocal: 0, isGenerate: 1 })
     const config = JSON.parse(body.modelConfig as string) as Record<string, unknown>
     expect(config).toMatchObject({ modelId: 'gpt-image-2', genType: 3, duration: 1, resolution: '1K', ratio: '16:9',
-      genNum: 1, backupModelList: [], style: 0, quality: '', prompt: '一位中年男性', materialList: [] })
+      genNum: 1, backupModelList: [], style: 0, quality: '', prompt: '一位中年男性', materialList: [],
+      skipAssetReferenceTemplate: true })
     expect(config.standardId).toBe(42)
     expect(config.videoStandardId).toBe(91)
+  })
+
+  it.each([1, 2, 3])('uses explicit-prompt generation for asset type %i with or without references', (assetType) => {
+    const prompt = '白底，只有一位人物的完整全身肖像，面容清晰。'
+    for (const references of [[], ['https://example.test/identity.png']]) {
+      const body = buildImageRequest({ ...request, assetType, prompt, references }, CATALOGUE)
+      expect(body.assetType).toBe(assetType)
+      expect(JSON.parse(String(body.modelConfig))).toMatchObject({
+        skipAssetReferenceTemplate: true,
+        prompt,
+        materialList: references.map(materialUrl => ({ materialUrl, materialType: 'image', sortOrder: 1 })),
+      })
+    }
+  })
+
+  it('preserves a requested character sheet while opting out of the provider reference template', () => {
+    const prompt = '人物设定板：左侧面部特写，右侧正面、侧面和背面全身视图。'
+    const body = buildImageRequest({ ...request, prompt, references: ['https://example.test/identity.png'] }, CATALOGUE)
+    expect(JSON.parse(String(body.modelConfig))).toMatchObject({ skipAssetReferenceTemplate: true, prompt })
   })
 
   it('keeps the default and explicit 16:9 wire bodies identical', () => {

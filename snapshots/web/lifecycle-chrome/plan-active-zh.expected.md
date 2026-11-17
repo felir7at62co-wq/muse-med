@@ -5,6 +5,8 @@
   - button "插件"
   - button "自动化任务"
   - button "从侧边栏取消固定自动化任务"
+  - button "人物库"
+  - button "从侧边栏取消固定人物库"
   - button "更多"
 - text: 工作区
 - button "搜索会话"

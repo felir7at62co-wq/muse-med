@@ -43,6 +43,19 @@ const MATERIAL_URI = 'https://example.invalid/host-managed-reference.png'
 const dirs: string[] = []
 const stores: CharacterReferenceQaAuthorizationStore[] = []
 
+function pngSize(width: number, height: number): Uint8Array {
+  const bytes = PNG.slice()
+  const dimensions = new DataView(bytes.buffer)
+  dimensions.setUint32(16, width)
+  dimensions.setUint32(20, height)
+  return bytes
+}
+
+function privateGrant(data: Uint8Array): CharacterReferenceQaGrant {
+  return { ...grant(), environment: 'project_private', scope: 'one_project_private_upload_and_generation',
+    actorId: JSON.stringify(['owner', 'session']), imageSha256: createHash('sha256').update(data).digest('hex') }
+}
+
 afterEach(async () => {
   for (const store of stores.splice(0)) store.close()
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
@@ -463,6 +476,17 @@ describe('character-reference isolated QA bridge', () => {
     expect(store.listEvents(binding()).filter(event => event.type === 'generation_unknown')).toHaveLength(1)
     store.close()
   })
+  it('preserves a failed default upload as unknown and blocks another send', async () => {
+    const store = await opened()
+    const fetcher = vi.fn<typeof fetch>(async () => { throw new Error('offline') })
+    const bridge = createCharacterReferenceQaBridge({ store,
+      authority: { read: async () => authoritative() }, referenceUploadDeps: { fetch: fetcher } })
+    await expect(bridge.upload(session, request())).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+    expect(store.inspect(binding()).upload.state).toBe('unknown')
+    await expect(bridge.upload(session, request())).rejects.toThrow('reconciled by the Host')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects misaligned bytes, invalid clocks and non-preserving upload receipts without resending', async () => {
     for (const receipt of [
       { materialUrl: 'http://insecure.invalid/a', reencoded: false, sha256: `sha256:${IMAGE_SHA}` },
@@ -514,6 +538,114 @@ describe('character-reference isolated QA bridge', () => {
     store.appendRevocation(binding(), 'owner', 'removed', '2026-10-20T12:00:30.000Z')
     await expect(bridge.upload(session, request())).rejects.toThrow('revoked')
     store.close()
+  })
+
+  it('aligns a private copy before claiming, preserves source identity and replays without another normalization', async () => {
+    const data = pngSize(659, 653)
+    const original = data.slice()
+    const normalized = pngSize(656, 656)
+    const value = privateGrant(data)
+    const store = await opened(value)
+    const exact = { ...binding(), imageSha256: value.imageSha256 }
+    const scaleImage = vi.fn(async ({ bytes }: { bytes: Uint8Array }) => {
+      expect(store.inspect(exact).upload.state).toBe('not_started')
+      bytes[0] = 0
+      return normalized
+    })
+    const upload = vi.fn(async () => ({ materialUrl: MATERIAL_URI, reencoded: false,
+      sha256: `sha256:${createHash('sha256').update(normalized).digest('hex')}` }))
+    const authority = { read: vi.fn(async () => authoritative({ data, imageSha256: value.imageSha256 })) }
+    const bridge = createCharacterReferenceQaBridge({ store, authority, upload,
+      ownerIdentity: async () => value.actorId, referenceUploadDeps: { scaleImage } })
+    const input = { ...request(), imageSha256: value.imageSha256 }
+    const result = await bridge.upload(session, input)
+    expect(result.image_sha256).toBe(value.imageSha256)
+    expect(data).toEqual(original)
+    expect(upload).toHaveBeenCalledWith(normalized, { scaleImage })
+    expect(authority.read).toHaveBeenCalledTimes(2)
+    expect(store.requireManagedReference(exact).imageSha256).toBe(value.imageSha256)
+    scaleImage.mockRejectedValue(new Error('normalizer no longer available'))
+    expect(await bridge.upload(session, input)).toEqual(result)
+    expect(scaleImage).toHaveBeenCalledTimes(1)
+    expect(upload).toHaveBeenCalledTimes(1)
+    const prepared = await bridge.prepareGeneration(session, { ...input,
+      managedReferenceId: result.managed_reference_id, idempotencyKey: 'private-normalized-generation' })
+    expect(prepared.imageSha256).toBe(value.imageSha256)
+    expect(prepared.materialUri).toBe(MATERIAL_URI)
+  })
+
+  it.each(['failure', 'wrong-size', 'wrong-format', 'cancelled', 'revoked', 'changed-owner'] as const)(
+    'does not claim or upload when private preparation is %s', async (mode) => {
+      const data = pngSize(659, 653)
+      const value = privateGrant(data)
+      const store = await opened(value)
+      const exact = { ...binding(), imageSha256: value.imageSha256 }
+      let owner = value.actorId
+      const abort = new AbortController()
+      const scaleImage = vi.fn(async () => {
+        if (mode === 'failure') throw new Error('normalizer failed')
+        if (mode === 'cancelled') abort.abort(new Error('preparation cancelled'))
+        if (mode === 'revoked') store.appendRevocation(exact, 'owner', 'removed', '2026-10-20T12:00:30.000Z')
+        if (mode === 'changed-owner') owner = 'someone else'
+        if (mode === 'wrong-size') return pngSize(16, 16)
+        if (mode === 'wrong-format') {
+          const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 2, 144, 2, 144,
+            3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0, 0xff, 0xd9])
+          return jpeg
+        }
+        return pngSize(656, 656)
+      })
+      const upload = vi.fn()
+      const bridge = createCharacterReferenceQaBridge({ store,
+        authority: { read: async () => authoritative({ data, imageSha256: value.imageSha256 }) },
+        upload, ownerIdentity: async () => owner, referenceUploadDeps: { scaleImage } })
+      const expected = mode === 'wrong-size' || mode === 'wrong-format'
+        ? 'Character-reference normalization did not produce the required image format and dimensions.'
+        : mode === 'failure' ? 'normalizer failed'
+          : mode === 'cancelled' ? 'preparation cancelled'
+            : mode === 'revoked' ? 'revoked' : 'another Muse account'
+      await expect(bridge.upload(session, { ...request(), imageSha256: value.imageSha256 }, abort.signal))
+        .rejects.toThrow(expected)
+      expect(store.inspect(exact).upload.state).toBe('not_started')
+      expect(upload).not.toHaveBeenCalled()
+      expect(store.listEvents(exact).some(event => event.type === 'upload_claim')).toBe(false)
+    },
+  )
+
+  it('leaves private authorization unclaimed when the configured normalizer is unavailable', async () => {
+    const data = pngSize(659, 653)
+    const value = privateGrant(data)
+    const store = await opened(value)
+    const directory = await mkdtemp(join(tmpdir(), 'private-reference-no-ffmpeg-'))
+    dirs.push(directory)
+    const upload = vi.fn()
+    const bridge = createCharacterReferenceQaBridge({ store,
+      authority: { read: async () => authoritative({ data, imageSha256: value.imageSha256 }) },
+      upload, ownerIdentity: async () => value.actorId,
+      referenceUploadDeps: { ffmpegPath: join(directory, 'uninstalled-ffmpeg') } })
+    await expect(bridge.upload(session, { ...request(), imageSha256: value.imageSha256 }))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(store.inspect({ ...binding(), imageSha256: value.imageSha256 }).upload.state).toBe('not_started')
+    expect(upload).not.toHaveBeenCalled()
+  })
+
+  it('refuses a private upload receipt that claims the source digest for the normalized copy', async () => {
+    const data = pngSize(659, 653)
+    const value = privateGrant(data)
+    const store = await opened(value)
+    const exact = { ...binding(), imageSha256: value.imageSha256 }
+    const scaleImage = vi.fn(async () => pngSize(656, 656))
+    const upload = vi.fn(async () => ({ materialUrl: MATERIAL_URI, reencoded: false,
+      sha256: `sha256:${value.imageSha256}` }))
+    const bridge = createCharacterReferenceQaBridge({ store,
+      authority: { read: async () => authoritative({ data, imageSha256: value.imageSha256 }) },
+      upload, ownerIdentity: async () => value.actorId, referenceUploadDeps: { scaleImage } })
+    const input = { ...request(), imageSha256: value.imageSha256 }
+    await expect(bridge.upload(session, input)).rejects.toThrow('preserve the authorized image identity')
+    expect(store.inspect(exact).upload.state).toBe('unknown')
+    await expect(bridge.upload(session, input)).rejects.toThrow('reconciled by the Host')
+    expect(scaleImage).toHaveBeenCalledTimes(1)
+    expect(upload).toHaveBeenCalledTimes(1)
   })
 
   it('preserves the original upload error when recording the unknown outcome also fails', async () => {

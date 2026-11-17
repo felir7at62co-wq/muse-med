@@ -1,0 +1,12 @@
+- heading "Character library" [level=1]
+- paragraph: Browse ancient and urban character references for Muse character generation
+- text: Read-only references
+- tablist "Character collection":
+  - tab "All" [selected]
+  - tab "Ancient"
+  - tab "Urban"
+- textbox "Search appearance, style or tags"
+- button "Search"
+- button "Refresh"
+- text: The character library is not connected. Ask your administrator to enable access.
+- tabpanel "All"

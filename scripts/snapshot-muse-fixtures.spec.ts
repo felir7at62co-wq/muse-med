@@ -190,7 +190,7 @@ it('keeps active source plugin artifacts out of Git and lint source discovery', 
 it('resolves staged source peers through the source launcher without a second Cordis registry', async () => {
   const fixture = await workspace()
   const source = join(fixture.root, 'source'), nodeModules = join(fixture.root, 'installed', 'node_modules')
-  const peer = join(nodeModules, '@deepseek-ai', 'cordis')
+  const peer = join(nodeModules, '@deepseek-ai/cordis')
   await mkdir(peer, { recursive: true })
   await writeFile(join(peer, 'package.json'), JSON.stringify({ type: 'module', exports: './lib/index.js' }))
   await writeFile(join(fixture.root, 'tsconfig.json'), JSON.stringify({
