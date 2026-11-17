@@ -28,6 +28,7 @@ async function completed() {
   const f = await selected(), admitted = await f.service.admitEpisode(f.input)
   await f.renderer.entered; f.renderer.release()
   await expect.poll(async () => (await f.service.episodeStatus(f.input)).state).toBe('completed')
+  await expect.poll(() => f.service.hasActiveWork()).toBe(false)
   const status = await f.service.episodeStatus(f.input)
   if (status.attempt === null || status.execution === undefined || status.output === undefined) {
     throw new Error('Completed fixture omitted its original attempt, execution or publication facts')

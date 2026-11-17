@@ -293,6 +293,7 @@ it('reads publication facts cheaply and offers explicit repair when the output d
   const f = await fixture(), input = admission(f.planInput, await f.readiness())
   await f.admit(input); await f.renderer.entered; f.renderer.release()
   await expect.poll(async () => (await f.status(input)).state).toBe('completed')
+  await expect.poll(() => f.service.hasActiveWork()).toBe(false)
   const published = await f.status(input)
   if (published.output === undefined) throw new Error('Completed episode omitted its publication receipt')
   const outputPath = join(f.project, published.output.path)
