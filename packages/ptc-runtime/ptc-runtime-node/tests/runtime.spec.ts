@@ -186,9 +186,13 @@ describe('Node program process', () => {
     expect((await run({ program, bindings: [] })).error?.kind).toBe('timeout')
   })
 
-  it('retains console output emitted immediately before a non-yielding program', async () => {
+  it('retains console output delivered before a non-yielding program', async () => {
     const { run } = await setup({ timeoutMs: 1000, graceMs: 50 })
-    const result = await run({ program: 'console.log("before hot loop"); for (;;) {}', bindings: [] })
+    const result = await run({
+      // This response follows the log on the control pipe, proving host admission before the loop blocks the child.
+      program: 'console.log("before hot loop"); await tools.delivered({}); for (;;) {}',
+      bindings: bindings({ delivered: async () => null }),
+    })
     expect(result.error?.kind).toBe('timeout')
     expect(result.logs).toEqual(['before hot loop'])
   })
