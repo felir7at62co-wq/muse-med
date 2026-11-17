@@ -594,9 +594,7 @@ it('rejects a tool dispatch after the held native workspace membership is detach
 it('rechecks a settled native notice after a flush failure without starting another turn', async () => {
   const h = await originalVideoFixture([textResponse('Existing result reviewed.')])
   h.complete()
-  await vi.waitFor(async () => {
-    expect((await h.store.load(h.run.id))?.notice?.deliveredAt).toEqual(expect.any(Number))
-  })
+  await expect.poll(async () => (await h.store.load(h.run.id))?.notice?.deliveredAt).toEqual(expect.any(Number))
   await h.agent.whenIdle()
   const saved = await h.store.load(h.run.id)
   if (saved?.notice === undefined) throw new Error('Expected the completed original notice')
@@ -682,13 +680,14 @@ it('keeps the original notice pending without durable claims and resumes it once
   let noticeId = ''
   try {
     h.complete()
-    await vi.waitFor(async () => {
+    await expect.poll(async () => {
       const recorded = await h.store.load(h.run.id)
-      expect(recorded?.notice?.id).toEqual(expect.any(String))
-      noticeId = recorded!.notice!.id
-    })
+      if (recorded?.notice === undefined) return undefined
+      noticeId = recorded.notice.id
+      return noticeId
+    }).toEqual(expect.any(String))
     const recordedScans = scans.mock.calls.length
-    await vi.waitFor(() => { expect(scans.mock.calls.length).toBeGreaterThan(recordedScans) })
+    await expect.poll(() => scans.mock.calls.length).toBeGreaterThan(recordedScans)
     const pending = await h.store.load(h.run.id)
     expect(pending).toMatchObject({ id: h.run.id, sessionId: h.agent.id, binding: h.binding,
       notice: { id: noticeId }, packs: [{ key: h.run.packs[0]!.key, previewPath: h.run.packs[0]!.previewPath, taskId: 42 }] })
@@ -711,10 +710,10 @@ it('keeps the original notice pending without durable claims and resumes it once
   const restored = await h.reopen()
   const adapter = new MockAdapter([textResponse('Continue from the same original video receipt.')])
   restored.llm.registerAdapter(['mock'], adapter)
-  await vi.waitFor(async () => {
+  await expect.poll(async () => {
     expect(adapter.requests).toHaveLength(1)
-    expect((await h.store.load(h.run.id))?.notice?.deliveredAt).toEqual(expect.any(Number))
-  })
+    return (await h.store.load(h.run.id))?.notice?.deliveredAt
+  }).toEqual(expect.any(Number))
   const resolved = await restored.sessionController.resolveAgent(h.agent.id)
   if ('error' in resolved) throw resolved.error
   await resolved.agent.whenIdle()
@@ -1384,7 +1383,7 @@ it('reuses a held continuation for another notice and preserves an explicitly se
 it.each(['park', 'drain', 'flush'] as const)('releases the native binding after a shutdown %s failure', async (mode) => {
   const h = await isolatedNativeDelivery(['hang'])
   expect(await h.send()).toBe('pending')
-  await vi.waitFor(() => { expect(h.adapter.requests).toHaveLength(3) })
+  await expect.poll(() => h.adapter.requests).toHaveLength(3)
   const fail = new Error(`Native shutdown ${mode} unavailable`)
   const remove = mode === 'park' ? vi.spyOn(h.agent.inbox, 'remove').mockImplementationOnce(() => { throw fail }) : undefined
   const idle = mode === 'drain' ? vi.spyOn(h.agent, 'whenIdle').mockRejectedValueOnce(fail) : undefined
