@@ -25,7 +25,10 @@ import { PresentationSetting } from './PresentationSetting.tsx'
 import { VideoWorkspace } from './VideoWorkspace.tsx'
 import { createVideoResources } from './resource-provider.ts'
 import { parseVideoWorkspaceAddress, videoWorkspaceAddress } from './target-selection.ts'
-import { createVideoReferenceSource, VIDEO_REFERENCE_SOURCE } from './references.ts'
+import {
+  createVideoReferenceSource, createVideoReviewReferenceSource, VIDEO_REFERENCE_SOURCE,
+  VIDEO_REVIEW_REFERENCE_SOURCE, VIDEO_REVIEW_REFERENCE,
+} from './references.ts'
 import { videoSelectionRule, videoReviewRule } from './user-text-rules.ts'
 import { VideoSelectionText, type VideoSelectionTextInjected } from './VideoSelectionText.tsx'
 
@@ -73,6 +76,9 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       },
       { invalid: () => t('referenceInvalid'), stale: () => t('referenceStale') },
     )), 'session-video: selected source references')
+    scope.effect(() => scope.inputTriggers.registerSource(createVideoReviewReferenceSource({
+      label: () => t('readOnlyReview'), invalid: () => t('reviewModeInvalid'),
+    })), 'session-video: read-only review references')
     const runtime = new PresentationRuntime(async () => {
       const childScope = scope.inject(['slots', 'remote.sessionVideo', 'uiConversation', 'conversation',
         'sidebarRight', 'sidebarRightTabs', 'resources', 'sessions'], (child) => {
@@ -148,6 +154,18 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
               if (occurrence.source !== VIDEO_REFERENCE_SOURCE) return false
               const binding = sessions.binding(sessionId)
               return binding !== undefined && child.conversation.input.for(binding.ctx).removeReference(occurrence)
+            },
+            setReviewMode: (enabled, span) => {
+              const binding = sessions.binding(sessionId)
+              if (binding === undefined) return false
+              const shell = child.conversation.input.for(binding.ctx)
+              const state = shell.state.getSnapshot()
+              const modes = state.occurrences.filter(value => value.source === VIDEO_REVIEW_REFERENCE_SOURCE)
+              if (!enabled) return modes.every(occurrence => shell.removeReference(occurrence))
+              if (modes.length > 0) return true
+              const label = t('readOnlyReview')
+              return shell.insertReference({ source: VIDEO_REVIEW_REFERENCE_SOURCE, ref: VIDEO_REVIEW_REFERENCE,
+                label, clipboardText: label }, { start: span.end, end: span.end, draftRev: span.draftRev })
             },
           }
           faces.set(sessionId, value)

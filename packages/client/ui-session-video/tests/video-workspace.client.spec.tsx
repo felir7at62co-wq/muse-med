@@ -15,7 +15,7 @@ import { VideoWorkspace } from '../src/client/VideoWorkspace.tsx'
 import type { VideoWorkspaceProps } from '../src/client/face.ts'
 import { createVideoStore } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
-import { VIDEO_REFERENCE_SOURCE } from '../src/client/references.ts'
+import { VIDEO_REFERENCE_SOURCE, VIDEO_REVIEW_REFERENCE_SOURCE, VIDEO_REVIEW_REFERENCE } from '../src/client/references.ts'
 import { videoWorkspaceAddress } from '../src/client/target-selection.ts'
 import { analysis } from './video-fixture.tsx'
 import { inventory, sessionId, source, whole } from './selection-fixture.client.ts'
@@ -45,7 +45,8 @@ function setup(items = [source()], initial: Partial<InputState> = {}, overrides:
     if (item === undefined) throw Error('Unknown media')
     return analysis(item)
   })
-  const addTargetReference = vi.fn(() => true), removeTargetReference = vi.fn(() => true), refreshVideos = vi.fn()
+  const addTargetReference = vi.fn(() => true), removeTargetReference = vi.fn(() => true),
+    setReviewMode = vi.fn(() => true), refreshVideos = vi.fn()
   const subscribeResource = resource.subscribe.bind(resource), readResource = resource.getSnapshot.bind(resource)
   const subscribeTab = tabInfo.subscribe.bind(tabInfo), readTab = tabInfo.getSnapshot.bind(tabInfo)
   const props: VideoWorkspaceProps = {
@@ -56,13 +57,13 @@ function setup(items = [source()], initial: Partial<InputState> = {}, overrides:
     useResource: (() => useSyncExternalStore(subscribeResource, readResource)) as VideoWorkspaceProps['useResource'],
     useInput: bindSnapshotSelector(input), inputActions, useStore: bindSnapshotSelector(instance.store), actions: instance.actions,
     useTabInfo: () => useSyncExternalStore(subscribeTab, readTab),
-    detectShots, addTargetReference, removeTargetReference, refreshVideos,
+    detectShots, addTargetReference, removeTargetReference, setReviewMode, refreshVideos,
     openWorkspace: vi.fn(), pixelsPerSecond: 48, t: makeTranslate(en),
     ...overrides,
   }
   const view = render(<VideoWorkspace {...props} />)
   return { view, instance, input, resource, tabInfo, props, inputActions, detectShots, openResource,
-    addTargetReference, removeTargetReference, refreshVideos }
+    addTargetReference, removeTargetReference, setReviewMode, refreshVideos }
 }
 
 function reference(item = source()): Occurrence {
@@ -100,7 +101,8 @@ it('submits a current-video review only with an empty draft and no attachments',
   const h = setup([source()], { draft: '' })
   await waitFor(() => { expect(h.detectShots).toHaveBeenCalledOnce() })
   fireEvent.click(h.view.getByRole('button', { name: 'Review selected videos' }))
-  expect(h.inputActions.insertText).toHaveBeenCalledWith(expect.stringContaining('muse-video-review'), expect.anything())
+  expect(h.setReviewMode).toHaveBeenCalledWith(true, expect.anything())
+  expect(h.inputActions.insertText).toHaveBeenCalledWith(`\n\n${en.requestReview}`, expect.anything())
   expect(h.inputActions.submit).toHaveBeenCalledOnce()
   h.inputActions.submit.mockClear()
   act(() => { h.input.set({ ...h.input.getSnapshot(), draft: 'unfinished' }) })
@@ -112,12 +114,18 @@ it('submits a current-video review only with an empty draft and no attachments',
   h.inputActions.insertText.mockReturnValueOnce(false)
   fireEvent.click(h.view.getByRole('button', { name: 'Review selected videos' }))
   expect(h.view.getByRole('status').textContent).toContain(en.draftRefused)
+  h.setReviewMode.mockReturnValueOnce(false)
+  const inserted = h.inputActions.insertText.mock.calls.length
+  fireEvent.click(h.view.getByRole('button', { name: 'Review selected videos' }))
+  expect(h.inputActions.insertText).toHaveBeenCalledTimes(inserted)
+  expect(h.view.getByRole('status').textContent).toContain(en.draftRefused)
 })
 
 it('keeps selected references in the composer and reports refused edits or stale media', async () => {
   const h = setup([source()], { draft: '\ufffc', occurrences: [reference()] })
   await waitFor(() => { expect(h.detectShots).toHaveBeenCalledOnce() })
   fireEvent.click(h.view.getByRole('button', { name: 'Prepare edit' }))
+  expect(h.setReviewMode).toHaveBeenCalledWith(false, expect.anything())
   expect(h.inputActions.insertText).toHaveBeenCalledWith(expect.stringContaining(en.requestEdit), expect.anything())
   fireEvent.click(h.view.getByRole('button', { name: 'Review selected videos' }))
   expect(h.inputActions.submit).toHaveBeenCalledOnce()
@@ -131,6 +139,24 @@ it('keeps selected references in the composer and reports refused edits or stale
   act(() => { h.resource.set({ status: 'live', failure: undefined, value: inventory([{ ...source(), version: 'changed' }]) }) })
   fireEvent.click(h.view.getByRole('button', { name: 'Prepare edit' }))
   expect(h.view.getByText(en.selectionStale)).toBeDefined()
+})
+
+it('counts only video targets and excludes the removable mode from an otherwise empty review draft', async () => {
+  const mode: Occurrence = { occurrenceId: 2, source: VIDEO_REVIEW_REFERENCE_SOURCE, ref: VIDEO_REVIEW_REFERENCE,
+    label: en.readOnlyReview, clipboardText: en.readOnlyReview, offset: 1, length: 1 }
+  const h = setup([source()], { draft: '\ufffc\ufffc', occurrences: [reference(), mode] })
+  expect(h.view.getByText('1 selected')).toBeDefined()
+  expect(h.view.queryByText('2 selected')).toBeNull()
+  fireEvent.click(h.view.getByRole('button', { name: 'Review selected videos' }))
+  expect(h.inputActions.insertText).toHaveBeenCalledWith(`\n\n${en.requestReview}`, expect.anything())
+  expect(h.inputActions.submit).toHaveBeenCalledOnce()
+  fireEvent.click(h.view.getByRole('button', { name: 'Clear selection' }))
+  expect(h.removeTargetReference).toHaveBeenCalledExactlyOnceWith(reference())
+  h.setReviewMode.mockReturnValueOnce(false)
+  fireEvent.click(h.view.getByRole('button', { name: 'Prepare edit' }))
+  expect(h.setReviewMode).toHaveBeenLastCalledWith(false, expect.anything())
+  expect(h.inputActions.insertText).toHaveBeenCalledOnce()
+  expect(h.view.getByText(en.draftRefused)).toBeDefined()
 })
 
 it('exposes incomplete, unavailable, loading, empty and failed inventory states', () => {

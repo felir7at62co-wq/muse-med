@@ -27,3 +27,8 @@
   - 'button "Target remove: {{uuid}}-video (1).mp4 · 0.00–1.00 s"'
   - button "Prepare edit"
   - status: The request was added to this conversation
+
+## Unsent review draft
+
+- textbox "Message or run a task, / commands, @ files or sessions":
+  - paragraph: Keep this unfinished instruction. {{uuid}}-video (1).mp4 · 0.00–1.00 s Read-only review Perform a read-only review of only these selected videos or intervals. Give at most 3 specific issues and suggested fixes, each with its source link. Stay within the selection; do not start a complete-video scan. Wait for my changes before editing or generating.
