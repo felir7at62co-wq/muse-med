@@ -16,24 +16,35 @@ import type { MuseAccountStatus } from '../src/types.ts'
 const contexts: Context[] = []
 const homes: string[] = []
 
-it('contains an account observer failure after recording the current identity', async () => {
+it('reports an unsupported usage period without classifying it as a storage failure', async () => {
   const context = new Context()
   contexts.push(context)
-  const failure = new Error('observer failed')
-  const observer = vi.fn(() => { throw failure })
-  const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
-  context.on('muse-account/session-changed', observer)
-  const status = { state: 'signed-out' } as const
-  await context.plugin(MuseAccountService, { controller: { details: async () => { throw new Error('Unused fixture details') },
-    status: async () => status,
-    logout: async () => status,
-    login: async () => { throw new Error('unused') },
+  const status = async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' })
+  await context.plugin(MuseAccountService, { controller: {
+    status, logout: status, login: async () => { throw new Error('Unused fixture login') },
+    details: async () => { throw new MuseGatewayError('unsupported-period') },
   } })
   const service = context.get('museAccount') as MuseAccountService
+  await expect(service.details({ period: 'all' })).rejects.toMatchObject({
+    code: 'muse-account/unsupported-period', message: 'MUSE account usage period is unavailable', details: {},
+  })
+})
+
+it('keeps account status authoritative when a notification observer throws', async () => {
+  const context = new Context(); contexts.push(context)
+  const status = { state: 'signed-out' } as const
+  await context.plugin(MuseAccountService, { controller: { details: async () => { throw new Error('Unused fixture details') },
+    status: async () => status, logout: async () => status, login: async () => { throw Error('Unused login') },
+  } })
+  const service = context.get('museAccount') as MuseAccountService
+  const error = Error('Notification observer offline')
+  const observer = vi.fn(() => { throw error })
+  const warn = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
+  context.on('muse-account/session-changed', observer)
   await expect(service.status({ verify: false })).resolves.toEqual(status)
+  expect(warn).toHaveBeenCalledWith('Muse account observer failed', error)
   await expect(service.status({ verify: false })).resolves.toEqual(status)
-  expect(observer).toHaveBeenCalledTimes(1)
-  expect(warn).toHaveBeenCalledExactlyOnceWith('Muse account observer failed', failure)
+  expect(observer).toHaveBeenCalledOnce()
 })
 
 it('keeps browser redemption private, refreshes consumers after commit and cancels before manual authentication', async () => {

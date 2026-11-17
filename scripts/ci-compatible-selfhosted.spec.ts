@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { runInNewContext } from 'node:vm'
 import * as yaml from 'js-yaml'
+import { satisfies } from 'semver'
 import { describe, expect, it } from 'vitest'
 import { BUILD_BACKED_NODE_COMPAT_VERSION } from './run-gates.ts'
 
@@ -63,7 +64,9 @@ describe('Node compatibility self-hosted routing', () => {
     expect(job.strategy.matrix.include.filter(entry => String(entry.node) === BUILD_BACKED_NODE_COMPAT_VERSION)).toHaveLength(1)
     for (const manifest of ['package.json', 'apps/cli/package.json']) {
       const pkg = JSON.parse(readFileSync(resolve(import.meta.dirname, '..', manifest), 'utf8')) as { engines: { node: string } }
-      expect(pkg.engines.node).toBe(`>=${BUILD_BACKED_NODE_COMPAT_VERSION}.0`)
+      expect(pkg.engines.node).toBe(`^${BUILD_BACKED_NODE_COMPAT_VERSION}.0 || >=26.0.0`)
+      for (const version of ['24.9.0', '24.14.0', '25.0.0']) expect(satisfies(version, pkg.engines.node)).toBe(false)
+      for (const version of ['24.15.0', '24.21.0', '26.0.0']) expect(satisfies(version, pkg.engines.node)).toBe(true)
     }
   })
 
@@ -84,7 +87,7 @@ describe('Node compatibility self-hosted routing', () => {
     expect(job.if).toBe("github.event_name == 'pull_request'")
     expect(job.strategy['fail-fast']).toBe(false)
     expect(job.strategy.matrix.include).toEqual([
-      { node: '24.9', name: 'node 24.9', runner: 'ubuntu-latest', gate_concurrency: '1' },
+      { node: '24.15', name: 'node 24.15', runner: 'ubuntu-latest', gate_concurrency: '1' },
       { node: 26, name: 'node 26', runner: 'ubuntu-latest', gate_concurrency: '1' },
     ])
     expect(job.env.DSH_GATE_CONCURRENCY).toBe('${{ matrix.gate_concurrency }}')
@@ -145,8 +148,8 @@ describe('Node compatibility self-hosted routing', () => {
     const step = job.steps.find(candidate => candidate.name === 'Verify isolated Node installation')!
     expect(step.if).toBe("runner.environment == 'self-hosted'")
     for (const [executable, status] of [
-      ['/runner temp/node-compat-toolcache/node/24.9.0/x64/bin/node', 0],
-      ['/shared/toolcache/node/24.9.0/x64/bin/node', 1],
+      ['/runner temp/node-compat-toolcache/node/24.15.0/x64/bin/node', 0],
+      ['/shared/toolcache/node/24.15.0/x64/bin/node', 1],
       ['/runner temp/node-compat-toolcache-other/node', 1],
     ] as const) {
       const child = spawnSync('bash', ['-e', '-u', '-o', 'pipefail', '-c', 'node() { printf "%s" "$TEST_EXECUTABLE"; }; ' + step.run!], {

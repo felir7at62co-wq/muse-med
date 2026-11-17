@@ -1,0 +1,28 @@
+## Delivered video
+
+- combobox "Conversation videos":
+  - option "{{uuid}}-video (1).mp4" [selected]
+- button "Regenerate this shot"
+- button "Play"
+- group "Timeline zoom":
+  - button "Zoom out timeline"
+  - slider "Timeline zoom": "1"
+  - button "Zoom in timeline"
+- group "Video shots":
+  - button "Shot 1 · 0.00–1.00" [pressed]
+  - slider "Playback position"
+
+## History video
+
+- button "Close video"
+- combobox "Conversation videos":
+  - option "{{uuid}}-video (1).mp4" [selected]
+- button "Regenerate this shot"
+- button "Play"
+- group "Timeline zoom":
+  - button "Zoom out timeline"
+  - slider "Timeline zoom": "1"
+  - button "Zoom in timeline"
+- group "Video shots":
+  - button "Shot 1 · 0.00–1.00" [pressed]
+  - slider "Playback position"

@@ -1,12 +1,12 @@
 {
   "name": "@deepseek-ai/dsh-root",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "license": "MIT",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.28.5",
   "engines": {
-    "node": ">=24.9.0"
+    "node": "^24.15.0 || >=26.0.0"
   },
   "workspaces": [
     "vendor/*",
@@ -60,6 +60,7 @@
     "duplication": "jscpd --config .jscpd.json packages scripts",
     "test": "pnpm run build:native-system && vitest run",
     "test:coverage": "pnpm run build:native-system && vitest run --coverage",
+    "coverage:changed": "tsx scripts/coverage-changed.ts",
     "build:native-system": "tsx native/system/scripts/build.ts --host-addon-only",
     "test:coverage:partitioned": "tsx scripts/run-coverage-partitions.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
@@ -123,6 +124,7 @@
     "verify-agent-note-classification": "tsx scripts/verify-agent-note-classification.ts",
     "verify-agent-note-format": "tsx scripts/verify-agent-note-format.ts",
     "verify-archived-agent-notes": "tsx scripts/verify-archived-agent-notes.ts",
+    "verify-snapshot-drift": "tsx scripts/verify-snapshot-drift.ts",
     "verify-type-equiv": "tsx scripts/verify-type-equiv.ts",
     "verify-skill-invocation-metadata": "tsx scripts/verify-skill-invocation-metadata.ts",
     "verify-upgrade-guides": "tsx scripts/verify-upgrade-guides.ts",
@@ -140,7 +142,7 @@
     "website:build": "pnpm run docs:build",
     "verify-package-readme-limitations": "tsx scripts/verify-package-readme-limitations.ts",
     "verify-node-next-types": "tsx scripts/verify-node-next-types.ts",
-    "verify-optional-dependency-imports": "tsx scripts/verify-optional-dependency-imports.ts",
+    "verify-optional-dependency-imports": "node --max-old-space-size=8192 --import tsx scripts/verify-optional-dependency-imports.ts",
     "verify-runtime-closure": "tsx scripts/verify-runtime-closure.ts",
     "verify-default-product-isolation": "tsx scripts/verify-default-product-isolation.ts",
     "verify-application-entrypoints": "tsx scripts/verify-application-entrypoints.ts",
@@ -223,11 +225,11 @@
     "verify-product-use": "tsx scripts/verify-product-use.ts",
     "muse:desktop": "pnpm --filter @deepseek-ai/dsh-desktop run dev",
     "muse:desktop:start": "pnpm --filter @deepseek-ai/dsh-desktop run start",
-    "test:snapshot:built": "node third_party/plugins/muse-lvpaopao/scripts/build.mjs && node scripts/prepare-subscriptions-snapshot.mjs && node scripts/prepare-skill-panel-snapshot.mjs && node scripts/prepare-mcp-panel-snapshot.mjs && node scripts/prepare-visualize-snapshot.mjs && vitest run --config vitest.snapshot.config.ts",
+    "test:snapshot:built": "node third_party/plugins/muse-lvpaopao/scripts/build.mjs && node scripts/prepare-subscriptions-snapshot.mjs && node scripts/prepare-skill-panel-snapshot.mjs && node scripts/prepare-mcp-panel-snapshot.mjs && node scripts/prepare-visualize-snapshot.mjs && node scripts/prepare-deep-view-snapshot.mjs && vitest run --config vitest.snapshot.config.ts",
     "muse:web": "node scripts/muse-web.mjs",
     "check:ci:windows-observational": "tsx scripts/run-gates.ts ci-windows-observational-ready",
-    "resolve-translation-pairing-conflicts": "tsx scripts/merge-translation-pairing.ts --resolve",
-    "verify-running-build": "tsx scripts/verify-running-build.ts"
+    "verify-running-build": "tsx scripts/verify-running-build.ts",
+    "verify-plugin-entry-exports": "tsx scripts/verify-plugin-entry-exports.ts"
   },
   "devDependencies": {
     "@deepseek-ai/node-addon-system": "workspace:~",
@@ -346,8 +348,9 @@
     "vitest": "^4.1.11",
     "ws": "8.21.0",
     "yaml": "2.9.0",
-    "zod": "^4.4.3",
-    "@deepseek-ai/dsh-client-connection": "workspace:*"
+    "zod": "4.6.6",
+    "@deepseek-ai/dsh-client-connection": "workspace:*",
+    "@deepseek-ai/dsh-terminal-panel": "workspace:*"
   },
   "description": "muse-med short-drama desktop agent, built on the DeepSeek Harness fork"
 }

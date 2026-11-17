@@ -33,7 +33,7 @@ function matchesReadContext(message: Message, hash: string, observed: boolean): 
   if (!observed) return false
   const content = message.content.map((block) => {
     if (block.type !== 'image' || block.offloaded !== true) return block
-    const { offloaded: _offloaded, ...original } = block
+    const { offloaded: _offloaded, offloadNotice: _offloadNotice, ...original } = block
     return original
   })
   return sha256(JSON.stringify({ ...message, content })) === hash
@@ -209,11 +209,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       if (args.request.method === 'fork_refinement' || (args.request.method === 'init_story_faithful' || args.request.method === 'fork_story_faithful')) {
         const request = args.request
         if (!args.request.authorization_quote.trim()) throw Error('refinement_human_authorization: 请引用真实用户的明确授权。')
-        const users = refinementUsers?.stateOf(session)
-        /* v8 ignore if -- the projection is registered under exactly this method condition and its
-        init state is `{ users: [] }`, so stateOf answers a real handle; an unenabled method is
-        rejected by the argument schema before execute. */
-        if (users === undefined) throw Error('refinement_human_authorization: 真实用户消息投影尚未就绪。')
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- Enabled extension schemas require this awaited projection.
+        const users = refinementUsers!.stateOf(session)
         authorization = captureRefinementAuthorization(users, messages, actor, request.authorization_quote, request.consent_assessment)
         latestUserSeq = users.users.at(-1)?.seq
         if ((args.request.method === 'init_story_faithful' || args.request.method === 'fork_story_faithful') && authorization.seq !== latestUserSeq) throw Error('story_human_authorization: 新作品必须引用最新真实用户请求，不能复用研发或历史作品授权。')

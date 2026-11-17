@@ -108,7 +108,11 @@ afterEach(async () => {
 })
 
 /** Mount a real loop with only its model scripted. */
-async function harness(script: ScriptEntry[], completionDelivery: toolJobs.CompletionDelivery = 'quiet'): Promise<Harness> {
+async function harness(
+  script: ScriptEntry[],
+  completionDelivery: toolJobs.CompletionDelivery = 'quiet',
+  driverConfig?: goalSession.ConfigInput,
+): Promise<Harness> {
   const ctx = new Context()
   contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
@@ -120,7 +124,7 @@ async function harness(script: ScriptEntry[], completionDelivery: toolJobs.Compl
     execute: () => Promise.resolve('work finished'),
   }))
   await ctx.plugin(GoalService)
-  const driver = await ctx.plugin(goalSession)
+  const driver = await ctx.plugin(goalSession, driverConfig)
   await ctx.plugin(AgentLoop, { agents: [] })
   const adapter = new ScriptedAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -1142,13 +1146,13 @@ describe('same-session goal driving', () => {
   })
 
   /** Provide a subagent service whose descendants settle only when the test says so. */
-  function provideDescendants(ctx: Context): { settle(): void; waitForChildren: ReturnType<typeof vi.fn> } {
+  function provideDescendants(ctx: Context): { settle(): void; waitForTreeWork: ReturnType<typeof vi.fn> } {
     let settle!: () => void
     const settled = new Promise<boolean>((resolve) => { settle = () => { resolve(true) } })
-    const waitForChildren = vi.fn((_parent: Agent): Promise<boolean> => settled)
-    const service: Pick<SubagentRuntime, 'waitForChildren'> = { waitForChildren }
+    const waitForTreeWork = vi.fn((_parent: Agent): Promise<boolean> => settled)
+    const service: Pick<SubagentRuntime, 'waitForTreeWork'> = { waitForTreeWork }
     ctx.provide('subagents', service as SubagentRuntime)
-    return { settle, waitForChildren }
+    return { settle, waitForTreeWork }
   }
 
   it('reserves a round only after progressing descendants settle', async () => {
@@ -1156,7 +1160,7 @@ describe('same-session goal driving', () => {
     const descendants = provideDescendants(test.ctx)
     test.ctx.goals.create(test.agent, { objective: 'wait for delegates', maxGoalRounds: 1 })
 
-    await vi.waitFor(() => { expect(descendants.waitForChildren).toHaveBeenCalledWith(test.agent) })
+    await vi.waitFor(() => { expect(descendants.waitForTreeWork).toHaveBeenCalledWith(test.agent) })
     expect(test.adapter.requests).toHaveLength(0)
 
     descendants.settle()
@@ -1172,14 +1176,14 @@ describe('same-session goal driving', () => {
     await waitForRequests(test.adapter, 1)
     await test.agent.whenIdle()
 
-    expect(descendants.waitForChildren).not.toHaveBeenCalled()
+    expect(descendants.waitForTreeWork).not.toHaveBeenCalled()
   })
 
   it('runs human work that arrives while descendants progress before the next round', async () => {
     const test = await harness([textResponse('human answer'), textResponse('goal answer')])
     const descendants = provideDescendants(test.ctx)
     test.ctx.goals.create(test.agent, { objective: 'yield to human input', maxGoalRounds: 1 })
-    await vi.waitFor(() => { expect(descendants.waitForChildren).toHaveBeenCalled() })
+    await vi.waitFor(() => { expect(descendants.waitForTreeWork).toHaveBeenCalled() })
 
     test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'human during the wait' }], source: { kind: 'user' } }))
     await waitForRequests(test.adapter, 1)
@@ -1195,7 +1199,7 @@ describe('same-session goal driving', () => {
     const test = await harness([])
     const descendants = provideDescendants(test.ctx)
     const created = test.ctx.goals.create(test.agent, { objective: 'pause during the wait' })
-    await vi.waitFor(() => { expect(descendants.waitForChildren).toHaveBeenCalled() })
+    await vi.waitFor(() => { expect(descendants.waitForTreeWork).toHaveBeenCalled() })
 
     test.ctx.goals.pause(test.agent, { id: created.id, revision: created.revision })
     descendants.settle()
@@ -1210,7 +1214,7 @@ describe('same-session goal driving', () => {
     const test = await harness([])
     const descendants = provideDescendants(test.ctx)
     test.ctx.goals.create(test.agent, { objective: 'unload while delegates run' })
-    await vi.waitFor(() => { expect(descendants.waitForChildren).toHaveBeenCalled() })
+    await vi.waitFor(() => { expect(descendants.waitForTreeWork).toHaveBeenCalled() })
 
     await test.driver.dispose()
 
@@ -1499,5 +1503,337 @@ describe('same-session goal driving', () => {
     await handle.dispose()
 
     expect(test.ctx.agents.get(handle.agent.id)).toBeUndefined()
+  })
+})
+
+/** Committed non-null goal waits, in log order. */
+function recordedWaits(agent: Agent): { reason: string; message: string; revision: number }[] {
+  return agent.session.snapshotEvents().flatMap(event => event.type === 'goal/wait' && event.data.wait !== null
+    ? [{ reason: event.data.wait.reason, message: event.data.wait.message, revision: event.data.ref.revision }]
+    : [])
+}
+
+/** Await the committed transient-resume timer wait for the current revision. */
+async function waitForResumeTimer(test: Harness, count = 1): Promise<void> {
+  await vi.waitFor(() => {
+    expect(recordedWaits(test.agent).filter(wait => wait.reason === 'timer')).toHaveLength(count)
+  })
+}
+
+describe('transient error resume', () => {
+  it.each([
+    ['zero attempts', { transientErrorResume: { maxAttempts: 0, delayMs: 20 } }],
+    ['zero delay', { transientErrorResume: { maxAttempts: 1, delayMs: 0 } }],
+    ['missing delay', { transientErrorResume: { maxAttempts: 1 } }],
+    ['empty codes', { transientErrorResume: { maxAttempts: 1, delayMs: 20, codes: [] } }],
+    ['duplicate codes', { transientErrorResume: { maxAttempts: 1, delayMs: 20, codes: ['SERVER', 'SERVER'] } }],
+  ])('rejects %s at plugin load', async (_label, config) => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(GoalService)
+    await expect(Promise.resolve().then(() => ctx.plugin(goalSession, config as goalSession.ConfigInput))).rejects.toThrow()
+  })
+
+  it('treats an absent option as off and fills the default codes', () => {
+    expect(goalSession.Config(undefined)).toEqual({})
+    expect(goalSession.Config({ transientErrorResume: { maxAttempts: 2, delayMs: 20 } })).toEqual({
+      transientErrorResume: { maxAttempts: 2, delayMs: 20, codes: ['SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED'] },
+    })
+  })
+
+  it('keeps the documented default: a SERVER failure without the option disarms with no wait', async () => {
+    const test = await harness([new LlmError('upstream 502', 'SERVER')])
+    test.ctx.goals.create(test.agent, { objective: 'stop without the option', maxGoalRounds: 8 })
+
+    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'active' && goal.activation === 'disarmed')
+    await test.agent.whenIdle()
+    await new Promise((resolve) => { setTimeout(resolve, 30) })
+
+    expect(recordedWaits(test.agent)).toEqual([])
+    expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('records a timer wait after a transient failure and resumes the next round after the delay', async () => {
+    const test = await harness([
+      new LlmError('upstream 502', 'SERVER'),
+      callResponse('progress'),
+      textResponse('done'),
+    ], 'quiet', { transientErrorResume: { maxAttempts: 2, delayMs: 20 } })
+    test.ctx.goals.create(test.agent, { objective: 'survive an outage', maxGoalRounds: 2 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+
+    expect(goal).toMatchObject({ roundsStarted: 2, blockedReason: { code: 'round-limit' } })
+    expect(test.adapter.requests).toHaveLength(3)
+    const waits = recordedWaits(test.agent)
+    expect(waits).toEqual([{
+      reason: 'timer', revision: 1,
+      message: 'Goal round failed with model error SERVER; automatic resume 1/2 in 1 s.',
+    }])
+    const events = test.agent.session.snapshotEvents()
+    const failedEnd = events.findIndex(event => event.type === 'turn/end' && event.data.reason.kind === 'error'
+      && event.data.reason.error.code === 'SERVER')
+    const firstWait = events.findIndex(event => event.type === 'goal/wait' && event.data.wait !== null)
+    expect(failedEnd).toBeGreaterThanOrEqual(0)
+    expect(firstWait).toBeGreaterThan(failedEnd)
+    expect(goalOperations(test.agent)).not.toContain('resume')
+  })
+
+  it('stops with an input wait naming the reason after the attempts run out', async () => {
+    const test = await harness([
+      new LlmError('upstream 502', 'SERVER'),
+      new LlmError('upstream 502 again', 'SERVER'),
+    ], 'quiet', { transientErrorResume: { maxAttempts: 1, delayMs: 20 } })
+    test.ctx.goals.create(test.agent, { objective: 'give up after one resume', maxGoalRounds: 8 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current =>
+      current?.activation === 'disarmed' && current.wait?.reason === 'input')
+
+    expect(goal).toMatchObject({ phase: 'active', roundsStarted: 2 })
+    expect(goal?.wait?.message).toBe('Automatic resume limit (1) reached; last model error SERVER. Resume the goal to continue.')
+    expect(test.adapter.requests).toHaveLength(2)
+  })
+
+  it('resets the attempt count after a completed round', async () => {
+    const test = await harness([
+      new LlmError('upstream 502', 'SERVER'),
+      callResponse('progress'),
+      textResponse('progress made'),
+      new LlmError('upstream 502 later', 'SERVER'),
+      textResponse('final round'),
+    ], 'quiet', { transientErrorResume: { maxAttempts: 1, delayMs: 20 } })
+    test.ctx.goals.create(test.agent, { objective: 'survive two outages', maxGoalRounds: 4 })
+
+    await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+
+    expect(recordedWaits(test.agent).map(wait => [wait.reason, wait.message])).toEqual([
+      ['timer', 'Goal round failed with model error SERVER; automatic resume 1/1 in 1 s.'],
+      ['timer', 'Goal round failed with model error SERVER; automatic resume 1/1 in 1 s.'],
+    ])
+    expect(test.adapter.requests).toHaveLength(5)
+  })
+
+  it('starts a fresh count after a human resume of an exhausted goal', async () => {
+    const test = await harness([
+      new LlmError('first', 'SERVER'),
+      new LlmError('second', 'SERVER'),
+      new LlmError('third', 'SERVER'),
+      textResponse('back online'),
+    ], 'quiet', { transientErrorResume: { maxAttempts: 1, delayMs: 20 } })
+    test.ctx.goals.create(test.agent, { objective: 'resume after a human decision', maxGoalRounds: 8 })
+    const stopped = await waitForGoal(test.ctx, test.agent, current => current?.wait?.reason === 'input')
+    if (stopped === undefined) throw new Error('expected the exhausted goal')
+
+    const resumed = test.ctx.goals.resume(test.agent, stopped)
+
+    expect(resumed.wait).toBeUndefined()
+    await waitForGoal(test.ctx, test.agent, current => current?.wait?.reason === 'no-tools')
+    expect(recordedWaits(test.agent).map(wait => [wait.reason, wait.revision])).toEqual([
+      ['timer', 1], ['input', 1], ['timer', 2], ['no-tools', 2],
+    ])
+    expect(recordedWaits(test.agent)[2]?.message).toContain('1/1')
+    expect(test.adapter.requests).toHaveLength(4)
+  })
+
+  it('runs human input that arrives during the cool-down before the goal round', async () => {
+    const test = await harness([
+      new LlmError('upstream 502', 'SERVER'),
+      textResponse('human answer'),
+      textResponse('goal round after human'),
+    ], 'quiet', { transientErrorResume: { maxAttempts: 2, delayMs: 60_000 } })
+    test.ctx.goals.create(test.agent, { objective: 'answer people while cooling down', maxGoalRounds: 8 })
+    await waitForGoal(test.ctx, test.agent, current => current?.wait?.reason === 'timer')
+
+    test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'human question' }], source: { kind: 'user' } }))
+
+    await waitForGoal(test.ctx, test.agent, current => current?.roundsStarted === 2 && current.wait?.reason === 'no-tools')
+    expect(test.adapter.requests).toHaveLength(3)
+    expect(requestText(test.adapter.requests[1]!)).toContain('human question')
+    expect(requestText(test.adapter.requests[2]!)).toContain('Round: 2/8')
+  })
+
+  it('disarms without a wait when the failed round was the last allowed round', async () => {
+    const test = await harness([new LlmError('upstream 502', 'SERVER')], 'quiet', {
+      transientErrorResume: { maxAttempts: 2, delayMs: 20 },
+    })
+    test.ctx.goals.create(test.agent, { objective: 'one round only', maxGoalRounds: 1 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.activation === 'disarmed')
+    await test.agent.whenIdle()
+    await new Promise((resolve) => { setTimeout(resolve, 30) })
+
+    expect(goal).toMatchObject({ phase: 'active', roundsStarted: 1 })
+    expect(test.ctx.goals.get(test.agent)?.phase).toBe('active')
+    expect(recordedWaits(test.agent)).toEqual([])
+  })
+
+  it('keeps a wait the model recorded before the failure and spends one attempt', async () => {
+    const test = await harness([
+      callResponse('defer'),
+      new LlmError('tool-result request 502', 'SERVER'),
+      callResponse('progress'),
+      textResponse('done'),
+    ], 'quiet', { transientErrorResume: { maxAttempts: 1, delayMs: 20 } })
+    test.ctx.tools.register(defineTool({
+      name: 'defer', description: 'Defer the goal briefly.', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: () => {
+        const goal = test.ctx.goals.get(test.agent)
+        if (goal === undefined) throw new Error('missing goal while deferring')
+        test.ctx.goals.wait(test.agent, goal, { reason: 'timer', wakeAt: Date.now() + 40, message: 'defer' })
+        return Promise.resolve('deferred')
+      },
+    }))
+    test.ctx.goals.create(test.agent, { objective: 'wait for a job', maxGoalRounds: 2 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+
+    expect(goal).toMatchObject({ roundsStarted: 2, blockedReason: { code: 'round-limit' } })
+    expect(recordedWaits(test.agent).map(wait => wait.message)).toEqual(['defer'])
+    expect(test.adapter.requests).toHaveLength(4)
+  })
+
+  it('keeps a model-recorded wait instead of the limit notice when the last automatic resume fails', async () => {
+    const test = await harness([
+      new LlmError('upstream 502', 'SERVER'),
+      callResponse('defer'),
+      new LlmError('tool-result request 502', 'SERVER'),
+    ], 'quiet', { transientErrorResume: { maxAttempts: 1, delayMs: 20 } })
+    test.ctx.tools.register(defineTool({
+      name: 'defer', description: 'Defer the goal for a long time.', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: () => {
+        const goal = test.ctx.goals.get(test.agent)
+        if (goal === undefined) throw new Error('missing goal while deferring')
+        test.ctx.goals.wait(test.agent, goal, { reason: 'timer', wakeAt: Date.now() + 60_000, message: 'defer' })
+        return Promise.resolve('deferred')
+      },
+    }))
+    test.ctx.goals.create(test.agent, { objective: 'defer before the outage returns', maxGoalRounds: 8 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.roundsStarted === 2 && current.activation === 'disarmed')
+    await test.agent.whenIdle()
+
+    expect(goal).toMatchObject({ phase: 'active', wait: { reason: 'timer', message: 'defer' } })
+    expect(recordedWaits(test.agent).map(wait => [wait.reason, wait.message])).toEqual([
+      ['timer', 'Goal round failed with model error SERVER; automatic resume 1/1 in 1 s.'],
+      ['timer', 'defer'],
+    ])
+    expect(test.adapter.requests).toHaveLength(3)
+  })
+
+  it.each([
+    ['a non-transient code', new LlmError('denied', 'AUTH')],
+    ['an adapter failure normalized to UNKNOWN', new Error('round one broke')],
+  ])('still disarms after %s', async (_label, error) => {
+    const test = await harness([error], 'quiet', { transientErrorResume: { maxAttempts: 2, delayMs: 20 } })
+    test.ctx.goals.create(test.agent, { objective: 'stop on real failures', maxGoalRounds: 8 })
+
+    await waitForGoal(test.ctx, test.agent, current => current?.activation === 'disarmed')
+    await test.agent.whenIdle()
+    await new Promise((resolve) => { setTimeout(resolve, 30) })
+
+    expect(recordedWaits(test.agent)).toEqual([])
+    expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('still disarms on a transient report after the round completed', async () => {
+    const test = await harness([textResponse('round one')], 'quiet', { transientErrorResume: { maxAttempts: 2, delayMs: 20 } })
+    test.ctx.on('session/event', (session, event) => {
+      if (session === test.agent.session && event.type === 'turn/end') {
+        agentEvents(test.ctx, test.agent).emit('agent/error', { turn: event.data.turn, step: 1, error: new LlmError('late', 'SERVER') })
+      }
+    })
+    test.ctx.goals.create(test.agent, { objective: 'stop after a late report', maxGoalRounds: 8 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.activation === 'disarmed')
+    await test.agent.whenIdle()
+
+    expect(goal).toMatchObject({ phase: 'active', roundsStarted: 1 })
+    expect(recordedWaits(test.agent)).toEqual([])
+    expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('still disarms when the failed round turn/end cannot commit', async () => {
+    const test = await harness([new LlmError('upstream 502', 'SERVER')], 'quiet', {
+      transientErrorResume: { maxAttempts: 2, delayMs: 20 },
+    })
+    test.ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as { type: string }
+      if (event.type === 'turn/end') throw new Error('turn close permanently rejected')
+    })
+    test.ctx.goals.create(test.agent, { objective: 'stop when the failure is not durable' })
+    await waitForRequests(test.adapter, 1)
+    await test.agent.whenIdle()
+    await new Promise((resolve) => { setTimeout(resolve, 30) })
+
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({ phase: 'active', activation: 'disarmed' })
+    expect(recordedWaits(test.agent)).toEqual([])
+  })
+
+  it('disarms when a human turn fails while the goal waits', async () => {
+    const test = await harness([
+      textResponse('standing by'),
+      new LlmError('human turn 502', 'SERVER'),
+    ], 'quiet', { transientErrorResume: { maxAttempts: 2, delayMs: 20 } })
+    test.ctx.goals.create(test.agent, { objective: 'wait for people', maxGoalRounds: 8 })
+    await waitForGoal(test.ctx, test.agent, current => current?.wait?.reason === 'no-tools')
+
+    test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'human work' }], source: { kind: 'user' } }))
+
+    await waitForGoal(test.ctx, test.agent, current => current?.activation === 'disarmed')
+    await test.agent.whenIdle()
+    await new Promise((resolve) => { setTimeout(resolve, 30) })
+    expect(test.adapter.requests).toHaveLength(2)
+    expect(recordedWaits(test.agent).map(wait => wait.reason)).toEqual(['no-tools'])
+  })
+
+  it('pauses a user-cancelled round without a timer wait', async () => {
+    const test = await harness(['hang'], 'quiet', { transientErrorResume: { maxAttempts: 2, delayMs: 20 } })
+    test.ctx.goals.create(test.agent, { objective: 'cancel cleanly', maxGoalRounds: 8 })
+    await waitForRequests(test.adapter, 1)
+
+    test.agent.cancel({ kind: 'user' })
+
+    await waitForGoal(test.ctx, test.agent, current => current?.phase === 'paused')
+    expect(recordedWaits(test.agent)).toEqual([])
+  })
+
+  it('starts no round after the delay when the host pauses during the cool-down', async () => {
+    const test = await harness([
+      new LlmError('upstream 502', 'SERVER'),
+      textResponse('must not run'),
+    ], 'quiet', { transientErrorResume: { maxAttempts: 2, delayMs: 600 } })
+    test.ctx.goals.create(test.agent, { objective: 'pause while cooling down', maxGoalRounds: 8 })
+    await waitForResumeTimer(test)
+    const current = test.ctx.goals.get(test.agent)
+    if (current === undefined) throw new Error('missing goal during cool-down')
+
+    // The cool-down is far longer than waitForResumeTimer's poll interval, so the pause lands before the timer fires.
+    test.ctx.goals.pause(test.agent, current)
+    await new Promise((resolve) => { setTimeout(resolve, 900) })
+
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(test.ctx.goals.get(test.agent)?.phase).toBe('paused')
+  })
+
+  it('drops the cool-down wait on an edit and runs the edited revision', async () => {
+    const test = await harness([
+      new LlmError('upstream 502', 'SERVER'),
+      textResponse('revised round'),
+    ], 'quiet', { transientErrorResume: { maxAttempts: 2, delayMs: 60_000 } })
+    test.ctx.goals.create(test.agent, { objective: 'original objective', maxGoalRounds: 8 })
+    await waitForGoal(test.ctx, test.agent, current => current?.wait?.reason === 'timer')
+    const current = test.ctx.goals.get(test.agent)
+    if (current === undefined) throw new Error('missing goal during cool-down')
+
+    test.ctx.goals.edit(test.agent, current, { objective: 'revised objective' })
+
+    const goal = await waitForGoal(test.ctx, test.agent, latest => latest?.wait?.reason === 'no-tools')
+    expect(goal).toMatchObject({ revision: 2, roundsStarted: 2 })
+    expect(requestText(test.adapter.requests[1]!)).toContain('revised objective')
   })
 })

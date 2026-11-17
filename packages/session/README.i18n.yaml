@@ -15,8 +15,11 @@
   en: 1eb35b015a6c423f
   zh: a8a3dceee2c9e943
 /session-durable-session-data-plane/packages:
-  en: 7be50f4cafe40dab
-  zh: a6f06f187e686c05
+  en: 8815a31c59f16f88
+  zh: 903b8f65ce7a93a7
+/session-durable-session-data-plane/packages/coordination:
+  en: 8ad2ca76708473a3
+  zh: 3511c14696b9b531
 /session-durable-session-data-plane/packages/persistence:
   en: cbe033c3f37b8aa7
   zh: 69aa84f0712d0111

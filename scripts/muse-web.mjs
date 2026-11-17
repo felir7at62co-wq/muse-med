@@ -261,5 +261,5 @@ const child = spawn(
   { cwd: ROOT, env: { ...process.env, MUSE_HOME: home }, stdio: 'inherit' },
 )
 child.on('exit', (code, signal) => {
-  process.exit(code ?? (signal === null ? 1 : 0))
+  process.exit(code ?? (signal === null ? 0 : 1))
 })

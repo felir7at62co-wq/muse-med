@@ -14,6 +14,12 @@
 /dtk-deployment/deployment:
   en: 34b7f24007178d22
   zh: 30829c00767edd4a
+/dtk-deployment/patched-api-image:
+  en: 61a610cfaeb45c36
+  zh: 89773044e9479ff8
+/dtk-deployment/signed-in-identities:
+  en: 1071f35079471a72
+  zh: af8bfd71fdc7cefc
 /dtk-deployment/access-and-recovery:
   en: c62aaa04cbe32f9a
   zh: be04208486821e13

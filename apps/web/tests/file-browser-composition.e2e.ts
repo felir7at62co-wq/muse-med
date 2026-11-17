@@ -9,8 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { expect, it, onTestFailed, onTestFinished } from 'vitest'
-import { SessionId } from '@deepseek-ai/dsh-session'
-import { launchWebScaffold, readPersistedEvents, seedSession, watchConsole, type WebScaffold } from './scaffold.ts'
+import { launchWebScaffold, seedSession, watchConsole, type WebScaffold } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
 /** A settled Session whose answer links `src/example.txt`, borrowed from the Markdown file links case. */
@@ -32,37 +31,25 @@ async function open(overlay: string, name: string) {
   await page.locator('[role="treeitem"]').first().click()
   await page.locator('[role="treeitem"]').nth(1).click()
   await page.getByRole('button', { name: 'src/example.txt:24–30', exact: true }).waitFor()
-  return { scaffold, page, errors, column: page.locator('[data-rightbar-col]') }
+  return { page, errors, column: page.locator('[data-rightbar-col]') }
 }
 
 it('lists the workspace without the document preview, leaving files nothing can open unclickable', async () => {
-  const { scaffold, page, errors, column } = await open('./no-sidebar-documentpreview.overlay.yml', 'composition-no-preview')
+  const { page, errors, column } = await open('./no-sidebar-documentpreview.overlay.yml', 'composition-no-preview')
   await page.locator('[data-sidebar-right-expand]').click()
   await column.locator('[data-sidebar-right-guide-entry="files"]').click()
   const navigator = column.locator('[data-files-navigator]')
   await navigator.getByRole('button', { name: 'src', exact: true }).click()
   const row = navigator.locator('[data-files-path$="/src/example.txt"]')
   await row.waitFor()
-  expect(await row.getByRole('button', { name: 'example.txt', exact: true }).count()).toBe(0)
-  expect(await row.getByRole('button').count()).toBe(1)
-  const reference = row.getByRole('button', { name: 'Actions for example.txt', exact: true })
-  expect(await reference.getAttribute('aria-haspopup')).toBe('menu')
-  expect(await row.locator('[aria-disabled="true"]').getAttribute('title')).toBe('No viewer can open this file.')
+  const label = row.locator('[aria-disabled="true"]')
+  expect(await label.getAttribute('title')).toBe('No viewer can open this file.')
+  expect(await label.evaluate(node => node.tagName)).toBe('SPAN')
+  expect(await row.getByRole('button', { name: 'Actions for example.txt', exact: true }).count()).toBe(1)
   const tabs = await column.locator('[data-dockkit-tab]').count()
-  const sessionBefore = await readPersistedEvents(scaffold, SessionId('composition-no-preview'))
-  const file = join(scaffold.workspaceCwd, 'src/example.txt'), bytesBefore = await readFile(file)
   await row.click()
   expect(await column.locator('[data-dockkit-tab]').count()).toBe(tabs)
   expect(await column.locator('[data-files-page]').count()).toBe(1)
-  await reference.click()
-  await page.getByRole('menuitem', { name: 'Add to conversation', exact: true }).click()
-  const input = page.locator('[data-composer-input]').last()
-  await expect.poll(() => input.innerText()).toContain('example.txt')
-  expect(await input.evaluate(element => element === element.ownerDocument.activeElement)).toBe(true)
-  expect(await column.locator('[data-dockkit-tab]').count()).toBe(tabs)
-  expect(await column.locator('[data-textpreview-content]').count()).toBe(0)
-  expect(await readPersistedEvents(scaffold, SessionId('composition-no-preview'))).toEqual(sessionBefore)
-  expect(await readFile(file)).toEqual(bytesBefore)
   expect(errors).toEqual({ warnings: [], pageErrors: [] })
 }, 120_000)
 

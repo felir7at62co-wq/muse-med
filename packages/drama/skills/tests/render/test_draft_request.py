@@ -89,7 +89,7 @@ class DraftRequestCliTests(unittest.TestCase):
     def request(self, shots):
         temporary = tempfile.TemporaryDirectory(prefix='draft-request-cli-')
         self.addCleanup(temporary.cleanup)
-        project = Path(temporary.name)
+        project = Path(temporary.name).resolve()
         drafts = project / 'drafts'
         drafts.mkdir()
         videos = []

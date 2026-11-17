@@ -1,0 +1,33 @@
+{
+  "taskOwner": "original-session",
+  "declaredEpisodes": 3,
+  "selectedEpisodes": [
+    1,
+    2
+  ],
+  "complete": false,
+  "missingEpisodeRejected": true,
+  "changedHashRejected": true,
+  "rejectedMergeProcesses": 0,
+  "numericEpisodeOrder": [
+    1,
+    2
+  ],
+  "mergeProcesses": 1,
+  "existingOutputPreserved": true,
+  "sourceFilesUnchanged": true,
+  "mediaTransfers": [
+    1,
+    2
+  ],
+  "mergedBytes": 93,
+  "mergedSha256": "11c913c9786cf246ad591a1e9c5a104125f2930c74730ae00f768438834d2b46",
+  "sourceSha256": [
+    "9edaba9d604f60bb3183b9118671bb8db07cc7aed9870272bef3932dcb60a556",
+    "a48d322c1e542229b1f8852dde5b897e9085f47560ec3221ce5f141da8e7e1d5"
+  ],
+  "durationSeconds": 20,
+  "codecValidation": "controlled-external-verdict",
+  "actualMp4ContainerAndHashChecked": true,
+  "realExternalRequests": 0
+}

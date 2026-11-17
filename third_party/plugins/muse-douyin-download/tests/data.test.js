@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { projectDataResult, resolveDataArgs } from '../src/data.js';
 
 const url = 'https://www.douyin.com/video/7691637134771391771';
-const settings = { maxComments: 20, maxVideos: 20, dataTimeoutMs: 30000 };
+const settings = { maxComments: 20, maxVideos: 20, dataTimeoutMs: 30000, dataAggregationWaitMs: 3000 };
 const selection = args => {
   const request = resolveDataArgs(args, settings);
   return { url: request.urls[0], source: request.source, comments: request.comments, timeoutMs: request.timeoutMs };
@@ -16,9 +16,9 @@ const page = () => ({ status: 'ok', source: 'public-page', targetVideoId: '76916
   comments: { status: 'not-requested', items: [], cursor: null, hasMore: null } });
 
 test('data input resolves page options and refuses credentials before acquisition', () => {
-  assert.deepEqual(resolveDataArgs({ url }, settings), { urls: [url], single: true, source: 'auto', comments: { enabled: false, count: 20 }, timeoutMs: 30000, download: false });
+  assert.deepEqual(resolveDataArgs({ url }, settings), { urls: [url], single: true, source: 'auto', comments: { enabled: false, count: 20 }, timeoutMs: 30000, aggregationWaitMs: 3000, download: false });
   assert.deepEqual(resolveDataArgs({ url, source: 'creator', includeComments: true, commentCursor: '20', commentLimit: 5, download: true }, settings),
-    { urls: [url], single: true, source: 'creator', comments: { enabled: true, count: 5, cursor: '20' }, timeoutMs: 30000, download: true });
+    { urls: [url], single: true, source: 'creator', comments: { enabled: true, count: 5, cursor: '20' }, timeoutMs: 30000, aggregationWaitMs: 3000, download: true });
   for (const value of [null, [], 'url', {}, { url, cookie: 'never-access' }, { url, includeComments: 1 }, { url, commentLimit: 1.5 }, { url: '' }, { url: 'bad' },
     { url: 'http://www.douyin.com/video/7691637134771391771' }, { url: 'https://user@www.douyin.com/video/7691637134771391771' }, { url: 'https://www.douyin.com:8443/video/7691637134771391771' },
     { url: 'https://other.invalid/video/7691637134771391771' }, { url: 'https://www.douyin.com/' }, { url: 'https://v.douyin.com/' }, { url: 'https://www.douyin.com/?modal_id=1' },
@@ -37,6 +37,27 @@ test('public view placeholders remain unavailable while other zero and rounded c
   assert.equal(output.url, url);
   assert.equal(output.comments.status, 'not-requested');
   assert.ok(!JSON.stringify(output).includes('private'));
+});
+
+test('public metadata is bounded, credential-free and absent for older results', () => {
+  assert.deepEqual(projectDataResult(page(), request).metadata, { description: null, authorName: null, publishedAt: null, seriesTitle: null, seriesSource: null });
+  const input = { ...page(), metadata: { description: '作品文案', authorName: '作者', publishedAt: 1790000000, token: 'PRIVATE' } };
+  const result = projectDataResult(input, request);
+  assert.deepEqual(result.metadata, { description: '作品文案', authorName: '作者', publishedAt: 1790000000, seriesTitle: null, seriesSource: null });
+  assert.ok(!JSON.stringify(result).includes('PRIVATE'));
+  for (const metadata of [null, {}, { ...input.metadata, description: 'x'.repeat(5001) },
+    { ...input.metadata, authorName: 'bad\u0000name' }, { ...input.metadata, publishedAt: -1 }]) {
+    assert.throws(() => projectDataResult({ ...page(), metadata }, request), /metadata/);
+  }
+});
+
+test('only a valid visible-series observation is returned', () => {
+  const metadata = { description: null, authorName: null, publishedAt: null, seriesTitle: '重生换亲娶千金', seriesSource: 'visible-series-list' };
+  assert.deepEqual(projectDataResult({ ...page(), metadata }, request).metadata, metadata);
+  for (const series of [{ seriesTitle: '未验证', seriesSource: null }, { seriesTitle: null, seriesSource: 'visible-series-list' },
+    { seriesTitle: 'x'.repeat(201), seriesSource: 'visible-series-list' }]) {
+    assert.throws(() => projectDataResult({ ...page(), metadata: { ...metadata, ...series } }, request), /metadata/);
+  }
 });
 
 test('creator page counters keep exact views and disclose missing or invalid fields', () => {
@@ -101,7 +122,7 @@ test('comment pages refuse ambiguous identities and incomplete or excessive resu
 });
 
 test('batches share the deployment limit and keep a comment cursor scoped to one work', () => {
-  assert.deepEqual(resolveDataArgs({ urls: [url, url], includeComments: true }, settings), { urls: [url, url], single: false, source: 'auto', comments: { enabled: true, count: 20 }, timeoutMs: 30000, download: false });
+  assert.deepEqual(resolveDataArgs({ urls: [url, url], includeComments: true }, settings), { urls: [url, url], single: false, source: 'auto', comments: { enabled: true, count: 20 }, timeoutMs: 30000, aggregationWaitMs: 3000, download: false });
   for (const value of [{ url, urls: [url] }, { urls: [] }, { urls: [null] }, { urls: 'private' }, { urls: Array(21).fill(url) }, { urls: [url, url], includeComments: true, commentCursor: '20' }]) assert.throws(() => resolveDataArgs(value, settings));
 });
 

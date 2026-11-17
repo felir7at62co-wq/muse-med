@@ -130,7 +130,11 @@ export class DesktopProjectManager {
   }
 }
 
-/** Create build-only project metadata for materializing the signed runtime. */
+/**
+ * Create build-only project metadata with explicit dependency lifecycle script decisions.
+ * @param projectDir - Private staging directory containing the verified core package set.
+ * @param release - Release identity matching the packaged core dependencies.
+ */
 export function createRuntimeProjectMetadata(projectDir: string, release: DesktopRelease): void {
   mkdirSync(projectDir, { recursive: true, mode: 0o700 })
   const packageSet = verifyDesktopCorePackageSet(projectDir, release.version)

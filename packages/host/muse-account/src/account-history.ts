@@ -15,7 +15,7 @@ const department = z.object({
   name: z.string().min(1).max(200).refine(value => value.trim().length > 0 && !/[\x00-\x1f\x7f]/u.test(value)),
 })
 const departmentPath = z.tuple([department]).rest(department).refine(path => path.length <= 100)
-const departmentPaths = z.array(departmentPath).max(100).refine((paths) => {
+const departmentPaths = z.array(departmentPath).refine((paths) => {
   const leaves = new Set<string>(), nodes = new Map<string, { name: string; parent: string | null }>()
   for (const path of paths) {
     const visited = new Set<string>()
@@ -85,7 +85,8 @@ async function readWindow(response: Response, account: MuseAccountRelayDetails['
   try {
     const value = workbenchSchema.parse(raw), member = value.members[0]
     if (value.me.id !== account.id || member.id !== account.id || member.username !== account.username) throw new MuseGatewayError('gateway-rejected')
-    const paths = value.organization.status === 'unavailable' ? null : member.departmentPaths
+    const paths = value.organization.status === 'unavailable'
+      || member.departmentPaths !== null && member.departmentPaths.length > 100 ? null : member.departmentPaths
     const organization: MuseAccountProfile['organization'] = {
       status: paths === null ? 'unavailable' : 'available', updatedAt: value.organization.updatedAt,
       departments: paths === null ? [] : paths.map((path) => {

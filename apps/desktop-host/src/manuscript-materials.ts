@@ -3,13 +3,14 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { readManuscript, type DocumentLimits } from './manuscript-document.ts'
 
-const lineRangeSchema = z.strictObject({ start: z.number().int().positive(), end: z.number().int().positive() })
+/** Tool JSON for an inclusive, one-based extracted-text line range. */
+export const manuscriptLineRangeSchema = z.strictObject({ start: z.number().int().positive(), end: z.number().int().positive() })
   .refine(range => range.end >= range.start, '结束行不能早于起始行。')
 const documentSchema = z.strictObject({
   role: z.enum(['current', 'reference', 'candidate']),
   path: z.string().min(1).refine(path => path.trim().length > 0, '路径不能只有空白。'),
   episodes: z.array(z.number().int().positive()).min(1).optional(),
-  lines: lineRangeSchema.optional(),
+  lines: manuscriptLineRangeSchema.optional(),
 }).superRefine((document, ctx) => {
   if (document.episodes !== undefined && document.lines !== undefined) {
     ctx.addIssue({ code: 'custom', message: 'episodes 与 lines 只能选择一种范围。' })
@@ -135,7 +136,25 @@ function unwrap(text: string): string {
   return text
 }
 
-function episodeIndex(lines: readonly string[]): ManuscriptMaterialEpisodeIndex {
+function headingToken(line: string): string | undefined {
+  return /^第\s*(.*?)\s*集(?=$|[\s:：(（【\[])/u.exec(unwrap(line))?.[1]
+}
+
+/**
+ * Recognize a `第…集` episode heading line, including Markdown heading and bracket wrappers.
+ * @param text - One extracted manuscript line.
+ * @returns Whether the line has episode-heading form; the episode number itself may still be unreadable.
+ */
+export function isManuscriptEpisodeHeading(text: string): boolean {
+  return headingToken(text.normalize('NFKC').trim().replace(/^#{1,6}\s*/u, '')) !== undefined
+}
+
+/**
+ * Index the `第…集` sections of extracted manuscript lines; fenced code blocks never contribute headings.
+ * @param lines - Extracted manuscript lines in file order.
+ * @returns One-based inclusive episode ranges plus duplicate, ordering, unreadable-number and scene-number issues.
+ */
+export function manuscriptEpisodeIndex(lines: readonly string[]): ManuscriptMaterialEpisodeIndex {
   const headings: { episode: number; start: number }[] = [], issues: string[] = []
   let current: number | undefined, fence: { character: string; length: number } | undefined
   for (const [index, text] of lines.entries()) {
@@ -151,9 +170,9 @@ function episodeIndex(lines: readonly string[]): ManuscriptMaterialEpisodeIndex 
       continue
     }
     const line = normalized.replace(/^#{1,6}\s*/u, '')
-    const heading = /^第\s*(.*?)\s*集(?=$|[\s:：(（【\[])/u.exec(unwrap(line))
-    if (heading?.[1] !== undefined) {
-      const episode = episodeNumber(unwrap(heading[1].trim()))
+    const token = headingToken(line)
+    if (token !== undefined) {
+      const episode = episodeNumber(unwrap(token.trim()))
       if (episode === undefined) { issues.push(`第${index + 1}行集号无法可靠识别；请使用明确行范围。`); continue }
       if (headings.some(value => value.episode === episode)) issues.push(`第${index + 1}行重复出现第${episode}集。`)
       if (current !== undefined && episode < current) issues.push(`第${index + 1}行集号未按正文顺序递增。`)
@@ -222,7 +241,7 @@ export async function readManuscriptMaterials(raw: unknown, cwd: string, limits:
     const document = await readManuscript(input.path, cwd, limits, signal)
     if (paths.has(document.path)) throw Error('MANUSCRIPT_MATERIALS_ROLES: 同一规范路径不能重复提供或同时充当不同稿件角色。')
     paths.add(document.path)
-    const lines = document.text.split(/\r\n|\r|\n/u), index = episodeIndex(lines)
+    const lines = document.text.split(/\r\n|\r|\n/u), index = manuscriptEpisodeIndex(lines)
     const selected = select(input, index, lines.length)
     const returned = lines.flatMap((text, position) => selected.ranges.some(range =>
       position + 1 >= range.start && position + 1 <= range.end)

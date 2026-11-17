@@ -193,6 +193,7 @@ exports[`logs the actual failed child page and its download guidance into the ne
         ],
         "subtitle_erased": false,
         "upscaled": false,
+        "upscale_model_id": null,
         "needs_upscale": false,
         "delivery_resolution": "480p"
       }
@@ -256,6 +257,7 @@ exports[`logs the actual running child page and its download guidance into the n
         ],
         "subtitle_erased": false,
         "upscaled": false,
+        "upscale_model_id": null,
         "needs_upscale": false,
         "delivery_resolution": "480p"
       }
@@ -319,6 +321,7 @@ exports[`logs the actual succeeded child page and its download guidance into the
         ],
         "subtitle_erased": false,
         "upscaled": false,
+        "upscale_model_id": null,
         "needs_upscale": false,
         "delivery_resolution": "480p"
       }

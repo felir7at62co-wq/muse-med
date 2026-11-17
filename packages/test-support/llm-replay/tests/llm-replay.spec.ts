@@ -1475,6 +1475,33 @@ describe('installLlmReplay (through the real LlmRuntime)', () => {
       expect(resolveScriptedEntry(entry, requestMessages)).toBe(entry)
     })
 
+    it.each([String.raw`C:\work\a "quoted" card.html`, '/work/a "quoted" card.html', 'line one\nline two\tend'])
+    ('escapes the captured value for a JSON tool argument: %s', (path) => {
+      const messages = [createUserMessage({ content: [{ type: 'text', text: `saved copy at ${path}<end>` }], source: { kind: 'user' } })]
+      const entry: ReplayEntry = { kind: 'chunks', chunks: scriptedCall('{"path":"{{fromRequestJson:saved copy at ([\\s\\S]+)<end>}}"}') }
+      const resolved = resolveScriptedEntry(entry, messages)
+      if (resolved.kind !== 'chunks') throw new Error('expected chunks entry')
+      const delta = resolved.chunks.find(chunk => chunk.type === 'tool-call-delta')
+      if (delta?.type !== 'tool-call-delta') throw new Error('expected tool arguments')
+      expect(JSON.parse(delta.argumentsDelta)).toEqual({ path })
+    })
+
+    it.each([
+      '{"raw":"{{fromRequest:goal-[0-9a-z]+}}","json":"{{fromRequestJson:goal-[0-9a-z]+}}"}',
+      '{"json":"{{fromRequestJson:goal-[0-9a-z]+}}","raw":"{{fromRequest:goal-[0-9a-z]+}}"}',
+    ])('resolves raw and JSON captures in their original order', (argumentsDelta) => {
+      const resolved = resolveScriptedEntry({ kind: 'chunks', chunks: scriptedCall(argumentsDelta) }, requestMessages)
+      if (resolved.kind !== 'chunks') throw new Error('expected chunks entry')
+      const delta = resolved.chunks.find(chunk => chunk.type === 'tool-call-delta')
+      if (delta?.type !== 'tool-call-delta') throw new Error('expected tool arguments')
+      expect(JSON.parse(delta.argumentsDelta)).toEqual({ raw: 'goal-42ab', json: 'goal-42ab' })
+    })
+
+    it('rejects an unterminated JSON capture', () => {
+      const entry: ReplayEntry = { kind: 'chunks', chunks: scriptedCall('{"path":"{{fromRequestJson:goal-1"}') }
+      expect(() => resolveScriptedEntry(entry, requestMessages)).toThrow(/placeholder is unterminated/)
+    })
+
     it('skips non-string request leaves when building the corpus', () => {
       const messages = requestMessages.map(message => ({ ...message, seq: 7 })) as GenerateOptions['messages']
       const entry: ReplayEntry = { kind: 'chunks', chunks: scriptedCall('{"goal_id":"{{fromRequest:goal-42[a-z]+}}"}') }
@@ -2123,7 +2150,7 @@ describe('installLlmReplay (per-session keying)', () => {
           type: 'tool-call',
           id: ToolCallId('send-child'),
           name: 'send_message',
-          arguments: '{"agent_id":"{{session:2}}"}',
+          arguments: '{"agent":"{{session:2}}"}',
         },
       },
       { type: 'finish', reason: { kind: 'stop' } },
@@ -2144,7 +2171,7 @@ describe('installLlmReplay (per-session keying)', () => {
           type: 'tool-call',
           id: ToolCallId('send-child'),
           name: 'send_message',
-          arguments: '{"agent_id":"live-child"}',
+          arguments: '{"agent":"live-child"}',
         },
       },
       { type: 'finish', reason: { kind: 'stop' } },
@@ -2163,45 +2190,6 @@ describe('installLlmReplay (per-session keying)', () => {
     installLlmReplay(ctx, { file: parentFile, childFiles: [childFile] })
 
     await expect(drain(ctx.llm.stream(live('live-parent')))).rejects.toThrow(/used before.*bound/)
-  })
-
-  it('learns a background child id from its started-subagent tool result', async () => {
-    const reference: StreamChunk[] = [
-      { type: 'text-delta', index: 0, text: '{{session:2}}' },
-      { type: 'finish', reason: { kind: 'stop' } },
-    ]
-    const parentFile = writeSession('session.jsonl', { id: '{{session:1}}', createdAt: 1 }, [reference])
-    const childFile = writeSession('session.1.jsonl', { id: '{{session:2}}', createdAt: 2 }, [second])
-    const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    installLlmReplay(ctx, { file: parentFile, childFiles: [childFile] })
-    const options: GenerateOptions = {
-      ...live('live-parent'),
-      messages: [createUserMessage({
-        content: [{ type: 'text', text: 'started subagent live-child-before-call started subagent live-child-before-call' }],
-        source: { kind: 'user' },
-      })],
-    }
-
-    expect(await drain(ctx.llm.stream(options))).toEqual([
-      { type: 'text-delta', index: 0, text: 'live-child-before-call' },
-      { type: 'finish', reason: { kind: 'stop' } },
-    ])
-  })
-
-  it('ignores started-subagent text after every recorded session has bound', async () => {
-    const parentFile = writeSession('session.jsonl', { id: '{{session:1}}', createdAt: 1 }, [TEXT_CHUNKS])
-    const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    installLlmReplay(ctx, { file: parentFile })
-
-    expect(await drain(ctx.llm.stream({
-      ...live('live-parent'),
-      messages: [createUserMessage({
-        content: [{ type: 'text', text: 'started subagent unrecorded-child' }],
-        source: { kind: 'user' },
-      })],
-    }))).toEqual(TEXT_CHUNKS)
   })
 
   it('treats a call with no sessionId as the single anonymous (primary) session', async () => {
@@ -2293,10 +2281,12 @@ describe('apply (the plugin entry)', () => {
     const priced = pricing?.priceImages([
       { type: 'image', attachment: ref },
       { type: 'image', attachment: ref, offloaded: true },
+      { type: 'image', attachment: ref, offloaded: true, offloadNotice: 'Shown earlier; revisit to inspect.' },
     ])
-    expect(priced?.map(price => price.visualTokens)).toEqual([384, 0])
+    expect(priced?.map(price => price.visualTokens)).toEqual([384, 0, 0])
     expect(priced?.[0]?.text).toContain('640x480px')
     expect(priced?.[1]?.text).toContain('image omitted to fit request image limits')
+    expect(priced?.[2]?.text).toBe('[sha256:aaaaaaaa: Shown earlier; revisit to inspect.]')
     expect(ctx.llm.imageRequestPricing('deepseek', 'plain')).toBeUndefined()
   })
 

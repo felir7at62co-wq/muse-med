@@ -20,8 +20,13 @@ export function generatedRemoteMockPlugin(repositoryRoot: string) {
       'packages/host/feishu-settings/src/client/index.ts',
       'packages/host/feishu-settings/tests/browser-plugin.client.spec.tsx',
     ]],
+    ['@deepseek-ai/dsh-muse-market/remote', [
+      'packages/client/ui-muse-market/src/client/index.ts',
+      'packages/client/ui-muse-market/tests/market-mount.client.spec.tsx',
+    ]],
     ['@deepseek-ai/dsh-session-video/remote', [
       'packages/client/ui-session-video/src/client/index.ts',
+      'packages/client/ui-session-video/tests/entry.client.spec.tsx',
       'packages/client/ui-session-video/tests/browser-plugin.client.spec.ts',
       'packages/client/ui-session-video/tests/locales.client.spec.ts',
     ]],

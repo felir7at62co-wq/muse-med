@@ -1,41 +1,33 @@
-/**
- * Local Electron shell settings, loaded once per process independently of the Host.
- * Ownership: .agents/notes/implemented/architecture/2026-10-08-desktop-shell-configuration.md.
- */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+/** Startup policy for optional Electron shell preferences, independent of the Host. */
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { DesktopSystemDnsSetResult } from './ipc.ts'
+import { DesktopSettingsFile, type DesktopUpdatePreferences } from './settings-file.ts'
 
-/** Resolved shell preferences; absent fields use the defaults without rewriting existing files. */
+/** Resolved startup preferences; individual field failures do not disable unrelated choices. */
 export interface DesktopSettings {
-  readonly updates: {
-    readonly allowTestAuthPopupWindow: boolean
-  }
-  readonly network: {
-    readonly useSystemResolver: boolean
-  }
+  readonly updates: Pick<DesktopUpdatePreferences, 'allowTestAuthPopupWindow'>
+  readonly network: { readonly useSystemResolver: boolean }
 }
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function parseDocument(raw: string): { document: Record<string, unknown>; settings: DesktopSettings } {
-  const value: unknown = JSON.parse(raw)
+function parseSettingsDocument(value: unknown): { document: Record<string, unknown>; useSystemResolver: boolean } {
   if (!record(value) || (value.updates !== undefined && !record(value.updates))
     || (value.network !== undefined && !record(value.network))) {
     throw new Error('expected a JSON object with optional updates and network objects')
   }
-  const allow = value.updates?.allowTestAuthPopupWindow
   const resolver = value.network?.useSystemResolver
-  if (allow !== undefined && typeof allow !== 'boolean') throw new Error('updates.allowTestAuthPopupWindow must be true or false')
   if (resolver !== undefined && typeof resolver !== 'boolean') throw new Error('network.useSystemResolver must be true or false')
-  return {
-    document: value,
-    settings: { updates: { allowTestAuthPopupWindow: allow ?? false }, network: { useSystemResolver: resolver ?? false } },
-  }
+  return { document: value, useSystemResolver: resolver ?? false }
+}
+
+function parseDocument(raw: string): { document: Record<string, unknown>; useSystemResolver: boolean } {
+  const value: unknown = JSON.parse(raw)
+  return parseSettingsDocument(value)
 }
 
 /**
@@ -75,7 +67,7 @@ export async function setDesktopSystemDns(userData: string, enabled: boolean): P
  * @returns The preference to apply at the next startup.
  */
 export async function readDesktopSystemDns(userData: string): Promise<boolean> {
-  try { return parseDocument(await readFile(join(userData, 'desktop', 'settings.json'), 'utf8')).settings.network.useSystemResolver } catch (error) {
+  try { return parseDocument(await readFile(join(userData, 'desktop', 'settings.json'), 'utf8')).useSystemResolver } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
     throw error
   }
@@ -103,33 +95,30 @@ export async function setDesktopSystemDnsStatus(userData: string, active: boolea
 }
 
 /**
- * Read shell settings, creating the default document exclusively when missing.
- * @param userData - Electron's userData directory, independent of DSH_HOME.
- * @returns Validated settings, or defaults when reading, creating or validating fails; changes require a restart.
+ * Initialize the shared document explicitly at startup, then resolve popup and DNS preferences.
+ * @param userData - Electron userData, independent of DSH_HOME.
+ * @returns Validated preferences, defaulting each failed field with a diagnostic; changes require restart.
  */
-export function readDesktopSettings(userData: string): DesktopSettings {
-  const directory = join(userData, 'desktop')
-  const path = join(directory, 'settings.json')
-  const defaults: DesktopSettings = { updates: { allowTestAuthPopupWindow: false }, network: { useSystemResolver: false } }
-  try {
-    let raw: string
-    try { raw = readFileSync(path, 'utf8') } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      mkdirSync(directory, { recursive: true, mode: 0o700 })
-      try { writeFileSync(path, `${JSON.stringify(defaults, null, 2)}\n`, { flag: 'wx', mode: 0o600 }) } catch (error) {
-        // An existing document belongs to the user, including one created during initialization.
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      }
-      raw = readFileSync(path, 'utf8')
+export async function readDesktopSettings(userData: string): Promise<DesktopSettings> {
+  const file = new DesktopSettingsFile(userData)
+  const result = await file.initialize()
+  const preference = result.kind === 'ready' ? result.fields.allowTestAuthPopupWindow : undefined
+  const error = result.kind === 'error' ? result.error : preference?.kind === 'invalid' ? preference.error : undefined
+  const report = (failure: Error): void => {
+    try { console.warn(`desktop settings: ${file.path}: using defaults because settings could not be loaded`, failure) } catch (_logError) {
+      // Optional preferences retain safe defaults even when diagnostic output is unavailable.
     }
-    return parseDocument(raw).settings
-  } catch (error) {
-    try {
-      console.warn(`desktop settings: ${path}: using defaults because settings could not be loaded`, error)
-    } catch (_logError) {
-      // Diagnostic output is best effort; its failure must not make optional settings fatal.
-      // TODO: Persist settings diagnostics when console output is unavailable, without blocking startup.
+  }
+  if (error) report(error)
+  let useSystemResolver = false
+  if (result.kind === 'ready') {
+    try { useSystemResolver = parseSettingsDocument(result.document).useSystemResolver } catch (failure) {
+      if (!(failure instanceof Error)) throw failure
+      report(failure)
     }
-    return defaults
+  }
+  return {
+    updates: { allowTestAuthPopupWindow: preference?.kind === 'valid' ? preference.value : false },
+    network: { useSystemResolver },
   }
 }

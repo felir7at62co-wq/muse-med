@@ -67,6 +67,17 @@ async function collect(stream: AsyncIterable<StreamChunk>, chunks: StreamChunk[]
 }
 
 describe('explicit configuration and request selection', () => {
+  it('resolves disabled recovery when mounted directly with only an explicit threshold', async () => {
+    const ctx = new Context()
+    contexts.add(ctx)
+    await ctx.plugin(LlmRuntime)
+    guard.apply(ctx, { repeatedPropertyLimit: 2 })
+    const script = [blockEnd(0, repeatedMembers(2))]
+    const adapter = new ScriptedAdapter(script)
+    ctx.llm.registerAdapter(['scripted'], adapter)
+    await expect(collect(ctx.llm.stream(request()))).rejects.toMatchObject({ code: guard.TOOL_ARGUMENT_LOOP })
+    expect(adapter.exits).toBe(1)
+  })
   it('keeps named plugin exports without a default', () => {
     expect('default' in guard).toBe(false)
     expect(guard.name).toBe('tool-argument-loop')

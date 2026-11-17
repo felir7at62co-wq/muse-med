@@ -7,4 +7,5 @@ recording: authored
 header:
   class: ptc-script-fresh
   pin: true
+  systemPromptSource: ptc-persistent
 permission: workspace-write

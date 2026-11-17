@@ -42,8 +42,6 @@ export function manuscriptDialogue(location: Location): Dialogue | undefined {
 
 const restrictions = [
   { kind: 'dialogue_merge_prohibition', pattern: /(?:不(?:要)?合并|禁止合并)(?:连续)?(?:台词|对白)/u },
-  { kind: 'mandatory_parentheticals', pattern: /每(?:一)?(?:句|行)(?:台词|对白)[^。；\n]*(?:必须|都要|一律)[^。；\n]*(?:括注|括号)/u },
-  { kind: 'fixed_parenthetical_template', pattern: /对白[：:]\s*`?人物名[（(]括注[）)][：:]台词/u },
 ] as const
 
 /** @param path - Tool-reported project file path. @returns Whether its basename is a recognized guidance filename. */

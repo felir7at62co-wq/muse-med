@@ -251,6 +251,12 @@ export class ProviderResponses {
     this.loader = ''
   }
 
+  /** Invalidates outstanding reads while retaining the loader for a same-document navigation. */
+  sameDocument(): void {
+    this.epoch = this.currentEpoch()
+    this.pending.clear()
+  }
+
   private readonly message = (_event: Electron.Event, method: string, params: unknown): void => {
     const reading = this.readMessage(method, params).catch(() => {
       /* Malformed/evicted CDP data provides no media selection. */

@@ -3,6 +3,7 @@
 import type { ContentBlock, ImageBlock, LlmImageRequestBudget, ToolSchema, ToolUpdate, ToolHistory } from './types.ts'
 import type { RequestMessage } from './types.ts'
 import type { Message } from './message.ts'
+import type { MessageId } from './brand.ts'
 import type {
   AttachmentStore, FileAttachmentRef, ImageAttachmentRef, ImageMediaType, RequestImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
@@ -71,9 +72,11 @@ function normalizedAccessText(ref: ImageAttachmentRef, access: ImageAttachmentAc
 /**
  * Stable text shown to a model that cannot accept one durable image reference.
  * @param ref - durable normalized attachment omitted from the request.
+ * @param offloadNotice - optional recorded omission reason shown instead of text-only model wording.
  * @returns deterministic text-only placeholder.
  */
-export function textOnlyImageText(ref: ImageAttachmentRef): string {
+export function textOnlyImageText(ref: ImageAttachmentRef, offloadNotice?: string): string {
+  if (offloadNotice !== undefined) return offloadedImageText(ref, undefined, offloadNotice)
   const digest = String(ref.attachmentId).slice('sha256:'.length, 'sha256:'.length + 8)
   return `[image omitted because this model accepts text only; attachment sha256:${digest}]`
 }
@@ -103,17 +106,32 @@ export function requestImageHandleText(
  * Stable per-image placeholder for a request-limit omission.
  * @param ref - durable normalized attachment omitted from this request.
  * @param access - optional provider-resolved path for model tools.
+ * @param notice - optional recorded reason that replaces the request-limit wording.
  * @returns identity, normalized metadata, and the available recovery path.
  */
 export function offloadedImageText(
   ref: ImageAttachmentRef,
   access?: ImageAttachmentAccess,
+  notice?: string,
 ): string {
+  if (notice !== undefined) return `[${imageIdentity(ref)}: ${notice}]`
   const identity = `image omitted to fit request image limits; ${imageIdentity(ref)}.`
   if (access === undefined) {
     return `[${identity} No local normalized image path is available; ask the user to attach it again if needed.]`
   }
   return `[${identity}${normalizedAccessText(ref, access)}]`
+}
+
+/**
+ * Model-visible text of one offloaded occurrence: the image identity followed by the `offloadNotice` its offload
+ * decision logged, or the route's request-limit placeholder when the decision logged none.
+ * @param block - offloaded image occurrence.
+ * @param placeholder - route-owned request-limit text for an occurrence without a notice.
+ * @returns deterministic replacement text.
+ */
+function offloadedImageBlockText(block: ImageBlock, placeholder: (ref: ImageAttachmentRef) => string): string {
+  return block.offloadNotice === undefined
+    ? placeholder(block.attachment) : offloadedImageText(block.attachment, undefined, block.offloadNotice)
 }
 
 /**
@@ -232,7 +250,7 @@ function replaceOffloadedImages(
   for (const [index, block] of blocks.entries()) {
     if (block.type === 'image' && block.offloaded === true) {
       next ??= blocks.slice(0, index)
-      next.push({ type: 'text', text: placeholder(block.attachment) })
+      next.push({ type: 'text', text: offloadedImageBlockText(block, placeholder) })
       continue
     }
     next?.push(block)
@@ -337,7 +355,8 @@ function replaceImagesForTextModel(blocks: readonly ContentBlock[]): ContentBloc
   for (const [index, block] of blocks.entries()) {
     if (block.type === 'image') {
       next ??= blocks.slice(0, index)
-      next.push({ type: 'text', text: textOnlyImageText(block.attachment) })
+      next.push({ type: 'text', text: block.offloaded === true
+        ? offloadedImageBlockText(block, textOnlyImageText) : textOnlyImageText(block.attachment) })
       continue
     }
     next?.push(block)
@@ -378,11 +397,7 @@ function withoutDeveloperMessages(messages: readonly RequestMessage[]): readonly
   return retained.length === messages.length ? messages : retained
 }
 
-function toolDeclarations(
-  tools: readonly ToolSchema[] | undefined,
-  mode: ToolUpdate,
-  history: ToolHistory,
-): Map<string, ToolSchema> {
+function toolDeclarations(history: ToolHistory): Map<string, ToolSchema> {
   const declarations = new Map(history.tools.map(tool => [tool.name, tool]))
   for (const update of history.updates) {
     for (const tool of update.additions) {
@@ -393,28 +408,46 @@ function toolDeclarations(
     }
   }
 
-  switch (mode) {
-    case 'in-history':
-      // Removal blocks disable tools without discarding their historical definitions.
-      return declarations
-    case 'addition-only': {
-      // Without removal support, the declaration list must omit inactive tools.
-      const activeNames = new Set(tools?.map(tool => tool.name))
-      for (const name of declarations.keys()) {
-        if (!activeNames.has(name)) declarations.delete(name)
+  return declarations
+}
+
+/** Rebuild declarations on removals or additions to an empty set, where the request prefix changes. */
+function rebaseAdditionOnlyHistory(
+  history: ToolHistory,
+  messages: ReadonlyMap<MessageId, readonly ContentBlock[]>,
+): ToolHistory {
+  const available = new Map(history.tools.map(tool => [tool.name, tool]))
+  let baseline = history.tools
+  let retainedFrom = 0
+  for (const [index, update] of history.updates.entries()) {
+    const additions = new Map(update.additions.map(tool => [tool.name, tool]))
+    let reset = available.size === 0 && additions.size > 0
+    // Completeness was checked before projection; Session resolves every addition's definition.
+    for (const block of messages.get(update.messageId) as readonly ContentBlock[]) {
+      if (block.type === 'tool-addition') {
+        const { deferLoading: _loading, ...tool } = additions.get(block.toolName) as ToolSchema
+        available.set(tool.name, tool)
+      } else if (block.type === 'tool-removal') {
+        reset = true
+        available.delete(block.toolName)
       }
-      return declarations
     }
-    /* v8 ignore next 2 -- closed-union exhaustiveness guard */
-    default:
-      return assertNever(mode)
+    if (reset) {
+      baseline = [...available.values()]
+      retainedFrom = index + 1
+    }
   }
+  return retainedFrom === 0 ? history : { tools: baseline, updates: history.updates.slice(retainedFrom) }
 }
 
 /**
  * Construct provider declarations from session-folded history without changing logged active tools.
  * Unsupported routes and incomplete history use current declarations without developer updates.
- * Explicitly deferred baseline tools become available only after their first retained addition.
+ * Explicitly deferred declarations require an addition to activate them.
+ * A rebuild makes previously activated declarations immediate; unactivated declarations stay deferred.
+ * Addition-only routes rebuild when a tool is removed or tools are added to an empty set;
+ * deferred declarations count as existing tools.
+ * Later additions remain deferred and superseded tool blocks are omitted without dropping other content.
  * @param messages - complete request inputs, or the prefix selected for an auxiliary call.
  * @param tools - currently active tool schemas.
  * @param toolUpdate - the resolved route's update mode.
@@ -440,16 +473,18 @@ export function projectToolUpdates(
     // Current schemas alone cannot resolve definitions referenced by past updates.
     return { messages: withoutDeveloperMessages(messages), tools }
   }
-  const messageIds = new Set(messages.flatMap(message => message.role === 'developer' ? [message.id] : []))
-  if (history.updates.some(update => !messageIds.has(update.messageId))) {
+  const updates = new Map(messages.flatMap(message => message.role === 'developer' ? [[message.id, message.content] as const] : []))
+  if (history.updates.some(update => !updates.has(update.messageId))) {
     // An auxiliary prefix may omit updates needed to activate historical declarations.
     return { messages: withoutDeveloperMessages(messages), tools }
   }
 
-  const declarations = toolDeclarations(tools, toolUpdate, history)
+  const projectedHistory = toolUpdate === 'addition-only' ? rebaseAdditionOnlyHistory(history, updates) : history
+  const declarations = toolDeclarations(projectedHistory)
   const updateIds = new Set(history.updates.map(update => update.messageId))
+  const retainedUpdateIds = new Set(projectedHistory.updates.map(update => update.messageId))
   // Deferred baseline tools still need their first addition to become available.
-  const offered = new Set(history.tools.filter(tool => !tool.deferLoading).map(tool => tool.name))
+  const offered = new Set(projectedHistory.tools.filter(tool => !tool.deferLoading).map(tool => tool.name))
   const projectedMessages: RequestMessage[] = []
   for (const message of messages) {
     if (message.role !== 'developer') {
@@ -462,6 +497,7 @@ export function projectToolUpdates(
     const content = message.content.filter((block) => {
       switch (block.type) {
         case 'tool-addition':
+          if (!retainedUpdateIds.has(message.id)) return false
           // Only declared tools that are not already available need activation.
           if (!declarations.has(block.toolName) || offered.has(block.toolName)) return false
           offered.add(block.toolName)

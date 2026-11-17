@@ -13,7 +13,7 @@ import Prompt from '@deepseek-ai/dsh-system-prompt'
 import { capabilityMemberships } from '../../../packages/core/tool-discovery/src/capabilities.ts'
 import { ToolSearchIndex } from '../../../packages/core/tool-discovery/src/search.ts'
 import * as Qimao from '../../../third_party/plugins/muse-qimao-data/src/index.js'
-import * as Douyin from '../../../third_party/plugins/muse-douyin-download/src/index.js'
+import * as HongguoSearch from '../../../third_party/plugins/muse-hongguo-search/src/index.js'
 import { registerLvpaopaoCatalog } from './fixtures/lvpaopao-catalog.mjs'
 import { config, patchPath } from './fixtures/discovery-config.ts'
 
@@ -111,19 +111,42 @@ it('keeps native delivery, project and memory tools deferred while giving each a
   expect(config.alwaysLoad).toContain('present')
 })
 
-it('recalls the registered Douyin task controls without making them resident', async () => {
+it('recalls the account data-station Douyin downloader without making it resident or keeping local task controls', () => {
+  const account = loadOverlayPatches('desktop-douyin-composition', patchPath)
+    .flatMap(patch => patch.insert ?? []).find(entry => entry.id === 'muse-account')
+  expect(account?.config).toHaveProperty('douyinDownloadTool', true)
+  const schemas = new Map(catalog.flatMap(entry => entry.schemas).map(schema => [schema.name, schema]))
+  expect(schemas.get('douyin_download')?.description).toContain('通过数据站下载抖音视频')
+  const index = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] ?? [] })),
+    { k1: config.k1 ?? 1.2, b: config.b ?? 0.75 })
+  for (const query of ['抖音下载', '下载抖音视频', '抖音合集下载', '抖音下载进度']) {
+    expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain('douyin_download')
+  }
+  expect(config.alwaysLoad).not.toContain('douyin_download')
+  expect(capabilityMemberships('douyin_download', config.capabilities ?? [])).toContain('data-sourcing')
+  expect(capabilityMemberships('muse_media_data', config.capabilities ?? [])).toContain('data-sourcing')
+  for (const retired of ['douyin_data', 'douyin_download_task']) expect(config.keywords).not.toHaveProperty(retired)
+})
+
+it('keeps the Hongguo downloader resident and recalls its title lookup for complete Douyin short dramas', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(Prompt)
     await ctx.plugin(Tools)
-    Douyin.apply(ctx, { pythonExecutable: null, ffprobeExecutable: null, ffmpegExecutable: null, settingsHome: null })
+    await ctx.plugin(HongguoSearch)
     const schemas = new Map([...catalog.flatMap(entry => entry.schemas), ...ctx.tools.schemas()].map(schema => [schema.name, schema]))
+    expect(schemas.has('hongguo_search')).toBe(true)
     const index = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] ?? [] })),
       { k1: config.k1 ?? 1.2, b: config.b ?? 0.75 })
-    for (const [query, expected] of [['抖音后台下载', 'douyin_download'], ['恢复抖音下载', 'douyin_download_task']] as const) {
-      expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain(expected)
-      expect(config.alwaysLoad).not.toContain(expected)
-      expect(capabilityMemberships(expected, config.capabilities ?? [])).toContain('data-sourcing')
+    expect(config.alwaysLoad).toContain('hongguo_download')
+    expect(capabilityMemberships('hongguo_download', config.capabilities ?? [])).toContain('data-sourcing')
+    for (const query of ['按剧名找短剧', '抖音短剧剧名']) {
+      expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain('hongguo_search')
+    }
+    for (const name of ['hongguo_search', 'hongguo_download_info', 'hongguo_download_task']) {
+      expect(config.alwaysLoad, name).not.toContain(name)
+      expect(capabilityMemberships(name, config.capabilities ?? []), name).toContain('data-sourcing')
+      expect(config.keywords?.[name]?.length, name).toBeGreaterThan(0)
     }
   } finally {
     await ctx.fiber.dispose()
@@ -155,7 +178,7 @@ it('recalls the registered Lvpaopao background controls without contacting the n
 })
 
 it('removes Bot-only tools from product discovery while retaining native questions and task controls', () => {
-  expect(config.excludeFromSearch).toEqual(expect.arrayContaining(['ask_user_question', 'show_view', 'visualize']))
+  expect(config.excludeFromSearch).toEqual(expect.arrayContaining(['ask_user_question', 'show_view', 'visualize', 'coordinator_show_report', 'coordinator_display_skill']))
   for (const name of ['list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
     'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret',
     'list_secrets', 'group_relay', 'read_own_chat', 'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',

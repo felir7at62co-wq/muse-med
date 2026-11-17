@@ -68,6 +68,79 @@ export interface AudioQueryOptions {
   readonly probe: AudioMediaOperations['probe']
 }
 
+/** Waiting allowance for gateway upload refusals that arrive with a retry delay. */
+export interface AudioUploadPacing {
+  /**
+   * Total delay one call may spend waiting out `upload_busy` and `request_rate`
+   * refusals before offering the same staged upload again, in milliseconds;
+   * one batch shares it, and a call without pacing does not retry.
+   */
+  readonly retryBudgetMs: number
+}
+
+/** One batch entry echoing the input string as given: its single-input result, or the local error that stopped the batch. */
+export type AudioBatchItem = (AudioRunResult & { readonly input: string }) | { readonly input: string; readonly error: string }
+
+/** Batch start results in input order. */
+export interface AudioBatchResult {
+  /** Processed inputs in input order; an item with `error` is always the last one. */
+  readonly items: AudioBatchItem[]
+  /** Inputs this call did not process because the batch stopped; resending the same list continues with them. */
+  readonly not_started?: string[]
+  /** One note for every pending item, present when an item is pending or an input was not started. */
+  readonly polling_note?: string
+}
+
+/** Remaining waiting allowance of one public call; only retry delays consume it. */
+interface UploadRetryBudget { remainingMs: number }
+
+/** Result of one receipt operation and whether this call's own submission or recovery upload was refused. */
+interface ReceiptOutcome {
+  readonly result: AudioRunResult
+  readonly refused: boolean
+}
+
+const PENDING_NOTE = '本地收据是上次查询的快照，不会自行刷新。继续调用 audio_transcribe 的 resume_status 参数；inspect 可带 wait_seconds 等待并查询云端，完成后发布本地结果。不要用 Bash 循环读取收据代替查询，也不要重新 start。'
+const BATCH_NOTE = '各集收据是上次查询的快照，不会自行刷新。按各集 resume_status 继续调用 audio_transcribe，inspect 可带 wait_seconds；把同一 inputs 原样再次 start 会沿用已有收据，不会重复计费。不要用 Bash 循环读取收据，也不要删除收据。'
+const UNACCEPTED_NOTE = '云端没有这条任务的记录，原收据和 ID 仍有效。按 resume_status 调用 status，用原 ID 补传同一音轨，可能计费；不要删除收据或重新 start。'
+
+/**
+ * Create the waiting allowance shared by every upload of one public call.
+ * @param pacing - Configured allowance; a call without pacing gets none.
+ * @returns A fresh budget that only retry delays consume.
+ */
+function uploadRetryBudget(pacing?: AudioUploadPacing): UploadRetryBudget {
+  return { remainingMs: pacing?.retryBudgetMs ?? 0 }
+}
+
+/**
+ * Upload staged audio under its persisted ID, waiting out `upload_busy` and `request_rate` refusals within the call's budget.
+ * The gateway refuses both before it records the ID, and every retry sends the same file, ID, digest, language and purpose.
+ * @param account - Current Host account operations.
+ * @param file - Staged audio named by the receipt.
+ * @param id - Persisted idempotency ID.
+ * @param sha256 - Digest of the staged audio.
+ * @param language - Provider recognition language from the receipt.
+ * @param purpose - Receipt purpose; undefined keeps legacy routing.
+ * @param budget - Waiting allowance shared by the call; each retry subtracts its delay.
+ * @param signal - Cancellation of the upload and of the wait, rejected with the caller's reason.
+ * @returns The gateway job for the persisted ID; any other refusal, a missing or
+ * non-integer delay, or a delay above the remaining budget rejects unchanged.
+ */
+async function submitStaged(account: AudioAccount, file: string, id: string, sha256: string, language: 'zh' | 'auto',
+  purpose: MuseAsrPurpose | undefined, budget: UploadRetryBudget, signal?: AbortSignal): Promise<MuseAsrJob> {
+  while (true) {
+    try { return await account.submitAudio(file, id, sha256, language, purpose, signal) }
+    catch (error) {
+      const seconds = error instanceof MuseAsrError && (error.code === 'upload_busy' || error.code === 'request_rate') ? error.retryAfterSeconds : undefined
+      if (seconds === undefined || !Number.isSafeInteger(seconds) || seconds < 1 || seconds * 1000 > budget.remainingMs) throw error
+      budget.remainingMs -= seconds * 1000
+      try { await delay(seconds * 1000, undefined, { signal }) }
+      catch (waitError) { signal?.throwIfAborted(); throw waitError }
+    }
+  }
+}
+
 /**
  * Probe the duration reported by the configured local media executable.
  * @param source - Local media to inspect without changing it.
@@ -275,6 +348,24 @@ function rejectedResult(project: string, file: string, receipt: Receipt, error: 
   }
 }
 
+/**
+ * Describe a read-only query of a task the gateway never accepted, without writing or uploading anything.
+ * @param project - Resolved project root.
+ * @param file - Resolved receipt path.
+ * @param receipt - Unchanged receipt whose staged audio still exists.
+ * @param partId - Original part ID the gateway does not know, for a split receipt.
+ * @returns A `preparing` result that names `status` under the same receipt as the next call.
+ */
+function unacceptedResult(project: string, file: string, receipt: Receipt, partId?: string): AudioRunResult {
+  return { status: 'preparing', receipt: file, job_id: receipt.id, ...(partId === undefined ? {} : { diagnostic_job_id: partId }),
+    ...purposeField(receipt.purpose), error_code: 'job-not-found', resume_status: { method: 'status', project, receipt: file },
+    polling_note: UNACCEPTED_NOTE }
+}
+
+function storedResult(file: string, receipt: Receipt): AudioRunResult {
+  return { status: receipt.status === 'prepared' ? 'uncertain' : receipt.status, receipt: file, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(receipt) }
+}
+
 function portableResult(result: AudioRunResult): AudioRunResult {
   const pending = ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
   const lifetimeQuota = result.provider_diagnostic?.quota_type?.endsWith('_lifetime') === true
@@ -284,7 +375,7 @@ function portableResult(result: AudioRunResult): AudioRunResult {
       polling_note: '原供应商应用的试用额度已用完，需要管理员在原应用恢复对应语音资源额度。恢复后沿此原收据 inspect 查询；不要重新 start、换应用或把额度耗尽当作普通排队。' }
   } else if (pending && result.error_code === undefined && result.recovery?.next_action !== 'inspect_receipt') {
     result = { ...result, resume_status: { method: result.recovery?.next_action === 'resume_upload' ? 'status' : 'inspect', project: dirname(dirname(dirname(result.receipt))), receipt: result.receipt },
-      polling_note: '本地收据是上次查询的快照，不会自行刷新。继续调用 audio_transcribe 的 resume_status 参数；inspect 可带 wait_seconds 等待并查询云端，完成后发布本地结果。不要用 Bash 循环读取收据代替查询，也不要重新 start。' }
+      polling_note: PENDING_NOTE }
   }
   if (pending && result.recovery?.retry_after !== undefined) {
     result = { ...result, retry_after_seconds: result.recovery.retry_after }
@@ -360,25 +451,84 @@ async function publish(
 /**
  * Create a local receipt before any account-scoped billable submit.
  * @param projectPath - Authorized project root.
- * @param inputPath - Local media to read without changing it.
+ * @param inputPath - Local media to read without changing it; a relative path is resolved against the project root.
  * @param language - Provider recognition language.
  * @param account - Current Host account operations.
  * @param config - Local media limits and executable paths.
  * @param media - Optional deterministic media adapter for tests.
  * @param purpose - Transcription use, resolved to subtitles for a new task when omitted.
  * @param signal - Cancellation; stops new work and rejects only after staging or upload has settled.
+ * @param pacing - Waiting allowance for `upload_busy` and `request_rate` refusals; omitted pacing returns them at once.
  * @returns Durable job receipt and current gateway status.
  */
-export async function startAudioTranscription(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<AudioRunResult> {
-  const result = await startReceipt(projectPath, inputPath, language, account, config, media, purpose, signal)
+export async function startAudioTranscription(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose, signal?: AbortSignal, pacing?: AudioUploadPacing): Promise<AudioRunResult> {
+  const { result } = await startReceipt(
+    projectPath, inputPath, language, account, config, media, purpose, signal, uploadRetryBudget(pacing), false)
   signal?.throwIfAborted()
   return portableResult(result)
 }
 
-async function startReceipt(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<AudioRunResult> {
+/**
+ * Start several local media files in list order, one receipt per file, sharing one upload waiting budget.
+ * Unlike a single start, a same-purpose complete, silent or failed receipt is returned instead of a new billable version,
+ * and a `prepared` receipt is completed through the query-first `status` routine under its original ID.
+ * @param projectPath - Authorized project root.
+ * @param inputPaths - Distinct local media files; each relative path is resolved against the project root.
+ * @param language - Provider recognition language for new tasks.
+ * @param account - Current Host account operations.
+ * @param config - Local media limits and executable paths.
+ * @param media - Optional deterministic media adapter for tests.
+ * @param purpose - Transcription use, resolved to subtitles for a new task when omitted.
+ * @param signal - Cancellation; rejects with its reason and returns no partial result.
+ * @param pacing - Waiting allowance shared by every upload of the batch; omitted pacing returns refusals at once.
+ * @returns Items in input order up to the first input whose own submission was refused
+ * or that failed locally, the inputs not started, and one polling note;
+ * a duplicate or non-file input rejects before any work.
+ */
+export async function startAudioTranscriptionBatch(projectPath: string, inputPaths: readonly string[], language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose, signal?: AbortSignal, pacing?: AudioUploadPacing): Promise<AudioBatchResult> {
+  signal?.throwIfAborted()
+  const project = resolve(projectPath)
+  const sources = inputPaths.map(input => resolve(project, input))
+  if (new Set(sources).size !== sources.length) throw new Error('Batch transcription lists the same input more than once')
+  for (const [index, source] of sources.entries()) {
+    const regular = await stat(source).then(entry => entry.isFile(), () => false)
+    signal?.throwIfAborted()
+    if (!regular) throw new Error(`Transcription input is not a file: ${inputPaths[index]} (resolved to ${source})`)
+  }
+  const budget = uploadRetryBudget(pacing)
+  const items: AudioBatchItem[] = []
+  let notStarted: string[] = [], pendingNote = false
+  for (const [index, input] of inputPaths.entries()) {
+    let outcome: ReceiptOutcome
+    try { outcome = await startReceipt(project, input, language, account, config, media, purpose, signal, budget, true) }
+    catch (error) {
+      signal?.throwIfAborted()
+      items.push({ input, error: error instanceof Error ? error.message : String(error) })
+      notStarted = inputPaths.slice(index + 1)
+      break
+    }
+    signal?.throwIfAborted()
+    const { polling_note: note, ...result } = portableResult(outcome.result)
+    pendingNote ||= note === PENDING_NOTE
+    items.push({ input, ...result, ...(note === undefined || note === PENDING_NOTE ? {} : { polling_note: note }) })
+    if (outcome.refused) {
+      notStarted = inputPaths.slice(index + 1)
+      break
+    }
+  }
+  return { items, ...(notStarted.length === 0 ? {} : { not_started: notStarted }),
+    ...(pendingNote || notStarted.length > 0 ? { polling_note: BATCH_NOTE } : {}) }
+}
+
+async function startReceipt(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig,
+  media: AudioMediaOperations | undefined, purpose: MuseAsrPurpose | undefined,
+  signal: AbortSignal | undefined, budget: UploadRetryBudget, batch: boolean): Promise<ReceiptOutcome> {
   signal?.throwIfAborted()
   const resolvedPurpose = resolvePurpose(purpose)
-  const project = resolve(projectPath), source = resolve(inputPath)
+  const project = resolve(projectPath), source = resolve(project, inputPath)
+  const probe: AudioMediaOperations['probe'] = media
+    ? (file, probeSignal) => media.probe(file, probeSignal)
+    : (file, probeSignal) => probeMediaDuration(file, config, probeSignal)
   const identity = await account.status({})
   signal?.throwIfAborted()
   if (identity.state !== 'signed-in') throw new Error('Sign in to Muse Account before cloud transcription')
@@ -389,13 +539,14 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     await chmod(transcript, 0o700)
     await chmod(jobs, 0o700)
   }
+  let finished: { file: string; receipt: Receipt } | undefined
   for (const name of await readdir(jobs)) {
     if (!name.endsWith('.json')) continue
     const file = join(jobs, name)
     const prior = await readReceipt(file)
     signal?.throwIfAborted()
-    if (prior.source === source && (!['complete', 'silent', 'failed'].includes(prior.status)
-      || prior.recovery?.next_action === 'resume_upload')) {
+    if (prior.source !== source) continue
+    if (!['complete', 'silent', 'failed'].includes(prior.status) || prior.recovery?.next_action === 'resume_upload') {
       if (prior.accountUsername !== identity.username) throw new Error('Existing transcription receipt belongs to another Muse account')
       if ((prior.purpose ?? 'subtitles') !== resolvedPurpose) {
         // A different service route needs its own receipt and job ID. Require the caller
@@ -403,13 +554,20 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
         if (purpose === undefined) throw new Error(`Existing transcription receipt has a different purpose; query status with receipt ${file} or specify purpose explicitly`)
         continue
       }
-      return { status: prior.status === 'prepared' ? 'uncertain' : prior.status, receipt: file, job_id: prior.id, ...purposeField(prior.purpose), ...metadataFields(prior) }
+      // A batch finishes a never-confirmed submission the way `status` does: query first, then upload under the original ID.
+      if (batch && prior.status === 'prepared') {
+        return await settleReceipt(project, file, account, signal, true, budget, probe)
+      }
+      return { result: storedResult(file, prior), refused: false }
     }
+    if (batch && prior.accountUsername === identity.username && (prior.purpose ?? 'subtitles') === resolvedPurpose
+      && (finished === undefined || prior.version > finished.receipt.version)) finished = { file, receipt: prior }
   }
+  // A resent batch must not pay again for a source whose same-purpose task already ended.
+  if (finished !== undefined) return { result: storedResult(finished.file, finished.receipt), refused: false }
   const stem = basename(source).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_').slice(0, 80) || 'media'
   signal?.throwIfAborted()
-  const duration = media ? await media.probe(source, signal)
-    : await probeMediaDuration(source, config, signal)
+  const duration = await probe(source, signal)
   signal?.throwIfAborted()
   if (!Number.isFinite(duration) || duration <= 0 || duration > config.maxDurationSeconds) throw new Error('Media duration exceeds the cloud transcription limit')
   let version = 1
@@ -425,7 +583,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
   if (!Number.isSafeInteger(chunkSeconds) || chunkSeconds < 1 || chunkSeconds > 7200) throw new Error('Invalid cloud audio chunk duration')
   if (duration > chunkSeconds) {
     return await startParts(project, source, sourceSha256, duration, chunkSeconds,
-      stem, version, language, resolvedPurpose, identity.username, account, config, media, signal)
+      stem, version, language, resolvedPurpose, identity.username, account, config, media, signal, budget)
   }
   const id = randomUUID(), mp3 = join(jobs, `.${id}.wav`), receiptPath = join(jobs, `${stem}-v${version}.json`)
   try {
@@ -442,18 +600,21 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     const receipt: Receipt = { id, source, sourceSha256, accountUsername: identity.username, stem, version, language, purpose: resolvedPurpose, sha256: await digest(mp3, signal), mp3, status: 'prepared' }
     await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
     signal?.throwIfAborted()
-    const job = await account.submitAudio(mp3, id, receipt.sha256, language, receipt.purpose, signal)
+    const job = await submitStaged(account, mp3, id, receipt.sha256, language, receipt.purpose, budget, signal)
     signal?.throwIfAborted()
     if (job.id !== id) throw new Error('Cloud transcription returned a different task ID')
     assertJobPurpose(job, receipt.purpose)
     assertJobService(job, receipt)
     await save(receiptPath, updatedReceipt(receipt, job), signal)
-    return { status: job.status, receipt: receiptPath, job_id: id, ...purposeField(receipt.purpose), ...metadataFields(job) }
+    return {
+      result: { status: job.status, receipt: receiptPath, job_id: id, ...purposeField(receipt.purpose), ...metadataFields(job) },
+      refused: false,
+    }
   } catch (error) {
     const persisted = await stat(receiptPath).then(() => true, () => false)
     if (!persisted) await rm(mp3, { force: true })
     else if (!signal?.aborted && error instanceof MuseAsrError) {
-      return rejectedResult(project, receiptPath, await readReceipt(receiptPath), error)
+      return { result: rejectedResult(project, receiptPath, await readReceipt(receiptPath), error), refused: true }
     }
     signal?.throwIfAborted()
     throw error
@@ -463,46 +624,59 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
 /**
  * Query an existing receipt and publish nonempty TXT/JSON only after complete recognition.
  * @param projectPath - Project containing the receipt and output directory.
- * @param receiptPath - Receipt previously returned by start.
+ * @param receiptPath - Receipt previously returned by start; a relative path is resolved against the project root.
  * @param account - Current Host account operations.
  * @param signal - Cancellation; stops further queries, recovery uploads, and publication.
  * @param allowResumeUpload - Whether the original job may resume an explicitly recoverable upload; inspect passes false.
  * @param options - Optional bounded read-only polling and verified legacy audio-duration probe.
- * @returns Current status, original-receipt polling parameters, and completed paths with observed speaker-label coverage.
+ * @param pacing - Waiting allowance for a refused recovery upload; only the first query of a `status` call may upload.
+ * @returns Current status, original-receipt polling parameters, and completed paths
+ * with observed speaker-label coverage; inspect of a task the gateway never accepted
+ * returns `job-not-found` with a `status` call under the same receipt.
  */
 export async function finishAudioTranscription(
   projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal,
-  allowResumeUpload = true, options?: AudioQueryOptions,
+  allowResumeUpload = true, options?: AudioQueryOptions, pacing?: AudioUploadPacing,
 ): Promise<AudioRunResult> {
   if (options && (!Number.isFinite(options.waitMs) || options.waitMs < 0 || options.waitMs > 30_000
     || !Number.isFinite(options.pollIntervalMs) || options.pollIntervalMs <= 0)) throw new Error('Invalid transcription polling budget')
+  const { result } = await settleReceipt(
+    projectPath, receiptPath, account, signal, allowResumeUpload, uploadRetryBudget(pacing), options?.probe, options)
+  return portableResult(result)
+}
+
+async function settleReceipt(
+  projectPath: string, receiptPath: string, account: AudioAccount, signal: AbortSignal | undefined, allowResumeUpload: boolean,
+  budget: UploadRetryBudget, probe: AudioMediaOperations['probe'] | undefined, polling?: Pick<AudioQueryOptions, 'waitMs' | 'pollIntervalMs'>,
+): Promise<ReceiptOutcome> {
   try {
-    const deadline = Date.now() + (options?.waitMs ?? 0)
-    let result = await finishReceipt(projectPath, receiptPath, account, signal, allowResumeUpload, options?.probe)
-    while (options && Date.now() < deadline && ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
+    const deadline = Date.now() + (polling?.waitMs ?? 0)
+    let result = await finishReceipt(projectPath, receiptPath, account, budget, signal, allowResumeUpload, probe)
+    while (polling && Date.now() < deadline && ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
       && result.error_code === undefined && result.recovery?.next_action !== 'inspect_receipt' && result.recovery?.next_action !== 'resume_upload') {
       if ((result.recovery?.retry_after ?? 0) * 1000 >= deadline - Date.now()) break
-      await delay(Math.min(options.pollIntervalMs, deadline - Date.now()), undefined, { signal })
+      await delay(Math.min(polling.pollIntervalMs, deadline - Date.now()), undefined, { signal })
       signal?.throwIfAborted()
-      result = await finishReceipt(projectPath, receiptPath, account, signal, false, options.probe)
+      result = await finishReceipt(projectPath, receiptPath, account, budget, signal, false, probe)
     }
     signal?.throwIfAborted()
-    return portableResult(await withSpeakerSummary(result, signal))
+    return { result: await withSpeakerSummary(result, signal), refused: false }
   }
   catch (error) {
     signal?.throwIfAborted()
     if (!(error instanceof MuseAsrError) || error.code === 'job-not-found') throw error
-    const file = resolve(receiptPath)
-    return portableResult(rejectedResult(resolve(projectPath), file, await readReceipt(file), error))
+    const project = resolve(projectPath), file = resolve(project, receiptPath)
+    return { result: rejectedResult(project, file, await readReceipt(file), error), refused: true }
   }
 }
 
 async function finishReceipt(
-  projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal, allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
+  projectPath: string, receiptPath: string, account: AudioAccount, budget: UploadRetryBudget, signal?: AbortSignal,
+  allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
 ): Promise<AudioRunResult> {
   signal?.throwIfAborted()
-  const project = resolve(projectPath), receiptFile = resolve(receiptPath), jobs = join(project, 'transcript', 'jobs')
-  if (dirname(receiptFile) !== jobs || !/^[\w.-]+-v\d+\.json$/.test(basename(receiptFile))) throw new Error('Receipt must be inside this project transcript/jobs directory')
+  const project = resolve(projectPath), receiptFile = resolve(project, receiptPath), jobs = join(project, 'transcript', 'jobs')
+  if (dirname(receiptFile) !== jobs || !/^[\w.-]+-v\d+\.json$/.test(basename(receiptFile))) throw new Error(`Receipt must be inside this project transcript/jobs directory: ${jobs}`)
   const receipt = await readReceipt(receiptFile)
   signal?.throwIfAborted()
   const identity = await account.status({})
@@ -511,7 +685,7 @@ async function finishReceipt(
   if (![join(jobs, `.${receipt.id}.mp3`), join(jobs, `.${receipt.id}.wav`)].includes(receipt.mp3)
     || basename(receiptFile) !== `${receipt.stem}-v${receipt.version}.json`) throw new Error('Receipt paths do not match this project')
   if (receipt.parts !== undefined) {
-    return await finishParts(project, receiptFile, receipt, receipt.parts, account, signal, allowResumeUpload, probe)
+    return await finishParts(project, receiptFile, receipt, receipt.parts, account, budget, signal, allowResumeUpload, probe)
   }
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.txt).then(() => true, () => false)
@@ -521,12 +695,14 @@ async function finishReceipt(
   try { signal?.throwIfAborted(); job = await account.audioStatus(receipt.id, signal) }
   catch (error) {
     signal?.throwIfAborted()
-    if (!allowResumeUpload || !(error instanceof MuseAsrError) || error.code !== 'job-not-found'
-      || !['prepared', 'uncertain'].includes(receipt.status)
-      || receipt.service_version !== undefined || receipt.recovery !== undefined
-      || !(await stat(receipt.mp3).then(() => true, () => false))) throw error
+    const unaccepted = error instanceof MuseAsrError && error.code === 'job-not-found'
+      && ['prepared', 'uncertain'].includes(receipt.status)
+      && receipt.service_version === undefined && receipt.recovery === undefined
+      && await stat(receipt.mp3).then(() => true, () => false)
+    if (!unaccepted) throw error
+    if (!allowResumeUpload) return unacceptedResult(project, receiptFile, receipt)
     signal?.throwIfAborted()
-    job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose, signal)
+    job = await submitStaged(account, receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose, budget, signal)
     submitted = true
   }
   signal?.throwIfAborted()
@@ -536,7 +712,7 @@ async function finishReceipt(
   if (allowResumeUpload && !submitted && canResumeUpload(job) && ['preparing', 'failed'].includes(job.status)
     && await stat(receipt.mp3).then(() => true, () => false)) {
     signal?.throwIfAborted()
-    job = await account.submitAudio(receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose, signal)
+    job = await submitStaged(account, receipt.mp3, receipt.id, receipt.sha256, receipt.language, receipt.purpose, budget, signal)
   }
   signal?.throwIfAborted()
   if (job.id !== receipt.id) throw new Error('Cloud transcription returned a different task ID')
@@ -559,7 +735,8 @@ async function finishReceipt(
 
 async function startParts(project: string, source: string, sourceSha256: string, duration: number, chunkSeconds: number,
   stem: string, version: number, language: 'zh' | 'auto', purpose: MuseAsrPurpose, username: string, account: AudioAccount,
-  config: AudioRunnerConfig, media?: AudioMediaOperations, signal?: AbortSignal): Promise<AudioRunResult> {
+  config: AudioRunnerConfig, media: AudioMediaOperations | undefined,
+  signal: AbortSignal | undefined, budget: UploadRetryBudget): Promise<ReceiptOutcome> {
   const id = randomUUID(), jobs = join(project, 'transcript', 'jobs'), receiptFile = join(jobs, `${stem}-v${version}.json`)
   const parts: AudioPart[] = []
   const staged: string[] = []
@@ -586,7 +763,7 @@ async function startParts(project: string, source: string, sourceSha256: string,
     persisted = true
     for (const [index, part] of parts.entries()) {
       signal?.throwIfAborted()
-      const job = await account.submitAudio(part.mp3, part.id, part.sha256, language, part.purpose, signal)
+      const job = await submitStaged(account, part.mp3, part.id, part.sha256, language, part.purpose, budget, signal)
       signal?.throwIfAborted()
       if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')
       assertJobPurpose(job, part.purpose)
@@ -598,10 +775,12 @@ async function startParts(project: string, source: string, sourceSha256: string,
     }
     const status = combinedStatus(submittedJobs)
     await save(receiptFile, { ...receipt, status, ...metadataFields(combinedMetadata(submittedJobs)) }, signal)
-    return { status, receipt: receiptFile, job_id: id, purpose, ...combinedMetadata(submittedJobs) }
+    return { result: { status, receipt: receiptFile, job_id: id, purpose, ...combinedMetadata(submittedJobs) }, refused: false }
   } catch (error) {
     signal?.throwIfAborted()
-    if (persisted && error instanceof MuseAsrError) return rejectedResult(project, receiptFile, await readReceipt(receiptFile), error)
+    if (persisted && error instanceof MuseAsrError) {
+      return { result: rejectedResult(project, receiptFile, await readReceipt(receiptFile), error), refused: true }
+    }
     throw error
   } finally {
     if (!persisted) await Promise.all(staged.map(file => rm(file, { force: true })))
@@ -610,7 +789,7 @@ async function startParts(project: string, source: string, sourceSha256: string,
 
 async function finishParts(
   project: string, receiptFile: string, receipt: Receipt, parts: readonly AudioPart[],
-  account: AudioAccount, signal?: AbortSignal, allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
+  account: AudioAccount, budget: UploadRetryBudget, signal?: AbortSignal, allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
 ): Promise<AudioRunResult> {
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.json).then(() => true, () => false)
@@ -632,9 +811,13 @@ async function finishParts(
     try { signal?.throwIfAborted(); job = await account.audioStatus(part.id, signal) }
     catch (error) {
       signal?.throwIfAborted()
-      if (!allowResumeUpload || !(error instanceof MuseAsrError) || error.code !== 'job-not-found' || part.retentionExpired || part.service_version !== undefined || part.recovery !== undefined) throw error
+      if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found' || part.retentionExpired || part.service_version !== undefined || part.recovery !== undefined) throw error
+      if (!allowResumeUpload) {
+        if (!(await stat(part.mp3).then(() => true, () => false))) throw error
+        return unacceptedResult(project, receiptFile, receipt, part.id)
+      }
       if (await digest(part.mp3, signal) !== part.sha256) throw new Error('Staged audio part changed')
-      job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose, signal)
+      job = await submitStaged(account, part.mp3, part.id, part.sha256, receipt.language, part.purpose, budget, signal)
       submitted = true
     }
     signal?.throwIfAborted()
@@ -643,7 +826,7 @@ async function finishParts(
     assertJobService(job, part)
     if (allowResumeUpload && !submitted && canResumeUpload(job) && ['preparing', 'failed'].includes(job.status) && !part.retentionExpired) {
       if (await digest(part.mp3, signal) !== part.sha256) throw new Error('Staged audio part changed')
-      job = await account.submitAudio(part.mp3, part.id, part.sha256, receipt.language, part.purpose, signal)
+      job = await submitStaged(account, part.mp3, part.id, part.sha256, receipt.language, part.purpose, budget, signal)
     }
     signal?.throwIfAborted()
     if (job.id !== part.id) throw new Error('Cloud transcription returned a different part ID')

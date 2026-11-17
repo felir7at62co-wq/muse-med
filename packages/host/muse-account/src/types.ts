@@ -326,6 +326,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'muse-account/registration-disabled': {}
     'muse-account/gateway-unavailable': {}
     'muse-account/gateway-rejected': {}
+    'muse-account/unsupported-period': {}
     'muse-account/storage-failed': {}
   }
 }

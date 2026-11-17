@@ -259,6 +259,8 @@ function remoteFailure(error: unknown): RemoteError {
         return new RemoteError('muse-account/gateway-unavailable', 'MUSE account gateway is unavailable', {})
       case 'gateway-rejected':
         return new RemoteError('muse-account/gateway-rejected', 'MUSE account gateway rejected the request', {})
+      case 'unsupported-period':
+        return new RemoteError('muse-account/unsupported-period', 'MUSE account usage period is unavailable', {})
     }
   }
   return new RemoteError('muse-account/storage-failed', 'MUSE account session could not be read or updated', {})

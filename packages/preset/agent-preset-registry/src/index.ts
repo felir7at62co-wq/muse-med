@@ -59,6 +59,7 @@ export class AgentPresetRegistry extends TypertRemoteService {
     default: z.string().required(),
     selectedDefault: z.string().volatile(),
     selectablePresets: z.union([z.const(undefined), z.array(z.string()).min(1)]),
+    allowUserDefault: z.boolean().default(true),
   })
   private agentPresetProjectionHandle!: ProjectionHandle<string | null>
   private readonly owner: Context
@@ -87,7 +88,8 @@ export class AgentPresetRegistry extends TypertRemoteService {
   /** Default preset for a subsequently created session. */
   get defaultId(): string {
     const selected = this.config.selectedDefault.get()
-    return selected !== undefined && this.isSelectable(this.effectiveId(selected)) ? selected : this.config.default
+    return this.config.allowUserDefault !== false && selected !== undefined && this.isSelectable(this.effectiveId(selected))
+      ? selected : this.config.default
   }
 
   private isSelectable(id: string): boolean {

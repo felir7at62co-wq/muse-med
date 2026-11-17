@@ -16,7 +16,7 @@ export interface DesktopElectronBuilderConfig {
   readonly extraMetadata: { readonly dshDesktopAppId: string }
   readonly asarUnpack: readonly string[]
   readonly extraResources: readonly [
-    { readonly from: string, readonly to: 'runtime' },
+    { readonly from: string, readonly to: 'runtime', readonly filter: readonly string[] },
     { readonly from: string, readonly to: 'icon.png' },
     ...{ readonly from: string, readonly to: 'tray.ico' }[],
   ]

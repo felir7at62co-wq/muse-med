@@ -14,15 +14,17 @@ import { MarketController } from '../src/client/market-controller.ts'
 import type { MarketActions, MarketInjected } from '../src/client/market-actions.ts'
 import type { MarketFeedback } from '../src/client/market-feedback.tsx'
 import { registerMuseMarket } from '../src/client/market-registration.tsx'
+import { createMarketViewStore } from '../src/client/market-view-store.ts'
+import type { BoundActions } from '@deepseek-ai/dsh-client-store'
 
 afterEach(cleanup)
 
 const unavailable = async (): Promise<never> => { throw new Error('Data operations are outside this registration test') }
 const operations: MarketActions = {
-  sources: unavailable, prepare: unavailable, installed: unavailable, importPackage: unavailable,
+  sources: unavailable, prepare: unavailable, prepareUpload: unavailable, installed: unavailable, importPackage: unavailable,
   exportPackage: unavailable, removePackage: unavailable, defaults: unavailable, setDefault: unavailable,
   binding: unavailable, catalog: unavailable, identity: unavailable, getPublication: unavailable,
-  installPublication: unavailable, publishDraft: unavailable, review: unavailable,
+  installPublication: unavailable, installLegacy: unavailable, legacyCatalog: unavailable, publishDraft: unavailable, review: unavailable,
 }
 
 function MarketRoot({ renderSlot }: PropsRenderSlots<'main' | 'sidebar.panellist' | 'settings.section' | 'shell.overlay'>) {
@@ -53,7 +55,7 @@ it('unloads and remounts market entries while preserving the original account se
   const mount = () => registerMuseMarket(ctx, controller.operations, controller.access, revision => controller.isCurrentAccess(revision))
   for (let round = 0; round < 2; ++round) {
     const dispose = await mount()
-    expect(ctx.slots.entries('main')).toHaveLength(1)
+    expect(ctx.slots.entries('main')).toHaveLength(2)
     expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(1)
     expect(ctx.slots.entries('shell.overlay')).toHaveLength(1)
     expect(ctx.slots.entries('settings.section')).toHaveLength(2)
@@ -76,13 +78,32 @@ it('unloads and remounts market entries while preserving the original account se
     expect(selectPanel).toHaveBeenLastCalledWith('muse-market')
     expect(close).toHaveBeenCalledOnce()
     page.unmount()
-    const panel = ctx.slots.entries('main')[0]?.inject?.() as MarketInjected | undefined
-    if (panel === undefined) throw new Error('Market panel has no operations')
     const overlay = ctx.slots.entries('shell.overlay')[0]?.inject?.() as Pick<MarketFeedback, 'hooks' | 'dismiss'>
-    panel.reportOutcome('installedDone', false)
+    const panels = ctx.slots.entries('main')
+    const market = panels.find(item => item.options.key === 'muse-market')
+    const creator = panels.find(item => item.options.key === 'muse-market-creator')
+    if (!market?.store || typeof market.store === 'function' || !market.inject || !creator?.inject) {
+      throw new Error('Market and creator need their shared store and navigation')
+    }
+    expect(creator.store).toBe(market.store)
+    const instance = market.store.create()
+    const inject = market.inject as (actions: BoundActions<ReturnType<typeof createMarketViewStore>>)
+    => MarketInjected & Record<string, unknown>
+    const face = inject(instance.actions)
+    face.reportOutcome('installedDone', false)
     expect(overlay.hooks.outcome.getSnapshot()).toMatchObject({ key: 'installedDone', failed: false })
     overlay.dismiss()
     expect(overlay.hooks.outcome.getSnapshot()).toBeNull()
+    face.onOpenCreator('upload')
+    expect(instance.getSnapshot()).toMatchObject({ creatorMode: 'upload' })
+    expect(selectPanel).toHaveBeenLastCalledWith('muse-market-creator')
+    face.onOpenCreator('skill')
+    expect(instance.getSnapshot()).toMatchObject({ creatorMode: 'skill' })
+    face.onBackMarket()
+    expect(selectPanel).toHaveBeenLastCalledWith('muse-market')
+    face.onOpenPublications()
+    expect(instance.getSnapshot()).toMatchObject({ marketTab: 'publish' })
+    expect(selectPanel).toHaveBeenLastCalledWith('muse-market')
     await dispose()
     expect(ctx.slots.entries('main')).toEqual([])
     expect(ctx.slots.entries('sidebar.panellist')).toEqual([])

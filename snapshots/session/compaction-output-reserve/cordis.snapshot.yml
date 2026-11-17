@@ -18,9 +18,10 @@
   disabled: true
 
 
-# A 9,210-token model with 1,800 headroom tokens triggers at 7,368 without
-# output reservation and at 6,410 with 1,000 output tokens, so only the
-# reserved request compacts the history and preserves the newest tool pair.
+# The pinned uncompacted request costs 6,942 tokens. A 9,650-token model
+# triggers at 7,720 without output reservation and at 6,850 with 1,000 output
+# tokens plus 1,800 headroom tokens. Only the reserved request compacts, with
+# enough space for its checkpoint and the newest intact tool pair.
 
 
 - id: agent-instructions
@@ -53,7 +54,7 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
-                contextWindow: 9210
+                contextWindow: 9650
                 defaultMaxTokens: 1000
     - id: compaction-working-directory
       name: '../../../packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts'

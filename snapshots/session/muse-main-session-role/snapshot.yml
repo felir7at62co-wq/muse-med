@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-main-session-role
+profile: headless
+composition: muse-main-session-role
+recording: authored
+header:
+  class: muse-main-session-role
+  pin: true
+workspace:
+  final: true
+writerOutput: true

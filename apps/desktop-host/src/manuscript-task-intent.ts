@@ -30,10 +30,28 @@ function instructionOnly(text: string): boolean {
 function screenplaySubject(text: string): boolean {
   const subject = text.replace(/(?:剧本|短剧|分集|分场)(?:采购|市场|行业|数据)?(?:报告|清单|统计)/gu, '')
     .replace(/\b(?:screenplay|short drama)\s+(?:(?:market|procurement|data)\s+)?report\b/giu, '')
-  return /剧本|短剧|分集|分场|剧情|台词|对白|第[\d一二三四五六七八九十百零〇]+集|screenplay|short drama|\bplot\b|\bdialogue\b/iu.test(subject)
+  return /剧本|本子|短剧|分集|分场|剧情|台词|对白|第[\d一二三四五六七八九十百零〇]+集|screenplay|short drama|\bplot\b|\bdialogue\b/iu.test(subject)
 }
+/** Words a user uses for the finished deliverable when only asking to receive it or where it is. */
+const deliverable = '(?:文件|文档|word|docx|本子|稿子|成稿|终稿)'
+const deliverableRequest = new RegExp(String.raw`^\s*[^\n，,。！!？?；;：:]{0,6}?(?:给我${deliverable}`
+  + String.raw`|把[^\n，,。！!？?；;：:]{0,12}?${deliverable}(?:发|交|传)?给我|${deliverable}(?:发|交|传)?给我|(?:发|传|交)给?我${deliverable}`
+  + String.raw`|${deliverable}(?:呢|在哪(?:里|儿)?|去哪(?:里|儿)?了?|怎么(?:还)?没(?:有|给我?)?))`
+  + String.raw`[啊呀吧呢嘛哦哈了]*(?:[，,。！!？?~…\s][^\n]{0,12})?\s*$`, 'iu')
+const negatedHandover = /(?:不要|别|不用|无需|不需要|不必|先不)[^\n，,。]{0,6}(?:给|发|传|交|把)/u
+
+/**
+ * Recognize a short message that only asks for the finished deliverable, in the words users type when a turn ended without it.
+ * @param text - Human-authored message.
+ * @returns Whether the message asks to receive or locate the deliverable and gives no other instruction before that request.
+ */
+function deliverableOnlyRequest(text: string): boolean {
+  return !negatedHandover.test(text) && deliverableRequest.test(text)
+}
+
 function continuation(text: string): boolean {
   if (/^\s*(?:继续|接着|然后继续|给我文件|把.{0,12}(?:文件|Word|文档)给我|继续改|continue)[。！!\s]*$/iu.test(text)) return true
+  if (deliverableOnlyRequest(text)) return true
   return /^\s*(?:继续|接着|然后继续|continue)\s*[，,：:；;]\s*\S/iu.test(text)
     && !/^\s*(?:继续|接着|然后继续|continue)\s*[，,：:；;]\s*(?:现在|接下来)?(?:改做|换个任务|处理新任务)/iu.test(text)
 }
@@ -65,8 +83,8 @@ export function manuscriptDeliveryIntent(text: string): { writing: boolean; cont
   const fileRequest = text.replace(/(?:不需要|不必|不要|不用|无需|勿|不)(?:再|另外|额外)?(?:(?:生成|导出|保存|交付|提供|输出)(?:\s*[或和、/]\s*(?:生成|导出|保存|交付|提供|输出))*)?\s*(?:文件|文档|Word|DOCX|Markdown)(?:\s*(?:格式)?(?:文件|文档))?/giu, '')
     .replace(negatedEnglishFile, '')
   const file = /(?:交付|生成|导出|保存|提供|给我?|发送|发我|输出|做成|转成).{0,24}(?:文件|文档|\bword\b|\bdocx\b|\bmarkdown\b)/iu.test(fileRequest)
-    || /(?:文件|文档|\bword\b|\bdocx\b|\bmarkdown\b).{0,12}(?:交付|导出|保存|给我|发我)/iu.test(fileRequest)
-    || englishFile.test(fileRequest)
+    || /(?:文件|文档|\bword\b|\bdocx\b|\bmarkdown\b|本子|稿子).{0,12}(?:交付|导出|保存|给我|发我)/iu.test(fileRequest)
+    || englishFile.test(fileRequest) || deliverableOnlyRequest(text)
   const tutorial = instructionOnly(text)
   return { writing: manuscriptRevisionIntent(text) || (screenplaySubject(positive) && action && !tutorial),
     continuation: continuation(text), file: file && !tutorial }

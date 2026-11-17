@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-drama-skills",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "private": true,
   "type": "module",
   "license": "UNLICENSED",
@@ -13,6 +13,7 @@
     "README.zh.md",
     "README.i18n.yaml",
     "skills/character-reference-library/SKILL.md",
+    "skills/jubian-project-upload/SKILL.md",
     "skills/jubian-snatch/SKILL.md",
     "skills/jubian-snatch/references/api-notes.md",
     "skills/jubian-snatch/scripts/check_pool_live.py",
@@ -23,8 +24,12 @@
     "skills/jubian-snatch/scripts/snatcher/config.py",
     "skills/jubian-snatch/scripts/snatcher/httpclient.py",
     "skills/jubian-snatch/scripts/snatcher/ledger.py",
+    "skills/protagonist-asset-sheet/SKILL.md",
     "skills/tweet-drama-asset-vision-check/SKILL.md",
     "skills/tweet-drama-asset-vision-check/agents/openai.yaml",
+    "skills/tweet-drama-asset-vision-check/references/character-delivery-layout.md",
+    "skills/tweet-drama-asset-vision-check/references/images/character-delivery-layout.png",
+    "skills/tweet-drama-asset-vision-check/scripts/character_board_prompt.py",
     "skills/tweet-drama-asset-vision-check/references/io-contract.md",
     "skills/tweet-drama-background-render/SKILL.md",
     "skills/tweet-drama-background-render/references/story-bgm-selection.md",
@@ -72,6 +77,8 @@
     "skills/tweet-drama-draft-build/scripts/draft_fonts.py",
     "skills/tweet-drama-draft-build/scripts/jianying_draft.py",
     "skills/tweet-drama-draft-build/scripts/windows_aa_draft.py",
+    "skills/tweet-drama-draft-build/scripts/draft_stage_guard.py",
+    "skills/tweet-drama-draft-build/scripts/draft_integrity.py",
     "skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1",
     "skills/tweet-drama-draft-build/scripts/paths.py",
     "skills/tweet-drama-key-manager/SKILL.md",
@@ -135,6 +142,6 @@
     "skills/tweet-drama-early-shot-script/references/director-format.md"
   ],
   "scripts": {
-    "test": "python -B -m unittest tests/test_resources.py tests/test_character_library.py tests/test_skill_suite.py tests/helpers/test_helper_migration.py tests/creation/test_creation_resources.py tests/test_background_render_guidance.py tests/render/test_portability.py tests/render/test_align_subtitles.py tests/render/test_windows_aa_draft.py tests/render/test_draft_preservation.py tests/render/test_subtitle_contracts.py tests/render/test_draft_delivery_contract.py tests/render/test_draft_input_semantics.py tests/render/test_draft_project_style.py tests/render/test_subtitle_overlay_request.py skills/tweet-drama-draft-build/tests/test_embedded_python_import.py && python -B -m unittest discover -s tests/core && python -B -m unittest discover -s tests/jubian_snatch && python -B -m unittest discover -s tests/anime_3d"
+    "test": "python -B -m unittest tests/test_resources.py tests/test_character_library.py tests/test_skill_suite.py tests/helpers/test_helper_migration.py tests/creation/test_creation_resources.py tests/test_background_render_guidance.py tests/render/test_portability.py tests/render/test_align_subtitles.py tests/render/test_windows_aa_draft.py tests/render/test_windows_aa_protocol.py tests/render/test_draft_stage_guard.py tests/render/test_draft_integrity.py tests/render/test_draft_preservation.py tests/render/test_subtitle_contracts.py tests/render/test_draft_delivery_contract.py tests/render/test_draft_input_semantics.py tests/render/test_draft_project_style.py tests/render/test_subtitle_overlay_request.py skills/tweet-drama-draft-build/tests/test_embedded_python_import.py && python -B -m unittest discover -s tests/core && python -B -m unittest discover -s tests/jubian_snatch && python -B -m unittest discover -s tests/anime_3d"
   }
 }

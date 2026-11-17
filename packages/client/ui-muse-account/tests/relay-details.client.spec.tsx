@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, expect, it, vi } from 'vitest'
 import type { MuseAccountProfile, MuseAccountRelayDetails as RelayDetails } from '@deepseek-ai/dsh-muse-account/types'
 import { MuseAccountDetails } from '../src/client/MuseAccountDetails.tsx'
-import type { MuseAccountInjected, MuseAccountSectionProps } from '../src/client/MuseAccountSection.tsx'
+import { MuseAccountSection, type MuseAccountInjected, type MuseAccountSectionProps } from '../src/client/MuseAccountSection.tsx'
 import { en, zh } from '../src/client/locales.ts'
 import type { MuseAccountLocaleKey } from '../src/client/locales.ts'
 import { ACCOUNT_DETAILS } from './account-details.fixture.ts'
@@ -122,6 +122,71 @@ it('shows historical totals first and keeps overlapping detail measurements sepa
   await expect(JSON.stringify(snapshot, null, 2) + '\n').toMatchFileSnapshot('./expected/relay-account-history.zh.json')
 })
 
+it('removes loaded historical usage and profile data when a refresh finds an expired sign-in', async () => {
+  const loaded: RelayDetails = { ...RELAY, history: HISTORY, profile: PROFILE,
+    availability: { profile: 'available', groups: 'available', feishuOrganization: 'available' } }
+  const details = vi.fn<MuseAccountInjected['details']>()
+    .mockResolvedValueOnce({ ok: true, value: loaded })
+    .mockResolvedValueOnce({ ok: false, code: 'muse-account/invalid-credentials' })
+  const injected: MuseAccountInjected = {
+    status: async () => ({ ok: true, value: { state: 'signed-in', username: 'writer', verified: true,
+      admin: true, adminUrl: 'https://muse.test/admin' } }),
+    details,
+    login: async () => ({ ok: false, code: 'muse-account/gateway-unavailable' }),
+    logout: async () => ({ ok: true, value: { state: 'signed-out' } }),
+    startBrowserLogin: async () => ({ ok: false, code: 'muse-account/gateway-unavailable' }),
+    checkBrowserLogin: async () => ({ ok: true, value: { state: 'pending' } }),
+    cancelBrowserLogin: async () => ({ ok: true, value: { state: 'signed-out' } }),
+  }
+  const section = { ...injected, t: copy(zh) } as MuseAccountSectionProps
+  const page = render(<MuseAccountSection {...section} />)
+  await screen.findByText('编剧团队')
+  expect(screen.getByText('7,080,000')).toBeDefined()
+  expect(screen.getByRole('button', { name: zh.adminManagement })).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: zh.refreshUsage }))
+  await screen.findByText(zh['error.invalidCredentials'])
+  expect(screen.getByText(zh.verificationPending)).toBeDefined()
+  expect(document.querySelector('[data-muse-account-details]')).toBeNull()
+  expect(screen.queryByText('编剧团队')).toBeNull()
+  expect(screen.queryByText('星河工作室 / 制作部 / 动画组')).toBeNull()
+  expect(screen.queryByText('7,080,000')).toBeNull()
+  expect(screen.queryByRole('button', { name: zh.adminManagement })).toBeNull()
+  await expect(page.container.textContent + '\n').toMatchFileSnapshot('./expected/relay-account-expired.zh.txt')
+})
+
+it('keeps historical totals independent while changing the detail period, paging and refreshing', async () => {
+  const range = { from: '2026-11-11', to: '2026-11-17' }
+  const details = vi.fn<MuseAccountInjected['details']>(async request => ({ ok: true, value: {
+    ...RELAY, history: HISTORY, usage: request.period === '7d' ? { ...RELAY.usage, ...range,
+      summary: { ...RELAY.usage.summary, requests: 3, completedRequests: 2, failedRequests: 1,
+        reportedUsageRequests: 2, unreportedUsageRequests: 1, inputTokens: 4000, outputTokens: 20, totalTokens: 4020 },
+      items: request.cursor === undefined ? RELAY.usage.items : RELAY.usage.items.slice(1),
+      nextCursor: request.cursor === undefined ? 'seven-day-next' : null,
+    } : RELAY.usage,
+  } }))
+  mount(details, zh)
+  const history = await screen.findByRole('region', { name: zh.historyTitle })
+  const historicalText = history.textContent
+  const summary = document.querySelector('[data-muse-usage-summary]')!
+  expect(summary.textContent).toContain('总 Token1,218,000')
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: '7d' } })
+  await screen.findByText('统计区间：2026-11-11 至 2026-11-17（含首尾日期，UTC）')
+  expect(summary.textContent).toContain('总 Token4,020')
+  expect(history.textContent).toBe(historicalText)
+  expect(screen.getByText('累计区间：2026-10-01 至 2026-11-17（含首尾日期，北京时间）')).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: zh.nextPage }))
+  await screen.findByText('第 3–3 条，共 3 条')
+  expect(details).toHaveBeenLastCalledWith({ period: '7d', offset: 2, limit: 50, cursor: 'seven-day-next', range })
+  expect(history.textContent).toBe(historicalText)
+  expect(summary.textContent).toContain('总 Token4,020')
+  fireEvent.click(screen.getByRole('button', { name: zh.refreshUsage }))
+  await screen.findByText('第 1–2 条，共 3 条')
+  expect(details).toHaveBeenLastCalledWith({ period: '7d', offset: 0, limit: 50 })
+  expect(history.textContent).toBe(historicalText)
+  expect(summary.textContent).toContain('总 Token4,020')
+  expect(screen.getByText(zh.historyOverlap)).toBeDefined()
+})
+
 it('reports incomplete historical reads and missing counts without hiding current detail records', async () => {
   const value: RelayDetails = { ...RELAY, history: { ...HISTORY, recordingSince: null, limited: true,
     health: { state: 'degraded' }, summary: { ...HISTORY.summary, reported: 0, partial: 0, unknown: 200,
@@ -135,6 +200,30 @@ it('reports incomplete historical reads and missing counts without hiding curren
   expect(within(history).getByText('Historical recording started: Not reported (Beijing time)')).toBeDefined()
   expect(screen.queryByText(en.usageDegraded)).toBeNull()
   expect(screen.getByText('deepseek-flash')).toBeDefined()
+})
+
+it('identifies a new account without historical requests only after a complete read', async () => {
+  const history = { ...HISTORY, summary: { requests: 0, reported: 0, partial: 0, unknown: 0,
+    inputTokens: null, outputTokens: null, totalTokens: null,
+    inputTokensReports: 0, outputTokensReports: 0, totalTokensReports: 0 } }
+  const value: RelayDetails = { ...RELAY, history, usage: { ...RELAY.usage, items: [], nextCursor: null,
+    summary: { requests: 0, completedRequests: 0, failedRequests: 0, pendingRequests: 0, unknownRequests: 0,
+      reportedUsageRequests: 0, partialUsageRequests: 0, unreportedUsageRequests: 0,
+      inputTokens: null, outputTokens: null, totalTokens: null } } }
+  const details = vi.fn<MuseAccountInjected['details']>()
+    .mockResolvedValueOnce({ ok: true, value })
+    .mockResolvedValueOnce({ ok: true, value: { ...value, history: { ...history, limited: true } } })
+  mount(details, zh)
+  const historical = await screen.findByRole('region', { name: zh.historyTitle })
+  expect(within(historical).getByText(zh.historyEmpty)).toBeDefined()
+  expect(within(historical).getAllByText(zh.notReported)).toHaveLength(3)
+  expect(historical.textContent).toContain('0 / 0 次请求回报此项')
+  expect(within(historical).queryByText(zh.historyLimited)).toBeNull()
+  await expect(historical.textContent + '\n').toMatchFileSnapshot('./expected/relay-account-history-empty.zh.txt')
+  fireEvent.click(screen.getByRole('button', { name: zh.refreshUsage }))
+  await within(historical).findByText(zh.historyLimited)
+  expect(within(historical).queryByText(zh.historyEmpty)).toBeNull()
+  expect(within(historical).getAllByText(zh.notReported)).toHaveLength(3)
 })
 
 it('keeps historical supplier zeroes distinct from missing usage', async () => {

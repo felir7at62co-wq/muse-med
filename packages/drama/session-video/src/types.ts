@@ -18,7 +18,7 @@ export interface SessionVideoSource {
   readonly presentedIndex: number | null
   readonly callId: string | null
   readonly status: 'local' | 'remote-only' | 'missing' | 'unsupported'
-  /** Opaque file or provider-URL version; detection refuses a different version. */
+  /** Opaque current version; provider URLs gain a content-bound version after download. */
   readonly version: string | null
   /** Document-relative authenticated route, or a verified public provider media URL. */
   readonly playbackUrl: string | null
@@ -48,6 +48,7 @@ export interface SessionVideoShot {
 /** A complete detection result or an explicit failure without invented cut ranges. */
 export interface SessionVideoAnalysis {
   readonly sourceId: SessionVideoSourceId
+  /** Version of analyzed local bytes; an initial provider download can change the requested version. */
   readonly sourceVersion: string
   readonly state: 'ready' | 'failed'
   readonly durationSeconds: number | null

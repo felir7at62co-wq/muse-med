@@ -1,9 +1,11 @@
 /**
- * Default one-shot summarization and durable checkpoint framing.
+ * Default summarization call, its transient retries under the summary route's
+ * retry policy, and durable checkpoint framing.
  *
  * @module @deepseek-ai/dsh-compaction-basic/summarizer
  */
 
+import { setTimeout as sleep } from 'node:timers/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { contentHasImage, BlockAssembler, LlmError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
@@ -100,7 +102,7 @@ export type SummaryResult = {
   | {
     /** Complete provider output before the text-only summary projection. */
     rawOutput: ContentBlock[]
-    /** Identifies exactly one call through this context's `ctx.llm.stream()`. */
+    /** Identifies the successful call through this context's `ctx.llm.stream()` that produced `rawOutput`. */
     llmStreamCall: true
   }
   | {
@@ -114,12 +116,15 @@ export type SummaryResult = {
 /**
  * Run the default cache-reusing `ctx.llm.stream()` summarization call: replay
  * the conversation prefix, then append the compaction instruction as the final
- * user message so the provider's warm prefix cache is reused.
+ * user message so the provider's warm prefix cache is reused. A terminal
+ * `error` finish whose code the summary route's normal-mode retry policy lists
+ * re-sends the identical request after that policy's backoff, up to its retry
+ * count; failed attempts' output is discarded.
  * @param ctx - context providing the LLM service.
  * @param config - resolved backend configuration.
  * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
  * @param agent - supplies routed-model history, fallback model, and session id.
- * @param signal - optional cancellation forwarded to the adapter.
+ * @param signal - optional cancellation forwarded to the adapter and the retry wait.
  * @returns safe text-only summary blocks and the exact call envelope and output.
  */
 export async function summarizeWithLlm(
@@ -179,7 +184,6 @@ export async function summarizeWithLlm(
     }
   }
 
-  const assembler = new BlockAssembler()
   const messages: RequestMessage[] = [
     ...input.messages,
     deepFreeze({
@@ -198,7 +202,17 @@ export async function summarizeWithLlm(
     purpose: 'compaction',
     ...signal === undefined ? {} : { signal },
   }
-  for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
+  let assembler = await streamSummary(ctx, options)
+  for (let retry = 1; ; retry++) {
+    const scheduled = summaryRetry(ctx, options.provider, assembler.finish, retry)
+    if (scheduled === undefined) break
+    ctx.logger.warn(`compaction summary request to ${options.provider} failed with ${scheduled.code};`
+      + ` retry ${retry} of ${scheduled.maxRetries} after ${Math.round(scheduled.delayMs)} ms`)
+    await sleep(scheduled.delayMs, undefined, signal === undefined ? {} : { signal })
+      .catch((_aborted: unknown) => { /* The wait rejects only on abort; the signal's own reason is thrown next. */ })
+    signal?.throwIfAborted()
+    assembler = await streamSummary(ctx, options)
+  }
   const error = finishError(assembler.finish)
   if (error !== undefined) throw error
 
@@ -216,6 +230,45 @@ export async function summarizeWithLlm(
     maxTokens,
     ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
   }
+}
+
+/** Drain one summarization call into a fresh assembler. */
+async function streamSummary(ctx: Context, options: GenerateOptions): Promise<BlockAssembler> {
+  const assembler = new BlockAssembler()
+  for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
+  return assembler
+}
+
+/** One scheduled summary retry under the route's normal-mode policy. */
+interface ScheduledSummaryRetry {
+  readonly delayMs: number
+  readonly code: string
+  readonly maxRetries: number
+}
+
+/**
+ * Decide whether a finished summary attempt is retried, mirroring dsh-llm-retry's
+ * normal mode. Always-mode policies, non-error finishes, and withdrawn routes stop.
+ */
+function summaryRetry(ctx: Context, provider: string, finish: FinishReason, retry: number): ScheduledSummaryRetry | undefined {
+  if (finish.kind !== 'error') return undefined
+  // A withdrawn route has no policy; the original failure is reported instead.
+  if (!ctx.llm.listProviders().some(route => route.id === provider)) return undefined
+  const policy = ctx.llm.providerRetryPolicy(provider)
+  if (policy.mode !== 'normal' || retry > policy.maxRetries) return undefined
+  const { failure } = finish
+  if (!policy.retryableCodes.includes(failure.code)) return undefined
+  const requested = failure.providerRetryAfterMs
+  let delayMs: number
+  if (requested !== undefined && Number.isFinite(requested) && requested > 0) {
+    if (requested > policy.maxDelayMs) return undefined
+    delayMs = requested
+  } else {
+    const exponential = Math.min(policy.initialDelayMs * 2 ** Math.min(retry - 1, 1024), policy.maxDelayMs)
+    const jitter = 1 - policy.jitterRatio + 2 * policy.jitterRatio * Math.random()
+    delayMs = Math.min(exponential * jitter, policy.maxDelayMs)
+  }
+  return { delayMs, code: failure.code, maxRetries: policy.maxRetries }
 }
 
 /**
@@ -236,7 +289,7 @@ function finishError(finish: FinishReason): Error | undefined {
   switch (finish.kind) {
     case 'error':
     case 'aborted': {
-      return new LlmError(finish.failure.message, finish.failure.code, finish.failure)
+      return LlmError.fromFailure(finish.failure)
     }
     case 'max-tokens': {
       const error = new Error('summarization truncated at the token cap (incomplete checkpoint)') as Error & { code?: string }

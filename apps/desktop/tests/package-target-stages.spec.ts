@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { setImmediate } from 'node:timers/promises'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -200,7 +200,8 @@ it('requires one signing preflight before building, then records only the comple
   expect(writeFileSync).toHaveBeenCalledOnce()
   const record = JSON.parse(vi.mocked(writeFileSync).mock.calls[0]![1] as string) as { publicUrl: string }
   expect(record.publicUrl).toBe('https://updates.example.com/dsh-desk/0123456789abcdef0123456789abcdef/feeds/win-x64/')
-  expect(record).toMatchObject({ version: '1.0.0-beta.1', dshVersion: '0.2.2-rc.1' })
+  const core = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')) as { version: string }
+  expect(record).toMatchObject({ version: '1.0.0-beta.1', dshVersion: core.version })
 })
 
 it('initializes shared storage only after acquiring the preflight stage lock', async () => {

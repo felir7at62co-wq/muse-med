@@ -138,6 +138,10 @@ test('rekeyed Codex manager survives last-account logout and canonical re-login'
   const saved: string[] = []
   const removed: string[] = []
   const notified: string[] = []
+  const sharedLoad = Promise.withResolvers<CodexSession | undefined>()
+  const readersEntered = Promise.withResolvers<undefined>()
+  let shareLoads = false
+  let readers = 0
   const tokens = new AccountTokenManager<CodexSession>({
     provider: 'codex', displayName: 'Codex',
     makeOptions: () => ({
@@ -152,7 +156,13 @@ test('rekeyed Codex manager survives last-account logout and canonical re-login'
     onAccountRemoved: account => { notified.push(account) },
     io: {
       list: () => listAccounts('codex', path),
-      get: account => getAccountSession('codex', account, path),
+      get: account => {
+        if (shareLoads && readers < 2) {
+          if (++readers === 2) readersEntered.resolve(undefined)
+          return sharedLoad.promise
+        }
+        return getAccountSession('codex', account, path)
+      },
       save: async (account, value) => {
         saved.push(account)
         await saveAccountSession('codex', account, value, path)
@@ -178,11 +188,32 @@ test('rekeyed Codex manager survives last-account logout and canonical re-login'
   assert.equal((await tokens.session()).accessToken, 'fresh-login')
   assert.equal((await originalManager.peek())?.accessToken, 'fresh-login')
 
-  // Force concurrent calls to exercise the same refresh lock after rekeying.
-  const refreshed = await Promise.all([tokens.session(undefined, true), tokens.session(userKey, true)])
-  assert.deepEqual(refreshed.map(value => value.accessToken), ['refreshed-2', 'refreshed-2'])
-  assert.equal(refreshes, 2)
-  assert.deepEqual(saved, [emailKey, userKey], 'subsequent saves use the current identity')
+  // Both initial loads observe the same durable value before either caller can refresh it.
+  const current = await getAccountSession('codex', userKey, path)
+  assert.equal(current?.accessToken, 'fresh-login')
+  shareLoads = true
+  const refreshing = Promise.all([tokens.session(undefined, true), tokens.session(userKey, true)])
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      readersEntered.promise,
+      refreshing.then(() => { throw new Error('Forced refresh completed before both readers entered') }),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Both forced-refresh readers must reach the store')), 60_000)
+      }),
+    ])
+    assert.equal(readers, 2)
+    sharedLoad.resolve(current)
+    const refreshed = await refreshing
+    assert.deepEqual(refreshed.map(value => value.accessToken), ['refreshed-2', 'refreshed-2'])
+    assert.equal(refreshes, 2)
+    assert.deepEqual(saved, [emailKey, userKey], 'subsequent saves use the current identity')
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+    shareLoads = false
+    sharedLoad.resolve(current)
+    await Promise.allSettled([refreshing])
+  }
 
   revoked = true
   await assert.rejects(tokens.session(userKey, true),

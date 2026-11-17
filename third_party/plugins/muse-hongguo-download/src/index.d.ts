@@ -8,16 +8,23 @@ import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess';
 
 /** Deployment fields never store signing credentials. */
 export interface HongguoDownloadConfig {
+  maxMergeEpisodes?: number; maxMergeBytes?: number; mergeTimeoutMs?: number; mergeThreads?: number;
+  mergePreset?: string; mergeFrameRate?: number; mergeCrf?: number; mergeAudioBitrate?: number; mergeDurationToleranceMs?: number;
+  taskDirectory?: string; taskMaxRecords?: number; taskMaxStateBytes?: number; taskPollIntervalMs?: number;
+  taskControlWaitMs?: number; taskLockWaitMs?: number;
+  quality?: '1080p' | '720p' | 'auto';
   legacyBackend?: 'v1' | 'v2'; v2RuntimeDir?: string; v2StateDir?: string; v2Quality?: '1080p' | '720p' | '540p' | '480p' | '360p';
   v2PollIntervalMs?: number; v2RequestTimeoutMs?: number; v2StartupTimeoutMs?: number; v2ShutdownTimeoutMs?: number;
   v2MaxLineBytes?: number; v2MaxPendingRequests?: number; v2MaxEpisodesPerJob?: number; v2EpisodesAtOnce?: number; v2ConnectionsPerFile?: number;
   sourceMode?: 'legacy' | 'manifest' | 'public'; legacyAppDir?: string; signServer?: string;
   signTokenEnv?: string; catalogPath?: string; outputRoot?: string; mediaHosts?: string[]; mediaPorts?: number[];
   pythonExecutable?: string; ffmpegExecutable?: string; ffprobeExecutable?: string;
+  bytevc2Executable?: string; bytevc2Concurrency?: number; bytevc2Threads?: number;
+  decryptionConcurrency?: number; maxDecryptionBytes?: number; decryptionWorkerHeapMb?: number;
   javaExecutable?: string; signerStartupTimeoutMs?: number; signerHeapMb?: number;
   signerPollIntervalMs?: number; signerPortAttempts?: number;
   bootstrapDevices?: boolean; deviceBootstrapTimeoutMs?: number;
-  mediaUserAgent?: string; retryDelayMs?: number;
+  mediaUserAgent?: string; retryDelayMs?: number; sourceRetries?: number; sourceRetryDelayMs?: number; deferredSourceCooldownMs?: number;
   mediaRequestIntervalMs?: number; mediaIdleTimeoutMs?: number; mediaBatchSize?: number;
   mediaConnections?: number; mediaConnectionLimit?: number; mediaSegmentMinBytes?: number;
   emptySourceCooldownMs?: number; resumeSearchDepth?: number; resumeSearchEntries?: number;
@@ -27,24 +34,29 @@ export interface HongguoDownloadConfig {
 }
 export interface DownloadOptions {
   seriesIds: string[]; sourceMode?: 'legacy' | 'manifest' | 'public'; episodes?: number[]; outputDir?: string;
+  quality?: '1080p' | '720p' | 'auto';
 }
 export interface DownloadedEpisode {
   index: number; title: string; path: string; durationSeconds: number | null; bytes: number; sha256: string;
-  sourceBytes: number | null; sourceSha256: string | null; encryptedSource: boolean | null; origin?: 'engine-output';
+  sourceBytes: number | null; sourceSha256: string | null; encryptedSource: boolean | null; convertedFrom?: 'bytevc2'; origin?: 'engine-output';
+  width?: number | null; height?: number | null; quality?: string | null; videoCodec?: string | null;
   format: 'mp4'; validationLevel: 'ffprobe-full-decode-sha256'; fullDecodeChecked: true;
 }
 export interface DownloadFailure {
   ok: false; complete: false; code: string; message: string; sourceBackend?: 'v2';
   safeReason?: string; freeUsed?: number; freeLimit?: number;
-  upstreamCode?: number; sourceStage?: 'catalog' | 'video_model' | 'source_api'; retryable?: false;
+  upstreamCode?: number | string; sourceStage?: 'catalog' | 'video_model' | 'source_api'; retryable?: boolean;
+  sourceFailures?: { source: 'web' | 'app' | 'api'; code: string }[];
   httpStatus?: number; responseBytes?: number;
   path?: string; checkpoint?: string; cleanupPendingPath?: string; retainedEpisodeCount?: number; reusedEpisodeCount?: number;
+  requestedQuality?: '1080p' | '720p' | 'auto';
   remainingEpisodeCount?: number; discoveryTruncated?: boolean; resume?: DownloadOptions;
 }
 export interface DownloadResult {
   ok: true; sourceBackend?: 'v2'; sourceMode: 'legacy' | 'manifest' | 'public'; complete: boolean; path: string; validatedBytes: number;
   checkpoint: string; retainedEpisodeCount: number; reusedEpisodeCount: number; remainingEpisodeCount: number;
   newlyDownloadedEpisodeCount: number; discoveryTruncated: boolean; sourceIdentity: string | null;
+  requestedQuality: '1080p' | '720p' | 'auto';
   validationLevel: 'ffprobe-full-decode-sha256'; fullDecodeChecked: true; note: string;
   items: { seriesId: string; title: string; source: string; episodeCount: number; downloadedEpisodeCount: number; complete: boolean; path: string; episodes: DownloadedEpisode[] }[];
 }
@@ -53,25 +65,15 @@ export interface DownloadInfo {
   items: { seriesId: string; title: string; source: string; episodeCount: number; accessibleEpisodeCount: number | null;
     completeCatalog: boolean; downloaded: false; mediaUrlsVerified: false; fullSeriesAvailable: false | null }[];
 }
-export interface DownloadHealthFailure {
-  ok: false; code: string; message: string; sourceBackend?: 'v1' | 'v2';
-  authorization: 'not_checked'; mediaAvailability: 'not_tested'; verifiedDownload: false;
-}
-export interface DownloadHealth {
-  ok: true; sourceBackend: 'v2'; scope: 'local' | 'catalog'; sourceIdentity: string;
-  checks: { runtimeIntegrity: 'passed'; physicalDevice: 'matched'; engineHandshake: 'passed'; licenseBrokerHandshake: 'passed'; localLicenseStatus: 'read'; catalog: 'not_requested' | 'passed'; shutdown: 'confirmed' };
-  engine: { engineVersion: string; protocol: 2; build: number };
-  localLicenseStatus: { mode: string; reason: string; refreshed: false };
-  authorization: 'not_checked'; mediaAvailability: 'not_tested'; verifiedDownload: false;
-  items?: { seriesId: string; title: string; episodeCount: number; completeCatalog: boolean; mediaUrlsVerified: false; fullSeriesAvailable: null }[];
-}
 /** Downloads require a managed subprocess provider and workspace; external destinations additionally require full-access policy. */
 export class HongguoDownloadClient {
   constructor(config?: HongguoDownloadConfig, dependencies?: { subprocess?: SubprocessRuntime });
   readonly config: Readonly<Required<HongguoDownloadConfig>>;
   info(options: Pick<DownloadOptions, 'seriesIds' | 'sourceMode'>, signal?: AbortSignal): Promise<DownloadInfo | DownloadFailure>;
-  download(options: DownloadOptions, signal?: AbortSignal, workspace?: string, filePolicy?: SandboxExecutionPolicy): Promise<DownloadResult | DownloadFailure>;
-  health(options?: { seriesIds?: string[] }, signal?: AbortSignal): Promise<DownloadHealth | DownloadHealthFailure>;
+  resolveTaskRequest(options: DownloadOptions, workspace: string, filePolicy: SandboxExecutionPolicy): Promise<{ request: DownloadOptions & { quality: '1080p' | '720p' | 'auto'; sourceMode: 'legacy' | 'manifest' | 'public'; outputDir: string }; sourceIdentity: string | null; checkpointDirectory: string }>;
+  resolveTaskOutput(request: DownloadOptions & { outputDir: string }, workspace: string, filePolicy: SandboxExecutionPolicy): Promise<{ path: string; create(): Promise<void> }>;
+  download(options: DownloadOptions, signal?: AbortSignal, workspace?: string, filePolicy?: SandboxExecutionPolicy, observer?: { onProgress?(progress: Record<string, number | string | boolean>): void | Promise<void> }): Promise<DownloadResult | DownloadFailure>;
+
   dispose(): Promise<void>;
 }
 export const name: 'muse-hongguo-download';
@@ -79,3 +81,7 @@ export const inject: readonly ['tools', 'agents', 'subprocess'];
 export function resolveConfig(config?: HongguoDownloadConfig): Readonly<Required<HongguoDownloadConfig>>;
 /** Register tools on the owning Cordis context; its effects dispose owned downloads on unload. */
 export function apply(ctx: Context, config?: HongguoDownloadConfig): void;
+
+export type { HongguoTaskId, HongguoRunId, HongguoTaskCaller, HongguoTaskEnvelope, HongguoTaskResult } from './tasks.js';
+
+export type { HongguoMergeOptions, HongguoMergeResult } from './merger.js';

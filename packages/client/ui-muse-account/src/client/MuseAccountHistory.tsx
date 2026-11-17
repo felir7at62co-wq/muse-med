@@ -31,6 +31,7 @@ export function MuseAccountHistory({ t, value }: HistoryProps): ReactNode {
     : new Date(value.recordingSince).toLocaleString('zh-CN', { timeZone: value.timeZone, hour12: false })
   return <section className={css.card} aria-label={t('historyTitle')} data-muse-account-history>
     <h4 className={css.heading}>{t('historyTitle')}</h4>
+    {summary.requests === 0 && !value.limited ? <p className={css.note}>{t('historyEmpty')}</p> : null}
     <dl className={`${css.metrics} ${css.historyMetrics}`} data-muse-history-summary>
       {tokenMetrics.map(([key, label, reports]) => <div key={key} className={key === 'totalTokens' ? css.totalMetric : undefined}>
         <dt>{t(label)}</dt><dd>{number(summary[key])}<span className={css.metricCoverage}>{t('historyFieldReports', {

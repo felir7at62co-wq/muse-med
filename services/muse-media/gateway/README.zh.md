@@ -28,7 +28,7 @@
 
 ## MCP 与所属任务
 
-`POST /api/media/mcp/` 接受 JSON-RPC 的 `initialize`、`ping`、`notifications/initialized`、`tools/list` 和 `tools/call`。协商只声明已经实现的 2024/2025 协议版本，不声明现代发现方法。末尾斜线属于端点的一部分。支持 `parse_url`、`get_video`、`get_user`、`list_user_posts`、`list_comments`、`get_content_history`、`download_media` 和 `get_task_result`。不提供 `pool_status`、转写、管理方法或任意 URL/路径代理。`GET /api/media/status` 只返回就绪状态和当前调用者的配置额度。
+`POST /api/media/mcp/` 接受 JSON-RPC 的 `initialize`、`ping`、`notifications/initialized`、`tools/list` 和 `tools/call`。协商只声明已经实现的 2024/2025 协议版本，不声明现代发现方法。末尾斜线属于端点的一部分。支持 `parse_url`、`get_video`、`get_user`、`list_user_posts`、`list_comments`、`get_content_history`、`search_posts`、`search_users`、`list_mix_posts`、`list_user_mixes`、`download_media` 和 `get_task_result`。搜索和合集工具通过 DTK REST 读取：等待后仍在运行的答复成为 `pending` 回执，经 `get_task_result` 结算；登录、限速、风控和未找到等拒绝以固定代码结算为失败回执。不提供 `pool_status`、转写、管理方法或任意 URL/路径代理。`GET /api/media/status` 只返回就绪状态和当前调用者的配置额度。
 
 下载调用必须携带稳定的 `request_id`，相同的规范化参数会复用同一账号所属回执。同一键对应不同参数时拒绝请求。网关先提交预约，再调用上游。上游明确工具或 HTTP 拒绝会记为 `failed` 并携带固定公开代码。超时、不完整或畸形响应、进程丢失会留下 `unconfirmed` 和固定代码。这两种状态都不会自动重新提交。未完成任务使用网关生成的 `job_id`；`get_task_result` 只接受这个 ID，并在查找私有上游标识前验证归属。观察过期会释放预约，但保留回执和原任务以便核对；释放槽位不代表上游工作已停止。
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   desktopBuildRecordFilename,
   desktopUpdateChannel,
+  desktopWebsiteInstallerUrl,
   desktopUpdateMetadataFilename,
   resolveDesktopAutoUpdateConfig,
   resolveDesktopAutoUpdateEnvironment,
@@ -141,4 +142,30 @@ describe('desktop auto-update environment', () => {
     })
     expect(resolveDesktopGitHubUpdateConfig('0.1.6').channel).toBe('latest')
   })
+})
+
+it.each([
+  ['mac-arm64', 'dsh-latest-macos-arm64.dmg'],
+  ['mac-x64', 'dsh-latest-macos-x64.dmg'],
+  ['win-x64', 'dsh-latest-windows-x64.exe'],
+] as const)('uses the production origin for website target %s', (target, filename) => {
+  expect(desktopWebsiteInstallerUrl(target)).toBe(`https://download.deepseek.com/desktop/${filename}`)
+})
+
+it.each([['darwin', 'arm64', 'mac-arm64', 'stable-mac.yml'], ['darwin', 'x64', 'mac-x64', 'stable-mac.yml'], ['win32', 'x64', 'win-x64', 'stable.yml']] as const)
+('routes stable metadata and binaries separately for %s %s', (platform, arch, target, filename) => {
+  const config = resolveDesktopAutoUpdateConfig({ DSH_DESKTOP_AUTO_UPDATE_ENV: 'production', DSH_DESKTOP_UPDATE_CHANNEL: 'stable' }, platform, arch)
+  expect(config.channel).toBe('stable')
+  expect(config.keyPrefix).toBe(`dsh-desk/feeds/${target}`)
+  expect(config.binaryKeyPrefix).toBe(`dsh-desk/bin/${target}/stable`)
+  expect(desktopUpdateMetadataFilename('1.0.0', platform, config.channel)).toBe(filename)
+  expect(() => resolveDesktopAutoUpdateConfig({ DSH_DESKTOP_UPDATE_CHANNEL: 'invalid' }, platform, arch)).toThrow(/channel/u)
+})
+
+it.each([['darwin', 'arm64', 'mac-arm64', 'latest-mac.yml'], ['darwin', 'x64', 'mac-x64', 'latest-mac.yml'], ['win32', 'x64', 'win-x64', 'latest.yml']] as const)
+('retains the Muse latest feed and binary directory for %s %s', (platform, arch, target, filename) => {
+  const config = resolveDesktopAutoUpdateConfig({ DSH_DESKTOP_AUTO_UPDATE_ENV: 'production', DSH_DESKTOP_UPDATE_CHANNEL: 'latest' }, platform, arch)
+  expect(config.channel).toBe('latest')
+  expect(config.binaryKeyPrefix).toBe(`dsh-desk/bin/${target}/latest`)
+  expect(desktopUpdateMetadataFilename('1.0.0', platform, config.channel)).toBe(filename)
 })

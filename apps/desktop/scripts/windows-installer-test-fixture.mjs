@@ -24,14 +24,16 @@ export async function prepareInstallerTestFixtures(appRoot, output) {
  */
 export function createInstallerTestSource(source, appRoot) {
   const sourceDirectory = '!define INSTALLER_SOURCE_DIR "${__FILEDIR__}\\..\\installer"'
+  const restartBannerInclude = '!include "${__FILEDIR__}\\restart-banner.nsh"'
   const directoriesInclude = '!include "${__FILEDIR__}\\installer-directories.nsh"'
   const pagesInclude = '!include "${INSTALLER_SOURCE_DIR}\\pages.nsh"'
   const prerequisiteCall = '  Call MuseEnsureVCRuntime'
-  for (const marker of [sourceDirectory, directoriesInclude, pagesInclude, prerequisiteCall]) {
+  for (const marker of [sourceDirectory, restartBannerInclude, directoriesInclude, pagesInclude, prerequisiteCall]) {
     if (source.split(marker).length !== 2) throw new Error(`Installer fixture requires one production marker: ${marker}`)
   }
-  return source
+  const fixture = source
     .replace(sourceDirectory, `!define INSTALLER_SOURCE_DIR "${join(appRoot, 'installer')}"`)
+    .replace(restartBannerInclude, `!include "${join(appRoot, 'scripts', 'restart-banner.nsh')}"`)
     .replace(directoriesInclude, `!include "${join(appRoot, 'scripts', 'installer-directories.nsh')}"`)
     .replace(pagesInclude, '!include "${INSTALLER_TEST_PAGES_FILE}"')
     .replace(prerequisiteCall, `${prerequisiteCall}
@@ -48,6 +50,8 @@ export function createInstallerTestSource(source, appRoot) {
   ClearErrors
   Pop $1
   Pop $0`)
+  if (fixture.includes('!include "${__FILEDIR__}')) throw new Error('Installer fixture has an unresolved source-relative include')
+  return fixture
 }
 
 /** Instrument a private copy of the actual Finish callbacks and resolve includes at their original locations.

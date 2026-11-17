@@ -1,120 +1,387 @@
 // @vitest-environment jsdom
-/** Real inline media and its Session-scoped inventory retain playback and delivery identity. */
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+/** Inline players retain source identity, native controls, and bounded observation. */
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionVideoSource, SessionVideoSourceId } from '@deepseek-ai/dsh-session-video'
+import type { SessionVideoSource, SessionVideoSourceId, SessionVideoShotId } from '@deepseek-ai/dsh-session-video'
 import { DeliveredVideoCard, GeneratedVideoCards, InlineVideoCard } from '../src/client/InlineVideoCard.tsx'
-import { createVideoStore } from '../src/client/store.ts'
+import type { VideoState } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
 
-let top = 240, nextFrame = 0, paused = 0
-const frames = new Map<number, FrameRequestCallback>()
-const context = {
-  setTransform: vi.fn(), save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(),
-  bezierCurveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), fill: vi.fn(), rect: vi.fn(),
-  roundRect: vi.fn(), clip: vi.fn(), globalAlpha: 1, fillStyle: '',
+type Props = ComponentProps<typeof InlineVideoCard>
+const source = (id: string, url: string | null): SessionVideoSource => ({
+  id: brandString<SessionVideoSourceId>(id), label: id, origin: 'generated', path: `/work/${id}.mp4`, eventSeq: 4,
+  presentedIndex: null, callId: null, status: 'local', version: 'v1', playbackUrl: url, remoteUrl: null, issue: null,
+})
+const first = source('first', '/video/first'), second = source('second', '/video/second')
+let state: VideoState
+let notifyVisibility: ((visible: boolean) => void)[]
+let actions: Props['actions']
+const input: Parameters<Parameters<Props['useInput']>[0]>[0] = {
+  draft: 'existing', attachmentIds: [], draftRev: 7, phase: 'plain', occurrences: [], queue: [],
 }
-const browserContext: Pick<CanvasRenderingContext2D, keyof typeof context> = context
+const insertText = vi.fn(() => true), persistDraft = vi.fn(), submit = vi.fn()
+const loadVideo = vi.fn(), pauseVideo = vi.fn()
+const inputActions: Props['inputActions'] = {
+  insertQuote: vi.fn(), captureInsertion: vi.fn(() => ({ start: 0, end: 0, draftRev: 7 })), insertText,
+  setDraft: vi.fn(), persistDraft, addAttachments: vi.fn(), removeAttachment: vi.fn(), pruneAttachments: vi.fn(), submit,
+}
+function shared(): Omit<Props, 'source' | 'sourceUrl' | 'label'> {
+  return { useStore: selector => selector(state), actions, useInput: selector => selector(input), inputActions,
+    pixelsPerSecond: 48, listVideos: vi.fn(), detectShots: vi.fn(), t: makeTranslate(en) }
+}
+function props(original: SessionVideoSource | undefined, sourceUrl = original?.playbackUrl ?? '/original'): Props {
+  return { source: original, sourceUrl, label: original?.label ?? 'Original', ...shared() }
+}
 beforeEach(() => {
-  top = 240; nextFrame = 0; paused = 0; frames.clear()
-  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame })
-  vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames.delete(id) })
-  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => { paused++ })
-  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => browserContext as CanvasRenderingContext2D)
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    if (this.hasAttribute('data-muse-inline-video')) return new DOMRect(200, top, 400, 240)
-    if (this.hasAttribute('data-muse-video-anchor')) return new DOMRect(350, 60, 100, 40)
-    if (this.hasAttribute('data-chat-frame')) return new DOMRect(100, 50, 600, 600)
-    return new DOMRect(100, 140, 600, 500)
+  vi.clearAllMocks()
+  state = { sources: [first, second], analyses: {}, detectErrors: {}, open: false, selected: null,
+    observed: {}, issue: null, inventoryRevision: 0 }
+  actions = { inventory: vi.fn(), analysis: vi.fn(), detectionFailed: vi.fn(), retryFailed: vi.fn(), toggle: vi.fn(),
+    openSource: vi.fn(), observe: vi.fn(), refreshInventory: vi.fn() }
+  notifyVisibility = []
+  vi.stubGlobal('IntersectionObserver', class implements IntersectionObserver {
+    readonly root = null
+    readonly rootMargin = '0px'
+    readonly scrollMargin = '0px'
+    readonly thresholds = [0]
+    constructor(callback: IntersectionObserverCallback) {
+      notifyVisibility.push((visible) => {
+        callback([{ isIntersecting: visible } as IntersectionObserverEntry], this)
+      })
+    }
+    observe() {}
+    unobserve() {}
+    takeRecords(): IntersectionObserverEntry[] { return [] }
+    disconnect() {}
   })
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(loadVideo)
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(pauseVideo)
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-function source(id: string, value: Partial<SessionVideoSource> = {}): SessionVideoSource {
-  return { id: brandString<SessionVideoSourceId>(id), label: id, origin: 'generated', path: `/work/${id}.mp4`,
-    eventSeq: 3, presentedIndex: null, callId: null, status: 'local', version: 'v1', playbackUrl: `/api/${id}`,
-    remoteUrl: null, issue: null, ...value }
-}
-function shared(items: SessionVideoSource[] = []) {
-  const store = createVideoStore().create(SessionId('inline-video'))
-  store.actions.inventory({ sessionId: SessionId('inline-video'), sources: items, complete: true, issues: [] })
-  return { useStore: bindSnapshotSelector(store), actions: store.actions, store, t: makeTranslate(en),
-    listVideos: vi.fn(), detectShots: vi.fn(), pixelsPerSecond: 48 }
-}
-function scrollTo(view: ReturnType<typeof render>, progress: number) {
-  top = 184 - progress * 260
-  const scroll = view.container.querySelector('[data-chat-scroll]')
-  if (scroll === null) throw new Error('Missing conversation scroller')
-  fireEvent.scroll(scroll)
-  const callbacks = [...frames.values()]; frames.clear()
-  act(() => { for (const callback of callbacks) callback(0) })
-}
-function wrap(card: React.ReactNode) {
-  return <div data-chat-frame><button data-muse-video-anchor>Library</button><div data-chat-scroll>{card}</div></div>
-}
-
-// Unit slot inputs retain consumed fields; unrelated Host slot hooks are absent.
-function slotInput<T>(props: Partial<T>): T { return props as T }
-
-it.each([true, false])('collects and opens only an authorized source (bound=%s)', (bound) => {
-  const value = source('clip'), state = shared([value])
-  const view = render(wrap(<InlineVideoCard {...state} source={bound ? value : undefined} sourceUrl="/api/clip" label="Clip" />))
-  scrollTo(view, 0.5)
-  fireEvent.click(view.getByRole('button', { name: en.collected }))
-  expect(state.store.getSnapshot().open).toBe(bound)
-  scrollTo(view, 1)
-  expect(state.store.getSnapshot().collected[bound ? value.id : '/api/clip']).toBe(true)
-  view.unmount()
-  expect(state.store.getSnapshot().collected[bound ? value.id : '/api/clip']).toBe(false)
+it('keeps each original source and source selection independent', () => {
+  const view = render(<><InlineVideoCard {...props(first)} /><InlineVideoCard {...props(second)} /></>)
+  const cards = view.container.querySelectorAll<HTMLElement>('[data-muse-inline-video]')
+  expect(cards).toHaveLength(2)
+  expect(within(cards[0]!).getByLabelText('first').getAttribute('src')).toBe('/video/first')
+  expect(within(cards[1]!).getByLabelText('second').getAttribute('src')).toBe('/video/second')
+  fireEvent.change(within(cards[1]!).getByLabelText(en.library), { target: { value: first.id } })
+  expect(within(cards[0]!).getByLabelText('first').getAttribute('src')).toBe('/video/first')
+  expect(within(cards[1]!).getByLabelText('first').getAttribute('src')).toBe('/video/first')
 })
 
-it('retries the same source and releases the previous URL on replacement and unmount', () => {
-  const state = shared(), value = source('first')
-  const view = render(<InlineVideoCard {...state} source={value} sourceUrl="/api/first" label="First" />)
-  const video = view.getByLabelText('First') as HTMLVideoElement
-  fireEvent.error(video)
+it('retains the authorized delivery URL and native controls when the matched source cannot resolve a playback URL', () => {
+  const missing = source('missing', null)
+  state = { ...state, sources: [missing] }
+  const view = render(<InlineVideoCard {...props(missing, '/authorized/delivery')} />)
+  const video = view.getByLabelText('missing') as HTMLVideoElement
+  expect(video.getAttribute('src')).toBe('/authorized/delivery')
+  expect(video.controls).toBe(true)
+})
+
+it('keeps the original authorized player while the source inventory is unresolved', () => {
+  const view = render(<InlineVideoCard {...props(undefined, '/authorized/delivery')} />)
+  const video = view.getByLabelText('Original') as HTMLVideoElement
+  expect(video.getAttribute('src')).toBe('/authorized/delivery')
+  expect(video.controls).toBe(true)
+})
+
+it('does not request observation until visible and releases it when hidden or unmounted', () => {
+  const view = render(<InlineVideoCard {...props(first)} />)
+  expect(actions.observe).not.toHaveBeenCalled()
+  act(() => { notifyVisibility[0]!(true) })
+  expect(actions.observe).toHaveBeenLastCalledWith(first.id, 1)
+  act(() => { notifyVisibility[0]!(false) })
+  expect(actions.observe).toHaveBeenLastCalledWith(first.id, -1)
+  act(() => { notifyVisibility[0]!(true) })
+  view.unmount()
+  expect(actions.observe).toHaveBeenLastCalledWith(first.id, -1)
+})
+
+it('keeps source selection available when a chosen video disappears from the inventory', () => {
+  const input = props(first)
+  const view = render(<InlineVideoCard {...input} />)
+  fireEvent.change(view.getByLabelText(en.library), { target: { value: second.id } })
+  state = { ...state, sources: [first] }
+  view.rerender(<InlineVideoCard {...input} />)
   expect(view.getByRole('alert').textContent).toContain(en.unavailable)
+  fireEvent.change(view.getByLabelText(en.library), { target: { value: first.id } })
+  expect(view.getByLabelText('first').getAttribute('src')).toBe('/video/first')
+})
+
+it('retains native playback and offers retry when cut detection fails', () => {
+  state = { ...state, detectErrors: { [first.id]: 'v1' } }
+  const view = render(<InlineVideoCard {...props(first)} />)
+  const video = view.getByLabelText('first') as HTMLVideoElement
+  expect(video.controls).toBe(true)
+  expect(view.getByRole('status').textContent).toContain(en.detectionFailed)
   fireEvent.click(view.getByRole('button', { name: en.retry }))
-  expect(view.queryByRole('alert')).toBeNull()
-  expect(video.getAttribute('src')).toBe('/api/first')
-  view.rerender(<InlineVideoCard {...state} source={source('second')} sourceUrl="/api/second" label="Second" />)
-  expect(view.getByLabelText('Second')).toBe(video)
-  expect(video.getAttribute('src')).toBe('/api/second')
-  expect(paused).toBeGreaterThan(0)
-  view.unmount()
-  expect(video.hasAttribute('src')).toBe(false)
+  expect(actions.retryFailed).toHaveBeenCalledOnce()
 })
 
-it('matches delivered cards by both event sequence and presented index', () => {
-  const expected = source('matched', { eventSeq: 7, presentedIndex: 2 })
-  const state = shared([source('wrong-seq', { presentedIndex: 2 }), source('wrong-index', { eventSeq: 7, presentedIndex: 1 }), expected])
-  const input = slotInput<Parameters<typeof DeliveredVideoCard>[0]>({
-    ...state, sourceUrl: '/delivered', label: 'Delivered', path: '/work/matched.mp4', seq: 7, index: 2,
-  })
-  const view = render(wrap(<DeliveredVideoCard {...input} />))
-  scrollTo(view, 0.5)
-  fireEvent.click(view.getByRole('button', { name: en.collected }))
-  expect(state.store.getSnapshot().selected).toBe(expected.id)
+it('lets the viewer return to the authorized original when the entire inventory disappears', () => {
+  const input = props(first, '/authorized/original')
+  const view = render(<InlineVideoCard {...input} />)
+  fireEvent.change(view.getByLabelText(en.library), { target: { value: second.id } })
+  state = { ...state, sources: [] }
+  view.rerender(<InlineVideoCard {...input} />)
+  expect(view.getByRole('alert').textContent).toContain(en.unavailable)
+  fireEvent.click(view.getByRole('button', { name: en.originalVideo }))
+  expect(view.getByLabelText(first.label).getAttribute('src')).toBe('/authorized/original')
 })
 
-it('shows only unpresented generated videos in the completed turn and suppresses matching delivered paths', () => {
-  const values = [source('visible'), source('before', { eventSeq: 1 }), source('after', { eventSeq: 9 }),
-    source('remote', { origin: 'presented' }), source('presented', { presentedIndex: 1 }),
-    source('no-playback', { playbackUrl: null }), source('duplicate', { path: '/same.mp4' }),
-    source('delivery', { path: '/same.mp4', presentedIndex: 2 }), source('null-path', { path: null })]
-  const state = shared(values)
-  const turn = { start: { seq: 2 }, end: { seq: 5 } } as Parameters<typeof GeneratedVideoCards>[0]['turn']
-  const input = slotInput<Parameters<typeof GeneratedVideoCards>[0]>({ ...state, turn, seq: 8 })
-  const view = render(<GeneratedVideoCards {...input} />)
-  expect([...view.container.querySelectorAll('video')].map(video => video.getAttribute('src'))).toEqual(['/api/visible', '/api/null-path'])
-  const missingStart = { ...input, turn: { start: undefined, end: undefined } } as Parameters<typeof GeneratedVideoCards>[0]
-  view.rerender(<GeneratedVideoCards {...missingStart} />)
-  expect(view.container.querySelector('video')).toBeNull()
-  const openTurn = { ...input, turn: { start: { seq: 2 }, end: undefined } } as Parameters<typeof GeneratedVideoCards>[0]
-  view.rerender(<GeneratedVideoCards {...openTurn} />)
-  expect(view.container.querySelectorAll('video')).toHaveLength(2)
+it('appends the selected source-local range to the existing revision-guarded draft', () => {
+  state = { ...state, analyses: { [second.id]: { sourceId: second.id, sourceVersion: 'v1', state: 'ready',
+    durationSeconds: 4, width: 320, height: 180, method: 'ffmpeg-scene', threshold: 0.3, issue: null, shots: [
+      { id: brandString<SessionVideoShotId>('second-shot'), index: 1, startSeconds: 1, endSeconds: 3, thumbnail: null },
+    ] } } }
+  const view = render(<InlineVideoCard {...props(second)} />)
+  fireEvent.click(view.getByRole('button', { name: /^Shot 1/u }))
+  fireEvent.click(view.getByRole('button', { name: en.redo }))
+  expect(insertText).toHaveBeenCalledWith(expect.stringContaining('/work/second.mp4'), { start: 8, end: 8, draftRev: 7 })
+  expect(insertText).toHaveBeenCalledWith(expect.stringContaining('second-shot'), expect.anything())
+  expect(insertText).toHaveBeenCalledWith(expect.stringContaining('1.000–3.000'), expect.anything())
+  expect(persistDraft).toHaveBeenCalledOnce()
+  expect(submit).not.toHaveBeenCalled()
+  fireEvent.change(view.getByLabelText(en.library), { target: { value: first.id } })
+  expect((view.getByRole('button', { name: en.redo }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+it('does not persist a modification rejected by the draft revision guard', () => {
+  state = { ...state, analyses: { [first.id]: { sourceId: first.id, sourceVersion: 'v1', state: 'ready',
+    durationSeconds: 3, width: 320, height: 180, method: 'ffmpeg-scene', threshold: 0.3, issue: null, shots: [
+      { id: brandString<SessionVideoShotId>('first-shot'), index: 1, startSeconds: 0, endSeconds: 3, thumbnail: null },
+    ] } } }
+  insertText.mockReturnValueOnce(false)
+  const view = render(<InlineVideoCard {...props(first)} />)
+  fireEvent.click(view.getByRole('button', { name: /^Shot 1/u }))
+  fireEvent.click(view.getByRole('button', { name: en.redo }))
+  expect(persistDraft).not.toHaveBeenCalled()
+  expect(submit).not.toHaveBeenCalled()
+})
+
+it('keeps the same player and position when the original source appears in the inventory', () => {
+  state = { ...state, sources: [] }
+  const view = render(<InlineVideoCard {...props(undefined, '/authorized/original')} />)
+  const original = view.getByLabelText('Original') as HTMLVideoElement
+  original.currentTime = 1.25
+  fireEvent.seeking(original)
+  fireEvent.timeUpdate(original)
+  pauseVideo.mockClear()
+  loadVideo.mockClear()
+  state = { ...state, sources: [first] }
+  view.rerender(<InlineVideoCard {...props(first, '/authorized/original')} />)
+  const matched = view.getByLabelText(first.label) as HTMLVideoElement
+  expect(matched).toBe(original)
+  expect(matched.currentTime).toBe(1.25)
+  expect(matched.getAttribute('src')).toBe('/authorized/original')
+  expect(pauseVideo).not.toHaveBeenCalled()
+  expect(loadVideo).not.toHaveBeenCalled()
+})
+
+it('does not show stale cuts or enable modification when the source file version changes', () => {
+  state = { ...state, analyses: { [first.id]: { sourceId: first.id, sourceVersion: 'v1', state: 'ready',
+    durationSeconds: 3, width: 320, height: 180, method: 'ffmpeg-scene', threshold: 0.3, issue: null, shots: [
+      { id: brandString<SessionVideoShotId>('v1-shot'), index: 1, startSeconds: 0, endSeconds: 3, thumbnail: null },
+    ] } } }
+  const view = render(<InlineVideoCard {...props(first, '/delivery/unversioned')} />)
+  expect(view.getByLabelText('first').getAttribute('src')).toBe('/video/first')
+  fireEvent.click(view.getByRole('button', { name: /^Shot 1/u }))
+  const changed = { ...first, version: 'v2', playbackUrl: '/video/first?version=v2' }
+  state = { ...state, sources: [changed, second] }
+  view.rerender(<InlineVideoCard {...props(changed, '/delivery/unversioned')} />)
+  expect(view.getByLabelText('first').getAttribute('src')).toBe('/video/first?version=v2')
+  expect(view.queryByRole('button', { name: /^Shot 1/u })).toBeNull()
+  expect((view.getByRole('button', { name: en.redo }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+it('requires a deliberate switch before using cuts after unbound playback has started', () => {
+  state = { ...state, sources: [] }
+  const view = render(<InlineVideoCard {...props(undefined, '/delivery/unversioned')} />)
+  const video = view.getByLabelText('Original') as HTMLVideoElement
+  fireEvent.play(video)
+  state = { ...state, sources: [first], analyses: { [first.id]: { sourceId: first.id, sourceVersion: 'v1', state: 'ready',
+    durationSeconds: 3, width: 320, height: 180, method: 'ffmpeg-scene', threshold: 0.3, issue: null, shots: [
+      { id: brandString<SessionVideoShotId>('v1-shot'), index: 1, startSeconds: 0, endSeconds: 3, thumbnail: null },
+    ] } } }
+  view.rerender(<InlineVideoCard {...props(first, '/delivery/unversioned')} />)
+  expect(view.getByLabelText('first').getAttribute('src')).toBe('/delivery/unversioned')
+  expect(view.queryByRole('button', { name: /^Shot 1/u })).toBeNull()
+  expect((view.getByRole('button', { name: en.redo }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(view.getByRole('button', { name: en.bindVideo }))
+  expect(view.getByLabelText('first').getAttribute('src')).toBe('/video/first')
+  expect(view.getByRole('button', { name: /^Shot 1/u })).toBeTruthy()
+})
+
+it('keeps remote playback while refusing unbound cuts and offering an inventory retry', () => {
+  const remote = { ...first, status: 'remote-only' as const, version: 'url:v1', playbackUrl: 'https://example.test/video.mp4' }
+  state = { ...state, sources: [remote], analyses: { [remote.id]: { sourceId: remote.id, sourceVersion: 'url:v1', state: 'ready',
+    durationSeconds: 3, width: 320, height: 180, method: 'ffmpeg-scene', threshold: 0.3, issue: null, shots: [
+      { id: brandString<SessionVideoShotId>('remote-shot'), index: 1, startSeconds: 0, endSeconds: 3, thumbnail: null },
+    ] } } }
+  const view = render(<InlineVideoCard {...props(remote)} />)
+  expect(view.getByLabelText('first').getAttribute('src')).toBe(remote.playbackUrl)
+  expect(view.queryByRole('button', { name: /^Shot 1/u })).toBeNull()
+  expect((view.getByRole('button', { name: en.redo }) as HTMLButtonElement).disabled).toBe(true)
+  expect(view.getByRole('status').textContent).toContain(en.awaitBoundVideo)
+  fireEvent.click(view.getByRole('button', { name: en.retry }))
+  expect(actions.refreshInventory).toHaveBeenCalledOnce()
+})
+
+it('returns to the original delivery after an unbound selected source disappears', () => {
+  const remote = { ...second, status: 'remote-only' as const, version: 'url:v1', playbackUrl: 'https://example.test/second.mp4' }
+  state = { ...state, sources: [first, remote] }
+  const input = props(first, '/authorized/original')
+  const view = render(<InlineVideoCard {...input} />)
+  fireEvent.change(view.getByLabelText(en.library), { target: { value: remote.id } })
+  fireEvent.play(view.getByLabelText(remote.label))
+  state = { ...state, sources: [] }
+  view.rerender(<InlineVideoCard {...input} />)
+  fireEvent.click(view.getByRole('button', { name: en.originalVideo }))
+  expect(view.getByLabelText(first.label).getAttribute('src')).toBe('/authorized/original')
+})
+
+it('keeps ongoing remote playback when a generated source becomes locally version bound', () => {
+  const remote = { ...first, status: 'remote-only' as const, version: 'url:v1', playbackUrl: 'https://example.test/first.mp4' }
+  state = { ...state, sources: [remote] }
+  const view = render(<InlineVideoCard {...props(remote)} />)
+  const video = view.getByLabelText(remote.label) as HTMLVideoElement
+  video.currentTime = 1.25
+  fireEvent.play(video)
+  pauseVideo.mockClear()
+  loadVideo.mockClear()
+  const local = { ...remote, status: 'local' as const, playbackUrl: '/video/first?version=url-v1' }
+  state = { ...state, sources: [local] }
+  view.rerender(<InlineVideoCard {...props(local)} />)
+  const retained = view.getByLabelText(local.label) as HTMLVideoElement
+  expect(retained).toBe(video)
+  expect(retained.currentTime).toBe(1.25)
+  expect(retained.getAttribute('src')).toBe(remote.playbackUrl)
+  expect(pauseVideo).not.toHaveBeenCalled()
+  expect(loadVideo).not.toHaveBeenCalled()
+  fireEvent.click(view.getByRole('button', { name: en.bindVideo }))
+  expect(retained.getAttribute('src')).toBe(local.playbackUrl)
+})
+
+it('blocks shot modification after a bound playback error and restores it only after media recovery', () => {
+  state = { ...state, analyses: { [first.id]: { sourceId: first.id, sourceVersion: 'v1', state: 'ready',
+    durationSeconds: 3, width: 320, height: 180, method: 'ffmpeg-scene', threshold: 0.3, issue: null, shots: [
+      { id: brandString<SessionVideoShotId>('first-shot'), index: 1, startSeconds: 0, endSeconds: 3, thumbnail: null },
+    ] } } }
+  const view = render(<InlineVideoCard {...props(first)} />)
+  fireEvent.click(view.getByRole('button', { name: /^Shot 1/u }))
+  expect((view.getByRole('button', { name: en.redo }) as HTMLButtonElement).disabled).toBe(false)
+  const video = view.getByLabelText('first') as HTMLVideoElement
+  fireEvent.error(video)
+  expect((view.getByRole('button', { name: en.redo }) as HTMLButtonElement).disabled).toBe(true)
+  expect(view.queryByRole('button', { name: /^Shot 1/u })).toBeNull()
+  fireEvent.click(within(view.getByRole('status')).getByRole('button', { name: en.retry }))
+  expect(actions.refreshInventory).toHaveBeenCalledOnce()
+  fireEvent.loadedMetadata(video)
+  expect(view.getByRole('button', { name: /^Shot 1/u })).toBeTruthy()
+  expect((view.getByRole('button', { name: en.redo }) as HTMLButtonElement).disabled).toBe(false)
+})
+
+const readyAnalysis = (target: SessionVideoSource, shots: [number, number][]) => ({ sourceId: target.id,
+  sourceVersion: target.version ?? '', state: 'ready' as const, durationSeconds: 4, width: 320, height: 180,
+  method: 'ffmpeg-scene' as const, threshold: 0.3, issue: null, shots: shots.map(([start, end], index) => ({
+    id: brandString<SessionVideoShotId>(`${target.id}-shot-${index + 1}`), index: index + 1, startSeconds: start,
+    endSeconds: end, thumbnail: null })) })
+
+it('treats the card as visible and requests observation immediately when IntersectionObserver is unavailable', () => {
+  vi.stubGlobal('IntersectionObserver', undefined)
+  const view = render(<InlineVideoCard {...props(first)} />)
+  expect(actions.observe).toHaveBeenCalledWith(first.id, 1)
+  expect(view.getByRole('status').textContent).toContain(en.detecting)
+})
+
+it('selects the owning source and its cut when the viewer picks a shot from another source', () => {
+  state = { ...state, analyses: { [second.id]: readyAnalysis(second, [[0, 2]]) } }
+  const view = render(<InlineVideoCard {...props(first)} />)
+  fireEvent.click(view.getByRole('button', { name: /^Shot 1/u }))
+  expect((view.getByLabelText(en.library) as HTMLSelectElement).value).toBe(second.id)
+  expect(view.getByLabelText('second').getAttribute('src')).toBe('/video/second')
+  expect((view.getByRole('button', { name: en.redo }) as HTMLButtonElement).disabled).toBe(false)
+})
+
+it('moves to the last shot on End and ignores a seek to a gap before the first shot', () => {
+  state = { ...state, sources: [first, second], analyses: {
+    [first.id]: readyAnalysis(first, [[1, 3]]), [second.id]: readyAnalysis(second, [[0, 2]]) } }
+  const view = render(<InlineVideoCard {...props(first)} />)
+  const slider = view.getByRole('slider', { name: en.playhead })
+  fireEvent.keyDown(slider, { key: 'Home' })
+  expect(view.getAllByRole('button', { name: /^Shot \d/u }).every(button => button.getAttribute('aria-pressed') === 'false')).toBe(true)
+  expect((view.getByLabelText(en.library) as HTMLSelectElement).value).toBe(first.id)
+  fireEvent.keyDown(slider, { key: 'End' })
+  expect((view.getByLabelText(en.library) as HTMLSelectElement).value).toBe(second.id)
+  expect(view.getByRole('button', { name: /^Shot 2/u }).getAttribute('aria-pressed')).toBe('true')
+})
+
+it('names the redo range by source id when the source has no file path', () => {
+  const unnamed = { ...first, path: null }
+  state = { ...state, sources: [unnamed], analyses: { [unnamed.id]: readyAnalysis(unnamed, [[0, 3]]) } }
+  const view = render(<InlineVideoCard {...props(unnamed)} />)
+  fireEvent.click(view.getByRole('button', { name: /^Shot 1/u }))
+  fireEvent.click(view.getByRole('button', { name: en.redo }))
+  const prompt = makeTranslate(en)('redoPrompt', { name: unnamed.label, source: unnamed.id, id: `${unnamed.id}-shot-1`,
+    start: '0.000', end: '3.000' })
+  expect(insertText).toHaveBeenCalledWith(`\n\n${prompt}`, { start: 8, end: 8, draftRev: 7 })
+})
+
+it('keeps a bound source bound when the viewer interacts with its player', () => {
+  state = { ...state, analyses: { [first.id]: readyAnalysis(first, [[0, 3]]) } }
+  const view = render(<InlineVideoCard {...props(first)} />)
+  fireEvent.play(view.getByLabelText('first'))
+  expect(view.queryByRole('button', { name: en.bindVideo })).toBeNull()
+  expect(view.getByRole('button', { name: /^Shot 1/u })).toBeTruthy()
+})
+
+const deliveredProps = (seq: number, index: number) => ({ ...shared(), sourceUrl: '/authorized/delivery',
+  label: 'Delivered', path: '/work/out.mp4', seq, index }) as ComponentProps<typeof DeliveredVideoCard>
+
+it('binds a delivered video card to the presented source declared at its event and index', () => {
+  const presented = { ...first, origin: 'presented' as const, eventSeq: 5, presentedIndex: 1 }
+  state = { ...state, sources: [second, presented] }
+  const view = render(<DeliveredVideoCard {...deliveredProps(5, 1)} />)
+  expect((view.getByLabelText(en.library) as HTMLSelectElement).value).toBe(presented.id)
+  expect(view.getByLabelText('first').getAttribute('src')).toBe('/video/first')
+})
+
+const generated = (id: string, overrides: Partial<SessionVideoSource>): SessionVideoSource =>
+  ({ ...source(id, `/video/${id}`), ...overrides })
+const tailProps = (turn: { start?: number; end?: number }, seq: number) => ({ ...shared(), seq,
+  turn: { start: turn.start === undefined ? undefined : { seq: turn.start },
+    end: turn.end === undefined ? undefined : { seq: turn.end } } }) as ComponentProps<typeof GeneratedVideoCards>
+
+it('lists only generated, unpresented, playable videos recorded inside the closing Turn', () => {
+  const presented = generated('presented', { origin: 'presented', presentedIndex: 0, path: '/work/shared.mp4', eventSeq: 4 })
+  state = { ...state, sources: [
+    generated('kept', { eventSeq: 4 }),
+    generated('before', { eventSeq: 1 }),
+    generated('after', { eventSeq: 9 }),
+    generated('workspace', { origin: 'workspace' }),
+    generated('delivered', { presentedIndex: 2, path: '/work/delivered.mp4' }),
+    generated('unplayable', { playbackUrl: null }),
+    generated('duplicate', { path: '/work/shared.mp4' }),
+    presented,
+  ] }
+  const view = render(<GeneratedVideoCards {...tailProps({ start: 3, end: 6 }, 6)} />)
+  expect(view.container.querySelectorAll('[data-muse-inline-video]')).toHaveLength(1)
+  expect(view.getByLabelText('kept').getAttribute('src')).toBe('/video/kept')
+})
+
+it('uses the tail event as the Turn end while the Turn is still open', () => {
+  state = { ...state, sources: [generated('open', { eventSeq: 8 }), generated('later', { eventSeq: 12 })] }
+  const view = render(<GeneratedVideoCards {...tailProps({ start: 3 }, 10)} />)
+  expect(view.getByLabelText('open')).toBeTruthy()
+  expect(view.queryByLabelText('later')).toBeNull()
+})
+
+it('renders nothing for a Turn without a recorded start', () => {
+  state = { ...state, sources: [generated('orphan', { eventSeq: 4 })] }
+  const view = render(<GeneratedVideoCards {...tailProps({}, 6)} />)
+  expect(view.container.querySelector('[data-muse-inline-video]')).toBeNull()
 })

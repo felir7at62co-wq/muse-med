@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import Sessions from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import Agents from '@deepseek-ai/dsh-agent'
+import Subagents from '@deepseek-ai/dsh-subagent'
+import { bindSubagentActivation } from '../../../packages/subagent/subagent/tests/manager-internals.ts'
 import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
@@ -161,14 +163,17 @@ it('denies the actual four schedule tools to live children in native and PTC exe
     await ctx.plugin(Llm)
     ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
     await ctx.plugin(AgentLoop, { agents: [] }).await()
+    await ctx.plugin(Subagents).await()
     await ctx.plugin(DelegationPolicy).await()
     await ctx.plugin(ToolSchedule).await()
     const parent = (await ctx.agents.create({ sessionId: SessionId('schedule-parent'),
       agentOptions: { provider: 'mock', model: 'mock' } })).agent
-    const child = (await ctx.agents.create({ sessionId: SessionId('schedule-child'), parentAgent: parent,
+    const child = (await ctx.agents.create({ sessionId: SessionId('schedule-child'),
+      meta: { origin: 'subagent', parentSession: parent.id },
+      setup: (_scope, agent) => { bindSubagentActivation(ctx, agent, parent) },
       agentOptions: { provider: 'mock', model: 'mock' } })).agent
-    expect(ctx.agents.roots()).toContain(parent)
-    expect(ctx.agents.roots()).not.toContain(child)
+    expect(ctx.subagents.rootOf(parent)).toBe(parent)
+    expect(ctx.subagents.rootOf(child)).toBe(parent)
     expect(ctx.tools.schemas(parent).map(tool => tool.name).sort()).toEqual(reminderTools)
     expect(ctx.tools.schemas(child)).toEqual([])
     const signal = new AbortController().signal

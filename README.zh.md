@@ -18,7 +18,7 @@ muse-med 与底层框架目前都处于 _开发者预览_ 阶段。**未来将�
 
 桌面预览版在一个短剧预设中结合剧本准备、用户提供的视觉参考、资产审核、镜头规划、BGM 选择和分集交付。参考图由用户提供，不要求或附带小红书接入。参考审核和用户确认是技能层面的工作流要求，不是每个收费工具都会强制执行的授权检查。
 
-Windows 媒体运行时为本地渲染和 Whisper 转写准备了依赖及锁定的 OFL 许可 Noto 字体；这不代表在线模型提供方、剧变账号或公开 BGM 下载能够离线使用。可选的 MERT 分析需要另行准备模型资源，且仅限非商业用途。最新安装包仍需完成新配置与干净机器验收；未签名测试产物不等于已签名的公开发行版。运行时与凭据限制详见[桌面端说明](apps/desktop/README.zh.md)。
+Windows 媒体运行时为本地渲染准备了依赖及锁定的 OFL 许可字幕与水印字体；其中不含本地 Whisper 依赖或模型，转写默认使用登录后的云端 ASR。这不代表在线模型提供方、剧变账号或公开 BGM 下载能够离线使用。可选的 MERT 分析需要另行准备模型资源，且仅限非商业用途。最新安装包仍需完成新配置与干净机器验收；未签名测试产物不等于已签名的公开发行版。运行时与凭据限制详见[桌面端说明](apps/desktop/README.zh.md)。
 
 <a id="run"></a>
 
@@ -61,7 +61,7 @@ pnpm muse:desktop
 pnpm muse:desktop:start
 ```
 
-`muse:web` 在 muse 产品 home（`$MUSE_HOME`，否则 `~/.muse`）上提供 Web GUI，默认端口 327，因此不会与默认绑定 3080 的普通 `dsh web` 冲突；`--port` 可指定其他端口，`--dry-run` 只准备 home 后退出。`muse:desktop` 构建当前源码并启动桌面壳，桌面壳使用同一 home 并保留旧 `~/.muse-med` 回退；`muse:desktop:start` 跳过构建。`MUSE_MED_HOME` 可覆盖桌面 home，而继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它。
+`muse:web` 在 muse 产品 home（`$MUSE_HOME`，否则 `~/.muse`）上提供 Web GUI，默认端口 327，因此不会与默认绑定 3080 的普通 `dsh web` 冲突；`--port` 可指定其他端口，`--dry-run` 只准备 home 后退出。`muse:desktop` 构建当前源码并启动开发版桌面壳；`muse:desktop:start` 跳过构建。开发版桌面壳的状态保存在 `apps/desktop/.desktop-build/development/home`，除非 `DSH_HOME` 或 `MUSE_HOME` 指定了其他位置。`~/.muse` 产品 home、旧 `~/.muse-med` 回退和 `MUSE_MED_HOME` 覆盖只适用于打包后的应用，打包应用不会采用继承的 `DSH_HOME` 或 `MUSE_HOME`。
 
 ## 社区与支持
 

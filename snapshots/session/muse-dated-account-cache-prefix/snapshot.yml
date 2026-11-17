@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-dated-account-cache-prefix
+profile: headless
+composition: muse-dated-account-cache-prefix
+recording: authored
+header:
+  class: muse-dated-account-cache-prefix
+  pin: true
+  promptChanges: 1
+writerOutput: true
+environment:
+  DSH_SNAPSHOT_DEEPSEEK_PROMPT_UPDATE: "true"
+  DSH_SNAPSHOT_DEEPSEEK_DATED_MODEL: "true"

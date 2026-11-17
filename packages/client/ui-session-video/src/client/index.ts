@@ -9,7 +9,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import remote from '@deepseek-ai/dsh-session-video/remote'
 import { createVideoStore } from './store.ts'
 import { NS, de, en, es, fr, ja, pt, ru, zh } from './locales.ts'
-import { VideoShelf, VideoShelfSpacer } from './VideoShelf.tsx'
+import { VideoHeader, VideoHistory } from './VideoHistory.tsx'
 import { DeliveredVideoCard, GeneratedVideoCards } from './InlineVideoCard.tsx'
 import type { VideoInjected } from './face.ts'
 import { readSessionVideoConfig, SETTINGS_ENTRY } from '../config.ts'
@@ -19,9 +19,9 @@ import { PresentationSetting } from './PresentationSetting.tsx'
 export { createVideoStore } from './store.ts'
 
 /** Services required before the generated Remote namespace mounts. */
-export const inject = ['slots', 'locale', 'remote', 'configForms', 'uiConversation']
+export const inject = ['slots', 'locale', 'remote', 'configForms']
 
-/** Mount source queries, the spider shelf, and native delivery cards.
+/** Mount source queries, Session video navigation, and native delivery cards.
  * @param ctx - Browser plugin scope with native slots and locale.
  * @returns Disposer for all registrations and the generated Remote namespace.
  */
@@ -32,8 +32,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
     const config = readSessionVideoConfig()
     const form = scope.configForms.get<{ enabled: boolean }>(SETTINGS_ENTRY)
     const runtime = new PresentationRuntime(async () => {
-      const childScope = scope.inject(['slots', 'remote.sessionVideo', 'uiConversation'], (child) => {
-        child.uiConversation.headerPresentations.register({ id: SETTINGS_ENTRY, presentation: 'floating' })
+      const childScope = scope.inject(['slots', 'remote.sessionVideo'], (child) => {
         const store = createVideoStore()
         const injected: VideoInjected = {
           pixelsPerSecond: config.pixelsPerSecond,
@@ -49,11 +48,11 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
           },
         }
         child.slots.inject('conversation.chat.pinned', () => child.slots.register({
-          name: 'conversation.chat.pinned', id: 'muse-session-video-spacer',
-        }, VideoShelfSpacer))
-        child.slots.inject('conversation.content.overlay', () => child.slots.register({
-          name: 'conversation.content.overlay', id: 'muse-session-video', locale: NS, store, inject: () => injected,
-        }, VideoShelf))
+          name: 'conversation.chat.pinned', id: 'muse-session-video-history', locale: NS, store, inject: () => injected,
+        }, VideoHistory))
+        child.slots.inject('conversation.session.header.utilities', () => child.slots.register({
+          name: 'conversation.session.header.utilities', id: 'muse-session-video-menu', locale: NS, store, inject: () => injected,
+        }, VideoHeader))
         child.slots.inject('deliverables.video', () => child.slots.register({
           name: 'deliverables.video', select: () => true, locale: NS, store, inject: () => injected,
         }, DeliveredVideoCard))

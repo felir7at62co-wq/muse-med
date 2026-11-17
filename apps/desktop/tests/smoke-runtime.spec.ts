@@ -7,8 +7,8 @@ import { EventEmitter } from 'node:events'
 import { pathToFileURL } from 'node:url'
 import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { ToolBatchInput, ToolBatchResult, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { afterEach, expect, it, vi } from 'vitest'
-import { desktopSmokePluginSource, smokeDesktopRuntime, prepareDesktopSmokeSkills } from '../scripts/smoke-runtime.ts'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { desktopSmokePluginSource, smokeDesktopRuntime, prepareDesktopSmokeSkills, assertOfficeSkillsLoadable } from '../scripts/smoke-runtime.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
@@ -101,7 +101,7 @@ function fixture(packaged = false) {
   const home = join(temporaryRoot, 'home')
   mkdirSync(home)
   const layout = prepareDesktopSmokeSkills(home)
-  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'bot-coordinator', 'creation']
+  const ids = ['short-drama', 'main-session', 'standard', 'ptc', 'minimal', 'cordis', 'bot-coordinator', 'creation']
   const reviewerId = 'muse-manuscript-continuity-reviewer'
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
@@ -231,6 +231,8 @@ function fixture(packaged = false) {
   class TestContext {
     root = this
     fiber = ownerFiber
+    absentServices = new Set<string>(['loader'])
+    get = vi.fn((name: string) => this.absentServices.has(name) ? undefined : {})
     on<K extends keyof FixtureEvents>(event: K, listener: FixtureEvents[K]) {
       const listeners = eventListeners[event]
       listeners.add(listener)
@@ -285,18 +287,22 @@ function fixture(packaged = false) {
       if (key.preset === reviewerId) return []
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
       return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames, ...sourceCapabilityNames, 'tool_search', 'tool_context']
-        : key.preset === 'minimal' ? [shell]
-          : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
-            'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...sourceCapabilityNames]
-            : key.preset === 'bot-coordinator' ? ['read', 'skill', shell, ...coordinatorCapabilityNames]
-              : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...sourceCapabilityNames]
-                : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? [] : ['workflow'])]).map(name => ({ name, description: editingModelInput.tools[name] ?? 'Fixture capability.' }))
+        : key.preset === 'main-session' ? ['coordinator_sessions', 'coordinator_read', 'coordinator_view_image', 'coordinator_jobs', 'coordinator_settings',
+          'coordinator_dispatch', 'coordinator_reconcile', 'coordinator_tasks', 'coordinator_stop',
+          'coordinator_show_report', 'coordinator_display_skill']
+          : key.preset === 'minimal' ? [shell]
+            : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
+              'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...sourceCapabilityNames]
+              : key.preset === 'bot-coordinator' ? ['read', 'skill', shell, ...coordinatorCapabilityNames]
+                : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...sourceCapabilityNames]
+                  : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? [] : ['workflow'])]).map(name => ({ name, description: editingModelInput.tools[name] ?? 'Fixture capability.' }))
     }) }
+    agentTeams = { isEnabled: vi.fn((agent: { preset: string }) => agent.preset === 'short-drama') }
     systemPrompt = { assemble: vi.fn(async (context: { agent: { preset: string }; scope: { preset: string } }) => ({
       sections: context.scope.preset === 'short-drama'
         ? [{ name: 'deployment:persona-prefix', text: editingModelInput.personaPrefix },
           { name: 'editing:delivery', text: '文字稿默认使用 Word（.docx），通过 screenplay_export_docx 转换。' }]
-        : [],
+        : context.scope.preset === 'main-session' ? [{ name: 'muse:main-session', text: '只负责理解用户目标和调度执行会话。' }] : [],
       tools: context.scope.preset === 'short-drama'
         ? this.tools.schemas(context.scope).filter(tool => ['read', 'skill', 'tool_search', 'tool_context'].includes(tool.name) || selected.has(tool.name))
         : ['ptc', 'creation', 'cordis'].includes(context.scope.preset)
@@ -347,7 +353,7 @@ it('defers preset checks until the Host-ready caller requests them', async () =>
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
   await f.request()
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(15)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(17)
 })
 
 it('rejects a product runtime without the Muse inbox feedback entry', async () => {
@@ -365,8 +371,8 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.layout.cwd })
   expect(f.ctx.agentPresets.serviceFor).toHaveBeenCalledWith({ preset: 'creation' }, 'skills')
   expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.layout.cwd })
-  expect(f.dispose).toHaveBeenCalledTimes(15)
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(15)
+  expect(f.dispose).toHaveBeenCalledTimes(17)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(17)
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'bot-coordinator')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
@@ -534,7 +540,7 @@ it('bounds lifecycle observations and isolates observer failures without changin
   expect(diagnostic.droppedRecords).toBeGreaterThan(0)
   expect(diagnostic.observerErrors.some(error => error.message.includes('observer-only getter failure'))).toBe(true)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
-  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(f.dispose).toHaveBeenCalledTimes(17)
   for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
   for (const listeners of f.lifecycleListeners.values()) expect(listeners.size).toBe(0)
 })
@@ -608,7 +614,7 @@ it('retains the disposal event when native call-site collection fails', async ()
   expect(diagnostic.observerErrors).toHaveLength(1)
   expect(diagnostic.observerErrors[0]?.event).toBe('getCallSites')
   expect(diagnostic.observerErrors[0]?.message).toContain('call-site collection unavailable')
-  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(f.dispose).toHaveBeenCalledTimes(17)
   for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
 })
 
@@ -1148,7 +1154,7 @@ it('rejects ordinary tools in the private reviewer and awaits its disposal', asy
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'muse-manuscript-continuity-reviewer'
     ? [{ name: 'write' }] : schemas(key))
   await expect(f.apply(f.ctx)).rejects.toThrow('private continuity reviewer exposes ordinary tools')
-  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(f.dispose).toHaveBeenCalledTimes(17)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
@@ -1283,7 +1289,7 @@ it('loads deferred source definitions through committed context receipts and res
     'tool/call', 'tool/result', 'tool/call', 'tool/result',
   ])
   expect([...f.selected]).toEqual([])
-  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(f.dispose).toHaveBeenCalledTimes(17)
 })
 
 it.each(Object.keys(editingModelInput.tools))('rejects a missing authorized source definition %s', async (missing) => {
@@ -1436,7 +1442,7 @@ it('accepts an additional model-invocable virtual skill without a filesystem pat
   }])
   await f.apply(f.ctx)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
-  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(f.dispose).toHaveBeenCalledTimes(17)
 })
 
 it.each([...defaultHostSkills,
@@ -1487,6 +1493,106 @@ it('loads default transcription, writing and shot-writing skills through the sco
     expect(existsSync(join(directory, 'SKILL.md'))).toBe(false)
     expect(existsSync(join(directory, 'SKILL.md.disabled'))).toBe(true)
   }
+
+})
+
+
+const loadedSkills = [
+  { name: 'office', bytes: 772 },
+  { name: 'office-docx', bytes: 4543 },
+  { name: 'office-pptx', bytes: 5167 },
+  { name: 'office-xlsx', bytes: 5611 },
+]
+
+describe('assertOfficeSkillsLoadable', () => {
+  it('accepts all four Office skills with nonempty bodies and no path', () => {
+    expect(() => { assertOfficeSkillsLoadable(loadedSkills) }).not.toThrow()
+  })
+
+  it('rejects an unlisted or empty Office skill and reports every result', () => {
+    const results = loadedSkills.map(skill => skill.name === 'office-docx' ? { ...skill, bytes: 0 } : skill)
+    expect(() => { assertOfficeSkillsLoadable(results) }).toThrow(
+      `desktop runtime: packaged Office skills are not loadable: ${JSON.stringify(results)}`,
+    )
+  })
+
+  it('rejects results missing a bundled Office skill', () => {
+    const results = loadedSkills.filter(skill => skill.name !== 'office-xlsx')
+    expect(() => { assertOfficeSkillsLoadable(results) }).toThrow(
+      `desktop runtime: packaged Office skills are not loadable: ${JSON.stringify(results)}`,
+    )
+  })
+
+  it('ignores empty results for skills outside the bundled Office set', () => {
+    expect(() => { assertOfficeSkillsLoadable([...loadedSkills, { name: 'other', bytes: 0 }]) }).not.toThrow()
+  })
+})
+
+it('rejects business tools leaking into the routing-only Main Session', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session' ? [...schemas(key), { name: 'bash' }] : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('Main Session routing tool roster differs; missing: none; unexpected: bash')
+})
+
+it('names each routing tool missing from the Main Session', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  const absent = ['coordinator_view_image', 'coordinator_jobs', 'coordinator_settings']
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
+    ? schemas(key).filter(tool => !absent.includes(tool.name)) : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('Main Session routing tool roster differs; missing: ' + absent.join(', ') + '; unexpected: none')
+})
+
+it('names the coordination dependencies absent when the Main Session lacks its routing tools', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
+    ? schemas(key).filter(tool => tool.name !== 'coordinator_jobs') : schemas(key))
+  f.ctx.absentServices.add('jobs')
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing: coordinator_jobs; unexpected: none; absent services: jobs; '
+    + 'absent after 60 s: jobs; still missing after 60 s: coordinator_jobs')
+})
+
+it('names the loader state of the coordination dependency plugins', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
+    ? schemas(key).filter(tool => tool.name !== 'coordinator_jobs') : schemas(key))
+  f.ctx.absentServices.delete('loader')
+  const loader = { entries: () => [
+    { options: { name: '@deepseek-ai/dsh-storage-json' }, disabled: false, fiber: { state: 3, _error: new Error('EPERM: storages') } },
+    { options: { name: '@deepseek-ai/dsh-storage-domain' }, disabled: false, fiber: { state: 0, _error: undefined } },
+    { options: { name: '@deepseek-ai/dsh-workspace' }, disabled: false, fiber: undefined,
+      parent: { tree: { import: async () => { throw new Error('Cannot find module flock') } } }, getOuterStack: () => [] },
+    { options: { name: 'muse-workspace-owned-storage' }, disabled: false, fiber: undefined,
+      parent: { tree: { import: async () => ({}) } }, getOuterStack: () => [] },
+    { options: { name: '@deepseek-ai/dsh-time-context' }, disabled: false, fiber: { state: 2, _error: undefined } },
+  ] }
+  const get = f.ctx.get.getMockImplementation()!
+  f.ctx.get.mockImplementation(name => name === 'loader' ? loader : get(name))
+  await expect(f.apply(f.ctx)).rejects.toThrow('; loader entries: @deepseek-ai/dsh-storage-json=failed (EPERM: storages), '
+    + '@deepseek-ai/dsh-storage-domain=pending, @deepseek-ai/dsh-workspace=not loaded (Cannot find module flock), '
+    + 'muse-workspace-owned-storage=not loaded (imports now)')
+})
+
+it('accepts a Main Session that also carries the optional human-facing tools', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
+    ? [...schemas(key), { name: 'ask_user_question' }, { name: 'show_view' }, { name: 'visualize' }] : schemas(key))
+  await expect(f.apply(f.ctx)).resolves.toBeUndefined()
+})
+
+it('rejects a Main Session missing its routing instructions', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    if (context.scope.preset === 'main-session') result.sections = []
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('Main Session routing guidance is missing')
 })
 
 it('retains the failing preset, Agent and primary cause when teardown also rejects', async () => {
@@ -1532,7 +1638,7 @@ it('waits for Agent teardown before checking later presets or marking completion
     expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
     release.resolve(undefined)
     await request
-    expect(f.dispose).toHaveBeenCalledTimes(15)
+    expect(f.dispose).toHaveBeenCalledTimes(17)
   } finally {
     release.resolve(undefined)
     await request

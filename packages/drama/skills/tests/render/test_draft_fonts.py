@@ -47,7 +47,7 @@ class ManagedFontTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix='draft-fonts-')
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.folder = self.root / 'media/fonts'
         self.font, self.notice = managed_font(self.folder)
         self.environment = patch.dict(os.environ, {'MUSE_FONTS_DIR': str(self.folder)})

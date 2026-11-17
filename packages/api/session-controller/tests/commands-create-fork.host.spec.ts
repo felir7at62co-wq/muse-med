@@ -75,6 +75,21 @@ describe('Session creation failures', () => {
     await ctx.fiber.dispose()
   })
 
+  it('lets the default reuse policy accept an unarchived named Session and reject an archived one', async () => {
+    const ctx = await baseContext()
+    ctx.provide('workspaceRegistry', { get: () => undefined, list: () => [], archivedSessionIds: [SessionId('archived-blank')] } as never)
+    const createSession = vi.fn(publishedSession(ctx, SessionId('blank-reused')))
+    const controller = new SessionCommandController(ctx, controllerAgents(ctx, { createSession }), '/default')
+
+    await expect(controller.create({ sessionId: SessionId('blank-reused') })).resolves.toEqual({ sessionId: 'blank-reused' })
+
+    const reusable = createSession.mock.calls[0]?.[0].reusable
+    if (reusable === undefined) throw new Error('Session creation was not attempted')
+    expect(reusable(SessionId('blank-reused'))).toBe(true)
+    expect(reusable(SessionId('archived-blank'))).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
   it('maps missing Workspaces and attachment failures', async () => {
     const missing = await baseContext()
     missing.provide('workspaceRegistry', { get: () => undefined, list: () => [] } as never)

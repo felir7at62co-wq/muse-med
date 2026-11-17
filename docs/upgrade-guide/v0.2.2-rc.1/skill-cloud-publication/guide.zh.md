@@ -18,4 +18,4 @@ description: 可选 Skill 云端入口要求显式配置 profile，并区分云�
 1. 如需启用可选客户端，在具名 profile 的基础服务旁添加 `@deepseek-ai/dsh-muse-market/cloud`。将 `baseUrl` 设为登录所用的规范化 HTTPS Muse Account origin，或回环 HTTP。profile 使用其他私有账号文件时，显式指定 `sessionFile`。完整 JSON 预算和单请求超时应与本地归档限制分别配置；参见[包参考](../../../../packages/host/muse-market/README.zh.md#account-bound-cloud)。
 2. 仅通过专用具名 profile 部署私有服务端，并为现有账号网关代理配置匹配的 secret。备份完整服务端存储，包括 SQLite 与不可变 blob。参见[网关部署](../../../../services/muse-accounts/README.zh.md)。
 3. 更新显式调用方，在 `publishDraft` 前保留原上传请求 key 和精确的本地归档。查看返回草稿后，才通过 `review(id, revision, 'submit', '')` 提交。上传未确认时复用同一 key 和归档；审核冲突时读取原 id，并要求新的显式决定，不得自动提交更新的修订。
-4. 将目录中所选的 SHA-256 传给 `installPublication`，确认完整的返回发行包和停用状态安装记录。选择默认版本仍需独立的激活服务；云端审核通过或下载均不会选择默认值。目录最多返回 100 条记录，请缩小搜索范围，不要将一次结果视为完整目录。
+4. 将目录中所选的 SHA-256 传给 `installPublication`，确认完整的返回发行包和停用状态安装记录。选择默认版本仍需独立的激活服务；云端审核通过或下载均不会选择默认值。客户端在本地过滤已获取的目录，响应超过 `catalogLimit` 时会被拒绝，该限制最多为 100 条。缩小本地搜索范围不能绕过此限制；请将完整响应保持在配置的记录数及字节预算之内。

@@ -10,17 +10,22 @@ import { newEnglishPage } from '../../apps/web/tests/support.ts'
 import { ciTimeBudget, PERFORMANCE_BUDGET_HEADROOM } from '../support/calibration.ts'
 import { recordTimings, type BenchmarkCase } from '../support/scaling-report.ts'
 import { HISTORY_TURNS, SESSION_ID, FIRST, DONE, DELTAS, PACE_MS, syntheticHistory, syntheticReply } from './synthetic-history.ts'
+import { installStreamDiagnostics, wireMarkerTimings } from './stream-diagnostics.ts'
 
 const SAMPLES = 3
 const TAIL = '[data-chat-flow-key^="9:turn-tail"]'
-const REFERENCE = { open: 200, page: 260, trajectory: 160, first: 1100, streamTask: 1800, input: 500, streamWall: 1000 }
+/** Reference-machine allowances; stream task and wall values exclude the scripted replay window. */
+const REFERENCE = { open: 200, page: 260, trajectory: 160, first: 1100, streamTask: 808, input: 500, streamWall: 1000 }
 const EXPECTED_OPEN_CI_MS = 900
 const EXPECTED_PAGE_CI_MS = 700
 const EXPECTED_TRAJECTORY_CI_MS = 520
 const OPEN_BUDGET_MS = Math.ceil(EXPECTED_OPEN_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
 const PAGE_BUDGET_MS = Math.ceil(EXPECTED_PAGE_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
 const TRAJECTORY_BUDGET_MS = Math.ceil(EXPECTED_TRAJECTORY_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
+/** Scripted replay window; it lasts equally long on every runner, so stream task and wall budgets add it unscaled to their scaled allowances. */
 const REPLAY_DURATION_MS = (DELTAS + 4) * PACE_MS
+const STREAM_TASK_BUDGET_MS = ciTimeBudget(REFERENCE.streamTask) + REPLAY_DURATION_MS
+const STREAM_WALL_BUDGET_MS = ciTimeBudget(REFERENCE.streamWall) + REPLAY_DURATION_MS
 /** Endpoints without paced replay waits, so CPU scaling applies to their whole duration. */
 const SCALED_ENDPOINTS = ['open', 'page', 'trajectory', 'streamTask'] as const
 /** Estimated storage wait: the Host reads the seeded Session log, which the page cache usually holds. */
@@ -78,8 +83,15 @@ function expectInputOverlap(value: boolean): void {
   expect(value).toBe(true)
 }
 
+function recordSampleBeforeOverlap(sample: Readonly<Record<string, unknown>>, inputOverlapped: boolean): void {
+  console.log(JSON.stringify(sample))
+  expectInputOverlap(inputOverlapped)
+}
+
 async function waitForReplyMarker(page: Page, marker: string, timeout = 30000) {
   return page.waitForFunction(({ marker, first, done }) => {
+    const diagnostics = window.__dshSyntheticStreamTimings?.data
+    if (marker === first && diagnostics !== undefined && diagnostics.firstPollAtMs === null) diagnostics.firstPollAtMs = window.performance.now()
     const reply = Array.from(document.querySelectorAll('[data-chat-flow-kind="assistant-step"]')).at(-1)
     if (!reply) return false
     const text = document.createTreeWalker(reply, NodeFilter.SHOW_TEXT)
@@ -94,12 +106,137 @@ async function waitForReplyMarker(page: Page, marker: string, timeout = 30000) {
   }, { marker, first: FIRST, done: DONE }, { polling: 'raf', timeout })
 }
 
-function startFirstReplyObservation(page: Page, timeout = 30000) {
-  // Catch immediately: submission may fail before the caller awaits the observation.
-  return waitForReplyMarker(page, FIRST, timeout).then(
-    value => ({ value }),
-    (error: unknown) => ({ error }),
-  )
+it('retains completed phase diagnostics when input overlap fails', () => {
+  const sample = {
+    benchmark: 'long-session-browser/sample', streamTask: 1000, streamWall: 2200,
+    heapMb: 80, nodes: 24000, firstObservation: { first: true, done: true },
+    witness: JSON.stringify({ trusted: true, first: true, done: true }), inputTiming: { atMs: 2200 },
+  }
+  const logged = vi.spyOn(console, 'log').mockImplementation(() => {})
+  try {
+    expect(() => recordSampleBeforeOverlap(sample, false)).toThrow()
+    expect(logged).toHaveBeenCalledExactlyOnceWith(JSON.stringify(sample))
+  } finally {
+    logged.mockRestore()
+  }
+})
+
+it('extracts bounded synthetic wire diagnostics without retaining frame contents', () => {
+  const frame = (text: string, time: number) => ({ type: 'assistant-stream', frame: {
+    type: 'chunk', time, chunk: { type: 'text-delta', index: 0, text },
+  } })
+  const payload = JSON.stringify({ value: [frame(FIRST, 100), frame(DONE, 200)] })
+  const parsed = wireMarkerTimings(payload, 1.5, 25)
+  expect(parsed.markers).toEqual(expect.arrayContaining([
+    { marker: 'first', providerTimeMs: 100, cdpReceivedAtSeconds: 1.5, controllerAtMs: 25 },
+    { marker: 'done', providerTimeMs: 200, cdpReceivedAtSeconds: 1.5, controllerAtMs: 25 },
+  ]))
+  expect(parsed.truncated).toBe(false)
+  expect(JSON.stringify(parsed)).not.toContain(FIRST)
+  expect(wireMarkerTimings(FIRST, 1, 1).markers).toEqual([])
+  expect(wireMarkerTimings(JSON.stringify({ transcript: FIRST + DONE }), 1, 1).markers).toEqual([])
+  expect(wireMarkerTimings(JSON.stringify(Array.from({ length: 1000 }, () => frame(FIRST, 100))), 1, 1).truncated).toBe(true)
+  expect(wireMarkerTimings(JSON.stringify({ padding: 'x'.repeat(1024 * 1024), marker: FIRST }), 1, 1).truncated).toBe(true)
+})
+
+it('records diagnostic observer installation, trusted submission and intermediate DOM and RAF sightings', async () => {
+  const browser = await chromium.launch({ headless: true })
+  let diagnostics: Awaited<ReturnType<typeof installStreamDiagnostics>> | undefined
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<div data-chat-flow-kind="assistant-step"></div><div data-composer-input contenteditable="true"></div>')
+    await page.locator('[data-composer-input]').focus()
+    diagnostics = await installStreamDiagnostics(page, await page.context().newCDPSession(page))
+    await painted(page)
+    // A controlled main-thread task verifies the diagnostic channel, outside the measured product workflow.
+    await page.evaluate(() => new Promise<void>(resolve => setTimeout(() => {
+      const end = window.performance.now() + 80
+      while (window.performance.now() < end) { /* Occupy one observable long task. */ }
+      resolve()
+    }, 0)))
+    await painted(page)
+    const waiting = waitForReplyMarker(page, FIRST)
+    await page.keyboard.press('Enter')
+    await page.locator('[data-chat-flow-kind]').evaluate((element, first) => { element.textContent = first }, FIRST)
+    const first = await waiting
+    expect(await first.jsonValue()).toMatchObject({ first: true, done: false })
+    await first.dispose()
+    await painted(page)
+    await page.locator('[data-chat-flow-kind]').evaluate((element, text) => { element.textContent = text }, `${FIRST} ${DONE}`)
+    await painted(page)
+    const data = await diagnostics.snapshot(123)
+    expect(data.page.firstPollAtMs).not.toBeNull()
+    expect(data.page.enter).toMatchObject({ trusted: true, focused: true })
+    expect(data.page.domFirst).toMatchObject({ first: true, done: false })
+    expect(data.page.rafFirst).toMatchObject({ first: true, done: false })
+    expect(data.page.domDone?.done).toBe(true)
+    expect(data.page.rafDone?.done).toBe(true)
+    expect(data.page.longTasksSupported).toBe(true)
+    expect(data.page.longTasks.some(task => task.durationMs >= 50)).toBe(true)
+    expect(data.page.raf.count).toBeGreaterThan(1)
+    expect(data.controllerStartedAtMs).toBe(123)
+    expect(JSON.stringify(data)).not.toContain(FIRST)
+    await diagnostics.dispose(); diagnostics = undefined
+    expect(await page.evaluate(() => window.__dshSyntheticStreamTimings === undefined)).toBe(true)
+  } finally {
+    try { await diagnostics?.dispose() } finally { await browser.close() }
+  }
+})
+
+it('distinguishes diagnostic DOM commits missed by RAF without accepting post-DONE input', async () => {
+  const browser = await chromium.launch({ headless: true })
+  let diagnostics: Awaited<ReturnType<typeof installStreamDiagnostics>> | undefined
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<div data-chat-flow-kind="assistant-step"></div><div data-composer-input contenteditable="true"></div>')
+    const composer = page.locator('[data-composer-input]')
+    await composer.focus()
+    diagnostics = await installStreamDiagnostics(page, await page.context().newCDPSession(page))
+    await watchInputOverlap(composer)
+    const waiting = waitForReplyMarker(page, FIRST)
+    await page.evaluate(({ first, done }) => {
+      const element = document.querySelector('[data-chat-flow-kind]')
+      if (element === null) throw new Error('Missing synthetic Assistant')
+      element.textContent = first
+      queueMicrotask(() => { element.textContent = first + ' ' + done })
+    }, { first: FIRST, done: DONE })
+    const observed = await waiting
+    expect(await observed.jsonValue()).toMatchObject({ first: true, done: true })
+    await observed.dispose()
+    await page.keyboard.type('late input')
+    const stages = await diagnostics.snapshot(0)
+    expect(stages.page.domFirst).toMatchObject({ first: true, done: false })
+    expect(stages.page.rafFirst).toMatchObject({ first: true, done: true })
+    expect(await composer.getAttribute('data-benchmark-input-overlap')).toBe('false')
+    const logged = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const sample = { benchmark: 'synthetic diagnostic negative control', stages }
+      expect(() => recordSampleBeforeOverlap(sample, false)).toThrow()
+      expect(logged).toHaveBeenCalledExactlyOnceWith(JSON.stringify(sample))
+    } finally { logged.mockRestore() }
+  } finally {
+    try { await diagnostics?.dispose() } finally { await browser.close() }
+  }
+})
+
+async function waitForContinuationReady(page: Page, turns: number, draft: string): Promise<void> {
+  const ready = await page.waitForFunction(({ selector, turns, draft }) => {
+    const composer = Array.from(document.querySelectorAll('[data-composer-input][contenteditable="true"]')).at(-1)
+    return document.querySelectorAll(selector).length === turns
+      && composer?.checkVisibility({ checkVisibilityCSS: true }) === true
+      // Chromium renders the synthetic draft's trailing space as NBSP in contenteditable.
+      && document.activeElement === composer && composer.textContent?.replaceAll('\u00a0', ' ') === draft
+  }, { selector: TAIL, turns, draft }, { polling: 'raf' })
+  await ready.dispose()
+  await painted(page)
+}
+
+async function submitWithReplyObserver(page: Page) {
+  const [first] = await Promise.all([
+    waitForReplyMarker(page, FIRST),
+    page.keyboard.press('Enter'),
+  ])
+  return first
 }
 
 async function waitForTrajectory(page: Page, timeout = 30000): Promise<void> {
@@ -157,6 +294,17 @@ it('accepts recorded hosted paging and Trajectory medians and rejects slower end
   }
 })
 
+it('accepts the recorded hosted stream-task median beside its replay window and rejects slower endpoints', () => {
+  const value = median([4592.478, 4644.454, 4607.746])
+  expect(value).toBe(4607.746)
+  expect(() => expectEndpointWithinBudget(value, 4500)).toThrow()
+  expectEndpointWithinBudget(value, STREAM_TASK_BUDGET_MS)
+  expect(REPLAY_DURATION_MS).toBe(3968)
+  expect(STREAM_TASK_BUDGET_MS).toBe(5988)
+  expect(() => expectEndpointWithinBudget(STREAM_TASK_BUDGET_MS + 1, STREAM_TASK_BUDGET_MS)).toThrow()
+  expect(STREAM_WALL_BUDGET_MS).toBe(6468)
+})
+
 it('waits for visible marker text in the latest Assistant step', async () => {
   const browser = await chromium.launch({ headless: true })
   try {
@@ -173,41 +321,51 @@ it('waits for visible marker text in the latest Assistant step', async () => {
   }
 })
 
-it('observes the first visible prefix before a delayed submission response without accepting completed input overlap', async () => {
+it('waits for the visible focused draft and complete loaded window before measuring a continuation', async () => {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<section style="visibility:hidden"><div data-chat-flow-key="9:turn-tail"></div><div data-composer-input contenteditable="true">stale</div></section>')
+    let completed = false
+    const ready = waitForContinuationReady(page, 2, 'draft ').then(() => { completed = true }, (error: unknown) => ({ error }))
+    await painted(page)
+    expect(completed).toBe(false)
+    await page.locator('section').evaluate(element => { element.style.visibility = 'visible' })
+    await painted(page)
+    expect(completed).toBe(false)
+    await page.locator('[data-composer-input]').focus()
+    await painted(page)
+    expect(completed).toBe(false)
+    await page.locator('[data-composer-input]').fill('draft ')
+    await painted(page)
+    expect(completed).toBe(false)
+    await page.locator('section').evaluate(element => {
+      const tail = document.createElement('div')
+      tail.setAttribute('data-chat-flow-key', '9:turn-tail:second')
+      element.append(tail)
+    })
+    const outcome = await ready
+    if (outcome !== undefined) throw outcome.error
+    expect(completed).toBe(true)
+  } finally { await browser.close() }
+})
+
+it('observes an intermediate reply before submission acknowledgement completes', async () => {
   const browser = await chromium.launch({ headless: true })
   try {
     const page = await browser.newPage()
     await page.setContent('<div data-chat-flow-kind="assistant-step"></div>')
-    const observed = startFirstReplyObservation(page)
-    await page.evaluate(async ({ first, done }) => {
-      const reply = document.querySelector('[data-chat-flow-kind="assistant-step"]')!
-      reply.textContent = first
-      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-      reply.textContent += done
-    }, { first: FIRST, done: DONE })
-    const early = await observed
-    if ('error' in early) throw early.error
-    expect(await early.value.jsonValue()).toMatchObject({ first: true, done: false })
-    await early.value.dispose()
-    const late = await startFirstReplyObservation(page)
-    if ('error' in late) throw late.error
-    const observation = await late.value.jsonValue()
-    if (observation === false) throw Error('Reply observation did not resolve to a visible marker')
-    expect(observation).toMatchObject({ first: true, done: true })
-    expect(() => expectInputOverlap(observation.first && !observation.done)).toThrow()
-    await late.value.dispose()
-  } finally { await browser.close() }
-})
-
-it('joins a prearmed observation when its page closes before the reply', async () => {
-  const browser = await chromium.launch({ headless: true })
-  try {
-    const page = await browser.newPage()
-    const observed = startFirstReplyObservation(page)
-    await page.close()
-    const outcome = await observed
-    expect(outcome).toHaveProperty('error')
-  } finally { await browser.close() }
+    vi.spyOn(page.keyboard, 'press').mockImplementation(async () => {
+      await page.locator('[data-chat-flow-kind]').evaluate((element, first) => { element.textContent = first }, FIRST)
+      await painted(page)
+      await page.locator('[data-chat-flow-kind]').evaluate((element, text) => { element.textContent = text }, `${FIRST} ${DONE}`)
+    })
+    const first = await submitWithReplyObserver(page)
+    try { expect(await first.jsonValue()).toMatchObject({ first: true, done: false }) }
+    finally { await first.dispose() }
+  } finally {
+    try { await browser.close() } finally { vi.restoreAllMocks() }
+  }
 })
 
 it('waits for visible Trajectory controls and records rather than unrelated table rows', async () => {
@@ -401,7 +559,8 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
         await seedSession(scaffold, history, SESSION_ID)
         console.log(JSON.stringify({ benchmark: 'long-session-browser/fixture', bytes: Buffer.byteLength(history) }))
         const browser = await chromium.launch({ headless: true })
-        let firstMarkerWaiting: ReturnType<typeof startFirstReplyObservation> | undefined
+        let diagnostics: Awaited<ReturnType<typeof installStreamDiagnostics>> | undefined
+        let diagnosticStart = 0, diagnosticsRecorded = false
         try {
           const page = await newEnglishPage(browser)
           const consoleWatch = watchConsole(page)
@@ -434,43 +593,33 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           await page.getByRole('tab', { name: 'Chat', exact: true }).click()
           await page.waitForFunction(({ selector, expected }) => document.querySelectorAll(selector).length === expected, { selector: TAIL, expected: HISTORY_TURNS })
           const composer = page.locator('[data-composer-input][contenteditable="true"]').last()
-          await composer.fill('Continue the synthetic review and summarize the validation. '.repeat(30))
+          const draft = 'Continue the synthetic review and summarize the validation. '.repeat(30)
+          await composer.fill(draft)
+          await waitForContinuationReady(page, HISTORY_TURNS, draft)
           const cdp = await page.context().newCDPSession(page)
           await cdp.send('Performance.enable')
+          diagnostics = await installStreamDiagnostics(page, cdp)
           const beforeTask = await taskMs(cdp)
           const settled = scaffold.whenTurnSettled(60000).then(
             () => ({ ok: true as const }),
             (error: unknown) => ({ ok: false as const, error }),
           )
           await watchInputOverlap(composer)
-          // Observe before dispatching Enter so an early prefix is not first sampled after completion.
-          firstMarkerWaiting = startFirstReplyObservation(page)
           const started = performance.now()
-          await page.keyboard.press('Enter')
-          const entered = performance.now()
-          const firstWaitStarted = performance.now()
-          const firstMarkerOutcome = await firstMarkerWaiting
-          if ('error' in firstMarkerOutcome) throw firstMarkerOutcome.error
-          const firstMarker = firstMarkerOutcome.value
-          const firstWaitCompleted = performance.now()
+          diagnosticStart = started
+          const firstMarker = await submitWithReplyObserver(page)
           const first = performance.now() - started
-          let typingStarted = 0, typingCompleted = 0
           // Keep focus across submission; mouse actionability must not delay the input probe.
           const input = await measure(page, async () => {
-            typingStarted = performance.now()
             await page.keyboard.type('next synthetic question')
-            typingCompleted = performance.now()
             await expect.poll(() => composer.textContent()).toBe('next synthetic question')
           })
           const inputOverlapped = await composer.getAttribute('data-benchmark-input-overlap') === 'true'
           const firstObservation = await firstMarker.jsonValue()
           await firstMarker.dispose()
-          console.log(JSON.stringify({ benchmark: 'long-session-browser/input', sample, first, input, firstObservation,
-            nodeTiming: { started, entered, firstWaitStarted, firstWaitCompleted, typingStarted, typingCompleted,
-              enterMs: entered - started, firstWaitMs: firstWaitCompleted - firstWaitStarted,
-              firstToTypingMs: typingStarted - firstWaitCompleted, typingMs: typingCompleted - typingStarted },
-            witness: await composer.getAttribute('data-benchmark-input-witness'), inputTiming: await composer.getAttribute('data-benchmark-input-timing') }))
-          expectInputOverlap(inputOverlapped)
+          const witness = await composer.getAttribute('data-benchmark-input-witness')
+          const inputTiming = await composer.getAttribute('data-benchmark-input-timing')
+          console.log(JSON.stringify({ benchmark: 'long-session-browser/input', sample, first, input, firstObservation, witness, inputTiming }))
           await (await waitForReplyMarker(page, DONE)).dispose()
           const settlement = await settled
           if (!settlement.ok) throw settlement.error
@@ -483,7 +632,10 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           const heap = metrics.find(metric => metric.name === 'JSHeapUsedSize')
           if (heap === undefined) throw new Error('Chromium heap metric missing')
           samples.push({ open, page: Math.max(...pages), trajectory, first, streamTask, streamWall, input, inputOverlapped, heapMb: heap.value / 1048576, nodes: await page.locator('*').count() })
-          console.log(JSON.stringify({ benchmark: 'long-session-browser/sample', sample, initialTurns, pages, ...samples.at(-1) }))
+          const stages = await diagnostics.snapshot(started)
+          diagnosticsRecorded = true
+          recordSampleBeforeOverlap({ benchmark: 'long-session-browser/sample', sample, initialTurns, pages, ...samples.at(-1),
+            firstObservation, witness, inputTiming, stages }, inputOverlapped)
           await watchInputOverlap(composer)
           await composer.click()
           await page.keyboard.type('!')
@@ -492,10 +644,17 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           expect(() => expectInputOverlap(lateInputOverlapped)).toThrow()
           expect(consoleWatch.pageErrors).toEqual([])
           expect(consoleWatch.warnings).toEqual([])
-        } catch (error) { failures.push(error) } finally {
+        } catch (error) {
+          if (diagnostics !== undefined && !diagnosticsRecorded) {
+            try {
+              console.log(JSON.stringify({ benchmark: 'long-session-browser/incomplete', sample,
+                stages: await diagnostics.snapshot(diagnosticStart) }))
+            } catch (diagnosticError) { failures.push(diagnosticError) }
+          }
+          failures.push(error)
+        } finally {
+          await diagnostics?.dispose().catch((error: unknown) => failures.push(error))
           await browser.close().catch((error: unknown) => failures.push(error))
-          // Page closure cancels any outstanding wait and releases its handles; join the caught outcome.
-          await firstMarkerWaiting
         }
       } catch (error) { failures.push(error) } finally {
         await scaffold.close().catch((error: unknown) => failures.push(error))
@@ -507,8 +666,8 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
   }
   const aggregate = Object.fromEntries(Object.keys(REFERENCE).map(key => [key, median(samples.map(sample => sample[key as keyof typeof REFERENCE]))]))
   const budgets: Record<string, number> = {
-    ...Object.fromEntries(Object.entries(REFERENCE).map(([key, value]) => [key, ciTimeBudget(value) + (key === 'streamWall' ? REPLAY_DURATION_MS : 0)])),
-    open: OPEN_BUDGET_MS, page: PAGE_BUDGET_MS, trajectory: TRAJECTORY_BUDGET_MS,
+    ...Object.fromEntries(Object.entries(REFERENCE).map(([key, value]) => [key, ciTimeBudget(value)])),
+    open: OPEN_BUDGET_MS, page: PAGE_BUDGET_MS, trajectory: TRAJECTORY_BUDGET_MS, streamTask: STREAM_TASK_BUDGET_MS, streamWall: STREAM_WALL_BUDGET_MS,
   }
   console.log(JSON.stringify({ benchmark: 'long-session-browser/median', turns: HISTORY_TURNS, deltas: DELTAS, paceMs: PACE_MS, samples, aggregate, referenceMs: REFERENCE, expectedOpenCiMs: EXPECTED_OPEN_CI_MS, expectedPageCiMs: EXPECTED_PAGE_CI_MS, expectedTrajectoryCiMs: EXPECTED_TRAJECTORY_CI_MS, budgets }))
   recordTimings(CASE, Object.fromEntries(SCALED_ENDPOINTS.map(key => [key, { ms: aggregate[key]!, ioShare: IO_SHARE }])), budgets)

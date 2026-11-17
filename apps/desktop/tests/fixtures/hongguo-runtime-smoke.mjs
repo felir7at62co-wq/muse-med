@@ -103,7 +103,9 @@ export async function mountPackagedRuntime(root, paths, platformRequests = false
     await context.plugin(SubprocessLocal)
     diagnostics = createNativeDiagnostics(context.subprocess)
     const client = new HongguoDownloadClient({
-      legacyAppDir: paths.app, javaExecutable: paths.java, pythonExecutable: paths.python,
+      ...(paths.app === undefined ? {} : { legacyAppDir: paths.app }),
+      ...(paths.java === undefined ? {} : { javaExecutable: paths.java }),
+      ...(paths.python === undefined ? {} : { pythonExecutable: paths.python }),
       bootstrapDevices: true, signerStartupTimeoutMs: 120_000, deviceBootstrapTimeoutMs: 30_000,
       ffmpegExecutable: paths.ffmpeg, ...(paths.ffprobe ? { ffprobeExecutable: paths.ffprobe } : {}),
     }, { subprocess: diagnostics.subprocess,
@@ -124,7 +126,7 @@ export async function mountPackagedRuntime(root, paths, platformRequests = false
 
 /** Collect a bounded native probe and join its entire managed range even when collection fails. */
 async function nativeProbe(subprocess, paths, argv, signal) {
-  const handle = subprocess.spawn({ argv, cwd: paths.app, signal, graceMs: 1_000,
+  const handle = subprocess.spawn({ argv, cwd: paths.app ?? dirname(paths.ffmpeg), signal, graceMs: 1_000,
     env: { HOME: paths.app, USERPROFILE: paths.app, JAVA_TOOL_OPTIONS: undefined,
       JDK_JAVA_OPTIONS: undefined, _JAVA_OPTIONS: undefined, CLASSPATH: undefined },
     stdio: { stdin: 'ignore', stdout: { maxBytes: 64 * 1024 }, stderr: { maxBytes: 64 * 1024 } } })
@@ -183,9 +185,11 @@ async function checkSignature(client, signal, started) {
 export async function checkHongguoRuntime(root, resourcesRuntime, environment = process.env, mount = mountPackagedRuntime) {
   const paths = { app: environment.MUSE_HONGGUO_LEGACY_APP_DIR, java: environment.MUSE_HONGGUO_JAVA_PATH,
     python: environment.MUSE_HONGGUO_PYTHON_PATH,
-    ffmpeg: join(resourcesRuntime, 'media', 'ffmpeg', 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') }
-  assert.ok(environment.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'
-    && [paths.app, paths.java, paths.python].every(value => typeof value === 'string' && isAbsolute(value)),
+    ffmpeg: join(resourcesRuntime, 'media', 'ffmpeg', 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+    ffprobe: join(resourcesRuntime, 'media', 'ffmpeg', 'bin', process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe') }
+  assert.ok((typeof environment.MUSE_FANQIE_PYTHON_PATH === 'string' && isAbsolute(environment.MUSE_FANQIE_PYTHON_PATH))
+    || (environment.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'
+    && [paths.app, paths.java, paths.python].every(value => typeof value === 'string' && isAbsolute(value))),
   'Hongguo native smoke requires prepared local runtime paths')
   const lifetime = new AbortController()
   const timer = setTimeout(() => lifetime.abort(new Error('Hongguo native payload deadline exceeded')), 180_000)
@@ -195,7 +199,17 @@ export async function checkHongguoRuntime(root, resourcesRuntime, environment = 
   try {
     runtime = await mount(root, paths)
     stage = 'bootstrap'
-    await runtime.client.source.load(lifetime.signal)
+    const engine = await runtime.client.source.load(lifetime.signal)
+    if (runtime.client.source.identity?.startsWith('jackotom:')) {
+      assert.ok(typeof engine.fetchEpisodeList === 'function' && typeof engine.fetchPlayUrlSingle === 'function', 'Hongguo open engine is missing');
+      stage = 'media-tools';
+      for (const executable of [paths.ffmpeg, paths.ffprobe]) {
+        assert.ok(executable, 'Hongguo media executable is missing');
+        const probe = await nativeProbe(runtime.subprocess, paths, [executable, '-version'], lifetime.signal);
+        assert.match(probe.stdout, /ff(?:mpeg|probe) version/u);
+      }
+      return { engine: 'jackotom', ffmpeg: true, ffprobe: true, cleanup: true };
+    }
     stage = 'signer-start'
     await checkSignature(runtime.client, lifetime.signal, () => { stage = 'signer-request' })
     stage = 'java-version'

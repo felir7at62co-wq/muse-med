@@ -1,0 +1,23 @@
+.entry {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 40px;
+  margin: 2px 12px 8px;
+  padding: 7px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-l1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.wide { margin-inline: calc(var(--dsh-sidebar-paint-inset) + 1px); }
+.rail { justify-content: center; margin-inline: 8px; width: 40px; padding-inline: 0; }
+.entry:disabled { opacity: .6; cursor: wait; }
+.entry:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; }
+.spider { flex: none; width: 48px; height: 41px; background: url('./assets/muse-spider.svg') center / contain no-repeat; }
+.rail .spider { width: 32px; height: 28px; }
+@media (hover: hover) { .entry:hover { background: var(--dsw-alias-bg-l2); } }

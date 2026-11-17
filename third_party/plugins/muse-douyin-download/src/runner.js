@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const script = fileURLToPath(new URL('../python/scripts/download.py', import.meta.url))
   .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2');
-const fields = new Set(['pythonExecutable', 'ffprobeExecutable', 'ffmpegExecutable', 'settingsHome', 'requestTimeoutMs', 'timeoutMs', 'nativeTimeoutMs', 'maxDownloadBytes', 'graceMs', 'maxVideos', 'dataTimeoutMs', 'maxComments', 'taskMaxTasks', 'taskRegistryMaxBytes', 'taskLockTimeoutMs', 'taskLockPollMs', 'taskReceiptMaxBytes', 'taskOutputMaxBytes']);
+const fields = new Set(['pythonExecutable', 'ffprobeExecutable', 'ffmpegExecutable', 'settingsHome', 'requestTimeoutMs', 'timeoutMs', 'nativeTimeoutMs', 'maxDownloadBytes', 'graceMs', 'maxVideos', 'dataTimeoutMs', 'dataAggregationWaitMs', 'maxComments', 'taskMaxTasks', 'taskRegistryMaxBytes', 'taskLockTimeoutMs', 'taskLockPollMs', 'taskReceiptMaxBytes', 'taskOutputMaxBytes']);
 
 /** Validate deployment settings before registering tools. @param {object} config Settings. @returns {object} Explicit subprocess settings. */
 export function resolveConfig(config = {}) {
@@ -19,13 +19,15 @@ export function resolveConfig(config = {}) {
     taskMaxTasks: 1000, taskRegistryMaxBytes: 16777216, taskLockTimeoutMs: 5000, taskLockPollMs: 25, taskReceiptMaxBytes: 262144, taskOutputMaxBytes: 65536,
     ...config,
   };
+  if (!Object.hasOwn(config, 'dataAggregationWaitMs')) result.dataAggregationWaitMs = Math.min(3000, result.dataTimeoutMs);
   for (const field of ['pythonExecutable', 'ffprobeExecutable', 'ffmpegExecutable']) {
     if (result[field] !== null && (typeof result[field] !== 'string' || !result[field].trim() || result[field].includes('\0'))) throw new TypeError(`${field} must name an executable or be null`);
   }
   if (result.settingsHome !== null && (typeof result.settingsHome !== 'string' || !isAbsolute(result.settingsHome))) throw new TypeError('settingsHome must be Muse’s absolute settings directory');
-  for (const [field, min, max] of [['requestTimeoutMs', 1000, 300000], ['timeoutMs', 1000, 7200000], ['nativeTimeoutMs', 1000, 7200000], ['maxDownloadBytes', 1, 8 * 1024 ** 3], ['graceMs', 0, 10000], ['maxVideos', 1, 100], ['dataTimeoutMs', 1000, 300000], ['maxComments', 1, 200], ['taskMaxTasks', 1, 10000], ['taskRegistryMaxBytes', 1024, 67108864], ['taskLockTimeoutMs', 100, 60000], ['taskLockPollMs', 1, 1000], ['taskReceiptMaxBytes', 1024, 1048576], ['taskOutputMaxBytes', 1024, 1048576]]) {
+  for (const [field, min, max] of [['requestTimeoutMs', 1000, 300000], ['timeoutMs', 1000, 7200000], ['nativeTimeoutMs', 1000, 7200000], ['maxDownloadBytes', 1, 8 * 1024 ** 3], ['graceMs', 0, 10000], ['maxVideos', 1, 100], ['dataTimeoutMs', 1000, 300000], ['dataAggregationWaitMs', 1, 300000], ['maxComments', 1, 200], ['taskMaxTasks', 1, 10000], ['taskRegistryMaxBytes', 1024, 67108864], ['taskLockTimeoutMs', 100, 60000], ['taskLockPollMs', 1, 1000], ['taskReceiptMaxBytes', 1024, 1048576], ['taskOutputMaxBytes', 1024, 1048576]]) {
     if (!Number.isSafeInteger(result[field]) || result[field] < min || result[field] > max) throw new TypeError(`${field} must be an integer from ${min} to ${max}`);
   }
+  if (result.dataAggregationWaitMs > result.dataTimeoutMs) throw new TypeError('dataAggregationWaitMs must not exceed dataTimeoutMs');
   if ((result.dataTimeoutMs + result.requestTimeoutMs + result.timeoutMs + 2 * result.nativeTimeoutMs + 390000) * result.maxVideos + 10000 > 2147483647) throw new TypeError('Combined Douyin tool deadline exceeds the Node timer range; reduce maxVideos or the deployment budgets');
   return result;
 }

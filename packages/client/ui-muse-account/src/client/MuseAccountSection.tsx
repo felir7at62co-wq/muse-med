@@ -64,6 +64,11 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
     setAccount(current => current?.state === 'signed-in' ? { ...current, verified: false } : current)
   }, [])
 
+  const invalidateSession = useCallback((): void => {
+    clearVerification()
+    setNotice('error.invalidCredentials')
+  }, [clearVerification])
+
   const showStatus = (result: MuseAccountOutcome<MuseAccountStatus>): void => {
     if (result.ok) {
       setAccount(result.value)
@@ -237,7 +242,7 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
           </div>}
       {notice === undefined ? null : <p className={css.notice} role="status">{t(notice)}</p>}
       {account?.state === 'signed-in' && account.verified && onSignedIn === undefined
-        ? <MuseAccountDetails key={account.username} t={t} details={details} onInvalidSession={clearVerification} />
+        ? <MuseAccountDetails key={account.username} t={t} details={details} onInvalidSession={invalidateSession} />
         : null}
     </div>
   )

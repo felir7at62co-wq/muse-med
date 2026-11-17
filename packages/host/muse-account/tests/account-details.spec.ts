@@ -81,6 +81,18 @@ it('preserves legacy identities without inventing a synchronized department', as
   expect(await readMuseAccountDetails(Response.json(legacy))).toEqual(legacy)
 })
 
+it('preserves all 257 legal Feishu bindings in full personal details', async () => {
+  const expected = accountDetailsFixture()
+  const identities = Array.from({ length: 257 }, (_, index) => ({ ...expected.account.feishuIdentities[0], name: 'Member ' + String(index) }))
+  const gateway = createMuseAccountGateway(baseUrl, 1000, fullDetailsTransport(async () => Response.json({ ...expected,
+    account: { ...expected.account, feishuIdentities: identities },
+  })))
+  const result = await gateway.details('__Host-muse=private', {})
+  if (result.protocol === 'account-data-v1') throw new Error('Expected full details protocol')
+  expect(result.account.feishuIdentities).toEqual(identities)
+  expect(result.account.feishuIdentities).toHaveLength(257)
+})
+
 it.each([
   ['missing capability', 404, null], ['unknown route error', 503, 'PRIVATE_ROUTE_ERROR'],
   ['unsupported capability', 403, 'PRIVATE_ROUTE_REFUSAL'], ['empty response', 204, null],

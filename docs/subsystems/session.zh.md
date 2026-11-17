@@ -4,6 +4,8 @@
 
 [dsh-session](../../packages/core/session) 的内存事件溯源模型。`Session` 是一份由类型化 `SessionEvent` 组成的**仅追加日志**，是 agent（智能体）完整交互历史的唯一真源。LLM（大语言模型）消息历史从日志*派生*而来，从不单独存储；回放即从同一组事件重新派生。日志如何实现**持久化**（持久化 seam、后端、崩溃恢复）是兄弟文档 [persistence.md](persistence.zh.md) 的关注点。
 
+可选[会话协调器](../../packages/session/session-coordinator/README.zh.md)将独立任务关联到普通执行会话。它提供所有者任务目录、调度角色和持久送达回执，不修改会话循环或普通会话历史。
+
 源码：[`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
 ## `SessionEventMap`：事件词汇
@@ -453,6 +455,17 @@ interface SurfaceFoldResult {
 
 ## `Session` 公共 API
 
+### `SessionEventInput`：一个候选事件
+
+```ts type-equiv
+/** One positional event call proposed for append, without assigned sequence or time. */
+type SessionEventInput = {
+  [K in SessionEventType]: readonly [type: K, data: SessionEventMap[K], ...opts: K extends SurfaceEventType ? [opts: SurfaceIntent<K>] : []]
+}[SessionEventType]
+```
+
+数组中的每个成员将事件类型与对应载荷配对，且仅对产生消息的事件要求surface意图。
+
 去除方法体的声明与源码中的普通类保持同步，覆盖其脱离态工厂、状态访问器、append 方法和历史投影。存储操作仍由生成的 [`ctx.sessions` 小节](#ctxsessions--sessionstore)记录。
 
 ```ts public-api
@@ -579,6 +592,18 @@ declare class Session {
   isOwnSeq(seq: SessionSeq): boolean;
   /** The next event's sequence number — always the log length (the `seq = log.length` contiguity contract). */
   get seq(): SessionLogOffset;
+  /** Current event while synchronously notifying a batch's observers. */
+  get currentBatchPublication(): SessionEvent | undefined;
+  /**
+   * Append consecutive events together after validating every candidate and dispatch.
+   * Observers read the complete committed log and final message surface.
+   * Listener registration changes during publication take effect on the next append.
+   * Persistence listeners retain their own durability rules.
+   * @param inputs - event payloads and surface intents in commit order. An empty array records no events.
+   * @returns immutable committed events in the same order.
+   * @throws if the Session cannot accept writes, including an empty append, or any candidate or synchronous dispatch validation fails.
+   */
+  append(inputs: readonly SessionEventInput[]): readonly SessionEvent[];
   /**
    * Append one typed event to the log and synchronously notify observers via
    * the store-owned, module-private publication hooks. The hot path never blocks
@@ -856,6 +881,35 @@ type SessionLogUploadExclusion = (request: SessionLogUploadRequest) => boolean
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxsessionactivity--sessionactivitywatcher"></a>
+
+### `ctx.sessionActivity` — `SessionActivityWatcher`
+
+Service surface consumers use to read Session status lines and watch Sessions on behalf of a parent.
+
+```ts cordis-catalog
+/**
+ * Deliver status digests of one Session to a parent Session's live Agent until disposed.
+ * Registering the same pair again adds a reference and replaces the label.
+ * @param parent - Session whose Agent receives the digests.
+ * @param child - Session whose status is reported.
+ * @param label - Short task label shown on the child's line.
+ * @returns the disposer removing this registration; repeated calls do nothing.
+ */
+watch(parent: SessionId, child: SessionId, label: string): () => void
+
+/**
+ * Render one Session's current status line, as the session list shows it.
+ * @param sessionId - Any local Session, open or not.
+ * @returns The line, such as `running for 12 min · last tool bash · job: ffmpeg`.
+ */
+describe(sessionId: SessionId): Promise<string>
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/session/session-activity/src/types.ts`](../../packages/session/session-activity/src/types.ts)
+
 <a id="ctxsessioncontroller--sessioncontroller"></a>
 
 ### `ctx.sessionController` — `SessionController`
@@ -863,6 +917,21 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 Host service backing the generated `ctx.remote.session` namespace.
 
 ```ts cordis-catalog
+/**
+ * Restrict blank Session reuse while a feature owns the identity.
+ * @param filter - accepts one candidate and requested preset.
+ * @returns disposer for this independent contribution.
+ */
+registerBlankReuseFilter(filter: (id: SessionId, preset: string | undefined) => boolean): () => void
+
+/**
+ * Evaluate the registered blank reuse policy.
+ * @param id - candidate Session identity.
+ * @param preset - requested preset, if supplied.
+ * @returns whether every contribution accepts the candidate.
+ */
+canReuseBlank(id: SessionId, preset: string | undefined): boolean
+
 /**
  * Resolve or resume one ordinary Session for another Host API domain.
  * @param sessionId - Session identity whose Agent owns the operation.
@@ -1073,6 +1142,195 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 Types: [ModelSelection](core.zh.md) · [SessionId](core.zh.md) · [SessionSearchRequest](session-query.zh.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
+
+<a id="ctxsessioncoordinator--sessioncoordinator"></a>
+
+### `ctx.sessionCoordinator` — `SessionCoordinator`
+
+Task router whose durable writes precede Session creation and message delivery.
+
+```ts cordis-catalog
+/**
+ * Observe the retained Main Session identity without creating a Session.
+ * @param signal - Client cancellation; plugin unload also closes the stream.
+ * @returns the initial identity and subsequent changes.
+ */
+@Remote({ mode: 'stream' }) async *watchMain(signal: AbortSignal): AsyncIterable<SessionId | null>
+
+/**
+ * Open the profile's durable Main Session from its dedicated navigation entry.
+ * @returns the retained routing Session, initially created in the native default Workspace.
+ */
+@Remote openMain(): Promise<SessionId>
+
+/**
+ * Assert the exact live caller holds the configured routing role.
+ * @param agent - Actual tool subject, never an argument-supplied identity.
+ */
+async requireMain(agent: Agent): Promise<void>
+
+/**
+ * Search the local profile owner's ordinary Sessions without activating them.
+ * @param main - Exact routing Agent.
+ * @param query - Literal title or content text; empty lists recent Sessions.
+ * @returns bounded candidates with titles, excerpts, workspace, busy and archive facts.
+ */
+async search(main: Agent, query: string): Promise<string>
+
+/**
+ * Read exact recent input and response excerpts before choosing full history pages.
+ * @param main - Actual routing Agent.
+ * @param sessionId - Local profile-owner Session.
+ * @returns latest input and response with event positions and explicit truncation flags.
+ */
+async summary(main: Agent, sessionId: SessionId): Promise<string>
+
+/**
+ * Read a bounded, cursor-addressed history page for routing and source retrieval.
+ * @param main - Exact routing Agent.
+ * @param sessionId - Ordinary Session in the same local owner profile.
+ * @param fromSeq - Inclusive raw-event position, zero for the first page.
+ * @returns JSON events and an explicit next position; no history is activated.
+ */
+async read(main: Agent, sessionId: SessionId, fromSeq: number): Promise<string>
+
+/**
+ * List every turn of a Session or subagent in one line each; the newest turns are kept within `readChars`.
+ * @param main - Exact routing Agent.
+ * @param sessionId - Session or subagent in the same local owner profile.
+ * @returns JSON turn outlines, oldest first, with the count of earlier turns left out.
+ */
+async outline(main: Agent, sessionId: SessionId): Promise<string>
+
+/**
+ * Page compact task inputs, replies, tool calls, results and turn boundaries of a Session or subagent.
+ * @param main - Exact routing Agent.
+ * @param sessionId - Session or subagent in the same local owner profile.
+ * @param fromSeq - Inclusive first sequence, such as a turn's `startSeq`.
+ * @returns JSON step items within `readChars` and the next position, or null when complete.
+ */
+async steps(main: Agent, sessionId: SessionId, fromSeq: number): Promise<string>
+
+/**
+ * Find events of one Session that match a query: full-text search when the deployment has an index,
+ * otherwise a case-insensitive scan of the Session's step items.
+ * @param main - Exact routing Agent.
+ * @param sessionId - Session or subagent in the same local owner profile.
+ * @param query - Full-text query, or plain text for the scan.
+ * @returns JSON hits with sequence, event or step type and snippet, at most `searchLimit` within `readChars`.
+ */
+async searchEvents(main: Agent, sessionId: SessionId, query: string): Promise<string>
+
+/**
+ * List one Session's background jobs, or read one job's output without consuming the Session's own unread output.
+ * @param main - Exact routing Agent.
+ * @param sessionId - Owner Session of the jobs.
+ * @param jobId - Job to read; omitted lists the Session's jobs.
+ * @param from - Byte offset to read from; omitted reads the last `readChars` bytes.
+ * @returns JSON job rows, or one job row with its output text, resume offset and loss flag.
+ */
+async jobs(main: Agent, sessionId: SessionId, jobId?: string, from?: number): Promise<string>
+
+/**
+ * Read the current settings with secrets redacted.
+ * @param main - Exact routing Agent.
+ * @param namespace - Namespace to read; omitted reads every namespace that fits `readChars`.
+ * @returns JSON effective values per namespace, or the namespace names when all values do not fit.
+ */
+async settings(main: Agent, namespace?: string): Promise<string>
+
+/**
+ * Return one image a Session or subagent's model received, for Main to view.
+ * @param main - Exact routing Agent.
+ * @param sessionId - Session or subagent in the same local owner profile.
+ * @param seq - Sequence of the `user/message` or `tool/result` event holding the image.
+ * @param index - Zero-based position among that event's images.
+ * @returns A caption and the stored image reference.
+ */
+async image(main: Agent, sessionId: SessionId, seq: number, index: number): Promise<{ text: string; attachment: ImageAttachmentRef }>
+
+/**
+ * Record and deliver one new goal or an explicit revision, reusing an identical key.
+ * A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded.
+ * A fresh worker is created only when `maxWorkers` permits and no older fresh-worker dispatch is waiting;
+ * otherwise the recorded intent waits as `dispatching` and starts automatically. With `taskRoot`, every
+ * revision runs in the task's folder; another `cwd` or a reused Session in another directory fails before
+ * any intent is recorded. The request source is Main's latest human message, or schedule reminder when unattended.
+ * @param main - Exact routing Agent.
+ * @param request - Agent-selected existing or fresh ordinary worker and bounded routing notes.
+ * @returns authoritative task; `dispatching` for a waiting fresh worker; acceptance is not execution completion.
+ */
+async dispatch(main: Agent, request: DispatchRequest): Promise<CoordinationTask>
+
+/**
+ * Ask the original quiescent worker to verify existing results without replaying human business commands.
+ * The coordinator records the worker's current log position; a supplied `expectedWorkerSeq` must equal it.
+ * A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded.
+ * @param main - Exact live owner Main Agent.
+ * @param request - Idempotent recovery request with the expected task revision and bounded routing notes.
+ * @returns retained successor assignment; an uncertain delivery remains interrupted.
+ */
+async reconcile(main: Agent, request: ReconcileRequest): Promise<CoordinationTask>
+
+/**
+ * List the local owner's task records without activating their Agents. This Remote surface requires global owner access.
+ * @param sessionId - Main Session whose assignments to read.
+ * @returns current and previous revisions, including exact worker and artifact references.
+ */
+@Remote list(sessionId: SessionId): CoordinationTask[]
+
+/**
+ * Capture an owner-verified report without accepting model-authored status or files.
+ * @param main - Actual live Main Agent with a local owner request.
+ * @param taskIds - Exact owned goals; omission or an empty list selects unsettled goals first, then recent ones.
+ * @returns Complete task facts bounded by searchLimit and the combined readChars model-result/metadata budget.
+ */
+async displayReport(main: Agent, taskIds: readonly CoordinationTaskId[] = []): Promise<CoordinationReport>
+
+/**
+ * List Main's tasks for routing, unsettled first and then newest, one latest-revision row each.
+ * Rows count presented files instead of listing them; a row that does not fit the remaining `readChars` budget is omitted.
+ * @param main - Actual live Main Agent with a local owner request.
+ * @returns at most `searchLimit` rows whose serialized list fits `readChars`, with the owned task total and an omission flag.
+ */
+async tasks(main: Agent): Promise<RoutingTaskList>
+
+/**
+ * Observe complete owner-only task snapshots; no model polling or wake loop.
+ * @param sessionId - Main Session selecting the task directory.
+ * @param signal - Client cancellation; plugin unload also closes the stream.
+ * @returns initial and changed task sets.
+ */
+@Remote({ mode: 'stream' }) async *watch(sessionId: SessionId, signal: AbortSignal): AsyncIterable<CoordinationTask[]>
+
+/**
+ * Request one task's cancellation, retaining stopping until its Agent and jobs settle.
+ * This owner-only Remote operation never cancels an unrelated worker assignment: a busy worker that consumed
+ * a later human-authored message keeps running and the task becomes interrupted. Runtime continuations of the
+ * assignment, such as subagent settlement messages, are cancelled with it.
+ * @param sessionId - Owning Main Session.
+ * @param taskId - Exact owned goal.
+ * @param revision - Assignment revision shown to the user.
+ * @returns durable stopping or stopped receipt.
+ */
+@Remote stop(sessionId: SessionId, taskId: CoordinationTaskId, revision: number): Promise<CoordinationTask>
+
+/**
+ * Accept a report only from the exact worker that consumed this revision's input.
+ * @param worker - Actual live reporting tool subject.
+ * @param taskId - Goal named in its assignment.
+ * @param revision - Consumed revision.
+ * @param outcome - Explicit business result, not inferred from idle.
+ * @param summary - Worker account supported by its native tool log, at most
+ * `summaryChars` characters; for `needs-input`, the question for the user.
+ * @returns task in finishing state; completion is published after quiescence.
+ */
+report(worker: Agent, taskId: CoordinationTaskId, revision: number, outcome: WorkerReport['outcome'], summary: string): Promise<CoordinationTask>
+```
+
+Types: [Agent](core.zh.md) · [ImageAttachmentRef](attachment.zh.md) · [SessionId](core.zh.md)
+
+Source: [`packages/session/session-coordinator/src/index.ts`](../../packages/session/session-coordinator/src/index.ts)
 
 <a id="ctxsessionlogdeepseek--sessionlogdeepseekservice"></a>
 
@@ -1400,13 +1658,16 @@ Source: [`packages/core/session/src/index.ts`](../../packages/core/session/src/i
 
 #### `session/event` — emit
 
-Post-commit, fire-and-forget append feed. The listener snapshot resolves before the log push, but callbacks run after it; observer failures are logged and contained without making the committed append fail. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only events from sessions entered through that agent's context.
+Post-commit, fire-and-forget append feed. The listener snapshot resolves before the log push, but callbacks run after it; observer failures are logged and contained without making the committed append fail. Array append commits every member before publishing them in order; `session.seq` and `session.surface` already include the complete batch. `session.currentBatchPublication` identifies the member being delivered. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only events from sessions entered through that agent's context.
 
 ```ts cordis-catalog
 /**
  * Post-commit, fire-and-forget append feed. The listener snapshot resolves
  * before the log push, but callbacks run after it; observer failures are
  * logged and contained without making the committed append fail.
+ * Array append commits every member before publishing them in order;
+ * `session.seq` and `session.surface` already include the complete batch.
+ * `session.currentBatchPublication` identifies the member being delivered.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners
  * receive only events from sessions entered through that agent's context.
  * @param session - the session whose log grew.

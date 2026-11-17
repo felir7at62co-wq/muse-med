@@ -21,7 +21,7 @@ const schema = z.object({
       }).optional(),
     }).transform(({ organization, ...identity }) => ({ ...identity,
       ...(organization === undefined ? {} : { organization }),
-    }))).max(256),
+    }))),
   }),
   groups: z.array(z.object({
     id: z.string().regex(/^group-[a-f0-9]{16}$/u).transform(value => brandString<MuseAccountGroupId>(value)),
@@ -43,8 +43,9 @@ const schema = z.object({
 const profileSchema = schema.pick({ account: true, groups: true }).extend({
   version: z.literal(1),
   organization: z.object({ status: z.enum(['available', 'unavailable']), updatedAt: instant.nullable(),
-    departments: z.array(department.extend({ path: z.string().max(20000), pathIds: z.array(departmentId).max(100) })).max(100),
-  }),
+    departments: z.array(department.extend({ path: z.string().max(20000), pathIds: z.array(departmentId).max(100) })),
+  }).transform(organization => organization.departments.length > 100
+    ? { ...organization, status: 'unavailable' as const, departments: [] } : organization),
 })
 
 /**
@@ -62,7 +63,7 @@ export async function readMuseAccountJson(response: Response): Promise<unknown> 
       const chunk = await reader.read()
       if (chunk.done) break
       size += chunk.value.byteLength
-      // This JSON endpoint never carries messages, attachments, or unbounded ledger history.
+      // Bound the complete response, including fields discarded by protocol projection.
       if (size > 4 * 1024 * 1024) throw new MuseGatewayError('gateway-rejected')
       chunks.push(chunk.value)
     }

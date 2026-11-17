@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { authenticateWebHost, authenticatedWebHostRequest, forwardWebRequest, serveWebDocument } from '../src/web-document.ts'
+import { authenticateWebHost, authenticatedWebHostRequest, forwardWebRequest, removeLegacyHostCookies, serveWebDocument } from '../src/web-document.ts'
 import { connectDesktopWelcome } from '../src/welcome-backend.ts'
 
 const roots: string[] = []
@@ -191,4 +191,15 @@ it.each([
   const response = await forwardWebRequest(new Request(`dsh-app://app${path}`), 'http://127.0.0.1:1234/', 'session=owned')
   expect(response.headers.get('content-length')).toBeNull()
   expect(response.headers.get('content-encoding')).toBeNull()
+})
+
+it('removes only legacy Host authentication cookies for the Host hostname', async () => {
+  const removed: [string, string][] = []
+  const cookies = {
+    get: vi.fn(async () => [{ name: 'dsh-auth-old' }, { name: 'other-app' }, { name: 'dsh-auth-older' }]),
+    remove: vi.fn(async (url: string, name: string) => { removed.push([url, name]) }),
+  }
+  await removeLegacyHostCookies(cookies, 'http://127.0.0.1:1234/?token=secret')
+  expect(cookies.get).toHaveBeenCalledExactlyOnceWith({ url: 'http://127.0.0.1:1234' })
+  expect(removed).toEqual([['http://127.0.0.1:1234', 'dsh-auth-old'], ['http://127.0.0.1:1234', 'dsh-auth-older']])
 })

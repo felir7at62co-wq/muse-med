@@ -36,6 +36,21 @@ python3 verify.py --source /opt/muse/dtk/source-v5.1.10
 
 成功回执记录实际观测的 `publishedBindings`、`networkModes` 和 `transcriberRuntime`。`profiles` 字段已移除，因为运行中的容器不能证明启动时使用了哪些 Compose profile 参数；`images` 标识实际观测的服务。使用回执时应核对退出状态和新的 `verifiedAt` 时间。验证失败不会替换旧回执。
 
+## 修补的 API 镜像
+
+API、worker 和迁移服务运行 `muse-dtk-app:5.1.10`：在固定的 API 镜像上，对其 Python 包应用 [patches](patches) 中的补丁。[dtk-douyin-search.patch](patches/dtk-douyin-search.patch) 增加抖音作品搜索和账号搜索，抖音只回答已登录身份；回放夹具取自 2026-11-15 抓取的答复并已脱敏。`sh build-patched.sh` 把全部补丁应用到固定源码的副本，用 [Dockerfile.patched](Dockerfile.patched) 构建镜像，并标注 `com.muse.dtk.patches.sha256`；上游 revision 和 version 标签保持不变，所以验证仍核对固定版本。在 `/etc/muse/dtk.env` 中设置 `DTK_IMAGE=muse-dtk-app`，然后只重建应用服务：
+
+```sh
+sh build-patched.sh
+sh compose.sh up -d --no-deps --wait --wait-timeout 180 api worker
+```
+
+回滚时恢复 `DTK_IMAGE=evil0ctal/douyin_tiktok_download_api` 并重建相同服务。补丁不改变数据库结构。
+
+## 登录身份
+
+抖音搜索需要专用账号的登录 Cookie，绝不能使用个人账号或公司关键账号。运维人员在持有服务器 SSH 密钥的机器上运行 `python3 import-identity.py`，在不回显的提示中粘贴该账号请求里的 `cookie` 和 `user-agent`；Cookie 只经 SSH 标准输入传输。脚本先在服务器上预检，只保存带登录态的 Cookie，使其不参与轮换，并请平台检查登录态。之后在控制台身份抽屉里把它的轮换限定为搜索接口。抖音登录有效期为 60 天；DTK 在 `sid_guard` 过期前三天发出 `cookie_expiring`，重新导入即可替换过期身份。
+
 ## 访问与恢复
 
 管理员密码和服务密钥保留在服务器，不分发给员工客户端。上游媒体归档在同一实例内共享；Muse 公司网关负责员工授权、任务归属和限额。

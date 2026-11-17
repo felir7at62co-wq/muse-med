@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ts from 'typescript'
-import { retainedPluginSourcePrefixes, createRegularRepositorySourceReader, readRetainedPluginOrigins, type RetainedPluginOrigin } from './retained-plugin-sources.ts'
+import { createRegularRepositorySourceReader, readRetainedPluginOrigins, type RetainedPluginOrigin } from './retained-plugin-sources.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const baselinePath = 'scripts/no-unknown-casts.baseline.json'
@@ -114,8 +114,13 @@ function authoredUnknownCasts(file: string, text: string, origin: RetainedPlugin
 function isSource(file: string): boolean {
   return /\.(?:[cm]?[jt]s|[jt]sx)$/u.test(file)
     && !file.startsWith('vendor/')
-    // Pinned upstream snapshots retain their original types; owned siblings remain scanned.
-    && !retainedPluginSourcePrefixes.some(prefix => file.startsWith(prefix))
+    // These exact source snapshots are pinned in sources.json; owned sibling adapters remain scanned.
+    && !file.startsWith('third_party/plugins/dsh-feishu/')
+    && !file.startsWith('third_party/plugins/dsh-im/')
+    && !file.startsWith('third_party/plugins/dsh-plugin-subscriptions/src/')
+    && !file.startsWith('third_party/plugins/dsh-plugin-subscriptions/test/')
+    && !file.startsWith('third_party/plugins/dsh-visualize/src/')
+    && !file.startsWith('third_party/plugins/dsh-visualize/tests/')
     && !file.startsWith('.agents/notes/archived/')
 }
 

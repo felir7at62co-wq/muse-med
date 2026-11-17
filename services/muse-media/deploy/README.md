@@ -36,6 +36,21 @@ Readiness has one monotonic 120-second budget covering probe startup, response h
 
 A successful receipt records observed `publishedBindings`, `networkModes` and `transcriberRuntime`. The `profiles` field is removed because running containers do not establish which Compose profile flags started them; `images` identifies the observed services. Check the exit status and a fresh `verifiedAt` when using a receipt. Failed verification does not replace an earlier receipt.
 
+## Patched API image
+
+The API, worker and migration services run `muse-dtk-app:5.1.10`: the pinned API image with [patches](patches) applied to its Python package. [dtk-douyin-search.patch](patches/dtk-douyin-search.patch) adds Douyin post and account search, which Douyin answers to a signed-in identity only, with replay fixtures redacted from replies captured on 2026-11-15. `sh build-patched.sh` applies every patch to a copy of the pinned source, builds the image from [Dockerfile.patched](Dockerfile.patched), and labels it `com.muse.dtk.patches.sha256`; the upstream revision and version labels stay unchanged, so verification still checks the pin. Set `DTK_IMAGE=muse-dtk-app` in `/etc/muse/dtk.env`, then recreate only the application services:
+
+```sh
+sh build-patched.sh
+sh compose.sh up -d --no-deps --wait --wait-timeout 180 api worker
+```
+
+Rolling back restores `DTK_IMAGE=evil0ctal/douyin_tiktok_download_api` and recreates the same services. The patches change no database schema.
+
+## Signed-in identities
+
+Douyin search needs a logged-in cookie jar from a dedicated account, never a personal or company-critical one. On a machine holding the server SSH key, the operator runs `python3 import-identity.py` and pastes the account's `cookie` and `user-agent` request headers at hidden prompts; the cookie travels on SSH standard input only. The script previews the jar on the server, stores it only when it carries a login, keeps it out of rotation, and asks the platform for a login check. Afterwards limit its rotation to the search endpoints in the console identity drawer. A Douyin login lasts 60 days; DTK raises `cookie_expiring` three days before `sid_guard` expires, and a new import replaces the expired identity.
+
 ## Access and recovery
 
 Keep the administrator password and service key on the server. Do not distribute them to employee clients. The upstream media archive is shared across the instance; the Muse company gateway owns employee authorization, task ownership, and limits.

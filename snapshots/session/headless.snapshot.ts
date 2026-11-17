@@ -2,6 +2,7 @@
 
 import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deriveWorkingBudgetExpectations } from './working-budget-oracle.ts'
 import { sessionProductBudgetInput } from './muse-session-product/budget.ts'
+import { creationBudgetInput } from './muse-creation-ptc/budget.ts'
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
@@ -16,7 +17,7 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, sep, win32 } 
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import ts from 'typescript'
-import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import { deriveEventMessage, foldSurface, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import { releasedV0SessionFormatCodec } from '@deepseek-ai/dsh-session-format-v0-to-v1'
 import type { SessionFormatEvent, SessionFormatMigrationContext } from '@deepseek-ai/dsh-session-format'
 import type { PackageReport, ShotReport } from '../../packages/drama/tool-shot-script/src/types.ts'
@@ -69,10 +70,6 @@ const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
 const snapshotsRoot = fileURLToPath(new URL('./', import.meta.url))
 const dshBin = join(repoRoot, 'apps/cli/src/bin.ts')
 const tsconfigPath = join(repoRoot, 'tsconfig.json')
-const editingCordisSkill = join(
-  repoRoot,
-  'packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md',
-)
 // Legacy guide bodies belong to their recorded workspaces; current discovery uses product resources.
 const museLegacySkills = join(snapshotsRoot, 'muse-video-screenplay-skills/legacy-skills')
 const museEditingSkill = join(museLegacySkills, 'editing.skill.txt')
@@ -127,14 +124,23 @@ interface SessionLog {
   readonly header: JsonObject
 }
 
-/** Keep the cwd text priced by compaction independent of the platform's temporary-root length. */
-async function compactionWorkspaceOptions(): Promise<{ tempDirParent: string; tempDirPrefix: string }> {
+const fixedBudgetWorkspaceScenarios = new Set([
+  'compaction-recovery',
+  'muse-skill-market-bounded-catalog-ptc',
+  'muse-skill-market-creation-binding-ptc',
+  'muse-video-screenplay-entry-creation',
+  'prompt-usage-recovery',
+  'prompt-usage-stop',
+])
+
+/** Keep recorded request budgets independent of the platform's temporary-root length. */
+async function fixedBudgetWorkspaceOptions(): Promise<{ tempDirParent: string; tempDirPrefix: string }> {
   const tempDirParent = await realpath(tmpdir())
   const prefix = 'dsh-log-snap-'
   // mkdtemp appends six characters; JSON quoting is part of the runtime-context text.
   const unpaddedLength = JSON.stringify(join(tempDirParent, `${prefix}XXXXXX`)).length
   const paddingLength = 192 - unpaddedLength
-  if (paddingLength < 0) throw new Error('compaction snapshot temporary root exceeds its fixed cwd text length')
+  if (paddingLength < 0) throw new Error('snapshot temporary root exceeds its fixed cwd text length')
   return { tempDirParent, tempDirPrefix: prefix + '-'.repeat(paddingLength) }
 }
 
@@ -330,7 +336,17 @@ function tokenizeRefreshedFixtureCwd(log: string, cwd: string): string {
   const lines = log.split('\n')
   const header = JSON.parse(lines[0] as string) as JsonObject
   if (header.cwd === '{{cwd}}') lines[0] = JSON.stringify({ ...header, cwd })
-  return tokenizeSessionFixtureCwd(lines.join('\n'))
+  if (!insidePrimaryCwd(header.cwd, cwd)) return tokenizeSessionFixtureCwd(lines.join('\n'))
+  // Replay normalizes child roles against the primary cwd, so a child in a subdirectory keeps its suffix.
+  return tokenizeSessionFixtureCwd([JSON.stringify({ cwd }), ...lines].join('\n')).split('\n').slice(1).join('\n')
+}
+
+/** Whether a role's retained or raw header cwd is a strict subdirectory of the primary cwd. */
+function insidePrimaryCwd(value: unknown, cwd: string): boolean {
+  if (typeof value !== 'string') return false
+  if (/^\{\{cwd\}\}[\\/]/u.test(value)) return true
+  const path = relative(cwd, value)
+  return path !== '' && path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
 }
 
 /**
@@ -569,6 +585,21 @@ async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir:
   return expectedRoot
 }
 
+async function prepareHuanchangExpectedWorkspace(cwd: string, scenarioDir: string): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-huanchang-workspace')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+  const file = join(expectedRoot, 'shot_reviews', '01', 'review.json')
+  const report = JSON.parse(await readFile(file, 'utf8')) as JsonObject
+  expect(report.script).toBe('{{cwd}}/shots.txt')
+  expect(report.assets_manifest).toBe('{{cwd}}/assets_manifest.json')
+  expect(report.written).toEqual(['{{cwd}}/shot_reviews/01/shot_script.txt', '{{cwd}}/shot_reviews/01/review.json'])
+  report.script = join(cwd, 'shots.txt')
+  report.assets_manifest = join(cwd, 'assets_manifest.json')
+  report.written = [join(cwd, 'shot_reviews', '01', 'shot_script.txt'), join(cwd, 'shot_reviews', '01', 'review.json')]
+  await writeFile(file, `${JSON.stringify(report, null, 2)}\n`)
+  return expectedRoot
+}
+
 function expandManuscriptDeliveryLedger(text: string, cwd: string, parentSession: string, owner: 'native' | 'ptc' | 'no-receipt' = 'native'): string {
   const ledger = JSON.parse(text) as JsonObject
   if (!Array.isArray(ledger.baselines)) throw new Error('manuscript delivery oracle requires baselines')
@@ -794,6 +825,9 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     await symlink(join(source, 'node_modules'), join(target, 'node_modules'), 'dir')
     await copyFile(join(repoRoot, `packages/experimental/cua-macos/${guidanceDirectory}/guidance.${extension}`), join(target, `guidance.${extension}`))
   },
+  async 'dsh-doc-resources'(cwd) {
+    await cp(join(repoRoot, 'packages/preset/agent-preset/skills/dsh-doc'), join(cwd, '.dsh/skills/dsh-doc'), { recursive: true })
+  },
   async 'windows-acl-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'diagnose-windows-sandbox-acl', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
@@ -801,13 +835,12 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
   },
   async 'office-skills'(cwd) {
     await cp(join(repoRoot, 'packages/skill/skill-office/assets'), join(cwd, 'office-skills'), { recursive: true })
-    // A copied macOS Node binary cannot find its adjacent libnode.dylib.
-    const nodePath = process.execPath.replaceAll("'", "'\\''")
-    await writeFile(join(cwd, 'office-node'), `#!/bin/sh\nexec '${nodePath}' "$@"\n`, { mode: 0o755 })
-    await copyFile(join(repoRoot, 'packages/skill/skill-office/node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js'), join(cwd, 'office-cli.js'))
   },
   async 'office-retired-ptc'(cwd) {
     await workspaceSetups['office-skills']!(cwd)
+    // A copied macOS Node binary cannot find its adjacent libnode.dylib.
+    const nodePath = process.execPath.replaceAll("'", "'\\''")
+    await writeFile(join(cwd, 'office-node'), `#!/bin/sh\nexec '${nodePath}' "$@"\n`, { mode: 0o755 })
     // Keep the removed-tool error without process-specific stack locations.
     await writeFile(join(cwd, 'office-ptc-node'), '#!/bin/sh\nexec "$(dirname "$0")/office-node" --stack-trace-limit=0 "$@"\n', { mode: 0o755 })
   },
@@ -826,7 +859,7 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
   async 'editing-cordis-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'editing-cordis-compositions', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
-    await copyFile(editingCordisSkill, target)
+    await copyFile(join(snapshotsRoot, 'skill-load/workspace/.dsh/skills/editing-cordis-compositions/SKILL.md'), target)
   },
   async 'skill-root-isolation'(cwd) {
     await workspaceSetups['editing-cordis-skill']!(cwd)
@@ -1333,7 +1366,10 @@ async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: st
       .split('\n').filter(line => line.trim() !== '').map(line =>
         JSON.stringify(visualizationBudgetValue(JSON.parse(line), visualize!))).join('\n') + '\n'
   }
-  return { log: expectedLog, prompt, schemas: expectedSchemas, cwd }
+  const input = { log: expectedLog, prompt, schemas: expectedSchemas, cwd }
+  return scenario.name === 'muse-creation-ptc' || scenario.name === 'muse-creation-review-guidance'
+    || scenario.name === 'muse-creation-stage-diagnostics'
+    ? creationBudgetInput(scenario.name, input, { join }) : input
 }
 
 async function workspaceBudgetExpected(
@@ -1393,6 +1429,65 @@ async function verifySessionQuerySpill(log: string, spillRoot: string, locatorRo
   expect(full).toContain('session_event_search')
 }
 
+/** Require cross-tree communication and target-only restoration with an offline creator. */
+function verifyTeamTreeMessage(logs: readonly SessionLog[]): void {
+  expect(logs).toHaveLength(3)
+  const leaf = parseSessionLog(logs[2]!.content)
+  const results = leaf.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  expect(results).toHaveLength(2)
+  expect(results.every(result => result.isError === false)).toBe(true)
+  const rootResults = parseSessionLog(logs[0]!.content).flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  expect(rootResults.map(result => ({ id: result.toolCallId, error: result.isError, content: result.content })))
+    .toEqual(expect.arrayContaining([expect.objectContaining({ id: 'root-resume-leaf', error: false })]))
+  const branch = parseSessionLog(logs[1]!.content)
+  expect(branch.filter(event => event.type === 'turn/start')).toHaveLength(1)
+  expect(branch.some(event => event.type === 'session/end-seed')).toBe(false)
+  expect(leaf.filter(event => event.type === 'turn/start')).toHaveLength(2)
+  expect(leaf.some(event => event.type === 'assistant/message'
+    && event.data.message.content.some(block => block.type === 'text' && block.text === 'LEAF_RESUMED'))).toBe(true)
+  const deliveries = parseSessionLog(logs[0]!.content).flatMap(event => event.type === 'user/message'
+    && event.data.source.kind === 'agent-message' ? [{
+      sender: event.data.source.senderSessionId,
+      text: event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join(''),
+    }] : [])
+  expect(deliveries).toEqual([{
+    sender: logs[2]!.header.id,
+    text: expect.stringContaining('The nested reviewer can see and contact the Lead.'),
+  }])
+}
+
+/** Task commits leave inbox waits pending until timeout without inserting input. */
+function verifyTeamTaskInbox(logs: readonly SessionLog[]): void {
+  expect(logs).toHaveLength(2)
+  const root = parseSessionLog(logs[0]!.content)
+  const child = parseSessionLog(logs[1]!.content)
+  const tasks = root.flatMap(event => event.type === 'team/task' ? [event.data.task] : [])
+  expect(tasks).toMatchObject([
+    { id: 'task-1', revision: 1, status: 'pending' },
+    { id: 'task-1', revision: 2, status: 'in_progress', ownerId: logs[1]!.header.id },
+    { id: 'task-1', revision: 3, status: 'completed', ownerId: logs[1]!.header.id },
+  ])
+  const sources = [...root, ...child].flatMap(event => event.type === 'user/message'
+    ? [event.data.source.kind]
+    : event.type === 'agent/inbox/spliced' ? event.data.inserted.map(message => message.source.kind) : [])
+  expect(sources).not.toContain('team-task-change')
+  for (const id of ['wait-past-change', 'wait-current-change']) {
+    const start = root.findIndex(event => event.type === 'tool/call' && event.data.callId === id)
+    const end = root.findIndex(event => event.type === 'tool/result' && event.data.message.toolCallId === id)
+    expect(start).toBeGreaterThan(0)
+    expect(end).toBeGreaterThan(start)
+    expect(root.slice(start, end).some(event => event.type === 'user/message'
+      || event.type === 'agent/inbox/spliced' && event.data.inserted.length > 0)).toBe(false)
+  }
+  const results = [...root, ...child].flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  expect(results).toHaveLength(7)
+  expect(results.every(result => result.isError === false)).toBe(true)
+  expect(results.find(result => result.toolCallId === 'wait-past-change')?.content)
+    .toEqual([{ type: 'text', text: '{"timedOut":true}' }])
+  expect(results.find(result => result.toolCallId === 'wait-current-change')?.content)
+    .toEqual([{ type: 'text', text: '{"timedOut":true}' }])
+}
+
 /** Require the live headless credential store to remain inactive before accepting its recorded answer. */
 function assertHeadlessCredentialsInactive(log: string): void {
   const events = parseSessionLog(log)
@@ -1432,7 +1527,9 @@ function verifyAdvancedToolchain(logs: readonly SessionLog[]): void {
   const textOf = (index: number) => results[index]!.content
     .flatMap(block => block.type === 'text' ? [block.text] : []).join('')
   expect(JSON.parse(textOf(1))).toEqual(['Service', 'Event', 'Config', 'Tool'])
-  expect(textOf(2)).toBe(`started subagent ${logs[1]!.header.id}`)
+  expect(textOf(2)).toBe('started subagent agent-1')
+  expect(events.filter(event => event.type === 'subagent/catalog').map(event => event.data))
+    .toContainEqual(expect.objectContaining({ childId: logs[1]!.header.id, name: 'agent-1' }))
   const completions = events.flatMap(event => event.type === 'user/message'
     && event.data.source.kind === 'subagent-settled' ? [{
       sender: event.data.source.senderSessionId,
@@ -1451,6 +1548,28 @@ function verifyAdvancedToolchain(logs: readonly SessionLog[]): void {
     const names = header.tools?.map(tool => tool.name) ?? []
     expect(names).toEqual(expect.arrayContaining(['cordis_inspect_list', 'subagent', 'workflow']))
     expect(names).not.toContain('run_code')
+  }
+}
+
+/** Require depth rejection and direct-parent-only settlement delivery, independent of parent teardown timing. */
+function verifyDepthTwoRejection(logs: readonly SessionLog[]): void {
+  expect(logs).toHaveLength(3)
+  const [root, parent, leaf] = logs as [SessionLog, SessionLog, SessionLog]
+  const leafEvents = parseSessionLog(leaf.content)
+  const results = leafEvents.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  expect(results).toHaveLength(1)
+  expect(results[0]).toMatchObject({ isError: true, content: [{ type: 'text', text: 'Error: subagent depth 3 exceeds maxDepth 2' }] })
+  expect(leafEvents.filter(event => event.type === 'subagent/catalog')).toEqual([])
+  expect(finalTextFromSession(leaf.content)).toBe('DEPTH_REJECTED')
+  const leafNotices = (log: SessionLog) => parseSessionLog(log.content).filter(event => event.type === 'user/message'
+    && event.data.source.kind === 'subagent-settled' && event.data.source.senderSessionId === leaf.header.id)
+  expect(leafNotices(root)).toEqual([])
+  // The direct parent receives completion only if it is still online when its child settles.
+  const notices = leafNotices(parent)
+  expect(notices.length).toBeLessThanOrEqual(1)
+  for (const notice of notices) {
+    expect(notice).toMatchObject({ data: { source: { stopReason: 'completed' },
+      content: expect.arrayContaining([{ type: 'text', text: 'DEPTH_REJECTED' }]) } })
   }
 }
 
@@ -1482,6 +1601,26 @@ function verifyMcpResources(log: string, ptc: boolean): void {
     .toContain('MCP_RESOURCE_INSTRUCTION: keep {{braces}} literal.')
   expect(normalizedSystemPrompts(log, contextOf([log])).join('\n'))
     .toContain('server argument: ["catalog"]')
+}
+
+function verifyMcpTemplateError(log: string, secret: string): void {
+  const events = parseSessionLog(log)
+  const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data.name] : [])
+  expect(calls).toEqual(['mcp__protected__ping'])
+  const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  expect(results).toHaveLength(1)
+  expect(results[0]).toMatchObject({ isError: true })
+  const diagnostic = results[0]!.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+  expect(diagnostic).toBe('Error: MCP fixture rejected Bearer [redacted]')
+  expect(log).not.toContain(secret)
+  const resultIndex = events.findIndex(event => event.type === 'tool/result')
+  const nextRequest = events.findIndex((event, index) => index > resultIndex && event.type === 'assistant/message')
+  expect(nextRequest).toBeGreaterThan(resultIndex)
+  const prefix = events.slice(0, nextRequest)
+  const surface = foldSurface(prefix)
+  const messages = surface.nodes.map(seq => deriveEventMessage(prefix[seq]!, surface.projectedMessages))
+  expect(messages).toContainEqual(results[0])
+  expect(JSON.stringify(messages)).not.toContain(secret)
 }
 
 function verifyNoMcpServers(log: string, ptc: boolean): void {
@@ -1751,6 +1890,40 @@ async function verifyChildOutputLimitRejection(scenario: HeadlessScenario, actua
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('accepts direct-parent depth notices and rejects delivery to the grandparent', async () => {
+    const logs: SessionLog[] = await Promise.all(['session.v4.jsonl', 'session.1.v4.jsonl', 'session.2.v4.jsonl']
+      .map(async name => {
+        const content = await readFile(join(snapshotsRoot, 'subagent-depth-two-rejection', name), 'utf8')
+        return { content, header: records(content)[0]! }
+      }))
+    verifyDepthTwoRejection(logs)
+    const notice = records(logs[0]!.content).find(event => event.type === 'user/message'
+      && (event.data as { source?: { kind: string } }).source?.kind === 'subagent-settled')!
+    const delivered = JSON.stringify({ ...notice, data: { ...notice.data as JsonObject,
+      source: { kind: 'subagent-settled', form: 'notice', senderSessionId: logs[2]!.header.id, stopReason: 'completed' },
+      content: [{ type: 'text', text: 'DEPTH_REJECTED' }] } }) + '\n'
+    const withNotice = (index: number) => logs.map((log, position) => position === index
+      ? { ...log, content: log.content + delivered } : log)
+    verifyDepthTwoRejection(withNotice(1))
+    expect(() => verifyDepthTwoRejection(withNotice(0))).toThrow()
+    const accepted = logs.map((log, index) => index === 2 ? { ...log,
+      content: log.content.replace('"isError":true', '"isError":false') } : log)
+    expect(() => verifyDepthTwoRejection(accepted)).toThrow()
+  })
+
+  it('allocates distinct workspaces with a fixed quoted length for budget snapshots', async () => {
+    const options = await fixedBudgetWorkspaceOptions()
+    const first = await mkdtemp(join(options.tempDirParent, options.tempDirPrefix))
+    const second = await mkdtemp(join(options.tempDirParent, options.tempDirPrefix))
+    try {
+      expect(first).not.toBe(second)
+      expect(JSON.stringify(first)).toHaveLength(192)
+      expect(JSON.stringify(second)).toHaveLength(192)
+    } finally {
+      await Promise.all([rm(first, { recursive: true, force: true }), rm(second, { recursive: true, force: true })])
+    }
+  })
+
   it('materializes the draft directory marker required by the strict replay initializer', async () => {
     const scenario = scenarioByName.get('muse-jianying-draft')
     if (scenario === undefined) throw new Error('Missing draft replay owner')
@@ -2233,7 +2406,9 @@ describe('headless recorded-session snapshots', () => {
     const [fixture] = await fixtureSessions(owner)
     if (fixture === undefined) throw new Error('Missing canonical confinement input')
     const job = 'bash-aaaaaaaaaaaaaaaa'
-    const schemas = parseToolSchemasSnapshot(await readFile(join(owner.dir, 'tool-schemas.expected.json'), 'utf8'))
+    const schemaOwner = scenarioByName.get(owner.manifest.header.toolSchemasSource ?? owner.name)
+    if (schemaOwner === undefined) throw new Error('Missing confinement tool-schema sidecar owner')
+    const schemas = parseToolSchemasSnapshot(await readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'))
     const firstTool = schemas.initial[0]
     if (firstTool === null || typeof firstTool !== 'object' || Array.isArray(firstTool)
       || !('description' in firstTool) || typeof firstTool.description !== 'string') throw new Error('Missing confinement tool definition')
@@ -2385,6 +2560,24 @@ describe('headless recorded-session snapshots', () => {
     const result = records(output)[1]?.data as { text: string }
     expect(result.text).toContain('{{cwd}}')
     expect(result.text).not.toContain(cwd)
+  })
+
+  it('tokenizes a refreshed child role in a primary subdirectory against the primary cwd', () => {
+    const cwd = '/private/var/folders/xy/T/dsh-log-snap-child'
+    const child = (headerCwd: string) => [
+      JSON.stringify({ type: 'session', id: 'child', cwd: headerCwd, parentSession: 'parent' }),
+      JSON.stringify({ type: 'user/message', data: { text: `Current working directory: "${cwd}/selected-project".` } }),
+      JSON.stringify({ type: 'tool/result', data: { text: `parent ${cwd}/cwd-retarget-proof.json` } }),
+      '',
+    ].join('\n')
+
+    for (const headerCwd of ['{{cwd}}/selected-project', `${cwd}/selected-project`]) {
+      const [header, message, result] = records(tokenizeRefreshedFixtureCwd(child(headerCwd), cwd))
+      expect(header?.cwd).toBe('{{cwd}}/selected-project')
+      expect((message?.data as { text: string }).text).toBe('Current working directory: "{{cwd}}/selected-project".')
+      expect((result?.data as { text: string }).text).toBe('parent {{cwd}}/cwd-retarget-proof.json')
+    }
+    expect(records(tokenizeRefreshedFixtureCwd(child(`${cwd}-sibling`), cwd))[0]?.cwd).toBe('{{cwd}}')
   })
 
   it('bootstraps only live recordings with no Session files', () => {
@@ -2731,6 +2924,15 @@ describe('headless recorded-session snapshots', () => {
       ]
       const patchRoot = '.snapshot-patches'
       const patches = patchSources.map((source, index) => join(patchRoot, `${String(index)}-${basename(source)}`))
+      // `test:snapshot:built` prepares this directory; MUSE_MAIN_DEEP_VIEW_PACKAGE names another unpacked artifact.
+      const preparedDeepView = join(repoRoot, '.artifacts/snapshot-deep-view/package')
+      const deepViewPackage = scenario.name !== 'muse-session-views' ? undefined
+        : process.env.MUSE_MAIN_DEEP_VIEW_PACKAGE || (existsSync(join(preparedDeepView, 'package.json')) ? preparedDeepView : undefined)
+      if (scenario.name === 'muse-session-views' && !deepViewPackage) {
+        throw new Error('muse-session-views requires the reviewed unpacked Deep View artifact from scripts/prepare-deep-view-snapshot.mjs or MUSE_MAIN_DEEP_VIEW_PACKAGE; see its README.md')
+      }
+      const deepViewPatch = deepViewPackage === undefined ? undefined : join(patchRoot, 'deep-view.package.yml')
+      if (deepViewPatch !== undefined) patches.push(deepViewPatch)
 
       let actualLogs: SessionLog[] = []
       let initialWorkspace: WorkspaceSnapshotEntry[] | undefined
@@ -2746,13 +2948,14 @@ describe('headless recorded-session snapshots', () => {
       const visualizationLayoutReceipt = join(spillRoot, 'visualization-layout.json')
       const fixturePath = join(scenario.dir, fixtureFiles[0] ?? sessionFixtureName(0, SESSION_FORMAT_VERSION))
       const locatorRoot = snapshotSpillRoot(fixturePath)
-      const mcpDemo = scenario.name === 'plugin-manager-mcp' ? await startHttpMcpFixture() : undefined
+      const mcpDemo = scenario.name === 'plugin-manager-mcp' || scenario.name === 'mcp-template-error'
+        ? await startHttpMcpFixture({ rejectToolCalls: scenario.name === 'mcp-template-error' }) : undefined
       let result: Awaited<ReturnType<typeof runLoaderSmoke>>
       try {
         result = await runLoaderSmoke({
           label: `${scenario.name} headless snapshot`,
           tempDirPrefix: 'dsh-log-snap-',
-          ...(scenario.name === 'compaction-recovery' ? await compactionWorkspaceOptions() : {}),
+          ...(fixedBudgetWorkspaceScenarios.has(scenario.name) ? await fixedBudgetWorkspaceOptions() : {}),
           ...(scenario.manifest.workspace?.parent === 'outside-temp' ? { tempDirParent: outsideTempWorkspaceParent() } : {}),
           binScript: dshBin,
           sourceImport: 'tsx/esm',
@@ -2789,6 +2992,9 @@ describe('headless recorded-session snapshots', () => {
               : { DSH_PERMISSION_MODE: scenario.manifest.permission }),
             ...scenario.manifest.environment,
             ...scenario.name === 'muse-visualize' ? { DSH_VISUALIZE_FIXTURE_LAYOUT: visualizationLayoutReceipt } : {},
+            ...(scenario.name === 'subagent-acp-diagnostic' ? {
+              DSH_ACP_DIAGNOSTIC_SERVER: join(repoRoot, 'packages/subagent/subagent-acp/tests/mock-acp-server.ts'),
+            } : {}),
             ...(scenario.name === 'mcp-resources' || scenario.name === 'mcp-resources-ptc' ? {
               DSH_MCP_RESOURCES_FIXTURE: join(repoRoot, 'packages/mcp/mcp-client/tests/fixtures/resources-server.ts'),
             } : {}),
@@ -2804,7 +3010,13 @@ describe('headless recorded-session snapshots', () => {
             patchSources.forEach((source, index) => {
               materializeProfilePatch(source, cwd, 'headless', join(cwd, patchRoot), index)
             })
-            if (mcpDemo !== undefined) {
+            if (deepViewPackage !== undefined && deepViewPatch !== undefined) {
+              const profileModules = join(cwd, '.dsh/profiles/headless/node_modules')
+              await mkdir(profileModules, { recursive: true })
+              await symlink(await realpath(deepViewPackage), join(profileModules, 'deep-view'), process.platform === 'win32' ? 'junction' : 'dir')
+              await writeFile(join(cwd, deepViewPatch), JSON.stringify([{ insert: [{ id: 'snapshot-deep-view', name: 'deep-view' }] }]))
+            }
+            if (scenario.name === 'plugin-manager-mcp') {
               const profileDir = join(cwd, '.dsh/profiles/headless')
               await mkdir(profileDir, { recursive: true })
               await copyFile(join(scenario.dir, 'profile.patch.yml'), join(profileDir, 'cordis.patch.yml'))
@@ -2819,6 +3031,24 @@ describe('headless recorded-session snapshots', () => {
               visualizationAssets = await readVisualizationAssets(visualizationLayoutReceipt, await realpath(cwd))
             }
             actualLogs = await persistedSessions(cwd)
+            if (scenario.name === 'muse-shot-huanchang-video') {
+              const report = JSON.parse(await readFile(join(cwd, 'shot_reviews', '01', 'review.json'), 'utf8')) as JsonObject
+              expect(report).toMatchObject({ method: 'compile', review_mode: 'advisory', ok: true,
+                duration_budget: { source: 'session', max_submit_seconds: 30,
+                  selection: { model_id: 'doubao-seedance-2.5', platform_id: 'FZ_HUAN_CHANG', standard_id: 93,
+                    resolution: '480p', max_duration_seconds: 30, revision: 1 } },
+                summary: { packages: 1, content_seconds: 20, failures: 0 },
+                packages: [{ content_seconds: 20, submit_seconds: 21, natural_hold_seconds: 1 }],
+              })
+              expect(await readFile(join(cwd, 'shot_reviews', '01', 'shot_script.txt')))
+                .toEqual(await readFile(join(scenario.dir, 'workspace', 'shots.txt')))
+              const events = parseSessionLog(actualLogs[0]!.content)
+              expect(events.filter(event => event.type === 'jubian/video-selection')).toHaveLength(1)
+              const toolResults = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(toolResults).toHaveLength(1)
+              expect(toolResults[0]?.isError).toBe(false)
+              expectedWorkspaceRoot = await prepareHuanchangExpectedWorkspace(await realpath(cwd), scenario.dir)
+            }
             if (scenario.name === 'headless-credentials') assertHeadlessCredentialsInactive(actualLogs[0]!.content)
             if (scenario.name === 'subagent-child-question-rejection') assertAsyncChildQuestion(actualLogs)
             if (scenario.name === 'subagent-agent-preset') assertAsyncChildPreset(actualLogs)
@@ -2926,7 +3156,7 @@ describe('headless recorded-session snapshots', () => {
             if (retainedToolInput !== undefined && primaryFixture !== undefined) {
               verifyToolResultWriterParity(primaryFixture, actualLogs[0]!.content)
             }
-            if (mcpDemo !== undefined) {
+            if (scenario.name === 'plugin-manager-mcp' && mcpDemo !== undefined) {
               const log = actualLogs[0]!.content
               expect(log).toContain('mcp__demo__ping')
               expect(log).toContain('pong')
@@ -3154,6 +3384,21 @@ describe('headless recorded-session snapshots', () => {
               ])
               expect(preview.packages.every((pack: JsonObject) => typeof pack.prompt === 'string' && !pack.prompt.includes('时长：'))).toBe(true)
             }
+            if (scenario.name === 'model-switch-compaction') {
+              const log = actualLogs[0]!.content
+              const events = parseSessionLog(log)
+              expect(events.filter(event => event.type === 'compaction/start' || event.type === 'compaction/summary'
+                || event.type === 'compaction/end').map(event => event.type)).toEqual([
+                'compaction/start', 'compaction/summary', 'compaction/end',
+              ])
+              const summary = events.find(event => event.type === 'compaction/summary')
+              expect(summary?.data).toMatchObject({ llmStreamCall: true, maxTokens: 32 })
+              const compacted = events.findIndex(event => event.type === 'compaction/end')
+              const switched = events.findIndex(event => event.type === 'request/header'
+                && event.data.header.config.model === 'deepseek-v4-pro')
+              expect(switched).toBeGreaterThan(compacted)
+              expect(finalTextFromSession(log)).toBe('PROACTIVE COMPACTION COMPLETE')
+            }
             if (scenario.name === 'goal-wait-yields') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const waits = events.filter(event => event.type === 'goal/wait')
@@ -3203,7 +3448,7 @@ describe('headless recorded-session snapshots', () => {
               const preview = JSON.parse(positive.text)
               expect(preview).toMatchObject({ method: 'preview', ok: true, failures: [], written: [] })
               expect(preview.shots[1]).toMatchObject({ duration_seconds: 4, duration_source: 'declared' })
-              expect(preview.packages.every((pack: PackageReport) => !/(?:动作预算|发声预算|反应预算|表演顺序)：/.test(pack.prompt))).toBe(true)
+              expect(preview.packages.every((pack: PackageReport) => !/(?:动作预算|发声预算|反应预算|表演顺序|身体状态)：/.test(pack.prompt))).toBe(true)
               expect(preview.shots.map((shot: JsonObject) => shot.text)).toEqual(['', '慢一点。', '别让孩子摔倒。', ''])
               expect(preview.shots.map((shot: ShotReport) => shot.bindings.filter(asset => asset.type === '角色')
                 .map(asset => asset.asset_id))).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
@@ -3217,9 +3462,9 @@ describe('headless recorded-session snapshots', () => {
                 name: '小禾身份母版', asset_id: '72001', material_id: '82001', reference_scope: 'identity',
               })
               expect(pack.prompt).not.toContain('he-repeat')
-              expect(pack.prompt).toContain('身体状态：【非孕期；7岁；黄色雨衣】')
+              expect(pack.prompt).not.toContain('身体状态：【非孕期；7岁；黄色雨衣】')
               expect(pack.prompt).toContain('动作状态：【蹲下扶住板凳】')
-              expect(pack.prompt).toContain('身体状态：【非孕期；68岁；灰色夹袄；草帽】')
+              expect(pack.prompt).not.toContain('身体状态：【非孕期；68岁；灰色夹袄；草帽】')
               expect(pack.prompt).toContain('谭伯OS，内心独白，不对口型；声源画外')
               expect(pack.prompt).toContain('木枪保持已有木制外形，不改成机械枪')
               expect(pack.prompt).not.toContain('时长：')
@@ -3289,13 +3534,13 @@ describe('headless recorded-session snapshots', () => {
               ])
               expect(identityPackage.prompt).not.toContain('rain-repeat')
               expect(identityPackage.prompt.match(/仅参考本人面孔与身份/g)).toHaveLength(2)
-              expect(identityPackage.prompt).toContain('身体状态：【非孕期；青年；砖红卫衣】')
-              expect(identityPackage.prompt).toContain('身体状态：【非孕期；青年；墨绿夹克】')
+              expect(identityPackage.prompt).not.toContain('身体状态：【非孕期；青年；砖红卫衣】')
+              expect(identityPackage.prompt).not.toContain('身体状态：【非孕期；青年；墨绿夹克】')
               expect(preview.packages[1].material_bindings).toEqual([
                 { material_key: 'background', name: '后厨', type: '场景', official: true, asset_id: '71004', material_id: '81004', url: 'https://example.invalid/kitchen.png', reference_scope: 'appearance' },
                 { material_key: 'asset_71002', name: '温雨雨衣版', type: '角色', official: true, asset_id: '71002', material_id: '81002', url: 'https://example.invalid/rain-yellow.png', reference_scope: 'appearance' },
               ])
-              expect(preview.packages[1].prompt).toContain('身体状态：【非孕期；青年；黄色雨衣】')
+              expect(preview.packages[1].prompt).not.toContain('身体状态：【非孕期；青年；黄色雨衣】')
               expect(preview.packages[1].prompt).toContain('保留本镜正式参考人物的脸型、年龄感和可见妆造差异')
               expect(preview.packages[1].prompt).toContain('动作和表情以本镜正文为准，不复制参考图的姿态')
               expect(preview.packages[1].prompt).toContain('同一素材中的脸部、服装和多视角属于同一人，同一key在本镜仅一个人物实例，跨镜复用不新增人物')
@@ -3418,10 +3663,11 @@ describe('headless recorded-session snapshots', () => {
               expect(existsSync(join(cwd, 'music'))).toBe(false)
               expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
             }
-            if (scenario.name === 'muse-storyboard-voice-identity') {
+            if (['muse-storyboard-voice-identity', 'muse-storyboard-voiceover-cards'].includes(scenario.name)) {
               const events = parseSessionLog(actualLogs[0]!.content)
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results).toHaveLength(4)
+              const preparesCards = scenario.name === 'muse-storyboard-voiceover-cards' || scenario.name === 'muse-storyboard-voice-identity'
+              expect(results).toHaveLength(preparesCards ? 4 : 2)
               for (const [index, message] of results.slice(0, 2).entries()) {
                 expect(message.isError).toBe(true)
                 const block = message.content[0]
@@ -3429,15 +3675,17 @@ describe('headless recorded-session snapshots', () => {
                 expect(block.text).toContain(index === 0 ? 'Project voice configuration project_bible' : 'Shared character voice requires')
                 expect(block.text).not.toContain('expected envelope')
               }
-              const statuses = results.slice(2).map(message => {
-                expect(message.isError).toBe(false)
-                const block = message.content.find(item => item.type === 'text')
-                if (block?.type !== 'text') throw new Error('Missing voiceover preparation result')
-                const result = JSON.parse(block.text)
-                expect(result).toMatchObject({ status: 'prepared', content_duration_ms: 25000 })
-                return result.voice_continuity_review.status
-              })
-              expect(statuses).toEqual(['voice_reference_present_unverified', 'dialogue_without_voice_reference'])
+              if (preparesCards) {
+                const statuses = results.slice(2).map(message => {
+                  expect(message.isError, JSON.stringify(message.content)).toBe(false)
+                  const block = message.content.find(item => item.type === 'text')
+                  if (block?.type !== 'text') throw new Error('Missing voiceover preparation result')
+                  const result = JSON.parse(block.text)
+                  expect(result).toMatchObject({ status: 'prepared', content_duration_ms: 25000 })
+                  return result.voice_continuity_review.status
+                })
+                expect(statuses).toEqual(['voice_reference_present_unverified', 'dialogue_without_voice_reference'])
+              }
               const evidence = JSON.parse(await readFile(join(cwd, '_probe/voice-identity-fixture.json'), 'utf8'))
               expect(evidence).toMatchObject({ simulated: true, writes: 0 })
               expect(evidence.requests.slice(0, 3)).toEqual([
@@ -3445,6 +3693,7 @@ describe('headless recorded-session snapshots', () => {
                 { method: 'GET', path: '/prod-api/aigc/storyboard/901' },
                 { method: 'GET', path: '/prod-api/aigc/asset/77' },
               ])
+              if (!preparesCards) expect(evidence.requests).toHaveLength(3)
               expect(evidence.requests.every((row: JsonObject) => row.method === 'GET')).toBe(true)
             }
             if (scenario.name === 'muse-voice-periods') {
@@ -3511,6 +3760,14 @@ describe('headless recorded-session snapshots', () => {
                 expect(turnReasonFromSession(actualLogs[0]!.content)).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
               }
             }
+            if (scenario.name === 'mcp-template-error' && mcpDemo !== undefined) {
+              const secret = scenario.manifest.environment?.DSH_MCP_TEMPLATE_TOKEN
+              expect(secret).toBeDefined()
+              verifyMcpTemplateError(actualLogs[0]!.content, secret!)
+              expect(mcpDemo.calls).toEqual(['ping'])
+              expect(mcpDemo.authorization.length).toBeGreaterThan(1)
+              expect(mcpDemo.authorization.every(value => value === `Bearer ${secret!}`)).toBe(true)
+            }
             if (scenario.name === 'toolcall-unused-args') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
@@ -3533,11 +3790,24 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name.startsWith('office-progressive-')) {
               const log = actualLogs[0]!.content
               const results = parseSessionLog(log).flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results).toHaveLength(4)
+              if (scenario.name === 'office-progressive-native') {
+                // office_render refuses a render for a model route without image input.
+                const render = results.pop()
+                expect(render?.isError).toBe(true)
+                expect(render?.content).toEqual([{
+                  type: 'text', text: expect.stringMatching(/^Error: cannot render ".+[\\/]report\.docx": model "deepseek-v4-flash" does not accept images$/u),
+                }])
+              }
+              expect(results).toHaveLength(2)
               expect(results.every(result => result.isError === false)).toBe(true)
               expect(log).toContain('# Office task routing')
             }
             if (scenario.name === 'advanced-toolchain') verifyAdvancedToolchain(actualLogs)
+            if (scenario.name === 'subagent-depth-two-rejection') {
+              verifyDepthTwoRejection(actualLogs)
+            }
+            if (scenario.name === 'team-tree-messages') verifyTeamTreeMessage(actualLogs)
+            if (scenario.name === 'team-task-inbox') verifyTeamTaskInbox(actualLogs)
             if (scenario.name === 'session-query-spill') {
               await verifySessionQuerySpill(actualLogs[0]!.content, spillRoot, locatorRoot)
             }

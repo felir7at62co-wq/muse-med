@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { parseMarketAccountId, parseMarketUploadRequestId } from '@deepseek-ai/dsh-muse-market/cloud-values'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { MarketCreatorPage } from '../src/client/MarketCreatorPage.tsx'
+import type { MarketActions, MarketInstallation } from '../src/client/market-actions.ts'
 import { createMarketViewStore, type MarketCreatorDraft } from '../src/client/market-view-store.ts'
 import { marketEn } from '../src/client/market-locales.ts'
 import { identity, installation, marketActions, marketTranslate, metadata, publication, sources } from './market-fixtures.client.ts'
@@ -37,6 +38,63 @@ const submit = () => {
   fireEvent.submit(form)
 }
 
+function uploadFile() {
+  const bytes = Uint8Array.of(80, 75, 3, 4)
+  const file = new File([bytes], 'writer.zip', { type: 'application/zip' })
+  Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer })
+  fireEvent.change(screen.getByLabelText(marketEn.import), { target: { files: [file] } })
+}
+
+it('preserves metadata across modes, resets a local selection and renders an empty ZIP preview', async () => {
+  const prepareUpload = vi.fn<MarketActions['prepareUpload']>().mockResolvedValue(installation)
+  const page = mount({ initialMode: 'upload', showHeader: false, actions: marketActions({ prepareUpload }) },
+    { metadata: { ...metadata, name: '', title: '', description: '', version: '' }, source: '' })
+  const preview = screen.getByRole('complementary', { name: marketEn.creatorPreviewTitle })
+  expect(within(preview).getByRole('heading', { name: marketEn.creatorUntitled })).toBeTruthy()
+  expect(within(preview).getByText(marketEn.creatorPreviewHint)).toBeTruthy()
+  fireEvent.change(screen.getByLabelText(marketEn.import), { target: { files: [] } })
+  expect(prepareUpload).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText(marketEn.chooseLocal), { target: { value: installation.release.id } })
+  await waitFor(() => { expect(page.store.getSnapshot().creator.selectedId).toBe(installation.release.id) })
+  fireEvent.change(screen.getByRole('combobox', { name: value => value.startsWith(marketEn.publisher) }),
+    { target: { value: identity.publishers[0]!.id } })
+  expect(page.store.getSnapshot().creator.publisher).toBe(identity.publishers[0]!.id)
+  fireEvent.change(screen.getByLabelText(marketEn.chooseLocal), { target: { value: '' } })
+  expect(page.store.getSnapshot().creator.selectedId).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: marketEn.creatorNewSkill }))
+  expect(screen.getByRole('combobox', { name: value => value.startsWith(marketEn.source) })).toHaveProperty('value', '')
+  expect(page.store.getSnapshot().creator.metadata.description).toBe('')
+})
+
+it.each([false, true])('reports ZIP import rejection and retains the draft after unmount=%s', async (unmount) => {
+  const pending = Promise.withResolvers<MarketInstallation>()
+  const page = mount({ initialMode: 'upload', actions: marketActions({ importPackage: () => pending.promise }) }, ready)
+  uploadFile()
+  if (unmount) page.unmount()
+  await act(async () => { pending.reject(new Error('Import unavailable')); await pending.promise.catch(() => undefined) })
+  expect(page.props.reportOutcome).toHaveBeenCalledExactlyOnceWith('cloudUnavailable', true)
+  expect(page.props.onPrepared).not.toHaveBeenCalled()
+})
+
+it.each([false, true])('keeps local-selection completions out of an unmounted preview=%s', async (unmount) => {
+  const pending = Promise.withResolvers<MarketInstallation>()
+  const page = mount({ initialMode: 'upload', actions: marketActions({ prepareUpload: () => pending.promise }) })
+  fireEvent.change(screen.getByLabelText(marketEn.chooseLocal), { target: { value: installation.release.id } })
+  if (unmount) page.unmount()
+  await act(async () => { pending.resolve(installation); await pending.promise })
+  expect(page.props.onPrepared).toHaveBeenCalledTimes(unmount ? 0 : 1)
+  expect(page.store.getSnapshot().creator.selectedId).toBe(unmount ? null : installation.release.id)
+})
+
+it('reports a selected local package binding failure without replacing the author draft', async () => {
+  const prepareUpload = vi.fn<MarketActions['prepareUpload']>().mockRejectedValue(new Error('Binding failed'))
+  const page = mount({ initialMode: 'upload', actions: marketActions({ prepareUpload }) })
+  fireEvent.change(screen.getByLabelText(marketEn.chooseLocal), { target: { value: installation.release.id } })
+  await waitFor(() => { expect(page.props.reportOutcome).toHaveBeenCalledExactlyOnceWith('cloudUnavailable', true) })
+  expect(page.store.getSnapshot().creator.selectedId).toBeNull()
+  expect(page.props.onPrepared).not.toHaveBeenCalled()
+})
+
 it('edits metadata and selections, filters empty lines, and selects the prepared local release', async () => {
   const pending = Promise.withResolvers<typeof installation>(), prepare = vi.fn(() => pending.promise)
   const page = mount({ actions: marketActions({ prepare }), sources: { ...sources, complete: false } })
@@ -44,21 +102,17 @@ it('edits metadata and selections, filters empty lines, and selects the prepared
   expect(screen.getByRole('button', { name: marketEn.prepare })).toHaveProperty('disabled', true)
   submit()
   expect(prepare).not.toHaveBeenCalled()
-  fireEvent.change(screen.getByLabelText(marketEn.source), { target: { value: 'writer' } })
+  fireEvent.change(screen.getByRole('combobox', { name: value => value.startsWith(marketEn.source) }), { target: { value: 'writer' } })
   for (const field of ['name', 'title', 'description', 'version', 'license', 'category'] as const) {
     fireEvent.change(screen.getByLabelText(marketEn[`field.${field}`]), { target: { value: `${field}-edited` } })
   }
   for (const field of ['requirements', 'examples'] as const) {
     fireEvent.change(screen.getByLabelText(marketEn[`field.${field}`]), { target: { value: `\n${field}-edited\n   ` } })
   }
-  fireEvent.change(screen.getByLabelText(marketEn.chooseLocal), { target: { value: installation.release.id } })
-  fireEvent.change(screen.getByLabelText(marketEn.publisher), { target: { value: identity.publishers[0]!.id } })
-  fireEvent.change(screen.getByLabelText(marketEn.chooseLocal), { target: { value: '' } })
-  expect(page.store.getSnapshot().creator.selectedId).toBeNull()
   submit(); submit()
   expect(prepare).toHaveBeenCalledExactlyOnceWith({ name: 'name-edited', title: 'title-edited', description: 'description-edited',
     version: 'version-edited', license: 'license-edited', category: 'category-edited',
-    requirements: ['requirements-edited'], examples: ['examples-edited'] }, 'writer')
+    requirements: ['requirements-edited'], examples: ['examples-edited'], presetPortrait: 'document-specialist' }, 'writer')
   await act(async () => { pending.resolve(installation); await pending.promise })
   expect(page.props.onPrepared).toHaveBeenCalledExactlyOnceWith(installation)
   expect(page.store.getSnapshot().creator.selectedId).toBe(installation.release.id)
@@ -114,7 +168,7 @@ it('retains an unsuccessful upload identity and reuses it for the explicit retry
   await waitFor(() => { expect(page.props.reportOutcome).toHaveBeenCalledWith('cloudUnavailable', true) })
   const attempt = page.store.getSnapshot().creator.uploadRequest
   expect(attempt).toMatchObject({ releaseId: installation.release.id, publisherId: ready.publisher, accountId: identity.accountId })
-  expect(screen.getByLabelText(marketEn.source)).toHaveProperty('disabled', true)
+  expect(screen.getByRole('combobox', { name: value => value.startsWith(marketEn.source) })).toHaveProperty('disabled', true)
   submit()
   fireEvent.click(screen.getByRole('button', { name: marketEn.retryUpload }))
   await waitFor(() => { expect(page.props.onPublished).toHaveBeenCalledOnce() })
@@ -154,16 +208,18 @@ it('requires confirmation to discard an attempt from another account without cha
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
-it('leaves a completed upload intact if it settles while the discard confirmation is open', async () => {
+it('prevents discarding an active upload and retains its successful completion', async () => {
   const pending = Promise.withResolvers<typeof publication>()
   const page = mount({ actions: marketActions({ publishDraft: () => pending.promise }) }, ready)
   fireEvent.click(screen.getByRole('button', { name: marketEn.upload }))
-  fireEvent.click(screen.getByRole('button', { name: marketEn.discardUpload }))
-  const dialog = screen.getByRole('dialog', { name: marketEn.discardUpload })
+  const discard = screen.getByRole('button', { name: marketEn.discardUpload })
+  expect(discard).toHaveProperty('disabled', true)
+  fireEvent.click(discard)
+  expect(screen.queryByRole('dialog', { name: marketEn.discardUpload })).toBeNull()
   await act(async () => { pending.resolve(publication); await pending.promise })
   const completed = page.store.getSnapshot().creator
   expect(completed.uploadRequest).toBeNull()
-  fireEvent.click(within(dialog).getByRole('button', { name: marketEn.confirm }))
+  expect(screen.queryByRole('button', { name: marketEn.discardUpload })).toBeNull()
   expect(page.store.getSnapshot().creator).toBe(completed)
   expect(screen.queryByRole('dialog')).toBeNull()
 })

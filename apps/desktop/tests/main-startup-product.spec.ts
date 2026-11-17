@@ -179,15 +179,16 @@ const harness = await vi.hoisted(async () => {
     pluginsEnabled = false
     return 'desktop-test-profile/cordis.patch.yml.bak-1'
   })
+  // Primary Windows windows follow `updated` appearance events and remove their listener when closed.
+  const nativeTheme = Object.assign(new EventEmitter(), { shouldUseDarkColors: false, themeSource: 'system' })
   return {
     windows, hosts, notifications, mutations, listeners, handlers, app, appRoot, FakeWindow, FakeHost, FakeNotification, disableAllPlugins,
-    setFocusedWindow,
+    setFocusedWindow, nativeTheme,
     dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn() },
     menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
     openExternal: vi.fn(async () => {}),
     clipboard: { writeText: vi.fn(), readText: vi.fn(() => '') },
     nativeImage: { createFromPath: vi.fn(() => ({ isEmpty: () => true })) },
-    nativeTheme: { shouldUseDarkColors: false, themeSource: 'system' },
     net: { fetch: vi.fn(async () => new Response('', { status: 200 })) },
     powerMonitor: new EventEmitter(),
     session: {
@@ -228,6 +229,8 @@ const harness = await vi.hoisted(async () => {
       windows.length = 0; hosts.length = 0; notifications.length = 0; mutations.length = 0
       focusedWindow = null
       listeners.clear(); handlers.clear(); app.removeAllListeners()
+      nativeTheme.removeAllListeners()
+      nativeTheme.themeSource = 'system'; nativeTheme.shouldUseDarkColors = false
       app.isPackaged = true
       pluginsEnabled = false
       resets = 0
@@ -308,9 +311,9 @@ vi.mock('../src/paths.ts', async (importOriginal) => {
   }) }
 })
 const hongguo = vi.hoisted(() => ({
-  prepare: vi.fn<typeof import('../src/hongguo-runtime.ts').prepareDesktopHongguoEnvironment>(),
+  prepare: vi.fn<typeof import('../src/fanqie-runtime.ts').prepareDesktopFanqieEnvironment>(),
 }))
-vi.mock('../src/hongguo-runtime.ts', () => ({ prepareDesktopHongguoEnvironment: hongguo.prepare }))
+vi.mock('../src/fanqie-runtime.ts', () => ({ prepareDesktopFanqieEnvironment: hongguo.prepare }))
 vi.mock('../src/hongguo-v2-environment.ts', () => ({ prepareDesktopHongguoV2Environment: vi.fn(async () => ({})) }))
 vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/login-shell-environment.ts')>(),
@@ -840,6 +843,7 @@ describe('desktop main startup', () => {
     for (const name of ['DSH_FFMPEG_PATH', 'DSH_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH', 'MUSE_FONTS_DIR',
       'MUSE_FONT_FAMILY', 'MUSE_SUBTITLE_FONT_FAMILY', 'MUSE_WATERMARK_FONT_FAMILY']) vi.stubEnv(name, undefined)
     await import('../src/main.ts')
+    await harness.preparing.promise
     const media = join('desktop-test-resources', 'runtime', 'media')
     expect(process.env.DSH_FFMPEG_PATH).toBe(join(media, 'ffmpeg', 'bin', 'ffmpeg'))
     expect(process.env.DSH_FFPROBE_PATH).toBe(join(media, 'ffmpeg', 'bin', 'ffprobe'))
@@ -859,6 +863,7 @@ describe('desktop main startup', () => {
     vi.stubEnv('MUSE_SUBTITLE_FONT_FAMILY', 'custom-subtitle')
     vi.stubEnv('MUSE_FONT_FAMILY', 'old-parent-font')
     await import('../src/main.ts')
+    await harness.preparing.promise
     expect(process.env.DSH_FFMPEG_PATH).toBe('custom-ffmpeg')
     expect(process.env.MUSE_FONTS_DIR).toBe(join('desktop-test-resources', 'runtime', 'media', 'fonts'))
     expect(process.env.MUSE_SUBTITLE_FONT_FAMILY).toBe('Zhuque Fangsong (technical preview)')
@@ -1064,10 +1069,7 @@ describe('desktop main startup', () => {
     harness.app.isPackaged = packaged
     const entered = Promise.withResolvers<undefined>(), prepared = Promise.withResolvers<NodeJS.ProcessEnv>()
     const environment = {
-      MUSE_HONGGUO_JAVA_PATH: join(harness.appRoot, 'hongguo', 'java'),
-      MUSE_HONGGUO_PYTHON_PATH: join(harness.appRoot, 'hongguo', 'python'),
-      MUSE_HONGGUO_LEGACY_APP_DIR: join(harness.appRoot, 'hongguo', 'source-fixture'),
-      MUSE_HONGGUO_BOOTSTRAP_DEVICES: '1',
+      MUSE_FANQIE_PYTHON_PATH: join(harness.appRoot, 'primary-runtime', 'python'),
     }
     hongguo.prepare.mockImplementationOnce(async () => { entered.resolve(undefined); return await prepared.promise })
     await import('../src/main.ts')
@@ -1076,14 +1078,13 @@ describe('desktop main startup', () => {
     await entered.promise
     try {
       expect(hongguo.prepare).toHaveBeenCalledExactlyOnceWith({
-        runtime: packaged ? join('desktop-test-resources', 'runtime', 'hongguo') : resolve('test-primary-runtime', '..', 'hongguo'),
-        productHome: packaged ? join(homedir(), '.muse') : resolve('upstream-dsh-home'),
+        primaryRuntime: packaged ? join('desktop-test-resources', 'runtime', 'primary-runtime') : 'test-primary-runtime',
       })
       expect(harness.hosts).toHaveLength(0)
       prepared.resolve(environment)
       await harness.hostStarted.promise
       expect(harness.hosts[0]!.environment).toMatchObject(environment)
-      expect(process.env.MUSE_HONGGUO_LEGACY_APP_DIR).not.toBe(environment.MUSE_HONGGUO_LEGACY_APP_DIR)
+      expect(process.env.MUSE_FANQIE_PYTHON_PATH).not.toBe(environment.MUSE_FANQIE_PYTHON_PATH)
       harness.hosts[0]!.ready.resolve()
       await harness.windows[0]!.shown.promise
     } finally { prepared.resolve(environment) }

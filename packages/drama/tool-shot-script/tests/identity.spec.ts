@@ -117,7 +117,8 @@ describe('character identities and appearance versions', () => {
     expect(materialReferenceIssues([authored], manifest)).toEqual([])
     const task = packEpisode(prepareShotPrompts([authored], manifest), 29)[0]
     expect(task?.materialBindings[0]).toMatchObject({ material_key: 'actor', asset_id: '71002', name: '舞台妆造R3' })
-    expect(task?.prompt).toContain('浓妆；金色卷发；砖红卫衣')
+    expect(authored.shot.bodyStates.get('知秋')).toBe('非孕期；青年；浓妆；金色卷发；砖红卫衣')
+    expect(task?.prompt).not.toContain('浓妆；金色卷发；砖红卫衣')
     expect(task?.prompt).not.toContain('日常妆造R4')
   })
 
@@ -200,7 +201,7 @@ describe('character identities and appearance versions', () => {
     expect(prepared?.shot.voiceType).toBe('vo')
   })
 
-  it('preserves distinct identity traits without inventing a beard or overriding a declared appearance change', () => {
+  it('preserves identity references and selection metadata without copying appearance descriptions into the prompt', () => {
     const { compiled, manifest } = bind(source('老算盘', '非孕期；中年；浓妆；长发'), [
       assetRow('老算盘身份母版', '角色', { character_name: '老算盘', reference_scope: 'identity',
         state_or_costume: '非孕期；中年' }), scene,
@@ -209,7 +210,8 @@ describe('character identities and appearance versions', () => {
     const prompt = prepared[0]?.shot.visual ?? ''
     expect(prompt).toContain('保留区分本人的脸型、年龄感与面部特征')
     expect(prompt).toContain('正文明确的年龄或妆造变化按本镜正文及对应正式版本')
-    expect(prompt).toContain('非孕期；中年；浓妆；长发')
+    expect(prepared[0]?.shot.bodyStates.get('老算盘')).toBe('非孕期；中年；浓妆；长发')
+    expect(prompt).not.toContain('非孕期；中年；浓妆；长发')
     expect(prompt).not.toContain('白灰胡须')
     expect(prompt).not.toContain('戴帽')
     expect(prepareShotPrompts(prepared)).toEqual(prepared)

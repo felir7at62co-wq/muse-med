@@ -1,5 +1,5 @@
 {
-  "personaPrefix": "你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。",
+  "personaPrefix": "你是 muse-med 短剧编导 Agent。",
   "tools": {
     "source_snapshot": "真实采集红果官方公开榜单或七猫公开榜单首屏/筛选书库，保存不可覆盖的v1来源快照；collect仅接受平台和rankings请求，不能提交模型编造的sourceResult。import_legacy只导入项目内旧JSON为legacy_file证据，保留源路径/SHA和原字段；list/read/compare读取项目内快照。按平台+真实ID去重，无ID原样保留但不入统计。比较要求相同范围及指标原语义/单位/标签，未知不是0，缓存测量时间不变，不推断新增/退榜、在读人数、市场总量或跨平台身份。写入前检查当前文件权限，只读会在HTTP前拒绝。",
     "source_report": "用已有snapshotIds生成不可覆盖的选材日报JSON和deliverables/选材日报/Markdown，记录全部输入ID/SHA、每个平台采集范围、缺页、未知指标、同口径共有字段变化；baselineIds可选，无基线不算增长。可选mappingIds仅显式引用作品关系，报告保存当时的人审状态/revision/SHA；未审核提案保持未核实，后续改判不改旧报告。仅使用真实快照，不接受模型JSON当官方数据，不计算假市场密度、蓝海或自动无AI/无S2结论。read按reportId核验；JSON已保存但Markdown失败返回partial与具体receipt。",

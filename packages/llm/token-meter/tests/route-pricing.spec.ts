@@ -236,6 +236,21 @@ describe('request projection pricing', () => {
     expect(meter.measure(restored).surfaceTokens).toBe(after.surfaceTokens)
   })
 
+  it('prices an offload logged with a notice by the notice text the route receives', async () => {
+    const { meter, session } = await harness(() => ({
+      priceImages: images => images.map(block => block.offloaded === true
+        ? { visualTokens: 0, text: block.offloadNotice ?? '[offloaded]' }
+        : { visualTokens: VISUAL_TOKENS, text: HANDLE_TEXT }),
+    }))
+    const older = imageMessage('older')
+    const olderSeq = session.append('user/message', older, { surfaceOp: 'append' }).seq
+    session.append('request/header', { header: header('vision'), reason: 'initial' })
+    const notice = 'Shown in an earlier step and removed to keep requests small.'
+    session.append('image/offload', { targets: [{ seq: olderSeq, imageIndexes: [0] }], notice })
+    const imageFree = estimateMessage({ ...older, content: older.content.filter(block => block.type !== 'image') })
+    expect(meter.measure(session).nodes[0]!.tokens).toBe(imageFree + estimateContent([{ type: 'text', text: notice }]))
+  })
+
   it('fails loud when a route answers a mismatched occurrence count', async () => {
     const broken: LlmImageRequestPricing = { priceImages: () => [] }
     const { meter, session } = await harness(() => broken)

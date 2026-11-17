@@ -40,6 +40,20 @@ function workbench(range: DateRange, { metrics: counts = metrics(), status = 're
 
 function shiftDay(day: string, delta: number): string { return new Date(Date.parse(day) + delta * dayMs).toISOString().slice(0, 10) }
 
+it.each([100, 101])('retains metering history when aggregate organization contains %i departments', async (count) => {
+  const value = await readMuseAccountRelayWorkbench({ account, requestTimeoutMs: 1000,
+    read: async (range) => {
+      const fixture = workbench(range)
+      return Response.json({ ...fixture, members: [{ ...fixture.members[0], departmentPaths:
+        Array.from({ length: count }, (_, index) => [{ id: '0', name: 'Company' }, { id: 'department-' + String(index), name: 'Team' }]),
+      }] })
+    },
+  })
+  expect(value.organization?.status).toBe(count === 100 ? 'available' : 'unavailable')
+  expect(value.organization?.departments).toHaveLength(count === 100 ? 100 : 0)
+  expect(value.history?.summary).toEqual(metrics())
+})
+
 it('rejects an unavailable current-member metric despite available global metering', async () => {
   await expect(readMuseAccountRelayWorkbench({ account, requestTimeoutMs: 1000,
     read: async range => Response.json(workbench(range, { status: 'unavailable', metrics: null })),
@@ -242,6 +256,19 @@ it('accepts a missing log start only for an unlimited no-requests result', async
   expect(value.history).toMatchObject({ from: '2026-10-20', to: '2026-11-18', recordingSince: null, limited: false,
     summary: { requests: 0, inputTokens: null, outputTokens: null, totalTokens: null } })
 })
+
+it.each([undefined, '2026-11-17T16:30:00.000Z'])(
+  'accepts a new account without requests while other accounts have an earlier global log start (created: %s)', async (createdAt) => {
+    const read = vi.fn(async (range: DateRange) => Response.json(workbench(range, { status: 'no-requests', metrics: null })))
+    const value = await readMuseAccountRelayWorkbench({ account, requestTimeoutMs: 1000,
+      ...(createdAt === undefined ? {} : { createdAt }), read,
+    })
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(value.history).toMatchObject({ from: createdAt === undefined ? '2026-10-29' : '2026-11-18', to: '2026-11-18',
+      recordingSince, limited: false, health: { state: 'ok' }, summary: { requests: 0, reported: 0, partial: 0, unknown: 0,
+        inputTokens: null, outputTokens: null, totalTokens: null, inputTokensReports: 0, outputTokensReports: 0, totalTokensReports: 0 } })
+  },
+)
 
 it.each(['recorded', 'recorded zero', 'unknown', 'limited empty'])(
   'rejects an unknown history start for %s usage', async (kind) => {

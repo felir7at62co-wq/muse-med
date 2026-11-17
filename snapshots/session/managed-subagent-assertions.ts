@@ -25,16 +25,17 @@ function diagnosticNotices(content: string, tool: string, count: number, complet
     if (result?.type !== 'tool/result') throw new Error('Missing diagnostic delegation acknowledgement')
     const acknowledgement = textOf(result.data.message.content)
     expect(acknowledgement).toMatch(/^started subagent [^\n]+$/u)
-    const childId = acknowledgement.slice('started subagent '.length)
+    const name = acknowledgement.slice('started subagent '.length)
+    const entry = events.find(event => event.type === 'subagent/catalog' && event.data.version === 3 && event.data.name === name)
+    if (entry?.type !== 'subagent/catalog') throw new Error(`Missing parent catalog entry for acknowledged child ${name}`)
+    expect(entry.data.mode).toBe('external')
+    const childId = entry.data.childId
     const notice = notices.find(event => event.type === 'user/message' && event.data.source.kind === 'subagent-settled'
       && event.data.source.senderSessionId === childId)
-    if (notice?.type !== 'user/message') throw new Error(`Missing terminal notice for acknowledged child ${childId}`)
+    if (notice?.type !== 'user/message') throw new Error(`Missing terminal notice for acknowledged child ${name}`)
     expect(childIds, 'each diagnostic child has one distinct outcome').not.toContain(childId)
     childIds.push(childId)
     expect(result.data.message.isError).toBe(false)
-    expect(events.filter(event => event.type === 'subagent/catalog')).toContainEqual(expect.objectContaining({
-      data: expect.objectContaining({ childId, mode: 'external' }),
-    }))
     expect(call.seq).toBeLessThan(result.seq)
     expect(result.seq).toBeLessThan(notice.seq)
     expect(notice.seq, 'child terminal notice precedes parent completion').toBeLessThan(completed.event.seq)

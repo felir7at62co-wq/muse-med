@@ -14,18 +14,21 @@ interface AccountDetailsStack {
   close(): Promise<void>
 }
 interface AccountDetailsFixture {
-  startAccountDetailsStack(root: string): Promise<AccountDetailsStack>
+  startAccountDetailsStack(root: string, options?: { readonly empty: boolean }): Promise<AccountDetailsStack>
 }
 const fixtureUrl = new URL('./fixtures/muse-user-details/stack.mjs', import.meta.url)
 
-it('shows the signed-in user both group sources and private token details through the shipped account page', async () => {
+it.each([
+  { label: 'ordinary writer', empty: false },
+  { label: 'ordinary new account', empty: true },
+])('shows only the $label private account details through the shipped account page', async ({ empty }) => {
   const root = await mkdtemp(join(tmpdir(), 'muse-user-details-browser-'))
   let account: AccountDetailsStack | undefined
   let scaffold: WebScaffold | undefined
   let browser: Browser | undefined
   try {
     const fixture = await import(fixtureUrl.href) as AccountDetailsFixture
-    account = await fixture.startAccountDetailsStack(root)
+    account = await fixture.startAccountDetailsStack(root, { empty })
     const accountHome = join(root, 'account')
     await mkdir(accountHome, { mode: 0o700 })
     await writeFile(join(accountHome, 'session.json'), JSON.stringify({ baseUrl: account.origin,
@@ -52,23 +55,48 @@ it('shows the signed-in user both group sources and private token details throug
     const dialog = page.getByRole('dialog', { name: '设置', exact: true })
     await dialog.getByRole('button', { name: 'MUSE', exact: true }).click()
     const details = dialog.locator('[data-muse-account-details]')
-    await details.getByText('短剧创作组', { exact: true }).waitFor()
-    expect(await details.getByText('负责剧本与分镜创作', { exact: true }).count()).toBe(1)
-    expect(await details.getByText('内容中心/编剧组', { exact: true }).count()).toBe(1)
-    expect(await details.getByText('测试编剧', { exact: true }).count()).toBe(1)
+    await details.getByText(account.username, { exact: true }).waitFor()
+    expect(await dialog.getByRole('button', { name: '用户管理', exact: true }).count()).toBe(0)
     const summary = details.locator('[data-muse-usage-summary]')
-    expect(await summary.innerText()).toContain('160')
+    if (empty) {
+      await details.getByText('管理员尚未分配分组', { exact: true }).waitFor()
+      expect(await details.getByText('尚未绑定飞书身份', { exact: true }).count()).toBe(1)
+      expect(await details.getByText('所选范围内暂无请求记录', { exact: true }).count()).toBe(3)
+      expect(await details.getByText('第 0–0 条，共 0 条', { exact: true }).count()).toBe(1)
+      expect(await details.getByRole('table').count()).toBe(0)
+      expect(await summary.innerText()).not.toContain('160')
+      const total = summary.locator('div').filter({ has: page.getByText('总 Token', { exact: true }) }).locator('dd')
+      expect(await total.innerText()).toBe('0')
+      for (const privateText of ['browser_writer', '测试编剧', '短剧创作组', '负责剧本与分镜创作', '内容中心/编剧组', 'browser-writer']) {
+        expect(await details.getByText(privateText, { exact: true }).count()).toBe(0)
+      }
+    } else {
+      await details.getByText('短剧创作组', { exact: true }).waitFor()
+      expect(await details.getByText('负责剧本与分镜创作', { exact: true }).count()).toBe(1)
+      expect(await details.getByText('内容中心/编剧组', { exact: true }).count()).toBe(1)
+      expect(await details.getByText('测试编剧', { exact: true }).count()).toBe(1)
+      expect(await summary.innerText()).toContain('160')
+    }
     await details.getByRole('button', { name: '更新用量', exact: true }).click()
-    await details.getByRole('table', { name: '请求明细', exact: true }).getByText('browser-writer', { exact: true }).waitFor()
-    expect(await details.getByRole('table', { name: '按模型', exact: true }).innerText()).toContain('160')
+    if (empty) {
+      await details.getByRole('button', { name: '更新用量', exact: true }).waitFor({ state: 'visible' })
+      await expect.poll(async () => details.getAttribute('aria-busy')).toBe('false')
+      expect(await details.getByRole('table').count()).toBe(0)
+      expect(await summary.innerText()).not.toContain('160')
+    } else {
+      await details.getByRole('table', { name: '请求明细', exact: true }).getByText('browser-writer', { exact: true }).waitFor()
+      expect(await details.getByRole('table', { name: '按模型', exact: true }).innerText()).toContain('160')
+    }
+    expect(await dialog.getByRole('button', { name: '用户管理', exact: true }).count()).toBe(0)
     const expected = { headings: await details.getByRole('heading').allTextContents(), summary: await summary.innerText() }
-    await expect(JSON.stringify(expected, null, 2) + '\n').toMatchFileSnapshot(join(REPO_ROOT, 'apps/web/tests/expected/muse-user-details/account.json'))
-    const shots = join(REPO_ROOT, '.playwright-mcp/muse-user-details')
+    await expect(JSON.stringify(expected, null, 2) + '\n').toMatchFileSnapshot(join(REPO_ROOT,
+      'apps/web/tests/expected/muse-user-details', empty ? 'account-empty.json' : 'account.json'))
+    const shots = join(REPO_ROOT, '.playwright-mcp/muse-user-details', empty ? 'empty' : 'existing')
     await mkdir(shots, { recursive: true })
     await page.screenshot({ path: join(shots, 'account.png'), fullPage: true })
     await summary.scrollIntoViewIfNeeded()
     await page.screenshot({ path: join(shots, 'account-usage.png'), fullPage: true })
-    await details.getByRole('table', { name: '请求明细', exact: true }).scrollIntoViewIfNeeded()
+    if (!empty) await details.getByRole('table', { name: '请求明细', exact: true }).scrollIntoViewIfNeeded()
     await page.screenshot({ path: join(shots, 'account-requests.png'), fullPage: true })
     await page.emulateMedia({ colorScheme: 'dark' })
     await summary.scrollIntoViewIfNeeded()
@@ -77,6 +105,8 @@ it('shows the signed-in user both group sources and private token details throug
     await dialog.getByRole('button', { name: '飞书登录', exact: true }).waitFor()
     expect(await dialog.locator('[data-muse-account-details]').count()).toBe(0)
     expect(await dialog.getByText('短剧创作组', { exact: true }).count()).toBe(0)
+    expect(await dialog.getByText('尚未绑定飞书身份', { exact: true }).count()).toBe(0)
+    expect(await dialog.getByText('管理员尚未分配分组', { exact: true }).count()).toBe(0)
   } finally {
     try { await browser?.close() }
     finally {

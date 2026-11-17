@@ -5,7 +5,7 @@ description: Use before pushing, force-pushing, marking ready for review, or cla
 
 # DSH Pre-Push Checks
 
-Use this skill to run relevant local evidence once before a `deepseek-harness` push. The sole ordering exception is `gh stack sync`, which may publish a cascading rebase before the rewritten layers can be validated; validate them immediately afterward and do not merge until the evidence passes. Git hooks are intentionally narrow: pre-commit fixes staged lint, checks staged whitespace, and guards vendored-source metadata; pre-push runs only the incremental repository typecheck. CI owns exhaustive coverage and the platform matrix.
+Use this skill to run relevant local evidence once before a `deepseek-harness` push. The sole ordering exception is `gh stack sync`, which may publish a cascading rebase before the rewritten layers can be validated; validate them immediately afterward and do not merge until the evidence passes. Git hooks are intentionally narrow: pre-commit fixes staged lint, checks staged whitespace, and guards vendored-source metadata; pre-push runs the incremental repository typecheck and an advisory snapshot-text check. CI owns exhaustive coverage and the platform matrix.
 
 ## Inspect the outgoing change
 
@@ -33,7 +33,8 @@ When the outgoing change adds or changes a resource-owning or asynchronous test,
 - **Package or script behavior:** run the owning Vitest file or focused test name. Add adjacent package tests when a shared contract changes; leave repository-wide coverage to CI unless the change is genuinely cross-cutting or the user requests it.
 - **Remote mock typing:** unbuilt `any` is an explicit local fallback, not strict evidence. Run `pnpm run typecheck` before handing off Remote/mock changes; rebuild missing, stale, or partial generated declarations before diagnosing remaining errors. Keep the exception in the [test proxy](../../../packages/test-support/remote-mock/README.md#remote-proxy), never in production Remote types, ambient flags, or copied signatures.
 - **Documentation, Agent Notes, catalogs, or doc-linked comments:** run `pnpm run doc-sync`; run full lint when the documentation workflow requires it.
-- **Model-, editor-, CLI-, or terminal-visible output:** run the focused keyless snapshot or real runnable-example scenario that owns the output.
+- **User-visible UI:** use the [UI change workflow](../dsh-client-ui-ux/SKILL.md#required-review-loop) and its [minimum checks](../dsh-client-ui-ux/SKILL.md#minimum-checks-for-affected-ui) to verify required inspection and new cumulative effects. Disclose missing checks; optional paperwork is not a substitute for inspecting the result. Reuse valid evidence; ordinary changes do not need a separate full-audit report at push time. Keep existing test, GUI GIF and designer/product approval requirements. Tests alone do not establish visual acceptance.
+- **Model-, editor-, CLI-, or terminal-visible output:** run the focused keyless snapshot or real runnable-example scenario that owns the output. `pnpm run verify-snapshot-drift --base <verified-base-ref>` finds possible stale prompt, tool-schema or tool-result output without a build. This text heuristic can misidentify concatenated or retained fixture text; run the owning replay before refreshing. The pre-push hook uses `--warn-only`, and the CI static job reports findings without blocking.
 - **Expected-output placement:** a test whose selected recorded Session generation is replay input and expected persisted output belongs under top-level `snapshots/`, with `snapshot.yml` naming its shipped `dsh` profile and composition/header pin. Canonical parent files are `session[.vN].jsonl`, children are `session.<ordinal>[.vN].jsonl`, and the harness selects the highest generation per role. ARIA, geometry, generator, CLI, and unit expectations without that Session round trip stay beside their owning test under `tests/expected/`; do not place them in `snapshots/` or give them a `*.snapshot.ts` owner. Use the owning `test:expected`, `test:web`, or `test` lane.
 - **Profile and configuration placement:** cross-package behavior of a shipped `dsh` profile belongs under `apps/cli/tests/profiles/`; a package-specific Loader composition belongs under that package's `tests/fixtures/`. User-facing optional overlays live under `apps/cli/config/examples/` and pair with a guide under `docs/user/`.
 - **Package manifests, public exports, build configuration, worker/bin entries, or built runtime paths:** run `pnpm run build`, the relevant hygiene checks, and the owning built-artifact smoke.
@@ -59,6 +60,8 @@ pnpm exec vitest run packages/<group>/<package>/tests/<behavior>.spec.ts \
   --coverage \
   --coverage.include='packages/<group>/<package>/src/**/*.ts'
 ```
+
+`pnpm run coverage:changed --base <verified-base-ref>` builds this command for every package whose `src/` or `tests/` the change scope touches; pass `--tests <path>` for owning tests outside those packages, or `--dry-run` to print the command only. A package without local tests remains in the coverage scope and requires an explicit owning test path.
 
 Use an exact source file when the behavior is truly confined to one module. Repeat `--coverage.include` for multiple affected files or packages, and pass every owning test file needed to exercise that scope. The configured per-file 100% thresholds still apply inside the selected source scope.
 

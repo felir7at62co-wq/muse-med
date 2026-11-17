@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-perception-bgm",
   "description": "Non-commercial BGM emotion analysis and valence/arousal matching for the DeepSeek Harness",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -29,7 +29,10 @@
     "python/data/tag_list.npy",
     "python/LICENSE-Music2Emo",
     "SOURCES.md",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
+    "src"
   ],
   "license": "MIT",
   "dsh": {

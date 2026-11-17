@@ -24,7 +24,7 @@ import { AUDIO_MIX_RESULT_SCHEMA, previewAudio } from './audio.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { createVideoSourceQaVerifier, type VideoSourceQaVerifier } from '@deepseek-ai/dsh-tool-video-inspect'
+import { createVideoSourceQaVerifier, type VideoSourceQaVerifier } from '@deepseek-ai/dsh-tool-video-inspect/source-qa'
 import z from '@deepseek-ai/schemastery'
 import { FONT_FAMILY_PATTERN, deliveryRenderSettings } from './delivery.ts'
 import { deliveryPolicyFor, resolveDeliveryPolicy } from './delivery-policy.ts'
@@ -52,16 +52,9 @@ import { StaleSubtitleClockError, subtitleClockPath, writeDerivedSubtitleClock }
 import type { SourceQaVerifier } from './source-qa.ts'
 import { createContentReviewVerifier, type ContentReviewVerifier } from './content-review.ts'
 
-export { findShortDramaProject, isShortDramaProject } from './delivery-policy.ts'
-export { createContentReviewVerifier, verifyEpisodeContentReview, type ContentReviewVerifier } from './content-review.ts'
-export { verifyDraftSubtitleFont } from './draft-font.ts'
-export { parseSrtDocument } from './subtitles.ts'
-
 export type { MediaCommandOutcome, ProcessChannel, RenderSettings } from './types.ts'
-export { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets, preparedSubtitleClockInputs } from './prepare.ts'
-export { captureEpisodeSourceReview } from './episode-source-capture.ts'
+export { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets } from './prepare.ts'
 export type { EpisodeSourceCapture } from './episode-source-capture.ts'
-export { createSourceQaStagedAccess } from './source-qa.ts'
 export type { SourceQaStagedAccess } from './source-qa.ts'
 export type { PreparedSubtitleClockInputs } from './prepare.ts'
 
@@ -1138,9 +1131,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       sourceQaScope = binding
       return () => {
         owner.abort(Error('SOURCE_QA_HOST_UNAVAILABLE: 源片复验服务已卸载。'))
-        /* v8 ignore else -- the disposer runs from this scope's own effect while Cordis serializes
-        fiber epochs, so a newer binding cannot be installed before the older disposer finishes. */
-        if (sourceQaScope === binding) sourceQaScope = undefined
+        // Cordis finishes this injected scope before activating its replacement.
+        sourceQaScope = undefined
       }
     })
   })

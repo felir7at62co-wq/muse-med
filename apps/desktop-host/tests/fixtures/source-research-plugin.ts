@@ -13,11 +13,11 @@ export async function loadSourceResearchPlugin(ctx: Context): Promise<typeof imp
   const anchor = await mkdtemp(fileURLToPath(new URL('../../.test-source-research-', import.meta.url)))
   ctx.effect(() => () => rm(anchor, { recursive: true, force: true }))
   for (const plugin of ['muse-source-research', 'muse-hongguo-search', 'muse-qimao-data']) {
-    await cp(new URL(`../../../../third_party/plugins/${plugin}/`, import.meta.url), join(anchor, 'node_modules', plugin), {
+    await cp(new URL(`../../../../third_party/plugins/${plugin}/`, import.meta.url), join(anchor, plugin === 'muse-source-research' ? 'source' : 'node_modules', plugin), {
       recursive: true,
       filter: source => !source.split(/[\\/]/).includes('node_modules'),
     })
   }
-  const plugin = await import(pathToFileURL(join(anchor, 'node_modules/muse-source-research/src/index.js')).href) as typeof import('../../../../third_party/plugins/muse-source-research/src/index.js')
+  const plugin = await import(pathToFileURL(join(anchor, 'source/muse-source-research/src/index.js')).href) as typeof import('../../../../third_party/plugins/muse-source-research/src/index.js')
   return plugin
 }

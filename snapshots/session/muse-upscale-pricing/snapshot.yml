@@ -7,6 +7,8 @@ header:
   class: muse-upscale-pricing
   pin: true
 writerOutput: true
+replay:
+  override: true
 workspace:
   final: true
 environment:

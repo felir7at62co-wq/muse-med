@@ -1,5 +1,8 @@
 # These SDK scenarios disable shell tools and exercise only native Skill operations.
-# Keep the unused Windows runner's diagnostic Skill out of their bounded catalogs.
+# Keep the unused Windows runner's diagnostic Skill and the packaged Office Skills
+# (loaded by every profile) out of their bounded catalogs.
+- id: skill-office
+  disabled: true
 - id: sandbox
   config:
     runnerCommand: !!js "process.platform === 'win32' ? ['sdk-market-unused-runner'] : []"

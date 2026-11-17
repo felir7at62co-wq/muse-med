@@ -175,6 +175,28 @@ export class SessionController extends TypertRemoteService {
   private readonly videoConfig: Config['video']
   private readonly listWorkSliceMs: number
   private readonly promotions = new Set<Promise<void>>()
+  private readonly reuseFilters = new Set<{ readonly accepts: (id: SessionId, preset: string | undefined) => boolean }>()
+
+  /**
+   * Restrict blank Session reuse while a feature owns the identity.
+   * @param filter - accepts one candidate and requested preset.
+   * @returns disposer for this independent contribution.
+   */
+  registerBlankReuseFilter(filter: (id: SessionId, preset: string | undefined) => boolean): () => void {
+    const entry = { accepts: filter }
+    this.reuseFilters.add(entry)
+    return () => { this.reuseFilters.delete(entry) }
+  }
+
+  /**
+   * Evaluate the registered blank reuse policy.
+   * @param id - candidate Session identity.
+   * @param preset - requested preset, if supplied.
+   * @returns whether every contribution accepts the candidate.
+   */
+  canReuseBlank(id: SessionId, preset: string | undefined): boolean {
+    return [...this.reuseFilters].every(filter => filter.accepts(id, preset))
+  }
 
   /**
    * @param ctx - Host context containing the Session capability assembly.
@@ -199,7 +221,8 @@ export class SessionController extends TypertRemoteService {
     ctx.typert.resources.register('session', { resolve: resolveSessionResource })
     this.agents = new ApiSessionAgentController(ctx)
     this.agents.initialize()
-    this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
+    this.commands = new SessionCommandController(ctx, this.agents, process.cwd(),
+      (id, preset) => this.canReuseBlank(id, preset))
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
       const result = await this.agents.resolveAgent(sessionId)
       if ('error' in result) throw result.error
@@ -217,7 +240,10 @@ export class SessionController extends TypertRemoteService {
     this.stateController = new StateController(ctx, this.historyController)
     this.webController = new WebController(ctx, this.historyController, (observation) => { this.promote(observation) })
     this.listState = new ApiSessionList(ctx, this.listWorkSliceMs)
+    await this.commands.initialize()
+    ctx.fiber.assertActive()
     await this.listState.initialize()
+    ctx.fiber.assertActive()
     ctx.plugin(SessionFileReferences)
     ctx.plugin(SessionMediaReferences)
     ctx.plugin(SessionVideoReferences, this.videoConfig)
@@ -484,7 +510,7 @@ export class SessionController extends TypertRemoteService {
   @Remote('prompt')
   async prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue> {
     signal.throwIfAborted()
-    if (!hasPromptContent(request.content)) {
+    if (request.content.length > 0 && !hasPromptContent(request.content)) {
       throw new RemoteError('gateway/bad-request', 'prompt content must include non-whitespace text or an attachment', {})
     }
     const clientTimeZone = request.clientTimeZone === undefined
@@ -500,7 +526,7 @@ export class SessionController extends TypertRemoteService {
     // The caller is recorded only when it is not the owner, so owner messages keep their exact source.
     const principal = principalOf(this.ctx.invocation)
     const source: MessageSource = {
-      kind: 'user',
+      kind: request.content.length === 0 ? 'retry' : 'user',
       rpcId: request.requestId,
       ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
       ...(principal === undefined ? {} : { principal }),

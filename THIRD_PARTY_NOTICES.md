@@ -256,6 +256,7 @@ External packages **directly declared** for development, tests, types, or toolin
 | [`@xmldom/xmldom`](https://github.com/xmldom/xmldom) | MIT |
 | [`@yao-pkg/pkg`](https://github.com/yao-pkg/pkg) | MIT |
 | [`@yarnpkg/cli-dist`](https://github.com/yarnpkg/berry) | BSD-2-Clause |
+| [`7zip-bin`](https://github.com/develar/7zip-bin) | MIT |
 | [`app-builder-lib`](https://github.com/electron-userland/electron-builder) | MIT |
 | [`cos-nodejs-sdk-v5`](https://github.com/tencentyun/cos-nodejs-sdk-v5) | ISC |
 | [`cytoscape`](https://github.com/cytoscape/cytoscape.js) | MIT |
@@ -343,6 +344,7 @@ The [Python source distribution decision](.agents/notes/implemented/process/2026
 | [`pillow`](https://github.com/python-pillow/Pillow) | 12.3.0 | MIT-CMU |
 | [`protobuf`](https://github.com/protocolbuffers/protobuf) | 7.36.2 | BSD-3-Clause |
 | [`pyclipper`](https://github.com/fonttools/pyclipper) | 1.4.0 | MIT |
+| [`pycryptodome`](https://github.com/Legrandin/pycryptodome) | 3.23.0 | BSD-2-Clause AND Unlicense |
 | [`pydub`](https://github.com/jiaaro/pydub) | 0.25.1 | MIT |
 | [`pyjianyingdraft`](https://github.com/GuanYixuan/pyJianYingDraft) | 0.3.1 | MIT |
 | [`pymediainfo`](https://github.com/sbraz/pymediainfo) | 7.0.1 | MIT |

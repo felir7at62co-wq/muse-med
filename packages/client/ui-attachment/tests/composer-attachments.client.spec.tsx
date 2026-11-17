@@ -6,6 +6,7 @@ import type {
   ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerAttachmentsProps,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ComposerAttachments } from '../src/client/ComposerAttachments.tsx'
+import { FILE_DRAG_TOKEN_TYPE } from '@deepseek-ai/dsh-util-file-drag'
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class {
@@ -90,6 +91,43 @@ function props(overrides: Partial<ComposerAttachmentsOwnerProps> = {}): Paramete
 }
 
 describe('ComposerAttachments', () => {
+  it.each(['workspace', 'file', 'image'] as const)('delivers a %s drop only to its target Conversation when two composers are mounted', (kind) => {
+    const firstFiles = vi.fn(), firstWorkspace = vi.fn(), secondFiles = vi.fn(), secondWorkspace = vi.fn()
+    const image = attachment('target').file
+    const transfer = {
+      types: kind === 'workspace' ? ['application/x-dsh-workspace-file'] : kind === 'image' ? [FILE_DRAG_TOKEN_TYPE] : ['Files'],
+      files: kind === 'file' ? [image] : [], items: [], getData: vi.fn(() => 'target-ticket'),
+    }
+    const view = render(<>
+      <div data-conversation-content data-testid="first">
+        <ComposerAttachments {...props({ onAddFiles: firstFiles, workspaceDrop: {
+          type: 'application/x-dsh-workspace-file', canAccept: true, onDrop: firstWorkspace,
+        } })} readFileDrag={() => image} />
+        <div data-composer-card />
+      </div>
+      <div data-conversation-content data-testid="second">
+        <ComposerAttachments {...props({ onAddFiles: secondFiles, workspaceDrop: {
+          type: 'application/x-dsh-workspace-file', canAccept: true, onDrop: secondWorkspace,
+        } })} readFileDrag={() => image} />
+        <div data-composer-card data-testid="target" />
+      </div>
+    </>)
+    fireEvent.drop(view.getByTestId('target'), { dataTransfer: transfer })
+    expect(firstFiles).not.toHaveBeenCalled()
+    expect(firstWorkspace).not.toHaveBeenCalled()
+    if (kind === 'workspace') {
+      expect(secondWorkspace).toHaveBeenCalledExactlyOnceWith('target-ticket')
+      expect(secondFiles).not.toHaveBeenCalled()
+    } else {
+      expect(secondFiles).toHaveBeenCalledExactlyOnceWith([image], new Set())
+      expect(secondWorkspace).not.toHaveBeenCalled()
+    }
+    fireEvent.drop(document.body, { dataTransfer: transfer })
+    expect(firstFiles).not.toHaveBeenCalled()
+    expect(firstWorkspace).not.toHaveBeenCalled()
+    expect(kind === 'workspace' ? secondWorkspace : secondFiles).toHaveBeenCalledTimes(1)
+  })
+
   it('blocks workspace drag intake while its workspace provider cannot accept files', () => {
     const onDrop = vi.fn(), onAddFiles = vi.fn()
     const view = render(<ComposerAttachments {...props({

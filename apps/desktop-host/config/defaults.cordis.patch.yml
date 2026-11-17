@@ -7,7 +7,8 @@
 - id: agent-preset-registry
   config:
     default: short-drama
-    selectablePresets: [short-drama]
+    selectablePresets: [short-drama, main-session]
+    allowUserDefault: false
 
 - id: ui-conversation
   config:
@@ -27,7 +28,8 @@
   config:
     models: []
 
-# Continue output-limited responses through normal requests and compaction.
+# Continue output-limited responses through normal requests and compaction, and ask again
+# when a response stops with hidden reasoning only: the user would otherwise receive nothing.
 - insert:
     - id: agent-output-continuation
       name: '@deepseek-ai/dsh-agent-output-continuation'
@@ -35,6 +37,7 @@
         maxContinuations: null
         maxNoProgressResponses: 2
         repeatWindowChars: 16384
+        maxSilentStopRecoveries: 2
 
 # A single object repeating one member 64 times cannot advance a tool call.
 # Discard malformed tool calls and allow one bounded response recovery per turn.
@@ -68,3 +71,19 @@
       name: '@deepseek-ai/dsh-client-ui-session-video'
       config:
         pixelsPerSecond: 48
+
+# Routing role and task directory are independently removable plugin contributions.
+- insert:
+    - id: muse-session-activity
+      name: '@deepseek-ai/dsh-session-activity'
+    - id: muse-session-coordinator
+      name: '@deepseek-ai/dsh-session-coordinator'
+      config:
+        mainPreset: main-session
+        workerPreset: short-drama
+        searchLimit: 30
+        readChars: 24000
+    - id: muse-coordination-worker
+      name: '@deepseek-ai/dsh-session-coordinator/worker'
+    - id: ui-muse-session-coordinator
+      name: '@deepseek-ai/dsh-client-ui-session-coordinator'

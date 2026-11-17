@@ -539,6 +539,7 @@ const REPLAY_CHUNK_TYPES = new Set<StreamChunk['type']>([
 ])
 
 const FROM_REQUEST_OPEN = '{{fromRequest:'
+const FROM_REQUEST_JSON_OPEN = '{{fromRequestJson:'
 const FROM_REQUEST_CLOSE = '}}'
 
 /** Collect every string leaf of one JSON-compatible value, in traversal order. */
@@ -592,22 +593,26 @@ function substituteString(text: string, corpus: string, json?: JsonStringCursor)
     }
   }
   while (true) {
-    const open = text.indexOf(FROM_REQUEST_OPEN, cursor)
+    const rawOpen = text.indexOf(FROM_REQUEST_OPEN, cursor)
+    const jsonOpen = text.indexOf(FROM_REQUEST_JSON_OPEN, cursor)
+    const escaped = jsonOpen !== -1 && (rawOpen === -1 || jsonOpen < rawOpen)
+    const open = escaped ? jsonOpen : rawOpen
+    const prefix = escaped ? FROM_REQUEST_JSON_OPEN : FROM_REQUEST_OPEN
     if (open === -1) {
       append(text.slice(cursor))
       return result
     }
-    let close = text.indexOf(FROM_REQUEST_CLOSE, open + FROM_REQUEST_OPEN.length)
+    let close = text.indexOf(FROM_REQUEST_CLOSE, open + prefix.length)
     if (close === -1) {
       throw new Error(`llm-replay: fromRequest placeholder is unterminated in ${JSON.stringify(text)}`)
     }
     // The last two braces of a consecutive `}` run terminate the placeholder,
     // so a pattern may end with a brace quantifier like `[0-9a-f]{4}`.
     while (text[close + FROM_REQUEST_CLOSE.length] === '}') close += 1
-    const pattern = text.slice(open + FROM_REQUEST_OPEN.length, close)
+    const pattern = text.slice(open + prefix.length, close)
     append(text.slice(cursor, open))
     const captured = resolveFromRequest(pattern, corpus)
-    append(json?.quoted ? JSON.stringify(captured).slice(1, -1) : captured)
+    append(escaped || json?.quoted ? JSON.stringify(captured).slice(1, -1) : captured)
     cursor = close + FROM_REQUEST_CLOSE.length
   }
 }
@@ -615,7 +620,7 @@ function substituteString(text: string, corpus: string, json?: JsonStringCursor)
 /** Deep-copy one JSON-compatible value with scripted placeholders resolved. */
 function substituteValue(value: unknown, corpus: string): unknown {
   if (typeof value === 'string') {
-    return value.includes(FROM_REQUEST_OPEN) ? substituteString(value, corpus) : value
+    return (value.includes(FROM_REQUEST_OPEN) || value.includes(FROM_REQUEST_JSON_OPEN)) ? substituteString(value, corpus) : value
   }
   if (Array.isArray(value)) return value.map(item => substituteValue(item, corpus))
   if (value !== null && typeof value === 'object') {
@@ -656,12 +661,15 @@ function substituteChunk(chunk: StreamChunk, corpus: string, argumentCursors: Ma
  * strings in tool-call arguments are JSON-escaped; streamed argument deltas
  * retain their string cursor by block index. Other text and unquoted positions
  * keep literal substitution, and malformed argument templates are not repaired.
+ * `{{fromRequestJson:<regex>}}` explicitly escapes a capture inside a JSON string
+ * in any scripted text field without adding surrounding quotes.
  * @param entry - the scripted entry about to replay.
  * @param messages - the live request messages searched by the placeholders.
  * @returns the entry itself when no placeholder appears, else a resolved deep copy.
  */
 export function resolveScriptedEntry(entry: ReplayEntry, messages: GenerateOptions['messages']): ReplayEntry {
-  if (!JSON.stringify(entry).includes(FROM_REQUEST_OPEN)) return entry
+  const serialized = JSON.stringify(entry)
+  if (!serialized.includes(FROM_REQUEST_OPEN) && !serialized.includes(FROM_REQUEST_JSON_OPEN)) return entry
   const leaves: string[] = []
   collectStrings(messages, leaves)
   const corpus = leaves.join('\n')
@@ -692,25 +700,6 @@ function materializeSessionTokens(entry: ReplayEntry, liveSessionIds: readonly (
     return value
   }
   return replace(entry) as ReplayEntry
-}
-
-/** Learn a background child id from the stable tool-result text before that child reaches its first model call. */
-function inferStartedSubagents(
-  messages: GenerateOptions['messages'],
-  liveSessionIds: (string | undefined)[],
-): void {
-  const leaves: string[] = []
-  collectStrings(messages, leaves)
-  for (const leaf of leaves) {
-    for (const match of leaf.matchAll(/started subagent ([^\s"'<>]+)/g)) {
-      const id = match[1]
-      /* v8 ignore next -- the fixed regular expression always has capture group 1. */
-      if (id === undefined || liveSessionIds.includes(id)) continue
-      const index = liveSessionIds.findIndex((value, candidate) => candidate > 0 && value === undefined)
-      if (index < 0) return
-      liveSessionIds[index] = id
-    }
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -932,9 +921,10 @@ class ReplayAdapter extends LlmAdapter {
     const visualTokens = configured?.models?.find(candidate => candidate.id === model)?.imageRequestTokens
     if (visualTokens === undefined) return undefined
     return {
-      priceImages: images => images.map(({ attachment: ref, offloaded }) => (offloaded === true
-        ? { visualTokens: 0, text: offloadedImageText(ref) }
-        : { visualTokens, text: requestImageHandleText(ref, { width: ref.width, height: ref.height }) })),
+      priceImages: images => images.map(image => (image.offloaded === true
+        ? { visualTokens: 0, text: offloadedImageText(image.attachment, undefined, image.offloadNotice) }
+        : { visualTokens, text: requestImageHandleText(image.attachment,
+          { width: image.attachment.width, height: image.attachment.height }) })),
     }
   }
 
@@ -1034,7 +1024,7 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined,
         if (paceMs > 0) await paceDelay(paceMs, signal)
         yield chunk
       }
-      throw new LlmError(entry.message, entry.code)
+      throw LlmError.fromFailure({ message: entry.message, code: entry.code })
     case 'hang':
       // Replay a stream that stalls until cancelled (mirrors MockAdapter): one
       // chunk, then wait for abort and surface it as the consumer expects.
@@ -1129,7 +1119,6 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
           + `but its script has only ${boundState.entries.length}; re-record the scenario`,
         )
       }
-      inferStartedSubagents(options.messages, liveSessionIds)
       const resolved = resolveScriptedEntry(materializeSessionTokens(entry, liveSessionIds), options.messages)
       if (options.provider === 'deepseek-official' && providerAccepted(resolved)) {
         const extensions = ctx.get('deepseekLlmApiExtensions')

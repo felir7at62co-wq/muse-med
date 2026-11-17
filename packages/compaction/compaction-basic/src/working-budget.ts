@@ -35,13 +35,13 @@ interface WorkingRequest {
 function stopped(kind: 'capacity' | 'summary' | 'persistence' | 'unavailable'): LlmError {
   switch (kind) {
     case 'capacity':
-      return new LlmError('The request exceeds the model\'s estimated safe input budget and could not be reduced. Existing work is retained; compact again or reduce attached context.', WORKING_CONTEXT_LIMIT)
+      return LlmError.fromFailure({ message: 'The request exceeds the model\'s estimated safe input budget and could not be reduced. Existing work is retained; compact again or reduce attached context.', code: WORKING_CONTEXT_LIMIT })
     case 'summary':
-      return new LlmError('Summarization is unavailable and the request exceeds the model\'s estimated safe input budget. Existing work is retained; retry when summarization is available.', 'COMPACTION_UNAVAILABLE')
+      return LlmError.fromFailure({ message: 'Summarization is unavailable and the request exceeds the model\'s estimated safe input budget. Existing work is retained; retry when summarization is available.', code: 'COMPACTION_UNAVAILABLE' })
     case 'persistence':
-      return new LlmError('The context checkpoint could not be saved. Existing work is retained; retry after storage is available.', 'COMPACTION_PERSISTENCE_FAILED')
+      return LlmError.fromFailure({ message: 'The context checkpoint could not be saved. Existing work is retained; retry after storage is available.', code: 'COMPACTION_PERSISTENCE_FAILED' })
     case 'unavailable':
-      return new LlmError('The model\'s safe input budget is unavailable. Existing work is retained; check the model capacity and output reservation.', 'CONTEXT_BUDGET_UNAVAILABLE')
+      return LlmError.fromFailure({ message: 'The model\'s safe input budget is unavailable. Existing work is retained; check the model capacity and output reservation.', code: 'CONTEXT_BUDGET_UNAVAILABLE' })
   }
 }
 

@@ -54,8 +54,6 @@ Collected bytes become text through `decodeStreamText`: a read that is well-form
 
 An ordinary spawn can request the [subprocess control pipe](../subprocess/README.md#using-a-control-pipe). A Node target receives fd 7 on every supported host; Windows descriptor numbering requires CRT initialization. POSIX runners preserve that descriptor across `execve`; Windows Job and ACL runners establish it in the child's CRT startup table before Node initializes and close their own carrier copies after spawning. Standard streams and the runner's private management channel remain independent.
 
-Before Linux `execve`, the private runner restores blocking status on standard descriptors 0, 1 and 2 while preserving their other file-status flags. This prevents Node's eager stream initialization from leaving native commands with nonblocking standard input or output. The fd 7 control transport keeps its existing status flags and remains separate from this standard-stream adjustment. A failed descriptor operation rejects startup before the target runs.
-
 <a id="running-terminal-sessions"></a>
 ### Running terminal sessions
 
@@ -73,7 +71,7 @@ Linux ordinary and terminal cancellation preserves the observed termination sign
 
 ### What can go wrong
 
-An executable that cannot be resolved fails loud with a stable error. `done` rejects when spawn or provider failure prevents a direct outcome, and that rejection does not prove whether target execution began. `waitForExit()` rejects if the selected owner can no longer prove its range empty, and cleanup still attempts termination. A read past the retained tail is `lossy` and points at the spill file when one exists. A fallback process group or observed terminal session can miss a descendant that escapes before observation — see the limitations below.
+An executable that cannot be resolved fails loud with a stable error. `done` rejects when spawn or provider failure prevents a direct outcome, and that rejection does not prove whether target execution began: a platform spawn error stays the original Node error, while a Windows Job runner that fails after it started or breaks its IPC channel rejects with `SubprocessError` `SUBPROCESS_RUNNER_FAILED` or `SUBPROCESS_RUNNER_IPC_FAILED`. A terminal request on a host where node-pty cannot load throws `SUBPROCESS_PTY_UNAVAILABLE`. `waitForExit()` rejects if the selected owner can no longer prove its range empty, and cleanup still attempts termination. A read past the retained tail is `lossy` and points at the spill file when one exists. A fallback process group or observed terminal session can miss a descendant that escapes before observation — see the limitations below.
 
 -----
 
@@ -110,7 +108,7 @@ Each spawn selects one owner for both signalling and quiescence. Supported Linux
 
 ### Main flow
 
-A spawn synchronously validates the final argv, cwd, and environment, selects containment before the user command can run, and returns a handle while target identity remains private. Linux ordinary and terminal launches use a private one-shot request whose scoped bootstrap restores the target cwd and environment, resolves the executable, clears close-on-exec on fd 0 through fd 2 and optional control fd 7, and enters libc `execve()` with the original argv. Windows ordinary launches isolate runner fd 0 through fd 2, reserve fd 3 for IPC, and carry target stdio on fd 4 through fd 6 plus fd 7 when control is requested; the runner resolves those CRT descriptors to OS handles, creates the target suspended, assigns it to the Job, resumes it, and closes its standard-stream carriers and optional fd-7 carrier. `done` settles the direct command after its stdio barrier, while `waitForExit()` separately waits for the selected scope, Job, process group, or observed session to become empty.
+A spawn synchronously validates the final argv, cwd, and environment, selects containment before the user command can run, and returns a handle while target identity remains private. Linux ordinary and terminal launches use a private one-shot request whose scoped bootstrap restores the target cwd and environment, resolves the executable, clears close-on-exec on fd 0 through fd 2 and optional control fd 7, and enters libc `execve()` with the original argv. Windows ordinary launches isolate runner fd 0 through fd 2, reserve fd 3 for IPC, and carry target stdio on fd 4 through fd 6 plus fd 7 when control is requested; the runner resolves those CRT descriptors to OS handles, creates the target suspended, assigns it to the Job, resumes it, and closes its standard-stream carriers and optional fd-7 carrier. `done` settles the direct command after its stdio barrier, while `waitForExit()` separately waits for the selected scope, Job, process group, or observed session to become empty. Linux clears `O_NONBLOCK` only for standard-stream pipes created for the child. Inherited streams and PTYs retain their file status flags.
 
 ### Safety invariants
 

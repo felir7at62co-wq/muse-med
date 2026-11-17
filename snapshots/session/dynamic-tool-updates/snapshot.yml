@@ -7,4 +7,5 @@ writerOutput: true
 header:
   class: dynamic-tool-updates
   pin: true
+  systemPromptSource: text-turn
   changes: 2

@@ -3,20 +3,20 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/api/workspace-files/README.md
 /:
-  en: f83c75aa73ae21dd
-  zh: e8873aafd23a8038
+  en: 47d66aa37cb2ffab
+  zh: 1568b049534ffa55
 /deepseek-ai-dsh-api-workspace-files:
   en: d2885c72d12d9924
   zh: e111f03d02383229
 /deepseek-ai-dsh-api-workspace-files/summary:
-  en: a8deaa4f28b5a367
-  zh: 481357569d749b6c
+  en: 1a06bd722e4ac816
+  zh: d1fec2bf20adc194
 /deepseek-ai-dsh-api-workspace-files/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
 /deepseek-ai-dsh-api-workspace-files/use-this-package:
-  en: 917a9f7f430bbf38
-  zh: 73b9a82302989e52
+  en: 8f5319ac4ce3a89f
+  zh: 130b8092d9d5a87d
 /deepseek-ai-dsh-api-workspace-files/use-this-package/addressing-and-paths:
   en: f80d8a720ca5fb72
   zh: 19960bb947ae1300
@@ -27,14 +27,17 @@
   en: 93ca9e832fbfd632
   zh: 69412adba259c6f8
 /deepseek-ai-dsh-api-workspace-files/use-this-package/file-read-and-directory-checks:
-  en: 0ef6447e382b68d2
-  zh: 0a659311059f34af
+  en: c53c72a4fab3d957
+  zh: e20b359c6ea5caa5
+/deepseek-ai-dsh-api-workspace-files/use-this-package/search:
+  en: f5d2244caef36e4b
+  zh: d6df79a18f4caf36
 /deepseek-ai-dsh-api-workspace-files/use-this-package/the-change-feed:
   en: 8bd2d820a512d461
   zh: 0614ddd842ae7526
 /deepseek-ai-dsh-api-workspace-files/use-this-package/configuration:
-  en: e606e8b22ac6e0d0
-  zh: 13a7214448036d7b
+  en: 99ce72f0f731c570
+  zh: 3f4c9bbd62844f1d
 /deepseek-ai-dsh-api-workspace-files/use-this-package/failures:
   en: 2a1dcc4c372c8340
   zh: fc4650e530380af7
@@ -48,8 +51,8 @@
   en: 6bf25538feed735d
   zh: ea31fcc448382e80
 /deepseek-ai-dsh-api-workspace-files/understand-the-implementation/source-map:
-  en: f7029471c4bc0b7a
-  zh: 3cb267a0946cd75e
+  en: 479323007ba419d1
+  zh: da1c4d03bf34657d
 /deepseek-ai-dsh-api-workspace-files/further-exploration:
   en: 71f00fb919d12181
   zh: 1e3819cd90dfca31
@@ -60,8 +63,8 @@
   en: ca75c51c89c2c9b0
   zh: 03126f3b1aac5859
 /deepseek-ai-dsh-api-workspace-files/known-limitations-and-deferred-work:
-  en: bb98fa2d9541bf89
-  zh: 8f5c880289ca12be
+  en: a8df305815700f57
+  zh: d0ae56ac6b1f9193
 /deepseek-ai-dsh-api-workspace-files/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: e88aeb617ffb74ea

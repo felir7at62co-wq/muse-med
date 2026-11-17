@@ -163,7 +163,65 @@ it('downloads only a successful logged Jubian URL through the bounded existing s
   expect(result.state).toBe('ready')
   expect(result.shots).toHaveLength(3)
   expect(fetch).toHaveBeenCalledTimes(1)
-  expect((await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]?.status).toBe('local')
+  const local = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(local.status).toBe('local')
+  expect(local.version).not.toBe(source.version)
+  expect(result.sourceVersion).toBe(local.version)
+})
+
+it('binds a re-downloaded provider URL to new content after its cache entry is evicted', async () => {
+  const f = await fixture({ maxCachedAnalyses: 1 })
+  const urls = ['https://101.aigc.jubianai.net/first.mp4', 'https://101.aigc.jubianai.net/second.mp4']
+  f.tool('jubian_video', { method: 'subtasks', task_id: 7 }, { subtasks: { rows: urls.map(video_url =>
+    ({ parent_task_id: 7, status: 'succeeded', video_url })) } })
+  const bytes = readFileSync(f.file)
+  let firstDownloads = 0
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const url = input instanceof Request ? input.url : input.toString()
+    if (url === urls[0]) return new Response(++firstDownloads === 1 ? bytes : Buffer.concat([bytes, Buffer.from('new-content')]))
+    expect(url).toBe(urls[1])
+    return new Response(bytes)
+  }))
+  const remote = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources
+  const first = await f.ctx.sessionVideo.detect(f.session.id, remote[0]!.id, remote[0]!.version!, f.signal)
+  const oldLocal = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(first.sourceVersion).toBe(oldLocal.version)
+  await f.ctx.sessionVideo.detect(f.session.id, remote[1]!.id, remote[1]!.version!, f.signal)
+  const evicted = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(evicted.status).toBe('remote-only')
+  const second = await f.ctx.sessionVideo.detect(f.session.id, evicted.id, evicted.version!, f.signal)
+  const newLocal = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(firstDownloads).toBe(2)
+  expect(second.state).toBe('ready')
+  expect(second.sourceVersion).toBe(newLocal.version)
+  expect(second.sourceVersion).not.toBe(first.sourceVersion)
+  expect(second.shots[0]?.id).not.toBe(first.shots[0]?.id)
+  const route = f.routes.get('/api/session-video')!
+  expect((await route.fetch(new Request(`http://localhost/${oldLocal.playbackUrl}`))).status).toBe(409)
+  expect((await f.ctx.sessionVideo.detect(f.session.id, oldLocal.id, oldLocal.version!, f.signal)).state).toBe('failed')
+})
+
+it('recovers a provider source when its cached attachment alias is removed', async () => {
+  const f = await fixture()
+  const url = 'https://101.aigc.jubianai.net/deleted-attachment.mp4'
+  f.tool('jubian_video', { method: 'subtasks', task_id: 7 }, { subtasks: { rows: [
+    { parent_task_id: 7, status: 'succeeded', video_url: url },
+  ] } })
+  const fetch = vi.fn(async () => new Response(readFileSync(f.file)))
+  vi.stubGlobal('fetch', fetch)
+  const initial = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect((await f.ctx.sessionVideo.detect(f.session.id, initial.id, initial.version!, f.signal)).state).toBe('ready')
+  const local = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(local.path).not.toBeNull()
+  rmSync(local.path!)
+  const missing = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(missing).toMatchObject({ status: 'remote-only', version: initial.version, playbackUrl: url })
+  const result = await f.ctx.sessionVideo.detect(f.session.id, missing.id, missing.version!, f.signal)
+  const restored = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(result.state).toBe('ready')
+  expect(restored.status).toBe('local')
+  expect(result.sourceVersion).toBe(restored.version)
+  expect(fetch).toHaveBeenCalledTimes(2)
 })
 
 it('reports executable failure and source mutation without caching invented cut ranges', async () => {

@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-11-14-prompt-usage-shortfall-guard.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-11-14-prompt-usage-shortfall-guard.md
+/agent-note-discarding-replies-to-incomplete-requests:
+  en: 2eb97bd00373b2f7
+  zh: 405a498017313bb5
+/agent-note-discarding-replies-to-incomplete-requests/problem:
+  en: 9c94a15cb6169fcd
+  zh: 0b2a817e82449959
+/agent-note-discarding-replies-to-incomplete-requests/decision:
+  en: dfc7ed5fe0cbe19f
+  zh: b298ae70540f6f95
+/agent-note-discarding-replies-to-incomplete-requests/alternatives-considered:
+  en: 15612c9d3d944ba6
+  zh: d1ba5ca9b174c54c
+/agent-note-discarding-replies-to-incomplete-requests/consequences:
+  en: b7bcb5853a83ad55
+  zh: de28cb9894d82970

@@ -187,6 +187,43 @@ it('retains verified empty Muse groups separately from unavailable organization 
   expect(result.availability).toEqual({ profile: 'available', groups: 'available', feishuOrganization: 'unavailable' })
 })
 
+it('preserves all 257 legal Feishu bindings in a personal profile', async () => {
+  const fixture = profileFixture()
+  const identities = Array.from({ length: 257 }, (_, index) => ({ ...fixture.account.feishuIdentities[0], name: 'Member ' + String(index) }))
+  const result = await createMuseAccountGateway(baseUrl, 1000, profileFetcher({ ...fixture,
+    account: { ...fixture.account, feishuIdentities: identities },
+  })).details(cookie, {})
+  if (result.protocol !== 'account-data-v1') throw new Error('Expected relay protocol')
+  expect(result.profile?.account.feishuIdentities).toHaveLength(257)
+  expect(result.profile?.account.feishuIdentities.map(value => value.name)).toEqual(identities.map(value => value.name))
+  expect(result.profile?.groups).toEqual(fixture.groups)
+  expect(result.usage.summary.requests).toBe(461)
+})
+
+it.each([100, 101])('retains profile, groups and usage when aggregate departments contain %i entries', async (count) => {
+  const fixture = profileFixture()
+  const departments = Array.from({ length: count }, (_, index) => ({ id: 'department-' + String(index), name: 'Team ' + String(index),
+    path: 'Company / Team ' + String(index), pathIds: ['0', 'department-' + String(index)] }))
+  const source = profileFetcher({ ...fixture,
+    organization: { ...fixture.organization, departments },
+  })
+  const workbench = workbenchFixture()
+  const result = await createMuseAccountGateway(baseUrl, 1000, async (input, init) => {
+    if (new URL(input instanceof Request ? input.url : input).pathname !== '/api/workbench') return source(input, init)
+    return Response.json({ ...workbench, members: [{ ...workbench.members[0], departmentPaths:
+      Array.from({ length: 101 }, (_, index) => [{ id: '0', name: 'Company' }, { id: 'department-' + String(index), name: 'Team' }]),
+    }] })
+  }).details(cookie, {})
+  if (result.protocol !== 'account-data-v1') throw new Error('Expected relay protocol')
+  expect(result.profile?.groups).toEqual(fixture.groups)
+  expect(result.profile?.account.username).toBe(identity.username)
+  expect(result.organization?.status).toBe(count === 100 ? 'available' : 'unavailable')
+  expect(result.organization?.departments).toHaveLength(count === 100 ? 100 : 0)
+  expect(result.availability).toEqual({ profile: 'available', groups: 'available',
+    feishuOrganization: count === 100 ? 'available' : 'unavailable' })
+  expect(result.usage.summary.requests).toBe(461)
+})
+
 it.each(['account id', 'username', 'date', 'group id', 'organization', 'departments'])(
   'rejects invalid personal-profile %s before returning any relay data', async (kind) => {
     const source = profileFixture()
@@ -195,7 +232,8 @@ it.each(['account id', 'username', 'date', 'group id', 'organization', 'departme
         : kind === 'date' ? { ...source, account: { ...source.account, createdAt: 'invalid' } }
           : kind === 'group id' ? { ...source, groups: [{ ...source.groups[0], id: 'invalid' }] }
             : kind === 'organization' ? { ...source, organization: { ...source.organization, status: 'unknown' } }
-              : { ...source, organization: { ...source.organization, departments: Array(101).fill(source.organization.departments[0]) } }
+              : { ...source, organization: { ...source.organization,
+                departments: [{ ...source.organization.departments[0], pathIds: Array(101).fill('department') }] } }
     await expect(createMuseAccountGateway(baseUrl, 1000, profileFetcher(profile)).details(cookie, {}))
       .rejects.toMatchObject({ code: 'gateway-rejected', message: 'MUSE account gateway: gateway-rejected' })
   },

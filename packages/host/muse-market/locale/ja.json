@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Muse Skill 公開",
-    "description": "ローカルのSkill公開パッケージを保存し、有効化を個別に管理します。アカウントに紐づくクラウドサービスは任意で利用できます。"
+    "title": "Muse スキル公開",
+    "description": "再利用可能な Muse スキルを公開して管理します。"
   }
 }

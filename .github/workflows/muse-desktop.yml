@@ -83,6 +83,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - name: Check draft build ownership and saved source ranges
+        working-directory: packages/drama/skills
+        env:
+          PYTHONUTF8: '1'
+        run: python -B -m unittest tests.render.test_windows_aa_draft tests.render.test_windows_aa_protocol tests.render.test_draft_stage_guard tests.render.test_draft_integrity
       - name: Install immutable dependencies
         run: pnpm install --frozen-lockfile
       - name: Install model gateway dependencies
@@ -101,7 +106,7 @@ jobs:
       - name: Check model relay behavior
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
       - name: Check user groups, Feishu organization and token history
-        run: node --test services/muse-accounts/account-details.test.mjs services/muse-accounts/account-pages.test.mjs services/muse-accounts/feishu-login.test.mjs services/muse-accounts/feishu-organization.test.mjs
+        run: node --test services/muse-accounts/account-details.test.mjs services/muse-accounts/account-profile.test.mjs services/muse-accounts/account-pages.test.mjs services/muse-accounts/feishu-login.test.mjs services/muse-accounts/feishu-organization.test.mjs services/muse-accounts/deployment/profile-overlay.test.mjs services/muse-accounts/deployment/profile-candidate.test.mjs
       - name: Build Host peers for plugin packaging
         run: pnpm run build:lib:host
       - name: Check built-in Bot memory, shutdown and packaging policy
@@ -142,7 +147,11 @@ jobs:
           pnpm --dir apps/desktop run test:updates:local
       - name: Prewarm locked Mac media sources
         if: matrix.target == 'mac-arm64'
-        run: python -B apps/desktop/scripts/prewarm_macos_media_sources.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v1.2.0 --repo felir7at62co-wq/muse-med --pattern muse-macos-media-9.0.2-locked-source-inputs.tar.gz --dir "$RUNNER_TEMP/mac-source-archive"
+          python -B apps/desktop/scripts/prewarm_macos_media_sources.py --archive "$RUNNER_TEMP/mac-source-archive/muse-macos-media-9.0.2-locked-source-inputs.tar.gz"
       - name: Check native macOS DMG identity and signature verification
         if: matrix.target == 'mac-arm64'
         run: |
@@ -206,7 +215,8 @@ jobs:
             apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/unsigned-build.json
           if-no-files-found: error
           compression-level: 0
-          retention-days: 30
+          # Read only by this run's upload-drafts job and by manual downloads of dispatched candidates; no job reads pull request builds.
+          retention-days: ${{ github.event_name == 'workflow_dispatch' && 7 || 1 }}
       - name: Retain native installer acceptance evidence
         if: always() && github.event_name == 'workflow_dispatch' && !(inputs.export_candidate_to_tos && matrix.target == 'win-x64')
         uses: actions/upload-artifact@v7.0.1
@@ -237,7 +247,8 @@ jobs:
           name: muse-win-x64-installer-ui-${{ github.sha }}
           path: apps/desktop/.desktop-build/installer-tests/
           if-no-files-found: warn
-          retention-days: 14
+          # Contains installer copies (~150 MB per run) and serves only diagnosis of this run.
+          retention-days: ${{ github.event_name == 'workflow_dispatch' && 7 || 3 }}
   upload-drafts:
     name: Copy verified installers into existing drafts
     needs: build

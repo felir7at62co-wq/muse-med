@@ -11,6 +11,7 @@ import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-ses
 import { defineContentToolFixture, executeModelToolFixture, executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as Present from '@deepseek-ai/dsh-tool-present'
 import { VideoReviewId } from '@deepseek-ai/dsh-tool-video-inspect'
+import { strToU8, zipSync } from 'fflate'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createManuscriptDelivery, manuscriptDeliveryMetadata, type ManuscriptDelivery } from '../src/manuscript-delivery.ts'
 import type { ContinuityResult, VideoSourceReviewResult } from '../src/manuscript-continuity.ts'
@@ -18,12 +19,14 @@ import { readManuscriptMaterials } from '../src/manuscript-materials.ts'
 import { ManuscriptNotes } from '../src/manuscript-notes.ts'
 import type { VideoSourceManifest } from '../src/manuscript-video-source-review.ts'
 import * as Reader from '../src/manuscript-document.ts'
+import type { VideoEpisodeFrames } from '../src/video-episode-frames.ts'
 
 const cleanups: (() => Promise<unknown>)[] = [], signal = new AbortController().signal
 const config = { maxDocuments: 4, maxFileBytes: 65536, maxTextChars: 20000, maxMaterialChars: 20000,
   maxNotes: 256, maxNoteChars: 40000, maxVersions: 256, maxVersionBytes: 1048576, maxLedgerBytes: 1048576, lockWaitMs: 5000,
-  continuityDeliveryChecks: true, continuityMaxDeliveryCorrections: 1 }
-const body = '第1集\n1-1 门口 日 外\n▲甲把钥匙放在桌上。\n甲：钥匙在这里。'
+  continuityDeliveryChecks: true, continuityMaxDeliveryCorrections: 1, formatDominantSpeakerMinLines: 8,
+  formatDominantSpeakerShare: 0.9, formatRepeatedSceneEpisodes: 12, formatMaxMessages: 20 }
+const body = '第1集\n1-1 门口 日 外\n人物：甲\n▲甲把钥匙放在桌上。\n甲：钥匙在这里。'
 let serial = 0
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
@@ -32,10 +35,10 @@ afterEach(async () => {
 function human(session: Session, text: string) {
   session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] }), { surfaceOp: 'append' })
 }
-function logResult(session: Session, name: string, args: object, value: object, error = false) {
+function logResult(session: Session, name: string, args: object, value: object, error = false, turn = 1) {
   const callId = ToolCallId(`source-binding-${++serial}`)
-  session.append('tool/call', { turn: 1, step: serial, callId, name, arguments: JSON.stringify(args) })
-  return session.append('tool/result', { turn: 1, step: serial, message: createToolResultMessage({ callId,
+  session.append('tool/call', { turn, step: serial, callId, name, arguments: JSON.stringify(args) })
+  return session.append('tool/result', { turn, step: serial, message: createToolResultMessage({ callId,
     content: [{ type: 'text', text: JSON.stringify(value) }], isError: error }) }, { surfaceOp: 'append' })
 }
 interface SourceOptions {
@@ -70,10 +73,13 @@ async function runtime(options: { callback?: boolean; maxDocuments?: number; see
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) }, { inject: ['tools'] }))
   await ctx.agents.register(agent)
   const verify = vi.fn(async (_session: Session, _manifest: VideoSourceManifest, _signal: AbortSignal) => true)
+  const episodeFrames = vi.fn(async (_session: Session, videoDir: string, episodes: readonly number[],
+    _signal: AbortSignal): Promise<VideoEpisodeFrames> => ({ video_dir: videoDir, videos: episodes.length,
+    episodes: episodes.map(episode => ({ episode, state: 'complete', video: `${videoDir}/${episode}.mp4`, frames: 2, recorded: 2 })) }))
   let service!: ManuscriptDelivery
   const owner = await ctx.plugin(Object.assign(async (inner: Context) => {
     service = await createManuscriptDelivery(inner, { ...config, maxDocuments: options.maxDocuments ?? config.maxDocuments },
-      options.callback === false ? {} : { verifyVideoSource: verify })
+      options.callback === false ? {} : { verifyVideoSource: verify, episodeFrames })
   }, { inject: ['tools', 'sessionProjections'] }))
   if (options.seed === undefined) {
     session.append('turn/start', { turn: 1 })
@@ -92,13 +98,13 @@ async function runtime(options: { callback?: boolean; maxDocuments?: number; see
     const base = await materials(lines)
     const value: ContinuityResult = { ...base, state: 'continuity', scope: 'returned_text_lines_only', advisory: true,
       status, reason: 'reviewed', unknowns: [], file_verification: 'verified', reviewer: { session_id: null, selection: null, requests: 1 },
-      findings: status === 'issues' ? [{ category: 'transition', description: '已知文本矛盾', evidence: [3, 4].map(line => ({
-        ...base.target, line, quote: line === 3 ? '▲甲把钥匙放在桌上。' : '甲：钥匙在这里。' })) }] : [] }
+      findings: status === 'issues' ? [{ category: 'transition', description: '已知文本矛盾', evidence: [4, 5].map(line => ({
+        ...base.target, line, quote: line === 4 ? '▲甲把钥匙放在桌上。' : '甲：钥匙在这里。' })) }] : [] }
     logResult(session, 'manuscript_revision', { action: 'continuity' }, value)
     return value
   }
   async function sourceFact(settings: SourceOptions = {}): Promise<VideoSourceReviewResult> {
-    const base = await materials(settings.lines), lines = settings.lines ?? { start: 1, end: 4 }
+    const base = await materials(settings.lines), lines = settings.lines ?? { start: 1, end: 5 }
     const seconds = settings.seconds ?? { start: 0, end: 4 }, frames = settings.frames ?? ['frame-1']
     const reviewId = VideoReviewId(settings.reviewId ?? 'source-review-1')
     const manifest: VideoSourceManifest = { scope: 'sampled_frames_and_saved_asr', audio_verification: 'not_performed',
@@ -120,27 +126,27 @@ async function runtime(options: { callback?: boolean; maxDocuments?: number; see
       ...settings.withoutManifest ? {} : { source_manifest: manifest } }
   }
   async function sourceReview(settings: SourceOptions = {}) {
-    const value = await sourceFact(settings), lines = settings.lines ?? { start: 1, end: 4 }
+    const value = await sourceFact(settings), lines = settings.lines ?? { start: 1, end: 5 }
     const seconds = settings.seconds ?? { start: 0, end: 4 }
     logResult(session, 'manuscript_revision', { action: 'source_fidelity', video_sources: value.source_manifest?.inputs ?? [{
       review_id: settings.reviewId ?? 'source-review-1', start_seconds: seconds.start, end_seconds: seconds.end,
       frame_ids: settings.frames ?? ['frame-1'], draft_lines: lines }] }, value)
     return value
   }
-  async function declare(mode: 'reviewed' | 'draft' = 'reviewed', sourceMode?: 'video') {
-    const value = await service.declare(['final.md'], mode, mode === 'draft' ? '来源尚待核实。' : undefined, agent, signal, sourceMode)
-    logResult(session, 'manuscript_revision', { action: 'delivery', source_mode: sourceMode }, value)
+  async function declare(mode: 'reviewed' | 'draft' = 'reviewed', sourceMode?: 'video', path = 'final.md', turn = 1) {
+    const value = await service.declare([path], mode, mode === 'draft' ? '来源尚待核实。' : undefined, agent, signal, sourceMode, '/videos')
+    logResult(session, 'manuscript_revision', { action: 'delivery', source_mode: sourceMode, video_dir: '/videos' }, value, false, turn)
     return value
   }
-  async function present(description: string) {
-    const callId = ToolCallId(`binding-present-${++serial}`), args = { files: [{ path: 'final.md', description }] }
-    session.append('tool/call', { turn: 1, step: serial, callId, name: 'present', arguments: JSON.stringify(args) })
+  async function present(description: string, path = 'final.md', turn = 1) {
+    const callId = ToolCallId(`binding-present-${++serial}`), args = { files: [{ path, description }] }
+    session.append('tool/call', { turn, step: serial, callId, name: 'present', arguments: JSON.stringify(args) })
     const result = await executeModelToolFixture(ctx, { callId, name: 'present', arguments: args, agent, signal })
-    session.append('tool/result', { turn: 1, step: serial,
+    session.append('tool/result', { turn, step: serial,
       message: createToolResultMessage({ callId, content: result.content, isError: result.isError }) }, { surfaceOp: 'append' })
     return result
   }
-  return { root, ctx, agent, session, service, owner, verify, textReview, sourceFact, sourceReview, declare, present }
+  return { root, ctx, agent, session, service, owner, verify, episodeFrames, textReview, sourceFact, sourceReview, declare, present }
 }
 
 it('requires independent text review and binds narrow source scope through actual present', async () => {
@@ -150,7 +156,8 @@ it('requires independent text review and binds narrow source scope through actua
   const declaration = await f.declare()
   expect(declaration.source_mode).toBe('video')
   expect(declaration.files[0]?.source_reviews?.[0]?.source_manifest).toEqual(source.source_manifest)
-  expect(declaration.files[0]?.label).toContain('0–4秒内1个原帧及保存ASR→正文第1–4行')
+  expect(declaration.files[0]?.label).toContain('0–4秒内1个原帧及保存ASR→正文第1–5行')
+  expect(declaration.files[0]?.label).toContain('第1集画面已逐帧记录')
   expect(declaration.files[0]?.label).toContain('未校听原音，未核验全片')
   expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
   expect(f.verify).toHaveBeenCalledTimes(3)
@@ -205,23 +212,23 @@ it('combines partial passes only after failed draft and source ranges and frames
   await f.sourceReview({ status: 'issues', frames: ['frame-a', 'frame-b'] }); await f.textReview()
   await f.sourceReview({ lines: { start: 1, end: 2 }, seconds: { start: 0, end: 2 }, frames: ['frame-a'] })
   await expect(f.declare()).rejects.toThrow('MANUSCRIPT_DELIVERY_SOURCE_REQUIRED')
-  await f.sourceReview({ lines: { start: 3, end: 4 }, seconds: { start: 2, end: 4 }, frames: ['frame-b'] })
+  await f.sourceReview({ lines: { start: 3, end: 5 }, seconds: { start: 2, end: 4 }, frames: ['frame-b'] })
   expect((await f.declare()).files[0]?.source_reviews).toHaveLength(2)
 })
 it('retains distinct partial source successes instead of using only the last result', async () => {
   const f = await runtime()
   await f.textReview()
   await f.sourceReview({ lines: { start: 1, end: 2 }, seconds: { start: 0, end: 2 } })
-  await f.sourceReview({ lines: { start: 3, end: 4 }, seconds: { start: 2, end: 4 } })
+  await f.sourceReview({ lines: { start: 3, end: 5 }, seconds: { start: 2, end: 4 } })
   expect((await f.declare()).files[0]?.source_reviews).toHaveLength(2)
 })
 it('partial source mapping cannot upgrade full text scope but matching partial scope can be delivered', async () => {
   const f = await runtime()
-  await f.textReview(); await f.sourceReview({ lines: { start: 3, end: 3 } })
-  await expect(f.declare()).rejects.toThrow('非空行缺少来源对应：1、2、4')
-  await f.textReview('consistent', { start: 3, end: 3 })
+  await f.textReview(); await f.sourceReview({ lines: { start: 4, end: 4 } })
+  await expect(f.declare()).rejects.toThrow('非空行缺少来源对应：1、2、3、5')
+  await f.textReview('consistent', { start: 4, end: 4 })
   const declaration = await f.declare()
-  expect(declaration.files[0]?.label).toContain('已复核正文第3行')
+  expect(declaration.files[0]?.label).toContain('已复核正文第4行')
   expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
 })
 it('blank lines do not need source mappings', async () => {
@@ -382,4 +389,64 @@ it('owner disposal cancels and drains source verification', async () => {
   await f.owner.dispose()
   await rejected
   expect(f.verify).toHaveBeenCalledTimes(1)
+})
+
+function docx(text: string): Uint8Array {
+  const paragraphs = text.split('\n').map(line => `<w:p><w:r><w:t>${line}</w:t></w:r></w:p>`).join('')
+  return zipSync({ 'word/document.xml': strToU8(`<w:document xmlns:w="urn:test"><w:body>${paragraphs}</w:body></w:document>`) })
+}
+it('labels video-sourced format problems in both modes and lists each line to fix', async () => {
+  const f = await runtime()
+  await writeFile(join(f.root, 'final.md'), '第1集\n1-1 门口 日 外\n▲甲把钥匙放在桌上。\n某人：钥匙在这里。\n【下集钩子】')
+  const draft = await f.declare('draft', 'video')
+  expect(draft.files[0]?.label).toBe('草稿：第1集有3处格式问题（见 video_check.format_errors）；当前版本尚未完成来源与语义复核')
+  expect(draft.files[0]?.video_check?.format_errors.join('\n')).toMatch(/下一行不是「人物：」行[\s\S]*占位名[\s\S]*最后一行/u)
+  expect(draft.files[0]?.video_check?.episodes[0]?.format_errors).toBe(3)
+})
+it('labels an unreviewed video delivery as a finished transcription once every frame is recorded and the format is clean', async () => {
+  const f = await runtime()
+  expect((await f.declare('draft', 'video')).files[0]?.label).toBe('转写完成：第1集画面已逐帧记录，格式检查无误；未做独立来源与语义复核')
+})
+it('labels per-episode frame facts in draft and reviewed video delivery without refusing either', async () => {
+  const f = await runtime()
+  const state = (frames: 'not_viewed' | 'incomplete') => ({ video_dir: '/videos', videos: 1,
+    episodes: [{ episode: 1, state: frames, video: '/videos/1.mp4' }] })
+  f.episodeFrames.mockResolvedValueOnce(state('not_viewed'))
+  const draft = await f.declare('draft', 'video')
+  expect(draft.files[0]?.label).toBe('草稿：第1集没有看帧记录；当前版本尚未完成来源与语义复核')
+  expect(draft.files[0]?.video_check?.episodes).toEqual([{ episode: 1, frames: 'not_viewed', scenes: 1, action_lines: 1,
+    dialogue_lines: 1, format_errors: 0, warnings: 0 }])
+  expect(f.episodeFrames).toHaveBeenCalledWith(f.session, '/videos', [1], expect.any(AbortSignal))
+  await f.sourceReview(); await f.textReview()
+  f.episodeFrames.mockResolvedValueOnce(state('incomplete'))
+  expect((await f.declare()).files[0]?.label).toMatch(/；第1集有帧未看或未记录$/u)
+  expect((await f.declare()).files[0]?.label).toMatch(/；第1集画面已逐帧记录$/u)
+})
+it('lists remaining Word, frame and coverage gaps when a video goal is marked complete', async () => {
+  const f = await runtime()
+  f.ctx.effect(() => f.ctx.tools.register(defineContentToolFixture({ name: 'update_goal', description: 'Fixture goal update',
+    parameters: { action: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'goal updated' }] } })))
+  const complete = async () => {
+    const result = await executeModelToolFixture(f.ctx, { callId: ToolCallId(`goal-${++serial}`), name: 'update_goal',
+      arguments: { action: 'complete' }, agent: f.agent, signal })
+    expect(result.isError).toBe(false)
+    return JSON.stringify(result.content)
+  }
+  await f.declare('draft', 'video')
+  expect(await complete()).toContain('程序核对：这个视频转剧本任务仍有缺口：\\n- 还没有交付整剧 Word')
+  await writeFile(join(f.root, 'final.docx'), docx(body))
+  f.episodeFrames.mockResolvedValueOnce({ video_dir: '/videos', videos: 1, episodes: [{ episode: 1, state: 'incomplete' }] })
+  const partial = await f.declare('draft', 'video', 'final.docx')
+  expect((await f.present(partial.files[0]!.label, 'final.docx')).isError).toBe(false)
+  const missing = await complete()
+  expect(missing).toContain('第1集有帧未看或未记录')
+  expect(missing).toContain('第1集还没有对当前稿运行 manuscript_revision transcript_coverage')
+  const word = await f.declare('draft', 'video', 'final.docx')
+  expect((await f.present(word.files[0]!.label, 'final.docx')).isError).toBe(false)
+  const markdown = await Reader.readManuscript('final.md', f.root, config, signal)
+  logResult(f.session, 'manuscript_revision', { action: 'transcript_coverage' }, { state: 'transcript_coverage',
+    episodes: [{ label: '第1集', draft: { path: markdown.path, file_sha256: markdown.sha256 }, status: 'measured' }] })
+  expect(await complete()).toBe(JSON.stringify([{ type: 'text', text: 'goal updated' }]))
+  await writeFile(join(f.root, 'final.md'), `${body}\n▲甲转身离开。`)
+  expect(await complete()).toContain('第1集还没有对当前稿运行')
 })

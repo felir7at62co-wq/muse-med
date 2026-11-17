@@ -12,9 +12,11 @@ const probe = String.raw`
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
 import * as tools from '@deepseek-ai/dsh-tools'
-import { ToolExecutionPipeline, executeToolBatch } from '@deepseek-ai/dsh-tools/pipeline'
+import { ToolExecutionPipeline, executeToolBatch, TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 
+assert.equal(Object.hasOwn(tools, 'TOOL_BODY_META_KEY'), false)
+assert.equal(TOOL_BODY_META_KEY, '__dsh_tool_body_meta_v1')
 assert.equal(Object.hasOwn(tools, 'defineContentToolFixture'), false)
 assert.equal(Object.hasOwn(tools, 'executeToolFixture'), false)
 assert.equal(Object.hasOwn(tools, 'executeModelToolFixture'), false)

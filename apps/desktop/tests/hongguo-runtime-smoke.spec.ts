@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream'
+import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { SubprocessHandle, SubprocessOutcome, SubprocessRuntime, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { checkHongguoRuntime, createNativeDiagnostics } from './fixtures/hongguo-runtime-smoke.mjs'
@@ -40,6 +41,24 @@ function mountedRuntime(signature = JSON.stringify({ 'X-Argus': 'private-signatu
 }
 
 afterEach(() => { vi.useRealTimers() })
+
+it('checks the current open engine without an original Java or Python payload', async () => {
+  const fixture = mountedRuntime()
+  const runtime: HongguoSmokeRuntime = {
+    ...fixture.runtime,
+    client: { ...fixture.runtime.client, source: { ...fixture.runtime.client.source, identity: 'jackotom:test',
+      load: async () => ({ fetchEpisodeList() {}, fetchPlayUrlSingle() {} }) } },
+  }
+  fixture.spawn.mockImplementation((spec: SubprocessSpawnSpec) => nativeHandle(
+    spec.argv[0]!.includes('ffprobe') ? 'ffprobe version 7' : 'ffmpeg version 7'))
+  const result = await checkHongguoRuntime('/packaged/dsh', '/runtime', { MUSE_FANQIE_PYTHON_PATH: '/runtime/python' }, async () => runtime)
+  expect(result).toEqual({ engine: 'jackotom', ffmpeg: true, ffprobe: true, cleanup: true })
+  expect(fixture.runtime.client.signer.ensure).not.toHaveBeenCalled()
+  expect(fixture.spawn).toHaveBeenCalledTimes(2)
+  expect(fixture.spawn.mock.calls.map(([spec]) => spec.cwd)).toEqual([
+    join('/runtime', 'media', 'ffmpeg', 'bin'), join('/runtime', 'media', 'ffmpeg', 'bin'),
+  ])
+})
 
 it('publishes only native versions and acceptance booleans after the client and context are disposed', async () => {
   const fixture = mountedRuntime()
