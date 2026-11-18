@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write integrations/localminidrama/standalone/README.md
+/release-the-independent-studio:
+  en: 433d7403ccdc5e27
+  zh: 400d333f249a92b7
+/release-the-independent-studio/build-and-verify-a-release:
+  en: 7574c7b87891a342
+  zh: 1a0ae33268a35a49
+/release-the-independent-studio/stage-and-check-the-linux-release:
+  en: 677200076df54ae5
+  zh: 8cb619c319c29560
+/release-the-independent-studio/back-up-and-start-the-independent-unit:
+  en: 41a118317ce04e5b
+  zh: 0c8ce5517de02327

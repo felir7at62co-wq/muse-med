@@ -1174,6 +1174,53 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-deepseek-account -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-drama-settings -->
+<a id="deepseek-aidsh-drama-settings"></a>
+
+## `@deepseek-ai/dsh-drama-settings`
+
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/drama/drama-settings/src/index.ts:24`](../packages/drama/drama-settings/src/index.ts)
+
+```ts config-catalog
+/** Resolved composition options and live settings for short-drama work. */
+export interface Config {
+  /** IPv4 loopback origin of the optional production studio; omit to leave it unavailable. */
+  readonly standaloneStudioAddress?: string
+  /** Absolute episode delivery directory, or empty to use the project directory. */
+  readonly deliveryDir: Volatile<string>
+  /** Absolute JianyingPro draft root, or empty while unconfigured. */
+  readonly jianyingDraftDir: Volatile<string>
+  /** Dimensions, frame rate, and bitrate floor for delivery. */
+  readonly deliverySpec: Volatile<DramaDeliverySpec>
+  /** Absolute local BGM library, or empty to use the default catalogue. */
+  readonly bgmDir: Volatile<string>
+  /** Optional paid image-route row selected by the operator. */
+  readonly imageStandardId: Volatile<number | undefined>
+  /** Default CNY cents for a project without its own authorization. */
+  readonly seriesBudgetCents: Volatile<number>
+}
+
+/**
+ * The delivery target one finished episode is rendered to.
+ *
+ * A type alias rather than an interface: its values ride a settings path
+ * operation as JSON, and only an alias carries the implicit index signature
+ * that the wire's `JsonValue` admits.
+ */
+export type DramaDeliverySpec = {
+  /** Frame width in pixels. */
+  width: number
+  /** Frame height in pixels. */
+  height: number
+  /** Frames per second. */
+  fps: number
+  /** Bitrate floor the delivered file must hold, in megabits per second. */
+  minBitrateMbps: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-drama-settings -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-api-speech-to-text -->
 <a id="deepseek-aidsh-experimental-api-speech-to-text"></a>
 
@@ -6601,7 +6648,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-cua` | — | [`packages/experimental/cua/src/index.ts`](../packages/experimental/cua/src/index.ts) |
 | `@deepseek-ai/dsh-deepseek-llm-api-extensions` | — | [`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts) |
 | `@deepseek-ai/dsh-deliverable-file-references` | `systemPrompt` | [`packages/deliverables/deliverable-file-references/src/index.ts`](../packages/deliverables/deliverable-file-references/src/index.ts) |
-| `@deepseek-ai/dsh-drama-settings` | — | [`packages/drama/drama-settings/src/index.ts`](../packages/drama/drama-settings/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-auto-review` | `approval` · `llm` · `permissionPresets` · `sessions` · `tools` · `workingDirectory` | [`packages/experimental/auto-review/src/index.ts`](../packages/experimental/auto-review/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-client-ui-claude-code-mods` | — | [`packages/experimental/client-ui-claude-code-mods/src/index.ts`](../packages/experimental/client-ui-claude-code-mods/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-client-ui-stats` | — | [`packages/experimental/client-ui-stats/src/index.ts`](../packages/experimental/client-ui-stats/src/index.ts) |

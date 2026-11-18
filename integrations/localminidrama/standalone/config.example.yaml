@@ -1,0 +1,25 @@
+app:
+  name: Muse
+  version: standalone
+server:
+  host: 127.0.0.1
+  port: 19590
+  insecure_tls: false
+database:
+  type: sqlite
+  path: /var/lib/muse-standalone-platform/app/drama.db
+storage:
+  type: local
+  local_path: /var/lib/muse-standalone-platform/app/storage
+  base_url: /static
+ai:
+  default_text_provider: ''
+  default_image_provider: ''
+  default_video_provider: ''
+muse_generation:
+  enabled: false
+vendor_lock:
+  enabled: false
+image_proxy:
+  enabled: false
+  upload_url: ''

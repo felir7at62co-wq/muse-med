@@ -127,6 +127,8 @@ export interface DshDesktopProductApi {
   readonly protocolVersion: 1
   /** Product identity for first-run and primary-account browser surfaces. */
   readonly productName: 'muse-med'
+  /** Explicit loopback origin for the optional standalone production studio. */
+  readonly standaloneStudioOrigin?: string
   readonly browser: DesktopBrowserBridge
   readonly fileDrag: DesktopFileDrag
   readonly keyboard: DesktopKeyboardApi

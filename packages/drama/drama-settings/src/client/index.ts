@@ -32,6 +32,7 @@ import { en, zh, ja, es, fr, de, ru, pt, type DramaLocaleKey } from './locales.t
 import { imageRoutesOf, type DramaImageRoutes, type JubianImageFace } from './routes.ts'
 import { defaultOps, draftSection, landed, sectionOps, type DramaWriteOutcome } from './section.ts'
 import type { ProjectBudgetFace } from './ProjectBudgetGroup.tsx'
+import { registerStandaloneStudio } from './StandaloneStudio.tsx'
 
 export type { DramaComponent, DramaComponentState, DramaComponentStatus } from './components.ts'
 export type { DramaSettingsSectionInjected, DramaSettingsSectionProps } from './DramaSettingsSection.tsx'
@@ -121,6 +122,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'drama-settings: dictionaries')
   const t = ctx.locale.bind(NS)
   const scope = ctx.configForms.get<DramaSettings>(DRAMA_SETTINGS_NAMESPACE)
+  registerStandaloneStudio(ctx, t)
 
   /**
    * Write one section and answer whether it landed.

@@ -1,0 +1,17 @@
+.muse-project-heading { min-width: 0; }
+.muse-project-heading h1 { margin: 0; font-size: 22px; font-weight: 500; color: var(--el-text-color-primary); }
+.muse-project-heading p { margin: 6px 0 0; font-size: 14px; color: var(--el-text-color-secondary); }
+.muse-project-header .header-inner { flex-wrap: wrap; gap: 16px; }
+.muse-project-header .header-actions { margin-left: auto; flex-wrap: wrap; gap: 10px; }
+.muse-project-header .header-actions .el-button { margin-left: 0; }
+.muse-project-heading + .header-actions { flex-shrink: 1; }
+.muse-entry-error { margin: 0 0 16px; }
+.muse-project-settings { margin-bottom: 20px; }
+.muse-project-settings > summary { padding: 16px 0; cursor: pointer; font-size: 15px; font-weight: 500; }
+.muse-project-settings .section.card { margin-bottom: 0; }
+.muse-project-settings + .section { margin-top: 12px; }
+@media (max-width: 600px) {
+  .muse-project-header .header-inner { padding: 16px; }
+  .muse-project-header .header-actions { width: 100%; margin-left: 0; justify-content: flex-end; }
+  .muse-project-settings .el-col { max-width: 100%; flex-basis: 100%; }
+}

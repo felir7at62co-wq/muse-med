@@ -1,0 +1,13 @@
+services:
+  localminidrama:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5679:5679"
+    environment:
+      MUSE_STANDALONE_NO_AI: "1"
+      LOCALMINIDRAMA_PUBLIC_URL: "${LOCALMINIDRAMA_PUBLIC_URL:-http://127.0.0.1:5679}"
+    volumes:
+      - localminidrama-data:/var/lib/localminidrama
+volumes:
+  localminidrama-data:

@@ -1,6 +1,7 @@
 /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
 
 import { installFileActions } from './file-actions.ts'
+import { STANDALONE_STUDIO_ARG, standaloneStudioOrigin } from './standalone-studio.ts'
 import { configurationFailure, channelSaveFailure, configurationMessage } from './update-configuration.ts'
 import type { DesktopChannelState, DesktopChannelChangeResult } from '@deepseek-ai/dsh-client-ui-settings-general/types'
 import { DesktopUpdateSettings } from './update-settings.ts'
@@ -329,6 +330,7 @@ function platformLoginUrl(authorizeUrl: string): string {
 }
 
 function createWindow(preload: string, show = false, primary = false): BrowserWindow {
+  const studioOrigin = primary ? standaloneStudioOrigin(process.env.MUSE_LOCALMINIDRAMA_URL) : undefined
   const window = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -361,6 +363,7 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
       sandbox: true,
       webSecurity: true,
       webviewTag: primary,
+      ...(studioOrigin === undefined ? {} : { additionalArguments: [STANDALONE_STUDIO_ARG + studioOrigin] }),
       ...(primary ? { autoplayPolicy: 'no-user-gesture-required' as const } : {}),
       devTools: true,
     },

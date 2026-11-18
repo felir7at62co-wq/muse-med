@@ -10,6 +10,7 @@
     "src/settings.ts",
     "src/client/DramaSettingsSection.tsx",
     "src/client/ProjectBudgetGroup.tsx",
+    "src/client/StandaloneStudio.tsx",
     "src/client/components.ts",
     "src/client/index.ts",
     "src/client/locales.ts",
@@ -32,6 +33,9 @@
       "path": "../../client/locale/tsconfig.client.json"
     },
     {
+      "path": "../../client/ui-layout"
+    },
+    {
       "path": "../../client/ui-primitives"
     },
     {
@@ -39,6 +43,9 @@
     },
     {
       "path": "../../client/ui-settings/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-sidebar"
     },
     {
       "path": "../../client/ui-slots"

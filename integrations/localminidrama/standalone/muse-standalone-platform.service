@@ -1,0 +1,36 @@
+[Unit]
+Description=Muse independent production studio
+After=network.target
+
+[Service]
+Type=simple
+User=muse-standalone
+Group=muse-standalone
+WorkingDirectory=/var/lib/muse-standalone-platform/app
+ExecStart=/usr/bin/node /opt/muse/standalone-platform/releases/RELEASE/backend-node/src/server.js
+Environment=NODE_ENV=production
+Environment=MUSE_STANDALONE_NO_AI=1
+Environment=WEB_DIST_PATH=/opt/muse/standalone-platform/releases/RELEASE/frontweb/dist
+Environment=NODE_OPTIONS=--max-old-space-size=512
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=90
+SendSIGKILL=no
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/muse-standalone-platform
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+CPUQuota=50%
+MemoryHigh=512M
+MemoryMax=768M
+IOWeight=10
+TasksMax=96
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

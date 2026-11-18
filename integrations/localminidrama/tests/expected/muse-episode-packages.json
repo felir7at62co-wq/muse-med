@@ -1,0 +1,8 @@
+{
+  "titles": ["原制作包", "续包一", "续包二"],
+  "order": [1, 2, 3],
+  "original_id": 1,
+  "original_video": "/static/adopted.mp4",
+  "original_relations_unchanged": true,
+  "actual_episode_duration": null
+}
