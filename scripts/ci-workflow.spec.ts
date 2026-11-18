@@ -997,7 +997,7 @@ describe('CI workflow', () => {
       || !isRecord(master.on.workflow_dispatch.inputs) || !isRecord(master.on.workflow_dispatch.inputs.suite)
       || !isRecord(master.jobs)) throw new TypeError('CI master must define manual suites and jobs')
     expect(master.on.workflow_dispatch.inputs.suite.options).toEqual([
-      'larger-runner-benchmark', 'consolidated-runner-benchmark', 'ssh-helper', 'wine',
+      'larger-runner-benchmark', 'consolidated-runner-benchmark', 'ssh-helper', 'wine', 'timeout-diagnostics',
     ])
     const wine = workflowJob(master, 'windows')
     if (typeof wine.if !== 'string') throw new TypeError('Wine must define a trigger condition')
@@ -1010,6 +1010,7 @@ describe('CI workflow', () => {
       ['workflow_dispatch', 'refs/heads/topic', 'ssh-helper', false],
       ['workflow_dispatch', 'refs/heads/topic', 'larger-runner-benchmark', false],
       ['workflow_dispatch', 'refs/heads/topic', 'consolidated-runner-benchmark', false],
+      ['workflow_dispatch', 'refs/heads/topic', 'timeout-diagnostics', false],
     ] as const) {
       expect(runInNewContext(wine.if, { github: { event_name: event, ref }, inputs: { suite } }, { timeout: 1000 })).toBe(expected)
     }
@@ -1020,6 +1021,13 @@ describe('CI workflow', () => {
       return runInNewContext(job.if, { github: { event_name: 'workflow_dispatch', ref: 'refs/heads/topic' }, inputs: { suite: 'wine' } }, { timeout: 1000 }) === true
     }).map(([name]) => name)
     expect(enabled).toEqual(['windows'])
+    const diagnostics = Object.entries(master.jobs).filter(([, job]) => {
+      if (!isRecord(job)) throw new TypeError('CI master jobs must be objects')
+      if (typeof job.if === 'boolean') return job.if
+      if (typeof job.if !== 'string') throw new TypeError('CI master jobs must define trigger conditions')
+      return runInNewContext(job.if, { github: { event_name: 'workflow_dispatch', ref: 'refs/heads/topic' }, inputs: { suite: 'timeout-diagnostics' } }, { timeout: 1000 }) === true
+    }).map(([name]) => name)
+    expect(diagnostics).toEqual(['timeout-diagnostics'])
   })
 
   it('cancels superseded master runs without changing the post-merge job inventory', () => {
@@ -1074,6 +1082,7 @@ describe('CI workflow', () => {
       "github.event_name == 'workflow_dispatch' && inputs.suite == 'larger-runner-benchmark'",
       "github.event_name == 'workflow_dispatch' && inputs.suite == 'consolidated-runner-benchmark'",
       "github.event_name == 'workflow_dispatch' && inputs.suite == 'ssh-helper'",
+      "github.event_name == 'workflow_dispatch' && inputs.suite == 'timeout-diagnostics'",
     ])
     const pushReachable = Object.entries(workflow.jobs)
       .filter(([, job]) => {

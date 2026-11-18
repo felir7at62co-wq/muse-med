@@ -16,12 +16,13 @@
 // reference-free profile from a page-managed key before the credential and
 // settings unsets reach the wire.
 import { assertModelInputLayout } from './model-input-layout.ts'
+import { runModelBrowserCase } from './model-browser-case.ts'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
-import type { Browser, Page, Request, Route } from 'playwright'
+import type { Browser, BrowserType, Page, Request, Route } from 'playwright'
 import { chromium, webkit } from 'playwright'
-import { afterAll, beforeAll, describe, expect, it, onTestFailed, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed, vi, type TestContext } from 'vitest'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
@@ -656,21 +657,93 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(tripwire.pageErrors).toEqual([])
   })
 
-  it.each([{ name: 'Chromium', engine: chromium }, { name: 'WebKit', engine: webkit }])(
-    'keeps mobile model actions, focus and keyboard order in $name', async ({ name: engineName, engine }) => {
+  it('cancels a blocked WebKit action and joins its browser before restoring provider state', async (test) => {
+    expect(test.task.timeout).toBe(60_000)
+    const controller = new AbortController()
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    let disconnected = false
+    let bodySettled = false
+    let restored = false
+    const scenario = runModelBrowserCase({ signal: AbortSignal.any([controller.signal, test.signal]),
+      onTestFailed: test.onTestFailed, onTestFinished: test.onTestFinished,
+    }, webkit, 'cancelled-action', () => Promise.resolve(), async (browser, progress) => {
+      browser.once('disconnected', () => { disconnected = true; release.resolve(undefined) })
+      const pendingPage = progress.page(await browser.newPage())
+      await pendingPage.setContent('<div>Blocking overlay</div><button>Pending action</button>')
+      await pendingPage.addLocatorHandler(pendingPage.getByText('Blocking overlay'), async () => {
+        entered.resolve(undefined)
+        await release.promise
+      }, { times: 1 })
+      progress.phase('blocked locator action')
+      const pendingAction = pendingPage.getByRole('button', { name: 'Pending action' }).click()
+      // Retain the original rejection until the handler confirms the action is in flight.
+      void pendingAction.catch(() => {})
+      await entered.promise
+      controller.abort(new Error('cancelled model-browser control'))
+      try { await pendingAction }
+      finally { bodySettled = true }
+    }, () => {
+      expect(disconnected).toBe(true)
+      expect(bodySettled).toBe(true)
+      restored = true
+      return Promise.resolve()
+    })
+    await expect(scenario).rejects.toThrow(/closed/u)
+    expect(restored).toBe(true)
+  }, 60_000)
+
+  it('closes a late WebKit acquisition before restoring a cancelled scenario', async (test) => {
+    expect(test.task.timeout).toBe(60_000)
+    const controller = new AbortController()
+    const acquired = Promise.withResolvers<Browser>()
+    const release = Promise.withResolvers<undefined>()
+    let bodyStarted = false
+    let restored = false
+    const reason = new Error('cancelled before WebKit acquisition')
+    const scenario = runModelBrowserCase({ signal: AbortSignal.any([controller.signal, test.signal]),
+      onTestFailed: test.onTestFailed, onTestFinished: test.onTestFinished,
+    }, { launch: async (options) => {
+      const browser = await webkit.launch(options)
+      acquired.resolve(browser)
+      await release.promise
+      return browser
+    } }, 'late-acquisition', () => Promise.resolve(), () => {
+      bodyStarted = true
+      return Promise.resolve()
+    }, async () => {
+      expect((await acquired.promise).isConnected()).toBe(false)
+      expect(bodyStarted).toBe(false)
+      restored = true
+    })
+    const result = expect(scenario).rejects.toBe(reason)
+    await acquired.promise
+    controller.abort(reason)
+    release.resolve(undefined)
+    await result
+    expect(restored).toBe(true)
+  }, 60_000)
+
+  it.for([{ name: 'Chromium', engine: chromium }, { name: 'WebKit', engine: webkit }])(
+    'keeps mobile model actions, focus and keyboard order in $name', { timeout: 60_000 }, async (
+      { name: engineName, engine }: { name: string; engine: BrowserType }, test: TestContext,
+    ) => {
+      expect(test.task.timeout).toBe(60_000)
       const provider = `review-${engineName.toLowerCase()}`
-      let mobileBrowser: Browser | undefined
-      try {
+      await runModelBrowserCase(test, engine, `mobile-${engineName.toLowerCase()}`, async () => {
         await scaffold.ctx.settings.mutate('llm-pi-ai', [{
           op: 'set', path: ['providers', provider], value: {
             api: 'anthropic-messages', baseURL: 'https://layout.example',
             models: [{ id: 'layout-model', name: '完整显示名称' }, { id: 'next-model', name: '下一模型' }],
           },
         }])
-        mobileBrowser = await engine.launch()
-        const mobilePage = await mobileBrowser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
+      }, async (mobileBrowser, progress) => {
+        progress.phase('create desktop page')
+        const mobilePage = progress.page(await mobileBrowser.newPage({
+          viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE,
+        }))
         const errors = watchConsole(mobilePage)
-        onTestFailed(() => saveFailureShot(mobilePage, `web-e2e-models-mobile-${engineName.toLowerCase()}`))
+        progress.phase('open desktop editor')
         await mobilePage.goto(scaffold.authenticatedUrl)
         await openSettings(mobilePage, 'zh')
         const dialog = mobilePage.getByRole('dialog', { name: '设置' })
@@ -683,7 +756,9 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
         const toggle = dialog.getByRole('button', { name: '模型选项 1', exact: true })
         const nextToggle = dialog.getByRole('button', { name: '模型选项 2', exact: true })
         await toggle.click()
+        progress.phase('check responsive model layout')
         await assertModelInputLayout(mobilePage, dialog)
+        progress.phase('check tooltip dismissal')
         await dialog.getByRole('button', { name: '调整模型顺序 1', exact: true }).hover()
         const tooltip = mobilePage.getByRole('tooltip')
         await tooltip.waitFor()
@@ -691,6 +766,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
         await expectTooltipOnTop(tooltip)
         await id.hover()
         await tooltip.waitFor({ state: 'hidden' })
+        progress.phase('edit and save desktop draft')
         await toggle.click()
         await name.fill('缩窄后继续编辑')
         const input = await name.elementHandle()
@@ -708,6 +784,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
           providers: { [provider]: { models: [{ id: 'layout-model', name: '手机保存后的名称' }, { id: 'next-model', name: '下一模型' }] } },
         })
         await dialog.getByText(`已保存 ${provider}。`, { exact: true }).waitFor()
+        progress.phase('check desktop keyboard order')
         await edit.click()
         await dialog.getByText('自定义设置').click()
         await name.waitFor({ state: 'hidden' })
@@ -731,10 +808,12 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
         await dialog.getByRole('button', { name: '取消', exact: true }).click()
         expect(errors.pageErrors).toEqual([])
 
-        const touchPage = await mobileBrowser.newPage({
+        progress.phase('create touch page')
+        const touchPage = progress.page(await mobileBrowser.newPage({
           viewport: { width: 390, height: 844 }, locale: ZH_BROWSER_LOCALE, isMobile: true, hasTouch: true,
-        })
+        }))
         const touchErrors = watchConsole(touchPage)
+        progress.phase('open touch editor')
         await touchPage.goto(scaffold.authenticatedUrl)
         await openSettings(touchPage, 'zh')
         const touchDialog = touchPage.getByRole('dialog', { name: '设置' })
@@ -743,6 +822,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
         await touchDialog.getByText('自定义设置').tap()
         const touchToggle = touchDialog.getByRole('button', { name: '模型选项 1', exact: true })
         const touchName = touchDialog.getByRole('textbox', { name: '显示名称 1', exact: true })
+        progress.phase('check touch disclosures')
         await touchToggle.tap()
         expect(await touchName.evaluate(element => element.ownerDocument.activeElement === element)).toBe(false)
         await touchName.fill('触屏编辑后的名称')
@@ -755,17 +835,17 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
         const touchNext = touchDialog.getByRole('button', { name: '模型选项 2', exact: true })
         await touchNext.tap()
         expect(await touchNext.getAttribute('aria-expanded')).toBe('true')
+        progress.phase('save touch draft')
         await touchDialog.getByRole('button', { name: '保存', exact: true }).tap()
         await touchName.waitFor({ state: 'detached' })
         expect(scaffold.ctx.settings.describe().find(row => row.ns === 'llm-pi-ai')?.value).toMatchObject({
           providers: { [provider]: { models: [{ id: 'layout-model', name: '触屏保存后的名称' }, { id: 'next-model', name: '下一模型' }] } },
         })
         expect(touchErrors.pageErrors).toEqual([])
-      } finally {
-        await mobileBrowser?.close()
+      }, async () => {
         await scaffold.ctx.settings.mutate('llm-pi-ai', [{ op: 'unset', path: ['providers', provider] }])
-      }
-    }, 60_000,
+      })
+    },
   )
 
   it.each([{ name: 'Chromium', engine: chromium }, { name: 'WebKit', engine: webkit }])(

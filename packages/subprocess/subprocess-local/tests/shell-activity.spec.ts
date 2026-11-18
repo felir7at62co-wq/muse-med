@@ -1,20 +1,74 @@
 /** Real interactive shells preserve startup files and distinguish prompts from running jobs. */
-import { existsSync } from 'node:fs'
+import { closeSync, constants, existsSync, openSync, readFileSync, writeSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { SubprocessTerminalActivity } from '@deepseek-ai/dsh-subprocess'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, onTestFailed } from 'vitest'
 import LocalSubprocessRuntime from '../src/index.ts'
+import { createProcessInspector } from '../src/process-inspector.ts'
+import type { ProcessIdentity, ProcessInspector } from '../src/process-inspector.ts'
 
-const cleanups: Array<() => Promise<void>> = []
+const cleanups: Array<() => void | Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
 
 /** Prompt every startup file in this spec prints; its repeats count the prompts a shell reached. */
 const PROMPT_MARKER = 'READY>'
 
-async function shell(path: string, rc = '', envFile = '') {
+interface ShellDiagnostics {
+  phase: string
+  pid: number | undefined
+  activity: SubprocessTerminalActivity | undefined
+  complete: boolean | undefined
+  tree: readonly ProcessIdentity[]
+  foreground: number | undefined
+  outputTail: string
+}
+
+function failureDiagnostics(label: string): ShellDiagnostics {
+  const diagnostics: ShellDiagnostics = {
+    phase: 'create shell', pid: undefined, activity: undefined,
+    complete: undefined, tree: [], foreground: undefined, outputTail: '',
+  }
+  // Cached observations remain available when the case deadline interrupts a poll.
+  onTestFailed(() => { console.error(label, JSON.stringify(diagnostics)) })
+  return diagnostics
+}
+
+function observedInspector(diagnostics: ShellDiagnostics): ProcessInspector {
+  const inspector = createProcessInspector()
+  return {
+    foregroundPgid(pid) {
+      const foreground = inspector.foregroundPgid(pid)
+      diagnostics.foreground = foreground
+      return foreground
+    },
+    isStdinWaiting: (pgid, pid) => inspector.isStdinWaiting(pgid, pid),
+    snapshot() {
+      const snapshot = inspector.snapshot()
+      diagnostics.complete = snapshot.complete
+      diagnostics.tree = []
+      diagnostics.foreground = undefined
+      return {
+        ...snapshot.complete === undefined ? {} : { complete: snapshot.complete },
+        tree(pid) {
+          const tree = snapshot.tree(pid)
+          diagnostics.tree = tree.slice(-16)
+          return tree
+        },
+        session: pid => snapshot.session(pid),
+        alive: identity => snapshot.alive(identity),
+      }
+    },
+    isAlive: identity => inspector.isAlive(identity),
+    signalGroup: (pgid, signal) => { inspector.signalGroup(pgid, signal) },
+    signalProcess: (identity, signal) => { inspector.signalProcess(identity, signal) },
+  }
+}
+
+async function shell(path: string, rc = '', envFile = '', diagnostics?: ShellDiagnostics) {
   const home = await mkdtemp(join(tmpdir(), 'dsh-shell-activity-test-'))
   cleanups.push(() => rm(home, { recursive: true, force: true }))
   await writeFile(join(home, '.zshenv'), envFile)
@@ -22,14 +76,28 @@ async function shell(path: string, rc = '', envFile = '') {
   await writeFile(join(home, '.bashrc'), `PS1='${PROMPT_MARKER} '\n${rc}\n`)
   const ctx = new Context()
   cleanups.push(async () => { await ctx.fiber.dispose() })
+  if (diagnostics !== undefined) diagnostics.phase = 'load local subprocess runtime'
   await ctx.plugin(LocalSubprocessRuntime)
+  if (diagnostics !== undefined) {
+    ;(ctx.subprocess as LocalSubprocessRuntime).terminalInspector = observedInspector(diagnostics)
+    diagnostics.phase = 'allocate interactive terminal'
+  }
   const handle = await ctx.subprocess.spawnTerminal({ argv: [path, '-i'], cwd: home, env: { HOME: home, ZDOTDIR: home }, rows: 24, cols: 80, terminalType: 'xterm-256color', graceMs: 200, shellActivity: true })
   cleanups.push(() => handle.terminate())
   let output = ''
-  handle.output.on('data', (data: Buffer) => { output += data.toString('utf8') })
+  handle.output.on('data', (data: Buffer) => {
+    output += data.toString('utf8')
+    if (diagnostics !== undefined) diagnostics.outputTail = output.slice(-4096)
+  })
+  if (diagnostics !== undefined) { diagnostics.pid = handle.pid; diagnostics.phase = 'wait for first prompt' }
   await expect.poll(() => output).toContain(PROMPT_MARKER)
   const prompts = (): number => output.split(PROMPT_MARKER).length - 1
-  return { handle, home, prompts, output: () => output, activity: async () => (await handle.inspectActivity()).state }
+  const inspectActivity = async (): Promise<SubprocessTerminalActivity> => {
+    const activity = await handle.inspectActivity()
+    if (diagnostics !== undefined) diagnostics.activity = activity
+    return activity
+  }
+  return { handle, home, prompts, output: () => output, inspectActivity, activity: async () => (await inspectActivity()).state }
 }
 
 type Shell = Awaited<ReturnType<typeof shell>>
@@ -58,7 +126,7 @@ async function expectActivity(h: Shell, expected: SubprocessTerminalActivity['st
   const promptsBefore = h.prompts()
   try {
     await expect.poll(async () => {
-      const activity = await h.handle.inspectActivity()
+      const activity = await h.inspectActivity()
       observed.push(`${activity.state}:${activity.revision}`)
       return activity.state
     }).toBe(expected)
@@ -136,22 +204,91 @@ describe.skipIf(process.platform === 'win32' || !existsSync('/bin/zsh'))('Zsh te
 
 describe.skipIf(process.platform === 'win32' || !existsSync('/bin/bash'))('Bash terminal activity', () => {
   it('preserves scalar prompt hooks and uses unknown on shells without PS0', async () => {
-    const h = await shell('bash', "PROMPT_COMMAND='printf HOOK; # user comment'\nset -C")
+    const diagnostics = failureDiagnostics('Bash terminal activity failure')
+    const h = await shell('bash', "PROMPT_COMMAND='printf HOOK; # user comment'\nset -C", '', diagnostics)
     expect(h.output()).toContain('HOOK')
+    diagnostics.phase = 'read Bash version'
     await h.handle.write('printf "VERSION:%s\\n" "$BASH_VERSION"\r')
     await expect.poll(() => h.output()).toContain('VERSION:')
     await expect.poll(() => /VERSION:\d+\.\d+/u.test(h.output())).toBe(true)
     const version = /VERSION:(\d+)\.(\d+)/u.exec(h.output())
     const supported = Number(version?.[1]) > 4 || Number(version?.[1]) === 4 && Number(version?.[2]) >= 4
     if (!supported) { expect(await h.activity()).toBe('unknown'); return }
+    diagnostics.phase = 'observe initial idle'
     await expectActivity(h, 'idle')
     for (const command of ['sleep 600', 'while :; do :; done', 'read answer']) {
+      diagnostics.phase = `write ${command}`
       await h.handle.write(`${command}\r`)
+      diagnostics.phase = `observe busy for ${command}`
       await expectActivity(h, 'busy', command)
+      diagnostics.phase = `write Ctrl-C for ${command}`
       await h.handle.write('\x03')
+      diagnostics.phase = `observe idle after Ctrl-C for ${command}`
       await expectActivity(h, 'idle', command)
     }
     expect(h.output()).not.toContain('syntax error')
     expect(h.output()).not.toContain('file exists')
+  })
+
+  it.runIf(process.platform === 'linux')('observes Ctrl-C delivery across a gated Bash pre-dispatch transition', async () => {
+    for (const interruptAt of ['pre-dispatch', 'command-ready'] as const) {
+      const diagnostics = failureDiagnostics(`Bash Ctrl-C ${interruptAt} diagnostic`)
+      const h = await shell('bash', [
+        '__dsh_test_gate() {',
+        '  if [[ -z ${__dsh_test_gate_installed-} ]]; then',
+        '    __dsh_test_gate_installed=1',
+        '    PS0="${PS0%)}; builtin printf \'GATE_ENTERED\\n\' >&2; IFS= builtin read -r __dsh_test_release < \\"\\$HOME/dispatch-gate\\")"',
+        '  fi',
+        '}',
+        "PROMPT_COMMAND='__dsh_test_gate; printf HOOK; # user comment'",
+        "stty isig echoctl intr '^C'",
+        'set -C',
+      ].join('\n'), '', diagnostics)
+      const fifo = join(h.home, 'dispatch-gate')
+      execFileSync('mkfifo', ['--', fifo])
+      const gate = openSync(fifo, constants.O_RDWR | constants.O_NONBLOCK)
+      cleanups.push(() => { closeSync(gate) })
+      const command = join(h.home, 'foreground.mjs')
+      await writeFile(command, [
+        "process.on('SIGINT', () => { process.stdout.write('COMMAND_INTERRUPTED\\n', () => { process.exit(0) }) })",
+        'process.stdin.resume()',
+        "process.stdout.write('COMMAND_READY\\n')",
+      ].join('\n'))
+      const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
+      const promptsBefore = h.prompts()
+      diagnostics.phase = 'wait for PS0 gate'
+      await h.handle.write(`${quote(process.execPath)} ${quote(command)}\r`)
+      await expect.poll(() => h.output()).toContain('GATE_ENTERED')
+      await expectActivity(h, 'busy', 'PS0 gate')
+      expect(h.output()).not.toContain('COMMAND_READY')
+      let signalsBeforeRelease: Array<{ pid: number; fields?: string[]; error?: string }> = []
+      if (interruptAt === 'pre-dispatch') {
+        diagnostics.phase = 'send Ctrl-C before command dispatch'
+        await h.handle.write('\x03')
+        // PTY echo confirms line-discipline processing before PS0 can finish.
+        await expect.poll(() => h.output()).toContain('^C')
+        signalsBeforeRelease = diagnostics.tree.map(({ pid }) => {
+          try {
+            const status = readFileSync(`/proc/${String(pid)}/status`, 'utf8')
+            return { pid, fields: status.split('\n').filter(line => /^(?:SigPnd|ShdPnd|SigBlk|SigIgn|SigCgt):/u.test(line)) }
+          } catch (error) {
+            return { pid, error: error instanceof Error ? error.message : String(error) }
+          }
+        })
+      }
+      writeSync(gate, 'release\n')
+      diagnostics.phase = 'wait for command start or a new prompt'
+      await expect.poll(() => h.output().includes('COMMAND_READY') || h.prompts() > promptsBefore).toBe(true)
+      const started = h.output().includes('COMMAND_READY')
+      console.info('Bash Ctrl-C gate observation', JSON.stringify({ interruptAt, started, signalsBeforeRelease, output: h.output(), activity: diagnostics.activity }))
+      if (interruptAt === 'command-ready') expect(started).toBe(true)
+      if (started) {
+        diagnostics.phase = 'send Ctrl-C after SIGINT handler readiness'
+        await h.handle.write('\x03')
+        await expect.poll(() => h.output()).toContain('COMMAND_INTERRUPTED')
+      }
+      diagnostics.phase = 'observe idle after gated command'
+      await expectActivity(h, 'idle', 'gated command')
+    }
   })
 })

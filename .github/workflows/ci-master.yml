@@ -15,6 +15,7 @@ on:
           - consolidated-runner-benchmark
           - ssh-helper
           - wine
+          - timeout-diagnostics
 
 # New master pushes and manual runs replace obsolete checks in this workflow/ref.
 # Standby drills share cancellation; use completed runs as readiness evidence.
@@ -32,6 +33,126 @@ env:
   DSH_TELEMETRY_DISABLED: '1'
 
 jobs:
+  timeout-diagnostics:
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'timeout-diagnostics'
+    name: timeout diagnostics / ${{ matrix.owner }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.owner == 'webkit' && 60 || 15 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        owner: [bash, webkit]
+    env:
+      DSH_SNAPSHOT: replay
+      DSH_COVERAGE_TEST_TIMEOUT_MS: '90000'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use runner-owned temporary storage
+        run: |
+          echo "TMPDIR=${{ runner.temp }}" >> "$GITHUB_ENV"
+          echo "NODE_COMPILE_CACHE=${{ runner.temp }}/node-compile-cache" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@v5.0.0
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Report runner and shell versions
+        run: |
+          node --version
+          pnpm --version
+          bash --version
+          uname -a
+          nproc
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build native PTY support
+        if: matrix.owner == 'bash'
+        run: pnpm run build:native-system
+
+      - name: Run real Bash activity owner
+        if: matrix.owner == 'bash'
+        run: >-
+          pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts
+          --reporter=default --reporter=json --outputFile=.artifacts/timeout-bash.json
+
+      - name: Verify independent Bash processes own separate terminals and gates
+        if: matrix.owner == 'bash'
+        run: |
+          pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts -t 'Bash terminal activity' > .artifacts/timeout-bash-concurrent-1.log 2>&1 &
+          first_pid=$!
+          pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts -t 'Bash terminal activity' > .artifacts/timeout-bash-concurrent-2.log 2>&1 &
+          second_pid=$!
+          first_status=0
+          wait "$first_pid" || first_status=$?
+          second_status=0
+          wait "$second_pid" || second_status=$?
+          cat .artifacts/timeout-bash-concurrent-1.log .artifacts/timeout-bash-concurrent-2.log
+          if (( first_status != 0 )); then exit "$first_status"; fi
+          exit "$second_status"
+
+      - name: Build browser artifacts
+        if: matrix.owner == 'webkit'
+        run: pnpm run build:artifacts
+
+      - name: Install Playwright Chromium and WebKit
+        if: matrix.owner == 'webkit'
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium webkit
+
+      - name: Run Models settings owner with its original case budgets
+        if: matrix.owner == 'webkit'
+        env:
+          DEBUG: pw:api
+        run: >-
+          pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/models-settings.e2e.ts
+          --reporter=default --reporter=json --outputFile=.artifacts/timeout-webkit.json
+
+      - name: Verify the original failing case actually ran
+        env:
+          DIAGNOSTIC_OWNER: ${{ matrix.owner }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs'
+          const owner = process.env.DIAGNOSTIC_OWNER
+          const report = JSON.parse(readFileSync(`.artifacts/timeout-${owner}.json`, 'utf8'))
+          const cases = report.testResults.flatMap(file => file.assertionResults)
+          const selected = cases.filter(test => owner === 'bash'
+            ? test.fullName.includes('preserves scalar prompt hooks and uses unknown on shells without PS0')
+            : test.fullName.includes('keeps mobile model actions, focus and keyboard order in') && test.fullName.includes('WebKit'))
+          console.log(JSON.stringify(selected, null, 2))
+          if (selected.length !== 1 || selected[0].status !== 'passed') {
+            throw new Error(`Expected one executed, passing ${owner} regression`)
+          }
+          JS
+
+      - name: Run the original four-worker browser gate
+        if: matrix.owner == 'webkit'
+        env:
+          DSH_WEB_SNAPSHOT_WORKERS: '4'
+        run: pnpm run test:web:ci
+
+      - name: Preserve timeout diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: timeout-diagnostics-${{ matrix.owner }}-${{ github.run_attempt }}
+          path: |
+            .artifacts/timeout-*.json
+            .artifacts/timeout-*.log
+            .artifacts/web-e2e-models-mobile-*
+            .artifacts/models-settings/
+          if-no-files-found: warn
+          retention-days: 7
+
   ssh-helper:
     if: github.event_name == 'workflow_dispatch' && inputs.suite == 'ssh-helper'
     name: ssh helper / native artifacts
