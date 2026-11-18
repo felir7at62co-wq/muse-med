@@ -7,12 +7,18 @@
  */
 export function directoryInstallSection(source: string): string
 
+/** Avoid creating the installation target during installer initialization. */
+export function directoryInstallerInit(source: string): string
+
 /**
  * Clean staged directories on upstream Quit paths, including silent installers.
  * @param source Pinned NSIS helper source.
  * @returns Helper with cleanup before installer exits.
  */
 export function directoryInstallerExits(source: string): string
+
+/** Remove the unused destructive upstream uninstall function and its private helpers. */
+export function directoryInstallUtil(source: string): string
 
 /**
  * Keep user-data removal in the native helper, which refuses unsafe roots and never follows links.

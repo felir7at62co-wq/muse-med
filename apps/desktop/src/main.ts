@@ -46,6 +46,7 @@ import { claimDesktopSingleInstance } from './single-instance.ts'
 import { desktopUpdateChannel } from './update-channel.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { DesktopCommandManager } from './command-management.ts'
+import { UpgradeBackupNotice } from './upgrade-backup-notice.ts'
 import { serveWebDocument, authenticateWebHost, authenticatedWebHostRequest, forwardWebRequest } from './web-document.ts'
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
@@ -1471,6 +1472,21 @@ async function main(): Promise<void> {
     ? new DesktopBackgroundNotice({ markerPath: join(app.getPath('userData'), 'background-close-confirmed'),
       locale: () => locale, show: ordinaryMessageBox, focus: () => { updateDialog.focus() } })
     : undefined
+  const upgradeBackupNotice = process.platform === 'win32' && app.isPackaged && process.env.LOCALAPPDATA
+    ? new UpgradeBackupNotice({ reports: join(process.env.LOCALAPPDATA, 'Muse-Upgrade-Reports'),
+      acknowledgements: join(app.getPath('userData'), 'upgrade-backup-notices'), locale: () => locale,
+      show: (options) => {
+        const window = currentDialogWindow()
+        if (quitting || isMandatory() || updateDialog.isOpen || window === undefined || window.isDestroyed() || !window.isVisible()) {
+          return Promise.resolve({ response: -1, checkboxChecked: false })
+        }
+        return ordinaryMessageBox(options, window)
+      } })
+    : undefined
+  app.on('will-quit', () => { upgradeBackupNotice?.dispose() })
+  app.on('browser-window-focus', (_event, window) => {
+    if ((window === mainWindow || window === welcomeWindow) && !isMandatory() && !updateDialog.isOpen) void upgradeBackupNotice?.show()
+  })
   const quitConfirmation = new DesktopQuitConfirmation({
     locale: () => locale,
     inspect: () => backend.host?.inspectQuit(),
@@ -1613,6 +1629,7 @@ async function main(): Promise<void> {
       window.moveTop()
       window.focus()
     }
+    if (activate && !isMandatory() && !updateDialog.isOpen) void upgradeBackupNotice?.show()
     if (activate && development !== undefined && process.env.DSH_DESKTOP_OPEN_DEVTOOLS !== '0') {
       window.webContents.openDevTools({ mode: 'detach' })
     }
@@ -1675,7 +1692,10 @@ async function main(): Promise<void> {
         else app.quit()
       })
       if (isQuitting() || recovery.active || enteredWorkspace) window.close()
-      else mainWindow?.hide()
+      else {
+        mainWindow?.hide()
+        if (window.isVisible() && !isMandatory() && !updateDialog.isOpen) void upgradeBackupNotice?.show()
+      }
     })().finally(() => { openingWelcome = undefined })
     return openingWelcome
   }
