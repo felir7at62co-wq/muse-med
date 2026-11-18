@@ -126,7 +126,8 @@ function validSegments(value: unknown): boolean {
 /** Fixed failure classes without upstream response bodies or signed object URLs. */
 export class MuseAsrError extends Error {
   constructor(readonly code: 'sign-in-required' | 'server-unavailable' | 'server-not-configured' | 'job-not-found' | 'request-rejected' | 'response-invalid'
-    | 'server_draining' | 'queue_full' | 'upload_busy' | 'request_rate' | 'provider_rate' | 'daily_quota' | 'idempotency_conflict', readonly retryAfterSeconds?: number) {
+    | 'server_draining' | 'queue_full' | 'upload_busy' | 'request_rate' | 'provider_rate' | 'daily_quota' | 'idempotency_conflict'
+    | 'upload-timeout' | 'query-timeout', readonly retryAfterSeconds?: number) {
     super(`MUSE cloud transcription: ${code}`)
   }
 }
@@ -153,34 +154,67 @@ async function rejection(response: Response): Promise<MuseAsrError> {
 export interface MuseAsrOptions {
   readonly baseUrl: string
   readonly sessionFile: string
+  /** Total request ceiling, including an upload and the gateway response. */
   readonly requestTimeoutMs: number
+  /** Inactivity limit for uploads. Omission uses only the total request ceiling. */
+  readonly uploadIdleTimeoutMs?: number
+  /** Shorter ceiling for status requests. Omission uses the total request ceiling. */
+  readonly queryTimeoutMs?: number
   readonly fetcher?: typeof fetch
+}
+
+/** Stream the original bytes and refresh the inactivity timer when fetch reads another chunk. */
+function watchUpload(file: Blob, idleMs: number) {
+  const chunks = file.stream().getReader()
+  const timeout = new AbortController()
+  const timer = setTimeout(() => { timeout.abort() }, idleMs).unref()
+  let stopping: Promise<void> | undefined
+  const stopReading = () => stopping ??= chunks.cancel()
+  return {
+    signal: timeout.signal,
+    body: new ReadableStream<Uint8Array>({
+      async pull(consumer) {
+        const chunk = await chunks.read()
+        if (chunk.done) { consumer.close(); return }
+        if (stopping === undefined && !timeout.signal.aborted) timer.refresh()
+        consumer.enqueue(chunk.value)
+      },
+      cancel: stopReading,
+    }, { highWaterMark: 0 }),
+    async [Symbol.asyncDispose]() {
+      clearTimeout(timer)
+      try { await stopReading() }
+      catch (_error) { /* The body already reported its read failure to fetch. */ }
+      finally { chunks.releaseLock() }
+    },
+  }
 }
 
 /** Submit or query by one caller-persisted UUID; no provider credential reaches the Host. */
 export class MuseAsrClient {
   constructor(private readonly options: MuseAsrOptions) {}
 
-  private async request(path: string, init: RequestInit, signal?: AbortSignal): Promise<MuseAsrJob> {
+  private async request(path: string, init: RequestInit, signal?: AbortSignal, idle?: AbortSignal): Promise<MuseAsrJob> {
     signal?.throwIfAborted()
     const session = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
     signal?.throwIfAborted()
     if (session === null) throw new MuseAsrError('sign-in-required')
-    let response: Response
+    const query = init.method === 'GET'
+    const total = this.options.requestTimeoutMs
+    const ceiling = AbortSignal.timeout(query ? Math.min(this.options.queryTimeoutMs ?? total, total) : total)
+    const requestSignal = AbortSignal.any([ceiling, ...(signal === undefined ? [] : [signal]), ...(idle === undefined ? [] : [idle])])
+    let response: Response | undefined
     try {
       const headers = new Headers(init.headers)
       headers.set('cookie', session.cookie)
-      response = await (this.options.fetcher ?? fetch)(new URL(path, this.options.baseUrl), {
-        ...init, headers, redirect: 'manual',
-        signal: signal === undefined ? AbortSignal.timeout(this.options.requestTimeoutMs)
-          : AbortSignal.any([signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
-      })
-    } catch {
-      signal?.throwIfAborted()
-      throw new MuseAsrError('server-unavailable')
-    }
-    try {
-      signal?.throwIfAborted()
+      try {
+        response = await (this.options.fetcher ?? fetch)(new URL(path, this.options.baseUrl), {
+          ...init, headers, redirect: 'manual', signal: requestSignal,
+        })
+      } catch (_error) {
+        throw new MuseAsrError('server-unavailable')
+      }
+      requestSignal.throwIfAborted()
       if (response.status === 303 || response.status === 401) throw new MuseAsrError('sign-in-required')
       if (response.status === 404 && init.method === 'GET') throw new MuseAsrError('job-not-found')
       if (response.status === 503 && retryAfterSeconds(response) !== undefined) {
@@ -201,7 +235,7 @@ export class MuseAsrClient {
         throw new MuseAsrError('response-invalid')
       }
       if (job.status === 'complete' && !validSegments(job.segments)) throw new MuseAsrError('response-invalid')
-      signal?.throwIfAborted()
+      requestSignal.throwIfAborted()
       return {
         id: job.id, status: job.status as MuseAsrJob['status'],
         ...(job.purpose === undefined ? {} : { purpose: job.purpose }),
@@ -211,9 +245,10 @@ export class MuseAsrClient {
       }
     } catch (error) {
       signal?.throwIfAborted()
+      if (ceiling.aborted || idle?.aborted === true) throw new MuseAsrError(query ? 'query-timeout' : 'upload-timeout')
       throw error
     } finally {
-      if (response.body !== null && !response.bodyUsed) {
+      if (response?.body != null && !response.bodyUsed) {
         try { await response.body.cancel() }
         catch (_error) { /* The transport may have already errored its aborted body. */ }
       }
@@ -229,16 +264,22 @@ export class MuseAsrClient {
    * @param purpose - Persisted transcription use; omission retains legacy gateway routing.
    * @param signal - Caller cancellation; awaited transport/body settlement preserves its reason.
    * @returns Account-scoped job status.
+   * @throws {MuseAsrError} An upload deadline leaves acceptance unknown; query the original ID.
    */
   async submit(file: string, id: string, sha256: string, language: 'zh' | 'auto', purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<MuseAsrJob> {
     signal?.throwIfAborted()
-    const init: RequestInit & { duplex: 'half' } = {
-      method: 'POST', headers: { origin: this.options.baseUrl, 'content-type': file.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg',
-        'idempotency-key': id, 'x-audio-sha256': sha256, 'x-audio-language': language,
-        ...(purpose === undefined ? {} : { 'x-muse-asr-purpose': purpose }) },
-      body: await openAsBlob(file), duplex: 'half',
+    const audio = await openAsBlob(file)
+    const headers = { origin: this.options.baseUrl, 'content-type': file.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg',
+      'content-length': String(audio.size), 'idempotency-key': id, 'x-audio-sha256': sha256, 'x-audio-language': language,
+      ...(purpose === undefined ? {} : { 'x-muse-asr-purpose': purpose }) }
+    const init: RequestInit & { duplex: 'half' } = { method: 'POST', headers, duplex: 'half' }
+    if (this.options.uploadIdleTimeoutMs === undefined) {
+      init.body = audio
+      return await this.request('/api/asr/jobs', init, signal)
     }
-    return await this.request('/api/asr/jobs', init, signal)
+    await using upload = watchUpload(audio, this.options.uploadIdleTimeoutMs)
+    init.body = upload.body
+    return await this.request('/api/asr/jobs', init, signal, upload.signal)
   }
 
   /**
@@ -246,6 +287,7 @@ export class MuseAsrClient {
    * @param id - Durable idempotency UUID.
    * @param signal - Caller cancellation; awaited transport/body settlement preserves its reason.
    * @returns Account-scoped job status.
+   * @throws {MuseAsrError} A query deadline leaves the last known receipt intact.
    */
   async get(id: string, signal?: AbortSignal): Promise<MuseAsrJob> {
     return await this.request(`/api/asr/jobs/${encodeURIComponent(id)}`, { method: 'GET' }, signal)

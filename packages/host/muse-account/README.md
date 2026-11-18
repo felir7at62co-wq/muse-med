@@ -146,7 +146,9 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `feedbackExcerptChars` | 1,000 | Visible characters per optional related request or answer excerpt, from 100 to 1,200. |
 | `activityReportIntervalMs` | 30,000 | Minimum interval between activity reports for one login, from 1,000 to 3,600,000 milliseconds. |
 | `activityRequestTimeoutMs` | 5,000 | Best-effort activity request deadline, from 100 to 30,000 milliseconds. |
-| `asrRequestTimeoutMs` | 300,000 | Timeout for one compressed-audio upload and gateway response, from 10,000 to 1,800,000 milliseconds. |
+| `asrRequestTimeoutMs` | 300,000 | Total ceiling for one upload and gateway response, from 10,000 to 1,800,000 milliseconds. |
+| `asrUploadIdleTimeoutMs` | 30,000 | Time without the transport reading audio bytes or receiving the reply before an upload times out, from 1,000 to 1,800,000 milliseconds. The total ceiling still applies. |
+| `asrQueryTimeoutMs` | 10,000 | Ceiling for one status query and response body, from 1,000 to 30,000 milliseconds, capped by the total ceiling. |
 | `remoteAccess` | `false` | Enable the account-bound desktop connector; Muse Desktop enables it. Requires bridge, Connection and Web server providers. |
 | `remoteChunkBytes` | 32,768 | Acknowledged chunk size, from 1,024 to 32,768 bytes. |
 | `remoteAckTimeoutMs` | 15,000 | Handshake and acknowledgement deadline, from 1,000 to 120,000 milliseconds. |

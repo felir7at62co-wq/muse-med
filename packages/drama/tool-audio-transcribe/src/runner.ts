@@ -60,7 +60,7 @@ export interface AudioRunResult extends Omit<MuseAsrMetadata, 'error_code'> {
 
 /** Bounded native polling and media verification for original task readback. */
 export interface AudioQueryOptions {
-  /** Maximum polling delay budget; an individual request still uses its account timeout. */
+  /** Maximum read-only network wait across queries and delays; 0 makes one pass without polling. */
   readonly waitMs: number
   /** Delay between read-only queries, configured by the tool owner. */
   readonly pollIntervalMs: number
@@ -336,15 +336,17 @@ function resolvePurpose(purpose: MuseAsrPurpose | undefined): MuseAsrPurpose {
 }
 
 function rejectedResult(project: string, file: string, receipt: Receipt, error: MuseAsrError): AudioRunResult {
-  const resumable = error.code === 'server_draining' || error.code === 'queue_full' || error.code === 'upload_busy' || error.code === 'request_rate'
+  const timedOut = error.code === 'upload-timeout' || error.code === 'query-timeout'
+  const resumable = timedOut || error.code === 'server_draining' || error.code === 'queue_full' || error.code === 'upload_busy' || error.code === 'request_rate'
     || error.code === 'provider_rate'
     || error.code === 'server-unavailable' || error.code === 'response-invalid'
   return {
-    status: error.code === 'server-unavailable' || error.code === 'response-invalid' ? 'uncertain'
+    status: timedOut || error.code === 'server-unavailable' || error.code === 'response-invalid' ? 'uncertain'
       : receipt.status === 'prepared' ? 'preparing' : receipt.status,
     receipt: file, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(receipt), error_code: error.code,
     ...(error.retryAfterSeconds === undefined ? {} : { retry_after_seconds: error.retryAfterSeconds }),
-    ...(resumable && receipt.recovery?.next_action !== 'inspect_receipt' ? { resume_status: { method: 'status', project, receipt: file } as const } : {}),
+    ...(resumable && receipt.recovery?.next_action !== 'inspect_receipt'
+      ? { resume_status: { method: timedOut ? 'inspect' : 'status', project, receipt: file } as const } : {}),
   }
 }
 
@@ -649,15 +651,29 @@ async function settleReceipt(
   projectPath: string, receiptPath: string, account: AudioAccount, signal: AbortSignal | undefined, allowResumeUpload: boolean,
   budget: UploadRetryBudget, probe: AudioMediaOperations['probe'] | undefined, polling?: Pick<AudioQueryOptions, 'waitMs' | 'pollIntervalMs'>,
 ): Promise<ReceiptOutcome> {
+  const waitMs = polling?.waitMs ?? 0
+  const deadline = performance.now() + waitMs
+  const expiry = new AbortController()
+  using timer = waitMs > 0 ? setTimeout(() => { expiry.abort(new MuseAsrError('query-timeout')) }, waitMs).unref() : undefined
+  const readSignal = timer === undefined ? signal : signal === undefined ? expiry.signal : AbortSignal.any([signal, expiry.signal])
+  const query = async (id: string): Promise<MuseAsrJob> => {
+    signal?.throwIfAborted()
+    if (waitMs > 0 && performance.now() >= deadline) throw new MuseAsrError('query-timeout')
+    try { return await account.audioStatus(id, readSignal) }
+    finally { readSignal?.throwIfAborted() }
+  }
   try {
-    const deadline = Date.now() + (polling?.waitMs ?? 0)
-    let result = await finishReceipt(projectPath, receiptPath, account, budget, signal, allowResumeUpload, probe)
-    while (polling && Date.now() < deadline && ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
+    let result = await finishReceipt(projectPath, receiptPath, account, budget, query, signal, allowResumeUpload, probe)
+    while (polling && performance.now() < deadline && ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
       && result.error_code === undefined && result.recovery?.next_action !== 'inspect_receipt' && result.recovery?.next_action !== 'resume_upload') {
-      if ((result.recovery?.retry_after ?? 0) * 1000 >= deadline - Date.now()) break
-      await delay(Math.min(polling.pollIntervalMs, deadline - Date.now()), undefined, { signal })
+      const retryAfter = (result.recovery?.retry_after ?? 0) * 1000
+      const remaining = deadline - performance.now()
+      if (retryAfter >= remaining) break
+      const wait = Math.max(polling.pollIntervalMs, retryAfter)
+      await delay(Math.min(wait, remaining), undefined, { signal })
       signal?.throwIfAborted()
-      result = await finishReceipt(projectPath, receiptPath, account, budget, signal, false, probe)
+      if (wait >= remaining || performance.now() >= deadline) break
+      result = await finishReceipt(projectPath, receiptPath, account, budget, query, signal, false, probe)
     }
     signal?.throwIfAborted()
     return { result: await withSpeakerSummary(result, signal), refused: false }
@@ -670,8 +686,10 @@ async function settleReceipt(
   }
 }
 
+type AudioQuery = (id: string) => Promise<MuseAsrJob>
+
 async function finishReceipt(
-  projectPath: string, receiptPath: string, account: AudioAccount, budget: UploadRetryBudget, signal?: AbortSignal,
+  projectPath: string, receiptPath: string, account: AudioAccount, budget: UploadRetryBudget, query: AudioQuery, signal?: AbortSignal,
   allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
 ): Promise<AudioRunResult> {
   signal?.throwIfAborted()
@@ -685,14 +703,14 @@ async function finishReceipt(
   if (![join(jobs, `.${receipt.id}.mp3`), join(jobs, `.${receipt.id}.wav`)].includes(receipt.mp3)
     || basename(receiptFile) !== `${receipt.stem}-v${receipt.version}.json`) throw new Error('Receipt paths do not match this project')
   if (receipt.parts !== undefined) {
-    return await finishParts(project, receiptFile, receipt, receipt.parts, account, budget, signal, allowResumeUpload, probe)
+    return await finishParts(project, receiptFile, receipt, receipt.parts, account, budget, query, signal, allowResumeUpload, probe)
   }
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.txt).then(() => true, () => false)
     && await stat(target.json).then(() => true, () => false)) return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(receipt), output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
   let job: MuseAsrJob
   let submitted = false
-  try { signal?.throwIfAborted(); job = await account.audioStatus(receipt.id, signal) }
+  try { job = await query(receipt.id) }
   catch (error) {
     signal?.throwIfAborted()
     const unaccepted = error instanceof MuseAsrError && error.code === 'job-not-found'
@@ -789,7 +807,7 @@ async function startParts(project: string, source: string, sourceSha256: string,
 
 async function finishParts(
   project: string, receiptFile: string, receipt: Receipt, parts: readonly AudioPart[],
-  account: AudioAccount, budget: UploadRetryBudget, signal?: AbortSignal, allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
+  account: AudioAccount, budget: UploadRetryBudget, query: AudioQuery, signal?: AbortSignal, allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
 ): Promise<AudioRunResult> {
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.json).then(() => true, () => false)
@@ -808,7 +826,7 @@ async function finishParts(
   for (const part of parts) {
     let job: MuseAsrJob
     let submitted = false
-    try { signal?.throwIfAborted(); job = await account.audioStatus(part.id, signal) }
+    try { job = await query(part.id) }
     catch (error) {
       signal?.throwIfAborted()
       if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found' || part.retentionExpired || part.service_version !== undefined || part.recovery !== undefined) throw error
