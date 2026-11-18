@@ -240,7 +240,10 @@ describe('approved episode service', () => {
   it('repairs a missing publication receipt offline without source IO or a second encode', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     await f.service.admitEpisode(input); f.renderer.release()
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await vi.waitFor(async () => {
+      expect((await f.service.episodeStatus(input)).state).toBe('completed')
+      expect(f.service.hasActiveWork()).toBe(false)
+    })
     const done = await f.service.episodeStatus(input)
     if (done.attempt === null || done.output === undefined) throw new Error('Expected completed publication')
     const path = join(f.project, done.output.path), before = await stat(path)
@@ -250,7 +253,10 @@ describe('approved episode service', () => {
     const recoverable = await f.service.episodeStatus(input)
     expect(recoverable.canResume).toBe(true)
     expect((await f.service.admitEpisode({ ...input, resume: true })).attempt).toBe(done.attempt)
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await vi.waitFor(async () => {
+      expect((await f.service.episodeStatus(input)).state).toBe('completed')
+      expect(f.service.hasActiveWork()).toBe(false)
+    })
     expect((await stat(path)).ino).toBe(before.ino)
     expect(f.renderer.calls).toBe(1); expect(f.renderer.captures).toBe(1)
     expect(f.fetch).not.toHaveBeenCalled(); expect(f.service.hasActiveWork()).toBe(false)
@@ -258,7 +264,10 @@ describe('approved episode service', () => {
   it('restarts the service and reconciles a completed old execution without encoding it again', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     await f.service.admitEpisode(input); f.renderer.release()
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await vi.waitFor(async () => {
+      expect((await f.service.episodeStatus(input)).state).toBe('completed')
+      expect(f.service.hasActiveWork()).toBe(false)
+    })
     const done = await f.service.episodeStatus(input)
     if (done.output === undefined) throw new Error('Expected output')
     await unlink(join(f.project, done.output.path))
@@ -270,7 +279,9 @@ describe('approved episode service', () => {
     expect((await service.episodeStatus(input)).state).toBe('completed')
     expect((await service.episodeStatus(input)).canResume).toBe(true)
     await service.admitEpisode({ ...input, resume: true })
-    await expect.poll(async () => await service.episodeStatus(input)).toMatchObject({ state: 'completed' })
+    await expect.poll(async () => ({
+      state: (await service.episodeStatus(input)).state, active: service.hasActiveWork(),
+    })).toEqual({ state: 'completed', active: false })
     expect((await service.episodeStatus(input)).attempt).toBe(done.attempt)
     expect(f.renderer.encodes).toBe(1)
     expect(service.hasActiveWork()).toBe(false)
