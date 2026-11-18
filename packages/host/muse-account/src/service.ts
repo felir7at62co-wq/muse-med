@@ -27,7 +27,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** The controller passed by the mounted product plugin. */
 export interface MuseAccountServiceOptions {
-  readonly workbench?: Pick<MuseWorkbenchLogin, 'issue' | 'identity'>
+  readonly workbench?: Pick<MuseWorkbenchLogin, 'issue' | 'identity'> & Partial<Pick<MuseWorkbenchLogin, 'jingliu'>>
   readonly controller: AccountOperations
   readonly browserLogin?: Pick<MuseBrowserLogin, 'start' | 'check' | 'cancel'>
   readonly asr?: MuseAsrClient
@@ -66,7 +66,22 @@ export class MuseAccountService extends TypertRemoteService {
     this.voiceSlots = options.voiceSlots
   }
 
-  /** @returns The current private Muse login identifier for Host-side workbench operations. */
+  /**
+   * Authenticate a Host request to the studio mounted on the signed-in Muse gateway.
+   * @param owner - Local login identifier.
+   * @param url - Mounted studio address, verified by the account owner.
+   * @param options - Transport options supplied by the studio client.
+   * @returns A response stream scoped to that user.
+   */
+  async requestMountedJingliu(owner: string, url: URL, options: RequestInit): Promise<Response> {
+    if (!this.workbench?.jingliu) throw new MuseGatewayError('gateway-unavailable')
+    return await this.workbench.jingliu(owner, url, options)
+  }
+
+  /**
+   * Identify the login currently available to a Host-side workbench.
+   * @returns The current private Muse login identifier for Host-side workbench operations.
+   */
   async workbenchIdentity(): Promise<string> {
     if (!this.workbench) throw new MuseGatewayError('gateway-unavailable')
     return await this.workbench.identity()

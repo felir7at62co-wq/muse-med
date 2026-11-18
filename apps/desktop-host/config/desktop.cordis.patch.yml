@@ -156,7 +156,7 @@
     - id: jingliu-connection
       name: '@deepseek-ai/dsh-jingliu-connection'
       config:
-        studioOrigin: !!js process.env.MUSE_JINGLIU_ORIGIN
+        studioOrigin: !!js process.env.MUSE_JINGLIU_ORIGIN || (process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn') + '/jingliu'
         localPreviewToken: !!js process.env.MUSE_JINGLIU_LOCAL_PREVIEW === '1'
 
     - id: tool-jingliu
@@ -164,9 +164,8 @@
 
     - id: ui-jingliu
       name: '@deepseek-ai/dsh-client-ui-jingliu'
-      disabled: !!js "!process.env.MUSE_JINGLIU_ORIGIN && !process.env.MUSE_SCRIPT_WORKSHOP_ORIGIN"
       config:
-        studioOrigin: !!js process.env.MUSE_JINGLIU_ORIGIN
+        studioOrigin: !!js process.env.MUSE_JINGLIU_ORIGIN || (process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn') + '/jingliu'
         workshopOrigin: !!js process.env.MUSE_SCRIPT_WORKSHOP_ORIGIN
 
     - id: muse-market
@@ -266,7 +265,7 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [coordinator_sessions, coordinator_read, coordinator_dispatch, coordinator_tasks, coordinator_stop, coordinator_report, coordinator_show_report, coordinator_display_skill, read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect, hongguo_download]
+        alwaysLoad: [jingliu_projects, coordinator_sessions, coordinator_read, coordinator_dispatch, coordinator_tasks, coordinator_stop, coordinator_report, coordinator_show_report, coordinator_display_skill, read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect, hongguo_download]
         excludeFromSearch: [ask_user_question, show_view, visualize, coordinator_show_report, coordinator_display_skill]
         maxResults: 8
         maxDescriptionChars: 320
@@ -274,6 +273,9 @@
         k1: 1.2
         b: 0.75
         keywords:
+          jingliu_projects: [制片项目, 搜索云项目, 关联项目, 当前项目]
+          jingliu_studio: [镜流字幕, 校对字幕, 共享素材, 导入素材, 高清历史]
+          jingliu_image: [镜流生图, image2, GPT Image 2, 自由生图]
           jingliu_workflows: [镜流, 镜流工作台, 镜流项目, 新建项目, 分集, 查询模型, Jingliu, ShotFlow]
           jingliu_run: [镜流执行, 镜流制作, 镜流分镜, 镜流任务, 制作分镜, 角色素材, 生成视频, 任务进度, ShotFlow]
           jingliu_narration: [镜流解说剧, 解说剧拆镜, 角色开口, 解说剧交付]
@@ -321,7 +323,7 @@
           - id: jingliu
             title: 镜流
             description: 查找镜流工作流，按项目查看分集、分镜、素材、任务和交付。
-            tools: [jingliu_workflows, jingliu_run, jingliu_narration]
+            tools: [jingliu_projects, jingliu_workflows, jingliu_run, jingliu_narration, jingliu_image, jingliu_studio]
           - id: interaction
             title: 对话交互与反馈
             description: 展示交互卡片、收集选择与表单，提交和查询本人的产品反馈。

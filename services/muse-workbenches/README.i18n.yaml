@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write services/muse-workbenches/README.md
 /muse-sign-in-for-script-workshop-and-jingliu:
-  en: 41d513363cd83176
-  zh: 84e3b7b55644687e
+  en: d89a319bd43b5e8b
+  zh: 4f6e7dcf57a725d8
 /muse-sign-in-for-script-workshop-and-jingliu/install:
   en: 7df3d984e2138f15
   zh: 7a7b14141230b486

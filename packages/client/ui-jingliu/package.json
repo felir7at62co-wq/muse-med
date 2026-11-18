@@ -53,11 +53,23 @@
     "@deepseek-ai/dsh-client-ui-slots": "workspace:*",
     "@deepseek-ai/dsh-host-webserver": "workspace:*",
     "@deepseek-ai/dsh-muse-account": "workspace:*",
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "@deepseek-ai/dsh-client-ui-layout": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-sidebar": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-workspace": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-settings": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-character-library": "workspace:*",
+    "@deepseek-ai/dsh-client-resources": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-api-workspace-controller": "workspace:*",
+    "@deepseek-ai/dsh-session-coordinator": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-conversation": "workspace:*"
   },
   "dependencies": {
     "@deepseek-ai/dsh-client-store": "workspace:*",
-    "@deepseek-ai/schemastery": "workspace:~"
+    "@deepseek-ai/schemastery": "workspace:~",
+    "@deepseek-ai/dsh-jingliu-connection": "workspace:*",
+    "@deepseek-ai/dsh-brand": "workspace:*"
   },
   "files": [
     "locale/*.json",

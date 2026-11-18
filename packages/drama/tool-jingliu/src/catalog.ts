@@ -60,7 +60,9 @@ export async function catalog(session: JingliuSession, signal: AbortSignal): Pro
   if (new Set(entries.map(entry => entry.name)).size !== entries.length) {
     throw new HarnessError('镜流目录含重复工作流，无法确定要执行的操作。', 'JINGLIU_INVALID_CATALOG')
   }
-  return entries
+  // These studio actions regenerate video prose or submit it before Muse can review the final text.
+  const archived = new Set(['run_reprompt', 'revise_shot_prompt', 'reset_shot_prompt', 'run_one_click_film'])
+  return entries.filter(entry => !archived.has(entry.name))
 }
 
 /**

@@ -40,6 +40,42 @@
     },
     {
       "path": "../store"
+    },
+    {
+      "path": "../ui-layout"
+    },
+    {
+      "path": "../ui-sidebar"
+    },
+    {
+      "path": "../ui-workspace"
+    },
+    {
+      "path": "../ui-settings/tsconfig.client.json"
+    },
+    {
+      "path": "../ui-character-library/tsconfig.client.json"
+    },
+    {
+      "path": "../resources"
+    },
+    {
+      "path": "../../drama/jingliu-connection"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../api/workspace-controller/tsconfig.client.json"
+    },
+    {
+      "path": "../../session/session-coordinator"
+    },
+    {
+      "path": "../ui-conversation/tsconfig.client.json"
     }
   ]
 }

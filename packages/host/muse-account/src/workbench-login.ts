@@ -35,7 +35,29 @@ export class MuseWorkbenchLogin {
     return { id, cookie: stored.cookie }
   }
 
-  /** @returns A local identifier that changes when the saved Muse session is replaced. */
+  /**
+   * Fetch one mounted studio resource with the cookie confined to its exact issuing origin.
+   * @param owner - Identity captured before the operation.
+   * @param url - Canonical Jingliu API or media address on this Muse gateway.
+   * @param options - Request from the Host studio client.
+   * @returns The upstream response for the bound user.
+   */
+  async jingliu(owner: string, url: URL, options: RequestInit): Promise<Response> {
+    const session = await this.session()
+    if (owner !== session.id || url.origin !== this.origin || url.username || url.password || url.hash ||
+        !/^\/jingliu\/fwp\/(?:v2|media)\//u.test(url.pathname) || /%(?:2e|2f|5c|25)/iu.test(url.pathname)) {
+      throw new MuseGatewayError('gateway-rejected')
+    }
+    const headers = new Headers(options.headers)
+    headers.set('cookie', session.cookie)
+    headers.set('origin', this.origin)
+    return await (this.options.fetcher ?? fetch)(url, { ...options, headers, redirect: 'error' })
+  }
+
+  /**
+   * Read the active private login identity.
+   * @returns A local identifier that changes when the saved Muse session is replaced.
+   */
   async identity(): Promise<string> {
     return (await this.session()).id
   }

@@ -9,6 +9,8 @@ English | [中文](README.zh.md)
 
 ## Summary
 
+When a shared catalog is mounted, **Asset library** combines the production studio's shared media with Muse's character references. The character catalog retains its search, pagination and image preview.
+
 The Character library entry in the left navigation opens a read-only catalog of ancient and urban character references. People can search, page through image cards and open a verified full-image preview. The page offers no upload, edit, delete or approval controls.
 
 ## Table of Contents

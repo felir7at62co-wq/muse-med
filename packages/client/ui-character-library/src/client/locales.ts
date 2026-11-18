@@ -1,6 +1,6 @@
 /** Character library navigation, browse and preview copy. */
 export const zh = {
-  title: '人物库', description: '浏览古装与都市人物参考，Muse 可在生成人物素材时查阅',
+  assetLibrary: '资产库', sharedLibrary: '共享素材', title: '人物库', description: '浏览古装与都市人物参考，Muse 可在生成人物素材时查阅',
   readOnly: '只读参考库', all: '全部', ancient: '古装', urban: '都市', collection: '人物分类',
   search: '搜索人物特征、风格或标签', searchAction: '搜索', refresh: '刷新',
   unavailable: '人物库暂未连接，请联系管理员开通访问',
@@ -15,7 +15,7 @@ export const zh = {
 export type CharacterLibraryKey = keyof typeof zh
 /** English character library copy. */
 export const en: Record<CharacterLibraryKey, string> = {
-  title: 'Character library', description: 'Browse ancient and urban character references for Muse character generation',
+  assetLibrary: 'Asset library', sharedLibrary: 'Shared assets', title: 'Character library', description: 'Browse ancient and urban character references for Muse character generation',
   readOnly: 'Read-only references', all: 'All', ancient: 'Ancient', urban: 'Urban', collection: 'Character collection',
   search: 'Search appearance, style or tags', searchAction: 'Search', refresh: 'Refresh',
   unavailable: 'The character library is not connected. Ask your administrator to enable access.',
@@ -28,6 +28,7 @@ export const en: Record<CharacterLibraryKey, string> = {
 }
 /** Japanese character library copy. */
 export const ja: Record<CharacterLibraryKey, string> = {
+  assetLibrary: 'アセットライブラリ', sharedLibrary: '共有素材',
   title: '人物ライブラリ', description: 'Muse の人物素材生成に使う、時代劇・現代ものの人物参考を閲覧',
   readOnly: '閲覧専用の参考資料', all: 'すべて', ancient: '時代劇', urban: '現代もの', collection: '人物の分類',
   search: '外見、スタイル、タグで検索', searchAction: '検索', refresh: '更新',
@@ -41,6 +42,7 @@ export const ja: Record<CharacterLibraryKey, string> = {
 }
 /** Spanish character library copy. */
 export const es: Record<CharacterLibraryKey, string> = {
+  assetLibrary: 'Biblioteca de recursos', sharedLibrary: 'Recursos compartidos',
   title: 'Biblioteca de personajes', description: 'Explora referencias de personajes históricos y urbanos para crear personajes con Muse',
   readOnly: 'Referencias de solo lectura', all: 'Todos', ancient: 'Históricos', urban: 'Urbanos', collection: 'Colección de personajes',
   search: 'Buscar por apariencia, estilo o etiquetas', searchAction: 'Buscar', refresh: 'Actualizar',
@@ -54,6 +56,7 @@ export const es: Record<CharacterLibraryKey, string> = {
 }
 /** French character library copy. */
 export const fr: Record<CharacterLibraryKey, string> = {
+  assetLibrary: 'Bibliothèque de ressources', sharedLibrary: 'Ressources partagées',
   title: 'Bibliothèque de personnages', description: 'Parcourez des références de personnages historiques et contemporains pour créer des personnages avec Muse',
   readOnly: 'Références en lecture seule', all: 'Tous', ancient: 'Historiques', urban: 'Contemporains', collection: 'Collection de personnages',
   search: 'Rechercher par apparence, style ou étiquette', searchAction: 'Rechercher', refresh: 'Actualiser',
@@ -67,6 +70,7 @@ export const fr: Record<CharacterLibraryKey, string> = {
 }
 /** German character library copy. */
 export const de: Record<CharacterLibraryKey, string> = {
+  assetLibrary: 'Asset-Bibliothek', sharedLibrary: 'Geteilte Assets',
   title: 'Figurenbibliothek', description: 'Historische und moderne Figurenreferenzen für die Figurenerstellung mit Muse durchsuchen',
   readOnly: 'Referenzen nur zur Ansicht', all: 'Alle', ancient: 'Historisch', urban: 'Modern', collection: 'Figurensammlung',
   search: 'Nach Aussehen, Stil oder Tags suchen', searchAction: 'Suchen', refresh: 'Aktualisieren',
@@ -80,6 +84,7 @@ export const de: Record<CharacterLibraryKey, string> = {
 }
 /** Russian character library copy. */
 export const ru: Record<CharacterLibraryKey, string> = {
+  assetLibrary: 'Библиотека ресурсов', sharedLibrary: 'Общие ресурсы',
   title: 'Библиотека персонажей', description: 'Референсы исторических и современных персонажей для создания персонажей в Muse',
   readOnly: 'Референсы только для просмотра', all: 'Все', ancient: 'Исторические', urban: 'Современные', collection: 'Коллекция персонажей',
   search: 'Поиск по внешности, стилю или тегам', searchAction: 'Найти', refresh: 'Обновить',
@@ -93,6 +98,7 @@ export const ru: Record<CharacterLibraryKey, string> = {
 }
 /** Portuguese character library copy. */
 export const pt: Record<CharacterLibraryKey, string> = {
+  assetLibrary: 'Biblioteca de recursos', sharedLibrary: 'Recursos compartilhados',
   title: 'Biblioteca de personagens', description: 'Explore referências de personagens históricos e urbanos para criar personagens com o Muse',
   readOnly: 'Referências somente para leitura', all: 'Todos', ancient: 'Históricos', urban: 'Urbanos', collection: 'Coleção de personagens',
   search: 'Pesquisar por aparência, estilo ou etiquetas', searchAction: 'Pesquisar', refresh: 'Atualizar',

@@ -39,6 +39,7 @@
       "@deepseek-ai/dsh-session-coordinator": ["./packages/session/session-coordinator/src"],
       "@deepseek-ai/dsh-session-coordinator/*": ["./packages/session/session-coordinator/src/*"],
       "@deepseek-ai/dsh-client-ui-session-coordinator": ["./packages/client/ui-session-coordinator/src"],
+      "@deepseek-ai/dsh-jingliu-connection/types": ["./packages/drama/jingliu-connection/src/types.ts"],
       "@deepseek-ai/dsh-jingliu-connection": ["./packages/drama/jingliu-connection/src"],
       "@deepseek-ai/dsh-tool-jingliu": ["./packages/drama/tool-jingliu/src"],
       "@deepseek-ai/dsh-client-ui-jingliu": ["./packages/client/ui-jingliu/src"],

@@ -134,6 +134,10 @@ class Workbench(unittest.TestCase):
     def test_install_is_repeatable_and_validates_frontend_before_writing(self):
         root, front = self.root / "backend", self.root / "front"
         (root / "app").mkdir(parents=True)
+        for relative, rate in [("routers/jianying.py", "DRAFT_FPS"), ("nd/export.py", "J.DRAFT_FPS")]:
+            path = root / "app" / relative
+            path.parent.mkdir()
+            path.write_text(f"script = draft.ScriptFile(w, h, {rate})\n")
         front.mkdir()
         main = root / "app/main.py"
         main.write_text('    if settings.auth_upstream:\n            "login": bool(settings.auth_upstream),\n    app.include_router(auth_router)\n')

@@ -22,6 +22,7 @@ export function studioUrl(origin: string | undefined, page: 'jingliu' | 'worksho
   if (!origin) return undefined
   const url = new URL(origin)
   const localHttp = url.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(url.hostname)
+  if (page === 'jingliu' && url.protocol === 'https:' && origin.replace(/\/$/u, '') === url.origin + '/jingliu') return url.origin + '/jingliu/'
   if ((!localHttp && url.protocol !== 'https:') || url.origin !== origin.replace(/\/$/u, '')) {
     throw new TypeError(`${page} requires an HTTPS origin or HTTP loopback origin.`)
   }

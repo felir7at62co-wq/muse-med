@@ -6,6 +6,13 @@ import { defineTool, type ToolDefinition, type ToolRunContext } from '@deepseek-
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { catalog, isFields, lookup, workflowArgs } from './catalog.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SelectedProject } from '@deepseek-ai/dsh-jingliu-connection/types'
+import { installDraft } from './delivery.ts'
+import { draftDirectory } from '@deepseek-ai/dsh-drama-settings'
+import { studioTool } from './studio.ts'
+import { reviewedShots } from './shots.ts'
+import { imageTool, projectsTool } from './production.ts'
 import { narrationTool } from './narration.ts'
 
 /** Cordis plugin name. */
@@ -23,6 +30,9 @@ const output = {
 /** Authenticated transport and human confirmation for Jingliu tools. */
 export interface Dependencies {
   connect(): Promise<JingliuSession>
+  draftRoot?(): Promise<string>
+  selected?(session: SessionId, owner: string): Promise<SelectedProject | null>
+  select?(session: SessionId, project: string, signal: AbortSignal): Promise<SelectedProject>
   approve(exec: ToolRunContext, reason: string): Promise<boolean>
 }
 
@@ -66,8 +76,18 @@ export function workflowTools(deps: Dependencies): ToolDefinition[] {
       if (!exec.agent) throw new HarnessError('请在 Muse 会话中调用镜流。', 'JINGLIU_SESSION_REQUIRED')
       const session = await deps.connect()
       const workflow = lookup(await catalog(session, exec.signal), workflowName)
-      const project = project_id?.trim() ?? ''
+      const selected = await deps.selected?.(exec.agent.session.id, session.identity)
+      const project = project_id?.trim() || (workflow.account_scoped ? '' : selected?.id ?? '')
+      if (!workflow.account_scoped && selected && selected.id !== project) throw new HarnessError('这个工作流指向另一个云项目，请先确认要切换的项目。', 'JINGLIU_INVALID_PROJECT')
       const businessArgs = workflowArgs(workflow, project, args)
+      let destination: string | undefined
+      if (workflow.name === 'export_jianying' && deps.draftRoot) {
+        destination = await deps.draftRoot()
+        if (!destination) throw new HarnessError('请先在 Muse 的短剧设置指定剪映草稿根目录，或使用 drama_draft_dir 设置。', 'JINGLIU_DRAFT_ROOT_REQUIRED')
+        businessArgs.single_file = false
+      }
+      const review = workflow.name === 'run_shot_videos' ? await reviewedShots(session, project, businessArgs, exec.signal) : undefined
+      if (review) { businessArgs.shot_ids = review.ids; delete businessArgs.episode }
       const operation = { name: workflow.name, project_id: project, args: businessArgs }
       const subject = '镜流 · ' + workflow.name + (project ? ' · 项目 ' + project : ' · 当前账号')
       const ask = async (reason: string): Promise<void> => {
@@ -83,14 +103,21 @@ export function workflowTools(deps: Dependencies): ToolDefinition[] {
           throw new HarnessError('未取得此工作流的有效报价。', 'JINGLIU_INVALID_QUOTE')
         }
         const price = quote.estimate_fen > 0 ? '预计 ¥' + (quote.estimate_fen / 100).toFixed(2) : '费用以实际结算为准'
-        await ask(workflow.description + '\n' + price + (quote.note ? ' · ' + quote.note : ''))
+        await ask(workflow.description + '\n' + price + (quote.note ? ' · ' + quote.note : '') + (review ? '\n' + review.prompts.join('\n\n') : ''))
       } else if (workflow.risk !== 'read' || workflow.needs_confirm) {
         await ask(workflow.description)
       }
+      if (destination) await ask('将可编辑的镜头、音轨和字幕导入剪映草稿目录 ' + destination)
       const callId = exec.agent.session.id + ':' + exec.callId
-      const submit = async (confirmed: boolean): Promise<unknown> => session.request('/desktop-agent/tool', {
-        method: 'POST', body: { ...operation, call_id: callId, confirmed }, signal: exec.signal,
-      })
+      const submit = async (confirmed: boolean): Promise<unknown> => {
+        if (review) {
+          const fresh = await reviewedShots(session, project, businessArgs, exec.signal)
+          if (fresh.prompts.length !== review.prompts.length || fresh.prompts.some((prompt, index) => prompt !== review.prompts[index])) throw new HarnessError('审校稿在确认后发生变更，请重新核对镜头。', 'JINGLIU_SHOT_CHANGED')
+        }
+        return session.request('/desktop-agent/tool', {
+          method: 'POST', body: { ...operation, call_id: callId, confirmed }, signal: exec.signal,
+        })
+      }
       let result: unknown
       try {
         result = await submit(false)
@@ -104,10 +131,14 @@ export function workflowTools(deps: Dependencies): ToolDefinition[] {
         const message = typeof result.error === 'string' ? result.error : result.message
         throw new HarnessError(typeof message === 'string' ? message : '镜流未完成本次工作流。', 'JINGLIU_WORKFLOW_REJECTED')
       }
+      if (destination) {
+        const draft = await installDraft(session, result, destination, callId, exec.signal)
+        return { workflow: workflow.name, project_id: project, draft }
+      }
       return { workflow: workflow.name, project_id: project, result }
     },
     presentCall: args => ({ card: 'generic', title: '镜流 · ' + args.workflow, kind: 'other', rawInput: args }),
-  }), narrationTool(deps)]
+  }), narrationTool(deps), projectsTool(deps), imageTool(deps), studioTool(deps)]
 }
 
 /**
@@ -117,6 +148,9 @@ export function workflowTools(deps: Dependencies): ToolDefinition[] {
 export function apply(ctx: Context): void {
   const tools = workflowTools({
     connect: () => ctx.jingliuConnection.connection(),
+    selected: (sid, owner) => ctx.jingliuConnection.selected(sid, owner),
+    select: (sid, project, signal) => ctx.jingliuConnection.selectProject(sid, project, signal),
+    draftRoot: async () => (await draftDirectory(ctx.settings)).path,
     approve: async (exec, reason) => {
       const approval = ctx.get('approval')
       return !!approval && !!exec.agent && await approval.request({

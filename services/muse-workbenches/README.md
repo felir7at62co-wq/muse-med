@@ -4,6 +4,8 @@ English | [中文](README.zh.md)
 
 The adapters target the November 17, 2026 workbench backup. Each FastAPI service redeems an audience-specific Muse grant, looks up the explicitly linked native user, then issues an original application session. Manuscripts, roles, budgets, project owners and collaborators retain their application IDs.
 
+The Jingliu installer adapts both Jianying exporters to the pinned draft library, including track creation and the placement of audio and subtitles.
+
 ## Install
 
 Install on an extracted release copy. The installer checks known integration points before writing and can be run again. Rebuild the workshop's Next application after installing. Jingliu serves the modified static directory.

@@ -29,7 +29,7 @@
 | `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.sandboxPolicy（文件系统约束开启时）` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | 来源片段编号、修订号、候选摘要、时间和正文引用行号由宿主生成。事实与逐集候选须经另一会话审校后验收。 |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`、`ctx.museAccount`、PATH 中的 FFmpeg 与 FFprobe | `tool/call`、`tool/result`，`transcript/jobs` 中的任务收据，`transcript/raw` 中的 TXT 与 JSON | - | start 使用已登录的 Muse 账号上传压缩音轨并提交云转写；status 根据收据查询同一任务，完成后保存带时间戳的结果。需要可读取的本地音视频与服务端转写配置。 |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`、TOS 访问密钥的凭据引用、可访问火山引擎 TOS 的网络 | `tool/call`、`tool/result`，`download-video-date/{platform}/{date}/{work_id}/` 下的公开 TOS 对象，`remove_local` 为 true 时删除本地文件 | - | 可选包：只由云端转写部署组合，并由它提供凭据引用。 |
-| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_narration`、`jingliu_run`、`jingliu_workflows` | `ctx.tools`、`ctx.jingliuConnection`，更改和计费操作需 `ctx.approval` | `tool/call`、`tool/result`、镜流服务的项目更新和任务、本地解说剧任务回执 | - | - |
+| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`、`jingliu_narration`、`jingliu_projects`、`jingliu_run`、`jingliu_studio`、`jingliu_workflows` | `ctx.tools`、`ctx.jingliuConnection`，更改和计费操作需 `ctx.approval` | `tool/call`、`tool/result`、镜流服务的项目更新和任务、会话项目关联、生图与解说剧任务回执、本地剪映草稿 | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`、数据站服务令牌的凭据引用、可访问数据站服务接口的网络 | `tool/call`、`tool/result`，数据站转写任务状态 | - | 可选包：只由云端转写部署组合。每个被派出的工人自己领取作品，主会话路由器不调用它。 |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`、`ctx.tools`、`ctx.ptcRuntime`、`ctx.systemPrompt` | `tool/call`、`one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`、`tool/result` | - | PTC 执行器只向模型公开 run_code，并在运行时语言生成的 SDK 中声明其他可见能力。程序绑定按提交顺序进入共享的受守卫工具流水线；并行安全的函数体最多重叠 maxParallelSubCalls 个，嵌套结果保持与外层程序关联。最终超时时间与 maxSubCallsPerMinute 决定调用总额度；超限会终止程序。 |
@@ -1875,6 +1875,57 @@ Optional package: only the cloud transcription deployment composes it, with its 
 
 ## `@deepseek-ai/dsh-tool-jingliu`
 
+### `jingliu_image`
+
+使用镜流生图。默认 GPT Image 2。提交后用 job_id 查进度，history 查看同项目产物。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "generate",
+        "history",
+        "models"
+      ]
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "prompt": {
+      "type": "string",
+      "description": "由 Muse 撰写或审校的完整生图提示词。"
+    },
+    "model": {
+      "type": "string",
+      "description": "省略使用 gpt-image-2。"
+    },
+    "size": {
+      "type": "string",
+      "description": "尺寸，如 1024x1024。"
+    },
+    "count": {
+      "type": "integer",
+      "description": "生成 1 至 4 张。"
+    },
+    "reference_paths": {
+      "type": "array",
+      "description": "该项目已上传的镜流参考图路径。",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/production.ts`](../packages/drama/tool-jingliu/src/production.ts)
+
 ### `jingliu_narration`
 
 镜流「解说剧·角色开口」工作流。state 查分集、镜头、核对报告和可用模型；model 切换模型；breakdown 拆解台词；produce 出片、对齐和核对；accept 接受某句差异；export 导出剪映草稿。任务提交后用 get_job 查进度。
@@ -1926,7 +1977,46 @@ Optional package: only the cloud transcription deployment composes it, with its 
 }
 ```
 
-源码：[`packages/drama/tool-jingliu/src/narration.ts`](../packages/drama/tool-jingliu/src/narration.ts)
+Source: [`packages/drama/tool-jingliu/src/narration.ts`](../packages/drama/tool-jingliu/src/narration.ts)
+
+### `jingliu_projects`
+
+搜索当前 Muse 用户有权查看的镜流制片项目，查看项目和本会话已确认的选择。select 只在用户确定项目后使用，右侧同步显示真实项目名。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "搜索、查看、读取当前选择或确认关联。",
+      "enum": [
+        "search",
+        "inspect",
+        "current",
+        "select"
+      ]
+    },
+    "query": {
+      "type": "string",
+      "description": "项目名中的关键词。"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "inspect 和 select 所需的确切编号。"
+    },
+    "offset": {
+      "type": "integer",
+      "description": "搜索结果分页起点。"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/production.ts`](../packages/drama/tool-jingliu/src/production.ts)
 
 ### `jingliu_run`
 
@@ -1956,7 +2046,70 @@ Optional package: only the cloud transcription deployment composes it, with its 
 }
 ```
 
-源码：[`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
+Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
+
+### `jingliu_studio`
+
+镜流共享素材搜索与导入、查看剧本分集原文、逐条审校字幕、回写字幕的文本或时间、查看高清产物。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "library",
+        "import_assets",
+        "episodes",
+        "subtitles",
+        "edit_subtitle",
+        "hd_history"
+      ]
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "query": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "character",
+        "location",
+        "prop"
+      ]
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "asset_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "clip_id": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "duration": {
+      "type": "number"
+    },
+    "start_offset_sec": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/studio.ts`](../packages/drama/tool-jingliu/src/studio.ts)
 
 ### `jingliu_workflows`
 
@@ -1982,7 +2135,7 @@ Optional package: only the cloud transcription deployment composes it, with its 
 }
 ```
 
-源码：[`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
+Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
 
 <a id="deepseek-aidsh-tool-hit-queue"></a>
 

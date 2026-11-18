@@ -48,6 +48,8 @@ export interface Assignment {
   /** Directory in which the human supplied relative input references. */
   readonly sourceCwd: string | null
   readonly videoKey: string | null
+  /** Confirmed cloud production and studio owner at dispatch time. */
+  readonly studioProject?: { owner: string; id: string; title: string } | undefined
   readonly status: AssignmentStatus
   readonly report: WorkerReport | null
   readonly issue: string | null
@@ -167,6 +169,8 @@ export interface ReconcileRequest {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    /** Verified Host identity context for a new Router conversation. @persistenceAttribution */
+    'muse-router-opening': { readonly kind: 'muse-router-opening'; readonly form: 'notice'; readonly summary: string }
     /**
      * Routing instructions or worker receipts, never human-authored authority.
      * @persistenceAttribution

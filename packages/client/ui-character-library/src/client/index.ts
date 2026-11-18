@@ -15,11 +15,14 @@ import remote from '@deepseek-ai/dsh-api-character-library/remote'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { IconUsersOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createElement } from 'react'
-import { LibraryPage } from './LibraryPage.tsx'
+import { LibraryShell, type LibraryShellInjected } from './LibraryShell.tsx'
 import { de, en, es, fr, ja, pt, ru, zh, type CharacterLibraryKey } from './locales.ts'
 import { SETTINGS_NAMESPACE, syncIntervalField } from '../sync-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    'character-library.shared': { kind: 'single'; scope: 'root'; owner: Record<never, never> }
+  }
   interface LocaleNamespaceMap { characterLibrary: CharacterLibraryKey }
   interface ResourceProtocolMap {
     'character-library-status': CharacterLibraryStatus
@@ -117,10 +120,27 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       },
     }), 'character-library: image resource')
     const t = scope.locale.bind(NS)
-    scope.slots.inject('main', () => scope.slots.register({ name: 'main', key: PANEL, locale: NS }, LibraryPage))
-    scope.slots.inject('sidebar.panellist', () => scope.slots.register({
-      name: 'sidebar.panellist', id: PANEL, order: 21, locale: NS, label: () => t('title'),
-    }, LibraryIcon))
+    scope.slots.inject('main', () => scope.slots.register({ name: 'main', key: PANEL, locale: NS,
+      children: { 'character-library.shared': { kind: 'single', scope: 'root' } },
+      inject: (): LibraryShellInjected => ({ hooks: { sharedLibrary: {
+        getSnapshot: () => scope.slots.entries('character-library.shared').length > 0,
+        subscribe: listener => scope.slots.subscribe('character-library.shared', listener),
+      } } }),
+    }, LibraryShell))
+    scope.slots.inject('sidebar.panellist', () => {
+      const hasShared = () => scope.slots.entries('character-library.shared').length > 0
+      let shared = hasShared()
+      const register = () => scope.slots.register({ name: 'sidebar.panellist', id: PANEL, order: 21, locale: NS,
+        label: () => t(shared ? 'assetLibrary' : 'title') }, LibraryIcon)
+      let remove = register()
+      const unsubscribe = scope.slots.subscribe('character-library.shared', () => {
+        if (hasShared() === shared) return
+        shared = hasShared()
+        remove()
+        remove = register()
+      })
+      return () => { unsubscribe(); remove() }
+    })
   })
   try { await section }
   catch (error) { await section.dispose(); await disposeRemote(); throw error }

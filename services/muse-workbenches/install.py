@@ -29,6 +29,11 @@ def install(audience, backend, frontend=None):
                     f'    configure_muse_login(app, "{audience}")\n' + anchor)
     transform(main, anchor, install_hook)
     if audience == "jingliu":
+        for path, rate in [(app / "routers/jianying.py", "DRAFT_FPS"), (app / "nd/export.py", "J.DRAFT_FPS")]:
+            transform(path, f"draft.ScriptFile(w, h, {rate})", f"draft.ScriptFile(w, h, {rate}, maintrack_adsorb=True)")
+            source = changes.get(path, path.read_text())
+            source = re.sub(r"script\.add_track\((TrackType\.\w+(?:, [^\n()]+)?)\)", r"script.append_track(draft.TrackSpec(\1))", source)
+            changes[path] = source.replace("track_name=", "track=")
         for key in ("    if settings.auth_upstream:\n", '            "login": bool(settings.auth_upstream),'):
             if key not in changes.get(main, main.read_text()):
                 raise ValueError(f"Missing original Jingliu access control in {main.name}")

@@ -9,6 +9,8 @@ English | [中文](README.zh.md)
 
 ## Summary
 
+The Host authenticates the mounted production API and media requests with the signed-in Muse account. A cloud project selection is stored per local conversation and studio identity. The right sidebar and production tools read that same selection. Dedicated studio origins support the original sign-in exchange.
+
 The desktop Host connects to the configured ShotFlow production gateway under `/fwp/v2`. Set `studioOrigin` to the HTTPS origin or to an explicit IPv4/IPv6 loopback origin. The original web workspace is served from `/sfp/`. Requests do not follow redirects. An absent origin leaves the plugin unconfigured.
 
 ## Table of Contents

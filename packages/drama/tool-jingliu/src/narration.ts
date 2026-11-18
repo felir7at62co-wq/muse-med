@@ -6,6 +6,7 @@ import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { isFields } from './catalog.ts'
 import type { Dependencies } from './index.ts'
+import { installDraft } from './delivery.ts'
 import { existingSubmission, submitOnce } from './submit-once.ts'
 
 function identifier(value: string): string {
@@ -46,6 +47,8 @@ export function narrationTool(deps: Dependencies): ToolDefinition {
           || beat !== undefined && action !== 'accept') throw new HarnessError('目标范围与解说剧操作不匹配。', 'JINGLIU_INVALID_ARGUMENTS')
       if (shot_id !== undefined) identifier(shot_id)
       const session = await deps.connect()
+      const selected = exec.agent && await deps.selected?.(exec.agent.session.id, session.identity)
+      if (selected && selected.id !== pid) throw new HarnessError('这个操作指向另一个制片项目。', 'JINGLIU_INVALID_PROJECT')
       const dir = join(resolveDshHome(), 'jingliu', 'submissions')
       const input = [session.identity, pid, action, episode ?? null, shot_id ?? null, force ?? false]
       if (exec.agent && (action === 'produce' || action === 'breakdown')) {
@@ -73,8 +76,11 @@ export function narrationTool(deps: Dependencies): ToolDefinition {
         return response(await session.request(scope + '/shots/' + shot_id + '/accept', { method: 'POST', body: { beat }, signal: exec.signal }))
       }
       if (action === 'export') {
-        await ask('导出' + (episode === undefined ? '全剧' : '第 ' + episode + ' 集') + '剪映草稿')
-        return response(await session.request(scope + '/export', { method: 'POST', body: { episode: episode ?? null, single_file: true }, signal: exec.signal }))
+        const root = await deps.draftRoot?.()
+        if (deps.draftRoot && !root) throw new HarnessError('请先在 Muse 的短剧设置指定剪映草稿根目录。', 'JINGLIU_DRAFT_ROOT_REQUIRED')
+        await ask('导出' + (episode === undefined ? '全剧' : '第 ' + episode + ' 集') + '剪映草稿' + (root ? '到 ' + root : ''))
+        const result = response(await session.request(scope + '/export', { method: 'POST', body: { episode: episode ?? null, single_file: !root }, signal: exec.signal }))
+        return root ? { draft: await installDraft(session, result, root, exec.agent.session.id + ':' + exec.callId, exec.signal) } : result
       }
       const kind = action === 'produce' ? 'nd_produce' : 'nd_breakdown'
       const payload: Record<string, JsonValue> = { project_id: pid }

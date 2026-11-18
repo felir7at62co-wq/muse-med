@@ -13,7 +13,7 @@ export const name = 'muse-main-session-policy'
 /** Role checks are installed before queued Agent work is released. */
 export const inject = ['agents', 'tools', 'systemPrompt']
 
-const names = ['coordinator_sessions', 'coordinator_read', 'coordinator_view_image', 'coordinator_jobs', 'coordinator_settings',
+const names = ['jingliu_projects', 'coordinator_sessions', 'coordinator_read', 'coordinator_view_image', 'coordinator_jobs', 'coordinator_settings',
   'coordinator_dispatch', 'coordinator_reconcile', 'coordinator_tasks', 'coordinator_stop', 'coordinator_show_report', 'coordinator_display_skill',
   'ask_user_question', 'show_view', 'visualize']
 
@@ -34,6 +34,10 @@ export function apply(ctx: Context): void {
   }
   ctx.systemPrompt.section({
     name: 'muse:main-session', order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
-    text: () => mainSessionPrompt(ctx.get('sessionCoordinator')?.mode ?? { unattended: false, taskFolders: false }, ctx.get('sessionActivity') !== undefined),
+    text: () => mainSessionPrompt(
+      ctx.get('sessionCoordinator')?.mode ?? { unattended: false, taskFolders: false },
+      ctx.get('sessionActivity') !== undefined,
+      ctx.get('jingliuConnection') !== undefined,
+    ),
   })
 }

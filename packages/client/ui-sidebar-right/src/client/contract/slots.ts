@@ -20,6 +20,7 @@
  * registering into one already depends on it for the declaration. The types
  * therefore live with their declarer.
  */
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type { RightbarOwnerProps } from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -56,6 +57,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * with no type in force renders the owner's "nothing can view this" notice
      * rather than an empty pane.
      */
+    'sidebar.right.environment': { kind: 'single'; scope: 'session'; owner: { sessionId: SessionId } }
     'sidebar.right.pane.tab': {
       kind: 'keyed'
       scope: 'session'

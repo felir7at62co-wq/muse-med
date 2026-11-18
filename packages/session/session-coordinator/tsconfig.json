@@ -8,6 +8,7 @@
     "src"
   ],
   "references": [
+    { "path": "../../drama/jingliu-connection" },
     {
       "path": "../../../vendor/cordis"
     },
@@ -88,6 +89,9 @@
     },
     {
       "path": "../working-directory"
+    },
+    {
+      "path": "../../host/muse-account/tsconfig.host.json"
     }
   ]
 }

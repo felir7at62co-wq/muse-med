@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../util/home-paths"
+    },
+    {
       "path": "../../../vendor/cosmokit"
     },
     {
@@ -25,6 +28,21 @@
     },
     {
       "path": "../../util/error"
+    },
+    {
+      "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../util/atomic-write"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../core/session"
     }
   ]
 }

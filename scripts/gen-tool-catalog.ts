@@ -402,9 +402,12 @@ const TOOL_PACKAGES: ToolPackage[] = [
       jingliu_workflows: 'packages/drama/tool-jingliu/src/index.ts',
       jingliu_run: 'packages/drama/tool-jingliu/src/index.ts',
       jingliu_narration: 'packages/drama/tool-jingliu/src/narration.ts',
+      jingliu_projects: 'packages/drama/tool-jingliu/src/production.ts',
+      jingliu_image: 'packages/drama/tool-jingliu/src/production.ts',
+      jingliu_studio: 'packages/drama/tool-jingliu/src/studio.ts',
     },
     requires: ['ctx.tools', 'ctx.jingliuConnection', 'ctx.approval for changes and paid workflows'],
-    writes: ['tool/call', 'tool/result', 'project updates and jobs on the configured Jingliu service', 'local narration submission receipts'],
+    writes: ['tool/call', 'tool/result', 'project updates and jobs on the configured Jingliu service', 'conversation project selections, image and narration job receipts, and local Jianying drafts'],
     async mount(ctx) {
       const home = mkdtempSync(join(tmpdir(), 'dsh-tool-catalog-jingliu-'))
       ctx.effect(() => () => { rmSync(home, { recursive: true, force: true }) })

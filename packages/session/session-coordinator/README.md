@@ -9,6 +9,8 @@ English | [中文](README.zh.md)
 
 ## Summary
 
+The desktop opens the signed-in account's retained Router in the local default workspace. It can greet once using the verified profile. A confirmed cloud production follows an assignment to its worker, even if the user later selects another production in the Router.
+
 Compose this optional Host plugin with a routing-only preset. The Main Session searches the local profile owner's ordinary conversations, checks candidate summaries, and chooses an idle existing Session or a fresh worker. Workers keep their ordinary tools, history and presets. The separate task ledger tracks dispatch and execution revisions; receipt delivery does not imply completion or human acceptance.
 
 ## Table of Contents

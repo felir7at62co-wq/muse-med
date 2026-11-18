@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { IconEditOutlineRegular, IconPlayOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { STUDIO_URL_GLOBAL, WORKSHOP_URL_GLOBAL } from '../page.ts'
 import type { WorkbenchLoginResult } from './workbench-login.ts'
+import { installNative } from './native.ts'
 import { Studio } from './Studio.tsx'
 import { en, zh, ja, es, fr, de, ru, pt } from './locales.ts'
 
@@ -49,6 +50,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(locale, { en, zh, ja, es, fr, de, ru, pt }), 'workbenches: copy')
   for (const { url, id, kind, title, description, order, icon } of entries) {
     if (!url) continue
+    if (kind === 'jingliu' && new URL(url).pathname === '/jingliu/') { installNative(ctx); continue }
     if (new URL(url).origin === location.origin) throw new Error(`${kind} requires a separate workbench origin.`)
     ctx.effect(() => ctx.sidebarRightTabs.register({
       id, kind, priority: 'builtin', keepMounted: true, title: () => t(title),
