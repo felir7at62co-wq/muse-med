@@ -35,89 +35,118 @@ env:
 jobs:
   timeout-diagnostics:
     if: github.event_name == 'workflow_dispatch' && inputs.suite == 'timeout-diagnostics'
-    name: Bash timeout / original coverage topology
+    name: timeout lifecycle / ${{ matrix.owner }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    env:
-      DSH_COVERAGE_TEST_TIMEOUT_MS: '90000'
-      DSH_GATE_FAIL_FAST: '1'
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        owner: [bash, webkit]
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-
-      - name: Use runner-owned temporary storage
-        run: |
-          echo "TMPDIR=${{ runner.temp }}" >> "$GITHUB_ENV"
-          echo "NODE_COMPILE_CACHE=${{ runner.temp }}/node-compile-cache" >> "$GITHUB_ENV"
-
       - uses: pnpm/action-setup@v5.0.0
         with:
           dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
-
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: '24.22.2'
           cache: pnpm
-
-      - name: Report runner and shell versions
-        run: |
-          node --version
-          pnpm --version
-          bash --version
-          uname -a
-          nproc
-
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
-
-      - name: Prepare original coverage sandbox prerequisites
-        run: bash scripts/prepare-ci-bubblewrap.sh
-
-      - name: Prepare original coverage media prerequisites
+      - name: Build native terminal support
+        if: matrix.owner == 'bash'
+        run: pnpm run build:native-system
+      - name: Install Zsh for the shared shell fixture
+        if: matrix.owner == 'bash'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes ffmpeg
-          decoder="$(command -v ffmpeg)"
-          [[ "$decoder" == /* ]]
-          test -f "$decoder"
-          test -x "$decoder"
-          "$decoder" -version
-          printf 'MUSE_RECOVERY_TEST_FFMPEG=%s\n' "$decoder" >> "$GITHUB_ENV"
-
-      - name: Verify the original cold-history scheduling inputs
+          sudo apt-get install --yes --no-install-recommends zsh
+          zsh --version
+      - name: Verify Bash owner and lifecycle controls
+        if: matrix.owner == 'bash'
+        env:
+          DSH_COVERAGE_TEST_TIMEOUT_MS: '90000'
+        run: >-
+          pnpm exec vitest run
+          packages/subprocess/subprocess-local/tests/shell-activity.spec.ts
+          packages/subprocess/subprocess-local/tests/shell-activity-lifecycle.spec.ts
+          --reporter=default --reporter=json --outputFile=.artifacts/timeout-bash-lifecycle.json
+      - name: Verify original Bash case actually executed
+        if: matrix.owner == 'bash'
         run: |
-          test ! -e .coverage-times.json
-          test "$(node -p 'require("node:os").availableParallelism()')" -eq 4
-
-      - name: Create an explicit hidden-path upload probe
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs'
+          const report = JSON.parse(readFileSync('.artifacts/timeout-bash-lifecycle.json', 'utf8'))
+          const cases = report.testResults.flatMap(file => file.assertionResults)
+          const original = cases.filter(test => test.fullName.includes('preserves scalar prompt hooks and uses unknown on shells without PS0'))
+          const lifecycle = report.testResults.filter(file => file.name.replaceAll('\\', '/').endsWith('/shell-activity-lifecycle.spec.ts'))
+          if (original.length !== 1 || original[0].status !== 'passed'
+            || lifecycle.length !== 1 || lifecycle[0].assertionResults.length !== 6
+            || lifecycle[0].assertionResults.some(test => test.status !== 'passed')) {
+            throw new Error('Bash owner and six lifecycle controls must execute and pass')
+          }
+          if (cases.length !== 13 || cases.some(test => test.status !== 'passed')) throw new Error('All Bash, Zsh and lifecycle cases must execute and pass')
+          console.log(JSON.stringify({ original, lifecycle }, null, 2))
+          JS
+      - name: Verify independent lifecycle processes
+        if: matrix.owner == 'bash'
+        env:
+          DSH_COVERAGE_TEST_TIMEOUT_MS: '90000'
         run: |
-          mkdir -p .artifacts
-          printf '{"kind":"diagnostic-artifact-upload-probe"}\n' > .artifacts/timeout-artifact-upload-probe.json
-
-      - name: Verify hidden diagnostic artifacts are actually uploaded
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: timeout-hidden-upload-probe
-          path: .artifacts/timeout-artifact-upload-probe.json
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Run the original exhaustive coverage gate with frozen Bash diagnostics
-        run: pnpm run check:ci:coverage
-
-      - name: Preserve coverage timing evidence
+          pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts packages/subprocess/subprocess-local/tests/shell-activity-lifecycle.spec.ts > .artifacts/timeout-bash-concurrent-1.log 2>&1 &
+          first_pid=$!
+          pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts packages/subprocess/subprocess-local/tests/shell-activity-lifecycle.spec.ts > .artifacts/timeout-bash-concurrent-2.log 2>&1 &
+          second_pid=$!
+          first_status=0
+          wait "$first_pid" || first_status=$?
+          second_status=0
+          wait "$second_pid" || second_status=$?
+          cat .artifacts/timeout-bash-concurrent-1.log .artifacts/timeout-bash-concurrent-2.log
+          if (( first_status != 0 )); then exit "$first_status"; fi
+          exit "$second_status"
+      - name: Build browser artifacts
+        if: matrix.owner == 'webkit'
+        run: pnpm run build:artifacts
+      - name: Install Models settings browser prerequisites
+        if: matrix.owner == 'webkit'
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium webkit
+      - name: Verify the complete Models settings owner
+        if: matrix.owner == 'webkit'
+        env:
+          DSH_SNAPSHOT: replay
+        run: >-
+          pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/models-settings.e2e.ts
+          --reporter=default --reporter=json --outputFile=.artifacts/timeout-webkit-lifecycle.json
+      - name: Verify WebKit case and all Models settings controls actually executed
+        if: matrix.owner == 'webkit'
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs'
+          const report = JSON.parse(readFileSync('.artifacts/timeout-webkit-lifecycle.json', 'utf8'))
+          const cases = report.testResults.flatMap(file => file.assertionResults)
+          const original = cases.filter(test => test.fullName.includes('keeps mobile model actions, focus and keyboard order in') && test.fullName.includes('WebKit'))
+          if (original.length !== 1 || original[0].status !== 'passed'
+            || cases.length !== 22 || cases.some(test => test.status !== 'passed')) {
+            throw new Error('Original WebKit case and all 22 Models settings cases must pass')
+          }
+          console.log(JSON.stringify({ original, count: cases.length }, null, 2))
+          JS
+      - name: Preserve lifecycle regression evidence
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: timeout-original-coverage-${{ github.run_attempt }}
+          name: lifecycle-evidence-${{ matrix.owner }}-${{ github.run_attempt }}
           path: |
-            .coverage-times.json
-            coverage/coverage-summary.json
+            .artifacts/timeout-*.json
+            .artifacts/timeout-*.log
+            .artifacts/models-settings/
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
+
+
 
   ssh-helper:
     if: github.event_name == 'workflow_dispatch' && inputs.suite == 'ssh-helper'

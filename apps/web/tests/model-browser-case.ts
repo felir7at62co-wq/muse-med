@@ -12,14 +12,14 @@ interface ModelBrowserProgress {
 }
 
 /**
- * Join the scenario and its browser before restoring its provider, including test cancellation.
+ * Keep interactions in the case budget and join cleanup in the awaited completion hook.
  * @param test - Owning test's cancellation signal and completion hooks.
  * @param engine - Browser engine under test.
  * @param label - Scenario-owned artifact filename.
  * @param prepare - Install the provider used by this scenario.
  * @param body - Model-editor interactions with phase and current-page observations.
  * @param restore - Remove the scenario's provider after its browser and body settle.
- * @returns Once the body and owned cleanup settle; failures retain their original error.
+ * @returns Once the body settles; body errors stay intact and cleanup errors reach the completion hook.
  */
 export async function runModelBrowserCase(
   test: Pick<TestContext, 'signal' | 'onTestFailed' | 'onTestFinished'>,
@@ -107,18 +107,12 @@ export async function runModelBrowserCase(
   })()
   test.onTestFinished(async () => {
     try { await finish() }
-    finally { test.signal.removeEventListener('abort', abort) }
+    finally {
+      test.signal.removeEventListener('abort', abort)
+      await writeReport()
+      process.stdout.write(`models browser progress: ${JSON.stringify(report())}\n`)
+    }
   })
-  let failed = false
-  let failure: unknown
   try { await execution }
-  catch (error) { failed = true; failure = error; await capture() }
-  try { await finish() }
-  catch (error) {
-    if (failed) throw new AggregateError([failure, error], 'model-browser body and cleanup failed')
-    throw error
-  }
-  if (failed) throw failure
-  await writeReport()
-  process.stdout.write(`models browser progress: ${JSON.stringify(report())}\n`)
+  catch (error) { await capture(); throw error }
 }

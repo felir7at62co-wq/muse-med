@@ -665,6 +665,11 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     let disconnected = false
     let bodySettled = false
     let restored = false
+    test.onTestFinished(() => {
+      expect(disconnected).toBe(true)
+      expect(bodySettled).toBe(true)
+      expect(restored).toBe(true)
+    })
     const scenario = runModelBrowserCase({ signal: AbortSignal.any([controller.signal, test.signal]),
       onTestFailed: test.onTestFailed, onTestFinished: test.onTestFinished,
     }, webkit, 'cancelled-action', () => Promise.resolve(), async (browser, progress) => {
@@ -690,7 +695,6 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
       return Promise.resolve()
     })
     await expect(scenario).rejects.toThrow(/closed/u)
-    expect(restored).toBe(true)
   }, 60_000)
 
   it('closes a late WebKit acquisition before restoring a cancelled scenario', async (test) => {
@@ -702,6 +706,11 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     let bodyStarted = false
     let restored = false
     const reason = new Error('cancelled before WebKit acquisition')
+    test.onTestFinished(() => {
+      if (acquiredBrowser !== undefined) expect(acquiredBrowser.isConnected()).toBe(false)
+      expect(bodyStarted).toBe(false)
+      expect(restored).toBe(true)
+    })
     // The launch can reject before the controller resumes; its original promise stays awaited.
     void acquired.promise.catch(() => {})
     const scenario = runModelBrowserCase({ signal: AbortSignal.any([controller.signal, test.signal]),
@@ -728,7 +737,27 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
       controller.abort(reason)
     } finally { release.resolve(undefined) }
     await result
-    expect(restored).toBe(true)
+  }, 60_000)
+
+  it('returns from successful WebKit interactions before its completion hook cleans up', async (test) => {
+    expect(test.task.timeout).toBe(60_000)
+    let acquiredBrowser: Browser | undefined
+    let restored = false
+    // This runs after the helper's hook; Vitest awaits completion hooks in reverse order.
+    test.onTestFinished(() => {
+      expect(acquiredBrowser?.isConnected()).toBe(false)
+      expect(restored).toBe(true)
+    })
+    await runModelBrowserCase(test, webkit, 'successful-completion', () => Promise.resolve(), (browser) => {
+      acquiredBrowser = browser
+      return Promise.resolve()
+    }, () => {
+      expect(acquiredBrowser?.isConnected()).toBe(false)
+      restored = true
+      return Promise.resolve()
+    })
+    expect(acquiredBrowser?.isConnected()).toBe(true)
+    expect(restored).toBe(false)
   }, 60_000)
 
   it.for([{ name: 'Chromium', engine: chromium }, { name: 'WebKit', engine: webkit }])(
