@@ -3055,8 +3055,12 @@ export interface Config {
   readonly modelRequestImageMaxBytes?: number
   /** Optional provider retry policy for every account model route; omission keeps the adapter default. */
   readonly modelRetryPolicy?: RetryPolicyConfig
-  /** Maximum time for one compressed-audio upload and gateway response. */
+  /** Total time ceiling for a transcription request, including an upload and the gateway response. */
   readonly asrRequestTimeoutMs: number
+  /** Time allowed without upload progress or a gateway reply, in milliseconds. */
+  readonly asrUploadIdleTimeoutMs: number
+  /** Maximum time for one transcription status request, in milliseconds. */
+  readonly asrQueryTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
   readonly feedbackExcerptChars: number
   /** Register explicit feedback submission and owner-scoped status tools. */

@@ -1748,7 +1748,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
     },
     "wait_seconds": {
       "type": "number",
-      "description": "inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。"
+      "description": "只读查询总等待（0–30 秒）；默认 0，仅查一轮。超时后沿原收据查询；status 经确认补传的时间另计。"
     },
     "receipt": {
       "type": "string",
