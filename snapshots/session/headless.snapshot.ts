@@ -5,6 +5,7 @@ import { sessionProductBudgetInput } from './muse-session-product/budget.ts'
 import { creationBudgetInput } from './muse-creation-ptc/budget.ts'
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
+import { expectedMigrationFingerprint, migrationSnapshot } from './drama-project-migration/evidence.ts'
 import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
 import { assertAsyncChildOutcome, assertAsyncChildPreset, assertAsyncChildQuestion, assertAsyncChildWithoutMessageTool } from './subagent-child-question-rejection/assertions.ts'
 import { assertAcpSubagentDiagnostics, assertProductSubagentDiagnostics } from './managed-subagent-assertions.ts'
@@ -326,6 +327,7 @@ async function writeSessionFixtures(
   const output = videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(redacted)
     : scenario.name === 'muse-video-novel-ocr-capability'
       ? redacted.map(log => capabilityOcrRecords(log, '0'.repeat(64), false).map(row => JSON.stringify(row)).join('\n') + '\n')
+      : scenario.name === 'drama-project-migration' ? redacted.map(log => migrationSnapshot(log))
       : redacted
   await Promise.all(output.map((content, index) => writeFile(join(scenario.dir, names[index] as string), content)))
   return output
@@ -3940,6 +3942,15 @@ describe('headless recorded-session snapshots', () => {
         if (scenario.name === 'muse-video-novel-ocr-capability' && index === 0) {
           if (capabilityOcrHash === undefined) throw new Error('OCR capability report bytes were not checked')
           expectedRecords = capabilityOcrRecords(expectedSnapshots[index] as string, capabilityOcrHash, false)
+        }
+        if (scenario.name === 'drama-project-migration' && index === 0) {
+          const fingerprint = await expectedMigrationFingerprint(actualContext.cwd, scenario.dir)
+          const actualMigration = migrationSnapshot(actual, fingerprint)
+          expect(() => migrationSnapshot(actualMigration, fingerprint))
+            .toThrow('Migration fingerprint differs from independently derived project files')
+          expectedRecords = records(migrationSnapshot(expectedSnapshots[index] as string))
+          expect(records(actualMigration), `${scenario.name}: session ${index}`).toEqual(expectedRecords)
+          continue
         }
         if (index === 0 && workspaceSensitiveBudgetScenarios.has(scenario.name)) {
           const sessionId = actualContext.sessionIds[0]

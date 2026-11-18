@@ -91,6 +91,14 @@ project_bible 的 style、visual_medium、aspect_ratio、video（model_id/platfo
 
 额度不够时先核对已花、在途预留及所需总额度。用户已明确该项目与新总金额就直接用 jubian_budget update 保存并真实回读，不重复询问；没有明确额度授权时用 ask_user_question，id 固定为 jubian-budget-<script_id>，正文说明“项目<真实ID>的总预算调整为多少元”，选项或用户填写答案必须包含新总金额。普通聊天金额应明确项目ID，或使用当前真实项目根目录的会话；较宽工作区内未指明项目的“预算5000”不能套给任意项目。update 的 project_dir 必须绑定同一 script_id，limit_cny 是新总额度而非追加金额，expected_revision 原样取 read 结果。版本冲突先重读，再用同一仍有效授权金额提交；撤回、拒绝或金额不符不能写入。设置页的“项目实际预算”与工具读写同一 authorization.json，保存后下一次计费立即生效，无需重启。保留已有花费、在途预留及历史估算；不能通过清账或新建项目规避额度。
 
+## 迁移到另一个剧变项目
+
+用户明确要求把制作迁移到另一个 script_id 时，先用 \`jubian_project get\` 核实来源与目标项目，再用 \`drama_project read\` 读取来源目录。用户已指定目标项目与迁移范围就按该授权推进，不重复确认；仅遇到项目身份或范围不明时澄清。普通 update 不能替换已有 \`jubian_script_id\`，不能手改旧配置把旧资产和任务当成新项目记录。
+
+创建独立的本地目标目录，用 \`drama_project action=preview project_dir=<目标目录> migration_from={project_dir:<来源目录>,script_id:<来源ID>} changes={jubian_script_id:<目标ID>}\` 准备迁移，reason 写明用户要求。目标须为预先创建的空目录，来源与目标须为不同目录。核对 proposed 后，update 传相同的 migration_from、changes、reason 及原样的 expected_revision、preview_fingerprint；失败时按实际原因重读，不绕过版本检查。
+
+工具只初始化本地设定，来源目录不变；可继承的内容及排除项见[项目迁移说明](../../../drama-settings/README.zh.md#project-migration)。它不复制远端项目、资产、分镜或本地媒体文件。回读目标 \`jubian_script_id\` 后，后续制作工具统一使用目标 project_dir 和 script_id；按用户范围迁移正文，核实目标项目实际的分集、图片、声音与卡片 ID 并写入目标映射，再执行绑定和免费预览。旧目录只保留来源与历史用途，不将旧声线 URL/ID、包绑定、已完成任务或额度套给目标。不能因为通用预览错误就推断新项目不支持声线、删除声音或重建整部剧。
+
 ## 项目配乐反馈
 
 继续选曲或调整混音前，先 \`drama_project action=read\` 读取 \`project_bible.bgm_feedback\`。按剧情、对白密度、配器和切点理解反馈的 \`context_tags\`；仅在本项目相近语境中使用，不把某场拒绝扩大成全局曲目黑名单。用户后来对同一曲目和语境明确改口时，以后追加的决定为准，保留旧记录。

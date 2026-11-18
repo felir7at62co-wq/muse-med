@@ -6343,7 +6343,7 @@ Source: [`packages/drama/drama-settings/src/index.ts`](../packages/drama/drama-s
 
 ### `drama_project`
 
-Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves legacy project bindings, stable package/storyboard IDs, completed tasks and version history. Validate exact model/platform/ratio/resolution through Jubian catalogue tools before selecting video settings.
+Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves existing project bindings. To migrate, provide migration_from and a different empty target project_dir with changes.jubian_script_id: copies creative settings and local character identities, excluding old remote references, tasks and authorization. Validate exact target project and model settings through Jubian tools before preview; register target assets and recheck before production.
 
 ```json
 {
@@ -6807,6 +6807,25 @@ Read the authoritative project bible, preview a confirmed change and its downstr
           }
         }
       }
+    },
+    "migration_from": {
+      "type": "object",
+      "description": "Preview/update only: source for a new local project. Source files remain unchanged; target must be a different existing empty directory.",
+      "additionalProperties": false,
+      "properties": {
+        "project_dir": {
+          "type": "string",
+          "description": "Existing absolute source project directory."
+        },
+        "script_id": {
+          "type": "integer",
+          "description": "Expected current source jubian_script_id; different from changes.jubian_script_id."
+        }
+      },
+      "required": [
+        "project_dir",
+        "script_id"
+      ]
     },
     "reason": {
       "type": "string",
