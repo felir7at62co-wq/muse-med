@@ -35,15 +35,19 @@ env:
 jobs:
   timeout-diagnostics:
     if: github.event_name == 'workflow_dispatch' && inputs.suite == 'timeout-diagnostics'
-    name: Bash regression and original Zsh baseline comparison
+    name: final scoped Bash cancellation regression
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     env:
       DSH_COVERAGE_TEST_TIMEOUT_MS: '90000'
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - name: Use runner-owned temporary storage
+        run: |
+          echo "TMPDIR=${{ runner.temp }}" >> "$GITHUB_ENV"
+          echo "NODE_COMPILE_CACHE=${{ runner.temp }}/node-compile-cache" >> "$GITHUB_ENV"
       - uses: pnpm/action-setup@v5.0.0
         with:
           dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
@@ -55,18 +59,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build native terminal support
         run: pnpm run build:native-system
-      - name: Install the same Zsh release
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends zsh
-          zsh --version
-          test "$(dpkg-query -W -f='${Version}' zsh)" = '5.9-6ubuntu2'
-      - name: Verify requested Bash owner and all lifecycle controls
-        run: >-
-          pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts packages/subprocess/subprocess-local/tests/shell-activity-lifecycle.spec.ts
-          -t '^(?!.*Zsh terminal activity)'
-          --reporter=default --reporter=json --outputFile=.artifacts/timeout-bash-focused.json
-      - name: Verify independent Bash and lifecycle processes
+      - name: Verify final Bash owner and six lifecycle controls
+        run: pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts packages/subprocess/subprocess-local/tests/shell-activity-lifecycle.spec.ts -t '^(?!.*Zsh terminal activity)' --reporter=default --reporter=json --outputFile=.artifacts/timeout-bash-focused.json
+      - name: Verify independent final Bash and lifecycle processes
         run: |
           pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts packages/subprocess/subprocess-local/tests/shell-activity-lifecycle.spec.ts -t '^(?!.*Zsh terminal activity)' > .artifacts/timeout-bash-concurrent-1.log 2>&1 &
           first_pid=$!
@@ -79,50 +74,29 @@ jobs:
           cat .artifacts/timeout-bash-concurrent-1.log .artifacts/timeout-bash-concurrent-2.log
           if (( first_status != 0 )); then exit "$first_status"; fi
           exit "$second_status"
-      - name: Observe the candidate Zsh case once
-        run: |
-          status=0
-          pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts -t 'keeps silent foreground work' --reporter=default --reporter=json --outputFile=.artifacts/zsh-candidate.json || status=$?
-          printf '%s\n' "$status" > .artifacts/zsh-candidate-exit.txt
-      - name: Observe the original pre-change Zsh case on the same runner
-        run: |
-          git fetch --no-tags --depth=1 origin 96815ad3a4c91dbd69fec14ca529ac1e26b9ed0e
-          git show 96815ad3a4c91dbd69fec14ca529ac1e26b9ed0e:packages/subprocess/subprocess-local/tests/shell-activity.spec.ts > packages/subprocess/subprocess-local/tests/shell-activity.spec.ts
-          status=0
-          pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts -t 'keeps silent foreground work' --reporter=default --reporter=json --outputFile=.artifacts/zsh-original.json || status=$?
-          printf '%s\n' "$status" > .artifacts/zsh-original-exit.txt
-      - name: Classify the comparison without counting failed Zsh cases as passed
+      - name: Verify the original Bash case and controls actually passed
         run: |
           node --input-type=module <<'JS'
-          import { readFileSync, writeFileSync } from 'node:fs'
-          const read = path => JSON.parse(readFileSync(path, 'utf8'))
-          const bash = read('.artifacts/timeout-bash-focused.json').testResults.flatMap(file => file.assertionResults)
-          if (bash.filter(test => test.status === 'passed').length !== 7 || bash.some(test => test.status === 'failed')) throw new Error('Bash and six lifecycle controls must pass')
-          const select = name => {
-            const tests = read('.artifacts/zsh-' + name + '.json').testResults.flatMap(file => file.assertionResults)
-            const chosen = tests.filter(test => test.fullName.includes('keeps silent foreground work'))
-            if (chosen.length !== 1 || !['passed', 'failed'].includes(chosen[0].status)) throw new Error(name + ' Zsh case was not executed')
-            return { status: chosen[0].status, duration: chosen[0].duration, errors: chosen[0].failureMessages, exitCode: Number(readFileSync('.artifacts/zsh-' + name + '-exit.txt', 'utf8')) }
-          }
-          const candidate = select('candidate'), original = select('original')
-          const report = { candidate, original, classification: original.status === 'failed' && candidate.status === 'failed' ? 'Original Zsh failure also reproduced; neither Zsh run is marked passed' : 'Inspect candidate and original outcomes' }
-          writeFileSync('.artifacts/zsh-baseline-comparison.json', JSON.stringify(report, null, 2))
-          console.log(JSON.stringify(report, null, 2))
-          if (original.status === 'passed' && candidate.status === 'failed') throw new Error('Zsh candidate regressed against the original')
+          import { readFileSync } from 'node:fs'
+          const report = JSON.parse(readFileSync('.artifacts/timeout-bash-focused.json', 'utf8'))
+          const cases = report.testResults.flatMap(file => file.assertionResults)
+          const passed = cases.filter(test => test.status === 'passed')
+          const original = passed.filter(test => test.fullName.includes('preserves scalar prompt hooks and uses unknown on shells without PS0'))
+          if (passed.length !== 7 || original.length !== 1 || cases.some(test => test.status === 'failed')) throw new Error('Original Bash case and six controls must execute and pass')
+          console.log(JSON.stringify({ passed, unselected: cases.length - passed.length }, null, 2))
           JS
-      - name: Preserve the actual Bash results and Zsh comparison
+      - name: Preserve final Bash regression evidence
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: shell-baseline-comparison-${{ github.run_attempt }}
+          name: final-bash-regression-${{ github.run_attempt }}
           path: |
             .artifacts/timeout-bash-*.json
             .artifacts/timeout-bash-*.log
-            .artifacts/zsh-*.json
-            .artifacts/zsh-*-exit.txt
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
+
 
 
 

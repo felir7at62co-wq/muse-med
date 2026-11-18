@@ -5,12 +5,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { SubprocessTerminalActivity } from '@deepseek-ai/dsh-subprocess'
-import { describe, expect, it, onTestFailed } from 'vitest'
+import { afterEach, describe, expect, it, onTestFailed } from 'vitest'
 import LocalSubprocessRuntime from '../src/index.ts'
 import { createProcessInspector } from '../src/process-inspector.ts'
 import type { ProcessIdentity, ProcessInspector } from '../src/process-inspector.ts'
 import { runShellActivityCase } from './shell-activity-lifecycle.ts'
 import type { ShellActivityScope } from './shell-activity-lifecycle.ts'
+
+const cleanups: Array<() => Promise<void>> = []
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
 
 /** Prompt every startup file in this spec prints; its repeats count the prompts a shell reached. */
 const PROMPT_MARKER = 'READY>'
@@ -69,7 +72,25 @@ function observedInspector(diagnostics: ShellDiagnostics): ProcessInspector {
   }
 }
 
-async function shell(scope: ShellActivityScope, path: string, rc = '', envFile = '', diagnostics?: ShellDiagnostics) {
+async function shell(path: string, rc = '', envFile = '') {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-shell-activity-test-'))
+  cleanups.push(() => rm(home, { recursive: true, force: true }))
+  await writeFile(join(home, '.zshenv'), envFile)
+  await writeFile(join(home, '.zshrc'), `PROMPT='${PROMPT_MARKER} '\n${rc}\n`)
+  await writeFile(join(home, '.bashrc'), `PS1='${PROMPT_MARKER} '\n${rc}\n`)
+  const ctx = new Context()
+  cleanups.push(async () => { await ctx.fiber.dispose() })
+  await ctx.plugin(LocalSubprocessRuntime)
+  const handle = await ctx.subprocess.spawnTerminal({ argv: [path, '-i'], cwd: home, env: { HOME: home, ZDOTDIR: home }, rows: 24, cols: 80, terminalType: 'xterm-256color', graceMs: 200, shellActivity: true })
+  cleanups.push(() => handle.terminate())
+  let output = ''
+  handle.output.on('data', (data: Buffer) => { output += data.toString('utf8') })
+  await expect.poll(() => output).toContain(PROMPT_MARKER)
+  const prompts = (): number => output.split(PROMPT_MARKER).length - 1
+  return { handle, home, prompts, output: () => output, activity: async () => (await handle.inspectActivity()).state }
+}
+
+async function scopedShell(scope: ShellActivityScope, path: string, rc = '', envFile = '', diagnostics?: ShellDiagnostics) {
   const home = await scope.acquire(() => mkdtemp(join(tmpdir(), 'dsh-shell-activity-test-')), home => rm(home, { recursive: true, force: true }))
   await scope.run(() => writeFile(join(home, '.zshenv'), envFile))
   await scope.run(() => writeFile(join(home, '.zshrc'), `PROMPT='${PROMPT_MARKER} '\n${rc}\n`))
@@ -104,7 +125,10 @@ async function shell(scope: ShellActivityScope, path: string, rc = '', envFile =
   }
 }
 
-type Shell = Awaited<ReturnType<typeof shell>>
+type Shell = Awaited<ReturnType<typeof shell>> & {
+  scope?: ShellActivityScope
+  inspectActivity?: () => Promise<SubprocessTerminalActivity>
+}
 
 /** Collapse repeated samples and bound how many groups the message can carry. */
 function summarizeSamples(samples: readonly string[]): string {
@@ -128,14 +152,16 @@ function summarizeSamples(samples: readonly string[]): string {
 async function expectActivity(h: Shell, expected: SubprocessTerminalActivity['state'], label?: string): Promise<void> {
   const observed: string[] = []
   const promptsBefore = h.prompts()
+  const sample = async (): Promise<SubprocessTerminalActivity['state']> => {
+    const activity = await (h.inspectActivity === undefined ? h.handle.inspectActivity() : h.inspectActivity())
+    observed.push(`${activity.state}:${activity.revision}`)
+    return activity.state
+  }
   try {
-    await h.scope.poll(async () => {
-      const activity = await h.inspectActivity()
-      observed.push(`${activity.state}:${activity.revision}`)
-      expect(activity.state).toBe(expected)
-    })
+    if (h.scope === undefined) await expect.poll(sample).toBe(expected)
+    else await h.scope.poll(async () => { expect(await sample()).toBe(expected) })
   } catch (cause) {
-    h.scope.signal.throwIfAborted()
+    h.scope?.signal.throwIfAborted()
     const prompts = h.prompts() - promptsBefore
     const samples = observed.length === 0 ? 'no sample' : summarizeSamples(observed)
     throw new Error(`${label === undefined ? 'terminal activity' : `terminal activity for "${label}"`} reported state:revision ${samples} with ${prompts} further prompt${prompts === 1 ? '' : 's'} instead of reaching ${expected}`, { cause })
@@ -143,74 +169,74 @@ async function expectActivity(h: Shell, expected: SubprocessTerminalActivity['st
 }
 
 describe.skipIf(process.platform === 'win32' || !existsSync('/bin/zsh'))('Zsh terminal activity', () => {
-  it('keeps silent foreground work, builtin loops, read, and background jobs busy until a new prompt is idle', async test => runShellActivityCase(test, async (scope) => {
-    const h = await shell(scope, '/bin/zsh')
+  it('keeps silent foreground work, builtin loops, read, and background jobs busy until a new prompt is idle', async () => {
+    const h = await shell('/bin/zsh')
     await expectActivity(h, 'idle')
     for (const command of ['sleep 600', 'while :; do :; done', 'read answer', 'sleep 600 &']) {
-      await h.write(`${command}\r`)
+      await h.handle.write(`${command}\r`)
       await expectActivity(h, 'busy', command)
-      await h.write(command.endsWith('&') ? 'kill %1\r' : '\x03')
+      await h.handle.write(command.endsWith('&') ? 'kill %1\r' : '\x03')
       await expectActivity(h, 'idle', command)
     }
-  }))
+  })
 
-  it('does not confuse vared or multiline editing with a top-level empty prompt', async test => runShellActivityCase(test, async (scope) => {
-    const h = await shell(scope, '/bin/zsh')
+  it('does not confuse vared or multiline editing with a top-level empty prompt', async () => {
+    const h = await shell('/bin/zsh')
     await expectActivity(h, 'idle')
-    await h.write('value=abc; vared value\r')
+    await h.handle.write('value=abc; vared value\r')
     await expectActivity(h, 'busy')
-    await h.write('\x03')
+    await h.handle.write('\x03')
     await expectActivity(h, 'idle')
-    await h.write('if true; then\r')
+    await h.handle.write('if true; then\r')
     await expectActivity(h, 'busy')
-    await h.write('fi\r')
+    await h.handle.write('fi\r')
     await expectActivity(h, 'idle')
-    await h.write('partial')
+    await h.handle.write('partial')
     expect(await h.activity()).toBe('unknown')
-  }))
+  })
 
-  it('preserves startup options and ZDOTDIR and supports noclobber status updates', async test => runShellActivityCase(test, async (scope) => {
-    const h = await shell(scope, '/bin/zsh', 'setopt noclobber\nprint RC-LOADED', 'print ENV-LOADED')
+  it('preserves startup options and ZDOTDIR and supports noclobber status updates', async () => {
+    const h = await shell('/bin/zsh', 'setopt noclobber\nprint RC-LOADED', 'print ENV-LOADED')
     expect(h.output()).toContain('ENV-LOADED')
     expect(h.output()).toContain('RC-LOADED')
     await expectActivity(h, 'idle')
-    await h.write('print -r -- "DIRECTORY:$ZDOTDIR"\r')
-    await h.scope.poll(() => { expect(h.output()).toContain(`DIRECTORY:${h.home}`) })
+    await h.handle.write('print -r -- "DIRECTORY:$ZDOTDIR"\r')
+    await expect.poll(() => h.output()).toContain(`DIRECTORY:${h.home}`)
     await expectActivity(h, 'idle')
     expect(h.output()).not.toContain('file exists')
-  }))
+  })
 
-  it('protects a stopped job even after the shell returns to the prompt', async test => runShellActivityCase(test, async (scope) => {
-    const h = await shell(scope, '/bin/zsh')
+  it('protects a stopped job even after the shell returns to the prompt', async () => {
+    const h = await shell('/bin/zsh')
     await expectActivity(h, 'idle')
-    await h.write('sleep 600\r')
+    await h.handle.write('sleep 600\r')
     await expectActivity(h, 'busy')
-    await h.write('\x1a')
-    await h.scope.poll(() => { expect(h.output()).toContain('suspended') })
+    await h.handle.write('\x1a')
+    await expect.poll(() => h.output()).toContain('suspended')
     expect(await h.activity()).toBe('busy')
-    await h.write('kill -KILL %1\r')
+    await h.handle.write('kill -KILL %1\r')
     await expectActivity(h, 'idle')
-  }))
+  })
 
-  it('refuses idle evidence when custom signal traps may run without terminal input', async test => runShellActivityCase(test, async (scope) => {
-    const h = await shell(scope, '/bin/zsh', "trap ':' USR1")
+  it('refuses idle evidence when custom signal traps may run without terminal input', async () => {
+    const h = await shell('/bin/zsh', "trap ':' USR1")
     expect(await h.activity()).toBe('unknown')
-    await h.write('trap - USR1\r')
+    await h.handle.write('trap - USR1\r')
     await expectActivity(h, 'idle')
-  }))
+  })
 
-  it('leaves disabled startup files disabled and restores ZDOTDIR immediately', async test => runShellActivityCase(test, async (scope) => {
-    const h = await shell(scope, '/bin/zsh', 'print UNEXPECTED-RC', `unsetopt rcs\nPROMPT='${PROMPT_MARKER} '`)
+  it('leaves disabled startup files disabled and restores ZDOTDIR immediately', async () => {
+    const h = await shell('/bin/zsh', 'print UNEXPECTED-RC', `unsetopt rcs\nPROMPT='${PROMPT_MARKER} '`)
     expect(h.output()).not.toContain('UNEXPECTED-RC')
-    await h.write('print -r -- "DIRECTORY:$ZDOTDIR"\r')
-    await h.scope.poll(() => { expect(h.output()).toContain(`DIRECTORY:${h.home}`) })
-  }))
+    await h.handle.write('print -r -- "DIRECTORY:$ZDOTDIR"\r')
+    await expect.poll(() => h.output()).toContain(`DIRECTORY:${h.home}`)
+  })
 })
 
 describe.skipIf(process.platform === 'win32' || !existsSync('/bin/bash'))('Bash terminal activity', () => {
   it('preserves scalar prompt hooks and uses unknown on shells without PS0', async test => runShellActivityCase(test, async (scope) => {
     const diagnostics = failureDiagnostics(scope, 'Bash terminal activity failure')
-    const h = await shell(scope, 'bash', "PROMPT_COMMAND='printf HOOK; # user comment'\nset -C", '', diagnostics)
+    const h = await scopedShell(scope, 'bash', "PROMPT_COMMAND='printf HOOK; # user comment'\nset -C", '', diagnostics)
     expect(h.output()).toContain('HOOK')
     diagnostics.phase = 'read Bash version'
     await h.write('printf "VERSION:%s\\n" "$BASH_VERSION"\r')
