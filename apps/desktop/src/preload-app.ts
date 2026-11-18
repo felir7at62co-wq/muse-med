@@ -11,13 +11,16 @@ import { syncNativeTheme } from './preload-theme.ts'
 import { syncWindowsAppearance } from './preload-windows.ts'
 import { installMandatoryUpdateOverlay } from './preload-mandatory-overlay.ts'
 import { createDesktopBrowserBridge } from './preload-browser.ts'
+import { STANDALONE_STUDIO_ARG } from './standalone-studio.ts'
 import { installAttentionAudio } from './preload-attention.ts'
 import type { FileDragHandle } from '@deepseek-ai/dsh-util-file-drag'
 
 function createProductApi(): DshDesktopProductApi {
+  const studioOrigin = process.argv.find(argument => argument.startsWith(STANDALONE_STUDIO_ARG))?.slice(STANDALONE_STUDIO_ARG.length)
   return {
     protocolVersion: 1,
     productName: 'muse-med',
+    ...(studioOrigin === undefined ? {} : { standaloneStudioOrigin: studioOrigin }),
     fileActions: {
       save: request => ipcRenderer.invoke(DESKTOP_IPC.fileSave, request) as Promise<FileSaveResult>,
       readClipboardImage: url => ipcRenderer.invoke(DESKTOP_IPC.clipboardImageRead, url) as

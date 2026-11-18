@@ -1,5 +1,9 @@
 # Electron reuses the authenticated Web composition on an OS-assigned loopback port.
 
+- id: drama-settings
+  config:
+    standaloneStudioAddress: !!js process.env.MUSE_LOCALMINIDRAMA_URL
+
 # The product speaks for itself: the harness identity line would tell every agent it
 # is powered by the upstream harness, and a model repeats that to the team. The base
 # bundle's own persona prefix is restated because a patch replaces the whole config.

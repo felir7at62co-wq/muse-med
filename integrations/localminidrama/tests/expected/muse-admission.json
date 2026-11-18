@@ -1,0 +1,10 @@
+{
+  "state": "unknown",
+  "request_replayed": false,
+  "new_uuid_rejected": true,
+  "new_version_permitted": false,
+  "supplier_usage": null,
+  "usage_status": "unreported",
+  "billing_verified": false,
+  "message": "生成提交未确认。请使用原提交记录核对结果，不要直接重新生成。"
+}

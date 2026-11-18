@@ -1,0 +1,36 @@
+app:
+  name: Muse
+  version: 1.2.9
+server:
+  host: 127.0.0.1
+  port: 5679
+  insecure_tls: false
+database:
+  type: sqlite
+  path: /var/lib/localminidrama/drama.db
+storage:
+  type: local
+  local_path: /var/lib/localminidrama/storage
+  base_url: http://127.0.0.1:5679/static
+video:
+  generation_timeout_minutes: 30
+ai:
+  default_text_provider: ''
+  default_image_provider: ''
+  default_video_provider: ''
+style:
+  default_style: ''
+  default_role_style: ''
+  default_scene_style: ''
+  default_prop_style: ''
+  default_image_ratio: '16:9'
+  default_video_ratio: '16:9'
+  default_prop_ratio: '1:1'
+  default_image_size: 1024x1024
+vendor_lock:
+  enabled: false
+image_proxy:
+  enabled: false
+  upload_url: ''
+muse_generation:
+  enabled: false

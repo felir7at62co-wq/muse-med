@@ -6,6 +6,7 @@ import { installMandatoryUpdateOverlay } from '../src/preload-mandatory-overlay.
 import { syncWindowsAppearance } from '../src/preload-windows.ts'
 import { DESKTOP_IPC, type DshDesktopProductApi } from '../src/ipc.ts'
 import { installAttentionAudio } from '../src/preload-attention.ts'
+import { STANDALONE_STUDIO_ARG } from '../src/standalone-studio.ts'
 
 const electron = vi.hoisted(() => ({
   contextBridge: { exposeInMainWorld: vi.fn() },
@@ -42,6 +43,18 @@ it('reads only native login API-key presence through the onboarding bridge', asy
   const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshOnboarding')?.[1] as { hasApiKey(): Promise<boolean> }
   expect(await api.hasApiKey()).toBe(true)
   expect(electron.ipcRenderer.invoke).toHaveBeenCalledWith(DESKTOP_IPC.onboardingApiKey)
+})
+
+it.each([
+  ['dsh-app://app/', true, 'http://127.0.0.1:5684'],
+  ['dsh-app://app/', false, undefined],
+  ['http://127.0.0.1:5684/', true, undefined],
+] as const)('exposes the standalone studio origin only to the owned main document (%s, main=%s)', async (url, isMainFrame, origin) => {
+  vi.stubGlobal('location', new URL(url))
+  vi.stubGlobal('process', { ...process, isMainFrame, argv: [STANDALONE_STUDIO_ARG + 'http://127.0.0.1:5684'] })
+  await import('../src/preload-app.ts')
+  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
+  expect(api.standaloneStudioOrigin).toBe(origin)
 })
 
 it('exposes onboarding size activation to the application document', async () => {

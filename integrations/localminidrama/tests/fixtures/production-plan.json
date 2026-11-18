@@ -1,0 +1,11 @@
+{
+  "schema": "muse-production-plan-v1",
+  "project": { "key": "rain-town", "title": "雨城", "description": "重逢", "style": "3D animation", "aspectRatio": "16:9" },
+  "characters": [{ "key": "lin", "name": "林", "description": "年轻画师", "appearance": "蓝色外套", "voiceHint": "温柔低声" }],
+  "scenes": [{ "key": "street", "name": "雨街", "location": "旧城街道", "time": "傍晚", "prompt": "雨后暖灯" }],
+  "props": [{ "key": "umbrella", "name": "伞", "description": "旧纸伞", "prompt": "棕色木柄" }],
+  "episodes": [{ "key": "episode-1", "number": 1, "title": "归来", "script": "林撑伞走入旧城。\n林：你回来了。", "packages": [
+    { "key": "episode-1.arrival", "order": 1, "title": "雨中重逢", "description": "林驻足", "action": "抬头微笑", "imagePrompt": "画师立于雨街", "videoPrompt": "镜头缓慢推近，林抬头微笑", "durationSeconds": 5, "characterKeys": ["lin"], "sceneKey": "street", "propKeys": ["umbrella"], "dialogue": [{ "characterKey": "lin", "text": "你回来了。", "emotion": "惊喜", "voiceHint": "温柔低声" }], "audio": { "mode": "speech", "musicPrompt": "", "effects": ["雨声"] } },
+    { "key": "episode-1.street", "order": 2, "title": "街景", "description": "空镜", "action": "", "imagePrompt": "雨街全景", "videoPrompt": "雨街空镜，固定镜头", "durationSeconds": null, "characterKeys": [], "sceneKey": "street", "propKeys": [], "dialogue": [], "audio": { "mode": "silent", "musicPrompt": "", "effects": [] } }
+  ] }]
+}

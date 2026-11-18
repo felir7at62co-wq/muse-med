@@ -1,0 +1,16 @@
+[
+  {
+    "generationId": 20,
+    "prompt": "最初动作 @asset(hero_old)",
+    "references": [
+      { "name": "林夏 · old", "mediaUrl": "/static/immutable/old.png" }
+    ]
+  },
+  {
+    "generationId": 21,
+    "prompt": "新的动作 @asset(hero_new)",
+    "references": [
+      { "name": "林夏 · new", "mediaUrl": "/static/immutable/new.png" }
+    ]
+  }
+]

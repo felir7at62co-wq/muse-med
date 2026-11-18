@@ -33,7 +33,9 @@ kind: "package-bundle"
       name: '@deepseek-ai/dsh-drama-settings'
 ```
 
-没有 config。默认值就是 schema 自己的默认值；想换默认值的部署去改用户设置文档——用这个设置页，或直接改 `$DSH_HOME/settings.yaml` 里的同一个命名空间——而不是再加一层组合配置。
+交付配置使用 schema 默认值，可在设置页或 `$DSH_HOME/settings.yaml` 的同一个命名空间修改。桌面配置可从 `MUSE_LOCALMINIDRAMA_URL` 读取 `standaloneStudioAddress`。先启动独立服务或已授权的 SSH 隧道，再将此环境变量设为明确的 `http://127.0.0.1:<端口>` 地址并启动 Muse，侧栏会显示「制作平台」。地址不写入设置文档，也不会转发给生成服务。
+
+启用后，可以在对话中请 Muse 按项目编号和集号读取已保存的剧本并提出计划。`muse_standalone_episode_script` 仅在后端确认生成已关闭后读取剧本文本。在对话中审阅计划，再到平台修改记录；嵌入页无法发送对话消息或提交生成任务。
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
@@ -145,11 +147,11 @@ Client 构建从已声明的 `@deepseek-ai/dsh-typert-protocol` 构建依赖内�
 
 #### 模型看到什么
 
-两个服务都已组合时，本包提供 `drama_draft_dir` 和 `drama_project`。说明与参数见[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-drama-settings)。本包不添加系统提示词。
+两个服务都已组合时，本包提供 `drama_draft_dir` 和 `drama_project`，见[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-drama-settings)。启用独立平台时也提供 `muse_standalone_episode_script`，按项目编号、集号和可选字符偏移读取剧本，并在已记录的工具结果中返回。本包不添加系统提示词。
 
 #### Token 影响
 
-两个工具注册期间增加固定的 schema 开销。Settings 值与项目数据不进入工具定义。
+已注册工具增加固定的 schema 开销。Settings 值与项目数据不进入工具定义。可选的分集读取工具每次最多返回 12,000 个 UTF-16 代码单元的剧本文本。
 
 #### KV Cache effect
 

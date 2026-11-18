@@ -9,6 +9,10 @@ import type { DramaComponentStatus } from './components.ts'
  * operator to select the editor's real root without assuming a user's path.
  */
 export const zh = {
+  'studioPanel': '制作平台',
+  'studioLoading': '正在打开制作平台…',
+  'studioUnavailable': '制作平台未响应。请确认独立服务或 SSH 隧道已启动。',
+  'studioRetry': '重试',
   'nav': '短剧',
   'loading': '正在读取短剧设置…',
   'unavailable': '当前部署没有注册短剧设置，这里暂不可用。',
@@ -82,6 +86,10 @@ export type DramaLocaleKey = keyof typeof zh
 
 /** English dictionary checked complete against the Chinese key set. */
 export const en = {
+  'studioPanel': 'Production studio',
+  'studioLoading': 'Opening the production studio…',
+  'studioUnavailable': 'The studio did not respond. Check the standalone service or SSH tunnel.',
+  'studioRetry': 'Retry',
   'nav': 'Short drama',
   'loading': 'Reading the short-drama settings…',
   'unavailable': 'This deployment registers no short-drama settings, so this page is unavailable.',
@@ -163,6 +171,10 @@ export const STATUS_COPY: Record<DramaComponentStatus, DramaLocaleKey> = {
 
 /** Japanese interface copy. */
 export const ja = {
+  'studioPanel': '制作スタジオ',
+  'studioLoading': '制作スタジオを開いています…',
+  'studioUnavailable': 'スタジオが応答しません。独立サービスまたは SSH トンネルを確認してください。',
+  'studioRetry': '再試行',
   'bgmDirDescription': '雰囲気マッチャーが検索するローカル BGM ライブラリです。空欄ではプレースホルダーに表示された既定の場所を使用します。',
   'bgmDirTitle': 'BGM ライブラリ',
   'component.assets.role': '素材の照合：画像生成前に、リモートで選択済みの素材とローカルの一覧を比較します',
@@ -233,6 +245,10 @@ export const ja = {
 
 /** Spanish interface copy. */
 export const es = {
+  'studioPanel': 'Estudio de producción',
+  'studioLoading': 'Abriendo el estudio de producción…',
+  'studioUnavailable': 'El estudio no respondió. Comprueba el servicio independiente o el túnel SSH.',
+  'studioRetry': 'Reintentar',
   'bgmDirDescription': 'Biblioteca BGM local que busca el selector por ambiente; déjala vacía para usar la predeterminada indicada en el campo.',
   'bgmDirTitle': 'Biblioteca de BGM',
   'component.assets.role': 'Conciliación de recursos: compara los recursos ya seleccionados en remoto con el manifiesto local antes de generar imágenes',
@@ -303,6 +319,10 @@ export const es = {
 
 /** French interface copy. */
 export const fr = {
+  'studioPanel': 'Studio de production',
+  'studioLoading': 'Ouverture du studio de production…',
+  'studioUnavailable': 'Le studio ne répond pas. Vérifiez le service autonome ou le tunnel SSH.',
+  'studioRetry': 'Réessayer',
   'bgmDirDescription': 'Bibliothèque BGM locale utilisée pour la recherche par ambiance ; laissez vide pour utiliser celle par défaut indiquée dans le champ.',
   'bgmDirTitle': 'Bibliothèque BGM',
   'component.assets.role': 'Rapprochement des ressources : compare les ressources déjà sélectionnées à distance au manifeste local avant toute génération d’image',
@@ -373,6 +393,10 @@ export const fr = {
 
 /** German interface copy. */
 export const de = {
+  'studioPanel': 'Produktionsstudio',
+  'studioLoading': 'Produktionsstudio wird geöffnet…',
+  'studioUnavailable': 'Das Studio antwortet nicht. Prüfen Sie den eigenständigen Dienst oder den SSH-Tunnel.',
+  'studioRetry': 'Erneut versuchen',
   'bgmDirDescription': 'Lokale BGM-Bibliothek für die Stimmungssuche; leer lassen, um den im Platzhalter angezeigten Standard zu verwenden.',
   'bgmDirTitle': 'BGM-Bibliothek',
   'component.assets.role': 'Asset-Abgleich: vergleicht vor jeder Bilderzeugung die bereits remote ausgewählten Assets mit dem lokalen Verzeichnis',
@@ -443,6 +467,10 @@ export const de = {
 
 /** Russian interface copy. */
 export const ru = {
+  'studioPanel': 'Студия производства',
+  'studioLoading': 'Открытие студии производства…',
+  'studioUnavailable': 'Студия не ответила. Проверьте отдельную службу или туннель SSH.',
+  'studioRetry': 'Повторить',
   'bgmDirDescription': 'Локальная библиотека BGM для подбора по настроению; оставьте пустым для стандартной библиотеки, указанной в подсказке поля.',
   'bgmDirTitle': 'Библиотека BGM',
   'component.assets.role': 'Сверка ресурсов: до генерации изображений сравнивает уже выбранные удалённые ресурсы с локальным манифестом',
@@ -513,6 +541,10 @@ export const ru = {
 
 /** Portuguese interface copy. */
 export const pt = {
+  'studioPanel': 'Estúdio de produção',
+  'studioLoading': 'A abrir o estúdio de produção…',
+  'studioUnavailable': 'O estúdio não respondeu. Verifique o serviço autónomo ou o túnel SSH.',
+  'studioRetry': 'Tentar novamente',
   'bgmDirDescription': 'Biblioteca BGM local pesquisada pelo seletor de ambiente; deixe em branco para usar a predefinida indicada no campo.',
   'bgmDirTitle': 'Biblioteca de BGM',
   'component.assets.role': 'Reconciliação de recursos: compara os recursos já selecionados remotamente com o manifesto local antes de gerar imagens',

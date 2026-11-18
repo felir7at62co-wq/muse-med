@@ -132,7 +132,8 @@ export const DRAMA_SETTINGS_DEFAULTS: DramaSettings = {
  * {@link DRAMA_SETTINGS_DEFAULTS}; the paths are plain strings because a blank
  * one leaves the schema default, including an unconfigured Jianying draft root.
  *
- * Every field is volatile. The settings service derives one live form per
+ * Editable fields are volatile. The optional studio address is a composition
+ * input and is not part of the durable Settings form. The settings service derives one live form per
  * composed row and skips a row whose schema declares none
  * (`volatileForm(schema) === undefined`), so a section without them serves no
  * namespace at all: the Settings page would report the namespace as
@@ -143,9 +144,10 @@ export const DRAMA_SETTINGS_DEFAULTS: DramaSettings = {
  * value view, not the mounted row's own output type.
  */
 export const DramaSettingsSchema = z.object({
+  standaloneStudioAddress: z.string(),
   deliveryDir: z.string().default(DRAMA_SETTINGS_DEFAULTS.deliveryDir).volatile(),
   jianyingDraftDir: z.string().default(DEFAULT_JIANYING_DRAFT_DIR).volatile(),
-  [DELIVERY_SPEC_FIELD]: z.object({
+  deliverySpec: z.object({
     width: z.number().step(1).min(1).default(DEFAULT_DELIVERY_SPEC.width),
     height: z.number().step(1).min(1).default(DEFAULT_DELIVERY_SPEC.height),
     fps: z.number().step(1).min(1).max(240).default(DEFAULT_DELIVERY_SPEC.fps),

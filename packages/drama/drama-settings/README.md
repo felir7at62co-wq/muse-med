@@ -33,7 +33,9 @@ This bundle's `cordis.patch.yml` inserts the row into a profile; the same row ca
       name: '@deepseek-ai/dsh-drama-settings'
 ```
 
-There is no config. A default is the schema's own, and a deployment that wants another one changes it in the user settings document — the page, or the same namespace in `$DSH_HOME/settings.yaml` — rather than in a second composition layer.
+The delivery settings use the schema defaults; change them in the page or the same namespace in `$DSH_HOME/settings.yaml`. The desktop composition optionally supplies `standaloneStudioAddress` from `MUSE_LOCALMINIDRAMA_URL`. Set this environment variable to an explicit `http://127.0.0.1:<port>` origin before starting Muse to show **Production studio**. Start a local instance or authorized SSH tunnel first. The address is not saved in the settings document or forwarded to a provider.
+
+With this opt-in, ask Muse in chat to read the saved episode by project ID and episode number and prepare a plan. The `muse_standalone_episode_script` tool only reads saved text after the backend reports generation disabled. Review plans in chat and edit records in the studio. The embedded page cannot submit a chat message or start a generation job.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -146,11 +148,11 @@ Read these pages when the surfaces above are not enough. They move from this pac
 
 #### What the model sees
 
-The package contributes `drama_draft_dir` and `drama_project` when both services are composed. Their descriptions and parameters are in the [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-drama-settings). The package adds no system-prompt text.
+The package contributes `drama_draft_dir` and `drama_project` when both services are composed; see the [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-drama-settings). An opted-in studio also contributes `muse_standalone_episode_script`, which accepts a project ID, episode number and optional character offset, then returns saved script text in logged tool results. The package adds no system-prompt text.
 
 #### Token effect
 
-The two tool definitions add a fixed schema cost while registered. Settings values and project data do not enter those definitions.
+Registered tools add a fixed schema cost. Settings values and project data do not enter those definitions. The optional episode reader returns at most 12,000 UTF-16 code units of script text per call.
 
 #### KV Cache effect
 

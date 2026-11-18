@@ -2,7 +2,7 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import Tools from '../../../core/tools/src/index.ts'
@@ -11,16 +11,47 @@ import { configurationFixture } from '../../../settings/settings/tests/configura
 import { DramaSettingsSchema, apply } from '../src/index.ts'
 import { readProjectBible, previewProjectBible, updateProjectBible } from '../src/project-bible.ts'
 
-async function bench() {
+async function bench(standaloneStudioAddress?: string) {
   return configurationFixture({ rows: [
     { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'config-editor', name: 'cordis:editor' },
     { id: 'settings', name: 'cordis:settings' },
     { id: 'prompt', name: 'cordis:prompt' },
     { id: 'tools', name: 'cordis:tools' },
-    { id: 'drama-settings', name: 'cordis:drama' },
+    { id: 'drama-settings', name: 'cordis:drama', ...(standaloneStudioAddress ? { config: { standaloneStudioAddress } } : {}) },
   ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
 }
+
+it('reads only the selected standalone episode after verifying that generation is disabled', async () => {
+  const origin = 'http://127.0.0.1:5684'
+  const { ctx } = await bench(origin)
+  let safe = false
+  const request = vi.fn(async (url: URL) => Response.json(url.pathname === '/health'
+    ? { status: 'ok', generationBackend: safe ? 'unconfigured' : 'configured', backgroundGeneration: false }
+    : { data: { id: 7, episodes: [
+      { drama_id: 7, episode_number: 1, title: 'Other episode', script_content: 'Not selected' },
+      { drama_id: 7, episode_number: 2, title: 'Test episode', script_content: 'A character enters the room.' },
+    ] } }))
+  vi.stubGlobal('fetch', request)
+  try {
+    const read = async () => await executeModelToolFixture(ctx, {
+      name: 'muse_standalone_episode_script', callId: ToolCallId('studio-script'),
+      arguments: { project_id: 7, episode_number: 2 }, signal: new AbortController().signal,
+    })
+    expect((await read()).isError).toBe(true)
+    expect(request.mock.calls.map(([url]) => url.href)).toEqual([origin + '/health'])
+    safe = true
+    const outcome = await read()
+    expect(outcome.isError).toBe(false)
+    const block = outcome.content[0]
+    if (block?.type !== 'text') throw new Error('Expected a saved script')
+    expect(JSON.parse(block.text)).toEqual({ project_id: 7, episode_number: 2, title: 'Test episode',
+      script: 'A character enters the room.' })
+    expect(request.mock.calls.map(([url]) => url.href)).toEqual([origin + '/health', origin + '/health', origin + '/api/v1/dramas/7'])
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
 
 it.each([
   { delivery: { require_source_review: 'yes' }, message: 'delivery.require_source_review must be a boolean' },

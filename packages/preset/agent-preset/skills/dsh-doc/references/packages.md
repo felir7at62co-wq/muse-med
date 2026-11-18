@@ -201,7 +201,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-character-library-tos` | yes | Volcengine TOS read-only provider for the Muse character library object store |
-| `@deepseek-ai/dsh-drama-settings` | no | Short-drama settings and Web UI for delivery, media and the automatic per-drama paid-call budget |
+| `@deepseek-ai/dsh-drama-settings` | yes | Short-drama settings and Web UI for delivery, media and the automatic per-drama paid-call budget |
 | `@deepseek-ai/dsh-screenplay-project` | yes | Source-backed screenplay projects with independent episode review and resumable character knowledge |
 | `@deepseek-ai/dsh-session-video` | yes | Session-bound video inventory, playback and visual cut detection |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | yes | Muse account cloud speech transcription with versioned local project output |

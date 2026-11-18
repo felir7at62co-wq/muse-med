@@ -1,0 +1,7 @@
+{
+  "conflict_title": "合并其他窗口的修改",
+  "cancel_preserves_local": true,
+  "explicit_merge": "明确合并后的提示词",
+  "remote": "别人保存的版本",
+  "automatic_retry": false
+}
