@@ -49,6 +49,8 @@ jobs:
     name: ${{ matrix.target }} unsigned installer
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
+    env:
+      MUSE_PREVIOUS_INSTALLER_VERSION: ${{ matrix.target == 'win-x64' && '1.3.0' || '1.2.5' }}
     strategy:
       fail-fast: false
       matrix:
@@ -187,7 +189,11 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download v1.2.5 --repo felir7at62co-wq/muse-med --pattern muse-desktop-builds.json --pattern muse-med-1.2.5-${{ matrix.target }}.${{ matrix.target == 'win-x64' && 'exe' || 'dmg' }} --dir apps/desktop/.desktop-build/previous-release/${{ matrix.target }}
+        run: >-
+          gh release download v${{ env.MUSE_PREVIOUS_INSTALLER_VERSION }} --repo felir7at62co-wq/muse-med
+          --pattern muse-desktop-builds.json
+          --pattern muse-med-${{ env.MUSE_PREVIOUS_INSTALLER_VERSION }}-${{ matrix.target }}.${{ matrix.target == 'win-x64' && 'exe' || 'dmg' }}
+          --dir apps/desktop/.desktop-build/previous-release/${{ matrix.target }}/${{ env.MUSE_PREVIOUS_INSTALLER_VERSION }}
       - name: Accept the genuine installer in an isolated directory
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -198,7 +204,10 @@ jobs:
           MUSE_FANQIE_LIVE_BOOK_ID: ${{ inputs.fanqie_book_id }}
           MUSE_FANQIE_LIVE_TITLE: 摆烂摆烂，誓做修仙界第一关系户
           MUSE_FANQIE_LIVE_AUTHOR: 倒荷
-        run: pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts --previous-release-cache apps/desktop/.desktop-build/previous-release/${{ matrix.target }}
+        run: >-
+          pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts
+          --previous-version ${{ env.MUSE_PREVIOUS_INSTALLER_VERSION }}
+          --previous-release-cache apps/desktop/.desktop-build/previous-release/${{ matrix.target }}/${{ env.MUSE_PREVIOUS_INSTALLER_VERSION }}
       - name: Export the encrypted Windows candidate and acceptance to TOS
         if: github.event_name == 'workflow_dispatch' && matrix.target == 'win-x64' && inputs.export_candidate_to_tos
         env:

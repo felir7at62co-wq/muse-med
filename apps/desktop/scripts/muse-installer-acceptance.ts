@@ -9,6 +9,7 @@ import { dirname, join, resolve } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
 import { readAsar } from 'app-builder-lib/out/asar/asar.js'
 import { getPath7za } from 'app-builder-lib/out/toolsets/7zip.js'
+import { gt } from 'semver'
 import { isEntry } from '../../../scripts/release/process.ts'
 import { readDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import { desktopTargetBuildPaths, desktopTargetPlatform } from './desktop-build-paths.mjs'
@@ -24,41 +25,60 @@ interface AcceptanceIdentity {
   readonly sourceCommit: string
 }
 
-const PREVIOUS_VERSION = '1.2.5'
+const DEFAULT_PREVIOUS_VERSION = '1.2.5'
+const PREVIOUS_RELEASES = {
+  '1.2.5': {
+    manifest: { bytes: 2504, sha256: 'c2e4a2c1704ac73d3d8f2cc75e1d004ee11a5daf9fbbaf047232fbc01c47ae82' },
+    installers: {
+      'win-x64': { bytes: 817784839, sha256: '50423c1ec024e7dfc82959ea02039d5f8de238796ddba001ebb9fcfbbd43f7db' },
+      'mac-arm64': { bytes: 872623462, sha256: '5b40473d559ad4c7eeff1cf68422c74b6fcd727d08db8510bb4f93a202443e66' },
+    },
+  },
+  '1.3.0': {
+    manifest: { bytes: 2504, sha256: '1ec40a31c4ae37f545e02494de442a5fce0d5d0928fc48ea87adfbf57398c944' },
+    installers: {
+      'win-x64': { bytes: 695131058, sha256: '38f3ed42a16c3ec9de3eb10fa6dfa2d589f1af4a29fe1162e854aeb75c24e1d1' },
+      'mac-arm64': undefined,
+    },
+  },
+}
 
 /**
  * Resolve the published baseline whose original installer bytes qualify replacement upgrades.
  * @param target Native release platform.
+ * @param version Allowlisted published baseline version for that platform.
  * @returns Fixed official version, installer and source-manifest resource identities.
  */
-export function museAcceptancePreviousRelease(target: AcceptanceIdentity['target']): {
+export function museAcceptancePreviousRelease(target: AcceptanceIdentity['target'], version = DEFAULT_PREVIOUS_VERSION): {
   target: AcceptanceIdentity['target']
   version: string
   resource: MediaResource
   manifestResource: MediaResource
 } {
-  const windows = target === 'win-x64'
-  const filename = `muse-med-${PREVIOUS_VERSION}-${windows ? 'win-x64.exe' : 'mac-arm64.dmg'}`
-  return { target, version: PREVIOUS_VERSION, resource: {
-    filename, url: `https://github.com/felir7at62co-wq/muse-med/releases/download/v${PREVIOUS_VERSION}/${filename}`,
-    bytes: windows ? 817784839 : 872623462,
-    sha256: windows ? '50423c1ec024e7dfc82959ea02039d5f8de238796ddba001ebb9fcfbbd43f7db'
-      : '5b40473d559ad4c7eeff1cf68422c74b6fcd727d08db8510bb4f93a202443e66',
-  }, manifestResource: {
-    filename: 'muse-desktop-builds.json',
-    url: `https://github.com/felir7at62co-wq/muse-med/releases/download/v${PREVIOUS_VERSION}/muse-desktop-builds.json`,
-    bytes: 2504, sha256: 'c2e4a2c1704ac73d3d8f2cc75e1d004ee11a5daf9fbbaf047232fbc01c47ae82',
-  } }
+  assert.ok(version === DEFAULT_PREVIOUS_VERSION || version === '1.3.0', 'Installer acceptance: previous version is not locked')
+  const release = PREVIOUS_RELEASES[version]
+  const installer = release.installers[target]
+  assert.ok(installer, 'Installer acceptance: previous version is not locked for this target')
+  const origin = `https://github.com/felir7at62co-wq/muse-med/releases/download/v${version}`
+  const filename = `muse-med-${version}-${target}.${target === 'win-x64' ? 'exe' : 'dmg'}`
+  const manifest = 'muse-desktop-builds.json'
+  return { target, version,
+    resource: { filename, url: `${origin}/${filename}`, ...installer },
+    manifestResource: { filename: manifest, url: `${origin}/${manifest}`, ...release.manifest },
+  }
 }
 
 /**
  * Read the old source identity from the hash-verified official release manifest.
  * @param value Parsed manifest after resource size and SHA-256 verification.
  * @param target Native platform whose old installation will be inspected.
+ * @param version Allowlisted published baseline version for that platform.
  * @returns Old version/source identity after matching its exact locked installer record.
  */
-export function museAcceptancePreviousIdentity(value: unknown, target: AcceptanceIdentity['target']): AcceptanceIdentity {
-  const previous = museAcceptancePreviousRelease(target)
+export function museAcceptancePreviousIdentity(
+  value: unknown, target: AcceptanceIdentity['target'], version = DEFAULT_PREVIOUS_VERSION,
+): AcceptanceIdentity {
+  const previous = museAcceptancePreviousRelease(target, version)
   assert.ok(record(value) && value.schemaVersion === 1 && value.version === previous.version && typeof value.sourceCommit === 'string'
     && /^[a-f0-9]{40}$/u.test(value.sourceCommit) && record(value.builds),
   'Installer acceptance: invalid previous release manifest')
@@ -202,7 +222,7 @@ export function assertMuseInstalledUnchanged(before: Readonly<Record<string, str
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { 'previous-release-cache': { type: 'string' } } })
+  const { values } = parseArgs({ options: { 'previous-version': { type: 'string' }, 'previous-release-cache': { type: 'string' } } })
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Installer acceptance requires a disposable GitHub Actions runner')
   const target = process.env.MUSE_RELEASE_TARGET
   assert.ok(target === 'win-x64' || target === 'mac-arm64', 'Installer acceptance: unsupported target')
@@ -212,6 +232,9 @@ async function main(): Promise<void> {
   const sourceCommit = process.env.GITHUB_SHA
   assert.ok(sourceCommit !== undefined && /^[a-f0-9]{40}$/u.test(sourceCommit), 'Installer acceptance: missing source commit')
   const version = readDesktopProductVersion()
+  const previousRelease = museAcceptancePreviousRelease(target, values['previous-version'])
+  assert.ok(values['previous-version'] === undefined || gt(version, previousRelease.version),
+    'Installer acceptance: candidate must be newer than the requested previous version')
   const identity: AcceptanceIdentity = { target, version, sourceCommit }
   const paths = desktopTargetBuildPaths(target)
   const root = await mkdtemp(join(process.env.RUNNER_TEMP ?? tmpdir(), 'muse-installer-acceptance-'))
@@ -296,12 +319,11 @@ async function main(): Promise<void> {
       packagedHost: true, productPresetsAndSkills: true, officeConversions: true, teardown: true }
     await persist()
 
-    const previousRelease = museAcceptancePreviousRelease(target)
     const downloads = values['previous-release-cache'] === undefined
       ? join(root, 'downloads') : resolve(values['previous-release-cache'])
     await mkdir(downloads, { recursive: true })
     const previousManifestPath = await obtain(previousRelease.manifestResource, downloads)
-    const previous = museAcceptancePreviousIdentity(JSON.parse(await readFile(previousManifestPath, 'utf8')), target)
+    const previous = museAcceptancePreviousIdentity(JSON.parse(await readFile(previousManifestPath, 'utf8')), target, previousRelease.version)
     const previousInstaller = await obtain(previousRelease.resource, downloads)
     const upgrade: Record<string, unknown> = { fromVersion: previous.version, toVersion: version,
       previousSourceCommit: previous.sourceCommit, previousInstallerSha256: previousRelease.resource.sha256,
@@ -328,12 +350,16 @@ async function main(): Promise<void> {
     assertMuseInstalledIdentity(previousManifest, previous)
     upgrade.previousInstalledIdentity = true
     const sentinels = await createMuseUpgradeSentinels(preserved)
-    const userFile = join('workspace-用户', '.agents', 'skills', 'custom', 'SKILL.md')
-    const userBytes = Buffer.from('Custom skill and workspace data, retained across upgrade.\n', 'utf8')
+    const workspaceFiles = [
+      [join('workspace-用户', 'project.txt'), Buffer.from('用户工作区项目文件\n', 'utf8')],
+      [join('workspace-用户', '.agents', 'skills', 'custom', 'SKILL.md'), Buffer.from('Custom skill retained across upgrade.\n', 'utf8')],
+    ] as const
     if (target === 'win-x64') {
-      const userPath = join(installed, userFile)
-      await mkdir(dirname(userPath), { recursive: true })
-      await writeFile(userPath, userBytes, { flag: 'wx' })
+      for (const [file, bytes] of workspaceFiles) {
+        const userPath = join(installed, file)
+        await mkdir(dirname(userPath), { recursive: true })
+        await writeFile(userPath, bytes, { flag: 'wx' })
+      }
     }
     if (target === 'win-x64') await installWindows(installer, 'upgrade-original-exe')
     else {
@@ -349,9 +375,12 @@ async function main(): Promise<void> {
     if (target === 'win-x64') {
       const backups = (await readdir(root)).filter(name => name.startsWith('installed.old-'))
       assert.equal(backups.length, 1, 'Installer acceptance: expected one retained old installation')
-      assert.deepEqual(await readFile(join(root, backups[0]!, userFile)), userBytes,
-        'Installer acceptance: user workspace or custom skill was not retained')
+      for (const [file, bytes] of workspaceFiles) {
+        assert.deepEqual(await readFile(join(root, backups[0]!, file)), bytes,
+          `Installer acceptance: user workspace file was not retained: ${file}`)
+      }
       upgrade.installDirectoryUserFilePreserved = true
+      upgrade.installDirectoryUserFileCount = workspaceFiles.length
     }
     assertMuseInstalledUnchanged(sentinels, await payloadInventory(preserved))
     await verifyCurrent()

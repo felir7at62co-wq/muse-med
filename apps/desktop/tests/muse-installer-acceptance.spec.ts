@@ -31,6 +31,28 @@ describe('genuine Muse installer identity', () => {
     expect(mac.resource.url).toBe('https://github.com/felir7at62co-wq/muse-med/releases/download/v1.2.5/muse-med-1.2.5-mac-arm64.dmg')
   })
 
+  it('pins the genuine 1.3.0 baseline to Windows only and checks its installer identity', () => {
+    const target = 'win-x64'
+    const version = '1.3.0'
+    const sourceCommit = '88029bebe0eab736519c847c88c5003223d2bcec'
+    const previous = museAcceptancePreviousRelease(target, version)
+    const installer = { size: 695131058, sha256: '38f3ed42a16c3ec9de3eb10fa6dfa2d589f1af4a29fe1162e854aeb75c24e1d1',
+      sha512: 'Ns774qsDYeZ7Ockx7cvUa6Ue1XDfU09CoqcTKCf5+xZSrctAiBJD8oKbvjcxcqwhhsSdPZxgG4d2t3bIx53V/A==' }
+    expect(previous.resource).toEqual({ filename: 'muse-med-1.3.0-win-x64.exe',
+      url: 'https://github.com/felir7at62co-wq/muse-med/releases/download/v1.3.0/muse-med-1.3.0-win-x64.exe',
+      bytes: installer.size, sha256: installer.sha256 })
+    expect(previous.manifestResource).toEqual({ filename: 'muse-desktop-builds.json',
+      url: 'https://github.com/felir7at62co-wq/muse-med/releases/download/v1.3.0/muse-desktop-builds.json',
+      bytes: 2504, sha256: '1ec40a31c4ae37f545e02494de442a5fce0d5d0928fc48ea87adfbf57398c944' })
+    const build = { schemaVersion: 1, target, version, sourceCommit, unsigned: true,
+      artifacts: { [previous.resource.filename]: installer } }
+    const baseline = { schemaVersion: 1, version, sourceCommit, builds: { [target]: build } }
+    expect(museAcceptancePreviousIdentity(baseline, target, version)).toEqual({ target, version, sourceCommit })
+    expect(() => museAcceptancePreviousIdentity(baseline, target)).toThrow('invalid previous release manifest')
+    expect(() => museAcceptancePreviousRelease('mac-arm64', version)).toThrow('not locked for this target')
+    expect(() => museAcceptancePreviousRelease(target, '1.3.1')).toThrow('not locked')
+  })
+
   it.each(['win-x64', 'mac-arm64'] as const)('binds the mapped %s build to its baseline installer and source identity', (target) => {
     const previous = museAcceptancePreviousRelease(target)
     const sourceCommit = 'd'.repeat(40)
