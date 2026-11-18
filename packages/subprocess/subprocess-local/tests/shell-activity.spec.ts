@@ -47,10 +47,11 @@ function observedInspector(diagnostics: ShellDiagnostics): ProcessInspector {
     },
     isStdinWaiting: (pgid, pid) => inspector.isStdinWaiting(pgid, pid),
     snapshot() {
-      const snapshot = inspector.snapshot()
-      diagnostics.complete = snapshot.complete
+      diagnostics.complete = undefined
       diagnostics.tree = []
       diagnostics.foreground = undefined
+      const snapshot = inspector.snapshot()
+      diagnostics.complete = snapshot.complete
       return {
         ...snapshot.complete === undefined ? {} : { complete: snapshot.complete },
         tree(pid) {
