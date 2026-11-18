@@ -280,6 +280,7 @@ function Wait-InstallerFinish([Diagnostics.Process]$Process, [string]$Theme, [bo
             [void]$seenUpgradeReports.Add($report.FullName)
             $acknowledgedBackups++
         }
+        $window = [InstallerCapture]::Find($Process.Id)
         $visible = [InstallerCapture]::VisibleText($Process.Id)
         if ($visible.Contains('msctls_progress32') -ne $expected.nativeProgressVisible) { throw 'Stock green progress bar is visible' }
         if ($visible -match 'HarnessInstallerProgress[^\r\n]*?(\d+)%') {
