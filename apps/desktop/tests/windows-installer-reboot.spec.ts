@@ -46,6 +46,7 @@ if ($parseErrors.Count -ne 0) { throw 'Installer smoke source did not parse' }
 foreach ($name in @('Read-OwnUpgradeReports', 'Wait-InstallerFinish')) {
     $functions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
     if ($functions.Count -ne 1) { throw 'Expected one actual completion dependency' }
+    if ($name -eq 'Wait-InstallerFinish') { $waitSource = $functions[0].Extent.Text }
     Invoke-Expression $functions[0].Extent.Text
 }
 Add-Type -TypeDefinition @'
@@ -54,14 +55,17 @@ public static class InstallerCapture {
     public static bool Pending;
     public static int Acknowledgements;
     public static int FinishChecks;
+    public static int WindowChecks;
+    public static bool InitialWindowMissing;
+    public static bool Success;
     public static string ExpectedBackup;
-    public static IntPtr Find(int process) { return new IntPtr(10); }
+    public static IntPtr Find(int process) { return WindowChecks++ == 0 && InitialWindowMissing ? IntPtr.Zero : new IntPtr(10); }
     public static IntPtr FindButton(int process, string text) { return FinishChecks++ == 0 || Pending ? IntPtr.Zero : new IntPtr(11); }
     public static IntPtr FindDialogText(int process, string text) { return Pending && text == ExpectedBackup ? new IntPtr(12) : IntPtr.Zero; }
     public static IntPtr TopLevel(IntPtr control) { return control; }
     public static bool SaveNative(IntPtr control, string path, bool option) { return true; }
-    public static string VisibleText(int process) { return "HarnessInstallerProgress 98%"; }
-    public static IntPtr GetProp(IntPtr window, string name) { return new IntPtr(1); }
+    public static string VisibleText(int process) { return InitialWindowMissing ? "HarnessInstallerProgress 100%" : "HarnessInstallerProgress 98%"; }
+    public static IntPtr GetProp(IntPtr window, string name) { return window != IntPtr.Zero && Success ? new IntPtr(1) : IntPtr.Zero; }
 }
 '@
 $UpgradeReportDirectory = ${literal(reports)}
@@ -76,12 +80,16 @@ function Dismiss([Diagnostics.Process]$Process, [string]$Text) {
     [InstallerCapture]::Acknowledgements++
     [InstallerCapture]::Pending = $false
 }
-function Run-Case([bool]$Pending, [bool]$ExpectBackup, [bool]$AllowBackupReceipt, [bool]$SeenPrevious = $false) {
+function Run-Case([bool]$Pending, [bool]$ExpectBackup, [bool]$AllowBackupReceipt, [bool]$SeenPrevious = $false,
+    [bool]$InitialWindowMissing = $false, [bool]$PrematureProgress = $false) {
     $script:seenUpgradeReports = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     if ($SeenPrevious) { [void]$script:seenUpgradeReports.Add(${literal(join(reports, 'previous.completed'))}) }
     [InstallerCapture]::Pending = $Pending
     [InstallerCapture]::Acknowledgements = 0
     [InstallerCapture]::FinishChecks = 0
+    [InstallerCapture]::WindowChecks = 0
+    [InstallerCapture]::InitialWindowMissing = $InitialWindowMissing
+    [InstallerCapture]::Success = -not $PrematureProgress
     $process = [Diagnostics.Process]::GetCurrentProcess()
     try {
         try {
@@ -90,7 +98,7 @@ function Run-Case([bool]$Pending, [bool]$ExpectBackup, [bool]$AllowBackupReceipt
         } catch { return @{ acknowledged = [InstallerCapture]::Acknowledgements; error = $_.Exception.Message } }
     } finally { $process.Dispose() }
 }
-ConvertTo-Json -InputObject @{
+$results = @{
     manual = Run-Case $true $true $false
     manualSeenPrevious = Run-Case $true $true $false $true
     automatic = Run-Case $false $false $true
@@ -98,7 +106,14 @@ ConvertTo-Json -InputObject @{
     missingManual = Run-Case $false $true $false
     unexpectedAutomatic = Run-Case $true $false $true
     freshWithReceipt = Run-Case $false $false $false
-} -Compress -Depth 4
+    lateWindow = Run-Case $false $false $true $false $true
+    prematureProgress = Run-Case $false $false $true $false $true $true
+}
+$refresh = '        $window = [InstallerCapture]::Find($Process.Id)'
+if (-not $waitSource.Contains($refresh)) { throw 'Expected the live progress-window sample' }
+Invoke-Expression $waitSource.Replace($refresh, '')
+$results.legacyWindow = Run-Case $false $false $true $false $true
+ConvertTo-Json -InputObject $results -Compress -Depth 4
 `)
   const systemRoot = process.env.SystemRoot
   if (systemRoot === undefined) throw new Error('Windows SystemRoot is unavailable')
@@ -116,5 +131,8 @@ ConvertTo-Json -InputObject @{
     missingManual: { acknowledged: 0, error: 'Unexpected number of retained-backup notices' },
     unexpectedAutomatic: { acknowledged: 0, error: 'Automatic update waited for a retained-backup acknowledgement' },
     freshWithReceipt: { acknowledged: 0, error: 'Fresh installation unexpectedly retained an old directory' },
+    lateWindow: { acknowledged: 0, error: null },
+    prematureProgress: { acknowledged: 0, error: 'Installation showed 100% before success' },
+    legacyWindow: { acknowledged: 0, error: 'Installation showed 100% before success' },
   })
 })
