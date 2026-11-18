@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -159,9 +159,30 @@ it.runIf(process.platform === 'win32')('reads only this installation from the co
   expect(foreignOnly.status, foreignOnly.stderr).toBe(0)
   expect(JSON.parse(foreignOnly.stdout)).toEqual([])
   await put('current', current, backup)
+  const expectOwnReport = async (stdout: string) => {
+    const records: unknown = JSON.parse(stdout)
+    if (!Array.isArray(records) || records.length !== 1) throw new Error('Expected one retained-backup receipt')
+    const entry: unknown = records[0]
+    if (entry === null || typeof entry !== 'object' || !('FullName' in entry) || typeof entry.FullName !== 'string') {
+      throw new Error('Expected the returned receipt filename')
+    }
+    expect(entry).toEqual({ FullName: expect.any(String), Backup: backup })
+    const expectedReport = join(reports, 'current.completed')
+    expect(await realpath(entry.FullName)).toBe(await realpath(expectedReport))
+    expect(await readFile(entry.FullName)).toEqual(await readFile(expectedReport))
+  }
   const own = read()
   expect(own.status, own.stderr).toBe(0)
-  expect(JSON.parse(own.stdout)).toEqual([{ FullName: join(reports, 'current.completed'), Backup: backup }])
+  await expectOwnReport(own.stdout)
+  const alias = join(root, 'reports-alias')
+  await symlink(reports, alias, 'junction')
+  try {
+    const aliasBinding = [...argv]
+    aliasBinding[aliasBinding.indexOf('-UpgradeReportDirectory') + 1] = alias
+    const aliased = read(aliasBinding)
+    expect(aliased.status, aliased.stderr).toBe(0)
+    await expectOwnReport(aliased.stdout)
+  } finally { await unlink(alias) }
   const oldBinding = [...argv]
   oldBinding[oldBinding.indexOf('-UpgradeReportDirectory') + 1] = join(output, 'upgrade-reports')
   const missing = read(oldBinding)
