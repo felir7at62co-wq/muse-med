@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { boot } from '@deepseek-ai/dsh-app-boot'
 import Sessions, { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
-import Tools from '@deepseek-ai/dsh-tools'
+import Tools, { type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Projections from '@deepseek-ai/dsh-session-projection'
@@ -91,6 +91,11 @@ async function localPlayback(overrides: Partial<Config> = {}) {
   return { ...f, source, route, url: new URL(source.playbackUrl, 'http://localhost/') }
 }
 
+function expectToolFailure(result: ToolExecutionResult, name: string, code: string, message: string): void {
+  expect(result).toMatchObject({ isError: true, error: { info: { name, code } } })
+  expect(JSON.stringify(result.content)).toContain(message)
+}
+
 /** Hold the return of a real read so cancellation and disposal have an observable boundary. */
 function holdPlaybackRead(ctx: Context) {
   const entered = Promise.withResolvers<AbortSignal>(), gate = Promise.withResolvers<undefined>()
@@ -150,9 +155,10 @@ it('binds observed authored-shot timing to exact bytes and drops it when the sou
     callId: ToolCallId('bind-fixture'), name: 'muse_video', arguments: arguments_, signal: f.signal,
     agent: { id: f.session.id, session: f.session } as never,
   })
-  expect((await run({ ...args, sha256: '0'.repeat(64) })).isError).toBe(true)
+  expectToolFailure(await run({ ...args, sha256: '0'.repeat(64) }), 'SessionVideoError',
+    'SESSION_VIDEO_HASH_MISMATCH', 'SHA-256 does not match')
   const invalidRange = { ...args.production, shotRanges: [{ shotNumber: 12, startSeconds: 1, endSeconds: 4 }] }
-  expect((await run({ ...args, production: invalidRange })).isError).toBe(true)
+  expectToolFailure(await run({ ...args, production: invalidRange }), 'ToolArgsError', 'INVALID_ARGS', 'Observed shot intervals')
   const result = await run(args)
   expect(result.isError, JSON.stringify(result.content)).toBe(false)
   if (typeof result.value !== 'string') throw Error('Missing binding result')
@@ -173,7 +179,7 @@ it('returns only selected-interval images and rejects a wider review or a comple
   })
   const args = { method: 'review', source_id: source.id, source_version: source.version, start_seconds: 1, end_seconds: 2 }
   const wider = await run('muse_video', { ...args, start_seconds: 0 })
-  expect(wider.isError).toBe(true)
+  expectToolFailure(wider, 'SessionVideoError', 'SESSION_VIDEO_REVIEW_SCOPE_DENIED', 'Review exceeds')
   const result = await run('muse_video', args)
   expect(result.isError, JSON.stringify(result.content)).toBe(false)
   expect(result.content.filter(block => block.type === 'image')).toHaveLength(2)
@@ -184,11 +190,10 @@ it('returns only selected-interval images and rejects a wider review or a comple
   f.ctx.tools.register({ name: 'video_inspect', description: 'Forbidden scan fixture', parameters: {},
     output: { schema: { type: 'string' }, render: () => [] }, execute: async () => { throw Error('scan reached its body') } })
   const scan = await run('video_inspect', {})
-  expect(scan.isError).toBe(true)
-  expect(JSON.stringify(scan.content)).toContain('Use muse_video review')
+  expectToolFailure(scan, 'SessionVideoError', 'SESSION_VIDEO_REVIEW_SCOPE_DENIED', 'Use muse_video review')
   f.ctx.tools.register({ name: 'pwsh', description: 'Forbidden script fixture', parameters: {},
     output: { schema: { type: 'string' }, render: () => [] }, execute: async () => { throw Error('script reached its body') } })
-  expect(JSON.stringify((await run('pwsh', {})).content)).toContain('Use muse_video review')
+  expectToolFailure(await run('pwsh', {}), 'SessionVideoError', 'SESSION_VIDEO_REVIEW_SCOPE_DENIED', 'Use muse_video review')
   f.user('Now make the requested local edit.')
   expect(JSON.stringify((await run('pwsh', {})).content)).toContain('script reached its body')
   const fiber = [...f.ctx.loader.entries()].find(entry => entry.options.id === 'video')?.fiber
@@ -205,26 +210,29 @@ it('classifies inventory as parallel and reports missing ownership, arguments, e
   expect(pipeline.executionMode({ ...input, arguments: { method: 'list' } })).toEqual({ kind: 'parallel' })
   expect(pipeline.executionMode({ ...input, arguments: { method: 'review' } })).toEqual({ kind: 'exclusive' })
   const anonymous = { callId: input.callId, name: input.name, signal: input.signal, arguments: { method: 'list' } }
-  expect(JSON.stringify((await executeToolFixture(f.ctx, anonymous)).content)).toContain('initiating conversation')
+  expectToolFailure(await executeToolFixture(f.ctx, anonymous), 'ToolContextUnavailableError',
+    'TOOL_CONTEXT_UNAVAILABLE', 'initiating conversation')
   expect((await run({ method: 'list' })).isError).toBe(false)
-  expect(JSON.stringify((await run({ method: 'bind' })).content)).toContain('source_id and source_version')
+  expectToolFailure(await run({ method: 'bind' }), 'ToolArgsError', 'INVALID_ARGS', 'source_id and source_version')
   f.user('@three-shots.mp4')
   const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
   const args = { method: 'bind', source_id: source.id, source_version: source.version }
-  expect(JSON.stringify((await run({ ...args, source_version: 'old' })).content)).toContain('changed or is unavailable')
-  expect(JSON.stringify((await run(args)).content)).toContain('requires production')
+  expectToolFailure(await run({ ...args, source_version: 'old' }), 'SessionVideoError',
+    'SESSION_VIDEO_SOURCE_UNAVAILABLE', 'changed or is unavailable')
+  expectToolFailure(await run(args), 'ToolArgsError', 'INVALID_ARGS', 'requires production')
   const evidence = join(f.root, 'production.json'); writeFileSync(evidence, '{}')
   const binding = { ...args, sha256: createHash('sha256').update(readFileSync(f.file)).digest('hex'),
     production: { scriptId: 10 }, evidence_paths: [evidence] }
   expect((await run(binding)).isError).toBe(false)
-  expect(JSON.stringify((await run({ ...binding, evidence_paths: [f.root] })).content)).toContain('evidence is unavailable')
+  expectToolFailure(await run({ ...binding, evidence_paths: [f.root] }), 'SessionVideoError',
+    'SESSION_VIDEO_EVIDENCE_UNAVAILABLE', 'evidence is unavailable')
   const stat = f.ctx.fs.stat.bind(f.ctx.fs)
   vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (target, signal) => {
     const info = await stat(target, signal)
     if (target.displayPath === evidence) appendFileSync(f.file, 'changed')
     return info
   })
-  expect(JSON.stringify((await run(binding)).content)).toContain('changed during binding')
+  expectToolFailure(await run(binding), 'SessionVideoError', 'SESSION_VIDEO_SOURCE_CHANGED', 'changed during binding')
 })
 
 it('bounds observed production fields before persisting a binding', async () => {
@@ -241,8 +249,107 @@ it('bounds observed production fields before persisting a binding', async () => 
   ]) {
     const result = await executeToolFixture(f.ctx, { callId: ToolCallId('bounded-bind'), name: 'muse_video',
       arguments: { ...args, production }, signal: f.signal, agent: { id: f.session.id, session: f.session } as never })
-    expect(JSON.stringify(result.content)).toContain('Observed shot intervals')
+    expectToolFailure(result, 'ToolArgsError', 'INVALID_ARGS', 'Observed shot intervals')
   }
+})
+
+it('reports additional model-argument constraints with the standard argument error identity', async () => {
+  const f = await fixture()
+  const result = await executeToolFixture(f.ctx, { callId: ToolCallId('video-extra-validation'), name: 'muse_video',
+    arguments: { method: 'bind', sha256: 'not-a-sha256', production: { scriptId: 10,
+      shotRanges: [{ shotNumber: 1, startSeconds: 2, endSeconds: 1 }] } }, signal: f.signal,
+    agent: { id: f.session.id, session: f.session } as never })
+  expectToolFailure(result, 'ToolArgsError', 'INVALID_ARGS', 'sha256:')
+  expect(JSON.stringify(result.content)).toContain('production.shotRanges.0:')
+})
+
+it.each([
+  { name: 'invalid probe JSON', script: 'process.stdout.write("not-json")' },
+  { name: 'invalid probe dimensions', script: 'process.stdout.write(JSON.stringify({streams:[],format:{duration:3}}))' },
+  { name: 'nonzero process exit', script: 'process.stderr.write("probe refused input");process.exitCode=7' },
+  { name: 'excessive process output', script: 'process.stdout.write("x".repeat(2048))' },
+])('classifies $name from the real subprocess path as a failed video operation', async ({ script }) => {
+  const f = await fixture({ maxOutputBytes: 1024 }); f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementationOnce(spec => spawn({ ...spec, argv: [process.execPath, '-e', script] }))
+  const result = await executeToolFixture(f.ctx, { callId: ToolCallId('video-media-failure'), name: 'muse_video',
+    arguments: { method: 'review', source_id: source.id, source_version: source.version }, signal: f.signal,
+    agent: { id: f.session.id, session: f.session } as never })
+  expectToolFailure(result, 'SessionVideoError', 'SESSION_VIDEO_OPERATION_FAILED', 'Video operation failed:')
+  expect(JSON.stringify(result.content)).toContain('Check the source and media tools before retrying.')
+})
+
+it('preserves typed dependency failures and wraps foreign failures with their original cause', async () => {
+  const f = await fixture(); f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const args = { method: 'bind', source_id: source.id, source_version: source.version, production: { scriptId: 10 },
+    sha256: createHash('sha256').update(readFileSync(f.file)).digest('hex'), evidence_paths: [f.file] }
+  const definition = f.ctx.tools.get('muse_video')
+  if (definition === undefined) throw Error('Video tool is unavailable')
+  const execute = definition.execute.bind(definition)
+  let thrown: unknown
+  vi.spyOn(definition, 'execute').mockImplementation(async (args, exec) => {
+    try { return await execute(args, exec) } catch (error: unknown) { thrown = error; throw error }
+  })
+  const read = vi.spyOn(f.ctx.fs, 'readBytes')
+  const typed = new FsError('Video bytes are not readable', 'FS_PERMISSION_DENIED')
+  for (const failure of [typed, new Error('Foreign storage failure'), 'Foreign storage refusal']) {
+    read.mockRejectedValueOnce(failure)
+    const result = await executeToolFixture(f.ctx, { callId: ToolCallId('video-storage-failure'), name: 'muse_video', arguments: args,
+      signal: f.signal, agent: { id: f.session.id, session: f.session } as never })
+    if (failure === typed) {
+      expectToolFailure(result, 'FsError', 'FS_PERMISSION_DENIED', typed.message)
+      expect(thrown).toBe(typed)
+    } else {
+      expectToolFailure(result, 'SessionVideoError', 'SESSION_VIDEO_OPERATION_FAILED', 'Foreign storage')
+      expect(thrown).toMatchObject({ name: 'SessionVideoError', cause: failure })
+    }
+  }
+})
+
+it.each(['signal-reason', 'abort-error', 'independent-refusal'] as const)
+('distinguishes %s from other failures after caller cancellation', async (kind) => {
+  const f = await fixture(); f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const controller = new AbortController(), reason = new Error('Caller cancelled this video operation')
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  readReleases.push(() => { release.resolve(undefined) })
+  vi.spyOn(f.ctx.subprocess, 'resolveExecutable').mockImplementationOnce(async () => {
+    entered.resolve(undefined); await release.promise
+    throw kind === 'signal-reason' ? reason : kind === 'abort-error'
+      ? new DOMException('Video operation aborted', 'AbortError') : 'Independent processor refusal'
+  })
+  const pending = executeToolFixture(f.ctx, { callId: ToolCallId('video-tool-cancellation'), name: 'muse_video',
+    arguments: { method: 'review', source_id: source.id, source_version: source.version }, signal: controller.signal,
+    agent: { id: f.session.id, session: f.session } as never })
+  try { await entered.promise; controller.abort(reason) } finally { release.resolve(undefined) }
+  if (kind === 'independent-refusal') {
+    expectToolFailure(await pending, 'SessionVideoError', 'SESSION_VIDEO_OPERATION_FAILED', 'Independent processor refusal')
+  } else {
+    expectToolFailure(await pending, 'AbortError', 'ABORTED', kind === 'signal-reason' ? reason.message : 'Video operation aborted')
+  }
+})
+
+it('keeps an independent process-cleanup failure routable after the caller cancels', async () => {
+  const f = await fixture(); f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const controller = new AbortController(), entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  readReleases.push(() => { release.resolve(undefined) })
+  const cleanup = new Error('Video process cleanup failed'), spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementationOnce((spec) => {
+    const child = spawn(spec), waitForExit = child.waitForExit.bind(child)
+    vi.spyOn(child, 'waitForExit').mockImplementation(async () => {
+      await waitForExit(); entered.resolve(undefined); await release.promise
+      throw cleanup
+    })
+    return child
+  })
+  const pending = executeToolFixture(f.ctx, { callId: ToolCallId('video-tool-cleanup-failure'), name: 'muse_video',
+    arguments: { method: 'review', source_id: source.id, source_version: source.version }, signal: controller.signal,
+    agent: { id: f.session.id, session: f.session } as never })
+  try { await entered.promise; controller.abort(new Error('Caller cancelled')) } finally { release.resolve(undefined) }
+  expectToolFailure(await pending, 'SessionVideoError', 'SESSION_VIDEO_OPERATION_FAILED', cleanup.message)
 })
 
 it('reviews a whole selected video with exact advice links and reports empty trailing observations', async () => {
@@ -265,10 +372,11 @@ it('reviews a whole selected video with exact advice links and reports empty tra
   if (typeof trailing.value !== 'string') throw Error('Missing trailing-frame review result')
   const description: unknown = JSON.parse(trailing.value)
   expect(description).toMatchObject({ unavailable_seconds: [expect.any(Number)] })
-  expect(JSON.stringify((await run({ start_seconds: 2.99, end_seconds: 3 })).content)).toContain('no decodable frame')
-  expect(JSON.stringify((await run({ start_seconds: 2, end_seconds: 1 })).content)).toContain('Review interval is invalid')
+  expectToolFailure(await run({ start_seconds: 2.99, end_seconds: 3 }), 'SessionVideoError',
+    'SESSION_VIDEO_NO_DECODABLE_FRAME', 'no decodable frame')
+  expectToolFailure(await run({ start_seconds: 2, end_seconds: 1 }), 'ToolArgsError', 'INVALID_ARGS', 'Review interval is invalid')
   f.user('A separate request without a selected interval.')
-  expect(JSON.stringify((await run({ end_seconds: 4 })).content)).toContain('Review interval is invalid')
+  expectToolFailure(await run({ end_seconds: 4 }), 'ToolArgsError', 'INVALID_ARGS', 'Review interval is invalid')
 })
 
 it('refuses oversized review images and concurrent work, and discards images from a changed source', async () => {
@@ -277,7 +385,7 @@ it('refuses oversized review images and concurrent work, and discards images fro
   const invalid = await executeToolFixture(limited.ctx, { callId: ToolCallId('oversized-review'), name: 'muse_video',
     arguments: { method: 'review', source_id: tooLarge.id, source_version: tooLarge.version }, signal: limited.signal,
     agent: { id: limited.session.id, session: limited.session } as never })
-  expect(JSON.stringify(invalid.content)).toContain('dimensions exceed')
+  expectToolFailure(invalid, 'SessionVideoError', 'SESSION_VIDEO_LIMIT_REACHED', 'dimensions exceed')
   const f = await fixture({ reviewFrames: 2, maxConcurrent: 1 }); f.user('@three-shots.mp4')
   const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
   const run = () => executeToolFixture(f.ctx, { callId: ToolCallId('changing-review'), name: 'muse_video',
@@ -292,9 +400,9 @@ it('refuses oversized review images and concurrent work, and discards images fro
   const pending = run()
   try {
     await entered.promise
-    expect(JSON.stringify((await run()).content)).toContain('processing is busy')
+    expectToolFailure(await run(), 'SessionVideoError', 'SESSION_VIDEO_BUSY', 'processing is busy')
   } finally { release.resolve(undefined); await pending }
-  expect(JSON.stringify((await pending).content)).toContain('changed during review')
+  expectToolFailure(await pending, 'SessionVideoError', 'SESSION_VIDEO_SOURCE_CHANGED', 'changed during review')
 })
 
 it.each(['read-only', 'workspace-write', 'danger-full-access'] as const)

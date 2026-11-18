@@ -3,7 +3,8 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
+import { HarnessError } from '@deepseek-ai/dsh-error'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { AttachmentId, type FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -20,6 +21,7 @@ import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { command, facts, shotRanges } from './media.ts'
 import { digest, foldVideoSources, publicJubianVideo, record, sourceStateSchema, type VideoCandidate, type VideoSourceState } from './sources.ts'
 import { productionSchema, videoBindingSchema } from './production.ts'
+import { SessionVideoError } from './errors.ts'
 import type { SessionVideoAnalysis, SessionVideoInventory, SessionVideoSource, SessionVideoSourceId } from './types.ts'
 
 export type * from './types.ts'
@@ -188,73 +190,105 @@ export default class SessionVideo extends TypertRemoteService {
         } },
       isConcurrencySafe: args => args.method === 'list',
       execute: async (raw, exec) => this.tracked(async () => {
-        const args = parameters.parse(raw)
-        if (exec.agent === undefined) throw Error('Muse video operations require an initiating conversation')
-        const session = exec.agent.session
         const signal = AbortSignal.any([exec.signal, this.lifetime.signal])
-        if (args.method === 'list') return JSON.stringify(await this.list(session.id, signal))
-        if (args.source_id === undefined || args.source_version === undefined) throw Error('source_id and source_version are required; call muse_video list')
-        const candidate = this.candidate(session, brandString<SessionVideoSourceId>(args.source_id))
-        const resolved = await this.resolve(session, candidate, signal)
-        if (resolved.source.version !== args.source_version || resolved.target === null || resolved.fileVersion === null) throw Error('Video changed or is unavailable; call muse_video list again')
-        if (this.detecting >= this.config.maxConcurrent) throw Error('Video processing is busy; retry when the current operation finishes')
-        this.detecting++
         try {
-          const target = resolved.target, version = resolved.fileVersion
-          const configured = this.ctx.sandboxPolicy.resolve({ session })
-          const policy = { ...configured, mode: configured.mode === 'workspace-write' ? 'read-only' as const : configured.mode }
-          const executable = await this.ctx.subprocess.resolveExecutable(this.config.ffprobePath, undefined, signal)
-          const metadata = facts(await command(this.ctx, [executable, '-v', 'error', '-show_entries', 'format=duration:stream=codec_type,width,height', '-of', 'json', this.ctx.fs.processPath(target)], policy, signal, this.config))
-          if (args.method === 'bind') {
-            if (args.production === undefined || args.sha256 === undefined || args.evidence_paths === undefined) throw Error('bind requires production, sha256 and evidence_paths')
-            const bytes = await this.ctx.fs.readBytes(target, signal, this.config.maxSourceBytes)
-            if (createHash('sha256').update(bytes).digest('hex') !== args.sha256) throw Error('Video SHA-256 does not match; binding was not saved')
-            const ranges = args.production.shotRanges ?? []
-            if ((args.production.shotNumbers?.length ?? 0) > this.config.maxShots
-              || Buffer.byteLength(JSON.stringify(args.production)) > this.config.maxResultBytes
-              || ranges.length > this.config.maxShots || ranges.some(range => range.endSeconds > metadata.durationSeconds
-              || !args.production?.shotNumbers?.includes(range.shotNumber))
-              || new Set(ranges.map(range => range.shotNumber)).size !== ranges.length) throw Error('Observed shot intervals must belong to shotNumbers and fit this video')
-            const evidence = []
-            for (const path of args.evidence_paths) {
-              const file = await this.ctx.fs.resolve(path, { cwd: session.header.cwd ?? configured.workspaceRoot, signal })
-              const info = await this.ctx.fs.stat(file, signal)
-              if (info?.type !== 'file') throw Error(`Production evidence is unavailable: ${path}`)
-              evidence.push({ path: file.displayPath, version: info.version })
+          const parsed = parameters.safeParse(raw)
+          if (!parsed.success) throw new ToolArgsError(parsed.error.issues.map(issue => `${issue.path.map(String).join('.')}: ${issue.message}`))
+          const args = parsed.data
+          if (exec.agent === undefined) throw new ToolContextUnavailableError('Muse video operations require an initiating conversation')
+          const session = exec.agent.session
+          if (args.method === 'list') return JSON.stringify(await this.list(session.id, signal))
+          if (args.source_id === undefined || args.source_version === undefined) throw new ToolArgsError(['source_id and source_version are required; call muse_video list'])
+          const candidate = this.candidate(session, brandString<SessionVideoSourceId>(args.source_id))
+          const resolved = await this.resolve(session, candidate, signal)
+          if (resolved.source.version !== args.source_version || resolved.target === null || resolved.fileVersion === null) {
+            throw new SessionVideoError('Video changed or is unavailable; call muse_video list again', 'SESSION_VIDEO_SOURCE_UNAVAILABLE')
+          }
+          if (this.detecting >= this.config.maxConcurrent) {
+            throw new SessionVideoError('Video processing is busy; retry when the current operation finishes', 'SESSION_VIDEO_BUSY')
+          }
+          this.detecting++
+          try {
+            const target = resolved.target, version = resolved.fileVersion
+            const configured = this.ctx.sandboxPolicy.resolve({ session })
+            const policy = { ...configured, mode: configured.mode === 'workspace-write' ? 'read-only' as const : configured.mode }
+            const executable = await this.ctx.subprocess.resolveExecutable(this.config.ffprobePath, undefined, signal)
+            const metadata = facts(await command(this.ctx, [executable, '-v', 'error', '-show_entries', 'format=duration:stream=codec_type,width,height', '-of', 'json', this.ctx.fs.processPath(target)], policy, signal, this.config))
+            if (args.method === 'bind') {
+              if (args.production === undefined || args.sha256 === undefined || args.evidence_paths === undefined) {
+                throw new ToolArgsError(['bind requires production, sha256 and evidence_paths'])
+              }
+              const bytes = await this.ctx.fs.readBytes(target, signal, this.config.maxSourceBytes)
+              if (createHash('sha256').update(bytes).digest('hex') !== args.sha256) {
+                throw new SessionVideoError('Video SHA-256 does not match; binding was not saved', 'SESSION_VIDEO_HASH_MISMATCH')
+              }
+              const ranges = args.production.shotRanges ?? []
+              if ((args.production.shotNumbers?.length ?? 0) > this.config.maxShots
+                || Buffer.byteLength(JSON.stringify(args.production)) > this.config.maxResultBytes
+                || ranges.length > this.config.maxShots || ranges.some(range => range.endSeconds > metadata.durationSeconds
+                || !args.production?.shotNumbers?.includes(range.shotNumber))
+                || new Set(ranges.map(range => range.shotNumber)).size !== ranges.length) {
+                throw new ToolArgsError(['Observed shot intervals must belong to shotNumbers and fit this video'])
+              }
+              const evidence = []
+              for (const path of args.evidence_paths) {
+                const file = await this.ctx.fs.resolve(path, { cwd: session.header.cwd ?? configured.workspaceRoot, signal })
+                const info = await this.ctx.fs.stat(file, signal)
+                if (info?.type !== 'file') throw new SessionVideoError(`Production evidence is unavailable: ${path}`, 'SESSION_VIDEO_EVIDENCE_UNAVAILABLE')
+                evidence.push({ path: file.displayPath, version: info.version })
+              }
+              if ((await this.ctx.fs.stat(target, signal))?.version !== version) {
+                throw new SessionVideoError('Video changed during binding; binding was not saved', 'SESSION_VIDEO_SOURCE_CHANGED')
+              }
+              return JSON.stringify({ binding: { key: candidate.key, sourceVersion: args.source_version, production: args.production },
+                sha256: args.sha256, evidence })
             }
-            if ((await this.ctx.fs.stat(target, signal))?.version !== version) throw Error('Video changed during binding; binding was not saved')
-            return JSON.stringify({ binding: { key: candidate.key, sourceVersion: args.source_version, production: args.production },
-              sha256: args.sha256, evidence })
-          }
-          const start = args.start_seconds ?? 0, end = args.end_seconds ?? metadata.durationSeconds
-          const scope = this.sources.stateOf(session).reviewTargets ?? []
-          const selectedTarget = scope.find(item => item.source_id === args.source_id && item.source_version === args.source_version
-            && start >= (item.start_seconds ?? 0) && end <= (item.end_seconds ?? metadata.durationSeconds))
-          if (scope.length > 0 && selectedTarget === undefined) throw Error('Review exceeds the user’s selected video interval; use its exact source and time range')
-          if (end <= start || end > metadata.durationSeconds || end - start > this.config.maxReviewSeconds) throw Error('Review interval is invalid or exceeds maxReviewSeconds; select a smaller interval')
-          if (metadata.width * metadata.height > this.config.maxSourcePixels) throw Error('Video dimensions exceed the review limit')
-          const ffmpeg = await this.ctx.subprocess.resolveExecutable(this.config.ffmpegPath, undefined, signal)
-          const frames = []
-          const unavailableSeconds = []
-          for (let index = 0; index < this.config.reviewFrames; index++) {
-            const time = start + (end - start) * (index + 0.5) / this.config.reviewFrames
-            const bytes = await command(this.ctx, [ffmpeg, '-nostdin', '-v', 'error', '-protocol_whitelist', 'file,pipe',
-              '-ss', String(time), '-copyts', '-i', this.ctx.fs.processPath(target), '-map', '0:v:0', '-an', '-sn', '-dn',
-              '-frames:v', '1', '-vf', `trim=start=${time}:end=${end},scale=w='min(${this.config.reviewFrameDimension},iw)':h='min(${this.config.reviewFrameDimension},ih)':force_original_aspect_ratio=decrease`,
-              '-c:v', 'png', '-f', 'image2pipe', 'pipe:1'], policy, signal, this.config)
-            if (bytes.length === 0) { unavailableSeconds.push(time); continue }
-            const image = await this.ctx.attachments.saveImage({ data: bytes, mediaType: 'image/png', name: `muse-review-${time.toFixed(3)}.png` })
-            frames.push({ requested_seconds: time, image })
-          }
-          if ((await this.ctx.fs.stat(target, signal))?.version !== version) throw Error('Video changed during review; discard these observations')
-          if (frames.length === 0) throw Error('The selected interval contains no decodable frame; choose a wider interval')
-          return JSON.stringify({ source_id: args.source_id, source_version: args.source_version, path: target.displayPath,
-            interval: { start_seconds: start, end_seconds: end }, frames, unavailable_seconds: unavailableSeconds,
-            ...selectedTarget?.review_link === undefined ? {} : { review_link: selectedTarget.review_link },
-            notice: 'Give at most three suggestions only about these sampled observations and this selected interval. '
-              + (selectedTarget?.review_link === undefined ? '' : `Include [画面定位](${selectedTarget.review_link}) with EACH suggestion. `)
-              + 'Audio was not transcribed. Do not use shell scripts, other images, complete-video scans, edits, or generation for this read-only request.' })
-        } finally { this.detecting-- }
+            const start = args.start_seconds ?? 0, end = args.end_seconds ?? metadata.durationSeconds
+            const scope = this.sources.stateOf(session).reviewTargets ?? []
+            const selectedTarget = scope.find(item => item.source_id === args.source_id && item.source_version === args.source_version
+              && start >= (item.start_seconds ?? 0) && end <= (item.end_seconds ?? metadata.durationSeconds))
+            if (scope.length > 0 && selectedTarget === undefined) {
+              throw new SessionVideoError('Review exceeds the user’s selected video interval; use its exact source and time range', 'SESSION_VIDEO_REVIEW_SCOPE_DENIED')
+            }
+            if (end <= start || end > metadata.durationSeconds || end - start > this.config.maxReviewSeconds) {
+              throw new ToolArgsError(['Review interval is invalid or exceeds maxReviewSeconds; select a smaller interval'])
+            }
+            if (metadata.width * metadata.height > this.config.maxSourcePixels) {
+              throw new SessionVideoError('Video dimensions exceed the review limit', 'SESSION_VIDEO_LIMIT_REACHED')
+            }
+            const ffmpeg = await this.ctx.subprocess.resolveExecutable(this.config.ffmpegPath, undefined, signal)
+            const frames = []
+            const unavailableSeconds = []
+            for (let index = 0; index < this.config.reviewFrames; index++) {
+              const time = start + (end - start) * (index + 0.5) / this.config.reviewFrames
+              const bytes = await command(this.ctx, [ffmpeg, '-nostdin', '-v', 'error', '-protocol_whitelist', 'file,pipe',
+                '-ss', String(time), '-copyts', '-i', this.ctx.fs.processPath(target), '-map', '0:v:0', '-an', '-sn', '-dn',
+                '-frames:v', '1', '-vf', `trim=start=${time}:end=${end},scale=w='min(${this.config.reviewFrameDimension},iw)':h='min(${this.config.reviewFrameDimension},ih)':force_original_aspect_ratio=decrease`,
+                '-c:v', 'png', '-f', 'image2pipe', 'pipe:1'], policy, signal, this.config)
+              if (bytes.length === 0) { unavailableSeconds.push(time); continue }
+              const image = await this.ctx.attachments.saveImage({ data: bytes, mediaType: 'image/png', name: `muse-review-${time.toFixed(3)}.png` })
+              frames.push({ requested_seconds: time, image })
+            }
+            if ((await this.ctx.fs.stat(target, signal))?.version !== version) {
+              throw new SessionVideoError('Video changed during review; discard these observations', 'SESSION_VIDEO_SOURCE_CHANGED')
+            }
+            if (frames.length === 0) {
+              throw new SessionVideoError('The selected interval contains no decodable frame; choose a wider interval', 'SESSION_VIDEO_NO_DECODABLE_FRAME')
+            }
+            return JSON.stringify({ source_id: args.source_id, source_version: args.source_version, path: target.displayPath,
+              interval: { start_seconds: start, end_seconds: end }, frames, unavailable_seconds: unavailableSeconds,
+              ...selectedTarget?.review_link === undefined ? {} : { review_link: selectedTarget.review_link },
+              notice: 'Give at most three suggestions only about these sampled observations and this selected interval. '
+                + (selectedTarget?.review_link === undefined ? '' : `Include [画面定位](${selectedTarget.review_link}) with EACH suggestion. `)
+                + 'Audio was not transcribed. Do not use shell scripts, other images, complete-video scans, edits, or generation for this read-only request.' })
+          } finally { this.detecting-- }
+        } catch (error: unknown) {
+          if (error instanceof HarnessError || signal.aborted
+            && (error === signal.reason || error instanceof Error && error.name === 'AbortError')) throw error
+          const message = error instanceof Error ? error.message : String(error)
+          throw new SessionVideoError(`Video operation failed: ${message}. Check the source and media tools before retrying.`,
+            'SESSION_VIDEO_OPERATION_FAILED', { cause: error })
+        }
       }),
     })), 'sessionVideo: video binding and bounded review')
     this.ctx.effect(() => this.ctx.tools.guard((exec) => {
@@ -265,7 +299,8 @@ export default class SessionVideo extends TypertRemoteService {
       const videoRead = exec.name === 'muse_video' && ['list', 'review'].includes(String(record(exec.arguments)?.method))
       if ((state.reviewOnly === true && !controls.includes(exec.name) && !videoRead)
         || ['video_inspect', 'video_source_review', 'video_contact_sheet'].includes(exec.name)) {
-        return 'This is a selected-video review. Use muse_video review with the selected source_id, source_version, start_seconds and end_seconds. Include its review_link with each suggestion. Shell scripts, other images, complete-video scans, edits and generation are outside this read-only operation.'
+        const error = new SessionVideoError('This is a selected-video review. Use muse_video review with the selected source_id, source_version, start_seconds and end_seconds. Include its review_link with each suggestion. Shell scripts, other images, complete-video scans, edits and generation are outside this read-only operation.', 'SESSION_VIDEO_REVIEW_SCOPE_DENIED')
+        return { reason: error.message, info: { name: error.name, code: error.code } }
       }
       return undefined
     }), 'sessionVideo: selected review scope')

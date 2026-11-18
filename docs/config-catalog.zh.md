@@ -4111,7 +4111,7 @@ export interface Config extends SessionTitleLlmConfig {
 ## `@deepseek-ai/dsh-session-video`
 
 - `inject`: `sessions` · `sessionQuery` · `sessionProjections` · `fs` · `attachments` · `subprocess` · `sandboxPolicy` · `connection` · `tools`
-- `source`: [`packages/drama/session-video/src/index.ts:32`](../packages/drama/session-video/src/index.ts)
+- `source`: [`packages/drama/session-video/src/index.ts:34`](../packages/drama/session-video/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-controlled subprocess, source, cache and playback limits. */

@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.2/session-video-tools/guide.md
 /:
-  en: dca43a1c46111a48
-  zh: 917e01ca92477f67
+  en: bf106a5e5d2ea129
+  zh: a42d2f03ad31f802
 /session-video-workspace-composition:
   en: d8b944bd6176dcab
   zh: 5ef70177a306172d
 /session-video-workspace-composition/change:
-  en: 47251dc73d68c74b
-  zh: 297ecac8fdd85fce
+  en: 51b600673a2e7126
+  zh: 74cbc8536c7a69b7
 /session-video-workspace-composition/migration:
-  en: 095220303624f1ff
-  zh: 9001f5e2c68844e6
+  en: a3130470413807a9
+  zh: 99f503f4a2ba42c4

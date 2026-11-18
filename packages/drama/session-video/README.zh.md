@@ -41,6 +41,13 @@ Host 组合将此插件与 Session 查询和投影、工具注册表、文件系
 
 `muse_video review` 返回限定原视频区间内的采样图片，不启动整集任务。最近一条用户选区限制其来源、版本和时间范围，运行时上下文不会替换该选区。审阅操作记录只读意图，只允许视频清单、限定审阅和工具发现；脚本、其他图片及媒体修改操作均被拒绝。整片审阅和联系表工具始终不属于所选区间检查。不含只读意图的新用户消息恢复普通工具访问，其视频引用定义下次区间范围；没有视频引用时清除该范围。采样支持可见画面的建议，不代表连续观看或声音判断。若定位后没有帧位于排他的结束时间之前，会在 `unavailable_seconds` 中报告；整个区间没有可解码帧时明确失败。原始媒体保持不变，提取图片保存到附件存储。
 
+<a id="tool-failures"></a>
+### 工具失败
+
+`muse_video` 的预期失败是错误工具结果（`isError: true`），身份位于 `error.info.name` 和 `error.info.code`。缺少 Agent 上下文使用 `ToolContextUnavailableError`（`TOOL_CONTEXT_UNAVAILABLE`）；绑定元数据和区间约束等无效参数使用 `ToolArgsError`（`INVALID_ARGS`）。视频领域失败使用内部的 `SessionVideoError`，其错误码由 [`src/errors.ts`](src/errors.ts) 拥有。已有 `HarnessError` 身份和调用方取消沿工具路径传递。
+
+消费者用这些身份处理失败，用消息展示诊断。来源或版本变化后刷新清单并重新选择；重试前修正无效参数，或选择符合处理上限的媒体。遇到忙碌结果时等待活跃任务结束，绑定校验失败后核对来源字节与证据。被包装的外部失败在 Host 错误对象中保留原始原因。重新绑定或审阅前先解决所报告的条件。Remote 检测的 `failed` 状态和播放 HTTP 失败保留各自的响应语义。
+
 ### 配置
 
 插件没有必填配置字段。所属 Host 组合提供注入服务；可执行文件路径和处理上限由部署配置决定。
@@ -76,6 +83,7 @@ Host 组合将此插件与 Session 查询和投影、工具注册表、文件系
 | [`src/sources.ts`](src/sources.ts) | 私有来源投影和已记录结果解析 |
 | [`src/production.ts`](src/production.ts) | 已记录制作关联与无歧义的来源分组 |
 | [`src/media.ts`](src/media.ts) | 子进程归属、已验证的视频信息和完整切镜区间 |
+| [`src/errors.ts`](src/errors.ts) | 视频工具错误类与稳定错误码 |
 | [`src/types.ts`](src/types.ts) | Client 可见的清单、来源和区间类型 |
 
 </details>
