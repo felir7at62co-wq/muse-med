@@ -185,6 +185,7 @@ describe('web e2e: goal bar clear convergence', () => {
     await bar.getByRole('button', { name: 'Pause goal' }).click()
     await expect.poll(() => scaffold.ctx.goals.get(agent)?.phase, { timeout: 10_000 }).toBe('paused')
     expect(scaffold.ctx.goals.get(agent)?.wait).toBeUndefined()
+    await bar.getByText('Paused Goal', { exact: true }).waitFor({ timeout: 10_000 })
     await bar.getByRole('button', { name: 'Clear goal' }).click()
     await expect.poll(() => bar.count(), { timeout: 10_000 }).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
