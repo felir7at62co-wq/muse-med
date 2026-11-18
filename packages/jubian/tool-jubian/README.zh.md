@@ -429,8 +429,6 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 
 由于 key 就是 preview 的 fingerprint，同一个 preview 文件一生只能造成一次请求。因此 preview **不能**与 CLI 自己产出的 prepared 文件互换：两边的序列化文本不同，一方写出的 preview 在另一方那里会被判为过期而拒绝。
 
-校验本地项目绑定的操作在 `project_config.json` 缺失、无法读取、格式无效或未指向目标剧变项目时返回 `PROJECT_BINDING_INVALID`。提示会说明哪项校验失败，不包含文件绝对路径或内容。请打开目标项目目录并核对 `jubian_script_id`，再调用工具。
-
 ### 计费生图路径
 
 图片计费请求已受理但随后回读超时时，结果明确标为 `generation_status: submitted_pending`，并回显原 `idempotency_key`、如有的提供方 `parent_asset_id`，以及显式重生目标 `requested_parent_asset_id` 供对账。`succeeded` 要求核实属于本次生成的图，不能用已有 Active 旧材质冒充；`asset_status: generated` 表示候选图仍需审图和确认出演，`failed` 要求提供方终态失败，`not_submitted` 表示批次项在账本登记前被拒绝，`reconciliation_required` 涵盖重放或写入结果不明。`jubian_asset generated_image` 可以指定已知的 `task_id`，唯一匹配时只认领该任务；多行记录无法唯一匹配所指定任务时列出待核对候选，不根据任务 ID 大小或列表顺序推断新旧。额度不足时报告 `insufficient_credits`，不把旧材质当新结果。这些状态都不改变计费重试规则。

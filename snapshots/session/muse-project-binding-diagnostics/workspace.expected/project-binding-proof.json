@@ -1,8 +1,0 @@
-{
-  "errorName": "JubianProjectBindingError",
-  "errorCode": "PROJECT_BINDING_INVALID",
-  "diagnosticVisibleToModel": true,
-  "providerRequests": 0,
-  "ledgerRecords": 0,
-  "previewFiles": 0
-}

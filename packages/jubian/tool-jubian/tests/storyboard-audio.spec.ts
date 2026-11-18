@@ -714,7 +714,7 @@ it('rejects a non-audio row from a self-consistent prepared file before saving',
 
 it('refuses a project mismatch and a noncanonical prepared path', async () => {
   await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2709 }))
-  await expect(preview([voice])).rejects.toMatchObject({ code: 'PROJECT_BINDING_INVALID' })
+  await expect(preview([voice])).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
   await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
   const plan = await preview([voice])
   await expect(apply(plan, { preview_path: join(root, 'unreviewed.json') })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })

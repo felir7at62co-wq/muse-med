@@ -1,6 +1,6 @@
 /** Native preview failures report local diagnostics through the Loader and Agent session. */
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -73,10 +73,7 @@ it('records the empty-subject diagnostic without ledger or HTTP side effects', a
   }
 })
 
-it.each([
-  { label: 'prepares the authored multiline video prompt', brokenBinding: false },
-  { label: 'reports malformed local project JSON', brokenBinding: true },
-])('$label through the Loader without a paid request', async ({ brokenBinding }) => {
+it('prepares the authored multiline video prompt through the Loader without a paid request', async () => {
   const prompt = '@[Lead](lead)\n\n【镜头1】\n动作：先放下水桶，再说话。\n台词：Lead：慢一点。'
   const config = { modelId: 'doubao-seedance-2-0-260128', platformId: 'YU_DIAN', standardId: 11,
     genType: 3, modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, genNum: 1,
@@ -106,11 +103,10 @@ it.each([
   onTestFinished(() => { transport.mockRestore() })
   const { ctx, home, ledgerRoot } = await mountedNativeTools()
   try {
-    await writeFile(join(home, 'project_config.json'), brokenBinding
-      ? '{private-project-config' : JSON.stringify({ jubian_script_id: 2708 }))
+    await writeFile(join(home, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
     const adapter = new MockAdapter([
       toolCallResponse('multiline-prepare', 'jubian_storyboard', { method: 'prepare_video', project_dir: home, storyboard_id: 1 }),
-      textResponse(brokenBinding ? 'Check the local project configuration before preparing again.' : 'Prepared for review without submission.'),
+      textResponse('Prepared for review without submission.'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = await ctx.agentLoop.create(SessionId('multiline-prepare-owner'), { provider: 'mock', model: 'mock' }, { cwd: home })
@@ -118,21 +114,15 @@ it.each([
       content: [{ type: 'text', text: 'Prepare this card without generating video.' }] }))
     await agent.whenIdle()
     const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+      .map(event => event.data.message)
     expect(results).toHaveLength(1)
-    const result = results[0]?.data
-    expect(result?.message.isError, JSON.stringify(result)).toBe(brokenBinding)
-    const content = result?.message.content[0]
-    if (content?.type !== 'text') throw new Error('Expected video preparation result')
-    if (brokenBinding) {
-      expect(result?.error).toEqual({ name: 'JubianProjectBindingError', code: 'PROJECT_BINDING_INVALID' })
-      expect(content.text).toMatchInlineSnapshot('"Error: Muse 无法核对本地项目绑定: project_config.json 不是有效的 JSON。请核对原项目的配置文件。"')
-      expect(await readdir(home)).not.toContain('video_tasks')
-    } else {
-      const prepared = JSON.parse(content.text) as { preview_path: string; payload: { modelConfig: string } }
-      expect((JSON.parse(prepared.payload.modelConfig) as Record<string, unknown>).prompt).toBe(prompt)
-      const saved = JSON.parse(await readFile(prepared.preview_path, 'utf8')) as typeof prepared
-      expect((JSON.parse(saved.payload.modelConfig) as Record<string, unknown>).prompt).toBe(prompt)
-    }
+    expect(results[0]?.isError, JSON.stringify(results)).toBe(false)
+    const content = results[0]?.content[0]
+    if (content?.type !== 'text') throw new Error('Expected prepared video result')
+    const prepared = JSON.parse(content.text) as { preview_path: string; payload: { modelConfig: string } }
+    expect((JSON.parse(prepared.payload.modelConfig) as Record<string, unknown>).prompt).toBe(prompt)
+    const saved = JSON.parse(await readFile(prepared.preview_path, 'utf8')) as typeof prepared
+    expect((JSON.parse(saved.payload.modelConfig) as Record<string, unknown>).prompt).toBe(prompt)
     expect(methods.length).toBeGreaterThan(0)
     expect(methods.every(method => method === 'GET')).toBe(true)
     expect(await new JubianLedger({ root: ledgerRoot }).records()).toEqual([])

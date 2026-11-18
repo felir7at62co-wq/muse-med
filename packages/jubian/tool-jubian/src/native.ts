@@ -28,7 +28,6 @@ import type { VideoSourceOptions } from './video-sources.ts'
 import { join, resolve, sep } from 'node:path'
 import type { JubianClient, JubianLedger, JubianLedgerRecord, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
-import { HarnessError } from '@deepseek-ai/dsh-llm'
 import {
   assertImageReferenceConsistency, buildNativeVideoPreview, buildSubjectSelection, childrenOf, classifyExistingNativeMatches,
   classifyNewNativeCandidates, isExplicitUnusedSubject, isRelatedTaskCandidate, matchesNativeEpisode, nativeEpisodeScope, nativeResultUrls,
@@ -55,13 +54,6 @@ const MAX_HYDRATED_TASKS = 100
 
 /** The project binding every prepared preview must satisfy. */
 interface ProjectBinding { project_root: string; script_id: number }
-
-/** The local configuration cannot establish the intended remote project. */
-class JubianProjectBindingError extends HarnessError {
-  constructor(detail: string) {
-    super(`Muse 无法核对本地项目绑定: ${detail}`, 'PROJECT_BINDING_INVALID')
-  }
-}
 
 /** Refuse one call whose input or provider state does not match the contract. */
 function fail(): never { throw new JubianError('CONTRACT_CHANGED') }
@@ -541,41 +533,18 @@ function claimReport(claim: NativeClaim): VideoClaimReport {
  * @param projectDir - The project directory the preview will be written into.
  * @param scriptId - The live storyboard's project id.
  * @returns The resolved project root and the configured project id.
- * @throws {JubianProjectBindingError} `PROJECT_BINDING_INVALID` for local configuration failures.
- * @throws {JubianError} `CONTRACT_CHANGED` for an invalid target ID.
+ * @throws {JubianError} `CONTRACT_CHANGED` when the file is missing, invalid or bound to another project.
  */
 export async function validateProjectBinding(projectDir: string, scriptId: unknown): Promise<ProjectBinding> {
   const projectRoot = resolve(projectDir)
   let text: string
   try {
     text = await readFile(join(projectRoot, 'project_config.json'), 'utf8')
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      throw new JubianProjectBindingError('未找到 project_config.json。请打开包含该文件的原项目目录。')
-    }
-    throw new JubianProjectBindingError('无法读取 project_config.json。请检查它是否为可读文件。')
-  }
+  } catch { throw new JubianError('CONTRACT_CHANGED') }
   let parsed: unknown
-  try {
-    parsed = JSON.parse(text.replace(/^\uFEFF/u, ''))
-  } catch (_error) {
-    throw new JubianProjectBindingError('project_config.json 不是有效的 JSON。请核对原项目的配置文件。')
-  }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new JubianProjectBindingError('project_config.json 必须是 JSON 对象。请核对原项目的配置文件。')
-  }
-  if (!('jubian_script_id' in parsed)) {
-    throw new JubianProjectBindingError('project_config.json 缺少 jubian_script_id。请核对原项目的配置文件。')
-  }
-  let configured: number
-  try {
-    configured = positiveInteger(parsed.jubian_script_id)
-  } catch (_error) {
-    throw new JubianProjectBindingError('project_config.json 的 jubian_script_id 必须是正整数。请核对原项目的配置文件。')
-  }
-  if (configured !== positiveInteger(scriptId)) {
-    throw new JubianProjectBindingError('project_config.json 的 jubian_script_id 与目标剧变项目不符。请打开和目标匹配的项目目录。')
-  }
+  try { parsed = JSON.parse(text.replace(/^\uFEFF/, '')) } catch { throw new JubianError('CONTRACT_CHANGED') }
+  const configured = positiveInteger(object(parsed).jubian_script_id)
+  if (configured !== positiveInteger(scriptId)) throw new JubianError('CONTRACT_CHANGED')
   return { project_root: projectRoot, script_id: configured }
 }
 
@@ -720,8 +689,7 @@ function hasPromptSpeech(prompt: string): boolean {
  * @param sourceOptions - Optional bounded existing-video scan settings, resolved before reading history.
  * @param signal - Foreground cancellation for advisory history reads.
  * @returns The persisted preview, its path and advisory findings; existing-video evidence is not part of its fingerprint.
- * @throws {JubianError} When a live identity or setting fails.
- * @throws {JubianProjectBindingError} When the local project binding fails.
+ * @throws {JubianError} `CONTRACT_CHANGED` when any live identity or setting fails.
  */
 export async function prepareVideoMethod(client: JubianClient, ledger: JubianLedger, args: {
   storyboard_id?: number | undefined
