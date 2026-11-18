@@ -9,7 +9,8 @@
     "src/index.ts",
     "src/settings.ts",
     "src/draft-directory.ts",
-    "src/project-bible.ts"
+    "src/project-bible.ts",
+    "src/standalone-script.ts"
   ],
   "references": [
     { "path": "../../util/atomic-write" },

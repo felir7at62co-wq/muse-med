@@ -1,0 +1,13 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write integrations/localminidrama/README.md
+/muse-independent-production-studio:
+  en: 4dd09f02fab4144c
+  zh: 368fdd96922fa2eb
+/muse-independent-production-studio/retained-service:
+  en: 38a990124ea3ee8e
+  zh: e4142b46ed6972a5
+/muse-independent-production-studio/build-and-verify:
+  en: 6ef01c749e955714
+  zh: 49ff7d2275b4d38f

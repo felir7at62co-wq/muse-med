@@ -12,7 +12,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
+import { resolveSlotLabel, type PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
@@ -98,7 +98,47 @@ function sectionEntry(slots: SlotRegistry) {
   return slots.entries(SECTION_SLOT).find(entry => entry.component === DramaSettingsSection)
 }
 
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+it.each([
+  ['dsh-app://app/', 'http://127.0.0.1:5684', true],
+  ['dsh-app://app/', undefined, false],
+  ['https://example.invalid/', 'http://127.0.0.1:5684', false],
+] as const)('registers the studio sidebar only for the opt-in Muse desktop document (%s, %s)', async (url, standaloneStudioOrigin, expected) => {
+  vi.stubGlobal('location', new URL(url))
+  vi.stubGlobal('dshDesktop', { productName: 'muse-med', standaloneStudioOrigin })
+  const { ctx, slots } = await bench()
+  try {
+    const release = slots.register({
+      name: 'root',
+      children: { main: { kind: 'keyed', scope: 'root' }, 'sidebar.panellist': { kind: 'list', scope: 'root' } },
+    }, ({ renderSlot }: PropsRenderSlots<'main' | 'sidebar.panellist'>) => [
+      renderSlot('main', {}, { entryKey: 'conversation' }),
+      renderSlot('sidebar.panellist', { size: 16, active: false }),
+    ])
+    try {
+      const fiber = ctx.plugin({ inject: [...inject], apply })
+      await fiber.await()
+      const sidebar = slots.entries('sidebar.panellist')
+      const panels = slots.entries('main')
+      expect(sidebar).toHaveLength(expected ? 1 : 0)
+      expect(panels).toHaveLength(expected ? 1 : 0)
+      if (expected) {
+        const entry = sidebar[0]
+        if (!entry) throw new Error('Missing studio sidebar entry')
+        expect(resolveSlotLabel(entry.options.label)).toBe('制作平台')
+        expect(panels[0]?.inject?.()).toMatchObject({ origin: standaloneStudioOrigin })
+      }
+      await fiber.dispose()
+      expect(slots.entries('sidebar.panellist')).toHaveLength(0)
+      expect(slots.entries('main')).toHaveLength(0)
+    } finally {
+      release()
+    }
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
 
 describe('drama-settings browser plugin', () => {
   it('forwards project budget requests to a composed authorization face without altering their values', async () => {

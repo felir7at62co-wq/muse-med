@@ -1,13 +1,14 @@
 /** Short-drama Settings page configuration and validated draft-root tool. */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 // Type-only: resolves the `settings` service and its Context merge.
 import type {} from '@deepseek-ai/dsh-settings'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { draftDirectory } from './draft-directory.ts'
-import { DramaSettingsSchema } from './settings.ts'
+import { DramaSettingsSchema, type DramaDeliverySpec } from './settings.ts'
 import { PROJECT_BIBLE_CHANGES, readProjectBible, previewProjectBible, updateProjectBible } from './project-bible.ts'
 import type { ProjectBudgetReader } from './project-bible.ts'
+import { standaloneScriptTool } from './standalone-script.ts'
 
 export {
   DEFAULT_BGM_DIR, DEFAULT_DELIVERY_SPEC, DEFAULT_JIANYING_DRAFT_DIR, DELIVERY_SPEC_FIELD,
@@ -18,6 +19,24 @@ export type { DramaDeliverySpec, DramaSettings, DramaSettingsField } from './set
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'drama-settings'
+
+/** Resolved composition options and live settings for short-drama work. */
+export interface Config {
+  /** IPv4 loopback origin of the optional production studio; omit to leave it unavailable. */
+  readonly standaloneStudioAddress?: string
+  /** Absolute episode delivery directory, or empty to use the project directory. */
+  readonly deliveryDir: Volatile<string>
+  /** Absolute JianyingPro draft root, or empty while unconfigured. */
+  readonly jianyingDraftDir: Volatile<string>
+  /** Dimensions, frame rate, and bitrate floor for delivery. */
+  readonly deliverySpec: Volatile<DramaDeliverySpec>
+  /** Absolute local BGM library, or empty to use the default catalogue. */
+  readonly bgmDir: Volatile<string>
+  /** Optional paid image-route row selected by the operator. */
+  readonly imageStandardId: Volatile<number | undefined>
+  /** Default CNY cents for a project without its own authorization. */
+  readonly seriesBudgetCents: Volatile<number>
+}
 
 /**
  * The durable short-drama section as this row's composition config.
@@ -40,8 +59,13 @@ export const Config = DramaSettingsSchema
  * effect on this row's fiber, so a late-loading or replaced Settings service
  * adopts the policy and unloading the row removes it.
  * @param ctx - Host context that may acquire the settings service.
+ * @param config - Resolved composition configuration; the optional studio address never carries credentials.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config?: Config): void {
+  const script = standaloneScriptTool(config?.standaloneStudioAddress ?? '')
+  if (script !== undefined) {
+    ctx.inject(['tools'], scope => scope.effect(() => scope.tools.register(script)))
+  }
   ctx.inject(['settings', 'tools'], (toolCtx) => {
     toolCtx.effect(() => toolCtx.tools.register(defineTool({
       name: 'drama_draft_dir',

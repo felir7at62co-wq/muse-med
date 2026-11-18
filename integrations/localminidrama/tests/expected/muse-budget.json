@@ -1,0 +1,14 @@
+{
+  "scope": "one authenticated tenant and one project",
+  "currency": "CNY",
+  "initialLimitMinor": 100,
+  "reservationMinor": 60,
+  "replayDispatchAllowed": false,
+  "unknownReservedMinor": 60,
+  "unknownInvoiceCode": "budget_outcome_unknown",
+  "settledMinor": 35,
+  "remainingReservedMinor": 0,
+  "invoiceSource": "operator-confirmed-invoice",
+  "supplierVerified": false,
+  "supplierHardCapGuaranteed": false
+}

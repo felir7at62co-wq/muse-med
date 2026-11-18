@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "source": {
+    "packageSha256": "4d0b27880714bd665b1dfb191379fb57a47a55ec3e5b7b704d0e31deec45b03a",
+    "lockSha256": "444800a429a3ebd8b107ac5077cb1f958e213322434d2ca326ff00f11a775edc"
+  },
+  "dependency": {
+    "name": "multer",
+    "version": "2.5.0"
+  },
+  "lockPackage": {
+    "version": "2.5.0",
+    "resolved": "https://registry.npmjs.org/multer/-/multer-2.5.0.tgz",
+    "integrity": "sha512-BsqOzYGVq49JcW2IzoSAxeKYRevb+dGGPPWleOR8Lrlk4igwxu1/9pwSXlByhCb7MVZDrNJFC0IBP5/O5nLYRw==",
+    "license": "MIT",
+    "dependencies": {
+      "append-field": "^1.0.0",
+      "busboy": "^1.6.0",
+      "type-is": "^1.6.18"
+    },
+    "engines": {
+      "node": ">= 10.16.0"
+    },
+    "funding": {
+      "type": "opencollective",
+      "url": "https://opencollective.com/express"
+    }
+  },
+  "removeLockPackages": [
+    "node_modules/buffer-from",
+    "node_modules/concat-stream",
+    "node_modules/concat-stream/node_modules/readable-stream",
+    "node_modules/concat-stream/node_modules/safe-buffer",
+    "node_modules/concat-stream/node_modules/string_decoder",
+    "node_modules/core-util-is",
+    "node_modules/isarray",
+    "node_modules/mkdirp",
+    "node_modules/process-nextick-args",
+    "node_modules/typedarray",
+    "node_modules/xtend"
+  ]
+}

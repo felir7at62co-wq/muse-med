@@ -1,0 +1,9 @@
+{
+  "restored_dialogue": "原对白",
+  "retained_video": "/static/new.mp4",
+  "retained_audio": "audio/new.mp3",
+  "retained_generation_state": "processing",
+  "media_adoption_changed": false,
+  "paid_generation_dispatched": false,
+  "replayed_without_overwrite": true
+}
