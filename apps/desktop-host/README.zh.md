@@ -35,6 +35,8 @@ Host 包在 `lib/index.js` 旁保留 `lib/workspace-owned-storage.js`，供 Desk
 
 启动桌面版前，将 `MUSE_JINGLIU_ORIGIN` 设为镜流 HTTPS 站点或可信的回环地址。新多媒体项目使用镜流。此桌面配置已归档剧变工具、会话视频模型选择器及剧变的整集渲染服务。原有本地文件和历史会话记录仍保存在原处。配置镜流地址后，右侧栏的[镜流原版工作台](../../packages/client/ui-jingliu/README.zh.md)和会话里的[镜流工作流工具](../../packages/drama/tool-jingliu/README.zh.md)使用同一个站点。工作台使用飞书登录。要在聊天中调用工具，请先在 Muse 会话中运行 `/jingliu-login`，完成飞书授权后回到同一会话再运行一次。独立测试环境可设置 `MUSE_JINGLIU_LOCAL_PREVIEW=1`，并按照[镜流账号连接](../../packages/drama/jingliu-connection/README.zh.md)向 Host 提供测试会话。
 
+将 `MUSE_SCRIPT_WORKSHOP_ORIGIN` 设为编剧服务源站，可从右侧栏打开「剧本工坊」。剧本工坊与镜流分别配置。
+
 Desktop 启用已有的[打开方式控件](../../packages/client/ui-open-in-app/README.zh.md)，保留标准紧凑样式，用关联应用打开文件或在系统文件管理器中显示其位置。
 
 Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../packages/drama/drama-settings/README.zh.md)。剪映专业版草稿根目录保存在用户配置中，并在重启后恢复；显式 home 和命令行覆盖仍保持优先级。保存此设置不授予草稿导出的文件系统访问权限。

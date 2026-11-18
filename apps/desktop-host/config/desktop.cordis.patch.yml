@@ -164,9 +164,10 @@
 
     - id: ui-jingliu
       name: '@deepseek-ai/dsh-client-ui-jingliu'
-      disabled: !!js "!process.env.MUSE_JINGLIU_ORIGIN"
+      disabled: !!js "!process.env.MUSE_JINGLIU_ORIGIN && !process.env.MUSE_SCRIPT_WORKSHOP_ORIGIN"
       config:
         studioOrigin: !!js process.env.MUSE_JINGLIU_ORIGIN
+        workshopOrigin: !!js process.env.MUSE_SCRIPT_WORKSHOP_ORIGIN
 
     - id: muse-market
       name: '@deepseek-ai/dsh-muse-market'

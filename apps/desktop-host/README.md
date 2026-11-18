@@ -35,6 +35,8 @@ The Desktop tool-discovery policy keeps routine file, command, image, video-insp
 
 Set `MUSE_JINGLIU_ORIGIN` to the Jingliu HTTPS origin or a trusted loopback endpoint before starting Desktop. Desktop uses Jingliu for new multimedia projects. Jubian tools, its conversation video selector and its approved-render worker are retired from this profile. Saved local files and historical Session records stay in place. Setting the origin connects the [original studio in the right sidebar](../../packages/client/ui-jingliu/README.md) and the [Jingliu workflow tools](../../packages/drama/tool-jingliu/README.md) to the same installation. Sign in to the studio through Feishu. For chat tools, run `/jingliu-login` in a Muse conversation, authorize in Feishu, then run the command again in that conversation. An isolated test deployment can set `MUSE_JINGLIU_LOCAL_PREVIEW=1` and supply its own test session to the Host as described in [Jingliu account connection](../../packages/drama/jingliu-connection/README.md).
 
+Set `MUSE_SCRIPT_WORKSHOP_ORIGIN` to the writing service origin to open Script workshop from the right sidebar. You can configure each workbench independently.
+
 Desktop enables the existing [Open In controls](../../packages/client/ui-open-in-app/README.md) with their standard compact appearance for opening files in associated applications and showing their location in the system file manager.
 
 The Desktop defaults bundle registers [short-drama settings](../../packages/drama/drama-settings/README.md) before user profile patches. The JianyingPro draft root persists in the profile across restarts; explicit home and command-line overrides still take precedence. Saving this setting grants no filesystem access for draft export.

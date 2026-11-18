@@ -1,5 +1,5 @@
 ---
-description: "Jingliu's original ShotFlow workspace in the Muse right sidebar."
+description: "The original script workshop and Jingliu production studio in the Muse right sidebar."
 kind: "package-reference"
 ---
 
@@ -9,9 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Set `studioOrigin` to a dedicated HTTPS origin, or an HTTP loopback origin for a local studio. Open **Jingliu** below Files, Terminal and Browser in the right sidebar. The tab loads the original `/sfp/` page. Its projects, media, selection, authentication and job state belong to that studio. Omitting the origin removes the entry.
+Set `workshopOrigin` to the script workshop deployment and `studioOrigin` to the Jingliu deployment. Each accepts an HTTPS origin or an HTTP loopback IP origin. Each configured application gets a separate right-sidebar entry below Files, Terminal and Browser. **Script workshop** opens the original writing homepage at `/v2` to create, edit and review drafts. **Jingliu** opens its production workspace at `/sfp/`.
 
-The studio scales to fit the sidebar while retaining its desktop layout. Narrow panes scroll horizontally. Use the sidebar's fullscreen control for more working space.
+Each open tab retains its document when you switch tabs. Narrow panes scroll horizontally at minimum zoom. Use the sidebar's fullscreen control for more writing or production space.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ The studio scales to fit the sidebar while retaining its desktop layout. Narrow 
 
 #### What the model sees
 
-Opening `/sfp/` contributes no prompt, tool or Session event. Jingliu workflow tools use their own Host account.
+Opening the writing page at `/v2` or the production page at `/sfp/` contributes no prompt, tool or Session event. Jingliu workflow tools use their own Host account.
 
 #### Token effect
 
@@ -37,8 +37,8 @@ Viewing the studio leaves the model prefix unchanged.
 
 ## Known Limitations and Deferred Work
 
-- An embedded deployment must permit its studio page to be framed by Muse. Feishu sign-in opens the external authorization page and the studio polls for the result.
-- The studio keeps its own web session on its origin. A project selected in the studio does not select the target of a tool call.
+- Each deployment must allow Muse to embed its page. The script workshop supplies its own sign-in screen, including Feishu QR sign-in.
+- Each application manages its own account session, drafts and projects. Selecting a page or switching tabs does not transfer a draft to Jingliu or select a target for chat tools.
 
 ### Dev Note
 
