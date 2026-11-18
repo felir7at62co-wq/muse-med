@@ -1209,6 +1209,73 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-deepseek-account -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-drama-settings -->
+<a id="deepseek-aidsh-drama-settings"></a>
+
+## `@deepseek-ai/dsh-drama-settings`
+
+- `source`: [`packages/drama/drama-settings/src/index.ts:24`](../packages/drama/drama-settings/src/index.ts)
+
+```ts config-catalog
+/** Product composition options and persisted short-drama settings. */
+export interface Config extends Partial<DramaSettings> {
+  /** Limit the project bible to local metadata. Omit to retain the full legacy project editor. */
+  localProjectOnly?: boolean
+}
+
+/**
+ * The durable short-drama section as a value view: what the settings service
+ * hands the Settings page, the paid-image pin and the per-series ceiling.
+ *
+ * A schema field marked volatile resolves to a live reference rather than this
+ * value, so this interface describes the section after those references are
+ * read, which is what {@link DramaSettingsSchema} publishes through the
+ * settings transport.
+ */
+export interface DramaSettings {
+  /** Absolute directory finished episodes are delivered to; empty means `<project>/delivery`. */
+  deliveryDir: string
+  /** Absolute JianyingPro draft root; empty means no root is configured. */
+  jianyingDraftDir: string
+  /** Resolution, frame rate and bitrate floor of a delivered episode. */
+  deliverySpec: DramaDeliverySpec
+  /** Absolute local BGM library the mood matcher searches. */
+  bgmDir: string
+  /**
+   * The `gpt-image-2` catalogue row the paid asset-image route buys from, as
+   * that row's own `standardId` (`id`). Absent means the route decides for
+   * itself, which only works while the account catalogue lists exactly one
+   * `gpt-image-2` row: with several, the paid call fails and names every
+   * candidate rather than buying from a platform nobody chose.
+   */
+  imageStandardId?: number
+  /**
+   * Default paid-call ceiling for drama/Jubian script_ids without an explicit
+   * project authorization, in nonnegative safe integer CNY cents; zero disables those calls.
+   */
+  seriesBudgetCents: number
+}
+
+/**
+ * The delivery target one finished episode is rendered to.
+ *
+ * A type alias rather than an interface: its values ride a settings path
+ * operation as JSON, and only an alias carries the implicit index signature
+ * that the wire's `JsonValue` admits.
+ */
+export type DramaDeliverySpec = {
+  /** Frame width in pixels. */
+  width: number
+  /** Frame height in pixels. */
+  height: number
+  /** Frames per second. */
+  fps: number
+  /** Bitrate floor the delivered file must hold, in megabits per second. */
+  minBitrateMbps: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-drama-settings -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-api-speech-to-text -->
 <a id="deepseek-aidsh-experimental-api-speech-to-text"></a>
 
@@ -3839,6 +3906,8 @@ export interface Config {
   readonly mainPreset?: string
   /** Preset used only for newly created workers. Defaults to `short-drama`. */
   readonly workerPreset?: string
+  /** Capture Main's Jubian video selection on dispatch. Defaults to true. When disabled, new tasks have no key and revisions retain the task's recorded key. */
+  readonly inheritJubianVideoSelection?: boolean
   /** Maximum returned Session search rows or report tasks. Defaults to 30. */
   readonly searchLimit?: number
   /**
@@ -4296,6 +4365,8 @@ export interface Config {
   watchFollowSymlinks?: boolean
   /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */
   bundledSkillDir?: string
+  /** Skill names retired from the bundled root. User and project providers retain their own selections. */
+  excludedBundledSkills?: string[]
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-skill-filesystem -->
@@ -6664,7 +6735,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-cua` | — | [`packages/experimental/cua/src/index.ts`](../packages/experimental/cua/src/index.ts) |
 | `@deepseek-ai/dsh-deepseek-llm-api-extensions` | — | [`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts) |
 | `@deepseek-ai/dsh-deliverable-file-references` | `systemPrompt` | [`packages/deliverables/deliverable-file-references/src/index.ts`](../packages/deliverables/deliverable-file-references/src/index.ts) |
-| `@deepseek-ai/dsh-drama-settings` | — | [`packages/drama/drama-settings/src/index.ts`](../packages/drama/drama-settings/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-auto-review` | `approval` · `llm` · `permissionPresets` · `sessions` · `tools` · `workingDirectory` | [`packages/experimental/auto-review/src/index.ts`](../packages/experimental/auto-review/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-client-ui-claude-code-mods` | — | [`packages/experimental/client-ui-claude-code-mods/src/index.ts`](../packages/experimental/client-ui-claude-code-mods/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-client-ui-stats` | — | [`packages/experimental/client-ui-stats/src/index.ts`](../packages/experimental/client-ui-stats/src/index.ts) |

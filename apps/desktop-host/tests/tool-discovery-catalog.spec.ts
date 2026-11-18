@@ -63,10 +63,11 @@ it.each(['short-drama', 'standard', 'bot-coordinator'])('classifies every harves
     for (const name of packagesFromRows(patch.insert)) packages.add(name)
   }
   const schemas = catalog.filter(entry => packages.has(entry.pkg)).flatMap(entry => entry.schemas)
-  expect(schemas.length).toBeGreaterThan(40)
+  expect(schemas.length).toBeGreaterThan(30)
   const resident = new Set([...config.alwaysLoad, 'tool_search', 'tool_context'])
-  const deferred = schemas.filter(schema => !resident.has(schema.name))
-  expect(deferred.length).toBeGreaterThan(15)
+  // The catalog boots shot-script with its optional remote packaging writer; Desktop mounts its local checker only.
+  const deferred = schemas.filter(schema => !resident.has(schema.name) && schema.name !== 'muse_production')
+  expect(deferred.length).toBeGreaterThan(10)
   expect(deferred.filter(schema => capabilityMemberships(schema.name, config.capabilities ?? []).length === 0)
     .map(schema => schema.name)).toEqual([])
   for (const name of ['drama_draft_dir', 'drama_project', 'video_contact_sheet']) {
@@ -83,16 +84,13 @@ it.each([
   ['需要提取字幕', 'video_ocr'],
   ['把台词转写出来', 'audio_transcribe'],
   ['写镜头脚本', 'drama_shot'],
-  ['我要修改分镜卡', 'jubian_storyboard'],
-  ['查角色素材', 'jubian_asset'],
-  ['查视频任务查询', 'jubian_video'],
-  ['复核生成结果', 'jubian_video_review'],
+  ['镜流工作台', 'jingliu_workflows'],
+  ['镜流执行', 'jingliu_run'],
+  ['镜流解说剧', 'jingliu_narration'],
   ['搜索技能目录', 'skill_catalog'],
   ['查找技能目录', 'skill_catalog'],
-  ['查看视频质检报告', 'jubian_video_review'],
   ['找一下背景音乐', 'drama_bgm'],
   ['搜索技能', 'skill_catalog'],
-  ['查看视频审核', 'jubian_video_review'],
 ])('finds %s from actual registered descriptions and configured aliases', (query, expected) => {
   const schemas = new Map(catalog.flatMap(entry => entry.schemas).map(schema => [schema.name, schema]))
   const index = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] ?? [] })),
@@ -102,7 +100,7 @@ it.each([
 
 it('keeps native delivery, project and memory tools deferred while giving each a capability', () => {
   for (const name of ['drama_draft_dir', 'drama_project', 'jianying_draft', 'screenplay_export_docx',
-    'load_workspace_dependencies', 'manuscript_revision', 'source_recover', 'skill_catalog', 'jubian_video_review']) {
+    'load_workspace_dependencies', 'manuscript_revision', 'source_recover', 'skill_catalog', 'jingliu_run']) {
     expect(config.alwaysLoad).not.toContain(name)
     expect(capabilityMemberships(name, config.capabilities ?? []).length).toBeGreaterThan(0)
     expect(config.keywords?.[name]?.length).toBeGreaterThan(0)

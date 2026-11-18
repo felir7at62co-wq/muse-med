@@ -58,6 +58,19 @@
   config:
     includeDefaultRoots: false
     includeProjectRoots: true
+    excludedBundledSkills:
+      - jubian-project-upload
+      - jubian-snatch
+      - tweet-drama-background-render
+      - tweet-drama-core
+      - tweet-drama-delivery
+      - tweet-drama-draft-build
+      - tweet-drama-early-shot-script
+      - tweet-drama-key-manager
+      - tweet-drama-project-bible
+      - tweet-drama-project-inspect
+      - tweet-drama-shot-asset-match
+      - tweet-drama-voice-continuity
 
 # These optional settings providers are not part of the Muse product.
 - id: agent-notes
@@ -142,14 +155,12 @@
 - insert:
     - id: jingliu-connection
       name: '@deepseek-ai/dsh-jingliu-connection'
-      disabled: !!js "!process.env.MUSE_JINGLIU_ORIGIN"
       config:
         studioOrigin: !!js process.env.MUSE_JINGLIU_ORIGIN
         localPreviewToken: !!js process.env.MUSE_JINGLIU_LOCAL_PREVIEW === '1'
 
     - id: tool-jingliu
       name: '@deepseek-ai/dsh-tool-jingliu'
-      disabled: !!js "!process.env.MUSE_JINGLIU_ORIGIN"
 
     - id: ui-jingliu
       name: '@deepseek-ai/dsh-client-ui-jingliu'
@@ -191,25 +202,6 @@
 
     - id: ui-directory-picker-native
       name: '@deepseek-ai/dsh-client-ui-directory-picker-native'
-
-    # Jubian also publishes Remote services consumed by Desktop Settings, so
-    # it belongs on the Host rather than inside one agent preset.
-    - id: tool-jubian
-      name: '@deepseek-ai/dsh-tool-jubian'
-      config:
-        videoRecoverySettings: true
-        imagePlatformId: KU_AI
-        imageAllowedStandardIds: [76, 66, 86]
-        promptRiskReview:
-          terms: [国旗, 国徽, 党旗, 党徽, 军旗, 军徽, 政治标语, 领袖画像, 共产主义红色象征, 露骨色情, 血腥伤害, 极端主义标识]
-          contextChars: 24
-          maxMatches: 100
-        sessionVideoSelection: true
-        generationWatch: true
-        defaultVideoModel:
-          modelId: doubao-seedance-2.5
-          platformId: FZ_HUAN_CHANG
-          resolution: 480p
 
     # Account credentials travel through the authenticated Settings Remote call.
     - id: muse-desktop-bridge
@@ -281,9 +273,14 @@
         k1: 1.2
         b: 0.75
         keywords:
-          jingliu_workflows: [镜流, 镜流工作台, 镜流项目, Jingliu, ShotFlow]
-          jingliu_run: [镜流执行, 镜流制作, 镜流分镜, 镜流任务, ShotFlow]
+          jingliu_workflows: [镜流, 镜流工作台, 镜流项目, 新建项目, 分集, 查询模型, Jingliu, ShotFlow]
+          jingliu_run: [镜流执行, 镜流制作, 镜流分镜, 镜流任务, 制作分镜, 角色素材, 生成视频, 任务进度, ShotFlow]
           jingliu_narration: [镜流解说剧, 解说剧拆镜, 角色开口, 解说剧交付]
+          drama_project: [项目圣经, 本地项目圣经, 人物关系, 修改画幅]
+          drama_shot: [写镜头脚本, 校验分镜, 本地镜头预算]
+          drama_character_reference_project: [角色参考项目, 人物参考项目]
+          drama_character_references: [角色参考图, 人物参考图, 角色三视图]
+          drama_character_reference_view: [查看角色参考图, 预览人物参考图]
           mcp__muse-computer__list_windows: [操作电脑, 操作软件, 查找窗口, 桌面操作, 点击按钮, 帮我操作, computer use]
           mcp__muse-computer__launch_app: [打开软件, 启动应用, 打开程序, launch app]
           mcp__muse-computer__get_window_state: [查看窗口, 查看屏幕, 屏幕截图, 看界面]
@@ -291,25 +288,10 @@
           video_contact_sheet: [视频接触表, 缩略图总览, 视频画面总览, 拼图预览]
           audio_transcribe: [语音识别, 台词转写, 音频转文字, 听视频]
           video_ocr: [字幕识别, 画面文字, 提取字幕]
-          drama_shot: [分镜, 镜头脚本, 对白核对, 来源证据]
-          drama_project: [项目设定, 项目圣经, 人物关系, 画幅, 分辨率]
           manuscript_revision: [稿件版本, 原稿对照, 修改对比, 剧本差异, 精修核对, 重复剧情, 重复剧集, 剧情衔接, 跨集衔接, 前后矛盾, 连续性审校]
           source_recover: [恢复来源, 原始工具结果, 回读历史工具, 完整读取]
           skill_catalog: [技能目录, 技能清单, 查找技能, 搜索技能]
-          jubian_storyboard: [视频卡, 写卡, 修改分镜卡, 制作卡片, 去字幕, 擦除烧录字幕]
-          jubian_asset: [角色素材, 场景素材, 道具素材, 上传素材, 素材查询]
-          jubian_video: [视频生成, 制作视频, 生成任务, 视频任务查询]
-          jubian_video_review: [视频质检报告, 查看视频审核, 视频复核, 质检结果]
           drama_render: [剪辑, 成片, 渲染, 合成视频, 交付检查, 台词覆盖, 字幕布局]
-          muse_production: [制作任务, 制作编排, 资产生成, 生成成本, 制作进度]
-          jubian_catalog: [剧变模型, 模型报价, 剧本目录, 分集列表]
-          jubian_manuscript: [上传剧本, 上传稿件, 登记剧本, 稿件登记, 剧本导入, 绑定稿件]
-          jubian_project: [创建项目, 新建项目, 剧变项目, 项目创建, 项目回执, 分享项目, 项目分享, 分享给用户, 分享给部门]
-          jubian_find: [查找剧本, 剧变剧本, 我的项目, 可认领剧本]
-          jubian_organize: [整理成片, 整理素材, 整理项目文件]
-          drama_character_reference_project: [角色参考项目, 人物参考项目, 角色资产规划]
-          drama_character_references: [角色参考图, 人物参考图, 角色三视图]
-          drama_character_reference_view: [查看角色参考图, 预览人物参考图, 检查三视图]
           drama_draft_dir: [剪映目录, 剪映草稿目录, 草稿位置, 草稿路径]
           jianying_draft: [剪映草稿, 可编辑草稿, 创建剪映草稿, 导出剪映, 剪映工程]
           bgm_match: [配乐, 背景音乐, 音乐库, 曲库, 选曲]
@@ -354,23 +336,19 @@
           - id: screenplay
             title: 剧本与分镜
             description: 整理剧本、编写镜头脚本并对照来源证据。
-            tools: [drama_project, drama_shot, jubian_manuscript, jubian_project, 'manuscript_*', video_inspect, jubian_storyboard]
+            tools: [drama_project, drama_shot, 'manuscript_*', video_inspect]
           - id: assets
-            title: 角色场景与素材
-            description: 查询、整理和准备角色、场景、道具及参考素材。
-            tools: [drama_assets, 'drama_character_*', jubian_asset, 'jubian_character_*']
-          - id: production
-            title: 制作与生成
-            description: 处理项目视频卡、模型、预算、生成及任务状态。
-            tools: [muse_production, jubian_storyboard, jubian_video, jubian_video_review, jubian_video_model, jubian_model, jubian_catalog, jubian_budget, drama_video]
+            title: 本地项目角色参考
+            description: 按既有项目读取角色目录、检索候选并查看参考图。
+            tools: ['drama_character_*']
           - id: editing-delivery
             title: 剪辑配乐与交付
             description: 导出 Word 剧本、处理 Office 文档、创建剪映草稿、查找草稿目录、匹配配乐与整理成片。
-            tools: [screenplay_export_docx, load_workspace_dependencies, office_convert, office_recalculate, office_render, jianying_draft, drama_draft_dir, drama_render, drama_bgm, bgm_match, jubian_media, jubian_organize]
+            tools: [screenplay_export_docx, load_workspace_dependencies, office_convert, office_recalculate, office_render, jianying_draft, drama_draft_dir, drama_render, drama_video, drama_bgm, bgm_match]
           - id: data-sourcing
             title: 数据选材与下载
             description: 采集红果、七猫与抖音公开数据，保存观测快照、比较指标、人工核验作品关系并生成选材报告，搜索和下载小说、剧目及视频素材。
-            tools: ['hongguo_*', 'douyin_*', muse_media_data, 'fanqie_*', 'qimao_*', source_snapshot, source_report, work_mapping, lvpaopao, jubian_find, jubian_snatch, jubian_watch, jubian_claim]
+            tools: ['hongguo_*', 'douyin_*', muse_media_data, 'fanqie_*', 'qimao_*', source_snapshot, source_report, work_mapping, lvpaopao]
           - id: knowledge
             title: 技能、MCP 与项目资料
             description: 管理学习技能与版本，读取已连接的 MCP 资源与项目资料。

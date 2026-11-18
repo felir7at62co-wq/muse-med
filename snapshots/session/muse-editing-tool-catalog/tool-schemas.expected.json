@@ -359,67 +359,6 @@
       }
     },
     {
-      "name": "drama_assets",
-      "description": "短剧流水线的付费生成前资产对账（剧变）。reconcile=只读剧变、免费：把「剧变远端这个项目里已选用的资产」与「assets_manifest.json 里写了什么」逐条比一遍，产出机读证据 <project_dir>/_probe/asset-reconcile.json。判定口径：远端存活 = asset/list 里 delFlag == \"0\"；已选用 = material/list 里 isUsed == 1 且 hsAssetStatus == \"Active\"；unregistered = 已选用但清单里没有（不许直接生成，先登记复用或写明不需要）；dangling = 清单里有但远端没有；matched = 两端都有的数量。dispose=给某条 unregistered 写处置：status=registered（已登记进清单）或 ignored（确认不需要，必须带非空 note）；只更新证据里的 disposition 并重算 blocking / ignored_without_note / ready，不重新对账、不联网。ready = issues 为空且 blocking 与 ignored_without_note 都为空，宿主侧的付费前置钩子只认这一条，证据 24 小时内有效。清单读不全不报错、也不拒绝运行：缺 items 资产数组（或只写在 assets 键下）、缺 lead_readonly_records、某条记录不是对象，都写进 issues 并让 ready=false，好让 agent 一次看全所有要修的地方。为什么清单不够：清单只记录我们生成过什么，不等于剧变项目里已经有什么——2026-09-20 就因为只看清单，给一张项目里早就存在的正式资产重新生成了两次（花掉 1.17 元）。match_preview=只读当前项目人物、场景与已认可声线；需要项目内 requirements_path，返回 reuse_ready/needs_review/missing/blocked 与证据。它不写任何文件，不生成、不绑定、不审批；同名不能证明身份，分页不全或来源变化必须 blocked。missing 仅限当前项目，不允许据此直接付费生成。reuse_preview=集中归组并生成只读复用计划；可带 plan_path 预检各镜素材选择，保留无关素材和配置，失败即停止后续预检。匹配预览 → 复用建议 → 用户确认 → 模型调用原有 jubian_storyboard.select_assets。reuse_ready、already_bound 和 fingerprint 不是审批；apply_allowed=false 只表示预览不授予写入权限。用户授权后可按 shots 的有序 selections 调用原工具，继续实时身份、顺序和回读校验；未授权不得绑定。声线沿 audio_preview → audio_apply。shared_usage_preview=完整查询共享剧变项目的资产、材质、剧集和视频包，按实际绑定汇总不同包的引用数及集数；支持精确asset_id或character_id筛选。重复音频仅在同人物同人生时期归组，先迁移引用再清理；历史任务与其他账号本地计划未扫描，不授予删除权限。usage_preview=读取当前资产清单、项目声音和可选打包结果，按实际父资产/材质ID查询引用位置与缺失声线；支持asset_id筛选，不猜人物、不审批、不绑定、不收费。下载成功视频后主动加载tweet-drama-voice-continuity，缺声线时用其prepare_voice_assets.py提取并登记候选；完整长音轨不直接作声线；实际讲话的2秒短参考可带背景声，同一包合计不超过15秒。本工具绝不调用剧变的任何写方法、绝不计费：reconcile/dispose 本地只写 _probe/asset-reconcile.json，match_preview 完全只读。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "method": {
-            "type": "string",
-            "description": "reconcile=对账并写证据；dispose=只改处置记录；match_preview=只读人物、场景、声线匹配，不写文件、不审批。",
-            "enum": [
-              "reconcile",
-              "dispose",
-              "match_preview",
-              "reuse_preview",
-              "usage_preview",
-              "shared_usage_preview"
-            ]
-          },
-          "project_dir": {
-            "type": "string",
-            "description": "项目根目录绝对路径；shared_usage_preview只需project_config.json中的jubian_script_id，其余方法需要assets_manifest.json。对账证据写在_probe/asset-reconcile.json。"
-          },
-          "requirements_path": {
-            "type": "string",
-            "description": "match_preview/reuse_preview 必填：项目内 version=1 的需求 JSON，含 source_path、source_sha256 与 requirements；详情见工具 README。"
-          },
-          "plan_path": {
-            "type": "string",
-            "description": "usage_preview 可选：项目内 version=1 的 documents JSON（path/sha256/episode）；reuse_preview 可选：项目内 version=1 的 shots JSON，含 storyboard_id、episode、episode_id 与 requirement_id/material_key 绑定映射；不得包含 approved 或审批字段。"
-          },
-          "asset_id": {
-            "type": "integer",
-            "description": "usage_preview/shared_usage_preview 可选精确父资产筛选；dispose 必填：要处置的 unregistered 资产 ID（不是 material_id、不是任务 ID）。"
-          },
-          "character_id": {
-            "type": "string",
-            "description": "shared_usage_preview 可选：精确稳定人物ID，查询此人的已明确登记妆造和不同人生时期声线；不按名字猜。"
-          },
-          "output_offset": {
-            "type": "integer",
-            "description": "shared_usage_preview 输出分页偏移，默认0；后续页使用返回的pagination.next_offset及相同筛选条件，仅query_sha256相同才可拼接，不能把本页空数组当作资产不存在。"
-          },
-          "status": {
-            "type": "string",
-            "description": "dispose 必填：registered=已登记进清单（下次 reconcile 会自动确认）；ignored=确认不需要，必须同时给 note 说明原因。",
-            "enum": [
-              "registered",
-              "ignored"
-            ]
-          },
-          "note": {
-            "type": "string",
-            "description": "dispose 可选但 status=ignored 时必填且非空：写清为什么这个资产不需要（例如是别的剧的备选、失败遗留、废弃版本）。"
-          }
-        },
-        "required": [
-          "method",
-          "project_dir"
-        ]
-      }
-    },
-    {
       "name": "drama_bgm",
       "description": "短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。计划可声明 music_decision=music 或 none，并记录 decision_reason；none 必须 segments=[]，不读取源曲，不生成或验证 WAV，返回 status=no_added_music。music 允许单曲及部分场景留白；省略决定保持旧连续覆盖计划。留白不会加入音乐，也不跨留白交叉淡化。preview=JSON 计划检查，不是试听：验证时间线与来源，检测 1–5 秒内的起音，测量源窗口平均响度，按目标 -17.5 dB 计算增益并受部署 maxSourceGainDb 限制，不写正式产物。计划段落记录 story_context、dialogue_context、tags 及实测 valence/arousal；结合前后情节和对白实际含义选曲，R6 复核相接段落的情绪距离和标签重叠。无依据的大跳变优先延续原曲或用相近片段，不每镜换曲，不把缺元数据当衔接已通过。R7 提醒编号相邻两集重复同曲，优先用符合剧情与衔接的替代曲；确需跨集延续时可保留并在 reason 记录剧情依据，不要求提示清零。曲库 ID 或音频 SHA 相同视为同曲，旧计划缺身份时按源路径比较。实际试听用 drama_render.audio_preview，并将同一混音配置用于正式 render；不要把 JSON 预检当听感通过。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。跨集复用与切点建议以 policy_findings 返回，不拦截调用，不要求为了数量或新鲜度硬配音乐：默认建议有乐集至少 1 首（R1）、检查集内重复（R2）、整批单曲超过 2 集时复核（R3）、不要求每集新曲（R4）、切点建议靠近镜头包边界（R5，容差 0.05 秒）；none 不参与这些建议。批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。R2–R4 按解析后的绝对 source 路径核对，track 只当展示名；R7 优先核对稳定曲库 ID 或音频 SHA。阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。timeline、plan、output 的相对路径都以 project 为基准，不使用进程 cwd；跨工具调用优先传上一步返回的绝对路径。compose 返回的绝对 output 传给 drama_render.bgm，返回的绝对 plan 传给 drama_render.bgm_plan。episodes 可声明 intended_use=商业 commercial、非商业 non_commercial 或 unknown；segments 可保留 track_id 和 license_info。许可缺失返回 unknown；许可事实与用途风险随结果和 generation.json 保留，不认证版权，也不因风险阻止合成。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。本实例每段源曲增益上限为 -10 dB；后续混音不得补回所需衰减。",
       "parameters": {
@@ -713,6 +652,48 @@
           "method",
           "project",
           "episode"
+        ]
+      }
+    },
+    {
+      "name": "drama_shot",
+      "description": "镜头脚本检查与分包建议；创作、格式、资产匹配和时长问题均作 warning，不硬拦截、不要求清零。返回镜号、行号、时长估算、资产匹配与建议；compile 仅保存原文及检查报告为 shot_reviews/<集号>/shot_script.txt、review.json。以用户要求、原剧本和已读创作 Skill 为准，不为旧格式重写内容；保留台词、说话人、镜头正文和时长，不补资产、不替换素材、不截断超长镜头。动作/发声/反应预算及表演顺序用于同步或串行核算；缺项、算术冲突仍警告。只绑定已确认且身份完整的素材；未确认引用保留原文并提示核对，不编造身份。估算与结构化字段可能不完整，多条发声的 text 仅为首条，以原文完整台词为准。ok=true 仅代表检查完成，不是可行性、成片质量、素材绑定、费用或生成准备的验收。分包建议可调整；不覆盖 prompts/、matches/、episode_packages/。启用会话视频选择时读取当前模型、分辨率和时长上限，在 duration_budget 报告并忽略 max_submit_seconds；未知上限不借用其他模型能力，只检查原镜头。切换模型会追加最近分包时长复核的普通上下文，只核对已记录包，不自动改卡、重写或提交。必需参数缺失、文件不可读、资产 JSON 无效或草稿无法安全写入仍为执行错误。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "validate=只读检查；preview=只读分包建议；compile=仅写独立检查草稿，不覆盖正式视频包。",
+            "enum": [
+              "validate",
+              "preview",
+              "compile"
+            ]
+          },
+          "script": {
+            "type": "string",
+            "description": "镜头脚本路径（绝对，或相对当前工作目录）。"
+          },
+          "assets": {
+            "type": "string",
+            "description": "资产清单 assets_manifest.json 的路径；preview 与 compile 必填，validate 可选——给了才判定资产绑定。"
+          },
+          "project": {
+            "type": "string",
+            "description": "项目根目录；compile 必填。advisory 仅创建 shot_reviews/<集号>/，无需 episodes/ 或本地素材图片。给了它就读该项目的 project_config.json（每镜有效字上限等交付要求）；validate/preview 省略时，从脚本所在目录向上找最近的 project_config.json。"
+          },
+          "max_submit_seconds": {
+            "type": "integer",
+            "description": "启用会话视频选择时自动读取当前会话模型上限，此参数忽略；否则 preview/compile 必填，表示含收束的单包参考上限（至少4秒），须核实模型能力。上限不代表推荐包长；advisory 超预算仅提示，submit_seconds 需核对后再用于生成。"
+          },
+          "episode": {
+            "type": "integer",
+            "description": "集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。validate/preview 也接受：给了就同时判定所挂资产登记的 episodes 是否覆盖这一集。"
+          }
+        },
+        "required": [
+          "method",
+          "script"
         ]
       }
     },

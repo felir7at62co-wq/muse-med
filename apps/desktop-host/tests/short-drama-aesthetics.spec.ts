@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 import { expect, it } from 'vitest'
+import * as Direction from '../src/short-drama-guidance.ts'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
@@ -42,7 +43,7 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     { id: 'skills', name: 'cordis:skills' },
     { id: 'skill-files', name: 'cordis:skill-files', config: { includeDefaultRoots: false, watch: false, customSkillDirs: [skillRoot] } },
   ], builtins: { prompt: SystemPrompt, tools: Tools, skills: Skills, 'skill-files': SkillFilesystem,
-    persona: Persona, 'skill-tool': ToolSkill } })
+    persona: Persona, direction: Direction, 'skill-tool': ToolSkill } })
   try {
     await ctx.plugin(Llm); await ctx.plugin(Sessions); await ctx.plugin(SessionProjections)
     await ctx.plugin(NativeToolExecutor)
@@ -50,11 +51,14 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     await ctx.plugin(WorkingDirectory, { defaultDirectory: home }).await()
     await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] }).await()
     await ctx.plugin(AgentPresets, { default: 'short-drama-aesthetics' })
-    const remove = await ctx.agentPresets.register({ id: 'short-drama-aesthetics', plugins: [{ name: 'cordis:persona', config: persona }] })
+    expect(rows.some(row => row.id === 'short-drama-guidance')).toBe(true)
+    const remove = await ctx.agentPresets.register({ id: 'short-drama-aesthetics', plugins: [
+      { name: 'cordis:persona', config: persona }, { name: 'cordis:direction' },
+    ] })
     ctx.effect(() => remove)
     await ctx.loader.create({ name: 'cordis:skill-tool' })
     await ctx.loader.await()
-    const names = ['anime-3d-assets', 'tweet-drama-project-bible', 'tweet-drama-asset-vision-check',
+    const names = ['anime-3d-assets', 'protagonist-asset-sheet', 'character-reference-library', 'tweet-drama-asset-vision-check',
       'shot-script-creator-16-9-3d', 'shot-script-creator-9-16']
     const adapter = new MockAdapter([
       ...names.map((name, index) => toolCallResponse(`skill-${index}`, 'skill', { name })),
@@ -70,11 +74,11 @@ it('keeps shot requirements resident and loads creative direction with skills', 
       .flatMap(message => message.content).filter(part => part.type === 'text').map(part => part.text).join('\n')
     expect(system).toContain(persona.prefix)
     expect(system).not.toContain('次世代高精度建模 CG，物理可信 PBR 材质')
-    expect(system).toContain('否定句、负面提示、全局禁止、反例与备注')
-    expect(system).toContain('不得把上述禁用清单复制进生成提示词')
-    expect(system).toContain('prompt_risk_review是字面命中提示')
-    expect(system).toContain('修正后重新预览、保存并核对逐卡真实回读')
-    expect(system).toContain('只有确认失败与对应词语有关时')
+    expect(system).toContain('每个视频包独立写清必要的人物、风格、空间、动作和声音衔接')
+    expect(system).toContain('不往原台词中插素材编号')
+    expect(system).toContain('改动原稿须取得用户同意')
+    expect(system).toContain('查询 get_prompt_rules 和 preview_prompt')
+    expect(system).toContain('用 get_shot 回读镜头最终保存的提示词')
     expect(system).toContain('中文项目默认中文；用户指定语言时遵循指定')
     expect(system).toContain('用户要求原文作为提示词时保留原文')
     expect(system).toContain('语言选择是创作指导，不拦截生图')
@@ -83,9 +87,8 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(system).toContain('不要把计划或“开始做”当作完成')
     expect(system).toContain('后文创作、精简、补空间或默认不写时间轴的建议不授权改稿')
     expect(system).toContain('正文、对白、回忆或否定句提到某人不等于该人物出镜')
-    expect(system).toContain('“先看提示词”“只预览”“先不生成”收窄此前批量制作或费用授权')
-    expect(system).toContain('不为每包增设确认或审批门禁')
-    expect(system).toContain('视频包之间不共享上下文')
+    expect(system).toContain('只预览时停在展示稿')
+    expect(system).toContain('切到对方反应时，延续说话人的声音和动作方向')
     expect(system).toContain('同一时空内衔接清楚的连续段落')
     expect(system).toContain('符合题材的上镜效果、角色魅力、辨识度和情绪表现')
     expect(system).toContain('所有资产图默认16:9横版')
@@ -122,8 +125,9 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     const finalMessages = JSON.stringify(adapter.requests.at(-1)!.messages)
     expect(finalMessages).toContain(request)
     for (const result of results) expect(finalMessages).toContain(JSON.stringify(result.data.message.content[0]).slice(1, -1))
-    expect(bodies[1]).toContain('次世代高精度建模 CG、物理可信 PBR 材质')
-    expect(bodies[1]).toContain('保留人物身份、物种、关键形态、剧情尺度、动作、道具功能与原台词')
+    expect(bodies[1]).toContain('主角选角与配角区分')
+    expect(bodies[2]).toContain('只读')
+    expect(bodies.join('\n')).not.toMatch(/jubian_|prepare_video|modelConfig\.prompt/u)
     expect(bodies.join('\n')).not.toContain('土得帅')
     expect(bodies[0]).not.toContain('每次生成前必读')
     expect(bodies[0]).toContain('左侧为正面平视的人物胸像')
@@ -140,7 +144,7 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(firstPass).toContain('未指定其他版式的人物设定板提示词')
     expect(firstPass).toContain('用户明确要求单画面全身图或立绘时，使用单个人物的一个完整全身视图并保留清晰面容')
     expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('preflight <集号> --script <本集镜头脚本>')
-    expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('重复短句按出现次数核对')
+    expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('重复短句按次数核对')
     const summaries = await ctx.skills.list()
     for (const name of ['shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
       const summary = summaries.find(skill => skill.name === name)
@@ -158,9 +162,9 @@ it('keeps shot requirements resident and loads creative direction with skills', 
         expect(bodies[names.indexOf(name)]).not.toContain('drama_shot')
       }
       expect(bodies[names.indexOf(name)]).not.toContain('15秒信息密度')
-      expect(bodies[names.indexOf(name)]).toContain('写卡使用 `jubian_storyboard` 的预览、保存和真实回读')
-      expect(bodies[names.indexOf(name)]).toContain('分辨率以当前会话的视频选择为准')
+      expect(bodies[names.indexOf(name)]).toContain('jingliu_workflows')
+      expect(bodies[names.indexOf(name)]).toContain('jingliu_run')
     }
-    expect({ persona: persona.prefix, loadedSkills: bodies }).toMatchSnapshot('short-drama creative guidance')
+    expect({ persona: persona.prefix, direction: Direction.SHORT_DRAMA_GUIDANCE, loadedSkills: bodies }).toMatchSnapshot('short-drama creative guidance')
   } finally { await ctx.fiber.dispose() }
 })

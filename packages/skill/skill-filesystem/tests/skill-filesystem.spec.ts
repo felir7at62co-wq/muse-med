@@ -198,6 +198,22 @@ describe('dsh-skill-filesystem plugin exports', () => {
 })
 
 describe('FileSystemSkillProvider', () => {
+  it('retires bundled guidance while keeping a user-authored skill with the same name', async () => {
+    const home = await tempDir('skill-retired-home')
+    const bundled = await tempDir('skill-retired-bundled')
+    const custom = await tempDir('skill-retired-custom')
+    await writeSkill(bundled, 'archive', 'Former built-in guidance')
+    await writeSkill(bundled, 'kept', 'Current built-in guidance')
+    await writeSkill(bundled, 'customized', 'Former built-in guidance')
+    await writeSkill(custom, 'customized', 'User-authored guidance')
+    const ctx = await setupLocal(home, { bundledSkillDir: bundled, customSkillDirs: [custom], excludedBundledSkills: ['archive', 'customized'] })
+    try {
+      expect((await ctx.skills.list()).map(skill => skill.name).sort()).toEqual(['customized', 'kept'])
+      expect(await ctx.skills.get('archive')).toBeUndefined()
+      expect(await ctx.skills.get('customized')).toMatchObject({ source: 'custom', description: 'User-authored guidance' })
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('discovers project, custom, user, and agents skill roots in priority order', async () => {
     const home = await tempDir('skill-home')
     const project = await tempDir('skill-project')

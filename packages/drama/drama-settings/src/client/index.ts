@@ -4,8 +4,8 @@
  *
  * The page registers through `ctx.slots.inject`, which waits for the slot's own
  * declaration — this package does not own the Settings shell — and it leaves with
- * its fiber when the declarer collapses. The per-drama budget is resolved from
- * the same settings namespace and included in save and restore writes.
+ * its fiber when the declarer collapses. Budget and image-route fields are
+ * editable only while their respective Jubian services are composed.
  *
  * @module @deepseek-ai/dsh-drama-settings/src/client
  */
@@ -30,7 +30,7 @@ import { DramaSettingsSection } from './DramaSettingsSection.tsx'
 import type { DramaSettingsSectionInjected } from './DramaSettingsSection.tsx'
 import { en, zh, ja, es, fr, de, ru, pt, type DramaLocaleKey } from './locales.ts'
 import { imageRoutesOf, type DramaImageRoutes, type JubianImageFace } from './routes.ts'
-import { defaultOps, draftSection, landed, sectionOps, type DramaWriteOutcome } from './section.ts'
+import { defaultOps, draftSection, landed, sectionOps, type DramaWriteOutcome, type JubianControls } from './section.ts'
 import type { ProjectBudgetFace } from './ProjectBudgetGroup.tsx'
 
 export type { DramaComponent, DramaComponentState, DramaComponentStatus } from './components.ts'
@@ -39,7 +39,7 @@ export type { DramaLocaleKey } from './locales.ts'
 export type {
   DramaImageRoute, DramaImageRoutes, ImageRoutesResult, JubianImageFace,
 } from './routes.ts'
-export type { DramaSettingsDraft, DramaWriteOutcome } from './section.ts'
+export type { DramaSettingsDraft, DramaWriteOutcome, JubianControls } from './section.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -122,6 +122,11 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   const scope = ctx.configForms.get<DramaSettings>(DRAMA_SETTINGS_NAMESPACE)
 
+  const paidControls = (shown?: JubianControls): JubianControls => ({
+    budget: shown?.budget !== false && ctx.get('remote.jubianBudget') !== undefined,
+    image: shown?.image !== false && ctx.get('remote.jubianImage') !== undefined,
+  })
+
   /**
    * Write one section and answer whether it landed.
    *
@@ -130,24 +135,31 @@ export function apply(ctx: ClientContext): void {
    * snapshot the page renders is also the evidence for what happened.
    * @param ops - the path operations to apply.
    * @param intended - the section those operations ask for.
+   * @param controls - Paid fields included in the write and its readback.
    * @returns the outcome the page reports.
    */
   const commit = async (
     ops: readonly SettingsPathOpView[],
     intended: DramaSettings,
+    controls: JubianControls,
   ): Promise<DramaWriteOutcome> => {
     await scope.mutate(ops)
-    return landed(scope.getSnapshot().value, intended) ? 'saved' : 'rejected'
+    return landed(scope.getSnapshot().value, intended, controls) ? 'saved' : 'rejected'
   }
 
   const sectionInjected = (): DramaSettingsSectionInjected => ({
     hooks: { drama: scope },
-    write: async (draft) => {
-      const intended = draftSection(draft)
+    paidControls,
+    write: async (draft, shown) => {
+      const controls = paidControls(shown)
+      const intended = draftSection(draft, controls)
       if (intended === undefined) return 'invalid'
-      return await commit(sectionOps(scope.getSnapshot().value, intended), intended)
+      return await commit(sectionOps(scope.getSnapshot().value, intended, controls), intended, controls)
     },
-    restoreDefaults: async () => await commit(defaultOps(), DRAMA_SETTINGS_DEFAULTS),
+    restoreDefaults: async (shown) => {
+      const controls = paidControls(shown)
+      return await commit(defaultOps(controls), DRAMA_SETTINGS_DEFAULTS, controls)
+    },
     components: async () => await componentState(ctx),
     imageRoutes: async () => await imageRouteState(ctx),
     budgetRead: async (scriptId) => {

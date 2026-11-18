@@ -81,6 +81,7 @@ Load the plugin alongside the skill registry; it requires `ctx.skills`.
 | `watchReadyTimeoutMs` | `10000` | Deadline for each existing-root watcher to become ready |
 | `discoveryTimeoutMs` | `30000` | Deadline for one complete discovery, including root lookup, watching, and reads |
 | `bundledSkillDir` | — | Bundled skill root scanned at rank 600 when configured |
+| `excludedBundledSkills` | `[]` | Names to skip in the bundled root. Project, custom and user roots may supply skills with the same names. |
 
 The remaining `watch*` fields tune Chokidar behavior — polling, stability window, interval, project cap, and symlink following. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-skill-filesystem) is the exhaustive source for every field.
 

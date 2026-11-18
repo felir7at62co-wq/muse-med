@@ -3,6 +3,7 @@ scenario: muse-jingliu-script-read
 profile: headless
 composition: muse-jingliu-script-read
 recording: authored
+writerOutput: true
 header:
   class: muse-jingliu-script-read
   pin: true

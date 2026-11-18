@@ -3,8 +3,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { apply as installEditingGuidance } from './editing-policy.ts'
-import { CREATION_GUIDANCE, CREATION_GUIDANCE_SECTION } from './creation-guidance.ts'
 import { apply as installShortDramaGuidance } from './short-drama-guidance.ts'
+import { CREATION_GUIDANCE, CREATION_GUIDANCE_SECTION } from './creation-guidance.ts'
 
 /** Cordis plugin identity. */
 export const name = 'muse-creation-policy'
@@ -19,15 +19,14 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'bgm_match',
   'create_goal',
   'douyin_download',
-  'drama_assets',
   'drama_bgm',
   'drama_character_reference_project',
   'drama_character_reference_view',
   'drama_character_references',
-  'drama_draft_dir',
   'drama_project',
-  'drama_render',
   'drama_shot',
+  'drama_draft_dir',
+  'drama_render',
   'drama_video',
   'dsh_im_return_file',
   'edit',
@@ -58,25 +57,13 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'job_list',
   'job_output',
   'jianying_draft',
-  'jubian_asset',
-  'jubian_budget',
-  'jubian_catalog',
-  'jubian_claim',
-  'jubian_find',
-  'jubian_manuscript',
-  'jubian_media',
-  'jubian_model',
-  'jubian_organize',
-  'jubian_project',
-  'jubian_snatch',
-  'jubian_storyboard',
-  'jubian_video',
-  'jubian_watch',
+  'jingliu_workflows',
+  'jingliu_run',
+  'jingliu_narration',
   'list_mcp_resource_templates',
   'list_mcp_resources',
   'manuscript_revision',
   'source_recover',
-  'muse_production',
   'muse_feedback_submit',
   'muse_feedback_status',
   'muse_media_data',

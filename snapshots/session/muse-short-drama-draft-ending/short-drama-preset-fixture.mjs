@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import { apply as mountPreset } from '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
 
-const Jubian = await importSnapshotModule(
-  new URL('../../../packages/jubian/tool-jubian/src/index.ts', import.meta.url),
-  new URL('../../../packages/jubian/tool-jubian/lib/index.js', import.meta.url),
+const Jingliu = await importSnapshotModule(
+  new URL('../../../packages/drama/tool-jingliu/src/index.ts', import.meta.url),
+  new URL('../../../packages/drama/tool-jingliu/lib/index.js', import.meta.url),
 )
 
 export const name = 'snapshot-short-drama-draft-ending'
@@ -13,11 +13,8 @@ export const inject = ['agentPresets', 'tools', 'systemPrompt', 'llm', 'permissi
 
 /** Mount the product preset and check the prompt sent to the replay model. */
 export async function apply(ctx) {
-  await ctx.plugin(Jubian, {
-    workspaceSecrets: false,
-    sessionVideoSelection: true,
-    defaultVideoModel: { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU', resolution: '480p' },
-  }).await()
+  ctx.effect(() => ctx.provide('jingliuConnection', { async connection() { throw new Error('Catalog-only snapshot') } }))
+  await ctx.plugin(Jingliu).await()
   await mountPreset(ctx, { presetId: 'short-drama', hidePlatformShellTools: true })
   ctx.on('agent/created', ({ agent }) => {
     assert.equal(ctx.permissionPresets.current(agent.session), 'danger-full-access', 'new Muse session uses Full access')
@@ -28,27 +25,17 @@ export async function apply(ctx) {
       .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
       .join('\n')
     assert.ok(system.includes('你是 muse-med 短剧编导 Agent。\n\n'), 'short-drama identity')
-    assert.ok(system.includes('时长在所选模型能力内'), 'current model determines package duration')
-    assert.ok(!system.includes('Seedance 2.0 的视频时长上限为15秒，Seedance 2.5 为30秒'), 'no fixed model duration table')
-    assert.ok(system.includes('不因提示词长、镜头多、固定秒数或已有空卡数量机械拆包'), 'content determines package planning')
-    assert.ok(system.includes('先决定内容、时长和包数，再填写已有视频卡'), 'plan content before assigning cards')
-    assert.ok(system.includes('多余空卡不用，卡不足才新增'), 'unused cards may remain empty')
-    assert.ok(system.includes('后续镜头再次提及同一资产时继续内联引用'), 'each shot references its used assets inline')
-    assert.ok(system.includes('不能只在包首集中列一排素材代替正文引用'), 'header lists do not replace inline references')
-    assert.ok(system.includes('不为补齐引用而新增、补生成资产或站位图'), 'reference checks do not create assets')
-    assert.ok(system.includes('站位图展示各主体唯一位置、相对距离、遮挡、视线和固定环境锚点'), 'positioning reference definition')
-    assert.ok(system.includes('视频包固定自检清单'), 'persistent package checklist')
-    assert.ok(system.includes('后文创作、精简、补空间或默认不写时间轴的建议不授权改稿'), 'frozen source takes precedence over creative defaults')
+    assert.ok(system.includes('符合当前模型实际时长范围'), 'model-specific component durations')
+    assert.ok(system.includes('不因提示词长、镜头多、固定秒数机械拆包'), 'content determines package planning')
+    assert.ok(system.includes('查询 get_prompt_rules 和 preview_prompt'), 'use Jingliu project prompt rules')
+    assert.ok(system.includes('改动原稿须取得用户同意'), 'a refused generation cannot silently alter source')
+    assert.ok(system.includes('用户只要预览时展示内容后停止'), 'preview remains read-only')
+    assert.ok(system.includes('每镜按实际出镜的人物、场景、道具和声音核对参考'), 'shot-specific references')
+    assert.ok(system.includes('切到对方反应时，延续说话人的声音和动作方向'), 'continuity across a reaction shot')
+    assert.ok(system.includes('用 get_shot 回读镜头最终保存的提示词'), 'verify real shot state')
+    assert.ok(system.includes('后文创作、精简、补空间或默认不写时间轴的建议不授权改稿'), 'frozen source takes precedence')
     assert.ok(system.includes('正文、对白、回忆或否定句提到某人不等于该人物出镜'), 'name mentions do not expand visual casting')
-    assert.ok(system.includes('“先看提示词”“只预览”“先不生成”收窄此前批量制作或费用授权'), 'latest preview request ends before generation')
-    assert.ok(system.includes('不为每包增设确认或审批门禁'), 'authorized production remains autonomous')
-    assert.ok(system.includes('最终回复提供可核对证据'), 'delivery evidence required')
-    assert.ok(system.includes('引用与选材绑定一致，不编造key'), 'references match real selected assets')
-    assert.ok(!system.includes('支持30秒的模型可以一次生成完整的30秒视频段落'), 'removed package-duration wording')
-    assert.ok(!system.includes('预置8张空卡'), 'no fixed card-count example')
-    assert.ok(!system.includes('不把预先规划当成效果已经达标的证明'), 'removed post-generation wording')
-    assert.ok(system.includes('不是视频包时长上限，也不限制每包镜头数量'), 'shot rhythm differs from package length')
-    assert.ok(system.includes('本包场景与在场主体及相对位置基本稳定时，考虑使用已有合适站位图'), 'positioning image criteria')
+    assert.ok(system.includes('站位图仅适用于场景固定、在场人物固定、人物位置保持不变的视频包'), 'positioning image criteria')
     assert.ok(system.includes('人物素材未指定版式时，默认使用16:9横版白底设定板'), 'default character sheet layout')
     assert.ok(system.includes('本轮用户明确要求单画面全身图、单视图或人物立绘时，只展示一个完整、面容可见的人物'), 'explicit single-view layout')
     assert.ok(system.includes('项目风格中的旧版式文字不覆盖本轮明确要求'), 'current layout overrides older project defaults')
@@ -71,12 +58,10 @@ export async function apply(ctx) {
     assert.ok(shotReview, 'shot review tool retained')
     assert.ok(shotReview.description.includes('问题均作 warning'), 'shot review remains advisory')
     assert.ok(shotReview.description.includes('不硬拦截、不要求清零'), 'shot review does not block creative choices')
-    const videoModel = options.tools.find(tool => tool.name === 'jubian_video_model')
-    assert.ok(videoModel?.description.includes('选择后追加上下文'), 'session video model changes remain visible')
-    assert.ok(options.messages.some(message => message.source?.kind === 'runtime-context'
-      && message.content.some(block => block.type === 'text'
-        && block.text.includes('本会话默认视频模型为 doubao-seedance-2-5-260628，分辨率 480p。'))),
-    'Desktop video defaults reach the model through runtime context')
+    for (const name of ['jingliu_workflows', 'jingliu_run', 'jingliu_narration']) {
+      assert.ok(options.tools.some(tool => tool.name === name), name + ' available through Muse')
+    }
+    assert.ok(!options.tools.some(tool => tool.name.startsWith('jubian_')), 'retired tool names are absent')
     for (const name of ['subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents']) {
       assert.ok(options.tools.some(tool => tool.name === name), name + ' available for delegated work')
     }

@@ -23,6 +23,8 @@ import { en, zh, STATUS_COPY, type DramaLocaleKey } from '../src/client/locales.
 
 afterEach(cleanup)
 
+const allControls = { budget: true, image: true }
+
 const t = ((key: DramaLocaleKey, params?: Record<string, string | number>): string =>
   Object.entries(params ?? {}).reduce(
     (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
@@ -85,6 +87,7 @@ function mount(
     restoreDefaults?: DramaWriteOutcome
     components?: DramaComponentState[]
     imageRoutes?: DramaImageRoutes
+    controls?: typeof allControls
     budgetRead?: DramaSettingsSectionProps['budgetRead']
     budgetUpdate?: DramaSettingsSectionProps['budgetUpdate']
   } = {},
@@ -98,6 +101,7 @@ function mount(
   const props = (): DramaSettingsSectionProps => ({
     close: vi.fn(),
     t: answers.t ?? t,
+    paidControls: () => answers.controls ?? allControls,
     useDrama: ((selector: (value: ConfigFormSnapshot<DramaSettings>) => unknown) => selector(current)),
     write,
     restoreDefaults,
@@ -153,7 +157,7 @@ describe('DramaSettingsSection — read states', () => {
     fireEvent.change(box(en.bgmDirTitle), { target: { value: '/music/library' } })
     fireEvent.click(screen.getByRole('button', { name: en.save }))
     await screen.findByText(en.saved)
-    expect(bench.write).toHaveBeenCalledWith({ ...draftOf(DRAMA_SETTINGS_DEFAULTS), bgmDir: '/music/library' })
+    expect(bench.write).toHaveBeenCalledWith({ ...draftOf(DRAMA_SETTINGS_DEFAULTS), bgmDir: '/music/library' }, allControls)
   })
 
   it('holds a loading line until the first section arrives', () => {
@@ -167,6 +171,23 @@ describe('DramaSettingsSection — read states', () => {
     mount({ status: 'unavailable', value: undefined })
     expect(screen.getByText(en.unavailable)).toBeDefined()
     expect(screen.queryByText(en.deliveryDirTitle)).toBeNull()
+  })
+
+  it.each([
+    { budget: false, image: false }, { budget: true, image: false }, { budget: false, image: true },
+  ])('shows only independently mounted paid controls: %o', async (controls) => {
+    const bench = mount({}, { controls })
+    await bench.settle()
+    expect(Boolean(screen.queryByLabelText(en.seriesBudgetTitle))).toBe(controls.budget)
+    expect(Boolean(screen.queryByText(en.projectBudgetTitle))).toBe(controls.budget)
+    expect(Boolean(screen.queryByLabelText(en.imageRouteTitle))).toBe(controls.image)
+    expect(bench.imageRoutes).toHaveBeenCalledTimes(Number(controls.image))
+    for (const name of [en.deliveryDirTitle, en.jianyingDraftDirTitle, en.specWidth, en.bgmDirTitle]) {
+      expect(screen.getByLabelText(name)).toBeDefined()
+    }
+    fireEvent.change(box(en.specWidth), { target: { value: '' } })
+    expect(screen.getByText(en.invalidValues)).toBeDefined()
+    expect(screen.queryByText(en.invalidNumber)).toBeNull()
   })
 
   it('shows the resolved section in every group', () => {
@@ -233,7 +254,7 @@ describe('DramaSettingsSection — writes', () => {
       height: '1920',
       fps: '30',
       minBitrateMbps: '3.25',
-    })
+    }, allControls)
   })
 
   it('edits a yuan budget and preserves it in the draft sent for saving', async () => {
@@ -241,7 +262,7 @@ describe('DramaSettingsSection — writes', () => {
     fireEvent.change(box(en.seriesBudgetTitle), { target: { value: '12.30' } })
     fireEvent.click(screen.getByRole('button', { name: en.save }))
     await screen.findByText(en.saved)
-    expect(bench.write).toHaveBeenCalledWith({ ...draftOf(DRAMA_SETTINGS_DEFAULTS), seriesBudgetYuan: '12.30' })
+    expect(bench.write).toHaveBeenCalledWith({ ...draftOf(DRAMA_SETTINGS_DEFAULTS), seriesBudgetYuan: '12.30' }, allControls)
     bench.commit({ value: { ...DRAMA_SETTINGS_DEFAULTS, seriesBudgetCents: 1230 } })
     expect(box(en.seriesBudgetTitle).value).toBe('12.3')
     expect(screen.getByText(en.seriesBudgetDescription.replace('{amount}', '12.3'))).toBeDefined()
@@ -336,7 +357,7 @@ describe('DramaSettingsSection — the asset-image route', () => {
     fireEvent.click(screen.getByRole('button', { name: en.save }))
 
     await screen.findByText(en.saved)
-    expect(bench.write).toHaveBeenCalledWith({ ...draftOf(DRAMA_SETTINGS_DEFAULTS), imageStandardId: '76' })
+    expect(bench.write).toHaveBeenCalledWith({ ...draftOf(DRAMA_SETTINGS_DEFAULTS), imageStandardId: '76' }, allControls)
   })
 
   it('pins no row again when the select is cleared', async () => {
@@ -347,7 +368,7 @@ describe('DramaSettingsSection — the asset-image route', () => {
     fireEvent.click(screen.getByRole('button', { name: en.save }))
 
     await screen.findByText(en.saved)
-    expect(bench.write).toHaveBeenCalledWith({ ...draftOf(DRAMA_SETTINGS_DEFAULTS) })
+    expect(bench.write).toHaveBeenCalledWith({ ...draftOf(DRAMA_SETTINGS_DEFAULTS) }, allControls)
   })
 
   it('keeps a pinned row the catalogue no longer lists instead of dropping it', async () => {
@@ -459,6 +480,7 @@ describe('DramaSettingsSection — the component list', () => {
             selector(snapshot())),
           write: vi.fn(),
           restoreDefaults: vi.fn(),
+          paidControls: () => allControls,
           components,
           imageRoutes: vi.fn(async (): Promise<DramaImageRoutes> => ({ status: 'ok', routes: ROUTES })),
         } as DramaSettingsSectionProps)}

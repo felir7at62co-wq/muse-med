@@ -1,20 +1,18 @@
 ---
 kind: upgrade-guide
-description: "Muse initializes new video choices on the Huanchang channel instead of Fangzhou."
+description: "Muse Desktop uses the Jingliu project workspace for new media production and retires the Jubian tools and conversation video selector."
 ---
 
-# Muse video channel default
+# Muse Desktop media production
 
 English | [中文](guide.zh.md)
 
 ## Change
 
-Muse's Desktop profile changes `defaultVideoModel` from `doubao-seedance-2-5-260628` on `FANG_ZHOU` to `doubao-seedance-2.5` on `FZ_HUAN_CHANG`, retaining 480p. This affects conversations without a saved video choice. Explicit choices, project defaults and submitted tasks retain their identities.
-
-The live account catalogue must contain the new combination. An unavailable default reports an error; Muse does not silently select another channel.
+Desktop opens Jingliu from the right sidebar. The selected Jingliu project owns its script, assets, shot settings, generation jobs and delivery. Desktop retires its built-in Jubian production tools and conversation video-model selector. Existing conversations, project files and downloaded media remain at their original locations. Previously submitted jobs belong to their original service.
 
 ## Migration
 
-1. Update Muse and sign in to Jubian. Custom Desktop overlays that set `defaultVideoModel` retain their own configuration; change that field explicitly if the same default is wanted.
-2. For an existing conversation using Fangzhou, open the video-model menu and select Seedance 2.5 under `FZ_HUAN_CHANG`. Select 480p or 720p as required. This choice affects future generation, not submitted tasks.
-3. Read the conversation's video settings and confirm the channel, model and resolution. A catalogue read does not establish successful generation. Verify pricing and a completed task separately before reporting delivery readiness.
+1. To follow an existing Jubian job, use the original service and its task ID. Save any media you want to carry into a Jingliu project.
+2. Set `MUSE_JINGLIU_ORIGIN` to your Jingliu HTTPS origin and start Muse. Open **Jingliu** below **Browser** in the right sidebar and sign in. Local development can use an HTTP origin on a literal loopback address.
+3. Open or create the intended Jingliu project. Import the files you need and choose its production settings in the studio. To use chat tools, run `/jingliu-login`, authorize in Feishu and run the command again in that conversation. Ask Muse to read the script of the named project to verify the connection.

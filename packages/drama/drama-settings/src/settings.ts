@@ -143,9 +143,10 @@ export const DRAMA_SETTINGS_DEFAULTS: DramaSettings = {
  * value view, not the mounted row's own output type.
  */
 export const DramaSettingsSchema = z.object({
+  localProjectOnly: z.boolean(),
   deliveryDir: z.string().default(DRAMA_SETTINGS_DEFAULTS.deliveryDir).volatile(),
   jianyingDraftDir: z.string().default(DEFAULT_JIANYING_DRAFT_DIR).volatile(),
-  [DELIVERY_SPEC_FIELD]: z.object({
+  deliverySpec: z.object({
     width: z.number().step(1).min(1).default(DEFAULT_DELIVERY_SPEC.width),
     height: z.number().step(1).min(1).default(DEFAULT_DELIVERY_SPEC.height),
     fps: z.number().step(1).min(1).max(240).default(DEFAULT_DELIVERY_SPEC.fps),

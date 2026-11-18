@@ -36,6 +36,7 @@ import { expect, it, vi } from 'vitest'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import NativePreset from '../src/native-preset.ts'
 import * as DelegationPolicy from '../src/delegation-policy.ts'
+import * as Direction from '../src/short-drama-guidance.ts'
 
 const reminderTools = ['schedule_create', 'schedule_edit', 'schedule_list', 'schedule_view']
 
@@ -91,8 +92,8 @@ it.each(['subagent', 'subagent_fork'])('runs %s from the product preset with inh
       description: 'Parent-only reminder fixture', parameters: {}, execute: async () => [] }))
     const raw = await readFile(new URL('../presets/short-drama/agent.cordis.yml', import.meta.url), 'utf8')
     const rows = parseYaml(raw, { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => ({ __jsExpr: value }) }] }) as { id: string; name: string }[]
-    const chosen = rows.filter(row => ['persona', 'delegation'].includes(row.id))
-    expect(chosen.map(row => row.id)).toEqual(['persona', 'delegation'])
+    const chosen = rows.filter(row => ['persona', 'short-drama-guidance', 'delegation'].includes(row.id))
+    expect(chosen.map(row => row.id)).toEqual(['persona', 'short-drama-guidance', 'delegation'])
     expect(raw).not.toContain("name: '@deepseek-ai/dsh-tool-workflow'")
     expect(raw).not.toContain("name: '@deepseek-ai/dsh-tool-plan'")
     expect(raw).not.toContain("name: '@deepseek-ai/dsh-agent-team'")
@@ -104,6 +105,7 @@ it.each(['subagent', 'subagent_fork'])('runs %s from the product preset with inh
       ['@deepseek-ai/dsh-tool-subagent', SubagentTool],
       ['@deepseek-ai/dsh-tool-subagent-control', SubagentControl],
       ['@deepseek-ai/dsh-desktop-host/delegation-policy', DelegationPolicy],
+      ['@deepseek-ai/dsh-desktop-host/short-drama-guidance', Direction],
     ])
     ctx.loader.internal = { version: 'v2', loadCache: new Map(),
       register() { throw new Error('Unexpected loader hooks') },
