@@ -54,6 +54,17 @@ const PATHS: Readonly<Record<CreationBudgetOwner, readonly ResultPaths[]>> = {
   ] }],
 }
 
+function recordingPaths(owner: CreationBudgetOwner, index: number): readonly ResultPaths[] {
+  if (index === 0) return PATHS[owner]
+  if (owner !== 'muse-skill-market-creation-binding-ptc' || index !== 1 && index !== 2) {
+    throw new Error('Creation budget has no declared child recording')
+  }
+  return [{ callId: index === 1 ? 'call_creation_skill_blank_1' : 'call_creation_skill_fresh_1', fields: [
+    { keys: ['resourceBase', 'path'], segments: ['.dsh', 'market-creation', 'packages',
+      'eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32', 'skills', 'version-bound-review'], prefix: '', suffix: '' },
+  ] }]
+}
+
 function object(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Creation budget input requires an object')
@@ -93,6 +104,7 @@ function printedResult(rows: readonly Record<string, unknown>[], callId: string)
  * @param input - Independent expected writer, sidecars and replay directory.
  * @param nativePath - The replay host's path join operation.
  * @param sessionId - Independently allocated replay Session identity for catalog cursors.
+ * @param recordingIndex - Primary recording zero or a declared child recording.
  * @returns A detached budget input with only declared result strings expanded.
  * @throws When a declared call, result, field or exact path differs from the fixture.
  */
@@ -101,9 +113,10 @@ export function creationBudgetInput(
   input: WorkingBudgetOracleInput,
   nativePath: { join(...segments: string[]): string },
   sessionId?: string,
+  recordingIndex = 0,
 ): WorkingBudgetOracleInput {
   const rows = input.log.split('\n').filter(line => line.trim() !== '').map(line => object(JSON.parse(line)))
-  for (const { callId, fields } of PATHS[owner]) {
+  for (const { callId, fields } of recordingPaths(owner, recordingIndex)) {
     const result = printedResult(rows, callId)
     let text = result.text
     for (const field of fields) {
