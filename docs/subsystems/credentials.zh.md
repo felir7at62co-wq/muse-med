@@ -396,6 +396,21 @@ watch(signal: AbortSignal, includeIdentityChanges: boolean = false): AsyncIterab
 
 Source: [`packages/credentials/deepseek-account/src/index.ts`](../../packages/credentials/deepseek-account/src/index.ts)
 
+<a id="ctxjingliuconnection--jingliuconnection"></a>
+
+### `ctx.jingliuConnection` — `JingliuConnection`
+
+Resolves user grants at execution time, keeping tokens outside model input and output.
+
+```ts cordis-catalog
+/** Resolve the active account on the selected deployment.
+ * @returns A transport which stops if the session grant changes.
+ */
+async connection(): Promise<JingliuSession>
+```
+
+Source: [`packages/drama/jingliu-connection/src/index.ts`](../../packages/drama/jingliu-connection/src/index.ts)
+
 <a id="ctxjubiantoken--jubiantoken"></a>
 
 ### `ctx.jubianToken` — `JubianToken`

@@ -1,0 +1,8 @@
+version: 1
+scenario: muse-jingliu-script-read
+profile: headless
+composition: muse-jingliu-script-read
+recording: authored
+header:
+  class: muse-jingliu-script-read
+  pin: true

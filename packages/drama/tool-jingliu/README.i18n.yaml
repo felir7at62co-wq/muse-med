@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/tool-jingliu/README.md
+/:
+  en: 06d62f7a8e6dcbb6
+  zh: 9d7ac6623bcfe51b
+/deepseek-ai-dsh-tool-jingliu:
+  en: c89389b74deb7a61
+  zh: ff2dd9975638f2aa
+/deepseek-ai-dsh-tool-jingliu/summary:
+  en: fdb30cb33772ea58
+  zh: 73fe02a91b8e0d64
+/deepseek-ai-dsh-tool-jingliu/table-of-contents:
+  en: a25b17c7c75f202f
+  zh: 7fa151fee8ca72d7
+/deepseek-ai-dsh-tool-jingliu/running-a-workflow:
+  en: 9569561b61974696
+  zh: 33703c8b003da74f
+/deepseek-ai-dsh-tool-jingliu/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tool-jingliu/model-experience/finding-and-running-workflows:
+  en: 6f9cb8a45698248d
+  zh: 2b3e1a708b2fbcfd
+/deepseek-ai-dsh-tool-jingliu/model-experience/finding-and-running-workflows/what-the-model-sees:
+  en: 1b5f3c1b271eaca8
+  zh: 9efb5010f805b559
+/deepseek-ai-dsh-tool-jingliu/model-experience/finding-and-running-workflows/token-effect:
+  en: df00f95f5a08e4d9
+  zh: b286182607fb5914
+/deepseek-ai-dsh-tool-jingliu/model-experience/finding-and-running-workflows/kv-cache-effect:
+  en: 27e6a8694c87421f
+  zh: d1036335938f4d10
+/deepseek-ai-dsh-tool-jingliu/known-limitations-and-deferred-work:
+  en: 5f79a822a4d802a4
+  zh: b8f5263a6e0df481
+/deepseek-ai-dsh-tool-jingliu/known-limitations-and-deferred-work/dev-note:
+  en: 45ec51258109208a
+  zh: df6c6297ba72dc14

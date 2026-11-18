@@ -87,6 +87,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-file-drag` | no | Application-owned file drag transfers and localized failure feedback |
 | `@deepseek-ai/dsh-client-ui-goal` | no | Session goal surface: GoalBar docked above the composer, read from the goal session projection |
 | `@deepseek-ai/dsh-client-ui-input-trigger` | no | Input trigger pipeline: '/' and '@' detection, candidate menu, pick routing to registered sources |
+| `@deepseek-ai/dsh-client-ui-jingliu` | yes | Jingliu production studio in the right sidebar |
 | `@deepseek-ai/dsh-client-ui-jobs` | no | Session-header background-job list with on-demand streaming record panels |
 | `@deepseek-ai/dsh-client-ui-layout` | no | Shell plugin: three-column AppFrame with drag handles, ctx.layout viewing-state service (navigation + panels) |
 | `@deepseek-ai/dsh-client-ui-message-feedback` | no | The Web feedback surface: per-message Like/Dislike in the assistant-message action strip and the feedback dialog behind both ratings and /feedback, backed by the messageFeedback and sessionFeedback Host Remotes |
@@ -204,6 +205,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-character-library-tos` | yes | Volcengine TOS read-only provider for the Muse character library object store |
 | `@deepseek-ai/dsh-drama-settings` | no | Short-drama settings and Web UI for delivery, media and the automatic per-drama paid-call budget |
+| `@deepseek-ai/dsh-jingliu-connection` | yes | Host-side user sessions and authenticated requests for the Jingliu production service |
 | `@deepseek-ai/dsh-screenplay-project` | yes | Source-backed screenplay projects with independent episode review and resumable character knowledge |
 | `@deepseek-ai/dsh-session-video` | yes | Session-bound video inventory, playback and visual cut detection |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | yes | Muse account cloud speech transcription with versioned local project output |
@@ -213,6 +215,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | yes | Stores a short drama's source videos and transcription materials in dated Volcengine TOS folders |
 | `@deepseek-ai/dsh-tool-episode-render` | yes | Short-drama episode renderer: the model-facing drama_render tool that lays out render inputs, encodes the delivery master, and checks the result |
 | `@deepseek-ai/dsh-tool-hit-queue` | yes | Transcription worker access to the data station's hit-transcription job queue |
+| `@deepseek-ai/dsh-tool-jingliu` | no | Discover and run ShotFlow production workflows with the current Jingliu account |
 | `@deepseek-ai/dsh-tool-shot-script` | yes | Short-drama shot-script checks, advisory packaging suggestions and strict episode compilation |
 
 ## experimental

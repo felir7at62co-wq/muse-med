@@ -33,6 +33,8 @@ Host 包在 `lib/index.js` 旁保留 `lib/workspace-owned-storage.js`，供 Desk
 
 桌面工具发现策略常驻日常文件、命令、图片、视频查看、搜索、交互和任务工具，以及红果短剧下载工具。专业剧本、资产、制作、采集与交付工具按需通过工具搜索加载；注册及执行权限保持不变。默认产品不包含 Bot 专属定义与偏好服务。
 
+启动桌面版前，将 `MUSE_JINGLIU_ORIGIN` 设为镜流 HTTPS 站点或可信的回环地址。右侧栏将显示[镜流原版工作台](../../packages/client/ui-jingliu/README.zh.md)，会话也能搜索[镜流工作流工具](../../packages/drama/tool-jingliu/README.zh.md)。工作台使用飞书登录。要在聊天中调用工具，请先在 Muse 会话中运行 `/jingliu-login`，完成飞书授权后回到同一会话再运行一次。独立测试环境可设置 `MUSE_JINGLIU_LOCAL_PREVIEW=1`，并按照[镜流账号连接](../../packages/drama/jingliu-connection/README.zh.md)向 Host 提供测试会话。
+
 Desktop 启用已有的[打开方式控件](../../packages/client/ui-open-in-app/README.zh.md)，保留标准紧凑样式，用关联应用打开文件或在系统文件管理器中显示其位置。
 
 Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../packages/drama/drama-settings/README.zh.md)。剪映专业版草稿根目录保存在用户配置中，并在重启后恢复；显式 home 和命令行覆盖仍保持优先级。保存此设置不授予草稿导出的文件系统访问权限。
