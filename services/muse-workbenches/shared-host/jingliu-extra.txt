@@ -1,0 +1,3 @@
+python-multipart==0.0.34
+pillow==13.0.0
+pyjianyingdraft==0.3.1

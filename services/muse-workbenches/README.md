@@ -60,6 +60,10 @@ location /fwp/ { proxy_pass http://jingliu_api/; }
 
 For a temporary test of the archived prebuilt Next application, also inject `<script src="/v1/auth/muse/storage.js"></script>` at the start of the head of every Workshop HTML document. Prefer a freshly built Next application for deployment. Installed frontend sources already include the script.
 
+The shared-host deployment serves Workshop at `/jubengongfang/` and Jingliu at `/jingliu/` on the Muse account domain. The [path proxy](shared-host/nginx_locations.py) verifies the live Muse cookie and the application’s account mapping on each business request. The native API receives its own bearer token. The entry page stores native browser state per tab and linked account. Both applications share the Muse web origin, so serve only company-controlled application code on these paths.
+
+Prepare both original frontends with [prepare.py](shared-host/prepare.py), apply [prepare_uploads.py](shared-host/prepare_uploads.py) to the Workshop backend, and build Next with `NEXT_PUBLIC_ORCHESTRATOR_URL=/jubengongfang`. On the server, [provision.py](shared-host/provision.py) initializes private service credentials and the first verified member under `/srv/muse-workbenches/config`. The proxy and native APIs read each application’s `bindings/*.json` file. Workshop uses a dedicated PostgreSQL database, Redis and a job worker. Jingliu keeps its SQLite database and media in its state directory. [activate.py](shared-host/activate.py) validates the generated locations and gracefully reloads the existing Muse HTTPS server.
+
 ### Desktop and browser sessions
 
 Desktop opens `/v1/auth/muse/embed` or `/fwp/v2/auth/muse/embed`. The frame authenticates against the current Muse Host, saves the linked user's native credential in tab-scoped storage and opens `/v2` or `/sfp/`. Switching Desktop accounts replaces the frame. Standalone pages ask for confirmation at the Muse gateway and use the original application's independent browser storage. Removing an account mapping prevents new sessions. Revoke previously issued native credentials according to each application's policy when immediate sign-out is required.

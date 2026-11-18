@@ -189,6 +189,21 @@ def configure_muse_login(app: FastAPI, audience: str):
                 return JSONResponse({"detail": "登录来源不匹配"}, status_code=403, headers=NO_STORE)
         return await call_next(request)
 
+    if os.environ.get("MUSE_WORKBENCH_SHARED_HOST") == "1":
+        @router.post("/internal-session", include_in_schema=False)
+        async def internal_session(request: Request):
+            """Issue a native session for the subject verified by the local shared-host gateway."""
+            supplied = request.headers.get("authorization", "")
+            if not secrets.compare_digest(supplied.encode(), ("Bearer " + secret).encode()):
+                raise HTTPException(403, "工作台身份无效")
+            payload = await request.json()
+            subject = payload.get("sub") if isinstance(payload, dict) else None
+            accounts, roles = await asyncio.to_thread(read_bindings, bindings, issuer, audience)
+            if not isinstance(subject, str) or subject not in accounts:
+                raise HTTPException(403, "此 Muse 账号尚未开通工作台")
+            session = await issue_native_session(audience, accounts[subject], roles.get(subject))
+            return JSONResponse(session, headers=NO_STORE)
+
     @router.post("/challenge")
     def challenge():
         return JSONResponse(pending.create(120), headers=NO_STORE)

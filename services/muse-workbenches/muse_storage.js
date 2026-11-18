@@ -1,7 +1,9 @@
-// Embedded instances keep original storage keys scoped to this tab, workbench and linked account.
+// Embedded and path-mounted workbenches keep native keys scoped to tab, application and account.
 (() => {
-  if (window === window.parent || window.museWorkbenchStorage) return;
-  const audience = new URL(document.currentScript.src).pathname.startsWith('/fwp/') ? 'jingliu' : 'script-workshop';
+  const path = new URL(document.currentScript.src).pathname;
+  const mounted = path.startsWith('/jingliu/') || path.startsWith('/jubengongfang/');
+  if ((!mounted && window === window.parent) || window.museWorkbenchStorage) return;
+  const audience = path.startsWith('/fwp/') || path.startsWith('/jingliu/') ? 'jingliu' : 'script-workshop';
   const marker = 'muse-embedded-owner:' + audience;
   const backing = window.sessionStorage;
   const prefix = () => 'muse-embedded:' + audience + ':' + (backing.getItem(marker) || 'guest') + ':';

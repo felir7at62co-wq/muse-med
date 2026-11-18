@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Set `workshopOrigin` to the script workshop deployment and `studioOrigin` to the Jingliu deployment. Each accepts an HTTPS origin or an HTTP loopback IP origin. Each configured application gets a separate right-sidebar entry below Files, Terminal and Browser. **Script workshop** opens the original writing homepage at `/v2` to create, edit and review drafts. **Jingliu** opens its production workspace at `/sfp/`.
+Set `workshopOrigin` to the script workshop deployment and `studioOrigin` to the Jingliu deployment. Each accepts an HTTPS origin or an HTTP loopback IP origin. Each appears below Files, Terminal and Browser in the right sidebar. **Script workshop** opens the writing homepage at `/v2` to create, edit and review drafts. **Jingliu** opens its production workspace at `/sfp/`.
 
 The panels start at `/v1/auth/muse/embed` and `/fwp/v2/auth/muse/embed` respectively. Switching tabs preserves the document. Switching Muse accounts or reconnecting the Host opens a fresh sign-in frame. Narrow panes scroll horizontally at minimum zoom. Use the sidebar's fullscreen control for more writing or production space.
 

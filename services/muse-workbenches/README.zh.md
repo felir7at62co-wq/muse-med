@@ -60,6 +60,10 @@ location /fwp/ { proxy_pass http://jingliu_api/; }
 
 工坊应发布重新构建的 Next 站点。对沿用预构建 Next 的临时验收副本，也可在代理上处理登录重定向，并在所有原站 HTML 文档的 `<head>` 开头同步加载 `<script src="/v1/auth/muse/storage.js"></script>`。同源代理必须允许此脚本。重新构建的工坊和安装后的镜流静态站已包含这项修改。登录/回调响应禁止缓存，网关和应用访问日志应只记录路径，省略包括登录码在内的 query。原站页面的 frame-ancestors 应允许指定的 Muse 父页面。
 
+同域部署在 Muse 账号站的 `/jubengongfang/` 提供剧本工坊，`/jingliu/` 提供镜流。[路径代理](shared-host/nginx_locations.py)为每次业务请求核验当前 Muse 登录和对应工作台的账号绑定，业务接口接收自己的令牌。入口页按浏览器标签页和关联账号保存原版页面所需的状态。两个应用共享 Muse 网页源，这些路径只应提供公司管理的应用代码。
+
+用 [prepare.py](shared-host/prepare.py) 适配两套原版前端，用 [prepare_uploads.py](shared-host/prepare_uploads.py) 配置工坊上传目录，再以 `NEXT_PUBLIC_ORCHESTRATOR_URL=/jubengongfang` 构建 Next。服务器上的 [provision.py](shared-host/provision.py) 在 `/srv/muse-workbenches/config` 下初始化各服务凭据和首名已核验成员。账号代理和业务接口共用各应用的 `bindings/*.json` 文件。工坊使用独立的 PostgreSQL、Redis 和任务进程。镜流将 SQLite 和素材保存在自己的数据目录。[activate.py](shared-host/activate.py) 检查生成的路径配置后平滑重载现有 Muse HTTPS 站点。
+
 ### Muse 桌面与独立站
 
 工坊面板以 `/v1/auth/muse/embed`、镜流面板以 `/fwp/v2/auth/muse/embed` 启动。Muse 切换账号或退出时，宿主销毁当前 iframe。重新进入时，新文档从空白登录页获取挑战，经父页面确认当前 Muse 会话后换取业务凭据，再跳到工坊的 `/v2` 或镜流的 `/sfp/`。嵌入页只接受来自配置的父 origin 和父窗口的响应。其本地存储按浏览器标签页、工作台、已绑定的业务用户隔离。独立打开网页时通过顶层浏览器跳转，在 Muse 登录、确认，再回到原工作台，沿用原站原生存储。
