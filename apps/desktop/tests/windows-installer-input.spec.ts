@@ -6,6 +6,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
+import { COVERAGE_TEST_TIMEOUT_ENV, coverageTestTimeoutOptions } from '../../../scripts/coverage-partitions.ts'
+
+const progressReplayTestTimeout = Math.max(30_000, coverageTestTimeoutOptions(process.env[COVERAGE_TEST_TIMEOUT_ENV]).testTimeout ?? 0)
 
 const [ui, smoke, strings] = await Promise.all([
   readFile(new URL('./windows-installer-ui.ps1', import.meta.url), 'utf8'),
@@ -297,9 +300,15 @@ try {
 }
 `, 'utf8')
   try {
-    const { stdout } = await promisify(execFile)('powershell.exe', [
+    const execution = promisify(execFile)('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script,
-    ], { timeout: 25000, windowsHide: true })
+    ], { timeout: progressReplayTestTimeout - 5_000, windowsHide: true })
+    const { stdout } = await execution.catch((error: unknown) => {
+      throw new Error(`PowerShell progress replay failed (killed=${execution.child.killed}, signal=${execution.child.signalCode}, exit=${execution.child.exitCode}).`, { cause: error })
+    })
+    expect(execution.child.killed).toBe(false)
+    expect(execution.child.signalCode).toBeNull()
+    expect(execution.child.exitCode).toBe(0)
     const evidence = JSON.parse(stdout.trim()) as Record<string, unknown>
     expect(evidence).toMatchObject({
       unready: false, expired: false, legacyTimeout: true, captured: true, foreignRejected: true, writeRejected: true,
@@ -309,4 +318,4 @@ try {
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
-}, 30000)
+}, progressReplayTestTimeout)
