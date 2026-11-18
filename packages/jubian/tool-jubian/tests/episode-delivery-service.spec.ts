@@ -531,8 +531,14 @@ describe('approved episode service', () => {
     expect(refused.problem).toContain('explicit reconciliation')
     expect(f.renderer.encodes).toBe(1)
   })
-  it.each(['foreign-proof', 'changed-drain', 'outside-candidate', 'changed-candidate', 'changed-candidate-facts'] as const)(
-    'refuses %s after the controlled renderer has produced actual durable proof and candidate bytes', async (fault) => {
+  it.each([
+    { fault: 'foreign-proof', problem: 'Episode drain does not match its armed execution' },
+    { fault: 'changed-drain', problem: 'Renderer result has no matching durable drain proof' },
+    { fault: 'outside-candidate', problem: 'Episode candidate escapes its private attempt' },
+    { fault: 'changed-candidate', problem: 'Episode candidate changed before publication' },
+    { fault: 'changed-candidate-facts', problem: 'Candidate disagrees with guardian drain proof' },
+  ])(
+    'refuses $fault after the controlled renderer has produced actual durable proof and candidate bytes', async ({ fault, problem }) => {
       const f = await createEpisodeDeliveryFixture()
       const spy = observeRenderer(f, async (result, input) => {
         if (result.kind === 'unknown' || result.kind === 'retry-required' || result.proof.result !== 'completed' || result.candidate === undefined) {
@@ -565,10 +571,12 @@ describe('approved episode service', () => {
         return { kind: 'drained', proof: result.proof, candidate: { ...result.candidate, sha256: decoded.sha256 } }
       })
       try {
-        const input = await selection(f); await f.service.admitEpisode(input); f.renderer.release()
+        const input = await selection(f), admitted = await f.service.admitEpisode(input)
+        f.renderer.release()
         await vi.waitFor(async () => {
-          const status = await f.service.episodeStatus(input).catch(() => undefined)
-          expect(status === undefined || status.state === 'unknown').toBe(true)
+          const status = f.service.episodeStatus(input)
+          if (fault === 'foreign-proof') await expect(status).rejects.toThrow(problem)
+          else expect(await status).toMatchObject({ attempt: admitted.attempt, state: 'unknown', problem })
         })
         expect(f.renderer.encodes).toBe(1); expect(f.fetch).not.toHaveBeenCalled()
         const exports = await readdir(join(f.project, 'exports')).catch(() => [])
