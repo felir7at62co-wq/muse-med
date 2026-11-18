@@ -1183,7 +1183,10 @@ const workspaceSensitiveBudgetScenarios = new Set([
   'muse-session-product',
   'muse-short-drama-draft-ending',
   'muse-small-window-compaction',
+  'muse-skill-market-bounded-catalog-ptc',
+  'muse-skill-market-creation-binding-ptc',
   'muse-time-context',
+  'muse-video-screenplay-entry-creation',
   'muse-visualize',
   'muse-working-budget-stop',
 ])
@@ -1343,7 +1346,7 @@ function visualizationBudgetValue(value: unknown, paths: VisualizationBudgetPath
   return value
 }
 
-async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: string, cwd: string, visualize?: VisualizationRuntimePaths) {
+async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: string, cwd: string, visualize?: VisualizationRuntimePaths, sessionId?: string) {
   const pin = pinOf(scenario)
   const promptOwner = scenarioByName.get(pin.manifest.header.systemPromptSource ?? pin.name)
   const schemaOwner = scenarioByName.get(pin.manifest.header.toolSchemasSource ?? pin.name)
@@ -1371,14 +1374,16 @@ async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: st
   const input = { log: expectedLog, prompt, schemas: expectedSchemas, cwd }
   return scenario.name === 'muse-creation-ptc' || scenario.name === 'muse-creation-review-guidance'
     || scenario.name === 'muse-creation-stage-diagnostics'
-    ? creationBudgetInput(scenario.name, input, { join }) : input
+    || scenario.name === 'muse-skill-market-bounded-catalog-ptc' || scenario.name === 'muse-skill-market-creation-binding-ptc'
+    || scenario.name === 'muse-video-screenplay-entry-creation'
+    ? creationBudgetInput(scenario.name, input, { join }, sessionId) : input
 }
 
 async function workspaceBudgetExpected(
-  scenario: HeadlessScenario, actual: readonly JsonObject[], expected: JsonObject[], expectedLog: string, cwd: string, visualize?: VisualizationRuntimePaths,
+  scenario: HeadlessScenario, actual: readonly JsonObject[], expected: JsonObject[], expectedLog: string, cwd: string, visualize?: VisualizationRuntimePaths, sessionId?: string,
 ): Promise<JsonObject[]> {
   if (actual.length !== expected.length) return expected
-  const independentInput = await workspaceBudgetInputs(scenario, expectedLog, cwd, visualize)
+  const independentInput = await workspaceBudgetInputs(scenario, expectedLog, cwd, visualize, sessionId)
   const input = scenario.name === 'muse-session-product' ? sessionProductBudgetInput(independentInput) : independentInput
   const counts = deriveWorkingBudgetExpectations(input)
   const shadowed = deriveShadowedBudgetExpectations(input)
@@ -3956,7 +3961,7 @@ describe('headless recorded-session snapshots', () => {
           const sessionId = actualContext.sessionIds[0]
           if (scenario.name === 'muse-visualize' && (allocatedCwd === undefined || sessionId === undefined || visualizationAssets === undefined)) throw new Error('Visualization budget has no store identity or selected assets')
           expectedRecords = await workspaceBudgetExpected(scenario, actualRecords, expectedRecords as JsonObject[], expected[index] as string, actualContext.cwd,
-            scenario.name === 'muse-visualize' ? { cwd: allocatedCwd!, sessionId: sessionId!, assets: visualizationAssets! } : undefined)
+            scenario.name === 'muse-visualize' ? { cwd: allocatedCwd!, sessionId: sessionId!, assets: visualizationAssets! } : undefined, sessionId)
         }
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }
