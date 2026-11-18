@@ -3908,7 +3908,10 @@ export interface Config {
   readonly mainPreset?: string
   /** Preset used only for newly created workers. Defaults to `short-drama`. */
   readonly workerPreset?: string
-  /** Capture Main's Jubian video selection on dispatch. Defaults to true. When disabled, new tasks have no key and revisions retain the task's recorded key. */
+  /**
+   * Capture Main's Jubian video selection on dispatch. Defaults to true.
+   * When disabled, new tasks have no key and revisions retain the task's recorded key.
+   */
   readonly inheritJubianVideoSelection?: boolean
   /** Maximum returned Session search rows or report tasks. Defaults to 30. */
   readonly searchLimit?: number
