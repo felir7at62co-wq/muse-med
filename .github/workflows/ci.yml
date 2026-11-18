@@ -543,6 +543,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+      - name: Upload Models settings browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: models-settings-browser-diagnostics
+          path: .artifacts/models-settings
+          if-no-files-found: warn
+          retention-days: 3
+
 
   node-compat:
     if: github.event_name == 'pull_request'

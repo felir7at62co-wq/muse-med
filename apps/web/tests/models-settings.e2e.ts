@@ -698,28 +698,35 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     const controller = new AbortController()
     const acquired = Promise.withResolvers<Browser>()
     const release = Promise.withResolvers<undefined>()
+    let acquiredBrowser: Browser | undefined
     let bodyStarted = false
     let restored = false
     const reason = new Error('cancelled before WebKit acquisition')
+    // The launch can reject before the controller resumes; its original promise stays awaited.
+    void acquired.promise.catch(() => {})
     const scenario = runModelBrowserCase({ signal: AbortSignal.any([controller.signal, test.signal]),
       onTestFailed: test.onTestFailed, onTestFinished: test.onTestFinished,
     }, { launch: async (options) => {
-      const browser = await webkit.launch(options)
-      acquired.resolve(browser)
+      try { acquiredBrowser = await webkit.launch(options) }
+      catch (error) { acquired.reject(error); throw error }
+      acquired.resolve(acquiredBrowser)
       await release.promise
-      return browser
+      return acquiredBrowser
     } }, 'late-acquisition', () => Promise.resolve(), () => {
       bodyStarted = true
       return Promise.resolve()
-    }, async () => {
-      expect((await acquired.promise).isConnected()).toBe(false)
+    }, () => {
+      if (acquiredBrowser !== undefined) expect(acquiredBrowser.isConnected()).toBe(false)
       expect(bodyStarted).toBe(false)
       restored = true
+      return Promise.resolve()
     })
     const result = expect(scenario).rejects.toBe(reason)
-    await acquired.promise
-    controller.abort(reason)
-    release.resolve(undefined)
+    void result.catch(() => {})
+    try {
+      await acquired.promise
+      controller.abort(reason)
+    } finally { release.resolve(undefined) }
     await result
     expect(restored).toBe(true)
   }, 60_000)

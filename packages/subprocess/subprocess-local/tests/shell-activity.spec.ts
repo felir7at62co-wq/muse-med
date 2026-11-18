@@ -12,7 +12,11 @@ import { createProcessInspector } from '../src/process-inspector.ts'
 import type { ProcessIdentity, ProcessInspector } from '../src/process-inspector.ts'
 
 const cleanups: Array<() => void | Promise<void>> = []
-afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
+const diagnosticFreezes: Array<() => void> = []
+afterEach(async () => {
+  for (const freeze of diagnosticFreezes.splice(0)) freeze()
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+})
 
 /** Prompt every startup file in this spec prints; its repeats count the prompts a shell reached. */
 const PROMPT_MARKER = 'READY>'
@@ -32,8 +36,10 @@ function failureDiagnostics(label: string): ShellDiagnostics {
     phase: 'create shell', pid: undefined, activity: undefined,
     complete: undefined, tree: [], foreground: undefined, outputTail: '',
   }
-  // Cached observations remain available when the case deadline interrupts a poll.
-  onTestFailed(() => { console.error(label, JSON.stringify(diagnostics)) })
+  let frozen: ShellDiagnostics | undefined
+  // Failure hooks run after teardown, whose process scans would overwrite the observations.
+  diagnosticFreezes.push(() => { frozen = structuredClone(diagnostics) })
+  onTestFailed(() => { process.stderr.write(`${JSON.stringify({ event: 'bash-terminal-activity-failure', label, ...(frozen ?? diagnostics) })}\n`) })
   return diagnostics
 }
 
@@ -280,7 +286,7 @@ describe.skipIf(process.platform === 'win32' || !existsSync('/bin/bash'))('Bash 
       diagnostics.phase = 'wait for command start or a new prompt'
       await expect.poll(() => h.output().includes('COMMAND_READY') || h.prompts() > promptsBefore).toBe(true)
       const started = h.output().includes('COMMAND_READY')
-      console.info('Bash Ctrl-C gate observation', JSON.stringify({ interruptAt, started, signalsBeforeRelease, output: h.output(), activity: diagnostics.activity }))
+      process.stdout.write(`${JSON.stringify({ event: 'bash-ctrl-c-gate', interruptAt, started, signalsBeforeRelease, output: h.output(), activity: diagnostics.activity })}\n`)
       if (interruptAt === 'command-ready') expect(started).toBe(true)
       if (started) {
         diagnostics.phase = 'send Ctrl-C after SIGINT handler readiness'

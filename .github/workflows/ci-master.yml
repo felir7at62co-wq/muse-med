@@ -104,6 +104,10 @@ jobs:
         if: matrix.owner == 'webkit'
         run: pnpm run build:artifacts
 
+      - name: Prepare browser-gate sandbox prerequisites
+        if: matrix.owner == 'webkit'
+        run: bash scripts/prepare-ci-bubblewrap.sh
+
       - name: Install Playwright Chromium and WebKit
         if: matrix.owner == 'webkit'
         run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium webkit
@@ -133,6 +137,18 @@ jobs:
             throw new Error(`Expected one executed, passing ${owner} regression`)
           }
           JS
+
+      - name: Preserve focused owner evidence before the full browser gate
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: timeout-focused-${{ matrix.owner }}-${{ github.run_attempt }}
+          path: |
+            .artifacts/timeout-*.json
+            .artifacts/timeout-*.log
+            .artifacts/models-settings/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Run the original four-worker browser gate
         if: matrix.owner == 'webkit'
