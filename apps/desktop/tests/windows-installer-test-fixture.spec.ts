@@ -350,7 +350,7 @@ it('limits native failure observations to numeric waits and owned windows withou
 
 it('owns a bounded credential-scrubbed observer and drains it before installer cleanup', async () => {
   const smoke = await readFile(new URL('./windows-installer-smoke.ps1', import.meta.url), 'utf8')
-  const observer = smoke.slice(smoke.indexOf('function Read-NativeFailureObserver('), smoke.indexOf('function Finish-Setup('))
+  const observer = smoke.slice(smoke.indexOf('function Read-NativeFailureObserver('), smoke.indexOf('function Read-OwnUpgradeReports'))
   expect(observer).toContain('[Text.Encoding]::Unicode.GetBytes($command)')
   expect(observer).toContain("-match '(KEY|SECRET|TOKEN|PASSWORD)'")
   expect(observer.indexOf('$processes.Add($observer)')).toBeLessThan(observer.indexOf('ReadToEndAsync()'))
@@ -374,7 +374,7 @@ it('owns a bounded credential-scrubbed observer and drains it before installer c
 })
 
 function observerPublicationFailures(smoke: string, worker: string): string[] {
-  const observer = smoke.slice(smoke.indexOf('function Read-NativeFailureObserver('), smoke.indexOf('function Finish-Setup('))
+  const observer = smoke.slice(smoke.indexOf('function Read-NativeFailureObserver('), smoke.indexOf('function Read-OwnUpgradeReports'))
   const wrapperWrite = observer.indexOf("[IO.File]::WriteAllText($receiptPath + '.process.json'")
   const requirements: Record<string, boolean> = {
     nullableBackupName: worker.includes('[IO.File]::Replace($temporaryPath, $script:observerReceiptPath, [System.Management.Automation.Language.NullString]::Value)'),

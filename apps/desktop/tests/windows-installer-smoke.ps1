@@ -260,8 +260,8 @@ function Read-OwnUpgradeReports {
         [pscustomobject]@{ FullName = $report.FullName; Backup = $backup }
     }
 }
-function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$Theme, [string]$Bounds,
-    [bool]$InjectLaunchFailure = $true, [bool]$ExpectBackup = $true) {
+function Wait-InstallerFinish([Diagnostics.Process]$Process, [string]$Theme, [bool]$ExpectBackup,
+    [bool]$AllowBackupReceipt = $false) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $previous = 0
     $window = [InstallerCapture]::Find($Process.Id)
@@ -270,10 +270,11 @@ function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$The
         if ($Process.HasExited -or $timer.Elapsed.TotalSeconds -gt 30) { throw 'Installer did not complete' }
         foreach ($report in @(Read-OwnUpgradeReports)) {
             if ($seenUpgradeReports.Contains($report.FullName)) { continue }
-            if (-not $ExpectBackup) { throw 'Fresh installation unexpectedly retained an old directory' }
+            if (-not $ExpectBackup -and -not $AllowBackupReceipt) { throw 'Fresh installation unexpectedly retained an old directory' }
             $backup = $report.Backup
             $control = [InstallerCapture]::FindDialogText($Process.Id, $backup)
             if ($control -eq [IntPtr]::Zero) { continue }
+            if (-not $ExpectBackup) { throw 'Automatic update waited for a retained-backup acknowledgement' }
             [void][InstallerCapture]::SaveNative([InstallerCapture]::TopLevel($control), (Join-Path $OutputDirectory ($Theme + '-backup.png')), $false)
             Dismiss $Process $backup
             [void]$seenUpgradeReports.Add($report.FullName)
@@ -290,6 +291,11 @@ function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$The
         Start-Sleep -Milliseconds 25
     }
     if ($acknowledgedBackups -ne [int]$ExpectBackup) { throw 'Unexpected number of retained-backup notices' }
+    return $window
+}
+function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$Theme, [string]$Bounds,
+    [bool]$InjectLaunchFailure = $true, [bool]$ExpectBackup = $true) {
+    $window = Wait-InstallerFinish $Process $Theme $ExpectBackup
     if ([InstallerCapture]::GetProp($window, 'HarnessInstaller.CompletedPercent').ToInt32() -ne 100) { throw 'Finish page replaced an incomplete progress bar' }
     $checkbox = Wait-Control $Process $copy.INSTALLER_LAUNCH -Button
     $state = [InstallerCapture]::SendMessage($checkbox, 0xF0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
@@ -429,8 +435,8 @@ function Stop-TestProcess([Diagnostics.Process]$Process) {
         $Process.Dispose()
     }
 }
-function Finish-RebootSetup([Diagnostics.Process]$Process) {
-    [void](Wait-Control $Process $copy.INSTALLER_FINISH -Button)
+function Finish-RebootSetup([Diagnostics.Process]$Process, [Parameter(Mandatory)][bool]$ExpectBackup) {
+    [void](Wait-InstallerFinish $Process 'reboot' $ExpectBackup (-not $ExpectBackup))
     [void](Wait-Control $Process $copy.INSTALLER_REBOOT_REQUIRED)
     $checkbox = Wait-Control $Process $copy.INSTALLER_LAUNCH -Button
     $state = [InstallerCapture]::SendMessage($checkbox, 0xF0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
@@ -718,12 +724,15 @@ try {
     if (Test-Path -LiteralPath $launchMarker) { Remove-Item -LiteralPath $launchMarker }
     $process = Start-Setup light $installPath '/TEST_REBOOT_REQUIRED=1'
     Click-Control $process $copy.INSTALLER_INSTALL
-    Finish-RebootSetup $process
+    Finish-RebootSetup $process $true
     $results.Add('manual-reboot-required-disables-launch')
 
     if (Test-Path -LiteralPath $launchMarker) { Remove-Item -LiteralPath $launchMarker }
+    $beforeRebootReports = @(Read-OwnUpgradeReports | ForEach-Object { $_.FullName })
     $process = Start-TestProcess $Installer '/S --updated --force-run /TEST_REBOOT_REQUIRED=1 /THEME=dark'
-    Finish-RebootSetup $process
+    Finish-RebootSetup $process $false
+    $rebootReports = @(Read-OwnUpgradeReports | Where-Object { $_.FullName -notin $beforeRebootReports })
+    if ($rebootReports.Count -ne 1) { throw 'Automatic reboot-required update did not retain exactly one completed backup receipt' }
     $results.Add('automatic-update-reboot-required-disables-launch')
 
     if (Test-Path -LiteralPath $launchMarker) { Remove-Item -LiteralPath $launchMarker }
