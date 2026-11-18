@@ -154,11 +154,17 @@ describe('web e2e: goal bar clear convergence', () => {
 
   it('keeps a waiting goal active and clears its wait through Resume or Pause', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-goal-bar-wait'))
+    const bar = page.locator('[data-goal-bar]')
+    for (const existing of scaffold.ctx.agents.list()) {
+      const current = scaffold.ctx.goals.get(existing)
+      if (current !== undefined) scaffold.ctx.goals.clear(existing, current)
+    }
+    await expect.poll(() => bar.count(), { timeout: 10_000 }).toBe(0)
     const input = page.locator('[data-composer-input]').first()
     await input.fill('/goal monitor background updates')
     await input.press('Enter')
-    const bar = page.locator('[data-goal-bar]')
     await bar.waitFor({ timeout: 10_000 })
+    await bar.getByText('monitor background updates', { exact: true }).waitFor({ timeout: 10_000 })
     const agent = scaffold.ctx.agents.list()[0]
     if (agent === undefined) throw new Error('expected the active goal owner')
     const goal = scaffold.ctx.goals.get(agent)
@@ -170,6 +176,8 @@ describe('web e2e: goal bar clear convergence', () => {
       phase: 'active', activation: 'armed', revision: goal.revision + 1,
     })
     expect(scaffold.ctx.goals.get(agent)?.wait).toBeUndefined()
+    await expect.poll(() => bar.textContent(), { timeout: 10_000 }).not.toContain('Waiting for updates')
+    await expect.poll(() => bar.getByRole('button', { name: 'Pause goal' }).isEnabled(), { timeout: 10_000 }).toBe(true)
     const resumed = scaffold.ctx.goals.get(agent)
     if (resumed === undefined) throw new Error('expected the resumed goal')
     scaffold.ctx.goals.wait(agent, resumed, { reason: 'timer', message: 'Next check', wakeAt: Date.now() + 60_000 })
