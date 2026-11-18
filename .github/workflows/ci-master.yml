@@ -109,6 +109,9 @@ jobs:
       - name: Build browser artifacts
         if: matrix.owner == 'webkit'
         run: pnpm run build:artifacts
+      - name: Prepare Models settings sandbox prerequisites
+        if: matrix.owner == 'webkit'
+        run: bash scripts/prepare-ci-bubblewrap.sh
       - name: Install Models settings browser prerequisites
         if: matrix.owner == 'webkit'
         run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium webkit
