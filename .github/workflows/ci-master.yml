@@ -35,16 +35,12 @@ env:
 jobs:
   timeout-diagnostics:
     if: github.event_name == 'workflow_dispatch' && inputs.suite == 'timeout-diagnostics'
-    name: timeout diagnostics / ${{ matrix.owner }}
+    name: Bash timeout / original coverage topology
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ matrix.owner == 'webkit' && 60 || 15 }}
-    strategy:
-      fail-fast: false
-      matrix:
-        owner: [bash, webkit]
+    timeout-minutes: 90
     env:
-      DSH_SNAPSHOT: replay
       DSH_COVERAGE_TEST_TIMEOUT_MS: '90000'
+      DSH_GATE_FAIL_FAST: '1'
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -61,7 +57,7 @@ jobs:
 
       - uses: actions/setup-node@v7.0.0
         with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          node-version: '24.22.2'
           cache: pnpm
 
       - name: Report runner and shell versions
@@ -75,97 +71,51 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
-      - name: Build native PTY support
-        if: matrix.owner == 'bash'
-        run: pnpm run build:native-system
-
-      - name: Run real Bash activity owner
-        if: matrix.owner == 'bash'
-        run: >-
-          pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts
-          --reporter=default --reporter=json --outputFile=.artifacts/timeout-bash.json
-
-      - name: Verify independent Bash processes own separate terminals and gates
-        if: matrix.owner == 'bash'
-        run: |
-          pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts -t 'Bash terminal activity' > .artifacts/timeout-bash-concurrent-1.log 2>&1 &
-          first_pid=$!
-          pnpm exec vitest run packages/subprocess/subprocess-local/tests/shell-activity.spec.ts -t 'Bash terminal activity' > .artifacts/timeout-bash-concurrent-2.log 2>&1 &
-          second_pid=$!
-          first_status=0
-          wait "$first_pid" || first_status=$?
-          second_status=0
-          wait "$second_pid" || second_status=$?
-          cat .artifacts/timeout-bash-concurrent-1.log .artifacts/timeout-bash-concurrent-2.log
-          if (( first_status != 0 )); then exit "$first_status"; fi
-          exit "$second_status"
-
-      - name: Build browser artifacts
-        if: matrix.owner == 'webkit'
-        run: pnpm run build:artifacts
-
-      - name: Prepare browser-gate sandbox prerequisites
-        if: matrix.owner == 'webkit'
+      - name: Prepare original coverage sandbox prerequisites
         run: bash scripts/prepare-ci-bubblewrap.sh
 
-      - name: Install Playwright Chromium and WebKit
-        if: matrix.owner == 'webkit'
-        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium webkit
-
-      - name: Run Models settings owner with its original case budgets
-        if: matrix.owner == 'webkit'
-        env:
-          DEBUG: pw:api
-        run: >-
-          pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/models-settings.e2e.ts
-          --reporter=default --reporter=json --outputFile=.artifacts/timeout-webkit.json
-
-      - name: Verify the original failing case actually ran
-        env:
-          DIAGNOSTIC_OWNER: ${{ matrix.owner }}
+      - name: Prepare original coverage media prerequisites
         run: |
-          node --input-type=module <<'JS'
-          import { readFileSync } from 'node:fs'
-          const owner = process.env.DIAGNOSTIC_OWNER
-          const report = JSON.parse(readFileSync(`.artifacts/timeout-${owner}.json`, 'utf8'))
-          const cases = report.testResults.flatMap(file => file.assertionResults)
-          const selected = cases.filter(test => owner === 'bash'
-            ? test.fullName.includes('preserves scalar prompt hooks and uses unknown on shells without PS0')
-            : test.fullName.includes('keeps mobile model actions, focus and keyboard order in') && test.fullName.includes('WebKit'))
-          console.log(JSON.stringify(selected, null, 2))
-          if (selected.length !== 1 || selected[0].status !== 'passed') {
-            throw new Error(`Expected one executed, passing ${owner} regression`)
-          }
-          JS
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          decoder="$(command -v ffmpeg)"
+          [[ "$decoder" == /* ]]
+          test -f "$decoder"
+          test -x "$decoder"
+          "$decoder" -version
+          printf 'MUSE_RECOVERY_TEST_FFMPEG=%s\n' "$decoder" >> "$GITHUB_ENV"
 
-      - name: Preserve focused owner evidence before the full browser gate
+      - name: Verify the original cold-history scheduling inputs
+        run: |
+          test ! -e .coverage-times.json
+          test "$(node -p 'require("node:os").availableParallelism()')" -eq 4
+
+      - name: Create an explicit hidden-path upload probe
+        run: |
+          mkdir -p .artifacts
+          printf '{"kind":"diagnostic-artifact-upload-probe"}\n' > .artifacts/timeout-artifact-upload-probe.json
+
+      - name: Verify hidden diagnostic artifacts are actually uploaded
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: timeout-hidden-upload-probe
+          path: .artifacts/timeout-artifact-upload-probe.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Run the original exhaustive coverage gate with frozen Bash diagnostics
+        run: pnpm run check:ci:coverage
+
+      - name: Preserve coverage timing evidence
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: timeout-focused-${{ matrix.owner }}-${{ github.run_attempt }}
+          name: timeout-original-coverage-${{ github.run_attempt }}
           path: |
-            .artifacts/timeout-*.json
-            .artifacts/timeout-*.log
-            .artifacts/models-settings/
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Run the original four-worker browser gate
-        if: matrix.owner == 'webkit'
-        env:
-          DSH_WEB_SNAPSHOT_WORKERS: '4'
-        run: pnpm run test:web:ci
-
-      - name: Preserve timeout diagnostics
-        if: always()
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: timeout-diagnostics-${{ matrix.owner }}-${{ github.run_attempt }}
-          path: |
-            .artifacts/timeout-*.json
-            .artifacts/timeout-*.log
-            .artifacts/web-e2e-models-mobile-*
-            .artifacts/models-settings/
+            .coverage-times.json
+            coverage/coverage-summary.json
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
 

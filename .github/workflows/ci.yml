@@ -549,6 +549,7 @@ jobs:
         with:
           name: models-settings-browser-diagnostics
           path: .artifacts/models-settings
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 3
 

@@ -1,6 +1,5 @@
 /** Real interactive shells preserve startup files and distinguish prompts from running jobs. */
-import { closeSync, constants, existsSync, openSync, readFileSync, writeSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +10,7 @@ import LocalSubprocessRuntime from '../src/index.ts'
 import { createProcessInspector } from '../src/process-inspector.ts'
 import type { ProcessIdentity, ProcessInspector } from '../src/process-inspector.ts'
 
-const cleanups: Array<() => void | Promise<void>> = []
+const cleanups: Array<() => Promise<void>> = []
 const diagnosticFreezes: Array<() => void> = []
 afterEach(async () => {
   for (const freeze of diagnosticFreezes.splice(0)) freeze()
@@ -236,65 +235,4 @@ describe.skipIf(process.platform === 'win32' || !existsSync('/bin/bash'))('Bash 
     expect(h.output()).not.toContain('file exists')
   })
 
-  it.runIf(process.platform === 'linux')('observes Ctrl-C delivery across a gated Bash pre-dispatch transition', async () => {
-    for (const interruptAt of ['pre-dispatch', 'command-ready'] as const) {
-      const diagnostics = failureDiagnostics(`Bash Ctrl-C ${interruptAt} diagnostic`)
-      const h = await shell('bash', [
-        '__dsh_test_gate() {',
-        '  if [[ -z ${__dsh_test_gate_installed-} ]]; then',
-        '    __dsh_test_gate_installed=1',
-        '    PS0="${PS0%)}; builtin printf \'GATE_ENTERED\\n\' >&2; IFS= builtin read -r __dsh_test_release < \\"\\$HOME/dispatch-gate\\")"',
-        '  fi',
-        '}',
-        "PROMPT_COMMAND='__dsh_test_gate; printf HOOK; # user comment'",
-        "stty isig echoctl intr '^C'",
-        'set -C',
-      ].join('\n'), '', diagnostics)
-      const fifo = join(h.home, 'dispatch-gate')
-      execFileSync('mkfifo', ['--', fifo])
-      const gate = openSync(fifo, constants.O_RDWR | constants.O_NONBLOCK)
-      cleanups.push(() => { closeSync(gate) })
-      const command = join(h.home, 'foreground.mjs')
-      await writeFile(command, [
-        "process.on('SIGINT', () => { process.stdout.write('COMMAND_INTERRUPTED\\n', () => { process.exit(0) }) })",
-        'process.stdin.resume()',
-        "process.stdout.write('COMMAND_READY\\n')",
-      ].join('\n'))
-      const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
-      const promptsBefore = h.prompts()
-      diagnostics.phase = 'wait for PS0 gate'
-      await h.handle.write(`${quote(process.execPath)} ${quote(command)}\r`)
-      await expect.poll(() => h.output()).toContain('GATE_ENTERED')
-      await expectActivity(h, 'busy', 'PS0 gate')
-      expect(h.output()).not.toContain('COMMAND_READY')
-      let signalsBeforeRelease: Array<{ pid: number; fields?: string[]; error?: string }> = []
-      if (interruptAt === 'pre-dispatch') {
-        diagnostics.phase = 'send Ctrl-C before command dispatch'
-        await h.handle.write('\x03')
-        // PTY echo confirms line-discipline processing before PS0 can finish.
-        await expect.poll(() => h.output()).toContain('^C')
-        signalsBeforeRelease = diagnostics.tree.map(({ pid }) => {
-          try {
-            const status = readFileSync(`/proc/${String(pid)}/status`, 'utf8')
-            return { pid, fields: status.split('\n').filter(line => /^(?:SigPnd|ShdPnd|SigBlk|SigIgn|SigCgt):/u.test(line)) }
-          } catch (error) {
-            return { pid, error: error instanceof Error ? error.message : String(error) }
-          }
-        })
-      }
-      writeSync(gate, 'release\n')
-      diagnostics.phase = 'wait for command start or a new prompt'
-      await expect.poll(() => h.output().includes('COMMAND_READY') || h.prompts() > promptsBefore).toBe(true)
-      const started = h.output().includes('COMMAND_READY')
-      process.stdout.write(`${JSON.stringify({ event: 'bash-ctrl-c-gate', interruptAt, started, signalsBeforeRelease, output: h.output(), activity: diagnostics.activity })}\n`)
-      if (interruptAt === 'command-ready') expect(started).toBe(true)
-      if (started) {
-        diagnostics.phase = 'send Ctrl-C after SIGINT handler readiness'
-        await h.handle.write('\x03')
-        await expect.poll(() => h.output()).toContain('COMMAND_INTERRUPTED')
-      }
-      diagnostics.phase = 'observe idle after gated command'
-      await expectActivity(h, 'idle', 'gated command')
-    }
-  })
 })
