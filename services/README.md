@@ -16,3 +16,5 @@ English | [中文](README.zh.md)
 [`muse-media`](muse-media/README.md) combines a private DTK deployment with an account-authorized gateway for company media; upstream credentials remain on the server.
 
 [`muse-host-retention`](muse-host-retention/README.md) inventories application releases and archived logs on the host and plans their retention. It never treats account databases, employee projects, provider credentials or media volumes as cleanup targets.
+
+The [workbench login adapters](muse-workbenches/README.md) sign Script workshop and Jingliu users into their original business accounts through the Muse account gateway.

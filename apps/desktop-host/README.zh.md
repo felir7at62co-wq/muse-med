@@ -33,7 +33,7 @@ Host 包在 `lib/index.js` 旁保留 `lib/workspace-owned-storage.js`，供 Desk
 
 桌面工具发现策略常驻日常文件、命令、图片、视频查看、搜索、交互和任务工具，以及红果短剧下载工具。专业剧本、资产、制作、采集与交付工具按需通过工具搜索加载；注册及执行权限保持不变。默认产品不包含 Bot 专属定义与偏好服务。
 
-启动桌面版前，将 `MUSE_JINGLIU_ORIGIN` 设为镜流 HTTPS 站点或可信的回环地址。新多媒体项目使用镜流。此桌面配置已归档剧变工具、会话视频模型选择器及剧变的整集渲染服务。原有本地文件和历史会话记录仍保存在原处。配置镜流地址后，右侧栏的[镜流原版工作台](../../packages/client/ui-jingliu/README.zh.md)和会话里的[镜流工作流工具](../../packages/drama/tool-jingliu/README.zh.md)使用同一个站点。工作台使用飞书登录。要在聊天中调用工具，请先在 Muse 会话中运行 `/jingliu-login`，完成飞书授权后回到同一会话再运行一次。独立测试环境可设置 `MUSE_JINGLIU_LOCAL_PREVIEW=1`，并按照[镜流账号连接](../../packages/drama/jingliu-connection/README.zh.md)向 Host 提供测试会话。
+启动桌面版前，将 `MUSE_JINGLIU_ORIGIN` 设为镜流 HTTPS 站点或可信的回环地址。新多媒体项目使用镜流。此桌面配置已归档剧变工具、会话视频模型选择器及剧变的整集渲染服务。原有本地文件和历史会话记录仍保存在原处。配置镜流地址后，右侧栏的[镜流原版工作台](../../packages/client/ui-jingliu/README.zh.md)和会话里的[镜流工作流工具](../../packages/drama/tool-jingliu/README.zh.md)使用同一个站点。工作台使用 Muse 登录。会话工具使用桌面当前登录的 Muse 账号访问已注册的镜流服务。服务器管理员需要启用[工作台登录](../../docs/upgrade-guide/v0.2.2-rc.2/workbench-muse-login/guide.zh.md)，并关联已有工作台用户。独立测试环境可设置 `MUSE_JINGLIU_LOCAL_PREVIEW=1`，并按照[镜流账号连接](../../packages/drama/jingliu-connection/README.zh.md)向 Host 提供测试会话。
 
 将 `MUSE_SCRIPT_WORKSHOP_ORIGIN` 设为编剧服务源站，可从右侧栏打开「剧本工坊」。剧本工坊与镜流分别配置。
 

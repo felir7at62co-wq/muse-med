@@ -5461,6 +5461,9 @@ importers:
 
   packages/client/ui-jingliu:
     dependencies:
+      '@deepseek-ai/dsh-client-store':
+        specifier: workspace:*
+        version: link:../store
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -5468,6 +5471,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-api-remotes':
+        specifier: workspace:*
+        version: link:../../api/remotes
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:*
         version: link:../locale
@@ -5486,6 +5492,9 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:*
         version: link:../../host/webserver
+      '@deepseek-ai/dsh-muse-account':
+        specifier: workspace:*
+        version: link:../../host/muse-account
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -9749,9 +9758,9 @@ importers:
       '@deepseek-ai/dsh-commands':
         specifier: workspace:*
         version: link:../../interaction/commands
-      '@deepseek-ai/dsh-credentials':
+      '@deepseek-ai/dsh-muse-account':
         specifier: workspace:*
-        version: link:../../credentials/credentials
+        version: link:../../host/muse-account
 
   packages/drama/screenplay-project:
     dependencies:

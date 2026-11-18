@@ -15,4 +15,4 @@ Desktop opens Jingliu from the right sidebar. The selected Jingliu project owns 
 
 1. To follow an existing Jubian job, use the original service and its task ID. Save any media you want to carry into a Jingliu project.
 2. Set `MUSE_JINGLIU_ORIGIN` to your Jingliu HTTPS origin and start Muse. Open **Jingliu** below **Browser** in the right sidebar and sign in. Local development can use an HTTP origin on a literal loopback address.
-3. Open or create the intended Jingliu project. Import the files you need and choose its production settings in the studio. To use chat tools, run `/jingliu-login`, authorize in Feishu and run the command again in that conversation. Ask Muse to read the script of the named project to verify the connection.
+3. Open or create the intended Jingliu project. Import the files you need and choose its production settings in the studio. To use chat tools, sign in with the [linked Muse account](../workbench-muse-login/guide.md) and run `/jingliu-login` to check the connection. Ask Muse to read the script of the named project to verify the connection.

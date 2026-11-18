@@ -2394,7 +2394,7 @@ export interface TlsConfig {
 
 ## `@deepseek-ai/dsh-jingliu-connection`
 
-- `inject`: `credentials` · `commands`
+- `inject`: `commands`
 - `source`: [`packages/drama/jingliu-connection/src/index.ts:22`](../packages/drama/jingliu-connection/src/index.ts)
 
 ```ts config-catalog
@@ -3073,7 +3073,7 @@ export interface Config {
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
 - `refs`: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/host/muse-account/src/index.ts:50`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:51`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */

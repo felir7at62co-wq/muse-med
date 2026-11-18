@@ -15,10 +15,10 @@ afterEach(() => vi.unstubAllGlobals())
 
 it.each([
   { config: {}, titles: [], urls: [] },
-  { config: { studioOrigin: 'http://127.0.0.1:18796' }, titles: ['镜流'], urls: ['http://127.0.0.1:18796/sfp/'] },
-  { config: { workshopOrigin: 'https://scripts.example' }, titles: ['剧本工坊'], urls: ['https://scripts.example/v2'] },
+  { config: { studioOrigin: 'http://127.0.0.1:18796' }, titles: ['镜流'], urls: ['http://127.0.0.1:18796/fwp/v2/auth/muse/embed'] },
+  { config: { workshopOrigin: 'https://scripts.example' }, titles: ['剧本工坊'], urls: ['https://scripts.example/v1/auth/muse/embed'] },
   { config: { studioOrigin: 'https://studio.example', workshopOrigin: 'https://scripts.example' },
-    titles: ['镜流', '剧本工坊'], urls: ['https://studio.example/sfp/', 'https://scripts.example/v2'] },
+    titles: ['镜流', '剧本工坊'], urls: ['https://studio.example/fwp/v2/auth/muse/embed', 'https://scripts.example/v1/auth/muse/embed'] },
 ])('opens each configured workbench independently ($titles)', async ({ config, titles, urls }) => {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
@@ -51,14 +51,53 @@ it.each([
 it('resolves studio and workshop pages only on dedicated origins', () => {
   expect(studioUrl(undefined)).toBeUndefined()
   expect(studioUrl(undefined, 'workshop')).toBeUndefined()
-  expect(studioUrl('https://studio.example')).toBe('https://studio.example/sfp/')
-  expect(studioUrl('http://127.0.0.1:18796')).toBe('http://127.0.0.1:18796/sfp/')
-  expect(studioUrl('http://[::1]:18796/')).toBe('http://[::1]:18796/sfp/')
-  expect(studioUrl('http://[::1]:18796/', 'workshop')).toBe('http://[::1]:18796/v2')
+  expect(studioUrl('https://studio.example')).toBe('https://studio.example/fwp/v2/auth/muse/embed')
+  expect(studioUrl('http://127.0.0.1:18796')).toBe('http://127.0.0.1:18796/fwp/v2/auth/muse/embed')
+  expect(studioUrl('http://[::1]:18796/')).toBe('http://[::1]:18796/fwp/v2/auth/muse/embed')
+  expect(studioUrl('http://[::1]:18796/', 'workshop')).toBe('http://[::1]:18796/v1/auth/muse/embed')
   for (const origin of ['http://studio.example', 'http://localhost:18796', 'http://127.1:18796',
     'file:///tmp/test', 'https://name@studio.example',
     'https://studio.example/fwp/', 'https://studio.example/?key=test', 'https://studio.example/#login']) {
     expect(() => studioUrl(origin)).toThrow()
     expect(() => studioUrl(origin, 'workshop')).toThrow()
   }
+})
+
+it('binds each iframe to its configured audience and replaces all open documents on account or connection changes', async () => {
+  vi.stubGlobal(STUDIO_URL_GLOBAL, 'https://studio.test/fwp/v2/auth/muse/embed')
+  vi.stubGlobal(WORKSHOP_URL_GLOBAL, 'https://workshop.test/v1/auth/muse/embed')
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  await ctx.plugin(SlotRegistry).await()
+  ctx.provide('locale', new LocaleRuntime(ctx))
+  ctx.provide('sidebarRightTabs', new SidebarRightTabRegistry(ctx))
+  const issueWorkbenchCode = vi.fn().mockResolvedValue({ ok: true, value: { code: 'temporary', accountId: 'private' } })
+  const off = vi.fn()
+  let accountChanged: () => void = () => { throw Error('not subscribed') }
+  ctx.provide('remote', {
+    $on: (key: string, callback: () => void) => {
+      expect(key).toBe('muse-account/session-changed')
+      accountChanged = callback
+      return off
+    },
+    museAccount: { issueWorkbenchCode },
+  })
+  ctx.provide('remote.museAccount', { issueWorkbenchCode })
+  const slots = ctx.get('slots') as SlotRegistry
+  slots.register({ name: 'root', children: { 'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session' } } } as never, () => null)
+  const active = ctx.plugin(studio)
+  await active.await()
+  const panes = slots.entries('sidebar.right.pane.tab').map(entry => entry.inject?.() as {
+    issueLogin(challenge: string): Promise<object>
+    hooks: { loginGeneration: { getSnapshot(): number } }
+  })
+  expect(panes).toHaveLength(2)
+  const initial = panes[0]!.hooks.loginGeneration.getSnapshot()
+  await Promise.all(panes.map(async pane => expect(await pane.issueLogin('challenge')).toEqual({ code: 'temporary' })))
+  expect(issueWorkbenchCode.mock.calls).toEqual([[{ audience: 'jingliu', challenge: 'challenge' }], [{ audience: 'script-workshop', challenge: 'challenge' }]])
+  accountChanged()
+  ctx.emit('connection/reset')
+  expect(panes.map(pane => pane.hooks.loginGeneration.getSnapshot())).toEqual([initial + 2, initial + 2])
+  await active.dispose()
+  expect(off).toHaveBeenCalled()
 })

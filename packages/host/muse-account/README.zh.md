@@ -95,6 +95,8 @@ Muse 账号模型在当前供应商的有界重试结束后，遇到已归类的
 <a id="host-credential-reads"></a>
 ### Host 凭据读取
 
+连接已注册的编剧或制作工作台时，Host 向账号网关申请仅供该工作台使用的一次性登录码。工作台使用自己的校验值和服务凭据兑换。申请期间本地 Muse 账号发生切换时，Host 会拒绝交付该登录码。
+
 包主入口导出的 `readMuseSession(file, baseUrl)` 读取显式指定的私有会话文件，并核对配置中的规范化网关 origin。文件不存在或会话属于其他 origin 时返回 null；存储数据格式错误时明确拒绝。Host 集成可复用该读取器，无需挂载账号的模型 provider。返回的 cookie 属于 Host 私有数据，不得进入 Remote 结果、模型消息或发往其他 origin 的请求。[`muse-market/cloud`](../muse-market/README.zh.md#account-bound-cloud) 通过独立的 `sessionFile` 配置使用该读取器。
 
 本地登录、登出和浏览器登录完成后会发送普通 `muse-account/session-changed`；观察到账号状态变化时也会发送。该通知不携带凭据或身份 payload。消费者撤销缓存的私有能力，并重新查询真实当前身份；外部会话文件替换由账号绑定的传输在每次请求时校验。

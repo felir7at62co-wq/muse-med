@@ -109,6 +109,16 @@ node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate
 `POST /api/muse.activity` 仅接受已登录同源客户端的 `{ "activity": "task-start" }`，为当前账号记录服务器时间。桌面端上报用户主动发起的轮次，排除子代理、自动目标、模型重试和目录刷新；不携带任务内容与本地路径。这是尽力上报的使用统计元数据，不是全部用户操作的审计；离线或请求失败时不重试、不补传。`MUSE_ACTIVITY_RATE_PER_MINUTE` 配置每账号／IP 每分钟最多接收次数（默认 120，范围 1–10000）。账号存储读取版本 1 和 2，变更时写入版本 2；切换或回滚网关前须遵循[账号升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-feishu-accounts/guide.zh.md)。
 
 <a id="shared-voice-registration"></a>
+## 工作台登录
+
+剧本工坊（`script-workshop`）和镜流（`jingliu`）分别注册客户端。将 `MUSE_WORKBENCH_LOGIN_CONFIG` 指向仅文件所有者可读写的 JSON 配置文件绝对路径。以工作台标识为键，值为含 `callbackUri`（固定 HTTPS 回调地址，本机测试可用数字回环地址的 HTTP）和 `serverSecret`（生成 32 字节随机值后用 base64url 编码）的对象。未配置文件时网关关闭此组接口。每个工作台后端仅持有自己的密钥。
+
+浏览器登录时，工作台后端创建本地登录请求，生成随机 state 与 verifier，携带自己的 bearer 密钥向 `/api/workbench-login/start` 发送 JSON 格式的 POST 请求 `{audience, challenge, state}`。state 和 challenge 都为 43 个 base64url 字符，challenge 由 verifier 的 SHA-256 摘要编码而成。后端将浏览器引向返回的 `authorizeUrl`。用户在 Muse 确认当前账号后，Muse 跳回登记的地址，携带 `state` 以及 `code` 或 `error=access_denied`。每个登录请求十分钟后过期。工作台接收回调时核对发起登录的浏览器和 state。
+
+桌面登录时，Muse 宿主使用自己的网关会话和完整 Muse Origin 向 `/api/workbench-login/grant` 发送 POST 请求 `{audience, challenge}`，随后将收到的 `{code, expiresIn}` 交给工作台。两种登录方式均由工作台后端携带自己的 bearer 密钥，向 `/api/workbench-login/redeem` 发送 JSON 格式的 POST 请求 `{audience, code, verifier}` 兑换身份。授权码有效期 60 秒，仅可兑换一次，兑换时检查原 Muse 会话、账号和权限版本仍有效。返回值为 `{issuer, sub, username}`。工作台核对预先配置的 issuer，将本地会话关联到稳定的 `(issuer, sub)`，并负责本地会话的有效期和撤销。
+
+登录请求和授权码保存在单个网关进程内。重启后需重新发起登录。完整登录流程应路由至同一实例。代理和应用日志应排除回调查询参数、授权请求正文和凭据。
+
 ## 共享声线登记
 
 用 MUSE_VOICE_SLOTS_DIR 启用 POST /api/jubian/voice-slots，路径必须是不可变发布目录之外的绝对私密持久目录。MUSE_VOICE_SLOTS_LEASE_MS、MUSE_VOICE_SLOTS_LOCK_WAIT_MS、MUSE_VOICE_SLOTS_LOCK_POLL_MS 和 MUSE_VOICE_SLOTS_TIMEOUT_MS 分别配置认领到期、锁等待／轮询及供应商核验超时。接口要求有效的 Muse Cookie 或 Bearer 会话、同源写请求和私密 X-Jubian-Token。每项操作通过固定源地址核验精确剧变项目访问权；ready／complete 还要求 delFlag=0 且无冲突删除标记，并核对真实音频资产、规范人物／时期标签及 HTTPS 地址。供应商凭据不持久化、不返回。

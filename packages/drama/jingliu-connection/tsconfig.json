@@ -18,7 +18,7 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../credentials/credentials"
+      "path": "../../host/muse-account/tsconfig.host.json"
     },
     {
       "path": "../../interaction/commands"

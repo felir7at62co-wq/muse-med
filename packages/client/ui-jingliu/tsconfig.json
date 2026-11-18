@@ -31,6 +31,15 @@
     },
     {
       "path": "../ui-slots"
+    },
+    {
+      "path": "../../host/muse-account/tsconfig.host.json"
+    },
+    {
+      "path": "../../api/remotes/tsconfig.client.json"
+    },
+    {
+      "path": "../store"
     }
   ]
 }

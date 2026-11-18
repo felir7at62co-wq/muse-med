@@ -25,5 +25,5 @@ export function studioUrl(origin: string | undefined, page: 'jingliu' | 'worksho
   if ((!localHttp && url.protocol !== 'https:') || url.origin !== origin.replace(/\/$/u, '')) {
     throw new TypeError(`${page} requires an HTTPS origin or HTTP loopback origin.`)
   }
-  return new URL(page === 'jingliu' ? '/sfp/' : '/v2', url).href
+  return new URL(page === 'jingliu' ? '/fwp/v2/auth/muse/embed' : '/v1/auth/muse/embed', url).href
 }

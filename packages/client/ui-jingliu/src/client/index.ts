@@ -1,11 +1,15 @@
 /** Production and writing workbench guide entries and tabs for the right sidebar. */
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-muse-account/remote'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { IconEditOutlineRegular, IconPlayOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { STUDIO_URL_GLOBAL, WORKSHOP_URL_GLOBAL } from '../page.ts'
+import type { WorkbenchLoginResult } from './workbench-login.ts'
 import { Studio } from './Studio.tsx'
 import { en, zh, ja, es, fr, de, ru, pt } from './locales.ts'
 
@@ -24,6 +28,22 @@ export function apply(ctx: Context): void {
     { url: bootstrap[WORKSHOP_URL_GLOBAL], id: '@deepseek-ai/dsh-client-ui-jingliu/workshop', kind: 'script-workshop',
       title: 'workshopTitle', description: 'workshopDescription', order: 50, icon: IconEditOutlineRegular },
   ] as const
+  if (!entries.some(entry => entry.url)) return
+  type Issue = (audience: 'jingliu' | 'script-workshop', challenge: string) => Promise<WorkbenchLoginResult>
+  const loginGeneration = createSnapshotStore(0)
+  const reset = (): void => { loginGeneration.set(loginGeneration.getSnapshot() + 1) }
+  let issue: Issue | undefined
+  ctx.inject(['remote.museAccount'], scope => scope.effect(() => {
+    issue = async (audience, challenge) => {
+      const result = await scope.remote.museAccount.issueWorkbenchCode({ audience, challenge })
+      if (result.ok) return { code: result.value.code }
+      return { error: result.error.code === 'muse-workbench/sign-in-required' ? 'sign-in-required' : 'unavailable' }
+    }
+    const off = scope.remote.$on('muse-account/session-changed', reset)
+    const onReset = scope.on('connection/reset', reset)
+    reset()
+    return () => { issue = undefined; off(); onReset(); reset() }
+  }, 'workbenches: account login'))
   const locale = 'jingliuStudio'
   const t = ctx.locale.bind(locale)
   ctx.effect(() => ctx.locale.register(locale, { en, zh, ja, es, fr, de, ru, pt }), 'workbenches: copy')
@@ -34,8 +54,9 @@ export function apply(ctx: Context): void {
       id, kind, priority: 'builtin', keepMounted: true, title: () => t(title),
       guide: [{ id: 'studio', order, title: () => t(title), description: () => t(description), icon }],
     }), `${kind}: guide`)
+    const issueLogin = async (challenge: string): Promise<WorkbenchLoginResult> => issue ? await issue(kind, challenge) : { error: 'unavailable' }
     ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
-      name: 'sidebar.right.pane.tab', key: id, locale, inject: () => ({ studioUrl: url, titleKey: title }),
+      name: 'sidebar.right.pane.tab', key: id, locale, inject: () => ({ studioUrl: url, titleKey: title, issueLogin, hooks: { loginGeneration } }),
     }, Studio)), `${kind}: document`)
   }
 }

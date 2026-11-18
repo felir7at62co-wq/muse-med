@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { credentialKey, type CredentialKey } from '@deepseek-ai/dsh-credentials'
+import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import type {} from '@deepseek-ai/dsh-commands'
 import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import { HarnessError } from '@deepseek-ai/dsh-error'
@@ -39,16 +39,14 @@ export interface JingliuSession {
   request(path: string, options?: JingliuRequest): Promise<unknown>
 }
 
-interface LoginAttempt {
-  owner: string
-  ticket: string
-  claim: string
-  expires: number
+interface ActiveConnection {
+  readonly owner: string
+  readonly session: Promise<JingliuSession>
 }
 
 /** Resolves user grants at execution time, keeping tokens outside model input and output. */
 export class JingliuConnection extends Service {
-  static inject = ['credentials', 'commands']
+  static inject = ['commands']
   static Config = z.object({
     studioOrigin: z.string(),
     timeoutMs: z.number().min(1).max(120000).step(1).default(30000),
@@ -56,12 +54,10 @@ export class JingliuConnection extends Service {
   })
 
   private readonly origin: string | undefined
-  private readonly key?: CredentialKey
   private readonly lifetime = new AbortController()
   private readonly preview: boolean
   private readonly timeout: number
-  private pending: LoginAttempt | undefined
-  private changing = false
+  private active: ActiveConnection | undefined
 
   /** @param ctx - Muse host context.
    * @param config - Jingliu deployment and transport configuration.
@@ -75,44 +71,46 @@ export class JingliuConnection extends Service {
       throw new HarnessError('本机预览凭据只能用于回环服务。', 'JINGLIU_PREVIEW_ORIGIN_INVALID')
     }
     if (!this.origin) return
-    this.key = credentialKey('jingliu-connection', 'user-' + this.digest(this.origin))
-    const register = (name: string, description: string, action: (owner: string, signal: AbortSignal) => Promise<string>): void => {
-      ctx.effect(() => ctx.commands.register({
-        name, description, definitionId: CommandDefinitionId('@deepseek-ai/dsh-jingliu-connection/' + name), recordInput: false,
-        handler: async (invocation) => {
-          if (invocation.rawInput.trim()) return { kind: 'error', text: '该命令无需输入参数。' }
-          if (this.changing) return { kind: 'error', text: '镜流正在处理上一次账号操作，请稍后重试。' }
-          this.changing = true
-          try {
-            return { kind: 'success', text: await action(invocation.agent.session.id, invocation.signal) }
-          } finally {
-            this.changing = false
-          }
-        },
-      }), name)
-    }
     if (!this.preview) {
-      register('jingliu-login', '用飞书授权 Muse 调用镜流工具', (owner, signal) => this.login(owner, signal))
-      register('jingliu-logout', '退出 Muse 工具使用的镜流账号', (_owner, signal) => this.logout(signal))
+      ctx.on('muse-account/session-changed', () => { this.active = undefined })
+      const command = (name: string, description: string, run: (signal: AbortSignal) => Promise<string>) => {
+        ctx.effect(() => ctx.commands.register({
+          name, description, definitionId: CommandDefinitionId('@deepseek-ai/dsh-jingliu-connection/' + name), recordInput: false,
+          handler: async ({ rawInput, signal }) => {
+            if (rawInput.trim()) return { kind: 'error', text: '该命令无需输入参数。' }
+            signal.throwIfAborted()
+            return { kind: 'success', text: await run(signal) }
+          },
+        }), name)
+      }
+      command('jingliu-login', '检查当前 Muse 账号的镜流连接', async (signal) => {
+        await this.connection()
+        signal.throwIfAborted()
+        return '已使用当前 Muse 账号连接镜流。'
+      })
+      command('jingliu-logout', '结束当前镜流工具连接', signal => this.disconnect(signal))
     }
-    ctx.effect(() => () => { this.lifetime.abort(); this.pending = undefined }, 'jingliu account lifetime')
+    ctx.effect(() => () => { this.active = undefined; this.lifetime.abort() }, 'jingliu account lifetime')
   }
 
-  private digest(text: string): string {
-    return createHash('sha256').update(text).digest('hex')
+  private async muse<T>(operation: (account: MuseAccountService) => Promise<T>): Promise<T> {
+    const account = this.ctx.get('museAccount')
+    if (!account) throw new HarnessError('请先在 Muse 的账号设置中登录。', 'JINGLIU_SIGN_IN_REQUIRED')
+    try {
+      return await operation(account)
+    } catch (error) {
+      if (isRecord(error) && error.code === 'invalid-credentials') {
+        throw new HarnessError('请在 Muse 的账号设置中重新登录。', 'JINGLIU_SIGN_IN_REQUIRED', { cause: error })
+      }
+      throw new HarnessError('无法验证 Muse 登录状态，请检查账号服务后重试。', 'JINGLIU_MUSE_AUTH_UNAVAILABLE', { cause: error })
+    }
   }
 
-  private async token(): Promise<string> {
-    if (!this.key) throw new HarnessError('请在 Muse 安装配置中选择镜流站点。', 'JINGLIU_UNCONFIGURED')
-    if (this.preview) {
-      const token = process.env.MUSE_JINGLIU_SESSION_TOKEN
-      if (token) return token
-      throw new HarnessError('镜流本地预览尚未配置测试会话。', 'JINGLIU_SIGN_IN_REQUIRED')
-    }
-    const stored = await this.ctx.credentials.readRecord(this.key)
-    if (stored?.kind === 'grant' && isRecord(stored.payload) && stored.payload.origin === this.origin &&
-      typeof stored.payload.token === 'string' && stored.payload.token) return stored.payload.token
-    throw new HarnessError('请使用 /jingliu-login 登录镜流。', 'JINGLIU_SIGN_IN_REQUIRED')
+  private async owner(): Promise<string> {
+    if (!this.preview) return this.muse(account => account.workbenchIdentity())
+    const token = process.env.MUSE_JINGLIU_SESSION_TOKEN
+    if (token) return token
+    throw new HarnessError('镜流本地预览尚未配置测试会话。', 'JINGLIU_SIGN_IN_REQUIRED')
   }
 
   private async call(path: string, options: JingliuRequest, headers?: Record<string, string>): Promise<unknown> {
@@ -121,67 +119,109 @@ export class JingliuConnection extends Service {
     return await requestJson(this.origin, path, this.timeout, { ...options, signal, ...(headers && { headers }) })
   }
 
-  /** Resolve the active account on the selected deployment.
-   * @returns A transport which stops if the session grant changes.
-   */
-  async connection(): Promise<JingliuSession> {
-    const token = await this.token()
-    const headers = { authorization: 'Bearer ' + token }
-    const profile = await this.call('/auth/me', {}, headers)
-    if (!isRecord(profile) || !isRecord(profile.user) || !Number.isSafeInteger(profile.user.id)) {
+  private async exchange(path: '/auth/muse/challenge' | '/auth/muse/exchange', body?: { requestId: string; code: string }): Promise<unknown> {
+    try {
+      return await this.call(path, { method: 'POST', body })
+    } catch (error) {
+      if (!(error instanceof JingliuHttpError)) throw error
+      const message = error.status === 403
+        ? '镜流未授权当前 Muse 账号，请管理员核对账号绑定和角色。'
+        : '镜流未能完成 Muse 登录（HTTP ' + String(error.status) + '）。'
+      throw new JingliuHttpError(error.status, 'JINGLIU_MUSE_EXCHANGE_FAILED', message)
+    }
+  }
+
+  private async assertOwner(owner: string): Promise<void> {
+    if (owner !== await this.owner()) throw this.changed()
+  }
+
+  private changed(): HarnessError {
+    return new HarnessError('镜流工具连接已变更。请核对原账号下已提交的操作，并重新选择项目。', 'JINGLIU_ACCOUNT_CHANGED')
+  }
+
+  private async authorize(owner: string): Promise<{ token: string; userId: number }> {
+    let token = owner
+    let profile: unknown
+    if (this.preview) {
+      profile = await this.call('/auth/me', {}, { authorization: 'Bearer ' + token })
+    } else {
+      const challenge = await this.exchange('/auth/muse/challenge')
+      if (!isRecord(challenge) || typeof challenge.requestId !== 'string' || !challenge.requestId ||
+        typeof challenge.challenge !== 'string' || !/^[A-Za-z0-9_-]{43}$/u.test(challenge.challenge)) {
+        throw new HarnessError('镜流未返回有效的 Muse 登录请求。', 'JINGLIU_INVALID_CHALLENGE')
+      }
+      const proof = challenge.challenge
+      const grant = await this.muse(account => account.workbenchGrant('jingliu', proof))
+      if (grant.accountId !== owner) throw this.changed()
+      await this.assertOwner(owner)
+      profile = await this.exchange('/auth/muse/exchange', { requestId: challenge.requestId, code: grant.code })
+      if (!isRecord(profile) || typeof profile.token !== 'string' || !profile.token) {
+        throw new HarnessError('镜流未返回有效的工具连接。', 'JINGLIU_INVALID_ACCOUNT')
+      }
+      token = profile.token
+    }
+    if (!isRecord(profile) || !isRecord(profile.user) || typeof profile.user.id !== 'number' || !Number.isSafeInteger(profile.user.id)) {
       throw new HarnessError('镜流未返回有效的登录用户。', 'JINGLIU_INVALID_ACCOUNT')
     }
-    return {
-      identity: this.digest(this.origin + '/' + String(profile.user.id)),
-      request: async (path, options = {}) => {
-        if (token !== await this.token()) throw new HarnessError('镜流账户发生变化，请重新选择项目。', 'JINGLIU_ACCOUNT_CHANGED')
-        return await this.call(path, options, headers)
-      },
-    }
+    await this.assertOwner(owner)
+    return { token, userId: profile.user.id }
   }
 
-  private async login(owner: string, signal: AbortSignal): Promise<string> {
-    if (this.pending && this.pending.expires <= Date.now()) this.pending = undefined
-    if (!this.pending) {
-      const value = await this.call('/auth/feishu/start?mode=desktop', { method: 'POST', signal })
-      if (!isRecord(value) || typeof value.ticket !== 'string' || !value.ticket || typeof value.claim_secret !== 'string'
-        || !value.claim_secret || typeof value.authorize_url !== 'string') throw new HarnessError('镜流未返回完整的授权票据。', 'JINGLIU_INVALID_TICKET')
-      const page = new URL(value.authorize_url)
-      if (page.protocol !== 'https:' || page.username || page.password || page.port ||
-        !['open.feishu.cn', 'accounts.feishu.cn', 'open.larksuite.com', 'accounts.larksuite.com'].includes(page.hostname)) {
-        throw new HarnessError('镜流返回的授权地址不属于飞书。', 'JINGLIU_INVALID_TICKET')
+  /** Resolve the active account on the selected deployment.
+   * @returns A transport bound to this Muse login and Jingliu user.
+   */
+  async connection(): Promise<JingliuSession> {
+    const origin = this.origin
+    if (!origin) throw new HarnessError('请在 Muse 安装配置中选择镜流站点。', 'JINGLIU_UNCONFIGURED')
+    this.lifetime.signal.throwIfAborted()
+    const owner = await this.owner()
+    if (this.active?.owner === owner) return this.active.session
+    const session: Promise<JingliuSession> = this.authorize(owner).then(({ token, userId }) => {
+      if (this.active?.session !== session) throw this.changed()
+      const headers = { authorization: 'Bearer ' + token }
+      const check = async () => {
+        await this.assertOwner(owner)
+        if (this.active?.session !== session) throw this.changed()
       }
-      this.pending = { owner, ticket: value.ticket, claim: value.claim_secret, expires: Date.now() + 600_000 }
-      return '请本人打开飞书授权链接，在原会话再次运行 /jingliu-login 完成连接。\n' + page.href
+      return {
+        identity: createHash('sha256').update(origin + '/' + String(userId)).digest('hex'),
+        request: async (path: string, options: JingliuRequest = {}) => {
+          await check()
+          let response: unknown
+          try {
+            response = await this.call(path, options, headers)
+          } catch (error) {
+            await check()
+            if (error instanceof JingliuHttpError && error.status === 401 && this.active?.session === session) this.active = undefined
+            throw error
+          }
+          await check()
+          return response
+        },
+      }
+    })
+    const active = { owner, session }
+    this.active = active
+    try {
+      return await session
+    } catch (error) {
+      if (this.active === active) this.active = undefined
+      throw error
     }
-    if (owner !== this.pending.owner) throw new HarnessError('请回到发起登录的 Muse 会话完成授权。', 'JINGLIU_LOGIN_IN_PROGRESS')
-    const result = await this.call('/auth/feishu/poll?' + new URLSearchParams({ ticket: this.pending.ticket }).toString(),
-      { signal }, { 'x-fw-claim': this.pending.claim })
-    if (isRecord(result) && result.status === 'pending') return '飞书授权仍在等待。完成授权后再次运行 /jingliu-login。'
-    this.pending = undefined
-    if (!isRecord(result) || result.status !== 'ok' || typeof result.token !== 'string' || !result.token || !this.key) {
-      throw new HarnessError('授权票据已过期，请重新运行 /jingliu-login。', 'JINGLIU_LOGIN_EXPIRED')
-    }
-    const token = result.token
-    await this.ctx.credentials.modifyRecord(this.key, async () => ({ kind: 'grant', payload: { origin: this.origin, token } }))
-    return '已连接镜流。'
   }
 
-  private async logout(signal: AbortSignal): Promise<string> {
-    this.pending = undefined
-    if (!this.key) throw new HarnessError('尚未配置镜流站点。', 'JINGLIU_UNCONFIGURED')
-    const stored = await this.ctx.credentials.readRecord(this.key)
-    if (stored?.kind === 'grant' && isRecord(stored.payload) && typeof stored.payload.token === 'string') {
-      const token = stored.payload.token
+  private async disconnect(signal: AbortSignal): Promise<string> {
+    const active = this.active
+    if (active && active.owner === await this.owner()) {
       try {
-        await this.call('/auth/logout', { method: 'POST', signal }, { authorization: 'Bearer ' + token })
+        await (await active.session).request('/auth/logout', { method: 'POST', signal })
       } catch (error) {
         if (!(error instanceof JingliuHttpError && error.status === 401)) throw error
+      } finally {
+        if (this.active === active) this.active = undefined
       }
-      await this.ctx.credentials.modifyRecord(this.key, async current => current?.kind === 'grant' &&
-        isRecord(current.payload) && current.payload.token === token ? { kind: 'grant', payload: null } : undefined)
     }
-    return '已断开镜流工具账号。'
+    return '本次镜流工具连接已结束。下次调用会使用当前 Muse 账号。'
   }
 }
 
