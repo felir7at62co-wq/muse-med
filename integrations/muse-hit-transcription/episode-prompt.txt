@@ -1,0 +1,11 @@
+只转写《{title}》第{index}集（全剧{episodeCount}集）。原片 {video}，SHA256 {sha256}，约 {duration} 秒。工作区 {workspace}。{previousNote} 参考正文 {previous}，人物参考 {characters}。
+
+先加载 video-to-screenplay、audio-transcribe、video-review、screenplay-format。只写当前集画面和真实原声，保留切镜、台词原词及事件顺序。字幕、说话、人物供述和真实发生的事分开；有疑点写待核，不根据剧情猜说话人、地点、日夜、身份或画面外过去。已有姓名沿用，首次出现及不确定项记录到本集 characters.json。动作与衣着挑与剧情及连贯性有关的内容。人物叫法不跨集一律替换。
+
+每集最多一次标准语音识别：audio_transcribe start，project="{workspace}"，input="{video}"，purpose="screenplay"，language="zh"。返回收据后只用 inspect wait_seconds=30 查询原ID；已有结果直接沿用，状态未知停下汇报。禁止再次 start 或使用 status 补传。
+
+用 video_inspect metadata 查精确时长。video_ocr 从0开始覆盖全片，每段最多55秒并有独立输出，连续逐段直到metadata片尾；确认没有缺段、失败帧或截短。用 video_inspect scan（episode={index}）和 observe/next 看实际图像，保留时间索引；scan_complete=true 且 pending=0才写完成。只把补帧可解决的问题写进 observations 的 uncertainty。文字或听力疑点留 QA。
+
+保存 scripts/{label}.md、characters.json、qa/{label}.json。每个场次给出当集集号、内外、日夜与人物名单；不清楚写日夜待核。用 manuscript_revision transcript_coverage，传本集 Markdown、实际 ASR JSON、所有真实 OCR 原始 JSON，用 characters_path 指向本集人物表。按秒码核查漏句、错序、可能的别字和说话人；修改正文后对最新版再跑。QA 写来源、具体秒位和待核点，不把摘要当真实原工具结果。
+
+用原生 screenplay_export_docx 导出 final/{title}_第{index}集_剧本.docx；旧版保留，正文改后另存。用 manuscript_revision delivery，delivery_mode="draft"，source_mode="video"，video_dir="{video_dir}"，登记真实 Markdown 和当前 Word。检查本集看帧完整并且 format_error_count=0，若 present，description 逐字使用原生返回标签。证据不完整如实汇报；无需发布、运行命令、另起代理或作其他集。
