@@ -799,6 +799,8 @@ export type HeaderPresentation = 'standard' | 'floating'
 export interface Config {
   /** HTTPS studio origin or HTTP loopback origin for a local studio. */
   studioOrigin?: string
+  /** Private HTTP loopback endpoint serving OpenChatCut. */
+  editorOrigin?: string
   /** HTTPS workshop origin or HTTP loopback origin for a local script workshop. */
   workshopOrigin?: string
 }

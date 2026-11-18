@@ -1,0 +1,458 @@
+diff --git a/remotion/Root.tsx b/remotion/Root.tsx
+index d343b274dc08fce43dfb7c345a3f66d6d6ef6786..516b22630fbf235e0a40de341003cc7c14853690 100644
+--- a/remotion/Root.tsx
++++ b/remotion/Root.tsx
+@@ -1,5 +1,5 @@
+-import { Composition } from 'remotion';
+-import { TimelineComposition } from '../src/editor/TimelineComposition';
++import { Composition, Sequence } from 'remotion';
++import { TimelineComposition, type TimelineCompositionProps } from '../src/editor/TimelineComposition';
+ import { timelineDuration, type TimelineState } from '../src/editor/types';
+ import { resolveTimelineRenderPlan } from '../src/editor/sequenceGraph';
+ import { loadProjectFonts } from '../src/fonts/googleFonts';
+@@ -18,11 +18,26 @@ const EMPTY_STATE: TimelineState = {
+   selectedId: null,
+ };
+ 
++type RenderProps = TimelineCompositionProps & { outputSize?: { width: number; height: number } };
++
++function RenderTimeline({ outputSize, ...props }: RenderProps) {
++  if (!outputSize) return <TimelineComposition {...props} />;
++  const { width, height } = props.state;
++  return (
++    <Sequence width={width} height={height} style={{
++      transform: `scale(${outputSize.width / width}, ${outputSize.height / height})`,
++      transformOrigin: 'top left',
++    }}>
++      <TimelineComposition {...props} />
++    </Sequence>
++  );
++}
++
+ export function Root() {
+   return (
+     <Composition
+       id="timeline"
+-      component={TimelineComposition}
++      component={RenderTimeline}
+       defaultProps={{ state: EMPTY_STATE, transparent: false }}
+       // Metadata comes from the timeline itself — same source of truth as the
+       // Player (see timelineDuration in src/editor/types.ts). Min 1 frame.
+@@ -34,8 +49,8 @@ export function Root() {
+         return {
+           durationInFrames: Math.max(1, durationInFrames),
+           fps: state.fps,
+-          width: state.width,
+-          height: state.height,
++          width: props.outputSize?.width ?? state.width,
++          height: props.outputSize?.height ?? state.height,
+         };
+       }}
+       // Fallbacks only; calculateMetadata overrides these before every render.
+diff --git a/remotion/performance.verify.mjs b/remotion/performance.verify.mjs
+index 2093149c2f5f3aec044cc06713c90a2ecd30f296..8aa3f9afb09929d342f419799a82f777f55b6520 100644
+--- a/remotion/performance.verify.mjs
++++ b/remotion/performance.verify.mjs
+@@ -12,6 +12,13 @@ import {
+   withEncoderProfileFallback,
+ } from './performance.mjs';
+ 
++import { scaledOutputViewport } from './render-contract.mjs';
++
++assert.deepEqual(scaledOutputViewport(320, 180, 2.6683159722222222, 'h264'), { width: 854, height: 480 });
++assert.deepEqual(scaledOutputViewport(321, 181, 1, 'h264'), { width: 322, height: 182 });
++assert.equal(scaledOutputViewport(321, 181, 1, 'vp8'), undefined);
++assert.equal(scaledOutputViewport(320, 180, 4, 'h264'), undefined);
++
+ const abundantMemory = 64 * 1024 ** 3;
+ assert.equal(resolveRenderConcurrency({ cores: 10, memoryBytes: abundantMemory }), 8);
+ assert.equal(resolveRenderConcurrency({ cores: 4, memoryBytes: abundantMemory }), 3);
+diff --git a/remotion/render-contract.mjs b/remotion/render-contract.mjs
+index 60418f5bca527c9aaf280970930f73086bdefcd7..a4406586d8fd858e29ff85403ded6a8d0c5bca61 100644
+--- a/remotion/render-contract.mjs
++++ b/remotion/render-contract.mjs
+@@ -173,3 +173,15 @@ export function assertMaterializedRenderSnapshot(snapshot, operation = 'render',
+   const active = activeId ? timelines.get(activeId) : timelines.values().next().value;
+   if (active) visitTimeline(active, activeId);
+ }
++
++/** Integer output viewport when Remotion cannot pass the scaled size directly to its encoder. */
++export function scaledOutputViewport(width, height, scale, codec) {
++  const step = codec === 'h264' ? 2 : 1;
++  const nearest = (pixels) => Math.max(step, Math.round(pixels / step) * step);
++  const scaledWidth = width * scale;
++  const scaledHeight = height * scale;
++  const outputWidth = nearest(scaledWidth);
++  const outputHeight = nearest(scaledHeight);
++  return scaledWidth === outputWidth && scaledHeight === outputHeight
++    ? undefined : { width: outputWidth, height: outputHeight };
++}
+diff --git a/remotion/render.mjs b/remotion/render.mjs
+index cb5e4d1d6788b853528a63bd94aad0d743b0b71f..68ec1f3514d08a7168909730e5893c2c07f57538 100644
+--- a/remotion/render.mjs
++++ b/remotion/render.mjs
+@@ -17,7 +17,7 @@ import {
+   withEncoderProfileFallback,
+ } from './performance.mjs';
+ import { renderDirectHardware } from './direct-hardware.mjs';
+-import { assertMaterializedRenderSnapshot, normalizeH264Profile } from './render-contract.mjs';
++import { assertMaterializedRenderSnapshot, normalizeH264Profile, scaledOutputViewport } from './render-contract.mjs';
+ import { resolveRenderTimeout } from './render-timeout.mjs';
+ 
+ export { assertMaterializedRenderSnapshot } from './render-contract.mjs';
+@@ -302,7 +302,10 @@ export async function renderTimeline({
+ 
+   const serveUrl = await getServeUrl();
+   signal?.throwIfAborted();
+-  const inputProps = { state, project, timelineId };
++  const renderScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
++  // Preserve the authored coordinates when the stitcher needs an integer viewport.
++  const outputSize = scaledOutputViewport(state.width, state.height, renderScale, codec);
++  const inputProps = { state, project, timelineId, ...(outputSize ? { outputSize } : {}) };
+   // Full-timeline mezzanine: ProRes 422 HQ (not 4444 alpha — that is clip/MG only).
+   const proresOptions = codec === 'prores'
+     ? { proResProfile: 'hq', imageFormat: 'png' }
+@@ -325,7 +328,7 @@ export async function renderTimeline({
+       outputLocation,
+       h264Profile,
+       vaapiDevice,
+-      scale: scale && Number.isFinite(scale) && scale > 0 ? scale : 1,
++      scale: outputSize ? 1 : renderScale,
+       videoBitrate: codec === 'prores'
+         ? undefined
+         : Number.isFinite(videoBitrate) && videoBitrate > 0
+diff --git a/server/plugins/upload-route-storage.ts b/server/plugins/upload-route-storage.ts
+index 3b8662aab1492fff0aa20851ce8466a759a39bcb..6886a9f720210b4d1c3ca4c0fc9a2e783b6cf86b 100644
+--- a/server/plugins/upload-route-storage.ts
++++ b/server/plugins/upload-route-storage.ts
+@@ -82,7 +82,9 @@ async function handleDeleteUpload(req: IncomingMessage, res: ServerResponse): Pr
+         }
+       }
+       try {
+-        r2Removed = await deleteUploadObject(name, rollbackToken);
++        if (!(rollbackToken && url.searchParams.get('localOnly') === '1')) {
++          r2Removed = await deleteUploadObject(name, rollbackToken);
++        }
+       } catch (error) {
+         failures.push(error);
+       }
+diff --git a/server/plugins/upload-route-write.ts b/server/plugins/upload-route-write.ts
+index bcad6dceb2ddfabf4df9414c020da067dabe6c06..913bced1172fc5cabd5c2cba0cff59fbbf84f378 100644
+--- a/server/plugins/upload-route-write.ts
++++ b/server/plugins/upload-route-write.ts
+@@ -110,7 +110,7 @@ async function handleUploadWrite(
+           }
+           createdServerName = name;
+           createdRollbackToken = rollbackToken;
+-          const cloud = await mirrorUpload(
++          const cloud = !handoff && url.searchParams.get('localOnly') === '1' ? 'off' : await mirrorUpload(
+             name,
+             partPath!,
+             req.headers['content-type'] || undefined,
+diff --git a/src/App.tsx b/src/App.tsx
+index ce640084e75a1d8ba542d761e670cace6050879d..8bce0714063f12535df96cd26e20adf28fa84132 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1,4 +1,6 @@
+ 
++import { useEffect } from 'react';
++import { bindJingliuBridge } from './muse/jingliuBridge';
+ import { useT } from './i18n/locale';
+ import {
+   useAgentBackendSync,
+@@ -17,6 +19,13 @@ export default function App() {
+   useUiScaleShortcuts();
+   const { projects, refresh } = useProjects();
+ 
++  useEffect(() => {
++    if (!['127.0.0.1', '[::1]'].includes(window.location.hostname) || window.parent === window) return;
++    return bindJingliuBridge(window, import.meta.env.VITE_MUSE_EDITOR_PARENT_ORIGINS ?? '',
++      async (data, signal) => (await import('./muse/jingliuEpisode')).importJingliuEpisode(data, signal),
++      async id => { await refresh(); window.location.hash = '#/editor/' + id; });
++  }, [refresh]);
++
+   if (!projects) return <AppSplash text={t('加载中…')} />;
+   if (route.name === 'editor') {
+     return <EditorRoute route={route} projects={projects} refresh={refresh} />;
+diff --git a/src/muse/jingliuBridge.ts b/src/muse/jingliuBridge.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..187987a79115d24339d641f8651c8b546d0f37fb
+--- /dev/null
++++ b/src/muse/jingliuBridge.ts
+@@ -0,0 +1,54 @@
++const kind = 'muse.jingliu.cut.v1';
++
++export function allowedMuseParent(origin: string, configured: string): boolean {
++  if (origin === 'dsh-app://app') return true;
++  return configured.split(',').some(entry => {
++    try {
++      const url = new URL(entry.trim());
++      return url.origin === origin && url.origin === entry.trim() && ['http:', 'https:'].includes(url.protocol)
++        && ['127.0.0.1', '[::1]'].includes(url.hostname);
++    } catch { return false; }
++  });
++}
++
++/** Accept a short-lived dedicated port only from the explicitly configured Muse parent. */
++export function bindJingliuBridge(
++  win: Window, configured: string, importProject: (payload: unknown, signal: AbortSignal) => Promise<string>,
++  openProject: (id: string) => Promise<void>,
++): () => void {
++  let current: { id: string; abort: AbortController; port: MessagePort; timer: ReturnType<typeof setTimeout> } | undefined;
++  const stop = () => {
++    if (!current) return;
++    clearTimeout(current.timer);
++    current.abort.abort();
++    current.port.close();
++    current = undefined;
++  };
++  const handler = (event: MessageEvent) => {
++    const id = event.data?.id;
++    if (win.parent === win || event.source !== win.parent || !allowedMuseParent(event.origin, configured) ||
++        event.data?.kind !== kind || typeof id !== 'string' || !/^[a-f0-9-]{36}$/i.test(id) || event.ports.length !== 1) return;
++    const port = event.ports[0];
++    if (current) { port.postMessage({ id, state: 'error' }); port.close(); return; }
++    const abort = new AbortController();
++    current = { id, abort, port, timer: setTimeout(stop, 20 * 60_000) };
++    let started = false;
++    port.onmessage = async message => {
++      if (message.data?.id !== id || current?.id !== id) return;
++      if (message.data?.state === 'cancel') { stop(); return; }
++      if (started) return;
++      started = true;
++      try {
++        const projectId = await importProject(message.data, abort.signal);
++        if (abort.signal.aborted) return;
++        port.postMessage({ id, state: 'imported' });
++        await openProject(projectId);
++      } catch {
++        if (!abort.signal.aborted) port.postMessage({ id, state: 'error' });
++      } finally { if (current?.id === id) stop(); }
++    };
++    port.postMessage({ id, state: 'ready' });
++  };
++  win.addEventListener('message', handler);
++  return () => { win.removeEventListener('message', handler); stop(); };
++}
+diff --git a/src/muse/jingliuBridge.verify.ts b/src/muse/jingliuBridge.verify.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8abf19bbd5b86a4cc87b3a25adc97c25476db249
+--- /dev/null
++++ b/src/muse/jingliuBridge.verify.ts
+@@ -0,0 +1,10 @@
++import assert from 'node:assert/strict';
++import { allowedMuseParent } from './jingliuBridge';
++
++assert(allowedMuseParent('dsh-app://app', ''));
++assert(allowedMuseParent('http://127.0.0.1:42115', 'http://127.0.0.1:42115'));
++for (const origin of ['null', 'https://localhost.example', 'http://127.0.0.1:42116', 'dsh-app://shell']) {
++  assert.equal(allowedMuseParent(origin, 'http://127.0.0.1:42115'), false);
++}
++assert.equal(allowedMuseParent('https://remote.example', 'https://remote.example'), false);
++console.log('Jingliu handoff accepts only the explicitly trusted local Muse parent');
+diff --git a/src/muse/jingliuEpisode.ts b/src/muse/jingliuEpisode.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..10273305d7d7721a929c31933c4b05e9af432d04
+--- /dev/null
++++ b/src/muse/jingliuEpisode.ts
+@@ -0,0 +1,104 @@
++import type { MediaAsset, Timeline } from '../editor/types';
++import { createMediaSourceRevision } from '../editor/mediaSourceRevision';
++import { activeTimeline } from '../editor/projectTypes';
++import { probeMediaFile } from '../media/mediaProbe';
++import { emptyProjectDoc } from '../app/appShell';
++import {
++  createMediaBlobImportNamespace, stageMediaBlobImport, discardMediaBlobImport, type StagedMediaBlobImportEntry,
++} from '../persist/mediaBlobStore';
++import { publishDirectMediaProject } from '../persist/projectTransfer';
++
++interface Clip {
++  order: number;
++  inSec: number;
++  durationSec: number;
++  speed: number;
++  track: number;
++  overlayStart: number;
++  file: Blob;
++}
++interface Episode { name: string; aspect: string; clips: Clip[] }
++
++const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object';
++const finite = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
++const extensions: Record<string, string> = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm' };
++
++export function parseEpisode(value: unknown): Episode {
++  if (!record(value) || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 256 ||
++      typeof value.aspect !== 'string' || value.aspect.length > 32 ||
++      !Array.isArray(value.clips) || !value.clips.length || value.clips.length > 120) throw Error('episode');
++  let bytes = 0;
++  const clips = value.clips.map((c: unknown): Clip => {
++    if (!record(c) || !(c.file instanceof Blob) || !Object.hasOwn(extensions, c.file.type) ||
++        c.file.size <= 0 || c.file.size > 256 * 1024 * 1024 ||
++        !finite(c.order, 0, 1e6) || !Number.isInteger(c.order) ||
++        !finite(c.inSec, 0, 86400) || !finite(c.durationSec, 0.001, 86400) ||
++        !finite(c.speed, 0.01, 16) || !finite(c.track, 0, 128) || !Number.isInteger(c.track) ||
++        !finite(c.overlayStart, 0, 86400)) throw Error('clip');
++    bytes += c.file.size;
++    if (bytes > 1024 * 1024 * 1024) throw Error('size');
++    return { order: c.order, file: c.file, inSec: c.inSec, durationSec: c.durationSec, speed: c.speed, track: c.track, overlayStart: c.overlayStart };
++  });
++  return { name: value.name, aspect: value.aspect, clips: clips.sort((a, b) => a.order - b.order) };
++}
++
++/** Place one adopted source window on the main track or its original overlay track. */
++export function placeClip(timeline: Timeline, asset: MediaAsset, clip: Omit<Clip, 'file'>, primaryEnd: number) {
++  const track = 'track_v' + (clip.track + 1);
++  timeline.tracks ??= {};
++  timeline.tracks[track] = { kind: 'video' };
++  timeline.trackOrder = Object.keys(timeline.tracks).sort((a, b) => Number(b.slice(7)) - Number(a.slice(7)));
++  const startFrame = clip.track ? Math.round(clip.overlayStart * timeline.fps) : primaryEnd;
++  const srcInFrame = Math.round(clip.inSec * timeline.fps);
++  const span = Math.min(asset.durationInFrames - srcInFrame, Math.round(clip.durationSec * timeline.fps));
++  if (span < 1) throw Error('invalid source window');
++  const durationInFrames = Math.max(1, Math.round(span / clip.speed));
++  timeline.items.push({ id: crypto.randomUUID(), track, startFrame, durationInFrames,
++    srcInFrame, playbackRate: clip.speed, kind: 'video', src: asset.src, name: asset.name,
++    width: asset.width, height: asset.height, sourceFilename: asset.name, sourceContentHash: asset.sourceContentHash });
++  return clip.track ? primaryEnd : startFrame + durationInFrames;
++}
++
++export async function importJingliuEpisode(value: unknown, signal: AbortSignal): Promise<string> {
++  const episode = parseEpisode(value);
++  const doc = emptyProjectDoc();
++  const timeline = activeTimeline(doc);
++  timeline.name = episode.name;
++  const namespace = createMediaBlobImportNamespace();
++  const entries = new Map<string, StagedMediaBlobImportEntry>();
++  let primaryEnd = 0;
++  try {
++    for (const clip of episode.clips) {
++      signal.throwIfAborted();
++      const ext = extensions[clip.file.type];
++      const name = 'Shot ' + clip.order + '.' + ext;
++      const file = new File([clip.file], name, { type: clip.file.type });
++      const metadata = await probeMediaFile(file, 'video', timeline.fps);
++      if (!metadata.width || !metadata.height || !Number.isFinite(metadata.durationInFrames)) throw Error('unreadable video');
++      const stage = await stageMediaBlobImport(namespace, '/media/uploads/' + name, file, { name, mime: file.type, sourceSize: file.size });
++      let asset = doc.assets.find(a => a.src === stage.src);
++      if (!asset) {
++        entries.set(stage.src, stage);
++        asset = { id: crypto.randomUUID(), src: stage.src, name, sourceFilename: name, kind: 'video',
++          sourceSize: file.size, sourceContentHash: stage.sha256, ...metadata };
++        asset.sourceRevision = createMediaSourceRevision(asset);
++        doc.assets.push(asset);
++      }
++      primaryEnd = placeClip(timeline, asset, clip, primaryEnd);
++      if (doc.assets.length === 1 && timeline.items.length === 1) {
++        const [w, h] = episode.aspect.split(':').map(Number);
++        if (w > 0 && h > 0 && w / h >= .1 && w / h <= 10) {
++          const long = Math.max(metadata.width, metadata.height);
++          timeline.width = Math.max(2, Math.round((long * w / Math.max(w, h)) / 2) * 2);
++          timeline.height = Math.max(2, Math.round((long * h / Math.max(w, h)) / 2) * 2);
++        } else { timeline.width = metadata.width; timeline.height = metadata.height; }
++      }
++    }
++    signal.throwIfAborted();
++    const result = await publishDirectMediaProject(episode.name, doc, namespace, [...entries.values()], signal);
++    return result.meta.id;
++  } catch (error) {
++    await discardMediaBlobImport(namespace);
++    throw error;
++  }
++}
+diff --git a/src/persist/mediaBlobStore.ts b/src/persist/mediaBlobStore.ts
+index 1951db9f65481c1caeddecddb79e0d3ee2379136..8b18791707d6dfda17104926e673b14de0149fbf 100644
+--- a/src/persist/mediaBlobStore.ts
++++ b/src/persist/mediaBlobStore.ts
+@@ -52,6 +52,7 @@ export interface PublishedMediaBlobImportEntry extends StagedMediaBlobImportEntr
+   created: boolean;
+ }
+ export interface CreatedServerMediaPublication {
++  localOnly?: boolean;
+   src: string;
+   rollbackToken: string;
+ }
+@@ -464,6 +465,7 @@ async function deleteImportedServerMedia(created: CreatedServerMediaPublication)
+   }
+   const name = created.src.slice('/media/uploads/'.length);
+   const query = new URLSearchParams({ name, rollbackToken: created.rollbackToken });
++  if (created.localOnly) query.set('localOnly', '1');
+   const response = await fetch(`/upload?${query.toString()}`, {
+     method: 'DELETE',
+   });
+@@ -519,6 +521,7 @@ export async function rollbackMediaBlobImport(publication: MediaBlobImportPublic
+ export async function publishMediaBlobImport(
+   namespace: string,
+   entries: readonly StagedMediaBlobImportEntry[],
++  localOnly = false,
+ ): Promise<MediaBlobImportPublication> {
+   assertMediaImportNamespace(namespace);
+   const published: PublishedMediaBlobImportEntry[] = [];
+@@ -564,9 +567,9 @@ export async function publishMediaBlobImport(
+         continue;
+       }
+       const rollbackToken = createMediaRollbackToken();
+-      const candidate = { src: uploadPathForRecord(record), rollbackToken };
++      const candidate = { src: uploadPathForRecord(record), rollbackToken, ...(localOnly && { localOnly }) };
+       createdServerMedia.push(candidate);
+-      const uploaded = await uploadMediaBlob(record, { ifAbsent: true, rollbackToken });
++      const uploaded = await uploadMediaBlob(record, { ifAbsent: true, rollbackToken, localOnly });
+       candidate.src = uploaded.path;
+       if (!uploaded.created) {
+         createdServerMedia.pop();
+@@ -671,7 +674,7 @@ interface MediaBlobUploadResult {
+ 
+ async function uploadMediaBlob(
+   rec: MediaBlobRecord,
+-  options?: { ifAbsent?: boolean; rollbackToken?: string },
++  options?: { ifAbsent?: boolean; rollbackToken?: string; localOnly?: boolean },
+ ): Promise<MediaBlobUploadResult> {
+   const assetId = uploadAssetIdFromSrc(rec.src);
+   const uploadName = options?.ifAbsent ? `file${mediaExtension(rec.name)}` : rec.name || 'file';
+@@ -679,6 +682,7 @@ async function uploadMediaBlob(
+   if (assetId) q.set('assetId', assetId);
+   if (options?.ifAbsent) q.set('ifAbsent', '1');
+   if (options?.rollbackToken) q.set('rollbackToken', options.rollbackToken);
++  if (options?.localOnly) q.set('localOnly', '1');
+   const res = await fetch(`/upload?${q.toString()}`, {
+     method: 'POST',
+     headers: { 'Content-Type': rec.mime || 'application/octet-stream' },
+diff --git a/src/persist/projectTransfer.ts b/src/persist/projectTransfer.ts
+index b38b2313bd7fb1ecd7d458ca7f8e8e4b327fd948..c0d525ca62f9587a478155c2322d81fff650bfc4 100644
+--- a/src/persist/projectTransfer.ts
++++ b/src/persist/projectTransfer.ts
+@@ -95,6 +95,8 @@ interface StagedProjectImport {
+ }
+ 
+ export interface ProjectImportOptions {
++  /** Store Muse-selected media only on this machine. */
++  localOnly?: boolean;
+   migrationOptions?: ProjectMigrationOptions;
+   /** Test/host seam for the single publish step after all validation succeeds. */
+   publish?: (staged: Pick<StagedProjectImport, 'name' | 'doc' | 'chat' | 'creativeMode'>) => Promise<ProjectMeta>;
+@@ -457,7 +459,7 @@ async function publishStreamProjectImport(
+ ): Promise<ProjectImportResult> {
+   const mediaImport = staged.mediaImport;
+   if (!mediaImport) throw new Error('工程包媒体临时清单缺失');
+-  const mediaPublication = await publishMediaBlobImport(mediaImport.namespace, mediaImport.entries);
++  const mediaPublication = await publishMediaBlobImport(mediaImport.namespace, mediaImport.entries, options.localOnly);
+   let meta: ProjectMeta;
+   try {
+     meta = await publishStagedProject(staged, options.publish);
+@@ -478,6 +480,16 @@ async function publishStreamProjectImport(
+   return importResult(staged, meta);
+ }
+ 
++/** Publish already-staged local media through the same serialized project import as portable packages. */
++export function publishDirectMediaProject(
++  name: string, doc: ProjectDoc, namespace: string, entries: StagedMediaBlobImportEntry[], signal: AbortSignal,
++): Promise<ProjectImportResult> {
++  const srcs = entries.map(entry => entry.src);
++  return enqueueStreamPublication(() => publishStreamProjectImport({
++    name, doc, carriedSrcs: srcs, mediaRestored: srcs.length, mediaImport: { namespace, entries },
++  }, { localOnly: true, publish: async () => { signal.throwIfAborted(); return createProject(name, doc); } }));
++}
++
+ /** Stream v2 packages without materializing every base64 asset in one object. */
+ export async function importProjectPackage(
+   file: Blob,

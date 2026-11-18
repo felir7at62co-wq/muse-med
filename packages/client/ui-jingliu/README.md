@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 Set `workshopOrigin` to the script workshop deployment and `studioOrigin` to the Jingliu deployment. Each accepts an HTTPS origin or an HTTP loopback IP origin. Each appears below Files, Terminal and Browser in the right sidebar. **Script workshop** opens the writing homepage at `/v2` to create, edit and review drafts. **Jingliu** opens its production workspace at `/sfp/`.
 
+Set `editorOrigin` to the numeric HTTP loopback address and port of [OpenChatCut](https://github.com/0xsline/OpenChatCut). **Video editor** opens its original timeline, mixer and export controls. When Jingliu is also connected, **Import from Jingliu** copies the selected episode’s available shots into a new local editing project.
+
 The panels start at `/v1/auth/muse/embed` and `/fwp/v2/auth/muse/embed` respectively. Switching tabs preserves the document. Switching Muse accounts or reconnecting the Host opens a fresh sign-in frame. Narrow panes scroll horizontally at minimum zoom. Use the sidebar's fullscreen control for more writing or production space.
 
 ## Table of Contents

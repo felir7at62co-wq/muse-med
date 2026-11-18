@@ -37,6 +37,8 @@ Host 包在 `lib/index.js` 旁保留 `lib/workspace-owned-storage.js`，供 Desk
 
 将 `MUSE_SCRIPT_WORKSHOP_ORIGIN` 设为编剧服务源站，可从右侧栏打开「剧本工坊」。剧本工坊与镜流分别配置。
 
+将 `MUSE_OPENCHATCUT_ORIGIN` 设为本机剪辑器的 HTTP 回环 IP 地址和端口，即可在右侧栏看到「剪辑」。本地体验时，将 `MUSE_OPENCHATCUT_DIR` 指向已安装依赖的 [OpenChatCut fork](https://github.com/felir7at62co-wq/OpenChatCut) 的 v0.2.8（`721dd058`）。在该目录用 `git apply` 应用[Muse 接入补丁](../../integrations/openchatcut/muse-editor.patch)，构建 Muse 后运行 `node apps/desktop/scripts/preview-openchatcut.mjs`。
+
 Desktop 启用已有的[打开方式控件](../../packages/client/ui-open-in-app/README.zh.md)，保留标准紧凑样式，用关联应用打开文件或在系统文件管理器中显示其位置。
 
 Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../packages/drama/drama-settings/README.zh.md)。剪映专业版草稿根目录保存在用户配置中，并在重启后恢复；显式 home 和命令行覆盖仍保持优先级。保存此设置不授予草稿导出的文件系统访问权限。

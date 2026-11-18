@@ -52,12 +52,14 @@
     "@deepseek-ai/dsh-client-ui-sidebar-right": "workspace:*",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:*",
     "@deepseek-ai/dsh-host-webserver": "workspace:*",
+    "@deepseek-ai/dsh-jingliu-connection": "workspace:*",
     "@deepseek-ai/dsh-muse-account": "workspace:*",
     "react": "^18.2.0"
   },
   "dependencies": {
     "@deepseek-ai/dsh-client-store": "workspace:*",
-    "@deepseek-ai/schemastery": "workspace:~"
+    "@deepseek-ai/schemastery": "workspace:~",
+    "@deepseek-ai/dsh-util-crypto": "workspace:*"
   },
   "files": [
     "locale/*.json",

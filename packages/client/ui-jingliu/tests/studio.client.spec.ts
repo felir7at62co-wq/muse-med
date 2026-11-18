@@ -6,8 +6,8 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { SidebarRightTabRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/tab-registry.ts'
 import type { IndexInjection, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
-import { studioUrl } from '../src/config.ts'
-import { STUDIO_URL_GLOBAL, WORKSHOP_URL_GLOBAL } from '../src/page.ts'
+import { editorUrl, studioUrl } from '../src/config.ts'
+import { EDITOR_URL_GLOBAL, STUDIO_URL_GLOBAL, WORKSHOP_URL_GLOBAL } from '../src/page.ts'
 import * as host from '../src/index.ts'
 import * as studio from '../src/client/index.ts'
 
@@ -15,6 +15,9 @@ afterEach(() => vi.unstubAllGlobals())
 
 it.each([
   { config: {}, titles: [], urls: [] },
+  { config: { editorOrigin: 'http://127.0.0.1:19843' }, titles: ['剪辑'], urls: ['http://127.0.0.1:19843/'] },
+  { config: { editorOrigin: 'http://127.0.0.1:19843', studioOrigin: 'https://studio.example', workshopOrigin: 'https://scripts.example' },
+    titles: ['镜流', '剪辑', '剧本工坊'], urls: ['https://studio.example/fwp/v2/auth/muse/embed', 'https://scripts.example/v1/auth/muse/embed', 'http://127.0.0.1:19843/'] },
   { config: { studioOrigin: 'http://127.0.0.1:18796' }, titles: ['镜流'], urls: ['http://127.0.0.1:18796/fwp/v2/auth/muse/embed'] },
   { config: { workshopOrigin: 'https://scripts.example' }, titles: ['剧本工坊'], urls: ['https://scripts.example/v1/auth/muse/embed'] },
   { config: { studioOrigin: 'https://studio.example', workshopOrigin: 'https://scripts.example' },
@@ -33,7 +36,9 @@ it.each([
   })
   expect(assigned).toEqual(urls)
   expect(table.map(item => item.kind === 'global' && item.name)).toEqual([
-    ...(config.studioOrigin ? [STUDIO_URL_GLOBAL] : []), ...(config.workshopOrigin ? [WORKSHOP_URL_GLOBAL] : []),
+    ...(config.studioOrigin ? [STUDIO_URL_GLOBAL] : []),
+    ...(config.workshopOrigin ? [WORKSHOP_URL_GLOBAL] : []),
+    ...(config.editorOrigin ? [EDITOR_URL_GLOBAL] : []),
   ])
   await ctx.plugin(SlotRegistry).await()
   ctx.provide('locale', new LocaleRuntime(ctx))
@@ -100,4 +105,13 @@ it('binds each iframe to its configured audience and replaces all open documents
   expect(panes.map(pane => pane.hooks.loginGeneration.getSnapshot())).toEqual([initial + 2, initial + 2])
   await active.dispose()
   expect(off).toHaveBeenCalled()
+})
+
+it('opens the editor only on an explicit numeric loopback port', () => {
+  expect(editorUrl(undefined)).toBeUndefined()
+  expect(editorUrl('http://[::1]:19843/')).toBe('http://[::1]:19843/')
+  for (const value of ['https://editor.example', 'http://127.0.0.1', 'http://127.0.0.1:19843/file',
+    'http://u@127.0.0.1:19843', 'http://localhost:19843', 'http://127.0.0.1:19843/?token=x']) {
+    expect(() => editorUrl(value)).toThrow()
+  }
 })

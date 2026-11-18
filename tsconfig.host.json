@@ -662,6 +662,7 @@
     { "path": "./packages/drama/tool-character-reference" },
     { "path": "./packages/drama/tool-drama-assets" },
     { "path": "./packages/drama/drama-settings/tsconfig.host.json" },
+    { "path": "./packages/client/ui-jingliu/tsconfig.host.json" },
     { "path": "./packages/drama/jingliu-connection" },
     { "path": "./packages/drama/tool-jingliu" },
     { "path": "./packages/perception/perception-bgm" },
