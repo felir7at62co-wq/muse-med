@@ -166,7 +166,7 @@ it.runIf(process.platform === 'win32')('reads only this installation from the co
     if (entry === null || typeof entry !== 'object' || !('FullName' in entry) || typeof entry.FullName !== 'string') {
       throw new Error('Expected the returned receipt filename')
     }
-    expect(entry).toEqual({ FullName: expect.any(String), Backup: backup })
+    expect(entry).toEqual({ FullName: entry.FullName, Backup: backup })
     const expectedReport = join(reports, 'current.completed')
     expect(await realpath(entry.FullName)).toBe(await realpath(expectedReport))
     expect(await readFile(entry.FullName)).toEqual(await readFile(expectedReport))
