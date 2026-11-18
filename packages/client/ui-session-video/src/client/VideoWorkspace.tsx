@@ -8,12 +8,12 @@ import {
 import type { SessionVideoSource } from '@deepseek-ai/dsh-session-video/types'
 import type { VideoWorkspaceProps } from './face.ts'
 import {
-  parseVideoWorkspaceAddress, serializeVideoTargets, targetKey, videoWorkspaceAddress, VIDEO_REVIEW_REQUEST,
+  parseVideoWorkspaceAddress, serializeVideoTargets, targetKey, videoWorkspaceAddress,
   type VideoEpisodeFilter, type VideoTarget, type VideoWorkspaceNavigation,
 } from './target-selection.ts'
 import { assembleTimeline, authoredShots } from './timeline.ts'
 import { VideoPlayer } from './VideoPlayer.tsx'
-import { parseVideoReference, VIDEO_REFERENCE_SOURCE } from './references.ts'
+import { parseVideoReference, VIDEO_REFERENCE_SOURCE, VIDEO_REVIEW_REFERENCE_SOURCE } from './references.ts'
 import type {} from './resource-provider.ts'
 import css from './VideoWorkspace.module.css'
 
@@ -23,7 +23,7 @@ import css from './VideoWorkspace.module.css'
  */
 export function VideoWorkspace(props: VideoWorkspaceProps) {
   const { sessionId, useResource, useStore, useTabInfo, useInput, inputActions, actions,
-    detectShots, refreshVideos, addTargetReference, removeTargetReference, pixelsPerSecond, t } = props
+    detectShots, refreshVideos, addTargetReference, removeTargetReference, setReviewMode, pixelsPerSecond, t } = props
   const resource = useResource<'session-video'>(videoWorkspaceAddress(sessionId))
   const sources = resource.value?.sources ?? []
   const { tab, panel } = useTabInfo()
@@ -115,16 +115,18 @@ export function VideoWorkspace(props: VideoWorkspaceProps) {
       && !addTargetReference(current.target, current.label, inputActions.captureInsertion())) {
       setNotice(t('draftRefused')); return
     }
+    if (!setReviewMode(intent === 'review', inputActions.captureInsertion())) { setNotice(t('draftRefused')); return }
     const span = inputActions.captureInsertion()
     const request = t(intent === 'review' ? 'requestReview' : 'requestEdit')
-    const mode = intent === 'review' ? `${VIDEO_REVIEW_REQUEST}\n` : ''
-    if (!inputActions.insertText(`\n\n${mode}${request}`,
+    if (!inputActions.insertText(`\n\n${request}`,
       { start: span.end, end: span.end, draftRev: span.draftRev })) { setNotice(t('draftRefused')); return }
     inputActions.persistDraft()
     setPickerOpen(false)
     setNotice(t('draftReady'))
     let remaining = draft
-    for (const { occurrence } of [...selections].sort((a, b) => b.occurrence.offset - a.occurrence.offset)) {
+    const ownReferences = [...selections.map(value => value.occurrence),
+      ...occurrences.filter(value => value.source === VIDEO_REVIEW_REFERENCE_SOURCE)]
+    for (const occurrence of ownReferences.sort((a, b) => b.offset - a.offset)) {
       remaining = remaining.slice(0, occurrence.offset) + remaining.slice(occurrence.offset + occurrence.length)
     }
     if (intent === 'review' && remaining.trim() === '' && attachmentCount === 0) inputActions.submit()

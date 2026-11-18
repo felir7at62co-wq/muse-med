@@ -41,6 +41,13 @@ Local playback uses a Session-bound authenticated byte-range route. Verified pub
 
 `muse_video review` returns sampled images from a bounded source-local interval without starting a complete-episode task. The latest user selection restricts its source, version and interval; runtime context does not replace that selection. The Review action records a read-only intent that permits only video listing/review and tool-discovery operations; shell scripts, other images and media mutations are rejected. Complete-review and contact-sheet tools remain outside selected-interval inspection. A new user message without that intent restores ordinary tool access; its video references define the next interval scope. A message without video references clears that scope. Samples support advice about visible frames, not continuous viewing or audio judgments. Seeks with no frame before the exclusive end are reported in `unavailable_seconds`; an interval with no decodable frame fails visibly. Original media remains unchanged; extracted images use the attachment store.
 
+<a id="tool-failures"></a>
+### Tool failures
+
+Expected `muse_video` failures are error tool results (`isError: true`) with identity in `error.info.name` and `error.info.code`. Missing Agent context uses `ToolContextUnavailableError` (`TOOL_CONTEXT_UNAVAILABLE`); invalid arguments, including binding metadata and interval constraints, use `ToolArgsError` (`INVALID_ARGS`). Video-domain failures use the internal `SessionVideoError`; [`src/errors.ts`](src/errors.ts) owns its codes. Existing `HarnessError` identities and caller cancellation propagate through the tool path.
+
+Consumers use these identities for handling and the message for display. Refresh the inventory and reselect after a source or version change; correct invalid arguments or choose media within processing limits before retrying. Wait for active work after a busy result, and verify source bytes and evidence after binding validation fails. Wrapped foreign failures retain their original cause in the Host error. Resolve the reported condition before repeating a bind or review. Remote detection's `failed` state and playback HTTP failures retain their own response semantics.
+
 ### Configuration
 
 The plugin accepts no required configuration fields. The owning Host composition supplies its injected services; executable paths and processing limits are deployment configuration.
@@ -76,6 +83,7 @@ The service obtains execution paths through the filesystem provider. Probe and s
 | [`src/sources.ts`](src/sources.ts) | Private source projection and recorded-result parsing |
 | [`src/production.ts`](src/production.ts) | Recorded production associations and unambiguous source grouping |
 | [`src/media.ts`](src/media.ts) | Subprocess ownership, validated video facts and complete cut ranges |
+| [`src/errors.ts`](src/errors.ts) | Video tool error class and stable codes |
 | [`src/types.ts`](src/types.ts) | Client-visible inventory, source and interval types |
 
 </details>

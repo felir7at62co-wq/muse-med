@@ -97,7 +97,8 @@ export async function fixture(items: SessionVideoSource[] = [source()]) {
   runtime.slots.provideRoot({ keyedHooks: { resource: () => resource } })
   const openWorkspace = vi.fn(), refreshVideos = vi.fn(), addTargetReference = vi.fn().mockReturnValue(true),
     removeTargetReference = vi.fn().mockReturnValue(true)
-  const injected = { detectShots, pixelsPerSecond: 48, openWorkspace, refreshVideos, addTargetReference, removeTargetReference }
+  const injected = { detectShots, pixelsPerSecond: 48, openWorkspace, refreshVideos, addTargetReference, removeTargetReference,
+    setReviewMode: vi.fn().mockReturnValue(true) }
   await runtime.declare({ 'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
     'test.video.delivered': { kind: 'list', scope: 'session' }, 'conversation.chat.turnTail': { kind: 'list', scope: 'session' } })
   await runtime.mount({ inject: ['slots'], apply(ctx) {

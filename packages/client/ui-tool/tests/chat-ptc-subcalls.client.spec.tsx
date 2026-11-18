@@ -147,8 +147,8 @@ async function bench(snapshot: ChatSnapshot) {
   await ctx.plugin(ConversationController, {
     input: new InputHub(ctx, locale.bind(CONVERSATION_NS)),
     blocks: new ComposerBlockRegistry(),
-    maxConcurrentFileUploads: 1,
-  })
+    maxConcurrentFileUploads: 2,
+  }).await()
   runtime.ctx.provide('shortcuts', { catalog: createSnapshotStore([]) })
   await runtime.mount({ inject: [...injectMenus], apply: applyMenus })
 

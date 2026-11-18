@@ -20,6 +20,8 @@ export interface VideoInjected {
   readonly addTargetReference: (target: VideoTarget, label: string, span: TokenSpan) => boolean
   /** Remove only an identity-matched video chip; unrelated references are refused. */
   readonly removeTargetReference: (occurrence: Occurrence) => boolean
+  /** Add one read-only chip at the captured insertion, or remove this plugin's mode chips before editing. */
+  readonly setReviewMode: (enabled: boolean, span: TokenSpan) => boolean
 }
 /** Store and locale shared by the shelf and inline cards. */
 export type VideoShared = PropsStore<VideoStore> & PropsLocale<'sessionVideo'> & VideoInjected

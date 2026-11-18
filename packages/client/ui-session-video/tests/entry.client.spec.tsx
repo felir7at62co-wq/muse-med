@@ -22,8 +22,8 @@ import type { VideoSelectionTextInjected } from '../src/client/VideoSelectionTex
 import { SessionInputShell } from '../../ui-conversation/src/client/input/facade.ts'
 import { NS } from '../src/client/locales.ts'
 import { inventory, source, analysis } from './video-fixture.tsx'
-import { videoWorkspaceAddress } from '../src/client/target-selection.ts'
-import { VIDEO_REFERENCE_SOURCE } from '../src/client/references.ts'
+import { videoWorkspaceAddress, VIDEO_REVIEW_REQUEST } from '../src/client/target-selection.ts'
+import { VIDEO_REFERENCE_SOURCE, VIDEO_REVIEW_REFERENCE_SOURCE, VIDEO_REVIEW_REFERENCE } from '../src/client/references.ts'
 
 vi.mock('@deepseek-ai/dsh-session-video/remote', () => ({
   default: { package: '@deepseek-ai/dsh-session-video', descriptors: [] },
@@ -100,7 +100,8 @@ it('retains the selected-video codec across accepted presentation changes until 
   const dispose = await apply(ctx)
   await waitFor(() => { expect(ctx.slots.entries('conversation.session.header.utilities')).toHaveLength(1) })
   const selected = references.get(VIDEO_REFERENCE_SOURCE)
-  if (selected?.codec === undefined) throw Error('Selected videos have no stable serializer')
+  const reviewMode = references.get(VIDEO_REVIEW_REFERENCE_SOURCE)
+  if (selected?.codec === undefined || reviewMode?.codec === undefined) throw Error('Video references have no stable serializer')
   const sessionId = inventory([]).sessionId, item = source(), signal = new AbortController().signal
   const ref = videoWorkspaceAddress(sessionId, { kind: 'source', sourceId: item.id, sourceVersion: 'v1' })
   expect(selected.openReference?.({ sessionId }, { ref })).toBe(true)
@@ -108,19 +109,25 @@ it('retains the selected-video codec across accepted presentation changes until 
   act(() => { form.publish({ status: 'ready', writable: true, value: { enabled: false } }) })
   await waitFor(() => { expect(ctx.slots.entries('conversation.session.header.utilities')).toHaveLength(0) })
   expect(references.get(VIDEO_REFERENCE_SOURCE)).toBe(selected)
-  expect(registerSource).toHaveBeenCalledOnce()
+  expect(references.get(VIDEO_REVIEW_REFERENCE_SOURCE)).toBe(reviewMode)
+  expect(registerSource).toHaveBeenCalledTimes(2)
   expect(referenceReleased).not.toHaveBeenCalled()
   expect(selected.openReference?.({ sessionId }, { ref })).toBe(false)
   expect(openResource).toHaveBeenCalledOnce()
   expect(await selected.codec.serialize(ref, signal)).toContain('"source_version": "v1"')
+  expect(await reviewMode.codec.serialize(VIDEO_REVIEW_REFERENCE, signal)).toBe(VIDEO_REVIEW_REQUEST)
+  expect(reviewMode.codec.clipboardText(VIDEO_REVIEW_REFERENCE)).toBe(ctx.locale.bind(NS)('readOnlyReview'))
   expect(remote.operations.list).toHaveBeenCalledExactlyOnceWith(sessionId, signal)
   act(() => { form.publish({ status: 'ready', writable: true, value: { enabled: true } }) })
   await waitFor(() => { expect(ctx.slots.entries('conversation.session.header.utilities')).toHaveLength(1) })
   expect(references.get(VIDEO_REFERENCE_SOURCE)).toBe(selected)
-  expect(registerSource).toHaveBeenCalledOnce()
+  expect(references.get(VIDEO_REVIEW_REFERENCE_SOURCE)).toBe(reviewMode)
+  expect(registerSource).toHaveBeenCalledTimes(2)
   await dispose()
   expect(references.size).toBe(0)
-  expect(referenceReleased).toHaveBeenCalledExactlyOnceWith(VIDEO_REFERENCE_SOURCE)
+  expect(referenceReleased).toHaveBeenCalledTimes(2)
+  expect(referenceReleased).toHaveBeenCalledWith(VIDEO_REFERENCE_SOURCE)
+  expect(referenceReleased).toHaveBeenCalledWith(VIDEO_REVIEW_REFERENCE_SOURCE)
 })
 
 it('keeps settings mounted while disabling and remounting every optional contribution', async () => {
@@ -283,6 +290,64 @@ it('adds source references to the retained composer once and refuses missing or 
   held.release()
   await waitFor(() => { expect(sessions.binding(sessionId)).toBeUndefined() })
   expect(actions.removeTargetReference(occurrence)).toBe(false)
+  await dispose()
+})
+
+it('keeps one localized removable review mode and clears it before editing without removing video references', async () => {
+  const { ctx, sessions, locale, references } = await fixture(true)
+  const dispose = await apply(ctx)
+  await waitFor(() => { expect(ctx.slots.entries('conversation.session.header.utilities')).toHaveLength(1) })
+  const sessionId = inventory([]).sessionId, item = source(), t = locale.bind(NS)
+  const header = ctx.slots.entries('conversation.session.header.utilities')[0]
+  if (header?.inject === undefined) throw Error('Video actions are unavailable')
+  const actions = Reflect.apply(header.inject, undefined, [sessionId]) as VideoInjected
+  expect(actions.setReviewMode(true, { start: 0, end: 0, draftRev: 0 })).toBe(false)
+  expect(actions.setReviewMode(false, { start: 0, end: 0, draftRev: 0 })).toBe(false)
+  await sessions.add({ id: sessionId })
+  const held = sessions.retain(sessionId)
+  onTestFinished(() => { held.release() })
+  const binding = await held.ready
+  const shell = new SessionInputShell({ actx: binding.ctx, defaultSink: async () => ({ kind: 'success' }),
+    commandAttachments: { serialize: async () => [], release: () => {}, unsupportedNotice: token => token } })
+  onTestFinished(() => { shell.dispose() })
+  vi.spyOn(ctx.conversation.input, 'for').mockReturnValue(shell)
+  const setMode = (enabled: boolean) => actions.setReviewMode(enabled, shell.actions.captureInsertion())
+  shell.setDraft('Keep this unfinished instruction. ')
+  expect(actions.addTargetReference({ kind: 'source', sourceId: item.id, sourceVersion: 'v1' },
+    item.label, shell.actions.captureInsertion())).toBe(true)
+  expect(setMode(true)).toBe(true)
+  const original = shell.snapshot.draft
+  const mode = shell.snapshot.occurrences.find(value => value.source === VIDEO_REVIEW_REFERENCE_SOURCE)
+  if (mode === undefined) throw Error('Read-only mode is missing')
+  expect(mode.label).toBe(t('readOnlyReview'))
+  expect(mode.clipboardText).toBe(t('readOnlyReview'))
+  expect(shell.snapshot.draft.startsWith('Keep this unfinished instruction. ')).toBe(true)
+  expect(shell.snapshot.draft).not.toContain('muse-video-review')
+  expect(setMode(true)).toBe(true)
+  expect(shell.snapshot.draft).toBe(original)
+  expect(shell.snapshot.occurrences).toHaveLength(2)
+  const remove = vi.spyOn(shell, 'removeReference').mockReturnValueOnce(false)
+  expect(setMode(false)).toBe(false)
+  expect(shell.snapshot.occurrences).toHaveLength(2)
+  expect(setMode(false)).toBe(true)
+  expect(remove).toHaveBeenLastCalledWith(mode)
+  expect(shell.snapshot.occurrences.map(value => value.source)).toEqual([VIDEO_REFERENCE_SOURCE])
+  const insert = vi.spyOn(shell, 'insertReference').mockReturnValueOnce(false)
+  expect(setMode(true)).toBe(false)
+  locale.setLocale('zh')
+  expect(setMode(true)).toBe(true)
+  expect(insert.mock.calls.at(-1)?.[0].label).toBe(t('readOnlyReview'))
+  const restored = shell.snapshot.occurrences.find(value => value.source === VIDEO_REVIEW_REFERENCE_SOURCE)
+  if (restored === undefined) throw Error('Read-only mode was not reinserted')
+  expect(shell.removeReference(restored)).toBe(true)
+  expect(shell.snapshot.occurrences.map(value => value.source)).toEqual([VIDEO_REFERENCE_SOURCE])
+  expect(setMode(false)).toBe(true)
+  const codec = references.get(VIDEO_REVIEW_REFERENCE_SOURCE)?.codec
+  if (codec === undefined) throw Error('Read-only mode serializer is missing')
+  await expect(codec.serialize('invalid', new AbortController().signal)).rejects.toThrow(t('reviewModeInvalid'))
+  held.release()
+  await waitFor(() => { expect(sessions.binding(sessionId)).toBeUndefined() })
+  expect(setMode(true)).toBe(false)
   await dispose()
 })
 

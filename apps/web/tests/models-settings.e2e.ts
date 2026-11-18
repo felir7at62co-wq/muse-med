@@ -671,7 +671,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
         const mobilePage = await mobileBrowser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
         const errors = watchConsole(mobilePage)
         onTestFailed(() => saveFailureShot(mobilePage, `web-e2e-models-mobile-${engineName.toLowerCase()}`))
-        await mobilePage.goto(scaffold.authenticatedUrl)
+        await mobilePage.goto(scaffold.authenticatedUrl, { waitUntil: 'domcontentloaded' })
         await openSettings(mobilePage, 'zh')
         const dialog = mobilePage.getByRole('dialog', { name: '设置' })
         await dialog.getByRole('button', { name: '模型', exact: true }).click()
@@ -735,7 +735,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
           viewport: { width: 390, height: 844 }, locale: ZH_BROWSER_LOCALE, isMobile: true, hasTouch: true,
         })
         const touchErrors = watchConsole(touchPage)
-        await touchPage.goto(scaffold.authenticatedUrl)
+        await touchPage.goto(scaffold.authenticatedUrl, { waitUntil: 'domcontentloaded' })
         await openSettings(touchPage, 'zh')
         const touchDialog = touchPage.getByRole('dialog', { name: '设置' })
         await touchDialog.getByRole('button', { name: '模型', exact: true }).tap()
