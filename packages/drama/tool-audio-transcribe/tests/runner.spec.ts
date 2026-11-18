@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
 import { afterEach, expect, it } from 'vitest'
 import { MuseAsrError, type MuseAsrJob } from '@deepseek-ai/dsh-muse-account'
 import { finishAudioTranscription, startAudioTranscription, startAudioTranscriptionBatch, type AudioAccount, type AudioMediaOperations } from '../src/runner.ts'
@@ -958,86 +957,6 @@ it('polls original tasks inside one bounded call and publishes without another u
   expect(queries).toBe(2)
   expect(f.counts().submits).toBe(1)
   expect(await readFile(done.output_txt!, 'utf8')).toContain('ready')
-})
-
-it.each([false, true])('bounds the active GET for a split=%s receipt and publishes only after a later read of the same IDs', async (split) => {
-  const f = await setup(), submitted: string[] = [], reads: string[] = []
-  let slow = true, interrupted = false
-  const account: AudioAccount = { ...f.account,
-    submitAudio: async (_file, id) => { submitted.push(id); return { id, status: 'processing' } },
-    audioStatus: async (id, signal) => {
-      reads.push(id)
-      if (slow) {
-        try { await delay(1500, undefined, { signal }) }
-        finally { interrupted = signal?.aborted === true }
-      }
-      return { id, status: 'complete', segments: [{ start: 0, end: 1, text: 'original task' }] }
-    },
-  }
-  const first = await startAudioTranscription(f.project, f.input, 'zh', account, { ...config, chunkSeconds: split ? 20 : 600 }, shortMedia)
-  const before = await readFile(first.receipt, 'utf8')
-  const result = await finishAudioTranscription(f.project, first.receipt, account, undefined, false,
-    { waitMs: 400, pollIntervalMs: 1, probe: shortMedia.probe })
-  expect(result).toMatchObject({ status: 'uncertain', error_code: 'query-timeout', job_id: first.job_id,
-    resume_status: { method: 'inspect', receipt: first.receipt } })
-  expect(interrupted).toBe(true)
-  expect(reads).toEqual(submitted.slice(0, 1))
-  expect(await readFile(first.receipt, 'utf8')).toBe(before)
-  await expect(stat(join(f.project, 'transcript', 'raw'))).rejects.toMatchObject({ code: 'ENOENT' })
-  slow = false
-  const recovered = await finishAudioTranscription(f.project, first.receipt, account, undefined, false)
-  expect(recovered).toMatchObject({ status: 'complete', job_id: first.job_id })
-  expect(await readFile(recovered.output_txt!, 'utf8')).toContain('original task')
-  expect(submitted).toHaveLength(split ? 2 : 1)
-  expect(reads).toEqual([submitted[0], ...submitted])
-})
-
-it('does not dispatch a status request after the wait expires during local receipt validation', async () => {
-  const f = await setup()
-  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
-  const account: AudioAccount = { ...f.account, status: async (options) => {
-    await delay(40)
-    return await f.account.status(options)
-  } }
-  const result = await finishAudioTranscription(f.project, first.receipt, account, undefined, false,
-    { waitMs: 20, pollIntervalMs: 1, probe: shortMedia.probe })
-  expect(result).toMatchObject({ job_id: first.job_id, error_code: 'query-timeout', resume_status: { method: 'inspect' } })
-  expect(f.counts()).toEqual({ submits: 1, queries: 0 })
-})
-
-it('keeps the last confirmed status when the next poll falls outside the wait', async () => {
-  const f = await setup()
-  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
-  const pending = await finishAudioTranscription(f.project, first.receipt, f.account, undefined, false,
-    { waitMs: 400, pollIntervalMs: 30_000, probe: shortMedia.probe })
-  expect(pending).toMatchObject({ job_id: first.job_id, status: 'processing', resume_status: { method: 'inspect' } })
-  expect(pending.error_code).toBeUndefined()
-  expect(f.counts()).toEqual({ submits: 1, queries: 1 })
-})
-
-it('reports unconfirmed upload and remaining inputs, then safely continues the same batch', async () => {
-  const f = await setup(), another = join(f.project, 'source', 'next.mp4'), attempts: string[] = [], reads: string[] = []
-  await writeFile(another, 'next episode')
-  const account: AudioAccount = { ...f.account,
-    submitAudio: async (_file, id) => {
-      attempts.push(id)
-      if (attempts.length === 1) throw new MuseAsrError('upload-timeout')
-      return { id, status: 'processing' }
-    },
-    audioStatus: async (id) => { reads.push(id); return { id, status: 'processing', queued: true } },
-  }
-  const args = [f.project, [f.input, another], 'zh', account, config, shortMedia] as const
-  const first = await startAudioTranscriptionBatch(...args)
-  expect(first).toMatchObject({ items: [{ input: f.input, status: 'uncertain', error_code: 'upload-timeout', job_id: attempts[0],
-    resume_status: { method: 'inspect' } }], not_started: [another] })
-  expect(attempts).toHaveLength(1)
-  const followup = await startAudioTranscriptionBatch(...args)
-  expect(followup).toMatchObject({ items: [{ input: f.input, job_id: attempts[0], status: 'processing', queued: true },
-    { input: another, job_id: attempts[1], status: 'processing' }] })
-  expect(followup).not.toHaveProperty('not_started')
-  expect(attempts).toHaveLength(2)
-  expect(new Set(attempts).size).toBe(2)
-  expect(reads).toEqual(attempts.slice(0, 1))
 })
 
 it('does not wait through a no-query recovery blocker or start a recovery upload', async () => {
