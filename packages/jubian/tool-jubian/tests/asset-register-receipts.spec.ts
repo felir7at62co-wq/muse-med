@@ -505,8 +505,9 @@ it('reports an unavailable receipt directory as a typed failure before dispatch'
     await writeFile(join(f.ledger.root, 'asset-registration-receipts'), 'blocks the directory')
     return data
   } })
-  await expect(assetMethod(f.client, f.ledger, args)).rejects.toMatchObject({ name: 'JubianError', code: 'CONTRACT_CHANGED',
-    cause: expect.any(Error) })
+  const failed = assetMethod(f.client, f.ledger, args)
+  await expect(failed).rejects.toMatchObject({ name: 'JubianError', code: 'CONTRACT_CHANGED' })
+  await expect(failed).rejects.toHaveProperty('cause', expect.any(Error))
   expect(f.writes).toEqual([])
 })
 
@@ -530,8 +531,9 @@ it('does not dispatch when receipt writer coordination fails', async () => {
   const f = await fixture(publishImage)
   const failure = vi.spyOn(AtomicWrite, 'withFileLock').mockRejectedValueOnce(new Error('lock unavailable'))
   try {
-    await expect(assetMethod(f.client, f.ledger, args)).rejects.toMatchObject({ name: 'JubianError', code: 'CONTRACT_CHANGED',
-      cause: expect.any(Error) })
+    const failed = assetMethod(f.client, f.ledger, args)
+    await expect(failed).rejects.toMatchObject({ name: 'JubianError', code: 'CONTRACT_CHANGED' })
+    await expect(failed).rejects.toHaveProperty('cause', expect.any(Error))
   } finally { failure.mockRestore() }
   expect(f.writes).toEqual([])
 })

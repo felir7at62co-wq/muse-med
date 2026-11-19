@@ -85,7 +85,7 @@ async function inventory(client: JubianClient, binding: AssetRegistrationReceipt
 type IdentityRead = { status: 'matching'; asset: RegisteredImageAsset } | { status: 'asset_missing' | 'identity_mismatch' }
 async function materialUrlMatches(client: JubianClient, binding: AssetRegistrationReceiptBinding, assetId: number): Promise<boolean> {
   const { data } = await client.request({ method: 'GET', path: `/aigc/material/getGeneratedImageByAssetId?assetId=${assetId}` })
-  const material = Array.isArray(data) ? data.length === 1 ? data[0] : undefined : data
+  const material: unknown = Array.isArray(data) ? data.length === 1 ? data[0] : undefined : data
   if (!object(material) || wireText(material.assetId) !== String(assetId)
     || (material.scriptId !== undefined && wireText(material.scriptId) !== String(binding.scriptId))) return false
   return readGeneratedImage(material).url === binding.url
@@ -211,15 +211,15 @@ export async function registerImageAsset(client: JubianClient, ledger: JubianLed
   if (receipt === null) return resultOf(replayOutcome(record), path, 'receipt_missing', null)
   let outcome = replayOutcome(record)
   if (record === undefined) {
-    let dispatched = false
+    const attempt = { dispatched: false }
     try {
       outcome = await writeUnderLedger(ledger, binding.key, 'asset_register', () => ({ scriptId: binding.scriptId,
         assetName: binding.name, assetType: binding.assetType, isLocal: 1, url: binding.url }), async (body) => {
-        dispatched = true
+        attempt.dispatched = true
         return await client.request({ method: 'POST', path: '/aigc/asset', body: need(body) })
       }, undefined, { scriptId: binding.scriptId, verifyReplayBody: true })
     } catch (error) {
-      if (!dispatched || !(error instanceof JubianError)) throw error
+      if (!attempt.dispatched || !(error instanceof JubianError)) throw error
       outcome = { ...replayOutcome(await ledger.find(binding.key)), replayed: false }
     }
   }

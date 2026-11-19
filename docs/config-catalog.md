@@ -5391,7 +5391,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:98`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:99`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -5486,6 +5486,10 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   imageReferencePageSize?: number
   /** Maximum pages per complete adopted-image scan; integer 1..100, default 100. */
   imageReferencePageLimit?: number
+  /** Rows per image-registration inventory page; integer 1..1000, default 1000. */
+  assetRegistrationPageSize?: number
+  /** Maximum pages per complete image-registration inventory; integer 1..100, default 100. */
+  assetRegistrationPageLimit?: number
   /** Maximum concurrent storyboard PUTs after a whole-batch preflight; integer 1..8, default 3. */
   videoBatchConcurrency?: number
   /** Maximum distinct storyboard previews in one paid batch; integer 1..100, default 100. */

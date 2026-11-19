@@ -379,6 +379,8 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 主体素材和视频任务列表可读取仅含一条记录的顶层数组，视频模型目录也支持同样格式。素材身份、分页完整性和生成安全校验仍然生效。
 
+图片 `register`（`asset_type=1|2|3`）将发送前的完整库存与原请求哈希保存到 `<ledgerRoot>/asset-registration-receipts/` 下的私有版本化回执。只有唯一新增资产的项目、类别、名称及上传 URL 全部匹配才确认；父记录缺少字段时，须由对应项目库存或材料记录补足证据。`created_asset_id` 在同 key 恢复时保留，重放的 `new_asset_ids` 为空。`verified_readback` 只核验登记，不代表已采用为制作参考图。歧义、缺失或身份变化保持未确认，不能据此再发 POST。回执目录须与账本一起保留；没有回执的旧 key 返回 `receipt_missing`。`assetRegistrationPageSize`（默认 1000，范围 1–1000）与 `assetRegistrationPageLimit`（默认 100，范围 1–100）限制完整扫描；扫描不完整时不认领资产身份。
+
 `jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。分镜音频行缺失 `materialName` 或 `audioDuration` 时，仅当 `modelConfig.materialList` 中同 key、同 URL 的唯一音频行保留完全一致的请求值才接受；有值但矛盾、两处都缺少证据以及图片变化仍判不一致。制作方案发布的最终音频回读也遵循同一规则。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
 
 新音频引用必须提供非空 `fileName` 或 `materialName`。预览保留明确提供的非空 `fileName`，否则在冻结请求前把 `materialName` 复制为 `fileName`。音频关系表保存 `fileName`，模型配置同时保留提供的 `materialName`。相同显示名不会合并不同 key、URL 或组内位置；音频标签不能为空，同一 key 重复出现时标签须一致。只有 `status=applied` 且 `verified_readback=true` 才能报告绑定完成；`readback_mismatch` 或 `unknown` 必须按原 key 对账，不再发 PUT。已认领旧预览按原快照核对，不补缺失名称、不换 key；不兼容的未认领旧预览需要新的已审预览，原预览文件保持不变。绑定核验不能证明生成角色的实际声音效果。
