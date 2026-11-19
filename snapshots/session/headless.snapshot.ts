@@ -9,6 +9,7 @@ import { expectedMigrationFingerprint, migrationSnapshot } from './drama-project
 import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
 import { assertAsyncChildOutcome, assertAsyncChildPreset, assertAsyncChildQuestion, assertAsyncChildWithoutMessageTool } from './subagent-child-question-rejection/assertions.ts'
 import { assertAcpSubagentDiagnostics, assertProductSubagentDiagnostics } from './managed-subagent-assertions.ts'
+import { assertProductionDelivery, normalizeProductionDeliveryPaths, prepareProductionDeliveryExpectedWorkspace } from './muse-production-delivery/assertions.ts'
 import { assertVideoObservationReportArtifacts, normalizeVideoObservationReportHashes } from '../../packages/perception/tool-video-inspect/tests/snapshot-reports.ts'
 import { chmod, cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -3566,6 +3567,10 @@ describe('headless recorded-session snapshots', () => {
                 failures: [{ code: 'material_reference_mismatch', shot: 1 }] })
               expect(refused.failures[0].message).toContain('@[温雪](asset_71001)')
             }
+            if (scenario.name === 'muse-production-delivery') {
+              assertProductionDelivery(actualLogs[0]!.content, cwd)
+              expectedWorkspaceRoot = await prepareProductionDeliveryExpectedWorkspace(await realpath(cwd), scenario.dir)
+            }
             if (scenario.name === 'muse-audio-asset-usage') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_usage_preview')
@@ -3936,7 +3941,8 @@ describe('headless recorded-session snapshots', () => {
       if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)
       expect(result.stdout).toBe(`${finalTextFromSession(outputLog)}\n`)
       expect(result.stderr).toBe(stderrFromSession(outputLog))
-      const normalizeOutput = (logs: string[]) => videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(logs) : logs
+      const normalizeOutput = (logs: string[]) => scenario.name === 'muse-production-delivery' ? normalizeProductionDeliveryPaths(logs)
+        : videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(logs) : logs
       const actualSnapshots = normalizeOutput(normalizeSessionSnapshots(actualLogs.map(log => log.content), actualContext, { nativeWriterOutput: true }))
       const expectedSnapshots = normalizeOutput(normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true }))
       for (const [index, actual] of actualSnapshots.entries()) {

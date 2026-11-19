@@ -14,6 +14,8 @@ import { buildProductionPlan, productionHash, requirementKey } from './productio
 import { productionMetadata } from './production-metadata.ts'
 import { reviewPresentationMeta } from './session-video.ts'
 import { DEFAULT_SPEECH_CHARS_PER_SECOND, parseShotScript } from './script.ts'
+import { productionManifestPath, publishProductionManifest } from './production-manifest.ts'
+import type { ProductionManifestResult } from './production-manifest.ts'
 import type { ProductionChoice, ProductionPlan, ProductionRequirement } from './production-types.ts'
 
 /** Deployment limits and the same account ledger root used by the native Jubian tools. */
@@ -26,7 +28,7 @@ export interface ProductionConfig {
   workspaceSecrets?: boolean
   /** Native storyboard ledger root; use the same location as tool-jubian when overridden. */
   ledgerRoot?: string
-  /** Maximum rows acquired per provider page, 1–1000; defaults to 1000. */
+  /** Maximum rows acquired per provider page, 1–1000; defaults to 50. */
   pageSize?: number
   /** Maximum pages per complete inventory; defaults to 100. */
   pageLimit?: number
@@ -42,7 +44,7 @@ export interface ProductionConfig {
 
 const configSchema = z.object({ baseUrl: z.url().optional(), timeoutMs: z.number().int().positive().optional(),
   workspaceSecrets: z.boolean().optional(), ledgerRoot: z.string().optional(),
-  pageSize: z.number().int().min(1).max(1000).default(1000), pageLimit: z.number().int().min(1).default(100),
+  pageSize: z.number().int().min(1).max(1000).default(50), pageLimit: z.number().int().min(1).default(100),
   candidateLimit: z.number().int().min(1).max(100).default(8),
   maxSourceBytes: z.number().int().min(1).default(1024 * 1024), maxShots: z.number().int().min(1).default(1000),
   maxPackages: z.number().int().min(1).default(1000) }).strict()
@@ -283,6 +285,7 @@ export async function registerProductionTool(ctx: Context, input: ProductionConf
       const previous = await loadPlan(path)
       if (request.method === 'read') return view(previous, path, request)
       if (!exec.agent) throw new Error('批量制作需要当前会话，以读取实际选择的视频模型。')
+      const agent = exec.agent
       if (request.method === 'update') {
         const plan = await preview(request, exec.agent, exec.signal, previous)
         return view(plan, await savePlan(plan), request)
@@ -295,49 +298,78 @@ export async function registerProductionTool(ctx: Context, input: ProductionConf
       if (productionHash(await readFile(plan.source_path)) !== plan.source_sha256) return { status: 'source_changed', paid_requests: 0,
         plan_path: path, next: '用户原稿已变化；update读取最新全文，不用旧方案覆盖用户返稿。' }
       const receiptPath = path.replace(/\.json$/u, '.receipts.json')
-      return await withFileLock(receiptPath, async () => {
-        const receiptSchema = z.record(z.string(), z.object({ storyboard_id: z.number(), snapshot_sha256: z.string() }))
-        let receipts: z.infer<typeof receiptSchema> = {}
-        try { receipts = receiptSchema.parse(JSON.parse(await readFile(receiptPath, 'utf8'))) }
-        catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error }
-        const results: Record<string, unknown>[] = []
-        for (const pack of plan.packages) {
-          exec.signal.throwIfAborted()
-          if (pack.target_candidates.length > 1) {
-            results.push({ index: pack.index, name: pack.name, status: 'target_ambiguous', target_candidates: pack.target_candidates,
-              paid_requests: 0, next: '当前存在多个同集同名原卡；update用targets选择实际卡ID，其他独立视频包继续。' })
-            continue
-          }
-          const prior = receipts[String(pack.index)]
-          if (prior) {
-            const current = await productionCard(client, prior.storyboard_id)
-            results.push({ index: pack.index, name: pack.name, storyboard_id: prior.storyboard_id,
-              status: current.sha256 === prior.snapshot_sha256 ? 'already_saved' : 'current_card_changed',
-              verified_readback: current.card, paid_requests: 0 })
-            continue
-          }
-          try {
-            const { maxDurationSeconds: _maximum, revision: _revision, ...selectors } = plan.model
-            const result = await publishProductionCard(client, ledger, { ...pack, project_dir: plan.project_dir,
-              script_id: plan.script_id, script_name: plan.script_name, episode: plan.episode, episode_id: plan.episode_id,
-              key: `muse-production-${plan.fingerprint}-${pack.index}`, model: { ...selectors, duration: pack.duration,
-                genNum: 1, prompt: pack.prompt }, page_size: config.pageSize, page_limit: config.pageLimit }, exec.signal)
-            results.push({ index: pack.index, name: pack.name, ...result })
-            if (result.status === 'billing_safety_violation') break
-            if (result.status === 'saved' && typeof result.storyboard_id === 'number' && typeof result.snapshot_sha256 === 'string') {
-              receipts[String(pack.index)] = { storyboard_id: result.storyboard_id, snapshot_sha256: result.snapshot_sha256 }
-              await writeFileAtomic(receiptPath, JSON.stringify(receipts) + '\n', { mode: 0o600, dirMode: 0o700 })
+      const episodeLock = join(plan.project_dir, '.muse', 'production', `episode-${plan.episode}.apply`)
+      const checkInputs = async (): Promise<string | undefined> => {
+        const currentProject = z.object({ jubian_script_id: z.number().int().positive() })
+          .parse(JSON.parse(await readFile(join(plan.project_dir, 'project_config.json'), 'utf8')))
+        if (currentProject.jubian_script_id !== plan.script_id) return 'project_binding_changed'
+        if (productionHash(await readFile(plan.source_path)) !== plan.source_sha256) return 'source_changed'
+        if (video.current(agent)?.revision !== plan.model.revision) return 'model_selection_changed'
+        return undefined
+      }
+      return await withFileLock(episodeLock, async () => {
+        const changed = await checkInputs()
+        if (changed !== undefined) return { method: 'apply', mode: 'advisory', status: changed, plan_path: path,
+          paid_requests: 0, total: plan.packages.length, processed: 0, unattempted: plan.packages.length,
+          saved: 0, results: [], source_manifest: { status: 'not_published', path: productionManifestPath(plan), reason: changed },
+          next: '等待期间项目、原稿或模型已变化；不要正式合成或提交生成。update重新核对当前版本，保留原方案和key。' }
+        return await withFileLock(receiptPath, async () => {
+          const receiptSchema = z.record(z.string(), z.object({ storyboard_id: z.number(), snapshot_sha256: z.string() }))
+          let receipts: z.infer<typeof receiptSchema> = {}
+          try { receipts = receiptSchema.parse(JSON.parse(await readFile(receiptPath, 'utf8'))) }
+          catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error }
+          const results: Record<string, unknown>[] = []
+          for (const pack of plan.packages) {
+            exec.signal.throwIfAborted()
+            if (pack.target_candidates.length > 1) {
+              results.push({ index: pack.index, name: pack.name, status: 'target_ambiguous', target_candidates: pack.target_candidates,
+                paid_requests: 0, next: '当前存在多个同集同名原卡；update用targets选择实际卡ID，其他独立视频包继续。' })
+              continue
             }
-          } catch (error) {
-            results.push({ index: pack.index, name: pack.name, status: 'reconcile_required', paid_requests: 0,
-              next: '本项失败或结果未知，保留原方案和key回读核对，不换key重建。', error: error instanceof Error ? error.message : 'Publication failed' })
+            const prior = receipts[String(pack.index)]
+            if (prior) {
+              const current = await productionCard(client, prior.storyboard_id)
+              results.push({ index: pack.index, name: pack.name, storyboard_id: prior.storyboard_id,
+                status: current.sha256 === prior.snapshot_sha256 ? 'already_saved' : 'current_card_changed',
+                verified_readback: current.card, paid_requests: 0 })
+              continue
+            }
+            try {
+              const { maxDurationSeconds: _maximum, revision: _revision, ...selectors } = plan.model
+              const result = await publishProductionCard(client, ledger, { ...pack, project_dir: plan.project_dir,
+                script_id: plan.script_id, script_name: plan.script_name, episode: plan.episode, episode_id: plan.episode_id,
+                key: `muse-production-${plan.fingerprint}-${pack.index}`, model: { ...selectors, duration: pack.duration,
+                  genNum: 1, prompt: pack.prompt }, page_size: config.pageSize, page_limit: config.pageLimit }, exec.signal)
+              results.push({ index: pack.index, name: pack.name, ...result })
+              if (result.status === 'billing_safety_violation') break
+              if (result.status === 'saved' && typeof result.storyboard_id === 'number' && typeof result.snapshot_sha256 === 'string') {
+                receipts[String(pack.index)] = { storyboard_id: result.storyboard_id, snapshot_sha256: result.snapshot_sha256 }
+                await writeFileAtomic(receiptPath, JSON.stringify(receipts) + '\n', { mode: 0o600, dirMode: 0o700 })
+              }
+            } catch (error) {
+              results.push({ index: pack.index, name: pack.name, status: 'reconcile_required', paid_requests: 0,
+                next: '本项失败或结果未知，保留原方案和key回读核对，不换key重建。', error: error instanceof Error ? error.message : 'Publication failed' })
+            }
           }
-        }
-        return { method: 'apply', mode: 'advisory', plan_path: path, paid_requests: 0, total: plan.packages.length,
-          processed: results.length, unattempted: plan.packages.length - results.length,
-          saved: results.filter(item => item.status === 'saved' || item.status === 'already_saved').length, results,
-          next: '逐卡核对真实回读与本镜要求；保存不等于艺术质量通过，也未生成。缺声线沿预览voice_follow_up处理，再按原授权prepare_video。' }
-      }) as Record<string, JsonValue>
+          const manifestPath = productionManifestPath(plan)
+          let manifest: ProductionManifestResult = { status: 'not_published', path: manifestPath, reason: 'package_results_incomplete' }
+          if (results.length === plan.packages.length && results.every(item => item.status === 'saved' || item.status === 'already_saved')) {
+            try {
+              manifest = await publishProductionManifest(plan, path, receipts, id => productionCard(client, id), checkInputs, exec.signal)
+            } catch (error) {
+              manifest = { status: 'failed', path: manifestPath, reason: error instanceof Error ? error.message : 'Source manifest publication failed' }
+            }
+          }
+          return { method: 'apply', mode: 'advisory', plan_path: path, paid_requests: 0, total: plan.packages.length,
+            processed: results.length, unattempted: plan.packages.length - results.length,
+            saved: results.filter(item => item.status === 'saved' || item.status === 'already_saved').length, results,
+            source_manifest: manifest,
+            next: manifest.status === 'published' || manifest.status === 'unchanged'
+              ? '逐卡核对真实回读与本镜要求；保存不等于艺术质量通过，也未生成。缺声线沿预览voice_follow_up处理，再按原授权prepare_video。'
+              : '制作来源清单尚未发布；不要正式合成或提交生成。沿原方案与key回读对账，保留已保存卡的回执，再恢复apply。' }
+        }, { signal: exec.signal, ...(config.timeoutMs === undefined ? {} : { waitMs: config.timeoutMs }) })
+      },
+      { signal: exec.signal, ...(config.timeoutMs === undefined ? {} : { waitMs: config.timeoutMs }) }) as Record<string, JsonValue>
     },
   })))
 }
