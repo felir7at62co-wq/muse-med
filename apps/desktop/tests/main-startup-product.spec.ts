@@ -466,6 +466,30 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it('offers retained upgrade reports on the welcome window before entering the workspace', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' })
+    vi.stubEnv('LOCALAPPDATA', harness.appRoot)
+    harness.welcomeState = { loggedIn: false, hasApiKey: false, writable: true, localePreference: null }
+    vi.doMock('../src/product-identity.ts', async importOriginal => ({
+      ...await importOriginal<typeof import('../src/product-identity.ts')>(), DESKTOP_PRIMARY_ACCOUNT: 'test-welcome',
+    }))
+    try {
+      const { UpgradeBackupNotice } = await import('../src/upgrade-backup-notice.ts')
+      const show = vi.spyOn(UpgradeBackupNotice.prototype, 'show').mockResolvedValue()
+      await import('../src/main.ts')
+      await vi.waitFor(() => { expect(harness.applyRelease).toHaveBeenCalled() })
+      await harness.preparing.promise
+      harness.prepared.resolve()
+      await harness.hostStarted.promise
+      harness.hosts[0]!.ready.resolve()
+      await vi.waitFor(() => { expect(harness.windows.some(window => window.urls.some(url => url.endsWith('welcome.html')))).toBe(true) })
+      await vi.waitFor(() => { expect(show).toHaveBeenCalled() })
+      const welcome = harness.windows.find(window => window.urls.some(url => url.endsWith('welcome.html')))
+      expect(welcome?.isVisible()).toBe(true)
+      expect(harness.windows[0]?.isVisible()).toBe(false)
+    } finally { vi.doUnmock('../src/product-identity.ts') }
+  })
+
   it('leaves retired native plugin-management and configuration-reset channels unavailable', async () => {
     await import('../src/main.ts')
     await reachWorkspace()
