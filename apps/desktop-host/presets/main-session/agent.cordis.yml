@@ -1,4 +1,4 @@
-- id: main-session-role
-  name: '@deepseek-ai/dsh-session-coordinator/main'
+# Recovery-only composition for existing main-session Sessions. The session coordinator is archived and
+# no longer mounted, so such a Session opens for reading without the routing role or its tools.
 - id: time-context
   name: '@deepseek-ai/dsh-time-context'

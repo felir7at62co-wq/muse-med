@@ -20,9 +20,7 @@ const roster = (bots, mainBotIds) => indexRoster({ bots, rooms: [], mainBotIds, 
 test('the whale is only a stored look: the browser gives no Bot a look by its place in the team', () => {
   const chief = { id: 'chief', name: 'Chief', createdAt: 1, color: 'deepseek', avatar: { shape: 'whale' } }
   const writer = { id: 'writer', name: 'Writer', createdAt: 2 }
-  assert.deepEqual(lookOf(roster([writer, chief], ['chief']).byId.chief), { shape: 'whale', color: 'deepseek', image: undefined })
-  const muse = { ...chief, color: MAIN_LOOK.color, avatar: { shape: MAIN_LOOK.shape } }
-  assert.deepEqual(lookOf(roster([writer, muse], ['chief']).byId.chief), { ...MAIN_LOOK, image: undefined })
+  assert.deepEqual(lookOf(roster([writer, chief], ['chief']).byId.chief), { ...MAIN_LOOK, image: undefined })
   // The first Main Bot left, with no stored look, keeps the look its id gives it.
   const left = roster([writer], ['writer']).byId.writer
   assert.deepEqual(lookOf(left), { shape: defaultShape('writer'), color: defaultColor('writer'), image: undefined })
@@ -38,8 +36,8 @@ test('Bot settings is the only settings entry; nothing is called Team settings',
     assert.ok(!text.includes('Team settings'), `${name} still names Team settings`)
   }
   const text = name => sources.find(([file]) => file === name)[1]
-  assert.match(text('sidebar.js'), /\[t\('Bot settings'\), GearIcon, \(\) => actions\.openSettings\('general'\)\]/)
-  assert.match(text('palette.js'), /title: t\('Bot settings'\), run: \(\) => actions\.openSettings\('general'\)/)
+  assert.match(text('sidebar.js'), /\[t\('Settings'\), GearIcon, \(\) => actions\.openSettings\('general'\)\]/)
+  assert.match(text('palette.js'), /title: t\('Settings'\), run: \(\) => actions\.openSettings\('general'\)/)
   // One Bot's own entries open that Bot, so they read Edit Bot instead.
   assert.match(text('context-menu.js'), /\[t\('Edit Bot'\), GearIcon, \(\) => actions\.openSettings\('bots', bot\.id\)\]/)
   assert.match(text('details-drawer.js'), /'aria-label': bot \? t\('Edit Bot'\) : t\('Group settings'\), title: bot \? t\('Edit Bot'\) : t\('Group settings'\)/)

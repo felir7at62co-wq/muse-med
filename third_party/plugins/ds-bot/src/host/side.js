@@ -1,4 +1,3 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Side chats: questions answered from a fresh snapshot of a Bot's private chat,
 // shown in the Bot's side panel. A follow-up carries the chat's finished pairs
 // on top of a new snapshot, so the route sees a short conversation. Nothing is
@@ -186,7 +185,7 @@ export function install(rt) {
   }
 
   const abandoned = botId => disposing || dropped.has(botId) || rt.botOf(botId) === undefined
-  const stopError = (botId) => new Error(disposing && !dropped.has(botId) && rt.botOf(botId) !== undefined ? 'Muse Bot is stopping.' : 'Unknown Bot')
+  const stopError = (botId) => new Error(disposing && !dropped.has(botId) && rt.botOf(botId) !== undefined ? 'DS Bot is stopping.' : 'Unknown Bot')
 
   // Wait until every targeted flight has left. A call still inside resolveAgent
   // has no `done` yet; yielding lets it notice disposal and drop the slot.
@@ -295,16 +294,6 @@ export function install(rt) {
       const agent = await rt.resolveAgent(sessionId)
       if (abandoned(botId)) throw stopError(botId)
       const snapshot = snapshotOf(agent.session, ctx.get?.('sessionProjections'))
-      const bot = rt.botOf(botId)
-      if (bot?.autoSessionBot === true && bot.modelSource === 'session' && snapshot.header !== undefined) {
-        const selection = rt.sessionSelection(agent.session)
-        if (selection !== undefined) {
-          const { reasoningEffort: _previousEffort, ...config } = snapshot.header.config
-          // A different model gets its own configured output default.
-          if (selection.provider !== config.provider || selection.model !== config.model) delete config.maxTokens
-          snapshot.header = { ...snapshot.header, config: { ...config, ...selection } }
-        }
-      }
       const route = snapshot.header?.config
       if (!route?.provider || !route?.model) throw new Error('This Bot has not called a model yet. Send a normal message first.')
       if (chat === undefined) {

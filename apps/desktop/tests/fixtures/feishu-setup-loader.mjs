@@ -153,8 +153,10 @@ try {
   const start = async () => {
     await migrateFeishuProfileName(dir)
     const patches = readProfilePatches('muse-feishu-loader', { ...profile, overlays: [] })
+    // The product turns the earlier IM robot off with a disabled row; only `product-off` keeps that row.
+    // The other scenarios exercise a profile that still mounts the robot.
     const product = loadOverlayPatches('muse-feishu-loader', join(root, 'apps/desktop-host/config/desktop.cordis.patch.yml'))
-      .filter(patch => patch.id === 'feishu-channel' && scenario !== 'other-rows')
+      .filter(patch => patch.id === 'feishu-channel' && scenario !== 'other-rows' && (scenario === 'product-off' || patch.disabled !== true))
     const composed = composeEntries([patches, product])
     const moduleOverrides = scenario === 'profile-shadow' ? bundledBridgeModules(runtime)
       : { '@xmanrui/dsh-im': pathToFileURL(join(feishuRoot, 'lib/index.js')).href }
@@ -241,6 +243,10 @@ try {
     assert.equal(config().enabled, true)
     assert.equal(config().appId.get(), 'cli_expression')
     assert.equal(config().appSecret.get(), 'synthetic-expression-secret')
+  } else if (scenario === 'product-off') {
+    const entry = [...ctx.loader.entries()].find(row => row.options.id === 'feishu-channel')
+    assert.equal(entry?.disabled, true)
+    assert.equal(entry?.fiber, undefined)
   } else if (scenario === 'other-rows') {
     const other = [...ctx.loader.entries()].find(row => row.options.id === 'other-row')
     assert.deepEqual(other.fiber.config, { enabled: true, appId: 'other' })

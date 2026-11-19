@@ -1,5 +1,4 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
-// DSH updates: a released Muse Bot may name the DSH release it was verified
+// DSH updates: a released DS Bot may name the DSH release it was verified
 // against (`dsBot.verifiedDsh` in package.json); a release that names none
 // offers nothing. The newest released bot wins: offering that version and
 // nothing newer keeps the update path away from DSH releases we have not
@@ -75,7 +74,7 @@ export function install(rt) {
   const installKind = () =>
     typeof ctx.get?.('profileContext')?.packageManager?.command === 'string' ? 'app' : 'npm'
 
-  // The newest released Muse Bot's `dsBot` block, through the same channel the bot
+  // The newest released DS Bot's `dsBot` block, through the same channel the bot
   // itself updates from: its registry, or the public repo's latest release.
   async function releasedDeclaration(source) {
     if (source.kind === 'registry') {
@@ -141,7 +140,6 @@ export function install(rt) {
 
   /** Swap an npm-installed DSH for the verified version; the answer comes back through `check`. */
   function start() {
-    if (!enabled) throw new Error('Muse updates through its desktop updater')
     if (status.phase === 'installing') return view()
     if (target === null || blocked()) throw new Error('No DSH update is available')
     if (status.kind !== 'npm') throw new Error('This DSH updates with its app')

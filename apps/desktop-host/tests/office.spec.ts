@@ -29,7 +29,7 @@ class OfficeQueries extends SessionQueryEngine {
 }
 
 it('enables native Office tools in working presets without enabling them in the coordinator', () => {
-  for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'creation', 'bot-coordinator', 'minimal']) {
+  for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'short-drama-v2', 'creation', 'bot-coordinator', 'minimal']) {
     const rows = parseYaml(readFileSync(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), {
       customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => ({ __jsExpr: value }) }],
     }) as { id?: string; name?: string }[]

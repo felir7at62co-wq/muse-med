@@ -12,7 +12,7 @@ interface PresetRow {
   readonly config?: unknown
 }
 
-const presets = ['standard', 'ptc', 'cordis', 'short-drama', 'creation', 'bot-coordinator']
+const presets = ['standard', 'ptc', 'cordis', 'short-drama', 'short-drama-v2', 'creation', 'bot-coordinator']
 
 function presetConfig(preset: string): BasicCompactionConfig {
   const rows = parseYaml(readFileSync(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), {

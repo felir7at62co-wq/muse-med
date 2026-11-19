@@ -51,7 +51,7 @@ it('loads native and PTC executor selections from every product preset without t
       } }
     ctx.tools.register(defineContentToolFixture({ name: 'preset_probe', description: 'Local configuration probe',
       parameters: {}, async execute() { return [{ type: 'text', text: 'probe' }] } }))
-    for (const id of ['short-drama', 'bot-coordinator', 'standard', 'minimal', 'ptc', 'creation', 'cordis']) {
+    for (const id of ['short-drama', 'short-drama-v2', 'bot-coordinator', 'standard', 'minimal', 'ptc', 'creation', 'cordis']) {
       const source = await readFile(new URL(`../presets/${id}/agent.cordis.yml`, import.meta.url), 'utf8')
       expect(source).not.toContain('@deepseek-ai/dsh-agent-tool-presentation')
       const rows = parse(source, { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => ({ __jsExpr: value }) }] }) as PresetDefinition['plugins']

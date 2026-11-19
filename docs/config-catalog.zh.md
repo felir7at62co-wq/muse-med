@@ -5956,10 +5956,25 @@ export interface Config {
   catalogSourceLimits?: CatalogSourceLimits
   /** Default metadata directory page size, an integer from 1 through 100. */
   catalogPageSize?: number
-  /** Skill names that select mutually exclusive task phases in this preset. Empty disables recovery. */
+  /** Skill names that become task skills in this preset; `*` admits every skill. Empty disables recovery. */
   taskSkills?: string[]
-  /** Maximum characters in a restored task-skill notice, including its framing. */
+  /** Maximum characters in each restored task-skill notice, including its framing. */
   taskSkillMaxChars?: number
+  /**
+   * Task skills kept in effect at once; loading one more releases the oldest.
+   * Defaults to 1, where loading another replaces the current one.
+   */
+  taskSkillLimit?: number
+  /**
+   * Tools refused until their task skill is in effect. `tools` holds exact names or a prefix ending in `*`;
+   * the first matching rule applies.
+   */
+  toolSkills?: {
+    /** Exact tool names, or a prefix followed by `*`. */
+    tools: string[]
+    /** Task skill that must be in effect before those tools run. */
+    skill: string
+  }[]
 }
 
 /** Limits indexed by the exact provider source label. */

@@ -1,10 +1,12 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
-// Local diagnostics, recent errors, and the shared failure toast.
+// Settings → Feedback: report a problem as a GitHub issue with the diagnostics filled
+// in, see the latest errors, and download the log. Also the toast for actions that
+// fail away from any form (menus, the palette).
 import { createElement as h, useEffect, useState } from 'react'
-import { clearClientErrors, clientErrors, clientFacts, failureLabel } from './diagnostics.js'
+import { clearClientErrors, clientErrors, clientFacts, failureLabel, issueUrl, WHAT_MAX } from './diagnostics.js'
 import { dateLocale, t } from './i18n.js'
 import { CloseIcon } from './icons.js'
 import { SPRING_SHAPE } from './motion.js'
+import { reserveWindow } from './open-window.js'
 
 export const FeedbackIcon = () => h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
   h('path', { d: 'M4 4.5h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H9l-3.5 3v-3H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z' }), h('path', { d: 'M10 7v2.6M10 11.4h.01' }))
@@ -38,18 +40,18 @@ function entrySummary(entry) {
 
 const SOURCES = { turn: 'Model call', host: 'DS Bot', api: 'DS Bot', browser: 'This window' }
 
-// Open the existing Muse draft; only the user can submit it through that form.
-export function openMuseFeedback(ctx, closeSettings) {
-  const session = Object.values(ctx.sessions.list.getSnapshot().byId ?? {})
-    .find(value => (value?.retainedBy?.mainView ?? 0) > 0)
-  if (session === undefined) throw new Error(t('Open a conversation before filling in feedback.'))
-  const feedback = ctx.get('feedbackUi')
-  if (feedback === undefined) throw new Error(t('Feedback is unavailable in this Muse session.'))
-  closeSettings()
-  feedback.openSession(session.id)
+// Where the new issue opens; `go(url)` tells whether it did.
+const issueWindow = reserveWindow
+
+// Muse: the product's own feedback page. The host's account plugin publishes its address on
+// the page; anything but an https or loopback address is ignored.
+const suggestionBox = () => {
+  const url = globalThis.__MUSE_FEEDBACK_CONFIG__?.feedbackUrl
+  return typeof url === 'string' && /^(https:\/\/|http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/)/.test(url) ? url : null
 }
 
 export function FeedbackPage({ actions, run, Section, Row }) {
+  const [what, setWhat] = useState('')
   const [report, setReport] = useState(null)
   const [preview, setPreview] = useState(false)
   const [note, setNote] = useState('')
@@ -63,26 +65,49 @@ export function FeedbackPage({ actions, run, Section, Row }) {
     setNote(copied ? t('Copied the diagnostics.') : t('Could not copy. Select the text below and copy it.'))
     if (!copied) setPreview(true)
   }))
+  const [issueLink, setIssueLink] = useState(null)
+  const openIssue = () => {
+    const target = issueWindow()
+    run(fetchReport().then(async (next) => {
+      const copied = await copy(next.markdown)
+      const { url, inline } = issueUrl(next.issuesUrl, { what, diagnostics: next.markdown })
+      if (target.go(url)) {
+        setIssueLink(null)
+        setNote(inline
+          ? t('Opened a new GitHub issue with the diagnostics filled in. Check it before you submit.')
+          : copied
+            ? t('Opened a new GitHub issue. The diagnostics are long, so they are on the clipboard: paste them into the issue.')
+            : t('Opened a new GitHub issue. Copy the diagnostics below into it.'))
+      } else {
+        setIssueLink(url)
+        setNote(t('The browser blocked the new window.'))
+      }
+      if (!inline && !copied) setPreview(true)
+    }))
+  }
   const downloadLog = () => run(actions.diagnosticsLog().then((text) => {
-    download('muse-bot-diagnostics.log', text || 'No entries.\n')
+    download('ds-bot-diagnostics.log', text || 'No entries.\n')
     setNote(t('Downloaded the log. Keys, tokens, and your home folder are hidden in it.'))
   }))
   const clearLog = () => run(actions.diagnosticsClear().then(clearClientErrors).then(load).then(() => setNote(t('Cleared the error log.'))))
 
-  const browserErrors = report ? clientErrors().map(entry => ({ ...entry, source: 'browser' })) : []
+  // The report needs the Bot API; this window's own errors show without it.
+  const browserErrors = clientErrors().map(entry => ({ ...entry, source: 'browser' }))
   const entries = [...(report?.entries ?? []), ...browserErrors].sort((a, b) => new Date(b.time) - new Date(a.time))
   const total = (report?.total ?? 0) + browserErrors.length
   const shown = entries.slice(0, 8)
   return [
     h(Section, { key: 'report', title: t('Report a problem') },
-      h(Row, { label: t('Feedback'), hint: t('Open the Muse feedback form. You choose what to include and submit.') },
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(Promise.resolve().then(() => actions.openFeedback())) }, t('Open feedback form'))),
+      suggestionBox() ? h(Row, { label: t('Suggestion box'), hint: t('Send problems and suggestions to the Muse suggestion box. Paste the diagnostics below when they help.') },
+        h('a', { className: 'bt-fb-primary', style: { textDecoration: 'none' }, href: suggestionBox(), target: '_blank', rel: 'noopener noreferrer' }, t('Open'))) : null,
       h(Row, { label: t('Diagnostics'), hint: t('Versions, system, models, and the latest errors. Saved keys, tokens, and your home folder are hidden.') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setPreview(!preview), 'aria-expanded': preview }, preview ? t('Hide') : t('Show')),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: copyReport }, t('Copy'))),
       preview ? h('div', { className: 'bt-set-row bt-fb-preview' }, h('pre', { tabIndex: 0, 'aria-label': t('Diagnostics') }, report?.markdown || t('Loading…'))) : null,
-      h(Row, { label: t('Diagnostics'), hint: t('Save or copy diagnostics to share with the Muse administrator.') })),
-    note ? h('div', { key: 'note', className: 'bt-note bt-fb-note', role: 'status' }, note) : null,
+      ),
+    note ? h('div', { key: 'note', className: 'bt-note bt-fb-note', role: 'status' },
+      note,
+      issueLink ? [' ', h('a', { key: 'link', href: issueLink, target: '_blank', rel: 'noopener noreferrer' }, t('Open the issue'))] : null) : null,
     h(Section, { key: 'errors', title: report ? t('Recent errors · {count}', { count: total }) : t('Recent errors') },
       shown.length === 0
         ? h(Row, { label: t('No errors recorded.'), hint: t('Failed model calls and DS Bot problems show here, newest first.') })
@@ -119,7 +144,9 @@ export function ErrorToast({ useUi, actions }) {
 }
 
 export const FEEDBACK_CSS = `
-.bt-fb-entry:hover,.bt-fb-preview:hover{background:none}
+.bt-fb-what{cursor:default}
+.bt-fb-what:hover,.bt-fb-entry:hover,.bt-fb-preview:hover{background:none}
+.bt-fb-what .bt-input-area{min-height:80px}
 .bt-fb-preview{cursor:default;padding:0}
 .bt-fb-preview pre{margin:0;width:100%;max-height:240px;overflow:auto;padding:10px 12px;box-sizing:border-box;font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bt-ink-2);white-space:pre-wrap;word-break:break-word;outline:none}
 .bt-fb-primary{height:28px;border-radius:999px;border:0;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);padding:0 14px;font-size:12px;cursor:pointer;transition:filter .12s ease;flex:none;white-space:nowrap}

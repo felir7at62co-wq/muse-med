@@ -18,8 +18,16 @@
 - id: agent-preset-registry
   config:
     default: short-drama
-    selectablePresets: [short-drama, main-session]
+    selectablePresets: [short-drama, short-drama-v2]
     allowUserDefault: false
+
+# IM lives in the Bot workspace (Settings → IM). The earlier IM robot and the Feishu settings
+# page stay installed, because account remote access is packaged with them, but neither is
+# mounted. Their saved bots, credentials and chat bindings stay on disk.
+- id: feishu-channel
+  disabled: true
+- id: feishu
+  disabled: true
 
 - id: sandbox-policy
   config:
@@ -265,8 +273,8 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [jingliu_projects, coordinator_sessions, coordinator_read, coordinator_dispatch, coordinator_tasks, coordinator_stop, coordinator_report, coordinator_show_report, coordinator_display_skill, read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect, hongguo_download]
-        excludeFromSearch: [ask_user_question, show_view, visualize, coordinator_show_report, coordinator_display_skill]
+        alwaysLoad: [jingliu_projects, read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect, hongguo_download]
+        excludeFromSearch: [ask_user_question, show_view, visualize]
         maxResults: 8
         maxDescriptionChars: 320
         maxResultChars: 6000

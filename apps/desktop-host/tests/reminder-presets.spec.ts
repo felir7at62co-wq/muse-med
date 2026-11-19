@@ -43,7 +43,7 @@ interface PresetRow {
 }
 
 const reminderTools = ['schedule_create', 'schedule_edit', 'schedule_list', 'schedule_view']
-const presets = ['standard', 'ptc', 'cordis', 'short-drama', 'creation', 'minimal']
+const presets = ['standard', 'ptc', 'cordis', 'short-drama', 'short-drama-v2', 'creation', 'minimal']
 
 function rows(preset: string): readonly PresetRow[] {
   return parseYaml(readFileSync(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), {

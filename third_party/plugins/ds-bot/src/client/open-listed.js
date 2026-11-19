@@ -1,47 +1,33 @@
-/** Wait for listed Sessions and preserve explicit navigation over delayed default landings. */
-
-/**
- * Open only listed Sessions; newer requests and external navigation cancel a pending wait.
- * @param {{list: object, open: function, refresh?: function, current?: function}} options Session list and navigation operations.
- * @returns {function} Opener with guard() for delayed landings and cancel() for disposal.
- */
-export function listedOpener({ list, open, refresh, current }) {
+// DSH's main view opens only a Session that its client list already holds; any other id
+// throws `sessions.retain: unknown session`. A part the Host made a moment ago, or any part
+// before the first list arrives, waits for the list; a newer navigation — through here or
+// elsewhere — drops the wait. `begin`/`done` report that wait, so the caller can show the
+// Session it asked for instead of leaving the previous one on screen.
+export function listedOpener({ list, open, refresh, current, begin, done }) {
   let drop = () => {}
-  let version = 0
-  let pending = false
-  const cancel = () => {
+  return (target) => {
     drop()
     drop = () => {}
-    pending = false
-  }
-  const show = (target) => {
-    version += 1
-    cancel()
     const listed = () => list.getSnapshot().byId?.[target] !== undefined
+    if (listed()) { open(target); return }
     const from = current?.()
-    let opening = false
-    pending = true
-    const update = () => {
-      const main = current?.()
-      if (opening) {
-        if (current === undefined || main === target || (main !== from && main !== undefined)) cancel()
-        return
-      }
-      if (main !== from) { cancel(); return }
-      if (!listed()) return
-      opening = true
-      try { open(target) } catch (error) { cancel(); throw error }
-      if (current === undefined || current() === target) cancel()
+    begin?.(target)
+    let waiting = true
+    // The wait ends either way: it opened, or a newer navigation took it over.
+    const settle = () => {
+      if (!waiting) return
+      waiting = false
+      drop = () => {}
+      done?.(target)
     }
-    drop = list.subscribe(update)
-    update()
-    if (!opening && pending) refresh?.()
+    const off = list.subscribe(() => {
+      if (current?.() !== from) { off(); settle(); return }
+      if (!listed()) return
+      off()
+      settle()
+      open(target)
+    })
+    drop = () => { off(); settle() }
+    refresh?.()
   }
-  show.guard = () => {
-    const at = version
-    const from = current?.()
-    return () => at === version && !pending && current?.() === from
-  }
-  show.cancel = () => { version += 1; cancel() }
-  return show
 }

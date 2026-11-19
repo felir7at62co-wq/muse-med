@@ -12,11 +12,12 @@ const { outputFiles } = await build({
   stdin: {
     contents: [
       "export { useDockHold } from './src/client/card-hold.js'",
-      "export { PendingQuestion } from './src/client/questions.js'",
+      "export { PendingQuestion, SettledQuestion } from './src/client/questions.js'",
       "export { SecretCard } from './src/client/secret-card.js'",
-      "export { PendingView, AnsweredReply } from './src/client/widget-cell.js'",
+      "export { PendingView, AnsweredReply, SettledView } from './src/client/widget-cell.js'",
       "export { AnsweredCell } from './src/client/questions.js'",
       "export { HandoffCall, HandoffDock, PendingHandoff, SettledHandoff } from './src/client/handoff-card.js'",
+      "export { CellEmpty } from './src/client/cell-empty.js'",
     ].join('\n'),
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
@@ -30,7 +31,7 @@ const slot = (make) => {
 }
 const effect = (make, deps) => {
   const cell = slot(() => ({}))
-  if (!cell.deps || deps.some((value, index) => value !== cell.deps[index])) {
+  if (!deps || !cell.deps || deps.some((value, index) => value !== cell.deps[index])) {
     current.effects.push(() => { cell.stop?.(); cell.stop = make(); cell.deps = deps })
   }
 }
@@ -51,6 +52,12 @@ const react = {
   useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
 }
 const keys = new Set()
+const timers = new Set()
+const flushTimers = () => {
+  const due = [...timers]
+  timers.clear()
+  for (const timer of due) timer.fn()
+}
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
@@ -63,10 +70,12 @@ runInNewContext(outputFiles[0].text, {
     addEventListener: (type, listener) => { if (type === 'keydown') keys.add(listener) },
     removeEventListener: (type, listener) => { if (type === 'keydown') keys.delete(listener) },
   },
+  setTimeout: (fn) => { const timer = { fn }; timers.add(timer); return timer },
+  clearTimeout: timer => timers.delete(timer),
   HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLSelectElement: class {}, HTMLElement: class {},
   URL,
 })
-const { useDockHold, PendingQuestion, SecretCard, PendingView, AnsweredReply, AnsweredCell, HandoffCall, HandoffDock, PendingHandoff, SettledHandoff } = module.exports
+const { useDockHold, PendingQuestion, SettledQuestion, SecretCard, PendingView, AnsweredReply, SettledView, AnsweredCell, HandoffCall, HandoffDock, PendingHandoff, SettledHandoff, CellEmpty } = module.exports
 const mount = (Component, props) => {
   const instance = {
     slots: [], effects: [], props,
@@ -186,10 +195,56 @@ test('a question keeps its custom answer and selection while submitting, after f
   form.props.onSubmit({ preventDefault() {} })
   await tick()
   assert.equal(sent.length, 2)
-  assert.equal(pending.render(), null)
+  assert.equal(pending.render().type, CellEmpty)
   view.unmount()
   pending.unmount()
   assert.equal(count('chief', 'question', question.id), 0)
+})
+
+// The Bot ask_user card shares the composer preference: while Enter sends, a plain
+// Enter answers; off, it is the field's own newline and the Submit button answers.
+test('the own-answer field honors the Enter preference', async () => {
+  const enter = (extra = {}) => ({
+    key: 'Enter', shiftKey: false, nativeEvent: { isComposing: false }, prevented: false,
+    preventDefault() { this.prevented = true }, ...extra,
+  })
+  const cards = []
+  const mountCard = (enterToSend) => {
+    const { actions } = lease()
+    const sent = []
+    actions.answerQuestion = (...args) => { sent.push(args); return Promise.resolve() }
+    const pending = mount(PendingQuestion, { actions, sessionId: 'chief', question: { ...question, multiSelect: false }, inline: false, enterToSend })
+    const view = mount(childOf(pending.render()).type, childOf(pending.render()).props)
+    cards.push(pending, view)
+    const form = view.render()
+    field(form).props.onChange({ target: { value: 'My own words' } })
+    return { sent, form: () => view.render() }
+  }
+  const sending = mountCard(true)
+  const on = enter()
+  field(sending.form()).props.onKeyDown(on)
+  await tick()
+  assert.equal(on.prevented, true)
+  assert.deepEqual(plain(sending.sent), [['chief', 'question', { selected: [], custom: 'My own words' }]])
+  const keeping = mountCard(false)
+  const off = enter()
+  field(keeping.form()).props.onKeyDown(off)
+  await tick()
+  assert.equal(off.prevented, false)
+  assert.deepEqual(plain(keeping.sent), [])
+  keeping.form().props.onSubmit({ preventDefault() {} })
+  await tick()
+  assert.deepEqual(plain(keeping.sent), [['chief', 'question', { selected: [], custom: 'My own words' }]])
+  const shifted = mountCard(true)
+  for (const extra of [{ shiftKey: true }, { nativeEvent: { isComposing: true } }]) {
+    const event = enter(extra)
+    field(shifted.form()).props.onKeyDown(event)
+    assert.equal(event.prevented, false)
+  }
+  await tick()
+  assert.deepEqual(plain(shifted.sent), [])
+  // Mounted cards count as open for the letter keys; leave none behind.
+  for (const instance of cards) instance.unmount()
 })
 
 test('keyboard selection owns a dock card and busy questions cannot submit or dismiss twice', async () => {
@@ -259,7 +314,7 @@ test('secret edits stay local and an in-flight save preserves value and scope fo
 
 const pendingView = () => ({ id: 'view-1', callId: 'call-1', title: 'Pick', view: { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] } })
 
-test('a pending view hides but stays mounted while its request is in flight', async () => {
+test('a pending view stays visible and busy while its request is in flight', async () => {
   const { actions, count } = lease()
   const wait = deferred()
   const sent = []
@@ -269,36 +324,49 @@ test('a pending view hides but stays mounted while its request is in flight', as
   const pending = mount(PendingView, { actions, sessionId: 'chief', view: pendingView(), inline: false })
   const card = pending.render()
   assert.equal(card.props.style, undefined)
+  assert.equal(childOf(card).props.busy, false)
   // A second submit while the first is in flight is swallowed.
   childOf(card).props.onSubmit('pick', { selected: ['A'] })
   childOf(card).props.onSubmit('pick', { selected: ['B'] })
   const flying = pending.render()
-  assert.deepEqual(plain(flying.props.style), { display: 'none' })
+  assert.equal(flying.props.style, undefined)
   assert.equal(childOf(flying).props.busy, true)
   assert.equal(count('chief', 'view', 'view-1'), 1)
   await tick()
   assert.deepEqual(sent, [['chief', 'view-1', 'pick', { selected: ['A'] }]])
   wait.reject(new Error('Temporary failure'))
   await tick()
-  // The rejection brings the card back, still holding what the user picked.
+  // The rejection brings the card back to interactive, still holding what the user picked.
   const back = pending.render()
   assert.equal(back.props.style, undefined)
   assert.equal(childOf(back).props.busy, false)
-  // A failed dismiss brings the card back too: the server still waits on it.
+  // A failed dismiss recovers too, and a resolved dismiss stays mounted until roster swaps.
   const dismiss = deferred()
   result = dismiss.promise
   childOf(pending.render()).props.onDismiss()
-  assert.deepEqual(plain(pending.render().props.style), { display: 'none' })
+  const dismissing = pending.render()
+  assert.equal(dismissing.props.style, undefined)
+  assert.equal(childOf(dismissing).props.busy, true)
   await tick()
   assert.deepEqual(sent.at(-1), 'dismiss')
   dismiss.reject(new Error('flush failed'))
   await tick()
-  assert.equal(pending.render().props.style, undefined)
+  assert.equal(childOf(pending.render()).props.busy, false)
+  const dismissOk = deferred()
+  result = dismissOk.promise
+  childOf(pending.render()).props.onDismiss()
+  assert.equal(childOf(pending.render()).props.busy, true)
+  dismissOk.resolve()
+  await tick()
+  const settledDismiss = pending.render()
+  assert.notEqual(settledDismiss.type, CellEmpty)
+  assert.equal(childOf(settledDismiss).props.busy, false)
+  // Answering settles the view cleanly to CellEmpty.
   result = Promise.resolve()
   childOf(pending.render()).props.onSubmit('pick', { selected: ['B'] })
   await tick()
   assert.equal(sent.at(-1)[2], 'pick')
-  assert.deepEqual(plain(pending.render().props.style), { display: 'none' })
+  assert.equal(pending.render().type, CellEmpty)
   pending.unmount()
   assert.equal(count('chief', 'view', 'view-1'), 0)
 })
@@ -451,11 +519,11 @@ test('a handoff call draws its card only while the browser is held for that call
   assert.equal(draw({ hold: handoff() }).props.inline, true)
   // Answered, another call's hold, no hold, a chat without the Bot, or no answer path: nothing, and no gap.
   for (const gone of [draw({ hold: undefined }), draw({ hold: handoff({ callId: 'call-2' }) }), draw({ hold: handoff(), roster: { byId: {} } }), draw({ hold: handoff(), actions: {} })]) {
-    assert.equal(gone.type, 'span')
-    assert.equal(gone.props.hidden, true)
+    assert.equal(gone.type, CellEmpty)
+    assert.equal(gone.props.className, 'bt-q-gone')
   }
   // The dock draws it while the user is working in it.
-  assert.equal(draw({ hold: handoff(), heldCards: { [JSON.stringify(['handoff', 'call-1'])]: 1 } }), null)
+  assert.equal(draw({ hold: handoff(), heldCards: { [JSON.stringify(['handoff', 'call-1'])]: 1 } }).type, CellEmpty)
 })
 
 test('the dock draws a handoff the transcript does not, and keeps one the user started on', () => {
@@ -498,6 +566,16 @@ test('an answered handoff keeps its title and how it ended, and nothing to press
   assert.doesNotMatch(returned.props.children[0].props.className, /bt-q-dismissed/)
 })
 
+// The reply node as DSH 0.2.2-rc.1 builds it from a recorded ask_user answer: its
+// question pairs carry no options, the text still holds ds-bot's payload.
+test('an answered question card reads its options from the reply text when DSH drops them', () => {
+  const text = JSON.stringify({ kind: 'answer_to_pending_question', tool: 'ask_user', callId: 'call-2-1', questions: [{ id: 'q1', question: '接下来先做哪个？', options: [{ label: '写正文' }, { label: '改标题' }, { label: '先停' }], multiSelect: false }], answers: [{ id: 'q1', selected: ['改标题'] }] })
+  const cell = AnsweredCell({ node: { data: { callId: 'call-2-1', outcome: 'answered', text, questions: [{ id: 'q1', question: '接下来先做哪个？' }], answers: [{ id: 'q1', selected: ['改标题'] }] } } })
+  const settled = [cell.props.children].flat(2)[0]
+  assert.deepEqual(plain(settled.props.question.options), [{ label: '写正文' }, { label: '改标题' }, { label: '先停' }])
+  assert.deepEqual(plain(settled.props.answer.selected), ['改标题'])
+})
+
 test('answered handoff replies route to their settled row in history and live transcripts', () => {
   const fromHistory = AnsweredReply({ node: { data: { handoff: { reason: 'login', note: 'Sign in', outcome: 'returned' } } } })
   assert.equal(fromHistory.type, SettledHandoff)
@@ -515,4 +593,80 @@ test('answered handoff replies route to their settled row in history and live tr
   ]) {
     assert.equal(AnsweredReply({ node }).type, AnsweredCell)
   }
+})
+
+test('settled question and settled view cards expand and collapse cleanly with leaving linger', () => {
+  const detailedQuestion = {
+    id: 'q-fold',
+    question: '#1483、#1491 要让 Reviewer 补审吗？',
+    detail: '上次只跑了本地单测，还没有过 Reviewer 审查。',
+    options: [
+      { label: '补审两个 PR', description: '按顺序补齐 review' },
+      { label: '先跳过', description: '等下一个批次' },
+    ],
+  }
+  const qInstance = mount(SettledQuestion, {
+    question: detailedQuestion,
+    answer: { selected: ['补审两个 PR'], custom: '只审高风险改动' },
+  })
+  let tree = qInstance.render()
+  assert.equal(tree.props['data-expandable'], '')
+  assert.equal(tree.props['data-open'], undefined)
+  assert.equal(find(tree, node => node.props?.className?.includes('bt-q-expand')), undefined)
+  let foldBtn = find(tree, node => node.props?.className?.includes('bt-q-fold'))
+  assert.equal(foldBtn.props['aria-expanded'], false)
+  let summary = find(tree, node => node.props?.className?.includes('bt-q-summary'))
+  assert.deepEqual(all(summary, node => node.props?.className === 'bt-key').map(node => node.props.children.join('')), ['A', 'C'])
+
+  // Clicking the outer card expands it and locks out further outer card clicks while open.
+  tree.props.onClick({ target: {} })
+  tree = qInstance.render()
+  assert.equal(tree.props['data-open'], '')
+  assert.equal(tree.props.onClick, undefined)
+  assert.equal(find(tree, node => node.props?.className?.includes('bt-q-summary')), undefined)
+  foldBtn = find(tree, node => node.props?.className?.includes('bt-q-fold'))
+  assert.equal(foldBtn.props['aria-expanded'], true)
+  const expandedList = find(tree, node => node.props?.className?.includes('bt-q-full-list'))
+  const rows = all(expandedList, node => node.props?.className === 'bt-q-opt')
+  assert.equal(rows.length, 3)
+  assert.deepEqual(rows.map(row => row.props['data-chosen']), ['', undefined, ''])
+
+  // Toggling header button collapses: summary returns and expand lingers with data-leaving until timer fires.
+  foldBtn.props.onClick()
+  tree = qInstance.render()
+  assert.equal(tree.props['data-open'], undefined)
+  assert.ok(find(tree, node => node.props?.className?.includes('bt-q-summary')))
+  const leavingExpand = find(tree, node => node.props?.className?.includes('bt-q-expand'))
+  assert.equal(leavingExpand.props['data-leaving'], '')
+  flushTimers()
+  tree = qInstance.render()
+  assert.equal(find(tree, node => node.props?.className?.includes('bt-q-expand')), undefined)
+  qInstance.unmount()
+
+  // SettledView closed by message expands the full blueprint Card read-only.
+  const viewBlueprint = {
+    type: 'stack',
+    children: [
+      { type: 'callout', tone: 'info', text: 'Reviewer backlog check' },
+      { type: 'options', id: 'lane', options: [{ label: '补审' }, { label: '跳过' }] },
+    ],
+  }
+  const vInstance = mount(SettledView, { title: '#1483、#1491 要让 Reviewer 补审吗？', view: viewBlueprint, closed: 'replied' })
+  let vTree = vInstance.render()
+  assert.equal(find(vTree, node => node.props?.className === 'bt-q-badge').props.children[0], 'Answered by message')
+  assert.equal(find(vTree, node => node.props?.className?.includes('bt-q-expand')), undefined)
+  find(vTree, node => node.props?.className?.includes('bt-q-fold')).props.onClick()
+  vTree = vInstance.render()
+  assert.equal(vTree.props['data-open'], '')
+  const vExpand = find(vTree, node => node.props?.className?.includes('bt-q-expand'))
+  assert.ok(vExpand)
+  assert.equal(childOf(vExpand).props.settled, true)
+  assert.deepEqual(plain(childOf(vExpand).props.view), viewBlueprint)
+  find(vTree, node => node.props?.className?.includes('bt-q-fold')).props.onClick()
+  vTree = vInstance.render()
+  assert.equal(find(vTree, node => node.props?.className?.includes('bt-q-expand')).props['data-leaving'], '')
+  flushTimers()
+  vTree = vInstance.render()
+  assert.equal(find(vTree, node => node.props?.className?.includes('bt-q-expand')), undefined)
+  vInstance.unmount()
 })

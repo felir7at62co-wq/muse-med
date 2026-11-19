@@ -70,7 +70,30 @@ export function elapsedLabel(ms) {
   return `${hours > 0 ? `${hours}h ` : ''}${total >= 60 ? `${Math.floor(total / 60) % 60}m ` : ''}${total % 60}s`
 }
 
-export const contentText = content => (content ?? []).filter(block => block?.type === 'text').map(block => block.text).join('\n')
+// A model that writes its tool call in DSML form can leave the closing tags in
+// the text block DSH hands the chat. They are wire syntax, not part of the reply.
+const DSML_CLOSING_TAG = /<\/DSML\s+(?:invoke|calls)\s*>/i
+const DSML_EDGE_TOP = /^(?:[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*(?:\r?\n|$))+/i
+const DSML_EDGE_END = /(?:\r?\n[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*)+$/i
+const DSML_TAG_LINE = /\r?\n[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*(?=\r?\n)/gi
+const DSML_TAG_INLINE = /[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*/gi
+export const stripToolCallTags = (text) => {
+  const value = String(text ?? '')
+  if (!DSML_CLOSING_TAG.test(value)) return value
+  return value
+    .replace(DSML_EDGE_TOP, '')
+    .replace(DSML_EDGE_END, '')
+    .replace(DSML_TAG_LINE, '')
+    .replace(DSML_TAG_INLINE, (match, offset, whole) => {
+      const before = offset > 0 ? whole[offset - 1] : ''
+      const after = whole[offset + match.length] ?? ''
+      return before && after && !/\s/.test(before) && !/\s/.test(after) ? ' ' : ''
+    })
+}
+export const contentText = content => (content ?? [])
+  .filter(block => block?.type === 'text')
+  .map(block => (typeof block.text === 'string' ? stripToolCallTags(block.text) : ''))
+  .join('\n')
 // A name can contain brackets. Generated headers end at the newline; without a
 // newline, a legacy inline header still stops at its first closing bracket.
 export const HEADER = /^\[(Message from|Reply from|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/
@@ -279,20 +302,12 @@ export function runStatsOf(values) {
   }
   const prompt = (usage?.uncachedInputTokens ?? 0) + (usage?.cacheReadTokens ?? 0) + (usage?.cacheWriteTokens ?? 0)
   if (prompt > 0) shown.push({ key: 'cache', text: t('Cache hit {hit}%', { hit: percentText(usage.cacheReadTokens ?? 0, prompt) }) })
-  const working = Number.isFinite(pressure?.workingContextTokens) && pressure.workingContextTokens >= 0
-    && Number.isFinite(pressure?.workingTokenLimit) && pressure.workingTokenLimit > 0
-  const used = working ? pressure.workingContextTokens : pressure?.projectedTokens ?? pressure?.pressureTokens
+  const used = pressure?.projectedTokens ?? pressure?.pressureTokens
   if (Number.isFinite(used) && pressure.contextWindow > 0) {
     shown.push({
       key: 'context',
-      text: working
-        ? t('Working context {percent}%', { percent: Math.round((used / pressure.workingTokenLimit) * 100) })
-        : t('Context {percent}%', { percent: Math.min(100, Math.round((used / pressure.contextWindow) * 100)) }),
-      title: working
-        ? t('Last request estimate: {used} / {target} tokens; model window {window}', {
-          used: formatTokens(used), target: formatTokens(pressure.workingTokenLimit), window: formatTokens(pressure.contextWindow),
-        })
-        : t('{used} of {total} tokens of context in use', { used: formatTokens(used), total: formatTokens(pressure.contextWindow) }),
+      text: t('Context {percent}%', { percent: Math.min(100, Math.round((used / pressure.contextWindow) * 100)) }),
+      title: t('{used} of {total} tokens of context in use', { used: formatTokens(used), total: formatTokens(pressure.contextWindow) }),
     })
   }
   return shown

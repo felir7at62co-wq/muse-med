@@ -5531,9 +5531,6 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../core/session
-      '@deepseek-ai/dsh-session-coordinator':
-        specifier: workspace:*
-        version: link:../../session/session-coordinator
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -17604,12 +17601,12 @@ importers:
       '@deepseek-ai/dsh-client-file-upload':
         specifier: workspace:*
         version: link:../../client/file-upload
-      '@deepseek-ai/dsh-jobs':
-        specifier: workspace:*
-        version: link:../../jobs/jobs
       '@deepseek-ai/dsh-jingliu-connection':
         specifier: workspace:*
         version: link:../../drama/jingliu-connection
+      '@deepseek-ai/dsh-jobs':
+        specifier: workspace:*
+        version: link:../../jobs/jobs
       '@deepseek-ai/dsh-jobs-local':
         specifier: workspace:*
         version: link:../../jobs/jobs-local

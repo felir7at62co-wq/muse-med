@@ -1,10 +1,8 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
 import { createElement as h, Fragment, useEffect, useState } from 'react'
-import { MAIN_LOOK } from './characters.js'
 import { isMainOf } from './sources.js'
 import { currentPart, stripHeader } from './text.js'
-import { PlusIcon, SearchIcon, PeopleIcon, CloseIcon, GearIcon } from './icons.js'
-import { BotAvatar, BotMark, RoomAvatar } from './mark.js'
+import { ChatsIcon, PlusIcon, SearchIcon, PeopleIcon, CloseIcon, GearIcon } from './icons.js'
+import { BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { QUICK_EDGES, useFlip, useGlide } from './motion.js'
 import { t } from './i18n.js'
@@ -62,12 +60,12 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     })),
   ]
   if (people.length) sections.push([t('Bots'), people])
-  const agents = (roster.agents ?? []).filter(() => matchesName(t('Muse Agent'))).map(agent => ({
-    key: agent.id, avatar: h('span', { className: 'bt-palette-agent' }, h(BotMark, { look: MAIN_LOOK, size: 18 })), title: t('Muse Agent'),
+  const agents = (roster.agents ?? []).filter(() => matchesName(t('Muse sessions'))).map(agent => ({
+    key: agent.id, avatar: h('span', { className: 'bt-palette-agent' }, h(ChatsIcon)), title: t('Muse sessions'),
     subtitle: t('Plain dsh session'),
     run: () => actions.openAgent(agent.id),
   }))
-  if (agents.length) sections.push([t('Muse Agent'), agents])
+  if (agents.length) sections.push([t('Muse sessions'), agents])
   const messages = JSON.parse(found).map(([id, turn, snippet]) => {
     const bot = roster.byId[id]
     const room = roster.roomsById[id]
@@ -82,7 +80,7 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     { key: 'cmd:new', icon: h(PlusIcon), title: t('New chat'), run: () => actions.openNewChat('new') },
     { key: 'cmd:bot', icon: h(PlusIcon), title: t('Create Bot'), run: () => actions.openNewChat('create') },
     { key: 'cmd:group', icon: h(PeopleIcon), title: t('Create group chat'), run: () => actions.openNewChat('group') },
-    { key: 'cmd:settings', icon: h(GearIcon), title: t('Bot settings'), run: () => actions.openSettings('general') },
+    { key: 'cmd:settings', icon: h(GearIcon), title: t('Settings'), run: () => actions.openSettings('general') },
   ].filter(command => matchesName(command.title))
   if (commands.length) sections.push([t('Commands'), commands])
   const rows = sections.flatMap(([, items]) => items)

@@ -287,9 +287,7 @@ function fixture(packaged = false) {
       if (key.preset === reviewerId) return []
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
       return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames, ...sourceCapabilityNames, 'tool_search', 'tool_context']
-        : key.preset === 'main-session' ? ['coordinator_sessions', 'coordinator_read', 'coordinator_view_image', 'coordinator_jobs', 'coordinator_settings',
-          'coordinator_dispatch', 'coordinator_reconcile', 'coordinator_tasks', 'coordinator_stop',
-          'coordinator_show_report', 'coordinator_display_skill']
+        : key.preset === 'main-session' ? []
           : key.preset === 'minimal' ? [shell]
             : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
               'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...sourceCapabilityNames]
@@ -302,7 +300,7 @@ function fixture(packaged = false) {
       sections: context.scope.preset === 'short-drama'
         ? [{ name: 'deployment:persona-prefix', text: editingModelInput.personaPrefix },
           { name: 'editing:delivery', text: '文字稿默认使用 Word（.docx），通过 screenplay_export_docx 转换。' }]
-        : context.scope.preset === 'main-session' ? [{ name: 'muse:main-session', text: '只负责理解用户目标和调度执行会话。' }] : [],
+        : [],
       tools: context.scope.preset === 'short-drama'
         ? this.tools.schemas(context.scope).filter(tool => ['read', 'skill', 'tool_search', 'tool_context'].includes(tool.name) || selected.has(tool.name))
         : ['ptc', 'creation', 'cordis'].includes(context.scope.preset)
@@ -1528,71 +1526,23 @@ describe('assertOfficeSkillsLoadable', () => {
   })
 })
 
-it('rejects business tools leaking into the routing-only Main Session', async () => {
-  const f = fixture()
-  const schemas = f.ctx.tools.schemas.getMockImplementation()!
-  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session' ? [...schemas(key), { name: 'bash' }] : schemas(key))
-  await expect(f.apply(f.ctx)).rejects.toThrow('Main Session routing tool roster differs; missing: none; unexpected: bash')
-})
-
-it('names each routing tool missing from the Main Session', async () => {
-  const f = fixture()
-  const schemas = f.ctx.tools.schemas.getMockImplementation()!
-  const absent = ['coordinator_view_image', 'coordinator_jobs', 'coordinator_settings']
-  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
-    ? schemas(key).filter(tool => !absent.includes(tool.name)) : schemas(key))
-  await expect(f.apply(f.ctx)).rejects.toThrow('Main Session routing tool roster differs; missing: ' + absent.join(', ') + '; unexpected: none')
-})
-
-it('names the coordination dependencies absent when the Main Session lacks its routing tools', async () => {
+it('rejects a routing tool left active in the archived Main Session', async () => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
-    ? schemas(key).filter(tool => tool.name !== 'coordinator_jobs') : schemas(key))
-  f.ctx.absentServices.add('jobs')
-  await expect(f.apply(f.ctx)).rejects.toThrow('missing: coordinator_jobs; unexpected: none; absent services: jobs; '
-    + 'absent after 60 s: jobs; still missing after 60 s: coordinator_jobs')
+    ? [...schemas(key), { name: 'coordinator_dispatch' }, { name: 'coordinator_tasks' }] : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('archived Main Session routing tool remains active: coordinator_dispatch, coordinator_tasks')
 })
 
-it('names the loader state of the coordination dependency plugins', async () => {
-  const f = fixture()
-  const schemas = f.ctx.tools.schemas.getMockImplementation()!
-  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
-    ? schemas(key).filter(tool => tool.name !== 'coordinator_jobs') : schemas(key))
-  f.ctx.absentServices.delete('loader')
-  const loader = { entries: () => [
-    { options: { name: '@deepseek-ai/dsh-storage-json' }, disabled: false, fiber: { state: 3, _error: new Error('EPERM: storages') } },
-    { options: { name: '@deepseek-ai/dsh-storage-domain' }, disabled: false, fiber: { state: 0, _error: undefined } },
-    { options: { name: '@deepseek-ai/dsh-workspace' }, disabled: false, fiber: undefined,
-      parent: { tree: { import: async () => { throw new Error('Cannot find module flock') } } }, getOuterStack: () => [] },
-    { options: { name: 'muse-workspace-owned-storage' }, disabled: false, fiber: undefined,
-      parent: { tree: { import: async () => ({}) } }, getOuterStack: () => [] },
-    { options: { name: '@deepseek-ai/dsh-time-context' }, disabled: false, fiber: { state: 2, _error: undefined } },
-  ] }
-  const get = f.ctx.get.getMockImplementation()!
-  f.ctx.get.mockImplementation(name => name === 'loader' ? loader : get(name))
-  await expect(f.apply(f.ctx)).rejects.toThrow('; loader entries: @deepseek-ai/dsh-storage-json=failed (EPERM: storages), '
-    + '@deepseek-ai/dsh-storage-domain=pending, @deepseek-ai/dsh-workspace=not loaded (Cannot find module flock), '
-    + 'muse-workspace-owned-storage=not loaded (imports now)')
-})
-
-it('accepts a Main Session that also carries the optional human-facing tools', async () => {
-  const f = fixture()
-  const schemas = f.ctx.tools.schemas.getMockImplementation()!
-  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'main-session'
-    ? [...schemas(key), { name: 'ask_user_question' }, { name: 'show_view' }, { name: 'visualize' }] : schemas(key))
-  await expect(f.apply(f.ctx)).resolves.toBeUndefined()
-})
-
-it('rejects a Main Session missing its routing instructions', async () => {
+it('rejects routing guidance left in the archived Main Session', async () => {
   const f = fixture()
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
   f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
     const result = await assemble(context)
-    if (context.scope.preset === 'main-session') result.sections = []
+    if (context.scope.preset === 'main-session') result.sections = [{ name: 'muse:main-session', text: '只负责理解用户目标和调度执行会话。' }]
     return result
   })
-  await expect(f.apply(f.ctx)).rejects.toThrow('Main Session routing guidance is missing')
+  await expect(f.apply(f.ctx)).rejects.toThrow('archived Main Session routing guidance remains active')
 })
 
 it('retains the failing preset, Agent and primary cause when teardown also rejects', async () => {

@@ -44,38 +44,6 @@ afterEach(() => {
 })
 
 describe('desktop development project', () => {
-  it.each([false, true])('excludes archived Bot pins and tarballs from the ordinary project, archive present=%s', (archivePresent) => {
-    const root = temporaryRoot()
-    const { repositoryRoot, communityArtifactsDir } = communityFixture(root)
-    const cliDir = join(root, 'cli'), hostDir = join(root, 'host'), dependencyDir = join(root, 'dependencies')
-    mkdirSync(cliDir)
-    mkdirSync(join(hostDir, 'lib'), { recursive: true })
-    mkdirSync(dependencyDir)
-    writeFileSync(join(cliDir, 'package.json'), '{"name":"@deepseek-ai/dsh","version":"1.2.3"}\n')
-    writeFileSync(join(hostDir, 'package.json'), '{"name":"@deepseek-ai/dsh-desktop-host","version":"1.2.3"}\n')
-    writeFileSync(join(hostDir, 'lib/index.js'), '')
-    const sources = join(repositoryRoot, 'third_party/plugins')
-    writeFileSync(join(sources, 'sources.json'), JSON.stringify({ 'ds-bot': { version: '0.2.4' } }))
-    const archived = join(root, 'archived/package')
-    mkdirSync(join(archived, 'lib'), { recursive: true })
-    writeFileSync(join(archived, 'package.json'), '{"name":"ds-bot","version":"0.2.4","main":"lib/index.js"}')
-    writeFileSync(join(archived, 'lib/index.js'), 'throw new Error("Archived Bot must not load")\n')
-    writeFileSync(join(archived, 'SOURCE.json'), '{"hostVersion":"old-core"}')
-    if (archivePresent) c({ sync: true, gzip: true, cwd: join(root, 'archived'),
-      file: join(communityArtifactsDir, 'ds-bot-0.2.4.tgz') }, ['package'])
-    const project = prepareDevelopmentProject({ repositoryRoot, communityArtifactsDir,
-      projectDir: join(root, 'project'), cliDir, hostDir, dependencyDir, release: release(), target: 'mac-arm64' })
-    const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as {
-      dependencies: Record<string, string>
-      dsh: { profile: { bundles: string[] } }
-    }
-    expect(manifest.dsh.profile.bundles).toEqual(expect.arrayContaining(['deep-view', '@nagi-ovo/dsh-visualize']))
-    expect(manifest.dependencies).not.toHaveProperty('ds-bot')
-    expect(manifest.dsh.profile.bundles.filter(bundle => bundle === 'muse-skill-evolution')).toHaveLength(1)
-    expect(existsSync(join(project, 'node_modules/ds-bot'))).toBe(false)
-    expect(readFileSync(join(archived, 'lib/index.js'), 'utf8')).toContain('Archived Bot must not load')
-  })
-
   it.each([
     ['^5.1.0', 'links a forward community dependency to the verified batch instead of the toolchain'],
     ['^6.0.0', 'rejects an incompatible batch dependency before replacing the existing project'],

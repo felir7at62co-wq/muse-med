@@ -62,7 +62,6 @@
     "@deepseek-ai/dsh-client-resources": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-api-workspace-controller": "workspace:*",
-    "@deepseek-ai/dsh-session-coordinator": "workspace:*",
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:*"
   },
   "dependencies": {

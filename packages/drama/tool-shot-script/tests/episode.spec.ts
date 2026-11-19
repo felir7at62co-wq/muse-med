@@ -275,9 +275,9 @@ describe('the matched payload', () => {
       shot: 1,
       segment: 1,
       start: 0,
-      end: 1,
-      duration: 1,
-      script_duration: 1,
+      end: 2,
+      duration: 2,
+      script_duration: 2,
       voice_type: 'dialogue',
       speaker: '苏晚',
       characters: ['苏晚'],
@@ -292,7 +292,7 @@ describe('the matched payload', () => {
     expect(payload.shots[0]?.assets.find(asset => asset.name === '苏晚')?.image_path)
       .toBe('https://cdn.example.test/asset.png')
     expect(payload.video_tasks).toEqual([
-      { shots: [1, 2], content_duration: 5, natural_hold_duration: 1, requested_duration: 6,
+      { shots: [1, 2], content_duration: 6, natural_hold_duration: 1, requested_duration: 7,
         hold_instruction: HOLD_INSTRUCTION, prompt: tasks[0]?.prompt,
         material_keys: ['lead', 'asset_70002', 'asset_70004'], material_bindings: tasks[0]?.materialBindings },
     ])

@@ -1,10 +1,9 @@
-/** Source selection for ordinary-session builds and explicit archived compatibility builds. */
-const archivedSources = new Set(['ds-bot'])
+/** Source selection for desktop builds and explicit single-source builds. */
 
 /**
- * Keep archived source out of default artifacts while preserving explicit recovery builds.
+ * Select the sources a desktop build ships, or one named source.
  * @param {Readonly<Record<string, { readonly desktop?: boolean }>>} pins Retained source inventory.
- * @param {string | undefined} only Explicit source directory, including archived or retired entries.
+ * @param {string | undefined} only Explicit source directory, including retired entries.
  * @returns {string[]} Selected directories in inventory order; unknown selections reject.
  */
 export function selectCommunitySources(pins, only) {
@@ -12,5 +11,5 @@ export function selectCommunitySources(pins, only) {
     if (!Object.hasOwn(pins, only)) throw new Error(`community plugins: unknown source ${only}`)
     return [only]
   }
-  return Object.keys(pins).filter(name => pins[name].desktop !== false && !archivedSources.has(name))
+  return Object.keys(pins).filter(name => pins[name].desktop !== false)
 }

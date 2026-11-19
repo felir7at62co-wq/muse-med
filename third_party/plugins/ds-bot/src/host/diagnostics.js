@@ -1,4 +1,3 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Diagnostics: what went wrong on this host, kept where the user can see it and report it.
 // DSH mounts no exporter for ctx.logger once it has started, so warnings would otherwise
 // reach only stderr. Entries are kept in memory and in <home>/logs/diagnostics.jsonl, so
@@ -17,7 +16,7 @@ const LOG_MAX_BYTES = 1 << 20
 const STACK_LINES = 8
 const TEXT_MAX = 2000
 export const REPORT_ENTRIES = 20
-export const ISSUES_URL = 'https://github.com/felir7at62co-wq/muse-med/issues/new'
+export const ISSUES_URL = 'https://github.com/Fei2411/DS-Bot/issues/new'
 
 const quote = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -67,7 +66,7 @@ export function reportMarkdown({ facts, client = {}, entries = [], clientEntries
   const lines = [
     '| | |',
     '|---|---|',
-    row('Muse Bot', facts.botVersion),
+    row('DS Bot', facts.botVersion),
     row('DSH', facts.dshVersion),
     row('Surface', client.surface),
     row('OS', facts.os),
@@ -99,7 +98,7 @@ const ownVersion = () => {
 }
 
 // DSH packages share one version; the LLM package is always beside the plugin.
-const dshVersion = () => {
+export const dshVersion = () => {
   try {
     let dir = dirname(fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm')))
     for (let depth = 0; depth < 5; depth += 1, dir = dirname(dir)) {

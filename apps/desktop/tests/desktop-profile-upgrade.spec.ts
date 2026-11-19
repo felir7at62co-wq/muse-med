@@ -64,7 +64,7 @@ it.each(['missing', 'installed', 'reversed'] as const)('mounts card bundles once
   expect(readdirSync(root).filter(file => file.endsWith('.bak'))).toEqual(backups)
 })
 
-it.each(['ds-bot', 'muse-bot'])('retires %s while retaining full state, source package specs, unrelated plugins and exact private backups', (bot) => {
+it.each(['muse-bot'])('retires %s while retaining full state, source package specs, unrelated plugins and exact private backups', (bot) => {
   const root = mkdtempSync(join(tmpdir(), 'muse-profile-upgrade-')); roots.push(root)
   const manifest = { name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: '0.0.0', dependencies: { [bot]: '0.2.4', custom: 'file:../custom' },
     dsh: { profile: { bundles: [...DESKTOP_PROFILE_BUNDLES, bot, 'custom'] } } }
@@ -88,7 +88,19 @@ it.each(['ds-bot', 'muse-bot'])('retires %s while retaining full state, source p
   expect(readdirSync(root).filter(file => file.endsWith('.bak'))).toEqual(backups)
 })
 
-it('rejects reactivation through the new shared Host manager without importing archived code', () => {
+it('gives the Bot bundle back to a profile that lost it when Bot was retired', () => {
+  const root = mkdtempSync(join(tmpdir(), 'muse-profile-upgrade-')); roots.push(root)
+  const manifest = { name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: '0.0.0', dependencies: { custom: 'file:../custom' },
+    dsh: { profile: { bundles: [...DESKTOP_PROFILE_BUNDLES.filter(bundle => bundle !== 'ds-bot'), 'custom'] } } }
+  const patch = '- insert:\n    - id: muse-bot\n      name: ds-bot\n      disabled: true\n'
+  writeFileSync(join(root, 'package.json'), JSON.stringify(manifest)); writeFileSync(join(root, 'cordis.patch.yml'), patch)
+  migrateDesktopProductProfile(root)
+  const parsed = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as typeof manifest
+  expect(parsed.dsh.profile.bundles).toEqual([...DESKTOP_PROFILE_BUNDLES, 'custom'])
+  expect(readFileSync(join(root, 'cordis.patch.yml'), 'utf8')).toBe(patch)
+})
+
+it('rejects reactivation of the older Bot package through the shared Host manager without importing archived code', () => {
   expect(() => rejectArchivedBot()).toThrow('archived Bot packages cannot be activated')
 })
 

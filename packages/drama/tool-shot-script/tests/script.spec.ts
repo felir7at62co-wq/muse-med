@@ -21,16 +21,16 @@ describe('effective characters and derived duration', () => {
     expect(effectiveChars('')).toBe(0)
   })
 
-  it('derives whole seconds at eight effective characters per second', () => {
+  it('derives whole seconds at seven effective characters per second', () => {
     expect(speechSeconds(0)).toBe(1)
     expect(speechSeconds(1)).toBe(1)
-    expect(speechSeconds(8)).toBe(1)
-    expect(speechSeconds(9)).toBe(2)
+    expect(speechSeconds(7)).toBe(1)
+    expect(speechSeconds(8)).toBe(2)
     expect(speechSeconds(10)).toBe(2)
-    expect(speechSeconds(16)).toBe(2)
-    expect(speechSeconds(17)).toBe(3)
-    expect(speechSeconds(32)).toBe(4)
-    expect(speechSeconds(33)).toBe(5)
+    expect(speechSeconds(14)).toBe(2)
+    expect(speechSeconds(15)).toBe(3)
+    expect(speechSeconds(28)).toBe(4)
+    expect(speechSeconds(29)).toBe(5)
   })
 })
 
@@ -51,7 +51,7 @@ describe('a conforming script', () => {
       speaker: '苏晚',
       text: '宝宝……那是我的宝宝！',
       effectiveChars: 8,
-      durationSeconds: 1,
+      durationSeconds: 2,
       durationSource: 'speech',
       offscreen: false,
       charactersField: '苏晚',
@@ -327,17 +327,17 @@ describe('the packing duration rules', () => {
     const sixteen = parse(scriptOf(speakingShot(1, `苏晚：${'字'.repeat(16)}`)))
     expect(sixteen.issues.map(issue => issue.severity)).toEqual(['warning'])
     expect(codes(sixteen.issues)).toEqual(['speech_above_writing_threshold'])
-    expect(sixteen.shots[0]?.durationSeconds).toBe(2)
+    expect(sixteen.shots[0]?.durationSeconds).toBe(3)
 
     const fifteen = parse(scriptOf(speakingShot(1, `苏晚：${'字'.repeat(15)}`)))
     expect(fifteen.issues).toEqual([])
-    expect(fifteen.shots[0]?.durationSeconds).toBe(2)
+    expect(fifteen.shots[0]?.durationSeconds).toBe(3)
   })
 
   it('refuses more than thirty-six effective characters', () => {
     const result = parse(scriptOf(speakingShot(1, `苏晚：${'字'.repeat(37)}`)))
     expect(codes(result.issues)).toEqual(['speech_too_long'])
-    expect(result.shots[0]?.durationSeconds).toBe(5)
+    expect(result.shots[0]?.durationSeconds).toBe(6)
   })
 
   it('maps every complexity label onto its seconds', () => {
@@ -374,7 +374,7 @@ describe('durations written into the script', () => {
     expect(result.issues).toContainEqual(expect.objectContaining({ severity: 'failure', code: 'legacy_duration_invalid' }))
   })
   it('strips a legacy duration line out of the prompt text', () => {
-    const result = parse(scriptOf(speakingShot(1, '苏晚：宝宝……那是我的宝宝！', ['时长：1秒'])))
+    const result = parse(scriptOf(speakingShot(1, '苏晚：宝宝……那是我的宝宝！', ['时长：2秒'])))
     expect(result.issues).toEqual([])
     expect(result.shots[0]?.visual).not.toContain('时长')
   })

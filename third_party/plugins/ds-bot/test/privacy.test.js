@@ -4,14 +4,15 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { fakeApproval } from './fake-ctx.js'
-import { legacyContext as fakeContext, legacyConfig } from './legacy-ctx.js'
+import { fakeApproval, fakeContext } from './fake-ctx.js'
+
+let rt
 
 // A Bot's id is a Session id, which a path may hold.
 const P = 'd1a40000-1111-4222-8333-444444444444'
 
 // Chief (Main), Writer in the group Ops, and Diary, a Bot with a folder of its own.
-function seed({ diary, privateBot, archives = [] }) {
+function seed({ diary, privateBot, archives = [], picked, openPart = false }) {
   return {
     version: 1,
     mainBotIds: ['a'],
@@ -20,9 +21,9 @@ function seed({ diary, privateBot, archives = [] }) {
     bots: {
       a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', createdAt: 1 },
       b: { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2 },
-      [P]: { id: P, name: 'Diary', role: 'Notes', sessionId: P, createdAt: 3, instructions: 'Keep the diary of the user.', workDir: diary, ...(privateBot ? { private: true } : {}) },
+      [P]: { id: P, name: 'Diary', role: 'Notes', sessionId: P, createdAt: 3, instructions: 'Keep the diary of the user.', workDir: diary, ...(privateBot ? { private: true } : {}), ...(openPart ? { openParts: [{ sessionId: 'p-bg', segments: [] }] } : {}) },
     },
-    rooms: { r1: { id: 'r1', name: 'Ops', members: ['a', 'b'], mode: 'admin', admin: 'a', named: true, sessions: { b: 'gb' } } },
+    rooms: { r1: { id: 'r1', name: 'Ops', members: ['a', 'b'], mode: 'admin', admin: 'a', named: true, sessions: { b: 'gb' }, ...(picked === undefined ? {} : { memberDirs: { b: picked } }) } },
     agents: {},
     exchanges: [],
     exchangeTurns: {},
@@ -32,7 +33,7 @@ function seed({ diary, privateBot, archives = [] }) {
   }
 }
 
-async function start({ services = {}, privateBot = true, archives } = {}) {
+async function start({ services = {}, privateBot = true, archives, memberPick = false, openPart = false } = {}) {
   // The native realpath, as fs/promises uses: on Windows the JS one keeps 8.3 short names.
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-privacy-')))
   const dsh = join(root, 'dsh')
@@ -40,9 +41,10 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
   const team = join(home, 'workspace')
   const project = join(root, 'project')
   const diary = join(root, 'diary')
-  for (const dir of [team, project, diary]) mkdirSync(dir, { recursive: true })
+  const picked = join(root, 'picked')
+  for (const dir of [team, project, diary, ...(memberPick ? [picked] : [])]) mkdirSync(dir, { recursive: true })
   writeFileSync(join(diary, 'notes.txt'), 'secret')
-  writeFileSync(join(home, 'state.json'), JSON.stringify(seed({ diary, privateBot, archives })))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed({ diary, privateBot, archives, picked: memberPick ? picked : undefined, openPart })))
   const previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = dsh
 
@@ -66,6 +68,7 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
     return agents.get(sessionId)
   }
   const registry = new Map([['w1', { id: 'w1', path: team, title: 'DS Bot' }]])
+  let created = 0
   Object.assign(ctx, {
     llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: {
@@ -80,7 +83,8 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
       archiveSession: async () => {},
     },
     sessionController: {
-      create: async () => ({ sessionId: '17e2c700-2222-4333-8444-555555555555' }),
+      // Ids shaped like real Session ids: a short one would match any path it lands in.
+      create: async () => ({ sessionId: `0000000${++created}-1111-4222-8333-444444444444` }),
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async () => {},
       page: async () => ({ records: [], hasMore: false }),
@@ -94,12 +98,12 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
     route = options
     return register(options)
   }
-  const rt = createRuntime(ctx, legacyConfig({ home, github: false, diagnosticsFile: false }))
+  rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
     method: 'POST', body: JSON.stringify({ endpoint, payload }),
   }))).json()
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
-  const tool = (name, args, sessionId) => ctx.registeredTools.get(name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1' })
+  const tool = (name, args, sessionId) => rt.teamTools.find(d => d.name === name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1' })
   // The privacy listener alone, which runs first; the last step stands for the tool.
   const guard = ctx.listeners.get('tools/execute')[0]
   const run = async (name, args, sessionId, agent = agentOf(sessionId)) => {
@@ -120,7 +124,7 @@ async function start({ services = {}, privateBot = true, archives } = {}) {
   }
   // Loading once fills the Session-owner indexes.
   await tool('list_bots', {}, 'a')
-  return { rt, ctx, root, dsh, home, team, project, diary, agentOf, call, tool, run, state, stop }
+  return { rt, ctx, root, dsh, home, team, project, diary, picked, agentOf, call, tool, run, state, stop }
 }
 
 const CLOSED = /private Bot/
@@ -175,6 +179,22 @@ test('a private Bot has a folder that no other folder is in or around', async (t
   assert.equal(state().bots.b.workDir, project)
 })
 
+test('a member\'s folder pick in a group counts as that member\'s folder for a private Bot', async (t) => {
+  const { rt, picked, diary, run, state, stop } = await start({ privateBot: false, memberPick: true })
+  t.after(stop)
+  mkdirSync(join(picked, 'inside'))
+  // Writer picked this folder for its conversation in Ops, so it is closed to Diary too.
+  await assert.rejects(rt.updateBot(P, { private: true, workDir: picked }), /folder of Writer in "Ops"/)
+  await assert.rejects(rt.updateBot(P, { private: true, workDir: join(picked, 'inside') }), /folder of Writer in "Ops"/)
+  await rt.updateBot(P, { private: true, workDir: diary })
+  assert.equal(state().bots[P].private, true)
+  // The other way around too: the member cannot move that conversation into a
+  // private Bot's folder.
+  const moved = await run('working_directory', { cd: diary }, 'gb')
+  assert.equal(moved.ran, false)
+  assert.match(moved.error, CLOSED)
+})
+
 test('a private Bot is no Main Bot, no member of a group and no copy', async (t) => {
   const { rt, stop } = await start()
   t.after(stop)
@@ -220,6 +240,19 @@ test('other Bots cannot reach a private Bot through the tools between Bots', asy
   assert.deepEqual(await run('recall', { scope: 'team', query: 'x' }, 'b'), { ran: true })
   assert.deepEqual(await run('recall', { scope: 'own' }, P), { ran: true })
   assert.deepEqual(await run('update_bot', { bot: 'Diary', role: 'x' }, P), { ran: true })
+})
+
+// #1501: a private Bot may keep a part live in the background while the user reads
+// another. What that part says and reads is the private Bot's as much as its chat is.
+test('a private Bot\'s background part stays closed to other Bots', async (t) => {
+  const { run, stop } = await start({ openPart: true })
+  t.after(stop)
+  const denied = await run('session_trace', { session_id: 'p-bg' }, 'b')
+  assert.equal(denied.ran, false)
+  assert.match(denied.error, CLOSED)
+  // Its own Bot still reads that part, and so does a search that names it.
+  assert.deepEqual(await run('session_trace', { session_id: 'p-bg' }, P), { ran: true })
+  assert.deepEqual(await run('session_search', { query: 'x', session_ids: ['p-bg'] }, P), { ran: true })
 })
 
 test('other Bots cannot read, write or search what a private Bot keeps', async (t) => {
@@ -285,25 +318,6 @@ test('other Bots cannot read, write or search what a private Bot keeps', async (
   ]) {
     assert.deepEqual(await run(name, args, 'b'), { ran: true }, `${name} ${JSON.stringify(args)}`)
   }
-})
-
-test('including root Sessions cannot widen a public parent filter into private chats', async (t) => {
-  const { run, stop } = await start()
-  t.after(stop)
-  for (const args of [
-    { query: 'x', parent_session_ids: ['b'], include_root_sessions: true },
-    { query: 'x', session_ids: [P], include_root_sessions: true },
-  ]) {
-    const result = await run('session_search', args, 'b')
-    assert.equal(result.ran, false)
-    assert.match(result.error, CLOSED)
-  }
-  assert.deepEqual(await run('session_search', {
-    query: 'x', session_ids: ['b'], parent_session_ids: ['b'], include_root_sessions: true,
-  }, 'b'), { ran: true })
-  assert.deepEqual(await run('session_search', {
-    query: 'x', parent_session_ids: ['b'],
-  }, 'b'), { ran: true })
 })
 
 test('a link into the folder of a private Bot is closed too', async (t) => {
@@ -442,12 +456,16 @@ test('one private Bot reads its own data but not another private Bot\'s', async 
 })
 
 test('a private Bot reads public memory and keeps its own journal out of the shared log', async (t) => {
-  const { tool, home, stop } = await start()
+  const { tool, run, home, stop } = await start()
   t.after(stop)
   await tool('remember', { text: 'a public fact', scope: 'own' }, 'b')
   await tool('remember', { text: 'a private fact', scope: 'own' }, P)
   const recalled = await tool('recall', { scope: 'Writer', query: 'public fact' }, P)
   assert.match(recalled, /a public fact/)
+  assert.match(await tool('recall', { scope: 'Diary' }, 'a'), /That Bot is private/)
+  const denied = await run('recall', { scope: 'Diary' }, 'a')
+  assert.equal(denied.ran, false)
+  assert.match(denied.error, CLOSED)
   const shared = readFileSync(join(home, 'memory', 'journal.jsonl'), 'utf8')
   assert.match(shared, /a public fact/)
   assert.doesNotMatch(shared, /a private fact/)

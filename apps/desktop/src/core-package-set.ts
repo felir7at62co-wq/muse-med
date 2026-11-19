@@ -22,6 +22,9 @@ export const DESKTOP_FEISHU_PACKAGE = '@xmanrui/dsh-im'
 /** Reviewed subscription providers and their local account settings. */
 export const DESKTOP_CODEX_PACKAGE = 'dsh-plugin-subscriptions'
 
+/** Reviewed native team workspace supplied by the Muse application. */
+export const DESKTOP_MUSE_BOT_PACKAGE = 'ds-bot'
+
 /** Package-relative Desktop Host files required before a profile can boot. */
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
@@ -82,9 +85,15 @@ export const DESKTOP_CODEX_RUNTIME_FILES = [
   'cordis.patch.yml', 'SOURCE.json', 'LICENSE',
 ] as const
 
+/** Native team Host, browser module and attribution required from the Muse Bot tarball. */
+export const DESKTOP_MUSE_BOT_RUNTIME_FILES = [
+  'plugin.js', 'index.js', 'src/host/agents.js', 'src/host/roster.js', 'src/host/parts.js',
+  'client.js', 'link.js', 'office.js', 'cordis.patch.yml', 'MUSE_SOURCE.json', 'SOURCE.json', 'LICENSE', 'NOTICE',
+] as const
+
 /** Source-built community plugins and Muse tools, with no registry substitution. */
 export const DESKTOP_SOURCE_PLUGINS = [
-  'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE,
+  'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE, DESKTOP_MUSE_BOT_PACKAGE,
   '@wenbin_wb/dsh-bridge', DESKTOP_FEISHU_PACKAGE, 'dsh-skill-mcp-panel', 'deep-view', '@nagi-ovo/dsh-visualize',
   'muse-hongguo-search',
   'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-qimao-data', 'muse-source-research', 'muse-skill-evolution', 'muse-lvpaopao',

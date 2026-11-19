@@ -5,25 +5,29 @@ import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
-import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { mountBrowserPlugin } from '../src/host/browser/mount.js'
 import { toolDefs as refsTools } from '../src/host/browser/refs.js'
 
-async function executeTool(ctx, { callId, name, arguments: args, signal }) {
-  const batch = await ctx.tools.execute({
-    signal,
-    calls: [{ type: 'tool-call', id: callId, name, arguments: JSON.stringify(args) }],
-  })
-  assert.equal(batch.results.length, 1)
-  assert.equal(batch.results[0].callId, callId)
+// DSH 0.2.2 runs tool calls as batches through a mounted executor; earlier DSH runs one
+// call directly and has no executor package.
+const NativeExecutor = await import('@deepseek-ai/dsh-tool-executor-native').catch((error) => {
+  if (error?.code === 'ERR_MODULE_NOT_FOUND') return undefined
+  throw error
+})
+async function mountTools(ctx) {
+  await ctx.plugin(ToolRuntime)
+  if (NativeExecutor !== undefined) await ctx.plugin(NativeExecutor)
+}
+async function runTool(ctx, call) {
+  if (typeof ctx.tools.selectExecutor !== 'function') return ctx.tools.execute(call)
+  const batch = await ctx.tools.execute({ signal: call.signal, calls: [{ id: call.callId, name: call.name, arguments: JSON.stringify(call.arguments) }] })
   return batch.results[0].result
 }
 
 test('browser handoff and resume return valid DSH outputs and clear the Bot hold', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
 
   let hold = null
@@ -60,7 +64,7 @@ test('browser handoff and resume return valid DSH outputs and clear the Bot hold
   plugin.inject = ['tools']
   await ctx.plugin(plugin)
 
-  const execute = (name, args) => executeTool(ctx, {
+  const execute = (name, args) => runTool(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId(name),
     name,
@@ -101,8 +105,7 @@ test('browser handoff and resume return valid DSH outputs and clear the Bot hold
 test('a screenshot degrades to text when no attachments service is mounted', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
 
   const plugin = inner => {
@@ -121,7 +124,7 @@ test('a screenshot degrades to text when no attachments service is mounted', asy
   plugin.inject = ['tools']
   await ctx.plugin(plugin)
 
-  const screenshot = await executeTool(ctx, {
+  const screenshot = await runTool(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId('browser_screenshot'),
     name: 'browser_screenshot',
@@ -137,8 +140,7 @@ test('a screenshot degrades to text when no attachments service is mounted', asy
 test('a stored browser screenshot is repaired before the next step and survives reload', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
   const session = Session.create('old-browser-chat')
   const call = session.append('tool/call', { turn: 1, step: 1, callId: 'shot', name: 'browser_screenshot', arguments: '{}' })
@@ -175,8 +177,7 @@ test('a stored browser screenshot is repaired before the next step and survives 
 test('browser tools refuse every operation while a user hold is active', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
   const hold = { by: 'user', reason: 'stopped', note: 'The user is controlling this browser.' }
   const plugin = inner => {
@@ -198,7 +199,7 @@ test('browser tools refuse every operation while a user hold is active', async t
   }
   plugin.inject = ['tools']
   await ctx.plugin(plugin)
-  const execute = (name, args) => executeTool(ctx, {
+  const execute = (name, args) => runTool(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId(name),
     name,
@@ -219,8 +220,7 @@ test('browser tools refuse every operation while a user hold is active', async t
 test('browser endpoint connection uses the execution Bot identity, not tool arguments', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
   let connected
   const plugin = inner => {
@@ -242,7 +242,7 @@ test('browser endpoint connection uses the execution Bot identity, not tool argu
   }
   plugin.inject = ['tools']
   await ctx.plugin(plugin)
-  const result = await executeTool(ctx, {
+  const result = await runTool(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId('browser_open'),
     name: 'browser_open',
@@ -255,8 +255,7 @@ test('browser endpoint connection uses the execution Bot identity, not tool argu
 test('a channel user hold closes the cached Playwright session and give-back reconnects', async t => {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(NativeToolExecutor)
+  await mountTools(ctx)
   t.after(async () => ctx.fiber.dispose())
   let hold = null
   let notifyHold
@@ -279,7 +278,7 @@ test('a channel user hold closes the cached Playwright session and give-back rec
   }
   plugin.inject = ['tools']
   await ctx.plugin(plugin)
-  const execute = () => executeTool(ctx, {
+  const execute = () => runTool(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId('browser_snapshot'),
     name: 'browser_snapshot',

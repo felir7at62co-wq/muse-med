@@ -5,6 +5,7 @@
 import { join, resolve } from 'node:path'
 import { within } from './folders.js'
 import { unquote } from './text.js'
+import { openSessions } from './threads.js'
 
 const FILE_TOOLS = { read: 'file_path', write: 'file_path', edit: 'file_path', read_image: 'file_path', str_replace_editor: 'path' }
 const WRITE_TOOLS = ['write', 'edit', 'str_replace_editor']
@@ -30,7 +31,10 @@ export function install(rt) {
   const privateBots = () => Object.values(state.bots).filter(bot => bot.private === true)
   // Deleting a private Bot does not make the files and memory it leaves behind public.
   const protectedBots = () => [...new Map([...(state.privateArchives ?? []), ...privateBots()].map(bot => [bot.id, bot])).values()]
-  const sessionsOf = bot => [...new Set([bot.id, ...(bot.sessionIds ?? [rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId), ...rt.groupSessionsOf(bot.id)])])]
+  // Every Session a private Bot speaks from: its own chat, the parts it opened while it
+  // was busy (a background part reads and writes in that Bot's name), its earlier parts
+  // and its groups. A deleted Bot's archive lists them itself.
+  const sessionsOf = bot => [...new Set([bot.id, ...(bot.sessionIds ?? [rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId), ...openSessions(bot), ...rt.groupSessionsOf(bot.id)])])]
   const dataRoots = () => [rt.dshHome, rt.home, process.env.DS_BOT_USER_DSH_HOME?.trim()].filter(Boolean)
 
   // A path as it is and as the file system resolves it, folded for comparing. realBeyond
@@ -286,10 +290,9 @@ export function install(rt) {
         const bot = await ownerOfSession(id, self)
         if (bot) refuse(bot)
       }
-      // Root inclusion broadens a parent filter to every root Session in the cwd.
-      // Explicit safe Session ids still narrow it.
-      if (name === 'session_search' && args.session_ids === undefined
-        && (args.parent_session_ids === undefined || args.include_root_sessions === true)) {
+      // DSH scopes Session search to the caller's cwd. A subagent can have another cwd,
+      // so an unfiltered search is closed too; explicit safe ids still narrow it.
+      if (name === 'session_search' && args.session_ids === undefined && args.parent_session_ids === undefined) {
         const closedBot = protectedBots().find(found => found.id !== self)
         if (closedBot) throw closed(closedBot, 'Sessions')
       }
@@ -317,8 +320,9 @@ export function install(rt) {
   }
 
   // Checks a change of `private` or of the folder of a Bot before it is written. A
-  // private Bot's folder is no other Bot's, no group's and not the team workspace,
-  // because DSH cannot be told which files of a shared folder to hide.
+  // private Bot's folder is no other Bot's, no group's and not the team workspace —
+  // a member's own pick in a group counts as that member's folder — because DSH
+  // cannot be told which files of a shared folder to hide.
   async function checkChange(bot, { flag, moving, workDir }) {
     const makes = flag === undefined ? bot.private === true : flag
     const dir = moving ? workDir : bot.workDir
@@ -337,6 +341,9 @@ export function install(rt) {
       ['the team workspace', teamFolder()],
       ...Object.values(state.bots).filter(other => other.id !== bot.id && other.workDir).map(other => [`the folder of ${other.name}`, other.workDir]),
       ...Object.values(state.rooms).filter(room => room.workDir).map(room => [`the folder of "${room.name}"`, room.workDir]),
+      ...Object.values(state.rooms).flatMap(room => Object.entries(room.memberDirs ?? {})
+        .filter(([member, dir]) => room.members.includes(member) && dir !== null)
+        .map(([member, dir]) => [`the folder of ${rt.botOf(member)?.name ?? 'a member'} in "${room.name}"`, dir])),
     ]
     for (const [what, path] of others) {
       const spelled = await spellings(path)

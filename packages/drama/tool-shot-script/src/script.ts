@@ -89,7 +89,7 @@ export const DEFAULT_MAX_EFFECTIVE_CHARS = 36
 const WRITING_THRESHOLD_CHARS = 15
 
 /** Default speech estimate for deployments that retain the original timing policy. */
-export const DEFAULT_SPEECH_CHARS_PER_SECOND = 8
+export const DEFAULT_SPEECH_CHARS_PER_SECOND = 7
 
 /** Guidance for checking the project's voice choice without rewriting speech. */
 const NARRATION_FIX_HINT = '将作为 vo 画外发声保留，不阻塞编译；请核对本项目是否需要旁白/心声，'
@@ -122,7 +122,7 @@ export interface ParseResult {
 /**
  * Count the effective characters of one spoken text: Han characters, Latin
  * letters, and digits. Punctuation, spaces, and symbols do not count, so reading
- * speed is measured the way this format's 8 字/秒 rule measures it.
+ * speed is measured the way this format's 7 字/秒 rule measures it.
  * @param text - Spoken text, with or without punctuation.
  * @returns The number of effective characters.
  */

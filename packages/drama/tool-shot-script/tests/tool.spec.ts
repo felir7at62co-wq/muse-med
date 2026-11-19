@@ -51,7 +51,7 @@ describe('registration', () => {
   it('registers exactly the drama_shot tool with the rules the model must know', () => {
     const tool = dramaShot()
     expect(tool.name).toBe('drama_shot')
-    for (const phrase of ['8 有效字/秒', '36 字建议', '发声类型：action', '动作复杂度', '台词：无',
+    for (const phrase of ['7 有效字/秒', '36 字建议', '发声类型：action', '动作复杂度', '台词：无',
       '出镜人物：无', '画外', 'official=true', 'max_submit_seconds', 'delivery.max_effective_chars_per_shot']) {
       expect(tool.description).toContain(phrase)
     }
@@ -114,7 +114,7 @@ describe('validate', () => {
       voice_type: 'dialogue',
       speaker: '苏晚',
       effective_chars: 8,
-      duration_seconds: 1,
+      duration_seconds: 2,
       duration_source: 'speech',
       scene: '',
       bindings: [],
@@ -172,15 +172,15 @@ describe('preview', () => {
     expect(report.packages[0]).toMatchObject({
       index: 1,
       shots: [1, 2],
-      content_seconds: 5,
-      content_duration_ms: 5000,
-      submit_seconds: 6,
+      content_seconds: 6,
+      content_duration_ms: 6000,
+      submit_seconds: 7,
       natural_hold_seconds: 1,
       material_keys: ['lead', 'asset_70002', 'asset_70003'],
       material_names: ['苏晚', '后厨', '奶瓶'],
     })
     expect(report.packages[0]?.hold_instruction).toContain('不新增台词')
-    expect(report.summary).toMatchObject({ packages: 1, content_seconds: 5 })
+    expect(report.summary).toMatchObject({ packages: 1, content_seconds: 6 })
   })
 
   it('plans the provider floor request without a failure', async () => {
@@ -344,7 +344,7 @@ describe('compile', () => {
     const matched = JSON.parse(await readFile(join(files.root, 'matches', '01.matched.json'), 'utf8')) as
       { episode: string; video_tasks: { content_duration: number }[] }
     expect(matched.episode).toBe('01')
-    expect(matched.video_tasks[0]?.content_duration).toBe(5)
+    expect(matched.video_tasks[0]?.content_duration).toBe(6)
     expect(await readFile(join(files.root, 'prompts', '01.txt'), 'utf8')).toContain('真人短剧写实风格')
   })
 

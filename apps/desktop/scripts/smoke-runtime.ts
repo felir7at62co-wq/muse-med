@@ -331,56 +331,12 @@ export function apply(ctx) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
     checkpoint('after-tools', id, index, phase)
     if (id === 'main-session') {
-      if (ctx.agentTeams.isEnabled(handle.agent)) throw new Error('desktop runtime: Main Session unexpectedly enables Team work')
-      const required = ['coordinator_sessions', 'coordinator_read', 'coordinator_view_image', 'coordinator_jobs', 'coordinator_settings',
-        'coordinator_dispatch', 'coordinator_reconcile', 'coordinator_tasks', 'coordinator_stop',
-        'coordinator_show_report', 'coordinator_display_skill']
-      // Other plugins own these human-facing tools; the Desktop main-session preset loads none of them itself.
-      const routing = [...required, 'ask_user_question', 'show_view', 'visualize']
-      const missing = required.filter(name => !names.has(name))
-      const unexpected = [...names].filter(name => !routing.includes(name)).sort()
-      if (missing.length > 0 || unexpected.length > 0) {
-        // The coordinator tools register only while the coordination service runs; name its absent dependencies.
-        const services = ['sessionCoordinator', 'agents', 'sessions', 'sessionQuery', 'sessionController', 'workspaceController', 'storageDomain',
-          'workspaceRegistry', 'jobs', 'typert', 'tools', 'sessionProjections', 'storage']
-        const absent = () => services.filter(name => ctx.get(name) === undefined)
-        const before = absent()
-        const deadline = Date.now() + 60_000
-        while (absent().includes('sessionCoordinator') && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 500))
-        const later = required.filter(name => !new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name)).has(name))
-        // Name the loader state of the plugins that provide those dependencies; a failed fiber keeps its error.
-        const states = ['pending', 'loading', 'active', 'failed', 'disposed', 'unloading']
-        const loader = ctx.get('loader')
-        const entries = []
-        for (const entry of loader === undefined ? [] : loader.entries()) {
-          if (!/storage|workspace|session-controller|session-coordinator/.test(String(entry.options.name))) continue
-          let state
-          if (entry.disabled) state = 'disabled'
-          else if (entry.fiber === undefined) {
-            // The loader only logs an import failure; repeat the import through the entry's tree to name it.
-            try {
-              await entry.parent.tree.import(entry.options.name, entry.getOuterStack)
-              state = 'not loaded (imports now)'
-            } catch (error) {
-              state = 'not loaded (' + String(error?.message ?? error).slice(0, 400) + ')'
-            }
-          } else {
-            state = (states[entry.fiber.state] ?? String(entry.fiber.state))
-              + (entry.fiber._error === undefined ? '' : ' (' + String(entry.fiber._error?.message ?? entry.fiber._error).slice(0, 300) + ')')
-          }
-          entries.push(String(entry.options.name) + '=' + state)
-        }
-        throw new Error('desktop runtime: Main Session routing tool roster differs; missing: ' + (missing.join(', ') || 'none')
-          + '; unexpected: ' + (unexpected.join(', ') || 'none') + '; absent services: ' + (before.join(', ') || 'none')
-          + '; absent after 60 s: ' + (absent().join(', ') || 'none') + '; still missing after 60 s: ' + (later.join(', ') || 'none')
-          + '; loader entries: ' + (loader === undefined ? 'loader unavailable' : entries.join(', ') || 'none'))
-      }
+      // The session coordinator is archived: this preset only reopens existing Main Sessions.
+      const routing = [...names].filter(name => name.startsWith('coordinator_')).sort()
+      if (routing.length > 0) throw new Error('desktop runtime: archived Main Session routing tool remains active: ' + routing.join(', '))
       const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
-      if (!assembly.sections.some(section => section.name === 'muse:main-session' && section.text.includes('只负责'))) {
-        throw new Error('desktop runtime: Main Session routing guidance is missing')
-      }
-      if (assembly.tools.some(tool => !routing.includes(tool.name))) {
-        throw new Error('desktop runtime: Main Session exposes business model tools')
+      if (assembly.sections.some(section => section.name === 'muse:main-session')) {
+        throw new Error('desktop runtime: archived Main Session routing guidance remains active')
       }
       continue
     }

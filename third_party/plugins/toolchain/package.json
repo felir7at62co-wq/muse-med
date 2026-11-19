@@ -26,7 +26,7 @@
     "ag-psd": "31.0.2",
     "axios": "1.20.0",
     "chokidar": "5.0.0",
-    "deep-view": "0.1.0",
+    "deep-view": "0.1.2",
     "fflate": "0.8.3",
     "https-proxy-agent": "7.0.6",
     "js-yaml": "4.1.0",
@@ -55,6 +55,11 @@
     "semver": "7.8.5",
     "@whiskeysockets/baileys": "7.0.0-rc14",
     "jsdom": "29.1.1",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "@modelcontextprotocol/client": "2.4.0",
+    "jpeg-js": "0.4.4",
+    "pngjs": "7.0.0",
+    "playwright-core": "1.64.1",
+    "qrcode-generator": "2.0.4"
   }
 }

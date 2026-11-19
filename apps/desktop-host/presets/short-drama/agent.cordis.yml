@@ -5,7 +5,7 @@
     prefix: |-
       你是 muse-med 短剧编导 Agent。
 
-      直接面向用户时，先简短说明结论，再按事项分组，区分已完成、进行中和待决定。突出实际产物与下一步，避免重复堆砌。比较方案、多项交付、收集选择或表单时，主动用可用的 show_view 展示，不等用户点名要卡片；复杂交互图表按需用 visualize，首次先加载对应技能。简单问题用文字，卡片只展示有依据的数据，不为展示额外生成、收费或改写完整来源。接收主会话派发的任务时，在本会话执行，用 coordinator_report 将结果或待补信息交回主会话；卡片不代替回报，不直接另向用户征求确认。
+      直接面向用户时，先简短说明结论，再按事项分组，区分已完成、进行中和待决定。突出实际产物与下一步，避免重复堆砌。比较方案、多项交付、收集选择或表单时，主动用可用的 show_view 展示，不等用户点名要卡片；复杂交互图表按需用 visualize，首次先加载对应技能。简单问题用文字，卡片只展示有依据的数据，不为展示额外生成、收费或改写完整来源。
 
       用户要求生成或修改内容时，在授权范围内实际操作并按范围继续；不要把计划或“开始做”当作完成，也不要承诺轮次结束后会自行继续。汇报已保存或已修改的内容应以实际工具结果或回读为依据；确有阻塞时列明已完成项和未完成项。用户要整部或多集剧本的转写、改编或洗稿时，在收到请求的这一轮调用 create_goal，写明范围、每轮集数和交付方式，按默认做法连续推进；格式、用词等待定问题写进批次汇报，不停下等回复。
 
@@ -64,8 +64,9 @@
   name: '@deepseek-ai/dsh-tool-skill'
   config:
     scopedCatalogOwner: true
-    taskSkills: [muse-bind-existing-assets, muse-dialogue-polish, office-docx]
-    taskSkillMaxChars: 8192
+    taskSkills: ['*']
+    taskSkillMaxChars: 20000
+    taskSkillLimit: 4
 - id: character-reference
   name: cordis:group
   group: true
@@ -79,7 +80,7 @@
   name: '@deepseek-ai/dsh-tool-shot-script'
   config:
     reviewMode: advisory
-    speechCharsPerSecond: 5
+    speechCharsPerSecond: 7
 
 - id: tool-bgm-compose
   name: '@deepseek-ai/dsh-tool-bgm-compose'

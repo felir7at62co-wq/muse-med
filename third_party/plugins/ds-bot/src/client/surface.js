@@ -1,12 +1,4 @@
 import { STORAGE } from './storage.js'
-import { currentPart } from './text.js'
-
-// The classic view may attach only the current part of the Bot being displayed.
-export function classicWorkspaceTarget(currentMode, nextMode, sessionId, roster) {
-  if (currentMode !== 'bot' || nextMode !== 'agent' || sessionId === undefined) return undefined
-  const bot = roster.byId[sessionId]
-  return bot !== undefined && currentPart(bot) === sessionId ? { botId: bot.id, sessionId } : undefined
-}
 
 // The plugin's surface mode: 'bot' paints the whole team interface over the shell,
 // 'agent' withdraws every replacement so the shell's own interface comes back.
@@ -99,70 +91,4 @@ export function readMode(storage = globalThis.localStorage) {
 
 export function writeMode(mode, storage = globalThis.localStorage) {
   try { storage.setItem(STORAGE.surface, mode) } catch { /* storage unavailable */ }
-}
-
-// Reuse needs a complete Host ownership list; an unresolved roster still allows
-// the Workspace service to create a fresh ordinary Session.
-export function canReuseOrdinarySession(sessionId, roster) {
-  return roster.ready === true && Array.isArray(roster.ownedSessionIds) && !roster.ownedSessionIds.includes(sessionId)
-}
-
-// Each surface remembers only its own visible Session. Switching never updates a
-// model, copies a draft, or interrupts the Session left behind.
-export function surfaceSelections(storage = globalThis.localStorage) {
-  let kept = {}
-  try {
-    const value = JSON.parse(storage.getItem(STORAGE.surfaceSelections) ?? '{}')
-    if (value && typeof value === 'object') {
-      for (const mode of ['agent', 'bot']) if (typeof value[mode] === 'string') kept[mode] = value[mode]
-    }
-  } catch { /* storage unavailable or unreadable */ }
-  const botSession = (id, roster) => roster.byId?.[id] !== undefined || roster.roomsById?.[id] !== undefined
-  return {
-    remember(mode, id, roster) {
-      if (typeof id !== 'string' || (mode !== 'agent' && mode !== 'bot')) return
-      if (botSession(id, roster) !== (mode === 'bot')) return
-      kept[mode] = id
-      try { storage.setItem(STORAGE.surfaceSelections, JSON.stringify(kept)) } catch { /* storage unavailable */ }
-    },
-    target(mode, list, roster) {
-      if (mode === 'bot') {
-        const bot = roster.byId?.[kept.bot]
-        if (bot) return currentPart(bot)
-        if (roster.roomsById?.[kept.bot]) return kept.bot
-        const main = roster.byId?.[roster.mainBotId] ?? roster.bots?.[0]
-        return main ? currentPart(main) : roster.rooms?.[0]?.id
-      }
-      if (list.byId?.[kept.agent] && !botSession(kept.agent, roster)) return kept.agent
-      return Object.values(list.byId ?? {}).filter(row => row?.origin !== 'subagent' && !botSession(row.id, roster))
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]?.id
-    },
-  }
-}
-
-// Creates a fresh ordinary Session once while navigation is pending. Leaving the
-// surface or opening another Session prevents late navigation; creation is retained.
-export function ordinarySessionStarter({ create, open, current, isActive, remember }) {
-  let pending
-  let navigate = false
-  let disposed = false
-  let from
-  return {
-    start(workspaceId) {
-      if (disposed) return Promise.resolve(undefined)
-      navigate = true
-      from = current()
-      if (pending) return pending
-      pending = Promise.resolve().then(() => create({ workspaceId })).then((id) => {
-        if (!disposed) {
-          remember(id)
-          if (navigate && isActive() && current() === from) open(id)
-        }
-        return id
-      }).finally(() => { pending = undefined })
-      return pending
-    },
-    cancel() { navigate = false },
-    dispose() { disposed = true; navigate = false },
-  }
 }

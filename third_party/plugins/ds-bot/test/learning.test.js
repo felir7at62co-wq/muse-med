@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { agentsProblem, agentsRequest, applyEdits, hashOf, LEARNING, parseJson, skillProblem, withoutReviewedAgentsRecords } from '../src/host/learning.js'
-import { legacyContext as fakeContext, legacyConfig } from './legacy-ctx.js'
+import { agentsAnswer, agentsProblem, agentsRequest, applyEdits, LEARNING, parseJson, skillProblem, withoutReviewedAgentsRecords } from '../src/host/learning.js'
+import { fakeContext } from './fake-ctx.js'
 
 const TEAM = {
   version: 1,
@@ -57,7 +57,7 @@ function start({ replies = [], config = {}, history = {}, seed = TEAM, learningS
         if (reply instanceof Error) throw reply
         const out = typeof reply === 'object' && reply !== null ? reply : { text: reply ?? '' }
         yield { type: 'text-delta', index: 0, text: out.text ?? '' }
-        yield { type: 'finish', reason: { kind: out.finish ?? 'stop', ...(out.failure ? { failure: { message: out.failure } } : {}) } }
+        yield { type: 'finish', reason: { kind: out.finish ?? 'stop', ...(out.failure ? { failure: typeof out.failure === 'string' ? { message: out.failure } : out.failure } : {}) } }
       },
     },
     sessionController: {
@@ -92,7 +92,7 @@ function start({ replies = [], config = {}, history = {}, seed = TEAM, learningS
     ...config,
     learningTimes: { minTurnMs: 0, idleMs: 0, intervalMs: 0, tickMs: 10, ...config.learningTimes },
   }
-  const rt = createRuntime(ctx, legacyConfig({ home, ...settings }))
+  const rt = createRuntime(ctx, { home, ...settings })
   const call = async (endpoint, payload = {}) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', {
       method: 'POST',
@@ -124,71 +124,6 @@ async function startRuntime(options) {
   const runtime = start(options)
   await runtime.call('state')
   return runtime
-}
-
-test('a read-only Host leaves the saved learning queue and proposals unchanged after a turn', async t => {
-  const runtime = await startRuntime({
-    learningSeed: {
-      pending: { b2: ['older-part'] },
-      proposals: { keep: { id: 'keep', kind: 'skill', botId: 'b2', name: 'saved-proposal' } },
-    },
-    config: { learningTimes: { tickMs: 100_000 } },
-  })
-  t.after(() => runtime.stop())
-  const before = readFileSync(runtime.learningPath, 'utf8')
-  runtime.rt.readOnly = () => 'The Bot team is open in another Host'
-  await finishTurn(runtime.ctx)
-  await runtime.ctx.dispose()
-  assert.equal(readFileSync(runtime.learningPath, 'utf8'), before)
-  assert.equal(runtime.requests.length, 0)
-})
-
-test('a read-only Host refuses an explicit learning pass before any model request', async t => {
-  const runtime = await startRuntime({
-    learningSeed: { pending: { b2: ['b2'] } },
-    replies: [noneReply],
-    config: { learningTimes: { tickMs: 100_000 } },
-  })
-  t.after(() => runtime.stop())
-  const before = readFileSync(runtime.learningPath, 'utf8')
-  runtime.rt.readOnly = () => 'The Bot team is open in another Host'
-  await assert.rejects(runtime.rt.learningRun(), /The Bot team is open in another Host/)
-  assert.equal(runtime.requests.length, 0)
-  assert.equal(readFileSync(runtime.learningPath, 'utf8'), before)
-})
-
-test('a queued learning write stops when the Host loses ownership before it runs', async t => {
-  const runtime = await startRuntime({
-    learningSeed: { pending: { m1: ['m1'] } },
-    config: { learningTimes: { tickMs: 100_000 } },
-  })
-  t.after(() => runtime.stop())
-  const before = readFileSync(runtime.learningPath, 'utf8')
-  const { agent } = await runtime.ctx.sessionController.resolveAgent('b2')
-  runtime.ctx.emit('agent/status', { agent, status: 'running' })
-  runtime.ctx.emit('agent/status', { agent, status: 'idle' })
-  runtime.rt.readOnly = () => 'The Bot team is open in another Host'
-  await runtime.ctx.dispose()
-  assert.equal(readFileSync(runtime.learningPath, 'utf8'), before)
-  assert.equal(runtime.requests.length, 0)
-})
-
-for (const config of [{ learning: false }, { memory: false }]) {
-  test(`${Object.keys(config)[0]} false preserves learning data without scheduling requests`, async t => {
-    const runtime = await startRuntime({
-      learningSeed: { pending: { b2: ['b2'] }, proposals: { keep: { id: 'keep', kind: 'skill', botId: 'b2' } } },
-      config,
-    })
-    t.after(() => runtime.stop())
-    const before = readFileSync(runtime.learningPath, 'utf8')
-    assert.equal(runtime.ctx.calls.includes('effect ds-bot: learning'), false)
-    await finishTurn(runtime.ctx)
-    assert.equal(await runtime.rt.learningRun(), 0)
-    assert.deepEqual(runtime.rt.learningView(), {})
-    await runtime.ctx.dispose()
-    assert.equal(runtime.requests.length, 0)
-    assert.equal(readFileSync(runtime.learningPath, 'utf8'), before)
-  })
 }
 
 async function finishTurn(ctx, { id = 'b2', duration = 0 } = {}) {
@@ -234,6 +169,25 @@ test('agentsProblem validates edit safety and whole-line matches', () => {
   const long = `# ${'x'.repeat(3997)}`
   const large = { action: 'edit', edits: [1, 2, 3].map(index => ({ op: 'add', after: '', text: `- ${index}${'y'.repeat(397)}`, why: 'Repeated correction.' })) }
   assert.match(agentsProblem(large, long), /too large/)
+})
+
+test('agentsAnswer reads an edit written as the answer, an empty replacement, and lines apart as edits', () => {
+  const current = '# Project\n- Use yarn.\n- Do not edit vendor/.\n- Run `yarn test`.\n'
+  const why = 'The user moved the project to pnpm.'
+  const answer = value => agentsAnswer(JSON.stringify(value), current)
+  const flat = answer({ action: 'replace', old: '- Use yarn.', text: '- Use pnpm.', why })
+  assert.deepEqual(flat, { action: 'edit', edits: [{ op: 'replace', old: '- Use yarn.', text: '- Use pnpm.', why }] })
+  assert.equal(agentsProblem(flat, current), undefined)
+  assert.deepEqual(answer({ action: 'edit', edits: [{ op: 'replace', old: '- Use yarn.', text: ' ', why }] }).edits, [{ op: 'remove', old: '- Use yarn.', why }])
+  const apart = answer({ action: 'edit', edits: [{ op: 'replace', old: '- Use yarn.\n- Run `yarn test`.', text: '- Use pnpm.\n- Run `pnpm test`.', why }] })
+  assert.deepEqual(apart.edits.map(edit => [edit.old, edit.text]), [['- Use yarn.', '- Use pnpm.'], ['- Run `yarn test`.', '- Run `pnpm test`.']])
+  assert.equal(applyEdits(current, apart.edits), '# Project\n- Use pnpm.\n- Do not edit vendor/.\n- Run `pnpm test`.\n')
+  assert.equal(answer({ action: 'edit', edits: [{ op: 'remove', old: '- Use yarn.\n- Run `yarn test`.', why }] }).edits.length, 2)
+  // Lines apart with a different number of new lines stay one edit, and the check refuses it.
+  const uneven = answer({ action: 'edit', edits: [{ op: 'replace', old: '- Use yarn.\n- Run `yarn test`.', text: '- Use pnpm.', why }] })
+  assert.match(agentsProblem(uneven, current), /exactly once/)
+  assert.deepEqual(answer({ action: 'none', reason: 'Routine work.' }), { action: 'none', reason: 'Routine work.' })
+  assert.equal(agentsAnswer('no JSON here', current), undefined)
 })
 
 test('applyEdits supports end and anchored add, replace, remove, and a new file', () => {
@@ -522,7 +476,7 @@ test('folders without a project marker, DSH data folders, and agentsMd:false are
   }
 })
 
-test('disposal aborts and drains learning before the next host writes state', async t => {
+test('a disposed learning pass cannot overwrite the next host state with a late model reply', async t => {
   for (const kind of ['skill', 'agents']) await t.test(kind, async t => {
     let finishModel
     const reply = new Promise(resolve => { finishModel = resolve })
@@ -535,161 +489,17 @@ test('disposal aborts and drains learning before the next host writes state', as
     const pass = runtime.rt.learningRun()
     const calls = kind === 'agents' ? 2 : 1
     await until(() => runtime.requests.length === calls)
-    let disposed = false
-    const closing = runtime.ctx.dispose().then(() => { disposed = true })
-    assert.equal(runtime.requests.at(-1).signal.aborted, true)
-    await settle()
-    assert.equal(disposed, false)
-    finishModel(kind === 'agents' ? agentsEdit : createReply)
-    await closing
-    await pass
+    await runtime.ctx.dispose()
 
     const next = { pending: { m1: ['m1'] }, proposals: { next: { id: 'next', botId: 'm1', name: 'next-host-skill' } } }
     writeFileSync(runtime.learningPath, JSON.stringify(next))
+    finishModel(kind === 'agents' ? agentsEdit : createReply)
+    await pass
     assert.deepEqual(runtime.learningState(), next)
     assert.deepEqual(runtime.rt.learningView(), {})
     assert.equal(await runtime.rt.learningRun(), 0)
     assert.equal(runtime.requests.length, calls)
   })
-})
-
-for (const kind of ['agents', 'skill']) test(`disposal drains an admitted ${kind} approval and retains its durable completion`, async t => {
-  const folder = projectFolder(t)
-  const canonical = realpathSync(folder)
-  const initial = readFileSync(join(folder, 'AGENTS.md'), 'utf8')
-  const proposal = kind === 'agents'
-    ? { id: 'approved', kind, botId: 'b2', folder: canonical, path: join(canonical, 'AGENTS.md'), exists: true, base: hashOf(initial), content: `${initial}- Approved rule\n`, edits: [] }
-    : { id: 'approved', kind, action: 'create', botId: 'b2', name: 'release-checks', description: 'Use when checking a release.', content: 'Run the release checks.' }
-  const keep = { id: 'unstarted', kind: 'skill', botId: 'b2', name: 'keep-this-proposal', description: 'Keep this card.' }
-  const runtime = await startRuntime({
-    learningSeed: { proposals: { approved: proposal, unstarted: keep } },
-    config: { learningTimes: { tickMs: 100_000 } },
-  })
-  t.after(() => runtime.stop())
-  let markEntered
-  let release
-  const entered = new Promise(resolve => { markEntered = resolve })
-  const gate = new Promise(resolve => { release = resolve })
-  if (kind === 'agents') {
-    const real = runtime.rt.real
-    runtime.rt.real = async path => {
-      if (path === canonical) {
-        markEntered()
-        await gate
-      }
-      return real(path)
-    }
-  } else {
-    const save = runtime.rt.capabilitySave
-    runtime.rt.capabilitySave = async (...args) => {
-      const item = await save(...args)
-      // The skill file is committed before unload; attachment and its receipt remain owned work.
-      markEntered()
-      await gate
-      return item
-    }
-  }
-  const applying = runtime.call('learning-answer', { id: proposal.id, approve: true })
-  let closing
-  let refused
-  try {
-    await entered
-    if (kind === 'skill') assert.equal(runtime.teamState().capabilities.items['release-checks'].content, proposal.content)
-    closing = runtime.ctx.dispose()
-    refused = await runtime.call('learning-answer', { id: keep.id, approve: false })
-  } finally {
-    release()
-    const result = await applying
-    await closing
-    assert.equal(result.ok, true)
-  }
-  const final = runtime.learningState()
-  assert.equal(final.proposals.approved, undefined)
-  assert.equal(final.proposals.unstarted.id, keep.id)
-  if (kind === 'agents') assert.equal(readFileSync(join(folder, 'AGENTS.md'), 'utf8'), proposal.content)
-  else {
-    assert.deepEqual(final.learned.b2, ['release-checks'])
-    assert.ok(runtime.teamState().bots.b2.capabilities.includes('release-checks'))
-  }
-  assert.equal(refused.ok, false)
-  assert.match(refused.error.message, /stopp/)
-})
-
-test('a private skill decline retains its Bot owner and does not enter a public Bot review', async t => {
-  const seed = structuredClone(TEAM)
-  seed.bots.b2.private = true
-  seed.bots.b2.workDir = projectFolder(t)
-  seed.bots.b3 = { id: 'b3', sessionId: 'b3', name: 'Public Writer', capabilities: [], model: 'deepseek/v4' }
-  const privateDescription = 'Use when organizing the private diary marker ALPHA.'
-  const reply = JSON.stringify({ action: 'create', name: 'private-diary-rule', description: privateDescription, content: 'Keep diary markers organized.' })
-  const runtime = await startRuntime({
-    seed, learningSeed: { pending: { b2: ['b2'] } }, replies: [reply, noneReply],
-    config: { agentsMd: false, learningTimes: { tickMs: 100_000 } },
-  })
-  t.after(() => runtime.stop())
-  await runtime.rt.learningRun()
-  const proposal = runtime.rt.learningView().b2[0]
-  assert.equal((await runtime.call('learning-answer', { id: proposal.id, approve: false })).ok, true)
-  await finishTurn(runtime.ctx, { id: 'b3' })
-  await runtime.rt.learningRun()
-  assert.doesNotMatch(runtime.requests[1].messages[0].content[0].text, /private diary marker ALPHA/)
-  assert.equal(runtime.learningState().declined[0].botId, 'b2')
-})
-
-test('a failed admitted approval keeps its card while disposal releases the state lock', async t => {
-  const proposal = { id: 'failed', kind: 'skill', action: 'create', botId: 'b2', name: 'release-checks', description: 'Use when checking a release.', content: 'Run the release checks.' }
-  const runtime = await startRuntime({
-    learningSeed: { proposals: { failed: proposal } },
-    config: { learningTimes: { tickMs: 100_000 } },
-  })
-  t.after(() => runtime.stop())
-  let markEntered
-  let release
-  const entered = new Promise(resolve => { markEntered = resolve })
-  const gate = new Promise(resolve => { release = resolve })
-  runtime.rt.capabilitySave = async () => {
-    markEntered()
-    await gate
-    throw new Error('skill save failed')
-  }
-  const applying = runtime.call('learning-answer', { id: proposal.id, approve: true })
-  let closing
-  let failed
-  try {
-    await entered
-    assert.equal(existsSync(join(runtime.home, 'state.lock')), true)
-    closing = runtime.ctx.dispose()
-  } finally {
-    release()
-    failed = await applying
-    if (closing === undefined) await runtime.ctx.dispose()
-  }
-  assert.equal(failed.ok, false)
-  assert.match(failed.error.message, /skill save failed/)
-  const cleanup = await closing
-  assert.equal(cleanup.some(result => result.status === 'rejected'), false)
-  assert.equal(existsSync(join(runtime.home, 'state.lock')), false)
-  assert.equal(runtime.learningState().proposals.failed.id, proposal.id)
-})
-
-test('legacy skill declines without an owner stay saved but do not enter review prompts', async t => {
-  const runtime = await startRuntime({
-    learningSeed: {
-      pending: { b2: ['b2'] },
-      declined: [
-        { name: 'unowned-rule', description: 'Legacy private marker.' },
-        { botId: 'b2', name: 'own-rule', description: 'Same Bot marker.' },
-        { botId: 'another', name: 'other-rule', description: 'Other Bot marker.' },
-      ],
-    },
-    replies: [noneReply], config: { agentsMd: false, learningTimes: { tickMs: 100_000 } },
-  })
-  t.after(() => runtime.stop())
-  await runtime.rt.learningRun()
-  const request = runtime.requests[0].messages[0].content[0].text
-  assert.match(request, /Same Bot marker/)
-  assert.doesNotMatch(request, /Legacy private marker|Other Bot marker/)
-  assert.equal(runtime.learningState().declined.length, 3)
 })
 
 test('parseJson accepts fenced and unfenced objects and ignores garbage', () => {
@@ -776,13 +586,22 @@ test('long turns ending during review remain pending for the next pass', async t
     config: { learningTimes: { tickMs: 100_000 } },
   })
   t.after(() => runtime.stop())
+  // Every load and save rebuilds the owner maps from the roster, and the startup model sync
+  // saves while the test runs: b3 is put back after each of them.
+  const owned = () => { runtime.rt.chatOwners.set('b3', 'b2') }
   const load = runtime.rt.load
   runtime.rt.load = async (...args) => {
     const result = await load(...args)
-    runtime.rt.chatOwners.set('b3', 'b2')
+    owned()
     return result
   }
-  runtime.rt.chatOwners.set('b3', 'b2')
+  const save = runtime.rt.save
+  runtime.rt.save = (...args) => {
+    const result = save(...args)
+    owned()
+    return result
+  }
+  owned()
   const b3Statuses = []
   runtime.ctx.on('agent/status', ({ agent, status }) => {
     if (agent?.id === 'b3') b3Statuses.push(status)
@@ -1026,6 +845,12 @@ test('declined proposals are recorded and included in the next skill request', a
   assert.equal(runtime.teamState().capabilities.items['release-checks'], undefined)
   assert.equal(runtime.learningState().declined[0].name, 'release-checks')
   assert.match(runtime.requests[1].messages[0].content[0].text, /Proposals the user declined[\s\S]*- release-checks: Use when checking a release\./)
+  // The declined card stays in the chat part it was answered in, read-only.
+  const view = (await runtime.call('state')).value
+  assert.equal(view.learning.b2, undefined)
+  assert.deepEqual(view.learningSettled.b2.map(entry => [entry.id, entry.name, entry.outcome, entry.sessionId]), [[proposal.id, 'release-checks', 'declined', 'b2']])
+  assert.equal(typeof view.learningSettled.b2[0].settledAt, 'number')
+  assert.equal((await runtime.call('learning-answer', { id: proposal.id, approve: true })).ok, false)
 })
 
 test('an update approval fails if the learned skill description alone changed', async t => {
@@ -1142,4 +967,24 @@ test('a failed chat read keeps that Bot pending while other Bots are reviewed', 
   assert.equal(runtime.learningState().pending.b3, undefined)
   assert.equal(runtime.learningState().cursors.b3, 11)
   assert.equal(runtime.requests.length, 1)
+})
+
+test('a learning review retries TRANSPORT and TIMEOUT failures on the same route and discards partial text', async t => {
+  const runtime = await startRuntime({
+    replies: [
+      { text: '{"action":"create","name":"half', finish: 'error', failure: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } },
+      { text: '', finish: 'error', failure: { code: 'TIMEOUT', message: 'DeepSeek Messages stream idle timeout' } },
+      createReply,
+    ],
+    config: { learningTimes: { tickMs: 100_000 }, llmRetryBackoff: { initialDelayMs: 1, maxDelayMs: 5 } },
+  })
+  t.after(() => runtime.stop())
+  await finishTurn(runtime.ctx)
+  await runtime.rt.learningRun()
+
+  assert.equal(runtime.requests.length, 3)
+  const proposals = Object.values(runtime.learningState().proposals ?? {})
+  assert.equal(proposals.length, 1)
+  assert.equal(proposals[0].name, 'release-checks')
+  assert.equal(runtime.learningState().pending?.b2, undefined)
 })

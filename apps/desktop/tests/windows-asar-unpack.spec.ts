@@ -248,10 +248,10 @@ it('keeps the Windows OCR bridge outside ASAR for direct PowerShell execution', 
   expect(config.asarUnpack).toContain('**/@deepseek-ai/dsh-tool-video-inspect/scripts/**')
 })
 
-it('does not require an archived Bot Office CLI unpack rule', async () => {
+it('unpacks the Bot scripts that run as their own processes', async () => {
   const input = await fixture(false)
   const config = unsignedWindowsConfig('com.example.session-product', input.source)
-  expect(config.asarUnpack).not.toContain('**/ds-bot/office.js')
+  expect(config.asarUnpack).toEqual(expect.arrayContaining(['**/ds-bot/office.js', '**/ds-bot/link.js']))
 })
 
 it.each([false, true])('unpacks platform ripgrep executables with external source=%s', async (external) => {

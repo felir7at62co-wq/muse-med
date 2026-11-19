@@ -1,14 +1,18 @@
-# Muse owns model routes, web search, account access and runtime updates.
+# Muse composition. The browser half is discovered through the package's dsh.client
+# manifest and ./client export.
 - insert:
-    - id: muse-bot
+    # Every Bot conversation runs on Muse's short-drama preset, so the production prompt
+    # and tools are the same in every Bot. Muse ships its own updates.
+    - id: bot
       name: ds-bot
       config:
         agentPreset: short-drama
-        mainAgentPreset: bot-coordinator
-        contextManagement: host
-        goals: host
-        memoryReview: true
-        autoSessionBots: false
-        sessionBotSyncIntervalMs: 30000
-        github: false
         updateCheck: false
+        mainName: Muse
+        mainRole: 主理人
+
+# DS Bot's settings shell holds the sidebar's settings seat (src/client/settings-shell.js)
+# and draws the host's settings pages in its own Settings dialog. Only the entry that
+# declares the seat's child slots may render them, so the host's own shell stays off.
+- id: ui-settings-general
+  disabled: true

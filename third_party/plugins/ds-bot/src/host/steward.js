@@ -1,4 +1,3 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // The context steward. Once a Bot's conversation passes its check line, a separate,
 // small model call reads the latest messages and decides one thing: has the work
 // reached a stopping point (move on to a fresh part), or is it still under way
@@ -12,19 +11,25 @@ import { estimateTokens } from './text.js'
 // For a model that declares no window.
 export const DEFAULT_WINDOW = 500_000
 export const DEFAULT_CHECK_RATIO = 0.8
+// Provider prefix caches stop helping above a few hundred thousand tokens, and a
+// request past that point pays a full prefill every time. A model with a very large
+// window would otherwise keep one part alive far past it, so the check line has an
+// absolute ceiling as well as its share of the window.
+export const DEFAULT_CHECK_TOKENS = 380_000
 // Context sizes between requests are estimates, so the hard line stays a little
 // below what the model can actually take.
 const HARD_SHARE = 0.95
 const STEWARD_TOKENS = 6_000
 const STEWARD_LINE_MAX = 1_500
 
-export function linesFor({ window, reserve, checkRatio }) {
+export function linesFor({ window, reserve, checkRatio, checkTokens }) {
   const declared = Number.isInteger(window) && window > 0 ? window : DEFAULT_WINDOW
   const room = Number.isInteger(reserve) && reserve > 0 ? reserve : 0
   const usable = Math.max(declared - room, Math.floor(declared / 2))
   const hard = Math.floor(usable * HARD_SHARE)
   const ratio = typeof checkRatio === 'number' && checkRatio > 0 && checkRatio < 1 ? checkRatio : DEFAULT_CHECK_RATIO
-  return { window: declared, usable, hard, check: Math.min(Math.floor(usable * ratio), hard) }
+  const cap = Number.isInteger(checkTokens) && checkTokens > 0 ? checkTokens : DEFAULT_CHECK_TOKENS
+  return { window: declared, usable, hard, check: Math.min(Math.floor(usable * ratio), hard, cap) }
 }
 
 export const STEWARD_SYSTEM = [
@@ -109,7 +114,7 @@ export function checkpointCount(messages) {
 }
 
 export const CHECKPOINT_PROMPT = [
-  'You are now writing a checkpoint of this conversation. This request comes from Muse Bot, not from the user: do not answer or continue the messages above.',
+  'You are now writing a checkpoint of this conversation. This request comes from DS Bot, not from the user: do not answer or continue the messages above.',
   'The messages above are about to be replaced by your checkpoint. What the user and other Bots sent you travels along word for word, so do not copy it; the full record also stays saved, and read_own_chat searches it. Write a summary that lets you carry on the work as if nothing had been cut:',
   '',
   '- Where the work stands: what is done, and what is under way and how far it got.',

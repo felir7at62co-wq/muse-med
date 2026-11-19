@@ -786,7 +786,7 @@
     },
     {
       "name": "end_task_skill",
-      "description": "Release the current task skill when its task is complete, cancelled or replaced. Loading another task skill switches phases automatically.",
+      "description": "Release a task skill when its task is complete or cancelled. Up to 4 task skills stay in effect together and are restored after the conversation is condensed; loading one more releases the oldest.",
       "parameters": {
         "type": "object",
         "properties": {

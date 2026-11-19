@@ -4,14 +4,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { legacyContext, legacyConfig } from './legacy-ctx.js'
+import { fakeContext } from './fake-ctx.js'
 
 // A team saved by an older release, opened by this one. The saved team has no Bots, so
 // the first read also makes the default Main Bot through these stand-in services.
 function open(saved) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-legacy-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(saved))
-  const ctx = legacyContext()
+  const ctx = fakeContext()
   let sessions = 0
   Object.assign(ctx, {
     workspaceRegistry: {
@@ -33,7 +33,7 @@ function open(saved) {
     route = options
     return register(options)
   }
-  apply(ctx, legacyConfig({ home }))
+  apply(ctx, { home })
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()

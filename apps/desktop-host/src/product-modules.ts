@@ -14,5 +14,5 @@ export function productModuleOverrides(runtimeDir: string): Readonly<Record<stri
   return { ...bundledBridgeModules(runtimeDir),
     '@deepseek-ai/dsh-drama-settings': productModule('./product-drama-settings.js'),
     'muse-workspace-owned-storage': productModule('./workspace-owned-storage.js'),
-    'ds-bot': productModule('./retired-bot.js'), 'muse-bot': productModule('./retired-bot.js') }
+    'muse-bot': productModule('./retired-bot.js') }
 }

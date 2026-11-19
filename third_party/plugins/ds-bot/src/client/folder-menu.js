@@ -13,7 +13,8 @@ const Tick = ({ on }) => h('span', { className: 'bt-model-tick', 'aria-hidden': 
 // one a Bot works in the team workspace and a group member in its own folder. `onPick`
 // gets the chosen path, or '' for that default. `team` is the menu for the team workspace
 // itself, which has no default.
-export function FolderMenu({ value, group = false, team = false, actions, run, onPick, wide = false, disabled = false }) {
+// Muse: `row` draws the trigger as a line of the sidebar's session list instead of a form field.
+export function FolderMenu({ value, group = false, team = false, row = false, actions, run, onPick, wide = false, disabled = false }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
   const [info, setInfo] = useState(null)
   const [view, setView] = useState('list')
@@ -82,13 +83,15 @@ export function FolderMenu({ value, group = false, team = false, actions, run, o
   const shownView = view === 'type' ? typeView : view === 'browse' && browseView ? browseView : listView
   return h(Fragment, null,
     h('button', {
-      ref: button, type: 'button', className: 'bt-model-trigger', 'data-wide': wide || undefined,
-      'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': team ? t('Team workspace: {folder}', { folder: value ?? '' }) : t('Working folder: {folder}', { folder: value ?? fallback }),
+      ref: button, type: 'button', className: row ? 'bt-agent-sub-row bt-agent-space' : 'bt-model-trigger', 'data-wide': wide || undefined,
+      'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': row ? t('Workspace: {folder}', { folder: value ?? '' }) : team ? t('Team workspace: {folder}', { folder: value ?? '' }) : t('Working folder: {folder}', { folder: value ?? fallback }),
       title: value, onClick: toggle, disabled,
     },
-    h('span', { className: 'bt-model-copy' },
-      h('span', { className: 'bt-model-name' }, value ? folderName(value) : fallback),
-      value ? h('span', { className: 'bt-model-provider' }, value) : null),
+    ...(row
+      ? [h(FolderIcon, { key: 'icon' }), h('span', { key: 'name', className: 'bt-agent-sub-title' }, value ? folderName(value) : t('Choose a workspace'))]
+      : [h('span', { key: 'copy', className: 'bt-model-copy' },
+          h('span', { className: 'bt-model-name' }, value ? folderName(value) : fallback),
+          value ? h('span', { className: 'bt-model-provider' }, value) : null)]),
     h(Caret)),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu bt-folder-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': team ? t('Team workspace') : t('Working folder'), style: shownPlace, 'data-leaving': leaving || undefined },
       shownView,
