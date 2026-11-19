@@ -5,7 +5,7 @@ exports[`records episode-conflict on replay without another paid PUT > native ep
   {
     "content": [
       {
-        "text": "Error: Jubian video task ownership could not be safely verified: VIDEO_EPISODE_CONFLICT: task episode ID and number contradict the frozen storyboard. Reconcile episode ownership; do not resubmit.",
+        "text": "Error: Jubian video task ownership could not be safely verified: VIDEO_EPISODE_CONFLICT: task_id=100000; storyboard_id=1; ownership=same_storyboard; task_episode_id=93828; task_episode_count=85; preview_episode_id=93828; preview_episode_count=76; read_only=true; reconcile task ownership before submitting; keep the original preview and key.",
         "type": "text",
       },
     ],

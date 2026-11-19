@@ -103,6 +103,34 @@ it('excludes a historical task whose complete child list names only other cards'
   expect(f.writes()).toHaveLength(1)
 })
 
+it.each(([
+  { source: 'child parent', detail: oldTask,
+    child: { id: 100001, aigcVideoTaskId: 777777, storyboardId: 999999 } },
+  { source: 'child project despite a parent owner', detail: { ...oldTask, storyboardId: 999999 },
+    child: { id: 100001, aigcVideoTaskId: 100000, scriptId: 9999, storyboardId: 999999 } },
+  { source: 'detail ID', detail: { ...oldTask, id: 777777, storyboardId: 999999 },
+    child: { id: 100001, aigcVideoTaskId: 100000, storyboardId: 999999 } },
+  { source: 'detail task ID alias', detail: { ...oldTask, taskId: 777777, storyboardId: 999999 },
+    child: { id: 100001, aigcVideoTaskId: 100000, storyboardId: 999999 } },
+  { source: 'detail parent ID alias', detail: { ...oldTask, aigcVideoTaskId: 777777, storyboardId: 999999 },
+    child: { id: 100001, aigcVideoTaskId: 100000, storyboardId: 999999 } },
+  { source: 'detail project', detail: { ...oldTask, scriptId: 9999, storyboardId: 999999 },
+    child: { id: 100001, aigcVideoTaskId: 100000, storyboardId: 999999 } },
+] satisfies Array<{ source: string; detail: Row; child: Row }>).flatMap(evidence =>
+  (['single', 'batch'] as const).map(mode => ({ ...evidence, mode }))))
+('keeps contradictory $source evidence unverified before a $mode submission', async ({ detail, child, mode }) => {
+  const f = await fixture()
+  f.state.tasks = [oldTask]
+  f.state.details['100000'] = detail
+  f.state.children['100000'] = [child]
+  const result = f.submit(mode)
+  await expect(result).rejects.toMatchObject({ name: 'JubianError', code: 'VIDEO_TASK_EVIDENCE_INVALID' })
+  await expect(result).rejects.toThrow('ownership=unverified;')
+  expect(f.writes()).toEqual([])
+  expect(await f.ledger.records()).toEqual([])
+  expect(await readFile(f.args.preview_path, 'utf8')).toBe(f.frozen)
+})
+
 it.each([
   { scope: { episodeId: 400, episodeCount: 1 }, source: 'list' },
   { scope: { episodeId: 401, episodeCount: 2 }, source: 'list' },

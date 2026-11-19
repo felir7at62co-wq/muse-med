@@ -457,8 +457,14 @@ function conflictingEpisode(actual: NativeEpisodeScope, expected: NativeEpisodeS
     && (actual.episodeId === expected.episodeId) !== (actual.episodeCount === expected.episodeCount)
 }
 
-/** A parent identity or a complete nonempty child list can establish another storyboard. */
-function belongsToAnotherStoryboard(task: Record<string, unknown>, children: Record<string, unknown>[], storyboardId: number): boolean {
+/** Only task/project-correlated evidence can establish another storyboard. */
+function belongsToAnotherStoryboard(task: Record<string, unknown>, children: Record<string, unknown>[],
+  taskId: string, scriptId: number, storyboardId: number): boolean {
+  const matches = (value: unknown, expected: string) => value == null || value === '' || wireText(value) === expected
+  const project = String(scriptId)
+  if (![task.id, task.taskId, task.aigcVideoTaskId].every(value => matches(value, taskId))
+    || !matches(task.scriptId, project)
+    || children.some(child => !matches(child.aigcVideoTaskId, taskId) || !matches(child.scriptId, project))) return false
   const different = (value: unknown) => value != null && value !== '' && positiveInteger(value) !== storyboardId
   return different(task.storyboardId) || (children.length > 0 && children.every(child => different(child.storyboardId)))
 }
@@ -504,7 +510,7 @@ async function hydrateRelated(client: JubianClient, records: Record<string, unkn
     const task = await taskDetail(client, taskId, signal)
     const allChildren = await listSubtasks(client, taskId, signal), children = childrenOf(allChildren, storyboardId)
     if (children.length === 0 && !statesStoryboard(record, storyboardId) && !statesStoryboard(task, storyboardId)) {
-      if (conflict && !belongsToAnotherStoryboard(task, allChildren, storyboardId)) {
+      if (conflict && !belongsToAnotherStoryboard(task, allChildren, taskId, scriptId, storyboardId)) {
         episodeConflict(taskId, storyboardId, scope, episode, 'unverified')
       }
       continue
