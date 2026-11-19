@@ -47,6 +47,7 @@ it('awaits an aborted status transport without recovering later parts and dispos
     const status = async (): Promise<MuseAccountStatus> => ({ state: 'signed-in', username: 'alice', verified: false })
     const account = { name: 'fixture-account', async apply(context: Context) {
       await context.plugin(MuseAccountService, { controller: { status, logout: status,
+        details: async () => { throw new Error('Unused fixture details') },
         login: async () => { throw new Error('unused fixture login') } }, asr: client })
     } }
     ctx.baseUrl = pathToFileURL(root).href + '/'

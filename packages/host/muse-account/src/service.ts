@@ -12,10 +12,10 @@ import { MuseFeedbackError, type MuseFeedbackClient } from './feedback.ts'
 import type { MuseFeedbackRequest, MuseFeedbackReceipt } from './types.ts'
 import type { MuseDesktopRemote } from './desktop-remote.ts'
 import { MuseVoiceSlotError, type MuseVoiceSlotRequest, type MuseVoiceSlotsClient } from './voice-slots.ts'
-import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
+import type { MuseAccountDetails, MuseAccountDetailsRequest, MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
-type AccountOperations = Pick<MuseAccountController, 'status' | 'login' | 'logout'>
+type AccountOperations = Pick<MuseAccountController, 'status' | 'login' | 'logout' | 'details'>
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -134,6 +134,17 @@ export class MuseAccountService extends TypertRemoteService {
   }
 
   /**
+   * Read profile, assigned groups, and token usage for the saved Muse login.
+   * @param request - Usage period and page; omission of fields selects gateway defaults.
+   * @returns Validated current-account data without credentials or model content.
+   */
+  @Remote('details')
+  async details(request: MuseAccountDetailsRequest): Promise<MuseAccountDetails> {
+    try { return await this.controller.details(request) }
+    catch (error) { throw remoteFailure(error) }
+  }
+
+  /**
    * Sign in using UI-submitted credentials; registration requires an explicit choice.
    * @param request - Username, password and registration choice.
    * @returns The confirmed account identity and actual outcome, without credentials; post-login refresh failures do not replace it.
@@ -248,6 +259,8 @@ function remoteFailure(error: unknown): RemoteError {
         return new RemoteError('muse-account/gateway-unavailable', 'MUSE account gateway is unavailable', {})
       case 'gateway-rejected':
         return new RemoteError('muse-account/gateway-rejected', 'MUSE account gateway rejected the request', {})
+      case 'unsupported-period':
+        return new RemoteError('muse-account/unsupported-period', 'MUSE account usage period is unavailable', {})
     }
   }
   return new RemoteError('muse-account/storage-failed', 'MUSE account session could not be read or updated', {})
