@@ -1,0 +1,37 @@
+{
+  "project_bible": {
+    "initial_budget_cents": 0,
+    "delivery": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 24,
+      "min_bitrate_mbps": 4.6
+    },
+    "title": "替嫁复仇",
+    "style": "现代写实电影质感",
+    "visual_medium": "photorealistic",
+    "aspect_ratio": "9:16",
+    "characters": [
+      {
+        "character_id": "shen",
+        "name": "沈明棠",
+        "voice_profile": {
+          "description": "平静成年女声"
+        }
+      }
+    ],
+    "schema_version": 1,
+    "revision": 1,
+    "history": [
+      {
+        "revision": 1,
+        "reason": "User requested migration to project 6750",
+        "changed_fields": [
+          "jubian_script_id"
+        ],
+        "affected_stages": []
+      }
+    ]
+  },
+  "jubian_script_id": 6750
+}

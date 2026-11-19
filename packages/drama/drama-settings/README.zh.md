@@ -14,6 +14,7 @@ kind: "package-bundle"
 ## 目录
 
 - [使用本包](#use-this-package)
+- [迁移到另一个制作项目](#project-migration)
 - [理解实现](#understand-the-implementation)
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
@@ -69,6 +70,13 @@ kind: "package-bundle"
 `voice_profiles` 保存同一 `character_id` 在童年、成年等不同人生时期的独立声线。每项包含唯一且非空的 `voice_period_id`、可选 `label` 及相同的平铺声音字段；新时期须提供 `description`。更新按时期 ID 合并，保留其他时期和旧 `voice_profile`。省略该数组或传 `[]` 不删除时期。`reference_audio: null` 只清除该时期的引用字段。服装和情绪变化不代表不同声音时期。删除检查分别报告每个仍引用资产的时期。
 
 工具在项目独占写入锁下原子替换 JSON，再原子替换派生的 `project-bible.md`。两次替换均通过共享原子写入器请求 `0600` mode；Windows 暂态重命名干扰有界重试，持续失败仍拒绝并保留原目标字节。含符号链接或 junction 的路径被拒绝。文件版本过期、预览被改、字段无效或锁被占用时，两份输出都不改变。JSON 提交后 Markdown 渲染失败时，错误给出已提交版本；重试前先读配置。遗留 `.project-bible.lock` 需检查后才能手工删除。视频选择仍须由实时剧变目录及准备工具验证；存储的声音指导不保证提供方能强制相同生成音色。
+
+<a id="project-migration"></a>
+### 迁移到另一个制作项目
+
+用户明确要求迁移到另一个剧变项目时，先核实两个远端项目 ID，再预先创建空的独立本地目标目录。调用 `drama_project action=preview`，将 `project_dir` 设为目标目录，传入 `migration_from: { project_dir: <来源目录>, script_id: <来源ID> }`，并将 `changes.jubian_script_id` 设为不同的目标 ID。应用预览时使用相同的 `migration_from`、changes 和 reason，以及返回的 `expected_revision` 与 `preview_fingerprint`。预览同时绑定来源修订；来源数据变化后须重新预览。普通更新仍拒绝替换已有项目绑定。
+
+迁移以可移植的创作、生成、交付与分集设定、稳定角色身份及声音描述初始化目标，排除来源资产 ID、音频引用、视频包绑定、已完成任务、预算记录和版本历史。来源目录保持不变。迁移不复制或创建远端项目、资产或分镜；绑定前须另行核实并登记目标项目的引用。回读目标的 `jubian_script_id` 并核对目标映射后，才从目标目录继续制作。
 
 ### 设置页
 
@@ -173,7 +181,7 @@ Client 构建从已声明的 `@deepseek-ai/dsh-typert-protocol` 构建依赖内�
 
 #### 模型看到什么
 
-`drama_project` 返回当前配置、项目路径、精确文件修订与当前 Settings 默认值。预览增加拟议配置、审阅指纹、变更字段、受影响阶段和可读 Markdown；更新返回已提交配置与新修订。结果使用标准 JSON 文本展示。[项目圣经技能](../skills/skills/tweet-drama-project-bible/SKILL.md) 持有集中启动询问与现有剧变流程。
+`drama_project` 返回当前配置、项目路径、精确文件修订与当前 Settings 默认值。预览增加拟议配置、审阅指纹、变更字段、受影响阶段和可读 Markdown；更新返回已提交配置与新修订。迁移还返回来源目录、项目 ID 与修订、目标 ID、继承字段和排除的记录类别。结果使用标准 JSON 文本展示。[项目圣经技能](../skills/skills/tweet-drama-project-bible/SKILL.md) 持有集中启动询问与现有剧变流程。
 
 #### Token 影响
 
