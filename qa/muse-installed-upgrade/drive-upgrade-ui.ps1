@@ -413,6 +413,108 @@ function Find-MuseQaNamedTreeRow {
     } catch [Windows.Automation.ElementNotAvailableException] {}
 }
 
+function Invoke-MuseQaNamedTreeRow {
+    param($Control, [int]$ProcessId, [string]$Name)
+    Assert-MuseQaInteractiveRunner
+    $pattern = $null
+    if ($Control.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+        $pattern.Invoke()
+        return
+    }
+
+    # Chromium treeitems with DOM click handlers may not expose InvokePattern.
+    # A pointer action is allowed only on the exact UIA row, with an independent hit test.
+    if (-not ('MuseUpgradeQa.Pointer' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System.Runtime.InteropServices;
+
+namespace MuseUpgradeQa {
+    public static class Pointer {
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetCursorPos(int x, int y);
+
+        [DllImport("user32.dll")]
+        public static extern void mouse_event(uint flags, uint x, uint y, uint data, System.UIntPtr extraInfo);
+    }
+}
+'@
+    }
+    $pointTarget = $Control
+    $label = Get-MuseQaUiControl $ProcessId @($Name) @('ControlType.Text')
+    $walker = [Windows.Automation.TreeWalker]::RawViewWalker
+    for ($element = $label; $element; $element = $walker.GetParent($element)) {
+        if ($element.Current.ProcessId -ne $ProcessId) { break }
+        if ([Windows.Automation.Automation]::Compare($element, $Control)) {
+            $pointTarget = $label
+            break
+        }
+    }
+    $point = $pointTarget.GetClickablePoint()
+    $x = [int][Math]::Round($point.X)
+    $y = [int][Math]::Round($point.Y)
+    if (-not [MuseUpgradeQa.Pointer]::SetCursorPos($x, $y)) {
+        throw 'Unable to point at an owned Muse tree row.'
+    }
+    $hit = [Windows.Automation.AutomationElement]::FromPoint([Windows.Point]::new($x, $y))
+    for ($element = $hit; $element; $element = $walker.GetParent($element)) {
+        if ($element.Current.ProcessId -ne $ProcessId) { break }
+        if ($element.Current.ControlType.ProgrammaticName -in @('ControlType.Button','ControlType.MenuItem','ControlType.Hyperlink',
+            'ControlType.CheckBox','ControlType.Edit','ControlType.ToggleButton')) { break }
+        if ([Windows.Automation.Automation]::Compare($element, $Control)) {
+            [MuseUpgradeQa.Pointer]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero)
+            [MuseUpgradeQa.Pointer]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero)
+            return
+        }
+    }
+    throw 'The exact Muse tree row is not the visible target at its clickable point.'
+}
+
+function Write-MuseQaReopenedSurface {
+    param($Context, [int]$ProcessId, [string]$Stage, [System.Collections.IDictionary]$Markers)
+    Assert-MuseQaInteractiveRunner
+    $filter = [Windows.Automation.PropertyCondition]::new(
+        [Windows.Automation.AutomationElement]::ProcessIdProperty, $ProcessId)
+    $roots = [Windows.Automation.AutomationElement]::RootElement.FindAll(
+        [Windows.Automation.TreeScope]::Children, $filter)
+    $counts = [ordered]@{ windows = 0; documents = 0; trees = 0; treeItems = 0; text = 0; buttons = 0 }
+    $kinds = @{
+        'ControlType.Document' = 'documents'; 'ControlType.Tree' = 'trees'
+        'ControlType.TreeItem' = 'treeItems'; 'ControlType.Text' = 'text'; 'ControlType.Button' = 'buttons'
+    }
+    $observed = [ordered]@{}
+    foreach ($key in $Markers.Keys) { $observed[$key] = @() }
+    foreach ($root in $roots) {
+        try {
+            if ($root.Current.IsOffscreen) { continue }
+            $counts.windows++
+            $children = $root.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+            foreach ($child in $children) {
+                try {
+                    $state = $child.Current
+                    if ($state.IsOffscreen -or $state.ProcessId -ne $ProcessId) { continue }
+                    $kind = $state.ControlType.ProgrammaticName
+                    if ($kinds.ContainsKey($kind)) { $counts[$kinds[$kind]]++ }
+                    foreach ($key in $Markers.Keys) {
+                        if ($Markers[$key] -ccontains $state.Name -and $observed[$key] -cnotcontains $kind) {
+                            $observed[$key] += $kind
+                        }
+                    }
+                } catch [Windows.Automation.ElementNotAvailableException] {}
+            }
+        } catch [Windows.Automation.ElementNotAvailableException] {}
+    }
+    $path = Get-MuseQaOwnedPath -Path $Context.EvidencePath -Root $env:RUNNER_TEMP
+    $record = [ordered]@{
+        time = [datetime]::UtcNow.ToString('o'); event = 'session-ui-surface'; stage = $Stage
+        pid = $ProcessId; fromVersion = $Context.BaselineVersion; targetVersion = $Context.TargetVersion
+        visible = $counts; markerRoles = $observed
+    }
+    $json = $record | ConvertTo-Json -Depth 5 -Compress
+    [IO.File]::AppendAllText($path, ($json + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+    Write-Host "Muse native session surface: $json"
+}
+
 function Confirm-MuseReopenedSessionUi {
     [CmdletBinding()]
     param(
@@ -433,10 +535,24 @@ function Confirm-MuseReopenedSessionUi {
         'The installer reports that the update completed. The recorded backup is not automatically cleaned up, and workspace and skills inside it are not moved to the new installation. Check that the backup still exists and copy needed files to a safe location.',
         '安装报告显示更新已完成，记录的旧应用备份不会自动清理；其中的工作区和技能不会自动迁回新安装目录。请先确认备份仍在，再将需要的文件复制到安全位置。'
     )
+    $signInLaterNames = @('Sign in later','稍后登录')
+    $configureLaterNames = @('Configure later','稍后配置')
+    $openSidebarNames = @('Open sidebar','打开侧边栏')
+    $markers = [ordered]@{
+        backupNotice = $noticeNames; accountWelcome = @('Welcome to MUSE','欢迎使用 MUSE')
+        signInLater = $signInLaterNames; modelSetup = @('Set up a model for muse-med','为 muse-med 配置模型')
+        configureLater = $configureLaterNames; openSidebar = $openSidebarNames
+        workspace = @($WorkspaceTitle); session = @($SessionTitle)
+        userMessage = @($UserText); assistantMessage = @($AssistantText)
+    }
     $noticeAcknowledged = $false
+    $accountSkipped = $false
+    $modelSkipped = $false
+    $sidebarOpened = $false
     $expanded = $false
     $opened = $false
     $workspaceSeen = $false
+    $surfaceRecorded = $false
     $watch = [Diagnostics.Stopwatch]::StartNew()
     do {
         $current = Get-MuseQaRelaunchedCandidate $Context
@@ -456,8 +572,33 @@ function Confirm-MuseReopenedSessionUi {
                 continue
             }
         }
+        if (-not $surfaceRecorded) {
+            Write-MuseQaReopenedSurface $Context $SuccessorPid 'first-session-surface' $markers
+            $surfaceRecorded = $true
+        }
+        if (-not $accountSkipped) {
+            $signInLater = Get-MuseQaUiControl $SuccessorPid $signInLaterNames @('ControlType.Button')
+            if ($signInLater) {
+                Invoke-MuseQaUiControl $signInLater
+                $accountSkipped = $true
+                Add-MuseQaUiEvidence $Context 'fixture-account-setup-deferred' $SuccessorPid
+                Start-Sleep -Milliseconds 300
+                continue
+            }
+        }
+        if (-not $modelSkipped) {
+            $configureLater = Get-MuseQaUiControl $SuccessorPid $configureLaterNames @('ControlType.Button')
+            if ($configureLater) {
+                Invoke-MuseQaUiControl $configureLater
+                $modelSkipped = $true
+                Add-MuseQaUiEvidence $Context 'fixture-model-setup-deferred' $SuccessorPid
+                Start-Sleep -Milliseconds 300
+                continue
+            }
+        }
         $workspace = Find-MuseQaNamedTreeRow $SuccessorPid $WorkspaceTitle
         if ($workspace -or (Get-MuseQaUiControl $SuccessorPid @($WorkspaceTitle) @('ControlType.Text'))) {
+            if (-not $workspaceSeen) { Add-MuseQaUiEvidence $Context 'seeded-workspace-visible' $SuccessorPid }
             $workspaceSeen = $true
         }
         if ($workspaceSeen -and
@@ -471,7 +612,7 @@ function Confirm-MuseReopenedSessionUi {
         if (-not $opened) {
             $session = Find-MuseQaNamedTreeRow $SuccessorPid $SessionTitle
             if ($session) {
-                Invoke-MuseQaUiControl $session
+                Invoke-MuseQaNamedTreeRow $session $SuccessorPid $SessionTitle
                 $opened = $true
                 Add-MuseQaUiEvidence $Context 'seeded-session-row-selected' $SuccessorPid
             } elseif ($workspace -and -not $expanded) {
@@ -481,12 +622,20 @@ function Confirm-MuseReopenedSessionUi {
                         $pattern.Expand()
                     }
                 } else {
-                    Invoke-MuseQaUiControl $workspace
+                    Invoke-MuseQaNamedTreeRow $workspace $SuccessorPid $WorkspaceTitle
                 }
                 $expanded = $true
+            } elseif (-not $workspaceSeen -and -not $sidebarOpened) {
+                $openSidebar = Get-MuseQaUiControl $SuccessorPid $openSidebarNames @('ControlType.Button')
+                if ($openSidebar) {
+                    Invoke-MuseQaUiControl $openSidebar
+                    $sidebarOpened = $true
+                    Add-MuseQaUiEvidence $Context 'fixture-sidebar-opened' $SuccessorPid
+                }
             }
         }
         Start-Sleep -Milliseconds 300
     } while ($watch.Elapsed.TotalSeconds -lt $TimeoutSeconds)
+    Write-MuseQaReopenedSurface $Context $SuccessorPid 'session-readback-timeout' $markers
     throw 'The exact seeded workspace and two conversation messages were not observed in the relaunched Muse GUI.'
 }
