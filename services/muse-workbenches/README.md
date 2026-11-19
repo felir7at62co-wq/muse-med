@@ -72,6 +72,24 @@ Desktop opens `/v1/auth/muse/embed` or `/fwp/v2/auth/muse/embed`. The frame auth
 
 Jingliu chat tools call `POST .../auth/muse/challenge`, obtain a Muse grant and call `POST .../auth/muse/exchange` with the request ID and code. The original business session authorizes subsequent tool calls.
 
+## Muse video transcription
+
+Workshop uploads, imported video links, TOS uploads, retries and TikHub's draft action use the same [episode runner](../../integrations/muse-hit-transcription/native.py) as the Muse data station. Draft ownership stays in Workshop. An episode keeps its original Muse Session, input digest and references on retry. An explicit full rerun creates a new revision. Speech recognition, whole-episode OCR, visual review, dialogue comparison and Word verification must finish before the native chapter and its material index are committed together.
+
+Apply `install.py --audience script-workshop --reverse-only --backend <extracted-backend>` to an existing deployment. [configure_reverse.py](shared-host/configure_reverse.py) installs the versioned runner and a private SDK home from the operator-authorized cloud profile. Set `MUSE_WORKSHOP_REVERSE_CONFIG` to the resulting private JSON path and `VIDEO_TMP_DIR` to a persistent directory inside the Workshop uploads volume. All Workshop processes using the same state root share the configured number of episode slots. Successful delivery creates an editable draft. The authenticated API lists its materials at `GET /v1/video/jobs/{draft_id}/episodes/{episode}/materials` and serves the numbered entry below that path.
+
+### Private media storage
+
+Use a private production media bucket in the chosen region. Keep each application's production and test prefixes separate. Store manuscripts and access controls in their native databases. Configure these fields in the two server environments.
+
+| Service | Settings and access |
+|---|---|
+| Workshop intake | `ALIYUN_OSS_BUCKET`, `ALIYUN_OSS_REGION`, `ALIYUN_OSS_ENDPOINT_INTERNAL`, `ALIYUN_OSS_ENDPOINT_PUBLIC`, `ALIYUN_OSS_KEY_PREFIX=workshop/prod/`, `ALIYUN_OSS_ACCESS_KEY_ID` and `ALIYUN_OSS_ACCESS_KEY_SECRET` configure the Volcengine TOS client. Grant its identity upload, read and native multipart operations on its intake prefix. The browser uses the Workshop upload endpoint until TOS is configured, then switches to resumable direct uploads. Batch folder upload uses TOS. |
+| Muse reverse materials | Set `tosPrefix` in the Workshop runner JSON to `reverse/prod` and grant the Workshop identity read and write there. Muse verifies each file then writes the index last. The chapter stores the bucket, index key and digest. An authorized download receives a five-minute signed URL. With the prefix unset, materials use the private server volume. |
+| Jingliu | Set `FW_TOS_BUCKET`, `FW_TOS_REGION`, `FW_TOS_ENDPOINT` (hostname), `FW_TOS_KEY_PREFIX=jingliu/prod/`, `FW_TOS_ACCESS_KEY_ID` and `FW_TOS_ACCESS_KEY_SECRET`. Its own identity needs the operations used by its media flows on its prefix. The default `FW_TOS_DIRS` covers `uploads` and `generated`. Imported shared-character images are in `character-references`; migrate and verify those existing bytes before enabling storage or eviction for that directory. |
+
+Set the public endpoint to the browser-accessible regional hostname. Use the internal endpoint only from a service with working access to that region's internal network. Allow the actual workbench HTTPS origin in bucket CORS with the upload and preview methods and headers, exposing `ETag` for multipart completion. Keep private intake and reverse prefixes outside Workshop's public CDN allowlist. Existing objects keep their original keys. Reconcile counts and digests before moving stored media or adding expiry rules. `ARK_TOS_BUCKET` serves the archived Ark file flow and is separate from Muse transcription. [CORS](https://docs.volcengine.com/docs/torch-object-storage/cor-srules?lang=zh) · [TOS policies](https://docs.volcengine.com/docs/torch-object-storage/bucket-policy-templates-and-parameters?lang=zh).
+
 ## Verify
 
 Run `python -m unittest discover -s services/muse-workbenches -v` with the application backend dependencies installed. Run `node --test services/muse-workbenches/test_embedded_storage.mjs` for Chromium coverage of embedded storage with test authorization. Set `CHROME_PATH` to select a local Chrome. For deployment acceptance, sign in through the real gateway with two independently mapped users and verify their original projects, private drafts, role and balance.

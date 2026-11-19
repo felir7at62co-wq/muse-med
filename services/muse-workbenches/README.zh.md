@@ -72,6 +72,24 @@ location /fwp/ { proxy_pass http://jingliu_api/; }
 
 聊天工具通过同一服务的 `POST .../auth/muse/challenge` 获得 `requestId`、`challenge`，通过当前 Muse 登录获取该 audience 的一次性授权码，再向 `POST .../auth/muse/exchange` 发送 `{"requestId":"…","code":"…"}`。两端以原格式返回自己的会话。后台任务和项目读取继续遵守各工作台原有权限。工作台已签发的独立站令牌按原产品有效期和撤销方式管理，移除绑定会阻止新登录。切换时要立即撤销历史独立站会话，应同步在两套原应用中处理会话或禁用相应用户。
 
+## Muse 视频反推
+
+工坊的本地上传、视频链接、TOS 直传、失败续跑及抖音导入草稿，统一调用数据站使用的 [Muse 逐集反推](../../integrations/muse-hit-transcription/native.py)。工坊继续保存草稿归属。续跑沿用原 Muse 会话、原片摘要和参考内容，明确选择全部重做才创建新版本。语音识别、全片字幕识别、画面审查、对白比对和 Word 校验完成后，工坊在同一次数据库事务中写入可编辑的章节和本集素材索引。
+
+已有部署使用 `install.py --audience script-workshop --reverse-only --backend <工坊目录>` 更新反推入口。[配置脚本](shared-host/configure_reverse.py)根据管理员授权的云端转写配置安装指定版本的执行程序，为工坊建立独立的 Muse 账号目录。把 `MUSE_WORKSHOP_REVERSE_CONFIG` 指向生成的私有配置文件，`VIDEO_TMP_DIR` 指向工坊上传卷内的持久目录。使用同一卷的工坊进程共用配置中的并发名额。登录后通过 `GET /v1/video/jobs/{draft_id}/episodes/{episode}/materials` 查看本集清单，按返回的序号在该路径下下载。
+
+### 私有媒体存储
+
+在选定地域使用私有生产媒体桶。工坊、镜流和测试环境分别使用独立前缀。剧本正文、用户权限和项目记录继续由各自的数据库管理。在两套服务的环境配置中填入下列字段。
+
+| 服务 | 配置与权限 |
+|---|---|
+| 工坊上传 | `ALIYUN_OSS_BUCKET`、`ALIYUN_OSS_REGION`、`ALIYUN_OSS_ENDPOINT_INTERNAL`、`ALIYUN_OSS_ENDPOINT_PUBLIC`、`ALIYUN_OSS_KEY_PREFIX=workshop/prod/`、`ALIYUN_OSS_ACCESS_KEY_ID`、`ALIYUN_OSS_ACCESS_KEY_SECRET`。这些旧变量实际连接火山 TOS。给工坊身份开放上传前缀内的读写和分片上传操作。网页普通上传在未配置桶时通过工坊服务器上传，配置就绪后使用可续传的 TOS 直传。批量文件夹上传使用 TOS。 |
+| Muse 反推素材 | 工坊反推配置中的 `tosPrefix` 填 `reverse/prod`，给工坊身份开放该前缀的读写权限。文件逐个验证，最后写清单。章节保存桶名、清单键和摘要，鉴权后的下载链接有效期为五分钟。前缀留空时使用工坊的私有服务器磁盘。 |
+| 镜流 | 配置 `FW_TOS_BUCKET`、`FW_TOS_REGION`、`FW_TOS_ENDPOINT`（主机名）、`FW_TOS_KEY_PREFIX=jingliu/prod/`、`FW_TOS_ACCESS_KEY_ID`、`FW_TOS_ACCESS_KEY_SECRET`。镜流身份只在自己的前缀内执行素材所需的操作。默认 `FW_TOS_DIRS` 覆盖 `uploads` 和 `generated`。已导入的共享角色图在 `character-references`，应先迁移、核对已有图片，再把这个目录纳入存储和本地缓存回收。 |
+
+公网端点填写浏览器可达的区域域名。服务能访问同地域内网时，服务端读写才填写内网端点。桶 CORS 允许工作台实际的 HTTPS 来源，开放上传和预览所需的方法及请求头，并暴露分片完成所需的 `ETag`。反推和上传前缀保持私有，排除在工坊的公开 CDN 白名单之外。已有对象沿用原键名，迁移或制定过期策略前先核对数量和摘要。`ARK_TOS_BUCKET` 是旧方舟文件流程的配置，Muse 反推有独立的素材设置。[跨域规则](https://docs.volcengine.com/docs/torch-object-storage/cor-srules?lang=zh) · [桶策略](https://docs.volcengine.com/docs/torch-object-storage/bucket-policy-templates-and-parameters?lang=zh)。
+
 ## 验证
 
 在已安装原业务后端依赖（FastAPI、httpx）的 Python 环境执行 `python -m unittest discover -s services/muse-workbenches -v`。测试覆盖两端登录绑定、角色差异、关闭旧入口、回放拒绝和安装器拒绝不匹配版本。浏览器验收时分别打开独立站和 Muse 面板，切换两个已绑定的 Muse 用户，确认各自项目与剧本，以及独立站原有登录状态。

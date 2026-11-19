@@ -6,12 +6,13 @@ import re
 import tempfile
 
 from install_character_references import changes as character_reference_changes
+from install_reverse import changes as reverse_changes, frontend_changes as reverse_frontend_changes
 
 HERE = Path(__file__).resolve().parent
 AUDIENCES = ("script-workshop", "jingliu")
 
 
-def install(audience, backend, frontend=None, *, library_only=False):
+def install(audience, backend, frontend=None, *, library_only=False, reverse_only=False):
     """Validate every archive hook before atomically replacing individual files."""
     app = backend / "app"
     changes = {}
@@ -26,10 +27,16 @@ def install(audience, backend, frontend=None, *, library_only=False):
 
     if library_only and audience != "jingliu":
         raise ValueError("The shared library belongs to Jingliu")
-    if not library_only:
+    if reverse_only and (audience != "script-workshop" or library_only):
+        raise ValueError("Video transcription belongs to Script workshop")
+    if not library_only and not reverse_only:
         prepare_app(audience, app, frontend, changes, transform)
     if audience == "jingliu":
         character_reference_changes(backend, frontend, transform, changes)
+    else:
+        reverse_changes(backend, transform, changes)
+        if frontend:
+            reverse_frontend_changes(frontend, transform, changes)
 
     for path, value in changes.items():
         if path.exists() and path.read_bytes() == value.encode():
@@ -106,5 +113,6 @@ if __name__ == "__main__":
     parser.add_argument("--backend", type=Path, required=True, help="Directory containing app/main.py")
     parser.add_argument("--frontend", type=Path, help="Workshop apps/web or Jingliu dist-prod")
     parser.add_argument("--library-only", action="store_true", help="Update only the Jingliu shared catalog on an installed site")
+    parser.add_argument("--reverse-only", action="store_true", help="Update only Workshop video transcription on an installed site")
     args = parser.parse_args()
-    install(args.audience, args.backend, args.frontend, library_only=args.library_only)
+    install(args.audience, args.backend, args.frontend, library_only=args.library_only, reverse_only=args.reverse_only)

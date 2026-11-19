@@ -229,7 +229,7 @@ def validate_sources(workspace, video, row, native, verification):
             and latest.get('recorded') == latest.get('total') == verification['word']['recordedFrames']):
         raise check('native review and this Word disagree on completed frames')
     ranges = []
-    ocr_paths = []
+    ocr_paths = {}
     for tool, result in results:
         if tool != 'video_ocr':
             continue
@@ -244,7 +244,7 @@ def validate_sources(workspace, video, row, native, verification):
         path = checked_file(result['raw_json_path'], workspace)
         if digest(path) != result['raw_json_sha256']:
             raise check('native OCR evidence bytes changed')
-        ocr_paths.append(str(path.relative_to(workspace)))
+        ocr_paths[str(path.relative_to(workspace))] = result['raw_json_sha256']
         ranges.append((result['interval']['start_seconds'], result['interval']['end_seconds']))
     end = 0
     for start, stop in sorted(ranges):
@@ -274,5 +274,5 @@ def validate_sources(workspace, video, row, native, verification):
     if not any(name == 'screenplay_export_docx' for name, _ in results):
         raise check('there is no successful native Word export in this Session')
     return {'sourceSHA256': row['sha256'], 'asrJobId': job['id'], 'asrRequestsAdmitted': 1,
-            'asr': str(audio.relative_to(workspace)), 'ocr': list(dict.fromkeys(ocr_paths)), 'ocrEndSeconds': end,
+            'asr': str(audio.relative_to(workspace)), 'ocr': list(ocr_paths), 'ocrSHA256': ocr_paths, 'ocrEndSeconds': end,
             'recognitionStartToolCalls': len(starts), 'reviewId': latest['review_id']}
