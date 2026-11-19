@@ -234,6 +234,26 @@ function timestamp(seconds: number): string {
   return `${hours}:${minutes}:${remainder}.${(ms % 1000).toString().padStart(3, '0')}`
 }
 
+function overlappingStart(file: string): Error {
+  return new Error('Another transcription has started. Inspect the receipt before retrying: ' + file.replaceAll('\\', '/'))
+}
+
+async function createReceipt(file: string, receipt: Receipt, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  const handle = await open(file, 'wx', 0o600).catch((error: unknown) => {
+    if (error instanceof Error && 'code' in error && error.code === 'EEXIST') throw overlappingStart(file)
+    throw error
+  })
+  let written = false
+  try {
+    await handle.writeFile(JSON.stringify(receipt, null, 2) + '\n')
+    written = true
+  } finally {
+    await handle.close()
+    if (!written) await rm(file, { force: true })
+  }
+}
+
 async function save(file: string, receipt: Receipt, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   const staged = `${file}.${randomUUID()}.tmp`
@@ -369,7 +389,7 @@ function storedResult(file: string, receipt: Receipt): AudioRunResult {
 function portableResult(result: AudioRunResult): AudioRunResult {
   const pending = ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
   const lifetimeQuota = result.provider_diagnostic?.quota_type?.endsWith('_lifetime') === true
-  if (pending && lifetimeQuota) {
+  if (pending && lifetimeQuota && result.recovery?.capability !== 'no_query') {
     result = { ...result,
       resume_status: { method: 'inspect', project: dirname(dirname(dirname(result.receipt))), receipt: result.receipt },
       polling_note: '原供应商应用的试用额度已用完，需要管理员在原应用恢复对应语音资源额度。恢复后沿此原收据 inspect 查询；不要重新 start、换应用或把额度耗尽当作普通排队。' }
@@ -539,8 +559,17 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     await chmod(transcript, 0o700)
     await chmod(jobs, 0o700)
   }
+  let sourceDigest: Promise<string> | undefined
+  const currentSourceDigest = () => sourceDigest ??= digest(source, signal)
+  const assertReusableReceipt = async (file: string, receipt: Receipt) => {
+    if (receipt.language !== language || (receipt.sourceSha256 !== undefined
+      && receipt.sourceSha256.toLowerCase() !== await currentSourceDigest())) {
+      throw new Error('The source media or recognition language changed. Check the original transcription receipt ' + file.replaceAll('\\', '/'))
+    }
+  }
+  const receiptNames = new Set(await readdir(jobs))
   let finished: { file: string; receipt: Receipt } | undefined
-  for (const name of await readdir(jobs)) {
+  for (const name of receiptNames) {
     if (!name.endsWith('.json')) continue
     const file = join(jobs, name)
     const prior = await readReceipt(file)
@@ -554,6 +583,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
         if (purpose === undefined) throw new Error(`Existing transcription receipt has a different purpose; query status with receipt ${file} or specify purpose explicitly`)
         continue
       }
+      await assertReusableReceipt(file, prior)
       // A batch finishes a never-confirmed submission the way `status` does: query first, then upload under the original ID.
       if (batch && prior.status === 'prepared') {
         return await settleReceipt(project, file, account, signal, true, budget, probe)
@@ -564,7 +594,10 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
       && (finished === undefined || prior.version > finished.receipt.version)) finished = { file, receipt: prior }
   }
   // A resent batch must not pay again for a source whose same-purpose task already ended.
-  if (finished !== undefined) return { result: storedResult(finished.file, finished.receipt), refused: false }
+  if (finished !== undefined) {
+    await assertReusableReceipt(finished.file, finished.receipt)
+    return { result: storedResult(finished.file, finished.receipt), refused: false }
+  }
   const stem = basename(source).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_').slice(0, 80) || 'media'
   signal?.throwIfAborted()
   const duration = await probe(source, signal)
@@ -575,10 +608,11 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     signal?.throwIfAborted()
     const prefix = `${stem}-v${version}`
     const existing = await Promise.all([join(jobs, prefix + '.json'), join(project, 'transcript', 'raw', prefix + '.txt'), join(project, 'transcript', 'raw', prefix + '.json')].map(async path => stat(path).then(() => true, () => false)))
+    if (existing[0] && !receiptNames.has(prefix + '.json')) throw overlappingStart(join(jobs, prefix + '.json'))
     if (!existing.some(Boolean)) break
     version += 1
   }
-  const sourceSha256 = await digest(source, signal)
+  const sourceSha256 = await currentSourceDigest()
   const chunkSeconds = config.chunkSeconds ?? 600
   if (!Number.isSafeInteger(chunkSeconds) || chunkSeconds < 1 || chunkSeconds > 7200) throw new Error('Invalid cloud audio chunk duration')
   if (duration > chunkSeconds) {
@@ -586,6 +620,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
       stem, version, language, resolvedPurpose, identity.username, account, config, media, signal, budget)
   }
   const id = randomUUID(), mp3 = join(jobs, `.${id}.wav`), receiptPath = join(jobs, `${stem}-v${version}.json`)
+  let persisted = false
   try {
     const staged = await open(mp3, 'wx', 0o600)
     await staged.close()
@@ -598,7 +633,8 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     if (!size || size > config.maxAudioBytes) throw new Error('Compressed audio exceeds the cloud transcription size limit')
     if (await digest(source, signal) !== sourceSha256) throw new Error('Media changed during audio extraction')
     const receipt: Receipt = { id, source, sourceSha256, accountUsername: identity.username, stem, version, language, purpose: resolvedPurpose, sha256: await digest(mp3, signal), mp3, status: 'prepared' }
-    await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
+    await createReceipt(receiptPath, receipt, signal)
+    persisted = true
     signal?.throwIfAborted()
     const job = await submitStaged(account, mp3, id, receipt.sha256, language, receipt.purpose, budget, signal)
     signal?.throwIfAborted()
@@ -611,7 +647,6 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
       refused: false,
     }
   } catch (error) {
-    const persisted = await stat(receiptPath).then(() => true, () => false)
     if (!persisted) await rm(mp3, { force: true })
     else if (!signal?.aborted && error instanceof MuseAsrError) {
       return { result: rejectedResult(project, receiptPath, await readReceipt(receiptPath), error), refused: true }
@@ -652,11 +687,13 @@ async function settleReceipt(
   try {
     const deadline = Date.now() + (polling?.waitMs ?? 0)
     let result = await finishReceipt(projectPath, receiptPath, account, budget, signal, allowResumeUpload, probe)
-    while (polling && Date.now() < deadline && ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
+    while (polling && ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
       && result.error_code === undefined && result.recovery?.next_action !== 'inspect_receipt' && result.recovery?.next_action !== 'resume_upload') {
-      if ((result.recovery?.retry_after ?? 0) * 1000 >= deadline - Date.now()) break
-      await delay(Math.min(polling.pollIntervalMs, deadline - Date.now()), undefined, { signal })
+      const intervalMs = Math.max(polling.pollIntervalMs, (result.recovery?.retry_after ?? 0) * 1000)
+      if (intervalMs >= deadline - Date.now()) break
+      await delay(intervalMs, undefined, { signal })
       signal?.throwIfAborted()
+      if (Date.now() >= deadline) break
       result = await finishReceipt(projectPath, receiptPath, account, budget, signal, false, probe)
     }
     signal?.throwIfAborted()
@@ -759,7 +796,7 @@ async function startParts(project: string, source: string, sourceSha256: string,
     if (await digest(source, signal) !== sourceSha256) throw new Error('Media changed during audio extraction')
     let receipt: Receipt = { id, source, sourceSha256, stem, version, language, purpose, accountUsername: username,
       mp3: join(jobs, `.${id}.wav`), sha256: sourceSha256, parts, status: 'prepared' }
-    await writeFile(receiptFile, JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
+    await createReceipt(receiptFile, receipt, signal)
     persisted = true
     for (const [index, part] of parts.entries()) {
       signal?.throwIfAborted()

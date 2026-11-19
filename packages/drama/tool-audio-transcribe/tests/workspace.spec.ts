@@ -1,5 +1,6 @@
 /** Relative projects resolve against the calling Session workspace, and silent screenplay results carry a model-visible note. */
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
@@ -24,14 +25,14 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true })
 })
 
-async function fixture() {
+async function fixture(options: { identity?: MuseAccountStatus; refreshModels?: () => Promise<void> } = {}) {
   const ctx = new Context()
   contexts.push(ctx)
-  const status = async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' })
+  const status = async (): Promise<MuseAccountStatus> => options.identity ?? { state: 'signed-out' }
   await ctx.plugin(MuseAccountService, { controller: {
     details: async () => { throw new Error('Unused fixture details') },
     status, logout: status, login: async () => { throw new Error('login is not part of a model tool call') },
-  } })
+  }, ...(options.refreshModels === undefined ? {} : { models: { refresh: options.refreshModels } }) })
   await ctx.plugin(SystemPrompt).await()
   await ctx.plugin(ToolRuntime, {}).await()
   await ctx.plugin(NativeToolExecutor)
@@ -53,7 +54,7 @@ async function fixture() {
     if (tool.output === undefined) throw new Error('audio_transcribe has no output renderer')
     return tool.output.render({}, value)
   }
-  return { workspace, call, render, agent: { session: { header: { cwd: workspace } } } as Agent }
+  return { workspace, call, render, account: ctx.museAccount, agent: { session: { header: { cwd: workspace } } } as Agent }
 }
 
 function text(content: readonly ContentBlock[]): string {
@@ -76,6 +77,37 @@ it('reads a relative receipt under the Session workspace project and names the j
   const outside = await call({ method: 'status', project: 'proj', receipt: 'ep1-v1.json' }, agent)
   expect(outside.isError).toBe(true)
   expect(text(outside.content)).toContain(`transcript/jobs directory: ${join(workspace, 'proj', 'transcript', 'jobs')}`)
+})
+
+it('resumes an owned receipt without waiting for the model catalog and still rejects a different owner', async () => {
+  const refreshing = Promise.withResolvers<'models'>(), release = Promise.withResolvers<undefined>()
+  const refreshModels = vi.fn(async () => { refreshing.resolve('models'); await release.promise })
+  const { workspace, call, agent, account } = await fixture({ refreshModels,
+    identity: { state: 'signed-in', username: 'writer', verified: false } })
+  const project = join(workspace, 'proj'), jobs = join(project, 'transcript', 'jobs'), raw = join(project, 'transcript', 'raw')
+  await Promise.all([mkdir(jobs, { recursive: true }), mkdir(raw, { recursive: true })])
+  const own = randomUUID(), foreign = randomUUID()
+  for (const [stem, accountUsername, id] of [['own', 'writer', own], ['foreign', 'other', foreign]] as const) {
+    await writeFile(join(jobs, stem + '-v1.json'), JSON.stringify({ id, source: join(project, stem + '.wav'),
+      stem, version: 1, accountUsername, language: 'zh', purpose: 'subtitles', status: 'complete',
+      sha256: 'a'.repeat(64), mp3: join(jobs, '.' + id + '.wav') }))
+  }
+  await Promise.all([writeFile(join(raw, 'own-v1.txt'), 'speech'),
+    writeFile(join(raw, 'own-v1.json'), JSON.stringify([{ start: 0, end: 1, text: 'speech' }]))])
+  const inspect = (stem: string) => call({ method: 'inspect', project: 'proj', receipt: 'transcript/jobs/' + stem + '-v1.json' }, agent)
+  const operation = inspect('own')
+  try {
+    expect(await Promise.race([refreshing.promise, operation.then(() => 'transcription')])).toBe('transcription')
+    const completed = await operation
+    expect(completed.isError).toBe(false)
+    expect(text(completed.content)).toContain('"status":"complete"')
+    const denied = await inspect('foreign')
+    expect(denied.isError).toBe(true)
+    expect(text(denied.content)).toContain('Sign in to the Muse account that created this transcription receipt')
+    expect(refreshModels).not.toHaveBeenCalled()
+  } finally { release.resolve(undefined); await operation }
+  await account.status({})
+  expect(refreshModels).toHaveBeenCalledOnce()
 })
 
 it('rejects a relative project without a Session workspace and keeps an absolute project as given', async () => {

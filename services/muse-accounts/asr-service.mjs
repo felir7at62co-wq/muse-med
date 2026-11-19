@@ -8,7 +8,7 @@ import {pipeline} from 'node:stream/promises';
 import {Transform} from 'node:stream';
 import {setTimeout as delay} from 'node:timers/promises';
 import {resolveAsrResources,resourceForJob} from './asr-resources.mjs';
-import {AsrProviderError} from './asr-provider.mjs';
+import {AsrProviderError,isTerminalAsrQueryCode} from './asr-provider.mjs';
 
 function fail(status,message,code,retryAfter){return Object.assign(Error(message),{status,...code?{code}:{},...retryAfter?{retryAfter}:{}});}
 const validKey=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -196,7 +196,7 @@ export function createAsrService(options){
    await save(account,key,job);return publicJob(job);
   }
   delete job.queryRetry;
-  if(result.status==='failed'&&['45000006','45000092','55001010'].includes(result.providerCode)){
+  if(result.status==='failed'&&isTerminalAsrQueryCode(result.providerCode)){
    const count=job.terminalQuery?.code===result.providerCode?job.terminalQuery.count+1:1;
    job.terminalQuery={code:result.providerCode,count};job.failureCode='provider_rejected';
    job.providerFailure={code:job.failureCode,operation:'query',reason:'response',providerCode:result.providerCode};

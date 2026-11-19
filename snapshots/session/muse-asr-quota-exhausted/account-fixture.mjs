@@ -47,7 +47,7 @@ export async function apply(ctx) {
   let cached, visible
   class ReceiptAccount extends Service {
     constructor(context) { super(context, 'museAccount') }
-    async status() { return { state: 'signed-in', username: 'fixture', verified: false } }
+    async readLocalStatus() { return { state: 'signed-in', username: 'fixture', verified: false } }
     async submitAudio() { accountSubmissions++; throw Error('Inspect must not submit another transcription') }
     async audioStatus(requestId) { statusReads++; assert.equal(requestId, id); cached = await service.get(account, requestId); return cached }
   }
