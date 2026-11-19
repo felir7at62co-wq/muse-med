@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { PtcBindingFunction, PtcRunRequest } from '@deepseek-ai/dsh-ptc-runtime'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { Config } from '../src/index.ts'
+import { OutputLedger } from '../src/output-ledger.ts'
 import { mountRuntime } from './setup.ts'
 
 async function setupRuntime(config: Config = {}) {
@@ -252,10 +253,21 @@ describe.each([
     const { run, cwd } = await setup({ stopGraceMs: 50 })
     await run('var kept = 42; var fs = await import("node:fs");')
     const controller = new AbortController()
+    const entered = Promise.withResolvers<undefined>()
+    const admit = Object.getOwnPropertyDescriptor(OutputLedger.prototype, 'admit')?.value as OutputLedger['admit']
+    const logAdmission = vi.spyOn(OutputLedger.prototype, 'admit')
+    onTestFinished(() => { logAdmission.mockRestore() })
+    // The file marker can become visible before the independent control pipe delivers the log.
+    logAdmission.mockImplementation(function (this: OutputLedger, text, sink) {
+      const admitted = admit.call(this, text, sink)
+      if (admitted && text === 'before stop') entered.resolve(undefined)
+      return admitted
+    })
     const pending = run(`${prefix} console.log("before stop"); fs.writeFileSync("entered-loop", "ready"); while (true) {}`, {
       timeoutMs: action === 'timeout' ? 1000 : null, signal: controller.signal,
     })
     try {
+      await Promise.race([entered.promise, pending.then(() => { throw new Error('Evaluation ended before the Host received its log') })])
       await expect.poll(async () => readFile(join(cwd, 'entered-loop'), 'utf8')).toBe('ready')
       if (action === 'abort') controller.abort()
       const result = await pending
@@ -263,7 +275,11 @@ describe.each([
       expect(result.error?.kind).toBe(action)
       expect(result.error?.message).toContain('retained variables were cleared')
       expect((await run('typeof kept')).value).toBe('undefined')
-    } finally { controller.abort(); await pending }
+    } finally {
+      controller.abort()
+      try { await pending } finally { logAdmission.mockRestore() }
+    }
+    expect(Object.getOwnPropertyDescriptor(OutputLedger.prototype, 'admit')).toMatchObject({ value: admit })
   })
 
   it.each([
