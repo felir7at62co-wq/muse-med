@@ -5,11 +5,13 @@ from pathlib import Path
 import re
 import tempfile
 
+from install_character_references import changes as character_reference_changes
+
 HERE = Path(__file__).resolve().parent
 AUDIENCES = ("script-workshop", "jingliu")
 
 
-def install(audience, backend, frontend=None):
+def install(audience, backend, frontend=None, *, library_only=False):
     """Validate every archive hook before atomically replacing individual files."""
     app = backend / "app"
     changes = {}
@@ -22,6 +24,27 @@ def install(audience, backend, frontend=None):
             raise ValueError(f"Unsupported archive hook in {path.name}")
         changes[path] = text.replace(before, after, 1)
 
+    if library_only and audience != "jingliu":
+        raise ValueError("The shared library belongs to Jingliu")
+    if not library_only:
+        prepare_app(audience, app, frontend, changes, transform)
+    if audience == "jingliu":
+        character_reference_changes(backend, frontend, transform, changes)
+
+    for path, value in changes.items():
+        if path.exists() and path.read_bytes() == value.encode():
+            continue
+        mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as target:
+            target.write(value)
+        try:
+            os.chmod(target.name, mode)
+            os.replace(target.name, path)
+        finally:
+            Path(target.name).unlink(missing_ok=True)
+
+
+def prepare_app(audience, app, frontend, changes, transform):
     main = app / "main.py"
     anchor = "    app.include_router(auth_router)"
     # Both archived backends register this router once. Add the adapter outside that line's comment.
@@ -46,7 +69,7 @@ def install(audience, backend, frontend=None):
         transform(index, '<p class="hint">用飞书扫码登录</p>', '<p class="hint">使用 Muse 账号进入镜流</p>')
         transform(index, 'id="gate-btn">飞书扫码登录', 'id="gate-btn">使用 Muse 登录')
         entry = frontend / "app.js"
-        text = entry.read_text(encoding="utf-8")
+        text = changes.get(entry, entry.read_text(encoding="utf-8"))
         replacement = """$('#gate-btn').onclick = () => location.assign('/fwp/v2/auth/muse/login');"""
         if replacement not in text:
             start = "$('#gate-btn').onclick = async () => {"
@@ -76,23 +99,12 @@ def install(audience, backend, frontend=None):
                              'export default function MuseLoginPage() {\n'
                              '  redirect("/v1/auth/muse/login");\n}\n')
 
-    for path, value in changes.items():
-        if path.exists() and path.read_bytes() == value.encode():
-            continue
-        mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as target:
-            target.write(value)
-        try:
-            os.chmod(target.name, mode)
-            os.replace(target.name, path)
-        finally:
-            Path(target.name).unlink(missing_ok=True)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--audience", choices=AUDIENCES, required=True)
     parser.add_argument("--backend", type=Path, required=True, help="Directory containing app/main.py")
     parser.add_argument("--frontend", type=Path, help="Workshop apps/web or Jingliu dist-prod")
+    parser.add_argument("--library-only", action="store_true", help="Update only the Jingliu shared catalog on an installed site")
     args = parser.parse_args()
-    install(args.audience, args.backend, args.frontend)
+    install(args.audience, args.backend, args.frontend, library_only=args.library_only)

@@ -1,5 +1,8 @@
 /** Localized guide labels and document titles for each workbench. */
 export const en = {
+  close: 'Close',
+  referenceOnly: 'Creative reference',
+  imageFailed: 'Image unavailable',
   resolution: 'Video resolution',
   projectDefault: 'Project default',
   environment: 'Environment',
@@ -36,6 +39,9 @@ export const en = {
   projectReference: 'Jingliu project “{title}” (ID {id})', title: 'Jingliu', workbench: 'Production studio', workshopTitle: 'Script workshop', workshopDescription: 'Screenwriting and editing' }
 /** Chinese studio labels. */
 export const zh = {
+  close: '关闭',
+  referenceOnly: '仅供创作参考',
+  imageFailed: '图片暂不可用',
   resolution: '视频分辨率',
   projectDefault: '跟随项目',
   environment: '环境',
@@ -72,6 +78,9 @@ export const zh = {
   projectReference: '镜流项目「{title}」（项目 ID {id}）', title: '镜流', workbench: '短剧制作工作台', workshopTitle: '剧本工坊', workshopDescription: '剧本创作与编辑' }
 /** Japanese studio labels. */
 export const ja = {
+  close: '閉じる',
+  referenceOnly: '創作参考用',
+  imageFailed: '画像を表示できません',
   resolution: '動画の解像度',
   projectDefault: 'プロジェクトの既定値',
   environment: '環境',
@@ -108,6 +117,9 @@ export const ja = {
   projectReference: '鏡流「{title}」（ID {id}）', title: 'Jingliu', workbench: '制作スタジオ', workshopTitle: '脚本工房', workshopDescription: '脚本の執筆と編集' }
 /** Spanish studio labels. */
 export const es = {
+  close: 'Cerrar',
+  referenceOnly: 'Referencia creativa',
+  imageFailed: 'Imagen no disponible',
   resolution: 'Resolución de vídeo',
   projectDefault: 'Predeterminado del proyecto',
   environment: 'Entorno',
@@ -144,6 +156,9 @@ export const es = {
   projectReference: 'Proyecto Jingliu «{title}» (ID {id})', title: 'Jingliu', workbench: 'Estudio de producción', workshopTitle: 'Taller de guion', workshopDescription: 'Escritura y edición de guiones' }
 /** French studio labels. */
 export const fr = {
+  close: 'Fermer',
+  referenceOnly: 'Référence de création',
+  imageFailed: 'Image indisponible',
   resolution: 'Résolution vidéo',
   projectDefault: 'Valeur du projet',
   environment: 'Environnement',
@@ -180,6 +195,9 @@ export const fr = {
   projectReference: 'Projet Jingliu « {title} » (ID {id})', title: 'Jingliu', workbench: 'Studio de production', workshopTitle: 'Atelier de scénario', workshopDescription: 'Écriture et révision de scénarios' }
 /** German studio labels. */
 export const de = {
+  close: 'Schließen',
+  referenceOnly: 'Gestaltungsreferenz',
+  imageFailed: 'Bild nicht verfügbar',
   resolution: 'Videoauflösung',
   projectDefault: 'Projektvorgabe',
   environment: 'Umgebung',
@@ -216,6 +234,9 @@ export const de = {
   projectReference: 'Jingliu-Projekt „{title}“ (ID {id})', title: 'Jingliu', workbench: 'Produktionsstudio', workshopTitle: 'Drehbuchwerkstatt', workshopDescription: 'Drehbücher schreiben und bearbeiten' }
 /** Russian studio labels. */
 export const ru = {
+  close: 'Закрыть',
+  referenceOnly: 'Творческий референс',
+  imageFailed: 'Изображение недоступно',
   resolution: 'Разрешение видео',
   projectDefault: 'Как в проекте',
   environment: 'Среда',
@@ -252,6 +273,9 @@ export const ru = {
   projectReference: 'Проект Jingliu «{title}» (ID {id})', title: 'Jingliu', workbench: 'Студия производства', workshopTitle: 'Сценарная мастерская', workshopDescription: 'Написание и редактирование сценариев' }
 /** Portuguese studio labels. */
 export const pt = {
+  close: 'Fechar',
+  referenceOnly: 'Referência criativa',
+  imageFailed: 'Imagem indisponível',
   resolution: 'Resolução do vídeo',
   projectDefault: 'Padrão do projeto',
   environment: 'Ambiente',

@@ -138,7 +138,11 @@ class Workbench(unittest.TestCase):
             path = root / "app" / relative
             path.parent.mkdir()
             path.write_text(f"script = draft.ScriptFile(w, h, {rate})\n")
+        (root / "app/routers/library.py").write_text(
+            '@router.get("/library")\ndef list_library(kind=None):\n        access.require_project_access(session, body.project_id)\n'
+            '        uid = access.current_user_id()\n')
         front.mkdir()
+        (front / "api.js").write_text("upstream changed")
         main = root / "app/main.py"
         main.write_text('    if settings.auth_upstream:\n            "login": bool(settings.auth_upstream),\n    app.include_router(auth_router)\n')
         initial = main.read_bytes()

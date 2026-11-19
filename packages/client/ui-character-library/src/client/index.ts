@@ -127,20 +127,9 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
         subscribe: listener => scope.slots.subscribe('character-library.shared', listener),
       } } }),
     }, LibraryShell))
-    scope.slots.inject('sidebar.panellist', () => {
-      const hasShared = () => scope.slots.entries('character-library.shared').length > 0
-      let shared = hasShared()
-      const register = () => scope.slots.register({ name: 'sidebar.panellist', id: PANEL, order: 21, locale: NS,
-        label: () => t(shared ? 'assetLibrary' : 'title') }, LibraryIcon)
-      let remove = register()
-      const unsubscribe = scope.slots.subscribe('character-library.shared', () => {
-        if (hasShared() === shared) return
-        shared = hasShared()
-        remove()
-        remove = register()
-      })
-      return () => { unsubscribe(); remove() }
-    })
+    scope.slots.inject('sidebar.panellist', () => scope.slots.register({
+      name: 'sidebar.panellist', id: PANEL, order: 21, locale: NS, label: () => t('assetLibrary'),
+    }, LibraryIcon))
   })
   try { await section }
   catch (error) { await section.dispose(); await disposeRemote(); throw error }

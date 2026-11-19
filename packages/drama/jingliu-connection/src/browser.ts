@@ -38,7 +38,8 @@ export function library(value: unknown): StudioLibrary {
   if (!isRecord(value) || !Array.isArray(value.items)) return invalid()
   const items = value.items.map((row): StudioAsset => {
     if (!isRecord(row)) return invalid()
-    return { id: field(row.asset_id), kind: field(row.kind), name: field(row.name), thumbnail: typeof row.image_url === 'string' ? row.image_url : '' }
+    return { id: field(row.asset_id), kind: field(row.kind), name: field(row.name), thumbnail: typeof row.image_url === 'string' ? row.image_url : '',
+      description: typeof row.prompt === 'string' ? row.prompt : '', referenceOnly: row.reference_only === true }
   })
   return { total: count(value.total), items }
 }

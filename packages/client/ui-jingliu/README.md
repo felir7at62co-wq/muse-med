@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 With `studioOrigin` mounted at `/jingliu/` on the Muse account gateway, production projects, shared assets, balance and project settings appear in Muse. In the right sidebar, **Environment** shows the local workspace and the cloud project confirmed for this conversation. **Add workspace** opens the platform's folder picker or links a production project. A dedicated studio origin uses the original studio tab. The script workshop opens its writing workspace in a separate tab.
 
+**Shared assets → Characters** shows the studio’s original reference images and descriptions.
+
 Embedded tabs retain the document. Changing accounts opens a fresh sign-in frame.
 
 ## Table of Contents

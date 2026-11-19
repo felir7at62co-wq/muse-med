@@ -68,7 +68,7 @@ export function LibraryPage({ useResource, t }: PageProps): ReactNode {
   return <div className={s.page}>
     <section className={s.section}>
       <header className={s.header}>
-        <div><h1>{t('title')}</h1><p>{t('description')}</p></div>
+        <div><h1>{t('sharedLibrary')}</h1><p>{t('description')}</p></div>
         <span className={s.badge}>{t('readOnly')}</span>
       </header>
       <div className={s.toolbar}>

@@ -22,11 +22,14 @@ const panel = 'jingliu-projects' as MainPanelId
  * @param ctx - Client shell and authenticated remote namespaces.
  */
 export function installNative(ctx: Context): void {
+  const epoch = createSnapshotStore(0)
+  ctx.slots.inject('character-library.shared', () => ctx.slots.register({
+    name: 'character-library.shared', locale: 'jingliuStudio', inject: () => ({ hooks: { accountEpoch: epoch } }),
+  }, Assets))
   ctx.inject(['remote', 'layout', 'resources', 'uiWorkspace', 'sessions', 'conversation', 'workspaces'], async (scope) => {
     const unmount = await scope.remote.$mount(remote)
     scope.effect(() => unmount, 'jingliu: studio remote')
     scope.inject(['remote.jingliuConnection'], (host) => {
-      const epoch = createSnapshotStore(0)
       const reset = () => epoch.set(epoch.getSnapshot() + 1)
       host.effect(() => host.remote.$on('muse-account/session-changed', reset), 'jingliu: signed-in library')
       host.on('connection/reset', reset)
@@ -98,7 +101,6 @@ export function installNative(ctx: Context): void {
         children: { 'workspace.environment.directoryFlow': { kind: 'single', scope: 'root' } } }, Environment))
       host.slots.inject('main', () => host.slots.register({ name: 'main', key: panel, locale, inject }, Projects))
       host.slots.inject('sidebar.workspaces.entry', () => host.slots.register({ name: 'sidebar.workspaces.entry', id: 'jingliu-projects', order: 30, locale, inject }, ProjectEntry))
-      host.slots.inject('character-library.shared', () => host.slots.register({ name: 'character-library.shared', locale, inject }, Assets))
       host.slots.inject('settings.section', () => host.slots.register({ name: 'settings.section', id: 'jingliu', order: 24, locale, label: () => t('studioSettings'), inject }, ProductionSettings))
       host.slots.inject('sidebar.footer.action', () => host.slots.register({ name: 'sidebar.footer.action', id: 'jingliu-credit', order: 30, locale, inject }, CreditEntry))
     })

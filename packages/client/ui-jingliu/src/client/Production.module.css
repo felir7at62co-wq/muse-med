@@ -24,3 +24,9 @@ button.card { cursor:pointer; } button.card:hover { border-color:var(--dsw-alias
 .amount { border-bottom:1px solid var(--dsw-alias-border-secondary); padding-block:12px; }
 .amount strong { font-size:1.4rem; } .setting select { max-width:68%; font:inherit; color:inherit; background:var(--dsw-alias-bg-layer-2); border-radius:6px; }
 .notice,.credit { font-size:12px; } .credit { white-space:nowrap; }
+.portrait { width:100%; aspect-ratio:3/4; display:grid; place-items:center; overflow:hidden; background:var(--dsw-alias-bg-layer-3); }
+.portrait img { width:100%; height:100%; object-fit:cover; }
+.assetCaption { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.previewDialog { width:min(88vw, 820px); }
+.fullImage { display:grid; place-items:center; min-height:6rem; }
+.fullImage img { max-width:100%; max-height:65vh; object-fit:contain; }

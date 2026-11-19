@@ -1,13 +1,13 @@
 /** Muse location chooser, shared media and per-project settings. */
 import { useState } from 'react'
-import { Button, IconFolderOpenOutlineRegular, IconPlayOutlineRegular, Input, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconFolderOpenOutlineRegular, IconPlayOutlineRegular, Input, Modal, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-resources/client'
 import type {} from '@deepseek-ai/dsh-client-ui-character-library/client'
 import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller/default-workspace'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { SelectedProject, StudioBalance, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioSetting } from '@deepseek-ai/dsh-jingliu-connection/types'
+import type { SelectedProject, StudioAsset, StudioBalance, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioSetting } from '@deepseek-ai/dsh-jingliu-connection/types'
 import css from './Production.module.css'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -50,8 +50,15 @@ function useAction() {
   } }
 }
 
-function Picture({ path, epoch, useResource, name }: { path: string; epoch: number; useResource: Read; name: string }) {
+function Picture({ path, epoch, useResource, name, unavailable }: {
+  path: string
+  epoch: number
+  useResource: Read
+  name: string
+  unavailable?: string
+}) {
   const image = useResource<'jingliu-image'>(path.startsWith('/fw') ? address('jingliu-image', epoch, 0, { path }) : 'studio://inactive')
+  if (unavailable && image.status === 'failed') return <span role="status">{unavailable}</span>
   if (image.value) return <img src={image.value} loading="lazy" alt={name} />
   return <span className={css.placeholder} aria-hidden="true"><IconPlayOutlineRegular size={22} /></span>
 }
@@ -132,8 +139,13 @@ export function Projects({ t, useResource, useAccountEpoch, openProject }: Props
  * @param props - Library resources scoped to the current login.
  * @returns The shared Jingliu asset catalog.
  */
-export function Assets({ t, useResource, useAccountEpoch }: Props) {
-  const epoch = useAccountEpoch(n => n)
+export function Assets(props: Pick<Props, 'useResource' | 'useAccountEpoch' | 't'>) {
+  const epoch = props.useAccountEpoch(n => n)
+  return <AssetBrowser key={epoch} epoch={epoch} t={props.t} useResource={props.useResource} />
+}
+
+function AssetBrowser({ epoch, t, useResource }: { epoch: number; t: Text; useResource: Read }) {
+  const [selected, select] = useState<StudioAsset | null>(null)
   const [kind, setKind] = useState<StudioLibraryQuery['kind']>('all')
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState('')
@@ -150,18 +162,27 @@ export function Assets({ t, useResource, useAccountEpoch }: Props) {
     </form>
     <SegmentedTabs items={tabs} value={kind} onChange={(v) => { setKind(v); setOffset(0) }} label={t('assetType')} size="sm" />
     <div role="tabpanel" id="studio-assets" aria-labelledby={'studio-kind-' + kind}>
-      {list.status === 'failed' ? <Failure t={t} retry={() => refresh(n => n + 1)} /> : list.status !== 'live' ? <p>{t('loading')}</p> :
+      {list.status === 'failed' || list.status === 'none' ? <Failure t={t} retry={() => refresh(n => n + 1)} /> : list.status !== 'live' ? <p>{t('loading')}</p> :
         !list.value?.items.length ? <p>{t('emptyAssets')}</p> : <div className={css.grid}>{list.value.items.map(a =>
-          <article key={a.id} className={css.card}>
-            <div className={css.poster}><Picture path={a.thumbnail} epoch={epoch} useResource={useResource} name={a.name} /></div>
+          <button key={a.id} className={css.card} type="button" onClick={() => select(a)} aria-label={a.name}>
+            <div className={a.kind === 'character' ? css.portrait : css.poster}>
+              <Picture path={a.thumbnail} epoch={epoch} useResource={useResource} name={a.name} unavailable={t('imageFailed')} />
+            </div>
             <strong>{a.name}</strong>
-          </article>,
+            {a.description && <small className={css.assetCaption}>{a.description}</small>}
+          </button>,
         )}</div>}
     </div>
     {((list.value?.total ?? 0) > 24 || offset > 0) && <div className={css.toolbar}>
       <Button disabled={!offset} onClick={() => setOffset(n => n - 24)}>{t('previous')}</Button>
       <Button disabled={offset + 24 >= (list.value?.total ?? 0)} onClick={() => setOffset(n => n + 24)}>{t('next')}</Button>
     </div>}
+    {selected && <Modal open title={selected.name} closeLabel={t('close')} onClose={() => select(null)}
+      {...(selected.referenceOnly && { description: t('referenceOnly') })} className={css.previewDialog as string}>
+      <div className={css.fullImage}><Picture path={selected.thumbnail} epoch={epoch} useResource={useResource}
+        name={selected.name} unavailable={t('imageFailed')} /></div>
+      {selected.description && <p>{selected.description}</p>}
+    </Modal>}
   </section>
 }
 

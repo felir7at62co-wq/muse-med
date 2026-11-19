@@ -1,4 +1,4 @@
-- heading "Character library" [level=1]
+- heading "Shared assets" [level=1]
 - paragraph: Browse ancient and urban character references for Muse character generation
 - text: Read-only references
 - tablist "Character collection":

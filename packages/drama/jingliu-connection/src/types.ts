@@ -12,12 +12,14 @@ export interface StudioProject {
   thumbnail: string
 }
 
-/** A reusable media item visible to the signed-in studio account. */
+/** A production asset or a view-only reference from the signed-in studio library. */
 export interface StudioAsset {
   id: string
   name: string
   kind: string
   thumbnail: string
+  description: string
+  referenceOnly: boolean
 }
 
 /** A page of shared assets and the total matching count. */
