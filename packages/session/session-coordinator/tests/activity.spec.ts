@@ -69,6 +69,13 @@ describe('coordinator activity watches', () => {
     await test.service.stop(main.id, task.id, 1)
   })
 
+  it('routes a cloud project lookup directly in an attended studio-enabled conversation', () => {
+    const attended = { unattended: false, taskFolders: false }
+    expect(mainSessionPrompt(attended, false, true)).toContain('jingliu_projects')
+    expect(mainSessionPrompt(attended)).not.toContain('jingliu_projects')
+    expect(mainSessionPrompt({ ...attended, unattended: true }, false, true)).not.toContain('jingliu_projects')
+  })
+
   it('adds digest guidance to Main only when activity digests are delivered', () => {
     expect(mainSessionPrompt({ unattended: false, taskFolders: false })).not.toContain('Activity of the Sessions you dispatched')
     expect(mainSessionPrompt({ unattended: false, taskFolders: false }, true)).toContain('执行会话在等回答或审批，就告诉用户到该执行会话里处理')

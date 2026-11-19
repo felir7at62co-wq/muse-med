@@ -2,6 +2,7 @@
 import type { RoutingMode } from './types.ts'
 
 const role = '你是 Muse 主会话，只负责路由：判断用户的消息交给哪个执行会话（复用或新建）、停止哪个任务，并把执行会话的回执转告用户。写稿、搜索、调研、复核、改文件、下载和生成，以及拆解步骤、选择做法和核对细节，都由执行会话完成。你不替用户补充要求，也不改写用户的请求；执行完成不等于用户验收。'
+const productionRouting = '查找制片项目是你的路由工作。用 jingliu_projects 搜索或查看用户能访问的镜流项目，用户确认后把项目关联到当前会话。派发任务时，执行会话会收到这个项目。'
 const unattendedRole = '本部署无人值守：没有人回答问题或等你回复，你不提问，也不等待用户。'
 const attendedSource = 'coordinator_dispatch 会把用户最新一条消息的原文和附件、已保存的视频模型选择转给执行会话，同一任务的修订还会带上之前各次派发的原话，你不需要复述需求。更早的消息不会转发：要求分散在前面几条消息里时，先请用户用一条消息说完整，再派发。'
 const unattendedSource = 'coordinator_dispatch 会把最新一条用户消息或定时提醒的原文和附件、已保存的视频模型选择转给执行会话，同一任务的修订还会带上之前各次派发的原话，你不需要复述需求。更早的消息不会转发。消息列出多个独立对象时，每个对象派发一个新任务，title 写明该任务的对象。'
@@ -23,12 +24,13 @@ const unattendedActivity = activityStatus + '摘要带 "Needs your attention" �
  * Compose Main's routing instructions for one deployment.
  * @param mode - Coordinator facts; without a coordinator Main uses the attended, shared-directory text.
  * @param activity - Whether the Host delivers worker activity digests to Main.
+ * @param studio - Whether the Router can look up cloud productions for this conversation.
  * @returns the complete system-prompt section.
  */
-export function mainSessionPrompt(mode: Pick<RoutingMode, 'unattended' | 'taskFolders'>, activity = false): string {
+export function mainSessionPrompt(mode: Pick<RoutingMode, 'unattended' | 'taskFolders'>, activity = false, studio = false): string {
   const unattended = mode.unattended
   return [
-    unattended ? role + unattendedRole : role,
+    unattended ? role + unattendedRole : role + (studio ? productionRouting : ''),
     (unattended ? unattendedSource : attendedSource) + notes + (mode.taskFolders ? taskDirectory : sharedDirectory) + revisions,
     unattended ? unattendedRecovery : attendedRecovery,
     (unattended ? unattendedReceipts : attendedReceipts) + (activity ? (unattended ? unattendedActivity : attendedActivity) : ''),

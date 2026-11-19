@@ -80,6 +80,7 @@
       name: '@deepseek-ai/dsh-session-coordinator'
       config:
         mainPreset: main-session
+        greetOnOpen: true
         workerPreset: short-drama
         searchLimit: 30
         readChars: 24000

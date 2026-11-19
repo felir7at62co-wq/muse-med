@@ -5,7 +5,8 @@ import { act, fireEvent, within, waitFor } from '@testing-library/react'
 import { afterAll, expect, it, onTestFinished, vi } from 'vitest'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
-import { DramaSettingsSchema, DRAMA_SETTINGS_NAMESPACE, apply } from '@deepseek-ai/dsh-drama-settings'
+import { DRAMA_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-drama-settings'
+import * as desktopDramaSettings from '../src/product-drama-settings.ts'
 import SettingsController from '../../../packages/api/settings-controller/src/index.ts'
 import { configurationFixture } from '../../../packages/settings/settings/tests/configuration-fixture.ts'
 import { draftDirectory } from '../../../packages/drama/drama-settings/src/draft-directory.ts'
@@ -74,7 +75,7 @@ async function bench(extraOverlays: PatchOptions[] = []) {
     { id: 'config-editor', name: 'cordis:editor' },
     { id: 'settings', name: 'cordis:settings' },
     ...dramaRows.map(row => ({ ...row, name: 'cordis:drama' })),
-  ], builtins: { drama: { Config: DramaSettingsSchema, apply } } })
+  ], builtins: { drama: desktopDramaSettings } })
   await fixture.ctx.fiber.dispose()
   Object.assign(fixture.profile, { overlays: [...dramaOverlays, ...extraOverlays] })
   const ctx = await fixture.start()

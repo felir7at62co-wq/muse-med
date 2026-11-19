@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/jingliu-connection/README.md
+/:
+  en: 797b64b409aca2de
+  zh: 6d818ce9345b7993
+/jingliu-account-connection:
+  en: 15397ec7ba6ee829
+  zh: 7125fb8a10ab58d2
+/jingliu-account-connection/summary:
+  en: 88c36be17d66df12
+  zh: 87ee8fdbbbc92b09
+/jingliu-account-connection/table-of-contents:
+  en: 573072d6bcc6d1ff
+  zh: e1c0e8b4573b0345
+/jingliu-account-connection/sign-in:
+  en: 81e36208ab877d65
+  zh: 1df24443ab26fa65
+/jingliu-account-connection/host-api:
+  en: 0ad408b9a93d973a
+  zh: a1f255820de3e0c2
+/jingliu-account-connection/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/jingliu-account-connection/model-experience/account-changes-during-a-workflow-call:
+  en: 03dfe9e5caf4db25
+  zh: 2396fb015d715ced
+/jingliu-account-connection/model-experience/account-changes-during-a-workflow-call/what-the-model-sees:
+  en: 8fd261a7ff788ce8
+  zh: 42453f224e571f74
+/jingliu-account-connection/model-experience/account-changes-during-a-workflow-call/token-effect:
+  en: 31a9c85b87d7fa33
+  zh: 7ff2e23fd615ffd3
+/jingliu-account-connection/model-experience/account-changes-during-a-workflow-call/kv-cache-effect:
+  en: 67834933880bb1ef
+  zh: fea62d6d9c4a6cc6
+/jingliu-account-connection/known-limitations-and-deferred-work:
+  en: 6263ede0780d545a
+  zh: 0cdb530d78f2b1ad
+/jingliu-account-connection/known-limitations-and-deferred-work/dev-note:
+  en: 45ec51258109208a
+  zh: df6c6297ba72dc14

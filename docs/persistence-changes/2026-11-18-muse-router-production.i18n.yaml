@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-18-muse-router-production.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-18-muse-router-production.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-18-muse-router-production:
+  en: a9a7e8a07674066c
+  zh: 8aa007e183f53f11
+/2026-11-18-muse-router-production/summary:
+  en: a9509097c983e80c
+  zh: d8fdb93259fb56c5
+/2026-11-18-muse-router-production/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-18-muse-router-production/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-18-muse-router-production/compatibility:
+  en: 637d4b95dafaf81e
+  zh: 789287285221565d
+/2026-11-18-muse-router-production/verification:
+  en: f3ca9570c85254dc
+  zh: 7bb482253d9a9587
+/2026-11-18-muse-router-production/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

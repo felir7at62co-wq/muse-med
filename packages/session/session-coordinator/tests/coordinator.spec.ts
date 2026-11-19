@@ -2,6 +2,7 @@
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -49,6 +50,16 @@ async function waitStatus(test: Awaited<ReturnType<typeof fixture>>, status: Ass
 }
 
 describe('routing-only Main Session', () => {
+  it('greets in its own first turn once and keeps the opening outside human routing authority', async () => {
+    const test = await fixture(undefined, { greetOnOpen: true })
+    const first = await test.service.openMain()
+    const agent = test.ctx.agents.get(first)!
+    await agent.whenIdle()
+    expect(await test.service.openMain()).toBe(first)
+    const events = agent.session.snapshotEvents()
+    expect(events.filter(e => e.type === 'user/message' && e.data.source.kind === 'muse-router-opening')).toHaveLength(1)
+    await expect(test.service.requireMain(agent)).rejects.toThrow(/owner request/i)
+  })
   it('opens the same dedicated Main Session in the existing default Workspace', async () => {
     const test = await fixture()
     const controller = new AbortController()
@@ -114,6 +125,27 @@ describe('routing-only Main Session', () => {
     expect(worker.session.header.parentSession).toBeUndefined()
     await expect(test.service.dispatch(test.main, { ...request, instructions: 'Different goal' })).rejects.toThrow(/different work/)
     expect(latest(await waitStatus(test, 'needs-report')).status).toBe('needs-report')
+  })
+
+  it('passes the confirmed cloud project to the assigned worker and its task brief', async () => {
+    const test = await fixture()
+    const project = { owner: 'studio-user', id: 'film-1', title: '雨夜' }
+    const inherit = vi.fn()
+    await test.ctx.plugin(class Studio extends Service {
+      constructor(ctx: Context) { super(ctx, 'jingliuConnection') }
+      assignmentProject(id: SessionId) { return id === test.main.id ? project : null }
+      inheritProject = inherit
+    }).await()
+    const task = await test.service.dispatch(test.main, request)
+    const attempt = latest(task)
+    expect(attempt.studioProject).toEqual(project)
+    const worker = test.ctx.agents.get(attempt.sessionId)!
+    await worker.whenIdle()
+    expect(inherit).toHaveBeenCalledWith(worker.id, project)
+    const briefing = worker.session.snapshotEvents().filter(event => event.type === 'user/message')
+    expect(JSON.stringify(briefing)).toContain('Confirmed Jingliu production')
+    expect(JSON.stringify(briefing)).toContain('film-1')
+    expect(JSON.stringify(briefing)).toContain('雨夜')
   })
 
   it('reuses an idle ordinary Session and preserves its existing history and preset', async () => {

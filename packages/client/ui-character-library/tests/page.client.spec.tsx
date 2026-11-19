@@ -57,7 +57,7 @@ function props({ configured = true, failed = false, imageFailed = false, imageLo
 it('shows character cards, collection filters and a dismissable image preview', () => {
   const fixture = props()
   const view = render(<LibraryPage {...fixture.value} />)
-  expect(screen.getByRole('heading', { name: 'Character library' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Shared assets' })).toBeTruthy()
   expect(screen.getByText('Read-only references')).toBeTruthy()
   expect(screen.queryByRole('button', { name: /upload|delete|edit/i })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'View character reference: ancient-a' }))

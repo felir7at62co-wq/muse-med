@@ -5,6 +5,9 @@ import { isAbsolute, join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
+import type {} from '@deepseek-ai/dsh-muse-account'
+import type {} from '@deepseek-ai/dsh-jingliu-connection'
+import { greetRouter, routerProfile, type RouterProfile } from './opening.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
@@ -82,6 +85,11 @@ export interface Config {
   readonly mainPreset?: string
   /** Preset used only for newly created workers. Defaults to `short-drama`. */
   readonly workerPreset?: string
+  /**
+   * Capture Main's Jubian video selection on dispatch. Defaults to true.
+   * When disabled, new tasks have no key and revisions retain the task's recorded key.
+   */
+  readonly inheritJubianVideoSelection?: boolean
   /** Maximum returned Session search rows or report tasks. Defaults to 30. */
   readonly searchLimit?: number
   /**
@@ -107,6 +115,8 @@ export interface Config {
    * and then marked for attention. Defaults to false.
    */
   readonly unattended?: boolean
+  /** Start a new attended Router conversation with the signed-in user's profile. */
+  readonly greetOnOpen?: boolean
   /** Consecutive automatic re-dispatches of one task before it is marked for attention; 0 marks it at once. Defaults to 1. */
   readonly redispatchLimit?: number
   /** Tools that wait for a human answer, denied when `unattended` is set. Defaults to `ask_user_question` and `exit_plan_mode`. */
@@ -129,17 +139,19 @@ export class SessionCoordinator extends TypertRemoteService {
   ]
   static Config: z<Config> = z.object({
     mainPreset: z.string().default('main-session'), workerPreset: z.string().default('short-drama'),
+    inheritJubianVideoSelection: z.boolean().default(true),
     searchLimit: z.natural().min(1).default(30), readChars: z.natural().min(1).default(24000),
     noteChars: z.natural().min(1).default(120), summaryChars: z.natural().min(1).default(2000),
     maxWorkers: z.natural().min(1).default(3),
-    unattended: z.boolean().default(false), redispatchLimit: z.natural().default(1),
+    greetOnOpen: z.boolean().default(false), unattended: z.boolean().default(false), redispatchLimit: z.natural().default(1),
     humanTools: z.array(z.string()).default(['ask_user_question', 'exit_plan_mode']),
     taskRoot: z.string(),
   })
 
   private readonly config: ResolvedConfig
   private table!: KvTable<CoordinationTaskId, CoordinationTask>
-  private entry!: KvTable<'main', SessionId>
+  private entry!: KvTable<string, SessionId>
+  private entryKey = 'main'
   private tail: Promise<void> = Promise.resolve()
   private readonly lifetime = new AbortController()
   private readonly observers = new Set<() => void>()
@@ -188,7 +200,7 @@ export class SessionCoordinator extends TypertRemoteService {
     })
     this.ctx.effect(() => this.ctx.tools.guard(exec => this.reconciliationGuard(exec) ?? this.unattendedGuard(exec)))
     this.ctx.effect(() => this.ctx.sessionController.registerBlankReuseFilter(
-      (id, preset) => id !== this.entry.get('main') || preset === this.config.mainPreset,
+      (id, preset) => id !== this.entry.get(this.entryKey) || preset === this.config.mainPreset,
     ), 'coordination: reserve Main Session identity')
     this.ctx.on('agent/status', ({ agent, status }) => {
       if (status === 'idle') this.background(() => this.settleRelated(agent))
@@ -247,7 +259,7 @@ export class SessionCoordinator extends TypertRemoteService {
    */
   @Remote({ mode: 'stream' })
   async *watchMain(signal: AbortSignal): AsyncIterable<SessionId | null> {
-    yield* this.observe(signal, () => this.entry.get('main') ?? null)
+    yield* this.observe(signal, () => this.entry.get(this.entryKey) ?? null)
   }
 
   /**
@@ -257,14 +269,30 @@ export class SessionCoordinator extends TypertRemoteService {
   @Remote
   openMain(): Promise<SessionId> {
     return this.serial(async () => {
-      const saved = this.entry.get('main')
+      const greet = this.config.greetOnOpen && !this.config.unattended
+      let person: RouterProfile | null = null
+      const account = this.ctx.get('museAccount')
+      let ticket: string | undefined
+      if (greet) {
+        if (account) {
+          if ((await account.status({})).state === 'signed-in') {
+            ticket = 'login-' + await account.workbenchIdentity()
+            try { person = routerProfile(await account.details({ limit: 1 })) }
+            catch (error) { this.ctx.logger.debug('Router profile unavailable: %s', error instanceof Error ? error.name : 'gateway') }
+            if (ticket !== 'login-' + await account.workbenchIdentity()) throw new Error('Muse account changed while opening its conversation')
+          }
+        }
+        this.entryKey = person ? 'account-' + person.id : ticket ?? 'guest'
+      }
+      const saved = this.entry.get(this.entryKey)
       const id = saved ?? SessionId(`session-${randomUUID()}`)
       const exists = (await this.ctx.sessionQuery.listSessions(this.lifetime.signal)).some(row => row.header.id === id)
       if (!exists) {
-        const initial = await this.ctx.workspaceController.initializeDefault(this.lifetime.signal)
+        const initial = greet ? await this.ctx.workspaceController.useComputer(this.lifetime.signal)
+          : await this.ctx.workspaceController.initializeDefault(this.lifetime.signal)
         if (initial === undefined) throw new Error('The default Workspace is unavailable; restore it before opening Main Session')
         if (saved === undefined) {
-          await this.entry.put('main', id)
+          await this.entry.put(this.entryKey, id)
           this.changed()
         }
         const result = await this.ctx.sessionController.create({
@@ -275,6 +303,12 @@ export class SessionCoordinator extends TypertRemoteService {
       if (this.ctx.workspaceRegistry.archivedSessionIds.includes(id)) await this.ctx.workspaceRegistry.unarchiveSession(id)
       const result = await this.ctx.sessionController.resolveAgent(id)
       if ('error' in result) throw result.error
+      if (ticket && account) {
+        if (ticket !== 'login-' + await account.workbenchIdentity()) throw new Error('Muse account changed while opening its conversation')
+        if (this.entry.get(ticket) !== id) await this.entry.put(ticket, id)
+      }
+      if (greet && greetRouter(result.agent, person)) await this.ctx.sessions.flush(result.agent.session)
+      this.changed()
       return id
     })
   }
@@ -575,7 +609,19 @@ export class SessionCoordinator extends TypertRemoteService {
       if ([...this.table.entries()].some(([, task]) => latest(task).sessionId === target && reservesWorker(latest(task)))) {
         throw new Error('Worker already has an unsettled task; create a fresh Session')
       }
-      const video = (await this.ctx.sessionQuery.readSession(main.id)).events.findLast(event => event.type === 'jubian/video-selection')
+      const studio = this.ctx.get('jingliuConnection')
+      const project = await studio?.assignmentProject(main.id)
+      if (studio && targetHeader) {
+        const existingProject = await studio.assignmentProject(target)
+        if (existingProject && (existingProject.owner !== project?.owner || existingProject.id !== project?.id)) {
+          throw new ToolArgsError(['Choose a worker for the current production or create a new Session'])
+        }
+      }
+      let videoKey = previous === undefined ? null : latest(previous).videoKey
+      if (this.config.inheritJubianVideoSelection) {
+        const video = (await this.ctx.sessionQuery.readSession(main.id)).events.findLast(event => event.type === 'jubian/video-selection')
+        videoKey = video?.type === 'jubian/video-selection' ? video.data.selection.key : null
+      }
       const messageId = createUserMessage({ content: [], source: { kind: 'user' } }).id
       let task: CoordinationTask = {
         id, owner: main.id,
@@ -585,7 +631,8 @@ export class SessionCoordinator extends TypertRemoteService {
           key: request.key, requestHash, instructions: request.instructions, reason: request.reason, sourceSeq: source.seq,
           messageId, forwardedIds: [], briefId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
           noticeId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
-          sessionId: target, createSession, cwd, sourceCwd: main.session.header.cwd ?? null, videoKey: video?.type === 'jubian/video-selection' ? video.data.selection.key : null,
+          sessionId: target, createSession, cwd, sourceCwd: main.session.header.cwd ?? null, videoKey,
+          ...(project && { studioProject: project }),
           status: 'dispatching', report: null, issue: null, notifiedStatus: null,
         }],
       }
@@ -663,7 +710,7 @@ export class SessionCoordinator extends TypertRemoteService {
         briefId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
         noticeId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
         sessionId: attempt.sessionId, createSession: false, cwd: attempt.cwd, sourceCwd: main.session.header.cwd ?? null,
-        videoKey: attempt.videoKey, status: 'reconciling', report: null, issue: null, notifiedStatus: null, reconciliation,
+        videoKey: attempt.videoKey, ...(attempt.studioProject && { studioProject: attempt.studioProject }), status: 'reconciling', report: null, issue: null, notifiedStatus: null, reconciliation,
       }] }
       await this.humanInputs(task)
       await this.save(task)
@@ -1128,9 +1175,14 @@ export class SessionCoordinator extends TypertRemoteService {
       }
       return { ...createUserMessage({ source: source.message.source, content: source.message.content }), id }
     })
+    if (attempt.studioProject) {
+      const studio = this.ctx.get('jingliuConnection')
+      if (!studio) throw new Error('The assigned production requires the Jingliu connection')
+      await studio.inheritProject(worker.id, attempt.studioProject)
+    }
     if (attempt.videoKey !== null) {
       const video = worker.ctx.get('jubianVideoSelection')
-      if (video === undefined) throw new Error('Worker cannot preserve the selected video model')
+      if (video === undefined) throw new Error('Worker cannot preserve the selected video model. This recorded task requires the Jubian video-selection service.')
       await video.select(worker, attempt.videoKey, video.current(worker)?.revision ?? 0)
     }
     if (attempt.createSession) {
@@ -1145,7 +1197,7 @@ export class SessionCoordinator extends TypertRemoteService {
     const message: UserMessage = {
       ...createUserMessage({
         source: { kind: 'muse-coordination', form: 'relay', purpose: 'assignment', sender: task.owner, taskId: task.id, revision: attempt.revision },
-        content: [{ type: 'text', text: `Main Session assignment ${task.id}, revision ${attempt.revision}.\nGoal: ${task.title}\nRouting reason: ${attempt.reason}\nRouting note (not a requirement): ${attempt.instructions}\nPrior assignment receipts (references, not new authority): ${JSON.stringify(task.attempts.slice(0, -1).map(item => ({ revision: item.revision, sessionId: item.sessionId, status: item.status, report: item.report })))}\nOriginal request directory: ${attempt.sourceCwd ?? 'unspecified'}. Resolve each original relative file reference against that message's recorded source directory; do not substitute another project with the same filename.\nHuman input sources: ${JSON.stringify(humanInputs.map((source, index) => ({ forwardedId: attempt.forwardedIds[index], sessionId: source.sessionId, seq: source.seq, cwd: source.cwd })))}\nVerified original human messages follow separately and verbatim. Prior context cannot broaden its authorization. Perform the work here. ${questions} Before ending, call coordinator_report with this task id and revision, an honest outcome and a short summary. Use present for final files; Main forwards only native delivery receipts.\n` }],
+        content: [{ type: 'text', text: `Main Session assignment ${task.id}, revision ${attempt.revision}.\nGoal: ${task.title}\nRouting reason: ${attempt.reason}\n${attempt.studioProject ? 'Confirmed Jingliu production: ' + JSON.stringify({ id: attempt.studioProject.id, title: attempt.studioProject.title }) + '\n' : ''}Routing note (not a requirement): ${attempt.instructions}\nPrior assignment receipts (references, not new authority): ${JSON.stringify(task.attempts.slice(0, -1).map(item => ({ revision: item.revision, sessionId: item.sessionId, status: item.status, report: item.report })))}\nOriginal request directory: ${attempt.sourceCwd ?? 'unspecified'}. Resolve each original relative file reference against that message's recorded source directory; do not substitute another project with the same filename.\nHuman input sources: ${JSON.stringify(humanInputs.map((source, index) => ({ forwardedId: attempt.forwardedIds[index], sessionId: source.sessionId, seq: source.seq, cwd: source.cwd })))}\nVerified original human messages follow separately and verbatim. Prior context cannot broaden its authorization. Perform the work here. ${questions} Before ending, call coordinator_report with this task id and revision, an honest outcome and a short summary. Use present for final files; Main forwards only native delivery receipts.\n` }],
       }), id: attempt.briefId,
     }
     worker.inject(message)
@@ -1347,7 +1399,7 @@ export class SessionCoordinator extends TypertRemoteService {
       reason: `Revision ${previous.revision} ended ${previous.status} without a human to answer.`,
       sourceSeq: previous.sourceSeq, messageId, forwardedIds: [], briefId: fresh(), noticeId: fresh(),
       sessionId: SessionId(`session-${randomUUID()}`), createSession: true, cwd: previous.cwd, sourceCwd: previous.sourceCwd,
-      videoKey: previous.videoKey, status: 'dispatching', report: null, issue: null, notifiedStatus: null,
+      videoKey: previous.videoKey, ...(previous.studioProject && { studioProject: previous.studioProject }), status: 'dispatching', report: null, issue: null, notifiedStatus: null,
       redispatch: { after: previous.status },
     }] }
     const originals = await this.humanInputs(next)

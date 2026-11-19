@@ -1,6 +1,7 @@
 import {openDirectModelLeases,resolveDirectLeasePolicy} from './model-direct-leases.mjs';
 import http from 'node:http';
 import {createDesktopLogin} from './desktop-login.mjs';
+import {createWorkbenchLogin,loadWorkbenchClients} from './workbench-login.mjs';
 import {createFeishuLogin,loadFeishuLoginConfig} from './feishu-login.mjs';
 import {renderAccountIdentity,renderAdminAccounts,renderAccountDetails,renderAccountGroups} from './account-pages.mjs';
 import {accountDetailsQuery,createMemoryUsageLedger,openUsageLedger} from './account-details.mjs';
@@ -62,7 +63,7 @@ function loginPage(register=false,desktopLogin,feishuEnabled=false,feishuAppType
  * @param {import('node:http').Server} [options.httpServer] Unhandled carrier, optionally already listening; the factory installs gateway handlers and owns their close cleanup.
  * @returns {import('node:http').Server} The supplied carrier or a new HTTP server.
  */
-export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},desktopLoginOptions={},feishuLoginOptions={},modelConfig,globalModels,modelForward,desktopModelTransport='relay',modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,usageRequestRatePerMinute=600,usageLedger,voiceSlots,market,httpServer,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
+export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},desktopLoginOptions={},feishuLoginOptions={},workbenchClients,modelConfig,globalModels,modelForward,desktopModelTransport='relay',modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,usageRequestRatePerMinute=600,usageLedger,voiceSlots,market,httpServer,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
  usageLedger??=createMemoryUsageLedger({now});
  if(httpServer&&(httpServer.listenerCount('request')!==0||httpServer.listenerCount('upgrade')!==0))throw Error('Account HTTP carrier must have no request or upgrade handlers');
  if(!Number.isSafeInteger(activityRequestRatePerMinute)||activityRequestRatePerMinute<1||activityRequestRatePerMinute>10000)throw Error('Invalid activity request rate');
@@ -113,10 +114,12 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  const renderLoginPage=(register,continuation,consent)=>loginPage(register,continuation,!!feishuLoginOptions.config,feishuLoginOptions.config?.appType,consent);
  const desktopLogin=createDesktopLogin({...desktopLoginOptions,publicOrigin,store,sessionStore,sessionTtlMs,cookieName,session,originOK,rate,form,reply,html,page,loginPage:renderLoginPage,escape,feishuEnabled:!!feishuLoginOptions.config,now});
  const feishuLogin=createFeishuLogin({...feishuLoginOptions,publicOrigin,environment,store,session,sessionStore,sessionTtlMs,cookieName,originOK,rate,form,reply,page,returnPath:desktopLogin.returnPath,desktopConsent:desktopLogin,now,allowAccount:account=>!devOnlyAdmin||account.admin});
+ const workbenchLogin=createWorkbenchLogin({clients:workbenchClients,publicOrigin,session,sessionStore,store,now,rate,form,reply,page,escape,cookieName});
  const server=httpServer??http.createServer();
  server.on('request',async(req,res)=>{try{
   if(!req.url.startsWith('/')||req.url.startsWith('//')){reply(res,400);return;}
   const mount=workspaceMode==='desktop'?desktopRoute(req.url):null,path=new URL(mount?.path??req.url,'http://localhost').pathname;
+  if(!mount&&await workbenchLogin(req,res,path))return;
   if(await feishuLogin.handle(req,res,path))return;
   if(await desktopLogin.handle(req,res,path))return;
   if(asrStorage&&await asrStorage.handle(req,res))return;
@@ -457,7 +460,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   await asr.ready();
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;asrRequestRatePerMinute=config.requestRatePerMinute;
  }
- const accountServer=createAccountServer({store,runtime,workspaceMode,feishuLoginOptions:{config:feishuConfig},modelConfig,globalModels,desktopModelTransport,modelKeyPoolPolicy,modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,usageRequestRatePerMinute,usageLedger,voiceSlots,market,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
+ const accountServer=createAccountServer({store,runtime,workspaceMode,feishuLoginOptions:{config:feishuConfig},workbenchClients:await loadWorkbenchClients(process.env.MUSE_WORKBENCH_LOGIN_CONFIG),modelConfig,globalModels,desktopModelTransport,modelKeyPoolPolicy,modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,usageRequestRatePerMinute,usageLedger,voiceSlots,market,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
  if(modelConfig)modelRelay=createModelRelay({config:modelConfig,globalModels,secret:modelSecret,accounts:store,usageLedger,keyPool:modelKeyPool,keyPoolPolicy:modelKeyPoolPolicy}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);
  let sweepInterval;
  installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,directModelLeases,usageLedger,stopSweep:()=>clearInterval(sweepInterval)});

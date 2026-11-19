@@ -9,7 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The Character library entry in the left navigation opens a read-only catalog of ancient and urban character references. People can search, page through image cards and open a verified full-image preview. The page offers no upload, edit, delete or approval controls.
+With Jingliu connected, **Asset library** opens **Shared assets**. The **Characters** filter shows imported references alongside production characters. Search and image previews use the same studio catalog as the web gallery.
+
+A standalone profile without the studio contribution opens a read-only catalog of ancient and urban character references. People can search, page through image cards and open a verified full-image preview. The page offers no upload, edit, delete or approval controls.
 
 ## Table of Contents
 

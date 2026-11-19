@@ -187,6 +187,7 @@ flowchart TD
     pkg_client_ui_file_drag["client-ui-file-drag"]
     pkg_client_ui_goal["client-ui-goal"]
     pkg_client_ui_input_trigger["client-ui-input-trigger"]
+    pkg_client_ui_jingliu["client-ui-jingliu"]
     pkg_client_ui_jobs["client-ui-jobs"]
     pkg_client_ui_layout["client-ui-layout"]
     pkg_client_ui_message_feedback["client-ui-message-feedback"]
@@ -277,6 +278,7 @@ flowchart TD
     pkg_character_library_tos["character-library-tos"]
     pkg_drama_settings["drama-settings"]
     pkg_drama_skills["drama-skills"]
+    pkg_jingliu_connection["jingliu-connection"]
     pkg_screenplay_project["screenplay-project"]
     pkg_session_video["session-video"]
     pkg_tool_audio_transcribe["tool-audio-transcribe"]
@@ -286,6 +288,7 @@ flowchart TD
     pkg_tool_drama_tos_upload["tool-drama-tos-upload"]
     pkg_tool_episode_render["tool-episode-render"]
     pkg_tool_hit_queue["tool-hit-queue"]
+    pkg_tool_jingliu["tool-jingliu"]
     pkg_tool_shot_script["tool-shot-script"]
   end
   subgraph group_experimental["packages/experimental"]
@@ -850,6 +853,10 @@ flowchart TD
   pkg_compaction --> pkg_commands
   pkg_compaction --> pkg_llm
   pkg_compaction --> pkg_session
+  pkg_jingliu_connection --> pkg_commands
+  pkg_jingliu_connection --> pkg_muse_account
+  pkg_jingliu_connection --> pkg_typert_protocol
+  pkg_tool_jingliu --> pkg_user_approval
   pkg_experimental_ptc_runtime_python --> pkg_ptc_runtime
   pkg_experimental_ptc_runtime_python --> pkg_sandbox
   pkg_experimental_ptc_runtime_python --> pkg_sandbox_policy
@@ -1811,6 +1818,7 @@ flowchart TD
 | [`client-ui-file-drag`](../packages/client/ui-file-drag) | `client` | — |
 | [`client-ui-goal`](../packages/client/ui-goal) | `client` | — |
 | [`client-ui-input-trigger`](../packages/client/ui-input-trigger) | `client` | — |
+| [`client-ui-jingliu`](../packages/client/ui-jingliu) | `client` | — |
 | [`client-ui-jobs`](../packages/client/ui-jobs) | `client` | — |
 | [`client-ui-layout`](../packages/client/ui-layout) | `client` | — |
 | [`client-ui-message-feedback`](../packages/client/ui-message-feedback) | `client` | — |
@@ -2020,6 +2028,8 @@ flowchart TD
 | [`fs-sandbox`](../packages/fs/fs-sandbox) | `fs` | [`fs`](../packages/fs/fs), [`fs-local`](../packages/fs/fs-local), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
 | [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`agent`](../packages/core/agent), [`credentials`](../packages/credentials/credentials), [`deepseek-account`](../packages/credentials/deepseek-account), [`launch-environment`](../packages/util/launch-environment), [`llm-deepseek`](../packages/llm/llm-deepseek), [`session`](../packages/core/session), [`web`](../packages/web/web) |
 | [`compaction`](../packages/compaction/compaction) | `compaction` | [`brand`](../packages/util/brand), [`commands`](../packages/interaction/commands), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`jingliu-connection`](../packages/drama/jingliu-connection) | `drama` | [`commands`](../packages/interaction/commands), [`muse-account`](../packages/host/muse-account), [`typert-protocol`](../packages/typert/protocol) |
+| [`tool-jingliu`](../packages/drama/tool-jingliu) | `drama` | [`user-approval`](../packages/interaction/user-approval) |
 | [`experimental-ptc-runtime-python`](../packages/experimental/ptc-runtime-python) | `experimental` | [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`timeout`](../packages/util/timeout), [`util-values`](../packages/util/values) |
 | [`command-feedback`](../packages/feedback/command-feedback) | `feedback` | [`anonymous-user-id`](../packages/identity/anonymous-user-id), [`commands`](../packages/interaction/commands), [`session`](../packages/core/session), [`typert-protocol`](../packages/typert/protocol) |
 | [`permission-presets`](../packages/interaction/permission-presets) | `interaction` | [`agent`](../packages/core/agent), [`commands`](../packages/interaction/commands), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`shell`](../packages/shell/shell), [`typert-protocol`](../packages/typert/protocol), [`user-approval`](../packages/interaction/user-approval) |

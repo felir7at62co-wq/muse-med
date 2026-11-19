@@ -24,6 +24,9 @@
       "path": "../../packages/api/session-controller/tsconfig.host.json"
     },
     {
+      "path": "../../packages/drama/drama-settings/tsconfig.host.json"
+    },
+    {
       "path": "../../packages/drama/session-video"
     },
     {

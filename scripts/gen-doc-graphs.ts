@@ -224,6 +224,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Reads account-accessible image generation routes without exposing the credential or submitting paid work.',
   },
   {
+    key: 'jingliuConnection',
+    pkg: 'jingliu-connection',
+    title: 'Authenticated Jingliu workflow requests',
+    mode: 'service',
+    consumers: ['tool-jingliu'],
+    note: 'Verifies the signed-in Jingliu user and sends workflow requests to that deployment.',
+  },
+  {
     key: 'jubianToken',
     pkg: 'tool-jubian',
     title: 'Jubian credential settings',

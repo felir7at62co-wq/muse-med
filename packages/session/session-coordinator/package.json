@@ -130,6 +130,8 @@
     "@deepseek-ai/dsh-schedule": "workspace:*",
     "@deepseek-ai/dsh-session-activity": "workspace:*",
     "@deepseek-ai/dsh-attachment": "workspace:*",
-    "@deepseek-ai/dsh-settings": "workspace:*"
+    "@deepseek-ai/dsh-settings": "workspace:*",
+    "@deepseek-ai/dsh-jingliu-connection": "workspace:*",
+    "@deepseek-ai/dsh-muse-account": "workspace:*"
   }
 }

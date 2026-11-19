@@ -81,6 +81,7 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 | `watchReadyTimeoutMs` | `10000` | 每个现有根目录监视器的就绪期限 |
 | `discoveryTimeoutMs` | `30000` | 一次完整发现的期限，包含根目录查找、监视与读取 |
 | `bundledSkillDir` | — | 配置后按 rank 600 扫描的随包提供的 skill 根目录 |
+| `excludedBundledSkills` | `[]` | 从随包根目录中排除的技能名。工作区、自定义目录和用户目录仍可提供同名技能。 |
 
 其余 `watch*` 字段用于调节 Chokidar 行为——轮询、稳定窗口、间隔、项目上限与符号链接跟随。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-skill-filesystem)完整列出了所有字段，是这些字段的真源。
 

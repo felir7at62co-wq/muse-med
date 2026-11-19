@@ -259,6 +259,33 @@ describe('fresh worker delivery', () => {
     expect(test.ctx.workspaceRegistry.get(initial.workspace.workspaceId)?.sessionIds).toContain(latest(task).sessionId)
   })
 
+  it('routes new work from a historical Main Session while retaining an earlier task’s Jubian selection', async () => {
+    const test = await fixture()
+    test.main.session.append('jubian/video-selection', { selection: { key: 'old-720p', modelId: 'old', modelName: 'Old',
+      platformId: 'platform', standardId: 1, resolution: '720p', genTypes: [1], ratios: ['16:9'], maxDurationSeconds: null, revision: 1 } })
+    await expect(test.service.dispatch(test.main, request)).rejects.toThrow('requires the Jubian video-selection service')
+    const [original] = test.service.list(test.main.id)
+    expect(latest(original!).videoKey).toBe('old-720p')
+
+    await test.fiber.dispose()
+    await test.ctx.plugin(Coordinator, { inheritJubianVideoSelection: false })
+    const coordinator = test.ctx.sessionCoordinator
+    const fresh = await coordinator.dispatch(test.main, { ...request, key: 'new-work' })
+    const attempt = latest(fresh)
+    expect(attempt.videoKey).toBeNull()
+    const worker = test.ctx.agents.get(attempt.sessionId)!
+    await worker.whenIdle()
+    const log = await test.ctx.sessionQuery.readSession(worker.id)
+    expect(log.events.some(event => event.type === 'user/message' && event.data.id === attempt.messageId)).toBe(true)
+    expect(log.events.some(event => event.type === 'jubian/video-selection')).toBe(false)
+
+    await coordinator.stop(test.main.id, original!.id, 1)
+    await expect(coordinator.dispatch(test.main, { ...request, key: 'continue-old', taskId: original!.id, expectedRevision: 1 }))
+      .rejects.toThrow('requires the Jubian video-selection service')
+    const retained = coordinator.list(test.main.id).find(task => task.id === original!.id)!
+    expect(retained.attempts.map(entry => entry.videoKey)).toEqual(['old-720p', 'old-720p'])
+  })
+
   it('keeps the worker model when Main has no selected model', async () => {
     const test = await fixture()
     test.main.model.select({ provider: 'mock', model: 'mock-main' })

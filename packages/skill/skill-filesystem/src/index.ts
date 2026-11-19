@@ -86,6 +86,8 @@ export interface Config {
   watchFollowSymlinks?: boolean
   /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */
   bundledSkillDir?: string
+  /** Skill names retired from the bundled root. User and project providers retain their own selections. */
+  excludedBundledSkills?: string[]
 }
 
 export const Config: Schema<Config> = z.object({
@@ -105,6 +107,7 @@ export const Config: Schema<Config> = z.object({
   watchReadyTimeoutMs: z.number().default(DEFAULT_WATCH_READY_TIMEOUT_MS),
   discoveryTimeoutMs: z.number().default(DEFAULT_DISCOVERY_TIMEOUT_MS),
   bundledSkillDir: z.string(),
+  excludedBundledSkills: z.array(z.string()).default([]),
 })
 
 interface SkillRoot {
@@ -177,6 +180,7 @@ export class FileSystemSkillProvider implements SkillProvider {
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
   private readonly bundledSkillDir: string | undefined
+  private readonly excludedBundledSkills: ReadonlySet<string>
   private readonly discoveryTimeoutMs: number
   private readonly signal: AbortSignal
   private disposal: Promise<void> | undefined
@@ -196,6 +200,7 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.museHome = resolveMuseHome(config.museHome)
     this.agentsHome = resolveAgentsHome(config.agentsHome)
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
+    this.excludedBundledSkills = new Set(config.excludedBundledSkills)
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
     // The environment bundled root is a default root: an isolated provider
@@ -245,7 +250,9 @@ export class FileSystemSkillProvider implements SkillProvider {
       try {
         const discovered = await discoverRoot(root, this.ctx, this.name, options.signal)
         options.signal.throwIfAborted()
-        candidates.push(...discovered)
+        for (const candidate of discovered) {
+          if (root.source !== 'bundled' || !this.excludedBundledSkills.has(candidate.name)) candidates.push(candidate)
+        }
       } catch (error) {
         options.signal.throwIfAborted()
         if (this.disposal !== undefined) throw error

@@ -662,6 +662,8 @@
     { "path": "./packages/drama/tool-character-reference" },
     { "path": "./packages/drama/tool-drama-assets" },
     { "path": "./packages/drama/drama-settings/tsconfig.host.json" },
+    { "path": "./packages/drama/jingliu-connection" },
+    { "path": "./packages/drama/tool-jingliu" },
     { "path": "./packages/perception/perception-bgm" },
     { "path": "./packages/guard/argument-loop" },
     { "path": "./packages/guard/prompt-usage" },

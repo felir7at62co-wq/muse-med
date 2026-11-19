@@ -26,6 +26,8 @@ export function apply(ctx: ClientContext): void {
   }).__DSH_DIRECTORY_PICKER__
   const pick = desktop === undefined ? () => ctx.uiWorkspace.pickDirectory() : () => desktop.pick()
   const injected = (): NativeFlowInjected => ({ pick })
+  ctx.remoteAccess.whenAccess('directoryPicker/pick', () => ctx.slots.inject('workspace.environment.directoryFlow', () =>
+    ctx.slots.register({ name: 'workspace.environment.directoryFlow', inject: injected }, NativeDirectoryFlow)))
   // Both declaration lifetimes must be live before the pair installs; the
   // generator makes the two registrations one transactional effect. The
   // outer/inner nesting order is arbitrary; neither hole has precedence.

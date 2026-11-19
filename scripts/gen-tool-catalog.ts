@@ -14,6 +14,9 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
+import CommandRuntime from '@deepseek-ai/dsh-commands'
+import JingliuConnection from '@deepseek-ai/dsh-jingliu-connection'
+import * as ToolJingliu from '@deepseek-ai/dsh-tool-jingliu'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type OfficeKit from '@deepseek-ai/dsh-office-kit'
@@ -391,6 +394,28 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolDramaTosUpload, { accessKeyIdRef: 'VOLCENGINE_ACCESS_KEY_ID', secretAccessKeyRef: 'VOLCENGINE_SECRET_ACCESS_KEY' })
     },
     note: 'Optional package: only the cloud transcription deployment composes it, with its credential references.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-jingliu',
+    dir: 'tool-jingliu',
+    source: {
+      jingliu_workflows: 'packages/drama/tool-jingliu/src/index.ts',
+      jingliu_run: 'packages/drama/tool-jingliu/src/index.ts',
+      jingliu_narration: 'packages/drama/tool-jingliu/src/narration.ts',
+      jingliu_projects: 'packages/drama/tool-jingliu/src/production.ts',
+      jingliu_image: 'packages/drama/tool-jingliu/src/production.ts',
+      jingliu_studio: 'packages/drama/tool-jingliu/src/studio.ts',
+    },
+    requires: ['ctx.tools', 'ctx.jingliuConnection', 'ctx.approval for changes and paid workflows'],
+    writes: ['tool/call', 'tool/result', 'project updates and jobs on the configured Jingliu service', 'conversation project selections, image and narration job receipts, and local Jianying drafts'],
+    async mount(ctx) {
+      const home = mkdtempSync(join(tmpdir(), 'dsh-tool-catalog-jingliu-'))
+      ctx.effect(() => () => { rmSync(home, { recursive: true, force: true }) })
+      await ctx.plugin(CommandRuntime)
+      await ctx.plugin(LocalCredentialProvider, { path: join(home, 'credentials.yaml'), dshHome: home, watch: false })
+      await ctx.plugin(JingliuConnection)
+      await ctx.plugin(ToolJingliu)
+    },
   },
   {
     pkg: '@deepseek-ai/dsh-tool-hit-queue',

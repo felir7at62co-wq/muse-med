@@ -23,6 +23,7 @@ const assignment = z.object({
   briefId: z.string().transform(value => brandString<MessageId>(value)),
   forwardedIds: z.array(z.string().transform(value => brandString<MessageId>(value))),
   sessionId: z.string().transform(SessionId), createSession: z.boolean(), cwd: z.string(), sourceCwd: z.string().nullable(),
+  studioProject: z.object({ owner: z.string().min(1), id: z.string().regex(/^[\w-]+$/u), title: z.string() }).optional(),
   videoKey: z.string().nullable(), status, report: report.nullable(), issue: z.string().nullable(),
   noticeId: z.string().transform(value => brandString<MessageId>(value)), notifiedStatus: status.nullable(),
   changedInputSeq: z.number().int().nonnegative().optional(), notifiedInputSeq: z.number().int().nonnegative().optional(),
@@ -48,7 +49,7 @@ export const coordinationDomain = defineDomain({
   name: 'muse_coordination', version: 2, compatibleVersions: [1], layout: 'per-record',
   tables: {
     tasks: domainTable<CoordinationTaskId, CoordinationTask>(taskSchema),
-    entry: domainTable<'main', ReturnType<typeof SessionId>>(z.string().transform(SessionId)),
+    entry: domainTable<string, ReturnType<typeof SessionId>>(z.string().transform(SessionId)),
   },
 })
 

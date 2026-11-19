@@ -17,7 +17,10 @@ import { MemoryCredentials } from '../../../packages/credentials/credentials/tes
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
-import * as Jubian from '@deepseek-ai/dsh-tool-jubian'
+import * as ToolJingliu from '@deepseek-ai/dsh-tool-jingliu'
+import JingliuConnection from '@deepseek-ai/dsh-jingliu-connection'
+import Commands from '@deepseek-ai/dsh-commands'
+import { SHORT_DRAMA_GUIDANCE } from '../../desktop-host/src/short-drama-guidance.ts'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -29,7 +32,7 @@ const presetPath = fileURLToPath(new URL('../../desktop-host/presets/short-drama
 const hostPatch = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 const bundledSkillDir = fileURLToPath(new URL('../../../packages/drama/skills/skills', import.meta.url))
 
-it('loads desktop Jubian on the Host and short-drama skill tools from the bundled source root', async () => {
+it('loads desktop Jingliu on the Host and short-drama skill tools from the bundled source root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-short-drama-loader-'))
   const ctx = new Context()
   vi.stubEnv('MUSE_HOME', root)
@@ -39,24 +42,22 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
   try {
     const presetRows = yaml.load(await readFile(presetPath, 'utf8'), { schema: entryListSchema }) as Array<{ id: string; name: string; config?: Record<string, unknown> }>
     const hostPatches = loadOverlayPatches('muse-med', hostPatch)
-    const jubian = hostPatches.flatMap(patch => patch.insert ?? []).find(row => row.id === 'tool-jubian')
+    const plugins = hostPatches.flatMap(patch => patch.insert ?? [])
+    const jingliu = plugins.find(row => row.id === 'tool-jingliu')
+    const connection = plugins.find(row => row.id === 'jingliu-connection')
+    expect(plugins.some(row => row.name === '@deepseek-ai/dsh-tool-jubian')).toBe(false)
     // The Host owns the only skill provider: the presets declare none, and the overlay is where
     // that provider's row comes from (its runtime directories arrive from `src/index.ts`).
     const provider = hostPatches.find(row => row.id === 'skill-filesystem')
     const skill = presetRows.find(row => row.id === 'tool-skill')
     const persona = presetRows.find(row => row.id === 'persona')?.config
-    expect(jubian?.name).toBe('@deepseek-ai/dsh-tool-jubian')
+    expect(jingliu?.name).toBe('@deepseek-ai/dsh-tool-jingliu')
     expect(provider?.config).toMatchObject({ includeDefaultRoots: false })
     expect(skill?.name).toBe('@deepseek-ai/dsh-tool-skill')
     expect(persona).toMatchObject({ complete: false })
     expect(persona?.prefix).toContain('你是 muse-med 短剧编导 Agent')
     expect(presetRows.find(row => row.id === 'editing-policy')?.name).toBe('@deepseek-ai/dsh-desktop-host/editing-policy')
-    expect(persona?.prefix).toContain('时长在所选模型能力内')
-    expect(persona?.prefix).toContain('不因提示词长、镜头多、固定秒数或已有空卡数量机械拆包')
-    expect(persona?.prefix).toContain('视频包提示词默认不写时间轴')
-    expect(persona?.prefix).toContain('多人或多主体的空间关系决定剧情动作且文字容易混淆')
-    expect(persona?.prefix).toContain('单人近景或简单空间用文字即可')
-    expect(persona?.prefix).not.toContain('3D动漫／风格化三维动画，次世代高精度建模 CG，物理可信 PBR 材质')
+    expect(persona?.prefix).toContain('jingliu_workflows')
     expect(presetRows.some(row => row.id === 'planning')).toBe(false)
     expect(presetRows.find(row => row.id === 'delegation')).toMatchObject({
       name: 'cordis:group', group: true, config: [
@@ -71,16 +72,15 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     expect(persona?.suffix).not.toContain('{{cwd}}')
     expect(presetRows.find(row => row.id === 'tool-shot-script')).toMatchObject({
       name: '@deepseek-ai/dsh-tool-shot-script',
-      config: { reviewMode: 'advisory', sessionVideoSelection: true },
+      config: { reviewMode: 'advisory' },
     })
     expect(presetRows.some(row => row.id === 'tool-jubian')).toBe(false)
     expect(presetRows.some(row => row.id === 'skill-filesystem')).toBe(false)
-    if (!jubian || !provider || !skill) throw new Error('Missing short-drama or Desktop Host row')
+    if (!jingliu || !connection || !provider || !skill) throw new Error('Missing short-drama or Desktop Host row')
     const providerConfig: unknown = provider.config
     if (typeof providerConfig !== 'object' || providerConfig === null || Array.isArray(providerConfig)) {
       throw new Error('Missing skill provider config')
     }
-    const jubianConfig = jubian.config as Record<string, unknown> | undefined
 
     const config = join(root, 'cordis.yml')
     await writeFile(config, yaml.dump([
@@ -97,7 +97,8 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
       { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem',
         config: { ...providerConfig, bundledSkillDir, watch: false } },
       skill,
-      { ...jubian, config: { ...jubianConfig, workspaceSecrets: false, ledgerRoot: join(root, 'ledger') } },
+      { id: 'commands', name: 'test:commands' },
+      { ...connection, config: {} }, jingliu,
     ]))
     ctx.baseUrl = pathToFileURL(root).href + '/'
     await ctx.plugin(Loader)
@@ -109,7 +110,8 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
       ['@deepseek-ai/dsh-system-prompt', SystemPrompt], ['@deepseek-ai/dsh-tools', Tools],
       ['@deepseek-ai/dsh-agent', AgentRegistry], ['@deepseek-ai/dsh-skill', SkillRegistry],
       ['test:credentials', MemoryCredentials], ['@deepseek-ai/dsh-skill-filesystem', SkillFilesystem],
-      ['@deepseek-ai/dsh-tool-skill', ToolSkill], ['@deepseek-ai/dsh-tool-jubian', Jubian],
+      ['@deepseek-ai/dsh-tool-skill', ToolSkill], ['@deepseek-ai/dsh-tool-jingliu', ToolJingliu],
+      ['@deepseek-ai/dsh-jingliu-connection', JingliuConnection], ['test:commands', Commands],
     ])
     ctx.loader.internal = { version: 'v2', loadCache: new Map(),
       register() { throw new Error('Unexpected loader hooks') },
@@ -123,13 +125,17 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
 
-    expect(ctx.get('jubianImage')).toBeDefined()
-    expect(await ctx.jubianVideoRecovery.status()).toMatchObject({ enabled: false, projectDir: null })
-    expect(ctx.tools.get('jubian_video')?.description).toContain('image_generate 会真实计费')
+    expect(ctx.get('jubianImage')).toBeUndefined()
+    expect(ctx.tools.get('jubian_video')).toBeUndefined()
+    expect(ctx.tools.get('jingliu_run')).toBeDefined()
+    const unavailable = await executeModelToolFixture(ctx, { name: 'jingliu_workflows', arguments: {},
+      callId: ToolCallId('unconfigured-jingliu'), signal: new AbortController().signal })
+    expect(unavailable.isError).toBe(true)
+    expect(JSON.stringify(unavailable.content)).toContain('配置')
     const listed = await ctx.skills.list()
     expect(listed.map(row => row.name)).not.toContain('jubian-asset-library')
     expect(listed.map(row => row.name)).toContain('tweet-drama-asset-vision-check')
-    expect(listed.find(row => row.name === 'tweet-drama-core')).toMatchObject({ source: 'bundled', provider: 'filesystem' })
+    expect(listed.map(row => row.name)).not.toContain('tweet-drama-core')
     expect(listed.find(row => row.name === 'protagonist-asset-sheet')).toMatchObject({
       source: 'bundled', provider: 'filesystem', invocation: { modelInvocable: true },
     })
@@ -139,7 +145,8 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     const protagonistBlock = protagonist.content[0]
     if (protagonistBlock?.type !== 'text') throw new Error('Expected protagonist skill content')
     if (typeof persona?.prefix !== 'string') throw new Error('Expected short-drama persona prefix')
-    const protagonistGuidance = persona.prefix.split('\n').find(line => line.includes('protagonist-asset-sheet'))
+    expect(presetRows.find(row => row.id === 'short-drama-guidance')?.name).toBe('@deepseek-ai/dsh-desktop-host/short-drama-guidance')
+    const protagonistGuidance = SHORT_DRAMA_GUIDANCE.match(/生成、重绘主角形象[^。]+protagonist-asset-sheet[^。]+。/u)?.[0]
     if (!protagonistGuidance) throw new Error('Missing protagonist skill guidance')
     await expect([
       '# Short-drama protagonist guidance', '', protagonistGuidance.trim(), '',
@@ -148,10 +155,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     ].join('\n')).toMatchFileSnapshot('./expected/protagonist-asset-sheet.expected.md')
     const loaded = await executeModelToolFixture(ctx, { name: 'skill', arguments: { name: 'tweet-drama-core' },
       callId: ToolCallId('short-drama-skill'), signal: new AbortController().signal })
-    expect(loaded.isError).toBe(false)
-    const block = loaded.content[0]
-    if (block?.type !== 'text') throw new Error('Expected rendered skill content')
-    expect(block.text).toContain('pipeline_state.json')
+    expect(loaded.isError).toBe(true)
     const pipeline = await executeModelToolFixture(ctx, { name: 'skill', arguments: { name: 'tweet-drama-pipeline' },
       callId: ToolCallId('short-drama-pipeline'), signal: new AbortController().signal })
     expect(listed.map(row => row.name)).not.toContain('tweet-drama-pipeline')
@@ -159,8 +163,8 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     expect(fetch).not.toHaveBeenCalled()
 
     const entries = [...ctx.loader.entries()]
-    await entries.find(row => row.options.id === 'tool-jubian')?.fiber?.dispose()
-    expect(ctx.get('jubianImage')).toBeUndefined()
+    await entries.find(row => row.options.id === 'tool-jingliu')?.fiber?.dispose()
+    expect(ctx.tools.get('jingliu_run')).toBeUndefined()
     expect(ctx.tools.get('jubian_video')).toBeUndefined()
     await entries.find(row => row.options.id === 'skill-filesystem')?.fiber?.dispose()
     expect(await ctx.skills.list()).toEqual([])

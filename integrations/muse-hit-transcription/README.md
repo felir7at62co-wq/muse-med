@@ -1,6 +1,10 @@
 # Cloud hit transcription
 
+English | [中文](README.zh.md)
+
 This worker takes one Hongguo series at a time from the Muse data station. The data station owns candidate ranking and lease expiry. Muse reviews a claimed candidate when the station requests it, downloads and checks the complete series, transcribes each episode in a dedicated SDK Session, and records progress on the data station.
+
+Workshop uploads use the same episode runner and delivery verification. See the [Workshop integration](../../services/muse-workbenches/README.md).
 
 ## Requirements
 

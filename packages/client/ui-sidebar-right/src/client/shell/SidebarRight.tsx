@@ -58,7 +58,7 @@ import css from './SidebarRight.module.css'
 type Store = PropsStore<ReturnType<typeof createSidebarRightStore>>
 
 /** The child seats this component renders. */
-type Children = PropsRenderSlots<'sidebar.right.pane.tab' | 'sidebar.right.pane.tab.title'>
+type Children = PropsRenderSlots<'sidebar.right.pane.tab' | 'sidebar.right.pane.tab.title' | 'sidebar.right.environment'>
 
 /** What the panel reports to the frame: drawn or not, and whether it wants a track. */
 export interface SidebarRightPresentation {
@@ -349,6 +349,7 @@ function SidebarPanel(panel: PanelProps & { width: number; panelRef: RefObject<H
       // Dockkit hides individual docked hosts; floating descendants remain accessible.
       aria-hidden={(!expanded && surface.layout.floats.length === 0) || undefined}
     >
+      {expanded && panel.active && panel.renderSlot('sidebar.right.environment', { sessionId })}
       <div className={css.panelBody}>
         <DockLayout
           state={surface.layout}

@@ -24,6 +24,10 @@ export function generatedRemoteMockPlugin(repositoryRoot: string) {
       'packages/client/ui-muse-market/src/client/index.ts',
       'packages/client/ui-muse-market/tests/market-mount.client.spec.tsx',
     ]],
+    ['@deepseek-ai/dsh-jingliu-connection/remote', [
+      'packages/client/ui-jingliu/src/client/native.ts',
+      'packages/client/ui-jingliu/tests/studio.client.spec.ts',
+    ]],
     ['@deepseek-ai/dsh-session-video/remote', [
       'packages/client/ui-session-video/src/client/index.ts',
       'packages/client/ui-session-video/tests/entry.client.spec.tsx',

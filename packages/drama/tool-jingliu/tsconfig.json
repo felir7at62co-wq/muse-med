@@ -1,0 +1,33 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    { "path": "../drama-settings/tsconfig.host.json" },
+    { "path": "../../core/session" },
+    { "path": "../../util/home-paths" },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../util/error"
+    },
+    {
+      "path": "../../util/values"
+    },
+    {
+      "path": "../jingliu-connection"
+    }
+  ]
+}
