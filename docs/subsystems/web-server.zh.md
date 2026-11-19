@@ -210,7 +210,7 @@ async workbenchIdentity(): Promise<string>
  * @param challenge - S256 challenge returned by that application.
  * @returns The one-time code, lifetime and session identifier for this exchange.
  */
-async workbenchGrant(audience: 'jingliu', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }>
+async workbenchGrant(audience: 'script-workshop' | 'jingliu', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }>
 
 /**
  * Authorize sign-in in a configured workbench embedded in Muse.

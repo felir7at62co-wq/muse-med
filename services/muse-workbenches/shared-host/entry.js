@@ -14,9 +14,16 @@ async function enter() {
     }
     const session = await res.json();
     window.museWorkbenchStorage.select(session.user.id);
-    localStorage.removeItem('sf_claim_prod');
-    localStorage.setItem('sf_session_prod', session.token);
-    location.replace('/jingliu/sfp/');
+    if (mount === 'jingliu') {
+      localStorage.removeItem('sf_claim_prod');
+      localStorage.setItem('sf_session_prod', session.token);
+      location.replace('/jingliu/sfp/');
+    } else {
+      localStorage.setItem('drama_user', JSON.stringify(session.user));
+      localStorage.setItem('drama_refresh_token', session.refresh_token);
+      localStorage.setItem('drama_access_token', session.access_token);
+      location.replace('/jubengongfang/v2');
+    }
   } catch (error) {
     statusText.textContent = error.message;
     button.hidden = false;

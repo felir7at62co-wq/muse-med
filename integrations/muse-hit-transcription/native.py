@@ -256,7 +256,6 @@ def accepted(directory, row):
 
 def run_episode(config, directory, source, number):
     """Write one checked draft, resuming only its exact original Session."""
-    label = f"{number:04d}"
     row = source["media"][number - 1]
     video = under(directory, row["path"])
     if row["index"] != number or digest(video) != row["sha256"]:
@@ -265,9 +264,6 @@ def run_episode(config, directory, source, number):
         return
 
     records = directory / "records"
-    workspace = episode_workspace(directory, number)
-    for name in ("scripts", "qa", "final", "transcript/ocr"):
-        (workspace / name).mkdir(parents=True, exist_ok=True)
     if number == 1:
         previous, people = records / "start.md", records / "start-characters.json"
         freeze(previous, "本剧首集，无前情。\n")
@@ -277,10 +273,25 @@ def run_episode(config, directory, source, number):
             raise WorkError("PRIOR_EPISODE", "上一集的已核对稿件不可用")
         prior = episode_workspace(directory, number - 1)
         previous, people = prior / "scripts" / f"{number-1:04d}.md", prior / "characters.json"
+    note = "本剧首集，无前情。" if number == 1 else "核对上一集结尾与本集开头，只沿用已确认的事实。"
+    transcribe_episode(config, directory, row, source["title"], source["episodes"], previous, people, note)
+
+
+def transcribe_episode(config, directory, row, title, episode_count, previous, people, previous_note):
+    """Run the shared Muse SDK workflow for an original video and its frozen references."""
+    number = row["index"]
+    label = f"{number:04d}"
+    records = directory / "records"
+    video = under(directory, row["path"])
+    if digest(video) != row["sha256"]:
+        raise WorkError("SOURCE_CHANGED", f"第 {number} 集原片与清单不符")
+    workspace = episode_workspace(directory, number)
+    for name in ("scripts", "qa", "final", "transcript/ocr"):
+        (workspace / name).mkdir(parents=True, exist_ok=True)
     prompt = PROMPT.read_text(encoding="utf-8").format(
-        title=source["title"], index=number, episodeCount=source["episodes"], workspace=workspace, video=video,
+        title=title, index=number, episodeCount=episode_count, workspace=workspace, video=video,
         sha256=row["sha256"], duration=f'{row["durationSeconds"]:.3f}', previous=previous, characters=people,
-        previousNote="本剧首集，无前情。" if number == 1 else "核对上一集结尾与本集开头，只沿用已确认的事实。",
+        previousNote=previous_note,
         label=label, video_dir=video.parent)
     prompt_file = records / f"{label}.prompt.txt"
     freeze(prompt_file, prompt)

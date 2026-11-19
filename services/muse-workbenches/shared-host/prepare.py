@@ -1,6 +1,7 @@
-"""Mount the original 2026-11-17 Jingliu frontend below its Muse path."""
+"""Mount the original 2026-11-17 frontends below the two Muse paths."""
 from pathlib import Path
 import argparse
+import re
 
 
 def replace(path, old, new):
@@ -10,6 +11,30 @@ def replace(path, old, new):
     if text.count(old) != 1:
         raise ValueError(f"Unsupported frontend hook in {path}")
     path.write_text(text.replace(old, new))
+
+
+def mount_workshop(web):
+    config = web / "next.config.mjs"
+    replace(config, "  reactStrictMode: false,", '  basePath: "/jubengongfang",\n  output: "standalone",\n  reactStrictMode: false,')
+    # Next Link and router navigation already honor basePath. Native anchors, fetch and iframe attributes do not.
+    for root in ("app", "components", "hooks", "lib"):
+        for path in (web / root).rglob("*"):
+            if path.suffix not in {".ts", ".tsx", ".css"}:
+                continue
+            text = path.read_text()
+            text = re.sub(r"""(location\.href\s*=\s*|location\.(?:replace|assign)\(\s*|window\.open\(\s*)(['"`])/(?!/|jubengongfang)""",
+                          r"\1\2/jubengongfang/", text)
+            text = re.sub(r"""(\bsrc=\{?['"`])/(?!/|jubengongfang)""", r"\1/jubengongfang/", text)
+            text = re.sub(r"""(<a\s+[^<>\n]*?\bhref=\{?['"`])/(?!/|jubengongfang)""", r"\1/jubengongfang/", text)
+            text = re.sub(r"""(\bfetch\(\s*|new EventSource\(\s*)(['"`])/(v1|api)/""", r"\1\2/jubengongfang/\3/", text)
+            text = re.sub(r"""(window\.location\.pathname(?:\s*===\s*|\.startsWith\(\s*)['"])/(v2|login)""", r"\1/jubengongfang/\2", text)
+            if path.read_text() != text:
+                path.write_text(text)
+    # Dynamic link targets in the native account menu come from the application's root-relative menu definitions.
+    nav = web / 'app' / '_UserNav.tsx'
+    replace(nav, 'href={item.href}', 'href={item.href?.startsWith("/") ? "/jubengongfang" + item.href : item.href}')
+    for route in ("login", "register"):
+        (web / "app" / route / "page.tsx").write_text('import { redirect } from "next/navigation";\nexport default function Page() { redirect("/jubengongfang/"); }\n')
 
 
 def mount_studio(site):
@@ -30,6 +55,8 @@ def mount_studio(site):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workshop", type=Path, required=True)
     parser.add_argument("--studio", type=Path, required=True)
     args = parser.parse_args()
+    mount_workshop(args.workshop)
     mount_studio(args.studio)

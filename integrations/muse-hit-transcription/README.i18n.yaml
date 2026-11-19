@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write integrations/muse-hit-transcription/README.md
 /cloud-hit-transcription:
-  en: 8fec91ee62cd6835
-  zh: 817fdcf1c2e5d8db
+  en: 6efea08b3598e1db
+  zh: f12491586c764d71
 /cloud-hit-transcription/requirements:
   en: f8d87b4754d649da
   zh: 371b3ac8492e60c8

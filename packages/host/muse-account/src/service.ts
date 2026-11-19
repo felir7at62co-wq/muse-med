@@ -93,7 +93,7 @@ export class MuseAccountService extends TypertRemoteService {
    * @param challenge - S256 challenge returned by that application.
    * @returns The one-time code, lifetime and session identifier for this exchange.
    */
-  async workbenchGrant(audience: 'jingliu', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }> {
+  async workbenchGrant(audience: 'script-workshop' | 'jingliu', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }> {
     if (!this.workbench) throw new MuseGatewayError('gateway-unavailable')
     return await this.workbench.issue(audience, challenge)
   }

@@ -45,10 +45,18 @@ function desktopGrant({ requestId, challenge }) {
 async function finish(requestId, code) {
   const session = await post('/exchange', { requestId, code });
   if (window.parent !== window) window.museWorkbenchStorage.select(session.user?.id);
-  if (!session.token) throw new Error('镜流未返回登录凭证');
-  localStorage.removeItem('sf_claim_prod');
-  localStorage.setItem('sf_session_prod', session.token);
-  location.replace('/sfp/');
+  if (audience === 'jingliu') {
+    if (!session.token) throw new Error('镜流未返回登录凭证');
+    localStorage.removeItem('sf_claim_prod');
+    localStorage.setItem('sf_session_prod', session.token);
+    location.replace('/sfp/');
+  } else {
+    if (!session.access_token || !session.refresh_token || !session.user) throw new Error('工坊未返回登录凭证');
+    localStorage.setItem('drama_user', JSON.stringify(session.user));
+    localStorage.setItem('drama_refresh_token', session.refresh_token);
+    localStorage.setItem('drama_access_token', session.access_token);
+    location.replace('/v2');
+  }
 }
 
 async function login() {

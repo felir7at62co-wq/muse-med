@@ -10,9 +10,10 @@ import { loadWorkbenchClients } from './workbench-login.mjs'
 
 const token = () => randomBytes(32).toString('base64url')
 const origin = 'https://muse.test'
-const audience = 'jingliu'
+const audience = 'script-workshop'
 const client = { callbackUri: 'https://writer.test/api/auth/muse/callback', serverSecret: token() }
-const workbenchClients = { [audience]: client, inactive: { callbackUri: 'https://inactive.test/cb', serverSecret: token() } }
+const jingliu = { callbackUri: 'https://jingliu.test/api/auth/muse/callback', serverSecret: token() }
+const workbenchClients = { [audience]: client, jingliu }
 const verifier = token()
 const challenge = createHash('sha256').update(verifier).digest('base64url')
 const accountCookie = response => response.headers.get('set-cookie').split(';')[0]
@@ -67,19 +68,20 @@ async function fixture(t, options = {}) {
   return { store, user, req, api, form, grant, start, confirm, redeem, login }
 }
 
-test('only Jingliu can exchange a bound grant for a Muse identity', async t => {
+test('both services exchange only their bound grant for stable Muse identity', async t => {
   const f = await fixture(t)
   const cookie = await f.login()
   const code = await f.grant(cookie)
-  assert.equal((await f.redeem(code, verifier, 'inactive', workbenchClients.inactive.serverSecret)).status, 403)
-  assert.equal((await f.redeem(code, verifier, audience, workbenchClients.inactive.serverSecret)).status, 401)
+  assert.equal((await f.redeem(code, verifier, 'jingliu', jingliu.serverSecret)).status, 410)
+  assert.equal((await f.redeem(code, verifier, audience, jingliu.serverSecret)).status, 401)
   assert.equal((await f.redeem(code, token())).status, 410)
   const responses = await Promise.all([f.redeem(code), f.redeem(code)])
   assert.deepEqual(responses.map(r => r.status).sort(), [200, 410])
   const success = responses.find(r => r.ok)
   assert.equal(success.headers.get('set-cookie'), null)
   assert.deepEqual(await success.json(), { issuer: origin, sub: f.user.id, username: f.user.username })
-  assert.equal((await f.api('grant', { audience: 'inactive', challenge }, { cookie, origin })).status, 403)
+  const other = await f.api('grant', { audience: 'jingliu', challenge }, { cookie, origin })
+  assert.equal((await f.redeem((await other.json()).code, verifier, 'jingliu', jingliu.serverSecret)).status, 200)
 })
 
 test('browser consent resumes password login, and returns state only to the configured callback', async t => {
@@ -155,7 +157,7 @@ test('service endpoints enforce body, client, origin and fixed redirect inputs',
   assert.equal((await disabled.api('grant', { audience, challenge })).status, 404)
 })
 
-test('client registration requires a private file, a strong secret and fixed HTTPS or loopback callbacks', async t => {
+test('client registration requires a private file, distinct secrets and fixed HTTPS or loopback callbacks', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'muse-workbench-config-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const file = join(dir, 'clients.json')
@@ -168,8 +170,8 @@ test('client registration requires a private file, a strong secret and fixed HTT
   await assert.rejects(loadWorkbenchClients(file), { message: 'Invalid workbench configuration JSON' })
   const { store } = await fixture(t)
   const build = clients => createAccountServer({ store, publicOrigin: origin, workbenchClients: clients })
-  assert.throws(() => build({ inactive: client }), /configuration/)
-  assert.throws(() => build({ [audience]: { ...client, serverSecret: 'short' } }), /registration/)
+  assert.throws(() => build({ ...workbenchClients, jingliu: { ...jingliu, serverSecret: client.serverSecret } }), /separate/)
+  assert.throws(() => build({ ...workbenchClients, jingliu: { ...jingliu, callbackUri: client.callbackUri } }), /separate/)
   assert.throws(() => build({ [audience]: { ...client, callbackUri: 'http://writer.test/cb' } }), /callback URI/)
   assert.throws(() => build({ [audience]: { ...client, callbackUri: client.callbackUri + '?' } }), /callback URI/)
 })

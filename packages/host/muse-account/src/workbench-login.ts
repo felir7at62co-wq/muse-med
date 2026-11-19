@@ -11,7 +11,7 @@ const grant = z.object({
   expiresIn: z.number().int().positive().max(60),
 })
 
-type Audience = 'jingliu'
+type Audience = 'script-workshop' | 'jingliu'
 interface Options {
   baseUrl: string
   sessionFile: string

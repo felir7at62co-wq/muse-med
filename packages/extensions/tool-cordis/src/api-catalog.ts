@@ -2816,7 +2816,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'The current private Muse login identifier for Host-side workbench operations.',
       },
       {
-        signature: 'async workbenchGrant(audience: \'jingliu\', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }>',
+        signature: 'async workbenchGrant(audience: \'script-workshop\' | \'jingliu\', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }>',
         description: 'Start one authentication exchange for a configured workbench.',
         parameters: [{ name: 'audience', description: 'Business application receiving the user\'s login.' }, { name: 'challenge', description: 'S256 challenge returned by that application.' }],
         returns: 'The one-time code, lifetime and session identifier for this exchange.',
@@ -9433,7 +9433,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MuseWorkbenchGrantRequest',
-    declaration: 'export interface MuseWorkbenchGrantRequest {\n    readonly audience: \'jingliu\';\n    readonly challenge: string;\n}',
+    declaration: 'export interface MuseWorkbenchGrantRequest {\n    readonly audience: \'script-workshop\' | \'jingliu\';\n    readonly challenge: string;\n}',
   },
   {
     name: 'NativeFileApplication',

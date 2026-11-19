@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-jingliu/README.md
 /:
-  en: 74acd8260ec3bbc2
-  zh: b4a093be9645e76e
+  en: 4267c99d92d01281
+  zh: 59d4ee2d7766d90b
 /deepseek-ai-dsh-client-ui-jingliu:
   en: 462553236aacc7ef
   zh: 286f1af1f6cdeb90
 /deepseek-ai-dsh-client-ui-jingliu/summary:
-  en: b1c2b3aa9c651c8c
-  zh: 39af1884f6100af8
+  en: 83aa2dfbdfe9e2ff
+  zh: a94888a303a09c15
 /deepseek-ai-dsh-client-ui-jingliu/table-of-contents:
   en: 638dd73bc5b9dc7a
   zh: 60bb08dc91c7e6a5
@@ -21,8 +21,8 @@
   en: 19a5ff29a61deb72
   zh: 021af73202df5543
 /deepseek-ai-dsh-client-ui-jingliu/model-experience/opening-the-studio/what-the-model-sees:
-  en: e84f1c1e88001c0e
-  zh: 543375b7ead3d64e
+  en: 943ca02b52494a4c
+  zh: 6a465e3ce06f3eb5
 /deepseek-ai-dsh-client-ui-jingliu/model-experience/opening-the-studio/token-effect:
   en: 80f15a19d5983818
   zh: 94f4606ef29785bd
@@ -30,8 +30,8 @@
   en: eadada08c4d7ef9e
   zh: 47531e7f27bc701f
 /deepseek-ai-dsh-client-ui-jingliu/known-limitations-and-deferred-work:
-  en: 6a449dd14c95535e
-  zh: cf04b3f3e87deedd
+  en: 2acdc02a23b38a0b
+  zh: a2800b4dda474046
 /deepseek-ai-dsh-client-ui-jingliu/known-limitations-and-deferred-work/dev-note:
   en: 45ec51258109208a
   zh: df6c6297ba72dc14

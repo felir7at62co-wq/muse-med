@@ -36,7 +36,7 @@ export const en = {
   usage: 'Spent ¥{spent} · Held ¥{held}',
   project: 'Project',
   chips: 'Display prompt references as plain text',
-  projectReference: 'Jingliu project “{title}” (ID {id})', title: 'Jingliu', workbench: 'Production studio' }
+  projectReference: 'Jingliu project “{title}” (ID {id})', title: 'Jingliu', workbench: 'Production studio', workshopTitle: 'Script workshop', workshopDescription: 'Screenwriting and editing' }
 /** Chinese studio labels. */
 export const zh = {
   close: '关闭',
@@ -75,7 +75,7 @@ export const zh = {
   usage: '已使用 ¥{spent} · 已冻结 ¥{held}',
   project: '项目',
   chips: '以纯文本显示提示词中的引用',
-  projectReference: '镜流项目「{title}」（项目 ID {id}）', title: '镜流', workbench: '短剧制作工作台' }
+  projectReference: '镜流项目「{title}」（项目 ID {id}）', title: '镜流', workbench: '短剧制作工作台', workshopTitle: '剧本工坊', workshopDescription: '剧本创作与编辑' }
 /** Japanese studio labels. */
 export const ja = {
   close: '閉じる',
@@ -114,7 +114,7 @@ export const ja = {
   usage: '使用 ¥{spent} · 保留 ¥{held}',
   project: 'プロジェクト',
   chips: '参照をテキストで表示',
-  projectReference: '鏡流「{title}」（ID {id}）', title: 'Jingliu', workbench: '制作スタジオ' }
+  projectReference: '鏡流「{title}」（ID {id}）', title: 'Jingliu', workbench: '制作スタジオ', workshopTitle: '脚本工房', workshopDescription: '脚本の執筆と編集' }
 /** Spanish studio labels. */
 export const es = {
   close: 'Cerrar',
@@ -153,7 +153,7 @@ export const es = {
   usage: 'Gastado ¥{spent} · Retenido ¥{held}',
   project: 'Proyecto',
   chips: 'Mostrar referencias como texto',
-  projectReference: 'Proyecto Jingliu «{title}» (ID {id})', title: 'Jingliu', workbench: 'Estudio de producción' }
+  projectReference: 'Proyecto Jingliu «{title}» (ID {id})', title: 'Jingliu', workbench: 'Estudio de producción', workshopTitle: 'Taller de guion', workshopDescription: 'Escritura y edición de guiones' }
 /** French studio labels. */
 export const fr = {
   close: 'Fermer',
@@ -192,7 +192,7 @@ export const fr = {
   usage: 'Dépensé ¥{spent} · Réservé ¥{held}',
   project: 'Projet',
   chips: 'Afficher les références en texte brut',
-  projectReference: 'Projet Jingliu « {title} » (ID {id})', title: 'Jingliu', workbench: 'Studio de production' }
+  projectReference: 'Projet Jingliu « {title} » (ID {id})', title: 'Jingliu', workbench: 'Studio de production', workshopTitle: 'Atelier de scénario', workshopDescription: 'Écriture et révision de scénarios' }
 /** German studio labels. */
 export const de = {
   close: 'Schließen',
@@ -231,7 +231,7 @@ export const de = {
   usage: 'Ausgegeben ¥{spent} · Reserviert ¥{held}',
   project: 'Projekt',
   chips: 'Referenzen als Text anzeigen',
-  projectReference: 'Jingliu-Projekt „{title}“ (ID {id})', title: 'Jingliu', workbench: 'Produktionsstudio' }
+  projectReference: 'Jingliu-Projekt „{title}“ (ID {id})', title: 'Jingliu', workbench: 'Produktionsstudio', workshopTitle: 'Drehbuchwerkstatt', workshopDescription: 'Drehbücher schreiben und bearbeiten' }
 /** Russian studio labels. */
 export const ru = {
   close: 'Закрыть',
@@ -270,7 +270,7 @@ export const ru = {
   usage: 'Расход ¥{spent} · Резерв ¥{held}',
   project: 'Проект',
   chips: 'Показывать ссылки как текст',
-  projectReference: 'Проект Jingliu «{title}» (ID {id})', title: 'Jingliu', workbench: 'Студия производства' }
+  projectReference: 'Проект Jingliu «{title}» (ID {id})', title: 'Jingliu', workbench: 'Студия производства', workshopTitle: 'Сценарная мастерская', workshopDescription: 'Написание и редактирование сценариев' }
 /** Portuguese studio labels. */
 export const pt = {
   close: 'Fechar',
@@ -309,7 +309,7 @@ export const pt = {
   usage: 'Gasto ¥{spent} · Retido ¥{held}',
   project: 'Projeto',
   chips: 'Mostrar referências como texto',
-  projectReference: 'Projeto Jingliu “{title}” (ID {id})', title: 'Jingliu', workbench: 'Estúdio de produção' }
+  projectReference: 'Projeto Jingliu “{title}” (ID {id})', title: 'Jingliu', workbench: 'Estúdio de produção', workshopTitle: 'Oficina de roteiros', workshopDescription: 'Criação e edição de roteiros' }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {

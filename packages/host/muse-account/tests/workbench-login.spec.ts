@@ -44,13 +44,13 @@ it('uses the private Host session only at its issuer and hands out a single work
   const { client, signIn } = await fixture()
   await signIn('writer')
   const before = await client.identity()
-  const grant = await client.issue('jingliu', challenge)
+  const grant = await client.issue('script-workshop', challenge)
   expect(grant).toEqual({ code, expiresIn: 60, accountId: before })
   expect(fetcher).toHaveBeenCalledOnce()
   expect(fetcher).toHaveBeenCalledWith(baseUrl + '/api/workbench-login/grant', expect.objectContaining({
     method: 'POST', redirect: 'error',
     headers: { cookie: '__Host-muse=writer', origin: baseUrl, 'content-type': 'application/json' },
-    body: JSON.stringify({ audience: 'jingliu', challenge }),
+    body: JSON.stringify({ audience: 'script-workshop', challenge }),
   }))
   await signIn('editor')
   expect(await client.identity()).not.toBe(before)

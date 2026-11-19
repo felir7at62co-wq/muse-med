@@ -166,6 +166,7 @@
       name: '@deepseek-ai/dsh-client-ui-jingliu'
       config:
         studioOrigin: !!js process.env.MUSE_JINGLIU_ORIGIN || (process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn') + '/jingliu'
+        workshopOrigin: !!js process.env.MUSE_SCRIPT_WORKSHOP_ORIGIN
 
     - id: muse-market
       name: '@deepseek-ai/dsh-muse-market'

@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.2/workbench-muse-login/guide.md
 /:
-  en: c57a43497daec84b
-  zh: 258c850409be703b
+  en: e78e3b2f8cf55089
+  zh: 045992b2cb04c079
 /connect-workbench-accounts-to-muse:
   en: 50fe2125e596c235
   zh: b5f324c6a13a520f
 /connect-workbench-accounts-to-muse/change:
-  en: b7601ac810cd9a24
-  zh: ae92a67ee0f25d4b
+  en: c02bdbded4b73318
+  zh: a3c176b21deee5ed
 /connect-workbench-accounts-to-muse/migration:
-  en: 119279cc491d2caf
-  zh: 4d72bca1e0e8b1cb
+  en: 425e9b965d308fbd
+  zh: c47155ec813cc5ac
