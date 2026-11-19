@@ -382,7 +382,7 @@ describe('tool-jubian registration', () => {
         required: ['idempotency_key', 'asset_name', 'prompt'] },
     })
     const batchItem = videoProperties.items!.items as { properties: Record<string, unknown> }
-    expect(batchItem.properties).not.toHaveProperty('image_aspect_ratio')
+    expect(batchItem.properties.image_aspect_ratio).toMatchObject({ type: 'string', enum: ['16:9', '9:16'] })
     for (const properties of [videoProperties, batchItem.properties]) {
       const references = properties.references as { description: string }
       expect(references.description).toContain('唯一已采用图片')

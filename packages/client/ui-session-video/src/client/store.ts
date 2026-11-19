@@ -1,28 +1,36 @@
 /** Transient video selection shared by one conversation's shelf and inline cards. */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
-import type { SessionVideoAnalysis, SessionVideoInventory, SessionVideoSource } from '@deepseek-ai/dsh-session-video'
+import type { SessionVideoAnalysis, SessionVideoShotId, SessionVideoSourceId } from '@deepseek-ai/dsh-session-video/types'
+import type { VideoEpisodeFilter } from './target-selection.ts'
+
+/** Source-local seek retained while the video workspace changes presentation. */
+export interface VideoSeek {
+  readonly sourceId: SessionVideoSourceId
+  readonly time: number
+  readonly revision: number
+}
 
 /** JSON-compatible state; media elements and DOM measurements remain component-local. */
 export interface VideoState {
-  sources: readonly SessionVideoSource[]
   analyses: Readonly<Record<string, SessionVideoAnalysis>>
-  detectErrors: Readonly<Record<string, string>>
-  open: boolean
-  selected: string | null
-  observed: Readonly<Record<string, number>>
-  issue: string | null
-  inventoryRevision: number
+  selected: SessionVideoSourceId | null
+  selectedEpisode: VideoEpisodeFilter
+  selectedShot: SessionVideoShotId | null
+  zoom: number
+  seek: VideoSeek | null
+  handledNavigation: string | null
 }
 
 type VideoActions = {
-  inventory: (draft: VideoState, value: SessionVideoInventory) => void
   analysis: (draft: VideoState, value: SessionVideoAnalysis) => void
-  detectionFailed: (draft: VideoState, id: string, version: string) => void
   retryFailed: (draft: VideoState) => void
-  toggle: (draft: VideoState) => void
-  openSource: (draft: VideoState, id: string) => void
-  observe: (draft: VideoState, id: string, delta: 1 | -1) => void
-  refreshInventory: (draft: VideoState) => void
+  select: (draft: VideoState, id: SessionVideoSourceId) => void
+  selectEpisode: (draft: VideoState, episode: VideoEpisodeFilter) => void
+  selectShot: (draft: VideoState,
+    value: { readonly sourceId: SessionVideoSourceId; readonly shotId: SessionVideoShotId; readonly time: number }) => void
+  setZoom: (draft: VideoState, zoom: number) => void
+  seekTo: (draft: VideoState, value: { readonly sourceId: SessionVideoSourceId; readonly time: number }) => void
+  dismissNavigation: (draft: VideoState, key: string) => void
 }
 
 /** Create Session-scoped selection and successful source observations.
@@ -30,39 +38,23 @@ type VideoActions = {
  */
 export function createVideoStore(): EngineStoreHandle<VideoState, VideoActions> {
   return defineStore({
-    init: (): VideoState => ({ sources: [], analyses: {}, detectErrors: {}, open: false, selected: null,
-      observed: {}, issue: null, inventoryRevision: 0 }),
+    init: (): VideoState => ({ analyses: {}, selected: null, selectedEpisode: 'all',
+      selectedShot: null, zoom: 1, seek: null, handledNavigation: null }),
     actions: {
-      inventory: (draft, value: SessionVideoInventory) => {
-        draft.sources = value.sources
-        draft.issue = value.issues.join('；') || null
-        draft.detectErrors = Object.fromEntries(Object.entries(draft.detectErrors).filter(([id, version]) =>
-          value.sources.some(source => source.id === id && source.version === version)))
-        draft.analyses = Object.fromEntries(Object.entries(draft.analyses).filter(([id, analysis]) =>
-          value.sources.some(source => source.id === id && source.version === analysis.sourceVersion)))
-        if (!value.sources.some(source => source.id === draft.selected)) { draft.selected = null; draft.open = false }
+      analysis: (draft, value: SessionVideoAnalysis) => { draft.analyses = { ...draft.analyses, [value.sourceId]: value } },
+      retryFailed: (draft) => { draft.analyses = Object.fromEntries(Object.entries(draft.analyses).filter(([, analysis]) => analysis.state === 'ready')) },
+      select: (draft, id: SessionVideoSourceId) => { draft.selected = id; draft.selectedShot = null },
+      selectEpisode: (draft, episode: VideoEpisodeFilter) => { draft.selectedEpisode = episode },
+      selectShot: (draft, value) => {
+        draft.selected = value.sourceId; draft.selectedShot = value.shotId
+        draft.seek = { sourceId: value.sourceId, time: value.time, revision: (draft.seek?.revision ?? 0) + 1 }
       },
-      analysis: (draft, value: SessionVideoAnalysis) => {
-        if (!draft.sources.some(source => source.id === value.sourceId && source.version === value.sourceVersion)) return
-        draft.analyses = { ...draft.analyses, [value.sourceId]: value }
+      setZoom: (draft, zoom: number) => { draft.zoom = zoom },
+      seekTo: (draft, value) => {
+        draft.selected = value.sourceId
+        draft.seek = { ...value, revision: (draft.seek?.revision ?? 0) + 1 }
       },
-      detectionFailed: (draft, id: string, version: string) => {
-        if (draft.sources.some(source => source.id === id && source.version === version)) {
-          draft.detectErrors = { ...draft.detectErrors, [id]: version }
-        }
-      },
-      retryFailed: (draft) => {
-        draft.analyses = Object.fromEntries(Object.entries(draft.analyses).filter(([, analysis]) => analysis.state === 'ready'))
-        draft.detectErrors = {}
-      },
-      toggle: (draft) => { draft.open = !draft.open },
-      openSource: (draft, id: string) => { draft.selected = id; draft.open = true },
-      observe: (draft, id: string, delta: 1 | -1) => {
-        const count = (draft.observed[id] ?? 0) + delta
-        if (count > 0) draft.observed = { ...draft.observed, [id]: count }
-        else draft.observed = Object.fromEntries(Object.entries(draft.observed).filter(([key]) => key !== id))
-      },
-      refreshInventory: (draft) => { draft.inventoryRevision++ },
+      dismissNavigation: (draft, key: string) => { draft.handledNavigation = key },
     },
   })
 }

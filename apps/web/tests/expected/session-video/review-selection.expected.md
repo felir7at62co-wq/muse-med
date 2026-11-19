@@ -1,0 +1,35 @@
+- region "Conversation videos":
+  - button "Video selection" [expanded]: Episode 33 · production-second.mp4
+  - button "Float video preview"
+  - group "Video selection":
+    - text: Choose episode
+    - combobox "Choose episode":
+      - option "All episodes"
+      - option "Episode 31"
+      - option "Episode 33" [selected]
+      - option "Unassigned"
+    - 'checkbox "Select video: production-second.mp4" [checked]'
+    - text: "Select video: production-second.mp4"
+    - 'button "Switch video: production-second.mp4"': production-second.mp4
+  - text: Muse production-second.mp4
+  - button "Play"
+  - group "Timeline zoom":
+    - button "Zoom out timeline"
+    - slider "Timeline zoom": "1.25"
+    - button "Zoom in timeline"
+  - group "Visual segment timeline":
+    - button "Video segment 1 · 0.00–1.00"
+    - button "Video segment 2 · 1.00–2.00"
+    - button "Video segment 3 · 2.00–3.00"
+    - slider "Playback position"
+  - text: Current video
+  - button "Add current video to chat" [disabled]: Added to chat
+  - button "Review selected videos"
+  - paragraph: Choose a video or segment, then describe your changes in chat.
+  - text: 2 selected
+  - button "Clear selection"
+  - text: production-first.mp4
+  - 'button "Target remove: production-first.mp4"'
+  - text: production-second.mp4
+  - 'button "Target remove: production-second.mp4"'
+  - button "Prepare edit"

@@ -1,6 +1,6 @@
 ---
 name: jubian-project-upload
-description: 用户要把已有剧本上传或登记到剧变、从稿件创建剧变项目、新建剧变手动项目，或将剧变项目分享给用户或部门时使用。核对文件、项目和收件人身份，区分写入受理与回读核实，并处理提交后的未知结果。
+description: 用户要把已有剧本上传或登记到剧变、从稿件创建剧变项目、新建剧变手动项目、迁移到另一个剧变项目，或将剧变项目分享给用户或部门时使用。核对文件、项目和收件人身份，区分写入受理与回读核实，并处理提交后的未知结果。
 ---
 
 # 剧变上传剧本与创建项目
@@ -28,7 +28,7 @@ description: 用户要把已有剧本上传或登记到剧变、从稿件创建�
 - 从已登记的剧本创建制作项目：用 `jubian_manuscript method=start_produce manuscript_id=<已核对稿件ID> project=<明确项目表单> idempotency_key=<固定key>`。该操作本身创建项目，不再对同一意图调用 `jubian_project create`。
 - 用户明确要求直接新建手动项目：用 `jubian_project method=create`。`produce_type=1` 是绑定真实稿件的内容项目；`produce_type=2` 是用户明确选择的前贴素材用途，不能用它绕过缺失的剧本登记。`production_type`、风格代码、集数和初始分镜数按用户确认的项目设置填写。
 
-保存返回的 `script_id`，再用 `jubian_project get` 核对项目名和稿件绑定。`manuscript_id` 是稿件 ID，`script_id` 是制作项目 ID，二者不能混用。需要接入本地制作时，读取本地项目并通过现有 `drama_project` 更新对应的远端项目 ID；已有不同绑定先说明冲突，不覆盖。
+保存返回的 `script_id`，再用 `jubian_project get` 核对项目名和稿件绑定。`manuscript_id` 是稿件 ID，`script_id` 是制作项目 ID，二者不能混用。需要接入本地制作时，先用 `drama_project read` 核对本地绑定；未绑定的项目通过 preview/update 保存已核实的远端 ID。已有不同绑定时，用户明确要求迁移就按[项目迁移流程](../tweet-drama-project-bible/SKILL.md#迁移到另一个剧变项目)在独立目标目录初始化，完成回读后再建卡或绑定声线；没有迁移授权则说明冲突，不覆盖。
 
 ## 分享已有项目
 

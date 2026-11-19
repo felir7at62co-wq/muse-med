@@ -3,6 +3,9 @@
     "method": "PUT",
     "parent_asset_id": 11,
     "asset_type": 1,
+    "ratio": "9:16",
+    "resolution": "2K",
+    "video_standard_id": 93,
     "reference_materials": [
       {
         "materialUrl": "https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png",

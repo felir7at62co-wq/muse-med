@@ -134,14 +134,15 @@ export function resolveModelReasoning(config,body){
  * @param {object} options Account authentication, private models, forwarding, optional shared key pool and synchronous metadata sink.
  * @returns {http.Server} HTTP relay; closing it releases only an internally created pool.
  */
-export function createModelRelay({config,globalModels,secret,accounts,forward=forwardModel,keyPoolPolicy=resolveModelKeyPoolPolicy(),keyPool,metadataSink}){
+export function createModelRelay({config,globalModels,secret,accounts,forward=forwardModel,keyPoolPolicy=resolveModelKeyPoolPolicy(),keyPool,metadataSink,usageLedger}){
  const active=new Map();
  const poolKeys=()=>globalModels?.credentialPool?.('zhipu-official')??[];
  const pool=keyPool??createModelKeyPool({keys:poolKeys,...keyPoolPolicy});
  const changed=id=>{for(const controller of active.get(id)||[])controller.abort();};accounts.on('change',changed);
  const server=http.createServer(async(req,res)=>{
   const completionRoute=/^\/v1(?:\/([a-z][a-z0-9-]{0,63}))?\/chat\/completions$/.exec(req.url);
-  const metadata=completionRoute&&req.method==='POST'?createModelRequestMetadata({clientId:req.headers['x-muse-client-request-id'],route:completionRoute[1]??'muse-shared',sink:metadataSink,
+  let usageAccountId;
+  const metadata=completionRoute&&req.method==='POST'?createModelRequestMetadata({clientId:req.headers['x-muse-client-request-id'],route:completionRoute[1]??'muse-shared',sink:usageLedger?record=>{try{(metadataSink??(value=>console.info('[muse-model-metadata]',JSON.stringify(value))))(record);}finally{if(usageAccountId)void usageLedger.capture(usageAccountId,record).catch(error=>{void error;console.error('[muse-usage] Response usage could not be saved');});}}:metadataSink,
    sensitiveTokens:[typeof req.headers.authorization==='string'?req.headers.authorization.replace(/^Bearer /,''):undefined]}):undefined;
   if(metadata)res.setHeader('x-muse-server-request-id',metadata.serverRequestId);
   const fail=(status,message,headers={})=>{metadata?.client(status);metadata?.failed('request_rejected');if(res.headersSent){res.destroy();return;}res.writeHead(status,{'content-type':'application/json','cache-control':'no-store',...headers});res.end(JSON.stringify({error:{message}}));};
@@ -149,6 +150,7 @@ export function createModelRelay({config,globalModels,secret,accounts,forward=fo
   try{
    const token=req.headers.authorization?.replace(/^Bearer /,'');id=token?.split('.')[0];
    if(!/^[a-f0-9]{16}\.[a-f0-9]{64}$/.test(token||'')||!timingSafeEqual(Buffer.from(token),Buffer.from(accountToken(secret,id)))||!accounts.get(id)||accounts.get(id).disabled){fail(401,'工作间认证失效');return;}
+   usageAccountId=id;
    let current=config?.private()||{};
    if(req.url==='/v1/muse-config'&&req.method==='GET'){
     res.setHeader('content-type','application/json');res.setHeader('cache-control','no-store');res.end(JSON.stringify({revision:current.revision,configured:!!current.apiKey,model:'muse-shared',name:current.name,contextWindow:current.contextWindow,maxTokens:current.maxTokens,...globalModels?.metadata()}));return;

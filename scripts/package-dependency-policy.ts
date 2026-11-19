@@ -114,7 +114,8 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'verifySubjectSelection', 'wireText', 'withGenerationDisabled',
     'MEDIAKIT_UPSCALE_MODEL', 'SUBTITLE_ERASE_MODELS',
   ],
-  '@deepseek-ai/dsh-llm': ['MessageId', 'createUserMessage', 'freezeMessage'],
+  // The error base is re-exported from dsh-error; both paths must share its constructor.
+  '@deepseek-ai/dsh-llm': ['HarnessError', 'MessageId', 'createUserMessage', 'freezeMessage'],
   // Profile settings must match the installed Node provider's configuration schema.
   '@deepseek-ai/dsh-ptc-runtime-node/configuration': ['resolvePersistentExecution'],
   // CUA checks UserQuestionError and preserves AttachmentError from image admission.

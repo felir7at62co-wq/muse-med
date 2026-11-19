@@ -1,0 +1,19 @@
+- region "Conversation videos":
+  - button "Video selection": Unassigned · three-shots.mp4
+  - button "Float video preview"
+  - text: Muse three-shots.mp4
+  - button "Play"
+  - group "Timeline zoom":
+    - button "Zoom out timeline"
+    - slider "Timeline zoom": "1"
+    - button "Zoom in timeline"
+  - group "Visual segment timeline":
+    - button "Video segment 1 · 0.00–1.00"
+    - button "Video segment 2 · 1.00–2.00" [pressed]
+    - button "Video segment 3 · 2.00–3.00"
+    - slider "Playback position"
+  - text: Video segment 2 · 1.00–2.00
+  - button "Whole video"
+  - button "Add selected segment": Add to chat
+  - button "Review selected videos"
+  - paragraph: Choose a video or segment, then describe your changes in chat.

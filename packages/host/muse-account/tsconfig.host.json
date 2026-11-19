@@ -7,6 +7,9 @@
   },
   "files": [
     "src/account.ts",
+    "src/account-details.ts",
+    "src/account-history.ts",
+    "src/account-relay-details.ts",
     "src/activity.ts",
     "src/web-search.ts",
     "src/browser-login.ts",
@@ -22,6 +25,7 @@
     "src/model-direct.ts",
     "src/model-errors.ts",
     "src/model-request-trace.ts",
+    "src/model-usage.ts",
     "src/feedback.ts",
     "src/feedback-tools.ts",
     "src/desktop-bridge.ts",

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "baseRelease": "20261117-r24-native-company",
+  "verifiedRelease": "20261117-r25-account-profile",
+  "patchedFiles": {
+    "gateway.mjs": {
+      "before": "07586113643f0f17b60645639e73ed33807f5a8e0c2f02dcfb9eb69a9600383e",
+      "after": "2badec8e46132713dad6c1268f2b862fefd17faf33f5337413a29c7815f4bd2b",
+      "patch": "gateway.patch"
+    },
+    "store.mjs": {
+      "before": "ebdf4c2266be8ce068ea967ddca1f6845fded0e875d0aa92d0248de58f790c32",
+      "after": "405ee2f62914228dcb108827911f2bd919374f5f90633169b4aed808d42ab121",
+      "patch": "store.patch"
+    },
+    "account-pages.mjs": {
+      "before": "d00e18b5324d9c32ccfb839838f501b2fb53f978ad1536059555158efe7f7486",
+      "after": "a8638e264404593550682608d6e27c4a4049a3e14a866ea82f402ef307f76faa",
+      "patch": "account-pages.patch"
+    }
+  },
+  "modules": {
+    "account-profile.mjs": "911bda41c52725438ff36b52fa24eb590eb6c132697ea9714c1495f5ae804222",
+    "account-groups.mjs": "3a3809b3a1bffaac32dda9ce977303bfacb8ddb55ee8da9d27c6b37aa0296aed"
+  }
+}

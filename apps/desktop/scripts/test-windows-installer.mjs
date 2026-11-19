@@ -152,11 +152,12 @@ SectionEnd
     }
     const languageOutput = join(output, language)
     await mkdir(languageOutput)
+    const upgradeReportDirectory = join(languageOutput, 'upgrade-reports')
     const strings = join(languageOutput, 'strings.nsh')
     await writeFile(strings, renderInstallerStrings([locale]), 'utf8')
     const include = join(languageOutput, 'include.nsh')
     const { fixture, pages } = await prepareInstallerTestFixtures(appRoot, languageOutput)
-    await writeFile(include, `!define INSTALLER_BUILD_DIR "${join(output, 'ui')}"\n!define INSTALLER_STRINGS_FILE "${strings}"\n!define INSTALLER_TEST_PAGES_FILE "${pages}"\n!define INSTALLER_TEST_TRACE_DIR "${languageOutput}"\n!include "${fixture}"\n`)
+    await writeFile(include, `!define INSTALLER_BUILD_DIR "${join(output, 'ui')}"\n!define INSTALLER_STRINGS_FILE "${strings}"\n!define INSTALLER_TEST_PAGES_FILE "${pages}"\n!define INSTALLER_TEST_TRACE_DIR "${languageOutput}"\n!define DSH_UPGRADE_REPORT_ROOT "${upgradeReportDirectory}"\n!include "${fixture}"\n`)
     await build({ projectDir: appRoot, prepackaged: payload, targets: Platform.WINDOWS.createTarget(['nsis'], Arch.x64), publish: 'never',
       config: { ...config, productName, extraMetadata: { ...config.extraMetadata, name: packageName },
         artifactName: 'installer-test.exe', directories: { output: languageOutput },
@@ -167,7 +168,7 @@ SectionEnd
       join(appRoot, 'tests', uninstallOnly ? 'windows-uninstall-smoke.ps1' : 'windows-installer-smoke.ps1'),
       '-Installer', join(languageOutput, 'installer-test.exe'),
       '-ProductName', productName, '-RegistryKey', guid, '-OutputDirectory', languageOutput,
-      '-Language', language, ...uninstallOnly ? ['-PackageName', packageName] : []], childOptions)
+      '-Language', language, ...uninstallOnly ? ['-PackageName', packageName] : ['-UpgradeReportDirectory', upgradeReportDirectory]], childOptions)
     process.stdout.write(`${language}\n${result.stdout}`)
     if (!uninstallOnly) {
       const negativeOutput = join(languageOutput, 'negative-cleanup')
@@ -178,7 +179,7 @@ SectionEnd
           join(appRoot, 'tests', 'windows-installer-smoke.ps1'),
           '-Installer', join(languageOutput, 'installer-test.exe'),
           '-ProductName', productName, '-RegistryKey', guid, '-OutputDirectory', negativeOutput,
-          '-Language', language, '-FailAfterAutomaticRelaunch'], childOptions)
+          '-Language', language, '-UpgradeReportDirectory', upgradeReportDirectory, '-FailAfterAutomaticRelaunch'], childOptions)
       } catch (error) { injectedFailure = error }
       const receipt = JSON.parse(await readFile(join(negativeOutput, 'cleanup-receipt.json'), 'utf8'))
       assertInstallerNegativeControl(injectedFailure, receipt)

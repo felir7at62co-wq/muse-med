@@ -105,6 +105,8 @@ jobs:
         run: gh release download muse-desktop-v0.1.6-alpha.1 --repo felir7at62co-wq/muse-med --pattern muse-ffmpeg-9.0.2-win-x64.zip --dir apps/desktop/.desktop-build/downloads/media
       - name: Check model relay behavior
         run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
+      - name: Check user groups, Feishu organization and token history
+        run: node --test services/muse-accounts/account-details.test.mjs services/muse-accounts/account-profile.test.mjs services/muse-accounts/account-pages.test.mjs services/muse-accounts/feishu-login.test.mjs services/muse-accounts/feishu-organization.test.mjs services/muse-accounts/deployment/profile-overlay.test.mjs services/muse-accounts/deployment/profile-candidate.test.mjs
       - name: Build Host peers for plugin packaging
         run: pnpm run build:lib:host
       - name: Check built-in Bot memory, shutdown and packaging policy
@@ -129,6 +131,9 @@ jobs:
       - name: Check transcription receipts and portable recovery paths
         run: pnpm exec vitest run packages/drama/tool-audio-transcribe/tests/runner.spec.ts
       - name: Check packaging behavior
+        env:
+          # Git fixture creation and worktree reads share the native test-lane budget.
+          DSH_COVERAGE_TEST_TIMEOUT_MS: '90000'
         run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/unsigned-pr-packaging.spec.ts apps/desktop/tests/export-muse-ci-candidate.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/macos-subtitle-libraries.spec.ts apps/desktop/tests/macos-media-smoke.spec.ts apps/desktop/tests/package-resume.spec.ts apps/desktop/tests/muse-installer-acceptance.spec.ts apps/desktop/tests/muse-candidate-update-acceptance.spec.ts apps/desktop/tests/runtime-dependency-patches.spec.ts apps/desktop/tests/packaged-pi-ai.spec.ts scripts/release/tarball.spec.ts scripts/release/process.spec.ts apps/desktop/tests/prepare-package-set.spec.ts packages/client/ui-permission-presets/tests scripts/release/pack.spec.ts
       - name: Configure unsigned Muse packaging
         run: >-
@@ -157,6 +162,9 @@ jobs:
           pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/macos-update-package.e2e.ts --retry 0 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/muse-candidate-update-native/result.json"
       - name: Build and verify the assembled application
         run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
+      - name: Verify isolated Windows upgrade safety
+        if: matrix.target == 'win-x64'
+        run: node apps/desktop/scripts/run-isolated-upgrade-smoke.mjs
       - name: Check bundled Host integrations against built dependencies
         run: |
           pnpm exec vitest run apps/desktop-host/tests/feishu-migration.spec.ts apps/desktop-host/tests/permission-settings.spec.ts apps/desktop-host/tests/tool-discovery-catalog.spec.ts apps/desktop/tests/smoke-runtime.spec.ts apps/desktop/tests/bundled-bridge.spec.ts apps/desktop/tests/feishu-setup-loader.spec.ts packages/boot/app-boot/tests/compatibility-preflight.spec.ts apps/cli/tests/resolved-profile-boot.spec.ts

@@ -19,6 +19,8 @@ import Subprocess from '@deepseek-ai/dsh-subprocess-local'
 import { afterEach, expect, it, vi } from 'vitest'
 import { provideBrowserCredentials } from '../../../api/gateway/tests/browser-credentials.ts'
 import SessionVideo from '../src/index.ts'
+import Tools from '@deepseek-ai/dsh-tools'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 
 const roots: string[] = []
 const contexts: Context[] = []
@@ -100,6 +102,8 @@ async function fixture(options: { readonly privateHostPaths: boolean; readonly m
   }
   await ctx.plugin(Subprocess).await()
   await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root }).await()
+  await ctx.plugin(SystemPrompt).await()
+  await ctx.plugin(Tools).await()
   await ctx.plugin(SessionVideo).await()
   const session = ctx.sessions.create(SessionId('attachment-host-path-session'), { meta: { cwd: root } })
   return { ctx, session, provider, signal: new AbortController().signal }

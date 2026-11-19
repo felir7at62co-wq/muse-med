@@ -9,11 +9,41 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This directory contains the separately deployed Muse account gateway. It serves account-scoped speech transcription, administrator-granted reference reading, and private script storage. Desktop and workspace packages do not launch it or store its Volcengine or TOS credentials.
+The separately deployed Muse account gateway lets users sign in with Feishu, view their groups and token usage, and use account-scoped speech transcription, administrator-granted reference reading, and private script storage. Desktop and workspace packages do not launch it or store its Volcengine or TOS credentials.
 
 ## Administrator account overview
 
 An account with `admin: true` can open `/account` → account management, or `/admin`, to see account state, linked Feishu names and organization identifiers, recent login and explicit task activity, and connected Desktop counts. Online accounts are deduplicated across computers; connections do not establish human interaction. Registered accounts include legacy and test accounts. Linked-user counts include accounts with a verified Feishu binding. Today and seven-day activity use the latest explicit task event in the Asia/Shanghai calendar and omit disabled accounts; historical activity before reporting was enabled is unavailable. Ordinary accounts cannot open the page. Viewing this metadata does not expose private conversations or manuscripts.
+
+<a id="account-details"></a>
+## Personal groups and token usage
+
+After sign-in, `/account` shows the current account's Muse groups, Feishu department paths when synchronized, and token usage. Administrators use the **Edit groups** link in `/admin` to assign up to 20 named groups with descriptions; clearing a name removes that assignment. Muse groups are informational and grant no administrator or Feishu permissions. Assignments retain the account ID, login revision, password and sessions.
+
+`GET /api/muse/profile` returns version 1 of the current account's safe profile, assigned groups and account-level department paths independently of token storage. It accepts no query parameters; other accounts cannot be selected. A supplied organization snapshot must contain complete current-account membership paths; unavailable or incomplete synchronization returns `organization.status: "unavailable"`. Without a snapshot, every bound identity must have an available verified organization record. The response does not expose credentials or other users, and does not infer departments from Muse groups or roles.
+
+`GET /api/muse.account/details` returns only the signed-in account's identity, groups and measurements, even when a query names another account or administrator workspace. `period=all|today|7d|30d` selects Beijing calendar ranges; the default is `30d`. `offset` is a nonnegative integer and `limit` is 1–100, default 50. The response includes known-count summaries, per-model and per-day totals, individual request records and `{offset,limit,total,hasMore}` pagination. Per-request missing counters remain null; summary sums include only supplied counters. Cache input and reasoning output are subcounts and are not added again to total tokens.
+
+Desktop and cloud relays record supplier-returned usage after response settlement. Updated Desktop clients report direct-request measurements through same-origin authenticated `POST /api/muse.account/usage`; these records carry the distinct `desktop-direct` source and are client reports rather than independently verified supplier billing. Reports contain a request UUID, provider, model, HTTP status when known, and nullable input, output, total, cached-input and reasoning counts. Identical account/request-ID submissions are deduplicated; changed measurements for the same key return 409. Reports have a 4 KiB body limit. `MUSE_USAGE_RATE_PER_MINUTE` configures admission per account/IP, default 600 and range 1–10000.
+
+The gateway writes owner-only append-only `model-usage.jsonl` beside the account file; `MUSE_USAGE_FILE` may select another absolute private path outside releases. Keep it across deployments and run one gateway writer per ledger. The first record fixes the measurement start time; preexisting historical use is not reconstructed. Missing supplier usage, old clients, offline work and failed direct reports can leave gaps, so these totals are not supplier bills. Records exclude messages, generated content, account cookies and supplier credentials. Startup refuses malformed or incomplete records, and persistence failure makes usage queries fail explicitly. Embedded gateways use isolated memory storage unless passed an opened ledger.
+
+<a id="production-profile-overlay"></a>
+## Production profile overlay
+
+All users need the updated Desktop client to see this account page. The separately deployed production gateway `20261117-r25-account-profile` serves the matching personal profile and existing account-data-v1 usage interfaces. Each request uses that user's own login; no shared employee account is required. Empty Muse groups are valid. Existing enterprise organization synchronization supplies department paths, and newly bound users can remain unavailable until its next refresh. The source gateway in this directory and that production release have different organization and usage implementations: **do not replace the production service directory with this source tree**. Production retains its existing coordinator, Feishu-only policy, workbench, account data and ledgers.
+
+The [fixed baseline manifest](deployment/baselines.json) and three [local patches](deployment/patches) maintain the narrow production change. The builder accepts the exact touched-file hashes of `20261117-r24-native-company`, the verified `20261117-r25-account-profile`, or an already current overlay. It rejects unknown and mixed sources before creating a candidate. It reads only the three patched source files and two profile modules, requires regular files, and never reads configuration, sessions or credentials. An r24 input receives the three patches; a recognized r25 input keeps those files and refreshes only reviewed profile modules when needed. Candidate output contains five modules and a hash manifest, not a complete service release.
+
+With Node 22 or newer and Git available, select a local copy of a supported service directory and a separate, nonexistent output directory:
+
+```sh
+node services/muse-accounts/deployment/profile-overlay.mjs verify --source <local-service-directory>
+node services/muse-accounts/deployment/profile-overlay.mjs build --source <local-service-directory> --output <new-candidate-directory>
+node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate <new-candidate-directory>
+```
+
+`verify` reports whether the five current files are already present; building that recognized state is idempotent. `build` checks input and output hashes, leaves the source unchanged, and fixes Git line-ending behavior across Windows and POSIX. `preflight` checks candidate hashes, JavaScript syntax and synthetic profiles for ordinary and newly registered accounts, empty groups, multiple Feishu bindings, cross-account separation and incomplete department paths. These checks cover the overlay only. A release owner must retain the rest of the complete pinned production release and its external private data, run the existing gateway integration checks in that complete candidate, and review activation separately. These tools perform no network access, service restart, release switching or deployment. Account JSON remains version 2; groups are optional informational fields and do not change login revisions or require users to re-register. Preserve account/session stores and existing usage history when preparing a release.
 
 ## Feedback inbox
 
@@ -55,7 +85,7 @@ Library composition may pass an empty `httpServer` to `createAccountServer`. It 
 <a id="feishu-login"></a>
 ## Feishu login
 
-Set `MUSE_FEISHU_LOGIN_CONFIG` to an absolute owner-only regular JSON file outside the release. Omit it to disable Feishu entry points. For internal use, configure `appType: "custom"` and set the app's availability to the enterprise members allowed to sign in. An existing bot app can add web capability; a custom app does not admit other enterprises or personal-edition users. `appType: "store"` is reserved for a separately published Store App, still subject to Feishu installation and availability policies. Set the app's redirect URL to the exact public origin plus `/auth/feishu/callback`. Enable its web application capability; basic login does not request phone, email, contacts, messages or `offline_access` scopes. When reusing an existing app, Feishu may display permissions the user previously granted; Muse uses only the login identity and does not persist Feishu tokens.
+Set `MUSE_FEISHU_LOGIN_CONFIG` to an absolute owner-only regular JSON file outside the release. Omit it to disable Feishu entry points. For internal use, configure `appType: "custom"` and set the app's availability to the enterprise members allowed to sign in. An existing bot app can add web capability; a custom app does not admit other enterprises or personal-edition users. `appType: "store"` is reserved for a separately published Store App, still subject to Feishu installation and availability policies. Set the app's redirect URL to the exact public origin plus `/auth/feishu/callback`. Enable its web application capability; basic login does not request phone, email, contacts, messages or `offline_access` scopes. When reusing an existing app, Feishu may display permissions the user previously granted; Muse retains the verified login identity and any explicitly enabled department synchronization, and does not persist Feishu tokens.
 
 ```json
 {
@@ -65,6 +95,8 @@ Set `MUSE_FEISHU_LOGIN_CONFIG` to an absolute owner-only regular JSON file outsi
   "redirectUri": "https://muse.aigc-pipeline.cn/auth/feishu/callback"
 }
 ```
+
+`organizationSync` defaults to `false`. Set it to `true` to request `contact:contact.base:readonly`, `contact:user.department:readonly` and `contact:user.department_path:readonly`, and read the current user through the [official Contact v3 user endpoint](https://open.feishu.cn/document/server-docs/contact-v3/user/get). Enable and publish these permissions in the Feishu application first, then have existing users sign in again. The callback uses its transient user token only for that request; no token is saved. After identity verification, the directory lookup has a separate `requestTimeoutMs` wait; its timeout records unavailable departments while sign-in continues. Shutdown and a disconnected callback still cancel the whole login before account or session commit. Account records store department IDs, names, formatted department paths, ancestor IDs and synchronization time. Missing permissions and unavailable synchronization are explicit states and do not replace a successful login; an absent legacy synchronization record prompts another sign-in. Department information is the last successful or attempted sign-in snapshot, not a live organization directory, and a tenant identifier is not an organization name.
 
 `tokenEndpointVersion` defaults to `"v3"`; `"v2"` explicitly selects the fixed v2 endpoint for compatibility. Muse never falls back automatically or reuses a failed authorization code; verify a selected version with a new authorization attempt. The [authorization-code documentation](https://open.feishu.cn/document/authentication-management/access-token/obtain-oauth-code) describes v2 for PKCE; [SDK issue #230](https://github.com/larksuite/oapi-sdk-go/issues/230) reports v3 `20049` failures with successful v2 comparisons, without official confirmation.
 

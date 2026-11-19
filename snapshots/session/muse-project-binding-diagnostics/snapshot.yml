@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-project-binding-diagnostics
+profile: headless
+composition: muse-project-binding-diagnostics
+recording: authored
+header:
+  class: muse-project-binding-diagnostics
+  pin: true
+  systemPromptSource: muse-native-legacy-key-conflict
+  toolSchemasSource: muse-native-legacy-key-conflict
+writerOutput: true
+workspace:
+  final: true

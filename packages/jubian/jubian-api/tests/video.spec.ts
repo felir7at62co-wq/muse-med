@@ -55,6 +55,21 @@ describe('readTaskList', () => {
 })
 
 describe('readSubtaskPage', () => {
+  it.each([201, '201'])('preserves provider storyboard identity %j on a merged task child', (storyboardId) => {
+    const row = readSubtaskPage({ rows: [{ id: 101, aigcVideoTaskId: 71,
+      storyboardId, taskStatus: 'succeeded' }] }).rows[0]!
+    expect(row).toMatchObject({ subtask_id: 101, parent_task_id: 71, storyboard_id: 201 })
+  })
+
+  it.each([undefined, null, 0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1,
+    '', '0', '-1', '1.5', 'invalid', '9007199254740992', true, {}])
+  ('omits unreadable provider storyboard identity %j without inventing one', (storyboardId) => {
+    const row = readSubtaskPage({ rows: [{ id: 101, aigcVideoTaskId: 71,
+      storyboardId, taskName: 'EP07-P1', taskStatus: 'succeeded' }] }).rows[0]!
+    expect(row).toMatchObject({ subtask_id: 101, parent_task_id: 71, status: 'succeeded' })
+    expect(row).not.toHaveProperty('storyboard_id')
+  })
+
   it('preserves unknown stage types and both image URL field spellings', () => {
     const row = readSubtaskPage({ rows: [{ subTaskId: 1, imageMaterials: [{ materialUrl: 'https://media.example/ref.png' }],
       resultList: [{ taskType: 999, lastTaskType: 999, tosVideoUrl: 'https://media.example/result.mp4' }] }] }).rows[0]!
