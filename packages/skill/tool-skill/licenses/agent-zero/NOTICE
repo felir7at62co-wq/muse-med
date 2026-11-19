@@ -1,0 +1,3 @@
+Task skill recovery draws on the loaded-skill reminder design in Agent Zero.
+https://github.com/agent0ai/agent-zero/blob/2b0b3a416d80638379dc575798a4174ab4d3e1d9/extensions/python/message_loop_prompts_after/_65_include_loaded_skills.py
+The Muse implementation uses native Session events and Cordis services.

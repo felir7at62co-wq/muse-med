@@ -142,6 +142,8 @@ export interface SkillInvocationSource {
   readonly name: string
   /** Injected skill bodies are instructions for the model to follow. */
   readonly form: 'instructions'
+  /** Digest of the skill name, provider and exact instructions for a recoverable task phase. */
+  readonly taskVersion?: string
 }
 
 declare module '@deepseek-ai/dsh-llm' {

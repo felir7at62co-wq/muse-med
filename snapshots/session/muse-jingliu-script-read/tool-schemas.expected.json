@@ -785,6 +785,22 @@
       }
     },
     {
+      "name": "end_task_skill",
+      "description": "Release the current task skill when its task is complete, cancelled or replaced. Loading another task skill switches phases automatically.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the task skill being released."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
       "name": "fanqie_download",
       "description": "使用 Muse 本地独立引擎下载一部或多部公开免费番茄小说，按当前已发布真实完整目录下载，不设章节数量上限。注册新匿名设备，原程序和原设备不参与。逐章核对书籍/章节ID、正文长度、乱码和文件SHA256；所有书下载验证完成才交付TXT和每章收据。连载仅表示当前已发布章节齐全。付费、VIP或需要其他授权的正文明确拒绝，不把试看当全文。失败或取消清理本批未完成文件，输出仅限当前工作区。",
       "parameters": {

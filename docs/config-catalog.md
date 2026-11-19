@@ -4300,7 +4300,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-skill`
 
-- `source`: [`packages/skill/skill/src/index.ts:271`](../packages/skill/skill/src/index.ts)
+- `source`: [`packages/skill/skill/src/index.ts:273`](../packages/skill/skill/src/index.ts)
 
 ```ts config-catalog
 /** Skill registry configuration. */
@@ -4796,7 +4796,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-system-prompt`
 
-- `source`: [`packages/core/system-prompt/src/index.ts:265`](../packages/core/system-prompt/src/index.ts)
+- `source`: [`packages/core/system-prompt/src/index.ts:266`](../packages/core/system-prompt/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.personaPrefix} for its contract). */
@@ -5940,8 +5940,8 @@ export type DramaShotReviewMode = 'strict' | 'advisory'
 
 ## `@deepseek-ai/dsh-tool-skill`
 
-- `inject`: `agents` · `tools` · `skills` · `workingDirectory`
-- `source`: [`packages/skill/tool-skill/src/index.ts:72`](../packages/skill/tool-skill/src/index.ts)
+- `inject`: `agents` · `tools` · `skills` · `workingDirectory` · `sessionProjections` · `systemPrompt`
+- `source`: [`packages/skill/tool-skill/src/index.ts:73`](../packages/skill/tool-skill/src/index.ts)
 
 ```ts config-catalog
 /** Model-facing skill catalog configuration. */
@@ -5954,6 +5954,10 @@ export interface Config {
   catalogSourceLimits?: CatalogSourceLimits
   /** Default metadata directory page size, an integer from 1 through 100. */
   catalogPageSize?: number
+  /** Skill names that select mutually exclusive task phases in this preset. Empty disables recovery. */
+  taskSkills?: string[]
+  /** Maximum characters in a restored task-skill notice, including its framing. */
+  taskSkillMaxChars?: number
 }
 
 /** Limits indexed by the exact provider source label. */
