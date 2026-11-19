@@ -85,6 +85,7 @@ jobs:
           gh release download v1.3.0 --repo $env:GITHUB_REPOSITORY --pattern 'muse-med-1.3.0-win-x64.exe*' --dir (Join-Path $env:RUNNER_TEMP 'installed-upgrade-baseline')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify the installed application upgrade
+        timeout-minutes: 42
         env:
           UPGRADE_FROM: ${{ matrix.from }}
           UPGRADE_TO: ${{ inputs.installed_upgrade_version }}

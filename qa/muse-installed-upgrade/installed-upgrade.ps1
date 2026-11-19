@@ -28,6 +28,14 @@ $install = Join-Path $work 'installed'
 $journals = Join-Path $evidence 'journals'
 foreach($path in @($evidence, $work, $homePath, $journals)) { New-Item -ItemType Directory -Path $path | Out-Null }
 
+function Write-QAPhase([string]$Phase) {
+    $stamp = [DateTime]::UtcNow.ToString('o')
+    Write-Host ("muse-qa {0} {1}" -f $stamp,$Phase)
+    [pscustomobject]@{utc=$stamp;phase=$Phase} | ConvertTo-Json -Compress |
+        Add-Content -LiteralPath (Join-Path $evidence 'phases.jsonl') -Encoding utf8NoBOM
+}
+Write-QAPhase 'runner-guard-passed'
+
 $baselines = @{
     '1.3.0' = @{ installer='38f3ed42a16c3ec9de3eb10fa6dfa2d589f1af4a29fe1162e854aeb75c24e1d1'; blockmap='826a948f8f5fbf81cbea33149fc3afa645556dcec42d1e73d419739e7e04114f' }
     '1.3.1' = @{ installer='0d17ecf88533e992e629d7f8f1c8e21e0e86b10d5744fe6b164ab9229d68e9fb'; blockmap='4cf71bf3012a62ee22b6e1b7fa8f6c54eee4d51d79eeb5143e00dd60ff980788' }
@@ -42,6 +50,7 @@ $build = Get-Content -LiteralPath (Join-Path $artifacts 'unsigned-build.json') -
 if ($build.sourceCommit -ne $SourceCommit -or $build.version -ne $TargetVersion -or $build.target -ne 'win-x64') {
     throw 'Candidate provenance does not match the requested commit, version, and platform.'
 }
+Write-QAPhase 'installer-input-hashes-verified'
 $ssl = (Get-Command openssl.exe -ErrorAction SilentlyContinue | Select-Object -First 1)
 if (-not $ssl) { throw 'OpenSSL is required for loopback TLS.' }
 $cert = Join-Path $work 'loopback.pem'
@@ -57,7 +66,19 @@ $priorUser = @{}
 $priorProcess = @{}
 $priorCA = $env:NODE_EXTRA_CA_CERTS
 try {
-    $trusted = Import-Certificate -FilePath $der -CertStoreLocation 'Cert:\CurrentUser\Root'
+    Write-QAPhase 'import-loopback-certificate'
+    $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new($der)
+    $trustedPath = 'Cert:\LocalMachine\Root\' + $certificate.Thumbprint
+    $quotedDer = '"' + $der + '"'
+    $certutil = (Get-Command certutil.exe).Source
+    $trustCommand = Start-Process -FilePath $certutil -ArgumentList @('-f','-addstore','Root',$quotedDer) -WindowStyle Hidden -PassThru
+    if (-not $trustCommand.WaitForExit(30000)) {
+        Stop-Process -Id $trustCommand.Id -ErrorAction SilentlyContinue
+        throw 'The disposable runner did not complete certificate import within 30 seconds.'
+    }
+    if ($trustCommand.ExitCode -ne 0) { throw 'The disposable runner did not trust the temporary loopback certificate.' }
+    $trusted = Get-Item -LiteralPath $trustedPath
+    Write-QAPhase 'loopback-certificate-imported'
     $env:NODE_EXTRA_CA_CERTS = $cert
     $feedReady = Join-Path $work 'feed-ready.json'
     $node = (Get-Command node.exe).Source
@@ -86,6 +107,7 @@ try {
     }
     $null = Invoke-WebRequest -Uri ([uri]::new($feedUri,'latest.yml')) -TimeoutSec 20
 
+    Write-QAPhase 'trusted-feed-ready'
     $installer = Start-Process -FilePath $baseline -ArgumentList "/S /CURRENTUSER /D=$install" -WindowStyle Hidden -PassThru
     if (-not $installer.WaitForExit(240000) -or $installer.ExitCode -ne 0) { throw 'The original Windows installer did not complete.' }
     $app = Join-Path $install 'muse-med.exe'
@@ -96,6 +118,7 @@ try {
     if ($source.version -ne $FromVersion -or $source.primary.url -ne $releaseUrl) {
         throw 'The old installation does not identify as the original baseline.'
     }
+    Write-QAPhase 'original-installer-complete'
     $seedReceipt = Join-Path $evidence 'seeded-session.json'
     & $node (Join-Path $PSScriptRoot 'seed-upgrade-session.mjs') --install-root $install --home $homePath --output $seedReceipt
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $seedReceipt)) { throw 'The old packaged Host did not create a test session.' }
@@ -121,6 +144,7 @@ try {
         [Environment]::SetEnvironmentVariable($name,$isolatedVariables[$name],'User')
         [Environment]::SetEnvironmentVariable($name,$isolatedVariables[$name],'Process')
     }
+    Write-QAPhase 'seeded-session-and-private-update-configured'
     $old = Start-Process -FilePath $app -ArgumentList '--force-renderer-accessibility' -WorkingDirectory $install -WindowStyle Normal -PassThru
     . (Join-Path $PSScriptRoot 'drive-upgrade-ui.ps1')
     $uiInputs = @{
@@ -129,10 +153,14 @@ try {
         InstallerSha256 = $candidateHash; JournalDirectory = $journals; EvidencePath = Join-Path $evidence 'ui-events.jsonl'
     }
     $ui = New-MuseUpgradeUiContext @uiInputs
+    Write-QAPhase 'old-application-started'
     Invoke-MuseUpdateCheck -Context $ui
+    Write-QAPhase 'offer-seen-in-old-application'
     Invoke-MuseUpdateDownloadAndInstall -Context $ui
+    Write-QAPhase 'download-verified-and-install-confirmed'
     $successor = Wait-MuseInstallerRestart -Context $ui
 
+    Write-QAPhase 'native-installer-exited-and-new-app-restarted'
     $updatedSources = Get-Content -LiteralPath $sourceFile -Raw | ConvertFrom-Json
     $installedVersion = (Get-Item -LiteralPath $app).VersionInfo.FileVersion
     if ($updatedSources.version -ne $TargetVersion -or $installedVersion -ne $TargetVersion -or $updatedSources.primary.url -ne $releaseUrl) {
@@ -155,6 +183,7 @@ try {
         Context = $ui; SuccessorPid = $successor.Pid; WorkspaceTitle = $seeded.workspaceTitle
         SessionTitle = $seeded.sessionTitle; UserText = $seeded.userText; AssistantText = $seeded.assistantText
     }
+    Write-QAPhase 'session-data-readback-verified'
     $visible = Confirm-MuseReopenedSessionUi @sessionUi
     if (-not ($visible.Reopened -and $visible.WorkspaceVerified -and $visible.UserMessageVerified -and $visible.AssistantMessageVerified)) {
         throw 'The restarted application did not reopen and show the seeded conversation.'
@@ -173,5 +202,5 @@ try {
     }
     [Environment]::SetEnvironmentVariable('NODE_EXTRA_CA_CERTS',$priorCA,'Process')
     if ($feed -and -not $feed.HasExited) { Stop-Process -Id $feed.Id -ErrorAction SilentlyContinue }
-    if ($trusted) { Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$($trusted.Thumbprint)" -ErrorAction SilentlyContinue }
+    if ($trusted) { Remove-Item -LiteralPath $trustedPath -ErrorAction SilentlyContinue }
 }
