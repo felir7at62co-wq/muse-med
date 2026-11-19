@@ -6,6 +6,12 @@ Name "Desktop directory replacement smoke"
 OutFile "${OUTPUT_FILE}"
 LoadLanguageFile "${NSISDIR}\Contrib\Language files\English.nlf"
 LangString decompressionFailed ${LANG_ENGLISH} "Payload extraction failed"
+LangString MuseUpgradeReceiptFailed ${LANG_ENGLISH} "Upgrade did not complete; keep both directories."
+!include "..\..\installer\path-vars.nsh"
+; This transaction-only fixture exercises path validation in a separate guard probe.
+Function InstallerValidatePath
+  StrCpy $InstallerError ""
+FunctionEnd
 
 !macro installApplicationFiles
   !insertmacro dshExtractPayload "${PAYLOAD_FILE}"
@@ -30,6 +36,10 @@ Section
   !endif
   StrCpy $INSTDIR "${TARGET_DIR}"
   !insertmacro dshStageApplication
+  !ifdef CREATED_EMPTY
+    ; Match electron-builder's SetOutPath after staging on a fresh install.
+    SetOutPath $dshFinalDirectory
+  !endif
   !ifdef RESTORE_CONFLICT
     Rename $dshFinalDirectory $dshOldDirectory
     StrCpy $dshOldMoved "1"
@@ -60,6 +70,16 @@ Section
     System::Call 'kernel32::CreateFileW(w "$dshNewDirectory\asset.txt", i 0x80000000, i 1, p 0, i 3, i 0, p 0) p.r9'
   !endif
   Call dshPromoteDirectories
+  IfErrors failed
+  !ifdef POST_PROMOTE_FAILURE
+    FileOpen $0 "$dshFinalDirectory\user-created-after-promotion.txt" w
+    FileWrite $0 "preserve new user data"
+    FileClose $0
+    Call dshRollbackDirectories
+    SetErrorLevel 2
+    Quit
+  !endif
+  Call dshRecordRetainedCompletion
   IfErrors failed
   !insertmacro dshFinishDirectories
   SetErrorLevel 0
