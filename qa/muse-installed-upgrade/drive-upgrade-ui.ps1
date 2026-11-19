@@ -399,30 +399,42 @@ function Find-MuseQaNamedTreeRow {
     param([int]$ProcessId, [string]$Name)
     $direct = Get-MuseQaUiControl $ProcessId @($Name) @('ControlType.TreeItem')
     if ($direct) { return $direct }
-    $leaf = Get-MuseQaUiControl $ProcessId @($Name) @('ControlType.Text')
-    if (-not $leaf) { return }
-    $walker = [Windows.Automation.TreeWalker]::RawViewWalker
-    try {
-        for ($current = $walker.GetParent($leaf); $current; $current = $walker.GetParent($current)) {
-            $kind = $current.Current.ControlType.ProgrammaticName
-            if ($kind -ceq 'ControlType.TreeItem' -and -not $current.Current.IsOffscreen -and $current.Current.IsEnabled) {
-                return $current
+    # Chromium can expose a row's title plus status and relative time as a single UIA name.
+    $process = [Windows.Automation.PropertyCondition]::new(
+        [Windows.Automation.AutomationElement]::ProcessIdProperty, $ProcessId)
+    $kind = [Windows.Automation.PropertyCondition]::new(
+        [Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::TreeItem)
+    $labelKind = [Windows.Automation.PropertyCondition]::new(
+        [Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Text)
+    $labelName = [Windows.Automation.PropertyCondition]::new(
+        [Windows.Automation.AutomationElement]::NameProperty, $Name)
+    $label = [Windows.Automation.AndCondition]::new($labelKind, $labelName)
+    $roots = [Windows.Automation.AutomationElement]::RootElement.FindAll([Windows.Automation.TreeScope]::Children, $process)
+    $matches = @{}
+    foreach ($root in $roots) {
+        try {
+            if ($root.Current.IsOffscreen) { continue }
+            foreach ($row in $root.FindAll([Windows.Automation.TreeScope]::Descendants, $kind)) {
+                try {
+                    $state = $row.Current
+                    if ($state.ProcessId -eq $ProcessId -and $state.IsEnabled -and -not $state.IsOffscreen -and
+                        ($state.Name.IndexOf($Name, [StringComparison]::Ordinal) -ge 0 -or
+                         $row.FindFirst([Windows.Automation.TreeScope]::Descendants, $label))) {
+                        $matches[($row.GetRuntimeId() -join ',')] = $row
+                    }
+                } catch [Windows.Automation.ElementNotAvailableException] {}
             }
-            if ($kind -in @('ControlType.Tree','ControlType.Document','ControlType.Window')) { return }
-        }
-    } catch [Windows.Automation.ElementNotAvailableException] {}
+        } catch [Windows.Automation.ElementNotAvailableException] {}
+    }
+    if ($matches.Count -gt 1) { throw 'The synthetic title matched multiple visible Muse tree rows.' }
+    if ($matches.Count -eq 1) { return @($matches.Values)[0] }
 }
 
 function Invoke-MuseQaNamedTreeRow {
     param($Control, [int]$ProcessId, [string]$Name)
     Assert-MuseQaInteractiveRunner
-    $pattern = $null
-    if ($Control.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
-        $pattern.Invoke()
-        return
-    }
 
-    # Chromium treeitems with DOM click handlers may not expose InvokePattern.
+    # A React click handler is the product's expansion and opening path.
     # A pointer action is allowed only on the exact UIA row, with an independent hit test.
     if (-not ('MuseUpgradeQa.Pointer' -as [type])) {
         Add-Type -TypeDefinition @'
@@ -440,17 +452,18 @@ namespace MuseUpgradeQa {
 }
 '@
     }
-    $pointTarget = $Control
-    $label = Get-MuseQaUiControl $ProcessId @($Name) @('ControlType.Text')
     $walker = [Windows.Automation.TreeWalker]::RawViewWalker
-    for ($element = $label; $element; $element = $walker.GetParent($element)) {
-        if ($element.Current.ProcessId -ne $ProcessId) { break }
-        if ([Windows.Automation.Automation]::Compare($element, $Control)) {
-            $pointTarget = $label
-            break
-        }
+    $labelKind = [Windows.Automation.PropertyCondition]::new(
+        [Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Text)
+    $labelName = [Windows.Automation.PropertyCondition]::new(
+        [Windows.Automation.AutomationElement]::NameProperty, $Name)
+    $labels = $Control.FindAll([Windows.Automation.TreeScope]::Descendants,
+        [Windows.Automation.AndCondition]::new($labelKind, $labelName))
+    $point = [Windows.Point]::new()
+    $useLabelPoint = $labels.Count -eq 1 -and $labels[0].TryGetClickablePoint([ref]$point)
+    if (-not $useLabelPoint -and -not $Control.TryGetClickablePoint([ref]$point)) {
+        throw 'The exact Muse tree row does not have a visible clickable point.'
     }
-    $point = $pointTarget.GetClickablePoint()
     $x = [int][Math]::Round($point.X)
     $y = [int][Math]::Round($point.Y)
     if (-not [MuseUpgradeQa.Pointer]::SetCursorPos($x, $y)) {
@@ -470,8 +483,17 @@ namespace MuseUpgradeQa {
     throw 'The exact Muse tree row is not the visible target at its clickable point.'
 }
 
+function Get-MuseQaWorkspaceExpansion {
+    param($Control)
+    $pattern = $null
+    if ($Control.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)) {
+        return $pattern.Current.ExpandCollapseState.ToString()
+    }
+    return 'Unavailable'
+}
+
 function Write-MuseQaReopenedSurface {
-    param($Context, [int]$ProcessId, [string]$Stage, [System.Collections.IDictionary]$Markers)
+    param($Context, [int]$ProcessId, [string]$Stage, [System.Collections.IDictionary]$Markers, [string]$WorkspaceExpansion)
     Assert-MuseQaInteractiveRunner
     $filter = [Windows.Automation.PropertyCondition]::new(
         [Windows.Automation.AutomationElement]::ProcessIdProperty, $ProcessId)
@@ -484,6 +506,7 @@ function Write-MuseQaReopenedSurface {
     }
     $observed = [ordered]@{}
     foreach ($key in $Markers.Keys) { $observed[$key] = @() }
+    $titleEmbedded = 0
     foreach ($root in $roots) {
         try {
             if ($root.Current.IsOffscreen) { continue }
@@ -495,6 +518,10 @@ function Write-MuseQaReopenedSurface {
                     if ($state.IsOffscreen -or $state.ProcessId -ne $ProcessId) { continue }
                     $kind = $state.ControlType.ProgrammaticName
                     if ($kinds.ContainsKey($kind)) { $counts[$kinds[$kind]]++ }
+                    if ($kind -ceq 'ControlType.TreeItem' -and $state.Name -cne $Markers.session[0] -and
+                        $state.Name.IndexOf($Markers.session[0], [StringComparison]::Ordinal) -ge 0) {
+                        $titleEmbedded++
+                    }
                     foreach ($key in $Markers.Keys) {
                         if ($Markers[$key] -ccontains $state.Name -and $observed[$key] -cnotcontains $kind) {
                             $observed[$key] += $kind
@@ -508,7 +535,8 @@ function Write-MuseQaReopenedSurface {
     $record = [ordered]@{
         time = [datetime]::UtcNow.ToString('o'); event = 'session-ui-surface'; stage = $Stage
         pid = $ProcessId; fromVersion = $Context.BaselineVersion; targetVersion = $Context.TargetVersion
-        visible = $counts; markerRoles = $observed
+        visible = $counts; markerRoles = $observed; sessionCompositeTreeRows = $titleEmbedded
+        workspaceExpansion = $WorkspaceExpansion
     }
     $json = $record | ConvertTo-Json -Depth 5 -Compress
     [IO.File]::AppendAllText($path, ($json + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
@@ -538,10 +566,13 @@ function Confirm-MuseReopenedSessionUi {
     $signInLaterNames = @('Sign in later','稍后登录')
     $configureLaterNames = @('Configure later','稍后配置')
     $openSidebarNames = @('Open sidebar','打开侧边栏')
+    $searchNames = @('Search sessions','搜索会话')
+    $searchInputNames = @('Search session names','搜索会话名称')
     $markers = [ordered]@{
         backupNotice = $noticeNames; accountWelcome = @('Welcome to MUSE','欢迎使用 MUSE')
         signInLater = $signInLaterNames; modelSetup = @('Set up a model for muse-med','为 muse-med 配置模型')
-        configureLater = $configureLaterNames; openSidebar = $openSidebarNames
+        configureLater = $configureLaterNames; openSidebar = $openSidebarNames; search = $searchNames
+        searchInput = $searchInputNames; searchEmpty = @('No matching sessions','无匹配会话')
         workspace = @($WorkspaceTitle); session = @($SessionTitle)
         userMessage = @($UserText); assistantMessage = @($AssistantText)
     }
@@ -549,7 +580,10 @@ function Confirm-MuseReopenedSessionUi {
     $accountSkipped = $false
     $modelSkipped = $false
     $sidebarOpened = $false
-    $expanded = $false
+    $workspaceActionAt = -1
+    $workspaceExpansion = 'NotObserved'
+    $searchOpened = $false
+    $searchTyped = $false
     $opened = $false
     $workspaceSeen = $false
     $surfaceRecorded = $false
@@ -573,7 +607,7 @@ function Confirm-MuseReopenedSessionUi {
             }
         }
         if (-not $surfaceRecorded) {
-            Write-MuseQaReopenedSurface $Context $SuccessorPid 'first-session-surface' $markers
+            Write-MuseQaReopenedSurface $Context $SuccessorPid 'first-session-surface' $markers $workspaceExpansion
             $surfaceRecorded = $true
         }
         if (-not $accountSkipped) {
@@ -615,16 +649,36 @@ function Confirm-MuseReopenedSessionUi {
                 Invoke-MuseQaNamedTreeRow $session $SuccessorPid $SessionTitle
                 $opened = $true
                 Add-MuseQaUiEvidence $Context 'seeded-session-row-selected' $SuccessorPid
-            } elseif ($workspace -and -not $expanded) {
-                $pattern = $null
-                if ($workspace.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)) {
-                    if ($pattern.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Collapsed) {
-                        $pattern.Expand()
-                    }
-                } else {
+            } elseif ($workspace -and $workspaceActionAt -lt 0) {
+                $workspaceExpansion = Get-MuseQaWorkspaceExpansion $workspace
+                Write-MuseQaReopenedSurface $Context $SuccessorPid 'workspace-found' $markers $workspaceExpansion
+                if ($workspaceExpansion -in @('Collapsed','Unavailable')) {
                     Invoke-MuseQaNamedTreeRow $workspace $SuccessorPid $WorkspaceTitle
+                    Add-MuseQaUiEvidence $Context 'seeded-workspace-row-clicked' $SuccessorPid
                 }
-                $expanded = $true
+                $workspaceActionAt = $watch.ElapsedMilliseconds
+            } elseif ($workspaceActionAt -ge 0 -and $watch.ElapsedMilliseconds -ge ($workspaceActionAt + 4000) -and -not $searchOpened) {
+                if ($workspace) { $workspaceExpansion = Get-MuseQaWorkspaceExpansion $workspace }
+                Write-MuseQaReopenedSurface $Context $SuccessorPid 'workspace-browse-complete' $markers $workspaceExpansion
+                $search = Get-MuseQaUiControl $SuccessorPid $searchNames @('ControlType.Button')
+                if ($search) {
+                    Invoke-MuseQaUiControl $search
+                    $searchOpened = $true
+                    Add-MuseQaUiEvidence $Context 'fixture-session-search-opened' $SuccessorPid
+                }
+                else { $workspaceActionAt = $watch.ElapsedMilliseconds }
+            } elseif ($searchOpened -and -not $searchTyped) {
+                $searchInput = Get-MuseQaUiControl $SuccessorPid $searchInputNames @('ControlType.Edit')
+                if ($searchInput) {
+                    $pattern = $null
+                    if (-not $searchInput.TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern, [ref]$pattern) -or
+                        $pattern.Current.IsReadOnly) {
+                        throw 'The owned session search input does not expose an editable ValuePattern.'
+                    }
+                    $pattern.SetValue($SessionTitle)
+                    $searchTyped = $true
+                    Add-MuseQaUiEvidence $Context 'fixture-session-search-entered' $SuccessorPid
+                }
             } elseif (-not $workspaceSeen -and -not $sidebarOpened) {
                 $openSidebar = Get-MuseQaUiControl $SuccessorPid $openSidebarNames @('ControlType.Button')
                 if ($openSidebar) {
@@ -636,6 +690,6 @@ function Confirm-MuseReopenedSessionUi {
         }
         Start-Sleep -Milliseconds 300
     } while ($watch.Elapsed.TotalSeconds -lt $TimeoutSeconds)
-    Write-MuseQaReopenedSurface $Context $SuccessorPid 'session-readback-timeout' $markers
+    Write-MuseQaReopenedSurface $Context $SuccessorPid 'session-readback-timeout' $markers $workspaceExpansion
     throw 'The exact seeded workspace and two conversation messages were not observed in the relaunched Muse GUI.'
 }
