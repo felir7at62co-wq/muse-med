@@ -26,6 +26,7 @@ import { clearModelAccess, saveModelAccess } from './model-access.ts'
 import { safeMuseModelStream } from './model-errors.ts'
 import { streamWithModelLease } from './model-direct.ts'
 import { MuseModelRequestTrace } from './model-request-trace.ts'
+import { MuseModelUsageReporter, type MuseModelUsageObserver } from './model-usage.ts'
 
 const supplierAccess = z.object({
   baseURL: z.string().max(2048).refine((value) => {
@@ -86,6 +87,7 @@ class MusePiAiAdapter extends PiAiAdapter {
     private readonly modelSelectable: (provider: string, model: string) => boolean,
     private readonly streamOverride: (provider: string, model: string) => DirectStream | undefined,
     private readonly trace: MuseModelRequestTrace,
+    private readonly usageObserver: (provider: string) => Promise<MuseModelUsageObserver | undefined>,
   ) {
     super(options)
   }
@@ -108,14 +110,15 @@ class MusePiAiAdapter extends PiAiAdapter {
     const defaultEffort = this.defaultEffort(provider, model)
     const authorization = this.authorizationSignal()
     const direct = this.streamOverride(provider, model)
-    const prepared = await super.prepareCall(provider, model, signal)
+    const preparedCall = super.prepareCall(provider, model, signal)
+    const [prepared, settled] = await Promise.all([preparedCall, this.usageObserver(provider)])
     return { ...prepared,
       model: defaultEffort === undefined || prepared.model.reasoning === undefined ? prepared.model
         : { ...prepared.model, reasoning: { ...prepared.model.reasoning, defaultEffort } },
       stream: options => this.trace.stream(options, () => safeMuseModelStream(() => {
         const signal = options.signal === undefined ? authorization : AbortSignal.any([authorization, options.signal])
         return direct ? direct(options, signal) : prepared.stream({ ...options, signal })
-      })),
+      }), settled),
     }
   }
 
@@ -153,6 +156,7 @@ export class MuseModels {
   private readonly stop = new AbortController()
   private readonly adapter: PiAiAdapter
   private readonly trace: MuseModelRequestTrace
+  private readonly usage: MuseModelUsageReporter
   private readonly selectionRepairs = new Set<Promise<void>>()
   private readonly disposeAgentCreated: () => void
   private readonly disposeRequestError: () => void
@@ -165,6 +169,9 @@ export class MuseModels {
   private failoverRoutes: readonly FailoverRoute[] = []
 
   constructor(private readonly ctx: Context, private readonly options: MuseModelsOptions) {
+    this.usage = new MuseModelUsageReporter(options, () => {
+      ctx.logger.warn('Muse direct model token usage could not be saved; account totals may be incomplete.')
+    })
     const trace = this.trace = new MuseModelRequestTrace(options.baseUrl, (record) => { ctx.logger.info(JSON.stringify(record)) })
     const adapterOptions: PiAiAdapterOptions = {
       prepareHeaders: (request, headers) => trace.headers(request,
@@ -205,7 +212,13 @@ export class MuseModels {
     this.adapter = new MusePiAiAdapter(adapterOptions, (provider, model) => this.defaultEfforts.get(`${provider}:${model}`),
       () => this.authorization.signal, provider => this.providerSelectable(provider),
       (provider, model) => this.modelSelectable(provider, model),
-      (provider, model) => this.directStream(adapterOptions, provider, model), trace)
+      (provider, model) => this.directStream(adapterOptions, provider, model), trace,
+      (provider) => {
+        const profile = this.profiles.get(provider)
+        const revision = profile && this.revisions.get(profile)
+        return profile && revision && (this.keys.has(profile) || this.leased.has(profile))
+          ? this.usage.prepare(revision) : Promise.resolve(undefined)
+      })
     this.disposeAgentCreated = ctx.on('agent/created', async ({ agent, signal }) => {
       await this.repairSelection(agent, signal ?? this.stop.signal)
       return undefined
@@ -298,7 +311,7 @@ export class MuseModels {
     this.profiles = new Map()
     this.defaultEfforts = new Map()
     this.failoverRoutes = []
-    await Promise.allSettled([this.queue, ...this.selectionRepairs])
+    await Promise.allSettled([this.queue, ...this.selectionRepairs, this.usage.dispose()])
   }
 
   /**

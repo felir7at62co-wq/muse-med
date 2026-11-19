@@ -1,12 +1,13 @@
 /** MUSE account settings page. Each mount verifies the saved login through the Host without exposing secrets. */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from '@deepseek-ai/dsh-muse-account/types'
+import type { MuseAccountDetails as AccountDetails, MuseAccountDetailsRequest, MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from '@deepseek-ai/dsh-muse-account/types'
 import type { MuseAccountLocaleKey } from './locales.ts'
 import type { MuseBrowserLoginAttempt, MuseBrowserLoginId, MuseBrowserLoginResult } from '@deepseek-ai/dsh-muse-account/types'
 import css from './MuseAccountSection.module.css'
+import { MuseAccountDetails } from './MuseAccountDetails.tsx'
 
 /** Successful Host value or a bounded Remote failure code. */
 export type MuseAccountOutcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly code: string }
@@ -15,6 +16,8 @@ export type MuseAccountOutcome<T> = { readonly ok: true; readonly value: T } | {
 export interface MuseAccountInjected {
   /** Read the stored identity or verify its cookie with the gateway. */
   status: (request: MuseAccountStatusRequest) => Promise<MuseAccountOutcome<MuseAccountStatus>>
+  /** Read the current account's own profile, groups and model usage. */
+  details: (request: MuseAccountDetailsRequest) => Promise<MuseAccountOutcome<AccountDetails>>
   /** Submit user-entered credentials directly to the Host. */
   login: (request: MuseAccountLoginRequest) => Promise<MuseAccountOutcome<MuseAccountLoginResult>>
   /** Remove the saved session cookie. */
@@ -49,7 +52,7 @@ const ERROR_COPY: Record<string, MuseAccountLocaleKey> = {
  * @returns the page element tree.
  */
 export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
-  const { t, status, logout, onSignedIn, startBrowserLogin, checkBrowserLogin, cancelBrowserLogin } = props
+  const { t, status, details, logout, onSignedIn, startBrowserLogin, checkBrowserLogin, cancelBrowserLogin } = props
   const [account, setAccount] = useState<MuseAccountStatus | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<MuseAccountLocaleKey | undefined>(undefined)
@@ -57,9 +60,14 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
   const [browserAttempt, setBrowserAttempt] = useState<MuseBrowserLoginAttempt | undefined>(undefined)
   const activeBrowser = useRef<MuseBrowserLoginId | undefined>(undefined)
 
-  const clearVerification = (): void => {
+  const clearVerification = useCallback((): void => {
     setAccount(current => current?.state === 'signed-in' ? { ...current, verified: false } : current)
-  }
+  }, [])
+
+  const invalidateSession = useCallback((): void => {
+    clearVerification()
+    setNotice('error.invalidCredentials')
+  }, [clearVerification])
 
   const showStatus = (result: MuseAccountOutcome<MuseAccountStatus>): void => {
     if (result.ok) {
@@ -233,6 +241,9 @@ export function MuseAccountSection(props: MuseAccountSectionProps): ReactNode {
               </div>}
           </div>}
       {notice === undefined ? null : <p className={css.notice} role="status">{t(notice)}</p>}
+      {account?.state === 'signed-in' && account.verified && onSignedIn === undefined
+        ? <MuseAccountDetails key={account.username} t={t} details={details} onInvalidSession={invalidateSession} />
+        : null}
     </div>
   )
 }

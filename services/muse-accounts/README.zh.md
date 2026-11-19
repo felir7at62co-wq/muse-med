@@ -9,11 +9,41 @@ kind: "package-reference"
 
 ## Summary
 
-本目录包含单独部署的 Muse 账号网关。网关提供按账号隔离的语音转写、按管理员授权阅读参考资料，以及私有剧本保存。桌面端和工作区包不启动它，也不保存火山或 TOS 凭据。
+单独部署的 Muse 账号网关支持飞书登录、个人分组和 Token 用量查询，并提供按账号隔离的语音转写、按管理员授权阅读参考资料，以及私有剧本保存。桌面端和工作区包不启动它，也不保存火山或 TOS 凭据。
 
 ## 管理员账号概览
 
 `admin: true` 的账号可从 `/account` → 管理账户，或直接进入 `/admin`，查看账号状态、绑定的飞书姓名与组织标识、最近登录和主动任务活动，以及桌面连接数量。在线账号按多台电脑去重，连接不表示有人正在操作。注册账号包含历史与测试账号；飞书绑定人数只统计已验证绑定的账号。今日与近七天使用按北京时间及最近一次主动任务事件统计，不包含停用账号；启用上报之前的历史活动无法还原。普通账号不能进入该页；查看这些信息不读取私人会话和稿件。
+
+<a id="account-details"></a>
+## 个人分组与 Token 用量
+
+登录后，`/account` 展示当前账号的 Muse 分组、已同步的飞书部门路径和 Token 用量。管理员通过 `/admin` 中的**编辑分组**入口分配最多 20 个含说明的分组，清空名称可移除该分组。Muse 分组仅用于信息展示，不授予管理员或飞书权限。分组变更保留账号 ID、登录 revision、密码与会话。
+
+`GET /api/muse/profile` 返回版本 1 的当前账号安全资料、已分配分组和账号级部门路径，独立于 Token 存储。接口不接受查询参数，不能选择其他账号。提供的组织快照必须包含当前账号的完整成员关系路径；同步不可用或不完整时返回 `organization.status: "unavailable"`。未提供快照时，每个已绑定身份都必须具有可用且已验证的组织记录。响应不暴露凭据或其他用户，也不根据 Muse 分组或角色推断部门。
+
+`GET /api/muse.account/details` 只返回当前登录账号的身份、分组与用量，即使查询指定其他账号或管理员工作区也不改变归属。`period=all|today|7d|30d` 按北京时间选择统计范围，默认为 `30d`。`offset` 为非负整数，`limit` 为 1–100，默认 50。响应包含已知计数汇总、按模型和按日统计、逐次请求记录，以及 `{offset,limit,total,hasMore}` 分页信息。逐次请求缺失的计数保留为 null，汇总只累加供应方提供的计数。缓存输入与推理输出是相关计数的细分，不重复计入总 Token。
+
+桌面和云端代理在响应结束后记录供应商返回的用量。新版桌面通过已认证同源 `POST /api/muse.account/usage` 上报直连请求计数，这些记录明确标记 `desktop-direct` 来源，属于客户端上报，不是独立核验的供应商账单。上报仅含请求 UUID、供应商、模型、已知 HTTP 状态，以及可为 null 的输入、输出、总量、缓存输入和推理计数。相同账号与请求 ID 的相同内容去重，内容改变返回 409。请求正文上限为 4 KiB。`MUSE_USAGE_RATE_PER_MINUTE` 配置每账号／IP 每分钟接收次数，默认 600，范围 1–10000。
+
+网关默认在账号文件旁写入仅所有者可访问、只追加的 `model-usage.jsonl`；也可用 `MUSE_USAGE_FILE` 指定发布目录之外的其他私密绝对路径。部署时保留此文件，每份账本只运行一个网关写入者。首条记录确定统计起点，不重建接入前历史。供应商未返回用量、旧客户端、离线操作和直连上报失败均可能造成缺口，因此统计不等于供应商账单。记录不包含消息、生成内容、账号 Cookie 或供应商凭据。启动时拒绝损坏或不完整记录，持久化失败会让用量查询明确报错。嵌入式网关未传入已打开账本时使用独立内存存储。
+
+<a id="production-profile-overlay"></a>
+## 生产个人资料补丁
+
+所有用户都需升级桌面客户端后才能看到此账号页面。单独部署的正式网关 `20261117-r25-account-profile` 提供配套个人资料接口和既有 account-data-v1 用量接口。每次请求使用该用户自己的登录，不依赖共享员工账号。Muse 分组为空是有效状态。既有企业组织同步提供部门路径，新绑定用户可能需要等待下一次同步。此目录的源码网关与正式发布版采用不同的组织和用量实现：**不得用此源码树整体替换生产服务目录**。正式环境须保留既有组织协调器、仅飞书登录策略、工作台、账号数据和用量账本。
+
+[固定基线清单](deployment/baselines.json)和三份[本地补丁](deployment/patches)维护这项范围有限的生产改动。构建器仅接受 `20261117-r24-native-company`、已验证的 `20261117-r25-account-profile` 或已包含当前补丁的精确受影响文件哈希，创建候选前即拒绝未知或混用来源。它只读取三份待修改源码和两个资料模块，要求普通文件，不读取配置、会话或凭据。r24 输入应用三份补丁；已识别的 r25 输入保留这三份文件，仅在需要时更新经过审核的资料模块。候选产物包含五个模块和哈希清单，不是完整服务发布包。
+
+准备 Node 22 或更新版本及 Git，选择受支持服务目录的本地副本，并指定另一个尚不存在的输出目录：
+
+```sh
+node services/muse-accounts/deployment/profile-overlay.mjs verify --source <local-service-directory>
+node services/muse-accounts/deployment/profile-overlay.mjs build --source <local-service-directory> --output <new-candidate-directory>
+node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate <new-candidate-directory>
+```
+
+`verify` 报告五份当前文件是否已存在，对已识别的当前状态再次构建保持幂等。`build` 校验输入与输出哈希，保留来源目录不变，并固定 Windows 与 POSIX 上的 Git 换行行为。`preflight` 校验候选哈希、JavaScript 语法，以及普通账号、新用户、零分组、多飞书绑定、跨账号隔离和不完整部门路径的合成资料场景。这些检查只覆盖补丁本身。发布负责人须保留完整固定基线中的其他生产文件与外部私密数据，在完整候选中运行既有网关集成检查，并另行审核启用步骤。工具不访问网络、不重启服务、不切换发布，也不部署。账号 JSON 仍为版本 2；分组是可选展示字段，不改变登录 revision，也不要求用户重新注册。准备发布时保留账号、会话存储与既有用量历史。
 
 ## 意见箱
 
@@ -55,7 +85,7 @@ kind: "package-reference"
 <a id="feishu-login"></a>
 ## 飞书登录
 
-将 `MUSE_FEISHU_LOGIN_CONFIG` 设为发布目录之外、绝对路径且仅所有者可读的普通 JSON 文件；省略时关闭飞书入口。企业内部使用配置 `appType: "custom"`，并在飞书后台将应用可用范围设为允许登录的企业成员。已有机器人应用可增加网页能力；企业自建应用不开放给其他企业或飞书个人版用户。`appType: "store"` 仅适用于另行发布的商店应用，其安装与可用范围仍由飞书控制。开启网页应用能力，将重定向 URL 精确设为公开源地址加 `/auth/feishu/callback`。基础登录不申请手机号、邮箱、通讯录、消息或 `offline_access` 权限。复用已有应用时，飞书可能显示用户此前已授予的权限；Muse 仅使用登录身份，不持久保存飞书令牌。
+将 `MUSE_FEISHU_LOGIN_CONFIG` 设为发布目录之外、绝对路径且仅所有者可读的普通 JSON 文件；省略时关闭飞书入口。企业内部使用配置 `appType: "custom"`，并在飞书后台将应用可用范围设为允许登录的企业成员。已有机器人应用可增加网页能力；企业自建应用不开放给其他企业或飞书个人版用户。`appType: "store"` 仅适用于另行发布的商店应用，其安装与可用范围仍由飞书控制。开启网页应用能力，将重定向 URL 精确设为公开源地址加 `/auth/feishu/callback`。基础登录不申请手机号、邮箱、通讯录、消息或 `offline_access` 权限。复用已有应用时，飞书可能显示用户此前已授予的权限；Muse 保存已验证登录身份和明确启用的部门同步结果，不持久保存飞书令牌。
 
 ```json
 {
@@ -65,6 +95,8 @@ kind: "package-reference"
   "redirectUri": "https://muse.aigc-pipeline.cn/auth/feishu/callback"
 }
 ```
+
+`organizationSync` 默认为 `false`。设为 `true` 后申请 `contact:contact.base:readonly`、`contact:user.department:readonly` 和 `contact:user.department_path:readonly`，并通过[飞书官方 Contact v3 用户接口](https://open.feishu.cn/document/server-docs/contact-v3/user/get)读取当前用户。请先在飞书应用中开通并发布这些权限，再让已有用户重新登录。回调只在本次请求中使用临时用户令牌，不保存令牌。身份验证完成后，部门查询单独受 `requestTimeoutMs` 限制，查询超时记录为部门不可用，登录继续。服务关闭或回调连接断开仍会取消整个登录，阻止账号或会话提交。账号记录保存部门 ID、名称、格式化部门路径、上级部门 ID 和同步时间。缺少权限及同步不可用均有明确状态，不会覆盖成功登录；旧记录未同步时提示重新登录。部门信息是上次登录的同步快照，不是实时组织目录；租户标识不等于组织名称。
 
 `tokenEndpointVersion` 默认为 `"v3"`；`"v2"` 显式选择固定的 v2 端点以兼容。Muse 不自动回退，也不复用换取失败的授权码；选择版本后须从全新授权开始验证。[授权码文档](https://open.feishu.cn/document/authentication-management/access-token/obtain-oauth-code) 描述了 PKCE 搭配 v2 的方式；[SDK issue #230](https://github.com/larksuite/oapi-sdk-go/issues/230) 报告了 v3 返回 `20049`、v2 对照成功的情况，这不代表官方确认。
 

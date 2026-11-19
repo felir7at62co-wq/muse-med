@@ -98,6 +98,8 @@ async function readResults(client: JubianClient) {
 }
 ```
 
+Use each child's `storyboard_id` to match it to the original card when a generation task covers several cards. The reader omits the field when the provider supplies no valid child card ID.
+
 `needsUpscale()` compares the current file against the delivery target. A recorded SeedVR2 pass counts the current file as 1080p even when the generation row keeps its old label; after another model's pass, such as MediaKit, a source row below the target returns `null` because its output resolution is recorded only on the provider's upscale row. Otherwise the function returns `true` below the target, `false` at or above it, and `null` when the available evidence cannot rank either side. Use `row.video_url` as the file to use: after an upscale the provider keeps the generation output in `row.base_video_url` and reports the newest file in `video_url`.
 
 ### Building a request body

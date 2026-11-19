@@ -58,6 +58,8 @@ exports[`exposes subtask rows in PTC output types while accepting other video-me
       subtask_id: number;
       /** 所属父任务；下载前必须与查询的 task_id 一致。 */
       parent_task_id: number | null;
+      /** 子结果关联的原分镜卡 ID；供应商未提供可用身份时省略。 */
+      storyboard_id?: number;
       /** 提供方子结果状态；保留未知值，不能仅凭 URL 判成功。 */
       status: string | null;
       /** 当前成片 URL；本任务子结果成功且 URL 非空时才可交 jubian_media download。 */

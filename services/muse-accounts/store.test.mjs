@@ -32,11 +32,16 @@ test('Feishu resolution deduplicates stable identities and never creates an admi
  await assert.rejects(store.changePassword(account.id,'anything','new-secret'),/原密码/);
  const persisted=JSON.parse(await readFile(file,'utf8')),row=persisted.accounts.find(a=>a.id===account.id);
  assert.equal(persisted.version,2);assert.equal(row.hash,undefined);assert.equal(row.salt,undefined);
- assert.equal((await readFile(file,'utf8')).includes('synthetic-sensitive-token'),false);assert.equal((await stat(file)).mode&0o777,0o600);
+ assert.equal((await readFile(file,'utf8')).includes('synthetic-sensitive-token'),false);
  const refreshed=await store.resolveFeishuIdentity(feishuProfile({name:'更新显示名'}));
  assert.equal(refreshed.id,account.id);assert.equal(refreshed.feishuIdentities[0].name,'更新显示名');assert.equal(refreshed.feishuIdentities[0].boundAt,account.feishuIdentities[0].boundAt);
  refreshed.feishuIdentities[0].name='caller mutation';assert.equal(store.get(account.id).feishuIdentities[0].name,'更新显示名');
  const reopened=await openStore(file);assert.equal((await reopened.resolveFeishuIdentity(feishuProfile())).id,account.id);assert.equal(reopened.get(admin.id).admin,true);
+});
+
+test('account persistence restricts POSIX file permissions',{skip:process.platform==='win32'?'Windows does not provide POSIX permission bits':false},async t=>{
+ const {store,file}=await feishuFixture(t);await store.resolveFeishuIdentity(feishuProfile());
+ assert.equal((await stat(file)).mode&0o777,0o600);
 });
 
 test('Feishu identities remain distinct across enterprises, applications and personal accounts',async t=>{
