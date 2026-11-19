@@ -450,13 +450,36 @@ function statesStoryboard(record: Record<string, unknown>, storyboardId: number)
   return wireText(taskSemanticFields(record).storyboardId) === String(storyboardId)
 }
 
+/** Complete episode axes conflict when only one of the ID and number matches. */
+function conflictingEpisode(actual: NativeEpisodeScope, expected: NativeEpisodeScope): boolean {
+  return actual.episodeId !== null && expected.episodeId !== null
+    && actual.episodeCount != null && expected.episodeCount != null
+    && (actual.episodeId === expected.episodeId) !== (actual.episodeCount === expected.episodeCount)
+}
+
+/** A parent identity or a complete nonempty child list can establish another storyboard. */
+function belongsToAnotherStoryboard(task: Record<string, unknown>, children: Record<string, unknown>[], storyboardId: number): boolean {
+  const different = (value: unknown) => value != null && value !== '' && positiveInteger(value) !== storyboardId
+  return different(task.storyboardId) || (children.length > 0 && children.every(child => different(child.storyboardId)))
+}
+
+/** Report only task identity and validated episode axes; this read never authorizes a replacement PUT. */
+function episodeConflict(taskId: string, storyboardId: number, actual: NativeEpisodeScope,
+  expected: NativeEpisodeScope, ownership: 'same_storyboard' | 'unverified'): never {
+  throw new JubianError('VIDEO_TASK_EVIDENCE_INVALID', `VIDEO_EPISODE_CONFLICT: task_id=${taskId}; storyboard_id=${storyboardId}; `
+    + `ownership=${ownership}; task_episode_id=${actual.episodeId}; task_episode_count=${actual.episodeCount ?? null}; `
+    + `preview_episode_id=${expected.episodeId}; preview_episode_count=${expected.episodeCount ?? null}; `
+    + 'read_only=true; reconcile task ownership before submitting; keep the original preview and key.')
+}
+
 /**
  * Hydrate every task of one snapshot that is provably this storyboard's.
  *
  * A project holds the tasks of every storyboard it ever submitted, and most task rows
  * state no `storyboardId`. Such a row is this storyboard's only when its detail or one
- * child result names this storyboard; a row that proves neither belongs to another
- * storyboard, and its empty child list says nothing about this submission.
+ * child result names this storyboard. Conflicting episode axes require confirmed
+ * ownership before exclusion; missing ownership remains blocked. All retained rows
+ * count toward the hydration limit, including unresolved episode conflicts.
  * @param client - Jubian transport.
  * @param records - A complete task snapshot.
  * @param scriptId - Project id.
@@ -467,20 +490,30 @@ function statesStoryboard(record: Record<string, unknown>, storyboardId: number)
  */
 async function hydrateRelated(client: JubianClient, records: Record<string, unknown>[],
   scriptId: number, storyboardId: number, episode: NativeEpisodeScope, signal?: AbortSignal): Promise<HydratedTask[]> {
-  const related = records.filter((record) => {
-    if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) return false
-    return matchesNativeEpisode(record, episode)
+  const related = records.filter(record => isRelatedTaskCandidate(record, scriptId, storyboardId)).flatMap((record) => {
+    const scope = nativeEpisodeScope(record), conflict = conflictingEpisode(scope, episode)
+    return statesStoryboard(record, storyboardId) || conflict || matchesNativeEpisode({ ...scope }, episode)
+      ? [{ record, scope, conflict }] : []
   })
   if (related.length > MAX_HYDRATED_TASKS) throw new JubianError('VIDEO_TASK_EVIDENCE_INVALID',
     `VIDEO_TASK_SCAN_LIMIT: storyboard ${storyboardId} has ${related.length} candidate tasks after episode filtering (limit ${MAX_HYDRATED_TASKS}; episodeId=${episode.episodeId}, episodeCount=${episode.episodeCount ?? null}). Reconcile task ownership or repair missing episode fields before submitting. This check is read-only; keep the original preview and key.`)
   const hydrated: HydratedTask[] = []
-  for (const record of related) {
+  for (const { record, scope, conflict } of related) {
     const taskId = taskIdOf(record) as string
     signal?.throwIfAborted()
     const task = await taskDetail(client, taskId, signal)
-    const children = childrenOf(await listSubtasks(client, taskId, signal), storyboardId)
-    if (children.length === 0 && !statesStoryboard(record, storyboardId)
-      && !statesStoryboard(task, storyboardId)) continue
+    const allChildren = await listSubtasks(client, taskId, signal), children = childrenOf(allChildren, storyboardId)
+    if (children.length === 0 && !statesStoryboard(record, storyboardId) && !statesStoryboard(task, storyboardId)) {
+      if (conflict && !belongsToAnotherStoryboard(task, allChildren, storyboardId)) {
+        episodeConflict(taskId, storyboardId, scope, episode, 'unverified')
+      }
+      continue
+    }
+    for (const actual of [scope, nativeEpisodeScope(task)]) {
+      if (conflictingEpisode(actual, episode) || !matchesNativeEpisode({ ...actual }, episode)) {
+        episodeConflict(taskId, storyboardId, actual, episode, 'same_storyboard')
+      }
+    }
     hydrated.push({ taskId, task, children })
   }
   return hydrated
