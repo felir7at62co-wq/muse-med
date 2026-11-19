@@ -26,7 +26,9 @@ interface Fixture {
 }
 
 /** Serve the asset list from mutable state; every other request is the create itself. */
-async function fixture(created: Record<string, unknown> | null = { id: 900100, name: MISFILED.name, assetType: 2 }): Promise<Fixture> {
+async function fixture(created: Record<string, unknown> | null = {
+  id: 900100, scriptId: 2708, name: MISFILED.name, assetType: 2, assetUrl: IMAGE_URL,
+}): Promise<Fixture> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-jubian-register-'))
   roots.push(root)
   let assets: Record<string, unknown>[] = [MISFILED]
@@ -119,7 +121,7 @@ it('does not resend a registration recorded under the same key', async () => {
   expect(first.replayed).toBe(false)
   expect(second.replayed).toBe(true)
   expect(f.calls).toHaveLength(1)
-  expect(second.created_asset_id).toBeNull()
+  expect(second.created_asset_id).toBe(900100)
 })
 
 

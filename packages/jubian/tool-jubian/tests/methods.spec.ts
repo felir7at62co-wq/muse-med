@@ -581,20 +581,28 @@ describe('jubian_asset reads and the side-effecting GET', () => {
   })
 
   it.each([1, 2])('identifies %i new matching registered assets without selecting ambiguous rows', async (count) => {
-    let reads = 0
+    let registered = false
+    const existing = { id: 10, scriptId: 2708, assetType: 1, assetName: 'existing', assetUrl: 'https://media.example/existing.jpg' }
+    const created = Array.from({ length: count }, (_, index) => ({ id: 11 + index, scriptId: 2708,
+      assetType: 1, assetName: 'lead', assetUrl: 'https://media.example/lead.jpg' }))
+    const unrelated = { id: 20, scriptId: 2708, assetType: 2, assetName: 'room', assetUrl: 'https://media.example/room.jpg' }
     const { client, calls } = stubClient((request) => {
-      if (request.method === 'POST') return null
-      return { rows: reads++ === 0 ? [{ id: 10, assetType: 1 }] : [{ id: 10, assetType: 1 },
-        ...Array.from({ length: count }, (_, index) => ({ id: 11 + index, assetType: 1 })), { id: 20, assetType: 2 }] }
+      if (request.method === 'POST') { registered = true; return null }
+      const rows = registered ? [existing, ...created, unrelated] : [existing]
+      if (request.path.includes('/aigc/asset/list?')) return { total: rows.length, rows }
+      return rows.find(asset => request.path.endsWith(`/aigc/asset/${asset.id}`)) ?? null
     })
     const args = { method: 'register', idempotency_key: 'register-once', script_id: 2708,
       asset_name: 'lead', asset_url: 'https://media.example/lead.jpg', asset_type: 1 }
     const result = await assetMethod(client, ledger, args)
-    expect(result).toMatchObject({ outcome: 'accepted', created_asset_id: count === 1 ? 11 : null,
-      new_asset_ids: count === 1 ? [11] : [11, 12] })
+    expect(result).toMatchObject({ outcome: 'accepted', status: count === 1 ? 'verified' : 'ambiguous',
+      created_asset_id: count === 1 ? 11 : null, verified_readback: count === 1,
+      new_asset_ids: count === 1 ? [11] : [] })
+    expect(result.matching_assets).toHaveLength(count)
     expect(calls.find(call => call.method === 'POST')?.body)
       .toEqual({ scriptId: 2708, assetName: 'lead', assetType: 1, isLocal: 1, url: 'https://media.example/lead.jpg' })
-    await expect(assetMethod(client, ledger, args)).resolves.toMatchObject({ replayed: true, created_asset_id: null })
+    await expect(assetMethod(client, ledger, args)).resolves.toMatchObject({ replayed: true,
+      created_asset_id: count === 1 ? 11 : null, new_asset_ids: [], verified_readback: count === 1 })
     expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
   })
   it('addresses asset and material endpoints, including the POST-shaped read', async () => {

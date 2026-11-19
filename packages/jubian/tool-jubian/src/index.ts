@@ -22,6 +22,7 @@ import { STORYBOARD_WRITE_REMINDER } from './storyboard-edit.ts'
 import { resolvePromptRiskReview } from './prompt-risk.ts'
 import type { PromptRiskReviewConfig } from './prompt-risk.ts'
 import { audioDeletionInspectionReason, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
+import { resolveAssetRegistrationScanOptions } from './asset-register.ts'
 import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CharacterReferenceAuthority } from '@deepseek-ai/dsh-tool-character-reference'
@@ -186,6 +187,10 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   imageReferencePageSize?: number
   /** Maximum pages per complete adopted-image scan; integer 1..100, default 100. */
   imageReferencePageLimit?: number
+  /** Rows per image-registration inventory page; integer 1..1000, default 1000. */
+  assetRegistrationPageSize?: number
+  /** Maximum pages per complete image-registration inventory; integer 1..100, default 100. */
+  assetRegistrationPageLimit?: number
   /** Maximum concurrent storyboard PUTs after a whole-batch preflight; integer 1..8, default 3. */
   videoBatchConcurrency?: number
   /** Maximum distinct storyboard previews in one paid batch; integer 1..100, default 100. */
@@ -655,6 +660,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const deletionTaskScan = resolveDeletionTaskScanOptions(config)
   const promptRiskReview = resolvePromptRiskReview(config.promptRiskReview)
   const audioReferenceScan = resolveAudioReferenceScanOptions(config)
+  const assetRegistrationScan = resolveAssetRegistrationScanOptions(config)
   const videoSources = resolveVideoSourceOptions(config)
   ctx.plugin(JubianToken)
   const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
@@ -1108,7 +1114,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const bridge = await characterReferenceBridge(exec.agent)
         return await bridge.upload(exec.agent.session, characterReferenceUploadRequest(input), exec.signal)
       }
-      return await assetMethod(client, ledger, input, { naming, audioReferenceScan, voiceCoordinator })
+      return await assetMethod(client, ledger, input, { naming, audioReferenceScan, assetRegistrationScan, voiceCoordinator })
     })(args),
   }))
 
