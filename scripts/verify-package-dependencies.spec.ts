@@ -1351,6 +1351,8 @@ describe('root-provided type packages', () => {
 
 
 it.each([
+  ['@deepseek-ai/dsh-error', 'HarnessError'],
+  ['@deepseek-ai/dsh-llm', 'HarnessError'],
   ['@deepseek-ai/dsh-subprocess', 'SubprocessExecutableNotFoundError'],
   ['@deepseek-ai/dsh-jubian-api', 'MEDIA_LIMITS'],
 ] as const)('keeps the recovery export %s#%s on the provider peer', async (dependency, exportName) => {
