@@ -459,7 +459,7 @@ namespace MuseUpgradeQa {
         [Windows.Automation.AutomationElement]::NameProperty, $Name)
     $labels = $Control.FindAll([Windows.Automation.TreeScope]::Descendants,
         [Windows.Automation.AndCondition]::new($labelKind, $labelName))
-    $point = [Windows.Point]::new()
+    $point = [Windows.Point]::new(0.0, 0.0)
     $useLabelPoint = $labels.Count -eq 1 -and $labels[0].TryGetClickablePoint([ref]$point)
     if (-not $useLabelPoint -and -not $Control.TryGetClickablePoint([ref]$point)) {
         throw 'The exact Muse tree row does not have a visible clickable point.'
