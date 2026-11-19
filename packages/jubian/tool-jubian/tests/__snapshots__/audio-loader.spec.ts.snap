@@ -1,5 +1,14 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`prepares the original mixed-audio card and rejects invalid audio before any upload > audio reference order diagnostic 1`] = `
+[
+  {
+    "text": "Error: Jubian response did not match the expected envelope: prepare_video stage=preview_validation; paid_request_sent=false; Audio reference sortOrder must match its consecutive group position and prompt key order",
+    "type": "text",
+  },
+]
+`;
+
 exports[`prepares the original mixed-audio card and rejects invalid audio before any upload > invalid PCM audio diagnostic 1`] = `
 [
   {

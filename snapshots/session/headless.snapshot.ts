@@ -62,7 +62,7 @@ import {
   type SnapshotManifest,
   type WorkspaceSnapshotEntry,
 } from '@deepseek-ai/dsh-session-snapshot'
-import { LOADER_SMOKE_TEST_TIMEOUT_MS, resolveExampleMode, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
+import { LOADER_SMOKE_TEST_TIMEOUT_MS, loaderSmokeProcessTimeout, resolveExampleMode, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import { parseSessionLog, prepareSessionSnapshotFixtureForComparison } from '@deepseek-ai/dsh-llm-replay'
 import { renderSkillContent } from '@deepseek-ai/dsh-skill'
@@ -2904,7 +2904,7 @@ describe('headless recorded-session snapshots', () => {
       || mode === 'record' && scenario.manifest.writerOutput === true
     const scenarioTest = skipped ? it.skip : mode === 'replay' ? it.concurrent : it
     const inputLabel = retainedToolInput === undefined ? '' : ' from retained V3 input'
-    scenarioTest(`${mode}s ${scenario.name}${inputLabel} through dsh --profile headless`, async () => {
+    scenarioTest(`${mode}s ${scenario.name}${inputLabel} through dsh --profile headless`, async ({ task: testTask }) => {
       let fixtureFiles = retainedToolInput === undefined
         ? recordingFixtureNames(await readdir(scenario.dir), mode) : [retainedToolInput]
       let fixtures = await fixtureSessions(scenario, fixtureFiles)
@@ -2967,6 +2967,7 @@ describe('headless recorded-session snapshots', () => {
       try {
         result = await runLoaderSmoke({
           label: `${scenario.name} headless snapshot`,
+          ...(scenario.name === 'provider-cwd' ? {} : { processTimeoutMs: loaderSmokeProcessTimeout(testTask.timeout) }),
           tempDirPrefix: 'dsh-log-snap-',
           ...(fixedBudgetWorkspaceScenarios.has(scenario.name) ? await fixedBudgetWorkspaceOptions() : {}),
           ...(scenario.manifest.workspace?.parent === 'outside-temp' ? { tempDirParent: outsideTempWorkspaceParent() } : {}),
@@ -3327,8 +3328,10 @@ describe('headless recorded-session snapshots', () => {
               expect(guidance).toContain('`select_assets` 明确重选并回读两份一致')
               const approvedUrl = 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.png'
               expect(JSON.parse(resultText('call_character_regenerate'))).toMatchObject({
-                outcome: 'accepted', generation_status: 'submitted_pending', parent_asset_id: 11, material_id: null,
-                identity_reference: { status: 'inherited', asset_id: 11, material_id: 111, url: approvedUrl },
+                total: 1, returned: 1, errors: 0,
+                results: [{ status: 'returned', outcome: 'accepted', generation_status: 'submitted_pending',
+                  parent_asset_id: 11, material_id: null,
+                  identity_reference: { status: 'inherited', asset_id: 11, material_id: 111, url: approvedUrl } }],
               })
               const conflict = resultText('call_conflicting_prepare', true)
               expect(conflict).toContain('IMAGE_REFERENCE_CONFLICT:')
@@ -3346,7 +3349,8 @@ describe('headless recorded-session snapshots', () => {
                 assetSummary: { count: 1, orderedAssets: [{ materialAssetId: 11, materialKey: 'lead', imageUrl: approvedUrl }] } })
               const receipt = JSON.parse(await readFile(join(cwd, 'provider-receipt.json'), 'utf8'))
               expect(receipt).toEqual(JSON.parse(await readFile(join(scenario.dir, 'workspace.expected/provider-receipt.json'), 'utf8')))
-              expect(receipt).toMatchObject({ confirmation_requests: 0, storyboard_writes: 1 })
+              expect(receipt).toMatchObject({ confirmation_requests: 0, storyboard_writes: 1,
+                image_generation: { ratio: '9:16', resolution: '2K', video_standard_id: 93 } })
               expect(receipt.selected_model_references).toEqual(receipt.selected_storyboard_references)
               const preview = JSON.parse(await readFile(prepared.preview_path, 'utf8'))
               expect(JSON.parse(preview.payload.modelConfig).materialList).toEqual(preview.payload.storyboardMaterialList)
@@ -3986,6 +3990,6 @@ describe('headless recorded-session snapshots', () => {
       } else {
         expect(finalWorkspace, `${scenario.name}: a changed workspace requires workspace.final`).toEqual(initialWorkspace)
       }
-    }, scenario.name === 'provider-cwd' ? 3 * LOADER_SMOKE_TEST_TIMEOUT_MS : LOADER_SMOKE_TEST_TIMEOUT_MS)
+    }, scenario.name === 'provider-cwd' ? 3 * LOADER_SMOKE_TEST_TIMEOUT_MS : undefined)
   }
 })

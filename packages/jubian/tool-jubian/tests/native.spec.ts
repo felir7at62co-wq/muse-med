@@ -886,6 +886,40 @@ describe('prepare_video', () => {
     expect(putCalls(provider)).toEqual([])
   })
 
+  it.each([
+    { field: 'sortOrder', value: 0, diagnostic: 'Audio reference is missing sortOrder' },
+    { field: 'sortOrder', value: 2, diagnostic: 'Audio reference sortOrder must match its consecutive group position and prompt key order' },
+    { field: 'materialUrl', value: 'not-a-url', diagnostic: 'Audio reference materialUrl is invalid' },
+    { field: 'materialUrl', value: 'https://secret:private-token@example.test/voice.wav',
+      diagnostic: 'Audio reference must use a credential-free HTTPS materialUrl' },
+    { field: 'audioDuration', value: 16, diagnostic: 'Reference audio duration must be greater than 0 and at most 15 seconds' },
+  ])('reports the local audio $field constraint without a preview or paid request', async ({ field, value, diagnostic }) => {
+    const audio = { materialType: 'audio', materialKey: 'voice', sortOrder: 1,
+      materialUrl: 'https://media.example/voice.wav', [field]: value }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT} 声线@[陆沉舟](voice)` }),
+      storyboardMaterialList: [...MATERIALS, audio] } }
+    const directory = await project()
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory }))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED',
+        detail: `prepare_video stage=preview_validation; paid_request_sent=false; ${diagnostic}` })
+    expect(await readdir(directory)).toEqual(['project_config.json'])
+    expect(await ledger.records()).toEqual([])
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  })
+
+  it('reports the selected model duration constraint before creating a preview or paid intent', async () => {
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, duration: 16 }) } }
+    const directory = await project()
+    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory }))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED',
+        detail: 'prepare_video stage=preview_validation; paid_request_sent=false; Duration must be an integer from 4 to 15 seconds' })
+    expect(await readdir(directory)).toEqual(['project_config.json'])
+    expect(await ledger.records()).toEqual([])
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  })
+
   it('refuses a project bound to another scriptId and writes nothing', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const directory = await project(1, 'foreign')
