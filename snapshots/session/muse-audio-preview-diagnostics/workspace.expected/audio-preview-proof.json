@@ -1,0 +1,10 @@
+{
+  "diagnostic": "prepare_video stage=preview_validation; paid_request_sent=false; Audio reference sortOrder must match its consecutive group position and prompt key order",
+  "modelObservedError": true,
+  "providerReads": 4,
+  "paidRequests": 0,
+  "previewFiles": 0,
+  "ledgerRecords": 0,
+  "sourceProjectUnchanged": true,
+  "privateSourceUrlOmitted": true
+}

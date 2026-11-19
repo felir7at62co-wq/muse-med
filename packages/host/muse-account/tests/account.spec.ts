@@ -21,7 +21,7 @@ async function accountHome(): Promise<string> {
 it('keeps the password out of the stored session and login result', async () => {
   const home = await accountHome()
   const file = join(home, 'session.json')
-  const gateway: MuseAccountGateway = {
+  const gateway: MuseAccountGateway = { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => '__Host-muse=private-cookie',
     register: async () => { throw new Error('unexpected registration') },
     identity: async () => ({ username: 'writer', environment: 'development' }),
@@ -44,7 +44,7 @@ it('keeps the password out of the stored session and login result', async () => 
 it('does not register after a rejected password unless the caller explicitly requests it', async () => {
   const home = await accountHome()
   let registrations = 0
-  const gateway: MuseAccountGateway = {
+  const gateway: MuseAccountGateway = { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => { throw new MuseGatewayError('invalid-credentials') },
     register: async () => { registrations += 1; return '__Host-muse=new-cookie' },
     identity: async () => ({ username: 'writer' }),
@@ -69,7 +69,7 @@ it('does not remove a newer login when an older verification is rejected', async
   let finishCheck!: () => void
   const entered = new Promise<void>((resolve) => { signalEntered = resolve })
   const paused = new Promise<void>((resolve) => { finishCheck = resolve })
-  const gateway: MuseAccountGateway = {
+  const gateway: MuseAccountGateway = { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => { throw new Error('unused') },
     register: async () => { throw new Error('unused') },
     identity: async () => { signalEntered(); await paused; throw new MuseGatewayError('invalid-credentials') },
@@ -94,7 +94,7 @@ it('does not remove a newer login when an older logout completes', async () => {
   let finishLogout!: () => void
   const entered = new Promise<void>((resolve) => { signalEntered = resolve })
   const paused = new Promise<void>((resolve) => { finishLogout = resolve })
-  const gateway: MuseAccountGateway = {
+  const gateway: MuseAccountGateway = { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => { throw new Error('unused') },
     register: async () => { throw new Error('unused') },
     identity: async () => { throw new Error('unused') },
@@ -113,7 +113,7 @@ it('does not remove a newer login when an older logout completes', async () => {
 
 it('distinguishes locally saved identity from a current gateway verification and confirmed logout', async () => {
   const file = join(await accountHome(), 'session.json')
-  const gateway: MuseAccountGateway = { signIn: async () => '__Host-muse=fixture', register: async () => '__Host-muse=fixture',
+  const gateway: MuseAccountGateway = { details: async () => { throw new Error('Unused fixture details') }, signIn: async () => '__Host-muse=fixture', register: async () => '__Host-muse=fixture',
     identity: async () => ({ username: 'writer', workspaceLabel: 'Studio' }), signOut: async () => {} }
   const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: file, gateway })
   expect(await account.status()).toEqual({ state: 'signed-out' })
@@ -127,7 +127,7 @@ it('distinguishes locally saved identity from a current gateway verification and
 it('returns administrator navigation only from current verification and never stores it in the session', async () => {
   const file = join(await accountHome(), 'session.json'), baseUrl = 'https://muse.example'
   let admin = true
-  const gateway: MuseAccountGateway = {
+  const gateway: MuseAccountGateway = { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => '__Host-muse=owner', register: async () => '', signOut: async () => {},
     identity: async () => ({ username: 'owner', ...(admin ? { admin: true, adminUrl: baseUrl + '/admin' } : {}) }),
   }
@@ -149,7 +149,7 @@ it('returns administrator navigation only from current verification and never st
 it.each([{ username: 'a', password: 'password' }, { username: 'x'.repeat(33), password: 'password' },
   { username: 'writer', password: '' }, { username: 'writer', password: 'x'.repeat(129) }])(
   'refuses invalid login field lengths before dispatch (%j)', async (fields) => {
-    const gateway: MuseAccountGateway = { signIn: async () => { throw new Error('credentials dispatched') }, register: async () => '',
+    const gateway: MuseAccountGateway = { details: async () => { throw new Error('Unused fixture details') }, signIn: async () => { throw new Error('credentials dispatched') }, register: async () => '',
       identity: async () => ({ username: 'writer' }), signOut: async () => {} }
     const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: join(await accountHome(), 'session.json'), gateway })
     await expect(account.login({ ...fields, registerIfMissing: false })).rejects.toMatchObject({ code: 'invalid-input' })
@@ -158,7 +158,7 @@ it.each([{ username: 'a', password: 'password' }, { username: 'x'.repeat(33), pa
 
 it.each(['username-taken', 'registration-disabled'] as const)(
   'keeps password rejection distinct from registration failure (%s)', async (failure) => {
-    const gateway: MuseAccountGateway = { signIn: async () => { throw new MuseGatewayError('invalid-credentials') },
+    const gateway: MuseAccountGateway = { details: async () => { throw new Error('Unused fixture details') }, signIn: async () => { throw new MuseGatewayError('invalid-credentials') },
       register: async () => { throw new MuseGatewayError(failure) }, identity: async () => ({ username: 'writer' }), signOut: async () => {} }
     const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: join(await accountHome(), 'session.json'), gateway })
     await expect(account.login({ username: 'writer', password: 'password', registerIfMissing: true }))
@@ -169,7 +169,7 @@ it.each(['username-taken', 'registration-disabled'] as const)(
 it('retains a saved login when verification fails because the gateway is unavailable', async () => {
   const file = join(await accountHome(), 'session.json')
   await writeMuseSession(file, { baseUrl: 'https://muse.example', cookie: '__Host-muse=fixture', username: 'writer' })
-  const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: file, gateway: {
+  const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: file, gateway: { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => '', register: async () => '', identity: async () => { throw new MuseGatewayError('gateway-unavailable') }, signOut: async () => {},
   } })
   await expect(account.status({ verify: true })).rejects.toMatchObject({ code: 'gateway-unavailable' })
@@ -179,7 +179,7 @@ it('retains a saved login when verification fails because the gateway is unavail
 it('retains a saved login when an unexpected verification failure occurs', async () => {
   const file = join(await accountHome(), 'session.json')
   await writeMuseSession(file, { baseUrl: 'https://muse.example', cookie: '__Host-muse=fixture', username: 'writer' })
-  const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: file, gateway: {
+  const account = new MuseAccountController({ baseUrl: 'https://muse.example', sessionFile: file, gateway: { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => '', register: async () => '', identity: async () => { throw new Error('unexpected gateway failure') }, signOut: async () => {},
   } })
   await expect(account.status({ verify: true })).rejects.toThrow('unexpected gateway failure')
@@ -193,7 +193,7 @@ it('returns the replacement login when an older successful verification finishes
   let entered!: () => void, release!: () => void
   const started = new Promise<void>((resolve) => { entered = resolve })
   const gate = new Promise<void>((resolve) => { release = resolve })
-  const account = new MuseAccountController({ baseUrl, sessionFile: file, gateway: {
+  const account = new MuseAccountController({ baseUrl, sessionFile: file, gateway: { details: async () => { throw new Error('Unused fixture details') },
     signIn: async () => '', register: async () => '', signOut: async () => {},
     identity: async () => { entered(); await gate; return { username: 'old', admin: true, adminUrl: baseUrl + '/admin' } },
   } })

@@ -5,8 +5,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import { MessageId } from '@deepseek-ai/dsh-llm'
-import { acquireGenerationSessionBinding } from './generation-binding.ts'
+import { HarnessError, MessageId } from '@deepseek-ai/dsh-llm'
+import type { GenerationSessionBindings } from './generation-binding.ts'
 import type { GenerationExecutionLease, GenerationSessionBinding } from './generation-binding.ts'
 import { recordedSubmissionBinding } from './generation-watch-attestor.ts'
 import { deliverGenerationWatchNotice } from './generation-watch-delivery.ts'
@@ -25,16 +25,21 @@ export type NativeGenerationDelivery = (sessionId: SessionId, notice: Generation
   groupOrigin?: GenerationWatchGroupOrigin, groupReceiptId?: string, run?: GenerationWatchRun) => Promise<GenerationNoticeDelivery>
 
 const sourceKind = 'jubian-generation-watch'
+const continuationBusyCode = 'GENERATION_WATCH_CONTINUATION_BUSY'
 const isConversation = (request: { purpose?: string }): boolean => request.purpose === undefined
 
 /**
  * Guard pending and running automatic work at actual request and tool dispatch.
+ * Each Session admits one pending delivery; a cancelled caller can be replaced before acquisition settles.
  * @param ctx - The real native Host with owned Workspace storage and Session controller.
  * @param projection - Durable notice receipt reader.
+ * @param bindings - This plugin instance's shared native execution guards.
  * @returns Native delivery; missing historical proof remains pending.
  */
-export function createNativeGenerationDelivery(ctx: Context, projection: GenerationWatchDeliveryProjection): NativeGenerationDelivery {
+export function createNativeGenerationDelivery(ctx: Context, projection: GenerationWatchDeliveryProjection,
+  bindings: GenerationSessionBindings): NativeGenerationDelivery {
   const held = new Map<SessionId, HeldContinuation>()
+  const pending = new Map<SessionId, { token: symbol; signal: AbortSignal }>()
   const notices = new Map<SessionId, { agent: Agent; ids: Set<string> }>()
   const inFlight = new Set<Promise<GenerationNoticeDelivery>>()
   const lifetime = new AbortController()
@@ -180,31 +185,44 @@ export function createNativeGenerationDelivery(ctx: Context, projection: Generat
     signal.throwIfAborted()
     assertOpen()
     let current = held.get(sessionId)
+    if (current?.lease.signal.aborted) current = undefined
     if (current !== undefined && (current.agent !== agent || !isDeepStrictEqual(current.binding, binding))) return 'pending'
     if (current === undefined) {
-      const lease = await acquireGenerationSessionBinding(ctx, agent, binding, signal)
-      if (lease === undefined) return 'pending'
-      /* v8 ignore next -- a just-acquired lease throws inside acquire when its signal is already
-      aborted, and closing is set only inside one synchronous teardown block that returns 'pending'
-      at the top of this function. */
-      if (isClosing() || signal.aborted) { lease.release(); signal.throwIfAborted(); assertOpen() }
-      let active = true
-      const cancel = () => { if (active && !isClosing()) agent.cancel({ kind: 'hook', reason: 'Original generation binding was revoked' }, { keepInbox: true }) }
-      const release = () => {
-        if (!active) return
-        active = false
-        /* v8 ignore else -- a replacement lease needs a second acquire for the same Session, and the
-        model guard refuses one while it is held. */
-        if (held.get(sessionId)?.lease === lease) held.delete(sessionId)
-        lease.signal.removeEventListener('abort', cancel)
-        lease.release()
+      const acquiring = pending.get(sessionId)
+      if (acquiring !== undefined && !acquiring.signal.aborted) {
+        throw new HarnessError('Native Session already has an active continuation', continuationBusyCode)
       }
-      current = { agent, binding, lease, release }
-      held.set(sessionId, current)
-      lease.signal.addEventListener('abort', cancel, { once: true })
-      /* v8 ignore if -- no await runs between the held.set above and this check, so the lease signal
-      cannot change here; an aborted lease already threw inside acquire. */
-      if (lease.signal.aborted) cancel()
+      const token = Symbol()
+      pending.set(sessionId, { token, signal })
+      try {
+        const lease = await bindings.acquire(agent, binding, signal)
+        if (lease === undefined) return 'pending'
+        try {
+          signal.throwIfAborted()
+          assertOpen()
+          lease.assertCurrent()
+        } catch (error) {
+          lease.release()
+          throw error
+        }
+        let active = true
+        const cancel = () => { if (active && !isClosing()) agent.cancel({ kind: 'hook', reason: 'Original generation binding was revoked' }, { keepInbox: true }) }
+        const release = () => {
+          if (!active) return
+          active = false
+          if (held.get(sessionId)?.lease === lease) held.delete(sessionId)
+          lease.signal.removeEventListener('abort', cancel)
+          lease.release()
+        }
+        current = { agent, binding, lease, release }
+        held.set(sessionId, current)
+        lease.signal.addEventListener('abort', cancel, { once: true })
+        /* v8 ignore if -- no await runs between the held.set above and this check, so the lease signal
+        cannot change here; an aborted lease already threw inside acquire. */
+        if (lease.signal.aborted) cancel()
+      } finally {
+        if (pending.get(sessionId)?.token === token) pending.delete(sessionId)
+      }
     }
     let owned = notices.get(sessionId)
     if (owned === undefined) { owned = { agent, ids: new Set() }; notices.set(sessionId, owned) }

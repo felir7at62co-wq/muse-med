@@ -33,10 +33,18 @@ it.each(['relay', 'direct'] as const)('preserves public contributions and isolat
   vi.spyOn(ctx.logger, 'info').mockImplementation((message) => { records.push(String(message)) })
   const baseUrl = transport === 'relay' ? server.url : 'https://company.test'
   const sessionFile = join(root, 'session.json')
+  const usageReports: { id: string; provider: string; status: number | null; inputTokens: number | null }[] = []
   await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=private-login-cookie' })
   const models = new MuseModels(ctx, { baseUrl, sessionFile, requestTimeoutMs: 1000,
-    fetcher: async (url) => {
+    fetcher: async (url, init) => {
       const path = new URL(url instanceof Request ? url.url : url).pathname
+      if (path === '/api/muse.account/usage') {
+        usageReports.push(z.object({ id: z.string(), provider: z.string(),
+          status: z.number().nullable(), inputTokens: z.number().nullable(),
+        }).parse(JSON.parse(typeof init?.body === 'string' ? init.body : '')))
+        expect(new Headers(init?.headers).get('cookie')).toBe('__Host-muse=private-login-cookie')
+        return new Response(null, { status: 204 })
+      }
       return Response.json(transport === 'relay' || path.endsWith('/providers') ? { ...catalog, transport }
         : { transport: 'direct', providers: [{ ...catalog.providers[0], access: { baseURL: `${server.url}/v1`, apiKey: 'private-supplier-key' } }] })
     } })
@@ -70,6 +78,12 @@ it.each(['relay', 'direct'] as const)('preserves public contributions and isolat
   expect(ends.map(record => record.client_request_id).toSorted()).toEqual(starts.map(record => record.client_request_id).toSorted())
   expect(ends[1]).toMatchObject({ session_id: 'retry-session', response_id: 'chatcmpl-safe', response_model: 'actual-writer', stop: 'stop' })
   const identities = new Map(starts.map(record => [record.client_request_id, record.session_id]))
+  if (transport === 'direct') {
+    expect(usageReports).toHaveLength(4)
+    expect(usageReports.map(report => report.id).toSorted()).toEqual(starts.map(record => record.client_request_id).toSorted())
+    expect(usageReports[0]).toMatchObject({ provider: 'studio', status: null, inputTokens: null })
+    expect(usageReports[1]).toMatchObject({ provider: 'studio', status: 200 })
+  } else expect(usageReports).toEqual([])
   for (const headers of server.headers) {
     const id = headers['x-muse-client-request-id']
     if (transport === 'relay') {

@@ -316,22 +316,46 @@ it('reads publication facts cheaply and offers explicit repair when the output d
 
 it('discovers selectable original identities through authenticated history without renderer or status work', async () => {
   const f = await fixture(), input = admission(f.planInput, await f.readiness())
-  await f.admit(input); f.renderer.release()
-  await expect.poll(async () => (await f.status(input)).state).toBe('completed')
-  const completed = await f.status(input), calls = f.renderer.calls, captures = f.renderer.captures
-  const keys = await f.originalKeys(), originalRead = vi.spyOn(f.ledger, 'records')
-  const historySchema = z.strictObject({ projectDir: z.string(), episode: z.number(), entries: z.array(z.strictObject({
-    attempt: z.uuid(), digest: digestSchema, recordedState: z.enum(['queued', 'preparing', 'running', 'stopping', 'completed', 'cancelled', 'failed', 'unknown']).nullable(),
-  })), truncated: z.boolean(), unreadableRecords: z.number().int().nonnegative(), scannedEntries: z.number().int().nonnegative() })
-  const history = historySchema.parse(valueOf(await f.call('episodeHistory', f.planInput)))
-  expect(history).toEqual({ ...f.planInput, entries: [{ attempt: completed.attempt, digest: input.digest, recordedState: 'completed' }],
-    truncated: false, unreadableRecords: 0, scannedEntries: 1 })
-  expect(originalRead).not.toHaveBeenCalled()
-  expect(f.renderer.calls).toBe(calls); expect(f.renderer.captures).toBe(captures)
-  expect(f.service.hasActiveWork()).toBe(false)
-  originalRead.mockRestore(); expect(await f.originalKeys()).toEqual(keys)
-  const controller = new AbortController(); controller.abort(new Error('history observer retired'))
-  await expect(f.call('episodeHistory', f.planInput, controller.signal)).rejects.toThrow('history observer retired')
-  expect(f.renderer.calls).toBe(calls)
-  expect(f.endpoints.at(-1)).toBe('/api/jubianEpisodeDelivery/episodeHistory')
+  const admitted = await f.admit(input)
+  if (admitted.attempt === null) throw new Error('Admission did not retain its original attempt')
+  const statePath = join(f.project, '.muse', 'episode-delivery', admitted.attempt, 'state.json')
+  const release = Promise.withResolvers<undefined>()
+  onTestFinished(() => { release.resolve(undefined) })
+  let publicationHeld = false
+  // The completed file is visible before the writer releases its owned work.
+  const rename = vi.spyOn(Files, 'rename').mockImplementation(async (...args) => {
+    await actualFiles.rename(...args)
+    if (args[1] !== statePath) return
+    const state = z.object({ state: z.string() }).parse(JSON.parse(await actualFiles.readFile(statePath, 'utf8')))
+    if (state.state !== 'completed') return
+    publicationHeld = true
+    await release.promise
+  })
+  try {
+    f.renderer.release()
+    await expect.poll(() => publicationHeld).toBe(true)
+    await expect.poll(async () => (await f.status(input)).state).toBe('completed')
+    expect(f.service.hasActiveWork()).toBe(true)
+    await expect.poll(() => {
+      const active = f.service.hasActiveWork()
+      release.resolve(undefined)
+      return active
+    }).toBe(false)
+    const completed = await f.status(input), calls = f.renderer.calls, captures = f.renderer.captures
+    const keys = await f.originalKeys(), originalRead = vi.spyOn(f.ledger, 'records')
+    const historySchema = z.strictObject({ projectDir: z.string(), episode: z.number(), entries: z.array(z.strictObject({
+      attempt: z.uuid(), digest: digestSchema, recordedState: z.enum(['queued', 'preparing', 'running', 'stopping', 'completed', 'cancelled', 'failed', 'unknown']).nullable(),
+    })), truncated: z.boolean(), unreadableRecords: z.number().int().nonnegative(), scannedEntries: z.number().int().nonnegative() })
+    const history = historySchema.parse(valueOf(await f.call('episodeHistory', f.planInput)))
+    expect(history).toEqual({ ...f.planInput, entries: [{ attempt: completed.attempt, digest: input.digest, recordedState: 'completed' }],
+      truncated: false, unreadableRecords: 0, scannedEntries: 1 })
+    expect(originalRead).not.toHaveBeenCalled()
+    expect(f.renderer.calls).toBe(calls); expect(f.renderer.captures).toBe(captures)
+    expect(f.service.hasActiveWork()).toBe(false)
+    originalRead.mockRestore(); expect(await f.originalKeys()).toEqual(keys)
+    const controller = new AbortController(); controller.abort(new Error('history observer retired'))
+    await expect(f.call('episodeHistory', f.planInput, controller.signal)).rejects.toThrow('history observer retired')
+    expect(f.renderer.calls).toBe(calls)
+    expect(f.endpoints.at(-1)).toBe('/api/jubianEpisodeDelivery/episodeHistory')
+  } finally { release.resolve(undefined); rename.mockRestore() }
 })

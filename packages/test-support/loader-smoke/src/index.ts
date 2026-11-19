@@ -16,17 +16,15 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execa } from 'execa'
+import { LOADER_SMOKE_PROCESS_TIMEOUT_MS } from './deadline.ts'
+
+export { LOADER_SMOKE_PROCESS_TIMEOUT_MS, LOADER_SMOKE_TEST_TIMEOUT_MS, loaderSmokeProcessTimeout } from './deadline.ts'
 
 export {
   runFixtureTurn,
   type FixtureTurnOptions,
   type FixtureTurnResult,
 } from './agent-turn.ts'
-
-const DEFAULT_PROCESS_TIMEOUT_MS = 30_000
-
-/** Vitest deadline that leaves room for the subprocess-owned 30-second diagnostic timeout. */
-export const LOADER_SMOKE_TEST_TIMEOUT_MS = DEFAULT_PROCESS_TIMEOUT_MS + 15_000
 
 /** Which artifact an example bin is booted from: unbuilt `src` via tsx, or built `lib` via plain Node. */
 export type ExampleMode = 'src' | 'lib'
@@ -215,7 +213,7 @@ export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<Loade
   const cwd = providedCwd
     ? options.cwd
     : await mkdtemp(join(options.tempDirParent ?? tmpdir(), options.tempDirPrefix))
-  const processTimeoutMs = options.processTimeoutMs ?? DEFAULT_PROCESS_TIMEOUT_MS
+  const processTimeoutMs = options.processTimeoutMs ?? LOADER_SMOKE_PROCESS_TIMEOUT_MS
   try {
     await options.prepare?.(cwd)
     const launch = resolveExampleLaunch({

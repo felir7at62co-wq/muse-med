@@ -60,11 +60,16 @@ export function apply(ctx: Context): void {
     })))
     toolCtx.effect(() => toolCtx.tools.register(defineTool({
       name: 'drama_project',
-      description: 'Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves legacy project bindings, stable package/storyboard IDs, completed tasks and version history. Validate exact model/platform/ratio/resolution through Jubian catalogue tools before selecting video settings.',
+      description: 'Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves existing project bindings. To migrate, provide migration_from and a different empty target project_dir with changes.jubian_script_id: copies creative settings and local character identities, excluding old remote references, tasks and authorization. Validate exact target project and model settings through Jubian tools before preview; register target assets and recheck before production.',
       parameters: {
         action: { type: 'string', required: true, enum: ['read', 'preview', 'update'] },
         project_dir: { type: 'string', required: true, description: 'Existing absolute project directory.' },
         changes: { type: 'object', additionalProperties: false, properties: PROJECT_BIBLE_CHANGES, description: 'Fields to merge for preview/update; omit for read.' },
+        migration_from: { type: 'object', additionalProperties: false,
+          description: 'Preview/update only: source for a new local project. Source files remain unchanged; target must be a different existing empty directory.', properties: {
+            project_dir: { type: 'string', required: true, description: 'Existing absolute source project directory.' },
+            script_id: { type: 'integer', required: true, description: 'Expected current source jubian_script_id; different from changes.jubian_script_id.' },
+          } },
         reason: { type: 'string', description: 'Preview/update reason recorded in version history.' },
         expected_revision: { type: 'string', description: 'Update only: exact current-file revision from preview, including missing for first creation.' },
         preview_fingerprint: { type: 'string', description: 'Update only: fingerprint from the same reviewed preview.' },
@@ -75,12 +80,16 @@ export function apply(ctx: Context): void {
       },
       execute: async (args, exec) => {
         const budget = toolCtx.get('jubianBudget') as ProjectBudgetReader | undefined
-        if (args.action === 'read') return await readProjectBible(toolCtx.settings, args.project_dir, budget)
+        if (args.action === 'read') {
+          if (args.migration_from !== undefined) throw new Error('migration_from is only valid for preview/update.')
+          return await readProjectBible(toolCtx.settings, args.project_dir, budget)
+        }
         if (!args.changes || !args.reason) throw new Error('Preview/update requires changes and reason.')
-        if (args.action === 'preview') return await previewProjectBible(toolCtx.settings, args.project_dir, args.changes, args.reason, budget)
+        if (args.action === 'preview') return await previewProjectBible(toolCtx.settings, args.project_dir,
+          args.changes, args.reason, budget, args.migration_from)
         if (!args.expected_revision || !args.preview_fingerprint) throw new Error('Update requires the expected_revision and preview_fingerprint from preview.')
         return await updateProjectBible(toolCtx.settings, args.project_dir, args.changes, args.reason,
-          args.expected_revision, args.preview_fingerprint, exec.signal, budget)
+          args.expected_revision, args.preview_fingerprint, exec.signal, budget, args.migration_from)
       },
     })))
   })

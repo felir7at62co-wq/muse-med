@@ -22,6 +22,7 @@ const ATTEMPT: MuseBrowserLoginAttempt = {
 function props(overrides: Partial<MuseAccountInjected> = {}): MuseAccountSectionProps {
   const injected: MuseAccountInjected = {
     status: vi.fn(async () => ({ ok: true as const, value: SIGNED_OUT })),
+    details: vi.fn(async () => ({ ok: false as const, code: 'muse-account/gateway-unavailable' })),
     login: vi.fn(async () => ({ ok: true as const, value: { outcome: 'signed-in' as const, status: SIGNED_IN } })),
     logout: vi.fn(async () => ({ ok: true as const, value: SIGNED_OUT })),
     startBrowserLogin: vi.fn(async () => ({ ok: false as const, code: 'muse-account/gateway-unavailable' })),

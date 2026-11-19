@@ -1,0 +1,54 @@
+--- base/gateway.mjs
++++ patched/gateway.mjs
+@@ -14,7 +14,7 @@
+ import http from 'node:http';
+ import {createDesktopLogin} from './desktop-login.mjs';
+ import {createFeishuLogin,loadFeishuLoginConfig} from './feishu-login.mjs';
+-import {renderAccountIdentity,renderAdminAccounts} from './account-pages.mjs';
++import {renderAccountIdentity,renderAdminAccounts,renderAccountGroups} from './account-pages.mjs';
+ import {resolveFeishuOnlyLogin} from './auth-policy.mjs';
+ import {createFeishuOrgCoordinator} from './feishu-organization-coordinator.mjs';
+ import {randomBytes} from 'node:crypto';
+@@ -48,6 +48,7 @@
+ import {openUsageLedger} from './usage-ledger.mjs';
+ import {openSessionArchives} from './session-archives.mjs';
+ import {accountDataRoute,createAccountDataAdmission} from './account-data-http.mjs';
++import {accountProfile} from './account-profile.mjs';
+ import {renderAccountData} from './account-data-page.mjs';
+ import {desktopPicker} from './desktop-picker.mjs';
+ import {createVoiceSlots,createJubianVoiceVerifier,resolveVoiceSlotOptions} from './voice-slots.mjs';
+@@ -221,6 +222,13 @@
+    return;
+   }
+   if(!mount&&await studioUsageRoute(req,res,{path,session:s,currentSession:()=>session(req),store,reader:studioUsage,publicOrigin}))return;
++  if(!mount&&path==='/api/muse/profile'){
++   if(req.method!=='GET'){reply(res,405,'',{allow:'GET'});return;}
++   if(new URL(req.url,publicOrigin).search){reply(res,400);return;}
++   const profile=accountProfile(s.account,{organizationSnapshot:feishuOrgSync?.getSnapshot()});
++   if(session(req)?.token!==s.token){reply(res,401);return;}
++   reply(res,200,JSON.stringify(profile),{'content-type':'application/json; charset=utf-8'});return;
++  }
+   if(!mount&&await accountDataRoute(req,res,{path,publicOrigin,session:s,currentSession:()=>session(req),usageLedger,sessionArchives,store,admission:archiveAdmission}))return;
+   if(['/account-data-client.js','/account-data.css'].includes(path)&&req.method==='GET'){reply(res,200,await readFile(new URL('.'+path,import.meta.url)),{'content-type':path.endsWith('.js')?'text/javascript; charset=utf-8':'text/css; charset=utf-8'});return;}
+   if(!mount&&path.startsWith('/api/bot-team/')){
+@@ -414,6 +422,20 @@
+   }
+   if(path==='/admin'||path.startsWith('/admin/')){
+    if(!s.account.admin){reply(res,403);return;}
++   if(path==='/admin/groups'){
++    if(req.method==='GET'){
++     const account=store.get(new URL(req.url,publicOrigin).searchParams.get('id'));
++     if(!account){reply(res,404);return;}html(res,200,renderAccountGroups({account,escape,page:(title,body)=>page(title,body,false,{active:'users',admin:true,username:s.account.username})}));return;
++    }
++    if(req.method!=='POST'){reply(res,405,'',{allow:'GET, POST'});return;}
++    const fields=await form(req,131072),id=fields.get('id'),names=fields.getAll('groupName'),descriptions=fields.getAll('groupDescription');
++    if(!validId(id)||!store.get(id)||names.length!==descriptions.length){reply(res,400);return;}
++    const authorized=()=>{const current=session(req);return current?.token===s.token&&current.account.admin;};
++    if(!authorized()){reply(res,403);return;}
++    try{await store.setGroups(id,names.map((name,index)=>({name,description:descriptions[index]})).filter(group=>group.name.trim()!==''),{validateAssignment:authorized});}
++    catch(error){void error;reply(res,400,'分组名称或说明无效，请返回检查');return;}
++    reply(res,303,'',{location:'/admin'});return;
++   }
+    if(path==='/admin/models'&&globalModels){if(req.method==='GET')html(res,200,page('模型配置',`<h1>模型配置已移至设置</h1><p>请进入工作间的“设置 → 模型”管理当前环境所有编辑共用的供应商、模型与思考档位。</p><p>当前支持 OpenAI Chat Completions；请手动填写模型 ID。</p><a href="/">进入工作间</a>`));else reply(res,409,'请在工作间的设置 → 模型保存统一配置');return;}
+    if(path==='/admin/models'&&modelConfig){
+     if(req.method==='POST'){

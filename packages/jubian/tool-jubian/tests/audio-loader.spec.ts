@@ -91,6 +91,18 @@ it('prepares the original mixed-audio card and rejects invalid audio before any 
       'GET /prod-api/aigc/material/list', 'GET /prod-api/model/charge/getSelectList',
       'GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/storyboard/byStoryboard/1745324',
       'GET /prod-api/admin/aigc/video/task/list'])
+    audio.sortOrder = 2
+    calls.length = 0
+    const invalidOrder = await executeModelToolFixture(ctx, { callId: ToolCallId('audio-order'), name: 'jubian_storyboard',
+      arguments: { method: 'prepare_video', storyboard_id: 1745324, project_dir: root },
+      signal: new AbortController().signal })
+    expect(invalidOrder.isError).toBe(true)
+    if (!invalidOrder.isError) throw new Error('Expected the invalid audio order to be rejected')
+    expect(invalidOrder.error.message).toContain('prepare_video stage=preview_validation; paid_request_sent=false; '
+      + 'Audio reference sortOrder must match its consecutive group position and prompt key order')
+    expect(invalidOrder.content).toMatchSnapshot('audio reference order diagnostic')
+    expect(calls).toEqual(['GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/asset/142',
+      'GET /prod-api/aigc/material/list', 'GET /prod-api/model/charge/getSelectList'])
   } finally {
     fetch.mockRestore()
     await ctx?.fiber.dispose()

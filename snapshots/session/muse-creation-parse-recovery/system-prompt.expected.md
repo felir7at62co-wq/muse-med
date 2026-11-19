@@ -14,6 +14,8 @@ You are an AI agent powered by DeepSeek Harness.
 
 以下规则用于将剧本制作为视频，不把视频转写或小说改剧本的来源正文强行改成分镜。专业技能按当前制作任务加载，用户明确的项目要求优先。
 
+用户明确要求迁移到另一个剧变项目时，加载tweet-drama-project-bible，先核实来源与目标ID，再通过drama_project的migration_from在独立目标目录初始化本地绑定并回读；后续工具统一使用目标目录与目标script_id。迁移不复制远端资产或任务，目标映射须重新核实；不混用旧目录和新项目ID，不改写旧目录的绑定或历史。
+
 为角色、场景和道具编写生图提示词时，默认使用项目或用户交流的语言，中文项目默认中文；用户指定语言时遵循指定。用户要求原文作为提示词时保留原文，不擅自翻译或改写，仅按授权补充必要的角色、服装和参考信息。模型或平台确有语言要求时说明并遵循；不要仅因猜测英文效果更好就切换语言。语言选择是创作指导，不拦截生图。
 
 短剧需要直出成片时，主动加载 tweet-drama-background-render 和 tweet-drama-draft-build，按当前工具 schema 优先使用 drama_render 的 subtitles → prepare → render，而不是沿用历史会话的手写 ASS、FFmpeg 命令或旧脚本；已有同源校订 SRT 可直接复用，不为格式重复转写或覆盖原稿；同一时间线和 prepare 返回的实际字幕候选供成片及可编辑草稿复用，存在源画面字幕覆盖计划时使用对应 resolved SRT 与报告。Muse 短剧产品对竖版新输出统一正文字幕视觉，旧项目和时间线字幕样式不覆盖该配置；横版及方形沿用现有布局规则。剪映草稿保留可编辑性，用户可在剪映调整。适用片尾按媒介和当前工具配置决定。查看 render_preview 和实际画面核对字体、大小、位置、单行、标点及片尾，不能把旧命令或 SRT 文本当作继承样式的证据。长句根据同源词级时间与字形宽度处理，无可靠切点不猜时间。只需草稿时不额外编码整集；工具确有能力缺口时说明并核验替代产物。这是 Agent 指导，不新增用户审批或拦截任意手写命令。
@@ -825,9 +827,9 @@ interface ToolArgsMap {
     /** 本包估价依据：模型/平台、价格单位、时长/用量假设或同规格实际费用。提供估价时必填；估算不是实际结算金额。 */
     estimate_basis?: string;
   } & Record<string, JsonValue>;
-  /** 剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks/sources 只读。提取或复用已有视频时，先 sources(script_id,storyboard_id) 查询原卡已生成来源；返回原任务、成片、运行状态与查询完整性，不要求与当前模型配置一致。任务分页只说明本页状态，complete=false 或 unknown 不能推断没有成片；缺声线不等于授权重新生成。tasks 默认不按任务类型筛选；显式 task_type 只查该类型，total_verified/complete 仅对应返回的 scope，筛选结果为空不能推断项目没有任务。project_complete 仅表示本次读全未按类型筛选的提供方列表。（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。ASR 等未返回费用时保持未知，不填零，也不把已知任务行合计称为整集官方总实扣。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；使用人物库参考图时只传 upload_character_reference 返回的 managed_reference_id 及同一组授权身份；Host 会重读当前项目、角色、Catalog 原图、SHA、授权版本和一次性范围，再私下注入参考 URL。本人上传图的逐项目自授权只允许一次项目私有参考生图；结果仍须人工验收，不得自动 confirm_casting、正式绑定、发布或跨项目复用。仅当用户明确要求替换现有资产时给 parent_asset_id 做重生成（PUT）；否则新建候选资产（POST）。它只在同一个 idempotency_key 下发送一次；新建后核实新父资产的生成图，才返回 material_id 与 image_url。重生成旧资产时不以其旧 Active 状态或旧材质认领新图，回显 requested_parent_asset_id 并保持未核实，须只读核对该资产最新任务与新材质。候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理后尚未核实可用图片，不要换 key 重投，稍后用精确资产的 jubian_asset generated_image 续读；failed 表示提供方判失败，先核对实际费用与原因，不自动换 key；unverified 表示本次新图尚未证实，不能用同名资产或旧材质代替。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定模型时默认 MediaKit，SeedVR2 等其他模型用 model_id 显式指定；具体价格以当前目录为准。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
+  /** 剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks/sources 只读。提取或复用已有视频时，先 sources(script_id,storyboard_id) 查询原卡已生成来源；返回原任务、成片、运行状态与查询完整性，不要求与当前模型配置一致。任务分页只说明本页状态，complete=false 或 unknown 不能推断没有成片；缺声线不等于授权重新生成。tasks 默认不按任务类型筛选；显式 task_type 只查该类型，total_verified/complete 仅对应返回的 scope，筛选结果为空不能推断项目没有任务。project_complete 仅表示本次读全未按类型筛选的提供方列表。（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。ASR 等未返回费用时保持未知，不填零，也不把已知任务行合计称为整集官方总实扣。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；使用人物库参考图时只传 upload_character_reference 返回的 managed_reference_id 及同一组授权身份；Host 会重读当前项目、角色、Catalog 原图、SHA、授权版本和一次性范围，再私下注入参考 URL。本人上传图的逐项目自授权只允许一次项目私有参考生图；结果仍须人工验收，不得自动 confirm_casting、正式绑定、发布或跨项目复用。仅当用户明确要求替换现有资产时给 parent_asset_id 做重生成（PUT）；否则新建候选资产（POST）。它只在同一个 idempotency_key 下发送一次；新建后核实新父资产的生成图，才返回 material_id 与 image_url。重生成旧资产时不以其旧 Active 状态或旧材质认领新图，回显 requested_parent_asset_id 并保持未核实，须只读核对该资产最新任务与新材质。候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理后尚未核实可用图片，不要换 key 重投，稍后用精确资产的 jubian_asset generated_image 续读；failed 表示提供方判失败，先核对实际费用与原因，不自动换 key；unverified 表示本次新图尚未证实，不能用同名资产或旧材质代替。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。顶层 image_model_id/image_platform_id/image_spec_id/image_resolution/image_aspect_ratio 是批次默认，每项可覆盖；单项切换到不同模型时重新匹配通道和规格，切换到不同通道时重新匹配规格；重复相同选择保留规格，画幅与分辨率仍沿用批次默认。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定模型时默认 MediaKit，SeedVR2 等其他模型用 model_id 显式指定；具体价格以当前目录为准。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
   jubian_video: {
-    /** task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。 */
+    /** task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；subtasks=分页对象 subtasks，按 subtasks.rows 展开合并任务，使用子结果 storyboard_id 归卡；无该字段时按原卡查 sources 核实归属；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。 */
     method: "task" | "tasks" | "subtasks" | "sources" | "unresolved" | "image_generate" | "image_generate_batch" | "upscale" | "retry";
     /** task / subtasks 必填：视频任务 ID。 */
     task_id?: number;
@@ -873,6 +875,8 @@ interface ToolArgsMap {
       image_resolution?: string;
       /** 本项可选的实时通道 platformId；切换前核对授权、价格与旧任务。 */
       image_platform_id?: string;
+      /** 本项图片画幅；省略时沿用批次 image_aspect_ratio。 */
+      image_aspect_ratio?: "16:9" | "9:16";
       /** 本项有序参考图 HTTPS URL；角色重生成省略时继承本项目该父资产唯一已采用图片，显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。 */
       references?: string[];
       /** 可选：重生成的父资产 ID；省略则新建。 */
@@ -880,15 +884,15 @@ interface ToolArgsMap {
     })[];
     /** image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别开头的正向媒介，可带“项目风格：”或“项目风格:”前缀，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。image_generate_batch 仅接受每项 items.image_style，顶层提供会被拒绝。 */
     image_style?: "live_action" | "anime";
-    /** image_generate 可选：所选模型 videoStandards 的精确 id，不能把模型计价行 id 当成此规格 id。 */
+    /** image_generate 可选或 image_generate_batch 默认：所选模型 videoStandards 的精确 id，不能把模型计价行 id 当成此规格 id。 */
     image_spec_id?: number;
-    /** image_generate 可选：task_type=2 实时目录中的精确 modelId；显式选模型时重新匹配其通道，不套用其他模型的默认通道。 */
+    /** image_generate 可选或 image_generate_batch 默认：task_type=2 实时目录中的精确 modelId；显式选模型时重新匹配其通道，不套用其他模型的默认通道。 */
     image_model_id?: string;
-    /** image_generate 可选：所选模型目录支持的分辨率，如 1K、2K、4K。 */
+    /** image_generate 可选或 image_generate_batch 默认：所选模型目录支持的分辨率，如 1K、2K、4K；批次每项可覆盖。 */
     image_resolution?: string;
-    /** image_generate 可选：仅本次使用实时目录中的指定 platformId；省略时使用设置或部署已选通道。切换前核对价格、授权和上一笔结果；超时或未知结果不能直接换通道重投。 */
+    /** image_generate 可选或 image_generate_batch 默认：实时目录中的指定 platformId；省略时使用设置或部署已选通道。切换前核对价格、授权和上一笔结果；超时或未知结果不能直接换通道重投。 */
     image_platform_id?: string;
-    /** image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，同画幅和分辨率重复时可用 image_spec_id 指定目录规格。 */
+    /** image_generate 可选或 image_generate_batch 默认：图片画幅；批次每项可覆盖，全部省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，同画幅和分辨率重复时可用 image_spec_id 指定目录规格。 */
     image_aspect_ratio?: "16:9" | "9:16";
     /** image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。角色重生成省略时继承本项目该父资产唯一已采用图片；显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。 */
     references?: string[];
@@ -2803,6 +2807,8 @@ interface ToolOutputMap {
         subtask_id: number;
         /** 所属父任务；下载前必须与查询的 task_id 一致。 */
         parent_task_id: number | null;
+        /** 子结果关联的原分镜卡 ID；供应商未提供可用身份时省略。 */
+        storyboard_id?: number;
         /** 提供方子结果状态；保留未知值，不能仅凭 URL 判成功。 */
         status: string | null;
         /** 当前成片 URL；本任务子结果成功且 URL 非空时才可交 jubian_media download。 */

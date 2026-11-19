@@ -14,6 +14,7 @@ Owns the durable `drama` settings section, the **Settings → 短剧** page that
 ## Table of Contents
 
 - [Use this package](#use-this-package)
+- [Move production to another project](#project-migration)
 - [Understand the implementation](#understand-the-implementation)
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
@@ -70,6 +71,13 @@ Each character's `voice_profile` can bind an approved audio asset using `referen
 
 The tool atomically replaces JSON under an exclusive project writer lock and then atomically replaces its derived `project-bible.md`. Both replacements request mode `0600` through the shared atomic writer, which handles transient Windows rename interference with bounded retries; persistent failure still rejects and retains the old target bytes. Paths containing symbolic links or junctions are refused. A stale file, altered preview, invalid field or held lock fails before either output changes. If Markdown rendering fails after the JSON commit, the error names the committed revision; read the config before retrying. An abandoned `.project-bible.lock` requires inspection before manual removal. Video choices need live Jubian catalogue and preparation validation; stored voice guidance does not guarantee a provider can force the same generated voice.
 
+<a id="project-migration"></a>
+### Move production to another project
+
+For an explicitly requested move to a different Jubian project, first verify both remote project IDs and create a separate empty local target directory. Call `drama_project action=preview` with `project_dir` set to the target, `migration_from: { project_dir: <source directory>, script_id: <source ID> }`, and `changes.jubian_script_id` set to the different target ID. Apply that preview with the same `migration_from`, changes and reason, plus its `expected_revision` and `preview_fingerprint`. The preview also binds the source revision; changed source data requires a new preview. Ordinary updates still reject replacement of an existing project binding.
+
+Migration initializes the target from portable creative, generation, delivery and episode settings, stable character identities and voice descriptions. It excludes source asset IDs, audio references, package bindings, completed tasks, budget records and revision history. The source directory remains unchanged. Migration does not copy or create remote projects, assets or storyboards; verify and register target-project references separately before binding them. Continue production from the target directory only after rereading its `jubian_script_id` and reviewing the target mappings.
+
 ### The Settings page
 
 Before draft creation, the Agent calls `drama_draft_dir` without arguments. A ready result provides the existing absolute, readable and writable editor root as `path`; an empty setting returns `unconfigured`. Missing or invalid roots require `ask_user_question` for the installed editor's actual draft root. Passing that answer as `path` validates it, saves only `jianyingDraftDir` with revision protection, and confirms the saved value. Draft generation consumes the returned path and refuses existing draft names; valid saved roots require no repeated question. Earlier writing and production steps do not depend on this setting.
@@ -115,7 +123,6 @@ The Host imports `defineTool` through a peer dependency on `dsh-tools`; the depl
 | [`src/client/components.ts`](src/client/components.ts) | The composed packages and the fold from one inventory answer to the status each row shows |
 | [`src/client/DramaSettingsSection.tsx`](src/client/DramaSettingsSection.tsx) | The Settings page component, the route picker and the component list included |
 | [`src/client/locales.ts`](src/client/locales.ts) | The page's copy, including every component role and status label |
-
 
 The page registers through `ctx.slots.inject`, which waits for the Settings shell to declare its slot and removes the contribution when that declaration collapses.
 
@@ -174,7 +181,7 @@ Tool results append to the transcript and preserve its existing prefix. A direct
 
 #### What the model sees
 
-`drama_project` returns the current config, project paths, exact file revision and current Settings defaults. A preview adds the proposed config, review fingerprint, changed fields, affected stages and readable Markdown; an update returns the committed config and its new revision. Results use the standard JSON text presentation. The [project bible skill](../skills/skills/tweet-drama-project-bible/SKILL.md) owns grouped startup questions and the existing Jubian workflow.
+`drama_project` returns the current config, project paths, exact file revision and current Settings defaults. A preview adds the proposed config, review fingerprint, changed fields, affected stages and readable Markdown; an update returns the committed config and its new revision. A migration also reports the source directory, project ID and revision, the target ID, inherited fields and excluded record groups. Results use the standard JSON text presentation. The [project bible skill](../skills/skills/tweet-drama-project-bible/SKILL.md) owns grouped startup questions and the existing Jubian workflow.
 
 #### Token effect
 

@@ -115,6 +115,8 @@ export function needsUpscale(row: Pick<VideoSubtask, 'resolution' | 'upscaled' |
 export interface VideoSubtask {
   subtask_id: number
   parent_task_id: number | null
+  /** Original storyboard identity when the provider supplies it for this child. */
+  storyboard_id?: number
   status: string | null
   duration_seconds: number | null
   gen_num: number | null
@@ -260,8 +262,10 @@ export function readSubtaskPage(data: unknown): { total: number; rows: VideoSubt
       const hdCount = result !== undefined && typeof result.hdCount === 'number' ? result.hdCount : null
       const upscaleModel = result === undefined ? null : result.taskType === 20 ? nullableText(row.modelId)
         : lastTaskType === 20 ? nullableText(result.lastModelId) : null
+      const storyboardId = nullableId(row.storyboardId)
       return { subtask_id: id(row.id ?? row.subTaskId),
         parent_task_id: nullableId(row.aigcVideoTaskId), status: nullableText(row.taskStatus),
+        ...storyboardId === null ? {} : { storyboard_id: storyboardId },
         duration_seconds: typeof row.duration === 'number' && Number.isFinite(row.duration) ? row.duration : null,
         gen_num: typeof row.genNum === 'number' ? row.genNum : null, subtitle_box: box(row),
         video_url: current ?? fromMaterial,

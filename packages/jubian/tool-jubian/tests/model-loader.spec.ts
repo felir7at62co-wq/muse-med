@@ -1,7 +1,7 @@
 /** Model settings tool registration, schema, and rendered output through the real Loader. */
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -25,6 +25,7 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     prompt: 'keep', materialList: [] }
   let board = { id: 1, scriptId: 2708, episodeId: 9, isGenerate: 1, modelConfig: JSON.stringify(modelConfig) }
   const calls: string[] = []
+  const imageWrites: Record<string, unknown>[] = []
   let deleted = false
   let singletonHistory = false
   let unreadableHistory = false
@@ -33,7 +34,18 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     calls.push(String(init?.method))
     const path = url instanceof Request ? url.url : url.toString()
     let data: unknown
-    if (path.includes('/model/charge/')) data = [{ id: 11, modelId: modelConfig.modelId, platformId: 'YU_DIAN',
+    if (path.includes('getSelectList?taskType=2')) data = [{ id: 66, modelId: 'gpt-image-2', platformId: 'KU_AI',
+      unitPrice: 0.12, unit: '张', videoStandards: [
+        { id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720 },
+        { id: 94, ratio: '9:16', resolution: '2K', width: 1440, height: 2560 },
+      ] }]
+    else if (path.endsWith('/aigc/asset') && init?.method === 'POST') {
+      if (typeof init.body !== 'string') throw new Error('Expected JSON image request body')
+      const body = JSON.parse(init.body) as { modelConfig: string }
+      imageWrites.push(JSON.parse(body.modelConfig) as Record<string, unknown>)
+      data = null
+    }
+    else if (path.includes('/model/charge/')) data = [{ id: 11, modelId: modelConfig.modelId, platformId: 'YU_DIAN',
       genTypes: [{ id: 7, type: 3 }], videoStandards: [
         { id: 91, ratio: '9:16', resolution: '720p', genNum: 1 },
         { id: 92, ratio: '9:16', resolution: '1080p', genNum: 1 },
@@ -182,6 +194,27 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     const removed = await storyboard.execute(deleteApply, runContext) as JsonValue
     expect(storyboard.output.render(deleteApply, removed)).toMatchSnapshot('verified deletion outcome')
     expect(calls.filter(method => method === 'DELETE')).toHaveLength(1)
+    const video = ctx.tools.get('jubian_video')
+    if (!video) throw new Error('Missing jubian_video')
+    const batchArgs = { method: 'image_generate_batch', script_id: 2708,
+      image_model_id: 'gpt-image-2', image_platform_id: 'KU_AI', image_aspect_ratio: '9:16', image_resolution: '2K',
+      items: [
+        { idempotency_key: 'loader-portrait', asset_name: 'portrait', asset_type: 2, prompt: '公司大厅', references: [] },
+        { idempotency_key: 'loader-landscape', asset_name: 'landscape', asset_type: 2, prompt: '街道', references: [],
+          image_aspect_ratio: '16:9', image_resolution: '1K' },
+      ] }
+    expect(validateJsonSchemaValue(video.parameters, batchArgs, '')).toEqual([])
+    expect(validateJsonSchemaValue(video.parameters, { ...batchArgs,
+      items: [{ ...batchArgs.items[0], image_aspect_ratio: '4:3' }] }, '')).not.toEqual([])
+    await mkdir(join(root, 'ledger'), { recursive: true })
+    await writeFile(join(root, 'ledger', 'authorization.json'), JSON.stringify({ version: 1,
+      projects: { '2708': { limit: '10', unit: 'CNY', estimates: { image_generate: '1' } } } }))
+    expect(await video.execute(batchArgs, runContext)).toMatchObject({ returned: 2, errors: 0 })
+    expect(imageWrites).toEqual(expect.arrayContaining([
+      expect.objectContaining({ videoStandardId: 94, ratio: '9:16', resolution: '2K' }),
+      expect.objectContaining({ videoStandardId: 91, ratio: '16:9', resolution: '1K' }),
+    ]))
+    expect(imageWrites).toHaveLength(2)
     const entry = [...ctx.loader.entries()].find(row => row.options.name === '@deepseek-ai/dsh-tool-jubian')
     await entry?.fiber?.dispose()
     expect(ctx.tools.get('jubian_model')).toBeUndefined()
