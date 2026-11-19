@@ -70,15 +70,16 @@ it.each(['accepted', 'unknown', undefined] as const)
   expect(await ledger.records()).toEqual(before)
 })
 
-it('replays a competing claim using that recorded reservation without sending again', async () => {
+it.each(['accepted', undefined] as const)
+('replays a competing claim using that recorded reservation without sending again: %s', async (outcome) => {
   const { ledger, send } = await fixture(0)
   const payload = { isGenerate: 1 }
   const result = await writeUnderLedger(ledger, 'competing', 'storyboard_native_submit', async () => {
     await record(ledger, { idempotencyKey: 'competing', method: 'storyboard_native_submit',
-      scriptId: 6611, requestSha256: bodyHash(payload), quotedAmount: '2.25', quoteUnit: 'CNY' }, 'accepted')
+      scriptId: 6611, requestSha256: bodyHash(payload), quotedAmount: '2.25', quoteUnit: 'CNY' }, outcome)
     return payload
   }, send, () => ({ scriptId: 6611, amount: '999.99', unit: 'CNY' }))
-  expect(result).toMatchObject({ replayed: true, budget: {
+  expect(result).toMatchObject({ replayed: true, outcome: outcome ?? 'unknown', budget: {
     status: 'not_rechecked', project_accounting: null,
     this_submission: { reservation: { status: 'recorded', amount: '2.25', unit: 'CNY' }, provider_billing: 'not_observed' },
   } })

@@ -2268,6 +2268,10 @@ describe('submit_video_batch', () => {
     await expect(submitVideoBatchMethod(clientFor(provider), auto, { items: estimates })).rejects.toThrow()
     expect(putCalls(provider)).toHaveLength(0)
     expect(await auto.records()).toEqual([])
+    await auto.begin({ idempotencyKey: 'earlier-project-reservation', method: 'video_upscale', scriptId: 2708,
+      requestSha256: 'sha256:earlier', quotedAmount: '97.69', quoteUnit: 'CNY' })
+    await auto.settle('earlier-project-reservation', { httpStatus: 200, applicationCode: 200,
+      responseSha256: null, outcome: 'accepted' })
     estimates[0]!.estimated_cost_cny = '8.00'
     estimates[1]!.estimated_cost_cny = '9.00'
     provider.onPut = (payload) => {
@@ -2276,7 +2280,14 @@ describe('submit_video_batch', () => {
       provider.tasks.push({ id: taskId, scriptId: 2708, taskType: 1 })
       provider.subtasks[String(taskId)] = [childOf(payload, { aigcVideoTaskId: taskId, storyboardId: id })]
     }
-    await submitVideoBatchMethod(clientFor(provider), auto, { items: estimates })
+    const submitted = await submitVideoBatchMethod(clientFor(provider), auto, { items: estimates })
+    expect(submitted.results.map(result => result.budget)).toEqual(['8.00', '9.00'].map(amount => ({
+      status: 'authorized', reason: '',
+      this_submission: { reservation: { status: 'recorded', amount, unit: 'CNY', basis: 'quote_or_estimate' },
+        provider_billing: 'not_observed' },
+      project_accounting: { scope: 'project_before_submission', basis: 'local_reservations', unit: 'CNY',
+        accepted_reservations_cents: 9769, pending_reservations_cents: 0 },
+    })))
     expect(putCalls(provider)).toHaveLength(2)
     expect((await auto.find(items[0]!.idempotency_key))?.quoted_amount).toBe('8.00')
     expect((await auto.find(items[1]!.idempotency_key))?.quoted_amount).toBe('9.00')

@@ -87,10 +87,29 @@ function budgetReceipt(method: JubianLedgerMethod, amount: string | null, unit: 
     } }
 }
 
+/**
+ * Project a completed budget check into submission reservation evidence without another read.
+ * @param method - Ledger method whose reservation requirement the check evaluated.
+ * @param decision - Actual authorization decision and original pre-submission accounting.
+ * @returns This submission's quote or estimate, separate from project totals and provider billing.
+ */
+export function checkedWriteBudget(method: JubianLedgerMethod, decision: BudgetDecision): WriteBudgetReceipt {
+  return budgetReceipt(method, decision.chargedAmount ?? null, decision.chargedUnit ?? null, decision)
+}
+
+/**
+ * Read one original intent's reservation without rechecking authorization or inferring provider billing.
+ * @param record - Original ledger intent, retaining absent historical quote fields as null.
+ * @returns The recorded reservation or unavailable amount, with no current project accounting.
+ */
+export function recordedWriteBudget(record: JubianLedgerRecord): WriteBudgetReceipt {
+  return budgetReceipt(record.method, record.quoted_amount, record.quote_unit)
+}
+
 /** Return original-key evidence without deriving a new amount from current accounting. */
-function replayedWrite(record: JubianLedgerRecord, outcome: WriteOutcome['outcome']): WriteOutcome {
+function replayedWrite(record: JubianLedgerRecord, outcome: WriteOutcome['outcome']): WriteOutcome & { budget: WriteBudgetReceipt } {
   return { replayed: true, outcome, response_sha256: record.response_sha256, data: null,
-    budget: budgetReceipt(record.method, record.quoted_amount, record.quote_unit) }
+    budget: recordedWriteBudget(record) }
 }
 
 /**
@@ -307,7 +326,7 @@ export async function writeUnderLedger(
     verifiedFreeSubtitleErase?: boolean
   } | undefined,
   options?: WriteOptions,
-): Promise<WriteOutcome> {
+): Promise<WriteOutcome & { budget: WriteBudgetReceipt }> {
   const key = requireKey(idempotencyKey)
   const existing = await ledger.find(key)
   if (existing !== undefined && existing.outcome !== 'not_sent') {
@@ -382,7 +401,7 @@ export async function writeUnderLedger(
   }
   // A fresh beginChecked result has completed its authorization callback; replay skips it.
   const approved = budget as Awaited<ReturnType<typeof checkBudget>>
-  const budgetSummary = budgetReceipt(method, approved.chargedAmount ?? null, approved.chargedUnit ?? null, approved)
+  const budgetSummary = checkedWriteBudget(method, approved)
   try {
     const response = await send(payload)
     const code = response.transport.application_code
