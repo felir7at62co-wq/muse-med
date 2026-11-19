@@ -11,8 +11,8 @@
  * thing standing between a timeout and a second charge.
  */
 import { createHash } from 'node:crypto'
-import type { JubianLedger, JubianLedgerBegin, JubianLedgerMethod } from '@deepseek-ai/dsh-jubian'
-import { JubianError, centsOf, checkBudget } from '@deepseek-ai/dsh-jubian'
+import type { BudgetDecision, JubianLedger, JubianLedgerBegin, JubianLedgerMethod, JubianLedgerRecord } from '@deepseek-ai/dsh-jubian'
+import { JubianError, SPENDING_METHODS, centsOf, checkBudget } from '@deepseek-ai/dsh-jubian'
 
 /** Caller-calculated reservation, independent of the project spending limit. */
 export interface CostEstimate {
@@ -37,6 +37,27 @@ export function estimatedCostReservation(input: CostEstimate): { amount: string;
   return { amount: (amount / 100).toFixed(2), unit: 'CNY' }
 }
 
+/** Local reservation evidence; provider billing is not observed by this receipt. */
+export interface WriteBudgetReceipt {
+  /** A replay does not repeat the original authorization check. */
+  status: BudgetDecision['status'] | 'not_rechecked'
+  reason: string
+  this_submission: {
+    /** Missing historical quote data remains unavailable for a paid method. */
+    reservation: { status: 'recorded'; amount: string; unit: string; basis: 'quote_or_estimate' }
+      | { status: 'not_required' | 'unavailable' }
+    provider_billing: 'not_observed'
+  }
+  /** Original pre-submission totals, absent on replay or when no project cap was checked. */
+  project_accounting: {
+    scope: 'project_before_submission'
+    basis: 'local_reservations'
+    unit: string
+    accepted_reservations_cents: number
+    pending_reservations_cents: number
+  } | null
+}
+
 /** What one ledger-guarded write produced. */
 export interface WriteOutcome {
   replayed: boolean
@@ -44,12 +65,32 @@ export interface WriteOutcome {
   response_sha256: string | null
   data: unknown
   /**
-   * What the spend cap said about this call.
-   *
-   * Present for a successful write so callers can report the grant and recorded
-   * spending. Missing authorization refuses a paid write before the intent line.
+   * This submission's reservation and any original pre-submission project totals.
+   * Neither accepted requests nor their estimates establish a provider charge.
+   * A replay reports the original quote without repeating authorization.
    */
-  budget?: { status: string; reason: string; settledCents: number; reservedCents: number } | undefined
+  budget?: WriteBudgetReceipt | undefined
+}
+
+/** Keep one submission's recorded estimate separate from the project's local totals. */
+function budgetReceipt(method: JubianLedgerMethod, amount: string | null, unit: string | null,
+  approved?: BudgetDecision): WriteBudgetReceipt {
+  const reservation: WriteBudgetReceipt['this_submission']['reservation'] = !SPENDING_METHODS.has(method)
+    ? { status: 'not_required' }
+    : amount === null || unit === null ? { status: 'unavailable' }
+      : { status: 'recorded', amount, unit, basis: 'quote_or_estimate' }
+  return { status: approved?.status ?? 'not_rechecked', reason: approved?.reason ?? '',
+    this_submission: { reservation, provider_billing: 'not_observed' },
+    project_accounting: approved?.limitCents === undefined || approved.chargedUnit === undefined ? null : {
+      scope: 'project_before_submission', basis: 'local_reservations', unit: approved.chargedUnit,
+      accepted_reservations_cents: approved.settledCents, pending_reservations_cents: approved.reservedCents,
+    } }
+}
+
+/** Return original-key evidence without deriving a new amount from current accounting. */
+function replayedWrite(record: JubianLedgerRecord, outcome: WriteOutcome['outcome']): WriteOutcome {
+  return { replayed: true, outcome, response_sha256: record.response_sha256, data: null,
+    budget: budgetReceipt(record.method, record.quoted_amount, record.quote_unit) }
 }
 
 /**
@@ -244,7 +285,7 @@ export function bodyHash(body: Record<string, unknown> | undefined): string {
  * @param send - Performs the single request, receiving the computed body.
  * @param quote - Optional quote snapshot, observed after the body is built.
  * @param options - The project the charge belongs to, and an authorization path override.
- * @returns The outcome, whether it was replayed, any envelope data, and the spend verdict.
+ * @returns The outcome, replay status, envelope data and local reservation evidence; no provider charge is inferred.
  * @throws {JubianError} `BUDGET_EXCEEDED` when a paid call is not covered by the authorization.
  */
 export async function writeUnderLedger(
@@ -277,7 +318,7 @@ export async function writeUnderLedger(
         throw new JubianError('CONTRACT_CHANGED', 'Idempotency key belongs to a different image request')
       }
     }
-    return { replayed: true, outcome: existing.outcome ?? 'unknown', response_sha256: existing.response_sha256, data: null }
+    return replayedWrite(existing, existing.outcome ?? 'unknown')
   }
   if (existing?.outcome === 'not_sent'
     && (method !== 'image_generate' || options?.verifyReplayBody !== true
@@ -336,14 +377,12 @@ export async function writeUnderLedger(
       if (begun.record.outcome === 'not_sent') {
         throw new JubianError('CONTRACT_CHANGED', 'Recovery state changed while the request was prepared')
       }
-      return { replayed: true, outcome: begun.record.outcome ?? 'unknown',
-        response_sha256: begun.record.response_sha256, data: null }
+      return replayedWrite(begun.record, begun.record.outcome ?? 'unknown')
     }
   }
   // A fresh beginChecked result has completed its authorization callback; replay skips it.
   const approved = budget as Awaited<ReturnType<typeof checkBudget>>
-  const budgetSummary = { status: approved.status, reason: approved.reason,
-    settledCents: approved.settledCents, reservedCents: approved.reservedCents }
+  const budgetSummary = budgetReceipt(method, approved.chargedAmount ?? null, approved.chargedUnit ?? null, approved)
   try {
     const response = await send(payload)
     const code = response.transport.application_code

@@ -67,7 +67,9 @@ it.each(['different-method', 'different-body', 'accepted-match'])
     return { name: 'same' }
   }, send)
   if (scenario === 'accepted-match') {
-    expect(await result).toEqual({ replayed: true, outcome: 'accepted', response_sha256: 'sha256:recorded', data: null })
+    expect(await result).toEqual({ replayed: true, outcome: 'accepted', response_sha256: 'sha256:recorded', data: null,
+      budget: { status: 'not_rechecked', reason: '', project_accounting: null,
+        this_submission: { reservation: { status: 'not_required' }, provider_billing: 'not_observed' } } })
   } else await expect(result).rejects.toThrow('different write')
   expect(send).not.toHaveBeenCalled()
 })
