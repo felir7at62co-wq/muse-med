@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-project-bind-only
+profile: headless
+composition: muse-project-bind-only
+recording: authored
+writerOutput: true
+header:
+  class: muse-project-bind-only
+  pin: true
+workspace:
+  final: true
