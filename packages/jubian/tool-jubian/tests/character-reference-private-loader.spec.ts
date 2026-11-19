@@ -37,6 +37,7 @@ it('prompts the live signed-in owner and persists a private grant without a prov
   } }
   const Account = { apply(ctx: Context) {
     ctx.plugin(MuseAccountService, { controller: {
+      details: async () => { throw new Error('Fixture account details are unavailable') },
       status,
       login: async () => { throw new Error('Fixture login is unavailable') },
       logout: status,
