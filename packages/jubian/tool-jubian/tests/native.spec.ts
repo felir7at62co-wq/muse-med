@@ -279,8 +279,23 @@ it('accepts trimmed decimal identities and a BOM-prefixed project binding', asyn
   const directory = await project()
   await writeFile(join(directory, 'project_config.json'), '\uFEFF{"jubian_script_id":"2708"}')
   expect(await validateProjectBinding(directory, ' 2708 ')).toEqual({ project_root: directory, script_id: 2708 })
-  await writeFile(join(directory, 'project_config.json'), '{broken')
-  await expect(validateProjectBinding(directory, 2708)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+})
+
+it.each([
+  ['malformed JSON', '{private-json-sentinel', '不是有效的 JSON'],
+  ['non-object JSON', '["private-json-sentinel"]', '必须是 JSON 对象'],
+  ['null JSON', 'null', '必须是 JSON 对象'],
+  ['scalar JSON', '"private-json-sentinel"', '必须是 JSON 对象'],
+  ['missing project ID', '{"note":"private-json-sentinel"}', '缺少 jubian_script_id'],
+  ['invalid project ID', '{"jubian_script_id":"private-json-sentinel"}', 'jubian_script_id 必须是正整数'],
+])('explains a local binding with %s without exposing its contents or path', async (_label, contents, detail) => {
+  const directory = await project()
+  await writeFile(join(directory, 'project_config.json'), contents)
+  const validation = validateProjectBinding(directory, 2708)
+  await expect(validation).rejects.toMatchObject({ name: 'JubianProjectBindingError', code: 'PROJECT_BINDING_INVALID' })
+  await expect(validation).rejects.toThrow(detail)
+  await expect(validation).rejects.not.toThrow(/private-json-sentinel|expected envelope/)
+  await expect(validation).rejects.not.toThrow(directory)
 })
 
 it.each([
@@ -908,17 +923,28 @@ describe('prepare_video', () => {
   it('refuses a project bound to another scriptId and writes nothing', async () => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const directory = await project(1, 'foreign')
-    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
-      project_dir: directory })).rejects.toThrow()
-    await expect(readFile(join(directory, 'video_tasks', 'x'), 'utf8')).rejects.toThrow()
+    const preparation = prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory })
+    await expect(preparation).rejects.toMatchObject({ code: 'PROJECT_BINDING_INVALID' })
+    await expect(preparation).rejects.toThrow('与目标剧变项目不符')
+    expect(await readdir(directory)).toEqual(['project_config.json'])
+    expect(await ledger.records()).toEqual([])
+    expect(putCalls(provider)).toEqual([])
   })
 
-  it('refuses a project directory without project_config.json', async () => {
+  it.each([
+    { label: 'missing', configIsDirectory: false, detail: '未找到 project_config.json' },
+    { label: 'unreadable', configIsDirectory: true, detail: '无法读取 project_config.json' },
+  ])('reports a $label local project configuration without writing', async ({ configIsDirectory, detail }) => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const directory = join(root, 'bare')
     await mkdir(directory, { recursive: true })
-    await expect(prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
-      project_dir: directory })).rejects.toThrow()
+    if (configIsDirectory) await mkdir(join(directory, 'project_config.json'))
+    const preparation = prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: directory })
+    await expect(preparation).rejects.toMatchObject({ code: 'PROJECT_BINDING_INVALID' })
+    await expect(preparation).rejects.toThrow(detail)
+    expect(await readdir(directory)).toEqual(configIsDirectory ? ['project_config.json'] : [])
+    expect(await ledger.records()).toEqual([])
+    expect(putCalls(provider)).toEqual([])
   })
 
   it('refuses a caller-supplied duration that disagrees with the live snapshot', async () => {

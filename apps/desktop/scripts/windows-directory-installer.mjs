@@ -12,6 +12,21 @@ function replaceOnce(source, before, after) {
   return source.replace(before, after)
 }
 
+/** Keep installer initialization from creating the selected destination before ownership checks. */
+export function directoryInstallerInit(source) {
+  return replaceOnce(source.replaceAll('\r\n', '\n'),
+    'Function .onInit\n  Call setInstallSectionSpaceRequired\n\n  SetOutPath $INSTDIR',
+    `Function .onInit
+  Call setInstallSectionSpaceRequired
+
+  !ifdef BUILD_UNINSTALLER
+    SetOutPath $INSTDIR
+  !else
+    InitPluginsDir
+    SetOutPath $PLUGINSDIR
+  !endif`)
+}
+
 /**
  * Preserve upstream registration and uninstall UI while replacing payload installation.
  * Registered paths use the preflight's full-path and trailing-separator normalization.
@@ -28,12 +43,25 @@ export function directoryInstallSection(source) {
 !macroundef uninstallOldVersion
 !macro uninstallOldVersion ROOT_KEY
   !insertmacro readReg $R4 "\${ROOT_KEY}" "\${INSTALL_REGISTRY_KEY}" InstallLocation
+  \${If} $R4 == ""
+    Push $R5
+    !insertmacro readReg $R5 "\${ROOT_KEY}" "\${UNINSTALL_REGISTRY_KEY}" UninstallString
+    !ifdef UNINSTALL_REGISTRY_KEY_2
+      \${If} $R5 == ""
+        !insertmacro readReg $R5 "\${ROOT_KEY}" "\${UNINSTALL_REGISTRY_KEY_2}" UninstallString
+      \${EndIf}
+    !endif
+    \${If} $R5 != ""
+      StrCpy $R4 "<unknown-registered-path>"
+    \${EndIf}
+    Pop $R5
+  \${EndIf}
   \${If} $R4 != ""
     Push $0
     Push $1
     Push $2
     System::Call 'kernel32::GetFullPathNameW(w R4, i \${NSIS_MAX_STRLEN}, w .r2, p 0) i.r1'
-    StrCpy $R4 ""
+    StrCpy $R4 "<invalid-registered-path>"
     \${If} $1 > 0
     \${AndIf} $1 < \${NSIS_MAX_STRLEN}
       !insertmacro InstallerTrimDirectorySeparators $2
@@ -47,11 +75,21 @@ export function directoryInstallSection(source) {
     Pop $0
   \${EndIf}
   \${If} $R4 == $INSTDIR
+  \${OrIf} $R4 == ""
     StrCpy $R0 0
     ClearErrors
   \${Else}
-    Push "\${ROOT_KEY}"
-    Call uninstallOldVersion
+    Call dshRecordBlockedDirectory
+    \${If} \${Errors}
+      Call dshCleanupDirectories
+      MessageBox MB_OK|MB_ICONEXCLAMATION "$(MuseUpgradeReceiptFailed)$\\r$\\n$INSTDIR$\\r$\\n$R4" /SD IDOK
+      SetErrorLevel 1603
+      Quit
+    \${EndIf}
+    Call dshCleanupDirectories
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(MuseUpgradeDifferentDirectory)" /SD IDOK
+    SetErrorLevel 2
+    Quit
   \${EndIf}
 !macroend`)
   result = replaceOnce(result, '!insertmacro setLinkVars', `!insertmacro setLinkVars
@@ -70,6 +108,34 @@ export function directoryInstallSection(source) {
  */
 export function directoryInstallerExits(source) {
   return source.replaceAll(/^(\s*)Quit\s*$/gm, '$1!ifndef BUILD_UNINSTALLER\n$1Call dshCleanupDirectories\n$1!endif\n$1Quit')
+}
+
+/** Remove the unused upstream destructive uninstaller and its private helpers. */
+export function directoryInstallUtil(source) {
+  let normalized = source.replaceAll('\r\n', '\n')
+  const endMarker = '\nFunctionEnd\n'
+  for (const [name, nextMarker] of [
+    ['GetInQuotes', '\n!macro GetInQuotes Var Str\n'],
+    ['GetFileParent', '\nFunction handleUninstallResult\n'],
+    ['uninstallOldVersion', '\n!macro uninstallOldVersion ROOT_KEY\n'],
+  ]) {
+    const startMarker = `Function ${name}\n`
+    if (normalized.split(startMarker).length !== 2 || normalized.split(nextMarker).length !== 2) throw new Error(`Desktop NSIS template changed: ${name}`)
+    const start = normalized.indexOf(startMarker)
+    const next = normalized.indexOf(nextMarker)
+    if (next <= start || normalized.slice(start, next).split(endMarker).length !== 2) throw new Error(`Desktop NSIS template changed: ${name} end`)
+    const end = normalized.indexOf(endMarker, start)
+    normalized = normalized.slice(0, start) + normalized.slice(end + endMarker.length)
+  }
+  const quoteMacroStart = '!macro GetInQuotes Var Str\n'
+  const quoteMacroEnd = '\n!macroend\n'
+  if (normalized.split(quoteMacroStart).length !== 2) throw new Error('Desktop NSIS template changed: GetInQuotes macro')
+  const macroStart = normalized.indexOf(quoteMacroStart)
+  const nextMacro = normalized.indexOf('\n!macro setIsTryToKeepShortcuts\n', macroStart)
+  if (nextMacro < 0 || normalized.slice(macroStart, nextMacro).split(quoteMacroEnd).length !== 2) throw new Error('Desktop NSIS template changed: GetInQuotes macro end')
+  const macroEnd = normalized.indexOf(quoteMacroEnd, macroStart)
+  normalized = normalized.slice(0, macroStart) + normalized.slice(macroEnd + quoteMacroEnd.length)
+  return directoryInstallerExits(normalized)
 }
 
 /** Install the build-only NSIS adapter without replacing electron-builder's signed bootstrap path. */
@@ -91,10 +157,11 @@ export function installWindowsDirectoryInstaller() {
     const tool = join(directory, '7za.exe')
     await copyFile(sourceTool, tool)
     await this.packager.signIf(tool)
-    let adapted = replaceOnce(source, '!include "installSection.nsh"', `!include "${section}"`)
+    let adapted = replaceOnce(directoryInstallerInit(source), '!include "installSection.nsh"', `!include "${section}"`)
     for (const helper of ['allowOnlyOneInstallerInstance.nsh', 'installUtil.nsh']) {
       const path = join(directory, helper)
-      await writeFile(path, directoryInstallerExits(await readFile(join(templates, 'include', helper), 'utf8')))
+      const original = await readFile(join(templates, 'include', helper), 'utf8')
+      await writeFile(path, helper === 'installUtil.nsh' ? directoryInstallUtil(original) : directoryInstallerExits(original))
       adapted = replaceOnce(adapted, `!include "${helper}"`, `!include "${path}"`)
     }
     const uninstaller = join(directory, 'uninstaller.nsh')

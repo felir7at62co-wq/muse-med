@@ -26,6 +26,7 @@
     "apps/web/tests/muse-visualize.e2e.ts",
     "snapshots/session/headless.snapshot.ts",
     "snapshots/session/drama-subtitle-visual-review/evidence.ts",
+    "snapshots/session/drama-project-migration/evidence.ts",
     "apps/web/tests/home-whale.e2e.ts",
 
     "apps/web/tests/sidebar-drawer.e2e.ts",
