@@ -98,6 +98,8 @@ async function readResults(client: JubianClient) {
 }
 ```
 
+一个生成任务覆盖多张分镜卡时，用每条子结果的 `storyboard_id` 对应原卡。提供方未给出有效的子结果分镜卡 ID 时，读取器省略此字段。
+
 `needsUpscale()` 把当前文件与交付目标作比较。已记录的 SeedVR2 处理会把当前文件视为 1080p，即使生成行仍保留旧标签；经过 MediaKit 等其他模型处理后，低于目标的来源行返回 `null`，因为输出分辨率只记录在提供方的转高清行上。其他情况下，低于目标返回 `true`，等于或高于目标返回 `false`，现有证据无法对任一侧排序时返回 `null`。要使用的文件是 `row.video_url`：转高清之后，提供方把生成输出保留在 `row.base_video_url`，并在 `video_url` 里报告最新的那个文件。
 
 ### 构造请求体

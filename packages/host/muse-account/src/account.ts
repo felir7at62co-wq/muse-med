@@ -2,7 +2,7 @@
 
 import { clearMuseSessionIfUnchanged, readMuseSession, writeMuseSession } from './session.ts'
 import { MuseGatewayError, type MuseAccountGateway, type MuseAccountIdentity } from './gateway.ts'
-import type { MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
+import type { MuseAccountDetails, MuseAccountDetailsRequest, MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Invalid credential fields supplied over the authenticated Remote request. */
 export class MuseAccountInputError extends Error {
@@ -36,6 +36,27 @@ function signedIn(identity: MuseAccountIdentity, verified: boolean): Extract<Mus
 /** Product-home MUSE account controller. No method returns a password or cookie. */
 export class MuseAccountController {
   constructor(private readonly options: MuseAccountControllerOptions) {}
+
+  /**
+   * Read the saved account's online profile, groups, and paginated token usage.
+   * @param request - Usage range and page; omissions use gateway defaults.
+   * @returns Details only while the same local login remains saved; rejection never returns another account's data.
+   */
+  async details(request: MuseAccountDetailsRequest): Promise<MuseAccountDetails> {
+    const stored = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
+    if (stored === null) throw new MuseGatewayError('invalid-credentials')
+    try {
+      const result = await this.options.gateway.details(stored.cookie, request)
+      const current = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
+      if (current?.revision !== stored.revision) throw new MuseGatewayError('invalid-credentials')
+      return result
+    } catch (error) {
+      if (error instanceof MuseGatewayError && error.code === 'invalid-credentials') {
+        await clearMuseSessionIfUnchanged(this.options.sessionFile, stored)
+      }
+      throw error
+    }
+  }
 
   /**
    * Read local identity or verify the saved cookie with the gateway.

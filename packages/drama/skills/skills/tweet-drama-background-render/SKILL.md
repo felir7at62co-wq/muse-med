@@ -11,8 +11,8 @@ description: Use when 剧变生成视频需要转高清（默认 MediaKit），�
 
 使用现有 `jubian_video method=upscale`，先用 `jubian_catalog method=models, task_type=20` 读取实时高清目录；未另选时默认 MediaKit，SeedVR2 等其他模型须显式指定，模型、通道、分辨率和计价行仍须来自本次真实目录，不抄历史选择器或固定单价。按项目已有选择和明确授权选用 `model_id`、`platform_id`、`resolution`，必要时用目录模型计价行的 `standard_id` 查询 `rate`。工具按当前目录报价预留预算；目录或报价不可用时报告真实缺项，不猜价格，也不改用新建分镜生成或本地放大冒充高清。默认 1080p 是目标规格／上限，不保证精确 1080×1920；保留提供方报告的实际输出尺寸，不能把目标名称当成实测尺寸。
 
-1. 用 `jubian_video method=tasks, script_id=...` 找到本项目、本分集和本包已生成的视频任务，默认选择最新生成且成功、有输出 URL 的任务；优先按提供方生成时间倒序，缺少时间时用任务 ID 倒序。不能把别的分集或包当作“最新”来源。已有当前来源的成功高清结果直接复用；有未结束高清任务则继续查询，不重投。
-2. `upscale` 输入是源任务 `task_id`，由工具回读来源身份。工具按提供方创建时间倒序读取子结果，选首个带视频 URL 且未标为未完成或失败的结果，使用它的当前 `video_url`，包括最新去字幕后的版本；不再优先退回 `base_video_url`。保留源任务、子结果和 URL 记录，无需因多个候选结果再向用户询问。用户明确指定旧版本时遵从指定；工具不能精确定位该版本则报告，不冒用默认来源。
+1. 先按 [已有视频清点与补下载](../tweet-drama-project-inspect/SKILL.md#已有视频清点与补下载)核对真实分集和原卡，用 `jubian_video method=sources` 找到本卡已有来源，不只按 `EPxx-Pn` 父任务名筛选。默认从归属本卡、已成功且有输出 URL 的候选中选择最新来源；优先按提供方生成时间倒序，缺少时间时用任务 ID 倒序。不能把别的分集或卡当作“最新”来源；查询不完整时保留已核实来源和缺口。已有当前来源的成功高清结果直接复用；有未结束高清任务则继续查询，不重投。
+2. `upscale` 输入是源任务 `task_id`，由工具回读来源身份。工具按提供方创建时间倒序读取子结果，选首个带视频 URL 且未标为未完成或失败的结果，使用它的当前 `video_url`，包括最新去字幕后的版本；不再优先退回 `base_video_url`。保留源任务、子结果和 URL 记录，无需因多个候选结果再向用户询问。聚合父任务含其他卡的结果时，须能精确定位本次选定子结果；无法定位则报告，不冒用同父任务的其他卡。用户明确指定旧版本时遵从指定；工具不能精确定位该版本则报告，不冒用默认来源。
 3. 对已核对来源调用 `jubian_video({method:"upscale",task_id:<源任务ID>,task_name:"EP01-P1-HD",idempotency_key:<本来源固定键>})`，遵守既有项目预算、审批与账本规则。保存 `outcome`、原 key 和 `accepted_task_id`；`accepted` 只表示受理。结果未知时保留原 key，对账或查询，不能换 key 再买一次；不以 `retry` 自动重投付费处理。
 4. `accepted_task_id` 非空时，用它启动 `jubian_watch({task_id:<高清任务ID>,stage:"upscale"})` 并保存返回的 `job_id`。用 `job_output(job_id=..., wait=true)` 收取结果；后台查询期间继续独立工作，不用模型轮次忙轮询。重启后用已保存的高清任务 ID 查询 `jubian_video task/subtasks`；缺少受理 ID 时用原账本和源任务结果对账，不虚构任务 ID。
 5. 从后台结果或高清任务 `subtasks.rows` 确认当前高清任务已成功、结果属于本任务、当前高清 URL 非空且有转高清记录（`last_task_type=20` 或 `hd_count>0`）。满足这些条件就直接采用当前高清 URL，并在交付或后续流程需要本地文件时用 `jubian_media method=download, media_kind=video` 下载；不退回 `base_video_url`。保留任务 ID、原 key 和结果路径供恢复；pending、failed、unknown 或缺少输出地址时继续查询或报告失败，不当作完成。

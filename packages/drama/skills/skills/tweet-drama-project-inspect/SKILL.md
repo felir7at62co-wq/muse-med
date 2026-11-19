@@ -7,6 +7,18 @@ description: Use when 检查仿真人剧变项目完成状态、产物缺口、�
 
 只读核对 pipeline_state、磁盘、当前项目/分镜、模型目录及远端任务，不凭目录存在推断完成。报告真实缺失依赖与受影响分支；修复交给对应阶段。
 
+## 已有视频清点与补下载
+
+用户要求查缺包、补下载或复用历史视频时，先按本次指定的项目和分集只读清点，不因本地文件名或父任务名不符合 `EPxx-Pn` 就认定未生成。
+
+1. 用 `jubian_catalog method=episodes` 核对显示集号与远端 `episode_id`，再完整分页读取 `jubian_storyboard method=list`，按卡的 `episode_id` 选出原 `storyboard_id`；集号、行序和远端 ID 不互换。分集归属缺失或冲突时保留待核对，不按任务名猜补。
+2. 已知父任务 ID 时按 ID 去重，逐个回读 `jubian_video task/subtasks` 并读完子结果分页，用子结果的 `storyboard_id` 和原卡清单核对归属；项目列表未返回已知任务时仍按原 ID 查询。`[N个分镜]`、未命名或其他命名的父任务也可能包含本卡结果。对未能核实来源的原卡调用 `jubian_video method=sources, script_id=..., storyboard_id=...`，读取已有成功来源和运行状态。
+3. 按原 `task_id` 与 `subtask_id` 的组合去重，保留原卡及可用的 `first_result_id`；同父任务的不同子结果不能合成一条。只为本次采用且已成功、归属一致、`video_url` 非空的结果调用 `jubian_media download resume=true`。沿用本集原下载路径，记录工具实际返回的 `path`、`download_receipt_path` 和 `source_sha256`；本地文件与原卡的关联以这些来源记录核对，不能只靠文件名正则统计。
+
+`sources.status=none_found` 且 `complete=true` 只表示本次完整查询未发现该原卡的成功来源，不证明从未生成；`unknown`、`complete=false`、查询失败或达到上限时保留已核实来源并报告缺口，不能判为缺生成。`pending` 继续查原任务；提交超时沿原预览和 key 对账。分别报告远端已成功、本地已下载、已采用及内容已验收，补下载不授权重提生成、去字幕或转高清。
+
+## 内容复核
+
 先读 Core 的[通用质量复核](../tweet-drama-core/references/production-quality.md#审片证据与返工)，对照当前文件与时间码区分观察事实、疑点及审美偏好。关键动作是否缺失须查看连续片段；少量静帧没拍到不能当作缺失证据。用户已确认采用现状时不自行重做，旧结论被新证据推翻后更正当前报告，不重复旧误判。
 
 对照[首轮制作时确定的要求](../tweet-drama-core/references/first-pass-production.md)审片，不临时把目标物数量变成全场数量限制。硬判动作缺失或穿模前回看支撑和躯干角度，核对反证；动作存在仍须检查同一道具的形态变化。需要证据时运行`python -B scripts/video_review_evidence.py <项目目录> <视频相对路径> --start <起秒> --end <止秒> --output <新证据目录>`；提供PATH中的ffmpeg/ffprobe或显式`--ffmpeg`、`--ffprobe`路径。输出连续音画片段、每页最多六帧和文件哈希，保持`review_status=pending`，不签发验收；新目录要求防止覆盖旧证据。
