@@ -10851,6 +10851,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionVideoInventory {\n    readonly sessionId: SessionId;\n    readonly sources: readonly SessionVideoSource[];\n    readonly complete: boolean;\n    readonly issues: readonly string[];\n}',
   },
   {
+    name: 'SessionVideoProduction',
+    declaration: 'export interface SessionVideoProduction {\n    readonly scriptId: number;\n    readonly episodeId?: number | undefined;\n    readonly episodeNumber?: number | undefined;\n    readonly packageIndex?: number | undefined;\n    readonly storyboardId?: number | undefined;\n    readonly taskId?: number | undefined;\n    readonly subtaskId?: number | undefined;\n    readonly shotNumbers?: readonly number[] | undefined;\n    readonly shotRanges?: readonly {\n        readonly shotNumber: number;\n        readonly startSeconds: number;\n        readonly endSeconds: number;\n    }[] | undefined;\n}',
+  },
+  {
     name: 'SessionVideoSelection',
     declaration: 'export type SessionVideoSelection = VideoModelOption & {\n    revision: number;\n};',
   },
@@ -10864,7 +10868,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionVideoSource',
-    declaration: 'export interface SessionVideoSource {\n    readonly id: SessionVideoSourceId;\n    readonly label: string;\n    readonly origin: \'workspace\' | \'presented\' | \'attachment\' | \'generated\';\n    readonly path: string | null;\n    readonly eventSeq: number;\n    readonly presentedIndex: number | null;\n    readonly callId: string | null;\n    readonly status: \'local\' | \'remote-only\' | \'missing\' | \'unsupported\';\n    readonly version: string | null;\n    readonly playbackUrl: string | null;\n    readonly remoteUrl: string | null;\n    readonly issue: string | null;\n}',
+    declaration: 'export interface SessionVideoSource {\n    readonly id: SessionVideoSourceId;\n    readonly label: string;\n    readonly origin: \'workspace\' | \'presented\' | \'attachment\' | \'generated\';\n    readonly path: string | null;\n    readonly eventSeq: number;\n    readonly presentedIndex: number | null;\n    readonly callId: string | null;\n    readonly status: \'local\' | \'remote-only\' | \'missing\' | \'unsupported\';\n    readonly version: string | null;\n    readonly playbackUrl: string | null;\n    readonly remoteUrl: string | null;\n    readonly issue: string | null;\n    readonly production?: SessionVideoProduction | undefined;\n}',
   },
   {
     name: 'SessionVideoSourceId',

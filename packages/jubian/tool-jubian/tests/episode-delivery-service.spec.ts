@@ -245,7 +245,10 @@ describe('approved episode service', () => {
   it('repairs a missing publication receipt offline without source IO or a second encode', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     await f.service.admitEpisode(input); f.renderer.release()
-    await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await waitForState(async () => {
+      expect((await f.service.episodeStatus(input)).state).toBe('completed')
+      expect(f.service.hasActiveWork()).toBe(false)
+    })
     const done = await f.service.episodeStatus(input)
     if (done.attempt === null || done.output === undefined) throw new Error('Expected completed publication')
     const path = join(f.project, done.output.path), before = await stat(path)
@@ -255,7 +258,10 @@ describe('approved episode service', () => {
     const recoverable = await f.service.episodeStatus(input)
     expect(recoverable.canResume).toBe(true)
     expect((await f.service.admitEpisode({ ...input, resume: true })).attempt).toBe(done.attempt)
-    await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await waitForState(async () => {
+      expect((await f.service.episodeStatus(input)).state).toBe('completed')
+      expect(f.service.hasActiveWork()).toBe(false)
+    })
     expect((await stat(path)).ino).toBe(before.ino)
     expect(f.renderer.calls).toBe(1); expect(f.renderer.captures).toBe(1)
     expect(f.fetch).not.toHaveBeenCalled(); expect(f.service.hasActiveWork()).toBe(false)
@@ -263,7 +269,10 @@ describe('approved episode service', () => {
   it('restarts the service and reconciles a completed old execution without encoding it again', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     await f.service.admitEpisode(input); f.renderer.release()
-    await waitForState(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+    await waitForState(async () => {
+      expect((await f.service.episodeStatus(input)).state).toBe('completed')
+      expect(f.service.hasActiveWork()).toBe(false)
+    })
     const done = await f.service.episodeStatus(input)
     if (done.output === undefined) throw new Error('Expected output')
     await unlink(join(f.project, done.output.path))
@@ -275,7 +284,9 @@ describe('approved episode service', () => {
     expect((await service.episodeStatus(input)).state).toBe('completed')
     expect((await service.episodeStatus(input)).canResume).toBe(true)
     await service.admitEpisode({ ...input, resume: true })
-    await expect.poll(async () => await service.episodeStatus(input)).toMatchObject({ state: 'completed' })
+    await expect.poll(async () => ({
+      state: (await service.episodeStatus(input)).state, active: service.hasActiveWork(),
+    })).toEqual({ state: 'completed', active: false })
     expect((await service.episodeStatus(input)).attempt).toBe(done.attempt)
     expect(f.renderer.encodes).toBe(1)
     expect(service.hasActiveWork()).toBe(false)
@@ -525,8 +536,14 @@ describe('approved episode service', () => {
     expect(refused.problem).toContain('explicit reconciliation')
     expect(f.renderer.encodes).toBe(1)
   })
-  it.each(['foreign-proof', 'changed-drain', 'outside-candidate', 'changed-candidate', 'changed-candidate-facts'] as const)(
-    'refuses %s after the controlled renderer has produced actual durable proof and candidate bytes', async (fault) => {
+  it.each([
+    { fault: 'foreign-proof', problem: 'Episode drain does not match its armed execution' },
+    { fault: 'changed-drain', problem: 'Renderer result has no matching durable drain proof' },
+    { fault: 'outside-candidate', problem: 'Episode candidate escapes its private attempt' },
+    { fault: 'changed-candidate', problem: 'Episode candidate changed before publication' },
+    { fault: 'changed-candidate-facts', problem: 'Candidate disagrees with guardian drain proof' },
+  ])(
+    'refuses $fault after the controlled renderer has produced actual durable proof and candidate bytes', async ({ fault, problem }) => {
       const f = await createEpisodeDeliveryFixture()
       const spy = observeRenderer(f, async (result, input) => {
         if (result.kind === 'unknown' || result.kind === 'retry-required' || result.proof.result !== 'completed' || result.candidate === undefined) {
@@ -567,8 +584,11 @@ describe('approved episode service', () => {
         await expect.poll(async () => z.object({ state: z.string(), problem: z.string().min(1) }).parse(
           await library.readEpisodeStateSnapshot(statePath, f.episodeOptions.recordBytes)))
           .toMatchObject({ state: 'unknown' })
-        const status = await f.service.episodeStatus(input).catch(() => undefined)
-        expect(status === undefined || status.state === 'unknown').toBe(true)
+        await waitForState(async () => {
+          const status = f.service.episodeStatus(input)
+          if (fault === 'foreign-proof') await expect(status).rejects.toThrow(problem)
+          else expect(await status).toMatchObject({ attempt: admitted.attempt, state: 'unknown', problem })
+        })
         expect(f.renderer.encodes).toBe(1); expect(f.fetch).not.toHaveBeenCalled()
         const exports = await readdir(join(f.project, 'exports')).catch(() => [])
         expect(exports).toEqual([])

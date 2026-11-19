@@ -1,9 +1,7 @@
 - Optional presentation: disabled
-- Native header: standard; Chat tab available
-- Original video player: available
-- Chat video cards and video menu: removed
-- Transcript: same mounted instance
+- Native delivered video: available
+- Video workspace and conversation entry: removed
 - Composer draft: preserved
 - Background job: running
-- text: Video cards and timeline Enable shot timelines in chat video cards. Turn off to restore the original interface immediately.
-- switch "Video cards and timeline"
+- text: Muse video workspace Choose episodes, videos and visual segments in this conversation, dock or float the preview, and review or edit through chat.
+- switch "Muse video workspace"

@@ -2,7 +2,7 @@
 
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { chromium, type Browser, type Page } from 'playwright'
+import { chromium, webkit, type Browser, type Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -12,14 +12,16 @@ import { newEnglishPage } from './support.ts'
 /** A preset these blank Sessions recorded that the deployment no longer declares. */
 const UNDECLARED = 'liangshen'
 
-describe('web e2e: blank Session reuse under the requested preset', () => {
+describe.each([
+  { name: 'Chromium', engine: chromium }, { name: 'WebKit', engine: webkit },
+])('web e2e: blank Session reuse under the requested preset in $name', ({ engine }) => {
   let scaffold: WebScaffold
   let browser: Browser
   const tripwires: ReturnType<typeof watchConsole>[] = []
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
-    browser = await chromium.launch()
+    browser = await engine.launch()
   }, 120_000)
 
   afterAll(async () => {
@@ -54,7 +56,7 @@ describe('web e2e: blank Session reuse under the requested preset', () => {
       }, saved)
     }
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-    await page.locator('[data-composer-input]').first().waitFor({ timeout: 30_000 })
+    await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor({ timeout: 30_000 })
     return page
   }
 
