@@ -13,7 +13,7 @@ Set `workshopOrigin` to the script workshop deployment and `studioOrigin` to the
 
 Set `editorOrigin` to the numeric HTTP loopback address and port of [OpenChatCut](https://github.com/0xsline/OpenChatCut). **Video editor** opens its original timeline, mixer and export controls. When Jingliu is also connected, **Import from Jingliu** copies the selected episode’s available shots into a new local editing project.
 
-Set `editorTokenFile` to the local editor’s MCP token file to enable **Muse editor** in an open project. The development launcher resolves this file in the checkout’s OpenChatCut profile. The editor chat sends requests to the Muse conversation that owns the tab. Muse obtains tool descriptions from the running editor, binds each call to the open project and displays proposed timeline changes in OpenChatCut for preview, application or rejection. Workflow shortcuts fill the Muse draft. Media inspection, timeline rendering and encoding run on the desktop, including transparent clips. Opening the editor directly uses its standalone Agent.
+Set `editorTokenFile` to the local editor’s MCP token file to edit an open project from the main Muse chat. The development launcher resolves the file for the current OpenChatCut profile. The timeline and player preview each draft edit in the sidebar. Apply or reject the proposed changes there. A project stays connected to its conversation when the sidebar is collapsed. If several projects are open in one conversation, Muse can look them up by name. Media inspection, rendering and encoding run on the desktop, including transparent clips. Opening OpenChatCut separately uses its standalone Agent.
 
 The panels start at `/v1/auth/muse/embed` and `/fwp/v2/auth/muse/embed` respectively. Switching tabs preserves the document. Switching Muse accounts or reconnecting the Host opens a fresh sign-in frame. Narrow panes scroll horizontally at minimum zoom. Use the sidebar's fullscreen control for more writing or production space.
 
@@ -42,7 +42,7 @@ Viewing the studio leaves the model prefix unchanged.
 ## Known Limitations and Deferred Work
 
 - Each deployment must allow Muse to embed its page. The [workbench login adapters](../../../services/muse-workbenches/README.md) connect both sign-in pages to the Muse account gateway.
-- Jingliu and the script workshop manage their own projects. OpenChatCut tools need a visible editor for the same Muse conversation. Transcription and media generation use the services configured for the tool that performs the operation.
+- Jingliu and the script workshop manage their own projects. OpenChatCut tools need an open project in the same Muse conversation. Transcription and media generation use the services configured for the tool that performs the operation.
 
 ### Dev Note
 

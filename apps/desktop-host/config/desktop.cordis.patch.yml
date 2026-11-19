@@ -348,7 +348,7 @@
             tools: ['drama_character_*']
           - id: editing-delivery
             title: 剪辑配乐与交付
-            description: 导出 Word 剧本、处理 Office 文档、创建剪映草稿、查找草稿目录、匹配配乐与整理成片。
+            description: 在主聊天框剪辑已打开的 OpenChatCut 工程、调整时间线和混音，也可创建剪映草稿、匹配配乐、处理和导出 Office 文档。
             tools: [openchatcut_tools, openchatcut_call, screenplay_export_docx, load_workspace_dependencies, office_convert, office_recalculate, office_render, jianying_draft, drama_draft_dir, drama_render, drama_video, drama_bgm, bgm_match]
           - id: data-sourcing
             title: 数据选材与下载

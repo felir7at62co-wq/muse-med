@@ -18,35 +18,15 @@
   display: block;
   width: 100%;
   height: 100%;
-  min-width: 1024px;
   zoom: clamp(0.7, calc(100cqw / 1024px), 1);
   border: 0;
 }
 
-.workbench { display: flex; flex: 1; min-height: 0; min-width: 0; }
-.agent { box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; flex: 0 0 clamp(156px, 23%, 288px);
-  min-width: 0; padding: 12px; color: var(--fg); background: var(--bg); border-inline-end: 1px solid var(--border); }
-.agent strong { font-size: 14px; }
-.messages { flex: 1; min-height: 0; overflow: auto; font-size: 13px; line-height: 1.55; }
-.messages p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 12px; }
-.user { opacity: 0.7; }
-.agent button, .composer textarea { font: inherit; color: inherit; }
-.composer { display: grid; gap: 6px; }
-.composer textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 8px; border-radius: 8px;
-  border: 1px solid var(--border); background: transparent; font-size: 13px; }
-.composer button, .agent [role="alert"] button {
-  justify-self: end; cursor: pointer; border: 1px solid var(--border, #7775); padding: 3px 12px;
-  border-radius: 12px; background: var(--bg-panel, transparent); font-size: 12px;
+.notice {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .25rem .5rem;
+  color: var(--fg);
+  font-size: .85rem;
 }
-.composer button:disabled { opacity: .45; cursor: default; }
-.agent { border-color: var(--border, #7774); }
-.composer textarea { border-color: var(--border, #7775); }
-.workbench:has(.agent) .frame { min-width: 680px; zoom: 1; }
-
-.starters { display: grid; gap: 3px; }
-.starters button, .composer select {
-  color: inherit; font: inherit; text-align: start; border: 1px solid var(--border, #7774); border-radius: 6px;
-  background: var(--bg-panel, transparent); padding: 6px 8px; cursor: pointer;
-}
-.starters button:hover { background: var(--bg-hover, #8882); }
-.composer select { min-width: 0; font-size: 12px; }

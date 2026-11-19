@@ -371,6 +371,124 @@ index 3616a9df33acdae6505fcd0b37ff9e4e9ffe7f82..520fe8b1a3120630ce1da1c65ad14165
    { key: 'web', label: 'Web extraction', tool: 'web_browser', fallback: 'ask the user to paste the page content' },
  ];
  
+diff --git a/src/agent/external-bridge-hydration.ts b/src/agent/external-bridge-hydration.ts
+index 5816c45ce3b303475d81322a09170368a12e3847..232feb0284aae62867cd81137940610843dbc29a 100644
+--- a/src/agent/external-bridge-hydration.ts
++++ b/src/agent/external-bridge-hydration.ts
+@@ -1,4 +1,5 @@
+ import type { ProjectDoc } from '../editor/types';
++import type { ExternalProposalSnapshot } from './external-bridge-runtime';
+ import { replayActions } from '../editor/store';
+ import type { StoredExternalProposal } from '../persist/externalProposalStore';
+ import type { ExternalBridgePersistence } from './external-proposal-apply';
+@@ -13,7 +14,7 @@ import {
+   ExternalSessionRunLedger,
+   type ExternalToolExecutor,
+ } from './external-run-ledger';
+-import { isProposalStale, type Proposal } from './proposal';
++import { isProposalStale } from './proposal';
+ 
+ interface HydratedExternalSession {
+   readonly session: ExternalEditSession;
+@@ -27,7 +28,7 @@ export interface ExternalBridgeHydrationInput {
+   readonly save: ExternalBridgePersistence['saveExternalProposal'];
+   readonly executeTool: ExternalToolExecutor;
+   readonly install: (hydrated: HydratedExternalSession) => void;
+-  readonly publish: (snapshot: { proposal: Proposal | null; stale: boolean }) => void;
++  readonly publish: (snapshot: ExternalProposalSnapshot) => void;
+   readonly applyAutomatic: (operationCount: number) => Promise<void>;
+ }
+ 
+@@ -87,7 +88,8 @@ async function hydrateDrafting(input: ExternalBridgeHydrationInput): Promise<voi
+   if (!run) throw new Error('Drafting Agent run is unavailable or active in another editor.');
+   await prepareHydratedRun(run);
+   input.install({ session, run });
+-  input.publish({ proposal: null, stale: false });
++  input.publish({ proposal: null, stale: false,
++    draftPreview: session.operationCount ? session.draft?.getState() : undefined });
+ }
+ 
+ export async function hydrateStoredExternalBridge(input: ExternalBridgeHydrationInput): Promise<void> {
+diff --git a/src/agent/external-bridge-runtime.ts b/src/agent/external-bridge-runtime.ts
+index e064374dbee401f30d29ebf6e49a89f78a06dd9a..46d56dd1777e6c9dbb2aef7e54ef1e23795f8cea 100644
+--- a/src/agent/external-bridge-runtime.ts
++++ b/src/agent/external-bridge-runtime.ts
+@@ -1,5 +1,5 @@
+ import type { AgentContext } from './context';
+-import type { ProjectDoc } from '../editor/types';
++import type { ProjectDoc, TimelineState } from '../editor/types';
+ import {
+   createExternalEditSession, ExternalEditSessionOutcomeError, finishExternalEditSession,
+   revisionOf, reviewExternalEditSession, type ExternalEditSession,
+@@ -25,7 +25,7 @@ import { formatToolApprovalDetails, type ApprovalDetail } from './approval-detai
+ import { redactTextForAgentRuntime } from './runtime-artifact';
+ import { effectiveToolInvocationArgs } from './execution-policy';
+ import { executeExternalGlobalReadTool } from './external-global-read';
+-export interface ExternalProposalSnapshot { proposal: Proposal | null; stale: boolean }
++export interface ExternalProposalSnapshot { proposal: Proposal | null; stale: boolean; draftPreview?: TimelineState }
+ /** Confirmation request for a real-project tool (generation/export/import/…)
+  * issued from an external session; the user decides in the OpenChatCut UI. */
+ export interface ExternalGuardRequest { id: string; sessionId: string; tool: string; summary: string; details: readonly ApprovalDetail[]; argsDigest: string; operationId?: string }
+@@ -378,6 +378,9 @@ export class ExternalBridgeRuntime {
+     await this.persistence.saveExternalProposal(this.projectId,
+       storedExternalSession(executed.session, 'drafting', undefined, run.runId));
+     this.sessions.set(session.id, executed.session);
++    if (executed.session.operationCount > session.operationCount && executed.session.draft) {
++      this.publish({ proposal: null, stale: false, draftPreview: executed.session.draft.getState() });
++    }
+     return executed.result;
+   }
+ 
+diff --git a/src/agent/external-draft-persistence.verify.ts b/src/agent/external-draft-persistence.verify.ts
+index 3adaeea2d8ef00cdfc8257c39447ca9437479d7b..562595a537a9e0f4650eac48721f73650e4e06f7 100644
+--- a/src/agent/external-draft-persistence.verify.ts
++++ b/src/agent/external-draft-persistence.verify.ts
+@@ -14,7 +14,7 @@ import { docFromTimeline, saveProject } from '../persist/projectStore';
+ import { kvSet } from '../persist/sharedKv';
+ import { saveAutomaticVersion } from '../persist/versionStore';
+ import type { AgentContext } from './context';
+-import { ExternalBridgeRuntime, type ExternalBridgeBinding } from './external-bridge-runtime';
++import { ExternalBridgeRuntime, type ExternalBridgeBinding, type ExternalProposalSnapshot } from './external-bridge-runtime';
+ import { loadRecoveredAgentSession } from './useAgentPersistence';
+ import { revisionOf } from './external-edit-session';
+ 
+@@ -110,7 +110,7 @@ const preservedRun = (await loadAgentRuntimeSidecar(projectId)).runs
+ assert.equal(preservedRun?.status, 'running',
+   'production recovery preserves a persisted external drafting owner for reload');
+ 
+-const snapshots: Array<{ proposal: StoredExternalProposal['proposal']; stale: boolean }> = [];
++const snapshots: ExternalProposalSnapshot[] = [];
+ const reloaded = new ExternalBridgeRuntime(
+   projectId,
+   'editor-after-reload',
+@@ -119,6 +119,8 @@ const reloaded = new ExternalBridgeRuntime(
+   persistence,
+ );
+ await reloaded.hydrate(persistedDraft);
++const recoveredPreview = snapshots.at(-1)?.draftPreview;
++assert(recoveredPreview && recoveredPreview.width / recoveredPreview.height === 9 / 16);
+ const reloadBinding = binding('editor-after-reload');
+ const freshGuarded = await reloaded.execute('read_export_history', guardedArgs, reloadBinding);
+ assert.equal(needsConfirmation(freshGuarded), true, 'reload requires a fresh external approval');
+@@ -126,6 +128,9 @@ const freshGuard = reloaded.pendingGuard();
+ assert(freshGuard);
+ await reloaded.confirmRealTool(freshGuard.id, false);
+ await setRatio(reloaded, reloadBinding, editSessionId, '4:3');
++const latestPreview = snapshots.at(-1)?.draftPreview;
++assert(latestPreview && latestPreview.width / latestPreview.height === 4 / 3);
++assert.deepEqual(live.getDoc(), base, 'the visible draft is independent of the saved timeline');
+ assert.equal((await loadExternalProposal(projectId))?.operationCount, 3);
+ 
+ const originalAnimationFrame = globalThis.requestAnimationFrame;
+@@ -166,6 +171,8 @@ await kvSet(`external-proposal:${legacyTerminalId}`, {
+ });
+ assert.equal((await loadExternalProposal(legacyTerminalId))?.status, 'cancelled');
+ await reloaded.reject();
++assert.equal(snapshots.at(-1)?.draftPreview, undefined);
++assert.equal(snapshots.at(-1)?.proposal, null);
+ assert.equal((await loadExternalProposal(projectId))?.status, 'rejected');
+ 
+ const staleProjectId = `${projectId}-stale`;
 diff --git a/src/agent/tools/mg-video-tools.ts b/src/agent/tools/mg-video-tools.ts
 index a776127139d524ae792b705cc891d22dc65a35df..eea9f5c13f5a9f06925cddf34c3ccdb2f6c03926 100644
 --- a/src/agent/tools/mg-video-tools.ts
@@ -551,24 +669,173 @@ index d39a1d48aeb7f733ab11cdb8de998ec0e575b53d..c96aa5380c4390547c660345f95fac0e
      input_schema: {
        type: 'object',
        properties: {
+diff --git a/src/agent/useExternalAgentBridge.ts b/src/agent/useExternalAgentBridge.ts
+index e328cac69269608eb03d1e29990c8fcbd4752e29..abecbcc81c767ef8c59935b34a7dea77aa6d0e62 100644
+--- a/src/agent/useExternalAgentBridge.ts
++++ b/src/agent/useExternalAgentBridge.ts
+@@ -59,6 +59,7 @@ interface ExternalBridgeHydrator {
+ }
+ 
+ export interface ExternalProposalController {
++  draftPreview?: ExternalProposalSnapshot['draftPreview'];
+   proposal: Proposal | null;
+   proposalStale: boolean;
+   error: string | null;
+@@ -474,6 +475,7 @@ export function useExternalAgentBridge(ctx: AgentContext, projectId: string): Ex
+   const actions = useExternalActions(runtime.runtimeRef, setError);
+   const guard = useExternalGuard(runtime, projectId, setError, t);
+   return {
++    draftPreview: snapshot.draftPreview,
+     proposal: snapshot.proposal,
+     proposalStale: snapshot.stale,
+     error,
+diff --git a/src/components/PreviewPanel.tsx b/src/components/PreviewPanel.tsx
+index 74074f9fbdcc572fd486c672d7f9d2bf5fcc26ca..b153945dbcd4272f75fc1309d1a9263d251b4ea6 100644
+--- a/src/components/PreviewPanel.tsx
++++ b/src/components/PreviewPanel.tsx
+@@ -77,6 +77,7 @@ function PreviewSourceToggle() {
+ }
+ 
+ interface PreviewPanelProps {
++  showPlaybackControls?: boolean;
+   state: TimelineState;
+   project: ProjectDoc;
+   playerRef: RefObject<PlayerRef | null>;
+@@ -107,7 +108,7 @@ interface PreviewPanelProps {
+ }
+ 
+ export const PreviewPanel = memo(function PreviewPanel({
+-  state, project, playerRef, onImport, offlineSrcs, onUpdateCaptions, onSelectCaption, activeCaptionSelection, onSeedChat,
++  state, project, playerRef, onImport, showPlaybackControls = false, offlineSrcs, onUpdateCaptions, onSelectCaption, activeCaptionSelection, onSeedChat,
+   onSelectItem, onSetItemTransform, onSetItemKeyframe, onBeginHistoryGesture, onEndHistoryGesture,
+   onItemPropChange,
+   projectId, timelineId, reviewState, selectedItem, reviewRequest, inspectorOpen, onToggleInspector,
+@@ -359,13 +360,13 @@ export const PreviewPanel = memo(function PreviewPanel({
+               numberOfSharedAudioTags={PREVIEW_SHARED_AUDIO_TAGS}
+               // Full screen black: WebKit legacy full screen div does not automatically blacken the background, and the page checkerboard will be revealed on both sides.
+               style={{ width: '100%', height: '100%', backgroundColor: fullscreen ? '#000' : undefined }}
+-              controls={fullscreen}
++              controls={fullscreen || showPlaybackControls}
+               // Playback runs only through the timeline transport
+               // (play/pause button + Space shortcut), not the player itself. clickToPlay
+               // off = clicking the frame doesn't toggle; spaceKeyToPlayOrPause off = the app
+               // shortcut is the single Space handler (the Player's own handler would
+               // double-toggle it to a no-op).
+-              clickToPlay={fullscreen}
++              clickToPlay={fullscreen || showPlaybackControls}
+               spaceKeyToPlayOrPause={false}
+               // No loop: playback stops at the final frame (editor convention).
+               // Restart by pressing play again.
+diff --git a/src/components/chat/ExternalProposalCard.tsx b/src/components/chat/ExternalProposalCard.tsx
+index d22d2ebd7f7a4f308d1e99788a67cc5180667c8c..bef257c0e41012c8778e3dd01e8ddbe4db239bac 100644
+--- a/src/components/chat/ExternalProposalCard.tsx
++++ b/src/components/chat/ExternalProposalCard.tsx
+@@ -97,7 +97,8 @@ function PendingGuardDialog({ guard, confirmGuard }: {
+   );
+ }
+ 
+-function ExternalProposal({ external, onPreviewState }: {
++function ExternalProposal({ external, onPreviewState, followDraft }: {
++  followDraft?: boolean;
+   external: ExternalProposalController;
+   onPreviewState: (state: TimelineState | null) => void;
+ }) {
+@@ -106,6 +107,8 @@ function ExternalProposal({ external, onPreviewState }: {
+   if (!proposal) return null;
+   return (
+     <ProposalCard
++      key={followDraft ? (proposal.id ?? '') + String(external.proposalStale) : undefined}
++      initialPreview={followDraft && !external.proposalStale}
+       proposal={{ ...proposal, title: `${proposal.title} ${t('编辑提案')}` }}
+       onApply={external.applyProposal}
+       onReject={external.rejectProposal}
+@@ -116,13 +119,16 @@ function ExternalProposal({ external, onPreviewState }: {
+   );
+ }
+ 
+-export function ExternalProposalCard({ external, onPreviewState }: {
++export function ExternalProposalCard({ external, onPreviewState, followDraft = false }: {
++  followDraft?: boolean;
+   external: ExternalProposalController;
+   onPreviewState: (state: TimelineState | null) => void;
+ }) {
++  const draft = followDraft && !external.proposalStale
++    ? external.proposal?.resultState ?? external.draftPreview ?? null : null;
+   useEffect(() => {
+-    if (!external.proposal) onPreviewState(null);
+-  }, [external.proposal, onPreviewState]);
++    if (followDraft || !external.proposal) onPreviewState(draft);
++  }, [followDraft, draft, external.proposal, onPreviewState]);
+ 
+   return (
+     <>
+@@ -133,7 +139,7 @@ export function ExternalProposalCard({ external, onPreviewState }: {
+           confirmGuard={external.confirmGuard}
+         />
+       )}
+-      <ExternalProposal external={external} onPreviewState={onPreviewState} />
++      <ExternalProposal external={external} onPreviewState={onPreviewState} followDraft={followDraft} />
+     </>
+   );
+ }
+diff --git a/src/components/chat/ProposalCard.tsx b/src/components/chat/ProposalCard.tsx
+index e2b99a86b16e8de370f8a0a7d553d287aa7ebbb1..54c62726142d661b3552ba210bf1fce1042e6242 100644
+--- a/src/components/chat/ProposalCard.tsx
++++ b/src/components/chat/ProposalCard.tsx
+@@ -3,7 +3,8 @@ import type { Proposal } from '../../agent/proposal';
+ import { useT } from '../../i18n/locale';
+ import { Icon } from '../icons';
+ 
+-export function ProposalCard({ proposal, onApply, onReject, onPreview, stale, onForceApply, onRePropose }: {
++export function ProposalCard({ proposal, onApply, onReject, onPreview, stale, onForceApply, onRePropose, initialPreview = false }: {
++  initialPreview?: boolean;
+   proposal: Proposal;
+   onApply: (selected: Set<number>) => void;
+   onReject: () => void;
+@@ -16,7 +17,7 @@ export function ProposalCard({ proposal, onApply, onReject, onPreview, stale, on
+   const t = useT();
+   const ops = proposal.options[0].operations;
+   const [selected, setSelected] = useState<Set<number>>(() => new Set(ops.map((_, i) => i)));
+-  const [preview, setPreview] = useState(false);
++  const [preview, setPreview] = useState(initialPreview);
+ 
+   const toggle = (i: number) =>
+     setSelected((s) => {
 diff --git a/src/editor/EditorWorkspaceView.tsx b/src/editor/EditorWorkspaceView.tsx
-index 2076fd793c6bc262323244a08a354f0ec746454f..27125bd959cc76d8faddea4caa22fefd82d634cc 100644
+index 2076fd793c6bc262323244a08a354f0ec746454f..42aff2e361b8166081d3f7ac7460c7bda1bef1fa 100644
 --- a/src/editor/EditorWorkspaceView.tsx
 +++ b/src/editor/EditorWorkspaceView.tsx
 @@ -2,6 +2,8 @@ import type { ComponentProps } from 'react';
  import { theme } from '../theme';
  import { ExportDialog } from '../export/ExportDialog';
  import { TopBar } from '../components/TopBar';
-+import { museEditorParent } from '../muse/editorAgent';
++import { isMuseEditorFrame } from '../muse/editorAgent';
 +import { MuseProposal } from '../muse/MuseProposal';
  import { ChatPanel } from '../components/chat/ChatPanel';
  import { LibraryPanel } from '../library/LibraryPanel';
  import { PreviewPanel } from '../components/PreviewPanel';
-@@ -64,12 +66,14 @@ function renderTimeline(props: EditorWorkspaceViewProps) {
+@@ -16,6 +18,7 @@ import { ShortcutsDialog } from '../shortcuts/ShortcutsDialog';
+ import { AppToastHost } from '../ui/AppToastHost';
+ 
+ export interface EditorWorkspaceViewProps {
++  previewingMuseDraft?: boolean;
+   gridTemplateColumns: string;
+   gridTemplateRows: string;
+   topBar: ComponentProps<typeof TopBar>;
+@@ -56,7 +59,7 @@ function renderPreview(props: EditorWorkspaceViewProps) {
+ 
+ function renderTimeline(props: EditorWorkspaceViewProps) {
+   return (
+-    <div style={{ gridColumn: '3 / -1', gridRow: 4, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
++    <div inert={props.previewingMuseDraft} style={{ gridColumn: '3 / -1', gridRow: 4, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+       <TimelineTabs {...props.timelineTabs} />
+       <Timeline {...props.timeline} />
+     </div>
+@@ -64,12 +67,14 @@ function renderTimeline(props: EditorWorkspaceViewProps) {
  }
  
  export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
-+  const muse = Boolean(museEditorParent());
++  const muse = isMuseEditorFrame();
    return (
      <div
        className="cc-editor-shell"
@@ -579,7 +846,7 @@ index 2076fd793c6bc262323244a08a354f0ec746454f..27125bd959cc76d8faddea4caa22fefd
          gridTemplateRows: props.gridTemplateRows,
          height: '100vh',
          overflow: 'hidden',
-@@ -84,9 +88,9 @@ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
+@@ -84,9 +89,9 @@ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
        {props.designStylePanel && <DesignStylePanel {...props.designStylePanel} />}
        {props.versionHistory && <VersionHistory {...props.versionHistory} />}
        {props.shortcutsDialog && <ShortcutsDialog {...props.shortcutsDialog} />}
@@ -591,12 +858,85 @@ index 2076fd793c6bc262323244a08a354f0ec746454f..27125bd959cc76d8faddea4caa22fefd
        </div>
        {renderLibrary(props)}
        <div style={{ gridColumn: 4, gridRow: 2 }}>
+diff --git a/src/editor/useEditorController.tsx b/src/editor/useEditorController.tsx
+index e780933b45bd6b35486e4dfc11720b2f761d7af3..73f7ed39a960b95af705ec8c3d4d643e0add2255 100644
+--- a/src/editor/useEditorController.tsx
++++ b/src/editor/useEditorController.tsx
+@@ -5,6 +5,7 @@ import { analyzeClipLoudness, gainForTarget } from '../audio/loudness';
+ import { serializableDefsFor } from '../gl/fx/effects';
+ import { useT } from '../i18n/locale';
+ import { importMedia } from '../media/upload';
++import { isMuseEditorFrame } from '../muse/editorAgent';
+ import { useEditorMediaIngest } from '../media/useEditorMediaIngest';
+ import { resumeOpenGenerationJobs } from '../persist/jobRegistryStore';
+ import type { ProjectMeta } from '../persist/projectStoreCoordinators';
+@@ -85,7 +86,7 @@ function useEditorUiStage(props: EditorProps, base: BaseStage, environment: Envi
+     shortcutApiRef: dialogs.shortcutApiRef, setShowDesign: dialogs.setShowDesign,
+     setShowVersions: dialogs.setShowVersions, setShowShortcuts: dialogs.setShowShortcuts,
+     setChatCollapsed: panels.setChatCollapsed, selectAllTimelineContent: selection.selectAllTimelineContent,
+-  });
++  }, !(agent.previewState && isMuseEditorFrame()));
+   return { dialogs, persistence, panels, ingest, exportActions };
+ }
+ 
+@@ -103,6 +104,7 @@ function buildEditorWorkspaceViewProps(
+   const { state, doc, commands, canUndo, canRedo, selection, t } = base;
+   const { activeSlipPreview, captionSelection, captionSelections, captionTracks, reviewRequest, selectCaption, selectMarqueeCaptions, selectedCaption, selectedIds, selectedItem, selectedItems, selectedSlipPlan, selectedTransition, sequenceOptions, setActiveSlipPreview, setReviewRequest, setTimelineHoverPreviewFrame, timelineHoverPreviewFrame, trackOptions, usedAssetIds } = selection;
+   const { historyGesture, stateRef, applyInspectorSelection, docRef, offlineSrcs, offlineAssetIds, markOffline: markMediaOffline, creativeMode, changeCreativeMode, playerRef, selectedPreviewStatuses, handleSelectedPreviewStatus, allTemplates, agentCtx, previewState, setPreviewState } = environment.agent;
++  const museDraft = isMuseEditorFrame() ? previewState : null;
+   const { autoGradeBusy, autoGradeSession, autoGradeTargets, cancelAutoGrade, analyzeSelectedColor, applyAutoGrade, autoGradePreviewState, selectedAutoGrade } = environment.autoGrade;
+   const { chatSeed, setChatSeed, showDesign, setShowDesign, showVersions, setShowVersions, showShortcuts, setShowShortcuts, showSettings, setShowSettings, shortcutApiRef, getPlayhead } = ui.dialogs;
+   const { handleHome } = ui.persistence;
+@@ -110,6 +112,7 @@ function buildEditorWorkspaceViewProps(
+   const { startAssetTranscription, ingestToPool, importMobileUpload, importToPool, dropExternalFilesToTimeline, addMediaAssetsToTimeline, importToCanvas, pasteMediaAssets, useMediaAI, useTemplateAI } = ui.ingest;
+   const { exportJobs, activeExportJobs, exportOpen, setExportOpen, relinkMediaAsset } = ui.exportActions;
+   return {
++    previewingMuseDraft: Boolean(museDraft),
+     gridTemplateColumns: panelLayout.gridTemplateColumns,
+     gridTemplateRows: panelLayout.gridTemplateRows,
+     topBar: { projectId: project.id, projectName: project.name, exporting: activeExportJobs > 0, exportJobCount: activeExportJobs, canUndo, canRedo, onHome: handleHome, onRename, onResumeGeneration: () => resumeOpenGenerationJobs(project.id, { getState: () => stateRef.current, onAsset: (asset) => { if ((docRef.current.assets ?? []).some((item) => item.id === asset.id || item.src === asset.src)) return; commands.addAsset(asset); if (asset.kind !== 'audio') enqueueVisualAnalysis(asset); }, timeoutSeconds: 180 }).then(() => undefined) },
+@@ -123,11 +126,11 @@ function buildEditorWorkspaceViewProps(
+     onResizeChat: panelLayout.resizeChat,
+     libraryPanel: { semanticScopeId: project.id, templates: allTemplates, onAddTemplate: addTemplate, onAddAudio: (a) => commands.addAudio(a), playerRef, fps: state.fps, items: state.items, trackOptions, captionTracks, onSetCaptions: commands.setCaptions, onUpdateCaptions: commands.updateCaptions, onSetItemTranscript: commands.setItemTranscript, onToggleWord: commands.toggleWord, onCleanScript: commands.cleanScript, onSetGapCap: commands.setGapCap, onSetTranscriptPlayOrder: commands.setTranscriptPlayOrder, onReorderTrackItems: commands.reorderTrackItems, onClearEdits: commands.clearEdits, assets: state.assets ?? [], mediaFolders: doc.mediaFolders, usedAssetIds, offlineAssetIds, onAssetLoadError: (asset) => markMediaOffline(asset.src), onImportMedia: importToPool, onImportMobileMedia: importMobileUpload, onIngestDirectoryAsset: ingestToPool, onTranscribeAsset: startAssetTranscription, onAddMediaItem: (asset) => commands.addMediaItem(asset), onAddMediaAssetsToTimeline: addMediaAssetsToTimeline, onUseMediaAI: useMediaAI, onPasteMediaAssets: pasteMediaAssets, onCreateMediaFolder: commands.createMediaFolder, onRenameMediaFolder: commands.renameMediaFolder, onDeleteMediaFolder: commands.deleteMediaFolder, onMoveMediaAssets: commands.moveMediaAssets, onRenameMediaAsset: commands.renameMediaAsset, onRenameMediaAssets: commands.renameMediaAssets, onSetMediaAssetFavorite: commands.setMediaAssetFavorite, onSetMediaAssetsFavorite: commands.setMediaAssetsFavorite, onRemoveMediaAsset: commands.removeMediaAsset, onRemoveMediaAssets: commands.removeMediaAssets, onCreateCaptionTrack: commands.createCaptionTrack, sequenceOptions, onAddSequence: (timelineId) => { const result = commands.addSequence(timelineId, { startFrame: getPlayhead() }); if (!result.ok) showAppToast(t(result.error), { error: true }); }, onRelinkMediaAsset: relinkMediaAsset, onAddSolid: () => commands.addSolidItem({ startFrame: getPlayhead() }), creativeMode, onCreativeModeChange: changeCreativeMode, onUseTemplateAI: useTemplateAI, selectedItem, onApplyTransition: (type, custom) => state.selectedId && commands.addTransition(state.selectedId, type, undefined, custom), onApplyFx: (assetId) => { if (!state.selectedId) return; const it = state.items.find((x) => x.id === state.selectedId); if (!it) return; const prev = it.effects ?? []; const next = [...prev.filter((e) => e.assetId !== assetId), { id: `fx_${assetId}`, assetId, overrides: {} }]; commands.setItemEffects(state.selectedId, next, serializableDefsFor(next)); }, onApplyZoom: (zoom) => state.selectedId && commands.setItemZoom(state.selectedId, zoom) },
+     onResizeLibrary: panelLayout.resizeLibrary,
+-    previewPanel: { state: autoGradePreviewState ?? previewState ?? state, project: doc, playerRef, onImport: importToCanvas, hoverPreviewFrame: timelineHoverPreviewFrame, projectId: project.id, timelineId: doc.activeTimelineId, reviewState: state, selectedItem, reviewRequest, offlineSrcs, onUpdateCaptions: previewState || autoGradePreviewState ? undefined : commands.updateCaptions, onSelectCaption: previewState || autoGradePreviewState ? undefined : selectCaption, activeCaptionSelection: captionSelection, ...(!previewState && !autoGradePreviewState ? { onSelectItem: commands.selectItem, onSetItemTransform: commands.setItemTransform, onSetItemKeyframe: commands.setItemKeyframe, onBeginHistoryGesture: commands.beginHistoryGesture, onEndHistoryGesture: commands.endHistoryGesture, onItemPropChange: (id, key, value) => commands.updateItemProps(id, { [key]: value }) } : {}), onSeedChat: (text) => setChatSeed({ text, nonce: Date.now() }), inspectorOpen: !!(selectedItem || selectedCaption) && !inspectorCollapsed, selectedPreviewStatuses, onSelectedPreviewStatus: handleSelectedPreviewStatus, slipPreview: activeSlipPreview, onToggleInspector: () => setInspectorCollapsed((collapsed) => !collapsed) },
++    previewPanel: { showPlaybackControls: Boolean(museDraft), state: autoGradePreviewState ?? previewState ?? state, project: doc, playerRef, onImport: importToCanvas, hoverPreviewFrame: timelineHoverPreviewFrame, projectId: project.id, timelineId: doc.activeTimelineId, reviewState: state, selectedItem, reviewRequest, offlineSrcs, onUpdateCaptions: previewState || autoGradePreviewState ? undefined : commands.updateCaptions, onSelectCaption: previewState || autoGradePreviewState ? undefined : selectCaption, activeCaptionSelection: captionSelection, ...(!previewState && !autoGradePreviewState ? { onSelectItem: commands.selectItem, onSetItemTransform: commands.setItemTransform, onSetItemKeyframe: commands.setItemKeyframe, onBeginHistoryGesture: commands.beginHistoryGesture, onEndHistoryGesture: commands.endHistoryGesture, onItemPropChange: (id, key, value) => commands.updateItemProps(id, { [key]: value }) } : {}), onSeedChat: (text) => setChatSeed({ text, nonce: Date.now() }), inspectorOpen: !!(selectedItem || selectedCaption) && !inspectorCollapsed, selectedPreviewStatuses, onSelectedPreviewStatus: handleSelectedPreviewStatus, slipPreview: activeSlipPreview, onToggleInspector: () => setInspectorCollapsed((collapsed) => !collapsed) },
+     inspectorPanel: (selectedItem || selectedCaption) && !inspectorCollapsed ? { playerRef, historyGesture, templates: allTemplates, selectedItem, selectedCaption, onCaptionUpdate: (patch) => selectedCaption && commands.updateCaptions(patch, selectedCaption.trackId), selectedIds, selectedItems, fps: state.fps, collapsed: inspectorCollapsed, onCollapsedChange: setInspectorCollapsed, onItemPropChange: (key, value) => applyInspectorSelection((item) => ({ type: 'updateProps', id: item.id, patch: { [key]: value } }), (item) => selectedItem ? item.kind === selectedItem.kind : false), onItemVolumeChange: (volume) => applyInspectorSelection((item) => ({ type: 'setVolume', id: item.id, volume }), (item) => item.kind === 'audio' || item.kind === 'video'), onItemFadeChange: (fade) => applyInspectorSelection((item) => ({ type: 'setFade', id: item.id, ...fade })), onItemTransformChange: (patch) => applyInspectorSelection((item) => ({ type: 'setTransform', id: item.id, patch }), (item) => item.kind !== 'audio'), onItemFiltersChange: (patch) => { if (autoGradeBusy || autoGradeSession) cancelAutoGrade(); applyInspectorSelection((item) => ({ type: 'setFilters', id: item.id, patch }), (item) => item.kind !== 'audio'); }, backgroundFillAvailable: selectedItems.length > 0 && selectedItems.every((item) => isBackgroundFillEligible(state, item)), onItemBackgroundFillChange: (enabled, strength) => applyInspectorSelection((item) => ({ type: 'setBackgroundFill', id: item.id, enabled, strength }), (item) => isBackgroundFillEligible(state, item)), onApplyBackgroundFillToAll: (strength: number) => { const snapshot = stateRef.current; const actions = snapshot.items.filter((item) => isBackgroundFillEligible(snapshot, item)).map((item) => ({ type: 'setBackgroundFill' as const, id: item.id, enabled: true, strength })); if (actions.length === 0) return; commands.batch(actions, 'Apply background fill to all'); showAppToast(t('已将背景填充应用到 {n} 个片段', { n: actions.length })); }, autoGrade: { busy: autoGradeBusy, targetCount: autoGradeTargets.length, previewCount: autoGradeSession?.recommendations.length ?? 0, failedCount: autoGradeSession?.failedCount ?? 0, selectedPreview: selectedAutoGrade ? { filters: selectedAutoGrade.analysis.filters, bitDepth: selectedAutoGrade.analysis.profile.bitDepth, hdr: selectedAutoGrade.analysis.profile.hdr } : null, onAnalyze: analyzeSelectedColor, onApply: applyAutoGrade, onCancel: cancelAutoGrade }, onItemZoomChange: (patch) => applyInspectorSelection((item) => ({ type: 'setZoom', id: item.id, patch }), (item) => item.kind !== 'audio'), onItemEffectsChange: (effects) => { const defs = serializableDefsFor(effects); applyInspectorSelection((item) => ({ type: 'setEffects', id: item.id, effects, defs }), (item) => item.kind === 'video' || item.kind === 'image'); }, selectedPreviewStatuses, onItemSpeedChange: (rate) => applyInspectorSelection((item) => ({ type: 'setSpeed', id: item.id, rate }), (item) => item.kind === 'video' || item.kind === 'audio'), slipPlan: selectedSlipPlan, onItemSlip: selectedSlipPlan && selectedItem ? (deltaInFrames) => commands.slipItem(selectedItem.id, deltaInFrames) : undefined, onNormalizeLoudness: async () => { const ids = [...selectedIds]; const items = [...selectedItems]; if (!items.length || items.some((item) => item.kind !== 'audio' || !item.src)) return; try { const gains = await Promise.all(items.map(async (item) => [item.id, gainForTarget(await analyzeClipLoudness(item.src!), -14)] as const)); const gainById = new Map(gains); const live = stateRef.current; const plan = planInspectorBatch(live, ids, (item) => ({ type: 'setVolume', id: item.id, volume: gainById.get(item.id)! }), (item) => item.kind === 'audio' && gainById.has(item.id)); if (plan.ok) commands.batch(plan.actions, 'Normalize selected loudness'); } catch { showAppToast(t('响度分析失败，未修改任何片段。')); } }, onIsolateVoice: async (action, strength) => { const ids = [...selectedIds]; const items = [...selectedItems]; if (!items.length || items.some((item) => (item.kind !== 'video' && item.kind !== 'audio'))) return; if (action === 'clear') { const plan = planInspectorBatch(stateRef.current, ids, (item) => ({ type: 'setItemDenoise', id: item.id, denoisedSrc: null }), (item) => item.kind === 'video' || item.kind === 'audio'); if (plan.ok) commands.batch(plan.actions, 'Clear selected voice isolation'); return; } if (items.some((item) => !item.src)) return; try { const sourceAssets = docRef.current.assets ?? []; const snapshots = items.map((item) => captureTimelineItemSource(item, sourceAssets)); const isolated = await Promise.all(snapshots.map(async (snapshot, index) => { const item = items[index]!; return [item.id, await isolateVoiceOnSrc(snapshot.src, typeof strength === 'number' ? strength : (item.denoiseStrength ?? 70), { force: true, sourceRevision: snapshot.sourceRevision })] as const; })); const resultById = new Map(isolated); const live = stateRef.current; const validation = validateTimelineItemSourceBatch(snapshots, live.items, docRef.current.assets ?? [], resultById); if (validation.status === 'stale') { showAppToast(t('所选片段的源素材已变化，旧的人声分离结果已丢弃。请重试。'), { error: true }); return; } const plan = planInspectorBatch(live, ids, (item) => { const result = resultById.get(item.id); return result ? { type: 'setItemDenoise' as const, id: item.id, denoisedSrc: result.path, strength: result.strength } : null; }, (item) => (item.kind === 'video' || item.kind === 'audio') && resultById.has(item.id)); if (plan.ok) commands.batch(plan.actions, 'Isolate selected voices'); } catch { showAppToast(t('人声分离失败，未修改任何片段。')); } }, getPlayhead, onSetReframeKeyframe: (frame, fx, fy, mag) => applyInspectorSelection((item) => ({ type: 'reframeKeyframe', id: item.id, frame, focalPointX: fx, focalPointY: fy, magnification: mag }), (item) => item.kind !== 'audio'), onRemoveReframeKeyframe: (frame) => applyInspectorSelection((item) => ({ type: 'removeReframeKeyframe', id: item.id, frame }), (item) => item.kind !== 'audio'), onSetItemKeyframe: (prop, frame, value, easing) => applyInspectorSelection((item) => ({ type: 'setKeyframe', id: item.id, prop, frame, value, easing }), (item) => supportsKeyframeProperty(item, prop)), onRemoveItemKeyframe: (prop, frame) => applyInspectorSelection((item) => ({ type: 'removeKeyframe', id: item.id, prop, frame }), (item) => supportsKeyframeProperty(item, prop)), onResetItemKeyframes: (props) => applyInspectorSelection((item) => keyframeResetBatch(item.id, props).actions, (item) => props.every((prop) => supportsKeyframeProperty(item, prop)), 'Reset selected keyframes'), onSeek: (frame) => shortcutApiRef.current?.seekTo(frame), transition: selectedTransition, onAddTransition: (type) => state.selectedId && commands.addTransition(state.selectedId, type), onSetTransition: (patch) => { const transition = state.transitions?.find((item) => item.incomingItemId === state.selectedId); if (transition) commands.setTransition(transition.id, patch); }, onRemoveTransition: () => { const transition = state.transitions?.find((item) => item.incomingItemId === state.selectedId); if (transition) commands.removeTransition(transition.id); } } : null,
+     onResizeTimeline: panelLayout.resizeTimeline,
+     timelineTabs: { doc, commands },
+-    timeline: { state, commands, playerRef, projectId: project.id, shortcutApiRef, selectedCaptions: captionSelections, onSelectCaption: selectCaption, onMarqueeCaptionSelect: selectMarqueeCaptions, onHoverPreviewFrameChange: setTimelineHoverPreviewFrame, onDropExternalFiles: dropExternalFilesToTimeline, onReviewItem: (request) => setReviewRequest({ ...request, nonce: Date.now() }), onSlipPreview: setActiveSlipPreview, onRecordVoiceover: async (blob) => { const ext = blob.type.includes('ogg') ? 'ogg' : 'webm'; const asset = await importMedia(new File([blob], `旁白.${ext}`, { type: blob.type }), state.fps); ingestToPool(asset); commands.addMediaItem(asset, { track: 'A1', startFrame: getPlayhead() }); } },
++    timeline: { state: museDraft ?? state, commands, playerRef, projectId: project.id, shortcutApiRef, selectedCaptions: captionSelections, onSelectCaption: selectCaption, onMarqueeCaptionSelect: selectMarqueeCaptions, onHoverPreviewFrameChange: setTimelineHoverPreviewFrame, onDropExternalFiles: dropExternalFilesToTimeline, onReviewItem: (request) => setReviewRequest({ ...request, nonce: Date.now() }), onSlipPreview: setActiveSlipPreview, onRecordVoiceover: async (blob) => { const ext = blob.type.includes('ogg') ? 'ogg' : 'webm'; const asset = await importMedia(new File([blob], `旁白.${ext}`, { type: blob.type }), state.fps); ingestToPool(asset); commands.addMediaItem(asset, { track: 'A1', startFrame: getPlayhead() }); } },
+   };
+ }
+ 
+diff --git a/src/editor/useEditorWorkspaceUi.ts b/src/editor/useEditorWorkspaceUi.ts
+index 9e26f46a4511c39dd6b9ec3b7a1aec9502ffdc43..469dde182c109e2b63a32cc2ae03b348cebd27c3 100644
+--- a/src/editor/useEditorWorkspaceUi.ts
++++ b/src/editor/useEditorWorkspaceUi.ts
+@@ -178,7 +178,7 @@ function relinkedAsset(current: MediaAsset, next: MediaAssetRelinkPatch): MediaA
+ }
+ 
+ export function useEditorWorkspaceExportActions(
+-  input: EditorWorkspaceExportActionsInput,
++  input: EditorWorkspaceExportActionsInput, shortcutsEnabled = true,
+ ): EditorWorkspaceExportActions {
+   const [exportJobs, activeExportJobs] = useExportJobs(input.projectId, input.t);
+   const [exportOpen, setExportOpen] = useState(false);
+@@ -201,7 +201,7 @@ export function useEditorWorkspaceExportActions(
+       });
+     },
+     selectAll: input.selectAllTimelineContent,
+-  });
++  }, shortcutsEnabled);
+   const relinkMediaAsset = useCallback((id: string, next: MediaAssetRelinkPatch) => {
+     const current = input.docRef.current.assets.find((asset) => asset.id === id);
+     input.commands.relinkMediaAsset(id, next);
 diff --git a/src/hooks/useEditorPanelLayout.ts b/src/hooks/useEditorPanelLayout.ts
-index 4ab1cb53d99b34e1ca9d2edb38b3d1d5f1c3aee9..1f7df9de01c6f9c6677d9dd3e3f4c842b0f4c23a 100644
+index 4ab1cb53d99b34e1ca9d2edb38b3d1d5f1c3aee9..3f086d59059a49e6c4ce20216dcdae76718a90f1 100644
 --- a/src/hooks/useEditorPanelLayout.ts
 +++ b/src/hooks/useEditorPanelLayout.ts
 @@ -1,3 +1,4 @@
-+import { museEditorParent } from '../muse/editorAgent';
++import { isMuseEditorFrame } from '../muse/editorAgent';
  import { usePersistedState } from './usePersistedState';
  
  const HEADER_HEIGHT = 41;
@@ -605,7 +945,7 @@ index 4ab1cb53d99b34e1ca9d2edb38b3d1d5f1c3aee9..1f7df9de01c6f9c6677d9dd3e3f4c842
    );
  
 -  const chatTrack = chatCollapsed ? `${COLLAPSED_CHAT_WIDTH}px` : `${chatRatio * 100}vw`;
-+  const muse = Boolean(museEditorParent());
++  const muse = isMuseEditorFrame();
 +  const chatTrack = muse ? '0' : chatCollapsed ? `${COLLAPSED_CHAT_WIDTH}px` : `${chatRatio * 100}vw`;
    const gridTemplateColumns = `${chatTrack} 0 ${libraryRatio * 100}vw 0 minmax(0, 1fr)`;
    const gridTemplateRows = `${HEADER_HEIGHT}px minmax(0, ${1 - timelineRatio}fr) 0 minmax(0, ${timelineRatio}fr)`;
@@ -666,7 +1006,7 @@ index 5e303155ba1e01e58bacd26ba917de159748a1f1..cc1a10cc5706c325a9e2c176c3c9e0e8
    return (await res.json() as { path: string }).path;
 diff --git a/src/muse/MuseProposal.tsx b/src/muse/MuseProposal.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..2f484c39ee2c371f96cd4fa00d6d0284aad6e10b
+index 0000000000000000000000000000000000000000..d9279ce33b9a03f26ee43b3ed3e9e67de4fb0f95
 --- /dev/null
 +++ b/src/muse/MuseProposal.tsx
 @@ -0,0 +1,13 @@
@@ -680,23 +1020,27 @@ index 0000000000000000000000000000000000000000..2f484c39ee2c371f96cd4fa00d6d0284
 +  const external = useExternalAgentBridge(ctx, projectId);
 +  return <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 15, maxWidth: 'min(460px, 92%)',
 +    maxHeight: '65vh', overflow: 'auto', background: theme.bg, borderRadius: 8 }}>
-+    <ExternalProposalCard external={external} onPreviewState={onPreviewState} />
++    <ExternalProposalCard external={external} onPreviewState={onPreviewState} followDraft />
 +  </div>;
 +}
 diff --git a/src/muse/editorAgent.ts b/src/muse/editorAgent.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..32e9dc43a2fb758afbc75632cb9ce1f501d946e7
+index 0000000000000000000000000000000000000000..dab96a61c50b3a0621bfe6b5ed87e1f2ac059518
 --- /dev/null
 +++ b/src/muse/editorAgent.ts
-@@ -0,0 +1,29 @@
-+import { EMPTY_PROJECT_STARTERS, QUICK_ACTIONS } from '../components/chat/chatPanelPresets';
-+import { t } from '../i18n/locale';
+@@ -0,0 +1,31 @@
 +import { browserProjectOwnership, observeBrowserProjectOwnership } from '../persist/projectStoreTransport';
 +import { allowedMuseParent } from './jingliuBridge';
 +
-+/** Limit editor selection and starter suggestions to the configured Muse parent. */
++/** The embedded workspace uses Muse's main composer even in manual editing mode. */
++export function isMuseEditorFrame(): boolean {
++  return window.parent !== window && ['127.0.0.1', '[::1]'].includes(location.hostname)
++    && new URLSearchParams(location.search).has('museParent');
++}
++
++/** Only configured Muse parents may receive active project information. */
 +export function museEditorParent(): string | undefined {
-+  if (window.parent === window || !['127.0.0.1', '[::1]'].includes(location.hostname)) return;
++  if (!isMuseEditorFrame() || !new URLSearchParams(location.search).has('museAgent')) return;
 +  const origin = new URLSearchParams(location.search).get('museParent');
 +  if (origin && allowedMuseParent(origin, import.meta.env.VITE_MUSE_EDITOR_PARENT_ORIGINS ?? '')) return origin;
 +}
@@ -705,9 +1049,7 @@ index 0000000000000000000000000000000000000000..32e9dc43a2fb758afbc75632cb9ce1f5
 +export function publishMuseProject(origin: string, project: { id: string; name: string } | null): () => void {
 +  const announce = () => {
 +    const owner = project && browserProjectOwnership(project.id);
-+    const translate = ({ label, prompt }: { label: string; prompt: string }) => ({ label: t(label), prompt: t(prompt) });
 +    window.parent.postMessage({ type: 'openchatcut:project', project: project && { ...project,
-+      starters: EMPTY_PROJECT_STARTERS.map(translate), shortcuts: QUICK_ACTIONS.map(translate),
 +      owner: owner ? { id: owner.ownerId, epoch: owner.epoch } : null } }, origin);
 +  };
 +  const stop = project && observeBrowserProjectOwnership(project.id, announce);
@@ -1040,3 +1382,23 @@ index b38b2313bd7fb1ecd7d458ca7f8e8e4b327fd948..c0d525ca62f9587a478155c2322d81ff
  /** Stream v2 packages without materializing every base64 asset in one object. */
  export async function importProjectPackage(
    file: Blob,
+diff --git a/src/shortcuts/useEditorActions.ts b/src/shortcuts/useEditorActions.ts
+index da8fe1395d779dc3b9ef14176ee0fb40c0396181..3d23d3bcfb4d2355bf64c960828fbac1869e8514 100644
+--- a/src/shortcuts/useEditorActions.ts
++++ b/src/shortcuts/useEditorActions.ts
+@@ -143,7 +143,7 @@ function viewActions(deps: EditorActionDeps): ActionBindings {
+   };
+ }
+ 
+-export function useEditorActions(deps: EditorActionDeps): void {
++export function useEditorActions(deps: EditorActionDeps, shortcutsEnabled = true): void {
+   const bindings: ActionBindings = {
+     ...playbackActions(deps),
+     ...editingActions(deps),
+@@ -157,5 +157,5 @@ export function useEditorActions(deps: EditorActionDeps): void {
+     },
+   };
+   useActionBindings(bindings);
+-  useShortcutDispatcher();
++  useShortcutDispatcher({ enabled: shortcutsEnabled });
+ }

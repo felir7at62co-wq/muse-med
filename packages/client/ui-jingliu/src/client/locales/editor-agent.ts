@@ -1,11 +1,11 @@
-/** Conversation controls for the embedded video editor. */
+/** Connection recovery for the embedded video editor. */
 export const editorAgentCopy = {
-  zh: { editShortcuts: '快捷操作', editConnecting: '正在连接时间线…', editAgent: 'Muse 剪辑', agentWorking: 'Muse 正在处理…', editPrompt: '告诉 Muse 要怎么剪…', editSend: '发送', editSendFailed: '发送失败，指令已保留。', editDisconnected: '剪辑工程连接已断开。', editReconnect: '重新连接', sessionUnavailable: '请先打开 Muse 会话。' },
-  en: { editShortcuts: 'Quick actions', editConnecting: 'Connecting to the timeline…', editAgent: 'Muse editor', agentWorking: 'Muse is working…', editPrompt: 'Describe your edit…', editSend: 'Send', editSendFailed: 'Could not send. Your draft is saved.', editDisconnected: 'Editor disconnected.', editReconnect: 'Reconnect', sessionUnavailable: 'Open a Muse conversation.' },
-  ja: { editShortcuts: 'クイック操作', editConnecting: 'タイムラインに接続中…', editAgent: 'Muse 編集', agentWorking: 'Muse が作業中…', editPrompt: '編集内容を入力…', editSend: '送信', editSendFailed: '送信できません。下書きは残っています。', editDisconnected: '編集接続が切れました。', editReconnect: '再接続', sessionUnavailable: 'Muse の会話を開いてください。' },
-  es: { editShortcuts: 'Acciones rápidas', editConnecting: 'Conectando con la línea de tiempo…', editAgent: 'Edición con Muse', agentWorking: 'Muse está trabajando…', editPrompt: 'Describe la edición…', editSend: 'Enviar', editSendFailed: 'No se envió. Se conservó el borrador.', editDisconnected: 'Editor desconectado.', editReconnect: 'Reconectar', sessionUnavailable: 'Abre una conversación de Muse.' },
-  fr: { editShortcuts: 'Actions rapides', editConnecting: 'Connexion à la timeline…', editAgent: 'Montage avec Muse', agentWorking: 'Muse travaille…', editPrompt: 'Décrivez le montage…', editSend: 'Envoyer', editSendFailed: 'Échec de l’envoi. Le brouillon est conservé.', editDisconnected: 'Éditeur déconnecté.', editReconnect: 'Reconnecter', sessionUnavailable: 'Ouvrez une conversation Muse.' },
-  de: { editShortcuts: 'Schnellaktionen', editConnecting: 'Verbindung zur Zeitleiste…', editAgent: 'Muse-Schnitt', agentWorking: 'Muse arbeitet…', editPrompt: 'Schnitt beschreiben…', editSend: 'Senden', editSendFailed: 'Senden fehlgeschlagen. Der Entwurf bleibt erhalten.', editDisconnected: 'Editor getrennt.', editReconnect: 'Neu verbinden', sessionUnavailable: 'Öffne eine Muse-Unterhaltung.' },
-  ru: { editShortcuts: 'Быстрые действия', editConnecting: 'Подключение к монтажной шкале…', editAgent: 'Монтаж с Muse', agentWorking: 'Muse работает…', editPrompt: 'Опишите монтаж…', editSend: 'Отправить', editSendFailed: 'Не удалось отправить. Черновик сохранён.', editDisconnected: 'Редактор отключён.', editReconnect: 'Подключить', sessionUnavailable: 'Откройте беседу Muse.' },
-  pt: { editShortcuts: 'Ações rápidas', editConnecting: 'Conectando à linha do tempo…', editAgent: 'Edição com Muse', agentWorking: 'Muse está trabalhando…', editPrompt: 'Descreva a edição…', editSend: 'Enviar', editSendFailed: 'Falha no envio. O rascunho foi mantido.', editDisconnected: 'Editor desconectado.', editReconnect: 'Reconectar', sessionUnavailable: 'Abra uma conversa no Muse.' },
+  zh: { editDisconnected: '剪辑工程连接已断开。', editReconnect: '重新连接' },
+  en: { editDisconnected: 'Editor disconnected.', editReconnect: 'Reconnect' },
+  ja: { editDisconnected: '編集接続が切れました。', editReconnect: '再接続' },
+  es: { editDisconnected: 'Editor desconectado.', editReconnect: 'Reconectar' },
+  fr: { editDisconnected: 'Éditeur déconnecté.', editReconnect: 'Reconnecter' },
+  de: { editDisconnected: 'Editor getrennt.', editReconnect: 'Neu verbinden' },
+  ru: { editDisconnected: 'Редактор отключён.', editReconnect: 'Подключить' },
+  pt: { editDisconnected: 'Editor desconectado.', editReconnect: 'Reconectar' },
 } as const

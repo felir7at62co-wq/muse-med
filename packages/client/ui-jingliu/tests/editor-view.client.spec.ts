@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { expect, it, vi } from 'vitest'
-import { observeEditor } from '../src/client/editor-conversation.ts'
+import { observeEditor } from '../src/client/editor-view.ts'
 
 it('accepts only public project and ownership fields from its own editor frame', () => {
   const frame = document.createElement('iframe')
@@ -18,9 +18,9 @@ it('accepts only public project and ownership fields from its own editor frame',
     message(frame.contentWindow, origin, { type: 'prompt', text: 'send' })
     expect(select.mock.calls).toEqual([[null]])
     message(frame.contentWindow, origin, valid)
-    expect(select).toHaveBeenLastCalledWith({ id: 'test', name: 'Cut', owner: { id: 'view', epoch: 2 }, starters: [{ label: 'Dialogue', prompt: 'Tighten pauses' }], shortcuts: [] })
+    expect(select).toHaveBeenLastCalledWith({ id: 'test', name: 'Cut', owner: { id: 'view', epoch: 2 } })
     message(frame.contentWindow, origin, { ...valid, project: { ...project, owner: null } })
-    expect(select).toHaveBeenLastCalledWith({ id: 'test', name: 'Cut', owner: null, starters: [{ label: 'Dialogue', prompt: 'Tighten pauses' }], shortcuts: [] })
+    expect(select).toHaveBeenLastCalledWith({ id: 'test', name: 'Cut', owner: null })
   } finally { stop(); frame.remove() }
   message(null, origin, valid)
   expect(select).toHaveBeenCalledTimes(3)

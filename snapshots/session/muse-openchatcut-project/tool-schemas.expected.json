@@ -234,7 +234,7 @@
         "properties": {
           "project_id": {
             "type": "string",
-            "description": "已在本会话打开的工程 ID。只有一个工程时可省略。"
+            "description": "当前会话的工程 ID。省略时自动使用唯一打开的工程，有多个时返回名称和 ID 供选择。"
           },
           "query": {
             "type": "string",

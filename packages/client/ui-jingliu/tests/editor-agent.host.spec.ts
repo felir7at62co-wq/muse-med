@@ -48,7 +48,7 @@ it('binds a real editor view to its conversation, fixes manual review and releas
   }))
   const invoke = (session: string, name: string, args: Record<string, unknown>) => tools.get(name)!.execute(args,
     { agent: { session: { id: session } }, signal: new AbortController().signal } as ToolRunContext)
-  const path = root + '/api/openchatcut/view?session=alpha&project=demo&owner=browser1&epoch=1'
+  const path = root + '/api/openchatcut/view?session=alpha&project=demo&owner=browser1&name=Opening&epoch=1'
   const headers = { cookie: 'scope=test', 'x-muse-editor-view': '1' }
   expect((await fetch(path)).status).toBe(401)
   expect((await fetch(path, { headers: { cookie: headers.cookie } })).status).toBe(400)
@@ -76,6 +76,16 @@ it('binds a real editor view to its conversation, fixes manual review and releas
     { name: 'target_project', arguments: { projectId: 'demo' } },
     { name: 'begin_edit_session', arguments: { approvalMode: 'manual', clientName: 'Muse' } },
   ])
+  const other = new AbortController()
+  const second = await fetch(path.replace('project=demo', 'project=second').replace('Opening', 'Credits'), { headers, signal: other.signal })
+  expect(second.status).toBe(200)
+  expect(await invoke('alpha', 'openchatcut_tools', {})).toEqual({
+    projects: [{ project_id: 'demo', name: 'Opening' }, { project_id: 'second', name: 'Credits' }],
+  })
+  expect(await invoke('alpha', 'openchatcut_tools', { project_id: 'second' })).toMatchObject({ project_id: 'second' })
+  await expect(invoke('beta', 'openchatcut_tools', { project_id: 'second' })).rejects.toThrow('当前 Muse 会话')
+  other.abort()
+  await vi.waitFor(async () => expect(await invoke('alpha', 'openchatcut_tools', {})).toMatchObject({ project_id: 'demo' }))
   controller.abort()
   await vi.waitFor(async () => await expect(invoke('alpha', 'openchatcut_tools', {})).rejects.toThrow('当前 Muse 会话'))
 })

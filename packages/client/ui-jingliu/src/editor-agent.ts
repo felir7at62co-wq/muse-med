@@ -99,7 +99,7 @@ class ProjectConnection {
 export function registerEditorAgent(ctx: Context, origin: string, tokenFile: string): void {
   ctx.inject(['tools'], (scope) => {
     const endpoint = new URL('/api/external-mcp/mcp', origin)
-    type Entry = { view: ProjectConnection; holds: Set<() => void> }
+    type Entry = { name: string; view: ProjectConnection; holds: Set<() => void> }
     const conversations = new Map<string, Map<string, Entry>>()
     function clear() {
       for (const projects of conversations.values()) for (const entry of projects.values()) for (const end of entry.holds) end()
@@ -114,6 +114,7 @@ export function registerEditorAgent(ctx: Context, origin: string, tokenFile: str
         const url = new URL(req.url ?? '', 'http://localhost')
         const session = url.searchParams.get('session') ?? ''
         const project = url.searchParams.get('project') ?? ''
+        const name = url.searchParams.get('name')?.trim().slice(0, 256) || project
         const owner = url.searchParams.get('owner') ?? ''
         const epoch = url.searchParams.get('epoch') ?? ''
         if (rejection || req.method !== 'GET' || url.pathname !== editorAgentViewRoute ||
@@ -129,9 +130,11 @@ export function registerEditorAgent(ctx: Context, origin: string, tokenFile: str
           conversations.set(session, projects)
         }
         const entry = projects.get(project) ?? {
+          name,
           view: new ProjectConnection(project, { id: owner, epoch: Number(epoch) }, endpoint, tokenFile),
           holds: new Set<() => void>(),
         }
+        entry.name = name
         projects.set(project, entry)
         const end = () => {
           if (!entry.holds.delete(end)) return
@@ -152,14 +155,14 @@ export function registerEditorAgent(ctx: Context, origin: string, tokenFile: str
     function selected(session?: string, project?: string): ProjectConnection {
       const projects = session ? conversations.get(session) : undefined
       const entry = project ? projects?.get(project) : projects?.size === 1 ? projects.values().next().value : undefined
-      if (!entry) throw new HarnessError('请在当前 Muse 会话打开要剪辑的工程。若打开了多个工程，请从目标工程内发出指令。', 'OPENCHATCUT_PROJECT_REQUIRED')
+      if (!entry) throw new HarnessError('请在当前 Muse 会话右侧的「剪辑」打开工程，再从主聊天框发送指令。', 'OPENCHATCUT_PROJECT_REQUIRED')
       return entry.view
     }
 
     const discovery = defineTool({
       name: 'openchatcut_tools', description: '查找当前 Muse 会话中打开的 OpenChatCut 剪辑工具。用 name 查完整参数，返回的 project_id 用于后续调用。读写时间线前先 begin_edit_session，然后用 editSessionId。',
       parameters: {
-        project_id: { type: 'string', description: '已在本会话打开的工程 ID。只有一个工程时可省略。' },
+        project_id: { type: 'string', description: '当前会话的工程 ID。省略时自动使用唯一打开的工程，有多个时返回名称和 ID 供选择。' },
         query: { type: 'string', description: '搜索英文名称或说明，例如 audio、transition 或 split。' },
         name: { type: 'string', description: '查看指定工具的完整参数。' },
         offset: { type: 'integer', description: '目录的下一页起点。' },
@@ -168,7 +171,12 @@ export function registerEditorAgent(ctx: Context, origin: string, tokenFile: str
       output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
       async execute({ project_id, query, name, offset = 0 }, exec) {
         if (offset < 0) throw new HarnessError('目录起点必须大于等于零。', 'OPENCHATCUT_INVALID_CALL')
-        const view = selected(exec.agent?.session.id, project_id)
+        const session = exec.agent?.session.id
+        const projects = session && conversations.get(session)
+        if (!project_id && projects && projects.size > 1) {
+          return { projects: Array.from(projects, ([id, entry]) => ({ project_id: id, name: entry.name })) }
+        }
+        const view = selected(session, project_id)
         const tools = await view.catalog()
         exec.signal.throwIfAborted()
         view.lifetime.signal.throwIfAborted()
