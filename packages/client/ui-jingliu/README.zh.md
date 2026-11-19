@@ -13,6 +13,8 @@ kind: "package-reference"
 
 将 `editorOrigin` 设为本机 [OpenChatCut](https://github.com/0xsline/OpenChatCut) 的 HTTP 回环 IP 地址和端口。右侧栏「剪辑」打开原版时间线、混音和导出界面。同时连接镜流后，「从镜流导入」可将所选分集已完成的镜头复制到一个新的本地剪辑工程。
 
+将 `editorTokenFile` 设为本地剪辑器的 MCP 令牌文件，即可在打开的工程中使用「Muse 剪辑」。开发启动器会从当前 OpenChatCut 的配置目录找到这个文件。剪辑区的输入进入所属的 Muse 会话。Muse 从正在运行的剪辑器查询工具并在当前工程执行，时间线改动可在 OpenChatCut 内预览、应用或拒绝。点击工作流快捷入口会填入 Muse 草稿。素材检测、时间线渲染和编码均在用户电脑上执行，包括透明动效片段。单独打开 OpenChatCut 仍可使用它自己的 Agent。
+
 面板分别从 `/v1/auth/muse/embed` 和 `/fwp/v2/auth/muse/embed` 验证桌面账号后进入原页面。切换标签保留当前页面。切换 Muse 账号或重新连接 Host 后，面板重新登录。达到最小缩放比例后，较窄的面板支持横向滚动，也可以使用侧栏的全屏按钮扩大写作或制片区域。
 
 ## 目录
@@ -42,7 +44,7 @@ kind: "package-reference"
 ## 已知限制和后续工作
 
 - 两套服务都需要允许 Muse 嵌入其页面。部署[工作台登录适配器](../../../services/muse-workbenches/README.zh.md)后，两套工作台通过 Muse 账号网关登录。
-- 两套应用各自管理账号会话、草稿和项目。选择页面或切换标签不会将草稿导入镜流，也不会替会话工具选择项目。
+- 镜流和剧本工坊各自管理项目。OpenChatCut 工具需要本会话中可见的剪辑工程。转写和生成素材使用执行该操作的工具所配置的服务。
 
 <a id="dev-note"></a>
 ### 开发备注

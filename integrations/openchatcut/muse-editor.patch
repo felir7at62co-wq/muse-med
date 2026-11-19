@@ -1,3 +1,51 @@
+diff --git a/README.md b/README.md
+index d2d17af399dcc9aeeb9476041142e07e7adc1c8f..677a448324fd33470f58f939596cf016dfa1ef0e 100644
+--- a/README.md
++++ b/README.md
+@@ -300,6 +300,8 @@ The core timeline, local projects, built-in media, and manual editing do not dep
+ 
+ ## Using OpenChatCut with Codex / Claude Code
+ 
++When embedded in Muse, the sidebar uses the current Muse conversation. Its Agent reads and edits the open browser project through this same MCP endpoint. The editor presents draft changes for preview, application, or rejection. Opening OpenChatCut directly keeps its built-in Agent.
++
+ Install the single OpenChatCut Agent Skill:
+ 
+ ```bash
+diff --git a/README_ZH.md b/README_ZH.md
+index ef688a14cd261b3852e820a90deaefb3f6768375..dfb69f731844116470814b8e15b5b6425ecf76d0 100644
+--- a/README_ZH.md
++++ b/README_ZH.md
+@@ -299,6 +299,8 @@ OpenChatCut 目前处于积极开发阶段，编辑器、工程格式和 Agent 
+ 
+ ## 在 Codex / Claude Code 中使用
+ 
++在 Muse 中打开时，剪辑侧栏使用当前 Muse 会话。Muse 通过同一套 MCP 接口读取和编辑当前窗口的工程，修改可在剪辑器内预览、应用或拒绝。单独启动 OpenChatCut 时使用原有 Agent。
++
+ 安装单入口 OpenChatCut Agent Skill：
+ 
+ ```bash
+diff --git a/assets/agent/openchatcut-tool-schemas.json b/assets/agent/openchatcut-tool-schemas.json
+index 28c0b17d9c17bd96c8195c080e9a23c041e3453e..e9b3b6d89d2a90dd8eadfa86fbeb2b5530659a42 100644
+--- a/assets/agent/openchatcut-tool-schemas.json
++++ b/assets/agent/openchatcut-tool-schemas.json
+@@ -3311,7 +3311,7 @@
+     },
+     {
+       "name": "convert_motion_graphic_to_video",
+-      "description": "Bake a motion-graphic (or any non-audio clip) on the timeline into a real video asset in the media pool, so it can be reused/exported like footage. Renders the clip full-length via the headless renderer. Transparent MG/text/svg clips bake to a VP9 alpha WebM (transparency preserved, via the sandbox) so they composite over other clips; if the sandbox is unavailable it falls back to opaque h264. Raster clips (video/image/gif) bake to opaque h264. Pass opaque:true to force flatten, replace:true to also swap the source clip in place. Identify the clip by itemId (preferred) or assetId.",
++      "description": "Bake a motion-graphic (or any non-audio clip) on the timeline into a real video asset in the media pool, so it can be reused/exported like footage. Renders the clip full-length via the headless renderer. Transparent MG/text/svg clips bake to a VP9 alpha WebM (transparency preserved by the local encoder) so they composite over other clips; if local alpha encoding is unavailable it falls back to opaque h264. Raster clips (video/image/gif) bake to opaque h264. Pass opaque:true to force flatten, replace:true to also swap the source clip in place. Identify the clip by itemId (preferred) or assetId.",
+       "input_schema": {
+         "type": "object",
+         "properties": {
+@@ -4466,7 +4466,7 @@
+     },
+     {
+       "name": "probe_media",
+-      "description": "Probe a media file with ffprobe in an isolated sandbox. Returns measured duration, dimensions, average fps, stream presence/codecs, plus explicit qualityRisks (low resolution, mono, very short, variable/low frame rate). Accepts a media-pool assetId/prefix, local /media/… path, or public https URL. Use before finalize_uploaded_asset to pass hasAudioTrack and measured fps/duration. The call can fail when the source is unreachable or the e2b sandbox is unavailable; finalize may proceed without it, using ingest defaults.",
++      "description": "Probe a media file with the editor’s local ffprobe. Returns measured duration, dimensions, average fps, stream presence/codecs, plus explicit qualityRisks (low resolution, mono, very short, variable/low frame rate). Accepts a media-pool assetId/prefix, local /media/… path, or public https URL. Use before finalize_uploaded_asset to pass hasAudioTrack and measured fps/duration. The call can fail when the source is unreachable or the local probe is unavailable; finalize may proceed without it, using ingest defaults.",
+       "input_schema": {
+         "type": "object",
+         "properties": {
 diff --git a/remotion/Root.tsx b/remotion/Root.tsx
 index d343b274dc08fce43dfb7c345a3f66d6d6ef6786..516b22630fbf235e0a40de341003cc7c14853690 100644
 --- a/remotion/Root.tsx
@@ -88,7 +136,7 @@ index 60418f5bca527c9aaf280970930f73086bdefcd7..a4406586d8fd858e29ff85403ded6a8d
 +    ? undefined : { width: outputWidth, height: outputHeight };
 +}
 diff --git a/remotion/render.mjs b/remotion/render.mjs
-index cb5e4d1d6788b853528a63bd94aad0d743b0b71f..68ec1f3514d08a7168909730e5893c2c07f57538 100644
+index cb5e4d1d6788b853528a63bd94aad0d743b0b71f..1ceaf938b5e1482beb366ffc877252cd76e8cefa 100644
 --- a/remotion/render.mjs
 +++ b/remotion/render.mjs
 @@ -17,7 +17,7 @@ import {
@@ -121,6 +169,133 @@ index cb5e4d1d6788b853528a63bd94aad0d743b0b71f..68ec1f3514d08a7168909730e5893c2c
        videoBitrate: codec === 'prores'
          ? undefined
          : Number.isFinite(videoBitrate) && videoBitrate > 0
+@@ -358,7 +361,7 @@ export async function renderTimeline({
+  * @param {object} args
+  * @param {import('../src/editor/types').TimelineState} args.state
+  * @param {string} args.outputLocation
+- * @param {'prores'|'vp8'|'h264'} [args.codec]
++ * @param {'prores'|'vp8'|'vp9'|'h264'} [args.codec]
+  * @param {boolean} [args.transparent]  render over transparency + carry alpha
+  */
+ export async function renderClip({
+@@ -400,6 +403,7 @@ export async function renderClip({
+       ...(transparent && codec === 'prores'
+         ? { proResProfile: '4444', imageFormat: 'png', pixelFormat: 'yuva444p10le' }
+         : {}),
++      ...(transparent && codec === 'vp9' ? { imageFormat: 'png', pixelFormat: 'yuva420p' } : {}),
+       chromiumOptions: { gl: resolveRenderGlBackend() },
+       browserExecutable: browserExecutable(),
+       puppeteerInstance: browser,
+diff --git a/server/plugins/e2b.ts b/server/plugins/e2b.ts
+index d55f05cc32b21e179be13aadad16dfad206eb0b7..561a5bce97d7b734f8b9a1ed893e807f87457752 100644
+--- a/server/plugins/e2b.ts
++++ b/server/plugins/e2b.ts
+@@ -114,6 +114,10 @@ export function e2bPlugin(options: E2bOptions): Plugin {
+   return {
+     name: 'openchatcut-e2b',
+     configureServer(server) {
++      if (process.env.OPENCHATCUT_MUSE_LOCAL_EDITING === '1') {
++        server.middlewares.use('/e2b', (_req, res) => sendJson(res, 403, { error: 'Muse uses local media processing.' }));
++        return;
++      }
+       server.middlewares.use('/e2b/run', async (req, res) => {
+         if (req.method !== 'POST') { sendJson(res, 405, { error: 'method not allowed — use POST' }); return; }
+         let sandbox: Sandbox | undefined;
+diff --git a/server/plugins/export-qa.ts b/server/plugins/export-qa.ts
+index 99957488033a2140450e83ea3da5166a82e1e547..5a1a41281e3d9272b6376e1323bf06ef6390f6bb 100644
+--- a/server/plugins/export-qa.ts
++++ b/server/plugins/export-qa.ts
+@@ -1,6 +1,10 @@
+ import type { Plugin } from 'vite';
+ import type { IncomingMessage, ServerResponse } from 'node:http';
+-import { spawn } from 'node:child_process';
++import { execFile, spawn } from 'node:child_process';
++import { promisify } from 'node:util';
++import { resolveProductAsset } from '../product-assets.ts';
++import { bindRequestAbort } from './export-http.ts';
++import { materializeServerExportMedia } from './export-media-plan.ts';
+ import { existsSync } from 'node:fs';
+ import { mkdtemp, readFile, rm } from 'node:fs/promises';
+ import { tmpdir } from 'node:os';
+@@ -108,14 +112,23 @@ function parseRate(value?: string): number {
+   return Number.isFinite(rate) ? rate : 0;
+ }
+ 
++const execFileAsync = promisify(execFile);
++
++/** Inspect a materialized file using the local decoder, with no network input protocols. */
++async function readProbeFile(file: string, signal?: AbortSignal): Promise<ProbeResult> {
++  const { stdout } = await execFileAsync(ffprobeBin(), [
++    '-v', 'error', '-protocol_whitelist', 'file', '-format_whitelist',
++    'mov,matroska,webm,avi,wav,mp3,aac,flac,ogg,mpeg,mpegts,flv,m4v,h264,hevc,aiff,asf,ac3,eac3,dts,amr,au,wavpack,image2,image2pipe,png_pipe,jpeg_pipe,gif,webp_pipe,bmp_pipe,tiff_pipe',
++    '-show_streams', '-show_format', '-of', 'json', file,
++  ], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024, signal });
++  return JSON.parse(stdout) as ProbeResult;
++}
++
+ async function probeMedia(file: string): Promise<Pick<
+   ExportQaAnalysis,
+   'durationSeconds' | 'width' | 'height' | 'fps' | 'hasVideo' | 'hasAudio'
+ >> {
+-  const { stdout } = await runProcess(ffprobeBin(), [
+-    '-v', 'error', '-show_streams', '-show_format', '-of', 'json', file,
+-  ], 30_000);
+-  const probe = JSON.parse(stdout) as ProbeResult;
++  const probe = await readProbeFile(file);
+   const video = probe.streams?.find((stream) => stream.codec_type === 'video');
+   const audio = probe.streams?.find((stream) => stream.codec_type === 'audio');
+   const duration = Number(probe.format?.duration ?? video?.duration ?? audio?.duration ?? 0);
+@@ -226,6 +239,30 @@ export function exportQaPlugin(): Plugin {
+   return {
+     name: 'openchatcut-export-qa',
+     configureServer(server) {
++      server.middlewares.use('/api/probe-media', async (req, res) => {
++        if (req.method !== 'POST') { sendJson(res, 405, { error: 'use POST' }); return; }
++        const request = bindRequestAbort(req, res);
++        const { signal } = request.controller;
++        try {
++          const body = await readJson(req);
++          const src = body && typeof body === 'object' && 'src' in body ? body.src : undefined;
++          if (typeof src !== 'string' || !(/^https?:\/\//i.test(src) || uploadNameFromSrc(src) || (src.startsWith('/') && resolveProductAsset(src)))) {
++            sendJson(res, 400, { error: 'expected a media asset or public URL' });
++            return;
++          }
++          const media = await materializeServerExportMedia({ items: [{ id: 'probe', kind: 'video', src }] },
++            { signal, maxMaterializedBytes: 200_000_000 });
++          try {
++            const path = media.snapshot.items[0]!.src;
++            const name = uploadNameFromSrc(path);
++            const file = name ? resolveUploadFile(name) : resolveProductAsset(path);
++            if (!file) { sendJson(res, 404, { error: 'media file not found' }); return; }
++            sendJson(res, 200, await readProbeFile(file, signal));
++          } finally { await media.cleanup(); }
++        } catch (error) {
++          if (!signal.aborted && !res.headersSent) sendJson(res, 422, { error: error instanceof Error ? error.message : String(error) });
++        } finally { request.dispose(); }
++      });
+       server.middlewares.use('/api/export-qa', async (req, res) => {
+         if (req.method !== 'POST') {
+           sendJson(res, 405, { error: 'method not allowed — use POST' });
+diff --git a/server/plugins/external-agent.ts b/server/plugins/external-agent.ts
+index e93bc3aea7d1c8da1a8f3fd71d14c057c1c16302..744580c966fd506521c18c3429a3ea7cba676551 100644
+--- a/server/plugins/external-agent.ts
++++ b/server/plugins/external-agent.ts
+@@ -19,6 +19,7 @@ import {
+   editorBootstrapPayload,
+   editorCredentialAuthorized,
+   externalMcpAuthorized,
++  externalMcpToken,
+   headerValue,
+   trustedEditorRequest,
+ } from '../editor-auth.ts';
+@@ -110,6 +111,7 @@ export function externalAgentPlugin(): Plugin {
+   return {
+     name: 'openchatcut-external-agent',
+     configureServer(server) {
++      externalMcpToken();
+       server.middlewares.use('/api/external-agent', (req, res) => {
+         void handleExternalAgentBridge(req, res).catch((error) => {
+           if (!res.headersSent) sendBridgeJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
 diff --git a/server/plugins/upload-route-storage.ts b/server/plugins/upload-route-storage.ts
 index 3b8662aab1492fff0aa20851ce8466a759a39bcb..6886a9f720210b4d1c3ca4c0fc9a2e783b6cf86b 100644
 --- a/server/plugins/upload-route-storage.ts
@@ -150,17 +325,18 @@ index bcad6dceb2ddfabf4df9414c020da067dabe6c06..913bced1172fc5cabd5c2cba0cff59fb
              partPath!,
              req.headers['content-type'] || undefined,
 diff --git a/src/App.tsx b/src/App.tsx
-index ce640084e75a1d8ba542d761e670cace6050879d..8bce0714063f12535df96cd26e20adf28fa84132 100644
+index ce640084e75a1d8ba542d761e670cace6050879d..5338b418401bb802d574dc7c43f3e396eae9fc91 100644
 --- a/src/App.tsx
 +++ b/src/App.tsx
-@@ -1,4 +1,6 @@
+@@ -1,4 +1,7 @@
  
 +import { useEffect } from 'react';
++import { museEditorParent, publishMuseProject } from './muse/editorAgent';
 +import { bindJingliuBridge } from './muse/jingliuBridge';
  import { useT } from './i18n/locale';
  import {
    useAgentBackendSync,
-@@ -17,6 +19,13 @@ export default function App() {
+@@ -17,6 +20,21 @@ export default function App() {
    useUiScaleShortcuts();
    const { projects, refresh } = useProjects();
  
@@ -171,9 +347,377 @@ index ce640084e75a1d8ba542d761e670cace6050879d..8bce0714063f12535df96cd26e20adf2
 +      async id => { await refresh(); window.location.hash = '#/editor/' + id; });
 +  }, [refresh]);
 +
++  const selected = route.name === 'editor' ? projects?.find(project => project.id === route.id) : undefined;
++  const projectId = selected?.id;
++  const projectName = selected?.name;
++  useEffect(() => {
++    const origin = museEditorParent();
++    if (origin) return publishMuseProject(origin, projectId && projectName !== undefined ? { id: projectId, name: projectName } : null);
++  }, [projectId, projectName]);
++
    if (!projects) return <AppSplash text={t('加载中…')} />;
    if (route.name === 'editor') {
      return <EditorRoute route={route} projects={projects} refresh={refresh} />;
+diff --git a/src/agent/capabilities.ts b/src/agent/capabilities.ts
+index 3616a9df33acdae6505fcd0b37ff9e4e9ffe7f82..520fe8b1a3120630ce1da1c65ad14165c11884ee 100644
+--- a/src/agent/capabilities.ts
++++ b/src/agent/capabilities.ts
+@@ -154,7 +154,7 @@ const CAP_ROWS: { key: CapabilityKey; label: string; tool: string; fallback: str
+   { key: 'sound', label: 'Sound generation', tool: 'submit_sound', fallback: 'use list_audio/add_audio from the sound-effects library' },
+   { key: 'stock', label: 'Stock-media search', tool: 'search_stock_media', fallback: 'use push_asset to import a known public URL directly' },
+   { key: 'transcription', label: 'Transcription/talking-head editing', tool: 'transcribe_track', fallback: 'word-level deletion, filler cleanup, and automatic captions are unavailable' },
+-  { key: 'sandbox', label: 'Sandbox execution (ffmpeg/node/python)', tool: 'run_code', fallback: 'skip sandbox steps such as probe_media' },
++  { key: 'sandbox', label: 'Sandbox execution (ffmpeg/node/python)', tool: 'run_code', fallback: 'use the local probe_media and dedicated editing tools' },
+   { key: 'web', label: 'Web extraction', tool: 'web_browser', fallback: 'ask the user to paste the page content' },
+ ];
+ 
+diff --git a/src/agent/tools/mg-video-tools.ts b/src/agent/tools/mg-video-tools.ts
+index a776127139d524ae792b705cc891d22dc65a35df..eea9f5c13f5a9f06925cddf34c3ccdb2f6c03926 100644
+--- a/src/agent/tools/mg-video-tools.ts
++++ b/src/agent/tools/mg-video-tools.ts
+@@ -14,15 +14,7 @@ import { motionGraphicRenderFilename, motionGraphicRenderKey } from '../../expor
+ import { fetchRenderJob } from './export-tools';
+ import { resolveTimeline } from './timeline-target';
+ 
+-// convert_motion_graphic_to_video + register_converted_video.
+-// Flow: convert cloud rendering MG original length → renderId → track_export and so on →
+-// register_converted_video registers the product as a media pool video asset; same as MG to remove duplicates to the same asset.
+-//
+-// Local implementation: /render-clip endpoint (renderClip) and clipExport.bakeClipToVideo are already there, rendering is
+-// Synchronous, so convert renders in one step + registers (returns assetId); register is exposed separately for importing external rendered products.
+-// Transparent: MG/text/svg, this type of fragment with alpha, first render transparent ProRes locally, and then enter the e2b sandbox to convert to VP9 alpha
+-// Webm is pooled ("convert to video = alpha webm"); if the sandbox is unavailable/fails, gracefully fall back to opaque h264.
+-// Opaque raster(video/image/gif) has no alpha, directly h264.
++// Bake clips with the local renderer and register the resulting video in the media pool.
+ 
+ type Args = Record<string, unknown>;
+ 
+@@ -54,8 +46,7 @@ async function convert(args: Args, ctx: AgentContext): Promise<unknown> {
+   let fallbackNote: string | undefined;
+   try {
+     if (wantAlpha) {
+-      // Transparent path: local ProRes render → e2b VP9-alpha transcode. Fall back to
+-      // opaque h264 if the sandbox is unavailable/fails, so convert never regresses.
++      // Retain the existing opaque fallback when local alpha encoding is unavailable.
+       try {
+         src = await bakeClipToAlphaWebm(state, item);
+         transparent = true;
+diff --git a/src/agent/tools/mg-video-tools.verify.ts b/src/agent/tools/mg-video-tools.verify.ts
+index 8fe9965d12a8d1574b51aabe75576837d09c3bc7..b39e230bd509602b8364a86e865be7c93d977706 100644
+--- a/src/agent/tools/mg-video-tools.verify.ts
++++ b/src/agent/tools/mg-video-tools.verify.ts
+@@ -5,6 +5,7 @@ import assert from 'node:assert';
+ import { makeDraft } from '../../editor/store';
+ import { docFromTimeline } from '../../persist/projectStore';
+ import type { AgentContext } from '../context';
++import { execProbeTool } from './probe-tools';
+ import { execMgVideoTool, MG_VIDEO_TOOL_SCHEMAS, MG_VIDEO_TOOL_NAMES } from './mg-video-tools';
+ 
+ const draft = makeDraft(docFromTimeline({
+@@ -114,5 +115,25 @@ assert.strictEqual(draft.getDoc().assets.find((a) => a.id === viaRender.assetId)
+   assert.ok(r.error, 'unknown renderId errors cleanly');
+ }
+ 
+-globalThis.fetch = originalFetch;
++// A transparent conversion and a probe each use one fixed local editor endpoint.
++try {
++  const calls: string[] = [];
++  globalThis.fetch = async (input, init) => {
++    const endpoint = String(input);
++    calls.push(endpoint);
++    const body = JSON.parse(String(init?.body));
++    if (endpoint === '/render-clip' && body.codec === 'vp9' && body.transparent && body.mode === 'bake') {
++      return Response.json({ path: '/media/uploads/local-alpha.webm' });
++    }
++    if (endpoint === '/api/probe-media' && body.src === '/media/uploads/local-alpha.webm') {
++      return Response.json({ streams: [{ codec_type: 'video', codec_name: 'vp9', width: 160, height: 96 }] });
++    }
++    throw new Error('unexpected media endpoint ' + endpoint);
++  };
++  const baked = await execMgVideoTool('convert_motion_graphic_to_video', { itemId: 'it_1' }, ctx);
++  assert.ok(baked && typeof baked === 'object' && 'transparent' in baked && baked.transparent === true);
++  const probe = await execProbeTool('probe_media', { source: '/media/uploads/local-alpha.webm' }, ctx);
++  assert.ok(probe && typeof probe === 'object' && 'videoCodec' in probe && probe.videoCodec === 'vp9');
++  assert.deepEqual(calls, ['/render-clip', '/api/probe-media']);
++} finally { globalThis.fetch = originalFetch; }
+ console.log('mg-video-tools.check: ok');
+diff --git a/src/agent/tools/probe-tools.ts b/src/agent/tools/probe-tools.ts
+index 199b28a949bf62fb2dd6348745986ca1f9377086..2230d2b39777c578db3730f06bf2c11d48f86a83 100644
+--- a/src/agent/tools/probe-tools.ts
++++ b/src/agent/tools/probe-tools.ts
+@@ -1,5 +1,5 @@
+ export { PROBE_TOOL_SCHEMAS, PROBE_TOOL_NAMES } from './schemas/probe-tools';
+-// probe_media runs ffprobe in the e2b sandbox through the existing /e2b/run proxy.
++// The local editor probes media before the asset is finalized.
+ // It reads stream and format metadata to determine audio, fps, duration, dimensions,
+ // and codec information. The agent probes before
+ // finalize_uploaded_asset so it can pass measured hasAudioTrack/fps/duration metadata;
+@@ -76,26 +76,19 @@ export function parseProbe(json: unknown): ProbeResult {
+   };
+ }
+ 
+-type ResolvedSource = { url: string; direct: boolean } | { error: string };
++type ResolvedSource = { url: string } | { error: string };
+ 
+-// Resolve the tool `source` to a URL for ffprobe. Public https can be probed directly by
+-// ffprobe; a local /media path must be pulled into the sandbox as an input file (the
+-// /e2b/run proxy reads it server-side — the sandbox can't reach our dev host).
+ function resolveSource(ctx: AgentContext, raw: string): ResolvedSource {
+   const s = raw.trim();
+   if (!s) return { error: 'source is required' };
+-  if (/^https?:\/\//.test(s)) {
+-    if (/['"\\]/.test(s)) return { error: 'url must not contain quotes or backslashes' };
+-    return { url: s, direct: true };
+-  }
+-  if (s.startsWith('/media/')) return { url: s, direct: false };
++  if (/^https?:\/\//.test(s) || s.startsWith('/media/')) return { url: s };
+   const assets: MediaAsset[] = ctx.getDoc().assets ?? ctx.getState().assets ?? [];
+   const exact = assets.find((a) => a.id === s);
+   const hits = exact ? [exact] : assets.filter((a) => a.id.startsWith(s));
+   if (hits.length !== 1) return { error: `no unique asset / path / url for "${s}"` };
+   const src = hits[0]!.src;
+   if (!src) return { error: `asset ${hits[0]!.id} has no media file (e.g. motion-graphic without baked video)` };
+-  return /^https?:\/\//.test(src) ? { url: src, direct: true } : { url: src, direct: false };
++  return { url: src };
+ }
+ 
+ export async function execProbeTool(name: string, args: Args, ctx: AgentContext): Promise<unknown> {
+@@ -103,35 +96,17 @@ export async function execProbeTool(name: string, args: Args, ctx: AgentContext)
+   const resolved = resolveSource(ctx, String(args.source ?? ''));
+   if ('error' in resolved) return resolved;
+ 
+-  const target = resolved.direct ? `'${resolved.url}'` : 'input.media';
+-  const body = {
+-    command: `ffprobe -v quiet -print_format json -show_streams -show_format ${target}`,
+-    files: resolved.direct ? undefined : [{ path: 'input.media', url: resolved.url }],
+-  };
+-
+-  let data: Record<string, unknown>;
++  let probe: ProbeResult;
+   try {
+-    const res = await fetch('/e2b/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+-    data = (await res.json()) as Record<string, unknown>;
+-    if (!res.ok) {
+-      return { error: (data.error as string) ?? `probe failed (${res.status})`, hint: 'e2b sandbox may be unconfigured — finalize_uploaded_asset can still commit the upload, but it will not start transcription.' };
+-    }
++    const res = await fetch('/api/probe-media', {
++      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ src: resolved.url }),
++    });
++    const result = await res.json();
++    if (!res.ok) return { error: result.error ?? `Local media probe failed (${res.status})` };
++    probe = parseProbe(result);
+   } catch (error) {
+     return { error: error instanceof Error ? error.message : String(error) };
+   }
+-
+-  const exitCode = typeof data.exitCode === 'number' ? data.exitCode : -1;
+-  if (exitCode !== 0) {
+-    const stderr = typeof data.stderr === 'string' ? data.stderr.slice(0, 400) : '';
+-    return { error: `ffprobe exited ${exitCode}`, stderr };
+-  }
+-  let probeJson: unknown;
+-  try {
+-    probeJson = JSON.parse(typeof data.stdout === 'string' ? data.stdout : '');
+-  } catch {
+-    return { error: 'ffprobe produced no JSON', stdout: String(data.stdout ?? '').slice(0, 300) };
+-  }
+-  const probe = parseProbe(probeJson);
+   return {
+     ok: true,
+     source: resolved.url,
+diff --git a/src/agent/tools/schemas/mg-video-tools.ts b/src/agent/tools/schemas/mg-video-tools.ts
+index 7217cdbc050d1d59fc456c499d8feed42dfa5fe6..74f026fe7bd4310ddb519cef861c56641e598ffc 100644
+--- a/src/agent/tools/schemas/mg-video-tools.ts
++++ b/src/agent/tools/schemas/mg-video-tools.ts
+@@ -4,7 +4,7 @@ export const MG_VIDEO_TOOL_SCHEMAS: AgentToolSchema[] = [
+   {
+     name: 'convert_motion_graphic_to_video',
+     description:
+-      'Bake a motion-graphic (or any non-audio clip) on the timeline into a real video asset in the media pool, so it can be reused/exported like footage. Renders the clip full-length via the headless renderer. Transparent MG/text/svg clips bake to a VP9 alpha WebM (transparency preserved, via the sandbox) so they composite over other clips; if the sandbox is unavailable it falls back to opaque h264. Raster clips (video/image/gif) bake to opaque h264. Pass opaque:true to force flatten, replace:true to also swap the source clip in place. Identify the clip by itemId (preferred) or assetId.',
++      'Bake a motion-graphic (or any non-audio clip) on the timeline into a real video asset in the media pool, so it can be reused/exported like footage. Renders the clip full-length via the headless renderer. Transparent MG/text/svg clips bake to a VP9 alpha WebM (transparency preserved by the local encoder) so they composite over other clips; if local alpha encoding is unavailable it falls back to opaque h264. Raster clips (video/image/gif) bake to opaque h264. Pass opaque:true to force flatten, replace:true to also swap the source clip in place. Identify the clip by itemId (preferred) or assetId.',
+     input_schema: {
+       type: 'object',
+       properties: {
+diff --git a/src/agent/tools/schemas/probe-tools.ts b/src/agent/tools/schemas/probe-tools.ts
+index d39a1d48aeb7f733ab11cdb8de998ec0e575b53d..c96aa5380c4390547c660345f95fac0e336e83a5 100644
+--- a/src/agent/tools/schemas/probe-tools.ts
++++ b/src/agent/tools/schemas/probe-tools.ts
+@@ -4,7 +4,7 @@ export const PROBE_TOOL_SCHEMAS: AgentToolSchema[] = [
+   {
+     name: 'probe_media',
+     description:
+-      'Probe a media file with ffprobe in an isolated sandbox. Returns measured duration, dimensions, average fps, stream presence/codecs, plus explicit qualityRisks (low resolution, mono, very short, variable/low frame rate). Accepts a media-pool assetId/prefix, local /media/… path, or public https URL. Use before finalize_uploaded_asset to pass hasAudioTrack and measured fps/duration. The call can fail when the source is unreachable or the e2b sandbox is unavailable; finalize may proceed without it, using ingest defaults.',
++      'Probe a media file with the editor’s local ffprobe. Returns measured duration, dimensions, average fps, stream presence/codecs, plus explicit qualityRisks (low resolution, mono, very short, variable/low frame rate). Accepts a media-pool assetId/prefix, local /media/… path, or public https URL. Use before finalize_uploaded_asset to pass hasAudioTrack and measured fps/duration. The call can fail when the source is unreachable or the local probe is unavailable; finalize may proceed without it, using ingest defaults.',
+     input_schema: {
+       type: 'object',
+       properties: {
+diff --git a/src/editor/EditorWorkspaceView.tsx b/src/editor/EditorWorkspaceView.tsx
+index 2076fd793c6bc262323244a08a354f0ec746454f..27125bd959cc76d8faddea4caa22fefd82d634cc 100644
+--- a/src/editor/EditorWorkspaceView.tsx
++++ b/src/editor/EditorWorkspaceView.tsx
+@@ -2,6 +2,8 @@ import type { ComponentProps } from 'react';
+ import { theme } from '../theme';
+ import { ExportDialog } from '../export/ExportDialog';
+ import { TopBar } from '../components/TopBar';
++import { museEditorParent } from '../muse/editorAgent';
++import { MuseProposal } from '../muse/MuseProposal';
+ import { ChatPanel } from '../components/chat/ChatPanel';
+ import { LibraryPanel } from '../library/LibraryPanel';
+ import { PreviewPanel } from '../components/PreviewPanel';
+@@ -64,12 +66,14 @@ function renderTimeline(props: EditorWorkspaceViewProps) {
+ }
+ 
+ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
++  const muse = Boolean(museEditorParent());
+   return (
+     <div
+       className="cc-editor-shell"
+       style={{
+         display: 'grid',
+         gridTemplateColumns: props.gridTemplateColumns,
++        position: 'relative',
+         gridTemplateRows: props.gridTemplateRows,
+         height: '100vh',
+         overflow: 'hidden',
+@@ -84,9 +88,9 @@ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
+       {props.designStylePanel && <DesignStylePanel {...props.designStylePanel} />}
+       {props.versionHistory && <VersionHistory {...props.versionHistory} />}
+       {props.shortcutsDialog && <ShortcutsDialog {...props.shortcutsDialog} />}
+-      <ChatPanel {...props.chatPanel} />
++      {muse ? <MuseProposal {...props.chatPanel} /> : <ChatPanel {...props.chatPanel} />}
+       <div style={{ gridColumn: 2, gridRow: '2 / 5' }}>
+-        {!props.chatCollapsed && <Divider onResize={props.onResizeChat} />}
++        {!muse && !props.chatCollapsed && <Divider onResize={props.onResizeChat} />}
+       </div>
+       {renderLibrary(props)}
+       <div style={{ gridColumn: 4, gridRow: 2 }}>
+diff --git a/src/hooks/useEditorPanelLayout.ts b/src/hooks/useEditorPanelLayout.ts
+index 4ab1cb53d99b34e1ca9d2edb38b3d1d5f1c3aee9..1f7df9de01c6f9c6677d9dd3e3f4c842b0f4c23a 100644
+--- a/src/hooks/useEditorPanelLayout.ts
++++ b/src/hooks/useEditorPanelLayout.ts
+@@ -1,3 +1,4 @@
++import { museEditorParent } from '../muse/editorAgent';
+ import { usePersistedState } from './usePersistedState';
+ 
+ const HEADER_HEIGHT = 41;
+@@ -88,7 +89,8 @@ export function useEditorPanelLayout(chatCollapsed: boolean): EditorPanelLayout
+     storedTimelineRatio,
+   );
+ 
+-  const chatTrack = chatCollapsed ? `${COLLAPSED_CHAT_WIDTH}px` : `${chatRatio * 100}vw`;
++  const muse = Boolean(museEditorParent());
++  const chatTrack = muse ? '0' : chatCollapsed ? `${COLLAPSED_CHAT_WIDTH}px` : `${chatRatio * 100}vw`;
+   const gridTemplateColumns = `${chatTrack} 0 ${libraryRatio * 100}vw 0 minmax(0, 1fr)`;
+   const gridTemplateRows = `${HEADER_HEIGHT}px minmax(0, ${1 - timelineRatio}fr) 0 minmax(0, ${timelineRatio}fr)`;
+ 
+@@ -98,7 +100,7 @@ export function useEditorPanelLayout(chatCollapsed: boolean): EditorPanelLayout
+     1 - libraryRatio - MIN_PREVIEW_RATIO,
+   )));
+   const resizeLibrary = (delta: number) => setLibraryRatio((current) => {
+-    const chatShare = chatCollapsed ? COLLAPSED_CHAT_WIDTH / viewportWidth() : chatRatio;
++    const chatShare = muse ? 0 : chatCollapsed ? COLLAPSED_CHAT_WIDTH / viewportWidth() : chatRatio;
+     return roundRatio(clamp(
+       finiteRatio(current, DEFAULT_LIBRARY_RATIO) + delta / viewportWidth(),
+       MIN_LIBRARY_RATIO,
+diff --git a/src/media/clipExport.ts b/src/media/clipExport.ts
+index 5e303155ba1e01e58bacd26ba917de159748a1f1..cc1a10cc5706c325a9e2c176c3c9e0e864ffbae3 100644
+--- a/src/media/clipExport.ts
++++ b/src/media/clipExport.ts
+@@ -75,8 +75,7 @@ export async function exportClipMov(
+   URL.revokeObjectURL(url);
+ }
+ 
+-/** Convert to video → opaque h264 mp4 saved under uploads; returns its path (alpha is
+- * flattened — this env's ffmpeg can't encode alpha webm/vp9). */
++/** Bake a flattened H.264 clip into the local media pool. */
+ export async function bakeClipToVideo(state: TimelineState, item: TimelineItem): Promise<string> {
+   const res = await fetch('/render-clip', {
+     method: 'POST', headers: { 'Content-Type': 'application/json' },
+@@ -86,27 +85,11 @@ export async function bakeClipToVideo(state: TimelineState, item: TimelineItem):
+   return (await res.json() as { path: string }).path;
+ }
+ 
+-/** Bake a clip to a transparent ProRes 4444 .mov under uploads; returns its path. The
+- *  local renderer CAN encode ProRes alpha (unlike alpha webm), so this is the intermediate
+- *  the e2b transcode reads. */
+-async function bakeClipToProres(state: TimelineState, item: TimelineItem): Promise<string> {
+-  const res = await fetch('/render-clip', {
+-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+-    body: JSON.stringify({ state: clipState(state, item), codec: 'prores', transparent: true, mode: 'bake' }),
+-  });
+-  if (!res.ok) await fail(res, '转换');
+-  return (await res.json() as { path: string }).path;
+-}
+-
+-/** Render to video (transparent) → VP9 alpha WebM under uploads; returns its path. Renders a transparent
+- *  ProRes .mov locally, then transcodes it to alpha webm in the e2b sandbox (whose ffmpeg
+- *  can do vp9-alpha, which the local build cannot). This is the true " to video =
+- *  alpha webm". Throws if the sandbox is unavailable — the caller falls back to opaque h264. */
++/** Bake a transparent VP9 WebM with the same local clip renderer as timeline export. */
+ export async function bakeClipToAlphaWebm(state: TimelineState, item: TimelineItem): Promise<string> {
+-  const source = await bakeClipToProres(state, item);
+-  const res = await fetch('/e2b/transcode-alpha', {
++  const res = await fetch('/render-clip', {
+     method: 'POST', headers: { 'Content-Type': 'application/json' },
+-    body: JSON.stringify({ source }),
++    body: JSON.stringify({ state: clipState(state, item), codec: 'vp9', transparent: true, mode: 'bake' }),
+   });
+   if (!res.ok) await fail(res, '透明编码');
+   return (await res.json() as { path: string }).path;
+diff --git a/src/muse/MuseProposal.tsx b/src/muse/MuseProposal.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..2f484c39ee2c371f96cd4fa00d6d0284aad6e10b
+--- /dev/null
++++ b/src/muse/MuseProposal.tsx
+@@ -0,0 +1,13 @@
++import { useExternalAgentBridge } from '../agent/useExternalAgentBridge';
++import { ExternalProposalCard } from '../components/chat/ExternalProposalCard';
++import type { ChatPanelProps } from '../components/chat/chatPanelController';
++import { theme } from '../theme';
++
++/** Preserve the editor's own draft, preview and approval UI when Muse provides the chat. */
++export function MuseProposal({ ctx, projectId, onPreviewState }: ChatPanelProps) {
++  const external = useExternalAgentBridge(ctx, projectId);
++  return <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 15, maxWidth: 'min(460px, 92%)',
++    maxHeight: '65vh', overflow: 'auto', background: theme.bg, borderRadius: 8 }}>
++    <ExternalProposalCard external={external} onPreviewState={onPreviewState} />
++  </div>;
++}
+diff --git a/src/muse/editorAgent.ts b/src/muse/editorAgent.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..32e9dc43a2fb758afbc75632cb9ce1f501d946e7
+--- /dev/null
++++ b/src/muse/editorAgent.ts
+@@ -0,0 +1,29 @@
++import { EMPTY_PROJECT_STARTERS, QUICK_ACTIONS } from '../components/chat/chatPanelPresets';
++import { t } from '../i18n/locale';
++import { browserProjectOwnership, observeBrowserProjectOwnership } from '../persist/projectStoreTransport';
++import { allowedMuseParent } from './jingliuBridge';
++
++/** Limit editor selection and starter suggestions to the configured Muse parent. */
++export function museEditorParent(): string | undefined {
++  if (window.parent === window || !['127.0.0.1', '[::1]'].includes(location.hostname)) return;
++  const origin = new URLSearchParams(location.search).get('museParent');
++  if (origin && allowedMuseParent(origin, import.meta.env.VITE_MUSE_EDITOR_PARENT_ORIGINS ?? '')) return origin;
++}
++
++/** Reply on mount, route changes, and host reattachment to the same document. */
++export function publishMuseProject(origin: string, project: { id: string; name: string } | null): () => void {
++  const announce = () => {
++    const owner = project && browserProjectOwnership(project.id);
++    const translate = ({ label, prompt }: { label: string; prompt: string }) => ({ label: t(label), prompt: t(prompt) });
++    window.parent.postMessage({ type: 'openchatcut:project', project: project && { ...project,
++      starters: EMPTY_PROJECT_STARTERS.map(translate), shortcuts: QUICK_ACTIONS.map(translate),
++      owner: owner ? { id: owner.ownerId, epoch: owner.epoch } : null } }, origin);
++  };
++  const stop = project && observeBrowserProjectOwnership(project.id, announce);
++  const receive = (event: MessageEvent) => {
++    if (event.source === window.parent && event.origin === origin && event.data?.type === 'muse:editor-project') announce();
++  };
++  window.addEventListener('message', receive);
++  announce();
++  return () => { stop?.(); window.removeEventListener('message', receive); };
++}
 diff --git a/src/muse/jingliuBridge.ts b/src/muse/jingliuBridge.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..187987a79115d24339d641f8651c8b546d0f37fb
@@ -417,6 +961,46 @@ index 1951db9f65481c1caeddecddb79e0d3ee2379136..8b18791707d6dfda17104926e673b14d
    const res = await fetch(`/upload?${q.toString()}`, {
      method: 'POST',
      headers: { 'Content-Type': rec.mime || 'application/octet-stream' },
+diff --git a/src/persist/projectStoreTransport.ts b/src/persist/projectStoreTransport.ts
+index 2df2c2bbfc40a9328790c713f5086ab87e62e647..0d848ad668c0b7c6b4889ee337398da355a3e2ce 100644
+--- a/src/persist/projectStoreTransport.ts
++++ b/src/persist/projectStoreTransport.ts
+@@ -5,6 +5,19 @@ import type {
+ 
+ const API_PATH = '/api/project-store';
+ const browserOwnerships = new Map<string, BrowserProjectOwnership>();
++const ownershipListeners = new Map<string, Set<() => void>>();
++
++/** Notify the embedding client when this document gains or loses the editor lease. */
++export function observeBrowserProjectOwnership(projectId: string, listener: () => void): () => void {
++  const listeners = ownershipListeners.get(projectId) ?? new Set<() => void>();
++  listeners.add(listener);
++  ownershipListeners.set(projectId, listeners);
++  return () => {
++    listeners.delete(listener);
++    if (!listeners.size) ownershipListeners.delete(projectId);
++  };
++}
++
+ const PROJECT_OWNERSHIP_READY_TIMEOUT_MS = 15_000;
+ const browserOwnershipWaiters = new Map<string, Set<BrowserProjectOwnershipWaiter>>();
+ 
+@@ -41,6 +54,7 @@ function resolveBrowserProjectOwnershipWaiters(
+ export function installBrowserProjectOwnership(ownership: BrowserProjectOwnership): void {
+   browserOwnerships.set(ownership.projectId, ownership);
+   resolveBrowserProjectOwnershipWaiters(ownership.projectId, ownership);
++  ownershipListeners.get(ownership.projectId)?.forEach(listener => listener());
+ }
+ 
+ export function browserProjectOwnership(projectId: string): BrowserProjectOwnership | undefined {
+@@ -82,6 +96,7 @@ export function clearBrowserProjectOwnership(ownership: BrowserProjectOwnership)
+   const current = browserOwnerships.get(ownership.projectId);
+   if (current?.ownerId === ownership.ownerId && current.epoch === ownership.epoch) {
+     browserOwnerships.delete(ownership.projectId);
++    ownershipListeners.get(ownership.projectId)?.forEach(listener => listener());
+   }
+ }
+ 
 diff --git a/src/persist/projectTransfer.ts b/src/persist/projectTransfer.ts
 index b38b2313bd7fb1ecd7d458ca7f8e8e4b327fd948..c0d525ca62f9587a478155c2322d81fff650bfc4 100644
 --- a/src/persist/projectTransfer.ts

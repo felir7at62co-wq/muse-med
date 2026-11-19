@@ -10,6 +10,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { IconEditOutlineRegular, IconPlayOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { EDITOR_URL_GLOBAL, STUDIO_URL_GLOBAL, WORKSHOP_URL_GLOBAL } from '../page.ts'
 import type { WorkbenchLoginResult } from './workbench-login.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { editorConversation } from './editor-conversation.ts'
 import { EditorStudio } from './EditorStudio.tsx'
 import { cutImportActions } from './cut-import-actions.ts'
 import { Studio } from './Studio.tsx'
@@ -70,9 +72,13 @@ export function apply(ctx: Context): void {
     }), 'editor: guide')
     ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
       name: 'sidebar.right.pane.tab', key: id, locale,
-      inject: () => ({
-        editorUrl, canImport: Boolean(bootstrap[STUDIO_URL_GLOBAL]), actions: cutImportActions(), hooks: { loginGeneration },
-      }),
+      inject: (sessionId: SessionId) => {
+        const chat = editorConversation(ctx, sessionId)
+        return {
+          ...chat, editorUrl, canImport: Boolean(bootstrap[STUDIO_URL_GLOBAL]), actions: cutImportActions(),
+          hooks: { ...chat.hooks, loginGeneration },
+        }
+      },
     }, EditorStudio)), 'editor: document')
   }
 }

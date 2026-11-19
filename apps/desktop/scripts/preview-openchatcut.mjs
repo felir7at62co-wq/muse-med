@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -69,7 +69,7 @@ try {
       ['PATH', 'HOME', 'LANG', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'SYSTEMROOT', 'CC_BROWSER_EXECUTABLE']
         .filter(key => process.env[key]).map(key => [key, process.env[key]]))
     service = launch(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev:isolated', '--', '--host', origin.hostname, '--port', origin.port, '--strictPort'],
-      directory, { ...env, BROWSER: 'none', OPENCHATCUT_EDITOR_URL: origin.origin,
+      directory, { ...env, BROWSER: 'none', OPENCHATCUT_EDITOR_URL: origin.origin, OPENCHATCUT_MUSE_LOCAL_EDITING: '1',
         OPENCHATCUT_DATA_DIR: process.env.OPENCHATCUT_DATA_DIR ?? resolve(directory, '.artifacts/studio-data') })
     let exited = false
     const stopped = service.finished.then(() => { exited = true })
@@ -80,8 +80,11 @@ try {
       await Promise.race([stopped, delay(500, undefined, { signal: shutdown.signal })])
     }
   }
+  const { resolveDevProfile } = await import(pathToFileURL(resolve(directory, 'scripts/dev-profile.mjs')).href)
+  const profile = await resolveDevProfile({ cwd: directory })
+  const tokenFile = process.env.MUSE_OPENCHATCUT_TOKEN_FILE ?? resolve(profile.rootDir, 'mcp-token')
   const desktop = launch(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', ['run', 'start:desktop'], repo,
-    { ...process.env, MUSE_OPENCHATCUT_ORIGIN: origin.origin })
+    { ...process.env, MUSE_OPENCHATCUT_ORIGIN: origin.origin, MUSE_OPENCHATCUT_TOKEN_FILE: tokenFile })
   process.exitCode = await (service ? Promise.race([desktop.finished, service.finished.then(() => 1)]) : desktop.finished)
 } catch (error) {
   if (!shutdown.signal.aborted) throw error

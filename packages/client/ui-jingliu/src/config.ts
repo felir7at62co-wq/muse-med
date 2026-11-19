@@ -5,6 +5,8 @@ import Schema from '@deepseek-ai/schemastery'
 export interface Config {
   /** HTTPS studio origin or HTTP loopback origin for a local studio. */
   studioOrigin?: string
+  /** Local file containing the editor MCP token, read by the Host. */
+  editorTokenFile?: string
   /** Private HTTP loopback endpoint serving OpenChatCut. */
   editorOrigin?: string
   /** HTTPS workshop origin or HTTP loopback origin for a local script workshop. */
@@ -12,7 +14,12 @@ export interface Config {
 }
 
 /** A missing origin leaves that application's entry hidden. */
-export const Config = Schema.object({ studioOrigin: Schema.string(), workshopOrigin: Schema.string(), editorOrigin: Schema.string() })
+export const Config = Schema.object({
+  studioOrigin: Schema.string(),
+  workshopOrigin: Schema.string(),
+  editorOrigin: Schema.string(),
+  editorTokenFile: Schema.string(),
+})
 
 /**
  * Resolve a workbench's original page from its configured origin.

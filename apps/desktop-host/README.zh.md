@@ -37,7 +37,7 @@ Host 包在 `lib/index.js` 旁保留 `lib/workspace-owned-storage.js`，供 Desk
 
 将 `MUSE_SCRIPT_WORKSHOP_ORIGIN` 设为编剧服务源站，可从右侧栏打开「剧本工坊」。剧本工坊与镜流分别配置。
 
-将 `MUSE_OPENCHATCUT_ORIGIN` 设为本机剪辑器的 HTTP 回环 IP 地址和端口，即可在右侧栏看到「剪辑」。本地体验时，将 `MUSE_OPENCHATCUT_DIR` 指向已安装依赖的 [OpenChatCut fork](https://github.com/felir7at62co-wq/OpenChatCut) 的 v0.2.8（`721dd058`）。在该目录用 `git apply` 应用[Muse 接入补丁](../../integrations/openchatcut/muse-editor.patch)，构建 Muse 后运行 `node apps/desktop/scripts/preview-openchatcut.mjs`。
+将 `MUSE_OPENCHATCUT_ORIGIN` 设为本机剪辑器的 HTTP 回环 IP 地址和端口，即可在右侧栏看到「剪辑」。本地体验时，将 `MUSE_OPENCHATCUT_DIR` 指向已安装依赖的 [OpenChatCut fork](https://github.com/felir7at62co-wq/OpenChatCut) 的 v0.2.8（`721dd058`）。在该目录用 `git apply` 应用[Muse 接入补丁](../../integrations/openchatcut/muse-editor.patch)，构建 Muse 后运行 `node apps/desktop/scripts/preview-openchatcut.mjs`。启动器也会让 Muse 读取当前剪辑器的本地 MCP 令牌文件。独立管理剪辑服务时，将 `MUSE_OPENCHATCUT_TOKEN_FILE` 指向对应文件，即可在当前会话调用剪辑工具。
 
 Desktop 启用已有的[打开方式控件](../../packages/client/ui-open-in-app/README.zh.md)，保留标准紧凑样式，用关联应用打开文件或在系统文件管理器中显示其位置。
 

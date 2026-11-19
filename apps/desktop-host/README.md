@@ -37,7 +37,7 @@ Set `MUSE_JINGLIU_ORIGIN` to the Jingliu HTTPS origin or a trusted loopback endp
 
 Set `MUSE_SCRIPT_WORKSHOP_ORIGIN` to the writing service origin to open Script workshop from the right sidebar. You can configure each workbench independently.
 
-Set `MUSE_OPENCHATCUT_ORIGIN` to the local editor's numeric HTTP loopback origin with its port to show **Video editor**. For a development preview, point `MUSE_OPENCHATCUT_DIR` at an installed checkout of the [OpenChatCut fork](https://github.com/felir7at62co-wq/OpenChatCut) at v0.2.8 (`721dd058`), apply the [Muse integration patch](../../integrations/openchatcut/muse-editor.patch) with `git apply` in that checkout, then run `node apps/desktop/scripts/preview-openchatcut.mjs` after building Muse.
+Set `MUSE_OPENCHATCUT_ORIGIN` to the local editor's numeric HTTP loopback origin with its port to show **Video editor**. For a development preview, point `MUSE_OPENCHATCUT_DIR` at an installed checkout of the [OpenChatCut fork](https://github.com/felir7at62co-wq/OpenChatCut) at v0.2.8 (`721dd058`), apply the [Muse integration patch](../../integrations/openchatcut/muse-editor.patch) with `git apply` in that checkout, then run `node apps/desktop/scripts/preview-openchatcut.mjs` after building Muse. The launcher also connects the editor’s local MCP token file to Muse. For a separately managed editor, set `MUSE_OPENCHATCUT_TOKEN_FILE` to the matching file to enable the current conversation’s editing tools.
 
 Desktop enables the existing [Open In controls](../../packages/client/ui-open-in-app/README.md) with their standard compact appearance for opening files in associated applications and showing their location in the system file manager.
 

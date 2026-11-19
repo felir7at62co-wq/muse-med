@@ -9,7 +9,8 @@
     "src/client",
     "src/css-modules.d.ts",
     "src/page.ts",
-    "src/cut-import-protocol.ts"
+    "src/cut-import-protocol.ts",
+    "src/editor-agent-protocol.ts"
   ],
   "references": [
     {
@@ -41,6 +42,18 @@
     },
     {
       "path": "../../util/crypto"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.client.json"
+    },
+    {
+      "path": "../ui-conversation/tsconfig.client.json"
+    },
+    {
+      "path": "../ui-chat/tsconfig.client.json"
+    },
+    {
+      "path": "../../core/session"
     }
   ]
 }

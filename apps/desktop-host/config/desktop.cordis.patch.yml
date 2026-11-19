@@ -169,6 +169,7 @@
         studioOrigin: !!js process.env.MUSE_JINGLIU_ORIGIN
         workshopOrigin: !!js process.env.MUSE_SCRIPT_WORKSHOP_ORIGIN
         editorOrigin: !!js process.env.MUSE_OPENCHATCUT_ORIGIN
+        editorTokenFile: !!js process.env.MUSE_OPENCHATCUT_TOKEN_FILE
 
     - id: muse-market
       name: '@deepseek-ai/dsh-muse-market'
@@ -276,6 +277,8 @@
         b: 0.75
         keywords:
           jingliu_workflows: [镜流, 镜流工作台, 镜流项目, 新建项目, 分集, 查询模型, Jingliu, ShotFlow]
+          openchatcut_tools: [OpenChatCut, 剪辑, 剪辑工具, 视频剪辑, 时间线, 转场, 背景音乐]
+          openchatcut_call: [OpenChatCut, 剪辑, 剪辑工程, 时间线, 剪切, 字幕, 混音, 剪辑预览]
           jingliu_run: [镜流执行, 镜流制作, 镜流分镜, 镜流任务, 制作分镜, 角色素材, 生成视频, 任务进度, ShotFlow]
           jingliu_narration: [镜流解说剧, 解说剧拆镜, 角色开口, 解说剧交付]
           drama_project: [项目圣经, 本地项目圣经, 人物关系, 修改画幅]
@@ -346,7 +349,7 @@
           - id: editing-delivery
             title: 剪辑配乐与交付
             description: 导出 Word 剧本、处理 Office 文档、创建剪映草稿、查找草稿目录、匹配配乐与整理成片。
-            tools: [screenplay_export_docx, load_workspace_dependencies, office_convert, office_recalculate, office_render, jianying_draft, drama_draft_dir, drama_render, drama_video, drama_bgm, bgm_match]
+            tools: [openchatcut_tools, openchatcut_call, screenplay_export_docx, load_workspace_dependencies, office_convert, office_recalculate, office_render, jianying_draft, drama_draft_dir, drama_render, drama_video, drama_bgm, bgm_match]
           - id: data-sourcing
             title: 数据选材与下载
             description: 采集红果、七猫与抖音公开数据，保存观测快照、比较指标、人工核验作品关系并生成选材报告，搜索和下载小说、剧目及视频素材。

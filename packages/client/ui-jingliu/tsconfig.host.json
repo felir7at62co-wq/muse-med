@@ -23,6 +23,18 @@
     },
     {
       "path": "../../host/muse-account/tsconfig.host.json"
+    },
+    {
+      "path": "../../util/error"
+    },
+    {
+      "path": "../../mcp/mcp-client"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../util/values"
     }
   ]
 }
