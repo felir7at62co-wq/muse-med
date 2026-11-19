@@ -20,60 +20,40 @@ function staged(run) {
 
 test('qualifies the native plugin without changing its retained manifest or attribution', () => {
   const original = readFileSync(join(source, 'package.json'))
-  assert.equal(museBotDesktopCompatibility.memoryReview, true)
-  assert.equal(museBotDesktopCompatibility.autoSessionBots, false)
+  assert.equal(museBotDesktopCompatibility.agentPreset, 'short-drama')
+  assert.equal(museBotDesktopCompatibility.updateCheck, false)
   staged(directory => {
     const patch = readFileSync(join(directory, 'cordis.patch.yml'), 'utf8')
-    assert.match(patch, /memoryReview: true/u)
+    assert.match(patch, /agentPreset: short-drama/u)
     applyMuseBotDesktopCompatibility(directory)
     assert.equal(readFileSync(join(directory, 'cordis.patch.yml'), 'utf8'), patch)
     const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
     assert.equal(manifest.name, 'ds-bot')
-    assert.equal(manifest.version, '0.2.4')
+    assert.equal(manifest.version, '0.3.8')
+    assert.equal(manifest.bin, undefined)
     assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-web'], undefined)
     assert.equal(manifest.exports['./web-search'], undefined)
     assert.equal(manifest.exports['./client'], './client.js')
-    assert.ok(manifest.files.includes('NOTICE'))
-    assert.ok(manifest.files.includes('src/office/'))
-    assert.ok(manifest.files.includes('office.js'))
-    assert.equal(manifest.dependencies['deep-view'], '0.1.0')
+    for (const file of ['NOTICE', 'MUSE_SOURCE.json', 'src/office/', 'office.js', 'link.js', 'plugin.js']) assert.ok(manifest.files.includes(file), file)
     assert.ok(!manifest.files.includes('web-search.js'))
+    assert.ok(!manifest.files.includes('bin/'))
     assert.equal(readFileSync(join(directory, 'NOTICE'), 'utf8'), readFileSync(join(source, 'NOTICE'), 'utf8'))
   })
   assert.deepEqual(readFileSync(join(source, 'package.json')), original)
 })
 
-test('rejects an older bundle that disables the restored memory review default', () => {
+test('rejects a bundle that puts Bot conversations on another preset', () => {
   staged(directory => {
     const path = join(directory, 'cordis.patch.yml')
-    writeFileSync(path, readFileSync(path, 'utf8').replace('memoryReview: true', 'memoryReview: false'))
+    writeFileSync(path, readFileSync(path, 'utf8').replace('agentPreset: short-drama', 'agentPreset: standard'))
     assert.throws(() => applyMuseBotDesktopCompatibility(directory), /preserve the Muse profile services/u)
   })
 })
 
-test('rejects a bundle that registers native Sessions as Bots automatically', () => {
+test('rejects a bundle that turns the upstream update check back on', () => {
   staged(directory => {
     const path = join(directory, 'cordis.patch.yml')
-    writeFileSync(path, readFileSync(path, 'utf8').replace('autoSessionBots: false', 'autoSessionBots: true'))
+    writeFileSync(path, readFileSync(path, 'utf8').replace('updateCheck: false', 'updateCheck: true'))
     assert.throws(() => applyMuseBotDesktopCompatibility(directory), /preserve the Muse profile services/u)
-  })
-})
-
-test('rejects a search override or a second plugin row', () => {
-  staged(directory => {
-    writeFileSync(join(directory, 'cordis.patch.yml'), `${readFileSync(join(directory, 'cordis.patch.yml'), 'utf8')}\n- id: web\n  config: { searchProvider: auto }\n`)
-    assert.throws(() => applyMuseBotDesktopCompatibility(directory), /preserve the Muse profile services/u)
-  })
-})
-
-test('rejects package drift and empty attribution', () => {
-  staged(directory => {
-    const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
-    writeFileSync(join(directory, 'package.json'), JSON.stringify({ ...manifest, version: '0.2.3' }))
-    assert.throws(() => applyMuseBotDesktopCompatibility(directory), /new source review/u)
-  })
-  staged(directory => {
-    writeFileSync(join(directory, 'NOTICE'), '')
-    assert.throws(() => applyMuseBotDesktopCompatibility(directory), /attribution notice/u)
   })
 })

@@ -1,9 +1,8 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // The DSH Agent: a team's one plain dsh entry, listed beside the Bots but not one of
-// them. Its Sessions are ordinary root Sessions in the Muse Bot workspace, so they get
+// them. Its Sessions are ordinary root Sessions in the DS Bot workspace, so they get
 // the whole dsh conversation surface and none of the team tools.
 import { randomUUID } from 'node:crypto'
-import { AGENT_NAME, AGENT_SESSION_TITLE_MAX, TEAM_TOOLS } from './constants.js'
+import { AGENT_NAME, AGENT_SESSION_TITLE_MAX } from './constants.js'
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -19,74 +18,6 @@ export function install(rt) {
   }
   // The DSH Agent a Session belongs to; Bot and group Sessions get undefined.
   const agentOf = sessionId => state.agents[sessionIndex.get(sessionId)]
-
-  // A DSH Agent Session must not offer the team tools: its agent sees only the
-  // global dsh surface minus this plugin's registrations. A Session whose deny
-  // has not landed yet (schemas not up, restrict hook missing, a transient
-  // throw) stays on the retry list until it sticks or the Session leaves.
-  const restricted = new Map()
-  const RETRY_MS = 5_000
-  const pendingRestrict = new Set()
-  let retryTimer
-  const stopRetry = () => {
-    if (retryTimer !== undefined) clearInterval(retryTimer)
-    retryTimer = undefined
-  }
-  const releaseAgentTools = (agent) => {
-    pendingRestrict.delete(agent)
-    const dispose = restricted.get(agent)
-    if (dispose !== undefined) {
-      dispose()
-      restricted.delete(agent)
-    }
-    if (pendingRestrict.size === 0) stopRetry()
-  }
-  ctx.effect(() => () => {
-    stopRetry()
-    pendingRestrict.clear()
-    for (const agent of restricted.keys()) releaseAgentTools(agent)
-  }, 'ds-bot: agent tool restrict retry')
-  ctx.on('agent/disposed', ({ agent }) => releaseAgentTools(agent))
-  const scheduleRetry = (agent) => {
-    pendingRestrict.add(agent)
-    if (retryTimer === undefined) {
-      retryTimer = setInterval(() => {
-        for (const waiting of [...pendingRestrict]) void restrictTeamTools(waiting)
-        if (pendingRestrict.size === 0) stopRetry()
-      }, RETRY_MS)
-      retryTimer.unref?.()
-    }
-  }
-  const restrictTeamTools = async (agent) => {
-    if (agent === undefined || restricted.has(agent)) return
-    if (agentOf(agent.session?.id) === undefined) {
-      pendingRestrict.delete(agent)
-      return
-    }
-    // Unknown names make restrict() throw, so only deny what this profile serves.
-    const known = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
-    const deny = TEAM_TOOLS.filter(name => known.has(name))
-    // An empty list can mean the schemas are not up yet, and a missing restrict
-    // hook means the Agent is still being put together; both retry.
-    if (deny.length === 0 || typeof agent.ctx?.tools?.restrict !== 'function') {
-      scheduleRetry(agent)
-      return
-    }
-    try {
-      const dispose = agent.ctx.tools.restrict({ deny })
-      restricted.set(agent, dispose)
-      pendingRestrict.delete(agent)
-    } catch (error) {
-      rt.warn('ds-bot: team tools stay visible to DSH Agent %s: %s', agent.session?.id, error)
-      scheduleRetry(agent)
-    }
-  }
-  // Fires when a root Session resolves its agent, including sessions saved earlier.
-  ctx.on('agent/created', ({ agent }) => {
-    void rt.load()
-      .then(() => restrictTeamTools(agent))
-      .catch(error => rt.warn('ds-bot: tool restrict on agent/created failed: %s', error))
-  })
 
   const writeCheck = () => {
     const readOnly = rt.readOnly()
@@ -109,8 +40,6 @@ export function install(rt) {
     const { sessionId } = await ctx.sessionController.create({ workspaceId: target })
     agent.sessions.push(sessionId)
     await rt.save()
-    // agent/created fired before the session joined the index, so restrict again now.
-    await restrictTeamTools(await rt.resolveAgent(sessionId))
     return sessionId
   }
 
@@ -127,7 +56,6 @@ export function install(rt) {
     if (owned) throw new Error('Session already belongs to the team')
     agent.sessions.push(sessionId)
     await rt.save()
-    await restrictTeamTools(await rt.resolveAgent(sessionId))
     return sessionId
   }
 
@@ -149,6 +77,36 @@ export function install(rt) {
       throw error
     }
     return agent
+  }
+
+  // Muse: the plain-session row ("Muse 会话") is the product's ordinary conversation list,
+  // so a team always has it. It starts with no Session: the user picks a workspace first.
+  async function ensureAgent() {
+    const existing = Object.values(state.agents)[0]
+    if (existing !== undefined || rt.readOnly() !== undefined) return existing
+    const agent = { id: randomUUID(), name: AGENT_NAME, sessions: [], createdAt: Date.now() }
+    state.agents[agent.id] = agent
+    await rt.save()
+    return agent
+  }
+
+  // Muse: the row lists the ordinary Sessions of the workspace the user picked, so the ones
+  // nobody on the team owns join it in one save. A Session a Bot or a group speaks in stays
+  // where it is.
+  async function syncAgentSessions(agentId, sessionIds) {
+    writeCheck()
+    const agent = record(agentId)
+    const added = []
+    for (const sessionId of Array.isArray(sessionIds) ? sessionIds : []) {
+      if (typeof sessionId !== 'string' || sessionId === '' || agent.sessions.includes(sessionId)) continue
+      const owned = rt.selfOf(sessionId) !== undefined || rt.botOf(sessionId) !== undefined
+        || rt.roomOf(sessionId) !== undefined || agentOf(sessionId) !== undefined
+      if (owned) continue
+      agent.sessions.push(sessionId)
+      added.push(sessionId)
+    }
+    if (added.length > 0) await rt.save()
+    return added
   }
 
   async function archiveAgentSession(agentId, sessionId) {
@@ -197,5 +155,5 @@ export function install(rt) {
     await rt.save()
   }
 
-  Object.assign(rt, { agentOf, releaseAgentTools, addAgent, createAgentSession, adoptAgentSession, archiveAgentSession, renameAgentSession, removeAgent })
+  Object.assign(rt, { agentOf, addAgent, ensureAgent, syncAgentSessions, createAgentSession, adoptAgentSession, archiveAgentSession, renameAgentSession, removeAgent })
 }

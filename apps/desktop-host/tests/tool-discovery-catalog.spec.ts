@@ -54,7 +54,7 @@ it('keeps account feedback submission and receipt queries resident in ordinary c
   }
 })
 
-it.each(['short-drama', 'standard', 'bot-coordinator'])('classifies every harvested nonresident tool declared by the %s composition', async (preset) => {
+it.each(['short-drama', 'short-drama-v2', 'standard', 'bot-coordinator'])('classifies every harvested nonresident tool declared by the %s composition', async (preset) => {
   const source = await readFile(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8')
   const packages = new Set(packagesFromRows(yaml.load(source, { schema: entryListSchema })))
   const defaultsPath = fileURLToPath(new URL('../config/defaults.cordis.patch.yml', import.meta.url))
@@ -176,7 +176,7 @@ it('recalls the registered Lvpaopao background controls without contacting the n
 })
 
 it('removes Bot-only tools from product discovery while retaining native questions and task controls', () => {
-  expect(config.excludeFromSearch).toEqual(expect.arrayContaining(['ask_user_question', 'show_view', 'visualize', 'coordinator_show_report', 'coordinator_display_skill']))
+  expect(config.excludeFromSearch).toEqual(expect.arrayContaining(['ask_user_question', 'show_view', 'visualize']))
   for (const name of ['list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
     'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret',
     'list_secrets', 'group_relay', 'read_own_chat', 'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',

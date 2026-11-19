@@ -44,7 +44,7 @@ function page(update) {
   const tree = AboutPage({ useUpdate: select => select(update), actions, run, Section: 'section', Row: 'row' })
   const find = (node, pick) => (Array.isArray(node) ? node.flatMap(one => find(one, pick))
     : node && typeof node === 'object' ? [...pick(node), ...find(node.children, pick)] : [])
-  const [row] = find(tree, node => (node.props?.label === 'Muse Bot' ? [node] : []))
+  const [row] = find(tree, node => (node.props?.label === 'DS Bot' ? [node] : []))
   const buttons = find(row?.children ?? [], node => (node.type === 'button' ? [node] : []))
   return {
     hint: row?.props?.hint,
@@ -54,7 +54,7 @@ function page(update) {
 }
 
 // 公开#499: in the desktop app the DS Bot row shows the app's own update state.
-test('the six Muse app update states set the product row\'s hint and button', () => {
+test('the six app update states set the DS Bot row\'s hint and button', () => {
   const cases = [
     [{ phase: 'checking' }, 'Checking for updates…', []],
     [{ phase: 'current' }, 'Up to date', [{ text: 'Check for updates', className: 'bt-soft bt-soft-sm', action: 'checkOwnApp' }]],
@@ -82,16 +82,16 @@ test('the six Muse app update states set the product row\'s hint and button', ()
 test('without an app update state the row keeps today\'s text and no button', () => {
   for (const ownApp of [undefined, null, 'checking', {}]) {
     const view = page({ source: 'app', ownApp })
-    assert.equal(view.hint, 'Updates come with Muse.')
+    assert.equal(view.hint, 'Updates come with the DS Bot app.')
     assert.deepEqual(view.buttons, [])
   }
 })
 
 test('an app update state is ignored outside the app', () => {
   const view = page({ source: 'registry', checkedAt: Date.now(), latest: '0.2.1', ownApp: { phase: 'downloaded', version: '0.2.2' } })
-  assert.equal(view.hint, 'Updates come with Muse.')
-  assert.deepEqual(view.buttons, [])
-  assert.deepEqual(view.calls, [])
+  assert.match(view.hint, /^Up to date · Checked /)
+  assert.equal(view.buttons.length, 1)
+  assert.equal(view.buttons[0].text, 'Check for updates')
 })
 
 test('ownAppRow maps each phase to its hint and button kind', () => {

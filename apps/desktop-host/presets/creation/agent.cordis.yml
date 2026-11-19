@@ -71,7 +71,7 @@
   name: '@deepseek-ai/dsh-tool-shot-script'
   config:
     reviewMode: advisory
-    speechCharsPerSecond: 5
+    speechCharsPerSecond: 7
 
 - id: tool-bgm-compose
   name: '@deepseek-ai/dsh-tool-bgm-compose'

@@ -2,7 +2,7 @@
 import { copyFileSync, existsSync, fsyncSync, openSync, closeSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE } from './core-package-set.ts'
+import { DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE, DESKTOP_MUSE_BOT_PACKAGE } from './core-package-set.ts'
 import { disableRetiredBotProfilePatch, disableRetiredSubscriptionProfilePatch, isRetiredBotBundle } from './retired-bot-profile.ts'
 
 interface DesktopProjectManifest {
@@ -17,7 +17,7 @@ interface DesktopProjectManifest {
   }
 }
 
-/** Product bundles for fresh profiles and native recovery; archived Bot packages are excluded. */
+/** Product bundles for fresh profiles and native recovery; the Bot bundle comes last, so its patch sees every product row. */
 export const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
   'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
@@ -25,6 +25,7 @@ export const DESKTOP_PROFILE_BUNDLES = [
   DESKTOP_FEISHU_PACKAGE,
   DESKTOP_CODEX_PACKAGE,
   'muse-skill-evolution', 'deep-view', '@nagi-ovo/dsh-visualize',
+  DESKTOP_MUSE_BOT_PACKAGE,
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
 const RETIRED_FEISHU_PACKAGE = '@dsh-feishu/dsh-feishu'
@@ -76,7 +77,8 @@ function pendingBuiltInBundles(stored: readonly string[]): readonly string[] | u
   const missingAt = DESKTOP_PROFILE_BUNDLES.findIndex((bundle, index) => normalized[index] !== bundle)
   if (missingAt === -1) return undefined
   const tail = normalized.slice(missingAt)
-  const promoted = new Set<string>([DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE, 'muse-skill-evolution', 'deep-view', '@nagi-ovo/dsh-visualize'])
+  const promoted = new Set<string>([DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE, 'muse-skill-evolution', 'deep-view', '@nagi-ovo/dsh-visualize',
+    DESKTOP_MUSE_BOT_PACKAGE])
   if ([...promoted].some(bundle => tail.filter(candidate => candidate === bundle).length > 1)) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }

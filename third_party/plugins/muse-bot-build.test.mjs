@@ -41,7 +41,7 @@ test('packs the Muse Bot Host, rebuilt Client and Apache notice without a standa
     assert.equal(manifest.bin, undefined)
     assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-web'], undefined)
     assert.equal(manifest.exports['./web-search'], undefined)
-    assert.equal(manifest.dependencies['deep-view'], '0.1.0')
+    assert.equal(manifest.dependencies['deep-view'], '0.1.2')
     assert.equal(member(archive, 'LICENSE'), readFileSync(join(source, 'LICENSE'), 'utf8'))
     assert.equal(member(archive, 'NOTICE'), readFileSync(join(source, 'NOTICE'), 'utf8'))
     const bundledLicenses = member(archive, 'BUNDLED_LICENSES.md')
@@ -49,8 +49,6 @@ test('packs the Muse Bot Host, rebuilt Client and Apache notice without a standa
       assert.ok(bundledLicenses.includes(readFileSync(join(import.meta.dirname, 'toolchain/node_modules', dependency, 'LICENSE'), 'utf8')))
     }
     assert.match(member(archive, 'client.js'), /window\.__ModuleLoader__\.load\(/u)
-    assert.match(member(archive, 'client.js'), /Muse Bot/u)
-    assert.ok(member(archive, 'src/host/muse-config.js').trim())
     for (const file of ['avatar-library', 'privacy', 'learning', 'office-skills']) {
       assert.ok(member(archive, `src/host/${file}.js`).trim())
     }
@@ -66,14 +64,13 @@ test('packs the Muse Bot Host, rebuilt Client and Apache notice without a standa
       assert.equal(member(archive, file), readFileSync(join(source, file), 'utf8'))
     }
     assert.equal(member(archive, 'cordis.patch.yml'), readFileSync(join(source, 'cordis.patch.yml'), 'utf8'))
-    assert.match(member(archive, 'cordis.patch.yml'), /memoryReview: true/u)
+    assert.match(member(archive, 'cordis.patch.yml'), /agentPreset: short-drama/u)
     assert.equal(member(archive, 'src/host/memory.js'), readFileSync(join(source, 'src/host/memory.js'), 'utf8'))
-    assert.equal(member(archive, 'src/host/muse-config.js'), readFileSync(join(source, 'src/host/muse-config.js'), 'utf8'))
     const metadata = JSON.parse(member(archive, 'SOURCE.json'))
     assert.deepEqual(metadata.upstream, pin)
     assert.deepEqual(metadata.compatibilityOverlay, museBotDesktopCompatibility)
-    assert.equal(metadata.compatibilityOverlay.memoryReview, true)
-    assert.equal(metadata.compatibilityOverlay.autoSessionBots, false)
+    assert.equal(metadata.compatibilityOverlay.agentPreset, 'short-drama')
+    assert.equal(metadata.compatibilityOverlay.updateCheck, false)
     const list = spawnSync('tar', ['-tzf', archive], { encoding: 'utf8' })
     assert.equal(list.status, 0)
     assert.doesNotMatch(list.stdout, /(?:^|\n)package\/(?:dev|node_modules|test|web-search\.js|\.env|\.git)(?:\/|$|\n)/u)

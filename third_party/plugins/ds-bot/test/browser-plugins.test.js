@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { pathToFileURL } from 'node:url'
 import { apply, createRuntime } from '../index.js'
 import { defaultBrowserHeadless } from '../src/host/browser-plugins.js'
 import { gateScope } from '../src/host/browser/gate.js'
@@ -25,6 +27,7 @@ const TEAM = {
   questions: {},
 }
 
+let rt
 function start(config, { services = {}, team = TEAM } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-browser-plugin-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(team))
@@ -35,7 +38,7 @@ function start(config, { services = {}, team = TEAM } = {}) {
     route = options
     return register(options)
   }
-  const rt = createRuntime(ctx, { home, ...config })
+  rt = createRuntime(ctx, { home, ...config })
   return {
     ctx,
     rt,
@@ -91,6 +94,38 @@ function browserExec(botId = 'b2', sessionId = botId) {
     signal: new AbortController().signal,
     agent: { id: botId, session: { header: { id: sessionId } } },
   }
+}
+
+// A Playwright page/context pair with just enough surface for one click, so the
+// plugin's real session code runs against it instead of a live browser.
+function fakeBrowserPage({ onClick } = {}) {
+  const page = new EventEmitter()
+  let closed = false
+  Object.assign(page, {
+    setDefaultTimeout() {},
+    setDefaultNavigationTimeout() {},
+    isClosed: () => closed,
+    url: () => 'https://reports.example.test/export',
+    title: async () => 'Reports',
+    ariaSnapshot: async () => '- button "Export CSV" [ref=e1]',
+    waitForLoadState: async () => {},
+    goto: async () => {},
+    locator: () => ({
+      count: async () => 1,
+      evaluate: async () => null,
+      click: async () => onClick?.(page),
+      fill: async () => {},
+      press: async () => {},
+      selectOption: async () => {},
+    }),
+    keyboard: { press: async () => {} },
+    close: async () => { closed = true; page.emit('close') },
+  })
+  const context = new EventEmitter()
+  context.pages = () => [page]
+  context.cookies = async () => []
+  context.close = async () => { await page.close() }
+  return { page, context }
 }
 
 test('app browser endpoint carries download roots for the Bot resolved from the exec', async () => {
@@ -152,6 +187,127 @@ test('app browser endpoint carries download roots for the Bot resolved from the 
   }
 })
 
+// The download grace travels mount → openSession → createSession. A fake opener
+// pins the first link; the config test below pins the whole chain.
+test('the mount passes its download grace to the injected session opener', async () => {
+  let opened
+  const tools = new Map()
+  let cleanup
+  mountBrowserPlugin({
+    on() {},
+    effect(create) { cleanup = create() },
+    tools: { register(tool) { tools.set(tool.name, tool) } },
+  }, {
+    toolDefs: [{ name: 'browser_probe', needsBrowser: true, execute: () => 'ok' }],
+    defineTool: value => value,
+    keyOf: async () => 'b2',
+    profileRoot: '/profiles',
+    headless: true,
+    downloadGraceMs: 1234,
+    openSession: async options => {
+      opened = options
+      return { close: async () => {} }
+    },
+  })
+  try {
+    assert.equal(await tools.get('browser_probe').execute({}, { agent: { id: 'b2' } }), 'ok')
+    assert.equal(opened.downloadGraceMs, 1234)
+  } finally {
+    await cleanup?.()
+  }
+})
+
+// The whole config path, not just createSession's own argument: config → install
+// → mount → openBotBrowser → createSession. The configured 20 ms grace is far below
+// the 300 ms default, so a download that starts 200 ms after the click must find the
+// batch closed: it is canceled and named in the next snapshot. Were the setting
+// dropped, the default 300 ms window is still open at 200 ms and the download is
+// captured (and its approval path entered) instead.
+test('browserDownloadGraceMs from the config reaches the browser session', async (t) => {
+  let saved = false
+  let canceled = 0
+  let resolveCanceled
+  const wasCanceled = new Promise(resolve => { resolveCanceled = resolve })
+  const incoming = {
+    suggestedFilename: () => 'report.csv',
+    url: () => 'https://reports.example.test/report.csv',
+    async saveAs() { saved = true },
+    async cancel() { canceled += 1; resolveCanceled() },
+    async delete() {},
+  }
+  let timer
+  let clock = false
+  const clicked = Promise.withResolvers()
+  const { context } = fakeBrowserPage({
+    onClick: page => {
+      t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() })
+      clock = true
+      timer = setTimeout(() => page.emit('download', incoming), 200)
+      clicked.resolve()
+    },
+  })
+  const key = Symbol.for('ds-bot.test.browser-context')
+  globalThis[key] = context
+  const stub = mkdtempSync(join(tmpdir(), 'ds-bot-playwright-stub-'))
+  writeFileSync(join(stub, 'fake-playwright.mjs'), [
+    'export const chromium = {',
+    "  launchPersistentContext: async () => globalThis[Symbol.for('ds-bot.test.browser-context')],",
+    '}',
+    '',
+  ].join('\n'))
+  const { ctx, rt: runtime, stop } = start({
+    browserPlugin: 'refs',
+    browserPluginApi: {
+      id: 'probe',
+      tools: [{
+        name: 'browser_probe',
+        needsBrowser: true,
+        async execute(args, { session }) {
+          const click = await session.click('e1')
+          return { click, session }
+        },
+      }],
+    },
+    browserDownloadGraceMs: 20,
+    playwrightUrl: pathToFileURL(join(stub, 'fake-playwright.mjs')).href,
+  })
+  // The team folder is read lazily when the browser opens; the fake context only
+  // exposes services through get(), so give it the registry teamFolder() reads.
+  ctx.workspaceRegistry = { get: () => ({ path: join(stub, 'workspace') }) }
+  t.after(async () => {
+    if (clock) {
+      t.mock.timers.tick(300)
+      await new Promise(setImmediate)
+      clearTimeout(timer)
+      t.mock.timers.reset()
+    }
+    await ctx.dispose()
+    stop()
+    delete globalThis[key]
+    rmSync(stub, { recursive: true, force: true })
+  })
+  const tool = runtime.teamTools.find(entry => entry.name === 'browser_probe')
+  let finished = false
+  const action = tool.execute({}, browserExec()).then(result => { finished = true; return result })
+  action.catch(() => {})
+  await clicked.promise
+  await new Promise(setImmediate)
+  t.mock.timers.tick(150)
+  await new Promise(setImmediate)
+  t.mock.timers.tick(0)
+  await new Promise(setImmediate)
+  assert.equal(finished, true, 'the configured grace elapsed during the click settle')
+  const result = await action
+  assert.equal(typeof result.click, 'string')
+  assert.doesNotMatch(result.click, /Download "report\.csv"/, 'the click did not wait for the late download')
+  t.mock.timers.tick(50)
+  await wasCanceled
+  assert.equal(saved, false, 'the late download was not saved')
+  assert.equal(canceled, 1)
+  const snapshot = await result.session.snapshotText()
+  assert.match(snapshot, /Download "report.csv".*after its browser action finished and was canceled/i)
+})
+
 test('concurrent first browser calls share opening and relay connection', async () => {
   const tools = new Map()
   let cleanup
@@ -200,6 +356,52 @@ test('concurrent first browser calls share opening and relay connection', async 
   await cleanup?.()
 })
 
+test('browser calls for one Bot keep their approval scopes in order while other Bots can proceed', async () => {
+  const tools = new Map()
+  const started = []
+  const approved = []
+  let releaseFirst
+  const firstPending = new Promise(resolve => { releaseFirst = resolve })
+  mountBrowserPlugin({
+    effect() {},
+    tools: { register(tool) { tools.set(tool.name, tool) } },
+  }, {
+    toolDefs: [{
+      name: 'browser_download',
+      needsBrowser: true,
+      async execute({ label }) {
+        started.push(label)
+        if (label === 'first') await firstPending
+        await gateScope.getStore()({ kind: 'download', label })
+        return label
+      },
+    }],
+    defineTool: value => value,
+    keyOf: async exec => exec.botId,
+    profileRoot: '/profiles',
+    headless: true,
+    openSession: async () => ({ close: async () => {} }),
+    authorize: async (exec, botId, action) => approved.push([exec.callId, botId, action.label]),
+  })
+  const execute = (botId, label) => tools.get('browser_download').execute({ label }, { botId, callId: label })
+  const first = execute('b1', 'first')
+  const second = execute('b1', 'second')
+  const other = execute('b2', 'other')
+  await new Promise(resolve => setImmediate(resolve))
+  try {
+    assert.deepEqual(started, ['first', 'other'])
+    assert.equal(await other, 'other')
+  } finally {
+    releaseFirst()
+    await Promise.all([first, second, other])
+  }
+  assert.deepEqual(approved, [
+    ['other', 'b2', 'other'],
+    ['first', 'b1', 'first'],
+    ['second', 'b1', 'second'],
+  ])
+})
+
 test('user takeover while opening closes the session once it resolves', async () => {
   const tools = new Map()
   let cleanup
@@ -238,7 +440,7 @@ test('user takeover while opening closes the session once it resolves', async ()
   hold = { by: 'user' }
   publishHold('b2', hold)
   releaseOpen({ close: async () => { closeCalls += 1; resolveClosed() } })
-  await opening
+  await assert.rejects(opening, /The user has taken over this browser/)
   await closed
   assert.equal(closeCalls, 1)
   await cleanup?.()
@@ -281,16 +483,16 @@ test('no browser plugin is mounted unless one is selected for the team', (t) => 
   const { ctx, stop } = start({})
   t.after(stop)
   assert.equal(ctx.calls.includes('effect ds-bot: browser plugin'), false)
-  assert.equal(ctx.registeredTools.has('browser_open'), false)
-  assert.equal(ctx.registeredTools.has('browser_exec'), false)
-  assert.equal(ctx.registeredTools.has('browser_task'), false)
+  assert.equal(rt.teamTools.some(d => d.name === 'browser_open'), false)
+  assert.equal(rt.teamTools.some(d => d.name === 'browser_exec'), false)
+  assert.equal(rt.teamTools.some(d => d.name === 'browser_task'), false)
 })
 
 test('user browser controls are not exposed as Bot tools', (t) => {
-  const { ctx, stop } = start({ browser: true, browserPlugin: 'refs' })
+  const { stop } = start({ browser: true, browserPlugin: 'refs' })
   t.after(stop)
   for (const name of ['browser-takeover', 'browser-give-back', 'browser-stop']) {
-    assert.equal(ctx.registeredTools.has(name), false)
+    assert.equal(rt.teamTools.some(d => d.name === name), false)
   }
 })
 
@@ -361,7 +563,7 @@ test('browser_task uses the Bot session model route when no test completion is i
     }),
   }
 
-  const value = await ctx.registeredTools.get('browser_task').execute({}, {
+  const value = await rt.teamTools.find(d => d.name === 'browser_task').execute({}, {
     agent: { id: 'b2', session },
     signal: new AbortController().signal,
   })
@@ -393,7 +595,7 @@ test('the selected plugin is the same for every Bot, and profiles stay apart', a
   })
   t.after(stop)
   assert.ok(ctx.calls.includes('effect ds-bot: browser plugin'))
-  const tool = ctx.registeredTools.get('browser_snapshot')
+  const tool = rt.teamTools.find(d => d.name === 'browser_snapshot')
   const writer = await tool.execute({}, { agent: { id: 'b2' } })
   const chief = await tool.execute({}, { agent: { id: 'm1' } })
   assert.deepEqual(seen, ['b2', 'm1'])
@@ -450,13 +652,13 @@ test('a matching browser grant allows the write without asking', async (t) => {
   const writer = browserWriter()
   const team = structuredClone(TEAM)
   team.bots.b2.browserGrants = [{ site: 'example.com', kinds: ['post'] }]
-  const { ctx, stop } = start({
+  const { stop } = start({
     browserPlugin: 'refs',
     browserPluginApi: writer.plugin,
   }, { services: { approval, permissionPresets: permissionService('workspace-write') }, team })
   t.after(stop)
 
-  assert.equal(await ctx.registeredTools.get('browser_write').execute({}, browserExec()), 'written')
+  assert.equal(await rt.teamTools.find(d => d.name === 'browser_write').execute({}, browserExec()), 'written')
   assert.equal(writer.runs(), 1)
   assert.equal(approval.requests.length, 0)
 })
@@ -464,12 +666,12 @@ test('a matching browser grant allows the write without asking', async (t) => {
 test('approval is one-shot and each write requests it again', async (t) => {
   const approval = fakeApproval('allowed-once')
   const writer = browserWriter()
-  const { ctx, stop } = start({
+  const { stop } = start({
     browserPlugin: 'refs',
     browserPluginApi: writer.plugin,
   }, { services: { approval, permissionPresets: permissionService('workspace-write') } })
   t.after(stop)
-  const tool = ctx.registeredTools.get('browser_write')
+  const tool = rt.teamTools.find(d => d.name === 'browser_write')
 
   assert.equal(await tool.execute({}, browserExec()), 'written')
   assert.equal(await tool.execute({}, browserExec()), 'written')
@@ -486,13 +688,13 @@ test('approval is one-shot and each write requests it again', async (t) => {
 test('a rejected approval prevents the write', async (t) => {
   const approval = fakeApproval('rejected')
   const writer = browserWriter()
-  const { ctx, stop } = start({
+  const { stop } = start({
     browserPlugin: 'refs',
     browserPluginApi: writer.plugin,
   }, { services: { approval, permissionPresets: permissionService('workspace-write') } })
   t.after(stop)
 
-  await assert.rejects(ctx.registeredTools.get('browser_write').execute({}, browserExec()), /Do not try this action again unless the user asks\..*Nothing was done\./)
+  await assert.rejects(rt.teamTools.find(d => d.name === 'browser_write').execute({}, browserExec()), /Do not try this action again unless the user asks\..*Nothing was done\./)
   assert.equal(writer.runs(), 0)
 })
 
@@ -508,14 +710,14 @@ test('browser grants match exact hosts, subdomains, and wildcard sites and kinds
     const writer = browserWriter()
     const team = structuredClone(TEAM)
     team.bots.b2.browserGrants = [{ site: entry.site, kinds: entry.kinds }]
-    const { ctx, stop } = start({
+    const { stop } = start({
       browserPlugin: 'refs',
       browserPluginApi: writer.plugin,
     }, { services: { approval, permissionPresets: permissionService('workspace-write') }, team })
     t.after(stop)
     const action = { ...WRITE_ACTION, host: entry.host }
     writer.setAction(action)
-    const tool = ctx.registeredTools.get('browser_write')
+    const tool = rt.teamTools.find(d => d.name === 'browser_write')
     if (entry.allowed) {
       assert.equal(await tool.execute({}, browserExec()), 'written')
       assert.equal(approval.requests.length, 0)
@@ -532,25 +734,25 @@ test('read-only permissions use the ordinary approval path', async (t) => {
   const writer = browserWriter()
   const team = structuredClone(TEAM)
   team.bots.b2.permission = 'read-only'
-  const { ctx, stop } = start({
+  const { stop } = start({
     browserPlugin: 'refs',
     browserPluginApi: writer.plugin,
   }, { services: { approval, permissionPresets: permissionService('workspace-write') }, team })
   t.after(stop)
-  assert.equal(await ctx.registeredTools.get('browser_write').execute({}, browserExec()), 'written')
+  assert.equal(await rt.teamTools.find(d => d.name === 'browser_write').execute({}, browserExec()), 'written')
   assert.equal(writer.runs(), 1)
   assert.equal(approval.requests.length, 1)
 })
 
 test('missing approval service is reported without running the write', async (t) => {
   const writer = browserWriter()
-  const { ctx, stop } = start({
+  const { stop } = start({
     browserPlugin: 'refs',
     browserPluginApi: writer.plugin,
   }, { services: { permissionPresets: permissionService('workspace-write') } })
   t.after(stop)
 
-  await assert.rejects(ctx.registeredTools.get('browser_write').execute({}, browserExec()), /needs the user's approval.*so nothing was done\./)
+  await assert.rejects(rt.teamTools.find(d => d.name === 'browser_write').execute({}, browserExec()), /needs the user's approval.*so nothing was done\./)
   assert.equal(writer.runs(), 0)
 })
 
@@ -574,12 +776,12 @@ test('approval cancellation, service failure, and missing Sessions are explicit'
   ]
   for (const entry of cases) {
     const writer = browserWriter()
-    const { ctx, stop } = start({
+    const { stop } = start({
       browserPlugin: 'refs',
       browserPluginApi: writer.plugin,
     }, { services: { approval: entry.approval, permissionPresets: permissionService('workspace-write') } })
     t.after(stop)
-    await assert.rejects(ctx.registeredTools.get('browser_write').execute({}, entry.exec), entry.message)
+    await assert.rejects(rt.teamTools.find(d => d.name === 'browser_write').execute({}, entry.exec), entry.message)
     assert.equal(writer.runs(), 0)
   }
 })
@@ -587,12 +789,12 @@ test('approval cancellation, service failure, and missing Sessions are explicit'
 test('approval verbs cover every gated action', async (t) => {
   const approval = fakeApproval('allowed-once')
   const writer = browserWriter()
-  const { ctx, stop } = start({
+  const { stop } = start({
     browserPlugin: 'refs',
     browserPluginApi: writer.plugin,
   }, { services: { approval, permissionPresets: permissionService('workspace-write') } })
   t.after(stop)
-  const tool = ctx.registeredTools.get('browser_write')
+  const tool = rt.teamTools.find(d => d.name === 'browser_write')
   for (const [kind, label, verb] of [
     ['post', 'Publish update', 'post'],
     ['upload', 'upload files', 'upload files'],
@@ -615,13 +817,13 @@ test('payment is refused even with a wildcard grant or full-access preset', asyn
     const team = structuredClone(TEAM)
     setup(team)
     writer.setAction({ ...WRITE_ACTION, kind: 'payment', label: 'Pay now' })
-    const { ctx, stop } = start({
+    const { stop } = start({
       browserPlugin: 'refs',
       browserPluginApi: writer.plugin,
     }, { services: { approval, permissionPresets: permissionService('workspace-write') }, team })
     t.after(stop)
     await assert.rejects(
-      ctx.registeredTools.get('browser_write').execute({}, browserExec()),
+      rt.teamTools.find(d => d.name === 'browser_write').execute({}, browserExec()),
       /call browser_handoff with reason "payment".*Nothing was done\./,
     )
     assert.equal(writer.runs(), 0)
@@ -634,12 +836,12 @@ test('expired grants do not authorize a write', async (t) => {
   const writer = browserWriter()
   const team = structuredClone(TEAM)
   team.bots.b2.browserGrants = [{ site: 'example.com', kinds: ['post'], until: Date.now() - 1 }]
-  const { ctx, stop } = start({
+  const { stop } = start({
     browserPlugin: 'refs',
     browserPluginApi: writer.plugin,
   }, { services: { approval, permissionPresets: permissionService('workspace-write') }, team })
   t.after(stop)
-  assert.equal(await ctx.registeredTools.get('browser_write').execute({}, browserExec()), 'written')
+  assert.equal(await rt.teamTools.find(d => d.name === 'browser_write').execute({}, browserExec()), 'written')
   assert.equal(writer.runs(), 1)
   assert.equal(approval.requests.length, 1)
 })
@@ -701,4 +903,26 @@ test('browser grants are user-only, normalized, deduplicated, expiring, and clea
   const cleared = await call('update-bot', { id: 'b2', browserGrants: null })
   assert.equal(cleared.ok, true)
   assert.equal(Object.hasOwn(cleared.value, 'browserGrants'), false)
+})
+
+
+test('an aborted queued browser call never executes after the earlier call finishes', async () => {
+  const tools = new Map()
+  const release = Promise.withResolvers()
+  const started = []
+  mountBrowserPlugin({ effect() {}, tools: { register(tool) { tools.set(tool.name, tool) } } }, {
+    toolDefs: [{ name: 'queued', needsBrowser: true, async execute({ label }) { started.push(label); if (label === 'first') await release.promise; return label } }],
+    defineTool: value => value, keyOf: async () => 'bot', profileRoot: '/profiles', headless: true,
+    openSession: async () => ({ close: async () => {} }),
+  })
+  const first = tools.get('queued').execute({ label: 'first' }, {})
+  const controller = new AbortController()
+  const second = tools.get('queued').execute({ label: 'canceled' }, { signal: controller.signal })
+  const rejected = assert.rejects(second, /cancel/)
+  await new Promise(resolve => setImmediate(resolve))
+  controller.abort(new Error('canceled'))
+  release.resolve()
+  await first
+  await rejected
+  assert.deepEqual(started, ['first'])
 })

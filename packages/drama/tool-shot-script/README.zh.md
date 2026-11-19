@@ -24,7 +24,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在短剧预设中把插件挂载到工具注册表旁。`actionShotSeconds` 默认 2，接受 1–4 整数秒；它用于估算没有明确时长或复杂度的无声镜，不是镜头时长上限。`speechCharsPerSecond` 接受至少1的数值，默认8；Muse短剧与创作预设采用5，编译与制作分包共用。`reviewMode` 接受 `strict` 和 `advisory`，默认 `strict`。`sessionVideoSelection` 默认 `false`；启用后读取调用 Agent 的剧变视频选择服务，不采用调用方传入的分包上限。`selectionReviewMaxChars` 限制完整追加选择复核文字，默认 2000 字符，至少 400；始终保留计数，并注明省略的细节。Muse 短剧预设采用 `advisory` 并启用会话选择。这些是部署配置，不是模型可选择的工具参数。
+在短剧预设中把插件挂载到工具注册表旁。`actionShotSeconds` 默认 2，接受 1–4 整数秒；它用于估算没有明确时长或复杂度的无声镜，不是镜头时长上限。`speechCharsPerSecond` 接受至少1的数值，默认7；Muse短剧与创作预设同样采用7，编译与制作分包共用。`reviewMode` 接受 `strict` 和 `advisory`，默认 `strict`。`sessionVideoSelection` 默认 `false`；启用后读取调用 Agent 的剧变视频选择服务，不采用调用方传入的分包上限。`selectionReviewMaxChars` 限制完整追加选择复核文字，默认 2000 字符，至少 400；始终保留计数，并注明省略的细节。Muse 短剧预设采用 `advisory` 并启用会话选择。这些是部署配置，不是模型可选择的工具参数。
 
 <a id="muse-batch-production"></a>
 

@@ -19,7 +19,7 @@ it('registers public Qimao tools in every nonminimal preset and disposes each co
   try {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
-    for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'creation', 'bot-coordinator', 'minimal']) {
+    for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'short-drama-v2', 'creation', 'bot-coordinator', 'minimal']) {
       const rows = parseYaml(readFileSync(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), {
         customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => ({ __jsExpr: value }) }],
       }) as PresetRow[]

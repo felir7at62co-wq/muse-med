@@ -67,7 +67,7 @@ export function skillSystem() {
     '4. Not covered: no listed skill already says it. When a learned skill of this Bot covers the class, update that skill instead of making a new one. Also update a learned skill that the work showed to be wrong, outdated, or missing a step.',
     '',
     'Never put in a skill: one-off facts, task progress, file lists, dates, version, pull request or issue numbers, pasted errors or logs, facts about the user that are not about how to work (memory keeps those), or keys, passwords, and tokens.',
-    'Write rules that stand alone, not the story of this work: a reason says why the rule matters, never when or how it was broken ("the user corrected this before", "version 1.2 missed it"). Examples must be general, not the files, values, or fixes of this task.',
+    'Write rules that stand alone, not the story of this work: a reason says why the rule matters, never when or how it was broken ("the user corrected this before", "version 1.2 missed it"). Examples must be general: do not name the files, functions, values, or fixes that this work happened to touch, not even as an example, and write a placeholder such as `<file>:<line>` instead; name something only when the rule is about it, such as a check the user wants run.',
     '',
     'Form:',
     '- name: the class of task, lowercase letters, digits, and single hyphens, 32 characters at most, e.g. "release-checks", never "fix-login-bug".',
@@ -202,6 +202,33 @@ export function applyEdits(current, edits) {
   return text
 }
 
+// The review's answer as a proposal. A single edit written as the answer itself, with
+// its operation as the action, is that edit; a replacement with no text removes; lines
+// one edit names that stand apart in the file, each once, are one edit each.
+export function agentsAnswer(reply, current) {
+  let answer = parseJson(reply)
+  if (['add', 'replace', 'remove'].includes(answer?.action)) {
+    const { action, ...edit } = answer
+    answer = { action: 'edit', edits: [{ op: action, ...edit }] }
+  }
+  if (!Array.isArray(answer?.edits)) return answer
+  const lines = lineBlock(current ?? '')
+  const apart = edit => {
+    if (edit?.op !== 'replace' && edit?.op !== 'remove') return [edit]
+    const old = lineBlock(textOf(edit.old))
+    const text = lineBlock(textOf(edit.text))
+    if (old.length < 2 || occurrences(lines, old).length > 0 || old.some(line => occurrences(lines, [line]).length !== 1)) return [edit]
+    if (edit.op === 'replace' && text.length !== old.length) return [edit]
+    return old.map((line, index) => ({ ...edit, old: line, ...(edit.op === 'replace' ? { text: text[index] } : {}) }))
+  }
+  const removes = edit => {
+    const { text, ...rest } = edit
+    return { ...rest, op: 'remove' }
+  }
+  const edits = answer.edits.map(edit => edit?.op === 'replace' && textOf(edit.text).trim() === '' ? removes(edit) : edit)
+  return { ...answer, edits: edits.flatMap(apart) }
+}
+
 export function agentsProblem(proposal, current) {
   if (proposal === undefined) return 'the answer is not a JSON object'
   if (proposal.action === 'none') return undefined
@@ -272,7 +299,7 @@ export function install(rt) {
   const on = config.learning !== false && config.memory !== false
   const view = () => ({})
   if (!on) {
-    Object.assign(rt, { learningView: view, learningEndpoint: async () => { throw new Error('Learning is turned off on this host') }, learningRun: async () => 0 })
+    Object.assign(rt, { learningView: view, learningSettledView: view, learningEndpoint: async () => { throw new Error('Learning is turned off on this host') }, learningRun: async () => 0 })
     return
   }
 
@@ -280,7 +307,9 @@ export function install(rt) {
   const path = join(root, 'state.json')
   // `pending`: Bot id → chats with a long turn since the last pass. `agentsPending`:
   // folder → queued work waiting for AGENTS.md review. `cursors`: newest line read.
-  // `proposals`: waiting for the user, by id. `learned`: skill names learned by Bot.
+  // `proposals`: waiting for the user, by id. `settled`: answered ones, by id, with
+  // the outcome; their cards stay in the chat part they were answered in.
+  // `learned`: skill names learned by Bot.
   let saved
   const data = () => {
     if (saved !== undefined) return saved
@@ -293,30 +322,21 @@ export function install(rt) {
     saved.pending ??= {}
     saved.cursors ??= {}
     saved.proposals ??= {}
+    saved.settled ??= {}
     saved.declined ??= []
     saved.learned ??= {}
     saved.agentsPending ??= {}
     return saved
   }
-  let phase = 'active'
-  const reviewController = new AbortController()
-  const writeCheck = () => {
-    const reason = rt.readOnly()
-    if (reason !== undefined) throw new Error(`Learning cannot change now: ${reason}`)
-  }
+  let stopped = false
   let writing = Promise.resolve()
   const persist = () => {
-    if (phase === 'stopped' || rt.readOnly() !== undefined) return writing
+    if (stopped) return writing
     const text = JSON.stringify(data(), null, 1)
     writing = writing.then(async () => {
-      if (rt.readOnly() !== undefined) return
       await mkdir(dirname(path), { recursive: true })
       const temp = `${path}.${process.pid}.tmp`
       await writeFile(temp, text, 'utf8')
-      if (rt.readOnly() !== undefined) {
-        await unlink(temp).catch(() => {})
-        return
-      }
       await replaceFile(temp, path)
     }).catch(error => rt.warn('ds-bot: saving the learning state failed: %s', error?.message ?? error))
     return writing
@@ -327,7 +347,7 @@ export function install(rt) {
   const noted = new Map()
   let lastActivity = Date.now()
   ctx.on('agent/status', ({ agent, status }) => {
-    if (phase !== 'active' || rt.readOnly() !== undefined) return
+    if (stopped) return
     const id = agent?.id
     if (id === undefined || !rt.isBotSession(id)) return
     lastActivity = Date.now()
@@ -381,7 +401,6 @@ export function install(rt) {
   const waitingFor = botId => Object.values(data().proposals).filter(entry => entry.botId === botId)
 
   async function reviewSkill(bot, lines) {
-    writeCheck()
     const skills = skillsOf()
     const learned = learnedOf(bot)
     const library = Object.values(skills).filter(item => !learned.includes(item.name)).map(item => ({ name: item.name, description: item.description }))
@@ -390,11 +409,11 @@ export function install(rt) {
       lines,
       learned: learned.map(name => skills[name]),
       library,
-      declined: data().declined.filter(entry => entry.kind !== 'agents' && entry.botId === bot.id),
+      declined: data().declined.filter(entry => entry.kind !== 'agents'),
       language: writtenIn(lines.filter(line => line.startsWith('User: ')).map(line => line.slice(6)), rt.uiLanguage?.()),
       limit: settings.learnedMax,
     })
-    const reply = await rt.botShot(bot, skillSystem(), text, { sessionId: rt.chatOf(bot.id), kind: 'memory' }, reviewController.signal)
+    const reply = await rt.botShot(bot, skillSystem(), text, { sessionId: rt.chatOf(bot.id), kind: 'memory' })
     const proposal = parseJson(reply)
     if (['description', 'content', 'why'].some(key => {
       const value = proposal?.[key]
@@ -429,11 +448,10 @@ export function install(rt) {
   }
 
   async function reviewAgents(bot, folder, current, lines) {
-    writeCheck()
     const language = writtenIn(lines.filter(line => line.startsWith('User: ')).map(line => line.slice(6)), rt.uiLanguage?.())
     const request = agentsRequest({ folder, current, lines, declined: data().declined, language })
-    const reply = await rt.botShot(bot, agentsSystem(), request, { sessionId: rt.chatOf(bot.id), kind: 'memory' }, reviewController.signal)
-    const answer = parseJson(reply)
+    const reply = await rt.botShot(bot, agentsSystem(), request, { sessionId: rt.chatOf(bot.id), kind: 'memory' })
+    const answer = agentsAnswer(reply, current)
     if (answer === undefined || answer === null || typeof answer !== 'object') throw new Error('the answer is not a JSON object')
     if (Array.isArray(answer.edits) && answer.edits.some(edit => [edit?.text, edit?.why].some(value => typeof value === 'string' && rt.redactSecrets(value) !== value))) {
       rt.warn('ds-bot: the AGENTS.md review of %s proposed content containing a saved secret', bot.name)
@@ -505,16 +523,14 @@ export function install(rt) {
   // proposal still waiting is skipped: its chat is read again in the next pass.
   let running
   async function run() {
-    if (phase !== 'active') return 0
-    writeCheck()
+    if (stopped) return 0
     if (running) return running
     running = (async () => {
       const store = data()
       store.lastRun = Date.now()
       let made = 0
       for (const [botId, pendingSessions] of Object.entries(store.pending)) {
-        if (phase !== 'active') break
-        writeCheck()
+        if (stopped) break
         const bot = rt.botOf(botId)
         if (bot === undefined) {
           delete store.pending[botId]
@@ -526,11 +542,10 @@ export function install(rt) {
         try {
           const read = []
           for (const sessionId of sessions) read.push({ sessionId, ...await linesSince(sessionId) })
-          if (phase !== 'active') return made
+          if (stopped) return made
           const lines = read.flatMap(entry => entry.lines)
           const proposal = lines.length === 0 ? undefined : await reviewSkill(bot, lines)
-          if (phase !== 'active') return made
-          writeCheck()
+          if (stopped) return made
           if (proposal !== undefined) {
             store.proposals[proposal.id] = proposal
             made += 1
@@ -556,14 +571,13 @@ export function install(rt) {
           if (remaining.length === 0) delete store.pending[botId]
           else store.pending[botId] = remaining
         } catch (error) {
-          if (phase === 'active') rt.warn('ds-bot: the learning review of %s failed: %s', bot.name, error?.message ?? error)
+          rt.warn('ds-bot: the learning review of %s failed: %s', bot.name, error?.message ?? error)
           continue
         }
       }
       if (config.agentsMd !== false) {
         for (const [folder, group] of Object.entries(store.agentsPending)) {
-          if (phase !== 'active') break
-          writeCheck()
+          if (stopped) break
           let bot = rt.botOf(group.botId)
           if (bot === undefined) {
             const contributor = group.records.find(item => rt.botOf(item.botId) !== undefined)
@@ -579,7 +593,7 @@ export function install(rt) {
             const reviewRecords = [...group.records]
             const reviewedOrders = reviewRecords.map(item => item.order)
             const current = await agentsFile(folder)
-            if (phase !== 'active') return made
+            if (stopped) return made
             if (current === undefined && await exists(join(folder, 'AGENTS.md'))) continue
             const lines = []
             let used = 0
@@ -599,8 +613,7 @@ export function install(rt) {
             }
             if (lines.length === 0) continue
             const proposal = await reviewAgents(bot, folder, current, lines)
-            if (phase !== 'active') return made
-            writeCheck()
+            if (stopped) return made
             if (proposal !== undefined) {
               store.proposals[proposal.id] = proposal
               made += 1
@@ -611,7 +624,7 @@ export function install(rt) {
               if (queue.records.length === 0) delete store.agentsPending[folder]
             }
           } catch (error) {
-            if (phase === 'active') rt.warn('ds-bot: the AGENTS.md review of %s failed: %s', folder, error?.message ?? error)
+            rt.warn('ds-bot: the AGENTS.md review of %s failed: %s', folder, error?.message ?? error)
           }
         }
       }
@@ -622,7 +635,7 @@ export function install(rt) {
   }
 
   const due = () => {
-    if (phase !== 'active') return false
+    if (stopped) return false
     const store = data()
     const hasPending = Object.values(store.pending).some(sessions => sessions.length > 0)
       || (config.agentsMd !== false && Object.values(store.agentsPending).some(queue => queue.records?.length > 0))
@@ -630,38 +643,17 @@ export function install(rt) {
     if (Object.keys(rt.workView()).length > 0 || Date.now() - lastActivity < settings.idleMs) return false
     return store.lastRun === undefined || Date.now() - store.lastRun >= settings.intervalMs
   }
-  const answers = new Set()
-  let timer
-  let draining
-  // The state-lock owner awaits this same drain before closing its own writer.
-  const learningDispose = () => {
-    if (draining !== undefined) return draining
-    phase = 'stopping'
-    reviewController.abort()
-    clearInterval(timer)
-    draining = (async () => {
-      try {
-        await running
-      } finally {
-        try {
-          await Promise.allSettled([...answers])
-        } finally {
-          try {
-            await writing
-          } finally {
-            phase = 'stopped'
-          }
-        }
-      }
-    })()
-    return draining
-  }
   ctx.effect(() => {
-    timer = setInterval(() => {
+    const timer = setInterval(() => {
       if (due()) void run().catch(error => rt.warn('ds-bot: learning pass failed: %s', error?.message ?? error))
     }, settings.tickMs)
     timer.unref?.()
-    return learningDispose
+    return () => {
+      stopped = true
+      clearInterval(timer)
+      // A new host may take over after disposal; finish only writes already queued.
+      return writing
+    }
   }, 'ds-bot: learning')
 
   // The user's answer to a card.
@@ -669,11 +661,18 @@ export function install(rt) {
     const store = data()
     const proposal = Object.hasOwn(store.proposals, id) ? store.proposals[id] : undefined
     if (proposal === undefined) throw Object.assign(new Error('This proposal is no longer open'), { code: 'bot/stale' })
-    if (approve !== true) {
+    // The answered card stays where it was, read-only, with how it ended. A waiting
+    // card shows in the Bot's current chat part, so that is where it stays.
+    const settle = (outcome) => {
       delete store.proposals[id]
+      const { saved: _saved, ...kept } = proposal
+      store.settled[id] = { ...kept, sessionId: rt.chatOf(proposal.botId), outcome, settledAt: Date.now() }
+    }
+    if (approve !== true) {
+      settle('declined')
       const decline = proposal.kind === 'agents'
-        ? { kind: 'agents', botId: proposal.botId, folder: proposal.folder, edits: proposal.edits.map(({ op, text, old }) => ({ op, text, old })), at: Date.now() }
-        : { botId: proposal.botId, name: proposal.name, description: proposal.description, at: Date.now() }
+        ? { kind: 'agents', folder: proposal.folder, edits: proposal.edits.map(({ op, text, old }) => ({ op, text, old })), at: Date.now() }
+        : { name: proposal.name, description: proposal.description, at: Date.now() }
       store.declined = [...store.declined, decline].slice(-settings.declinedMax)
       await persist()
       return { applied: false }
@@ -681,7 +680,7 @@ export function install(rt) {
     // A failed approval keeps the card, so the user can still decline it.
     if (proposal.kind === 'agents') await applyAgents(proposal)
     else await applySkill(proposal)
-    delete store.proposals[id]
+    settle('approved')
     await persist()
     return { applied: true }
   }
@@ -755,16 +754,7 @@ export function install(rt) {
   }
 
   async function learningEndpoint(endpoint, body) {
-    if (endpoint === 'learning-answer') {
-      if (phase !== 'active') throw new Error('Learning cannot change after this Host starts stopping')
-      const operation = answer({ id: String(body.id ?? ''), approve: body.approve === true })
-      answers.add(operation)
-      try {
-        return await operation
-      } finally {
-        answers.delete(operation)
-      }
-    }
+    if (endpoint === 'learning-answer') return answer({ id: String(body.id ?? ''), approve: body.approve === true })
     throw new Error(`Unknown endpoint ${endpoint}`)
   }
 
@@ -783,6 +773,14 @@ export function install(rt) {
     for (const entry of Object.values(data().proposals)) (byBot[entry.botId] ??= []).push(entry)
     return byBot
   }
+  // Per Bot, the answered proposals of its current chat part.
+  const learningSettledView = () => {
+    const byBot = {}
+    for (const entry of Object.values(data().settled)) {
+      if (rt.botOf(entry.botId) !== undefined && entry.sessionId === rt.chatOf(entry.botId)) (byBot[entry.botId] ??= []).push(entry)
+    }
+    return byBot
+  }
 
   const capabilityDelete = rt.capabilityDelete
   rt.capabilityDelete = async (...args) => {
@@ -797,5 +795,5 @@ export function install(rt) {
     return result
   }
 
-  Object.assign(rt, { learningView, learningEndpoint, learningRun: run, learningDispose })
+  Object.assign(rt, { learningView, learningSettledView, learningEndpoint, learningRun: run })
 }

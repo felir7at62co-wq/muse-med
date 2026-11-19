@@ -24,7 +24,7 @@ const requirements: ProductionRequirement[] = [1, 2, 3, 4].map(shot => ({ shot, 
 it('shares the configured speech estimate with the shot compiler', () => {
   const source = speakingShot(1, `苏晚：${'字'.repeat(23)}`, ['出镜人物：苏晚', '核心场景：后厨'])
   const input = { ...base, source, source_sha256: productionHash(source) }
-  expect(buildProductionPlan(input, 8, 2).packages[0]?.duration).toBe(4)
+  expect(buildProductionPlan(input, 8, 2).packages[0]?.duration).toBe(5)
   expect(buildProductionPlan(input, 8, 2, 5).packages[0]?.duration).toBe(6)
 })
 

@@ -7,14 +7,17 @@ import { cleanVersion, install, newer, sourceOf } from '../src/host/update.js'
 
 const PKG = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const flush = async () => { for (let index = 0; index < 14; index += 1) await Promise.resolve() }
+// Longer chains than `flush` covers: wait until the update leaves 'installing'.
+const settle = async (rt) => { for (let index = 0; index < 200 && (await rt.updateCheck()).phase === 'installing'; index += 1) await Promise.resolve() }
 const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
 
 // The update module alone, on a stub plugin manager and a scripted fetch.
-function start({ source, registries, answers = {}, result = { application: 'restart-required' }, remove = { application: 'applied' }, config = {}, profileDir, home }) {
+function start({ source, registries, answers = {}, result = { application: 'restart-required' }, remove = { application: 'applied' }, enable = { application: 'applied', changed: true }, config = {}, profileDir, home }) {
   const fetched = []
   const installs = []
   const removes = []
+  const enables = []
   const warnings = []
   globalThis.fetch = async (url) => {
     fetched.push(url)
@@ -28,6 +31,7 @@ function start({ source, registries, answers = {}, result = { application: 'rest
     registries: async () => registries ?? { registry: null, fallbackRegistries: ['https://registry.npmmirror.com/'], resolved: 'https://registry.npmjs.org/' },
     installBundle: async (spec, options) => { installs.push([spec, options]); return typeof result === 'function' ? result(installs.length) : result },
     removeBundle: async (name) => { removes.push(name); return typeof remove === 'function' ? remove() : remove },
+    setBundleEnabled: async (name, on) => { enables.push([name, on]); return typeof enable === 'function' ? enable() : enable },
   }
   const rt = {
     ctx: { get: name => (name === 'pluginManager' ? pluginManager : name === 'profileContext' && profileDir ? { dir: profileDir } : undefined), effect() {} },
@@ -36,7 +40,7 @@ function start({ source, registries, answers = {}, result = { application: 'rest
     warn: (...args) => warnings.push(args),
   }
   install(rt)
-  return { rt, fetched, installs, removes, warnings }
+  return { rt, fetched, installs, removes, enables, warnings }
 }
 
 test('versions compare in semver order and lose their v and build metadata', () => {
@@ -121,9 +125,9 @@ test('a versioned GitHub install follows the latest release tag and keeps its pa
 
 test('a versioned GitHub install follows the release to the repository\'s current address', async () => {
   const { rt, installs } = start({
-    source: 'github:old-owner/DeepSeek-Bot#v0.1.0&path:/ds-bot',
+    source: 'github:old-owner/retired-dsbot#v0.1.0&path:/ds-bot',
     answers: {
-      'https://api.github.com/repos/old-owner/DeepSeek-Bot/releases/latest': {
+      'https://api.github.com/repos/old-owner/retired-dsbot/releases/latest': {
         tag_name: 'v9.1.0',
         html_url: 'https://github.com/Fei2411/DS-Bot/releases/tag/v9.1.0',
       },
@@ -143,7 +147,7 @@ test('a linked checkout, an unversioned git install, or a disabled check never a
     const view = await rt.updateCheck()
     assert.equal(view.available, false)
     assert.deepEqual(fetched, [])
-    assert.throws(() => rt.updateStart(), /No Muse Bot update/)
+    assert.throws(() => rt.updateStart(), /No DS Bot update/)
   }
   const { rt, fetched } = start({ source: `${PKG.name}@^${PKG.version}`, config: { updateCheck: false } })
   assert.equal((await rt.updateCheck({ fresh: true })).available, false)
@@ -158,7 +162,7 @@ test('in the desktop app, which updates as a whole, it never asks the network an
   assert.equal(view.source, 'app')
   assert.equal(view.available, false)
   assert.deepEqual(fetched, [])
-  assert.throws(() => rt.updateStart(), /No Muse Bot update/)
+  assert.throws(() => rt.updateStart(), /No DS Bot update/)
 })
 
 test('the star count comes from the repository, is kept for an hour, and survives a failed answer', async () => {
@@ -204,7 +208,7 @@ test('a check that finds nothing clears the version a check before it found', as
   const linked = await rt.updateCheck({ fresh: true })
   assert.equal(linked.available, false)
   assert.equal(linked.latest, null)
-  assert.throws(() => rt.updateStart(), /No Muse Bot update/)
+  assert.throws(() => rt.updateStart(), /No DS Bot update/)
   // Back on the registry with no copy answering: the offer stays cleared.
   delete answers[latest]
   setSource(`^${PKG.version}`)
@@ -297,7 +301,7 @@ test('an already-installed refusal removes the bundle, reinstalls and leaves a n
 
 test('a failed removal fails the update without a second install', async () => {
   const home = newHome()
-  const { rt, installs, removes } = start({
+  const { rt, installs, removes, enables } = start({
     source: `${PKG.name}@^${PKG.version}`,
     config: { updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
@@ -313,6 +317,74 @@ test('a failed removal fails the update without a second install', async () => {
   const view = await rt.updateCheck()
   assert.equal(view.phase, 'failed')
   assert.equal(view.error, 'bundle-in-use')
+  assert.deepEqual(enables, [])
+  assert.equal(existsSync(join(home, 'update.json')), false)
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a removal that fails after it took the bundle out of the profile selects it again', async () => {
+  const home = newHome()
+  const { rt, installs, removes, enables } = start({
+    source: `${PKG.name}@^${PKG.version}`,
+    config: { updateRegistry: 'https://registry.example' },
+    answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
+    result: count => (count === 1 ? { error: { code: 'already-installed' } } : { application: 'applied', version: '9.0.0' }),
+    remove: { changed: true, error: { code: 'operation-error', diagnostic: 'pnpm: remove failed' } },
+    home,
+  })
+  await rt.updateCheck()
+  rt.updateStart()
+  await settle(rt)
+  assert.deepEqual(removes, [PKG.name])
+  assert.deepEqual(enables, [[PKG.name, true]])
+  assert.equal(installs.length, 1)
+  const view = await rt.updateCheck()
+  assert.equal(view.phase, 'failed')
+  assert.equal(view.error, 'pnpm: remove failed')
+  assert.equal(noteIn(home).error, `pnpm: remove failed; ${PKG.name} was enabled again`)
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('when selecting the bundle again fails too, the old version is installed again', async () => {
+  const home = newHome()
+  const { rt, installs, enables } = start({
+    source: `${PKG.name}@^${PKG.version}`,
+    config: { updateRegistry: 'https://registry.example' },
+    answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
+    result: count => (count === 1 ? { error: { code: 'already-installed' } } : { application: 'applied', version: PKG.version }),
+    remove: { changed: true, error: { code: 'bundle-in-use' } },
+    enable: { application: 'failed', error: { code: 'unknown-plugin' } },
+    home,
+  })
+  await rt.updateCheck()
+  rt.updateStart()
+  await settle(rt)
+  assert.equal(enables.length, 1)
+  assert.equal(installs.length, 2)
+  assert.equal(installs[1][0], `${PKG.name}@${PKG.version}`)
+  assert.equal(noteIn(home).error, `bundle-in-use; ${PKG.name}@${PKG.version} was reinstalled`)
+  assert.equal((await rt.updateCheck()).phase, 'failed')
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a removal that throws ran nothing, so nothing is undone', async () => {
+  const home = newHome()
+  const { rt, installs, enables } = start({
+    source: `${PKG.name}@^${PKG.version}`,
+    config: { updateRegistry: 'https://registry.example' },
+    answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
+    result: count => (count === 1 ? { error: { code: 'already-installed' } } : { application: 'applied', version: '9.0.0' }),
+    remove: () => { throw new Error('lock timeout') },
+    home,
+  })
+  await rt.updateCheck()
+  rt.updateStart()
+  await settle(rt)
+  assert.deepEqual(enables, [])
+  assert.equal(installs.length, 1)
+  const view = await rt.updateCheck()
+  assert.equal(view.phase, 'failed')
+  assert.equal(view.error, 'lock timeout')
   assert.equal(existsSync(join(home, 'update.json')), false)
   rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 })
@@ -353,6 +425,21 @@ test('a reinstall refused by an application state also puts the old version back
   const note = noteIn(home)
   assert.equal(note.error, `install failed; ${PKG.name}@${PKG.version} was reinstalled`)
   assert.equal((await rt.updateCheck()).phase, 'failed')
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a newer release is offered in the run that reported the last update', async () => {
+  const home = newHome()
+  writeFileSync(join(home, 'update.json'), JSON.stringify({ from: '0.2.0', to: PKG.version, spec: `${PKG.name}@${PKG.version}`, startedAt: new Date().toISOString() }))
+  const { rt } = start({
+    home,
+    source: `${PKG.name}@^${PKG.version}`,
+    answers: { [`https://registry.npmjs.org/${PKG.name}/latest`]: { version: '9.0.0' } },
+  })
+  assert.equal(rt.updateView().phase, 'updated')
+  const view = await rt.updateCheck({ fresh: true })
+  assert.equal(view.available, true)
+  assert.equal(view.phase, 'idle')
   rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 })
 

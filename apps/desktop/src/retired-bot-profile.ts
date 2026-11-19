@@ -1,10 +1,13 @@
-/** Disable retired product plugins without loading their modules or modifying their saved data. */
+/**
+ * Disable retired product plugins without loading their modules or modifying their saved data.
+ * The current Bot ships as the `ds-bot` bundle with the row id `bot`; only the older `muse-bot` rows stay retired.
+ */
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isAlias, isMap, isSeq, parseDocument, type YAMLSeq } from 'yaml'
 
-const BOT_NAMES = ['ds-bot', 'muse-bot'] as const
+const BOT_NAMES = ['muse-bot'] as const
 
 /** @param name Stored package/bundle name. @returns Whether it is a retired built-in Bot bundle. */
 export function isRetiredBotBundle(name: string): boolean { return BOT_NAMES.some(bot => name === bot) }

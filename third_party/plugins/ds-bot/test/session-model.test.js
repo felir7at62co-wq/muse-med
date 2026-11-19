@@ -7,7 +7,7 @@ const header = {
   tools: [{ name: 'session-private-tool', description: 'not for browser_task', parameters: {} }],
 }
 
-function fixture(chunks, { attachments, inputModalities, textOnlyModels, config = header.config } = {}) {
+function fixture(chunks, { attachments, inputModalities, textOnlyModels } = {}) {
   const requests = []
   const tags = []
   let modelInfoCalls = 0
@@ -26,7 +26,7 @@ function fixture(chunks, { attachments, inputModalities, textOnlyModels, config 
   }
   const session = {
     id: 'session-browser-task',
-    requestHeader: () => ({ ...header, config }),
+    requestHeader: () => header,
   }
   const rt = {
     config: { textOnlyModels },
@@ -72,30 +72,6 @@ test('session completion preserves DSH tool-call identity, name, and JSON argume
     function: { name: 'browser_open', arguments: '{"url":"https://example.com"}' },
   }])
 })
-
-for (const model of ['gpt-6.1-sol', 'gemini-3.1-pro']) {
-  const efforts = model === 'gpt-6.1-sol' ? ['low', 'medium', 'high', 'xhigh', 'max'] : ['low', 'medium', 'high']
-  for (const reasoningEffort of efforts) {
-    test(`a Bot browser task keeps its Yunying ${model} ${reasoningEffort} Session selection`, async () => {
-      const config = { provider: 'muse-cloud-yunying', model, reasoningEffort }
-      const setup = fixture([stop], { config })
-      const other = fixture([stop])
-      await sessionComplete(setup.ctx, setup.exec, setup.rt)({
-        messages: [{ role: 'user', content: 'Read the title.' }], tools: [],
-      })
-
-      assert.equal(setup.requests.length, 1)
-      assert.deepEqual({
-        provider: setup.requests[0].provider,
-        model: setup.requests[0].model,
-        reasoningEffort: setup.requests[0].reasoningEffort,
-      }, config)
-      assert.deepEqual(setup.exec.agent.session.requestHeader().config, config)
-      assert.deepEqual(other.requests, [])
-      assert.deepEqual(other.exec.agent.session.requestHeader().config, header.config)
-    })
-  }
-}
 
 test('follow-up assistant tool call and tool result are converted to DSH messages', async () => {
   const setup = fixture([
@@ -242,4 +218,45 @@ test('missing Bot session model fails with a clear error', async () => {
     complete({ messages: [], tools: [] }),
     { message: 'browser_task needs a Bot session model' },
   )
+})
+
+test('session completion retries TRANSPORT failures and cancels during retry backoff on abort', async () => {
+  let attempts = 0
+  const ctx = {
+    get: () => undefined,
+    llm: {
+      providerRetryPolicy: () => ({ mode: 'normal', maxRetries: 3, retryableCodes: ['TRANSPORT'], initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 }),
+      async *stream() {
+        attempts += 1
+        if (attempts < 3) {
+          yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } } }
+          return
+        }
+        yield { type: 'text-delta', index: 0, text: 'Recovered.' }
+        yield stop
+      },
+    },
+  }
+  const exec = { agent: { session: { id: 's-browser', requestHeader: () => header } }, signal: new AbortController().signal }
+  const result = await sessionComplete(ctx, exec)({ messages: [{ role: 'user', content: 'Open.' }], tools: [] })
+  assert.equal(attempts, 3)
+  assert.equal(result.choices[0].message.content, 'Recovered.')
+
+  const abort = new AbortController()
+  let abortedAttempts = 0
+  const slowCtx = {
+    get: () => undefined,
+    llm: {
+      providerRetryPolicy: () => ({ mode: 'normal', maxRetries: 3, retryableCodes: ['TRANSPORT'], initialDelayMs: 5_000, maxDelayMs: 5_000, jitterRatio: 0 }),
+      async *stream() {
+        abortedAttempts += 1
+        setTimeout(() => abort.abort(), 10)
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } } }
+      },
+    },
+  }
+  await assert.rejects(
+    sessionComplete(slowCtx, { agent: { session: { id: 's-browser', requestHeader: () => header } }, signal: abort.signal })({ messages: [{ role: 'user', content: 'Open.' }], tools: [] }),
+  )
+  assert.equal(abortedAttempts, 1)
 })

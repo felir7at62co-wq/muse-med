@@ -1,11 +1,10 @@
-/** Install the optional production library, settings and project browser beside the local Router conversation. */
+/** Install the optional production library, settings and project browser beside the local conversation. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type {} from '@deepseek-ai/dsh-session-coordinator/remote'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -64,6 +63,11 @@ export function installNative(ctx: Context): void {
         openProjects: (id) => {
           const list = host.sessions.list.getSnapshot()
           target = id ?? list.ids.find(key => !!list.byId[key]?.retainedBy.mainView)
+          // A project is selected for one conversation; with none in view, start one first.
+          if (target === undefined) {
+            host.uiWorkspace.startSession()
+            return
+          }
           host.layout.selectPanel(panel)
         },
         addWorkspace: async (path) => {
@@ -73,12 +77,8 @@ export function installNative(ctx: Context): void {
         openProject: async (project) => {
           const signal = host.layout.beginNavigation()
           const signedIn = epoch.getSnapshot()
-          let id = target
-          if (!id) {
-            const main = await host.remote.sessionCoordinator.openMain()
-            if (!main.ok) throw main.error
-            id = main.value
-          }
+          const id = target
+          if (!id) throw new Error('Studio project selection needs a conversation')
           signal.throwIfAborted()
           if (epoch.getSnapshot() !== signedIn) throw new Error('Studio account changed')
           const selection = await api.selectProject(id, project.id, signal)

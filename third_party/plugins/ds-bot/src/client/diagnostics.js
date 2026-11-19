@@ -1,4 +1,3 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
 // What went wrong in this browser, for Settings → Feedback and the report it builds.
 // Calls whose failures the interface swallows (polls, previews) still land here.
 import { t, language } from './i18n.js'
@@ -42,7 +41,7 @@ export const clientErrors = () => entries.map(entry => (entry.count > 1 ? { ...e
 
 export function clientFacts() {
   return {
-    surface: window.dshDesktop ? 'Muse Desktop' : 'Muse Web',
+    surface: window.dshDesktop ? 'DSH Desktop' : 'DSH Web',
     language: language(),
     userAgent: navigator.userAgent,
   }
@@ -50,22 +49,31 @@ export function clientFacts() {
 
 // Short words for the provider-neutral failure codes of DSH's LLM layer.
 const FAILURES = {
+  MISSING_CREDENTIAL: 'The model has no API key',
+  INVALID_CREDENTIAL: 'The API key is not in the right format',
   AUTH: 'The API key was rejected',
+  CONTENT_POLICY: 'The model service blocked the content',
   QUOTA: 'The account is out of quota',
   ACCOUNT_QUOTA: 'The account is out of quota',
+  ACCOUNT_SIGN_IN_REQUIRED: 'The DeepSeek account needs a sign-in',
+  ACCOUNT_SIGNED_OUT: 'The DeepSeek account is signed out',
+  ACCOUNT_TOKEN_INVALID: 'The DeepSeek account sign-in has expired',
   RATE_LIMIT: 'Too many requests to the model',
   CONTEXT_WINDOW_EXCEEDED: 'The conversation is too long for the model',
   INVALID_REQUEST: 'The model service refused the request',
   SERVER: 'The model service failed',
   TIMEOUT: 'The model took too long to answer',
   TRANSPORT: 'Could not reach the model service',
+  MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
   SESSION: 'Its group conversation could not open',
   SESSION_RESET: 'Its group conversation could not open, so it starts a new one next time',
 }
 
+// The short words for a known code, or undefined.
+export const knownFailure = code => (Object.hasOwn(FAILURES, code ?? '') ? t(FAILURES[code]) : undefined)
+
 export function failureLabel(code, message) {
-  if (FAILURES[code]) return t(FAILURES[code])
-  return message || code || t('Unknown error')
+  return knownFailure(code) ?? (message || code || t('Unknown error'))
 }
 
 // GitHub refuses very long addresses; past this the diagnostics go by the clipboard.

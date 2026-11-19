@@ -23,7 +23,7 @@ import {
 } from '@deepseek-ai/dsh-skill'
 
 import { needsCatalogSelection, selectCatalogSkills, type CatalogSourceLimits } from './catalog-selection.ts'
-import { installTaskSkillRecovery, taskSkillVersion } from './task-skill.ts'
+import { ANY_TASK_SKILL, installTaskSkillRecovery, taskSkillVersion } from './task-skill.ts'
 import { pageSkillCatalog, SkillCatalogError } from './catalog-directory.ts'
 export type { SkillCatalogCursor, SkillCatalogRequest, SkillCatalogDirectoryEntry, SkillCatalogPage } from './catalog-directory.ts'
 
@@ -79,10 +79,25 @@ export interface Config {
   catalogSourceLimits?: CatalogSourceLimits
   /** Default metadata directory page size, an integer from 1 through 100. */
   catalogPageSize?: number
-  /** Skill names that select mutually exclusive task phases in this preset. Empty disables recovery. */
+  /** Skill names that become task skills in this preset; `*` admits every skill. Empty disables recovery. */
   taskSkills?: string[]
-  /** Maximum characters in a restored task-skill notice, including its framing. */
+  /** Maximum characters in each restored task-skill notice, including its framing. */
   taskSkillMaxChars?: number
+  /**
+   * Task skills kept in effect at once; loading one more releases the oldest.
+   * Defaults to 1, where loading another replaces the current one.
+   */
+  taskSkillLimit?: number
+  /**
+   * Tools refused until their task skill is in effect. `tools` holds exact names or a prefix ending in `*`;
+   * the first matching rule applies.
+   */
+  toolSkills?: {
+    /** Exact tool names, or a prefix followed by `*`. */
+    tools: string[]
+    /** Task skill that must be in effect before those tools run. */
+    skill: string
+  }[]
 }
 
 /** Validate and default the model-facing skill catalog configuration. */
@@ -93,6 +108,8 @@ export const Config: z<Config> = z.object({
   catalogPageSize: z.number().min(1).max(100).step(1).default(20),
   taskSkills: z.array(z.string()).default([]),
   taskSkillMaxChars: z.number().min(512).step(1).default(8192),
+  taskSkillLimit: z.number().min(1).max(16).step(1).default(1),
+  toolSkills: z.array(z.object({ tools: z.array(z.string()).required(), skill: z.string().required() })).default([]),
 })
 
 /**
@@ -112,7 +129,17 @@ export function apply(ctx: Context, config: Config = {}): void | Promise<void> {
   const taskSkills = new Set(config.taskSkills ?? [])
   const taskSkillMaxChars = config.taskSkillMaxChars ?? 8192
   assertPositiveInteger('taskSkillMaxChars', taskSkillMaxChars, 512)
-  if ([...taskSkills].some(name => !isSkillName(name))) throw new TypeError('tool-skill: invalid task skill name')
+  if ([...taskSkills].some(name => name !== ANY_TASK_SKILL && !isSkillName(name))) throw new TypeError('tool-skill: invalid task skill name')
+  const isTaskSkill = (name: string): boolean => taskSkills.has(ANY_TASK_SKILL) || taskSkills.has(name)
+  const taskSkillLimit = config.taskSkillLimit ?? 1
+  assertPositiveInteger('taskSkillLimit', taskSkillLimit)
+  if (taskSkillLimit > 16) throw new Error('tool-skill: taskSkillLimit must not exceed 16')
+  const toolSkills = config.toolSkills ?? []
+  if (toolSkills.some(rule => !isSkillName(rule.skill) || rule.tools.length === 0 || rule.tools.some(tool => tool === '' || tool === '*'))) {
+    throw new TypeError('tool-skill: each toolSkills rule needs a skill name and at least one tool name or prefix')
+  }
+  const outside = toolSkills.find(rule => !isTaskSkill(rule.skill))
+  if (outside !== undefined) throw new TypeError(`tool-skill: toolSkills names "${outside.skill}", which is not a task skill`)
   const limited = Object.keys(limits).length > 0
   const prepared = new WeakMap<Agent, WeakMap<AbortSignal, { enabled: boolean }>>()
 
@@ -163,7 +190,7 @@ export function apply(ctx: Context, config: Config = {}): void | Promise<void> {
       render: (_args, value) => [{ type: 'text', text: renderSkillContent(value) }],
       ...(taskSkills.size > 0 ? { preserveBodyMeta: true as const } : {}),
       presentationMeta: (_args, value) => {
-        if (!taskSkills.has(value.name)) return undefined
+        if (!isTaskSkill(value.name)) return undefined
         return { kind: 'task-skill-loaded', name: value.name, version: taskSkillVersion(value) }
       },
     },
@@ -312,7 +339,7 @@ export function apply(ctx: Context, config: Config = {}): void | Promise<void> {
       if (skill === undefined || !isUserInvocable(skill)) continue
       const text = renderSkillContent(skill)
       const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions',
-        ...(taskSkills.has(name) ? { taskVersion: taskSkillVersion(skill) } : {}) }
+        ...(isTaskSkill(name) ? { taskVersion: taskSkillVersion(skill) } : {}) }
       injections.push(createUserMessage({
         content: [{ type: 'text', text }],
         source,
@@ -393,7 +420,7 @@ export function apply(ctx: Context, config: Config = {}): void | Promise<void> {
         : decision.messages.map(message => message.id === existing.message.id ? catalog : message),
     }
   })
-  if (taskSkills.size > 0) return installTaskSkillRecovery(ctx, taskSkills, taskSkillMaxChars, skillTool)
+  if (taskSkills.size > 0) return installTaskSkillRecovery(ctx, taskSkills, taskSkillMaxChars, skillTool, taskSkillLimit, toolSkills)
 }
 
 function renderCatalogMessage(entries: SkillCatalogSource['entries'], bounded = false): UserMessage {

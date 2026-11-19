@@ -17,6 +17,7 @@ it.each([
   ['late-credentials', 'keeps an enabled bridge writable until credentials are stored and the backend restarts'],
   ['legacy', 'requires the product switch even when the bridge section stores enabled true'],
   ['expressions', 'evaluates credential expressions before deciding startup activation'],
+  ['product-off', 'keeps the earlier IM robot unmounted under the product patch'],
   ['other-rows', 'leaves other entries and inherited child configs unchanged without a bridge row'],
   ['profile-shadow', 'loads native IM and its browser entry through production resolution without links while rejecting profile shadows'],
 ])('%s: %s', async (scenario) => {

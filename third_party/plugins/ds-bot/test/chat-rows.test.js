@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { stackReplies } from '../src/shared/group-replies.js'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
@@ -25,8 +26,9 @@ runInNewContext(bundle.outputFiles[0].text, {
     if (!(name in platform)) throw new Error(`no platform module ${name}`)
     return platform[name]
   },
+  queueMicrotask,
 })
-const { ChatRows, ThinkingRow } = module.exports
+const { ChatRows, ThinkingRow, syncGroupChains, claimLines, GroupMessage, TriggerCell } = module.exports
 
 const roster = { byId: { b: { id: 'b', name: 'Writer' } }, roomsById: {} }
 const MINUTE = 60_000
@@ -103,4 +105,71 @@ test('a settled reasoning row shows the turn’s thinking time when known', () =
   assert.equal(time?.children.join(''), '· 12s')
   const untimed = ThinkingRow({ text: 'one\ntwo' })
   assert.equal(untimed.children[0].children.join(''), 'Thought it through')
+})
+
+test('consecutive group messages from the same Bot chain together, and cards or user rows break the chain', () => {
+  const node = (classes, botId, turn = {}) => ({
+    dataset: botId ? { botId } : {},
+    classList: { contains: name => classes.includes(name) },
+    closest: sel => (sel === '[data-chat-group-key]' ? turn : null),
+  })
+  const t1 = { dataset: {} }, t2 = { dataset: {} }, t3 = { dataset: {} }, t4 = { dataset: {} }
+  const m1 = node(['bt-group-msg'], 'a', t1)
+  const m2 = node(['bt-group-msg'], 'a', t2)
+  const card = node(['bt-q-inline'])
+  const m3 = node(['bt-group-msg'], 'a', t3)
+  const hostUser = node([], undefined)
+  const m4 = node(['bt-group-msg'], 'a', t4)
+  syncGroupChains({ querySelectorAll: () => [m1, m2, card, m3, hostUser, m4] })
+  assert.equal(m1.dataset.chainPrev, undefined)
+  assert.equal(m1.dataset.chainNext, '')
+  assert.equal(t1.dataset.btChainNext, '')
+  assert.equal(m2.dataset.chainPrev, '')
+  assert.equal(m2.dataset.chainNext, undefined)
+  assert.equal(t2.dataset.btChainPrev, '')
+  assert.equal(m3.dataset.chainPrev, undefined)
+  assert.equal(m3.dataset.chainNext, undefined)
+  assert.equal(m4.dataset.chainPrev, undefined)
+})
+
+test('a final reply with a missing file and no work running draws both markers', () => {
+  const claims = { inProgress: true, missingFiles: ['./out/report.pptx'] }
+  assert.deepEqual([...claimLines(claims)].map(line => String(line.text)), ['No background work detected', 'File not found: ./out/report.pptx'])
+  assert.equal(claimLines(undefined).length, 0)
+  const tree = GroupMessage({
+    bot: { id: 'b', name: 'Writer' }, text: '正在导出，稍后汇报。', room: { id: 'r1' }, roster: { prefs: {} }, actions: { openSession() {} }, claims,
+  })
+  const markers = tree.children.filter(child => String(child?.props?.className ?? '').startsWith('bt-claim'))
+  assert.deepEqual([...markers].map(child => [String(child.props.className), [...child.children].join('')]), [
+    ['bt-claim bt-claim-inProgress', 'No background work detected'],
+    ['bt-claim bt-claim-file', 'File not found: ./out/report.pptx'],
+  ])
+})
+
+test('a group post carries claims both live and in earlier chat rows', () => {
+  const claims = { missingFiles: ['./missing.md'] }
+  const source = { kind: 'bot', role: 'post', senderSessionId: 'b', claims }
+  const team = { ...roster, roomsById: { g: { id: 'g' } }, exchangeTurns: {} }
+  const live = TriggerCell({
+    node: { data: { source, turn: 1, time: 1, content: [{ type: 'text', text: 'Report' }] } },
+    sessionId: 'g', useRoster: pick => pick(team), useSessions: pick => pick({ byId: {} }),
+    useTurnClock: pick => pick({}), useUi: pick => pick({}), actions: {},
+  })
+  assert.deepEqual(live.props.claims, claims)
+  const [earlier] = ChatRows({
+    items: [{ kind: 'post', botId: 'b', text: 'Report', claims }], sessionId: 'g', roster: team, actions: {},
+  })
+  assert.deepEqual(earlier.props.claims, claims)
+})
+
+test('a marked final reply stacks onto earlier progress and keeps later messages below its marker', () => {
+  const claims = { missingFiles: ['./missing.md'] }
+  const progress = { botId: 'b', text: 'Started' }
+  const final = { botId: 'b', text: 'Report', claims }
+  const stacked = stackReplies([progress, final, { botId: 'b', text: 'Follow-up' }])
+  assert.equal(stacked.length, 2)
+  assert.deepEqual(stacked[0].texts, ['Started', 'Report'])
+  assert.deepEqual(stacked[0].claims, claims)
+  assert.deepEqual(stacked[1].texts, ['Follow-up'])
+  assert.equal(stacked[1].claims, undefined)
 })

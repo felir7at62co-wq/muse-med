@@ -1,4 +1,3 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Updates: compare this package's version with the newest release where it was
 // installed from (the npm registry, or a GitHub tag for a versioned git install)
 // and, when the user asks, reinstall it through DSH's plugin manager. A new version
@@ -160,7 +159,6 @@ export function install(rt) {
   let stars = { count: null, at: 0 }
   let starring = null
   async function repoStars() {
-    if (!enabled) return null
     const repo = repoSlug()
     if (repo === null) return null
     if (Date.now() - stars.at < STARS_TTL_MS) return stars.count
@@ -217,6 +215,9 @@ export function install(rt) {
     }
     status.latest = found.version
     target = newer(found.version, status.current) ? found : null
+    // The note that reported the last update is a one-time message; a newer
+    // release found later in the same run still offers itself.
+    if (target !== null && status.phase === 'updated') status.phase = 'idle'
   }
 
   /** Ask where the package came from for its newest version; a fresh check ignores the last answer. */
@@ -231,9 +232,8 @@ export function install(rt) {
 
   /** Start reinstalling the newest version; the answer comes back through `check`. */
   function start() {
-    if (!enabled) throw new Error('Muse Bot updates with Muse')
     if (status.phase === 'installing') return view()
-    if (target === null) throw new Error('No Muse Bot update is available')
+    if (target === null) throw new Error('No DS Bot update is available')
     const service = manager()
     if (typeof service?.installBundle !== 'function') throw new Error('The DSH plugin manager is not available in this profile')
     const chosen = target
@@ -264,13 +264,7 @@ export function install(rt) {
         // again, so pin the version that is actually running.
         const oldSpec = await Promise.resolve(installSpecOf(ctx)).catch(() => undefined)
         const previous = typeof oldSpec === 'string' && sourceOf(oldSpec).kind === 'registry' ? `${PKG.name}@${PKG.version}` : oldSpec
-        mark()
-        const removed = await Promise.resolve(service.removeBundle(PKG.name)).catch((error) => { unmark(); throw error })
-        if (removed?.error) {
-          unmark()
-          return { error: removed.error }
-        }
-        // The bundle is gone now; a failed install leaves no Muse Bot unless the old one goes back.
+        // The bundle is gone now; a failed install leaves no DS Bot unless the old one goes back.
         const restore = async (failed) => {
           if (typeof previous !== 'string' || previous === '') return failed
           const back = await Promise.resolve(service.installBundle(previous, sourceOf(previous).kind === 'registry' && chosen.registry ? { registry: chosen.registry } : {})).catch(error => ({ error: { code: error?.message ?? 'restore failed' } }))
@@ -279,6 +273,22 @@ export function install(rt) {
             return failed
           }
           return `${failed}; ${previous} was reinstalled`
+        }
+        // A removal deselects the bundle before it unloads and removes the package, so
+        // one that fails afterwards leaves the profile changed (`changed`) without DS Bot.
+        // Selecting the bundle again undoes that; if the package is gone too, the old
+        // version is installed again. A removal that throws ran nothing (lock timeout).
+        const recover = async (failed) => {
+          const on = await Promise.resolve(service.setBundleEnabled?.(PKG.name, true)).catch(() => null)
+          if (on && !on.error && ['applied', 'restart-required'].includes(on.application)) return `${failed}; ${PKG.name} was enabled again`
+          return restore(failed)
+        }
+        mark()
+        const removed = await Promise.resolve(service.removeBundle(PKG.name)).catch((error) => { unmark(); throw error })
+        if (removed?.error) {
+          if (removed.changed) mark(await recover(removed.error.diagnostic ?? removed.error.code))
+          else unmark()
+          return { error: removed.error }
         }
         try {
           const again = await service.installBundle(chosen.spec, options)

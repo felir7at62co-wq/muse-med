@@ -2,7 +2,7 @@
 packages: []
 
 packageExtensions:
-  deep-view@0.1.0:
+  deep-view@0.1.2:
     peerDependenciesMeta:
       '@deepseek-ai/cordis':
         optional: true

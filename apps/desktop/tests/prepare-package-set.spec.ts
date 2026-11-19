@@ -139,14 +139,14 @@ describe('desktop package-set selection', () => {
     }
   })
 
-  it('leaves archived Bot tarballs outside the default product package closure', () => {
-    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS, 'ds-bot', 'muse-bot']
+  it('ships the Bot and leaves the older Bot package outside the default product package closure', () => {
+    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS, 'muse-bot']
     const available = new Map(names.map(name => [name, packed(name)]))
     const selected = selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name)
     expect(selected).toContain('dsh-plugin-subscriptions')
-    expect(selected).not.toContain('ds-bot')
+    expect(selected).toContain('ds-bot')
     expect(selected).not.toContain('muse-bot')
-    for (const name of ['ds-bot', 'muse-bot']) available.delete(name)
+    available.delete('muse-bot')
     expect(selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name)).toEqual(selected)
   })
 

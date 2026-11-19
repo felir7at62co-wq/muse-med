@@ -30,10 +30,11 @@ const wordRule = 'assigning paragraph `.text` destroys run formatting'
 const agentOptions = { provider: 'mock', model: 'editing' }
 
 async function setup(home: string, adapter: MockAdapter, overrides?: Pick<ToolSkill.Config, 'taskSkills' | 'taskSkillMaxChars'>) {
+  // The preset keeps every loaded skill; '*' stands for all of them, the binding skill included.
   const yaml = await readFile(new URL('../presets/short-drama/agent.cordis.yml', import.meta.url), 'utf8')
   const preset = parseYaml(yaml, { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (text: string) => text }] }) as { id: string; config?: ToolSkill.Config }[]
   const selected = preset.find(row => row.id === 'tool-skill')?.config
-  if (!selected?.taskSkills?.includes(binding) || selected.taskSkillMaxChars === undefined) {
+  if (!selected?.taskSkills?.includes('*') || selected.taskSkillMaxChars === undefined || selected.taskSkillLimit === undefined) {
     throw new Error('Missing short-drama task skill configuration')
   }
   const customSkillDirs = [new URL('../skills/', import.meta.url), new URL('../../../packages/skill/skill-office/assets/', import.meta.url)].map(url => fileURLToPath(url))
@@ -58,6 +59,7 @@ async function setup(home: string, adapter: MockAdapter, overrides?: Pick<ToolSk
       scopedCatalogOwner: selected.scopedCatalogOwner ?? false,
       taskSkills: overrides?.taskSkills ?? selected.taskSkills,
       taskSkillMaxChars: overrides?.taskSkillMaxChars ?? selected.taskSkillMaxChars,
+      taskSkillLimit: selected.taskSkillLimit,
     }).await()
     ctx.llm.registerAdapter(['mock'], adapter)
     ctx.llm.registerAdapter(['summary'], new MockAdapter(Array.from({ length: 6 }, () => textResponse('已保存第一集的工作进度。'))))
@@ -87,7 +89,7 @@ async function compact(ctx: Context, agent: Agent) {
 }
 
 describe('short-drama task skills', () => {
-  it('restores the exact current skill after repeated compaction and a cold reopen, then switches and releases it', async () => {
+  it('restores the skills in effect after repeated compaction and a cold reopen, keeps them together and releases one', async () => {
     const home = await mkdtemp(join(tmpdir(), 'muse-task-skill-'))
     const id = SessionId('episode-1')
     const first = new MockAdapter([toolCallResponse('bind', 'skill', { name: binding }), textResponse('已绑定素材。'),
@@ -122,12 +124,12 @@ describe('short-drama task skills', () => {
       await compact(ctx, handle.agent)
       await turn(handle.agent, '继续导出。')
       expect(requestText(next).split(wordRule)).toHaveLength(2)
-      expect(requestText(next)).not.toContain(rule)
+      expect(requestText(next).split(rule)).toHaveLength(2)
       await turn(handle.agent, '这次导出结束。')
       await compact(ctx, handle.agent)
       await turn(handle.agent, '讨论片名。')
       expect(requestText(next)).not.toContain(wordRule)
-      expect(requestText(next)).not.toContain(rule)
+      expect(requestText(next).split(rule)).toHaveLength(2)
     } finally {
       await ctx.fiber.dispose()
       await rm(home, { recursive: true, force: true })

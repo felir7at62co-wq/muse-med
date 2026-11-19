@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
+import { contentText } from '../src/client/text.js'
 
 const bundle = await build({
   entryPoints: [fileURLToPath(new URL('../src/client/cells.js', import.meta.url))],
@@ -28,7 +29,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     return platform[name]
   },
 })
-const { AssistantCell, TurnTailCell, ThinkingRow } = module.exports
+const { AssistantCell, TurnTailCell, ThinkingRow, CellEmpty } = module.exports
 
 // Renders the named components of an element tree, leaving the rest as elements.
 const expand = (node, names) => {
@@ -117,7 +118,7 @@ test('a Bot reply in its own chat stays whole up to 20,000 characters', () => {
 
 // #465: the thinking row stays a switchable extra, and the one activity row is
 // never given up to it.
-test('the thinking row defaults on, can be switched off, and never displaces activity', () => {
+test('the thinking row shows only with its switch on, and the activity row is never yielded to it', () => {
   const cell = (prefs, blocks, steps) => {
     effects.length = 0
     const noted = []
@@ -132,20 +133,67 @@ test('the thinking row defaults on, can be switched off, and never displaces act
   }
   const reason = [{ kind: 'reasoning', text: 'Weighing it' }]
   const thinking = { turn: 3, step: 1, status: 'running', blocks: reason }
-  // Off: a thinking step draws nothing and notes nothing.
-  const off = cell({ thinking: false }, reason, [thinking])
-  assert.equal(off.out, null)
+  // Off: a thinking step draws nothing — the empty mark — and notes nothing.
+  const off = cell({}, reason, [thinking])
+  assert.equal(off.out?.type, CellEmpty)
   assert.deepEqual(off.noted, [])
   // On: the live row shows — and still notes nothing, so the activity row stays.
   const on = cell({ thinking: true }, reason, [thinking])
   assert.equal(find(on.out, node => node.type === ThinkingRow).length, 1)
   assert.equal(on.noted.filter(id => id.startsWith('think:')).length, 0)
   assert.deepEqual(on.noted, [])
-  assert.equal(find(cell({}, reason, [thinking]).out, node => node.type === ThinkingRow).length, 1)
   // A reply streaming in does give the activity row its one note, on or off.
   const replying = { turn: 3, step: 1, status: 'running', blocks: [{ kind: 'reasoning', text: 'Weighing it' }, { kind: 'text', text: 'Done' }] }
-  for (const prefs of [{}, { thinking: true }, { thinking: false }]) {
+  for (const prefs of [{}, { thinking: true }]) {
     const { noted } = cell(prefs, replying.blocks, [replying])
     assert.ok(noted.every(id => id.startsWith('text:')))
   }
+})
+
+// #1517: a model that writes its tool call in DSML form can leave the closing
+// tags in the text block; they must not reach the visible reply.
+test('a Bot reply drops DSML closing tags left after a tool call', () => {
+  const { props } = cellProps()
+  props.node.data.blocks = [
+    { kind: 'text', text: '做到第 3 题。\n</DSML invoke>\n</DSML calls>' },
+    { kind: 'tool-call' },
+  ]
+  assert.equal(markdownOf(props)[0].props.text, '做到第 3 题。')
+  // A message whose text is only the tags leaves no empty reply behind.
+  props.node.data.blocks = [
+    { kind: 'text', text: '</DSML invoke>\n</DSML calls>' },
+    { kind: 'tool-call' },
+  ]
+  assert.equal(markdownOf(props).length, 0)
+})
+
+// #1517: the post/event path uses the same cleanup, keeping Markdown paragraph breaks and indentation.
+test('content text and Bubbles drop DSML closing tags while keeping Markdown structure', () => {
+  assert.equal(contentText([{ type: 'text', text: '正文\n</DSML invoke>' }]), '正文')
+  assert.equal(contentText([{ type: 'text', text: '</DSML invoke>\n</DSML calls>' }]), '')
+  assert.equal(contentText([{ type: 'text', text: 'a < b and c > d' }]), 'a < b and c > d')
+  assert.equal(contentText([{ type: 'text', text: 'Before\n</DSML invoke>\n\n## After' }]), 'Before\n\n## After')
+  assert.equal(contentText([{ type: 'text', text: '    indented()\n</DSML invoke>' }]), '    indented()')
+  const bubbles = find(expand(AssistantCell({
+    ...cellProps().props,
+    sessionId: 'b',
+  }), ['Bubbles', 'Bubble']), node => node.type === MarkdownText)
+  assert.equal(bubbles.length, 1)
+  const { props } = cellProps()
+  const { Bubbles } = module.exports
+  const groupOut = find(expand(Bubbles({
+    texts: ['群里回复\n</DSML invoke>\n</DSML calls>'],
+    roster,
+    selfId: 'b',
+    actions: props.actions,
+  }), ['Bubble']), node => node.type === MarkdownText)
+  assert.equal(groupOut.length, 1)
+  assert.equal(groupOut[0].props.text, '群里回复')
+  const emptyOut = find(expand(Bubbles({
+    texts: ['</DSML invoke>\n</DSML calls>'],
+    roster,
+    selfId: 'b',
+    actions: props.actions,
+  }), ['Bubble']), node => node.type === MarkdownText)
+  assert.equal(emptyOut.length, 0)
 })

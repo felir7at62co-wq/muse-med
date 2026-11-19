@@ -53,7 +53,7 @@ describe('the product preset roster', () => {
 
       expect(roster.map(row => row.id).sort()).toEqual(directories)
       // `preset.yml` order decides the picker's sequence; equal orders fall back to the id.
-      expect(roster.map(row => row.id)).toEqual(['main-session', 'standard', 'ptc', 'minimal', 'cordis', 'short-drama', 'bot-coordinator', 'creation'])
+      expect(roster.map(row => row.id)).toEqual(['standard', 'ptc', 'minimal', 'cordis', 'short-drama', 'bot-coordinator', 'main-session', 'short-drama-v2', 'creation'])
       expect(ctx.agentPresets.defaultId).toBe('short-drama')
     } finally {
       await ctx.fiber.dispose()

@@ -20,13 +20,13 @@ import NativePreset from '../../desktop-host/src/native-preset.ts'
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/defaults.cordis.patch.yml', import.meta.url))
 
-it('defaults ordinary sessions to short-drama and retains Main Session routing', async () => {
+it('defaults ordinary sessions to short-drama and offers no Main Session', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
     const patch = loadOverlayPatches('muse-med', patchPath).find(row => row.id === 'agent-preset-registry')
     const presetConfig = patch?.config as Record<string, unknown> | undefined
-    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama', 'main-session'], allowUserDefault: false })
+    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama', 'short-drama-v2'], allowUserDefault: false })
     const productRows = yaml.load(await readFile(join(productRoot, 'short-drama', 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema }) as Array<{ id: string; name: string }>
     expect(productRows.map(row => row.id)).not.toContain('drama-gate')
@@ -65,10 +65,10 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['bot-coordinator', 'cordis', 'creation', 'main-session', 'minimal', 'ptc', 'short-drama', 'standard'])
+    expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['bot-coordinator', 'cordis', 'creation', 'main-session', 'minimal', 'ptc', 'short-drama', 'short-drama-v2', 'standard'])
     expect(ctx.agentPresets.defaultId).toBe('short-drama')
     await expect(ctx.agentPresets.resolveForCreation('bot-coordinator')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
-    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['main-session', 'short-drama'])
+    expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama', 'short-drama-v2'])
     expect(await ctx.agentPresets.resolve('bot-coordinator')).toMatchObject({ id: 'bot-coordinator' })
     const recovery = (await ctx.agentPresets.readDocument('bot-coordinator')).content
     expect(recovery).not.toMatch(/name: (?:ds-bot|['"]ds-bot['"])/)
@@ -119,7 +119,7 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
     expect(prompt).not.toContain('3–5个关键动作或场景切换')
     expect(prompt).not.toContain('以15秒视频包为参考')
     expect(prompt).toContain('建议每个镜头控制在1–4秒')
-    expect(prompt).toContain('有台词时按8个有效字/秒计算预算')
+    expect(prompt).toContain('有台词时按7个有效字/秒计算预算')
     expect(prompt).toContain('不往原台词中插素材编号')
     expect(prompt).toContain('保持原文、说话人、顺序和发声连续')
     expect(prompt).toContain('用户同意修改后，用 get_shot 回读镜头最终保存的提示词、时长与所选参考')
@@ -143,7 +143,7 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
       expect(row).toMatchObject({ id, config: { provider } })
     }
     expect(prompt).not.toContain('pipeline_state.json')
-    expect(rows.find(row => row.id === 'tool-shot-script')?.config).toMatchObject({ reviewMode: 'advisory', speechCharsPerSecond: 5 })
+    expect(rows.find(row => row.id === 'tool-shot-script')?.config).toMatchObject({ reviewMode: 'advisory', speechCharsPerSecond: 7 })
     expect(rows.some(row => row.id === 'screenplay-project')).toBe(false)
     expect(rows.some(row => row.id === 'editing-policy')).toBe(true)
     expect(prompt).toContain('单集目标、最低集长或汇总差额不授权重新分配视频包时长')

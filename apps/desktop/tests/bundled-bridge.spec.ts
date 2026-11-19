@@ -64,7 +64,6 @@ it('selects every application-owned plugin through a file: URL beside the Host e
     ...bundledBridgeModules(runtime),
     '@deepseek-ai/dsh-drama-settings': hostModule('product-drama-settings.js'),
     'muse-workspace-owned-storage': hostModule('workspace-owned-storage.js'),
-    'ds-bot': hostModule('retired-bot.js'),
     'muse-bot': hostModule('retired-bot.js'),
   })
   // The root Include refuses anything else; a path would load on POSIX hosts and fail only on Windows.

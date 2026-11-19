@@ -1,0 +1,279 @@
+# Product-owned agent contributions; runtime services remain on the Desktop Host.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    prefix: |-
+      你是 Muse，短剧创作与制作 Agent，在用户的电脑上工作。
+
+      # 工作方式
+
+      ## 语气
+      简洁、直接、友好。先说结论，再给必要的细节；不堆砌过程，不重复用户已经知道的内容。用用户的语言回复。
+
+      ## 把事情做完
+      持续推进，直到用户的请求真正完成，再结束这一轮。用户要求生成或修改内容时，在授权范围内实际操作并按范围继续；不要把计划或“开始做”当作完成，也不要承诺轮次结束后会自行继续。不猜测、不编造。汇报已保存或已修改的内容应以实际工具结果或回读为依据；确有阻塞时列明已完成项和未完成项。阻塞时同时说明需要用户决定什么。
+
+      ## 先加载对应的技能
+      专业做法都在技能里，不在这里。动手前先判断这是哪一类任务，用 skill 加载对应技能，再按技能执行；一项任务跨多个环节时，进入每个环节前加载该环节的技能。加载过的技能会一直有效，对话被压缩后也会自动补回，可以同时保留多个。当前任务结束或取消时用 end_task_skill 结束该阶段；同一任务继续时沿用已选技能。有些制作工具在对应技能加载前会拒绝执行，按提示加载后重试。只给已有成稿绑定素材时加载 muse-bind-existing-assets。没有对应技能的事，按用户的要求直接做。
+
+      ## 精确与发挥
+      - 改已有的稿件、镜头或素材：只做用户要的修改，没有问题的地方保持原样。用户要求原台词不动时，连同说话人、语气和顺序逐字保留。在当前保存的正文上逐处修改并回读，不凭记忆整段重写，也不用脚本对全部分集做不看上下文的批量替换。
+      - 全新创作：可以大胆，自主决定详略和表现方式；剧情关键设定、人物身份与原台词保持一致。
+      - 用户明确的要求优先于技能里的默认做法。
+
+      ## 计划
+      多步骤任务先列计划并随进度更新；简单任务不列计划。用户要整部或多集剧本的转写、改编或洗稿时，在收到请求的这一轮调用 create_goal，写明范围、每轮集数和交付方式，按默认做法连续推进；格式、用词等待定问题写进批次汇报，不停下等回复。
+
+      ## 核对产物
+      交付前实际查看产物：文字稿回读保存后的文件；图片和视频看实际画面，不凭提示词、参数或任务成功判断效果。发现偏差时抓住主要原因调整，保留用户已经认可的部分。
+
+      ## 费用与授权
+      会产生费用的操作，提交前核对项目与范围，按工具返回的报价确认；提交结果未知时先查原任务，不重复提交。不得因拆分任务或委派扩大生成费用或操作授权。完成不等于用户验收。
+
+      ## 进度与答复
+      长任务只在关键节点给一两句进度。直接面向用户时，先简短说明结论，再按事项分组，区分已完成、进行中和待决定。突出实际产物与下一步，避免重复堆砌。比较方案、多项交付、收集选择或表单时，主动用可用的 show_view 展示，不等用户点名要卡片；复杂交互图表按需用 visualize，首次先加载对应技能。简单问题用文字，卡片只展示有依据的数据，不为展示额外生成、收费或改写完整来源。
+    suffix: 短剧工作间是当前工作目录中的 short-drama/。
+    complete: false
+# Craft rules are preset-scoped skills here; the delivery checks and runtime notes stay resident.
+- id: muse-craft
+  name: '@deepseek-ai/dsh-desktop-host/craft'
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+- id: time-context
+  name: '@deepseek-ai/dsh-time-context'
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+- id: tool-schedule
+  name: '@deepseek-ai/dsh-tool-schedule'
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+  config:
+    scopedCatalogOwner: true
+    # Every loaded skill stays in effect and is restored after compaction; the agent releases it with end_task_skill.
+    taskSkills: ['*']
+    taskSkillMaxChars: 20000
+    taskSkillLimit: 8
+    # A production tool runs only once the skill holding its working method is in effect.
+    toolSkills:
+      - tools: [jingliu_image]
+        skill: muse-asset-design
+      - tools: ['jingliu_*']
+        skill: muse-jingliu-production
+      - tools: [drama_shot, muse_production]
+        skill: muse-video-production
+      - tools: ['drama_character_reference*']
+        skill: muse-asset-design
+      - tools: [drama_render, jianying_draft, drama_draft_dir]
+        skill: muse-episode-delivery
+      - tools: [screenplay_export_docx]
+        skill: muse-manuscript-delivery
+      - tools: ['hongguo_*', 'douyin_*', muse_media_data]
+        skill: muse-source-download
+- id: character-reference
+  name: cordis:group
+  group: true
+  isolate:
+    characterReferenceAuthority: true
+  config:
+    - id: tool-character-reference
+      name: '@deepseek-ai/dsh-tool-character-reference'
+
+- id: tool-shot-script
+  name: '@deepseek-ai/dsh-tool-shot-script'
+  config:
+    reviewMode: advisory
+    speechCharsPerSecond: 7
+
+- id: tool-bgm-compose
+  name: '@deepseek-ai/dsh-tool-bgm-compose'
+  config:
+    maxSourceGainDb: -10
+    ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+    ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
+- id: tool-episode-render
+  name: '@deepseek-ai/dsh-tool-episode-render'
+  config:
+    defaultEndingEffectFit: !!js process.env.MUSE_DEFAULT_ENDING_EFFECT_FIT || 'stretch_to_window'
+    normalizeSubtitleText: true
+    enforceSubtitleVisual: true
+    defaultSubtitleVisual:
+      schema_version: 1
+      reference_width: 480
+      reference_height: 854
+      font_size_px: 46
+      outline_px: 1.25
+      center_y_ratio: 0.736747073
+      max_width_ratio: 0.9
+    maxBgmVolume: 1
+    ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+    ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
+    fontsDir: !!js process.env.MUSE_FONTS_DIR || 'C:/Windows/Fonts'
+    subtitleFontFamily: !!js process.env.MUSE_SUBTITLE_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'SimHei'
+    watermarkFontFamily: !!js process.env.MUSE_WATERMARK_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'
+- id: perception-bgm
+  name: '@deepseek-ai/dsh-perception-bgm'
+  config:
+    catalogUrl: https://muse.tos-cn-beijing.volces.com/bgm/catalog.json
+    requireStoryEvidence: true
+    # The packaged product binds its own offline interpreter, model and caches;
+    # a deployment without that payload keeps catalogue matching only.
+    pythonExecutable: !!js >-
+      process.env.MUSE_BGM_RUNTIME_DIR ? `${process.env.MUSE_BGM_RUNTIME_DIR}/python/python.exe` : undefined
+    dataDir: !!js >-
+      process.env.MUSE_BGM_RUNTIME_DIR ? `${process.env.MUSE_BGM_RUNTIME_DIR}/models/data` : undefined
+    weightsPath: !!js >-
+      process.env.MUSE_BGM_RUNTIME_DIR ? `${process.env.MUSE_BGM_RUNTIME_DIR}/models/J_all.ckpt` : undefined
+    env: !!js >-
+      (() => {
+        const root = process.env.MUSE_BGM_RUNTIME_DIR;
+        if (!root) return undefined;
+        const home = process.env.DSH_HOME;
+        if (!home) throw new Error('Bundled BGM requires an explicit product home');
+        const cache = `${home}/perception/bgm/runtime-cache`;
+        const interpreter = `${root}/python`;
+        const separated = [interpreter, `${interpreter}/DLLs`, `${interpreter}/Library/bin`, process.env.PATH ?? ''].filter(Boolean);
+        return {
+          PATH: separated.join(process.platform === 'win32' ? ';' : ':'),
+          HF_HOME: `${root}/models/hf-cache`,
+          HF_MODULES_CACHE: `${cache}/hf-modules`,
+          NUMBA_CACHE_DIR: `${cache}/numba`,
+          MPLCONFIGDIR: `${cache}/matplotlib`,
+          HOME: cache, USERPROFILE: cache, APPDATA: cache, LOCALAPPDATA: cache,
+          HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1',
+          PYTHONNOUSERSITE: '1', PYTHONDONTWRITEBYTECODE: '1',
+          OMP_NUM_THREADS: '1', MKL_NUM_THREADS: '1', OPENBLAS_NUM_THREADS: '1'
+        };
+      })()
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+      config:
+        adaptiveBudget: true
+        workingTokenLimit: 475000
+        thresholdRatio: 0.45
+        headroomTokens: 16384
+        retainTokens: 65536
+        maxTokens: 16384
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+        preserveToolNames: []
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+- id: delegation
+  name: cordis:group
+  group: true
+  config:
+    - id: delegation-policy
+      name: '@deepseek-ai/dsh-desktop-host/delegation-policy'
+      config:
+        teamByDefault: true
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: fork
+        toolName: subagent_fork
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: true
+    searchTimeoutMs: 60000
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'
+
+- id: tool-office
+  name: '@deepseek-ai/dsh-tool-office'
+
+- id: tool-audio-transcribe
+  name: '@deepseek-ai/dsh-tool-audio-transcribe'
+  config:
+    ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+    ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
+
+- id: tool-video-inspect
+  name: '@deepseek-ai/dsh-tool-video-inspect'
+  config:
+    requireCompleteReview: true
+    # Parallel transcription workers share the default two FFmpeg slots; a caller waits for a free slot instead of failing.
+    slotWaitMs: 300000
+    offloadObservedFrames: true
+    reviewObserveNextBatch: true
+    frameFormat: jpeg
+    frameJpegQuality: 3
+    ocrEngine: rapidocr
+    ocrPythonPath: !!js process.env.MUSE_OCR_PYTHON_PATH || 'python3'
+    ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+    ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
+
+# Public Hongguo metadata tools register only inside this creative preset.
+- id: muse-hongguo-search
+  name: muse-hongguo-search
+
+- id: muse-qimao-data
+  name: muse-qimao-data
+
+- id: muse-source-research
+  name: muse-source-research
+
+# Download tools resolve media output inside the active conversation workspace.
+- id: muse-hongguo-download
+  name: muse-hongguo-download
+  config:
+    quality: 1080p
+    ffprobeExecutable: !!js process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || ''
+    ffmpegExecutable: !!js process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || ''
+    bytevc2Executable: !!js process.env.MUSE_HONGGUO_BYTEVC2_PATH || ''
+
+- id: muse-reverse-tools
+  name: muse-reverse-tools
+
+- id: muse-fanqie-download
+  name: muse-fanqie-download
+  config:
+    pythonExecutable: !!js process.env.MUSE_FANQIE_PYTHON_PATH || process.env.MUSE_HONGGUO_PYTHON_PATH || ''
+
+- id: muse-lvpaopao
+  name: muse-lvpaopao

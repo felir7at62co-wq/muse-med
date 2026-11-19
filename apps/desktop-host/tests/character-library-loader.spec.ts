@@ -337,7 +337,7 @@ async function loadFixture() {
 }
 
 describe('character library real Loader composition', () => {
-  it.each(['short-drama', 'creation'])('mounts read-only character references for a fresh %s Agent', async (presetId) => {
+  it.each(['short-drama', 'short-drama-v2', 'creation'])('mounts read-only character references for a fresh %s Agent', async (presetId) => {
     const raw = await readFile(new URL(`../presets/${presetId}/agent.cordis.yml`, import.meta.url), 'utf8')
     const rows = parseYaml(raw, {
       customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }],

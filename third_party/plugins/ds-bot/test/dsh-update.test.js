@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { afterEach, test } from 'node:test'
 import { install } from '../src/host/dsh-update.js'
 
@@ -131,11 +129,7 @@ test('the desktop app pins its DSH: it reports the running version, asks no netw
   assert.deepEqual(fetched, [])
 })
 
-test('without a loader version or versioned process package there is nothing to compare against', async (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'muse-unversioned-update-'))
-  const argv = process.argv
-  process.argv = [argv[0], join(root, 'entry.js')]
-  t.after(() => { process.argv = argv; rmSync(root, { recursive: true, force: true }) })
+test('without a running version there is nothing to compare against', async () => {
   const { rt } = start({ current: null, source: `${PKG.name}@^${PKG.version}` })
   const view = await rt.dshUpdateCheck()
   assert.equal(view.current, null)

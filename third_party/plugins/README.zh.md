@@ -75,7 +75,7 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。归档的 Codex 构
 
 远程 provider 复用 `CustomTunnelClient` 的连接建立和原生 WebSocket 升级处理。Muse 适配器直接流式转发原生字节，不积累完整数据帧，包含 Host Ping 和浏览器 Pong；同时提供账号/设备认证、流式 HTTP 上传与下载、逐块确认、取消、按配置间隔持续重连和等待完成的关闭。本地传输测试覆盖二进制上传、Range 响应、不完整原生数据帧、`/api/remote.mux` 心跳往返、取消及凭证拒绝。握手在安装 UUID 之外增加电脑名称和操作系统。云端 relay 验证账号，把每个浏览器标签页路由到其选择的安装，并保持其他电脑连接；桌面仅转发至自身回环 Host。这是一条私有出站连接，不创建公共隧道域名。
 
-`@xmanrui/dsh-im` 提供原生 IM机器人设置、飞书实时过程卡和通道管理。[sources.json](sources.json) 固定其 MIT 源码。[IM 适配层](compatibility/im-desktop.mjs) 在私有暂存区构建上游 Host 和 Client，并在根入口放置 Muse 导入器。空 bundle patch 避免建立第二个 Host 连接。旧 PGZXB 源码以 `desktop: false` 保留，不再激活。账号远程访问继续使用桥接包独立的 `./remote` 提供方。
+`@xmanrui/dsh-im` 提供原生 IM机器人设置、飞书实时过程卡和通道管理。[sources.json](sources.json) 固定其 MIT 源码。[IM 适配层](compatibility/im-desktop.mjs) 在私有暂存区构建上游 Host 和 Client，并在根入口放置 Muse 导入器。空 bundle patch 避免建立第二个 Host 连接。旧 PGZXB 源码以 `desktop: false` 保留，不再激活。账号远程访问继续使用桥接包独立的 `./remote` 提供方。Muse Desktop 产品补丁停用 `feishu-channel` 行，因此该提供方因打包需要保持安装，但不会启动任何 IM 机器人，也不显示其设置页。
 
 导入器通过 Host 凭据服务迁移已启用的旧凭证；只有真实已授权消息证明旧聊天对应的发送者后才导入私聊绑定。原文件和完整旧消息认领记录保留。只有原生 `dsh-im` 接收飞书消息和卡片回调，旧数据迁移不参与这些事件的授权。消息和卡片操作使用原生 IM 设置中保存的访问策略，不再叠加旧群名单或私聊名单限制。群消息仍须精确 @ 当前机器人，已登记的主人保留原生特权访问。已有原生 IM 机器人不会被覆盖。没有旧凭证时仍可使用原生 IM 设置。飞书消息由普通 Muse Session 处理，无需已归档的 Muse Bot 服务。现有聊天键、Session ID、模型选择、工作区绑定，以及持久化的消息认领和话题回复记录继续使用。详见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-im-channel/guide.zh.md)。
 
@@ -95,11 +95,11 @@ Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence
 
 保留的 [Visualize](dsh-visualize/README.md) 插件展示交互式 HTML 卡片及独立页面。桌面外壳拒绝 Blob 弹窗，因此页面视图在对话内展开；Web 可另开标签页。`visualize`、`show_view` 和原生 `ask_user_question` 保持常驻，并从 Tool Search 中排除。内置编写技能在 Muse 创作目录中可用。卡片按钮可以填入所属会话的输入框，由用户发送草稿；已有草稿和附件会保留。卡片更新限制在所属 Session 内。操作系统主目录下的存储路径使用可跨平台解析的 `~/` 别名。Windows 原子保存仅对 `EPERM` 或 `EBUSY` 重命名错误重试，最多尝试五次，耗尽次数后保留原始错误。若文件提交后保存中断，错误回执分别说明片段和图片清单的状态；再次修改前应读取回执路径，不盲目重复旧替换。
 
-### 已归档的 Muse Bot
+### Muse Bot
 
-[DS Bot 源码](ds-bot/README.zh.md)、固定版本的许可证及兼容覆盖均保留，用于恢复归档。即使上游固定版本仍在清单中，默认构建也会跳过；只有显式 `--only ds-bot` 选择才进入旧构建路径。恢复产物应使用独立输出目录；默认构建不会删除输出目录内已有的旧归档。
+`ds-bot/` 中的 DS Bot 源码是产品的 Bot 工作区。默认构建通过[桌面兼容层](compatibility/muse-bot-desktop.mjs)打包它：兼容层只接受已评审的版本和 Muse 自己的组合补丁，并去掉上游的网页搜索组件、`bin/` 诊断脚本和 `@deepseek-ai/dsh-web` 对等依赖。[`MUSE_SOURCE.json`](ds-bot/MUSE_SOURCE.json) 列出 Muse 改动的文件及原因。
 
-归档路径保留浏览器与 Office 构建和 `test:bot` 检查；这些检查不会在普通会话产品中启用 Bot 功能。已有私有 Bot 状态和 Session 文件保持不变。[普通会话升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-session-product/guide.zh.md)说明保留 profile 的备份和归档应用恢复。
+构建会从 `src/client` 重新生成 Client 包，因此仓库中提交的 `client.js` 保持上游内容。`pnpm --dir third_party/plugins/toolchain run test:bot` 检查兼容层和打包结果。Bot 数据位于 Harness 主目录的 `bot` 目录；此前 Muse Bot 留在 `muse-bot` 中的数据保持原样，不做迁移。
 
 ### 红果公开数据
 

@@ -16,7 +16,7 @@ it('retains configuration and expressions while disabling all retired Bot insert
   const original = `# private settings retained beside their owner
 - insert:
     - id: named-bot
-      name: ds-bot
+      name: muse-bot
       config:
         retained: true
       disabled: false
@@ -44,8 +44,8 @@ it('retains configuration and expressions while disabling all retired Bot insert
   const warnings: string[] = []
   const entries = applyEntryPatches([], loadOptionalPatches('dsh', path), (message: string) => warnings.push(message))
   expect(warnings).toEqual([])
-  expect(entries.find(entry => entry.id === 'named-bot')).toMatchObject({ name: 'ds-bot', disabled: true, config: { retained: true } })
-  expect(entries.find(entry => entry.id === 'muse-bot')).toMatchObject({ name: 'ds-bot', disabled: true, config: { source: 'preserved' } })
+  expect(entries.find(entry => entry.id === 'named-bot')).toMatchObject({ name: 'muse-bot', disabled: true, config: { retained: true } })
+  expect(entries.find(entry => entry.id === 'muse-bot')).toMatchObject({ name: 'muse-bot', disabled: true, config: { source: 'preserved' } })
   expect(entries.find(entry => entry.id === 'ordinary')?.config).toMatchObject({ id: 'muse-bot', disabled: false })
   expect(disableRetiredBotProfilePatch(root)).toBeUndefined()
   expect(readFileSync(path, 'utf8')).toBe(text)
@@ -54,23 +54,23 @@ it('retains configuration and expressions while disabling all retired Bot insert
 })
 
 it('disables retired Bot entries inside groups without editing unrelated plugin configuration', () => {
-  const text = '- insert:\n    - id: group\n      name: group\n      group: true\n      config:\n        - id: archived\n          name: ds-bot/client\n          disabled: false\n        - id: muse-bot\n          name: unrelated-plugin\n          disabled: false\n'
+  const text = '- insert:\n    - id: group\n      name: group\n      group: true\n      config:\n        - id: archived\n          name: muse-bot/client\n          disabled: false\n        - id: muse-bot\n          name: unrelated-plugin\n          disabled: false\n'
   const next = retiredBotProfilePatch(text)
-  expect(next).toContain('name: ds-bot/client\n          disabled: true')
+  expect(next).toContain('name: muse-bot/client\n          disabled: true')
   expect(next).toContain('name: unrelated-plugin\n          disabled: false')
   expect(retiredBotProfilePatch(next!)).toBeUndefined()
 })
 
 it('disables Bot entries referenced through a YAML alias', () => {
-  const text = '- id: ordinary\n  config:\n    template: &archived\n      id: aliased-bot\n      name: ds-bot\n      disabled: false\n- insert: [*archived]\n- id: aliased-bot\n  disabled: false\n'
+  const text = '- id: ordinary\n  config:\n    template: &archived\n      id: aliased-bot\n      name: muse-bot\n      disabled: false\n- insert: [*archived]\n- id: aliased-bot\n  disabled: false\n'
   const next = retiredBotProfilePatch(text)
-  expect(next).toContain('name: ds-bot\n      disabled: true')
+  expect(next).toContain('name: muse-bot\n      disabled: true')
   expect(next).toContain('- id: aliased-bot\n  disabled: true')
   expect(retiredBotProfilePatch(next!)).toBeUndefined()
 })
 
 it('leaves ordinary, empty and already disabled profile files byte-for-byte unchanged', () => {
-  for (const text of ['# retained\n', '[]\n', '- id: user-plugin\n  disabled: false\n', '- insert:\n    - id: muse-bot\n      name: ds-bot\n      disabled: true\n']) expect(retiredBotProfilePatch(text)).toBeUndefined()
+  for (const text of ['# retained\n', '[]\n', '- id: user-plugin\n  disabled: false\n', '- insert:\n    - id: muse-bot\n      name: muse-bot\n      disabled: true\n']) expect(retiredBotProfilePatch(text)).toBeUndefined()
 })
 
 it('rejects malformed YAML before writing a backup or changing the original', () => {

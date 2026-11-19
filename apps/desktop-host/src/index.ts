@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from 
 import { fileURLToPath } from 'node:url'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadLayeredEnv, loadOverlayPatches, loadProfileDirectory, reportSkippedBundles, type Profile } from '@deepseek-ai/dsh-app-boot'
+import { defaultPresetLayer } from './default-preset.ts'
 import { bundledSkillDirectory, productSkillDirectory, desktopSkillDirectories } from './bundled-skills.ts'
 import { z } from 'zod'
 import { verifyBundledImClient } from './bundled-bridge.ts'
@@ -87,6 +88,8 @@ async function desktopComposition(
     const config = z.record(z.string(), z.unknown()).parse(coordinator.config ?? {})
     layers.push([{ id: 'muse-session-coordinator', config: { ...config, inheritJubianVideoSelection: false } }])
   }
+  const trialDefault = defaultPresetLayer(rows.get('agent-preset-registry')?.config, process.env.MUSE_DEFAULT_PRESET)
+  if (trialDefault !== undefined) layers.push(trialDefault)
   // Product row ids are distinct from disabled base rows; the registered preset ids stay unchanged.
   // An active preset-<id> declaration already supplied by the profile takes precedence.
   const presetRoot = fileURLToPath(new URL('../presets', import.meta.url))

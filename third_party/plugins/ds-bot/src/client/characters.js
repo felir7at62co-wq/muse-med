@@ -1,4 +1,3 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.2 is retained under Apache-2.0.
 import { SPIDER_SHAPE } from './muse-spider.js'
 import { INKS, GRADIENTS, isHex, inkFill } from './inks.js'
 
@@ -31,13 +30,14 @@ export const CHARACTERS = {
   ring: {body:'M48.1 4.3l8-.1 7.8 1.8 7.3 3.5 6.7 5.4 5.2 6.7 4.1 8.3 2.3 8.9 .7 9-1 9.5-2.5 8.9-4.1 8.3-5.3 7.3-6.6 6.1-7.3 4.5-7.8 2.7-8.4 .9-7.2-.8-7.3-2.5-6.7-4.1-5.6-5.3-4.5-6.5-3.5-7.8-2-8.4-.6-8.4 .9-8.9 2.2-8.4 3.5-7.8 4.9-7.2 5.8-6.1 6.3-4.5 7.1-3.3zM50.5 33.8l2.3-.3 1.7 .4 1.6 1.1 2 2.2 1.3 2.8 .8 2.7 .4 3.4-.1 3.3-1.4 6.2-3 5.6-2.2 2.4-2.2 1.6-2.3 1-2.2 .3-1.7-.4-1.6-1.1-2.8-3.7-1.5-5.2-.1-5.5 1.2-5.6 2.4-5 3.6-4z',shade:'M76.2 14.9l1.1-.5 3.4 3.8 2.8 3.9 2.3 4.5 1.6 3.9 1.6 5.6 1.1 8.3-.4 10.1-1.3 6.1-2.6 7.8-4.6 8.3-4.4 5.6-6.2 5.7-6.1 3.8-7.2 2.9-6.2 1.1-7.8-.1-7.2-1.7-3.9-1.6-4-2.2-5.5-4.5-2.8-3.4 1.7-.6 2.4-2.1 2-2.8 1.2-2.8 1.2-5 1.1-13.4 1.4-7.8 2.5-7.8 3.8-7.3 3.3-4.5 3.4-3.4 3.9-3.1 4.4-2.6 3.9-1.5 4.5-1.1 12.3-.9zM50.5 33.8l.6-.3 2.8 0 1.6 .9 2.7 2.8 3 1.4 3.3 .5 6.1 .2 3.9 .9 1.7 1 1.7 1.6 2.1 4.4 .7 4.5-.3 5-1.2 5-1.9 4.5-2.8 4.2-3.3 3.6-3.9 2.8-3.9 1.7-3.4 .6-3.3-.1-3.4-1.1-2.5-1.7-2.5-3-3.6-7-2.9-3.4-2.1-5-.6-5.6 .6-4.4 1-3.4 2.3-4.4 1.4-2.1 2.3-2.2 2.7-1.7z',light:'M41.1 5.9l.5 .1 .2 .5-.3 .6-12.4 13.3-13.1 18.1-2.3 2.1-1.1 0-.2-1.2 .2-2.8 1.6-5 4.6-8.3 3.9-5.1 4.4-4.4 4.5-3.4 5-2.8zM60.5 53.3l1.2-.3 1.1 .6 1.1 1.3 .8 1.8-.2 3.3-1.5 2.8-2 1.7-2.6 1-7.3 .2 2.2-1.4 2.6-2.6z',eyes:[[56.2,84.6,5.3,13.3,-6.8],[71.7,78.8,5.1,13.4,-6.5]]},
   gem: {body:'M57 9.3l2.9-.4 14.9 3.5 19.6 14.1 1 1.4 .6 1.6-.5 2.6-27.1 56.5-1.6 1.8-2.1 .7-15.9-3.4-42.9-30.7-1.3-1.6-.6-1.6 .5-2.6 12-25.2 1.1-1.5 1.5-1z',shade:'M75.7 14.6l.1-.4 .6 .2 16.9 12.3 1.1 .7 .5-.2 .5 .7 .6 2.6-.5 1.6-26.4 55.1-1.2 2.1-1.1 1.1-1.6 .6-2.1 0-14.3-3.3-42.8-30.7 1.5-.2 11.6 2.5 2.2-.7 2.8-2.6 11.9-24.9 .6-.8 38.2-14.2z',light:'M19.1 23.6l1.1-.4 .5 .5 11.7 2.2 1 .9-.2 .5-1.8 2.7-11.7 24.4-1.6 .6-13.3-2.8-.5-.5 12.1-25.4 1.2-1.7z',eyes:[[51.4,42.9,6.7,17.7,-10],[66.1,37.4,6.7,17.7,-10]]},
 }
-// The picker shows every character at once, six to a row. A Bot with no choice gets
-// one of the friendliest seven; the product mark stays reserved for the Main Bot.
+// The picker shows every character at once, five to a row. A Bot with no choice gets
+// one of the friendliest seven; the whale is left out so it stays the Main Bot's.
 export const PICKER_SHAPES = Object.keys(CHARACTERS)
-export const PICKER_COLUMNS = 6
+export const PICKER_COLUMNS = 5
 export const DEFAULT_SHAPES = ['star', 'moon', 'gumdrop', 'peanut', 'bunny', 'kitty', 'acorn']
 export const FALLBACK_SHAPE = 'gumdrop'
 // The team's first Main Bot, and the plugin's own mark in the sidebar.
+// Muse: the product's mark is its spider, so the first Main Bot and every brand mark use it.
 export const MAIN_LOOK = Object.freeze({ shape: 'muse-spider', color: 'violet' })
 // Character colors in picker order. Black, the gradients, and the dull gray and brown
 // are never defaults; the user must pick them.
@@ -82,8 +82,7 @@ export const SHAPES = {}
 for (const [id, character] of Object.entries(CHARACTERS)) {
   const layers = [
     ...(character.paints ?? []).map(([d, fill, opacity]) => `<path d="${d}" fill="${fill}" fill-opacity="${opacity}"/>`),
-    `<path d="${character.shade}" fill="#000" fill-opacity=".14"/>`,
-    `<path d="${character.light}" fill="#fff" fill-opacity=".16"/>`,
+    `<path d="${character.shade}" fill="#000" fill-opacity=".07"/>`,
   ].join('')
   SHAPES[id] = { label: character.label ?? id[0].toUpperCase() + id.slice(1), size: 100, path: character.body, layers, eyes: character.eyes }
 }
@@ -93,14 +92,16 @@ export const shapeId = id => (hasShape(id) ? id : FALLBACK_SHAPE)
 export const shapeOf = id => SHAPES[shapeId(id)]
 // `flat` draws the silhouette alone, for masks and selection rings.
 export function bodyOf(def, paint, flat = false) {
-  if (flat && def.flatPath) return `<path d="${def.flatPath}" fill="${paint}"/>`
   if (def.path) return `<g fill-rule="evenodd"><path d="${def.path}" fill="${paint}"/>${flat ? '' : def.layers}</g>`
   try { return def.body(paint) } catch { return '' }
 }
 const eyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${w / 2}"/></g>`
-const solidEyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><g class="bt-eye"><ellipse rx="${w / 2}" ry="${h / 2}" fill="#21152f"/><ellipse cx="${w * .16}" cy="${-h * .2}" rx="${w * .13}" ry="${h * .14}" fill="#fff"/></g></g>`
 // A closed, happy eye (an upturned arc) in the same spot, shown while the mark is petted.
-const happyEyeMarkup = ([cx, cy, w, h, tilt], halfWidth = 0.62, thickness = 0.5) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * halfWidth} ${h * 0.14}Q0 ${-h * 0.42} ${w * halfWidth} ${h * 0.14}" fill="none" stroke="#000" stroke-width="${w * thickness}" stroke-linecap="round"/></g>`
+const happyEyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h * 0.14}Q0 ${-h * 0.42} ${w * 0.62} ${h * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`
+// Muse: an artwork character (`solidEyes`) keeps its body whole and draws dark eyes with a
+// highlight on top; the closed, happy eye is a thinner arc to match them.
+const solidEyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><g class="bt-eye"><ellipse rx="${w / 2}" ry="${h / 2}" fill="#21152f"/><ellipse cx="${w * 0.16}" cy="${-h * 0.2}" rx="${w * 0.13}" ry="${h * 0.14}" fill="#fff"/></g></g>`
+const solidHappyEyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.45} ${h * 0.14}Q0 ${-h * 0.42} ${w * 0.45} ${h * 0.14}" fill="none" stroke="#21152f" stroke-width="${w * 0.22}" stroke-linecap="round"/></g>`
 // A mask covering three boxes, so a bob or squash never clips the body at the edge.
 export const maskBox = size => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`
 export const holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`
@@ -118,13 +119,14 @@ export function characterMarkup(shape, color) {
     const def = shapeOf(shape)
     // The eyes sit in the mask, untransformed by their placement, so CSS blinks and
     // glances never replace where they sit.
-    const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join('')}${def.eyes.map(eye => happyEyeMarkup(eye)).join('')}</g></g>`
+    const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join('')}${def.eyes.map(happyEyeMarkup).join('')}</g></g>`
     const stops = GRADIENTS[color]
     const gradient = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join('')}</linearGradient>` : ''
-    const body = `<g mask="url(#${MASK_ID})">${bodyOf(def, stops ? `url(#${MASK_ID}g)` : inkFill(color))}</g>`
-    const visibleEyes = def.solidEyes ? `<g class="bt-gaze"><g class="bt-eyes">${def.eyes.map(solidEyeMarkup).join('')}${def.eyes.map(eye => happyEyeMarkup(eye, 0.45, 0.22)).join('')}</g></g>` : ''
-    const visibleBody = def.solidEyes ? bodyOf(def, stops ? `url(#${MASK_ID}g)` : inkFill(color)) + visibleEyes : body
-    markup = `<defs>${gradient}<mask id="${MASK_ID}" ${maskBox(def.size)}>${holes(def, eyes)}</mask></defs><g class="bt-b"${def.pointerEventsNone ? ' pointer-events="none"' : ''}>${def.wrap ? `<g transform="${def.wrap}">${visibleBody}</g>` : visibleBody}</g>`
+    const paint = stops ? `url(#${MASK_ID}g)` : inkFill(color)
+    const body = def.solidEyes
+      ? `${bodyOf(def, paint)}<g class="bt-gaze"><g class="bt-eyes">${def.eyes.map(solidEyeMarkup).join('')}${def.eyes.map(solidHappyEyeMarkup).join('')}</g></g>`
+      : `<g mask="url(#${MASK_ID})">${bodyOf(def, paint)}</g>`
+    markup = `<defs>${gradient}<mask id="${MASK_ID}" ${maskBox(def.size)}>${holes(def, eyes)}</mask></defs><g class="bt-b">${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}</g>`
     markupCache.set(key, markup)
   }
   return markup

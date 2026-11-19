@@ -1,4 +1,3 @@
-// Modified for Muse Bot; upstream DS Bot 0.2.4 is retained under Apache-2.0.
 // Aside cards (btw) are the earlier single-shot aside: the ask path is gone,
 // but existing cards stay readable until the user deletes them. This file keeps
 // their files, their turn placement, and the shared snapshot/model-call
@@ -8,10 +7,10 @@
 // team writes them.
 import { mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import { replaceFile } from './files.js'
+import { assembleLlmStream } from './models.js'
 
-export const RESTART_ERROR = 'Muse Bot restarted before this answer finished.'
+export const RESTART_ERROR = 'DS Bot restarted before this answer finished.'
 export const TOOL_ERROR = 'The model called a tool again after being told not to, so this aside was not answered.'
 export const EMPTY_ERROR = 'The model wrote nothing.'
 // Events that still belong to a turn. A model selection or a title does not.
@@ -159,16 +158,16 @@ export async function callAside(ctx, rt, snapshot, { extra = [], question, promp
     ...extra,
     { role: 'user', content: [{ type: 'text', text: promptFor(question, retry) }] },
   ], { sessionId: snapshot.sessionId, kind })
-  const assembler = new BlockAssembler()
   const tools = snapshot.header?.tools
-  for await (const chunk of ctx.llm.stream({
+  const callOptions = {
     ...snapshot.header?.config,
     messages,
     toolHistory: snapshot.toolHistory,
     ...(tools ? { tools: [...tools] } : {}),
     sessionId: snapshot.sessionId,
     signal,
-  })) assembler.push(chunk)
+  }
+  const assembler = await (rt?.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt?.config?.llmRetryBackoff }))
   const finish = assembler.finish
   if (finish.kind === 'error' || finish.kind === 'aborted') {
     return { failed: finish.failure?.message ?? finish.kind }
