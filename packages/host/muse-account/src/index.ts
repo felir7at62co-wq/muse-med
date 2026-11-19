@@ -9,6 +9,7 @@ import { isAbsolute, join } from 'node:path'
 import { MuseAccountController } from './account.ts'
 import { MuseBrowserLogin } from './browser-login.ts'
 import { MuseAsrClient } from './asr.ts'
+import { MuseWorkbenchLogin } from './workbench-login.ts'
 import { MuseVoiceSlotsClient } from './voice-slots.ts'
 import { MuseModels } from './models.ts'
 import { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
@@ -305,7 +306,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     requestTimeoutMs: config.requestTimeoutMs })
   const browserLogin = new MuseBrowserLogin({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs })
   ctx.effect(() => () => browserLogin.dispose(), 'muse-account: browser login')
-  const service = ctx.plugin(MuseAccountService, { controller, browserLogin, asr, models, feedback, voiceSlots,
+  const workbench = new MuseWorkbenchLogin({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs })
+  const service = ctx.plugin(MuseAccountService, { controller, workbench, browserLogin, asr, models, feedback, voiceSlots,
     ...(remote === undefined ? {} : { remote }) })
   await service.await()
 }

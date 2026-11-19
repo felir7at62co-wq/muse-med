@@ -311,6 +311,8 @@ export interface MuseAccountLoginResult {
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
+    'muse-workbench/sign-in-required': {}
+    'muse-workbench/unavailable': {}
     'muse-feedback/sign-in-required': {}
     'muse-feedback/account-changed': {}
     'muse-feedback/unconfirmed': {}
@@ -338,4 +340,15 @@ declare module '@deepseek-ai/cordis' {
      */
     'muse-account/session-changed'(): void
   }
+}
+
+/** Workbench and S256 challenge supplied by the trusted Muse renderer. */
+export interface MuseWorkbenchGrantRequest {
+  readonly audience: 'script-workshop' | 'jingliu'
+  readonly challenge: string
+}
+
+/** One-time code that only the requesting workbench can redeem. */
+export interface MuseWorkbenchGrant {
+  readonly code: string
 }

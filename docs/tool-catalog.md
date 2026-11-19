@@ -25,6 +25,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.agents`, `ctx.sandboxPolicy when filesystem confinement is enabled` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | Source-unit identities, revisions, candidate digests, timestamps and rendered line references are issued by the host. Facts and episode candidates require a different reviewing session before acceptance. |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`, `ctx.museAccount`, `FFmpeg and FFprobe on PATH (or configured)` | `tool/call`, `tool/result`, `transcript/jobs task receipt`, `transcript/raw timed TXT and JSON when complete` | - | `start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway. |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`, `TOS access key credential references`, `network access to Volcengine TOS` | `tool/call`, `tool/result`, `public TOS objects below download-video-date/{platform}/{date}/{work_id}/`, `local file deletion only when remove_local is true` | - | Optional package: only the cloud transcription deployment composes it, with its credential references. |
+| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_narration`, `jingliu_run`, `jingliu_workflows` | `ctx.tools`, `ctx.jingliuConnection`, `ctx.approval for changes and paid workflows` | `tool/call`, `tool/result`, `project updates and jobs on the configured Jingliu service`, `local narration submission receipts` | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`, `data station service token credential reference`, `network access to the data station service API` | `tool/call`, `tool/result`, `data station transcription job state` | - | Optional package: only the cloud transcription deployment composes it. Each dispatched worker claims its own work; the Main Session router does not call it. |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect`, `video_ocr` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | `video_source_review` | The default video_inspect retains metadata and sample operations. Creation enables sourceReviewCompanion to add video_source_review with complete scan/next/observe operations without replacing legacy sampling or trusted receipts. Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`, `ctx.tools`, `ctx.ptcRuntime`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | The PTC executor exposes only run_code to the model and declares other visible capabilities in a generated SDK in the runtime’s language. Program bindings enter the shared guarded tool pipeline in submission order; concurrency-safe bodies overlap up to maxParallelSubCalls, and nested results remain linked to the outer program. The resolved timeout and maxSubCallsPerMinute set the total call allowance; exceeding it terminates the program. |
@@ -1865,6 +1866,119 @@ Source: [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/
 Source: [`packages/drama/tool-drama-tos-upload/src/index.ts`](../packages/drama/tool-drama-tos-upload/src/index.ts)
 
 Optional package: only the cloud transcription deployment composes it, with its credential references.
+
+<a id="deepseek-aidsh-tool-jingliu"></a>
+
+## `@deepseek-ai/dsh-tool-jingliu`
+
+### `jingliu_narration`
+
+镜流「解说剧·角色开口」工作流。state 查分集、镜头、核对报告和可用模型；model 切换模型；breakdown 拆解台词；produce 出片、对齐和核对；accept 接受某句差异；export 导出剪映草稿。任务提交后用 get_job 查进度。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "state",
+        "model",
+        "breakdown",
+        "produce",
+        "accept",
+        "export"
+      ]
+    },
+    "project_id": {
+      "type": "string",
+      "description": "镜流解说剧项目 ID。"
+    },
+    "model": {
+      "type": "string",
+      "description": "model 操作使用 state 返回的模型 ID。"
+    },
+    "episode": {
+      "type": "integer",
+      "description": "指定集号，适用于拆解、出片或导出。拆解指定集会替换该集现有分镜。"
+    },
+    "shot_id": {
+      "type": "string",
+      "description": "accept 的镜头，或 produce 要整条重做的单个镜头。"
+    },
+    "beat": {
+      "type": "integer",
+      "description": "accept 所针对的核对报告中的 beat 值。"
+    },
+    "force": {
+      "type": "boolean",
+      "description": "全剧重新拆台词，仅适用于 breakdown。"
+    }
+  },
+  "required": [
+    "action",
+    "project_id"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/narration.ts`](../packages/drama/tool-jingliu/src/narration.ts)
+
+### `jingliu_run`
+
+执行镜流目录中的工作流并返回镜流结果。异步任务用返回的 job_id 查进度。提交结果未知时先查原任务。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "workflow": {
+      "type": "string",
+      "description": "jingliu_workflows 中的精确名称。"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "项目级工作流必填，账号级省略。"
+    },
+    "args": {
+      "type": "object",
+      "description": "按该工作流的 parameters 填写。",
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "workflow"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
+
+### `jingliu_workflows`
+
+查找镜流影视制作工作流，包括项目、剧本、拆镜、素材、生成、任务进度、后期和剪映交付。按名称查询可取得完整调用参数。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "按名称或说明搜索。省略时列出目录。"
+    },
+    "name": {
+      "type": "string",
+      "description": "精确的工作流名称，用于查看参数。"
+    },
+    "offset": {
+      "type": "integer",
+      "description": "下一页起点，来自 next_offset。"
+    }
+  }
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
 
 <a id="deepseek-aidsh-tool-hit-queue"></a>
 

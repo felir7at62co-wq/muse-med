@@ -29,6 +29,7 @@
 | `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.sandboxPolicy（文件系统约束开启时）` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | 来源片段编号、修订号、候选摘要、时间和正文引用行号由宿主生成。事实与逐集候选须经另一会话审校后验收。 |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`、`ctx.museAccount`、PATH 中的 FFmpeg 与 FFprobe | `tool/call`、`tool/result`，`transcript/jobs` 中的任务收据，`transcript/raw` 中的 TXT 与 JSON | - | start 使用已登录的 Muse 账号上传压缩音轨并提交云转写；status 根据收据查询同一任务，完成后保存带时间戳的结果。需要可读取的本地音视频与服务端转写配置。 |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`、TOS 访问密钥的凭据引用、可访问火山引擎 TOS 的网络 | `tool/call`、`tool/result`，`download-video-date/{platform}/{date}/{work_id}/` 下的公开 TOS 对象，`remove_local` 为 true 时删除本地文件 | - | 可选包：只由云端转写部署组合，并由它提供凭据引用。 |
+| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_narration`、`jingliu_run`、`jingliu_workflows` | `ctx.tools`、`ctx.jingliuConnection`，更改和计费操作需 `ctx.approval` | `tool/call`、`tool/result`、镜流服务的项目更新和任务、本地解说剧任务回执 | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`、数据站服务令牌的凭据引用、可访问数据站服务接口的网络 | `tool/call`、`tool/result`，数据站转写任务状态 | - | 可选包：只由云端转写部署组合。每个被派出的工人自己领取作品，主会话路由器不调用它。 |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`、`ctx.tools`、`ctx.ptcRuntime`、`ctx.systemPrompt` | `tool/call`、`one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`、`tool/result` | - | PTC 执行器只向模型公开 run_code，并在运行时语言生成的 SDK 中声明其他可见能力。程序绑定按提交顺序进入共享的受守卫工具流水线；并行安全的函数体最多重叠 maxParallelSubCalls 个，嵌套结果保持与外层程序关联。最终超时时间与 maxSubCallsPerMinute 决定调用总额度；超限会终止程序。 |
@@ -1869,6 +1870,119 @@ Source: [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/
 Source: [`packages/drama/tool-drama-tos-upload/src/index.ts`](../packages/drama/tool-drama-tos-upload/src/index.ts)
 
 Optional package: only the cloud transcription deployment composes it, with its credential references.
+
+<a id="deepseek-aidsh-tool-jingliu"></a>
+
+## `@deepseek-ai/dsh-tool-jingliu`
+
+### `jingliu_narration`
+
+镜流「解说剧·角色开口」工作流。state 查分集、镜头、核对报告和可用模型；model 切换模型；breakdown 拆解台词；produce 出片、对齐和核对；accept 接受某句差异；export 导出剪映草稿。任务提交后用 get_job 查进度。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "state",
+        "model",
+        "breakdown",
+        "produce",
+        "accept",
+        "export"
+      ]
+    },
+    "project_id": {
+      "type": "string",
+      "description": "镜流解说剧项目 ID。"
+    },
+    "model": {
+      "type": "string",
+      "description": "model 操作使用 state 返回的模型 ID。"
+    },
+    "episode": {
+      "type": "integer",
+      "description": "指定集号，适用于拆解、出片或导出。拆解指定集会替换该集现有分镜。"
+    },
+    "shot_id": {
+      "type": "string",
+      "description": "accept 的镜头，或 produce 要整条重做的单个镜头。"
+    },
+    "beat": {
+      "type": "integer",
+      "description": "accept 所针对的核对报告中的 beat 值。"
+    },
+    "force": {
+      "type": "boolean",
+      "description": "全剧重新拆台词，仅适用于 breakdown。"
+    }
+  },
+  "required": [
+    "action",
+    "project_id"
+  ]
+}
+```
+
+源码：[`packages/drama/tool-jingliu/src/narration.ts`](../packages/drama/tool-jingliu/src/narration.ts)
+
+### `jingliu_run`
+
+执行镜流目录中的工作流并返回镜流结果。异步任务用返回的 job_id 查进度。提交结果未知时先查原任务。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "workflow": {
+      "type": "string",
+      "description": "jingliu_workflows 中的精确名称。"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "项目级工作流必填，账号级省略。"
+    },
+    "args": {
+      "type": "object",
+      "description": "按该工作流的 parameters 填写。",
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "workflow"
+  ]
+}
+```
+
+源码：[`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
+
+### `jingliu_workflows`
+
+查找镜流影视制作工作流，包括项目、剧本、拆镜、素材、生成、任务进度、后期和剪映交付。按名称查询可取得完整调用参数。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "按名称或说明搜索。省略时列出目录。"
+    },
+    "name": {
+      "type": "string",
+      "description": "精确的工作流名称，用于查看参数。"
+    },
+    "offset": {
+      "type": "integer",
+      "description": "下一页起点，来自 next_offset。"
+    }
+  }
+}
+```
+
+源码：[`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
 
 <a id="deepseek-aidsh-tool-hit-queue"></a>
 

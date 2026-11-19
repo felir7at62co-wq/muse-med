@@ -60,6 +60,8 @@ export async function apply(ctx, config) {
       source = source.replace("'@deepseek-ai/dsh-desktop-host/delegation-policy'",
         JSON.stringify(new URL('./delegation-policy.mjs', import.meta.url).href))
       if (presetId === 'short-drama') {
+        source = source.replace("'@deepseek-ai/dsh-desktop-host/short-drama-guidance'",
+          JSON.stringify(new URL('../muse-short-drama-draft-ending/short-drama-guidance.mjs', import.meta.url).href))
         source = source.replace("'@deepseek-ai/dsh-desktop-host/editing-policy'",
           JSON.stringify(new URL('./editing-policy.mjs', import.meta.url).href))
         source = source.replace("'@deepseek-ai/dsh-desktop-host/manuscript-source-review'",

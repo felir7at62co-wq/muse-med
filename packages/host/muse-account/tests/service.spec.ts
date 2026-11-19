@@ -161,7 +161,7 @@ it('publishes account setup and explicit inbox submission over the authenticated
   await context.plugin(MuseAccountService, { controller })
   const service = context.get('museAccount') as MuseAccountService
 
-  expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'details', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
+  expect(remoteMethods(service).map(entry => entry.method)).toEqual(['issueWorkbenchCode', 'feedback', 'status', 'details', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
   await expect(service.feedback({ sessionId: 'session' as never, target: { kind: 'session' }, includeDiagnostics: false }))
     .rejects.toMatchObject({ code: 'muse-feedback/unavailable', details: {} })
   await expect(service.login({ username: 'writer', password: 'secret-value', registerIfMissing: false }))
@@ -201,7 +201,7 @@ it('forwards the receipt purpose through the Host service without adding transcr
     expect(await service.submitAudio(file, id, 'a'.repeat(64), 'zh', 'screenplay')).toEqual({ id, status: 'processing', purpose: 'screenplay', service_version: 'standard-v2' })
     await service.audioStatus(id)
     expect(headers.map(row => row.get('x-muse-asr-purpose'))).toEqual(['screenplay', null])
-    expect(remoteMethods(service).map(entry => entry.method)).toEqual(['feedback', 'status', 'details', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
+    expect(remoteMethods(service).map(entry => entry.method)).toEqual(['issueWorkbenchCode', 'feedback', 'status', 'details', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
     const controller = new AbortController(), reason = new Error('cancelled service call')
     controller.abort(reason)
     await expect(service.submitAudio(file, id, 'a'.repeat(64), 'zh', 'screenplay', controller.signal)).rejects.toBe(reason)
@@ -427,4 +427,23 @@ it('keeps voice coordination Host-only and explicitly reports a missing provider
   } } })
   expect(await next.museAccount.requestVoiceSlot(request, 'private-provider')).toEqual({ state: 'available' })
   expect(calls).toEqual(['private-provider'])
+})
+
+it('gives the authenticated renderer only the single-use code or a bounded failure', async () => {
+  const context = new Context()
+  contexts.push(context)
+  const status = async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' })
+  const issue = vi.fn<NonNullable<import('../src/service.ts').MuseAccountServiceOptions['workbench']>['issue']>()
+    .mockResolvedValueOnce({ code: 'test-code', expiresIn: 60, accountId: 'host-private' })
+    .mockRejectedValueOnce(new MuseGatewayError('invalid-credentials'))
+    .mockRejectedValueOnce(new Error('Private upstream message'))
+  await context.plugin(MuseAccountService, {
+    controller: { status, logout: status, login: async () => { throw Error('Unused login') }, details: async () => { throw Error('Unused details') } },
+    workbench: { issue, identity: async () => 'host-private' },
+  })
+  const request = { audience: 'jingliu', challenge: 'x'.repeat(43) } as const
+  expect(await context.museAccount.issueWorkbenchCode(request)).toEqual({ code: 'test-code' })
+  expect(issue).toHaveBeenCalledWith('jingliu', request.challenge)
+  await expect(context.museAccount.issueWorkbenchCode(request)).rejects.toMatchObject({ code: 'muse-workbench/sign-in-required', details: {} })
+  await expect(context.museAccount.issueWorkbenchCode(request)).rejects.toMatchObject({ code: 'muse-workbench/unavailable', details: {} })
 })

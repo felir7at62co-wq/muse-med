@@ -17,6 +17,20 @@ import {
   type DramaDeliverySpec, type DramaSettings, type DramaSettingsField,
 } from '../settings.ts'
 
+/** Paid controls provided by the active Jubian composition. */
+export interface JubianControls {
+  readonly budget: boolean
+  readonly image: boolean
+}
+
+const allControls: JubianControls = { budget: true, image: true }
+
+function editable(field: DramaSettingsField, controls: JubianControls): boolean {
+  if (field === 'seriesBudgetCents') return controls.budget
+  if (field === 'imageStandardId') return controls.image
+  return true
+}
+
 /** What one page write did. */
 export type DramaWriteOutcome =
   /** The resolved section now carries everything the draft asked for. */
@@ -91,23 +105,25 @@ function parsePath(text: string, fallback: string): string {
 /**
  * The section one draft asks for.
  * @param draft - the current form values.
+ * @param controls - Paid controls shown on this page.
  * @returns the section to persist, or undefined while a spec box, image-route
  *   select or yuan budget holds an invalid value.
  */
-export function draftSection(draft: DramaSettingsDraft): DramaSettings | undefined {
+export function draftSection(draft: DramaSettingsDraft, controls = allControls): DramaSettings | undefined {
   const width = parseNumber(draft.width)
   const height = parseNumber(draft.height)
   const fps = parseNumber(draft.fps)
   const minBitrateMbps = parseNumber(draft.minBitrateMbps)
-  const seriesBudgetCents = parseBudget(draft.seriesBudgetYuan)
+  const seriesBudgetCents = controls.budget ? parseBudget(draft.seriesBudgetYuan) : DRAMA_SETTINGS_DEFAULTS.seriesBudgetCents
   if (width === undefined || height === undefined || fps === undefined || minBitrateMbps === undefined
     || seriesBudgetCents === undefined) {
     return undefined
   }
   // An empty select means "pin no row", which is a value rather than a failure:
   // the route then decides for itself while the catalogue lists exactly one row.
-  const unpinned = draft.imageStandardId.trim().length === 0
-  const imageStandardId = parseNumber(draft.imageStandardId)
+  const row = controls.image ? draft.imageStandardId : ''
+  const unpinned = row.trim().length === 0
+  const imageStandardId = parseNumber(row)
   if (!unpinned && imageStandardId === undefined) return undefined
   const section: DramaSettings = {
     deliveryDir: parsePath(draft.deliveryDir, DRAMA_SETTINGS_DEFAULTS.deliveryDir),
@@ -131,14 +147,15 @@ function sameSpec(left: DramaDeliverySpec, right: DramaDeliverySpec): boolean {
  * write landed, read from the same snapshot the page renders.
  * @param current - the section the settings namespace resolves to now.
  * @param intended - the section the page asked for.
+ * @param controls - Paid controls included in the comparison.
  * @returns true when every field already states the intended value.
  */
-export function sameSettings(current: DramaSettings, intended: DramaSettings): boolean {
+export function sameSettings(current: DramaSettings, intended: DramaSettings, controls = allControls): boolean {
   return current.deliveryDir === intended.deliveryDir
     && current.jianyingDraftDir === intended.jianyingDraftDir
     && current.bgmDir === intended.bgmDir
-    && current.seriesBudgetCents === intended.seriesBudgetCents
-    && current.imageStandardId === intended.imageStandardId
+    && (!controls.budget || current.seriesBudgetCents === intended.seriesBudgetCents)
+    && (!controls.image || current.imageStandardId === intended.imageStandardId)
     && sameSpec(current.deliverySpec, intended.deliverySpec)
 }
 
@@ -146,10 +163,11 @@ export function sameSettings(current: DramaSettings, intended: DramaSettings): b
  * Whether a namespace holds the intended section.
  * @param current - the section the namespace resolves to, absent before its first read.
  * @param intended - the section a write asked for.
+ * @param controls - Paid controls included in this write.
  * @returns true only when a resolved section states the intended value.
  */
-export function landed(current: DramaSettings | undefined, intended: DramaSettings): boolean {
-  return current !== undefined && sameSettings(current, intended)
+export function landed(current: DramaSettings | undefined, intended: DramaSettings, controls = allControls): boolean {
+  return current !== undefined && sameSettings(current, intended, controls)
 }
 
 /** The scalar fields whose default is a plain value. */
@@ -166,14 +184,15 @@ type ScalarField = Exclude<DramaSettingsField, typeof DELIVERY_SPEC_FIELD>
  * has not resolved yet holds no user layer, so it compares as the defaults.
  * @param current - the resolved section, or undefined before the first read.
  * @param intended - the section the page asks for.
+ * @param controls - Paid controls included in this write.
  * @returns ordered path operations for one atomic namespace write.
  */
-export function sectionOps(current: DramaSettings | undefined, intended: DramaSettings): SettingsPathOpView[] {
+export function sectionOps(current: DramaSettings | undefined, intended: DramaSettings, controls = allControls): SettingsPathOpView[] {
   const from = current ?? DRAMA_SETTINGS_DEFAULTS
   const ops: SettingsPathOpView[] = []
   const scalar = (field: ScalarField): void => {
     const value = intended[field]
-    if (value === from[field]) return
+    if (!editable(field, controls) || value === from[field]) return
     // An absent value is the same statement as the schema default: this field
     // carries no override, so the operation that leaves none behind is an unset.
     ops.push(value === undefined || value === DRAMA_SETTINGS_DEFAULTS[field]
@@ -194,9 +213,10 @@ export function sectionOps(current: DramaSettings | undefined, intended: DramaSe
 }
 
 /**
- * Clear every field, which is what returns the section to its schema defaults.
+ * Reset the fields available in the active composition.
+ * @param controls - Paid controls included in this reset.
  * @returns one unset operation per field, for a single atomic namespace write.
  */
-export function defaultOps(): SettingsPathOpView[] {
-  return DRAMA_SETTINGS_FIELDS.map(field => ({ op: 'unset', path: [field] }))
+export function defaultOps(controls = allControls): SettingsPathOpView[] {
+  return DRAMA_SETTINGS_FIELDS.filter(field => editable(field, controls)).map(field => ({ op: 'unset', path: [field] }))
 }

@@ -82,6 +82,11 @@ export interface Config {
   readonly mainPreset?: string
   /** Preset used only for newly created workers. Defaults to `short-drama`. */
   readonly workerPreset?: string
+  /**
+   * Capture Main's Jubian video selection on dispatch. Defaults to true.
+   * When disabled, new tasks have no key and revisions retain the task's recorded key.
+   */
+  readonly inheritJubianVideoSelection?: boolean
   /** Maximum returned Session search rows or report tasks. Defaults to 30. */
   readonly searchLimit?: number
   /**
@@ -129,6 +134,7 @@ export class SessionCoordinator extends TypertRemoteService {
   ]
   static Config: z<Config> = z.object({
     mainPreset: z.string().default('main-session'), workerPreset: z.string().default('short-drama'),
+    inheritJubianVideoSelection: z.boolean().default(true),
     searchLimit: z.natural().min(1).default(30), readChars: z.natural().min(1).default(24000),
     noteChars: z.natural().min(1).default(120), summaryChars: z.natural().min(1).default(2000),
     maxWorkers: z.natural().min(1).default(3),
@@ -575,7 +581,11 @@ export class SessionCoordinator extends TypertRemoteService {
       if ([...this.table.entries()].some(([, task]) => latest(task).sessionId === target && reservesWorker(latest(task)))) {
         throw new Error('Worker already has an unsettled task; create a fresh Session')
       }
-      const video = (await this.ctx.sessionQuery.readSession(main.id)).events.findLast(event => event.type === 'jubian/video-selection')
+      let videoKey = previous === undefined ? null : latest(previous).videoKey
+      if (this.config.inheritJubianVideoSelection) {
+        const video = (await this.ctx.sessionQuery.readSession(main.id)).events.findLast(event => event.type === 'jubian/video-selection')
+        videoKey = video?.type === 'jubian/video-selection' ? video.data.selection.key : null
+      }
       const messageId = createUserMessage({ content: [], source: { kind: 'user' } }).id
       let task: CoordinationTask = {
         id, owner: main.id,
@@ -585,7 +595,7 @@ export class SessionCoordinator extends TypertRemoteService {
           key: request.key, requestHash, instructions: request.instructions, reason: request.reason, sourceSeq: source.seq,
           messageId, forwardedIds: [], briefId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
           noticeId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
-          sessionId: target, createSession, cwd, sourceCwd: main.session.header.cwd ?? null, videoKey: video?.type === 'jubian/video-selection' ? video.data.selection.key : null,
+          sessionId: target, createSession, cwd, sourceCwd: main.session.header.cwd ?? null, videoKey,
           status: 'dispatching', report: null, issue: null, notifiedStatus: null,
         }],
       }
@@ -1130,7 +1140,7 @@ export class SessionCoordinator extends TypertRemoteService {
     })
     if (attempt.videoKey !== null) {
       const video = worker.ctx.get('jubianVideoSelection')
-      if (video === undefined) throw new Error('Worker cannot preserve the selected video model')
+      if (video === undefined) throw new Error('Worker cannot preserve the selected video model. This recorded task requires the Jubian video-selection service.')
       await video.select(worker, attempt.videoKey, video.current(worker)?.revision ?? 0)
     }
     if (attempt.createSession) {

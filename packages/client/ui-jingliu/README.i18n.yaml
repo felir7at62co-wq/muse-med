@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-jingliu/README.md
+/:
+  en: 4267c99d92d01281
+  zh: 59d4ee2d7766d90b
+/deepseek-ai-dsh-client-ui-jingliu:
+  en: 462553236aacc7ef
+  zh: 286f1af1f6cdeb90
+/deepseek-ai-dsh-client-ui-jingliu/summary:
+  en: c9cb9af7727043b0
+  zh: 323eff6488a98858
+/deepseek-ai-dsh-client-ui-jingliu/table-of-contents:
+  en: 638dd73bc5b9dc7a
+  zh: 60bb08dc91c7e6a5
+/deepseek-ai-dsh-client-ui-jingliu/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-client-ui-jingliu/model-experience/opening-the-studio:
+  en: 19a5ff29a61deb72
+  zh: 021af73202df5543
+/deepseek-ai-dsh-client-ui-jingliu/model-experience/opening-the-studio/what-the-model-sees:
+  en: 139746116d704c98
+  zh: f62d801ac04f7cc5
+/deepseek-ai-dsh-client-ui-jingliu/model-experience/opening-the-studio/token-effect:
+  en: 80f15a19d5983818
+  zh: 94f4606ef29785bd
+/deepseek-ai-dsh-client-ui-jingliu/model-experience/opening-the-studio/kv-cache-effect:
+  en: eadada08c4d7ef9e
+  zh: 47531e7f27bc701f
+/deepseek-ai-dsh-client-ui-jingliu/known-limitations-and-deferred-work:
+  en: d8c29e2b25a00f2a
+  zh: 04d7f580747c17de
+/deepseek-ai-dsh-client-ui-jingliu/known-limitations-and-deferred-work/dev-note:
+  en: 45ec51258109208a
+  zh: df6c6297ba72dc14

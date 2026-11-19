@@ -3,13 +3,14 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { MuseAccountController, MuseAccountInputError } from './account.ts'
+import type { MuseWorkbenchLogin } from './workbench-login.ts'
 import { MuseGatewayError } from './gateway.ts'
 import type { MuseBrowserLogin } from './browser-login.ts'
 import type { MuseBrowserLoginAttempt, MuseBrowserLoginId, MuseBrowserLoginResult } from './types.ts'
 import { MuseAsrClient, type MuseAsrJob, type MuseAsrPurpose } from './asr.ts'
 import type { MuseModels } from './models.ts'
 import { MuseFeedbackError, type MuseFeedbackClient } from './feedback.ts'
-import type { MuseFeedbackRequest, MuseFeedbackReceipt } from './types.ts'
+import type { MuseFeedbackRequest, MuseFeedbackReceipt, MuseWorkbenchGrant, MuseWorkbenchGrantRequest } from './types.ts'
 import type { MuseDesktopRemote } from './desktop-remote.ts'
 import { MuseVoiceSlotError, type MuseVoiceSlotRequest, type MuseVoiceSlotsClient } from './voice-slots.ts'
 import type { MuseAccountDetails, MuseAccountDetailsRequest, MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
@@ -26,6 +27,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** The controller passed by the mounted product plugin. */
 export interface MuseAccountServiceOptions {
+  readonly workbench?: Pick<MuseWorkbenchLogin, 'issue' | 'identity'>
   readonly controller: AccountOperations
   readonly browserLogin?: Pick<MuseBrowserLogin, 'start' | 'check' | 'cancel'>
   readonly asr?: MuseAsrClient
@@ -37,6 +39,7 @@ export interface MuseAccountServiceOptions {
 
 /** MUSE account Remote namespace. The Connection carrier authenticates every call. */
 export class MuseAccountService extends TypertRemoteService {
+  private readonly workbench: MuseAccountServiceOptions['workbench']
   private readonly logger: Context['logger']
   private readonly controller: AccountOperations
   private readonly browserLogin: MuseAccountServiceOptions['browserLogin']
@@ -52,6 +55,7 @@ export class MuseAccountService extends TypertRemoteService {
    */
   constructor(ctx: Context, options: MuseAccountServiceOptions) {
     super(ctx, 'museAccount')
+    this.workbench = options.workbench
     this.logger = ctx.logger
     this.controller = options.controller
     this.browserLogin = options.browserLogin
@@ -60,6 +64,39 @@ export class MuseAccountService extends TypertRemoteService {
     this.feedbackClient = options.feedback
     this.remote = options.remote
     this.voiceSlots = options.voiceSlots
+  }
+
+  /** @returns The current private Muse login identifier for Host-side workbench operations. */
+  async workbenchIdentity(): Promise<string> {
+    if (!this.workbench) throw new MuseGatewayError('gateway-unavailable')
+    return await this.workbench.identity()
+  }
+
+  /**
+   * Start one authentication exchange for a configured workbench.
+   * @param audience - Business application receiving the user's login.
+   * @param challenge - S256 challenge returned by that application.
+   * @returns The one-time code, lifetime and session identifier for this exchange.
+   */
+  async workbenchGrant(audience: 'script-workshop' | 'jingliu', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }> {
+    if (!this.workbench) throw new MuseGatewayError('gateway-unavailable')
+    return await this.workbench.issue(audience, challenge)
+  }
+
+  /**
+   * Authorize sign-in in a configured workbench embedded in Muse.
+   * @param request - Workbench audience and S256 challenge from its iframe.
+   * @returns The short-lived code for the workbench backend.
+   */
+  @Remote('issueWorkbenchCode')
+  async issueWorkbenchCode(request: MuseWorkbenchGrantRequest): Promise<MuseWorkbenchGrant> {
+    try {
+      const { code } = await this.workbenchGrant(request.audience, request.challenge)
+      return { code }
+    } catch (error) {
+      const reason = error instanceof MuseGatewayError && error.code === 'invalid-credentials' ? 'sign-in-required' : 'unavailable'
+      throw new RemoteError(`muse-workbench/${reason}`, `Muse workbench: ${reason}`, {})
+    }
   }
 
   /**

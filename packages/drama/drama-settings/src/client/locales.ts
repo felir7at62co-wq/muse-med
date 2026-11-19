@@ -78,6 +78,7 @@ export const zh = {
   'resetting': '正在恢复…',
   'resetDone': '已恢复默认。',
   'rejected': '保存失败：宿主没有接受这次写入。',
+  'invalidValues': '请检查表单里的数值后再保存',
   'invalidNumber': '交付规格、资产图通道或每部剧预算无效；预算不得留空，须为最多两位小数的非负金额，请改好再保存。',
 } satisfies Record<string, string>
 
@@ -155,6 +156,7 @@ export const en = {
   'resetting': 'Restoring…',
   'resetDone': 'Defaults restored.',
   'rejected': 'Could not save: the host refused this write.',
+  'invalidValues': 'Check the numeric fields before saving.',
   'invalidNumber': 'A delivery-spec field, asset-image route or per-drama budget is invalid. The budget must be nonblank, nonnegative and have at most two decimal places; fix it before saving.',
 } satisfies Record<DramaLocaleKey, string>
 
@@ -208,6 +210,7 @@ export const ja = {
   'imageRouteTitle': '素材画像の経路',
   'imageRouteUnavailable': 'この環境には Jubian 画像経路の読み取り機能がなく、一覧を表示できません。保存済みの選択は変わりません。',
   'imageRouteUnset': '環境の既定値を使用（Muse：KU_AI）',
+  'invalidValues': '数値を確認してから保存してください。',
   'invalidNumber': '交付仕様、素材画像の経路、またはドラマ別予算の値が無効です。予算は空欄不可、0 以上、小数点以下 2 桁までです。修正してから保存してください。',
   'jianyingDraftDirDescription': 'JianyingPro で設定した実際の草稿ルートを入力してください。空欄は未設定を意味し、自動検出はしません。',
   'jianyingDraftDirPlaceholder': 'JianyingPro の草稿ルートを入力',
@@ -282,6 +285,7 @@ export const es = {
   'imageRouteTitle': 'Ruta de imágenes de recursos',
   'imageRouteUnavailable': 'Este despliegue no incluye un lector de rutas de imagen de Jubian y no puede listar las opciones; la elección guardada no cambia.',
   'imageRouteUnset': 'Usar el valor predeterminado del despliegue (Muse: KU_AI)',
+  'invalidValues': 'Revisa los valores numéricos antes de guardar.',
   'invalidNumber': 'Un campo de entrega, la ruta de imágenes o el presupuesto por drama no es válido. El presupuesto no puede estar vacío ni ser negativo y admite como máximo dos decimales; corrígelo antes de guardar.',
   'jianyingDraftDirDescription': 'Introduce la raíz real de borradores configurada en JianyingPro; vacío significa sin configurar y no se detecta automáticamente.',
   'jianyingDraftDirPlaceholder': 'Introduce la raíz de borradores de JianyingPro',
@@ -356,6 +360,7 @@ export const fr = {
   'imageRouteTitle': 'Canal des images de ressources',
   'imageRouteUnavailable': 'Ce déploiement ne comporte pas de lecteur de canaux d’image Jubian ; la liste est indisponible et le choix enregistré reste inchangé.',
   'imageRouteUnset': 'Utiliser le choix du déploiement (Muse : KU_AI)',
+  'invalidValues': 'Vérifiez les valeurs numériques avant d’enregistrer.',
   'invalidNumber': 'Un champ de livraison, le canal d’image ou le budget par fiction est invalide. Le budget doit être renseigné, positif ou nul, avec deux décimales au plus ; corrigez avant d’enregistrer.',
   'jianyingDraftDirDescription': 'Saisissez le dossier racine des brouillons configuré dans JianyingPro ; vide signifie non configuré, sans détection automatique.',
   'jianyingDraftDirPlaceholder': 'Saisissez la racine des brouillons JianyingPro',
@@ -430,6 +435,7 @@ export const de = {
   'imageRouteTitle': 'Asset-Bildkanal',
   'imageRouteUnavailable': 'Diese Bereitstellung enthält keinen Leser für Jubian-Bildkanäle; die Liste kann nicht angezeigt werden. Die gespeicherte Auswahl bleibt erhalten.',
   'imageRouteUnset': 'Bereitstellungsstandard verwenden (Muse: KU_AI)',
+  'invalidValues': 'Überprüfen Sie die Zahlenwerte vor dem Speichern.',
   'invalidNumber': 'Ein Auslieferungswert, Bildkanal oder Dramenbudget ist ungültig. Das Budget muss ausgefüllt, nicht negativ und auf höchstens zwei Nachkommastellen begrenzt sein; korrigieren Sie es vor dem Speichern.',
   'jianyingDraftDirDescription': 'Geben Sie das tatsächliche Entwurfsstammverzeichnis aus JianyingPro ein; leer bedeutet nicht konfiguriert, es erfolgt keine automatische Erkennung.',
   'jianyingDraftDirPlaceholder': 'JianyingPro-Entwurfsstammverzeichnis eingeben',
@@ -504,6 +510,7 @@ export const ru = {
   'imageRouteTitle': 'Канал изображений ресурсов',
   'imageRouteUnavailable': 'В этом развёртывании нет средства чтения каналов изображений Jubian; список недоступен, сохранённый выбор не изменяется.',
   'imageRouteUnset': 'Использовать настройку развёртывания (Muse: KU_AI)',
+  'invalidValues': 'Перед сохранением проверьте числовые значения.',
   'invalidNumber': 'Поле параметров передачи, канал изображений или бюджет драмы недействителен. Бюджет не должен быть пустым или отрицательным и допускает не более двух знаков после запятой; исправьте перед сохранением.',
   'jianyingDraftDirDescription': 'Укажите фактический корневой каталог черновиков из настроек JianyingPro; пустое значение означает отсутствие настройки без автоматического определения.',
   'jianyingDraftDirPlaceholder': 'Введите корневой каталог черновиков JianyingPro',
@@ -578,6 +585,7 @@ export const pt = {
   'imageRouteTitle': 'Canal de imagens de recursos',
   'imageRouteUnavailable': 'Esta implementação não inclui um leitor de canais de imagem do Jubian; não é possível listar as opções e a escolha guardada mantém-se.',
   'imageRouteUnset': 'Usar a predefinição da implementação (Muse: KU_AI)',
+  'invalidValues': 'Confira os valores numéricos antes de salvar.',
   'invalidNumber': 'Um campo de entrega, o canal de imagens ou o orçamento por drama é inválido. O orçamento deve estar preenchido, ser não negativo e ter no máximo duas casas decimais; corrija antes de guardar.',
   'jianyingDraftDirDescription': 'Introduza a raiz real dos rascunhos configurada no JianyingPro; em branco significa não configurado e não há deteção automática.',
   'jianyingDraftDirPlaceholder': 'Introduza a raiz dos rascunhos do JianyingPro',

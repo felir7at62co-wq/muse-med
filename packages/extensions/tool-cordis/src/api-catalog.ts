@@ -2107,6 +2107,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'jingliuConnection',
+    summary: 'Resolves user grants at execution time, keeping tokens outside model input and output.',
+    description: 'Resolves user grants at execution time, keeping tokens outside model input and output.',
+    methods: [
+      {
+        signature: 'async connection(): Promise<JingliuSession>',
+        description: 'Resolve the active account on the selected deployment.',
+        parameters: [],
+        returns: 'A transport which stops if the session grant changes.',
+      },
+    ],
+  },
+  {
     key: 'jobController',
     summary: 'Host service backing the generated `ctx.remote.job` namespace.',
     description: 'Host service backing the generated `ctx.remote.job` namespace.',
@@ -8494,6 +8507,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'InvokeRemoteRequest',
     declaration: 'export interface InvokeRemoteRequest {\n    readonly namespace: string;\n    readonly method: string;\n    readonly args: Readonly<Record<string, unknown>>;\n    readonly uplink?: AsyncIterable<unknown>;\n    readonly uplinkWindow?: RemoteUplinkWindow | undefined;\n    readonly peer: PeerScope;\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'JingliuRequest',
+    declaration: 'export interface JingliuRequest {\n    method?: \'GET\' | \'POST\' | \'PUT\';\n    body?: unknown;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'JingliuSession',
+    declaration: 'export interface JingliuSession {\n    readonly identity: string;\n    request(path: string, options?: JingliuRequest): Promise<unknown>;\n}',
   },
   {
     name: 'JobAppendOptions',

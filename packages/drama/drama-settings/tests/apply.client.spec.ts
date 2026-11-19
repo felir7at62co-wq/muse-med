@@ -62,13 +62,13 @@ function documentOf(user: Record<string, unknown>, revision: number) {
  * re-reading.
  * @returns the booted bench and the scripted user layer it writes into.
  */
-async function bench() {
+async function bench(initial: Record<string, JsonValue> = {}) {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
   locale.setLocale('zh')
   ctx.provide('locale', locale)
-  const user = new Map<string, JsonValue>()
+  const user = new Map(Object.entries(initial))
   let revision = 0
   const describe = vi.fn(async () => ({ ok: true as const, value: documentOf(Object.fromEntries(user), revision) }))
   const mutate = vi.fn(async (_ns: string, ops: readonly SettingsPathOpView[]) => {
@@ -96,6 +96,12 @@ function declareSlots(slots: SlotRegistry): () => void {
 /** The page section registered by this plugin, or undefined. */
 function sectionEntry(slots: SlotRegistry) {
   return slots.entries(SECTION_SLOT).find(entry => entry.component === DramaSettingsSection)
+}
+
+/** Narrow the slot registry's generic injected props to the write actions under test. */
+function hasSettingsActions(face: Record<string, unknown> | undefined):
+  face is Pick<DramaSettingsSectionInjected, 'paidControls' | 'write' | 'restoreDefaults'> {
+  return typeof face?.paidControls === 'function' && typeof face.write === 'function' && typeof face.restoreDefaults === 'function'
 }
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
@@ -182,6 +188,28 @@ describe('drama-settings browser plugin', () => {
       }
     } finally { await b.ctx.fiber.dispose() }
   })
+  it('preserves archived fields on save and reset, including a provider mounted after the form was shown', async () => {
+    const archived = { seriesBudgetCents: 87654, imageStandardId: 66 }
+    const b = await bench(archived)
+    try {
+      declareSlots(b.slots)
+      await b.ctx.plugin({ inject: [...inject], apply }).await()
+      const face = sectionEntry(b.slots)?.inject?.()
+      if (!hasSettingsActions(face)) throw new Error('Missing drama settings actions')
+      const standalone = face.paidControls()
+      expect(standalone).toEqual({ budget: false, image: false })
+      b.ctx.provide('remote.jubianImage', { routes: vi.fn() })
+      expect(face.paidControls()).toEqual({ budget: false, image: true })
+      const draft = { ...draftOf(DRAMA_SETTINGS_DEFAULTS), bgmDir: '/shared/music', seriesBudgetYuan: '', imageStandardId: '' }
+      expect(await face.write(draft, standalone)).toBe('saved')
+      expect(Object.fromEntries(b.user)).toEqual({ ...archived, bgmDir: '/shared/music' })
+      expect(await face.restoreDefaults(standalone)).toBe('saved')
+      expect(Object.fromEntries(b.user)).toEqual(archived)
+      expect(await face.restoreDefaults(face.paidControls())).toBe('saved')
+      expect(Object.fromEntries(b.user)).toEqual({ seriesBudgetCents: archived.seriesBudgetCents })
+    } finally { await b.ctx.fiber.dispose() }
+  })
+
   it('declares the slot registry, the locale, and the settings scope service', () => {
     expect(inject).toEqual(['slots', 'locale', 'configForms'])
     expect(NS).toBe('settings.drama')
@@ -217,7 +245,7 @@ describe('drama-settings browser plugin', () => {
     const section = (sectionEntry(b.slots)!.inject as () => {
       hooks: { drama: { getSnapshot(): { value: unknown } } }
     })()
-    expect(section.hooks.drama.getSnapshot().value).toEqual(DRAMA_SETTINGS_DEFAULTS)
+    expect(section.hooks.drama.getSnapshot().value).toMatchObject(DRAMA_SETTINGS_DEFAULTS)
   })
 
   it('writes only the fields the draft changed, and clears one that returns to its default', async () => {
@@ -253,6 +281,7 @@ describe('drama-settings browser plugin', () => {
 
   it('sends nothing for a spec box that holds no number', async () => {
     const b = await bench()
+    b.ctx.provide('remote.jubianBudget', { read: vi.fn(), update: vi.fn() })
     declareSlots(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const face = (sectionEntry(b.slots)!.inject as () => {
@@ -267,6 +296,8 @@ describe('drama-settings browser plugin', () => {
 
   it('restores every field to its default in one write', async () => {
     const b = await bench()
+    b.ctx.provide('remote.jubianBudget', { read: vi.fn(), update: vi.fn() })
+    b.ctx.provide('remote.jubianImage', { routes: vi.fn() })
     declareSlots(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const face = (sectionEntry(b.slots)!.inject as () => {
@@ -287,6 +318,7 @@ describe('drama-settings browser plugin', () => {
 
   it('pins the chosen image-route row as its own write and clears it again', async () => {
     const b = await bench()
+    b.ctx.provide('remote.jubianImage', { routes: vi.fn() })
     declareSlots(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const face = (sectionEntry(b.slots)!.inject as () => {

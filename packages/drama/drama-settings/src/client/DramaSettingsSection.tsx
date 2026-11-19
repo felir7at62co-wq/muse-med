@@ -24,7 +24,7 @@ import type { DramaComponentState, DramaComponentStatus } from './components.ts'
 import { STATUS_COPY } from './locales.ts'
 import type { DramaImageRoute, DramaImageRoutes } from './routes.ts'
 import {
-  draftOf, draftSection, sameSettings, type DramaSettingsDraft, type DramaWriteOutcome,
+  draftOf, draftSection, sameSettings, type DramaSettingsDraft, type DramaWriteOutcome, type JubianControls,
 } from './section.ts'
 import css from './DramaSettingsSection.module.css'
 import { ProjectBudgetGroup } from './ProjectBudgetGroup.tsx'
@@ -36,10 +36,12 @@ export interface DramaSettingsSectionInjected {
     /** The form over the `drama-settings` namespace, rendered as useDrama. */
     drama: ConfigForm<DramaSettings>
   }
+  /** Read the paid controls available when the page renders. */
+  paidControls: () => JubianControls
   /** Persist the draft, or report that it could not be persisted. */
-  write: (draft: DramaSettingsDraft) => Promise<DramaWriteOutcome>
-  /** Clear every field, returning the section to its schema defaults. */
-  restoreDefaults: () => Promise<DramaWriteOutcome>
+  write: (draft: DramaSettingsDraft, shown: JubianControls) => Promise<DramaWriteOutcome>
+  /** Reset only the controls displayed in the current deployment. */
+  restoreDefaults: (shown: JubianControls) => Promise<DramaWriteOutcome>
   /**
    * Read the composed packages' current state. A deployment with no plugin
    * inventory answers with every component unqueryable.
@@ -177,6 +179,7 @@ function ImageRouteGroup({ draft, routes, t, onChange }: {
  */
 export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNode {
   const { t, useDrama, write, restoreDefaults, components, imageRoutes } = props
+  const controls = props.paidControls()
   const snapshot: ConfigFormSnapshot<DramaSettings> = useDrama(value => value)
   const settings = snapshot.value
   const [draft, setDraft] = useState<DramaSettingsDraft | undefined>(undefined)
@@ -205,11 +208,12 @@ export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNod
   // once per mount too: reopening the page is what re-reads it.
   useEffect(() => {
     let current = true
+    if (!controls.image) return
     void imageRoutes().then((next) => {
       if (current) setRoutes(next)
     })
     return () => { current = false }
-  }, [imageRoutes])
+  }, [imageRoutes, controls.image])
 
   // The composition is not a setting, so this list shows in every state of the
   // form below it — including a deployment whose settings document is missing.
@@ -232,8 +236,9 @@ export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNod
     )
   }
 
-  const intended = draftSection(draft)
-  const dirty = intended === undefined || !sameSettings(settings, intended)
+  const intended = draftSection(draft, controls)
+  const invalidNotice = t(controls.budget && controls.image ? 'invalidNumber' : 'invalidValues')
+  const dirty = intended === undefined || !sameSettings(settings, intended, controls)
 
   /**
    * Run one write, then report what it did. A refusal shows the failure line and
@@ -248,28 +253,30 @@ export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNod
       setBusy(false)
       setNotice(outcome === 'saved'
         ? done
-        : outcome === 'invalid' ? t('invalidNumber') : t('rejected'))
+        : outcome === 'invalid' ? invalidNotice : t('rejected'))
     })
   }
 
   return (
     <div className={css.section}>
-      <section className={css.group}>
-        <h3 className={css.groupTitle}>{t('seriesBudgetTitle')}</h3>
-        <p className={css.budgetWarning}>{t('seriesBudgetDescription', { amount: draftOf(settings).seriesBudgetYuan })}</p>
-        <input
-          className={css.input}
-          type="text"
-          inputMode="decimal"
-          value={draft.seriesBudgetYuan}
-          aria-label={t('seriesBudgetTitle')}
-          onChange={(event) => { setDraft({ ...draft, seriesBudgetYuan: event.currentTarget.value }) }}
-        />
-      </section>
+      {controls.budget && <>
+        <section className={css.group}>
+          <h3 className={css.groupTitle}>{t('seriesBudgetTitle')}</h3>
+          <p className={css.budgetWarning}>{t('seriesBudgetDescription', { amount: draftOf(settings).seriesBudgetYuan })}</p>
+          <input
+            className={css.input}
+            type="text"
+            inputMode="decimal"
+            value={draft.seriesBudgetYuan}
+            aria-label={t('seriesBudgetTitle')}
+            onChange={(event) => { setDraft({ ...draft, seriesBudgetYuan: event.currentTarget.value }) }}
+          />
+        </section>
 
-      <ProjectBudgetGroup t={t}
-        {...(props.budgetRead ? { read: props.budgetRead } : {})}
-        {...(props.budgetUpdate ? { update: props.budgetUpdate } : {})} />
+        <ProjectBudgetGroup t={t}
+          {...(props.budgetRead ? { read: props.budgetRead } : {})}
+          {...(props.budgetUpdate ? { update: props.budgetUpdate } : {})} />
+      </>}
 
       <section className={css.group}>
         <h3 className={css.groupTitle}>{t('deliveryDirTitle')}</h3>
@@ -335,19 +342,19 @@ export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNod
         />
       </section>
 
-      <ImageRouteGroup
+      {controls.image && <ImageRouteGroup
         draft={draft}
         routes={routes}
         t={t}
         onChange={(imageStandardId) => { setDraft({ ...draft, imageStandardId }) }}
-      />
+      />}
 
       <div className={css.actions}>
         <Button
           variant="primary"
           size="sm"
           disabled={busy || !snapshot.writable || !dirty || intended === undefined}
-          onClick={() => { run(() => write(draft), t('saved')) }}
+          onClick={() => { run(() => write(draft, controls), t('saved')) }}
         >
           {busy ? t('saving') : t('save')}
         </Button>
@@ -355,12 +362,12 @@ export function DramaSettingsSection(props: DramaSettingsSectionProps): ReactNod
           variant="outline"
           size="sm"
           disabled={busy || !snapshot.writable}
-          onClick={() => { run(restoreDefaults, t('resetDone')) }}
+          onClick={() => { run(() => restoreDefaults(controls), t('resetDone')) }}
         >
           {busy ? t('resetting') : t('reset')}
         </Button>
       </div>
-      {intended === undefined ? <p className={css.notice} role="status">{t('invalidNumber')}</p> : null}
+      {intended === undefined ? <p className={css.notice} role="status">{invalidNotice}</p> : null}
       {notice === undefined ? null : <p className={css.notice} role="status">{notice}</p>}
       {snapshot.writable ? null : <p className={css.notice}>{t('readOnly')}</p>}
       {componentList}

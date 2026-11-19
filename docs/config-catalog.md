@@ -787,6 +787,28 @@ export type HeaderPresentation = 'standard' | 'floating'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-conversation -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-jingliu -->
+<a id="deepseek-aidsh-client-ui-jingliu"></a>
+
+## `@deepseek-ai/dsh-client-ui-jingliu`
+
+- `source`: [`packages/client/ui-jingliu/src/config.ts:5`](../packages/client/ui-jingliu/src/config.ts)
+
+```ts config-catalog
+/** Public page configuration exposed to the desktop renderer. */
+export interface Config {
+  /** HTTPS studio origin or HTTP loopback origin for a local studio. */
+  studioOrigin?: string
+  /** Local file containing the editor MCP token, read by the Host. */
+  editorTokenFile?: string
+  /** Private HTTP loopback endpoint serving OpenChatCut. */
+  editorOrigin?: string
+  /** HTTPS workshop origin or HTTP loopback origin for a local script workshop. */
+  workshopOrigin?: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-jingliu -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-muse-account -->
 <a id="deepseek-aidsh-client-ui-muse-account"></a>
 
@@ -1206,6 +1228,8 @@ export interface Config {
 export interface Config {
   /** IPv4 loopback origin of the optional production studio; omit to leave it unavailable. */
   readonly standaloneStudioAddress?: string
+  /** Limit project edits to local production metadata. */
+  readonly localProjectOnly?: boolean
   /** Absolute episode delivery directory, or empty to use the project directory. */
   readonly deliveryDir: Volatile<string>
   /** Absolute JianyingPro draft root, or empty while unconfigured. */
@@ -2349,6 +2373,27 @@ export interface TlsConfig {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-host-webserver -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-jingliu-connection -->
+<a id="deepseek-aidsh-jingliu-connection"></a>
+
+## `@deepseek-ai/dsh-jingliu-connection`
+
+- `inject`: `commands`
+- `source`: [`packages/drama/jingliu-connection/src/index.ts:22`](../packages/drama/jingliu-connection/src/index.ts)
+
+```ts config-catalog
+/** Limits and server address for this installation. */
+export interface Config {
+  /** HTTPS studio origin or HTTP loopback origin used for the ShotFlow API. */
+  studioOrigin?: string
+  /** Maximum time in milliseconds for one JSON request, including its response body. */
+  timeoutMs?: number
+  /** Read the isolated test session from the Host environment on a loopback deployment. */
+  localPreviewToken?: boolean
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-jingliu-connection -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-jobs-local -->
 <a id="deepseek-aidsh-jobs-local"></a>
 
@@ -3012,7 +3057,7 @@ export interface Config {
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
 - `refs`: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/host/muse-account/src/index.ts:50`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:51`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -3849,6 +3894,11 @@ export interface Config {
   readonly mainPreset?: string
   /** Preset used only for newly created workers. Defaults to `short-drama`. */
   readonly workerPreset?: string
+  /**
+   * Capture Main's Jubian video selection on dispatch. Defaults to true.
+   * When disabled, new tasks have no key and revisions retain the task's recorded key.
+   */
+  readonly inheritJubianVideoSelection?: boolean
   /** Maximum returned Session search rows or report tasks. Defaults to 30. */
   readonly searchLimit?: number
   /**
@@ -4306,6 +4356,8 @@ export interface Config {
   watchFollowSymlinks?: boolean
   /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */
   bundledSkillDir?: string
+  /** Skill names retired from the bundled root. User and project providers retain their own selections. */
+  excludedBundledSkills?: string[]
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-skill-filesystem -->
@@ -6709,6 +6761,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-tool-character-reference` | `tools` · `characterLibrary` · `settings` | [`packages/drama/tool-character-reference/src/index.ts`](../packages/drama/tool-character-reference/src/index.ts) |
 | `@deepseek-ai/dsh-tool-cordis` | `tools` · `cordisInspect` | [`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts) |
 | `@deepseek-ai/dsh-tool-executor-native` | `tools` | [`packages/core/tool-executor-native/src/index.ts`](../packages/core/tool-executor-native/src/index.ts) |
+| `@deepseek-ai/dsh-tool-jingliu` | `tools` · `jingliuConnection` | [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts) |
 | `@deepseek-ai/dsh-tool-schedule` | `tools` · `systemPrompt` | [`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts) |
 | `@deepseek-ai/dsh-tool-working-directory` | `tools` · `workingDirectory` | [`packages/session/tool-working-directory/src/index.ts`](../packages/session/tool-working-directory/src/index.ts) |
 | `@deepseek-ai/dsh-tools` | `systemPrompt` | [`packages/core/tools/src/index.ts`](../packages/core/tools/src/index.ts) |

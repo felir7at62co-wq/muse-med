@@ -34,15 +34,6 @@
         catalogSourceLimits:
           muse-market: 12
 
-- id: character-reference
-  name: cordis:group
-  group: true
-  isolate:
-    characterReferenceAuthority: true
-  config:
-    - id: tool-character-reference
-      name: '@deepseek-ai/dsh-tool-character-reference'
-
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
@@ -67,17 +58,21 @@
 
 - id: tool-schedule
   name: '@deepseek-ai/dsh-tool-schedule'
-- id: drama-gate
-  name: '@deepseek-ai/dsh-guard-drama'
-- id: tool-drama-assets
-  name: '@deepseek-ai/dsh-tool-drama-assets'
+- id: character-reference
+  name: cordis:group
+  group: true
+  isolate:
+    characterReferenceAuthority: true
+  config:
+    - id: tool-character-reference
+      name: '@deepseek-ai/dsh-tool-character-reference'
+
 - id: tool-shot-script
   name: '@deepseek-ai/dsh-tool-shot-script'
   config:
     reviewMode: advisory
-    sessionVideoSelection: true
-    productionPackaging: true
     speechCharsPerSecond: 5
+
 - id: tool-bgm-compose
   name: '@deepseek-ai/dsh-tool-bgm-compose'
   config:
@@ -153,7 +148,7 @@
       config:
         section: >-
           You are in plan mode. Investigate read-only; do not edit files, run mutating commands,
-          submit paid or state-changing Jubian operations, or implement the plan. These rules
+          submit paid or state-changing Jingliu workflows, or implement the plan. These rules
           override later tool guidance. Tool availability does not grant permission. Ask only
           for user-owned choices after resolving discoverable facts. State scope, acceptance
           criteria, changes, data flow, failure cases and checks in a complete plan. Present it

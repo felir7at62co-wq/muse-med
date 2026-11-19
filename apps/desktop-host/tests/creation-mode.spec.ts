@@ -140,7 +140,9 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(f.raw).not.toContain('tools.skill({name: "muse-creation"})')
     expect(f.rows.filter(row => /subagent|workflow|ralph|agent-team/u.test(row.name))).toEqual([])
     expect(new Set(f.rows.map(row => row.id)).size).toBe(f.rows.length)
-    for (const id of ['tool-drama-assets', 'tool-audio-transcribe', 'tool-video-inspect', 'drama-gate', 'character-reference']) {
+    expect(f.rows.map(row => row.id)).not.toContain('tool-drama-assets')
+    expect(f.rows.map(row => row.id)).not.toContain('drama-gate')
+    for (const id of ['tool-shot-script', 'tool-audio-transcribe', 'tool-video-inspect', 'character-reference']) {
       expect(f.rows.map(row => row.id)).toContain(id)
     }
     f.ctx.tools.register(tool('read'))
@@ -163,10 +165,10 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     const catalog = initial.messages.find(message => message.source.kind === 'skill-catalog')
     if (catalog?.source.kind !== 'skill-catalog') throw new Error('The initial creation skill catalog is missing')
     const initialNames = catalog.source.entries.map(entry => entry.name)
-    for (const removed of ['jubian-asset-library', 'muse-creation', 'tweet-drama-asset-extract', 'xiaohongshu-reference']) {
+    for (const removed of ['jubian-project-upload', 'jubian-snatch', 'jubian-asset-library', 'muse-creation', 'tweet-drama-asset-extract', 'xiaohongshu-reference']) {
       expect(initialNames).not.toContain(removed)
     }
-    for (const name of ['audio-transcribe', 'jubian-project-upload', 'protagonist-asset-sheet', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d',
+    for (const name of ['audio-transcribe', 'protagonist-asset-sheet', 'shot-script-creator-9-16', 'shot-script-creator-16-9-3d',
       'muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']) {
       expect(initialNames).toContain(name)
     }
@@ -182,7 +184,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(SHORT_DRAMA_GUIDANCE).toContain('手写 ASS、FFmpeg 命令或旧脚本')
     expect(SHORT_DRAMA_GUIDANCE).toContain('同一时间线和 prepare 返回的实际字幕候选')
     expect(SHORT_DRAMA_GUIDANCE).toContain('只需草稿时不额外编码整集')
-    expect(SHORT_DRAMA_GUIDANCE).toContain('不新增用户审批或拦截任意手写命令')
+    expect(SHORT_DRAMA_GUIDANCE).toContain('只预览时停在展示稿')
     const sectionNames = assembly.sections.map(section => section.name)
     expect(sectionNames.indexOf('deployment:persona-prefix')).toBeLessThan(sectionNames.indexOf(CREATION_GUIDANCE_SECTION))
     expect(sectionNames.indexOf(CREATION_GUIDANCE_SECTION)).toBeLessThan(sectionNames.indexOf('tools:ptc-only'))
@@ -202,7 +204,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).toContain('配速指视频包内部的对白、动作、停顿与切镜快慢')
     expect(text).toContain('单集目标、最低集长或汇总差额不授权重新分配视频包时长')
     expect(text).toContain('当编写短剧镜头脚本时，建议每个镜头控制在1–4秒')
-    expect(text).toContain('禁止镜头时长字段')
+    expect(text).toContain('视频包提示词默认不写时间轴')
     expect(text).toContain('站位图仅适用于场景固定、在场人物固定、人物位置保持不变的视频包')
     expect(text).toContain('只要有人物走动、靠近、后退、换位等位置移动')
     expect(text).toContain('或人物进入场景、离开场景、换场，整个包就不使用站位图')
@@ -218,7 +220,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).toContain('审片先实际读取同一项目已确认的角色与场景参考图')
     expect(text).toContain('记录参考资产、时间码')
     expect(text).toContain('缺少已确认参考、看不清或风格难以区分时标为待确认，不通过、不绑定')
-    expect(text).toContain('正式参考的父资产ID、材质ID及确认状态须与同一项目当前记录一致')
+    expect(text).toContain('正式参考的资产编号、所选版本与采用状态须与同一项目当前记录一致')
     expect(text).toContain('不能混合不同标准提高置信度或判通过')
     expect(text).toContain('服装相似或资产ID正确都不足以确认角色一致')
     expect(text).toContain('存在影响身份或画风的可见差异时，相关项记失败')
@@ -232,7 +234,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).toContain('细项差异未解释或细节不足时保持待确认')
     expect(text).toContain('不把低清未呈现的纹理当作制作来源证据')
     expect(text).toContain('不强迫具体风格标签，已核实的合理光照和机位变化不单独判失败')
-    expect(text).toContain('风格不符的站位图不得绑定视频，先修复或重新生成并复审')
+    expect(text).toContain('风格不符的站位图不得绑定视频，记录差异并复审')
     expect(text).not.toContain('每个视频生成包配置一张完整全景站位图')
     expect(text).toContain('图中的站立、蹲下、坐下、姿势和表情不绑定视频状态')
     expect(text).toContain('各镜按镜头脚本与视频提示决定')
@@ -372,7 +374,7 @@ it('permits manuscript revision comparison through the real creation PTC policy'
   } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
 })
 
-it.each(['jubian_manuscript', 'jubian_project', 'dsh_im_return_file', 'muse_media_data', 'muse_media_download', 'muse_media_task', 'muse_media_import',
+it.each(['jingliu_workflows', 'jingliu_run', 'jingliu_narration', 'dsh_im_return_file', 'muse_media_data', 'muse_media_download', 'muse_media_task', 'muse_media_import',
   'drama_character_reference_project', 'drama_character_reference_view', 'drama_character_references'])(
   'permits the scoped %s binding through the real creation PTC policy', async (name) => {
     const f = await fixture()

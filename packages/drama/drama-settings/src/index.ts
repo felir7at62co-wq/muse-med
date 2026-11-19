@@ -24,6 +24,8 @@ export const name = 'drama-settings'
 export interface Config {
   /** IPv4 loopback origin of the optional production studio; omit to leave it unavailable. */
   readonly standaloneStudioAddress?: string
+  /** Limit project edits to local production metadata. */
+  readonly localProjectOnly?: boolean
   /** Absolute episode delivery directory, or empty to use the project directory. */
   readonly deliveryDir: Volatile<string>
   /** Absolute JianyingPro draft root, or empty while unconfigured. */
@@ -59,7 +61,7 @@ export const Config = DramaSettingsSchema
  * effect on this row's fiber, so a late-loading or replaced Settings service
  * adopts the policy and unloading the row removes it.
  * @param ctx - Host context that may acquire the settings service.
- * @param config - Resolved composition configuration; the optional studio address never carries credentials.
+ * @param config - Local production settings and optional standalone studio address.
  */
 export function apply(ctx: Context, config?: Config): void {
   const script = standaloneScriptTool(config?.standaloneStudioAddress ?? '')
@@ -82,13 +84,32 @@ export function apply(ctx: Context, config?: Config): void {
       },
       execute: async args => await draftDirectory(toolCtx.settings, args.path),
     })))
+    const local = config?.localProjectOnly === true
+    const characterFields = PROJECT_BIBLE_CHANGES.characters.items.properties
+    const voiceFields = characterFields.voice_profile.properties
+    const localVoiceFields = { speaker_id: voiceFields.speaker_id, description: voiceFields.description }
+    const changeFields = local ? {
+      title: PROJECT_BIBLE_CHANGES.title, style: PROJECT_BIBLE_CHANGES.style, visual_medium: PROJECT_BIBLE_CHANGES.visual_medium,
+      aspect_ratio: { type: 'string' as const, description: 'Project aspect ratio.' },
+      episode_plan: PROJECT_BIBLE_CHANGES.episode_plan, delivery: PROJECT_BIBLE_CHANGES.delivery,
+      characters: { ...PROJECT_BIBLE_CHANGES.characters, items: { ...PROJECT_BIBLE_CHANGES.characters.items, properties: {
+        character_id: characterFields.character_id, name: characterFields.name, aliases: characterFields.aliases,
+        role_class: characterFields.role_class,
+        voice_profile: { ...characterFields.voice_profile, properties: localVoiceFields },
+        voice_profiles: { ...characterFields.voice_profiles, items: { ...characterFields.voice_profiles.items, properties: {
+          voice_period_id: characterFields.voice_profiles.items.properties.voice_period_id,
+          label: characterFields.voice_profiles.items.properties.label, ...localVoiceFields,
+        } } },
+      } } }, bgm_feedback: PROJECT_BIBLE_CHANGES.bgm_feedback,
+    } : PROJECT_BIBLE_CHANGES
     toolCtx.effect(() => toolCtx.tools.register(defineTool({
       name: 'drama_project',
-      description: 'Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves legacy project bindings, stable package/storyboard IDs, completed tasks and version history. Validate exact model/platform/ratio/resolution through Jubian catalogue tools before selecting video settings.',
+      description: local ? 'Read, preview or update the local project bible, episode plan, character identities, aspect ratio, visual style and delivery settings. Historical provider identifiers belong to the original project. For operations on a Jingliu project use jingliu_workflows and its project ID.'
+        : 'Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves legacy project bindings, stable package/storyboard IDs, completed tasks and version history. Validate exact model/platform/ratio/resolution through Jubian catalogue tools before selecting video settings.',
       parameters: {
         action: { type: 'string', required: true, enum: ['read', 'preview', 'update'] },
         project_dir: { type: 'string', required: true, description: 'Existing absolute project directory.' },
-        changes: { type: 'object', additionalProperties: false, properties: PROJECT_BIBLE_CHANGES, description: 'Fields to merge for preview/update; omit for read.' },
+        changes: { type: 'object', additionalProperties: false, properties: changeFields, description: 'Fields to merge for preview/update; omit for read.' },
         reason: { type: 'string', description: 'Preview/update reason recorded in version history.' },
         expected_revision: { type: 'string', description: 'Update only: exact current-file revision from preview, including missing for first creation.' },
         preview_fingerprint: { type: 'string', description: 'Update only: fingerprint from the same reviewed preview.' },
@@ -98,9 +119,12 @@ export function apply(ctx: Context, config?: Config): void {
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
       },
       execute: async (args, exec) => {
-        const budget = toolCtx.get('jubianBudget') as ProjectBudgetReader | undefined
+        const budget = local ? undefined : toolCtx.get('jubianBudget') as ProjectBudgetReader | undefined
         if (args.action === 'read') return await readProjectBible(toolCtx.settings, args.project_dir, budget)
         if (!args.changes || !args.reason) throw new Error('Preview/update requires changes and reason.')
+        if (local && Object.keys(args.changes).some(key => !Object.hasOwn(changeFields, key))) {
+          throw new Error('The local project bible accepts only local production metadata.')
+        }
         if (args.action === 'preview') return await previewProjectBible(toolCtx.settings, args.project_dir, args.changes, args.reason, budget)
         if (!args.expected_revision || !args.preview_fingerprint) throw new Error('Update requires the expected_revision and preview_fingerprint from preview.')
         return await updateProjectBible(toolCtx.settings, args.project_dir, args.changes, args.reason,

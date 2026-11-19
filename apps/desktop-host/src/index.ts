@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { composeEntries, loadLayeredEnv, loadOverlayPatches, loadProfileDirectory, reportSkippedBundles, type Profile } from '@deepseek-ai/dsh-app-boot'
 import { bundledSkillDirectory, productSkillDirectory, desktopSkillDirectories } from './bundled-skills.ts'
+import { z } from 'zod'
 import { verifyBundledImClient } from './bundled-bridge.ts'
 import { productModuleOverrides } from './product-modules.ts'
 import { feishuGateLayer, migrateFeishuProfileName } from './feishu-gate.ts'
@@ -21,7 +22,6 @@ import * as desktopOffice from './office.ts'
 import { readPrimaryRuntime, workspaceDependencyPaths } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import { localDragResource } from './file-drag.ts'
 
-import * as approvedEpisodeRender from './approved-episode-render.ts'
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
 import { shutdownDesktopHost } from './shutdown.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
@@ -81,6 +81,11 @@ async function desktopComposition(
   const rows = new Map(composeEntries(layers).flatMap(row => typeof row.id === 'string' ? [[row.id, row] as const] : []))
   if (rows.get('agent-preset-registry') === undefined) {
     throw new Error('muse-med: profile has no agent-preset-registry row')
+  }
+  const coordinator = rows.get('muse-session-coordinator')
+  if (coordinator) {
+    const config = z.record(z.string(), z.unknown()).parse(coordinator.config ?? {})
+    layers.push([{ id: 'muse-session-coordinator', config: { ...config, inheritJubianVideoSelection: false } }])
   }
   // Product row ids are distinct from disabled base rows; the registered preset ids stay unchanged.
   // An active preset-<id> declaration already supplied by the profile takes precedence.
@@ -259,8 +264,6 @@ async function main(): Promise<void> {
     if (kind !== undefined && process.connected) process.send?.({ type: 'attention-sound', kind })
   })
   installOperationDiagnostics(ctx, record => send({ type: 'plugin-operation', record }), 32, runId)
-  await ctx.plugin(approvedEpisodeRender, approvedEpisodeRender.Config.parse({ runtimeDir, allowLinkedProfile: allowLinkedPackages,
-    endingAssetRoot: join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh-drama-skills', 'skills') })).await()
   control.updateTasks = installDesktopUpdateTaskControl(ctx)
   control.quitInspection = installDesktopQuitInspection(ctx)
   const forceDraftSubtitleVisual = process.env.MUSE_FORCE_SUBTITLE_VISUAL === '1'

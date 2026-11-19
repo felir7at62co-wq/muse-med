@@ -145,6 +145,7 @@ export const DRAMA_SETTINGS_DEFAULTS: DramaSettings = {
  */
 export const DramaSettingsSchema = z.object({
   standaloneStudioAddress: z.string(),
+  localProjectOnly: z.boolean(),
   deliveryDir: z.string().default(DRAMA_SETTINGS_DEFAULTS.deliveryDir).volatile(),
   jianyingDraftDir: z.string().default(DEFAULT_JIANYING_DRAFT_DIR).volatile(),
   deliverySpec: z.object({

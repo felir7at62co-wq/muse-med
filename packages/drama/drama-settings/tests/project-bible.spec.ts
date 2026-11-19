@@ -11,20 +11,20 @@ import { configurationFixture } from '../../../settings/settings/tests/configura
 import { DramaSettingsSchema, apply } from '../src/index.ts'
 import { readProjectBible, previewProjectBible, updateProjectBible } from '../src/project-bible.ts'
 
-async function bench(standaloneStudioAddress?: string) {
+async function bench(config: { standaloneStudioAddress?: string; localProjectOnly?: boolean } = {}) {
   return configurationFixture({ rows: [
     { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'config-editor', name: 'cordis:editor' },
     { id: 'settings', name: 'cordis:settings' },
     { id: 'prompt', name: 'cordis:prompt' },
     { id: 'tools', name: 'cordis:tools' },
-    { id: 'drama-settings', name: 'cordis:drama', ...(standaloneStudioAddress ? { config: { standaloneStudioAddress } } : {}) },
+    { id: 'drama-settings', name: 'cordis:drama', config },
   ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
 }
 
 it('reads only the selected standalone episode after verifying that generation is disabled', async () => {
   const origin = 'http://127.0.0.1:5684'
-  const { ctx } = await bench(origin)
+  const { ctx } = await bench({ standaloneStudioAddress: origin, localProjectOnly: true })
   let safe = false
   const request = vi.fn(async (url: URL) => Response.json(url.pathname === '/health'
     ? { status: 'ok', generationBackend: safe ? 'unconfigured' : 'configured', backgroundGeneration: false }
@@ -116,6 +116,18 @@ it.each([null, 7, '', '  ', 'A'.repeat(129), 'Arial,Noto', 'bad\nname'])(
     await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
   },
 )
+
+it('edits a local bible and rejects provider bindings on the local-only desktop', async () => {
+  const { ctx, home } = await bench({ localProjectOnly: true })
+  const preview = (changes: object) => executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('local-bible'),
+    arguments: { project_dir: home, action: 'preview', reason: 'Set project metadata', changes }, signal: new AbortController().signal })
+  expect((await preview({ title: 'Local project', characters: [{ character_id: 'lead', name: '主角' }] })).isError).toBe(false)
+  for (const changes of [{ jubian_script_id: 2 }, { package_bindings: [{ package_id: 'p', storyboard_id: 2 }] },
+    { characters: [{ character_id: 'lead', asset_id: 2 }] }]) {
+    expect((await preview(changes)).isError).toBe(true)
+  }
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
 
 it('exposes project bible reads, previews and guarded updates through the real Loader', async () => {
   const { ctx, home } = await bench()

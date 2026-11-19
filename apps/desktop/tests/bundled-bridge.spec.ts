@@ -62,6 +62,7 @@ it('selects every application-owned plugin through a file: URL beside the Host e
   const hostModule = (file: string): string => new URL(`../../desktop-host/src/${file}`, import.meta.url).href
   expect(overrides).toEqual({
     ...bundledBridgeModules(runtime),
+    '@deepseek-ai/dsh-drama-settings': hostModule('production-settings.js'),
     'muse-workspace-owned-storage': hostModule('workspace-owned-storage.js'),
     'ds-bot': hostModule('retired-bot.js'),
     'muse-bot': hostModule('retired-bot.js'),

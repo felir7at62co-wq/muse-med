@@ -1,0 +1,2600 @@
+{
+  "initial": [
+    {
+      "name": "apply_patch",
+      "description": "Create, update, delete, or move UTF-8 text files with one patch; prefer it over multiple edit calls when a change spans several files or separated regions.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Patch text: start with *** Begin Patch and end with *** End Patch. Use *** Add File: path with + lines; *** Update File: path, optionally followed by *** Move to: path, with @@ or @@ context and space-prefixed context, + added, or - removed lines; *** End of File anchors the last hunk to the file end. Use *** Delete File: path to delete. Paths are relative to the Session working directory."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "ask_user_question",
+      "description": "Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. An answer item with empty selected and no custom means the user skipped that question: continue without it, do not ask it again, and do not treat the skip as permission.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array",
+            "description": "Questions to ask the user before continuing.",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Stable id for this question; echoed in the answer."
+                },
+                "question": {
+                  "type": "string",
+                  "description": "The specific question to ask the user."
+                },
+                "header": {
+                  "type": "string",
+                  "description": "Optional short heading for the question, such as \"Confirm\" or \"Choose Mode\"."
+                },
+                "options": {
+                  "type": "array",
+                  "description": "Optional choices to show the user. If you recommend one, put it first and append \"(Recommended)\" to that label.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "description": "Short user-facing option label."
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "One sentence explaining the tradeoff or impact."
+                      }
+                    },
+                    "required": [
+                      "label"
+                    ]
+                  }
+                },
+                "multi_select": {
+                  "type": "boolean",
+                  "description": "Whether the user may select more than one option. Defaults to false."
+                }
+              },
+              "required": [
+                "id",
+                "question"
+              ]
+            }
+          }
+        },
+        "required": [
+          "questions"
+        ]
+      }
+    },
+    {
+      "name": "audio_transcribe",
+      "description": "使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；多集用 inputs 一次提交，工具逐集上传，上传繁忙或请求过频时按服务端提示等待，并沿用同一收据重试。inspect 只查询原任务、不补传音轨，完成后发布文字、字词时间戳及说话人标签覆盖摘要；角色对齐读取 output_json，TXT/SRT 不含标签。status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件，也不要删除收据。需要先登录 Muse。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。",
+            "enum": [
+              "start",
+              "inspect",
+              "status"
+            ]
+          },
+          "project": {
+            "type": "string",
+            "description": "项目根目录，保存 transcript/jobs 收据及 transcript/raw 版本结果。"
+          },
+          "input": {
+            "type": "string",
+            "description": "start 单个输入（与 inputs 二选一）：获授权的本地音频或视频文件路径；相对路径以 project 为基准。"
+          },
+          "inputs": {
+            "type": "array",
+            "description": "start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途收据的集沿用原收据，不重新计费，已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "wait_seconds": {
+            "type": "number",
+            "description": "inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。"
+          },
+          "receipt": {
+            "type": "string",
+            "description": "inspect/status 必填：start 返回的 transcript/jobs 收据路径；相对路径以 project 为基准。"
+          },
+          "language": {
+            "type": "string",
+            "description": "start 识别语种；默认 zh。",
+            "enum": [
+              "zh",
+              "auto"
+            ]
+          },
+          "purpose": {
+            "type": "string",
+            "description": "start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。",
+            "enum": [
+              "subtitles",
+              "screenplay"
+            ]
+          }
+        },
+        "required": [
+          "method",
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "bgm_match",
+      "description": "在本地索引或部署配置的公开 BGM 库里按情绪选曲。match：给出目标「愉悦度」与「能量」（都用 1–9 的刻度，1=最消极/最平静，9=最积极/最激烈），返回最接近的候选及每首的实际测量值。剧情配乐先读剧本与实际时间线，按情节转折分别传 story：intent 说明观众应感受到什么，desired_tags/avoid_tags 声明希望或避免的音乐气质，dialogue_density 声明对白密度。生产选曲给 story.evidence（requireStoryEvidence 部署开启时必需）：引用当前项目剧本中的真实对白/动作，以及实际画面检查记录里的原文。工具逐次读取文件核对引用，不接受凭空编造对白；缺依据或引用不符时先修正来源，不给正式选曲建议。人物嚣张发笑不代表观众应当觉得好笑；场景名称、题材和音乐标签不能替代本段情节。逐段检索，不把情绪不同的几场戏塞进同一次请求。intent 须综合前后情节推进、人物关系和对白真正含义，不能只按哭笑、打斗词或整集平均情绪选曲。连续情绪段传上一段实际采用的 previous_track_id；在符合本段主要剧情意图的候选中优先情绪/标签衔接平缓者，返回 continuity_fit。剧情有明确转折时可解释较大变化；先检查整条配乐序列和真实切点，不因每句台词或换镜头就换音乐。continuity_fit 是元数据建议，不是试听通过或新门禁。相邻两集尽量不用同一首：读取当前项目上一集及已制作下一集的真实配乐计划，传 adjacent_episode_track_ids。剧情与衔接条件相当时优先换曲；复用只增加公开的排序惩罚，保留实际情绪距离和候选，不封禁曲目。确需跨集延续时记录剧情依据。有 audio_profile 时先按已绑定音频摘要的抽样模型标签排序，再按曲名意图线索、宽泛 moods、原始情绪距离排序，同类证据按 desired_tags 先后优先；曲名冲突进入 review_candidates，音频/情绪标签冲突只提示。audio_profile 返回实际采样窗、音频标签、配器/人声推断、时长和估计节奏，human_reviewed=false 表示未人工试听；similarity 是原始相似度，不是置信度或适配保证。曲名和标签不能证明配器、人声或时代适配，须试听真实片段与混音。index：扫描一个目录，逐首分析情绪并入库；约 15–30 秒一首，按内容哈希增量更新，可随时中断续跑。inspect：只分析一首并返回它的数值。公开库 match 返回 track_id/name/url、测量值与授权声明，不自动下载；选定后用 download + track_id 下载并校验，返回可供配乐合成使用的真实本地 path。match/download 不需要 Python。match/download 返回 license_info 与 license_warnings；intended_use 只声明本次用途，缺失授权保持 unknown，风险提示不阻断。选曲报告保留来源、许可、署名与范围；unknown 不表示可商用，declared 也不表示已核验授权。**返回的是候选排序，不是决定**——最终选哪首由你判断；核对每首附带的 valence/arousal 原值与剧情证据。选曲前传 project 读取 project_config.json/project_bible.bgm_feedback，并传当前剧情的 context_tags。只有反馈的全部场景标签命中才暂不推荐已否决曲目；其他场景仍展示历史供你判断，不是全局黑名单。用户明确改口应通过 drama_project 追加新反馈，不能把 Agent 的偏好写成用户意见。被暂不推荐的曲目仍在 withheld_candidates 中可审查；保留原情绪距离，不臆造语义相似度。根据对白密度、情绪、配器、切点与许可判断，一首或无后加配乐都是正常交付；低信心时集中一次试听反馈，不为凑数硬配乐。**注意：底层音乐理解骨干 m-a-p/MERT-v1-95M 采用 CC-BY-NC-4.0 许可，仅限非商业用途。**分析模型许可与曲目使用许可分别判断；match/download 不运行该分析模型，曲目授权也不能代替模型使用许可。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "match=按情绪坐标与可选剧情意图排序候选；index=扫描目录建库（可续跑）；inspect=分析单个音频文件；download=下载公开库中明确选定的 track_id。",
+            "enum": [
+              "match",
+              "index",
+              "inspect",
+              "download"
+            ]
+          },
+          "intended_use": {
+            "type": "string",
+            "description": "match/download 可选：本次用途，默认 unknown；只影响授权风险提示，不声明或授予版权。",
+            "enum": [
+              "commercial",
+              "non_commercial",
+              "unknown"
+            ]
+          },
+          "track_id": {
+            "type": "string",
+            "description": "download 必填：公开库 match 返回的 track_id；不接受任意 URL。"
+          },
+          "directory": {
+            "type": "string",
+            "description": "index 必填：要扫描的音乐目录。"
+          },
+          "audio_path": {
+            "type": "string",
+            "description": "inspect 必填：单个音频文件的路径。"
+          },
+          "valence": {
+            "type": "number",
+            "description": "match 必填：目标愉悦度，1–9。"
+          },
+          "arousal": {
+            "type": "number",
+            "description": "match 必填：目标能量，1–9。"
+          },
+          "limit": {
+            "type": "number",
+            "description": "match 可选：返回候选数，默认 5，上限 20。"
+          },
+          "project": {
+            "type": "string",
+            "description": "match 推荐提供：项目目录（相对当前工作目录或绝对路径）。每次只读最新 project_bible.bgm_feedback；不使用其他项目或全局偏好。"
+          },
+          "context_tags": {
+            "type": "array",
+            "description": "match 可选：当前场景显式标签，例如堂屋、家庭冲突。复用项目反馈的相同标签；不是自动文本语义匹配。未提供时只展示反馈，不自动排除。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "previous_track_id": {
+            "type": "string",
+            "description": "match 连续配乐时提供：上一段实际采用的曲库 track_id 或本地 source_sha256。按同库实测情绪和音频标签比较，不编造上一段数值。换场不自动意味着情绪重置。"
+          },
+          "adjacent_episode_track_ids": {
+            "type": "array",
+            "description": "match 可选：当前项目编号相邻两集（N−1 和已制作的 N+1）实际使用的曲库 track_id 或 source_sha256。尽量避免复用，同集上一段仍用 previous_track_id；不按曲名猜测，也不包含其他项目。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "story": {
+            "type": "object",
+            "description": "match 剧情配乐推荐提供：根据本段剧本与实际时间线明确音乐意图，不照搬台词里的动作词。省略则保留旧情绪距离排序。",
+            "additionalProperties": false,
+            "properties": {
+              "intent": {
+                "type": "string",
+                "description": "1–600 字符：本段希望观众感受到什么、人物关系与情节目的；这是 Agent 的剧本解读记录，不是自动文本检索。"
+              },
+              "desired_tags": {
+                "type": "array",
+                "description": "1–8 个希望的音乐意图，按重要性从高到低排列：亲情为主、舒缓为辅用 family、gentle。克制争执可用 restrained；威胁未动手不自动选 action。",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "family",
+                    "romance",
+                    "comedy",
+                    "suspense",
+                    "danger",
+                    "action",
+                    "sadness",
+                    "hope",
+                    "daily_life",
+                    "epic",
+                    "restrained",
+                    "gentle",
+                    "solemn",
+                    "energetic",
+                    "playful",
+                    "dark"
+                  ]
+                }
+              },
+              "avoid_tags": {
+                "type": "array",
+                "description": "0–8 个本段应避免的音乐意图，与 desired_tags 不重叠。",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "family",
+                    "romance",
+                    "comedy",
+                    "suspense",
+                    "danger",
+                    "action",
+                    "sadness",
+                    "hope",
+                    "daily_life",
+                    "epic",
+                    "restrained",
+                    "gentle",
+                    "solemn",
+                    "energetic",
+                    "playful",
+                    "dark"
+                  ]
+                }
+              },
+              "dialogue_density": {
+                "type": "string",
+                "description": "本段实际对白密度；缺省 unknown，dense 提醒重点试听对白遮盖。",
+                "enum": [
+                  "none",
+                  "sparse",
+                  "dense",
+                  "unknown"
+                ]
+              },
+              "evidence": {
+                "type": "array",
+                "description": "1–8 条项目内 UTF-8 依据。生产预设要求 script 和 visual_review；后者为 JSON，含 video、video_sha256、observations，先实际检查采用视频再记录。工具核验原文和视频版本，不冒充画面语义或试听验收。",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "script",
+                        "transcript",
+                        "visual_review"
+                      ]
+                    },
+                    "file": {
+                      "type": "string",
+                      "description": "项目内文本路径，相对 project 或绝对路径。"
+                    },
+                    "quotes": {
+                      "type": "array",
+                      "description": "1–8 段真实原文，每段最多 800 字符；无对白时引用真实动作。",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "file",
+                    "quotes"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "intent",
+              "desired_tags"
+            ]
+          }
+        },
+        "required": [
+          "method"
+        ]
+      }
+    },
+    {
+      "name": "create_goal",
+      "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objective": {
+            "type": "string",
+            "description": "The concrete completion objective inferred from the direct human request."
+          },
+          "max_goal_rounds": {
+            "type": "number",
+            "description": "Optional positive safe-integer limit on automatic continuation rounds."
+          }
+        },
+        "required": [
+          "objective"
+        ]
+      }
+    },
+    {
+      "name": "drama_bgm",
+      "description": "短剧整集 BGM 合成工具；只执行 Agent 已确认的 episodes/segments 计划，不选曲、不替代试听。可先用 bgm_match 获取带实测愉悦度/能量的候选，再由 Agent 按剧情选择曲目、切点和理由并写入计划。计划可声明 music_decision=music 或 none，并记录 decision_reason；none 必须 segments=[]，不读取源曲，不生成或验证 WAV，返回 status=no_added_music。music 允许单曲及部分场景留白；省略决定保持旧连续覆盖计划。留白不会加入音乐，也不跨留白交叉淡化。preview=JSON 计划检查，不是试听：验证时间线与来源，检测 1–5 秒内的起音，测量源窗口平均响度，按目标 -17.5 dB 计算增益并受部署 maxSourceGainDb 限制，不写正式产物。计划段落记录 story_context、dialogue_context、tags 及实测 valence/arousal；结合前后情节和对白实际含义选曲，R6 复核相接段落的情绪距离和标签重叠。无依据的大跳变优先延续原曲或用相近片段，不每镜换曲，不把缺元数据当衔接已通过。R7 提醒编号相邻两集重复同曲，优先用符合剧情与衔接的替代曲；确需跨集延续时可保留并在 reason 记录剧情依据，不要求提示清零。曲库 ID 或音频 SHA 相同视为同曲，旧计划缺身份时按源路径比较。实际试听用 drama_render.audio_preview，并将同一混音配置用于正式 render；不要把 JSON 预检当听感通过。compose=按计划截取源曲，以计划 crossfade_seconds（默认 1.5 秒）交叉淡化，首尾淡入淡出，输出 48kHz 双声道 pcm_s16le WAV；先在同目录暂存并 ffprobe 回读，整批成功后才无覆盖发布 WAV 与 generation.json，失败会清理暂存文件。verify=只回读已有 WAV 的编码、采样率、声道、时长、大小和 SHA-256，不读取源曲、不重写文件，segments 为空。跨集复用与切点建议以 policy_findings 返回，不拦截调用，不要求为了数量或新鲜度硬配音乐：默认建议有乐集至少 1 首（R1）、检查集内重复（R2）、整批单曲超过 2 集时复核（R3）、不要求每集新曲（R4）、切点建议靠近镜头包边界（R5，容差 0.05 秒）；none 不参与这些建议。批次 = 计划文件所在目录里所有含 episodes 数组的 JSON（通常 episodes/segments/*.json），因此同目录放不相关的 JSON 没关系，但读不动的文件会直接报错；返回的 batch_episodes 就是本次核对过的集号。R2–R4 按解析后的绝对 source 路径核对，track 只当展示名；R7 优先核对稳定曲库 ID 或音频 SHA。阈值是部署配置项（minTracksPerEpisode、maxEpisodesPerTrack、freshTracksPerEpisode、boundaryToleranceSeconds）。timeline、plan、output 的相对路径都以 project 为基准，不使用进程 cwd；跨工具调用优先传上一步返回的绝对路径。compose 返回的绝对 output 传给 drama_render.bgm，返回的绝对 plan 传给 drama_render.bgm_plan。episodes 可声明 intended_use=商业 commercial、非商业 non_commercial 或 unknown；segments 可保留 track_id 和 license_info。许可缺失返回 unknown；许可事实与用途风险随结果和 generation.json 保留，不认证版权，也不因风险阻止合成。本工具不依赖 bgm_match；bgm_match 的 m-a-p/MERT-v1-95M 骨干采用 CC-BY-NC-4.0，仅限非商业用途，只要使用其候选就必须遵守。本实例每段源曲增益上限为 -10 dB；后续混音不得补回所需衰减。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "preview=预检且不发布；compose=合成并无覆盖发布；verify=核验已有 WAV。",
+            "enum": [
+              "preview",
+              "compose",
+              "verify"
+            ]
+          },
+          "project": {
+            "type": "string",
+            "description": "短剧项目根目录。"
+          },
+          "episode": {
+            "type": "integer",
+            "description": "正整数集号，内部补成两位。"
+          },
+          "timeline": {
+            "type": "string",
+            "description": "项目内时间线 JSON，必须含 body_end，通常为 editing/<集>-timeline.json；相对路径以 project 为基准。"
+          },
+          "plan": {
+            "type": "string",
+            "description": "项目内 episodes/segments BGM 计划 JSON；用 write 创建时把 file_path 写成项目内绝对路径，并把 write 返回的绝对 path 原样传入；相对路径以 project 为基准。music_decision=music 可单曲或留白；none 配合 decision_reason 和 segments=[] 表示不加配乐；省略决定须连续覆盖。policy_findings 仅为可审查建议。"
+          },
+          "output": {
+            "type": "string",
+            "description": "项目内 WAV 路径；相对路径以 project 为基准，省略为 audio/bgm/<集>.wav。"
+          }
+        },
+        "required": [
+          "method",
+          "project",
+          "episode",
+          "timeline",
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "drama_character_reference_project",
+      "description": "列出当前 Session 工作区内经 Host 校验的剧变项目；唯一有效项目可由 Agent 直接选定并读取角色清单。工作区有多个项目时先列出并询问用户，不得自行猜测；只传剧变项目 ID，不接受本机路径。选定结果给出经圣经校验的角色 ID、名称、类型和已有项目主绑定资产 ID；资产 ID 不代表公共库使用许可。人物检索仍会重读圣经和角色身份。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "select"
+            ]
+          },
+          "script_id": {
+            "type": "integer",
+            "description": "仅在 select 时填写 Host 列出的唯一项目 ID，或用户明确指名的多个项目之一。"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "drama_character_reference_view",
+      "description": "实际查看先前检索到的一张人物候选图片。传入候选的 catalog_asset_id 和 image_sha256；Host 重新读取并核对图片身份与原图 SHA-256，然后把图片作为图像内容交给当前支持看图的模型。看图不授予素材使用、绑定或发布许可。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "catalog_asset_id": {
+            "type": "string",
+            "description": "检索结果中的稳定 Catalog ID；不是项目 character_id 或供应商资产 ID。"
+          },
+          "expected_sha256": {
+            "type": "string",
+            "description": "检索结果中的原图 SHA-256；不得自行编造。"
+          }
+        },
+        "required": [
+          "catalog_asset_id",
+          "expected_sha256"
+        ]
+      }
+    },
+    {
+      "name": "drama_character_references",
+      "description": "根据当前剧本角色需求，从 Host 管理的人物参考库初排最多三张候选。主角、配角和群演均可检索；Agent 根据出场方式、一致性需求和用户目标决定是否检索，不把剧情理由当作检索许可。返回候选身份、原图 SHA-256 和文字匹配依据；这是检索，不代表已经看图。可按候选 ID 调用 drama_character_reference_view 实际看图，再自行比较、选择或放弃。所有结果仅供参考，不授予发布、复用、绑定或应用权限。本工具不接受文件路径、TOS key 或索引位置，不上传、不写入、不调用供应商。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "character_id": {
+            "type": "string",
+            "description": "当前项目角色 ID；只用于关联本次建议，不等于 catalog_asset_id。"
+          },
+          "role_description": {
+            "type": "string",
+            "description": "从当前剧本提取的角色需求摘要，不可编造。"
+          },
+          "role_class": {
+            "type": "string",
+            "description": "根据当前剧本声明角色类型；圣经已登记时 Host 会核对，缺省时仅用于只读初排并标明不确定性，不授予素材使用权。",
+            "enum": [
+              "lead",
+              "important_support",
+              "support",
+              "extra"
+            ]
+          },
+          "supporting_use_reason": {
+            "type": "string",
+            "description": "可选的剧本依据，用于解释本次检索；不是配角检索的通行证，也不授予素材使用权。"
+          },
+          "collection": {
+            "type": "string",
+            "description": "已知人物风格范围；不确定时省略。",
+            "enum": [
+              "ancient",
+              "urban",
+              "all"
+            ]
+          },
+          "required_era": {
+            "type": "string",
+            "description": "剧本明确要求的年代；不得从素材状态推断。"
+          },
+          "gender": {
+            "type": "string",
+            "description": "剧本明确要求的性别；不确定时省略。"
+          },
+          "style_terms": {
+            "type": "array",
+            "description": "从剧本提取的风格关键词。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "trait_terms": {
+            "type": "array",
+            "description": "从剧本提取的外观或气质关键词。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "role_terms": {
+            "type": "array",
+            "description": "从剧本提取的角色适配关键词。",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "character_id",
+          "role_description",
+          "role_class"
+        ]
+      }
+    },
+    {
+      "name": "drama_render",
+      "description": "处理一集短剧的字幕、渲染准备、成片与检查，方法见 method。prepare 复制每镜成片到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长写 editing/<集>-timeline.json，按镜头起点拼接 48kHz 无损原声 master 到 audio/<集>.wav（不加增益、不逐镜重采样），安装 SRT，不编码画面。它快照 project_bible 的明确 visual_medium 与 delivery 宽高/帧率、subtitle 和 audio section；render/verify 优先使用快照，缺媒介时读项目；明确媒介冲突需重跑 prepare，不从 style 或宽高比猜测。Muse 竖版产品统一使用部署字幕视觉；横版、方形和非产品部署按完整 section 依次取时间线、项目、部署默认，统一视觉仍保留 require_speech_coverage、require_no_punctuation、require_source_review 和 require_music_decision 的验收要求。已快照 section 不逐字段继承后改项目。未声明媒介的旧项目提醒并保留旧样式。prepare/render 的 render_preview 给出最终规格、字幕设计字号及输出像素、BGM 路径与增益，需与已认可审查版核对；SRT 不含字体样式。prepare 可选 bgm/bgm_plan 预览，未提供只提醒。传 speech_transcripts 时仅在同源、完整匹配且不重叠的词界拆分超宽字幕；缺证据则保留原句，不猜时码，成片和草稿复用 render_preview.subtitle.path。subtitles 只用 alignment 给出的逐镜语音时间，显示文字来自 lines；建议单行、无标点、每条不超过 14 个有效字。长句要逐条取得同源字词时间；cue 时间=时间线镜头起点+镜内偏移，不均分句时长，不做识别、测能量或估算时间。缺对齐、段数或声文不符、有识别却无声明台词、时长/重叠/越界/阅读速度问题均提醒具体镜号与证据缺口。有可用条目时写独立字幕候选；无可用条目只写检查说明，不覆盖原字幕、已有候选或其说明。识别模型、语言与时间准确度由调用方负责。subtitle_layout 用实际字体、libass 与正式烧录链测白字宽高，黑描边另估，返回 PNG、字体/错误日志路径及超宽 cue；按配置选样式，不按字数猜宽或自动缩字。超宽与探针失败只提醒，不要求审批；显式启用时 render 也执行此检查。speech_coverage 只读双向比较同源词级转写与完整显示 SRT（含保留原片烧字），speech_decisions 可附本次证据绑定的逐项核听理由。包含单字、尾音与剧本外识别内容，不跨时间借词、不重复使用字符，多字词保留整词时间，不猜字级时间。其结果是 ASR 待核候选，不证明真声或听感通过；不得自动补词、猜时码或将未识别当作静音。原片烧字先用 video_ocr/video_inspect 预览并明确决定，无识别结果不等于无字幕。subtitle_overlay 按 subtitle_plan 只去除完整覆盖且同文的外加 cue，导出新 SRT 与决定报告；部分重叠或文字不符只提醒，不自动切句。prepare/render 可用同一计划，原 SRT 不改写，草稿复用 resolved_srt 与 decision_report。原片烧字不可编辑或靠外加样式统一；evidence_paths 仅是调用方声明。render 按快照编码（旧时间线默认 1440x2560@60），24M 目标/30M 上限/48M 缓冲、H.264 high@5.1、AAC 192k/48kHz、+faststart。3D 动画不加水印、片尾或读取 ending 素材，仅混整集原声与 BGM。写实与旧项目定格真实尾帧 2 秒，按 ending_effect_fit 铺片尾特效，仅混 ending_audio 前 2 秒；只接受参数指定的随包素材及 SHA-256。字幕只烧一次，标记类交付的「内容由AI生成」由 ASS 携带，不能另加 drawtext/overlay。混音为原声+BGM（到正片结束）+适用片尾音，amix 后 alimiter=0.95；显式增益不改混音算法。h264_nvenc 探测失败回退 libx264，原因写入 encoder_fallback_reason 与日志；回读实际分辨率、帧率、码率、时长、大小和编码器。verify 检查时长、音视频流、4.6 Mbps 总码率下限、首中尾真实解码、黑帧、静音和字幕越界，不能只看元数据。启用字幕视觉配置时，render 在编码正文前检查实际显示文字、宽度和字体，失败保留旧成片与来源记录；verify 按传入显示 SRT 的原文复测并保存字形证据，不改视频或 SRT，也不证明视频内烧字与 SRT 一致。整段音视频严格解码；av_stream_clock 对比流起止边界，保留一帧容差和核实的无声片尾。stage_delivery 复验实际烧录 SRT、原声、选片、混音及同集草稿版本，归档唯一 MP4 与同集草稿；启用严格声文检查时须提供本集词级转写、完整显示声明及未决问题的核听决定，保留未通过的工作件供局部修复。尾帧通过 framemd5 与顺序解码末帧核对，失败先顺序重取，仍无法证明则报错。缺参数/文件、命令失败等无法执行的问题报错；成片质量问题保留文件与实测参数，按 checks、ok=false、failures 返回中文修法。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "prepare=准备输入；render=出片；verify=检查；subtitles=按现有对齐生成字幕；audio_preview=用最终混音滤镜制作短音频 A/B 并分析 RMS/峰值；subtitle_overlay=导出外加字幕决定；speech_coverage=只读核对发声与完整字幕；subtitle_layout=测量字形并预览PNG；stage_delivery=复验工作成片及同集草稿并归档待验收候选。",
+            "enum": [
+              "prepare",
+              "render",
+              "verify",
+              "subtitles",
+              "audio_preview",
+              "subtitle_overlay",
+              "speech_coverage",
+              "subtitle_layout",
+              "stage_delivery"
+            ]
+          },
+          "project": {
+            "type": "string",
+            "description": "项目根目录（含 video/、audio/、editing/、exports/），所有方法必填。相对 project 按进程工作目录解析一次，其余相对路径以 project 为基准；绝对路径保持不变。"
+          },
+          "episode": {
+            "type": "integer",
+            "description": "集号（正整数，如 2）；写入时补成两位，如 02。"
+          },
+          "shots": {
+            "type": "string",
+            "description": "成片清单 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"video\":\"media/02/p1-clean.mp4\",\"audio\":\"可选\"}]}；prepare、subtitles 与 speech_coverage 必填。video 缺音轨时必须给 audio；speech_coverage 按实际 audio（缺省 video）绑定转写来源。"
+          },
+          "lines": {
+            "type": "string",
+            "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。prepare 可与 alignment 一起传入，供生成字幕的时间线失效时自动修复一次。相对路径以 project 为基准，绝对路径保持不变。每镜按原文顺序去标点并按语义切成单行显示字幕，建议每条不超过 14 个有效字；工具不改文字，样式和覆盖问题只作提示。"
+          },
+          "alignment": {
+            "type": "string",
+            "description": "语音识别对齐文档 JSON 路径，subtitles 必填，形如 {\"shots\":[{\"shot\":1,\"cues\":[{\"text\":\"识别文本\",\"start\":0.0,\"end\":0.8}]}]}（镜内、相对该镜起点，秒）。文件相对路径以 project 为基准，绝对路径保持不变。只取它的时间：字幕显示文字仍来自 lines，识别文本仅用于核对是不是同一段表演。用于 prepare 自动修复时，每镜的 source_sha256 必须匹配当前选择的声音文件。缺某一镜、段数不符或文本对不上只作提示；不会要求清零或用户审批。"
+          },
+          "timeline": {
+            "type": "string",
+            "description": "时间线 JSON 路径；render、verify、subtitle_overlay、speech_coverage、subtitle_layout、stage_delivery 必填，相对路径以 project 为基准；可显式声明 ending_effect_fit=source_once（旧行为）或 stretch_to_window（完整特效变速铺满两秒）。跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。"
+          },
+          "subtitle_srt": {
+            "type": "string",
+            "description": "本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），prepare 装到 editing/<集>.srt，render 烧录显示字幕；verify 原样读取所选显示 SRT 检查越界，并在启用视觉配置时复测字形，不改它或证明视频内文字一致。speech_coverage 必填最终完整显示的字幕（含保留原片烧字），不能拿删减 overlay 当完整对白；subtitle_layout 必填待预览SRT，不更改其文本和时间。相对路径以 project 为基准。"
+          },
+          "speech_transcripts": {
+            "type": "string",
+            "description": "prepare 可选、speech_coverage 及启用严格声文检查的 stage_delivery 必填：项目内映射 {shots:[{shot,receipt}]}，receipt 相对映射文件，指向 audio_transcribe 原 transcript/jobs/<stem>-vN.json；读取同源 SHA 与 raw 实际 word 时间，不提交转写。严格归档另需 display:{embedded:false,subtitle_sha256,video_sha256:[按镜号排列的当前选片摘要]}，声明 SRT 覆盖完整显示且选片无原片烧字。"
+          },
+          "speech_decisions": {
+            "type": "string",
+            "description": "speech_coverage 或严格 stage_delivery 可选：项目内核听声明 JSON，{schema_version:1,evidence_sha256,decisions:[{item_id,decision,reason,observed_text,reviewed_start_seconds,reviewed_end_seconds}]}。decision=keep|adjust_subtitle|asr_error|unresolved；需本次逐项 id、非空理由及覆盖该项的核听区间；不是 Host 声学证明。"
+          },
+          "subtitle_plan": {
+            "type": "string",
+            "description": "prepare/render 可选、subtitle_overlay 必填的 JSON 路径。{schema_version:1,decisions:[{shot,source_sha256,start_seconds,end_seconds,text,action:\"retain_embedded\",reason,evidence_paths:[]}]}。时间是该 shot 内局部秒，SHA 绑定实际 video/<集>/shot_00N.mp4；只去掉完整覆盖的同文外加 cue，不删除原片字。缺省保持旧叠字行为；不确定只提醒预览，不要求审批或付费去字。"
+          },
+          "last_shot": {
+            "type": "integer",
+            "description": "本次交付的最后一个镜头号（如 9）；render 必填，时间线里 shot <= last_shot 的镜头数必须正好等于它。"
+          },
+          "bgm": {
+            "type": "string",
+            "description": "本集实际使用的纯 BGM 文件路径，不是含对白的混音审查件；render 除显式 no_bgm 外必填，prepare 可选用于预览。优先传 drama_bgm 返回的绝对 output，会循环铺到正片结束；工具不从文件名判断内容是否纯音乐。"
+          },
+          "bgm_plan": {
+            "type": "string",
+            "description": "prepare/render 可选：现有 episodes/segments 配乐计划 JSON；prepare 同时传 bgm 时读取段落，读取或校验失败只提示并保留准备成果；render 仍拒绝不可读或与时间线不符的计划。优先传 drama_bgm 返回的绝对 plan；保留 intended_use 和每段 track_id/license_info，校验时间、记录曲目、许可用途风险与复用提醒，不代替试听或版权核验；风险不阻断渲染。"
+          },
+          "mix_profile": {
+            "type": "string",
+            "description": "render 可选、audio_preview 必填：项目内 schema_version=1 音频配置 JSON。mode=legacy|no_bgm|ducking，analysis_window_ms=10..1000；可选 original_gain/music_gain=0..8。ducking 必须显式给 threshold_db(-60..0)、ratio(1..20)、attack_ms(0.01..2000)、release_ms(0.01..9000)、knee(1..8)。no_bgm 不要求或读取 bgm/bgm_plan，只省略新增配乐，保留源内声音；ducking 由原声能量驱动，不是纯对白分离。未传配置保留旧默认；显式配置交付使用新路径，绝不覆盖已有成片或音乐 stem。"
+          },
+          "bgm_generation": {
+            "type": "string",
+            "description": "audio_preview 可选，严格配乐 render 采用配乐时必填：drama_bgm 返回的 generation.json，SHA-256 须匹配本次 BGM。试听报告另外显示逐曲源响度和实际增益。"
+          },
+          "audio": {
+            "type": "string",
+            "description": "audio_preview 可选：项目内原声音频，默认 audio/<集>.wav；可能含源内音乐或音效。"
+          },
+          "start_seconds": {
+            "type": "number",
+            "description": "audio_preview 必填：正文试听起点，非负秒数。"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "description": "audio_preview 必填：试听长度，大于 0、最多 60 秒且不越正文结束。输出在新建 audio/previews/ 目录，不覆盖旧试听。"
+          },
+          "intended_use": {
+            "type": "string",
+            "description": "audio_preview 可选：音乐实际用途，用于许可风险提示；不代表已经获得授权。",
+            "enum": [
+              "commercial",
+              "non_commercial",
+              "unknown"
+            ]
+          },
+          "ending_audio": {
+            "type": "string",
+            "description": "片尾音文件路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。只能用随包素材 tweet-drama-background-render/assets/ending_audio.mp3（SHA-256 d1649e9c9231283a93ee3d28816c741ac3d389528654fca5ac69d75139943c0f，全长 3.474 秒）：只有前 2 秒延迟到正片结束处进入混音，其余不进成片；换成别的文件 render 直接报错。"
+          },
+          "ending_effect": {
+            "type": "string",
+            "description": "片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：timeline 的 ending_effect_fit 优先，缺省使用部署配置；stretch_to_window 时以 speed=0.51 铺满两秒，source_once 按原速播放一次。换成别的文件会报错；source_once 拒绝长于两秒的素材，不做截断。"
+          },
+          "output": {
+            "type": "string",
+            "description": "render 成片输出（省略写 exports/<集>.mp4），verify 与 stage_delivery 必填；subtitle_overlay 可指定项目内全新 SRT 导出路径，配套报告为 <output>.decision-report.json，两者不覆盖已有文件；省略则独立唯一目录。相对路径以 project 为基准。"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "render 是否忽略 exports/.render_cache 里的逐镜缓存并全部重编；默认 false。"
+          },
+          "resume": {
+            "type": "boolean",
+            "description": "render 可选：仅用于完整单集。独立复核并复用输入完全一致的已有候选。没有可复用收据时保留已有文件并另存候选。以返回的 output 为实际成片路径。"
+          },
+          "draft": {
+            "type": "string",
+            "description": "stage_delivery 必填。本集 02_剪映草稿 下由 jianying_draft 返回的实际草稿目录。"
+          }
+        },
+        "required": [
+          "method",
+          "project",
+          "episode"
+        ]
+      }
+    },
+    {
+      "name": "drama_shot",
+      "description": "镜头脚本检查与分包建议；创作、格式、资产匹配和时长问题均作 warning，不硬拦截、不要求清零。返回镜号、行号、时长估算、资产匹配与建议；compile 仅保存原文及检查报告为 shot_reviews/<集号>/shot_script.txt、review.json。以用户要求、原剧本和已读创作 Skill 为准，不为旧格式重写内容；保留台词、说话人、镜头正文和时长，不补资产、不替换素材、不截断超长镜头。动作/发声/反应预算及表演顺序用于同步或串行核算；缺项、算术冲突仍警告。只绑定已确认且身份完整的素材；未确认引用保留原文并提示核对，不编造身份。估算与结构化字段可能不完整，多条发声的 text 仅为首条，以原文完整台词为准。ok=true 仅代表检查完成，不是可行性、成片质量、素材绑定、费用或生成准备的验收。分包建议可调整；不覆盖 prompts/、matches/、episode_packages/。启用会话视频选择时读取当前模型、分辨率和时长上限，在 duration_budget 报告并忽略 max_submit_seconds；未知上限不借用其他模型能力，只检查原镜头。切换模型会追加最近分包时长复核的普通上下文，只核对已记录包，不自动改卡、重写或提交。必需参数缺失、文件不可读、资产 JSON 无效或草稿无法安全写入仍为执行错误。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "validate=只读检查；preview=只读分包建议；compile=仅写独立检查草稿，不覆盖正式视频包。",
+            "enum": [
+              "validate",
+              "preview",
+              "compile"
+            ]
+          },
+          "script": {
+            "type": "string",
+            "description": "镜头脚本路径（绝对，或相对当前工作目录）。"
+          },
+          "assets": {
+            "type": "string",
+            "description": "资产清单 assets_manifest.json 的路径；preview 与 compile 必填，validate 可选——给了才判定资产绑定。"
+          },
+          "project": {
+            "type": "string",
+            "description": "项目根目录；compile 必填。advisory 仅创建 shot_reviews/<集号>/，无需 episodes/ 或本地素材图片。给了它就读该项目的 project_config.json（每镜有效字上限等交付要求）；validate/preview 省略时，从脚本所在目录向上找最近的 project_config.json。"
+          },
+          "max_submit_seconds": {
+            "type": "integer",
+            "description": "启用会话视频选择时自动读取当前会话模型上限，此参数忽略；否则 preview/compile 必填，表示含收束的单包参考上限（至少4秒），须核实模型能力。上限不代表推荐包长；advisory 超预算仅提示，submit_seconds 需核对后再用于生成。"
+          },
+          "episode": {
+            "type": "integer",
+            "description": "集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。validate/preview 也接受：给了就同时判定所挂资产登记的 episodes 是否覆盖这一集。"
+          }
+        },
+        "required": [
+          "method",
+          "script"
+        ]
+      }
+    },
+    {
+      "name": "drama_video",
+      "description": "按用户决定禁用或解除禁用具体视频版本。ban 必须提供本地 video 和至少一个 labels 标签（如人物对调、字幕错误），reason 可选，不要求审图证据。内部按 SHA256 标识，同字节副本共享禁用，新生成不同字节不受影响。unban 不等于审核通过；list/inspect 可读标签和原因。只在 drama_render prepare/render 拦截，verify 报告风险不删文件；不拦截通用 ffmpeg。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "ban",
+              "unban",
+              "list",
+              "inspect"
+            ]
+          },
+          "project": {
+            "type": "string",
+            "description": "现有项目目录，禁用清单持久化在该目录。"
+          },
+          "video": {
+            "type": "string",
+            "description": "本地视频路径，相对项目或绝对路径；ban 必填，内部计算 SHA256。"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "仅 unban/inspect 可用清单返回的 SHA256 代替已不存在的 video，二者互斥。"
+          },
+          "labels": {
+            "type": "array",
+            "description": "ban 必填：至少一个非空标签，如人物对调、字幕错误。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "description": "ban 可选：用户禁用原因；不是审图证据。"
+          }
+        },
+        "required": [
+          "method",
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "edit",
+      "description": "Edit an existing UTF-8 text file by replacing literal text.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to edit, resolved by the filesystem backend. Provide `file_path` before `old_string` and `new_string` in the arguments."
+          },
+          "old_string": {
+            "type": "string",
+            "description": "Literal text to replace."
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Literal replacement text. Use an empty string to delete the match."
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ]
+      }
+    },
+    {
+      "name": "fanqie_download",
+      "description": "使用 Muse 本地独立引擎下载一部或多部公开免费番茄小说，按当前已发布真实完整目录下载，不设章节数量上限。注册新匿名设备，原程序和原设备不参与。逐章核对书籍/章节ID、正文长度、乱码和文件SHA256；所有书下载验证完成才交付TXT和每章收据。连载仅表示当前已发布章节齐全。付费、VIP或需要其他授权的正文明确拒绝，不把试看当全文。失败或取消清理本批未完成文件，输出仅限当前工作区。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "bookIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "一部或多部书籍ID或官方书籍页链接；默认最多10本"
+          },
+          "outputDir": {
+            "type": "string",
+            "description": "当前工作区内目录，默认 downloads/fanqie"
+          }
+        },
+        "required": [
+          "bookIds"
+        ]
+      }
+    },
+    {
+      "name": "fanqie_download_info",
+      "description": "检查一个或多个官方番茄书籍的真实目录。bookIds 接受十进制字符串或 https://fanqienovel.com/page/书籍ID。目录成功不代表正文下载通过。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "bookIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "一部或多部书籍ID或官方书籍页链接；默认最多10本"
+          }
+        },
+        "required": [
+          "bookIds"
+        ]
+      }
+    },
+    {
+      "name": "fanqie_search",
+      "description": "通过书名或关键词搜索番茄官方书籍，返回候选书名、原名、作者、bookId、官方链接和章节数。只有书名时先用此工具，再将符合用户书名及作者的 bookId 传给 fanqie_download；同名或身份不明确时请用户选书，不默认下载排名第一本。hasMore 为真时原样传回 nextPassback 继续同一 query。搜索和章节数不代表正文可下载或已完整下载。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "书名或搜索关键词"
+          },
+          "passback": {
+            "type": "string",
+            "description": "同一搜索上一页返回的 nextPassback；首次搜索省略"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "get_goal",
+      "description": "Read the current session goal, including the id and revision that update_goal requires.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "glob",
+      "description": "Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to match file paths against (e.g. \"**/*.ts\", \"src/**/*.test.js\"). A pattern with no \"/\" matches the basename at any depth, so \"*\" and \"*.ts\" both search the whole tree; include a separator to anchor the depth."
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    {
+      "name": "grep",
+      "description": "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Regular expression to search for (ripgrep syntax)."
+          },
+          "path": {
+            "type": "string",
+            "description": "File or directory to search. Defaults to the session workspace; a relative path resolves against it."
+          },
+          "include": {
+            "type": "string",
+            "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    {
+      "name": "hongguo_collections",
+      "description": "在官方公开热播榜覆盖范围内筛选收藏数，默认阈值1000000。遍历分页后去重，按最小观察收藏值降序。万/亿展示值是近似数，阈值附近和冲突跨阈值列为uncertain；默认不混入结果。不是全红果片库筛选。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "minCollections": {
+            "type": "integer",
+            "description": "收藏阈值，默认1000000，非负安全整数"
+          },
+          "includeUncertain": {
+            "type": "boolean",
+            "description": "默认false；true把待核实条目包含在items，同时保留thresholdStatus"
+          },
+          "boards": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "hot-drama",
+                "hot-real-drama",
+                "hot-ai-drama",
+                "hot-comic-drama"
+              ]
+            },
+            "description": "榜单范围，默认全部四榜；综合/真人/AI/漫剧"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "返回条数，默认20，范围1–400；搜索工具默认10且最大10"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "结果数组偏移，默认0；搜索中仅切分首屏窗口，不触发官网翻页"
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "hongguo_detail",
+      "description": "当用户想查某部红果剧的数据时，按搜索或榜单给出的seriesId读取官方公开详情：简介、演员、集数、收藏与点赞源字段。仅返回请求的ID；url是官网详情页；watchPageUrl如有则为网页实际链接的官方播放页，并非视频文件或保证可播放的直链。不返回用户评论或下载视频。source整数可能经过平台处理，不承诺后台精度。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "seriesId": {
+            "type": "string",
+            "description": "搜索或榜单返回的十进制字符串ID，不能转成JS数字"
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+          }
+        },
+        "required": [
+          "seriesId"
+        ]
+      }
+    },
+    {
+      "name": "hongguo_download",
+      "description": "使用 jackotom/hongguo-drama 引擎下载红果短剧。抖音上有的完整短剧也用本工具下载：按剧名用 hongguo_search 取得 seriesId 后下载全集或指定集，不逐条下载抖音视频。quality 可选1080p、720p、auto；省略采用插件默认画质（通常1080p），固定画质不可用时停止，不自动降级；auto沿来源兼容优先规则选源。回执分别记录requestedQuality和实际尺寸、画质；更高分辨率保留原样，不放大冒充高清。seriesIds 为十进制字符串；省略 episodes 下载全集，指定则仅下这些集。下载经过容器、尺寸、完整解码和SHA256校验。已验证文件及进度保留，重复同一请求及画质可续下。只读权限拒绝写入，工作区权限仅写工作区，完全权限可写显式外部绝对目录。遇到来源拒绝停止，不盲目重试；ByteVC2 通过内置组件转换为 H.264/AAC 后完整校验；缺少解码组件时停止。不返回媒体直链、签名、设备信息或解密密钥。部分完成不可称为全集。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seriesIds"
+        ],
+        "properties": {
+          "seriesIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "minItems": 1,
+            "maxItems": 10
+          },
+          "episodes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "1080p",
+              "720p",
+              "auto"
+            ],
+            "description": "本次下载画质；省略采用插件默认值。固定画质不自动降级，auto兼容优先"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "wait",
+              "background"
+            ],
+            "description": "wait等待验证完成（默认）；background返回持久taskId，通过hongguo_download_task管理"
+          },
+          "outputDir": {
+            "type": "string",
+            "description": "默认当前会话 downloads；完全权限可指定外部绝对路径"
+          }
+        }
+      }
+    },
+    {
+      "name": "hongguo_download_info",
+      "description": "通过 jackotom/hongguo-drama 开源引擎读取红果系列的真实分集目录。不返回签名地址或密钥；目录完整不表示视频已下载。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seriesIds"
+        ],
+        "properties": {
+          "seriesIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "minItems": 1,
+            "maxItems": 10
+          }
+        }
+      }
+    },
+    {
+      "name": "hongguo_download_task",
+      "description": "管理当前会话和工作区中的红果下载任务。list/status查询；pause暂停，resume继续，cancel取消，retry按原清晰度重试；remove仅移除已结束的任务记录，保留视频和原下载进度。暂停/取消须带status返回的expectedRunId，只有控制确认acknowledged才表示已停止。重启不自动下载；清理未知的任务保持blocked，不得强行恢复。taskId不同于Jobs的jobId。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "status",
+              "pause",
+              "resume",
+              "cancel",
+              "retry",
+              "remove"
+            ]
+          },
+          "taskId": {
+            "type": "string",
+            "pattern": "^hgt-[a-f0-9]{32}$"
+          },
+          "expectedRunId": {
+            "type": "string",
+            "pattern": "^hgr-[a-f0-9]{32}$"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,160}$"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "wait",
+              "background"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "hongguo_merge",
+      "description": "将当前会话和工作区中已有红果下载任务的分集合并为一个MP4。taskId使用下载工具返回的任务ID；多剧任务须选seriesId。episodes省略时合并原任务选集或该剧完整目录，缺集停止，不自动补下载；显式选集按数字顺序合并。每个输入重新检查原回执、路径、大小和SHA256。auto仅在流参数完全一致时直接拼接，否则统一为H.264/AAC；copy不兼容时拒绝；compatible统一格式。outputFile仅为.mp4文件名，保存在原任务下载目录；已有文件不覆盖，原始分集保留。只读权限拒绝，外部目录仍须当前完全权限。前台等待完整解码、时长和SHA256验证后返回，部分选集不可称为全集。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "taskId"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "pattern": "^hgt-[a-f0-9]{32}$"
+          },
+          "seriesId": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "episodes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "minItems": 1,
+            "maxItems": 1000,
+            "uniqueItems": true
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "copy",
+              "compatible"
+            ]
+          },
+          "outputFile": {
+            "type": "string",
+            "description": "原任务下载目录中的MP4文件名，不含路径；省略使用按剧和集号生成的名称"
+          }
+        }
+      }
+    },
+    {
+      "name": "hongguo_rankings",
+      "description": "遍历所选红果官方热播榜公开分页（默认四榜各最多5页），按seriesId去重。收藏/点赞/热度分开；保留每页来源、采集时间、各项指标、缺失原因和冲突。coverage.complete只代表榜单分页；coverage.metrics分别统计已抓取观察值的指标完整性，不代表全片库。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "boards": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "hot-drama",
+                "hot-real-drama",
+                "hot-ai-drama",
+                "hot-comic-drama"
+              ]
+            },
+            "description": "榜单范围，默认全部四榜；综合/真人/AI/漫剧"
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "hongguo_search",
+      "description": "当用户说找红果短剧、按剧名找剧时，先读取红果官网当前公开关键词搜索接口，拿到seriesId后可调用hongguo_detail查更多数据，超出热播榜范围。仅读取已验证的首屏最多10条，可能含语义推荐；sourceReportedTotal不代表已获取数量，空壳、受限和错误响应不当作零结果。不登录、不下载视频。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "关键词，1–100字符"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "返回条数，默认20，范围1–400；搜索工具默认10且最大10"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "结果数组偏移，默认0；搜索中仅切分首屏窗口，不触发官网翻页"
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "默认false；true跳过短期内存缓存重新读取公开网页"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "interrupt_agent",
+      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a local subagent's conversation later with send_message. External executions stop permanently and cannot receive follow-ups. Subagents it started will keep running.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "description": "The name of an agent created under you: your direct child or a deeper descendant."
+          }
+        },
+        "required": [
+          "agent"
+        ]
+      }
+    },
+    {
+      "name": "jingliu_narration",
+      "description": "镜流「解说剧·角色开口」工作流。state 查分集、镜头、核对报告和可用模型；model 切换模型；breakdown 拆解台词；produce 出片、对齐和核对；accept 接受某句差异；export 导出剪映草稿。任务提交后用 get_job 查进度。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "state",
+              "model",
+              "breakdown",
+              "produce",
+              "accept",
+              "export"
+            ]
+          },
+          "project_id": {
+            "type": "string",
+            "description": "镜流解说剧项目 ID。"
+          },
+          "model": {
+            "type": "string",
+            "description": "model 操作使用 state 返回的模型 ID。"
+          },
+          "episode": {
+            "type": "integer",
+            "description": "指定集号，适用于拆解、出片或导出。拆解指定集会替换该集现有分镜。"
+          },
+          "shot_id": {
+            "type": "string",
+            "description": "accept 的镜头，或 produce 要整条重做的单个镜头。"
+          },
+          "beat": {
+            "type": "integer",
+            "description": "accept 所针对的核对报告中的 beat 值。"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "全剧重新拆台词，仅适用于 breakdown。"
+          }
+        },
+        "required": [
+          "action",
+          "project_id"
+        ]
+      }
+    },
+    {
+      "name": "jingliu_run",
+      "description": "执行镜流目录中的工作流并返回镜流结果。异步任务用返回的 job_id 查进度。提交结果未知时先查原任务。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workflow": {
+            "type": "string",
+            "description": "jingliu_workflows 中的精确名称。"
+          },
+          "project_id": {
+            "type": "string",
+            "description": "项目级工作流必填，账号级省略。"
+          },
+          "args": {
+            "type": "object",
+            "description": "按该工作流的 parameters 填写。",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "workflow"
+        ]
+      }
+    },
+    {
+      "name": "jingliu_workflows",
+      "description": "查找镜流影视制作工作流，包括项目、剧本、拆镜、素材、生成、任务进度、后期和剪映交付。按名称查询可取得完整调用参数。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "按名称或说明搜索。省略时列出目录。"
+          },
+          "name": {
+            "type": "string",
+            "description": "精确的工作流名称，用于查看参数。"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "下一页起点，来自 next_offset。"
+          }
+        }
+      }
+    },
+    {
+      "name": "job_kill",
+      "description": "Request cancellation of a running background job.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job id returned by the tool that started the background work."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional short reason, recorded in the log and forwarded to the job."
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "job_list",
+      "description": "List your background jobs (running and finished) with their ids, kinds, and statuses.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "job_output",
+      "description": "Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job id returned by the tool that started the background work."
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Block until the job finishes or the timeout expires; a timed-out wait leaves the job running. Defaults to false."
+          },
+          "timeout_ms": {
+            "type": "number",
+            "description": "Max wait in milliseconds with wait: true. Defaults to and is capped by configuration."
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "list_agents",
+      "description": "List your entire subagent tree: the root agent and all reachable continuable descendants, including yourself. Rows carry names, descriptions, and status. A descendant's name is its path from the root, such as reviewer/checker. You can message any other agent in the subagent tree. running means it is working; inactive means no turn is executing; it does not indicate task completion, success, or failure. corrupt, unsupported, or unavailable means this row's own descendants could not be read; the row itself is still a member you can message. While you remain active, you will be notified when a direct child finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "lvpaopao",
+      "description": "Read Lvpaopao rankings, search titles and inspect actual catalogs in a qualified local WeChat runtime. rankings returns current board labels, source positions and identities; page with the same boardType, count and returned coldStartTime. engagement accepts an exact title or selected source IDs and reads all catalog episodes, returning likes, comments, all-user recommendations and shares with episode rows and observation times. Optional episodeNo selects one episode. Totals are episode sums, not distinct people; missing counts remain null with coverage and knownTotals. It never likes, comments, recommends, shares or downloads. download_series accepts a title (selection-required when ambiguous) or selected source IDs. mode defaults to wait; background returns series-queued with owned data.seriesTask.id/state/jobId and continues after the tool returns. That outer ID differs from data.series.taskId. Repeating download_series refreshes the catalog and rechecks saved files. series_status is local-only: supply either seriesTaskId alone or source IDs with outputDir. series_resume and series_cancel accept only seriesTaskId and only its original live Session can control it. Resume rechecks current file permission and saved receipts, explicitly recovers the shared connection through status, then reconciles unknown episodes with their original download_status keys before safe same-key retries. Restart marks interrupted tasks without replay; use series_resume explicitly. A missing previously used manifest blocks recovery. Background tasks can report waiting_user or waiting_source; queued does not establish completion. Only account-playable episodes are downloaded; no purchases, ads or unlocks. Completion requires every actual catalog episode and verified local files; unknown catalog coverage stays incomplete. Open/reopen Lvpaopao when status reports waiting-target. Results do not grant reuse rights.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "search",
+              "detail",
+              "episodes",
+              "download_first_episode",
+              "download_episode",
+              "download_status",
+              "download_series",
+              "series_status",
+              "series_resume",
+              "series_cancel",
+              "rankings",
+              "engagement"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "description": "download_series: wait by default; background accepts an owned durable task without binding the finished tool signal.",
+            "enum": [
+              "wait",
+              "background"
+            ]
+          },
+          "seriesTaskId": {
+            "type": "string",
+            "description": "series_resume/series_cancel require only this outer data.seriesTask.id. series_status accepts it instead of source IDs/outputDir; never use data.series.taskId here."
+          },
+          "boardType": {
+            "type": "integer",
+            "description": "rankings: board type from returned boards; defaults to the app reputation board (6)."
+          },
+          "pageIndex": {
+            "type": "integer",
+            "description": "rankings: zero-based page; defaults to 0."
+          },
+          "coldStartTime": {
+            "type": "integer",
+            "description": "rankings: reuse the returned timestamp with the same board and count for subsequent pages."
+          },
+          "query": {
+            "type": "string",
+            "description": "search/download_series/engagement: title. download_series selects only one exact match; otherwise use returned candidates."
+          },
+          "srcAppId": {
+            "type": "string",
+            "description": "Source AppID returned by search; required with dramaId except title lookup."
+          },
+          "dramaId": {
+            "type": "string",
+            "description": "Source drama ID, kept as a string. series_status uses this identity to read saved progress."
+          },
+          "start": {
+            "type": "integer",
+            "description": "episodes: first positive requested number."
+          },
+          "count": {
+            "type": "integer",
+            "description": "episodes/rankings: bounded page width, at most 20. Keep the same width when paging a ranking."
+          },
+          "episodeNo": {
+            "type": "integer",
+            "description": "engagement: omit for full-series totals or select one actual catalog episode. download_episode/download_status: actual catalog episode."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "download_episode/download_status: original durable 64-character lowercase hex key; reuse it for all retries and reconciliation."
+          },
+          "outputDir": {
+            "type": "string",
+            "description": "Downloads/series_status: defaults to downloads/lvpaopao in this Session workspace. Relative paths stay inside it; external paths require full file access. Reuse the same destination when resuming."
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "present",
+      "description": "Declare existing files as final deliverables for the user. Hosts may show presented files only after your turn ends, so call it once the files are final. If the user needs to review files earlier, such as before a tool call that waits for their answer, link them in your message instead. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "description": "Usually the 1-2 most important deliverables; at most 4 per call.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path of an existing regular file. Relative paths use the Session working directory."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Brief description for the user."
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        },
+        "required": [
+          "files"
+        ]
+      }
+    },
+    {
+      "name": "qimao_detail",
+      "description": "读取指定七猫书籍主信息区的公开元数据，核验真实bookId，返回书名、作者、分类、简介、状态、字数、更新时间、累计人气值和次阅读的原名/值/采集时间/缺失原因。次阅读不是当前在读人数，累计人气值不是当日投票；currentReaders和goldenPick均未知。仅解析DOM，不执行网页脚本、不抓取或返回章节正文。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "bookId": {
+            "type": "string",
+            "description": "qimao_rankings/search返回的十进制字符串书ID或官方/shuku/ID/链接，不转JS数字"
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "true跳过短期缓存；默认false，缓存带原采集时间且按配置TTL失效"
+          }
+        },
+        "required": [
+          "bookId"
+        ]
+      }
+    },
+    {
+      "name": "qimao_rankings",
+      "description": "七猫小说选材：静态读取男/女频大热、新书、完结、收藏、更新榜首屏，大热分日/月；或读取公开筛选书库的真实分页。核验实际频道、榜种、周期和页码，拒绝重复页。仅覆盖所选公开窗口，coverage.complete仅表示请求范围成功；指标完整性另报。热度、累计人气值、次阅读分别保留原名与时间；在读人数、金选未知，不下载正文、不登录。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "rank",
+              "library"
+            ],
+            "description": "rank读取所选榜单首屏；library读取近3天更新、30万字以下、连载中的按点击量书库页，不代表全库"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "boy",
+                "girl"
+              ]
+            },
+            "description": "rank频道，默认boy/girl；library不接受此参数"
+          },
+          "boards": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "hot",
+                "new",
+                "over",
+                "collect",
+                "update"
+              ]
+            },
+            "description": "rank榜种：大热hot、新书new、完结over、收藏collect、更新update；默认全部"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "date",
+                "month"
+              ]
+            },
+            "description": "大热榜date日榜/month月榜，默认两者；其余榜仅date，library不接受此参数"
+          },
+          "pages": {
+            "type": "integer",
+            "description": "仅library真实页码范围，从第1页起取至此页；默认配置maxPages=3，不能用于榜单翻页"
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "true跳过短期缓存；默认false，缓存带原采集时间且按配置TTL失效"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "qimao_search",
+      "description": "按书名或作者在本次所选七猫公开榜单首屏/筛选书库页面内过滤候选。返回matchedInWindow、availableInWindow和原覆盖说明；complete始终false，不得把没找到解释成七猫没有此书。可用qimao_detail按返回bookId核对详情。不访问小说正文。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "rank",
+              "library"
+            ],
+            "description": "rank读取所选榜单首屏；library读取近3天更新、30万字以下、连载中的按点击量书库页，不代表全库"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "boy",
+                "girl"
+              ]
+            },
+            "description": "rank频道，默认boy/girl；library不接受此参数"
+          },
+          "boards": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "hot",
+                "new",
+                "over",
+                "collect",
+                "update"
+              ]
+            },
+            "description": "rank榜种：大热hot、新书new、完结over、收藏collect、更新update；默认全部"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "date",
+                "month"
+              ]
+            },
+            "description": "大热榜date日榜/month月榜，默认两者；其余榜仅date，library不接受此参数"
+          },
+          "pages": {
+            "type": "integer",
+            "description": "仅library真实页码范围，从第1页起取至此页；默认配置maxPages=3，不能用于榜单翻页"
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "true跳过短期缓存；默认false，缓存带原采集时间且按配置TTL失效"
+          },
+          "query": {
+            "type": "string",
+            "description": "书名或作者片段，1–100字符；只匹配所选公开采集窗口，不是全站搜索"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "过滤结果偏移，默认0；不触发额外官网翻页"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "返回条数，默认20，范围1–100"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "read",
+      "description": "Read a UTF-8 text file and return line-numbered content.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to read, resolved by the filesystem backend."
+          },
+          "offset": {
+            "type": "number",
+            "description": "1-based first line to return. Defaults to 1."
+          },
+          "column": {
+            "type": "number",
+            "description": "1-based Unicode code point column in the first line. Use the continuation cursor for a partial line."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of lines to return. Defaults to 2000."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "read_image",
+      "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Large images are downscaled automatically; do not install image libraries or create thumbnails to inspect an image.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to the image file, resolved by the filesystem backend."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "reverse_analyze",
+      "description": "Statically inspect a user-selected file inside the active workspace. Return SHA256, bytes, executable format and bounded Mach-O symbols with addresses. Identifies PE, ELF, ZIP and DMG; does not execute or unpack the target, contact any server, bypass authorization or reconstruct source. Use reverse_skill for deeper analysis. Symbol counts and truncation are explicit.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Workspace-relative file path, or absolute path inside the workspace"
+          },
+          "symbolContains": {
+            "type": "string",
+            "description": "Optional literal substring filter for Mach-O symbol names"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "reverse_skill",
+      "description": "Load the appropriate methodology from the bundled pinned reverse-skill project. Use for authorized binary, APK, JavaScript, desktop or protocol analysis. Returns original instructions and real resource paths. Does not install tools, start services, register MCP, access networks or authorize a target. Optional tools may require separate installation and licenses.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "hint": {
+            "type": "string",
+            "description": "Describe the authorized analysis target and goal"
+          }
+        },
+        "required": [
+          "hint"
+        ]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "description": "The name of another agent in your subagent tree, as shown by list_agents."
+          },
+          "message": {
+            "type": "string",
+            "description": "The message to deliver to the agent."
+          }
+        },
+        "required": [
+          "agent",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "skill",
+      "description": "Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The exact skill name from the available skills list."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "source_report",
+      "description": "用已有snapshotIds生成不可覆盖的选材日报JSON和deliverables/选材日报/Markdown，记录全部输入ID/SHA、每个平台采集范围、缺页、未知指标、同口径共有字段变化；baselineIds可选，无基线不算增长。可选mappingIds仅显式引用作品关系，报告保存当时的人审状态/revision/SHA；未审核提案保持未核实，后续改判不改旧报告。仅使用真实快照，不接受模型JSON当官方数据，不计算假市场密度、蓝海或自动无AI/无S2结论。read按reportId核验；JSON已保存但Markdown失败返回partial与具体receipt。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "build",
+              "read"
+            ]
+          },
+          "project": {
+            "type": "string",
+            "description": "发起Session cwd内的项目目录；默认当前目录，禁止通过符号链接越界"
+          },
+          "snapshotIds": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "baselineIds": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "reportId": {
+            "type": "string"
+          },
+          "mappingIds": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "build可选：显式引用作品关系提案，保存构建时的人审revision/SHA/状态；不传时不添加映射内容"
+          }
+        }
+      }
+    },
+    {
+      "name": "source_snapshot",
+      "description": "真实采集红果官方公开榜单或七猫公开榜单首屏/筛选书库，保存不可覆盖的v1来源快照；collect仅接受平台和rankings请求，不能提交模型编造的sourceResult。import_legacy只导入项目内旧JSON为legacy_file证据，保留源路径/SHA和原字段；list/read/compare读取项目内快照。按平台+真实ID去重，无ID原样保留但不入统计。比较要求相同范围及指标原语义/单位/标签，未知不是0，缓存测量时间不变，不推断新增/退榜、在读人数、市场总量或跨平台身份。写入前检查当前文件权限，只读会在HTTP前拒绝。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "collect",
+              "import_legacy",
+              "list",
+              "read",
+              "compare"
+            ]
+          },
+          "project": {
+            "type": "string",
+            "description": "发起Session cwd内的项目目录；默认当前目录，禁止通过符号链接越界"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "hongguo",
+              "qimao"
+            ]
+          },
+          "request": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operation"
+            ],
+            "properties": {
+              "operation": {
+                "type": "string",
+                "enum": [
+                  "rankings"
+                ]
+              },
+              "refresh": {
+                "type": "boolean",
+                "description": "跳过来源短期缓存；false保留原始测量时间，不把缓存当作新测量"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "rank",
+                  "library"
+                ]
+              },
+              "channels": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "boy",
+                    "girl"
+                  ]
+                }
+              },
+              "boards": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "hot-drama",
+                    "hot-real-drama",
+                    "hot-ai-drama",
+                    "hot-comic-drama",
+                    "hot",
+                    "new",
+                    "over",
+                    "collect",
+                    "update"
+                  ]
+                }
+              },
+              "periods": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "date",
+                    "month"
+                  ]
+                }
+              },
+              "pages": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "仅library真实分页；固定近3天更新、30万字以下、连载中、click排序。rank不接受pages"
+              }
+            }
+          },
+          "path": {
+            "type": "string",
+            "description": "import_legacy必填：项目内已有legacy JSON，保留原文件、原字段及SHA，不把它称为官方新采集"
+          },
+          "snapshotId": {
+            "type": "string"
+          },
+          "beforeId": {
+            "type": "string"
+          },
+          "afterId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "subagent",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its name. If you are still online when it finishes, the runtime automatically delivers its completion notice. The notice includes the final answer unless the child sent you a message just before finishing. Use `send_message` to steer it while running or continue its conversation after it finishes.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
+          },
+          "description": {
+            "type": "string",
+            "description": "A short (3-5 word) description of the delegated task, for display. Use the language of the user's current request."
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional short name for the subagent, unique among the subagents you create: lower-case letters, digits, and hyphens, starting with a letter, at most 32 characters; lead is reserved for the root agent. Omitted names default to agent-1, agent-2, and so on."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+          }
+        },
+        "required": [
+          "description",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "subagent_fork",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its name. If you are still online when it finishes, the runtime automatically delivers its completion notice. The notice includes the final answer unless the child sent you a message just before finishing. Use `send_message` to steer it while running or continue its conversation after it finishes.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
+          },
+          "description": {
+            "type": "string",
+            "description": "A short (3-5 word) description of the delegated task, for display. Use the language of the user's current request."
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional short name for the subagent, unique among the subagents you create: lower-case letters, digits, and hyphens, starting with a letter, at most 32 characters; lead is reserved for the root agent. Omitted names default to agent-1, agent-2, and so on."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
+          }
+        },
+        "required": [
+          "description",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "todo_update",
+      "description": "Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Exact content of the existing task; surrounding whitespace is ignored."
+          },
+          "status": {
+            "type": "string",
+            "description": "Actual task state: pending, in_progress, or completed.",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed"
+            ]
+          },
+          "start_next": {
+            "type": "boolean",
+            "description": "Only with completed: on a new completion, start the first pending task if no task remains in_progress."
+          }
+        },
+        "required": [
+          "task",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "todo_write",
+      "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "todos": {
+            "type": "array",
+            "description": "The COMPLETE task list, replacing any previous list.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "description": "What the task is — a short imperative line."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "pending (not started) | in_progress (now) | completed (done).",
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "completed"
+                  ]
+                }
+              },
+              "required": [
+                "content",
+                "status"
+              ]
+            }
+          }
+        },
+        "required": [
+          "todos"
+        ]
+      }
+    },
+    {
+      "name": "update_goal",
+      "description": "Update the current goal.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string",
+            "description": "Exact id returned by get_goal."
+          },
+          "revision": {
+            "type": "number",
+            "description": "Exact positive revision returned by get_goal."
+          },
+          "action": {
+            "type": "string",
+            "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer.",
+            "enum": [
+              "edit",
+              "pause",
+              "resume",
+              "complete",
+              "blocked",
+              "wait"
+            ]
+          },
+          "objective": {
+            "type": "string",
+            "description": "Replacement objective; valid only with action edit."
+          },
+          "max_goal_rounds": {
+            "type": "number",
+            "description": "Replacement cap; valid only with action edit."
+          },
+          "blocked_reason": {
+            "type": "string",
+            "description": "Required only with action blocked: the concrete condition that persisted across rounds and blocks progress."
+          },
+          "wait_reason": {
+            "type": "string",
+            "description": "With action wait: describe what new information or event is needed."
+          },
+          "wake_after_seconds": {
+            "type": "number",
+            "description": "With action wait: optional positive whole seconds before continuing."
+          },
+          "job_id": {
+            "type": "string",
+            "description": "With action wait: optional owned job to watch for new output or settlement."
+          }
+        },
+        "required": [
+          "goal_id",
+          "revision",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "video_inspect",
+      "description": "查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。完成当前用途后可自主close结束后续跟进，不改真实完成度；reopen校验原视频版本后恢复跟进。review_id可选择已保存记录，status和close无需读取原视频。events可把已记录帧归为动作事件；transcript_path读取已保存ASR并保留原段，列出连续发言候选。timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。图片结果注明本次附图数量；status只查进度，不重新附图。历史的“已在之前的步骤中展示给你”说明不代表图片缺失；待记录帧保留到observe，重看已记录帧用revisit。observe记录后若仍有待看帧，结果直接附带下一批图片，不必再调用next。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "当前集实际完整视频路径；与review_id至少提供一项，同时提供时须指向同一记录。"
+          },
+          "review_id": {
+            "type": "string",
+            "description": "本会话已保存的review_id；不按集号或其他来源回退。status和close可仅凭此ID操作保存状态。"
+          },
+          "reason": {
+            "type": "string",
+            "description": "close或reopen的可选原因；不改变未查看、未记录帧。"
+          },
+          "episode": {
+            "type": "string",
+            "description": "首次scan时标记集号；省略则使用实际视频路径。"
+          },
+          "fresh_scan": {
+            "type": "boolean",
+            "description": "仅在scan时使用；显式新建审看并重新扫描，旧观察留在会话历史中，新帧须重新查看和记录。"
+          },
+          "method": {
+            "type": "string",
+            "description": "默认scan；next查看下一批，revisit重显已记录原图，observe逐图记录，events保存动作事件表；status读取进度，timeline并列时间线，compare对照当前稿，metadata只读元数据。close结束当前来源后续跟进，不补记图片；reopen校验来源后恢复，不重新扫描。",
+            "enum": [
+              "scan",
+              "next",
+              "revisit",
+              "observe",
+              "events",
+              "status",
+              "metadata",
+              "timeline",
+              "compare",
+              "close",
+              "reopen"
+            ]
+          },
+          "timeline_start_seconds": {
+            "type": "number",
+            "description": "timeline可选的来源开始秒数；仅选择核对材料，不改变全片扫描和观察进度。"
+          },
+          "timeline_end_seconds": {
+            "type": "number",
+            "description": "timeline可选的来源结束秒数；局部材料不代表整集已核对。省略则到本集结尾。"
+          },
+          "frame_ids": {
+            "type": "array",
+            "description": "revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timestamps_seconds": {
+            "type": "array",
+            "description": "scan可选的补看来源秒数，最多256项且0≤t<真实视频时长；合入常规扫描，保留同版本已有帧ID，新帧仍须next实际看图并observe，不能凭时间补记完成。",
+            "items": {
+              "type": "number"
+            }
+          },
+          "draft_path": {
+            "type": "string",
+            "description": "compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。"
+          },
+          "transcript_path": {
+            "type": "string",
+            "description": "可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。close、reopen及仅凭review_id的status不读取ASR。"
+          },
+          "event_groups": {
+            "type": "array",
+            "description": "events使用；替换当前完整事件表，空数组清空。连续多帧可支持一个动作；只引用已记录frame_id，保留不确定性，不按帧数凑事件。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "event_id": {
+                  "type": "string"
+                },
+                "frame_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "before": {
+                  "type": "string"
+                },
+                "after": {
+                  "type": "string"
+                },
+                "uncertainty": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "event_id",
+                "frame_ids",
+                "actor",
+                "action",
+                "object",
+                "before",
+                "after",
+                "uncertainty"
+              ]
+            }
+          },
+          "observations": {
+            "type": "array",
+            "description": "observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "frame_id": {
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "string",
+                  "description": "具体可见人物、位置、动作、神态或道具；至少8个字符。"
+                },
+                "change": {
+                  "type": "string",
+                  "description": "与邻近画面的变化；无变化也需据实说明。"
+                },
+                "uncertainty": {
+                  "type": "string",
+                  "description": "需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。"
+                }
+              },
+              "required": [
+                "frame_id",
+                "visible",
+                "change"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "video_ocr",
+      "description": "Recognize visible text from bounded, timestamped samples of a local video with the configured offline OCR engine. Returns raw evidence JSON, merged text, source timestamps and explicit scan coverage. A partial or failed scan is indeterminate, never proof that the video has no subtitles. Persistent text remains a content candidate; visual persistence does not identify watermarks or non-narrative text. This tool never invokes audio transcription.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Local video path in the current Session filesystem."
+          },
+          "start_seconds": {
+            "type": "number",
+            "description": "Inclusive source range start; default 0."
+          },
+          "end_seconds": {
+            "type": "number",
+            "description": "Exclusive source range end; default video end. One call scans at most 120s and 240 frames; continue from next_start_seconds."
+          },
+          "frame_interval_seconds": {
+            "type": "number",
+            "description": "OCR sample spacing; default 0.5s."
+          },
+          "language": {
+            "type": "string",
+            "description": "OCR language; default auto. Missing requested language returns an explicit failure and never falls back to ASR.",
+            "enum": [
+              "auto",
+              "zh-Hans-CN",
+              "zh-Hant-TW",
+              "en-US"
+            ]
+          },
+          "raw_json_path": {
+            "type": "string",
+            "description": "Optional new raw evidence JSON path inside the workspace. Existing files are never replaced."
+          },
+          "merged_text_path": {
+            "type": "string",
+            "description": "Optional new timestamped text path inside the workspace. Existing files are never replaced."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "wait_agent",
+      "description": "Wait for input at your next step, including agent messages, completion notifications, and user steering. Returns immediately if new input is pending. `timedOut: false` means new input is pending. Pending input is delivered to the model after code execution finishes.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "timeout_ms": {
+            "type": "integer",
+            "description": "Wait duration in milliseconds, from 10000 through 3600000. Defaults to 30000."
+          }
+        }
+      }
+    },
+    {
+      "name": "web_fetch",
+      "description": "Fetch the content of a specific HTTP(S) URL and return it decoded to text.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The HTTP(S) URL to fetch."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "web_search",
+      "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "queries": {
+            "type": "array",
+            "description": "1–10 search queries; their results are merged.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "queries"
+        ]
+      }
+    },
+    {
+      "name": "work_mapping",
+      "description": "用已保存红果/七猫快照的{snapshotId,itemId}两端提出关系，平台、ID、标题和SHA由工具核验；同名仅是未审核提案，不自动合并指标。propose/read/list/lookup管理直接关系，lookup恰选mappingId/sourceRef/sourceKey；sourceKey只查同平台ID的历史证据，不自动扩展旧确认到新快照。review和supersede必须提供预期提案SHA与revision，通过真实用户提问确认/拒绝/待核实；模型不能提交confirmed或decision。只读在提问前拒绝，取消、无回答服务、子agent或失效回答不写决定。决定追加不可覆盖的修订；改关系/证据另建提案。同系列不等于同作，来源未给季数仍未知；未命中只表示本证据未观察到，不推断全平台无AI或无S2，不做传递合并。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "propose",
+              "read",
+              "list",
+              "lookup",
+              "review",
+              "supersede"
+            ]
+          },
+          "project": {
+            "type": "string",
+            "description": "发起Session cwd内的项目目录；默认当前目录，禁止通过符号链接越界"
+          },
+          "left": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "snapshotId",
+              "itemId"
+            ],
+            "properties": {
+              "snapshotId": {
+                "type": "string",
+                "description": "已保存并可通过source_snapshot读取的快照ID"
+              },
+              "itemId": {
+                "type": "string",
+                "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+              }
+            }
+          },
+          "right": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "snapshotId",
+              "itemId"
+            ],
+            "properties": {
+              "snapshotId": {
+                "type": "string",
+                "description": "已保存并可通过source_snapshot读取的快照ID"
+              },
+              "itemId": {
+                "type": "string",
+                "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+              }
+            }
+          },
+          "sourceRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "snapshotId",
+              "itemId"
+            ],
+            "properties": {
+              "snapshotId": {
+                "type": "string",
+                "description": "已保存并可通过source_snapshot读取的快照ID"
+              },
+              "itemId": {
+                "type": "string",
+                "description": "快照canonicalItems里的真实来源十进制字符串ID；平台/标题/SHA由工具读取，不能由模型提供"
+              }
+            }
+          },
+          "sourceKey": {
+            "type": "string",
+            "description": "lookup三选一：hongguo:<ID>或qimao:<ID>，仅返回该平台ID的历史提案及原快照证据，不自动扩展旧确认到新快照"
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "same_work",
+              "adaptation_of",
+              "same_series",
+              "sequel_of"
+            ],
+            "description": "same_work同作；same_series同系列不等于同作；adaptation_of左侧改编自右侧；sequel_of左侧是右侧续作"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "propose必填模型理由，明确未核实；不能由同名自动确认"
+          },
+          "mappingId": {
+            "type": "string"
+          },
+          "expectedProposalSha256": {
+            "type": "string",
+            "description": "review/supersede必填：read返回的proposalSha256完整文件SHA-256"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "review初始0，supersede必须等于已存在最新revision；旧回答不能写入新revision"
+          }
+        }
+      }
+    },
+    {
+      "name": "workflow",
+      "description": "Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.\n\nScript-body hooks:\n- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object, and the child must call its `structured_output` tool to report it: a `schema` call whose child answers in plain text resolves `null`. If the prompt text states its own return format, that text describes the payload, never the reporting channel. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.\n- `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.\n- `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.\n- `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.\n\nMisused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) end the whole script instead of producing `null`. The script has no filesystem, network, timer, or Node.js APIs; the agents do the work.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "script": {
+            "type": "string",
+            "description": "The plain JavaScript body, not TypeScript and without an `export const meta` statement; top-level await is allowed. End with `return <value>`; the JSON-serializable value is this tool's result."
+          },
+          "meta": {
+            "type": "object",
+            "description": "The workflow identity as plain JSON, not code.",
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Short kebab-case workflow name."
+              },
+              "description": {
+                "type": "string",
+                "description": "One-line description of what the workflow does."
+              },
+              "whenToUse": {
+                "type": "string",
+                "description": "Optional guidance on when this workflow applies."
+              },
+              "phases": {
+                "type": "array",
+                "description": "Optional phase declarations matched by phase() calls.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "description": "The phase title phase() calls match by exact string."
+                    },
+                    "detail": {
+                      "type": "string",
+                      "description": "Optional one-line description of the phase."
+                    },
+                    "provider": {
+                      "type": "string",
+                      "description": "Optional provider override this phase is expected to use."
+                    },
+                    "model": {
+                      "type": "string",
+                      "description": "Optional model override this phase is expected to use."
+                    }
+                  },
+                  "required": [
+                    "title"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "name",
+              "description"
+            ]
+          },
+          "args": {
+            "type": "object",
+            "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
+            "additionalProperties": true
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice."
+          }
+        },
+        "required": [
+          "script",
+          "meta"
+        ]
+      }
+    },
+    {
+      "name": "working_directory",
+      "description": "Read the current working directory, or change it with cd. Relative paths use the current directory. Existing shells and running processes keep their own directories.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "cd": {
+            "type": "string",
+            "description": "Existing directory to enter. Omit to read the current directory."
+          }
+        }
+      }
+    },
+    {
+      "name": "write",
+      "description": "Create or fully replace a UTF-8 text file.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to write, resolved by the filesystem backend. Provide `file_path` before `content` in the arguments."
+          },
+          "content": {
+            "type": "string",
+            "description": "Full UTF-8 text content to write."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ]
+      }
+    }
+  ],
+  "changes": []
+}
