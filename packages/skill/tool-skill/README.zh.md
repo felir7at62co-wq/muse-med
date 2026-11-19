@@ -52,6 +52,11 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 
 技能的 `whenToUse` 非空且与描述不同时，路由摘要按 `When to use: <whenToUse> Description: <description>` 发布。两段文字都规范化空白；提示为空或与规范化描述相同时，只保留描述。`catalogDescriptionMaxLength` 限制整个摘要，因此过长的触发条件可以占满预算并省略描述。持久目录条目在原有 `description` 字段中记录同一摘要。
 
+<a id="recover-a-task-skill"></a>
+### 恢复当前任务技能
+
+用 `taskSkills` 声明会替换当前阶段的技能名。原生 `skill` 工具成功加载、或用户直接输入 `/名称` 后，该会话选择对应阶段。读取辅助技能会保留当前阶段，完成或取消任务时可用 `end_task_skill` 结束。重新打开会话或压缩后，下一次请求仅在内容版本和调用权限仍匹配时恢复丢失的正文。`taskSkillMaxChars` 控制恢复内容的字符上限，默认 8,192。超出预算的技能显示重读提示。空列表关闭该功能，旧会话中的未标记加载及分叉继承的记录不会激活阶段。
+
 ### 按来源选择摘要
 
 `catalogSourceLimits` 默认为空映射。只有完整的、允许模型调用的目录超过配置来源的正整数条目上限时，才缩短该来源；其他来源保留全部摘要。Desktop creation 仅配置 `muse-market: 12`。缩短后的目录独立于发现完整性记录 `bounded: true`，并提示模型使用仅查询元数据的 `skill_catalog` 工具发现全部允许的目录。没有实际裁剪时，既有目录文本、摘要标识和本步可用工具集合保持不变。

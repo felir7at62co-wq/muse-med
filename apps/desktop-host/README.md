@@ -53,6 +53,8 @@ Named upload-folder copies under the project or a sibling `视频/第N集/00-交
 
 Muse includes the Codex subscription plugin and its ChatGPT sign-in entry in Settings. The separate subscription login uses the official Codex OAuth provider; Muse account login does not authorize it. Credentials remain in the local Host credential service, while browser account responses omit tokens. Subscription models appear only while an account is connected. Upgrading restores the built-in bundle without replacing saved subscription settings or credentials. The optional Codex CLI subagent provider is not included or enabled by this subscription integration. The product overlay continues to disable both the Agent Notes settings page and its Host API; engineering-note files and user-configured MCP connections remain available.
 
+The short-drama preset retains the current asset-binding, dialogue-editing or Word-export skill across compaction. Loading the next task skill switches the session phase. [Task skills](../../packages/skill/tool-skill/README.md#recover-a-task-skill)
+
 ## Returned manuscript comparisons
 
 The Office composition registers `manuscript_revision` globally. It compares the actual previous draft and returned Markdown, UTF-8 text or Word file. Changes to a file previously presented by the same Session are detected on its next human turn; the external author remains unconfirmed. Renamed files can be associated through explicit paths, and a missing baseline is reported without claiming historical edits were identified.

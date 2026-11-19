@@ -23,11 +23,12 @@ import {
 } from '@deepseek-ai/dsh-skill'
 
 import { needsCatalogSelection, selectCatalogSkills, type CatalogSourceLimits } from './catalog-selection.ts'
+import { installTaskSkillRecovery, taskSkillVersion } from './task-skill.ts'
 import { pageSkillCatalog, SkillCatalogError } from './catalog-directory.ts'
 export type { SkillCatalogCursor, SkillCatalogRequest, SkillCatalogDirectoryEntry, SkillCatalogPage } from './catalog-directory.ts'
 
 export const name = 'tool-skill'
-export const inject = ['agents', 'tools', 'skills', 'workingDirectory']
+export const inject = ['agents', 'tools', 'skills', 'workingDirectory', 'sessionProjections', 'systemPrompt']
 
 const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
 // Only the visible active loader owns a catalog in nested preset compositions.
@@ -78,6 +79,10 @@ export interface Config {
   catalogSourceLimits?: CatalogSourceLimits
   /** Default metadata directory page size, an integer from 1 through 100. */
   catalogPageSize?: number
+  /** Skill names that select mutually exclusive task phases in this preset. Empty disables recovery. */
+  taskSkills?: string[]
+  /** Maximum characters in a restored task-skill notice, including its framing. */
+  taskSkillMaxChars?: number
 }
 
 /** Validate and default the model-facing skill catalog configuration. */
@@ -86,6 +91,8 @@ export const Config: z<Config> = z.object({
   scopedCatalogOwner: z.boolean().default(false),
   catalogSourceLimits: z.dict(z.number().min(1).step(1)).default({}),
   catalogPageSize: z.number().min(1).max(100).step(1).default(20),
+  taskSkills: z.array(z.string()).default([]),
+  taskSkillMaxChars: z.number().min(512).step(1).default(8192),
 })
 
 /**
@@ -94,7 +101,7 @@ export const Config: z<Config> = z.object({
  * resolves this plugin's exact tool registration; a restriction or scoped
  * same-name shadow therefore removes both the schema and its call guidance.
  */
-export function apply(ctx: Context, config: Config = {}): void {
+export function apply(ctx: Context, config: Config = {}): void | Promise<void> {
   const catalogDescriptionMaxLength = config.catalogDescriptionMaxLength ?? DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH
   const scopedCatalogOwner = config.scopedCatalogOwner ?? false
   assertPositiveInteger('catalogDescriptionMaxLength', catalogDescriptionMaxLength, 3)
@@ -102,6 +109,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   for (const value of Object.values(limits)) assertPositiveInteger('catalogSourceLimits', value)
   assertPositiveInteger('catalogPageSize', pageSize)
   if (pageSize > 100) throw new Error('tool-skill: catalogPageSize must not exceed 100')
+  const taskSkills = new Set(config.taskSkills ?? [])
+  const taskSkillMaxChars = config.taskSkillMaxChars ?? 8192
+  assertPositiveInteger('taskSkillMaxChars', taskSkillMaxChars, 512)
+  if ([...taskSkills].some(name => !isSkillName(name))) throw new TypeError('tool-skill: invalid task skill name')
   const limited = Object.keys(limits).length > 0
   const prepared = new WeakMap<Agent, WeakMap<AbortSignal, { enabled: boolean }>>()
 
@@ -150,6 +161,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         },
       },
       render: (_args, value) => [{ type: 'text', text: renderSkillContent(value) }],
+      ...(taskSkills.size > 0 ? { preserveBodyMeta: true as const } : {}),
+      presentationMeta: (_args, value) => {
+        if (!taskSkills.has(value.name)) return undefined
+        return { kind: 'task-skill-loaded', name: value.name, version: taskSkillVersion(value) }
+      },
     },
     async execute(args, exec) {
       if (!isSkillName(args.name)) {
@@ -294,9 +310,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       // on the loaded definition — the single lookup that produces what is
       // actually injected.
       if (skill === undefined || !isUserInvocable(skill)) continue
-      const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions' }
+      const text = renderSkillContent(skill)
+      const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions',
+        ...(taskSkills.has(name) ? { taskVersion: taskSkillVersion(skill) } : {}) }
       injections.push(createUserMessage({
-        content: [{ type: 'text', text: renderSkillContent(skill) }],
+        content: [{ type: 'text', text }],
         source,
       }))
     }
@@ -375,6 +393,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         : decision.messages.map(message => message.id === existing.message.id ? catalog : message),
     }
   })
+  if (taskSkills.size > 0) return installTaskSkillRecovery(ctx, taskSkills, taskSkillMaxChars, skillTool)
 }
 
 function renderCatalogMessage(entries: SkillCatalogSource['entries'], bounded = false): UserMessage {

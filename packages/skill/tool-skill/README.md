@@ -52,6 +52,10 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 A skill with a distinct, nonblank `whenToUse` publishes `When to use: <whenToUse> Description: <description>` as its routing summary. Whitespace is normalized; a blank hint or one identical to the normalized description keeps the description alone. `catalogDescriptionMaxLength` caps the complete summary, so a long trigger can consume the budget and omit the description. Durable catalog entries record that same summary in their existing `description` field.
 
+### Recover a task skill
+
+Set `taskSkills` to the skill names that select mutually exclusive task phases. Successfully loading one through the native `skill` tool or a direct `/name` selects it for that Session. A supporting skill leaves the phase active. Use `end_task_skill` when work ends or is cancelled. On resume or compaction the next request restores missing instructions only if their current rendered version and invocation permissions still match. `taskSkillMaxChars` bounds the restored contribution (default 8,192 characters). Larger skills receive a reload notice. An empty list disables phase tracking. Earlier unmarked loads and fork-inherited activations do not select a phase.
+
 ### Selected source summaries
 
 `catalogSourceLimits` defaults to an empty map. A configured source is shortened only when its complete, model-invocable directory exceeds that source’s positive entry limit; other sources keep every summary. Desktop creation configures only `muse-market: 12`. A shortened catalog records `bounded: true` independently of discovery completeness and tells the model to query the metadata-only `skill_catalog` tool for the full permitted directory. No truncation preserves the existing catalog text, digest and admitted tool set.
