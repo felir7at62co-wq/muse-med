@@ -160,6 +160,135 @@ describe('explicit image catalogue selection', () => {
   })
 })
 
+describe('image batch selection defaults', () => {
+  const standards = [
+    { id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 },
+    { id: 92, ratio: '16:9', resolution: '2K', width: 2560, height: 1440, genNum: 1 },
+    { id: 93, ratio: '9:16', resolution: '1K', width: 720, height: 1280, genNum: 1 },
+    { id: 94, ratio: '9:16', resolution: '2K', width: 1440, height: 2560, genNum: 1 },
+  ]
+  const catalogue = [
+    { ...PORTRAIT_IMAGE_CATALOGUE[0]!, videoStandards: standards },
+    { ...PORTRAIT_IMAGE_CATALOGUE[0]!, id: 76, platformId: 'OTHER',
+      videoStandards: standards.map(row => ({ ...row, id: row.id + 100 })) },
+    { ...IMAGE_CATALOGUE[0]!, id: 71, modelId: 'doubao-seedream-5-0-260128', platformId: 'FANG_ZHOU',
+      videoStandards: [{ id: 102, ratio: '9:16', resolution: '2K', width: 0, height: 0, genNum: 1 }] },
+  ]
+  const item = (key: string) => ({ idempotency_key: key, asset_name: key, asset_type: 2, prompt: '公司大厅', references: [] })
+
+  it('uses top-level model, platform, specification and portrait resolution for every paid request', async () => {
+    const { client, calls } = imageProvider(catalogue)
+    await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      image_model_id: 'gpt-image-2', image_platform_id: 'KU_AI', image_spec_id: 94,
+      image_aspect_ratio: '9:16', image_resolution: '2K', items: [item('portrait-a'), item('portrait-b')] },
+    imageDeps({ selection: { platformId: 'YU_DIAN', standardId: 42 } }))
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(2)
+    for (const write of writes) expect(JSON.parse(String(write.body!.modelConfig))).toMatchObject({
+      modelId: 'gpt-image-2', platformId: 'KU_AI', standardId: 66,
+      videoStandardId: 94, ratio: '9:16', resolution: '2K',
+    })
+    expect((await ledger.records()).filter(record => record.outcome === 'accepted')).toHaveLength(2)
+  })
+
+  it('lets one item override batch dimensions without changing another item', async () => {
+    const { client, calls } = imageProvider(catalogue)
+    await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      image_platform_id: 'KU_AI', image_aspect_ratio: '9:16', image_resolution: '2K', items: [
+        item('inherited-portrait'), { ...item('landscape-override'), image_aspect_ratio: '16:9', image_resolution: '1K' },
+      ] }, imageDeps())
+    const configs = calls.filter(call => call.method === 'POST')
+      .map(call => JSON.parse(String(call.body!.modelConfig)) as Record<string, unknown>)
+    expect(configs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ratio: '9:16', resolution: '2K', videoStandardId: 94 }),
+      expect.objectContaining({ ratio: '16:9', resolution: '1K', videoStandardId: 91 }),
+    ]))
+    expect(configs).toHaveLength(2)
+  })
+
+  it.each([
+    { image_platform_id: 'KU_AI' }, { image_model_id: 'gpt-image-2' },
+    { image_model_id: 'gpt-image-2', image_platform_id: 'KU_AI' },
+  ])('keeps a batch specification when an item repeats its selectors: %j', async (selectors) => {
+    const { client, calls } = imageProvider(catalogue)
+    await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      image_model_id: 'gpt-image-2', image_platform_id: 'KU_AI', image_spec_id: 94, image_aspect_ratio: '9:16',
+      items: [{ ...item('same-selection'), ...selectors }] }, imageDeps())
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]!.body!.modelConfig))).toMatchObject({
+      modelId: 'gpt-image-2', platformId: 'KU_AI', standardId: 66,
+      videoStandardId: 94, ratio: '9:16', resolution: '2K',
+    })
+  })
+
+  it('clears an inherited specification when an item selects another platform and keeps the requested dimensions', async () => {
+    const { client, calls } = imageProvider(catalogue)
+    await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      image_model_id: 'gpt-image-2', image_platform_id: 'KU_AI', image_spec_id: 94,
+      image_aspect_ratio: '9:16', image_resolution: '2K',
+      items: [{ ...item('other-platform'), image_platform_id: 'OTHER' }] }, imageDeps())
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]!.body!.modelConfig))).toMatchObject({
+      platformId: 'OTHER', standardId: 76, videoStandardId: 194, ratio: '9:16', resolution: '2K',
+    })
+  })
+
+  it('clears another model\'s platform and specification when an item overrides the batch model', async () => {
+    const { client, calls } = imageProvider(catalogue)
+    await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      image_model_id: 'gpt-image-2', image_platform_id: 'KU_AI', image_spec_id: 94,
+      image_aspect_ratio: '9:16', image_resolution: '2K',
+      items: [{ ...item('other-model'), image_model_id: 'doubao-seedream-5-0-260128' }] }, imageDeps())
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]!.body!.modelConfig))).toMatchObject({
+      modelId: 'doubao-seedream-5-0-260128', platformId: 'FANG_ZHOU', standardId: 71,
+      videoStandardId: 102, ratio: '9:16', resolution: '2K',
+    })
+  })
+
+  it('checks an item\'s portrait specification before submitting any item', async () => {
+    const { client, calls } = imageProvider([catalogue[0]])
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708, items: [
+      item('valid-landscape'), { ...item('unavailable-portrait'), image_aspect_ratio: '9:16', image_resolution: '4K' },
+    ] }, imageDeps())).rejects.toThrow('9:16')
+    expect(calls.filter(call => call.method !== 'GET')).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('uses an item-only portrait specification during preflight and submission', async () => {
+    const { client, calls } = imageProvider([catalogue[0]])
+    await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [{ ...item('item-portrait'), image_aspect_ratio: '9:16', image_resolution: '2K', image_spec_id: 94 }] }, imageDeps())
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]!.body!.modelConfig))).toMatchObject({
+      videoStandardId: 94, ratio: '9:16', resolution: '2K',
+    })
+  })
+
+  it('rejects unsupported batch dimensions before reserving or charging any item', async () => {
+    const { client, calls } = imageProvider([catalogue[0]])
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      image_aspect_ratio: '9:16', image_resolution: '4K',
+      items: [item('unsupported-batch'), { ...item('valid-override'), image_resolution: '2K' }] }, imageDeps()))
+      .rejects.toThrow('9:16')
+    expect(calls.filter(call => call.method !== 'GET')).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('keeps the lowest supported landscape resolution when batch dimensions are omitted', async () => {
+    const { client, calls } = imageProvider([catalogue[0]])
+    await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [item('legacy-landscape')] }, imageDeps())
+    expect(JSON.parse(String(calls.find(call => call.method === 'POST')!.body!.modelConfig))).toMatchObject({
+      videoStandardId: 91, ratio: '16:9', resolution: '1K',
+    })
+  })
+})
+
 describe('jubian_video resolution guidance', () => {
   it.each([
     { status: 'succeeded', parent: 42, url: 'https://media.example/result.mp4', ready: 1 },

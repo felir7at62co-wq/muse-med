@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-generation-watch-submit-continuation
+profile: headless
+composition: muse-generation-watch-submit-continuation
+recording: authored
+header:
+  class: muse-generation-watch-submit-continuation
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-generation-watch-fixture

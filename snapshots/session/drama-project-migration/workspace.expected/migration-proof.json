@@ -1,0 +1,50 @@
+{
+  "sourceProject": 6292,
+  "targetProject": 6750,
+  "sourceBytesUnchanged": true,
+  "targetBindingReadBack": true,
+  "oldRemoteReferencesCopied": false,
+  "sourceMismatchProviderRequests": 0,
+  "audioAsset": 310790,
+  "audioVerifiedReadback": true,
+  "freeProviderPuts": 1,
+  "paidRequests": 0,
+  "modelObservedResult": true,
+  "outcomes": [
+    {
+      "name": "jubian_storyboard",
+      "method": "audio_preview",
+      "isError": true
+    },
+    {
+      "name": "drama_project",
+      "method": "preview",
+      "isError": false
+    },
+    {
+      "name": "drama_project",
+      "method": "update",
+      "isError": false
+    },
+    {
+      "name": "drama_project",
+      "method": "read",
+      "isError": false
+    },
+    {
+      "name": "jubian_storyboard",
+      "method": "audio_preview",
+      "isError": false
+    },
+    {
+      "name": "jubian_storyboard",
+      "method": "audio_apply",
+      "isError": false
+    },
+    {
+      "name": "jubian_storyboard",
+      "method": "get",
+      "isError": false
+    }
+  ]
+}

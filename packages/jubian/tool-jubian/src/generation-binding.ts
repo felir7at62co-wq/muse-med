@@ -2,6 +2,7 @@
  * @module @deepseek-ai/dsh-tool-jubian/generation-binding
  */
 import { isAbsolute } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -81,6 +82,110 @@ export interface GenerationExecutionLease {
   release(): void
 }
 
+interface SharedGenerationBinding {
+  binding: GenerationSessionBinding
+  controller: AbortController
+  acquisition: Promise<GenerationExecutionLease | undefined>
+  references: number
+}
+
+/** Plugin-owned execution guards shared only by one live Agent and exact recorded binding. */
+export class GenerationSessionBindings {
+  private readonly held = new Map<Agent, SharedGenerationBinding>()
+  private readonly acquisitions = new Set<Promise<GenerationExecutionLease | undefined>>()
+  private closed = false
+
+  /** @param ctx - Host plugin instance owning the workspace, directory and model services. */
+  constructor(private readonly ctx: Context) {
+    ctx.effect(() => async () => {
+      this.closed = true
+      for (const shared of this.held.values()) shared.controller.abort(new Error('generation execution owner unloaded'))
+      this.held.clear()
+      await Promise.allSettled([...this.acquisitions])
+    }, 'generation.sessionBindings')
+  }
+
+  /**
+   * Retain the original execution guards without competing with this Agent's continuation.
+   * Each reference has independent cancellation; the last release frees the underlying guards.
+   * Ownership revocation or plugin disposal invalidates every reference.
+   * @param agent - Exact live ordinary Agent.
+   * @param binding - Unchanged recorded workspace, model and directory identity.
+   * @param signal - Lifetime of this reference, independent of other callers.
+   * @returns A caller-owned reference, or undefined when an owner capability is absent.
+   */
+  async acquire(agent: Agent, binding: GenerationSessionBinding, signal: AbortSignal): Promise<GenerationExecutionLease | undefined> {
+    signal.throwIfAborted()
+    if (this.closed) throw new Error('generation execution owner unloaded')
+    let shared = this.held.get(agent)
+    if (shared !== undefined && !isDeepStrictEqual(shared.binding, binding)) {
+      throw new Error('generation execution binding differs from the held Session selection')
+    }
+    if (shared === undefined) {
+      const controller = new AbortController()
+      shared = { binding: structuredClone(binding), controller, references: 0,
+        acquisition: acquireGenerationSessionBinding(this.ctx, agent, binding, controller.signal) }
+      this.held.set(agent, shared)
+      const acquisition = shared.acquisition
+      this.acquisitions.add(acquisition)
+      void acquisition.then(() => { this.acquisitions.delete(acquisition) }, () => { this.acquisitions.delete(acquisition) })
+    }
+    const current = shared
+    current.references++
+    const lifetime = new AbortController()
+    let ownerSignal: AbortSignal | undefined
+    const release = () => {
+      if (lifetime.signal.aborted) return
+      signal.removeEventListener('abort', release)
+      current.controller.signal.removeEventListener('abort', release)
+      ownerSignal?.removeEventListener('abort', release)
+      lifetime.abort(signal.aborted ? signal.reason : ownerSignal?.reason
+        ?? current.controller.signal.reason ?? new Error('generation execution reference released'))
+      current.references--
+      if (current.references === 0) {
+        this.held.delete(agent)
+        current.controller.abort(new Error('generation execution binding has no remaining references'))
+      }
+    }
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      lifetime.signal.addEventListener('abort', () => {
+        const reason: unknown = lifetime.signal.reason
+        reject(reason instanceof Error ? reason : new Error('generation execution reference cancelled', { cause: reason }))
+      }, { once: true })
+    })
+    signal.addEventListener('abort', release, { once: true })
+    current.controller.signal.addEventListener('abort', release, { once: true })
+    if (signal.aborted || current.controller.signal.aborted) release()
+    try {
+      const lease = await Promise.race([current.acquisition, cancelled])
+      if (lease === undefined) { release(); return undefined }
+      ownerSignal = lease.signal
+      ownerSignal.addEventListener('abort', release, { once: true })
+      if (ownerSignal.aborted) release()
+      const assertCurrent = () => { lifetime.signal.throwIfAborted(); lease.assertCurrent() }
+      assertCurrent()
+      return { signal: lifetime.signal, assertCurrent, release }
+    } catch (error) {
+      release()
+      throw error
+    }
+  }
+
+  /**
+   * Capture and retain this Agent's exact submission selection.
+   * @param agent - Ordinary Agent executing the native submission.
+   * @param signal - Lifetime of this submission reference.
+   * @returns Original binding and its reference, or undefined without owner capabilities.
+   */
+  async capture(agent: Agent, signal: AbortSignal):
+  Promise<{ binding: GenerationSessionBinding; lease: GenerationExecutionLease } | undefined> {
+    const binding = await captureGenerationBinding(this.ctx, agent, signal)
+    if (binding === undefined) return undefined
+    const lease = await this.acquire(agent, binding, signal)
+    return lease === undefined ? undefined : { binding, lease }
+  }
+}
+
 /**
  * Hold a recorded native binding with the real workspace, model and directory owners.
  * @param ctx - Native Host composition providing the owner services.
@@ -153,6 +258,13 @@ export async function acquireGenerationSessionBinding(
 export async function captureGenerationSessionBinding(
   ctx: Context, agent: Agent, signal: AbortSignal,
 ): Promise<{ binding: GenerationSessionBinding; lease: GenerationExecutionLease } | undefined> {
+  const binding = await captureGenerationBinding(ctx, agent, signal)
+  if (binding === undefined) return undefined
+  const lease = await acquireGenerationSessionBinding(ctx, agent, binding, signal)
+  return lease === undefined ? undefined : { binding, lease }
+}
+
+async function captureGenerationBinding(ctx: Context, agent: Agent, signal: AbortSignal): Promise<GenerationSessionBinding | undefined> {
   const authority = ctx.get('generationWorkspaceAuthority'), directory = ctx.get('workingDirectory')
   if (authority === undefined || directory === undefined || agent.model.guard === undefined) return undefined
   signal.throwIfAborted()
@@ -164,7 +276,5 @@ export async function captureGenerationSessionBinding(
   const workingDirectory = directory.get(agent.session)
   const identity = await authority.capture(agent.session.id, signal)
   if (identity === undefined) return undefined
-  const binding = generationSessionBindingSchema.parse({ ...identity, workingDirectory, model })
-  const lease = await acquireGenerationSessionBinding(ctx, agent, binding, signal)
-  return lease === undefined ? undefined : { binding, lease }
+  return generationSessionBindingSchema.parse({ ...identity, workingDirectory, model })
 }

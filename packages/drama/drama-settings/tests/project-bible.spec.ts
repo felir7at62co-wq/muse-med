@@ -22,6 +22,236 @@ async function bench() {
   ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
 }
 
+type MigrationFixtureConfig = Record<string, JsonValue> & {
+  project_bible: Record<string, JsonValue> & {
+    video: Record<string, JsonValue>
+    delivery: Record<string, JsonValue>
+    characters: Record<string, JsonValue>[]
+  }
+}
+
+async function migrationFixture() {
+  const { ctx, home } = await bench()
+  const target = join(home, 'target')
+  await mkdir(target)
+  const changes = { jubian_script_id: 6292, title: 'Original project', style: 'Warm film lighting',
+    visual_medium: 'photorealistic', aspect_ratio: '9:16',
+    video: { model_id: 'approved-model', platform_id: 'approved-platform', resolution: '480p' },
+    delivery: { width: 1080, height: 1920,
+      draft_style: { watermark: { font_size_ui: 8 }, subtitle: { font_family: 'Noto', font_size_ui: 12 } },
+      subtitle_visual: { schema_version: 1, reference_width: 480, reference_height: 854,
+        font_size_px: 42, outline_px: 2, center_y_ratio: 0.6, max_width_ratio: 0.9 } },
+    episode_plan: { mode: 'fixed', episode_count: 80 },
+    characters: [{ character_id: 'lead', name: 'Lead', aliases: ['Main'], role_class: 'lead', asset_id: 70001,
+      voice_profile: { description: 'Calm adult voice', speaker_id: 'old-provider-speaker', reference_audio: 'old.wav' },
+      voice_profiles: [{ voice_period_id: 'adult', label: 'Adult', description: 'Calm adult voice',
+        reference_audio: 'https://example.com/old.wav', reference_audio_asset_id: 70002,
+        reference_audio_sha256: 'a'.repeat(64), reference_audio_duration_seconds: 2 }] }],
+    package_bindings: [{ package_id: 'P1', storyboard_id: 80001, episode_id: 80002 }],
+    completed_tasks: [{ task_id: '90001', kind: 'video', result_ref: 'old-video.mp4' }] }
+  const preview = await previewProjectBible(ctx.settings, home, changes, 'Initial source')
+  await updateProjectBible(ctx.settings, home, changes, 'Initial source', preview.expected_revision, preview.preview_fingerprint)
+  const configPath = join(home, 'project_config.json')
+  const stored = JSON.parse(await readFile(configPath, 'utf8')) as MigrationFixtureConfig
+  stored.asset_dir = 'old-assets'
+  stored.custom = { retained: true }
+  stored.project_bible.initial_budget_cents = 1234
+  stored.project_bible.video.foreign_asset_id = 80003
+  stored.project_bible.delivery.audio = { master_gain: 1.2, bgm_gain: 0.24, bgm_path: 'old-music.wav' }
+  stored.project_bible.delivery.subtitle = { font_size_px: 40, source_path: 'old-subtitles.srt' }
+  await writeFile(configPath, `${JSON.stringify(stored)}\n`)
+  return { ctx, home, target, configPath, source: { project_dir: home, script_id: 6292 } }
+}
+
+it('migrates reviewed creative settings through the Loader while retaining the original project and clearing remote references', async () => {
+  const { ctx, home, target, configPath, source } = await migrationFixture()
+  const original = await readFile(configPath, 'utf8')
+  const execute = async (args: object) => {
+    const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('migration'),
+      arguments: { project_dir: target, migration_from: source, changes: { jubian_script_id: 6750 },
+        reason: 'Move production to project 6750', ...args }, signal: new AbortController().signal })
+    expect(outcome.isError).toBe(false)
+    const block = outcome.content[0]
+    if (block?.type !== 'text') throw new Error('Expected project migration JSON')
+    return JSON.parse(block.text) as {
+      expected_revision: string
+      preview_fingerprint: string
+      status: string
+      migration: {
+        source_project_dir: string
+        source_script_id: number
+        target_script_id: number
+      }
+      proposed: object
+    }
+  }
+  const preview = await execute({ action: 'preview' })
+  expect(preview.expected_revision).toBe('missing')
+  expect(preview.migration).toMatchObject({ source_project_dir: home, source_script_id: 6292, target_script_id: 6750 })
+  await expect(readFile(join(target, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  const updated = await execute({ action: 'update', expected_revision: preview.expected_revision,
+    preview_fingerprint: preview.preview_fingerprint })
+  expect(updated.status).toBe('ready')
+  const copied = JSON.parse(await readFile(join(target, 'project_config.json'), 'utf8')) as MigrationFixtureConfig
+  expect(copied).toEqual(preview.proposed)
+  expect(Object.keys(copied).sort()).toEqual(['jubian_script_id', 'project_bible'])
+  expect(copied).toMatchObject({ jubian_script_id: 6750, project_bible: {
+    title: 'Original project', style: 'Warm film lighting', visual_medium: 'photorealistic', aspect_ratio: '9:16',
+    revision: 1, initial_budget_cents: 400000,
+    video: { model_id: 'approved-model', platform_id: 'approved-platform', resolution: '480p' },
+    delivery: { width: 1080, height: 1920, audio: { master_gain: 1.2, bgm_gain: 0.24 }, subtitle: { font_size_px: 40 } },
+    episode_plan: { mode: 'fixed', episode_count: 80 },
+  } })
+  expect(copied.project_bible.characters).toEqual([{ character_id: 'lead', name: 'Lead', aliases: ['Main'], role_class: 'lead',
+    voice_profile: { description: 'Calm adult voice' },
+    voice_profiles: [{ voice_period_id: 'adult', label: 'Adult', description: 'Calm adult voice' }] }])
+  expect(copied.project_bible.history).toHaveLength(1)
+  expect(copied.project_bible).not.toHaveProperty('package_bindings')
+  expect(copied.project_bible).not.toHaveProperty('completed_tasks')
+  expect(copied.project_bible.video).not.toHaveProperty('foreign_asset_id')
+  expect(copied.project_bible.delivery.audio).not.toHaveProperty('bgm_path')
+  expect(copied.project_bible.delivery.subtitle).not.toHaveProperty('source_path')
+  expect(await readFile(configPath, 'utf8')).toBe(original)
+  expect(await readFile(join(target, 'project-bible.md'), 'utf8')).toContain('远端项目：6750')
+})
+
+it.each<[Record<string, JsonValue>, string]>([
+  [{}, 'changes.jubian_script_id'],
+  [{ jubian_script_id: 6292 }, 'different target jubian_script_id'],
+  [{ jubian_script_id: 6750, package_bindings: [{ package_id: 'old', storyboard_id: 80001 }] }, 'only creative settings'],
+  [{ jubian_script_id: 6750, characters: [{ character_id: 'lead', name: 'Lead', asset_id: 70001 }] }, 'only creative settings'],
+  [{ jubian_script_id: 6750, characters: [{ character_id: 'lead', name: 'Lead',
+    voice_profile: { description: 'Voice', reference_audio: 'old.wav' } }] }, 'only creative settings'],
+])('refuses an invalid migration request without writing the target: %j', async (changes, message) => {
+  const { ctx, target, source } = await migrationFixture()
+  await expect(previewProjectBible(ctx.settings, target, changes, 'Migration', undefined, source)).rejects.toThrow(message)
+  await expect(readFile(join(target, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('requires the source binding and a different unconfigured target while ordinary updates retain the original binding', async () => {
+  const { ctx, home, target, configPath, source } = await migrationFixture()
+  const changes = { jubian_script_id: 6750 }
+  await expect(previewProjectBible(ctx.settings, home, changes, 'Migration', undefined, source))
+    .rejects.toThrow('different target directory')
+  await expect(updateProjectBible(ctx.settings, home, changes, 'Migration', 'missing', 'unused', undefined, undefined, source))
+    .rejects.toThrow('different target directory')
+  await expect(previewProjectBible(ctx.settings, target, changes, 'Migration', undefined, { ...source, script_id: 6750 }))
+    .rejects.toThrow('differs from the source project binding')
+  await expect(previewProjectBible(ctx.settings, home, changes, 'Ordinary edit')).rejects.toThrow('already bound')
+  await writeFile(join(target, 'project_config.json'), '{}')
+  await expect(previewProjectBible(ctx.settings, target, changes, 'Migration', undefined, source))
+    .rejects.toThrow('target without project_config.json')
+  expect((JSON.parse(await readFile(configPath, 'utf8')) as MigrationFixtureConfig).jubian_script_id).toBe(6292)
+  expect(await readFile(join(target, 'project_config.json'), 'utf8')).toBe('{}')
+})
+
+it.each(['source', 'target'] as const)('refuses a migration when the %s configuration changes after preview', async (changed) => {
+  const { ctx, target, configPath, source } = await migrationFixture()
+  const changes = { jubian_script_id: 6750 }
+  const preview = await previewProjectBible(ctx.settings, target, changes, 'Migration', undefined, source)
+  const changedPath = changed === 'source' ? configPath : join(target, 'project_config.json')
+  const content = changed === 'source' ? `${await readFile(configPath, 'utf8')} ` : '{}'
+  await writeFile(changedPath, content)
+  await expect(updateProjectBible(ctx.settings, target, changes, 'Migration', preview.expected_revision,
+    preview.preview_fingerprint, undefined, undefined, source)).rejects.toThrow(changed === 'source'
+    ? 'Preview changed' : 'target without project_config.json')
+  expect(await readFile(changedPath, 'utf8')).toBe(content)
+  if (changed === 'source') await expect(readFile(join(target, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(readFile(join(target, '.project-bible.lock'))).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(readFile(join(source.project_dir, '.project-bible.lock'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it.each(['project-bible.md', 'assets_manifest.json', 'pipeline_state.json', 'video_tasks'])(
+  'refuses target residue %s instead of adopting prior project work', async (name) => {
+    const { ctx, target, source } = await migrationFixture()
+    await writeFile(join(target, name), 'prior project')
+    await expect(previewProjectBible(ctx.settings, target, { jubian_script_id: 6750 }, 'Migration', undefined, source))
+      .rejects.toThrow('empty target directory')
+    expect(await readFile(join(target, name), 'utf8')).toBe('prior project')
+    await expect(readFile(join(target, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  },
+)
+
+it('releases its target lock when a source writer is active and preserves the other writer lock', async () => {
+  const { ctx, target, source } = await migrationFixture()
+  const changes = { jubian_script_id: 6750 }
+  const preview = await previewProjectBible(ctx.settings, target, changes, 'Migration', undefined, source)
+  const sourceLock = join(source.project_dir, '.project-bible.lock')
+  await writeFile(sourceLock, 'other writer')
+  await expect(updateProjectBible(ctx.settings, target, changes, 'Migration', preview.expected_revision,
+    preview.preview_fingerprint, undefined, undefined, source)).rejects.toThrow('Another project bible update')
+  expect(await readFile(sourceLock, 'utf8')).toBe('other writer')
+  await expect(readFile(join(target, '.project-bible.lock'))).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(readFile(join(target, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('creates no source or target writer lock when migration is cancelled before commit', async () => {
+  const { ctx, target, source } = await migrationFixture()
+  const changes = { jubian_script_id: 6750 }
+  const preview = await previewProjectBible(ctx.settings, target, changes, 'Migration', undefined, source)
+  const controller = new AbortController()
+  controller.abort(new Error('Migration cancelled'))
+  await expect(updateProjectBible(ctx.settings, target, changes, 'Migration', preview.expected_revision,
+    preview.preview_fingerprint, controller.signal, undefined, source)).rejects.toThrow('Migration cancelled')
+  for (const directory of [target, source.project_dir]) {
+    await expect(readFile(join(directory, '.project-bible.lock'))).rejects.toMatchObject({ code: 'ENOENT' })
+  }
+})
+
+it('preserves inherited typography, mixing and other characters when migration changes are partial', async () => {
+  const { ctx, target, configPath, source } = await migrationFixture()
+  const config = JSON.parse(await readFile(configPath, 'utf8')) as MigrationFixtureConfig
+  config.project_bible.characters.push({ character_id: 'support', name: 'Support' })
+  await writeFile(configPath, JSON.stringify(config))
+  const changes = { jubian_script_id: 6750,
+    delivery: { subtitle: { require_speech_coverage: true }, audio: { require_music_decision: true },
+      draft_style: { subtitle: { font_size_ui: 11 } } },
+    characters: [{ character_id: 'lead', name: 'Renamed lead', voice_profile: { description: 'Updated voice guidance' } }] }
+  const preview = await previewProjectBible(ctx.settings, target, changes, 'Partial migration', undefined, source)
+  expect(preview.proposed).toMatchObject({ project_bible: {
+    delivery: { subtitle: { font_size_px: 40, require_speech_coverage: true },
+      audio: { master_gain: 1.2, bgm_gain: 0.24, require_music_decision: true } },
+    characters: [{ character_id: 'lead', name: 'Renamed lead', aliases: ['Main'], role_class: 'lead',
+      voice_profile: { description: 'Updated voice guidance' },
+      voice_profiles: [{ voice_period_id: 'adult', label: 'Adult', description: 'Calm adult voice' }] },
+    { character_id: 'support', name: 'Support' }],
+  } })
+})
+
+it('migrates legacy project names, ratios and complete video selections without carrying old paths or inventing missing selectors', async () => {
+  const { ctx, home } = await bench()
+  const target = join(home, 'target')
+  await mkdir(target)
+  const legacy: Record<string, JsonValue> = { jubian_script_id: 6292, project_name: '替嫁复仇', ratio: '9:16',
+    video_model: 'doubao-seedance-2-5-260628', platform_id: 'FANG_ZHOU', resolution: '480p',
+    asset_dir: 'old-assets', note: 'Old episode 142910', delivery: { max_effective_chars_per_shot: 18 } }
+  const configPath = join(home, 'project_config.json')
+  const source = { project_dir: home, script_id: 6292 }
+  await writeFile(configPath, JSON.stringify(legacy))
+  const preview = await previewProjectBible(ctx.settings, target, { jubian_script_id: 6750 }, 'Legacy migration', undefined, source)
+  expect(preview.proposed).toMatchObject({ jubian_script_id: 6750, project_bible: {
+    title: '替嫁复仇', aspect_ratio: '9:16', delivery: { max_effective_chars_per_shot: 18 },
+    video: { model_id: 'doubao-seedance-2-5-260628', platform_id: 'FANG_ZHOU', resolution: '480p' },
+  } })
+  expect(preview.proposed).not.toHaveProperty('asset_dir')
+  expect(preview.proposed).not.toHaveProperty('note')
+  delete legacy.platform_id
+  await writeFile(configPath, JSON.stringify(legacy))
+  const incomplete = await previewProjectBible(ctx.settings, target, { jubian_script_id: 6750 }, 'Legacy migration', undefined, source)
+  expect(incomplete.proposed).not.toHaveProperty('project_bible.video')
+})
+
+it('rejects migration_from on the read-only project action', async () => {
+  const { ctx, home, target } = await migrationFixture()
+  const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('migration-read'),
+    arguments: { action: 'read', project_dir: target, migration_from: { project_dir: home, script_id: 6292 } },
+    signal: new AbortController().signal })
+  expect(outcome.isError).toBe(true)
+  const block = outcome.content[0]
+  if (block?.type !== 'text') throw new Error('Expected project migration rejection')
+  expect(block.text).toContain('only valid for preview/update')
+})
+
 it.each([
   { delivery: { require_source_review: 'yes' }, message: 'delivery.require_source_review must be a boolean' },
   { delivery: { audio: { require_music_decision: 'yes' } }, message: 'delivery.audio.require_music_decision must be a boolean' },

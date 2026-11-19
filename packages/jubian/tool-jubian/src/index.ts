@@ -74,7 +74,7 @@ import type {
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
 import { GenerationWatchRuntime } from './generation-watch.ts'
 import { GenerationWatchStore } from './generation-watch-store.ts'
-import { captureGenerationSessionBinding } from './generation-binding.ts'
+import { GenerationSessionBindings } from './generation-binding.ts'
 import type { GenerationSessionBinding } from './generation-binding.ts'
 import { registerGenerationWatchDelivery } from './generation-watch-delivery.ts'
 import { createNativeGenerationDelivery } from './generation-watch-native-delivery.ts'
@@ -268,17 +268,18 @@ const ARGS = {
     image_model_id: { type: 'string', description: '本项可选的 task_type=2 实时目录精确 modelId；省略沿用已选默认生图模型。' },
     image_resolution: { type: 'string', description: '本项可选的目录分辨率，如 1K、2K、4K。' },
     image_platform_id: { type: 'string', description: '本项可选的实时通道 platformId；切换前核对授权、价格与旧任务。' },
+    image_aspect_ratio: { type: 'string', enum: ['16:9', '9:16'], description: '本项图片画幅；省略时沿用批次 image_aspect_ratio。' },
     references: { type: 'array', items: { type: 'string' }, description: '本项有序参考图 HTTPS URL；角色重生成省略时继承本项目该父资产唯一已采用图片，显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。' },
     parent_asset_id: { type: 'number', description: '可选：重生成的父资产 ID；省略则新建。' },
   } }, description: 'image_generate_batch 必填：同一 script_id 下各不相同的资产请求；每项独立 key，整批先校验后并发执行。' },
   image_style: { type: 'string', enum: ['live_action', 'anime'],
     description: 'image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别开头的正向媒介，可带“项目风格：”或“项目风格:”前缀，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。image_generate_batch 仅接受每项 items.image_style，顶层提供会被拒绝。' },
-  image_spec_id: { type: 'integer', description: 'image_generate 可选：所选模型 videoStandards 的精确 id，不能把模型计价行 id 当成此规格 id。' },
-  image_model_id: { type: 'string', description: 'image_generate 可选：task_type=2 实时目录中的精确 modelId；显式选模型时重新匹配其通道，不套用其他模型的默认通道。' },
-  image_resolution: { type: 'string', description: 'image_generate 可选：所选模型目录支持的分辨率，如 1K、2K、4K。' },
-  image_platform_id: { type: 'string', description: 'image_generate 可选：仅本次使用实时目录中的指定 platformId；省略时使用设置或部署已选通道。切换前核对价格、授权和上一笔结果；超时或未知结果不能直接换通道重投。' },
+  image_spec_id: { type: 'integer', description: 'image_generate 可选或 image_generate_batch 默认：所选模型 videoStandards 的精确 id，不能把模型计价行 id 当成此规格 id。' },
+  image_model_id: { type: 'string', description: 'image_generate 可选或 image_generate_batch 默认：task_type=2 实时目录中的精确 modelId；显式选模型时重新匹配其通道，不套用其他模型的默认通道。' },
+  image_resolution: { type: 'string', description: 'image_generate 可选或 image_generate_batch 默认：所选模型目录支持的分辨率，如 1K、2K、4K；批次每项可覆盖。' },
+  image_platform_id: { type: 'string', description: 'image_generate 可选或 image_generate_batch 默认：实时目录中的指定 platformId；省略时使用设置或部署已选通道。切换前核对价格、授权和上一笔结果；超时或未知结果不能直接换通道重投。' },
   image_aspect_ratio: { type: 'string', enum: ['16:9', '9:16'],
-    description: 'image_generate 可选：图片画幅；省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，同画幅和分辨率重复时可用 image_spec_id 指定目录规格。' },
+    description: 'image_generate 可选或 image_generate_batch 默认：图片画幅；批次每项可覆盖，全部省略时保持 16:9。按所选通道的实时规格目录选择对应 videoStandardId，同画幅和分辨率重复时可用 image_spec_id 指定目录规格。' },
   references: { type: 'array', items: { type: 'string' },
     description: 'image_generate 可选：有序参考图 HTTPS URL，顺序即生成顺序。角色重生成省略时继承本项目该父资产唯一已采用图片；显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。' },
   character_reference: { type: 'object', additionalProperties: false,
@@ -602,6 +603,7 @@ function characterReferenceAuthorityFor(
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const generationBindings = new WeakMap<object, GenerationPresentation>()
+  const generationSessionBindings = new GenerationSessionBindings(ctx)
   const episodeUi = EpisodeUiConfig.parse({ episodePollIntervalMs: config.episodePollIntervalMs })
   if (config.sessionVideoSelection !== undefined && typeof config.sessionVideoSelection !== 'boolean') {
     throw new Error('sessionVideoSelection must be a boolean')
@@ -763,7 +765,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }
   if (config.generationWatch) ctx.inject(['agents', 'agentLoop', 'tools', 'sessionProjections', 'sessionController', 'sessions', 'sessionPersistence'], async (scope) => {
     const projection = await registerGenerationWatchDelivery(scope)
-    const deliver = createNativeGenerationDelivery(scope, projection)
+    const deliver = createNativeGenerationDelivery(scope, projection, generationSessionBindings)
     scope.effect(() => {
       const watch = new GenerationWatchRuntime({ ...watchConfig, client, ledger,
         store: new GenerationWatchStore(config.generationWatchRoot ?? join(home, 'jubian', 'generation-watches')),
@@ -1321,7 +1323,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
             previewPath: resolve(item.preview_path), key: requireKey(item.idempotency_key) }))
           : [{ previewPath: await resolvePreviewPath(input), key: requireKey(input.idempotency_key) }]
         if (packs.length === 0 || packs.length > videoBatch.maxItems) return await dispatch()
-        const captured = await captureGenerationSessionBinding(ctx, agent, exec.signal)
+        const captured = await generationSessionBindings.capture(agent, exec.signal)
         if (captured === undefined) throw new Error('Video submission requires the original native Session, model and owned Workspace')
         try {
           dispatchSignal = AbortSignal.any([exec.signal, captured.lease.signal])
@@ -1381,6 +1383,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + 'failed 表示提供方判失败，先核对实际费用与原因，不自动换 key；unverified 表示本次新图尚未证实，不能用同名资产或旧材质代替。'
       + '**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。'
       + '工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。'
+      + '顶层 image_model_id/image_platform_id/image_spec_id/image_resolution/image_aspect_ratio 是批次默认，每项可覆盖；'
+      + '单项切换到不同模型时重新匹配通道和规格，切换到不同通道时重新匹配规格；重复相同选择保留规格，画幅与分辨率仍沿用批次默认。'
       + '随后按配置的并发上限逐项提交计费请求，'
       + '全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；'
       + '返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。'

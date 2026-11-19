@@ -168,7 +168,7 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
 
 `jubian_asset generated_image` 对可用图片返回 `{image: {url, material_id}}`。多行记录无法根据显式提供的 `task_id` 唯一匹配时，返回 `image: null`、`requires_review: true` 及 `unverified_candidates`，逐行列出可用的身份、状态和 URL（可能为空）。此读取操作不会选择、绑定或确认候选；旧的 Active／已用材质不能证明本次生成成功。后续单独调用的 `confirm_casting` 不受 `requires_review` 硬性拦截，调用方须先人工核对身份。接口提供任务状态时，`generation` 保留原任务与结果 ID，区分生成中、成功、失败和未知状态。失败任务返回 `image: null`、分类后的 `error_code` 和已确认的参考图上限；供应商消息不会直接进入模型输入。KU_AI 最多接受五张参考图，单项与批量生成都会在付费写入前检查；批量会检查完所有项目再提交。生成失败不会抹掉账本中已受理的费用。
 
-单张 `image_generate` 可选填 `image_aspect_ratio`，仅接受 `16:9`（保持原默认）或 `9:16`。工具在已选模型／平台的实时目录行中寻找匹配的 `videoStandardId`；`imageStandardId` 仍只锁定计价模型行，不选择画幅。`references` 的顺序原样进入 `materialList`。不支持的画幅或缺少匹配规格会在计费资产请求前被拒绝。`image_generate_batch` 暂不暴露此参数，批次项仍默认 16:9。远端是否受理 9:16 图片仍须另行验证。
+`image_generate` 和 `image_generate_batch` 的 `image_aspect_ratio` 接受 `16:9`（默认）或 `9:16`。批量请求将顶层图片模型、平台、规格、分辨率及画幅字段用作默认值，各项可分别覆盖。单项切换到不同模型时清除继承的平台与规格选择，切换到不同平台时清除继承的规格；重复相同选择会保留规格。工具在任何计费请求前对照实时目录校验全部批次项。`imageStandardId` 仍锁定计价模型行，匹配的 `videoStandardId` 选择尺寸。`references` 的顺序原样进入 `materialList`。不支持的画幅或缺少规格会在计费前被拒绝。远端是否受理 9:16 图片仍须另行验证。
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)是每个受支持字段及其 JSDoc 的穷尽式真源。这一行注入 `tools` 与 `credentials`，注册十二个核心工具及普通会话中的项目私有授权工具，并挂载三个 Remote 命名空间：账户凭证使用的 `jubianToken`、账户 `gpt-image-2` 行使用的 `jubianImage`，以及设置页读取和修改实际项目额度与账务使用的 `jubianBudget`；既没有按工具启用的开关，也没有单独的一行页面配置。
 
@@ -290,7 +290,7 @@ inherited process environment (read-only, highest)
 
 启用 `generationWatch` 后，原生 `submit_video`、`submit_video_batch` 及 `generate` 的原生提交阶段在派发前登记原预览 key。可信工具体结果记录原 Session、模型与推理级别、工作目录和带版本的工作区成员关系；工具返回 `generation_watch_id`。Host 观察已有提供方任务，缺少回执时按原 key 只读对账。新视频 PUT 共用账本写锁，并在派发前持久记录发送栅栏。只有已结束的初次派发提供可信未发送证据，才允许显式更正的同 key 后继记录；旧回执保持原样。结果不明不授权重发。
 
-全部视频包取得核实的终态或达到观察期限后，自动续聊解析原普通 Session，并要求原模型、目录及未归档工作区成员关系。Desktop 提供独占的后继工作区存储，保留原 JSON、全部 Session 与 Workspace ID。历史绑定缺失、成员被替换、其他活动所有者或模型变化时，通知保留待复核；不新建替代会话，也不覆盖用户后来选择的模型。作用域租约保护实际模型请求与工具执行；所有者撤销会取消续聊。
+全部视频包取得核实的终态或达到观察期限后，自动续聊解析原普通 Session，并要求原模型、目录及未归档工作区成员关系。Desktop 提供独占的后继工作区存储，保留原 JSON、全部 Session 与 Workspace ID。历史绑定缺失、成员被替换、其他活动所有者或模型变化时，通知保留待复核；不新建替代会话，也不覆盖用户后来选择的模型。作用域租约保护实际模型请求与工具执行；所有者撤销会取消续聊。 同一活动 Session 且绑定完全一致的提交与后台通知共享执行保护。每个操作独立取消，所有者撤销会取消使用该绑定的全部操作。
 
 原通知 ID 与持久 inbox claim 在重启后区分排队、已领取与已完成的输入。尚未送入模型请求的输入，在重新核实原绑定后可以恢复；已经送入请求但结果不明的输入保留，不自动重放。用户取消和续聊失败需要复核。生产者卸载前先暂停自己排队的自动输入，再释放守卫；重载须重新核实原绑定才能恢复。提供方成功只证明任务与子结果身份，不代表画面、语音内容或交付验收。下载、审查和组装继续沿用原 key。
 
@@ -377,7 +377,7 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 选材和预检会排除明确标记 `isUsed=0` 的未使用历史记录；待处理、状态未知或多个已使用记录仍视为歧义。身份、项目与 URL 校验照常执行。
 
-已存图片没有合法的数字型 `materialAssetId` 时，`prepare_video` 只读有效主体清单，要求正式主体 ID、图片 URL 与项目唯一对应一条记录，再读取该记录的数字型父资产。缺失或不唯一的映射会在预览和计费提交前阻断；本地 `asset-...` ID 不会用作数字父资产路径。读取失败会标出预检步骤及可用的数字远端错误码，不暴露提供方消息原文。
+已存图片没有合法的数字型 `materialAssetId` 时，`prepare_video` 只读有效主体清单，要求正式主体 ID、图片 URL 与项目唯一对应一条记录，再读取该记录的数字型父资产。缺失或不唯一的映射会在预览和计费提交前阻断；本地 `asset-...` ID 不会用作数字父资产路径。读取失败会标出预检步骤及可用的数字远端错误码，不暴露提供方消息原文。 本地预览校验还会保留具体违反的约束，便于调用方修正输入。
 
 主体素材和视频任务列表可读取仅含一条记录的顶层数组，视频模型目录也支持同样格式。素材身份、分页完整性和生成安全校验仍然生效。
 
@@ -430,6 +430,8 @@ select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> s
 `submit_video` 及批次中每个已提交项返回 `put_error`，值为 null 或已去除凭据的传输诊断 `{code, message}`；意外的本地异常只显示通用信息。`put_sent: true` 表示已尝试发出 PUT，包括业务拒绝或连接失败，不代表任务已创建或已计费。结果不明的提交保留预约金额，原键仍只做只读对账。
 
 由于 key 就是 preview 的 fingerprint，同一个 preview 文件一生只能造成一次请求。因此 preview **不能**与 CLI 自己产出的 prepared 文件互换：两边的序列化文本不同，一方写出的 preview 在另一方那里会被判为过期而拒绝。
+
+校验本地项目绑定的操作在 `project_config.json` 缺失、无法读取、格式无效或未指向目标剧变项目时返回 `PROJECT_BINDING_INVALID`。提示会说明哪项校验失败，不包含文件绝对路径或内容。请打开目标项目目录并核对 `jubian_script_id`，再调用工具。
 
 ### 计费生图路径
 

@@ -55,7 +55,8 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
     }
   }
   expect([...source.matchAll(/^!macro customHeader\r?$/gmu)]).toHaveLength(1)
-  const header = source.slice(source.indexOf('!macro customHeader'), source.indexOf('!macroend'))
+  const headerStart = source.indexOf('!macro customHeader')
+  const header = source.slice(headerStart, source.indexOf('!macroend', headerStart))
   expect(header).toContain('!ifndef BUILD_UNINSTALLER')
   expect(header).toContain('Function MuseEnsureVCRuntime')
   expect(header).toContain('FunctionEnd')
@@ -63,7 +64,8 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
   expect(source).toContain('Abort "$5"')
   expect(source).not.toMatch(/https?:\/\/|NSISdl|inetc::|ExecWait|SKIP.*(?:REDIST|PREREQ)/iu)
   expect(source).toContain('!insertmacro dshFinishDirectories')
-  expect(source.indexOf('!insertmacro dshFinishDirectories')).toBeLessThan(source.lastIndexOf('Call MuseEnsureVCRuntime'))
+  expect(source.indexOf('!insertmacro dshFinishDirectories')).toBeGreaterThan(source.lastIndexOf('Call MuseEnsureVCRuntime'))
+  expect(source.indexOf('Call dshRecordRetainedCompletion')).toBeLessThan(source.indexOf('!insertmacro dshFinishDirectories'))
 })
 
 it('declares each prerequisite message once per shipped language in production and the actual installer fixture', async () => {
