@@ -1,12 +1,12 @@
 /** Relative projects resolve against the calling Session workspace, and silent screenplay results carry a model-visible note. */
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { Context } from '@deepseek-ai/cordis'
-import { MuseAccountService, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
+import { MuseAccountService, MuseAsrClient, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { ToolCallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -25,14 +25,15 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true })
 })
 
-async function fixture(options: { identity?: MuseAccountStatus; refreshModels?: () => Promise<void> } = {}) {
+async function fixture(options: { identity?: MuseAccountStatus; refreshModels?: () => Promise<void>; asr?: MuseAsrClient } = {}) {
   const ctx = new Context()
   contexts.push(ctx)
   const status = async (): Promise<MuseAccountStatus> => options.identity ?? { state: 'signed-out' }
   await ctx.plugin(MuseAccountService, { controller: {
     details: async () => { throw new Error('Unused fixture details') },
     status, logout: status, login: async () => { throw new Error('login is not part of a model tool call') },
-  }, ...(options.refreshModels === undefined ? {} : { models: { refresh: options.refreshModels } }) })
+  }, ...(options.refreshModels === undefined ? {} : { models: { refresh: options.refreshModels } }),
+  ...(options.asr === undefined ? {} : { asr: options.asr }) })
   await ctx.plugin(SystemPrompt).await()
   await ctx.plugin(ToolRuntime, {}).await()
   await ctx.plugin(NativeToolExecutor)
@@ -108,6 +109,48 @@ it('resumes an owned receipt without waiting for the model catalog and still rej
   } finally { release.resolve(undefined); await operation }
   await account.status({})
   expect(refreshModels).toHaveBeenCalledOnce()
+})
+
+it('only status can resume a never-accepted receipt with its original audio and purpose', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'muse-audio-local-gateway-'))
+  directories.push(home)
+  const baseUrl = 'https://muse.test', username = 'writer', sessionFile = join(home, 'session.json')
+  await writeFile(sessionFile, JSON.stringify({ baseUrl, username, revision: randomUUID(), cookie: '__Host-muse=fixture' }))
+  const id = randomUUID(), audio = 'fixtures are local', sha256 = createHash('sha256').update(audio).digest('hex')
+  const job = { id, purpose: 'screenplay', service_version: 'standard-v2', status: 'processing' }
+  let accepted = false
+  const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+    if (init?.method === 'GET') return accepted ? Response.json(job) : Response.json({ error: 'ASR job not found' }, { status: 404 })
+    if (init?.method !== 'POST' || !(init.body instanceof Blob)) throw new Error('Expected staged audio upload')
+    expect(await init.body.text()).toBe(audio)
+    accepted = true
+    return Response.json(job, { status: 202 })
+  })
+  const asr = new MuseAsrClient({ baseUrl, sessionFile, requestTimeoutMs: 2000, fetcher })
+  const { workspace, call, agent } = await fixture({ asr, identity: { state: 'signed-in', username, verified: false } })
+  const project = join(workspace, 'proj'), jobs = join(project, 'transcript', 'jobs'), mp3 = join(jobs, '.' + id + '.wav')
+  const receipt = 'transcript/jobs/original-v1.json'
+  await mkdir(jobs, { recursive: true })
+  await writeFile(mp3, audio)
+  await writeFile(join(project, receipt), JSON.stringify({ id, sha256, mp3, source: join(project, 'original.mp4'),
+    stem: 'original', version: 1, accountUsername: username, language: 'auto', purpose: 'screenplay', status: 'prepared' }))
+  const read = (method: 'inspect' | 'status') => call({ method, project: 'proj', receipt }, agent)
+  const inspected = await read('inspect')
+  expect(inspected.isError).toBe(false)
+  expect(inspected.value).toMatchObject({ job_id: id, error_code: 'job-not-found' })
+  expect(fetcher.mock.calls.map(([, init]) => init?.method)).toEqual(['GET'])
+  for (const _attempt of [1, 2]) {
+    const result = await read('status')
+    expect(result.isError).toBe(false)
+    expect(result.value).toMatchObject({ job_id: id, purpose: 'screenplay', status: 'processing', service_version: 'standard-v2' })
+  }
+  const queryPath = '/api/asr/jobs/' + id
+  expect(fetcher.mock.calls.map(([url, init]) => [new URL(String(url)).pathname, init?.method])).toEqual([
+    [queryPath, 'GET'], [queryPath, 'GET'], ['/api/asr/jobs', 'POST'], [queryPath, 'GET'],
+  ])
+  const headers = new Headers(fetcher.mock.calls[2]?.[1]?.headers)
+  expect(['idempotency-key', 'x-audio-sha256', 'x-audio-language', 'x-muse-asr-purpose'].map(name => headers.get(name)))
+    .toEqual([id, sha256, 'auto', 'screenplay'])
 })
 
 it('rejects a relative project without a Session workspace and keeps an absolute project as given', async () => {

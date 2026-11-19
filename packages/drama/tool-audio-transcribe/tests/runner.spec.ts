@@ -7,6 +7,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { MuseAsrError, type MuseAsrJob } from '@deepseek-ai/dsh-muse-account'
 import { finishAudioTranscription, startAudioTranscription, startAudioTranscriptionBatch, type AudioAccount, type AudioMediaOperations } from '../src/runner.ts'
 
+vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>() }))
 vi.mock('node:timers/promises', async original => ({ ...await original<typeof import('node:timers/promises')>() }))
 
 const directories: string[] = []
@@ -86,6 +87,40 @@ it.each(['probing', 'staging'] as const)('stops overlapping starts at %s before 
     releaseFirst.resolve(undefined)
     releaseSecond.resolve(undefined)
     await Promise.allSettled(outcomes)
+  }
+})
+
+it.each(['open', 'write'] as const)('cleans up a failed receipt %s before submitting', async (phase) => {
+  const fixture = await setup()
+  const jobs = join(fixture.project, 'transcript', 'jobs')
+  const receipt = join(jobs, 'clip-v1.json')
+  const failure = Object.assign(new Error('Synthetic receipt I/O failure'), { code: phase === 'open' ? 'EACCES' : 'ENOSPC' })
+  const fs = await import('node:fs/promises')
+  const originalOpen = fs.open
+  let restoreWrite: (() => void) | undefined
+  const open = vi.spyOn(fs, 'open').mockImplementation(async (file, flags, mode) => {
+    if (file !== receipt || flags !== 'wx') return await originalOpen(file, flags, mode)
+    if (phase === 'open') throw failure
+    const handle = await originalOpen(file, flags, mode)
+    const originalWrite = handle.writeFile.bind(handle)
+    const write = vi.spyOn(handle, 'writeFile').mockImplementationOnce(async () => {
+      await originalWrite('{')
+      throw failure
+    })
+    restoreWrite = () => write.mockRestore()
+    return handle
+  })
+  try {
+    const media: AudioMediaOperations = {
+      probe: async () => 20,
+      encode: async (_source, target) => { await writeFile(target, 'staged audio') },
+    }
+    await expect(startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)).rejects.toBe(failure)
+    expect(fixture.counts()).toEqual({ submits: 0, queries: 0 })
+    expect(await readdir(jobs)).toEqual([])
+  } finally {
+    restoreWrite?.()
+    open.mockRestore()
   }
 })
 
