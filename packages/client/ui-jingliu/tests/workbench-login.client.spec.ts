@@ -26,7 +26,7 @@ it('accepts only the active document and configured origin; returns a code only 
   receive({ ...login, challenge: 'short' })
   receive({ ...login, requestId: {} })
   expect(issue).not.toHaveBeenCalled()
-  receive({ ...login, audience: 'script-workshop' })
+  receive({ ...login, audience: 'untrusted-audience' })
   expect(issue).toHaveBeenCalledExactlyOnceWith(login.challenge)
   await Promise.resolve()
   expect(send).toHaveBeenCalledExactlyOnceWith({ type: 'muse-workbench-login-result', requestId: 'req-1', code: 'issued-code' }, origin)

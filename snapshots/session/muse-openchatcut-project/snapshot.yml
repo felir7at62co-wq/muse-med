@@ -1,8 +1,0 @@
-version: 1
-scenario: muse-openchatcut-project
-profile: headless
-composition: muse-openchatcut-project
-recording: authored
-header:
-  class: muse-openchatcut-project
-  pin: true

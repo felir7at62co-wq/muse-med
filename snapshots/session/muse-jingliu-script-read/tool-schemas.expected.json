@@ -1201,6 +1201,52 @@
       }
     },
     {
+      "name": "jingliu_image",
+      "description": "使用镜流生图。默认 GPT Image 2。提交后用 job_id 查进度，history 查看同项目产物。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "generate",
+              "history",
+              "models"
+            ]
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "由 Muse 撰写或审校的完整生图提示词。"
+          },
+          "model": {
+            "type": "string",
+            "description": "省略使用 gpt-image-2。"
+          },
+          "size": {
+            "type": "string",
+            "description": "尺寸，如 1024x1024。"
+          },
+          "count": {
+            "type": "integer",
+            "description": "生成 1 至 4 张。"
+          },
+          "reference_paths": {
+            "type": "array",
+            "description": "该项目已上传的镜流参考图路径。",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
       "name": "jingliu_narration",
       "description": "镜流「解说剧·角色开口」工作流。state 查分集、镜头、核对报告和可用模型；model 切换模型；breakdown 拆解台词；produce 出片、对齐和核对；accept 接受某句差异；export 导出剪映草稿。任务提交后用 get_job 查进度。",
       "parameters": {
@@ -1249,6 +1295,40 @@
       }
     },
     {
+      "name": "jingliu_projects",
+      "description": "搜索当前 Muse 用户有权查看的镜流制片项目，查看项目和本会话已确认的选择。select 只在用户确定项目后使用，右侧同步显示真实项目名。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "搜索、查看、读取当前选择或确认关联。",
+            "enum": [
+              "search",
+              "inspect",
+              "current",
+              "select"
+            ]
+          },
+          "query": {
+            "type": "string",
+            "description": "项目名中的关键词。"
+          },
+          "project_id": {
+            "type": "string",
+            "description": "inspect 和 select 所需的确切编号。"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "搜索结果分页起点。"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
       "name": "jingliu_run",
       "description": "执行镜流目录中的工作流并返回镜流结果。异步任务用返回的 job_id 查进度。提交结果未知时先查原任务。",
       "parameters": {
@@ -1270,6 +1350,64 @@
         },
         "required": [
           "workflow"
+        ]
+      }
+    },
+    {
+      "name": "jingliu_studio",
+      "description": "镜流共享素材搜索与导入、查看剧本分集原文、逐条审校字幕、回写字幕的文本或时间、查看高清产物。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "library",
+              "import_assets",
+              "episodes",
+              "subtitles",
+              "edit_subtitle",
+              "hd_history"
+            ]
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "character",
+              "location",
+              "prop"
+            ]
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "clip_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "duration": {
+            "type": "number"
+          },
+          "start_offset_sec": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "action"
         ]
       }
     },

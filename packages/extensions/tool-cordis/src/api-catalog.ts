@@ -2115,7 +2115,84 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'async connection(): Promise<JingliuSession>',
         description: 'Resolve the active account on the selected deployment.',
         parameters: [],
-        returns: 'A transport which stops if the session grant changes.',
+        returns: 'A transport bound to this Muse login and Jingliu user.',
+      },
+      {
+        signature: 'async selected(sessionId: string, identity: string): Promise<SelectedProject | null>',
+        description: 'Find the project associated with this conversation and owner.',
+        parameters: [{ name: 'sessionId', description: 'Actual Muse conversation.' }, { name: 'identity', description: 'Verified studio user.' }],
+        returns: 'Its matching cloud selection.',
+      },
+      {
+        signature: 'async assignmentProject(sessionId: SessionId): Promise<(SelectedProject & { owner: string }) | null>',
+        description: 'Capture the signed-in production for an execution assignment.',
+        parameters: [{ name: 'sessionId', description: 'Routing conversation.' }],
+        returns: 'Its confirmed project and current studio owner for a worker assignment.',
+      },
+      {
+        signature: 'async inheritProject(worker: SessionId, project: SelectedProject & { owner: string }): Promise<void>',
+        description: 'Bind the worker to the production captured by its Router.',
+        parameters: [{ name: 'worker', description: 'Worker receiving a recorded assignment.' }, { name: 'project', description: 'Project selected when the user delegated the work.' }],
+      },
+      {
+        signature: '@Remote async selectProject(sessionId: SessionId, projectId: string, signal: AbortSignal): Promise<SelectedProject>',
+        description: 'Confirm a production for a local conversation and notify its Agent.',
+        parameters: [{ name: 'sessionId', description: 'Conversation shown to the user.' }, { name: 'projectId', description: 'Project explicitly confirmed.' }, { name: 'signal', description: 'User action lifetime.' }],
+        returns: 'The native project title and ID.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) async *watchProject(sessionId: SessionId, signal: AbortSignal): AsyncIterable<SelectedProject | null>',
+        description: 'Follow the production shown beside one conversation.',
+        parameters: [{ name: 'sessionId', description: 'Right sidebar\'s Session.' }, { name: 'signal', description: 'Subscription lifetime.' }],
+        returns: 'This Session\'s initial and updated project selection.',
+      },
+      {
+        signature: '@Remote async listProjects(signal: AbortSignal): Promise<StudioProject[]>',
+        description: 'List productions the current studio account can access.',
+        parameters: [{ name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'Projects visible to the signed-in studio user.',
+      },
+      {
+        signature: '@Remote async sharedAssets(query: StudioLibraryQuery, signal: AbortSignal): Promise<StudioLibrary>',
+        description: 'Read the shared media catalog as the current studio user.',
+        parameters: [{ name: 'query', description: 'Filter and page offset for the shared library.' }, { name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'A native catalog page.',
+      },
+      {
+        signature: '@Remote async thumbnail(path: string, signal: AbortSignal): Promise<string>',
+        description: 'Load a bounded thumbnail without exposing the studio credential.',
+        parameters: [{ name: 'path', description: 'Native thumbnail path in the current library.' }, { name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'A preview image for this account.',
+      },
+      {
+        signature: '@Remote async balance(signal: AbortSignal): Promise<StudioBalance>',
+        description: 'Read the current account allowance and usage.',
+        parameters: [{ name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'The current Jingliu account allowance.',
+      },
+      {
+        signature: '@Remote async preferences(projectId: string, signal: AbortSignal): Promise<StudioPreferences>',
+        description: 'Read the native settings of one production.',
+        parameters: [{ name: 'projectId', description: 'Selected cloud project.' }, { name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'Preferences saved by both clients.',
+      },
+      {
+        signature: '@Remote async projectOptions(projectId: string, signal: AbortSignal): Promise<StudioOptions>',
+        description: 'List available production settings and their stored values.',
+        parameters: [{ name: 'projectId', description: 'Selected project.' }, { name: 'signal', description: 'Panel lifetime.' }],
+        returns: 'Native model and resolution settings.',
+      },
+      {
+        signature: '@Remote async saveOption(projectId: string, key: StudioSetting, value: string, signal: AbortSignal): Promise<StudioOptions>',
+        description: 'Change one setting and verify the stored value.',
+        parameters: [{ name: 'projectId', description: 'Selected project.' }, { name: 'key', description: 'Single field to update.' }, { name: 'value', description: 'Model or resolution; empty uses the project default.' }, { name: 'signal', description: 'Panel lifetime.' }],
+        returns: 'Settings read back from the same project.',
+      },
+      {
+        signature: '@Remote async savePreferences(value: StudioPreferences, signal: AbortSignal): Promise<StudioPreferences>',
+        description: 'Update how references appear in this production.',
+        parameters: [{ name: 'value', description: 'Preference explicitly changed by the user.' }, { name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'A verified read from the same project and account.',
       },
     ],
   },
@@ -2726,6 +2803,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'MUSE account Remote namespace.',
     description: 'MUSE account Remote namespace. The Connection carrier authenticates every call.',
     methods: [
+      {
+        signature: 'async requestMountedJingliu(owner: string, url: URL, options: RequestInit): Promise<Response>',
+        description: 'Authenticate a Host request to the studio mounted on the signed-in Muse gateway.',
+        parameters: [{ name: 'owner', description: 'Local login identifier.' }, { name: 'url', description: 'Mounted studio address, verified by the account owner.' }, { name: 'options', description: 'Transport options supplied by the studio client.' }],
+        returns: 'A response stream scoped to that user.',
+      },
+      {
+        signature: 'async workbenchIdentity(): Promise<string>',
+        description: 'Identify the login currently available to a Host-side workbench.',
+        parameters: [],
+        returns: 'The current private Muse login identifier for Host-side workbench operations.',
+      },
+      {
+        signature: 'async workbenchGrant(audience: \'jingliu\', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }>',
+        description: 'Start one authentication exchange for a configured workbench.',
+        parameters: [{ name: 'audience', description: 'Business application receiving the user\'s login.' }, { name: 'challenge', description: 'S256 challenge returned by that application.' }],
+        returns: 'The one-time code, lifetime and session identifier for this exchange.',
+      },
+      {
+        signature: '@Remote(\'issueWorkbenchCode\') async issueWorkbenchCode(request: MuseWorkbenchGrantRequest): Promise<MuseWorkbenchGrant>',
+        description: 'Authorize sign-in in a configured workbench embedded in Muse.',
+        parameters: [{ name: 'request', description: 'Workbench audience and S256 challenge from its iframe.' }],
+        returns: 'The short-lived code for the workbench backend.',
+      },
       {
         signature: 'async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Promise<unknown>',
         description: 'Coordinate a voice registration through the current private Muse account. This Host-only method is deliberately absent from the renderer\'s Remote interface.',
@@ -5656,6 +5757,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the durable Workspace, or undefined when first-use initialization is ineligible; creates no Session or message.',
       },
       {
+        signature: 'async useComputer(signal: AbortSignal): Promise<WorkspaceValue>',
+        description: 'Open the default computer workspace after an explicit location selection, including on existing installations.',
+        parameters: [{ name: 'signal', description: 'Navigation cancellation.' }],
+        returns: 'The registered local workspace for a conversation without a folder picker.',
+      },
+      {
         signature: '@Remote(\'rename\') rename(request: WorkspaceRenameRequest): Promise<WorkspaceValue>',
         description: 'Rename one Workspace to a unique non-blank title.',
         parameters: [{ name: 'request', description: 'Workspace identity and proposed title.' }],
@@ -7038,7 +7145,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Assignment',
-    declaration: 'export interface Assignment {\n    readonly revision: number;\n    readonly key: string;\n    readonly requestHash: string;\n    readonly instructions: string;\n    readonly reason: string;\n    readonly sourceSeq: number;\n    readonly reconciliation?: {\n        readonly throughSeq: number;\n        readonly humanSeq: number;\n        readonly humanMessageId: MessageId;\n    } | undefined;\n    readonly messageId: MessageId;\n    readonly briefId: MessageId;\n    readonly forwardedIds: readonly MessageId[];\n    readonly sessionId: SessionId;\n    readonly createSession: boolean;\n    readonly cwd: string;\n    readonly sourceCwd: string | null;\n    readonly videoKey: string | null;\n    readonly status: AssignmentStatus;\n    readonly report: WorkerReport | null;\n    readonly issue: string | null;\n    readonly noticeId: MessageId;\n    readonly notifiedStatus: AssignmentStatus | null;\n    readonly changedInputSeq?: number | undefined;\n    readonly notifiedInputSeq?: number | undefined;\n    readonly redispatch?: {\n        readonly after: AssignmentStatus;\n    } | undefined;\n    readonly attention?: TaskAttention | undefined;\n}',
+    declaration: 'export interface Assignment {\n    readonly revision: number;\n    readonly key: string;\n    readonly requestHash: string;\n    readonly instructions: string;\n    readonly reason: string;\n    readonly sourceSeq: number;\n    readonly reconciliation?: {\n        readonly throughSeq: number;\n        readonly humanSeq: number;\n        readonly humanMessageId: MessageId;\n    } | undefined;\n    readonly messageId: MessageId;\n    readonly briefId: MessageId;\n    readonly forwardedIds: readonly MessageId[];\n    readonly sessionId: SessionId;\n    readonly createSession: boolean;\n    readonly cwd: string;\n    readonly sourceCwd: string | null;\n    readonly videoKey: string | null;\n    readonly studioProject?: {\n        owner: string;\n        id: string;\n        title: string;\n    } | undefined;\n    readonly status: AssignmentStatus;\n    readonly report: WorkerReport | null;\n    readonly issue: string | null;\n    readonly noticeId: MessageId;\n    readonly notifiedStatus: AssignmentStatus | null;\n    readonly changedInputSeq?: number | undefined;\n    readonly notifiedInputSeq?: number | undefined;\n    readonly redispatch?: {\n        readonly after: AssignmentStatus;\n    } | undefined;\n    readonly attention?: TaskAttention | undefined;\n}',
   },
   {
     name: 'AssignmentStatus',
@@ -8510,11 +8617,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'JingliuRequest',
-    declaration: 'export interface JingliuRequest {\n    method?: \'GET\' | \'POST\' | \'PUT\';\n    body?: unknown;\n    signal?: AbortSignal;\n}',
+    declaration: 'export interface JingliuRequest {\n    method?: \'GET\' | \'POST\' | \'PUT\' | \'PATCH\' | \'DELETE\';\n    body?: unknown;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'JingliuSession',
-    declaration: 'export interface JingliuSession {\n    readonly identity: string;\n    request(path: string, options?: JingliuRequest): Promise<unknown>;\n}',
+    declaration: 'export interface JingliuSession {\n    readonly identity: string;\n    media?(path: string, signal: AbortSignal, consume: (response: Response) => Promise<void>): Promise<void>;\n    request(path: string, options?: JingliuRequest): Promise<unknown>;\n}',
   },
   {
     name: 'JobAppendOptions',
@@ -9319,6 +9426,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MuseVoiceSlotRequest',
     declaration: 'export interface MuseVoiceSlotRequest {\n    readonly action: \'acquire\' | \'start\' | \'complete\' | \'abandon\' | \'read\';\n    readonly script_id: number;\n    readonly character_id: string;\n    readonly voice_period_id: string;\n    readonly operation_key: string;\n    readonly lease_id?: MuseVoiceLeaseId;\n    readonly asset_id?: number;\n}',
+  },
+  {
+    name: 'MuseWorkbenchGrant',
+    declaration: 'export interface MuseWorkbenchGrant {\n    readonly code: string;\n}',
+  },
+  {
+    name: 'MuseWorkbenchGrantRequest',
+    declaration: 'export interface MuseWorkbenchGrantRequest {\n    readonly audience: \'jingliu\';\n    readonly challenge: string;\n}',
   },
   {
     name: 'NativeFileApplication',
@@ -10263,6 +10378,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SearchResultView',
     declaration: 'export type SearchResultView = SearchMatchesResultView | SearchPathsResultView;',
+  },
+  {
+    name: 'SelectedProject',
+    declaration: 'export interface SelectedProject {\n    id: string;\n    title: string;\n}',
   },
   {
     name: 'SerializedElement',
@@ -11267,6 +11386,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StreamChunk',
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: ToolCallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: ReplayEnvelope;\n};',
+  },
+  {
+    name: 'StudioAsset',
+    declaration: 'export interface StudioAsset {\n    id: string;\n    name: string;\n    kind: string;\n    thumbnail: string;\n    description: string;\n    referenceOnly: boolean;\n}',
+  },
+  {
+    name: 'StudioBalance',
+    declaration: 'export interface StudioBalance {\n    unlimited: boolean;\n    available: string;\n    usedFen: number;\n    heldFen: number;\n}',
+  },
+  {
+    name: 'StudioLibrary',
+    declaration: 'export interface StudioLibrary {\n    total: number;\n    items: StudioAsset[];\n}',
+  },
+  {
+    name: 'StudioLibraryQuery',
+    declaration: 'export interface StudioLibraryQuery {\n    kind: \'all\' | \'character\' | \'location\' | \'prop\';\n    query: string;\n    offset: number;\n}',
+  },
+  {
+    name: 'StudioOptions',
+    declaration: 'export interface StudioOptions {\n    projectId: string;\n    resolution: string;\n    resolutions: string[];\n    models: {\n        id: string;\n        name: string;\n    }[];\n    projectModel: string;\n    character: string;\n    location: string;\n    prop: string;\n}',
+  },
+  {
+    name: 'StudioPreferences',
+    declaration: 'export interface StudioPreferences {\n    projectId: string;\n    hidePromptChips: boolean;\n}',
+  },
+  {
+    name: 'StudioProject',
+    declaration: 'export interface StudioProject {\n    id: string;\n    title: string;\n    episodes: number;\n    shots: number;\n    completed: number;\n    role: string;\n    thumbnail: string;\n}',
+  },
+  {
+    name: 'StudioSetting',
+    declaration: 'export type StudioSetting = \'resolution\' | \'character\' | \'location\' | \'prop\';',
   },
   {
     name: 'SubagentActivation',

@@ -244,6 +244,7 @@ export function apply(ctx: ClientContext): void {
         locale: NS,
         children: {
           'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session', inject: { hooks: { tabInfo: tabInfoFactory } } },
+          'sidebar.right.environment': { kind: 'single', scope: 'session' },
           'sidebar.right.pane.tab.title': { kind: 'keyed', scope: 'session', inject: { hooks: { tabInfo: tabInfoFactory } } },
         },
         store,

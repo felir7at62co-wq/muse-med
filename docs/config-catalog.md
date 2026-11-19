@@ -429,7 +429,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-workspace-controller`
 
 - `inject`: `remoteAccess` · `typert` · `workspaceRegistry`
-- `source`: [`packages/api/workspace-controller/src/index.ts:37`](../packages/api/workspace-controller/src/index.ts)
+- `source`: [`packages/api/workspace-controller/src/index.ts:38`](../packages/api/workspace-controller/src/index.ts)
 
 ```ts config-catalog
 /** First-use directory policy for the Host account. */
@@ -799,12 +799,6 @@ export type HeaderPresentation = 'standard' | 'floating'
 export interface Config {
   /** HTTPS studio origin or HTTP loopback origin for a local studio. */
   studioOrigin?: string
-  /** Local file containing the editor MCP token, read by the Host. */
-  editorTokenFile?: string
-  /** Private HTTP loopback endpoint serving OpenChatCut. */
-  editorOrigin?: string
-  /** HTTPS workshop origin or HTTP loopback origin for a local script workshop. */
-  workshopOrigin?: string
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-jingliu -->
@@ -1221,7 +1215,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-drama-settings`
 
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/drama/drama-settings/src/index.ts:24`](../packages/drama/drama-settings/src/index.ts)
+- `source`: [`packages/drama/drama-settings/src/index.ts:25`](../packages/drama/drama-settings/src/index.ts)
 
 ```ts config-catalog
 /** Resolved composition options and live settings for short-drama work. */
@@ -2379,7 +2373,7 @@ export interface TlsConfig {
 ## `@deepseek-ai/dsh-jingliu-connection`
 
 - `inject`: `commands`
-- `source`: [`packages/drama/jingliu-connection/src/index.ts:22`](../packages/drama/jingliu-connection/src/index.ts)
+- `source`: [`packages/drama/jingliu-connection/src/index.ts:38`](../packages/drama/jingliu-connection/src/index.ts)
 
 ```ts config-catalog
 /** Limits and server address for this installation. */
@@ -3885,7 +3879,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-session-coordinator`
 
 - `inject`: `agents` · `sessions` · `sessionQuery` · `sessionController` · `workspaceController` · `storageDomain` · `workspaceRegistry` · `jobs` · `typert` · `tools` · `sessionProjections`
-- `source`: [`packages/session/session-coordinator/src/index.ts:80`](../packages/session/session-coordinator/src/index.ts)
+- `source`: [`packages/session/session-coordinator/src/index.ts:83`](../packages/session/session-coordinator/src/index.ts)
 
 ```ts config-catalog
 /** Deployment choices for the optional coordination plugin. */
@@ -3924,6 +3918,8 @@ export interface Config {
    * and then marked for attention. Defaults to false.
    */
   readonly unattended?: boolean
+  /** Start a new attended Router conversation with the signed-in user's profile. */
+  readonly greetOnOpen?: boolean
   /** Consecutive automatic re-dispatches of one task before it is marked for attention; 0 marks it at once. Defaults to 1. */
   readonly redispatchLimit?: number
   /** Tools that wait for a human answer, denied when `unattended` is set. Defaults to `ask_user_question` and `exit_plan_mode`. */

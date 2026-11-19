@@ -190,6 +190,36 @@ MUSE account Remote namespace. The Connection carrier authenticates every call.
 
 ```ts cordis-catalog
 /**
+ * Authenticate a Host request to the studio mounted on the signed-in Muse gateway.
+ * @param owner - Local login identifier.
+ * @param url - Mounted studio address, verified by the account owner.
+ * @param options - Transport options supplied by the studio client.
+ * @returns A response stream scoped to that user.
+ */
+async requestMountedJingliu(owner: string, url: URL, options: RequestInit): Promise<Response>
+
+/**
+ * Identify the login currently available to a Host-side workbench.
+ * @returns The current private Muse login identifier for Host-side workbench operations.
+ */
+async workbenchIdentity(): Promise<string>
+
+/**
+ * Start one authentication exchange for a configured workbench.
+ * @param audience - Business application receiving the user's login.
+ * @param challenge - S256 challenge returned by that application.
+ * @returns The one-time code, lifetime and session identifier for this exchange.
+ */
+async workbenchGrant(audience: 'jingliu', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }>
+
+/**
+ * Authorize sign-in in a configured workbench embedded in Muse.
+ * @param request - Workbench audience and S256 challenge from its iframe.
+ * @returns The short-lived code for the workbench backend.
+ */
+@Remote('issueWorkbenchCode') async issueWorkbenchCode(request: MuseWorkbenchGrantRequest): Promise<MuseWorkbenchGrant>
+
+/**
  * Coordinate a voice registration through the current private Muse account.
  * This Host-only method is deliberately absent from the renderer's Remote interface.
  * @param request - Exact original operation and project/person/life-period identifiers.

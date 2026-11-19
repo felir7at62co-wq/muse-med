@@ -11,8 +11,6 @@ Host 等待应用收尾完成并通过 IPC 送达关闭确认后，才显式退�
 
 Host 为内置插件覆盖项提供文件 URL，使 Loader 可以从 Windows 和 POSIX 安装路径导入插件，包括含空格与非 ASCII 字符的路径。
 
-桌面版通过已有的短剧设置加载本地项目工具和可选的制作平台。用户可以在设置页修改草稿目录和交付目录，重启后继续使用。
-
 ## 普通会话与保留数据
 
 Desktop 打开普通会话，保持归档的 Bot 状态不变。内置 Bot 界面、长期记忆服务和手机控制入口停用；保留的文件不会自动成为会话记忆。恢复与 profile 备份见[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-session-product/guide.zh.md)。
@@ -31,15 +29,11 @@ Desktop 在创作与历史恢复作用域内置[七猫公开元数据工具](../
 
 私有 Host 为[桌面应用](../desktop/README.zh.md)提供 Muse 组合。内置预设文件使用普通 Cordis 配置。用户自有模型提供方与凭据独立于 Muse 账号目录。
 
-Host 包在 `lib/index.js` 旁保留 `lib/workspace-owned-storage.js`，供 Desktop 的模块覆盖加载。其他所有权与组合辅助代码仍包含在所属 bundle 中，发布清单声明的代码还保留独立入口。构建配置覆盖清单中声明的每个独立 `lib/*.js` 文件。包准入检查要求独立存储入口存在，才能启动 profile。
+桌面端从 `lib/workspace-owned-storage.js` 加载工作区存储，从 `lib/product-drama-settings.js` 加载项目设置。项目设置模块启用桌面编辑模式并读取可选的制片台地址，用户仍可修改已保存的设置。其他所有权与组合辅助代码仍包含在所属 bundle 中，发布清单声明的代码还保留独立入口。构建配置覆盖清单中声明的每个独立 `lib/*.js` 文件。包准入检查要求独立存储入口存在，才能启动 profile。
 
 桌面工具发现策略常驻日常文件、命令、图片、视频查看、搜索、交互和任务工具，以及红果短剧下载工具。专业剧本、资产、制作、采集与交付工具按需通过工具搜索加载；注册及执行权限保持不变。默认产品不包含 Bot 专属定义与偏好服务。
 
 启动桌面版前，将 `MUSE_JINGLIU_ORIGIN` 设为镜流 HTTPS 站点或可信的回环地址。新多媒体项目使用镜流。此桌面配置已归档剧变工具、会话视频模型选择器及剧变的整集渲染服务。原有本地文件和历史会话记录仍保存在原处。配置镜流地址后，右侧栏的[镜流原版工作台](../../packages/client/ui-jingliu/README.zh.md)和会话里的[镜流工作流工具](../../packages/drama/tool-jingliu/README.zh.md)使用同一个站点。工作台使用 Muse 登录。会话工具使用桌面当前登录的 Muse 账号访问已注册的镜流服务。服务器管理员需要启用[工作台登录](../../docs/upgrade-guide/v0.2.2-rc.2/workbench-muse-login/guide.zh.md)，并关联已有工作台用户。独立测试环境可设置 `MUSE_JINGLIU_LOCAL_PREVIEW=1`，并按照[镜流账号连接](../../packages/drama/jingliu-connection/README.zh.md)向 Host 提供测试会话。
-
-将 `MUSE_SCRIPT_WORKSHOP_ORIGIN` 设为编剧服务源站，可从右侧栏打开「剧本工坊」。剧本工坊与镜流分别配置。
-
-将 `MUSE_OPENCHATCUT_ORIGIN` 设为本机剪辑器的 HTTP 回环 IP 地址和端口，即可在右侧栏看到「剪辑」。本地体验时，将 `MUSE_OPENCHATCUT_DIR` 指向已安装依赖的 [OpenChatCut fork](https://github.com/felir7at62co-wq/OpenChatCut) 的 v0.2.8（`721dd058`）。在该目录用 `git apply` 应用[Muse 接入补丁](../../integrations/openchatcut/muse-editor.patch)，构建 Muse 后运行 `node apps/desktop/scripts/preview-openchatcut.mjs`。启动器也会让 Muse 读取当前剪辑器的本地 MCP 令牌文件。独立管理剪辑服务时，将 `MUSE_OPENCHATCUT_TOKEN_FILE` 指向对应文件，即可在当前会话调用剪辑工具。
 
 Desktop 启用已有的[打开方式控件](../../packages/client/ui-open-in-app/README.zh.md)，保留标准紧凑样式，用关联应用打开文件或在系统文件管理器中显示其位置。
 

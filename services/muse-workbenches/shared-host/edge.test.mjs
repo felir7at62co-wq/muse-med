@@ -17,7 +17,7 @@ test('a live Muse session and an app-specific native owner are required for ever
   let tickets = 0
   let identityChecks = 0
   const local = { secret: 'private', nativeLogin: 'http://native.test/session', bindings }
-  const edge = createEdge({ origin, gateway: 'http://muse.test', cookieName: 'muse', apps: { jingliu: local, 'script-workshop': local } }, async (url, request) => {
+  const edge = createEdge({ origin, gateway: 'http://muse.test', cookieName: 'muse', apps: { jingliu: local } }, async (url, request) => {
     if (url === 'http://muse.test/api/muse/identity') {
       identityChecks++
       assert.equal(request.headers.cookie, 'muse=current')
@@ -28,7 +28,7 @@ test('a live Muse session and an app-specific native owner are required for ever
     assert.equal(request.headers.cookie, undefined)
     assert.deepEqual(JSON.parse(request.body), { sub: 'author' })
     tickets++
-    return Response.json({ token: 'studio-token', access_token: 'workshop-token', user: { id: nativeOwner } })
+    return Response.json({ token: 'studio-token', user: { id: nativeOwner } })
   })
   edge.listen(0, '127.0.0.1')
   await once(edge, 'listening')
@@ -46,8 +46,10 @@ test('a live Muse session and an app-specific native owner are required for ever
   assert.equal(session.status, 200)
   assert.equal(tickets, 1)
   assert.equal(identityChecks, 2)
+  assert.equal((await fetch(base + '/check/other', { headers })).status, 404)
+  await fetch(base + '/check/jingliu', { headers: { ...headers, 'x-workbench-method': 'POST', 'x-workbench-origin': origin, 'x-workbench-path': '/jingliu/fwp/v2/auth/logout' } })
   nativeOwner = 29
-  assert.equal((await fetch(base + '/check/jubengongfang', { headers })).status, 503)
+  assert.equal((await fetch(base + '/check/jingliu', { headers })).status, 503)
   signedIn = false
   assert.equal((await fetch(base + '/check/jingliu', { headers })).status, 401)
   signedIn = true

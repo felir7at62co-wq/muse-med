@@ -1,9 +1,9 @@
 // Embedded and path-mounted workbenches keep native keys scoped to tab, application and account.
 (() => {
   const path = new URL(document.currentScript.src).pathname;
-  const mounted = path.startsWith('/jingliu/') || path.startsWith('/jubengongfang/');
+  const mounted = path.startsWith('/jingliu/');
   if ((!mounted && window === window.parent) || window.museWorkbenchStorage) return;
-  const audience = path.startsWith('/fwp/') || path.startsWith('/jingliu/') ? 'jingliu' : 'script-workshop';
+  const audience = 'jingliu';
   const marker = 'muse-embedded-owner:' + audience;
   const backing = window.sessionStorage;
   const prefix = () => 'muse-embedded:' + audience + ':' + (backing.getItem(marker) || 'guest') + ':';
@@ -32,7 +32,7 @@
   Object.defineProperty(window, 'museWorkbenchStorage', {
     value: {
       detach() {
-        for (const key of ['sf_session_prod', 'sf_claim_prod', 'drama_access_token', 'drama_refresh_token', 'drama_user']) {
+        for (const key of ['sf_session_prod', 'sf_claim_prod']) {
           methods.removeItem(key);
         }
         backing.removeItem(marker);

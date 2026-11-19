@@ -89,7 +89,7 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
     'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js',
     'lib/manuscript-revisions.js', 'lib/manuscript-continuity-preset.js', 'lib/manuscript-source-review.js',
     'lib/jianying-draft.js', 'lib/feishu-migration.js',
-    'lib/source-recovery.js', 'lib/retired-bot.js', 'licenses', 'lib/computer-use.js',
+    'lib/source-recovery.js', 'lib/retired-bot.js', 'lib/product-drama-settings.js', 'licenses', 'lib/computer-use.js',
     'lib/computer-input-worker.js', 'lib/delegation-policy.js',
     'lib/approved-episode-render.js', 'lib/episode-render-worker.js',
     'lib/workspace-owned-storage.js', 'lib/workspace-owner-lease.js',

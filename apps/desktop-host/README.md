@@ -11,8 +11,6 @@ The Host awaits application teardown and IPC delivery of its shutdown acknowledg
 
 The Host supplies file URLs for its packaged plugin overrides so the Loader can import them from Windows and POSIX installation paths, including spaces and non-ASCII characters.
 
-Desktop loads the local project tools and optional production studio on the existing short-drama Settings row. Draft and delivery directories remain editable in the profile and survive restarts.
-
 ## Ordinary Sessions and retained data
 
 Desktop opens ordinary Sessions and leaves archived Bot state unchanged. The built-in Bot interface, long-term memory service and phone-control entry are inactive; retained files do not automatically become Session memory. Recovery and profile backups are documented in the [upgrade guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-session-product/guide.md).
@@ -31,15 +29,11 @@ Work relationship proposals cite saved snapshots and require an explicit human d
 
 The private Host supplies the Muse compositions used by the [Desktop application](../desktop/README.md). Its bundled preset files remain ordinary Cordis configuration. User-owned model providers and credentials stay separate from the Muse account catalog.
 
-The Host package retains `lib/workspace-owned-storage.js` beside `lib/index.js` for the Desktop module override. Other ownership and composition helpers remain in their owning bundles and also have standalone entries when declared in the publication manifest. The build configuration covers every declared standalone `lib/*.js` file. Package admission requires the independent storage entry before a profile can boot.
+Desktop loads workspace storage from `lib/workspace-owned-storage.js` and project settings from `lib/product-drama-settings.js`. The project settings module applies desktop editing mode and the optional studio address while keeping saved settings editable. Other ownership and composition helpers remain in their owning bundles and also have standalone entries when declared in the publication manifest. The build configuration covers every declared standalone `lib/*.js` file. Package admission requires the independent storage entry before a profile can boot.
 
 The Desktop tool-discovery policy keeps routine file, command, image, video-inspection, search, interaction and task tools resident, together with the Hongguo series downloader. Specialized screenplay, asset, production, collection and delivery tools load through tool search when needed; registration and execution permissions remain unchanged. Bot-only definitions and preference services are absent from the default product.
 
 Set `MUSE_JINGLIU_ORIGIN` to the Jingliu HTTPS origin or a trusted loopback endpoint before starting Desktop. Desktop uses Jingliu for new multimedia projects. Jubian tools, its conversation video selector and its approved-render worker are retired from this profile. Saved local files and historical Session records stay in place. Setting the origin connects the [original studio in the right sidebar](../../packages/client/ui-jingliu/README.md) and the [Jingliu workflow tools](../../packages/drama/tool-jingliu/README.md) to the same installation. Sign in with Muse in the studio. The chat tools use the current Desktop Muse account at the registered Jingliu service. The server administrator must enable [workbench login](../../docs/upgrade-guide/v0.2.2-rc.2/workbench-muse-login/guide.md) and bind existing workbench users. An isolated test deployment can set `MUSE_JINGLIU_LOCAL_PREVIEW=1` and supply its own test session to the Host as described in [Jingliu account connection](../../packages/drama/jingliu-connection/README.md).
-
-Set `MUSE_SCRIPT_WORKSHOP_ORIGIN` to the writing service origin to open Script workshop from the right sidebar. You can configure each workbench independently.
-
-Set `MUSE_OPENCHATCUT_ORIGIN` to the local editor's numeric HTTP loopback origin with its port to show **Video editor**. For a development preview, point `MUSE_OPENCHATCUT_DIR` at an installed checkout of the [OpenChatCut fork](https://github.com/felir7at62co-wq/OpenChatCut) at v0.2.8 (`721dd058`), apply the [Muse integration patch](../../integrations/openchatcut/muse-editor.patch) with `git apply` in that checkout, then run `node apps/desktop/scripts/preview-openchatcut.mjs` after building Muse. The launcher also connects the editor’s local MCP token file to Muse. For a separately managed editor, set `MUSE_OPENCHATCUT_TOKEN_FILE` to the matching file to enable the current conversation’s editing tools.
 
 Desktop enables the existing [Open In controls](../../packages/client/ui-open-in-app/README.md) with their standard compact appearance for opening files in associated applications and showing their location in the system file manager.
 

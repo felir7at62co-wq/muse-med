@@ -23,19 +23,34 @@ async function fixture(fetcher?: typeof fetch) {
   return { client: new MuseWorkbenchLogin({ sessionFile, baseUrl, requestTimeoutMs: 1000, ...(fetcher ? { fetcher } : {}) }), signIn }
 }
 
+it('authenticates only the currently signed-in owner at the mounted studio paths', async () => {
+  const fetched = vi.fn<typeof fetch>(async () => Response.json({ ok: true }))
+  const { client, signIn } = await fixture(fetched)
+  await signIn('one')
+  const owner = await client.identity()
+  const target = new URL(baseUrl + '/jingliu/fwp/v2/projects')
+  await client.jingliu(owner, target, {})
+  expect(new Headers(fetched.mock.calls[0]?.[1]?.headers).get('cookie')).toBe('__Host-muse=one')
+  await expect(client.jingliu(owner, new URL('/api/account', baseUrl), {})).rejects.toThrow()
+  await expect(client.jingliu(owner, new URL('https://studio.example/jingliu/fwp/v2/projects'), {})).rejects.toThrow()
+  await signIn('two')
+  await expect(client.jingliu(owner, target, {})).rejects.toThrow()
+  expect(fetched).toHaveBeenCalledTimes(1)
+})
+
 it('uses the private Host session only at its issuer and hands out a single workbench code', async () => {
   const fetcher = vi.fn<typeof fetch>(async () => Response.json({ code, expiresIn: 60, privateField: 'discard' }))
   vi.stubGlobal('fetch', fetcher)
   const { client, signIn } = await fixture()
   await signIn('writer')
   const before = await client.identity()
-  const grant = await client.issue('script-workshop', challenge)
+  const grant = await client.issue('jingliu', challenge)
   expect(grant).toEqual({ code, expiresIn: 60, accountId: before })
   expect(fetcher).toHaveBeenCalledOnce()
   expect(fetcher).toHaveBeenCalledWith(baseUrl + '/api/workbench-login/grant', expect.objectContaining({
     method: 'POST', redirect: 'error',
     headers: { cookie: '__Host-muse=writer', origin: baseUrl, 'content-type': 'application/json' },
-    body: JSON.stringify({ audience: 'script-workshop', challenge }),
+    body: JSON.stringify({ audience: 'jingliu', challenge }),
   }))
   await signIn('editor')
   expect(await client.identity()).not.toBe(before)

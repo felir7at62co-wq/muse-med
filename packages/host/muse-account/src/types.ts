@@ -344,7 +344,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** Workbench and S256 challenge supplied by the trusted Muse renderer. */
 export interface MuseWorkbenchGrantRequest {
-  readonly audience: 'script-workshop' | 'jingliu'
+  readonly audience: 'jingliu'
   readonly challenge: string
 }
 

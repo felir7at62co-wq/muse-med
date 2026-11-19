@@ -2,24 +2,18 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write services/muse-workbenches/README.md
-/muse-sign-in-for-script-workshop-and-jingliu:
-  en: 41d513363cd83176
-  zh: 84e3b7b55644687e
-/muse-sign-in-for-script-workshop-and-jingliu/install:
-  en: 7df3d984e2138f15
-  zh: 7a7b14141230b486
-/muse-sign-in-for-script-workshop-and-jingliu/configure-each-server:
-  en: ede738220a9aaf4a
-  zh: 66df5e7f67d8c13b
-/muse-sign-in-for-script-workshop-and-jingliu/configure-each-server/existing-accounts:
-  en: 4b5a8e15bacfc82d
-  zh: f3e99a6a076bbf68
-/muse-sign-in-for-script-workshop-and-jingliu/configure-each-server/web-routing:
-  en: 97dda23fd00e509d
-  zh: 8c924059fbb97374
-/muse-sign-in-for-script-workshop-and-jingliu/configure-each-server/desktop-and-browser-sessions:
-  en: 121c77c91a277a8b
-  zh: 6f4cd72bc491b5c1
-/muse-sign-in-for-script-workshop-and-jingliu/verify:
-  en: 98bc2459a40dc5ae
-  zh: ca96bcce4dea237a
+/muse-sign-in-and-production-services-for-jingliu:
+  en: e874bd44c6242c97
+  zh: 9d5513e3b690e313
+/muse-sign-in-and-production-services-for-jingliu/install:
+  en: 5d47d583530366fb
+  zh: 7a85c3f897b18f61
+/muse-sign-in-and-production-services-for-jingliu/configure:
+  en: 017639a52f4ca9a5
+  zh: 1fa28a2ac3b7bcdb
+/muse-sign-in-and-production-services-for-jingliu/configure/existing-accounts-and-shared-assets:
+  en: f01951b5f28b7827
+  zh: 9880fbe82891bbe9
+/muse-sign-in-and-production-services-for-jingliu/configure/web-and-desktop:
+  en: 6b1797fbab481bba
+  zh: 51b00cab5da8984e

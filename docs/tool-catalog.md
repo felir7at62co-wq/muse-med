@@ -25,7 +25,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.agents`, `ctx.sandboxPolicy when filesystem confinement is enabled` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | Source-unit identities, revisions, candidate digests, timestamps and rendered line references are issued by the host. Facts and episode candidates require a different reviewing session before acceptance. |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`, `ctx.museAccount`, `FFmpeg and FFprobe on PATH (or configured)` | `tool/call`, `tool/result`, `transcript/jobs task receipt`, `transcript/raw timed TXT and JSON when complete` | - | `start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway. |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`, `TOS access key credential references`, `network access to Volcengine TOS` | `tool/call`, `tool/result`, `public TOS objects below download-video-date/{platform}/{date}/{work_id}/`, `local file deletion only when remove_local is true` | - | Optional package: only the cloud transcription deployment composes it, with its credential references. |
-| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_narration`, `jingliu_run`, `jingliu_workflows` | `ctx.tools`, `ctx.jingliuConnection`, `ctx.approval for changes and paid workflows` | `tool/call`, `tool/result`, `project updates and jobs on the configured Jingliu service`, `local narration submission receipts` | - | - |
+| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`, `jingliu_narration`, `jingliu_projects`, `jingliu_run`, `jingliu_studio`, `jingliu_workflows` | `ctx.tools`, `ctx.jingliuConnection`, `ctx.approval for changes and paid workflows` | `tool/call`, `tool/result`, `project updates and jobs on the configured Jingliu service`, `conversation project selections, image and narration job receipts, and local Jianying drafts` | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`, `data station service token credential reference`, `network access to the data station service API` | `tool/call`, `tool/result`, `data station transcription job state` | - | Optional package: only the cloud transcription deployment composes it. Each dispatched worker claims its own work; the Main Session router does not call it. |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect`, `video_ocr` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | `video_source_review` | The default video_inspect retains metadata and sample operations. Creation enables sourceReviewCompanion to add video_source_review with complete scan/next/observe operations without replacing legacy sampling or trusted receipts. Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`, `ctx.tools`, `ctx.ptcRuntime`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | The PTC executor exposes only run_code to the model and declares other visible capabilities in a generated SDK in the runtime’s language. Program bindings enter the shared guarded tool pipeline in submission order; concurrency-safe bodies overlap up to maxParallelSubCalls, and nested results remain linked to the outer program. The resolved timeout and maxSubCallsPerMinute set the total call allowance; exceeding it terminates the program. |
@@ -1871,6 +1871,57 @@ Optional package: only the cloud transcription deployment composes it, with its 
 
 ## `@deepseek-ai/dsh-tool-jingliu`
 
+### `jingliu_image`
+
+使用镜流生图。默认 GPT Image 2。提交后用 job_id 查进度，history 查看同项目产物。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "generate",
+        "history",
+        "models"
+      ]
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "prompt": {
+      "type": "string",
+      "description": "由 Muse 撰写或审校的完整生图提示词。"
+    },
+    "model": {
+      "type": "string",
+      "description": "省略使用 gpt-image-2。"
+    },
+    "size": {
+      "type": "string",
+      "description": "尺寸，如 1024x1024。"
+    },
+    "count": {
+      "type": "integer",
+      "description": "生成 1 至 4 张。"
+    },
+    "reference_paths": {
+      "type": "array",
+      "description": "该项目已上传的镜流参考图路径。",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/production.ts`](../packages/drama/tool-jingliu/src/production.ts)
+
 ### `jingliu_narration`
 
 镜流「解说剧·角色开口」工作流。state 查分集、镜头、核对报告和可用模型；model 切换模型；breakdown 拆解台词；produce 出片、对齐和核对；accept 接受某句差异；export 导出剪映草稿。任务提交后用 get_job 查进度。
@@ -1924,6 +1975,45 @@ Optional package: only the cloud transcription deployment composes it, with its 
 
 Source: [`packages/drama/tool-jingliu/src/narration.ts`](../packages/drama/tool-jingliu/src/narration.ts)
 
+### `jingliu_projects`
+
+搜索当前 Muse 用户有权查看的镜流制片项目，查看项目和本会话已确认的选择。select 只在用户确定项目后使用，右侧同步显示真实项目名。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "搜索、查看、读取当前选择或确认关联。",
+      "enum": [
+        "search",
+        "inspect",
+        "current",
+        "select"
+      ]
+    },
+    "query": {
+      "type": "string",
+      "description": "项目名中的关键词。"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "inspect 和 select 所需的确切编号。"
+    },
+    "offset": {
+      "type": "integer",
+      "description": "搜索结果分页起点。"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/production.ts`](../packages/drama/tool-jingliu/src/production.ts)
+
 ### `jingliu_run`
 
 执行镜流目录中的工作流并返回镜流结果。异步任务用返回的 job_id 查进度。提交结果未知时先查原任务。
@@ -1953,6 +2043,69 @@ Source: [`packages/drama/tool-jingliu/src/narration.ts`](../packages/drama/tool-
 ```
 
 Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
+
+### `jingliu_studio`
+
+镜流共享素材搜索与导入、查看剧本分集原文、逐条审校字幕、回写字幕的文本或时间、查看高清产物。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "library",
+        "import_assets",
+        "episodes",
+        "subtitles",
+        "edit_subtitle",
+        "hd_history"
+      ]
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "query": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "character",
+        "location",
+        "prop"
+      ]
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "asset_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "clip_id": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "duration": {
+      "type": "number"
+    },
+    "start_offset_sec": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/studio.ts`](../packages/drama/tool-jingliu/src/studio.ts)
 
 ### `jingliu_workflows`
 

@@ -132,8 +132,8 @@ export const DRAMA_SETTINGS_DEFAULTS: DramaSettings = {
  * {@link DRAMA_SETTINGS_DEFAULTS}; the paths are plain strings because a blank
  * one leaves the schema default, including an unconfigured Jianying draft root.
  *
- * Editable fields are volatile. The optional studio address is a composition
- * input and is not part of the durable Settings form. The settings service derives one live form per
+ * Editable fields are volatile. The studio address and local project editing mode
+ * are composition inputs. The settings service derives one live form per
  * composed row and skips a row whose schema declares none
  * (`volatileForm(schema) === undefined`), so a section without them serves no
  * namespace at all: the Settings page would report the namespace as

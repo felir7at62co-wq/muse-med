@@ -1,4 +1,4 @@
-"""Render nginx locations for the two applications under the existing Muse TLS server."""
+"""Render nginx locations for Jingliu under the existing Muse TLS server."""
 def gate(mount, upstream, native=False):
     block = f"""
     set $wb_original_method $request_method;
@@ -37,9 +37,9 @@ def route(path, contents):
 
 def render():
     blocks = []
-    for mount in ("jubengongfang", "jingliu"):
-        blocks.append(route(f"= /{mount}", f" return 308 /{mount}/; "))
-        blocks.append(route(f"= /_muse_wb_auth_{mount}", f"""
+    mount = "jingliu"
+    blocks.append(route(f"= /{mount}", f" return 308 /{mount}/; "))
+    blocks.append(route(f"= /_muse_wb_auth_{mount}", f"""
     internal;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
@@ -51,8 +51,8 @@ def render():
     access_log off;
     proxy_pass http://127.0.0.1:19740/check/{mount};
 """))
-        for endpoint, kind in (("/", "enter"), ("/_session", "session")):
-            blocks.append(route(f"= /{mount}{endpoint}", f"""
+    for endpoint, kind in (("/", "enter"), ("/_session", "session")):
+        blocks.append(route(f"= /{mount}{endpoint}", f"""
     proxy_set_header Cookie $http_cookie;
     proxy_set_header Authorization "";
     proxy_pass_request_body off;
@@ -60,24 +60,18 @@ def render():
     access_log off;
     proxy_pass http://127.0.0.1:19740/{kind}/{mount};
 """))
-        blocks.append(route(f"= /{mount}/_store.js", """
+    blocks.append(route(f"= /{mount}/_store.js", """
     alias /srv/muse-workbenches/current/muse_storage.js;
     default_type application/javascript;
     add_header Cache-Control "no-store" always;
     add_header X-Content-Type-Options nosniff always;
 """))
-        blocks.append(route(f"= /{mount}/_entry.js", """
+    blocks.append(route(f"= /{mount}/_entry.js", """
     alias /srv/muse-workbenches/current/entry.js;
     default_type application/javascript;
     add_header Cache-Control "no-store" always;
     add_header X-Content-Type-Options nosniff always;
 """))
-    for api in ("v1", "api/v1"):
-        blocks.append(route("= /jubengongfang/" + api + "/auth/muse/internal-session", " return 404; "))
-        blocks.append(route("^~ /jubengongfang/" + api + "/", gate("jubengongfang", "http://127.0.0.1:19741/v1/", True)))
-    for path in ("login", "register", "v1/auth/muse/login"):
-        blocks.append(route("= /jubengongfang/" + path, " return 302 /jubengongfang/; "))
-    blocks.append(route("^~ /jubengongfang/", gate("jubengongfang", "http://127.0.0.1:19742")))
     blocks.append(route("= /jingliu/fwp/v2/auth/muse/internal-session", " return 404; "))
     blocks.append(route("= /jingliu/fwp/v2/auth/muse/login", " return 302 /jingliu/; "))
     blocks.append(route("^~ /jingliu/fwp/", gate("jingliu", "http://127.0.0.1:19743/", True)))

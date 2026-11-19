@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write integrations/muse-hit-transcription/README.md
+/cloud-hit-transcription:
+  en: 8fec91ee62cd6835
+  zh: 817fdcf1c2e5d8db
+/cloud-hit-transcription/requirements:
+  en: f8d87b4754d649da
+  zh: 371b3ac8492e60c8
+/cloud-hit-transcription/start-and-inspect:
+  en: 8c6361dd4d4c1266
+  zh: 2e7dac82d77e3906
+/cloud-hit-transcription/recovery:
+  en: 70ee78f74abd0dad
+  zh: c702ca843ef28568
+/cloud-hit-transcription/local-verification:
+  en: 40952c6c3927a296
+  zh: a01d9dd325d42ed0

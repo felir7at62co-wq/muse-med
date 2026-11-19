@@ -12,7 +12,7 @@ import { bundledBridgeModules } from './bundled-bridge.ts'
 export function productModuleOverrides(runtimeDir: string): Readonly<Record<string, string>> {
   const productModule = (file: string): string => new URL(file, import.meta.url).href
   return { ...bundledBridgeModules(runtimeDir),
-    '@deepseek-ai/dsh-drama-settings': productModule('./production-settings.js'),
+    '@deepseek-ai/dsh-drama-settings': productModule('./product-drama-settings.js'),
     'muse-workspace-owned-storage': productModule('./workspace-owned-storage.js'),
     'ds-bot': productModule('./retired-bot.js'), 'muse-bot': productModule('./retired-bot.js') }
 }

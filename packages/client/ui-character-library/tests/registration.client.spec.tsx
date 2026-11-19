@@ -394,10 +394,10 @@ it('assembles the navigation icon and read-only main panel through the slot rend
   onTestFinished(dispose)
   const view = runtime.renderRoot()
   expect(await view.findByText('The character library is not connected. Ask your administrator to enable access.')).toBeTruthy()
-  expect(view.getByRole('heading', { name: 'Character library' })).toBeTruthy()
+  expect(view.getByRole('heading', { name: 'Shared assets' })).toBeTruthy()
   expect(view.container.querySelectorAll('svg')).toHaveLength(2)
   const label = runtime.slots.entries('sidebar.panellist')[0]?.options.label
-  expect(typeof label === 'function' ? label() : label).toBe('Character library')
+  expect(typeof label === 'function' ? label() : label).toBe('Asset library')
 })
 
 it('removes its Remote namespace if a registration fails during loading', async () => {

@@ -11,7 +11,7 @@ import { submitOnce } from '../src/submit-once.ts'
 const accountRead = { name: 'list_projects', description: '列项目', role: 'viewer', risk: 'read',
   account_scoped: true, costs: false, long_running: false, needs_confirm: false,
   parameters: { type: 'object', properties: {} } }
-const produce = { ...accountRead, name: 'run_shot_videos', description: '生成镜头视频', account_scoped: false,
+const produce = { ...accountRead, name: 'run_asset_generate', description: '生成镜头视频', account_scoped: false,
   risk: 'generate', costs: true, long_running: true,
   parameters: { type: 'object', required: ['project_id'], properties: {
     project_id: { type: 'string' }, shot_ids: { type: 'array', items: { type: 'string' } },
@@ -37,11 +37,54 @@ function fixture() {
 }
 
 describe('Jingliu workflow gateway', () => {
+  it('searches without changing the conversation and requests confirmation before selecting a project', async () => {
+    const f = fixture()
+    f.request.mockResolvedValueOnce({ projects: [{ id: 'film', title: '雨夜', my_role: 'manager' }] })
+    await expect(f.call('jingliu_projects', { action: 'search', query: '雨' })).resolves.toMatchObject({ projects: [{ id: 'film', title: '雨夜' }] })
+    expect(f.approve).not.toHaveBeenCalled()
+    f.request.mockResolvedValueOnce({ id: 'film', title: '雨夜' })
+    await expect(f.call('jingliu_projects', { action: 'select', project_id: 'film' })).rejects.toMatchObject({ code: 'JINGLIU_APPROVAL_REQUIRED' })
+  })
+  it('quotes the default image model and reuses the original job on retry', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'jingliu-images-'))
+    vi.stubEnv('DSH_HOME', dir)
+    onTestFinished(async () => { vi.unstubAllEnvs(); await rm(dir, { recursive: true, force: true }) })
+    const f = fixture()
+    const models = { models: [{ id: 'gpt-image-2' }] }
+    f.request.mockResolvedValueOnce(models).mockResolvedValueOnce({ ok: true, kind: 'image', estimate_fen: 200 }).mockResolvedValueOnce({ id: 'job-image' })
+    const args = { action: 'generate', project_id: 'film', prompt: '暮色中的小站' }
+    await expect(f.call('jingliu_image', args)).resolves.toMatchObject({ job_id: 'job-image' })
+    expect(f.request.mock.calls.at(-1)).toMatchObject(['/jobs', { method: 'POST', body: { kind: 'image', payload: { model_id: 'gpt-image-2', project_id: 'film', n: 1 } } }])
+    f.request.mockResolvedValueOnce(models)
+    await expect(f.call('jingliu_image', args)).resolves.toMatchObject({ job_id: 'job-image' })
+    expect(f.approve).toHaveBeenCalledTimes(1)
+  })
+  it('requires a locked prompt and checks it again after the quote', async () => {
+    const f = fixture()
+    const video = { ...produce, name: 'run_shot_videos' }
+    const catalog = { tools: [video], count: 1 }
+    const shot = { ok: true, id: 's', override: { prompt: '原稿' }, gen_prompt: '原稿', prompt_state: 'manual', stale: false }
+    const args = { workflow: video.name, project_id: 'film', args: { shot_ids: ['s'] } }
+    f.request.mockResolvedValueOnce(catalog).mockResolvedValueOnce({ ...shot, prompt_state: 'auto' })
+    await expect(f.call('jingliu_run', args)).rejects.toMatchObject({ code: 'JINGLIU_SHOT_REVIEW_REQUIRED' })
+    f.request.mockResolvedValueOnce(catalog).mockResolvedValueOnce(shot).mockResolvedValueOnce({ ...quote, tool: video.name })
+      .mockResolvedValueOnce({ ...shot, override: { prompt: '改稿' }, gen_prompt: '改稿' })
+    await expect(f.call('jingliu_run', args)).rejects.toMatchObject({ code: 'JINGLIU_SHOT_CHANGED' })
+    expect(f.request.mock.calls.filter(([path, options]) => path === '/desktop-agent/tool' && JSON.stringify(options?.body).includes('run_shot_videos'))).toHaveLength(0)
+  })
+  it('only modifies a subtitle returned in this project and checks the native response', async () => {
+    const f = fixture()
+    const args = { action: 'edit_subtitle', project_id: 'film', clip_id: 'a', text: ' 小舟 ' }
+    f.request.mockResolvedValueOnce({ clips: [{ id: 'b' }] })
+    await expect(f.call('jingliu_studio', args)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_ARGUMENTS' })
+    f.request.mockResolvedValueOnce({ clips: [{ id: 'a' }] }).mockResolvedValueOnce({ id: 'a', text: '小舟' })
+    await expect(f.call('jingliu_studio', args)).resolves.toMatchObject({ id: 'a', text: '小舟' })
+  })
   it('discovers a workflow added by the server and returns its exact nested schema', async () => {
     const f = fixture()
     f.request.mockResolvedValue(definitions)
-    await expect(f.call('jingliu_workflows', { query: '生成' })).resolves.toMatchObject({ total: 1, workflows: [{ name: 'run_shot_videos' }] })
-    await expect(f.call('jingliu_workflows', { name: 'run_shot_videos' })).resolves.toEqual(produce)
+    await expect(f.call('jingliu_workflows', { query: '生成' })).resolves.toMatchObject({ total: 1, workflows: [{ name: 'run_asset_generate' }] })
+    await expect(f.call('jingliu_workflows', { name: 'run_asset_generate' })).resolves.toEqual(produce)
     expect(f.approve).not.toHaveBeenCalled()
   })
   it('invokes a read with the active account and original call identity', async () => {
@@ -59,10 +102,10 @@ describe('Jingliu workflow gateway', () => {
     })
   })
   it.each([
-    { workflow: 'run_shot_videos' },
-    { workflow: 'run_shot_videos', project_id: 'one', args: { project_id: 'other' } },
-    { workflow: 'run_shot_videos', project_id: 'one', args: { confirmed: true } },
-    { workflow: 'run_shot_videos', project_id: 'one', args: { shot_ids: [7] } },
+    { workflow: 'run_asset_generate' },
+    { workflow: 'run_asset_generate', project_id: 'one', args: { project_id: 'other' } },
+    { workflow: 'run_asset_generate', project_id: 'one', args: { confirmed: true } },
+    { workflow: 'run_asset_generate', project_id: 'one', args: { shot_ids: [7] } },
     { workflow: 'not_registered', project_id: 'one' },
   ])('does not quote or submit an unknown, mistyped or cross-project call', async (args) => {
     const f = fixture()

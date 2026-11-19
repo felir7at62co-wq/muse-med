@@ -48,7 +48,7 @@ With this opt-in, ask Muse in chat to read the saved episode by project ID and e
 
 ### The project bible
 
-Desktop sets `localProjectOnly: true` to allow local title, character, style, episode plan, aspect ratio, delivery and music feedback edits. Historical provider identifiers remain in the project file. Jingliu operations use the Jingliu project identifier.
+Desktop sets `localProjectOnly: true` to allow local title, character, style, episode plan, aspect ratio, delivery and music feedback edits. Historical provider identifiers remain in the project file. Jingliu operations use the Jingliu project identifier. The Jianying draft root and delivery settings remain editable in **Settings → Short drama**.
 
 `drama_project` reads, previews and updates a project in an existing absolute directory. `read` returns `unconfigured` when no structured bible exists, preserves legacy config and exposes current Settings defaults without creating files. New projects record delivery defaults and an immutable `initial_budget_cents` snapshot. `current_settings_budget_cents` reports the default; bound projects also return live `budget` accounting from the same authorization used by paid calls. An explicit project ceiling replaces the default. Current budget amounts are not duplicated in editable project JSON; returned Markdown includes the live readback, while the saved bible directs readers to the authorization. Change a ceiling through `jubian_budget` or the project budget editor. `preview` merges confirmed changes and identifies affected stages; `update` requires the same changes/reason, exact `expected_revision` and matching `preview_fingerprint`.
 

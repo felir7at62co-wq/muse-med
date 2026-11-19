@@ -32,6 +32,8 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@deepseek-ai/dsh-drama-settings": "workspace:*",
+    "fflate": "^0.8.3",
     "ajv": "^8.20.0",
     "@deepseek-ai/dsh-home-paths": "workspace:*",
     "@deepseek-ai/dsh-error": "workspace:*",
@@ -44,6 +46,7 @@
     "@deepseek-ai/dsh-user-approval": "workspace:*"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-user-approval": "workspace:*",

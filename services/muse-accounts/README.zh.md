@@ -111,7 +111,7 @@ node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate
 <a id="shared-voice-registration"></a>
 ## 工作台登录
 
-剧本工坊（`script-workshop`）和镜流（`jingliu`）分别注册客户端。将 `MUSE_WORKBENCH_LOGIN_CONFIG` 指向仅文件所有者可读写的 JSON 配置文件绝对路径。以工作台标识为键，值为含 `callbackUri`（固定 HTTPS 回调地址，本机测试可用数字回环地址的 HTTP）和 `serverSecret`（生成 32 字节随机值后用 base64url 编码）的对象。未配置文件时网关关闭此组接口。每个工作台后端仅持有自己的密钥。
+镜流读取 `jingliu` 客户端注册信息。将 `MUSE_WORKBENCH_LOGIN_CONFIG` 指向仅文件所有者可读写的 JSON 配置文件绝对路径。以 `jingliu` 为键，值为含 `callbackUri`（固定 HTTPS 回调地址，本机测试可用数字回环地址的 HTTP）和 `serverSecret`（生成 32 字节随机值后用 base64url 编码）的对象。未配置文件时网关关闭此组接口。每个工作台后端仅持有自己的密钥。
 
 浏览器登录时，工作台后端创建本地登录请求，生成随机 state 与 verifier，携带自己的 bearer 密钥向 `/api/workbench-login/start` 发送 JSON 格式的 POST 请求 `{audience, challenge, state}`。state 和 challenge 都为 43 个 base64url 字符，challenge 由 verifier 的 SHA-256 摘要编码而成。后端将浏览器引向返回的 `authorizeUrl`。用户在 Muse 确认当前账号后，Muse 跳回登记的地址，携带 `state` 以及 `code` 或 `error=access_denied`。每个登录请求十分钟后过期。工作台接收回调时核对发起登录的浏览器和 state。
 

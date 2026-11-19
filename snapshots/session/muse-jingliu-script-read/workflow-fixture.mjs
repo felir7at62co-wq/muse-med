@@ -144,7 +144,7 @@ export async function apply(ctx) {
     const messages = JSON.stringify(options.messages)
     for (const secret of [cookie, grant, studioToken]) assert.ok(!messages.includes(secret), 'Private login data in model input')
     const names = options.tools.map(tool => tool.name)
-    for (const name of ['jingliu_workflows', 'jingliu_run', 'jingliu_narration']) {
+    for (const name of ['jingliu_projects', 'jingliu_workflows', 'jingliu_run', 'jingliu_narration', 'jingliu_studio', 'jingliu_image']) {
       assert.ok(names.includes(name), `Missing Desktop tool ${name}`)
     }
     assert.deepEqual(names.filter(name => /^(?:jubian_|muse_production$)/u.test(name)), [],

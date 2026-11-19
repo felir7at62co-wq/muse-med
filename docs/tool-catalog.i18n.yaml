@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: 8630fc2729f18f0a
-  zh: 91b30744315113de
+  en: f058522289125000
+  zh: d63dd64a83bb364f
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
@@ -101,15 +101,24 @@
 /tool-schema-catalog/deepseek-ai-dsh-tool-jingliu:
   en: 7440b1913dd579fc
   zh: 7440b1913dd579fc
+/tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-image:
+  en: ee19bc3ca3ed4286
+  zh: ee19bc3ca3ed4286
 /tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-narration:
   en: e91b2518fc02bfc6
-  zh: 48017bbf81778b79
+  zh: e91b2518fc02bfc6
+/tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-projects:
+  en: bbbe02faccaab3b7
+  zh: bbbe02faccaab3b7
 /tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-run:
   en: 1d47cbe9c6fd7cde
-  zh: c534a9a3eebb2a2f
+  zh: 1d47cbe9c6fd7cde
+/tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-studio:
+  en: 5a09d6b334aa7c29
+  zh: 5a09d6b334aa7c29
 /tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-workflows:
   en: 9ebf330ecd090f25
-  zh: 63e3851a86c6b381
+  zh: 9ebf330ecd090f25
 /tool-schema-catalog/deepseek-ai-dsh-tool-hit-queue:
   en: d472e2a550629ed4
   zh: d472e2a550629ed4

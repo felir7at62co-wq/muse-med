@@ -66,6 +66,8 @@ async function mount(options: {
   const handlers: (() => void)[] = []
   const guards = new Map<string, () => () => void>()
   const entries: Entry[] = []
+  const accountChanges: (() => Promise<void>)[] = []
+  const current = { id: SessionId('main') }
   const hidden: SessionId[] = []
   const unhidden: SessionId[] = []
   const opened: SessionId[] = []
@@ -98,7 +100,9 @@ async function mount(options: {
     },
     sidebarRight: { openResource: (address: string) => { openedResources.push(address) } },
     remoteAccess: { whenAccess: (action: string, install: () => () => void) => { guards.set(action, install); return () => {} } },
+    get: () => ({ list: { getSnapshot: () => ({ byId: { [current.id]: { retainedBy: { mainView: 1 } } } }) } }),
     remote: {
+      $on: (_event: string, handler: () => Promise<void>) => track(accountChanges, handler),
       sessionCoordinator: {
         openMain: options.openMain ?? (async () => ({ ok: true as const, value: SessionId('main') })),
         watchMain: options.watchMain ?? (() => channel<SessionId | null>().stream()),
@@ -123,13 +127,26 @@ async function mount(options: {
       return settled.dispose()
     },
     fiber, disposeRemote, mounted, guards, entries, entry, hidden, unhidden, opened, resources, definitions,
-    dictionaries, filters, openedResources, handlers,
+    dictionaries, filters, openedResources, handlers, current, accountChanges,
     notice: () => (entry('shell.overlay').inject() as TaskToastInjected).hooks.taskNotice.getSnapshot(),
     dismiss: () => { (entry('shell.overlay').inject() as TaskToastInjected).dismiss() },
     reportActions: () => entry('conversation.chat.node').inject() as ReportCardActions,
     openMain: () => (entry('sidebar.workspaces.entry').inject() as { openMain(): Promise<void> }).openMain(),
   }
 }
+
+it('switches an open Router to the next signed-in account and preserves an ordinary active conversation', async () => {
+  let id = SessionId('main')
+  const m = await mount({ openMain: async () => ({ ok: true, value: id }) })
+  await m.openMain()
+  id = SessionId('second')
+  await m.accountChanges[0]!()
+  expect(m.opened.at(-1)).toBe(id)
+  m.current.id = SessionId('working')
+  const count = m.opened.length
+  await m.accountChanges[0]!()
+  expect(m.opened).toHaveLength(count)
+})
 
 it('declares the Browser services it uses before mounting', () => {
   expect(inject).toEqual(expect.arrayContaining(['slots', 'locale', 'remote', 'resources', 'uiWorkspace', 'remoteAccess', 'uiConversation', 'sidebarRight']))

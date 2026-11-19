@@ -1,9 +1,8 @@
-/** Same-host workbench access for a Muse installation with two path mounts. */
+/** Same-host workbench access for a Muse installation under the Jingliu path. */
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import http from 'node:http'
 
-const mounts = { jubengongfang: 'script-workshop', jingliu: 'jingliu' }
 const noStore = { 'cache-control': 'private, no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff' }
 
 function reply(res, status, body = '', headers = {}) {
@@ -15,11 +14,11 @@ function reply(res, status, body = '', headers = {}) {
 export function createEdge(config, transport = fetch) {
   const cache = new Map()
   const service = http.createServer(async (req, res) => {
-    const match = /^\/(check|enter|session)\/(jubengongfang|jingliu)$/.exec(req.url || '')
+    const match = /^\/(check|enter|session)\/(jingliu)$/.exec(req.url || '')
     if (!match) return reply(res, 404)
     const [, kind, mount] = match
-    const app = mounts[mount]
-    const name = app === 'jingliu' ? '镜流' : '剧本工坊'
+    const app = mount
+    const name = '镜流'
     if (kind === 'enter') {
       if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405)
       const page = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + name + ' · Muse</title><style>body{font:16px system-ui;display:grid;min-height:90vh;place-items:center;color-scheme:light dark}main{max-width:30rem}a,button{font:inherit;margin-right:1rem}p{line-height:1.6}</style><main><h1>' + name + '</h1><p id="status" role="status">正在验证 Muse 账号…</p><a href="/login" target="_blank" rel="noopener" hidden>登录 Muse</a><button hidden>进入工作台</button></main><script src="/' + mount + '/_store.js"></script><script src="/' + mount + '/_entry.js" defer></script></html>'
@@ -49,7 +48,7 @@ export function createEdge(config, transport = fetch) {
           const r = await transport(client.nativeLogin, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000), headers: { 'content-type': 'application/json', authorization: 'Bearer ' + client.secret }, body: JSON.stringify({ sub: user.accountId }) })
           if (!r.ok) { await r.body?.cancel(); throw Object.assign(Error('Native login rejected'), { status: r.status === 403 ? 403 : 503 }) }
           const value = await r.json()
-          const token = app === 'jingliu' ? value?.token : value?.access_token
+          const token = value?.token
           if (value?.user?.id !== owner || typeof token !== 'string' || !token || /[\s\x00-\x1f]/.test(token)) throw Error('Invalid native session')
           return { token, value }
         })()
@@ -60,7 +59,7 @@ export function createEdge(config, transport = fetch) {
       try { session = await entry.result } catch (e) { if (cache.get(key) === entry) cache.delete(key); throw e }
       if (kind === 'check' && verb === 'POST') {
         const path = String(req.headers['x-workbench-path'] || '').split('?')[0]
-        if (path === '/jingliu/fwp/v2/auth/logout' || path === '/jubengongfang/v1/auth/logout' || path === '/jubengongfang/api/v1/auth/logout') cache.delete(key)
+        if (path === '/jingliu/fwp/v2/auth/logout') cache.delete(key)
       }
       if (kind === 'check') return reply(res, 204, '', { 'x-workbench-authorization': 'Bearer ' + session.token })
       return reply(res, 200, JSON.stringify(session.value), { 'content-type': 'application/json' })

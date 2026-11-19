@@ -369,6 +369,13 @@ Host service backing the generated `ctx.remote.workspace` namespace.
 @Remote('initializeDefault') async initializeDefault(signal: AbortSignal): Promise<WorkspaceValue | undefined>
 
 /**
+ * Open the default computer workspace after an explicit location selection, including on existing installations.
+ * @param signal - Navigation cancellation.
+ * @returns The registered local workspace for a conversation without a folder picker.
+ */
+async useComputer(signal: AbortSignal): Promise<WorkspaceValue>
+
+/**
  * Rename one Workspace to a unique non-blank title.
  * @param request - Workspace identity and proposed title.
  * @returns the updated Workspace projection.

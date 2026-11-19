@@ -12,11 +12,9 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Agents from '@deepseek-ai/dsh-agent'
 import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import Tools from '@deepseek-ai/dsh-tools'
-import { defineContentToolFixture, executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import * as DramaGate from '@deepseek-ai/dsh-guard-drama'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import * as yaml from 'js-yaml'
 import { expect, it } from 'vitest'
+import { SHORT_DRAMA_GUIDANCE } from '../../desktop-host/src/short-drama-guidance.ts'
 import NativePreset from '../../desktop-host/src/native-preset.ts'
 
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
@@ -31,8 +29,9 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
     expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama', 'main-session'], allowUserDefault: false })
     const productRows = yaml.load(await readFile(join(productRoot, 'short-drama', 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema }) as Array<{ id: string; name: string }>
-    const guard = productRows.find(row => row.id === 'drama-gate')
-    expect(guard).toBeDefined()
+    expect(productRows.map(row => row.id)).not.toContain('drama-gate')
+    const desktopTools = loadOverlayPatches('muse-med', join(productRoot, '../config/desktop.cordis.patch.yml')).flatMap(row => row.insert ?? [])
+    expect(desktopTools).toContainEqual({ id: 'tool-jingliu', name: '@deepseek-ai/dsh-tool-jingliu' })
     // One registry row plus one adapter row per product composition directory: the
     // Desktop Host assembles its roster exactly this way, and nothing else may add a
     // preset — a shipped or personal preset is not discovered from any directory.
@@ -44,7 +43,6 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
       { id: 'tools', name: 'test:tools' },
       { id: 'native-executor', name: 'test:native-executor' },
       { id: 'agents', name: 'test:agents' },
-      guard,
       { id: 'session-projections', name: 'test:projections' },
       { id: 'agent-preset-registry', name: 'test:registry', config: presetConfig },
       ...presets.map(id => ({ id: `preset-${id}`, name: 'test:native', config: { id, directory: join(productRoot, id) } })),
@@ -54,7 +52,7 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
     ctx.loader.builtins.include = Include
     const modules = new Map<string, unknown>([
       ['test:projections', SessionProjections], ['test:registry', AgentPresetRegistry], ['test:native', NativePreset],
-      ['test:prompt', SystemPrompt], ['test:tools', Tools], ['test:agents', Agents], ['test:native-executor', NativeExecutor], ['@deepseek-ai/dsh-guard-drama', DramaGate],
+      ['test:prompt', SystemPrompt], ['test:tools', Tools], ['test:agents', Agents], ['test:native-executor', NativeExecutor],
     ])
     ctx.loader.internal = { version: 'v2', loadCache: new Map(),
       register() { throw new Error('Unexpected loader hooks') },
@@ -90,7 +88,7 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
     const source = document.content
     const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
     expect(rows.some(row => row.id === 'tool-jubian')).toBe(false)
-    for (const id of ['drama-gate', 'tool-drama-assets', 'tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {
+    for (const id of ['tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {
       expect(rows.some(row => row.id === id), id).toBe(true)
     }
     expect(rows.some(row => row.id === 'tool-character-reference')).toBe(false)
@@ -109,7 +107,9 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
       expect(presetSource).toContain("subtitleFontFamily: !!js process.env.MUSE_SUBTITLE_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'SimHei'")
       expect(presetSource).toContain("watermarkFontFamily: !!js process.env.MUSE_WATERMARK_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'")
     }
-    const prompt = rows.find(row => row.id === 'persona')?.config?.prefix ?? ''
+    const persona = rows.find(row => row.id === 'persona')?.config?.prefix ?? ''
+    expect(rows).toContainEqual({ id: 'short-drama-guidance', name: '@deepseek-ai/dsh-desktop-host/short-drama-guidance' })
+    const prompt = persona + '\n' + SHORT_DRAMA_GUIDANCE
     expect(prompt).toContain('你是 muse-med 短剧编导 Agent。')
     expect(prompt).not.toContain('deepseek-flash')
     expect(prompt).toContain('在收到请求的这一轮调用 create_goal')
@@ -118,16 +118,11 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
     expect(prompt).toContain('不套用人类胸像与遮脸三视图版式')
     expect(prompt).not.toContain('3–5个关键动作或场景切换')
     expect(prompt).not.toContain('以15秒视频包为参考')
-    expect(prompt).toContain('每镜1–4秒是节奏建议，不是视频包时长上限')
-    expect(prompt).toContain('有台词时按8个有效字/秒估算')
-    expect(prompt).toContain('原文对白内部不插入引用标记，保持逐字不变')
-    expect(prompt).toContain('禁止写入国旗、国徽、党旗、党徽、军旗、军徽')
-    expect(prompt).toContain('首次仍逐字使用，不预先修改')
-    expect(prompt).toContain('只有确认失败与对应词语有关时')
-    expect(prompt).toContain('最小替换或删除，其余台词逐字保留')
-    expect(prompt).toContain('禁止改写、删减或替换整段台词')
-    expect(prompt).toContain('技术性失败不构成修改台词的理由')
-    expect(prompt).toContain('按项目已定画幅设计镜头')
+    expect(prompt).toContain('建议每个镜头控制在1–4秒')
+    expect(prompt).toContain('有台词时按8个有效字/秒计算预算')
+    expect(prompt).toContain('不往原台词中插素材编号')
+    expect(prompt).toContain('保持原文、说话人、顺序和发声连续')
+    expect(prompt).toContain('用户同意修改后，用 get_shot 回读镜头最终保存的提示词、时长与所选参考')
     expect(prompt).toContain('所有资产图默认16:9横版；用户明确指定其他比例时按指定执行，资产图比例与视频成片比例分别处理')
     expect(prompt).toContain('人物素材未指定版式时，默认使用16:9横版白底设定板，四个独立区域从左到右依次为同一人物的正脸胸像、正面（0°）全身、严格侧面（90°）全身、背面（180°）全身')
     expect(prompt).toContain('本轮用户明确要求单画面全身图、单视图或人物立绘时，只展示一个完整、面容可见的人物，保留头顶至双脚')
@@ -148,16 +143,16 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
       expect(row).toMatchObject({ id, config: { provider } })
     }
     expect(prompt).not.toContain('pipeline_state.json')
-    expect(rows.find(row => row.id === 'tool-shot-script')?.config).toMatchObject({ reviewMode: 'advisory', sessionVideoSelection: true })
+    expect(rows.find(row => row.id === 'tool-shot-script')?.config).toMatchObject({ reviewMode: 'advisory', speechCharsPerSecond: 5 })
     expect(rows.some(row => row.id === 'screenplay-project')).toBe(false)
     expect(rows.some(row => row.id === 'editing-policy')).toBe(true)
     expect(prompt).toContain('单集目标、最低集长或汇总差额不授权重新分配视频包时长')
-    expect(prompt).toContain('已明确授权的范围自主执行，不逐包追加审批')
+    expect(prompt).toContain('用户要求生成或修改内容时，在授权范围内实际操作并按范围继续')
     expect((await ctx.agentPresets.resolve('editing')).id).toBe('short-drama')
     const editingSource = (await ctx.agentPresets.readDocument('short-drama')).content
     const editingRows = yaml.load(editingSource, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
     const editingPrompt = editingRows.find(row => row.id === 'persona')?.config?.prefix ?? ''
-    expect(editingPrompt).toBe(prompt)
+    expect(editingPrompt).toBe(persona)
     expect(editingRows.find(row => row.id === 'persona')?.config).toMatchObject({
       complete: false,
     })
@@ -169,25 +164,8 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
     await expect(readFile(editingSkill, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(readFile(`${editingSkill}.disabled`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     expect(source).not.toMatch(/[CE]:\\|EDY|默认授权|自动授权/)
-    let calls = 0
-    ctx.tools.register(defineContentToolFixture({
-      name: 'jubian_storyboard', description: 'No-network provider fixture',
-      parameters: { method: { type: 'string' }, preview_path: { type: 'string' } },
-      async execute() { calls++; return [{ type: 'text', text: 'provider reached' }] },
-    }))
-    const denied = await executeModelToolFixture(ctx, { name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
-      callId: ToolCallId('product-guard-denied'), signal: new AbortController().signal })
-    expect(denied.isError).toBe(true)
-    expect(JSON.stringify(denied.content)).toContain('idempotency_key')
-    expect(calls).toBe(0)
-    const allowed = await executeModelToolFixture(ctx, { name: 'jubian_storyboard', arguments: { method: 'get' },
-      callId: ToolCallId('product-read-allowed'), signal: new AbortController().signal })
-    expect(allowed.isError).toBe(false)
-    expect(calls).toBe(1)
-    await [...ctx.loader.entries()].find(row => row.options.id === 'drama-gate')?.fiber?.dispose()
-    await executeModelToolFixture(ctx, { name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
-      callId: ToolCallId('product-guard-disposed'), signal: new AbortController().signal })
-    expect(calls).toBe(2)
+    expect(prompt).toContain('jingliu_projects')
+    expect(prompt).toContain('jingliu_workflows')
   } finally {
     await ctx.fiber.dispose()
     await rm(root, { recursive: true, force: true })

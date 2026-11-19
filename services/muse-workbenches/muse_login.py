@@ -1,4 +1,4 @@
-"""Muse sign-in for the archived Script Workshop and Jingliu FastAPI applications."""
+"""Muse sign-in for the Jingliu production service."""
 import asyncio
 import base64
 import hashlib
@@ -53,7 +53,7 @@ def read_bindings(path, issuer, audience):
         raise ValueError("Invalid Muse workbench bindings")
     roles = data.get("jingliuRoles", {})
     if (data.keys() - {"issuer", "users", "jingliuRoles"} or not isinstance(roles, dict)
-            or (audience != "jingliu" and "jingliuRoles" in data) or roles.keys() - users.keys()
+            or roles.keys() - users.keys()
             or any(role not in ("user", "admin", "superadmin") for role in roles.values())):
         raise ValueError("Invalid Muse workbench role confirmation")
     return users, roles
@@ -93,15 +93,6 @@ class Requests:
 
 async def issue_native_session(audience, owner, native_role):
     """Sign in to the original, explicitly linked workbench account."""
-    if audience == "script-workshop":
-        from .auth.models import User
-        from .auth.routes import _login_payload
-        from .db import session_scope
-        async with session_scope() as db:
-            user = await db.get(User, owner)
-            if user is None or user.status != "active":
-                raise HTTPException(403, "关联的工坊账号不可用")
-            return _login_payload(user)
     return await asyncio.to_thread(issue_jingliu_session, owner, native_role)
 
 
@@ -126,20 +117,14 @@ class Exchange(BaseModel):
 
 
 def configure_muse_login(app: FastAPI, audience: str):
-    if audience not in {"jingliu", "script-workshop"}:
+    if audience != "jingliu":
         raise ValueError("Unknown Muse workbench audience")
     from .config import get_settings
     settings = get_settings()
-    studio = audience == "jingliu"
-    if studio and not settings.auth_upstream:
+    if not settings.auth_upstream:
         raise ValueError("FW_AUTH_UPSTREAM must enable Jingliu project authentication")
-    if not studio and not settings.auth_required:
-        raise ValueError("AUTH_REQUIRED must enable Script Workshop authentication")
-    if not studio and (len(os.environ.get("JWT_SECRET", "")) < 32
-                       or os.environ["JWT_SECRET"].startswith("drama-dev-secret")):
-        raise ValueError("Set a private Script Workshop JWT_SECRET before enabling Muse sign-in")
-    prefix = "/v2/auth/muse" if studio else "/v1/auth/muse"
-    public_prefix = ("/fwp" if studio else "") + prefix
+    prefix = "/v2/auth/muse"
+    public_prefix = "/fwp" + prefix
     issuer = origin(os.environ["MUSE_WORKBENCH_ISSUER"])
     public_origin = origin(os.environ["MUSE_WORKBENCH_PUBLIC_ORIGIN"])
     parent = os.environ.get("MUSE_WORKBENCH_PARENT_ORIGIN", "")
@@ -251,7 +236,7 @@ def configure_muse_login(app: FastAPI, audience: str):
     @router.get("/login")
     @router.get("/callback")
     def page():
-        title = "镜流" if studio else "剧本工坊"
+        title = "镜流"
         policy = ("default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; "
                   "base-uri 'none'; form-action 'none'; frame-ancestors " + (parent or "'none'"))
         content = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8">

@@ -8,6 +8,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { WorkspaceCommands } from './commands.ts'
 import { DirectoryPickerController } from './directory-picker.ts'
 import { WorkspaceFeed, workspaceView } from './feed.ts'
+import { mkdir } from 'node:fs/promises'
 import { defaultWorkspaceDirectory, validateDocumentsDirectory } from './default-directory.ts'
 import type {
   WorkspaceArchiveSessionRequest,
@@ -109,6 +110,21 @@ export class WorkspaceController extends TypertRemoteService {
       )
     })
     return workspace === undefined ? undefined : { workspace: workspaceView(workspace) }
+  }
+
+  /**
+   * Open the default computer workspace after an explicit location selection, including on existing installations.
+   * @param signal - Navigation cancellation.
+   * @returns The registered local workspace for a conversation without a folder picker.
+   */
+  async useComputer(signal: AbortSignal): Promise<WorkspaceValue> {
+    const existing = await this.initializeDefault(signal)
+    if (existing) return existing
+    const path = await defaultWorkspaceDirectory(this.config.documentsDirectory,
+      AbortSignal.any([signal, AbortSignal.timeout(this.config.documentsLookupTimeoutMs)]))
+    signal.throwIfAborted()
+    await mkdir(path, { recursive: true })
+    return { workspace: (await this.commands.create({ path })).workspace }
   }
 
   /**

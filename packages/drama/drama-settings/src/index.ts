@@ -14,6 +14,7 @@ export {
   DEFAULT_BGM_DIR, DEFAULT_DELIVERY_SPEC, DEFAULT_JIANYING_DRAFT_DIR, DELIVERY_SPEC_FIELD,
   DRAMA_SETTINGS_DEFAULTS, DRAMA_SETTINGS_NAMESPACE, DramaSettingsSchema,
 } from './settings.ts'
+export { draftDirectory } from './draft-directory.ts'
 export { readProjectBible } from './project-bible.ts'
 export type { DramaDeliverySpec, DramaSettings, DramaSettingsField } from './settings.ts'
 
@@ -61,7 +62,7 @@ export const Config = DramaSettingsSchema
  * effect on this row's fiber, so a late-loading or replaced Settings service
  * adopts the policy and unloading the row removes it.
  * @param ctx - Host context that may acquire the settings service.
- * @param config - Local production settings and optional standalone studio address.
+ * @param config - Resolved studio address, project editing mode and live settings.
  */
 export function apply(ctx: Context, config?: Config): void {
   const script = standaloneScriptTool(config?.standaloneStudioAddress ?? '')

@@ -9,9 +9,10 @@ describe('owning generated Remote mocks', () => {
     ['@deepseek-ai/dsh-feishu-settings/remote', 'packages/host/feishu-settings', 'tests/browser-plugin.client.spec.tsx'],
     ['@deepseek-ai/dsh-session-video/remote', 'packages/client/ui-session-video', 'tests/locales.client.spec.ts'],
     ['@deepseek-ai/dsh-session-video/remote', 'packages/client/ui-session-video', 'tests/browser-plugin.client.spec.ts'],
-  ])('resolves %s only for its registered owning importers', (remote, directory, testFile) => {
+    ['@deepseek-ai/dsh-jingliu-connection/remote', 'packages/client/ui-jingliu', 'tests/studio.client.spec.ts', 'src/client/native.ts'],
+  ])('resolves %s only for its registered owning importers', (remote, directory, testFile, sourceFile = 'src/client/index.ts') => {
     const resolver = generatedRemoteMockPlugin(process.cwd())
-    const owner = join(process.cwd(), directory, 'src/client/index.ts')
+    const owner = join(process.cwd(), directory, sourceFile)
     const virtual = resolver.resolveId(remote, owner)
     expect(virtual).toBeDefined()
     expect(resolver.resolveId(remote, `${owner}?source-test`)).toBe(virtual)

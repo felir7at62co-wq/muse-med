@@ -21,7 +21,7 @@ it('opens the library from the left navigation and reports an unconfigured store
     try {
       const page = await newEnglishPage(browser)
       await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-      await page.getByRole('button', { name: 'Character library', exact: true }).click()
+      await page.getByRole('button', { name: 'Asset library', exact: true }).click()
       await page.getByText('The character library is not connected. Ask your administrator to enable access.', { exact: true }).waitFor()
       await compareOrRefreshGolden(expected('offline'), await captureStableAria(page, 'section:has(h1)', scaffold.workspaceCwd), mode)
     } finally { await browser.close() }
@@ -84,13 +84,13 @@ it('synchronizes cloud additions and removals while browsing without exposing a 
       try {
         const page = await newEnglishPage(browser)
         await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-        await page.getByRole('button', { name: 'Character library', exact: true }).click()
+        await page.getByRole('button', { name: 'Asset library', exact: true }).click()
         const ancient = page.getByRole('button', { name: 'View character reference: char_3d_0004', exact: true })
         const urban = page.getByRole('button', { name: 'View character reference: char_3d_0002', exact: true })
         await ancient.waitFor()
         await urban.waitFor()
         await expect.poll(() => ancient.locator('img').evaluateAll(images => images.every(image => (image as HTMLImageElement).naturalWidth > 0) && images.length === 1)).toBe(true)
-        const section = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Character library', exact: true }) })
+        const section = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Shared assets', exact: true }) })
         await compareOrRefreshGolden(expected('catalog'), await captureStableAria(page, 'section:has(h1)', scaffold.workspaceCwd), mode)
         expect(await section.getByRole('button', { name: /upload|delete|edit|save|apply/i }).count()).toBe(0)
         for (const scheme of ['light', 'dark'] as const) {

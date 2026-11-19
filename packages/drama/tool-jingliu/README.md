@@ -9,7 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use this plugin with the [Jingliu connection](../jingliu-connection/README.md). In a Muse conversation, find a workflow with `jingliu_workflows`, request its full parameter schema by name, then pass the workflow, its business arguments and the intended project ID to `jingliu_run`. The connection authenticates each request as the same Jingliu user. Account operations such as listing projects omit the project ID.
+Use `jingliu_projects` to search and confirm a production for this conversation. `jingliu_studio` reads episodes, imports shared assets and reviews subtitle text and timing. `jingliu_image` defaults to GPT Image 2. Use `jingliu_workflows` and `jingliu_run` for the studio's production operations. Muse writes and locks video prompts before submitting reviewed shots. Jianying exports install editable tracks and their verified media under the chosen local draft directory and return the resulting path in chat.
+
+Requests use the signed-in [Jingliu connection](../jingliu-connection/README.md).
 
 ## Table of Contents
 
@@ -20,7 +22,7 @@ Use this plugin with the [Jingliu connection](../jingliu-connection/README.md). 
 
 ## Running a workflow
 
-The plugin reads the catalog at invocation time. Project selection is explicit for every project workflow. Muse asks for approval before server-declared mutations, generation or costs. A paid workflow's card includes the server quote. If the service requests separate confirmation for an irreversible change, the user sees its reason before Muse submits the same call again. The desktop agent receives an ID derived from the initiating conversation and tool call. Use a returned job ID to look up or wait for the original job.
+The plugin reads the catalog at invocation time. Project workflows use the selected conversation project or an explicit project ID when the conversation has no selection. Muse asks for approval before server-declared mutations, generation or costs. A paid workflow's card includes the server quote. If the service requests separate confirmation for an irreversible change, the user sees its reason before Muse submits the same call again. The desktop agent receives an ID derived from the initiating conversation and tool call. Use a returned job ID to look up or wait for the original job.
 
 `jingliu_narration` covers the narration-dialogue production mode. It reads the project state and quality report, sets one of the project's available models, submits dialogue breakdown or production, acknowledges a report item, and exports a Jianying draft. The server quotes each narration job. Muse stores local submission receipts under its private home directory so a replay after an acknowledged submission can reuse the original job ID. If submission was interrupted, reconcile the project job list before another attempt.
 
@@ -30,7 +32,7 @@ The plugin reads the catalog at invocation time. Project selection is explicit f
 
 #### What the model sees
 
-The model can call `jingliu_workflows`, `jingliu_run` and `jingliu_narration`. Discovery returns pages of workflow summaries or the complete schema of one named workflow. Execution validates business arguments using that schema and returns the service result with its workflow and project ID. Narration operations use the same project ID and account.
+The model uses `jingliu_projects` to confirm a production, `jingliu_studio` to review assets and subtitles, and `jingliu_image` for images. Discovery returns pages of workflow summaries or the complete schema of one named workflow. Execution validates business arguments using that schema and returns the service result with its workflow and project ID. Narration operations use the same project ID and account.
 
 #### Token effect
 

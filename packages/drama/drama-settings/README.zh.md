@@ -48,7 +48,7 @@ kind: "package-bundle"
 
 ### 项目圣经
 
-桌面版配置 `localProjectOnly: true` 时，可继续编辑本地剧名、人物、美术风格、分集计划、画幅、交付规格与配乐反馈。已有供应商标识留存在原文件。镜流制作使用镜流项目标识。
+桌面版配置 `localProjectOnly: true` 时，可继续编辑本地剧名、人物、美术风格、分集计划、画幅、交付规格与配乐反馈。已有供应商标识留存在原文件。镜流制作使用镜流项目标识。剪映草稿目录和交付设置仍可在**设置 → 短剧**中修改。
 
 `drama_project` 在已有绝对项目目录中读取、预览和更新项目。没有结构化圣经时，`read` 返回 `unconfigured`，保留旧配置并给出当前 Settings 默认值，不创建文件。新项目记录交付默认值与不可变的 `initial_budget_cents` 初始快照。`current_settings_budget_cents` 返回默认值；已绑定项目还返回来自计费调用同一授权来源的实时 `budget` 账务。明确项目额度覆盖默认值。可编辑项目 JSON 不复制当前金额；工具返回的 Markdown 包含实时回读，磁盘圣经指向实际授权。通过 `jubian_budget` 或项目预算编辑器调整额度。`preview` 合并已确认的修改并列出受影响阶段；`update` 要求相同 changes/reason、精确 `expected_revision` 和匹配的 `preview_fingerprint`。
 

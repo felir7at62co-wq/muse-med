@@ -111,7 +111,7 @@ Isolated local acceptance may use `http://localhost:<port>/auth/feishu/callback`
 <a id="shared-voice-registration"></a>
 ## Workbench sign-in
 
-Script Workshop (`script-workshop`) and Jingliu (`jingliu`) use separate client registrations. Set `MUSE_WORKBENCH_LOGIN_CONFIG` to the absolute path of an owner-only JSON file. Each audience maps to an object with `callbackUri` (one exact HTTPS callback, numeric loopback HTTP for local tests) and `serverSecret` (generate 32 random bytes and encode as base64url). The gateway disables these endpoints when the file setting is absent. Only the workbench backend receives its own secret.
+The Jingliu studio reads its `jingliu` registration. Set `MUSE_WORKBENCH_LOGIN_CONFIG` to the absolute path of an owner-only JSON file. The `jingliu` key maps to an object with `callbackUri` (one exact HTTPS callback, numeric loopback HTTP for local tests) and `serverSecret` (generate 32 random bytes and encode as base64url). The gateway disables these endpoints when the file setting is absent. Only the workbench backend receives its own secret.
 
 For browser login, the workbench backend starts a local transaction with a random state and verifier, then sends `POST /api/workbench-login/start` with JSON `{audience, challenge, state}` and its bearer secret. Both state and challenge use 43 base64url characters. The challenge is the SHA-256 digest of the verifier. The backend redirects the browser to the returned `authorizeUrl`. Muse confirms the current account and redirects to the registered callback with `state` and either `code` or `error=access_denied`. Each transaction expires in ten minutes. The workbench checks the originating browser and state before accepting the callback.
 

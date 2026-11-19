@@ -20,6 +20,7 @@
  * registering into one already depends on it for the declaration. The types
  * therefore live with their declarer.
  */
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type { RightbarOwnerProps } from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -49,6 +50,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         readonly retainTab: (tabId: TabId, signal: AbortSignal) => () => void
       }
     }
+    /**
+     * Render the local workspace and selected cloud project for the supplied Session above its right-sidebar tabs.
+     * An empty slot adds no environment controls.
+     */
+    'sidebar.right.environment': { kind: 'single'; scope: 'session'; owner: { sessionId: SessionId } }
     /**
      * One tab's body, dispatched with the `id` of the type in force for
      * `tab.kind`. A tab type registers here under its definition's `id` and

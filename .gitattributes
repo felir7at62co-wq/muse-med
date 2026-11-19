@@ -10,7 +10,6 @@
 
 # A unified diff needs one space to mark a blank context line.
 integrations/muse-kb/*.patch whitespace=-blank-at-eol
-integrations/openchatcut/*.patch whitespace=-blank-at-eol
 
 # DTK patches apply to the pinned upstream source as unified diffs.
 services/muse-media/deploy/patches/*.patch whitespace=-blank-at-eol

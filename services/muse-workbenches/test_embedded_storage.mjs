@@ -7,7 +7,7 @@ const { chromium } = createRequire(new URL('../../apps/web/package.json', import
 
 const source = name => readFile(new URL(name, import.meta.url), 'utf8')
 
-test('an embedded account switch keeps the standalone site and second workbench signed in separately', async () => {
+test('switching Jingliu accounts hides the previous embedded draft and preserves the standalone login', async () => {
   const storage = await source('muse_storage.js')
   const login = await source('muse_login.js')
   const requestId = 'i'.repeat(43)
@@ -15,19 +15,18 @@ test('an embedded account switch keeps the standalone site and second workbench 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost')
     const path = url.pathname
-    const studio = path.startsWith('/fwp/') || path === '/sfp/'
-    const base = studio ? '/fwp/v2/auth/muse' : '/v1/auth/muse'
+    const base = '/fwp/v2/auth/muse'
     const publicOrigin = 'http://' + req.headers.host
     const send = (type, value) => { res.setHeader('Content-Type', type); res.end(value) }
     if (path.endsWith('/storage.js')) return send('text/javascript', storage)
     if (path.endsWith('/login.js')) return send('text/javascript', login)
     if (path.endsWith('/challenge')) return send('application/json', JSON.stringify({ requestId, challenge: 'c'.repeat(43) }))
     if (path.endsWith('/exchange')) return send('application/json', JSON.stringify({
-      token: 'studio-' + owner, access_token: 'workshop-' + owner, refresh_token: 'refresh-' + owner, user: { id: owner },
+      token: 'studio-' + owner, user: { id: owner },
     }))
     if (path === '/') return send('text/html', '<main></main>')
     if (path.endsWith('/embed')) return send('text/html',
-      '<main data-parent="' + publicOrigin + '" data-prefix="' + base + '" data-audience="' + (studio ? 'jingliu' : 'script-workshop') +
+      '<main data-parent="' + publicOrigin + '" data-prefix="' + base + '" data-audience="' + 'jingliu' +
       '"><button id="login">Muse</button><p id="message"></p></main><script src="' + base +
       '/storage.js"></script><script src="' + base + '/login.js" defer></script>')
     return send('text/html', '<head><script src="' + base + '/storage.js"></script></head><main>Workspace</main>')
@@ -42,7 +41,6 @@ test('an embedded account switch keeps the standalone site and second workbench 
     const page = await browser.newPage()
     await page.goto(host)
     await page.evaluate(() => {
-      localStorage.setItem('drama_access_token', 'independent')
       localStorage.setItem('sf_session_prod', 'independent-studio')
       window.addEventListener('message', event => {
         if (event.origin !== location.origin || event.data?.type !== 'muse-workbench-login') return
@@ -62,16 +60,13 @@ test('an embedded account switch keeps the standalone site and second workbench 
       await frame.waitForURL(host + result)
       return frame
     }
-    let scripts = await embed('scripts', '/v1/auth/muse/embed', '/v2')
-    assert.equal(await scripts.evaluate(() => localStorage.getItem('drama_access_token')), 'workshop-101')
-    await scripts.evaluate(() => localStorage.setItem('editing-draft', 'previous user draft'))
-    const studio = await embed('studio', '/fwp/v2/auth/muse/embed', '/sfp/')
+    let studio = await embed('studio', '/fwp/v2/auth/muse/embed', '/sfp/')
     assert.equal(await studio.evaluate(() => localStorage.getItem('sf_session_prod')), 'studio-101')
+    await studio.evaluate(() => localStorage.setItem('editing-draft', 'previous user draft'))
     owner = 302
-    scripts = await embed('scripts', '/v1/auth/muse/embed', '/v2')
-    assert.deepEqual(await scripts.evaluate(() => [localStorage.getItem('drama_access_token'), localStorage.getItem('editing-draft')]), ['workshop-302', null])
-    assert.equal(await studio.evaluate(() => localStorage.getItem('sf_session_prod')), 'studio-101')
-    assert.deepEqual(await page.evaluate(() => [localStorage.getItem('drama_access_token'), localStorage.getItem('sf_session_prod')]), ['independent', 'independent-studio'])
+    studio = await embed('studio', '/fwp/v2/auth/muse/embed', '/sfp/')
+    assert.deepEqual(await studio.evaluate(() => [localStorage.getItem('sf_session_prod'), localStorage.getItem('editing-draft')]), ['studio-302', null])
+    assert.equal(await page.evaluate(() => localStorage.getItem('sf_session_prod')), 'independent-studio')
   } finally {
     await browser.close()
     await new Promise(resolve => server.close(resolve))

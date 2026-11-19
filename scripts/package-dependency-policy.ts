@@ -136,7 +136,6 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-session-persistence': ['SessionPersistenceNotFoundError'],
   // Recovery recognizes the subprocess provider's missing-executable class with instanceof.
   '@deepseek-ai/dsh-subprocess': ['SubprocessExecutableNotFoundError'],
-  '@deepseek-ai/dsh-mcp-client': ['createMcpToolDefinition'],
   '@deepseek-ai/dsh-tools': ['defineTool'],
   '@deepseek-ai/dsh-tools/pipeline': ['TOOL_BODY_META_KEY'],
   // Readers recognize a deadline's TimeoutReason only by `instanceof` against their own copy.

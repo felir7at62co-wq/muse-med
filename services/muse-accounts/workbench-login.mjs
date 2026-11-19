@@ -1,10 +1,10 @@
-/** Short-lived, audience-specific sign-in for the script workshop and Jingliu. */
+/** Short-lived, audience-specific sign-in for Jingliu. */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { constants } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 
-const labels = new Map([['script-workshop', '剧本工坊'], ['jingliu', '镜流']])
+const audienceId = 'jingliu'
 const token = () => randomBytes(32).toString('base64url')
 const digest = value => createHash('sha256').update(value).digest()
 const isToken = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{43}$/.test(value)
@@ -42,22 +42,17 @@ export async function loadWorkbenchClients(path) {
 function register(clients, issuer) {
   const services = new Map()
   if (clients === undefined) return services
-  if (!URL.canParse(issuer) || new URL(issuer).origin !== issuer || !safeUrl(new URL(issuer)) || !isRecord(clients) || !Object.keys(clients).length) {
+  if (!URL.canParse(issuer) || new URL(issuer).origin !== issuer || !safeUrl(new URL(issuer)) || !isRecord(clients) || !Object.hasOwn(clients, audienceId)) {
     throw Error('Invalid workbench sign-in configuration')
   }
-  for (const [id, config] of Object.entries(clients)) {
-    if (!labels.has(id) || !isRecord(config) || Object.keys(config).some(k => !['callbackUri', 'serverSecret'].includes(k))
-      || typeof config.serverSecret !== 'string' || !/^[A-Za-z0-9._~-]{32,256}$/.test(config.serverSecret)
-      || typeof config.callbackUri !== 'string' || !URL.canParse(config.callbackUri)) throw Error('Invalid workbench client registration')
-    const callback = new URL(config.callbackUri)
-    if (!safeUrl(callback) || callback.href !== config.callbackUri || callback.username || callback.password
-      || config.callbackUri.includes('?') || config.callbackUri.includes('#') || callback.pathname === '/') throw Error('Invalid workbench callback URI')
-    const secretHash = digest(config.serverSecret)
-    if ([...services.values()].some(other => timingSafeEqual(other.secretHash, secretHash) || callback.href === other.callbackUri)) {
-      throw Error('Workbench clients must have separate credentials and callbacks')
-    }
-    services.set(id, { callbackUri: callback.href, secretHash })
-  }
+  const config = clients[audienceId]
+  if (!isRecord(config) || Object.keys(config).some(k => !['callbackUri', 'serverSecret'].includes(k))
+    || typeof config.serverSecret !== 'string' || !/^[A-Za-z0-9._~-]{32,256}$/.test(config.serverSecret)
+    || typeof config.callbackUri !== 'string' || !URL.canParse(config.callbackUri)) throw Error('Invalid workbench client registration')
+  const callback = new URL(config.callbackUri)
+  if (!safeUrl(callback) || callback.href !== config.callbackUri || callback.username || callback.password
+    || config.callbackUri.includes('?') || config.callbackUri.includes('#') || callback.pathname === '/') throw Error('Invalid workbench callback URI')
+  services.set(audienceId, { callbackUri: callback.href, secretHash: digest(config.serverSecret) })
   return services
 }
 
@@ -117,7 +112,7 @@ export function createWorkbenchLogin({ clients, publicOrigin, session, sessionSt
     const a = fields.getAll('attempt').length === 1 && attempts.get(id)
     if (!a || a.expiry <= now()) return reply(res, 410, '本次登录已过期，请返回工作台重试。')
     const s = session(req)
-    const label = labels.get(a.audience)
+    const label = '镜流'
     if (!s) {
       if (!enrollment) return reply(res, 401)
       // A same-site navigation lets the browser present a preexisting Strict Muse cookie.

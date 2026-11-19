@@ -404,10 +404,115 @@ Resolves user grants at execution time, keeping tokens outside model input and o
 
 ```ts cordis-catalog
 /** Resolve the active account on the selected deployment.
- * @returns A transport which stops if the session grant changes.
+ * @returns A transport bound to this Muse login and Jingliu user.
  */
 async connection(): Promise<JingliuSession>
+
+/**
+ * Find the project associated with this conversation and owner.
+ * @param sessionId - Actual Muse conversation.
+ * @param identity - Verified studio user.
+ * @returns Its matching cloud selection.
+ */
+async selected(sessionId: string, identity: string): Promise<SelectedProject | null>
+
+/**
+ * Capture the signed-in production for an execution assignment.
+ * @param sessionId - Routing conversation.
+ * @returns Its confirmed project and current studio owner for a worker assignment.
+ */
+async assignmentProject(sessionId: SessionId): Promise<(SelectedProject & { owner: string }) | null>
+
+/**
+ * Bind the worker to the production captured by its Router.
+ * @param worker - Worker receiving a recorded assignment.
+ * @param project - Project selected when the user delegated the work.
+ */
+async inheritProject(worker: SessionId, project: SelectedProject & { owner: string }): Promise<void>
+
+/**
+ * Confirm a production for a local conversation and notify its Agent.
+ * @param sessionId - Conversation shown to the user.
+ * @param projectId - Project explicitly confirmed.
+ * @param signal - User action lifetime.
+ * @returns The native project title and ID.
+ */
+@Remote async selectProject(sessionId: SessionId, projectId: string, signal: AbortSignal): Promise<SelectedProject>
+
+/**
+ * Follow the production shown beside one conversation.
+ * @param sessionId - Right sidebar's Session.
+ * @param signal - Subscription lifetime.
+ * @returns This Session's initial and updated project selection.
+ */
+@Remote({ mode: 'stream' }) async *watchProject(sessionId: SessionId, signal: AbortSignal): AsyncIterable<SelectedProject | null>
+
+/**
+ * List productions the current studio account can access.
+ * @param signal - Panel cancellation.
+ * @returns Projects visible to the signed-in studio user.
+ */
+@Remote async listProjects(signal: AbortSignal): Promise<StudioProject[]>
+
+/**
+ * Read the shared media catalog as the current studio user.
+ * @param query - Filter and page offset for the shared library.
+ * @param signal - Panel cancellation.
+ * @returns A native catalog page.
+ */
+@Remote async sharedAssets(query: StudioLibraryQuery, signal: AbortSignal): Promise<StudioLibrary>
+
+/**
+ * Load a bounded thumbnail without exposing the studio credential.
+ * @param path - Native thumbnail path in the current library.
+ * @param signal - Panel cancellation.
+ * @returns A preview image for this account.
+ */
+@Remote async thumbnail(path: string, signal: AbortSignal): Promise<string>
+
+/**
+ * Read the current account allowance and usage.
+ * @param signal - Panel cancellation.
+ * @returns The current Jingliu account allowance.
+ */
+@Remote async balance(signal: AbortSignal): Promise<StudioBalance>
+
+/**
+ * Read the native settings of one production.
+ * @param projectId - Selected cloud project.
+ * @param signal - Panel cancellation.
+ * @returns Preferences saved by both clients.
+ */
+@Remote async preferences(projectId: string, signal: AbortSignal): Promise<StudioPreferences>
+
+/**
+ * List available production settings and their stored values.
+ * @param projectId - Selected project.
+ * @param signal - Panel lifetime.
+ * @returns Native model and resolution settings.
+ */
+@Remote async projectOptions(projectId: string, signal: AbortSignal): Promise<StudioOptions>
+
+/**
+ * Change one setting and verify the stored value.
+ * @param projectId - Selected project.
+ * @param key - Single field to update.
+ * @param value - Model or resolution; empty uses the project default.
+ * @param signal - Panel lifetime.
+ * @returns Settings read back from the same project.
+ */
+@Remote async saveOption(projectId: string, key: StudioSetting, value: string, signal: AbortSignal): Promise<StudioOptions>
+
+/**
+ * Update how references appear in this production.
+ * @param value - Preference explicitly changed by the user.
+ * @param signal - Panel cancellation.
+ * @returns A verified read from the same project and account.
+ */
+@Remote async savePreferences(value: StudioPreferences, signal: AbortSignal): Promise<StudioPreferences>
 ```
+
+Types: [SessionId](core.zh.md)
 
 Source: [`packages/drama/jingliu-connection/src/index.ts`](../../packages/drama/jingliu-connection/src/index.ts)
 

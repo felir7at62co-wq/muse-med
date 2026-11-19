@@ -8,6 +8,8 @@
     "src"
   ],
   "references": [
+    { "path": "../drama-settings/tsconfig.host.json" },
+    { "path": "../../core/session" },
     { "path": "../../util/home-paths" },
     {
       "path": "../../../vendor/cordis"
