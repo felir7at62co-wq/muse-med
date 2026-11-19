@@ -145,7 +145,10 @@ it('only status can resume a never-accepted receipt with its original audio and 
     expect(result.value).toMatchObject({ job_id: id, purpose: 'screenplay', status: 'processing', service_version: 'standard-v2' })
   }
   const queryPath = '/api/asr/jobs/' + id
-  expect(fetcher.mock.calls.map(([url, init]) => [new URL(String(url)).pathname, init?.method])).toEqual([
+  expect(fetcher.mock.calls.map(([input, init]) => {
+    const url = new URL(input instanceof Request ? input.url : input)
+    return [url.pathname, init?.method]
+  })).toEqual([
     [queryPath, 'GET'], [queryPath, 'GET'], ['/api/asr/jobs', 'POST'], [queryPath, 'GET'],
   ])
   const headers = new Headers(fetcher.mock.calls[2]?.[1]?.headers)

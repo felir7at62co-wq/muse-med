@@ -107,7 +107,9 @@ it.each(['open', 'write'] as const)('cleans up a failed receipt %s before submit
       await originalWrite('{')
       throw failure
     })
-    restoreWrite = () => write.mockRestore()
+    restoreWrite = () => {
+      write.mockRestore()
+    }
     return handle
   })
   try {
