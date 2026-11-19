@@ -1,446 +1,113 @@
-name: Muse unsigned desktop packages
+name: Muse isolated upgrade rehearsal
 
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: Installer platform
+        description: Test platform
         type: choice
-        required: true
-        default: all
-        options: [all, win-x64, mac-arm64]
+        options: [win-x64]
+        default: win-x64
       upload_draft_release:
-        description: Copy both verified installers into existing exact-commit drafts; requires target all
         type: boolean
         default: false
       export_candidate_to_tos:
-        description: Export an encrypted Windows candidate with a short-lived object-scoped upload secret
         type: boolean
         default: false
-      verify_hongguo_live:
-        description: Require complete Hongguo downloads from the genuine installed application
-        type: boolean
-        default: false
-      hongguo_series_ids:
-        description: Comma-separated series IDs for opt-in installed download acceptance
+      installed_upgrade_baseline:
+        type: choice
+        options: [all, '1.3.0']
+        default: '1.3.0'
+      installed_upgrade_run_id:
+        description: Read-only artifact source run
         type: string
-        default: '7687998333729639449,7691176265872591896'
-      verify_fanqie_live:
-        description: Require a complete Fanqie novel download from the genuinely installed application
-        type: boolean
-        default: false
-      fanqie_book_id:
-        description: Official free Fanqie book ID for installed download acceptance
+        default: '44241619032'
+      installed_upgrade_source:
+        description: Exact binary source commit
         type: string
-        default: '7654065336026663998'
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+        default: ba18143ec0f72a8a563e72d3421a1b1cdd909b8d
+      installed_upgrade_version:
+        description: Upgrade target version
+        type: string
+        default: '1.3.1'
 
 permissions:
   contents: read
-
-concurrency:
-  group: muse-desktop-${{ github.ref }}
-  cancel-in-progress: false
+  actions: read
 
 jobs:
-  build:
-    if: github.repository == 'felir7at62co-wq/muse-med' && (github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft)
-    name: ${{ matrix.target }} unsigned installer
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
+
+  installed-upgrade:
+    name: Installed Muse upgrade from ${{ matrix.from }}
+    if: github.repository == 'felir7at62co-wq/muse-med' && github.event_name == 'workflow_dispatch' && inputs.installed_upgrade_run_id != ''
+    runs-on: windows-2025
+    timeout-minutes: 50
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.target == 'win-x64' && '[{"target":"win-x64","runner":"windows-2025","shell":"pwsh"}]' || inputs.target == 'mac-arm64' && '[{"target":"mac-arm64","runner":"macos-15","shell":"bash"}]' || '[{"target":"win-x64","runner":"windows-2025","shell":"pwsh"},{"target":"mac-arm64","runner":"macos-15","shell":"bash"}]') }}
+        from: ${{ fromJSON(inputs.installed_upgrade_baseline == '1.3.0' && '["1.3.0"]' || '["1.3.0","1.3.1"]') }}
     defaults:
       run:
-        shell: ${{ matrix.shell }}
+        shell: pwsh
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7.0.0
         with:
-          node-version: ${{ matrix.target == 'win-x64' && '26.13.0' || '24' }}
-      - name: Check the candidate export network route
-        if: matrix.target == 'win-x64' && inputs.export_candidate_to_tos
-        run: >-
-          node --input-type=module -e "const started = Date.now();
-          const runtime = { node: process.versions.node, undici: process.versions.undici };
-          console.log(JSON.stringify({ stage: 'muse-ci-http-runtime', ...runtime }));
-          const [major, minor] = String(runtime.undici).split('.').map(Number);
-          if (!(major > 8 || (major === 8 && minor >= 6))) {
-          console.error('Muse CI requires Undici 8.6 or newer'); process.exitCode = 1;
-          } else { try { const response = await fetch('https://muse.tos-s3-cn-beijing.volces.com/',
-          { method: 'HEAD', redirect: 'error', signal: AbortSignal.timeout(30000) });
-          const status = response.status; await response.body?.cancel();
-          console.log(JSON.stringify({ stage: 'muse-tos-route-check', status, elapsedMs: Date.now() - started }));
-          if (status !== 200 && status !== 403) process.exitCode = 1;
-          } catch { console.error('Muse TOS route check failed before packaging'); process.exitCode = 1; } }"
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-      - name: Check draft build ownership and saved source ranges
-        working-directory: packages/drama/skills
-        env:
-          PYTHONUTF8: '1'
-        run: python -B -m unittest tests.render.test_windows_aa_draft tests.render.test_windows_aa_protocol tests.render.test_draft_stage_guard tests.render.test_draft_integrity
-      - name: Install immutable dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Install model gateway dependencies
-        run: npm ci --prefix services/muse-accounts --ignore-scripts
-      - name: Install locked Bot runtime dependencies
-        run: npm ci --prefix third_party/plugins/ds-bot --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund
-      - name: Cache the locked private Hongguo source resource
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download hongguo-source-runtime-9869b8571b45 --repo felir7at62co-wq/muse-med --pattern hongguo-source-runtime-1.tgz --dir apps/desktop/.desktop-build/downloads
-      - name: Cache the locked private Windows FFmpeg resource
-        if: matrix.target == 'win-x64'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download muse-desktop-v0.1.6-alpha.1 --repo felir7at62co-wq/muse-med --pattern muse-ffmpeg-9.0.2-win-x64.zip --dir apps/desktop/.desktop-build/downloads/media
-      - name: Check model relay behavior
-        run: node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs
-      - name: Build Host peers for plugin packaging
-        run: pnpm run build:lib:host
-      - name: Check built-in Bot memory, shutdown and packaging policy
-        env:
-          DSH_HARNESS: ${{ github.workspace }}
-        run: node --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test third_party/plugins/ds-bot/test/memory.test.js third_party/plugins/ds-bot/test/memory-pending.test.js third_party/plugins/ds-bot/test/muse-host.test.js third_party/plugins/ds-bot/test/store.test.js third_party/plugins/ds-bot/test/muse-host-adoption.test.js third_party/plugins/ds-bot/test/side.test.js third_party/plugins/ds-bot/test/work-dir.test.js third_party/plugins/compatibility/muse-bot-desktop.test.mjs
-      - name: Check download bundle packaging
-        run: node --test third_party/plugins/download-pack.test.mjs third_party/plugins/muse-fanqie-download/tests/client.test.js apps/desktop/tests/hongguo-live-smoke.test.mjs apps/desktop/tests/fanqie-live-smoke.test.mjs
-      - name: Check bundled 3D anime skill preflight
-        run: python -B -m unittest discover -s packages/drama/skills/tests/anime_3d
-      - name: Check offline OCR process protocol
-        run: python -B -m unittest discover -s packages/perception/tool-video-inspect/tests -p test_ocr_bridge.py
-      - name: Check Mac raw-source cache preparation
-        run: python -B -m unittest discover -s apps/desktop/tests -p test_prewarm_macos_media_sources.py
-      - name: Check media creation evidence validation
-        run: python -B -m unittest discover -s apps/desktop/tests -p test_macos_creation_smoke.py
-      - name: Verify shipped drama skill resources
-        run: |
-          python -m unittest discover -s packages/drama/skills/tests -p test_pack.py
-          pnpm --dir packages/drama/skills pack --pack-destination ../../../.artifacts/drama-skill-pack
-          python -c "from pathlib import Path; import subprocess, sys; files=list(Path('.artifacts/drama-skill-pack').glob('*.tgz')); assert len(files)==1, files; subprocess.run([sys.executable, 'packages/drama/skills/tests/verify_pack.py', str(files[0])], check=True)"
-      - name: Check transcription receipts and portable recovery paths
-        run: pnpm exec vitest run packages/drama/tool-audio-transcribe/tests/runner.spec.ts
-      - name: Check packaging behavior
-        run: pnpm exec vitest run apps/desktop/tests/package-target.spec.ts apps/desktop/tests/package-target-stages.spec.ts apps/desktop/tests/macos-signature.spec.ts apps/desktop/tests/unsigned-pr-packaging.spec.ts apps/desktop/tests/export-muse-ci-candidate.spec.ts apps/desktop/tests/desktop-package-environment.spec.ts apps/desktop/tests/prepare-macos-media.spec.ts apps/desktop/tests/macos-subtitle-libraries.spec.ts apps/desktop/tests/macos-media-smoke.spec.ts apps/desktop/tests/package-resume.spec.ts apps/desktop/tests/muse-installer-acceptance.spec.ts apps/desktop/tests/muse-candidate-update-acceptance.spec.ts apps/desktop/tests/runtime-dependency-patches.spec.ts apps/desktop/tests/packaged-pi-ai.spec.ts scripts/release/tarball.spec.ts scripts/release/process.spec.ts apps/desktop/tests/prepare-package-set.spec.ts packages/client/ui-permission-presets/tests scripts/release/pack.spec.ts
-      - name: Configure unsigned Muse packaging
-        run: >-
-          node --input-type=module -e "import { writeFileSync } from 'node:fs';
-          writeFileSync('apps/desktop/.env.' + (process.platform === 'win32' ? 'windows' : 'macos'),
-          'DSH_DESKTOP_APP_ID=cn.muse.med\nDSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false\n');"
-      - name: Check native Windows install and automatic update UI
-        if: matrix.target == 'win-x64'
-        run: pnpm --dir apps/desktop run test:installer
-      - name: Check real Electron update download and confirmation UI
-        if: matrix.target == 'win-x64' && github.event_name == 'workflow_dispatch'
-        run: |
-          pnpm run build
-          pnpm --dir apps/desktop run test:updates:local
-      - name: Prewarm locked Mac media sources
-        if: matrix.target == 'mac-arm64'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download v1.2.0 --repo felir7at62co-wq/muse-med --pattern muse-macos-media-9.0.2-locked-source-inputs.tar.gz --dir "$RUNNER_TEMP/mac-source-archive"
-          python -B apps/desktop/scripts/prewarm_macos_media_sources.py --archive "$RUNNER_TEMP/mac-source-archive/muse-macos-media-9.0.2-locked-source-inputs.tar.gz"
-      - name: Check native macOS DMG identity and signature verification
-        if: matrix.target == 'mac-arm64'
-        run: |
-          mkdir -p "$RUNNER_TEMP/muse-candidate-update-native"
-          pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/macos-update-package.e2e.ts --retry 0 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/muse-candidate-update-native/result.json"
-      - name: Build and verify the assembled application
-        run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
-      - name: Verify isolated Windows upgrade safety
-        if: matrix.target == 'win-x64'
-        run: node apps/desktop/scripts/run-isolated-upgrade-smoke.mjs
-      - name: Check bundled Host integrations against built dependencies
-        run: |
-          pnpm exec vitest run apps/desktop-host/tests/feishu-migration.spec.ts apps/desktop-host/tests/permission-settings.spec.ts apps/desktop-host/tests/tool-discovery-catalog.spec.ts apps/desktop/tests/smoke-runtime.spec.ts apps/desktop/tests/bundled-bridge.spec.ts apps/desktop/tests/feishu-setup-loader.spec.ts packages/boot/app-boot/tests/compatibility-preflight.spec.ts apps/cli/tests/resolved-profile-boot.spec.ts
-          node --test third_party/plugins/compatibility/muse-feishu-channel.test.mjs third_party/plugins/compatibility/muse-feishu-reliability.test.mjs
-          node --import tsx/esm --test third_party/plugins/compatibility/feishu-desktop.test.mjs
-      - name: Replay the Feishu delivery, Codex subscription and Bot memory Sessions
-        if: matrix.target == 'mac-arm64'
-        run: pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t 'replays (muse-feishu-send-file|muse-codex-subscription|muse-bot-roster) through'
-      - name: Record the exact unsigned build
-        env:
-          MUSE_RELEASE_TARGET: ${{ matrix.target }}
-        run: node apps/desktop/scripts/record-muse-unsigned-build.mjs
-      - name: Accept the real candidate update download before publication
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          MUSE_RELEASE_TARGET: ${{ matrix.target }}
-        run: |
-          pnpm exec tsx apps/desktop/scripts/muse-candidate-update-acceptance.ts --from-version 1.2.2
-          pnpm exec tsx apps/desktop/scripts/muse-candidate-update-acceptance.ts --from-version 1.2.5
-          pnpm exec tsx apps/desktop/scripts/muse-candidate-update-acceptance.ts --from-version 1.2.6
-      - name: Cache the locked previous installer and release manifest
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download v1.2.5 --repo felir7at62co-wq/muse-med --pattern muse-desktop-builds.json --pattern muse-med-1.2.5-${{ matrix.target }}.${{ matrix.target == 'win-x64' && 'exe' || 'dmg' }} --dir apps/desktop/.desktop-build/previous-release/${{ matrix.target }}
-      - name: Accept the genuine installer in an isolated directory
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          MUSE_RELEASE_TARGET: ${{ matrix.target }}
-          MUSE_HONGGUO_LIVE_REQUIRED: ${{ inputs.verify_hongguo_live && '1' || '0' }}
-          MUSE_HONGGUO_LIVE_IDS: ${{ inputs.hongguo_series_ids }}
-          MUSE_FANQIE_LIVE_REQUIRED: ${{ inputs.verify_fanqie_live && '1' || '0' }}
-          MUSE_FANQIE_LIVE_BOOK_ID: ${{ inputs.fanqie_book_id }}
-          MUSE_FANQIE_LIVE_TITLE: 摆烂摆烂，誓做修仙界第一关系户
-          MUSE_FANQIE_LIVE_AUTHOR: 倒荷
-        run: pnpm exec tsx apps/desktop/scripts/muse-installer-acceptance.ts --previous-release-cache apps/desktop/.desktop-build/previous-release/${{ matrix.target }}
-      - name: Export the encrypted Windows candidate and acceptance to TOS
-        if: github.event_name == 'workflow_dispatch' && matrix.target == 'win-x64' && inputs.export_candidate_to_tos
-        env:
-          MUSE_RELEASE_TARGET: ${{ matrix.target }}
-          MUSE_CI_TOS_CANDIDATE_UPLOAD: ${{ secrets.MUSE_CI_TOS_CANDIDATE_UPLOAD }}
-        run: node apps/desktop/scripts/export-muse-ci-candidate.mjs
-      - name: Upload installers, update metadata and build identity
-        if: "!(inputs.export_candidate_to_tos && matrix.target == 'win-x64')"
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: muse-${{ matrix.target }}-${{ github.sha }}
-          path: |
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.exe
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.dmg
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.zip
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.blockmap
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/*.yml
-            apps/desktop/.desktop-build/targets/${{ matrix.target }}/unsigned-artifacts/unsigned-build.json
-          if-no-files-found: error
-          compression-level: 0
-          # Read only by this run's upload-drafts job and by manual downloads of dispatched candidates; no job reads pull request builds.
-          retention-days: ${{ github.event_name == 'workflow_dispatch' && 7 || 1 }}
-      - name: Retain native installer acceptance evidence
-        if: always() && github.event_name == 'workflow_dispatch' && !(inputs.export_candidate_to_tos && matrix.target == 'win-x64')
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: muse-${{ matrix.target }}-installed-acceptance-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/muse-installer-acceptance-*/acceptance.json
-            ${{ runner.temp }}/muse-installer-acceptance-*/processes/
-            ${{ runner.temp }}/muse-installer-acceptance-*/cleanup-processes/
-            ${{ runner.temp }}/muse-candidate-update-*/*.json
-            ${{ runner.temp }}/muse-candidate-update-*/*.jsonl
-            ${{ runner.temp }}/muse-candidate-update-*/*.log
-            apps/desktop/.desktop-build/qualification/local-updater-*/
-          if-no-files-found: warn
-          retention-days: 30
-      - name: Retain packaging diagnostics
-        if: always() && !(inputs.export_candidate_to_tos && matrix.target == 'win-x64')
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: muse-${{ matrix.target }}-diagnostics-${{ github.sha }}
-          path: apps/desktop/.desktop-build/packaging-runs/
-          if-no-files-found: ignore
-          retention-days: 14
-      - name: Retain Windows installer UI evidence
-        if: always() && matrix.target == 'win-x64' && !inputs.export_candidate_to_tos
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: muse-win-x64-installer-ui-${{ github.sha }}
-          path: apps/desktop/.desktop-build/installer-tests/
-          if-no-files-found: warn
-          # Contains installer copies (~150 MB per run) and serves only diagnosis of this run.
-          retention-days: ${{ github.event_name == 'workflow_dispatch' && 7 || 3 }}
-  upload-drafts:
-    name: Copy verified installers into existing drafts
-    needs: build
-    if: github.repository == 'felir7at62co-wq/muse-med' && github.event_name == 'workflow_dispatch' && inputs.upload_draft_release && inputs.target == 'all' && needs.build.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: write
-      actions: read
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Download the exact Mac build from this run
+          node-version: '26.13.0'
+      - name: Install exact fixture dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Get the exact Windows candidate artifact
         uses: actions/download-artifact@v4
         with:
-          name: muse-mac-arm64-${{ github.sha }}
-          path: ${{ runner.temp }}/muse-draft-artifacts/mac-arm64
-      - name: Download the exact Windows build from this run
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.installed_upgrade_run_id }}
+          name: muse-win-x64-${{ inputs.installed_upgrade_source }}
+          path: ${{ runner.temp }}/installed-upgrade-candidate
+      - name: Get the distributed 1.3.1 baseline
+        if: matrix.from == '1.3.1'
         uses: actions/download-artifact@v4
         with:
-          name: muse-win-x64-${{ github.sha }}
-          path: ${{ runner.temp }}/muse-draft-artifacts/win-x64
-      - name: Verify both unsigned builds and all artifact bytes
-        env:
-          MUSE_ARTIFACT_ROOT: ${{ runner.temp }}/muse-draft-artifacts
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import hashlib
-          import json
-          import os
-          import pathlib
-          import re
-          import stat
-          import subprocess
-
-          def require(value, message):
-              if not value:
-                  raise RuntimeError(message)
-
-          commit = os.environ['GITHUB_SHA']
-          require(re.fullmatch(r'[a-f0-9]{40}', commit), 'An exact source commit is required')
-          require(subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == commit,
-                  'The checkout differs from this workflow source')
-          version = json.loads(pathlib.Path('apps/desktop/muse-product.json').read_text())['version']
-          require(isinstance(version, str) and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version),
-                  'Draft upload requires a stable product version')
-          root = pathlib.Path(os.environ['MUSE_ARTIFACT_ROOT']).resolve()
-          payloads = []
-          for target, suffixes, feed in [
-              ('mac-arm64', ['.dmg', '.zip', '.zip.blockmap'], 'latest-mac.yml'),
-              ('win-x64', ['.exe', '.exe.blockmap'], 'latest.yml'),
-          ]:
-              directory = root / target
-              require(directory.is_dir() and not directory.is_symlink(), 'Invalid artifact directory')
-              base = f'muse-med-{version}-{target}'
-              names = [base + suffix for suffix in suffixes]
-              expected = set(names + [feed])
-              inventory = {path.name for path in directory.iterdir()}
-              required = expected | {'unsigned-build.json'}
-              require(inventory in (required, required | {'builder-debug.yml'}),
-                      'The artifact contains unexpected or missing files')
-              for path in directory.iterdir():
-                  require(stat.S_ISREG(path.lstat().st_mode), 'Artifact inputs must be regular files')
-              record = json.loads((directory / 'unsigned-build.json').read_text())
-              require(isinstance(record, dict) and record.get('schemaVersion') == 1
-                      and record.get('target') == target and record.get('version') == version
-                      and record.get('sourceCommit') == commit and record.get('unsigned') is True,
-                      'The unsigned build belongs to another source or version')
-              artifacts = record.get('artifacts')
-              require(isinstance(artifacts, dict) and set(artifacts) == expected,
-                      'The unsigned build has an unexpected artifact inventory')
-              for name in sorted(expected):
-                  path = directory / name
-                  locked = artifacts[name]
-                  require(isinstance(locked, dict) and type(locked.get('size')) is int and locked['size'] > 0
-                          and isinstance(locked.get('sha256'), str)
-                          and re.fullmatch(r'[a-f0-9]{64}', locked['sha256']), 'Invalid artifact digest')
-                  digest = hashlib.sha256()
-                  with path.open('rb') as stream:
-                      for chunk in iter(lambda: stream.read(1024 * 1024), b''):
-                          digest.update(chunk)
-                  require(path.stat().st_size == locked['size'] and digest.hexdigest() == locked['sha256'],
-                          'Artifact bytes differ from the verified unsigned build')
-                  if name in names:
-                      payloads.append({'name': name, 'path': str(path),
-                                       'size': locked['size'], 'sha256': locked['sha256']})
-          require(len(payloads) == 5 and len({row['name'] for row in payloads}) == 5,
-                  'Exactly five installer payloads are required')
-          plan = {'version': version, 'sourceCommit': commit, 'payloads': payloads}
-          (root / 'draft-upload-plan.json').write_text(json.dumps(plan) + '\n')
-          print(f'Verified {version} at {commit}: five payloads; no feeds selected for upload')
-          PY
-      - name: Upload binaries only to existing exact-commit drafts
+          github-token: ${{ github.token }}
+          run-id: '44241619032'
+          name: muse-win-x64-ba18143ec0f72a8a563e72d3421a1b1cdd909b8d
+          path: ${{ runner.temp }}/installed-upgrade-baseline
+      - name: Get the official 1.3.0 baseline
+        if: matrix.from == '1.3.0'
         env:
           GH_TOKEN: ${{ github.token }}
-          MUSE_ARTIFACT_ROOT: ${{ runner.temp }}/muse-draft-artifacts
-        shell: bash
         run: |
-          python3 - <<'PY'
-          import hashlib
-          import http.client
-          import json
-          import os
-          import pathlib
-          import re
-          import subprocess
-          import urllib.parse
-
-          def require(value, message):
-              if not value:
-                  raise RuntimeError(message)
-
-          def github_json(path):
-              result = subprocess.run(['gh', 'api', '--paginate', '--slurp', path],
-                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
-              require(result.returncode == 0, 'GitHub draft metadata could not be read')
-              return json.loads(result.stdout)
-
-          repository = 'felir7at62co-wq/muse-med'
-          require(os.environ['GITHUB_REPOSITORY'] == repository, 'Unexpected release repository')
-          root = pathlib.Path(os.environ['MUSE_ARTIFACT_ROOT']).resolve()
-          plan = json.loads((root / 'draft-upload-plan.json').read_text())
-          version, commit = plan['version'], os.environ['GITHUB_SHA']
-          require(re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version)
-                  and re.fullmatch(r'[a-f0-9]{40}', commit) and plan['sourceCommit'] == commit,
-                  'The upload plan differs from this workflow source')
-          expected = {
-              f'muse-med-{version}-mac-arm64.dmg', f'muse-med-{version}-mac-arm64.zip',
-              f'muse-med-{version}-mac-arm64.zip.blockmap', f'muse-med-{version}-win-x64.exe',
-              f'muse-med-{version}-win-x64.exe.blockmap',
+          gh release download v1.3.0 --repo $env:GITHUB_REPOSITORY --pattern 'muse-med-1.3.0-win-x64.exe*' --dir (Join-Path $env:RUNNER_TEMP 'installed-upgrade-baseline')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify the installed application upgrade
+        env:
+          UPGRADE_FROM: ${{ matrix.from }}
+          UPGRADE_TO: ${{ inputs.installed_upgrade_version }}
+          UPGRADE_SOURCE: ${{ inputs.installed_upgrade_source }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $baselineDirectory = Join-Path $env:RUNNER_TEMP 'installed-upgrade-baseline'
+          $baseline = Join-Path $baselineDirectory "muse-med-$($env:UPGRADE_FROM)-win-x64.exe"
+          $parameters = @{
+            FromVersion = $env:UPGRADE_FROM
+            BaselineInstaller = $baseline
+            OldBlockmap = "$baseline.blockmap"
+            CandidateArtifacts = Join-Path $env:RUNNER_TEMP 'installed-upgrade-candidate'
+            TargetVersion = $env:UPGRADE_TO
+            SourceCommit = $env:UPGRADE_SOURCE
+            EvidenceDirectory = Join-Path $env:RUNNER_TEMP 'installed-upgrade-evidence'
           }
-          payloads = plan['payloads']
-          require(len(payloads) == 5 and {row['name'] for row in payloads} == expected,
-                  'The upload plan must contain exactly five installer payloads')
-          for row in payloads:
-              path = pathlib.Path(row['path'])
-              target = 'mac-arm64' if '-mac-arm64.' in row['name'] else 'win-x64'
-              require(path == root / target / row['name'] and path.is_file() and not path.is_symlink(),
-                      'Invalid installer payload path')
-              with path.open('rb') as stream:
-                  digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-              require(path.stat().st_size == row['size'] and digest == row['sha256'],
-                      'Installer bytes changed after verification')
-
-          tags = [f'v{version}', f'v{version}-rc.muse-stable']
-          releases = [release for page in github_json(f'repos/{repository}/releases?per_page=100') for release in page]
-          drafts = []
-          for tag in tags:
-              matches = [release for release in releases if release.get('tag_name') == tag]
-              require(len(matches) == 1, 'Both exact release drafts must already exist')
-              release = matches[0]
-              require(release.get('draft') is True and release.get('target_commitish') == commit
-                      and type(release.get('id')) is int, 'A release is public or targets another source')
-              assets = [asset for page in github_json(
-                  f"repos/{repository}/releases/{release['id']}/assets?per_page=100") for asset in page]
-              require(not any(asset.get('name') in expected for asset in assets),
-                      'A payload already exists; reconcile the drafts before retrying')
-              drafts.append((tag, release['id']))
-
-          token = os.environ['GH_TOKEN']
-          require(bool(token), 'The draft upload token is missing')
-          for tag, release_id in drafts:
-              for row in payloads:
-                  # One streamed POST, without redirects, replacement, or automatic retries.
-                  connection = http.client.HTTPSConnection('uploads.github.com', timeout=1800)
-                  try:
-                      name = urllib.parse.quote(row['name'], safe='')
-                      connection.putrequest('POST', f'/repos/{repository}/releases/{release_id}/assets?name={name}')
-                      connection.putheader('Authorization', f'Bearer {token}')
-                      connection.putheader('Accept', 'application/vnd.github+json')
-                      connection.putheader('X-GitHub-Api-Version', '2022-11-28')
-                      connection.putheader('User-Agent', 'Muse-verified-draft-upload')
-                      connection.putheader('Content-Type', 'application/octet-stream')
-                      connection.putheader('Content-Length', str(row['size']))
-                      connection.endheaders()
-                      with pathlib.Path(row['path']).open('rb') as stream:
-                          for chunk in iter(lambda: stream.read(1024 * 1024), b''):
-                              connection.send(chunk)
-                      response = connection.getresponse()
-                      body = response.read(262145)
-                      require(response.status == 201 and len(body) <= 262144,
-                              'Draft upload failed; reconcile uploaded assets before retrying')
-                      asset = json.loads(body)
-                      require(asset.get('name') == row['name'] and asset.get('size') == row['size']
-                              and asset.get('state') == 'uploaded' and asset.get('digest') == 'sha256:' + row['sha256'],
-                              'Uploaded asset identity differs; reconcile the drafts before retrying')
-                      print(json.dumps({'draft': tag, 'name': row['name'], 'assetId': asset['id'],
-                                        'size': row['size'], 'sha256': row['sha256']}))
-                  finally:
-                      connection.close()
-          print('Uploaded binary assets only; this job did not create tags, update feeds, or publish releases')
-          PY
+          ./qa/muse-installed-upgrade/installed-upgrade.ps1 @parameters
+      - name: Retain only synthetic upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: muse-installed-upgrade-from-${{ matrix.from }}
+          path: ${{ runner.temp }}/installed-upgrade-evidence/
+          if-no-files-found: error
+          retention-days: 7
