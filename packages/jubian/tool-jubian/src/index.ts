@@ -478,6 +478,7 @@ const VIDEO_OUTPUT = {
             subtask_id: { type: 'number', required: true },
             parent_task_id: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }],
               description: '所属父任务；下载前必须与查询的 task_id 一致。' },
+            storyboard_id: { type: 'integer', description: '子结果关联的原分镜卡 ID；供应商未提供可用身份时省略。' },
             status: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }],
               description: '提供方子结果状态；保留未知值，不能仅凭 URL 判成功。' },
             video_url: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }],
@@ -1404,7 +1405,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         enum: ['task', 'tasks', 'subtasks', 'sources', 'unresolved', 'image_generate', 'image_generate_batch', 'upscale', 'retry'],
         description: 'task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；'
           + 'sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；'
-          + 'subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；'
+          + 'subtasks=分页对象 subtasks，按 subtasks.rows 展开合并任务，使用子结果 storyboard_id 归卡；无该字段时按原卡查 sources 核实归属；'
           + 'unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；'
           + 'image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；'
           + 'upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。' },

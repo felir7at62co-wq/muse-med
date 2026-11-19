@@ -59,6 +59,8 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 <a id="extract-or-reuse-existing-video"></a>
 ### 提取或复用已有视频
 
+补下载时按分集的原分镜卡 ID 清点已有来源。已知合并任务 ID 时，翻页展开子结果，并用供应商给出的 `storyboard_id` 核对归属。子结果缺少分镜卡 ID 时，先通过原卡的来源核实，再放入对应的交付位置。
+
 提取声线或复用成片前，用 `jubian_video sources` 提供精确 `script_id` 与原 `storyboard_id` 查询已有媒体。它只读核对卡片、任务及子结果身份，在配置范围内翻页读取历史，返回成功视频 URL 和原任务／结果 ID，不要求与当前模型或分辨率一致。原卡已关联的任务即使未出现在完整项目列表中，也会继续核对；两份历史不一致时，查询覆盖标记为不完整。 同一任务的卡片归属冲突时也标记覆盖不完整，来源卡片只能由独立任务详情及子结果证据确认。`available` 表示存在已核实媒体，`pending` 表示原任务或子任务仍在运行，`none_found` 表示完整查询后未找到成功媒体，`unknown` 保留查询不完整或无法读取的状态。这些结论不授权生成，也不证明实际说话人或视频内容合格。
 
 `jubian_video` 的 `method: tasks` 默认查询全部任务类型。可传入正整数 `task_type` 筛选；`task_type: 1` 保留生成任务筛选。`tasks.scope` 标明 `script_id` 和选定类型，其中 `task_type: null` 表示未发送类型筛选。某类型的空页不代表项目没有任务。即使项目列表为空，也应使用 `method: task` 与原 `task_id` 单独回读已知任务。缺少记录或查询来源都不授权收费生成。
