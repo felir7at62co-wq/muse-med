@@ -1716,6 +1716,25 @@ export const JA = {
   "Open this running session": "実行中のセッションを開く",
   "A running session keeps using model calls in the background.": "実行中のセッションはバックグラウンドでモデル呼び出しを続けます。",
   "This session is still running. Wait for it to finish, or stop it.": "このセッションはまだ実行中です。終了を待つか、停止してください。",
+  // Muse
+  'Muse sessions': 'Muse セッション',
+  'Jingliu': 'Jingliu',
+  'Asset library': 'アセットライブラリ',
+  'Skills/MCP': 'Skills/MCP',
+  'Language model': '言語モデル',
+  'Background jobs': 'バックグラウンド',
+  'Stopping…': '停止中…',
+  'Muse Spider': 'Muse スパイダー',
+  'Suggestion box': '意見箱',
+  'Send problems and suggestions to the Muse suggestion box. Paste the diagnostics below when they help.': '問題や提案は Muse の意見箱に送ってください。役立つときは下の診断情報も貼り付けてください。',
+  'Choose a workspace': 'ワークスペースを選択',
+  'Workspace: {folder}': 'ワークスペース：{folder}',
+  'Another character': '別のキャラクター',
+  'Upload a picture': '画像をアップロード',
+  'User name': 'ユーザー名',
+  'Follows Feishu': 'Feishu に従う',
+  'Department': '部署',
+  'Feishu account': 'Feishu アカウント',
 }
 
 export const HOST_ERRORS_JA = [

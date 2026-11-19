@@ -1,7 +1,7 @@
 /** Translate native Jingliu project, budget and library responses for Muse. */
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { isRecord } from './http.ts'
-import type { StudioAsset, StudioBalance, StudioLibrary, StudioOptions, StudioPreferences, StudioProject } from './types.ts'
+import type { StudioAsset, StudioBalance, StudioConfig, StudioEpisode, StudioLibrary, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioShot, StudioShotMedia } from './types.ts'
 
 function invalid(): never {
   throw new HarnessError('镜流返回的数据格式已变更，请刷新后重试。', 'JINGLIU_INVALID_RESULT')
@@ -93,4 +93,99 @@ export function options(projectId: string, image: unknown, video: unknown): Stud
 export function projectPath(id: string): string {
   if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(id)) throw new HarnessError('镜流项目编号无效。', 'JINGLIU_INVALID_PROJECT')
   return '/projects/' + id
+}
+
+const text = (value: unknown): string => typeof value === 'string' ? value : ''
+const seconds = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+const names = (value: unknown): string[] => Array.isArray(value)
+  ? value.map(item => typeof item === 'string' ? item : isRecord(item) && typeof item.name === 'string' ? item.name : '').filter(Boolean)
+  : []
+const media = (value: unknown): string => typeof value === 'string' && /^\/fwp?\/media\//u.test(value) ? value : ''
+
+/**
+ * Read a workflow result: the studio answers `{ ok: true, ... }` or `{ ok: false, error }`.
+ * @param value - Response of one desktop workflow.
+ * @returns The fields of a successful result.
+ */
+export function workflowResult(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return invalid()
+  if (value.ok !== true) throw new HarnessError(typeof value.error === 'string' && value.error ? value.error : '镜流没有完成这次读取。', 'JINGLIU_WORKFLOW_FAILED')
+  return value
+}
+
+/**
+ * Read a project's configuration.
+ * @param value - Successful `get_project` result.
+ * @returns The production settings shown in the workbench.
+ */
+export function projectConfig(value: Record<string, unknown>): StudioConfig {
+  return { projectId: field(value.project_id), title: field(value.title), aspect: text(value.aspect), artStyle: text(value.art_style),
+    mode: text(value.production_mode), resolution: text(value.resolution),
+    imageModel: text(value.image_model), videoModel: text(value.video_model) }
+}
+
+/**
+ * Read a production's episodes.
+ * @param value - Successful `list_episodes` result.
+ * @returns Episodes in their studio order.
+ */
+export function episodeList(value: Record<string, unknown>): StudioEpisode[] {
+  if (!Array.isArray(value.episodes)) return invalid()
+  return value.episodes.flatMap((row, position): StudioEpisode[] => {
+    if (!isRecord(row)) return []
+    const number = typeof row.order === 'number' ? row.order : typeof row.index === 'number' ? row.index : position + 1
+    return [{ number, title: text(row.title), hasShots: row.has_shots === true }]
+  })
+}
+
+/**
+ * Join an episode's shot list with the full rows of its shots.
+ * @param list - Successful `list_shots` result for the episode.
+ * @param rows - `read_shots` rows of the same episode, in any number of pages.
+ * @returns The episode's shots in order, numbered within the episode.
+ */
+export function episodeShots(list: Record<string, unknown>, rows: unknown[]): StudioShot[] {
+  if (!Array.isArray(list.shots)) return invalid()
+  const full = new Map(rows.filter(isRecord).map(row => [text(row.id), row]))
+  return list.shots.filter(isRecord).filter(row => row.special !== true).map((row, position): StudioShot => {
+    const id = field(row.id)
+    const detail = full.get(id) ?? {}
+    return { id, order: count(row.order), episode: count(row.episode), index: position + 1, prompt: text(detail.prompt),
+      characters: names(detail.characters), location: text(detail.location), props: names(detail.props),
+      durationSec: seconds(row.duration_sec), hasVideo: row.has_video === true,
+      failReason: text(row.fail_reason), stale: row.stale === true }
+  })
+}
+
+/**
+ * Read one shot's media.
+ * @param shot - Successful `get_shot` result.
+ * @param versions - Successful `list_versions` result for the same shot.
+ * @returns The video in use, its first frame and the version chain.
+ */
+export function shotMedia(shot: Record<string, unknown>, versions: Record<string, unknown>): StudioShotMedia {
+  const chain = Array.isArray(versions.versions) ? versions.versions.filter(isRecord) : []
+  return { shotId: field(shot.id), videoPath: media(shot.video_url), firstFramePath: media(shot.first_frame_url),
+    adoptedVersion: typeof shot.adopted_version === 'number' ? shot.adopted_version : null,
+    versions: chain.map(row => ({
+      number: count(row.version_no), model: text(row.model_id), videoPath: media(row.video_url), createdAt: text(row.created_at),
+    })) }
+}
+
+/**
+ * Read a production's assets and audio clips.
+ * @param assets - Successful `list_assets` result.
+ * @param audio - Successful `list_audio_clips` result.
+ * @returns The asset page's data.
+ */
+export function projectAssets(assets: Record<string, unknown>, audio: Record<string, unknown>): StudioProjectAssets {
+  if (!Array.isArray(assets.assets)) return invalid()
+  return {
+    assets: assets.assets.filter(isRecord).map(row => ({
+      id: field(row.id), kind: text(row.kind), name: text(row.name), imagePath: media(row.image_url), prompt: text(row.prompt),
+    })),
+    audio: (Array.isArray(audio.clips) ? audio.clips : []).filter(isRecord).map(row => ({
+      id: field(row.id), kind: text(row.kind), text: text(row.text), path: media(row.url), durationSec: seconds(row.duration),
+    })),
+  }
 }

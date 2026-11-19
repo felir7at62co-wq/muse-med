@@ -88,7 +88,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       return after(call('side-close', { chatId }))
     },
     closePanel: () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null } : state)) },
-    quote: (sessionId, text) => ui.set(state => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
+    // `plain` puts the text in as written (a prepared request) instead of as a quote.
+    quote: (sessionId, text, { plain = false } = {}) => ui.set(state => ({ ...state, quote: { sessionId, text, plain, token: Date.now() } })),
     // A long paste becomes a card; its text stays here until it goes back into the box.
     addPaste: (sessionId, text, name) => {
       pastes += 1

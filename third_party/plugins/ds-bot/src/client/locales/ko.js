@@ -1751,6 +1751,25 @@ export const KO = {
   "Open this running session": "실행 중인 세션 열기",
   "A running session keeps using model calls in the background.": "실행 중인 세션은 백그라운드에서 모델 호출을 계속 사용합니다.",
   "This session is still running. Wait for it to finish, or stop it.": "이 세션은 아직 실행 중입니다. 끝날 때까지 기다리거나 중지하세요.",
+  // Muse
+  'Muse sessions': 'Muse 세션',
+  'Jingliu': 'Jingliu',
+  'Asset library': '에셋 라이브러리',
+  'Skills/MCP': 'Skills/MCP',
+  'Language model': '언어 모델',
+  'Background jobs': '백그라운드',
+  'Stopping…': '중지 중…',
+  'Muse Spider': 'Muse 스파이더',
+  'Suggestion box': '의견함',
+  'Send problems and suggestions to the Muse suggestion box. Paste the diagnostics below when they help.': '문제와 제안은 Muse 의견함으로 보내 주세요. 도움이 되면 아래 진단 정보도 붙여 넣어 주세요.',
+  'Choose a workspace': '작업 공간 선택',
+  'Workspace: {folder}': '작업 공간: {folder}',
+  'Another character': '다른 캐릭터',
+  'Upload a picture': '사진 업로드',
+  'User name': '사용자 이름',
+  'Follows Feishu': 'Feishu 연동',
+  'Department': '부서',
+  'Feishu account': 'Feishu 계정',
 }
 
 export const HOST_ERRORS_KO = [

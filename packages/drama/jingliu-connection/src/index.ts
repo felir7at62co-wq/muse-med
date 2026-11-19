@@ -8,8 +8,8 @@ import type { SelectedProject } from './types.ts'
 import { createHash } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { balance, library, options, preferences, projectPath, projects } from './browser.ts'
-import type { StudioBalance, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioSetting } from './types.ts'
+import { balance, episodeList, episodeShots, library, options, preferences, projectAssets, projectConfig, projectPath, projects, shotMedia, workflowResult } from './browser.ts'
+import type { StudioBalance, StudioConfig, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from './types.ts'
 import z from '@deepseek-ai/schemastery'
 import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import type {} from '@deepseek-ai/dsh-commands'
@@ -19,6 +19,10 @@ import { boundedBytes, isRecord, JingliuHttpError, mediaUrl, requestJson, studio
 import type { JingliuRequest } from './http.ts'
 
 export { JingliuHttpError, boundedBytes }
+
+// A shot video is a few seconds long; the bound keeps one playback request finite.
+const VIDEO_MAX_BYTES = 64 * 1024 * 1024
+const VIDEO_CHUNK_BYTES = 768 * 1024
 export type { JingliuRequest }
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -380,6 +384,113 @@ export class JingliuConnection extends TypertRemoteService {
       image = 'data:' + type + ';base64,' + (await boundedBytes(response, 8 * 1024 * 1024)).toString('base64')
     })
     return image
+  }
+
+  /**
+   * Read a project's configuration for the workbench.
+   * @param projectId - Selected cloud project.
+   * @param signal - Panel cancellation.
+   * @returns Title, frame ratio, styles and models of the production.
+   */
+  @Remote
+  async projectConfig(projectId: string, signal: AbortSignal): Promise<StudioConfig> {
+    return projectConfig(await this.workflow('get_project', projectId, {}, signal))
+  }
+
+  /**
+   * List a production's episodes.
+   * @param projectId - Selected cloud project.
+   * @param signal - Panel cancellation.
+   * @returns Episodes in studio order.
+   */
+  @Remote
+  async episodeList(projectId: string, signal: AbortSignal): Promise<StudioEpisode[]> {
+    return episodeList(await this.workflow('list_episodes', projectId, {}, signal))
+  }
+
+  /**
+   * Read every shot of one episode with its full prompt.
+   * @param projectId - Selected cloud project.
+   * @param episode - Episode number.
+   * @param signal - Panel cancellation.
+   * @returns The episode's shots in order.
+   */
+  @Remote
+  async episodeShots(projectId: string, episode: number, signal: AbortSignal): Promise<StudioShot[]> {
+    if (!Number.isSafeInteger(episode) || episode < 1) throw new HarnessError('集号无效。', 'JINGLIU_INVALID_EPISODE')
+    const list = await this.workflow('list_shots', projectId, { episode, limit: 1000 }, signal)
+    const rows: unknown[] = []
+    let from: number | null = null
+    // read_shots pages by text size; an episode rarely needs more than a few pages.
+    for (let page = 0; page < 40; page += 1) {
+      const result = await this.workflow('read_shots', projectId, { episode, max_shots: 60, ...(from === null ? {} : { from_order: from }) }, signal)
+      if (Array.isArray(result.shots)) rows.push(...result.shots)
+      if (typeof result.next_from_order !== 'number') break
+      from = result.next_from_order
+    }
+    return episodeShots(list, rows)
+  }
+
+  /**
+   * Read one shot's video, first frame and version chain.
+   * @param projectId - Selected cloud project.
+   * @param shotId - Shot of that project.
+   * @param signal - Panel cancellation.
+   * @returns The shot's media.
+   */
+  @Remote
+  async shotMedia(projectId: string, shotId: string, signal: AbortSignal): Promise<StudioShotMedia> {
+    if (!/^[\w-]{1,128}$/u.test(shotId)) throw new HarnessError('镜头编号无效。', 'JINGLIU_INVALID_SHOT')
+    const [shot, versions] = await Promise.all([
+      this.workflow('get_shot', projectId, { shot_id: shotId }, signal),
+      this.workflow('list_versions', projectId, { shot_id: shotId }, signal),
+    ])
+    return shotMedia(shot, versions)
+  }
+
+  /**
+   * Read a production's assets and audio clips.
+   * @param projectId - Selected cloud project.
+   * @param signal - Panel cancellation.
+   * @returns The workbench asset page's data.
+   */
+  @Remote
+  async projectAssets(projectId: string, signal: AbortSignal): Promise<StudioProjectAssets> {
+    const [assets, audio] = await Promise.all([
+      this.workflow('list_assets', projectId, {}, signal),
+      this.workflow('list_audio_clips', projectId, {}, signal),
+    ])
+    return projectAssets(assets, audio)
+  }
+
+  /**
+   * Stream a studio video for playback without exposing the studio credential.
+   * @param path - Media path of a video in the current studio.
+   * @param signal - Playback cancellation.
+   * @returns The content type first, then base64 chunks of the file.
+   */
+  @Remote({ mode: 'stream' })
+  async *video(path: string, signal: AbortSignal): AsyncIterable<string> {
+    const session = await this.connection()
+    let type = ''
+    let bytes: Buffer | undefined
+    await session.media?.(path, AbortSignal.any([signal, AbortSignal.timeout(this.timeout * 4)]), async (response) => {
+      type = response.headers.get('content-type')?.split(';')[0] ?? ''
+      if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(type)) throw new HarnessError('镜流素材不是可播放的视频。', 'JINGLIU_INVALID_MEDIA')
+      bytes = await boundedBytes(response, VIDEO_MAX_BYTES)
+    })
+    if (!bytes) throw new HarnessError('镜流没有返回这段视频。', 'JINGLIU_INVALID_MEDIA')
+    yield type
+    for (let start = 0; start < bytes.length; start += VIDEO_CHUNK_BYTES) yield bytes.subarray(start, start + VIDEO_CHUNK_BYTES).toString('base64')
+  }
+
+  // One desktop workflow of the studio, run as the signed-in user on one project.
+  private async workflow(
+    name: string, projectId: string, args: Record<string, string | number | boolean>, signal: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    projectPath(projectId)
+    const session = await this.connection()
+    return workflowResult(await session.request('/desktop-agent/tool', { method: 'POST', signal, body: { name, project_id: projectId, args: { project_id: projectId, ...args } } }))
   }
 
   /**

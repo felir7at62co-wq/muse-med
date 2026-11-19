@@ -7,10 +7,20 @@ import type {} from '@deepseek-ai/dsh-client-ui-character-library/client'
 import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller/default-workspace'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { SelectedProject, StudioAsset, StudioBalance, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioSetting } from '@deepseek-ai/dsh-jingliu-connection/types'
+import type { SelectedProject, StudioAsset, StudioBalance, StudioConfig, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from '@deepseek-ai/dsh-jingliu-connection/types'
 import css from './Production.module.css'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /** The Bot team's details drawer: the asset tab of the Bot whose conversation is `sessionId`. */
+    'bot.drawer.assets': { kind: 'single'; scope: 'root'; owner: { sessionId: SessionId } }
+    /**
+     * The Bot team's details drawer: the Jingliu tab of the Bot whose conversation is `sessionId`.
+     * `quote` puts a reference above that conversation's message box; `compose` puts a prepared
+     * request into it for the user to send.
+     */
+    'bot.drawer.jingliu': { kind: 'single'; scope: 'root'; owner: { sessionId: SessionId; quote(text: string): void; compose(text: string): void } }
+  }
   interface ResourceProtocolMap {
     'jingliu-selected': SelectedProject | null
     'jingliu-projects': StudioProject[]
@@ -19,6 +29,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'jingliu-options': StudioOptions
     'jingliu-prefs': StudioPreferences
     'jingliu-image': string
+    'jingliu-config': StudioConfig
+    'jingliu-episodes': StudioEpisode[]
+    'jingliu-shots': StudioShot[]
+    'jingliu-shot-media': StudioShotMedia
+    'jingliu-project-assets': StudioProjectAssets
   }
 }
 
@@ -28,19 +43,37 @@ export interface ProductionActions {
   openProjects(session?: SessionId): void
   addWorkspace(path: string): Promise<void>
   openProject(project: StudioProject): Promise<void>
+  /** Tie a production to one conversation without leaving the current view. */
+  chooseProject(sessionId: SessionId, project: StudioProject): Promise<void>
+  /** Fetch a studio video through the Host; resolves to an object URL the caller revokes. */
+  loadVideo(path: string, signal: AbortSignal): Promise<string>
   saveOption(id: string, key: StudioSetting, value: string): Promise<void>
   savePreferences(value: StudioPreferences): Promise<void>
 }
 
 type Props = PropsLocale<'jingliuStudio'> & PropsRuntime<'main'> & InjectFace<ProductionActions>
-type Text = Props['t']
-type Read = Props['useResource']
+/** Localized text of the studio namespace. */
+export type Text = Props['t']
+/** The resource reader every studio view receives. */
+export type Read = Props['useResource']
 
-function address(kind: string, epoch: number, revision: number, params: Record<string, string> = {}) {
+/**
+ * Address of a studio resource for the current login.
+ * @param kind - Resource protocol.
+ * @param epoch - Account generation; a new login reads again.
+ * @param revision - Manual refresh count.
+ * @param params - Query parameters of the read.
+ * @returns The resource address.
+ */
+export function address(kind: string, epoch: number, revision: number, params: Record<string, string> = {}) {
   return 'dsh-resource://' + kind + '/current?' + new URLSearchParams({ epoch: String(epoch), revision: String(revision), ...params }).toString()
 }
 
-function useAction() {
+/**
+ * Run one user action at a time and remember whether it failed.
+ * @returns The busy and failed flags and the runner.
+ */
+export function useAction() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
   return { busy, error, run: async (action: () => Promise<void>) => {
@@ -50,7 +83,12 @@ function useAction() {
   } }
 }
 
-function Picture({ path, epoch, useResource, name, unavailable }: {
+/**
+ * A studio image read through the account's resources.
+ * @param props - Image path, login generation, reader, alternative text and failure text.
+ * @returns The image, a failure note, or a placeholder.
+ */
+export function Picture({ path, epoch, useResource, name, unavailable }: {
   path: string
   epoch: number
   useResource: Read
@@ -63,7 +101,12 @@ function Picture({ path, epoch, useResource, name, unavailable }: {
   return <span className={css.placeholder} aria-hidden="true"><IconPlayOutlineRegular size={22} /></span>
 }
 
-function Failure({ t, retry }: { t: Text; retry: () => void }) {
+/**
+ * The studio failure line with a retry button.
+ * @param props - Copy and retry callback.
+ * @returns The alert.
+ */
+export function Failure({ t, retry }: { t: Text; retry: () => void }) {
   return <div className={css.notice} role="alert">{t('failed')} <Button variant="ghost" onClick={retry}>{t('refresh')}</Button></div>
 }
 
@@ -144,7 +187,17 @@ export function Assets(props: Pick<Props, 'useResource' | 'useAccountEpoch' | 't
   return <AssetBrowser key={epoch} epoch={epoch} t={props.t} useResource={props.useResource} />
 }
 
-function AssetBrowser({ epoch, t, useResource }: { epoch: number; t: Text; useResource: Read }) {
+/**
+ * Browse the shared media catalog inside the Bot team's details drawer.
+ * @param props - Library resources scoped to the current login.
+ * @returns The same catalog in the drawer's narrow layout.
+ */
+export function DrawerAssets(props: Pick<Props, 'useResource' | 'useAccountEpoch' | 't'>) {
+  const epoch = props.useAccountEpoch(n => n)
+  return <AssetBrowser key={epoch} epoch={epoch} t={props.t} useResource={props.useResource} narrow />
+}
+
+function AssetBrowser({ epoch, t, useResource, narrow = false }: { epoch: number; t: Text; useResource: Read; narrow?: boolean }) {
   const [selected, select] = useState<StudioAsset | null>(null)
   const [kind, setKind] = useState<StudioLibraryQuery['kind']>('all')
   const [query, setQuery] = useState('')
@@ -154,8 +207,8 @@ function AssetBrowser({ epoch, t, useResource }: { epoch: number; t: Text; useRe
   const list = useResource<'jingliu-library'>(address('jingliu-library', epoch, revision, { kind, query, offset: String(offset) }))
   const tab = (value: StudioLibraryQuery['kind']) => ({ value, label: t(value), id: 'studio-kind-' + value, panelId: 'studio-assets' })
   const tabs = [tab('all'), tab('character'), tab('location'), tab('prop')] as const
-  return <section className={css.page}>
-    <div className={css.heading}><h1>{t('shared')}</h1><Button variant="ghost" onClick={() => refresh(n => n + 1)}>{t('refresh')}</Button></div>
+  return <section className={narrow ? css.drawerPage : css.page}>
+    {!narrow && <div className={css.heading}><h1>{t('shared')}</h1><Button variant="ghost" onClick={() => refresh(n => n + 1)}>{t('refresh')}</Button></div>}
     <form className={css.toolbar} onSubmit={(e) => { e.preventDefault(); setQuery(draft.trim()); setOffset(0) }}>
       <Input aria-label={t('searchAssets')} placeholder={t('searchAssets')} maxLength={200} value={draft} onChange={e => setDraft(e.target.value)} />
       <Button type="submit" variant="outline">{t('search')}</Button>

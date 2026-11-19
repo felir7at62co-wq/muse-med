@@ -76,6 +76,22 @@ export function lookOf(bot) {
   }
 }
 
+// Muse: the user's own avatar.
+/**
+ * The look of the user's avatar: the saved picture or character, else one picked from the
+ * user name so it stays the same across launches.
+ * @param {object | undefined} prefs - The team preferences.
+ * @param {string} name - The Muse account's user name, or ''.
+ * @returns {{ shape: string, color: string, image?: string }} A look for BotMark.
+ */
+export function youLook(prefs, name) {
+  const base = lookOf({ id: `user:${name}` })
+  const you = prefs?.you
+  if (typeof you?.image === 'string') return { ...base, image: you.image }
+  if (hasShape(you?.shape)) return { shape: you.shape, color: isColor(you.color) ? you.color : base.color }
+  return base
+}
+
 // Registered shapes join the characters: `body(paint)` returns SVG markup in a
 // `size` box and `eyes` lists the two capsules.
 export const SHAPES = {}

@@ -482,6 +482,11 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-drawer-role-input:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-drawer-role-input::placeholder{color:var(--bt-ink-3);opacity:.7}
 .bt-tabs{position:relative;display:flex;justify-content:center;gap:2px;margin:16px 16px 0}
+.bt-tabs.bt-tabs-many{flex-wrap:nowrap;justify-content:flex-start;gap:0;margin:14px 8px 0;overflow-x:auto;scrollbar-width:none}
+.bt-tabs.bt-tabs-many::-webkit-scrollbar{display:none}
+.bt-tabs-many .bt-tab{flex:none;padding:4px 5px;font-size:12px}
+.bt-bg-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-drawer-hosted{display:flex;flex-direction:column;min-height:0;flex:1 1 auto}
 .bt-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:4px 8px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-tab:hover{color:var(--bt-ink)}
 .bt-tab[aria-selected=true]{background:var(--bt-hover);color:var(--bt-ink)}

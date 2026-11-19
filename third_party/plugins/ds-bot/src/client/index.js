@@ -8,6 +8,9 @@ import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
 import { lookOf } from './mark.js'
+import { MUSE_BRAND_CSS } from './muse-brand.js'
+import { ACCOUNT_CSS } from './account-page.js'
+import { DRAWER_SLOTS } from './details-drawer.js'
 import { TeamSidebar, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
 import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
 import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from './frame-layout.js'
@@ -876,6 +879,64 @@ export function apply(ctx) {
   // absent where the peer may not list bundles, such as the app's own profile.
   actions.hasPlugins = () => ctx.get('pluginNavigation') !== undefined
   actions.openPlugins = () => ctx.get('pluginNavigation')?.openList()
+  // Muse: the signed-in Muse account's user name for the sidebar's account capsule, read
+  // when the account Remote is there and again whenever the account changes.
+  let museAccount = null
+  actions.museUserName = () => ui.getSnapshot().museUser ?? ''
+  actions.canOpenAccount = () => (ctx.slots.entries?.('settings.section') ?? []).some(entry => entry.options.id === 'muse-account')
+  actions.museAccountDetails = () => (museAccount ? museAccount.details({ period: 'today', limit: 1 }) : Promise.resolve(null))
+  ctx.inject(['remote', 'remote.museAccount'], (scope) => {
+    let live = true
+    museAccount = scope.remote.museAccount
+    const read = () => {
+      void scope.remote.museAccount.status({}).then(
+        (result) => {
+          if (!live) return
+          const name = result.ok && result.value.state === 'signed-in' ? result.value.username : ''
+          ui.set(state => (state.museUser === name ? state : { ...state, museUser: name }))
+        },
+        // The capsule keeps the name it shows until a later read works.
+        quietly('muse account name'),
+      )
+    }
+    read()
+    const off = scope.remote.$on('muse-account/session-changed', read)
+    scope.effect(() => () => { live = false; museAccount = null; off() }, 'ds-bot: muse account name')
+  })
+  // Muse: pages and right-column tabs other plugins add, which the details drawer's tab
+  // row and the sidebar foot open: the Jingliu projects and the asset library.
+  const slotFace = (key, id) => ctx.slots.entries?.(key)?.find(entry => entry.options.id === id)?.inject?.() ?? null
+  const hasMainPanel = id => (ctx.slots.entries?.('main') ?? []).some(entry => entry.options.key === id)
+  actions.canOpenRightTab = kind => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get(kind) !== undefined
+  actions.openRightTab = (kind) => {
+    actions.closePanel()
+    try {
+      ctx.get('sidebarRight')?.openTab(kind)
+    } catch (error) {
+      actions.reportError(error, 'right-sidebar')
+    }
+  }
+  // The local Jingliu client lists projects on a page and ties the one picked to the
+  // conversation it was opened for; a hosted workbench is a right-column tab instead.
+  actions.canOpenJingliu = () => actions.canOpenRightTab('jingliu') || slotFace('sidebar.workspaces.entry', 'jingliu-projects') !== null
+  actions.openJingliu = (sessionId) => {
+    if (actions.canOpenRightTab('jingliu')) return actions.openRightTab('jingliu')
+    actions.closePanel()
+    slotFace('sidebar.workspaces.entry', 'jingliu-projects')?.openProjects(sessionId)
+  }
+  actions.hasDrawerSlot = name => (ctx.slots.entries?.(name) ?? []).length > 0
+  actions.canOpenAssets = () => actions.hasDrawerSlot('bot.drawer.assets') || hasMainPanel('character-library')
+  // The sidebar's asset button opens the current Bot's drawer on its asset tab where the
+  // library sits in the drawer, else the library page.
+  actions.openAssets = () => {
+    const current = ctx.sessions.list.getSnapshot()
+    const shown = current.ids.find(id => (current.byId[id]?.retainedBy?.mainView ?? 0) > 0)
+    if (shown !== undefined && roster.getSnapshot().byId[shown] !== undefined && actions.hasDrawerSlot('bot.drawer.assets')) return actions.showDetails(shown, 'assets')
+    actions.closePanel()
+    ctx.layout.selectPanel('character-library')
+  }
+  // Background jobs of a conversation, where the jobs plugin runs.
+  actions.backgroundJobs = () => ctx.get('jobs') ?? null
   // The Voice Input plugin's speech Remote; absent while that plugin is off.
   actions.speech = () => ctx.get('remote.speech') ?? undefined
   // One of DSH's onboarding editors, such as the DeepSeek API key form, opened by id
@@ -1230,7 +1291,7 @@ export function apply(ctx) {
   // The shell group's sheets. Strip and panel styles also serve the side-chat tabs, which need no bridge.
   const SHELL_SHEETS = [
     [SHELL_CSS, 'shell'],
-    [SIDEBAR_CSS, 'sidebar'],
+    [SIDEBAR_CSS + MUSE_BRAND_CSS + ACCOUNT_CSS, 'sidebar'],
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'],
     [LEARNING_CSS, 'learning'],
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
@@ -1264,7 +1325,7 @@ export function apply(ctx) {
     const snapshot = roster.getSnapshot()
     const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
     const themes = allThemes()
-    const theme = themes[prefs.theme] ?? themes.deepseek
+    const theme = themes[prefs.theme] ?? themes.muse
     const offs = [
       roster.subscribe(syncEffects),
       ...SHELL_SHEETS.map(([text, tag]) => installCompiledStyles(botOwnCss(text), `settings-${tag}`)),
@@ -1290,7 +1351,9 @@ export function apply(ctx) {
     // Desktop's "··· More"), which comes back in Agent mode.
     () => shadow('settings.launcher', { priority: BOT_PRIORITY, inject: face }, AccountLauncher),
     () => shadow('shell.overlay', { id: 'bot-computer', order: 40, inject: face }, ComputerIndicator),
-    () => shadow('shell.overlay', { id: 'bot', order: 50, inject: face }, Overlays),
+    // Muse: the details drawer hosts views other plugins add (the Jingliu projects and
+    // the asset library) in these slots.
+    () => shadow('shell.overlay', { id: 'bot', order: 50, inject: face, children: DRAWER_SLOTS }, Overlays),
     () => shadow('shell.overlay', { id: 'bot-signin', order: 55, inject: face }, DeepSeekSignIn),
     () => shadow('shell.overlay', { id: 'bot-toast', order: 60, inject: face }, ErrorToast),
   ]

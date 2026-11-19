@@ -194,6 +194,19 @@ export function install(rt) {
   // Updates change the dsh profile, not the team, so a reading host may run them too.
   const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'changes-summary', 'changes-diff'])
 
+  const YOU_IMAGE_MAX = 200_000
+  const cleanYou = (input) => {
+    if (input === null || typeof input !== 'object') throw invalid('The avatar must be a character or a picture')
+    if (typeof input.image === 'string') {
+      if (!/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(input.image)) throw invalid('Avatar pictures must be PNG, JPEG, WebP, or GIF')
+      if (input.image.length > YOU_IMAGE_MAX) throw invalid('That picture is too large')
+      return { image: input.image }
+    }
+    if (typeof input.shape !== 'string' || !/^[a-z][\w-]{0,31}$/.test(input.shape)) throw invalid('Unknown avatar character')
+    if (typeof input.color !== 'string' || ![...COLORS, ...EXTRA_COLORS].includes(input.color)) throw invalid('Unknown avatar color')
+    return { shape: input.shape, color: input.color }
+  }
+
   async function setPrefs(body) {
     if (body.theme !== undefined) {
       if (typeof body.theme !== 'string' || !/^[a-z][\w-]{0,31}$/.test(body.theme)) throw invalid('Unknown theme')
@@ -228,6 +241,11 @@ export function install(rt) {
       if (body.flatWidth === null || body.flatWidth === 100) delete state.prefs.flatWidth
       else if (Number.isInteger(body.flatWidth) && body.flatWidth >= 50 && body.flatWidth <= 100) state.prefs.flatWidth = body.flatWidth
       else throw invalid('Flat text width must be a whole percent from 50 to 100')
+    }
+    if (body.you !== undefined) {
+      // Muse: the user's own avatar, a character or a small uploaded picture.
+      if (body.you === null) delete state.prefs.you
+      else state.prefs.you = cleanYou(body.you)
     }
     if (body.defaultBotModel !== undefined) {
       // The model new Bots start on when a create names none. It resolves now, so the

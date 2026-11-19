@@ -13,6 +13,8 @@ With `studioOrigin` mounted at `/jingliu/` on the Muse account gateway, producti
 
 **Shared assets → Characters** shows the studio’s original reference images and descriptions.
 
+In the Bot team's details drawer, the **Jingliu** tab lists production projects and ties the chosen one to that Bot's conversation. It then shows the project's assets (characters, locations, props, audio) and, for each episode, every shot's prompt with the assets it names, its video and versions, and its generation settings; a video loads through the Host only when played. **Quote** and **Make another** put a reference or a prepared request into that conversation's message box, and **Batch export** prepares an export request for the chosen episodes; Muse carries them out once the user sends them. The **Asset library** tab shows the shared assets in the drawer.
+
 Embedded tabs retain the document. Changing accounts opens a fresh sign-in frame.
 
 ## Table of Contents

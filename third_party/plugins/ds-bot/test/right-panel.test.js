@@ -86,7 +86,7 @@ runInNewContext(bundle.outputFiles[0].text, {
         createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
         useState: initial => [initial, () => {}], useEffect: () => {}, useRef: current => ({ current }),
         useLayoutEffect: () => {}, useMemo: make => make(), useCallback: fn => fn,
-        useSyncExternalStore: (_subscribe, get) => get(), Fragment: 'fragment',
+        useSyncExternalStore: (subscribe, get) => { subscribe(() => {})(); return get() }, Fragment: 'fragment',
       },
       'react-dom': { createPortal: node => node },
       '@deepseek-ai/dsh-client-ui-primitives': { MarkdownText: () => null },
@@ -110,57 +110,44 @@ const drawer = (sessionId, actions, liveRoster = roster) => DetailsDrawer({
   useBrowserTabs: hook({}),
   useBrowserPages: hook({}),
 })
-const moreButton = (node) => {
-  if (Array.isArray(node)) return node.map(moreButton).find(found => found !== null) ?? null
-  if (node === null || typeof node !== 'object') return null
-  if (node.props?.['data-info-row'] === 'more') return node
-  for (const child of node.children ?? []) {
-    const found = moreButton(child)
-    if (found) return found
-  }
-  return null
+// Muse: the tab row holds what the upstream `···` menu held, plus Jingliu and the asset
+// library; those tabs hand off to another view instead of switching the drawer body.
+const tabButtons = (node, out = []) => {
+  if (Array.isArray(node)) { for (const child of node) tabButtons(child, out); return out }
+  if (node === null || typeof node !== 'object') return out
+  if (node.props?.['data-tab-key']) out.push(node)
+  for (const child of node.children ?? []) tabButtons(child, out)
+  return out
 }
-const menuKeys = (node) => {
-  const button = moreButton(node)
-  const items = button?.children.flat(Infinity).find(child => child?.props?.items)?.props?.items ?? []
-  // `items` was built inside the bundle's vm context; a test-context array compares deep-equal.
-  return [...items].map(item => (item.sep ? 'sep' : item.key))
-}
-const menuItem = (node, key) => {
-  const button = moreButton(node)
-  return [...(button?.children.flat(Infinity).find(child => child?.props?.items)?.props?.items ?? [])].find(item => item.key === key)
-}
+const tabKeys = node => tabButtons(node).map(button => button.props['data-tab-key'])
 
-test('the drawer `···` lists browser, a side chat, and the column tabs', () => {
-  const picks = { openBrowser: 0, newSideChat: 0, newTerminal: 0, openFiles: 0 }
+test('the drawer tab row lists browser, a side chat, the column tabs, Jingliu and the asset library', () => {
+  const picks = { newSideChat: [], newTerminal: [], openFiles: [], openJingliu: [], openAssets: [] }
   const actions = {
-    ...Object.fromEntries(Object.keys(picks).map(name => [name, () => { picks[name] += 1 }])),
+    ...Object.fromEntries(Object.keys(picks).map(name => [name, (...args) => { picks[name].push([...args]) }])),
     canOpenTerminal: () => true,
     canOpenFiles: () => true,
+    canOpenJingliu: () => true,
+    canOpenAssets: () => true,
   }
-  const browseRoster = { ...roster, browser: true }
-  const withBrowser = drawer('a', actions, browseRoster)
-  assert.deepEqual(menuKeys(withBrowser), ['browser', 'side', 'sep', 'terminal', 'files'])
-  for (const key of ['browser', 'side', 'terminal', 'files']) {
-    const action = { browser: 'openBrowser', side: 'newSideChat', terminal: 'newTerminal', files: 'openFiles' }[key]
-    menuItem(withBrowser, key).onPick()
-    assert.equal(picks[action], 1, `${key} runs ${action}`)
-  }
+  const tree = drawer('a', actions, { ...roster, browser: true })
+  assert.deepEqual(tabKeys(tree), ['details', 'browser', 'side', 'terminal', 'files', 'jingliu', 'assets'])
+  for (const button of tabButtons(tree).slice(2)) button.props.onClick()
+  assert.deepEqual(picks, { newSideChat: [['a']], newTerminal: [[]], openFiles: [[]], openJingliu: [['a']], openAssets: [[]] })
 })
 
-test('a bot in a window without a browser still gets Side chat in the `···`', () => {
-  assert.deepEqual(menuKeys(drawer('a', {})), ['side'])
+test('a Bot without the column tabs still gets Details, Browser and Side chat', () => {
+  assert.deepEqual(tabKeys(drawer('a', {})), ['details', 'browser', 'side'])
 })
 
-test('a group keeps only the column tabs, and nothing when they are absent', () => {
-  const actions = { canOpenTerminal: () => true, canOpenFiles: () => true, newTerminal: () => {}, openFiles: () => {} }
-  assert.deepEqual(menuKeys(drawer('g', actions)), ['terminal', 'files'])
-  assert.equal(moreButton(drawer('g', {})), null)
-  assert.equal(moreButton(drawer('g', { canOpenTerminal: () => false })), null)
+test('a group keeps only the column tabs, and no tab row when they are absent', () => {
+  const actions = { canOpenTerminal: () => true, canOpenFiles: () => true, canOpenJingliu: () => true, canOpenAssets: () => true }
+  assert.deepEqual(tabKeys(drawer('g', actions)), ['details', 'terminal', 'files'])
+  assert.deepEqual(tabKeys(drawer('g', {})), [])
 })
 
-test('a non-team surface shows no `···`', () => {
-  assert.equal(moreButton(drawer('plain', { canOpenTerminal: () => true })), null)
+test('a non-team surface shows no tab row', () => {
+  assert.deepEqual(tabKeys(drawer('plain', { canOpenTerminal: () => true })), [])
 })
 
 // The group's Goal buttons act on `room.id`, never on the Session the header shows:
@@ -299,17 +286,14 @@ test('the Bot label and instructions are keyed by Bot id and stay read-only when
   assert.equal(about.props.onSave, undefined)
 })
 
-test('every Bot gets the Sessions section and New session, not only local-agent Bots', () => {
-  // A plain cloud-model Bot (no engine badge) has chat parts too.
+// Muse: the Bot details show no Sessions block, for a cloud-model Bot or a local-agent one.
+test('no Bot gets the Sessions section in its details', () => {
   const plain = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Chief', sessionId: 'a' } } })
-  assert.match(textOf(plain), /Sessions/)
-  const entry = buttonsOf(plain).find(button => textOf(button).includes('New session'))
-  assert.ok(entry, 'the New session button is there')
-  assert.equal(entry.props.disabled, undefined)
-  // A local-agent Bot keeps the same section.
   const engine = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Writer', sessionId: 'a', engine: 'claude-code', parts: ['a', 'a-old'] } } })
-  const engineEntry = buttonsOf(engine).find(button => textOf(button).includes('New session'))
-  assert.ok(engineEntry, 'the local-agent Bot still has it')
+  for (const tree of [plain, engine]) {
+    assert.doesNotMatch(textOf(tree), /Sessions/)
+    assert.equal(buttonsOf(tree).find(button => textOf(button).includes('New session')), undefined)
+  }
 })
 
 // A second instance of the drawer bundle whose React runs effects at once and keeps
@@ -368,4 +352,30 @@ test('the Bot status line needs the runStats action and then draws turns, speed,
   assert.match(line, /Context 41%/)
   // Moving to another part clears the previous part's figures until the new read finishes.
   assert.equal(RunStats({ bot, part: 'a-2', running: false, actions: { runStats: () => ({ then() {} }) } }), null)
+})
+
+// Muse: the Background block reads the jobs store of the Bot's current conversation.
+test('the Background block lists the running jobs of the conversation and stops one', () => {
+  const kills = []
+  const state = {
+    rows: { a: [{ id: 'j1', label: 'render episode 3', status: 'running' }, { id: 'j2', label: 'finished', status: 'succeeded' }] },
+    listeners: new Set(),
+    getSnapshot() { return { rows: this.rows } },
+    subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener) },
+  }
+  const jobs = { state, watchRows: () => () => {}, kill: (sessionId, id) => { kills.push([sessionId, id]); return Promise.resolve({ ok: true }) } }
+  const find = (node) => {
+    if (Array.isArray(node)) return node.map(find).find(Boolean)
+    if (node === null || typeof node !== 'object') return undefined
+    if (node.props?.key === 'background') return node
+    return (node.children ?? []).map(find).find(Boolean)
+  }
+  const block = find(drawer('a', { backgroundJobs: () => jobs }))
+  const shown = block.type(block.props)
+  assert.match(textOf(shown), /render episode 3/)
+  assert.doesNotMatch(textOf(shown), /finished/)
+  buttonsOf(shown).find(entry => textOf(entry) === 'Stop').props.onClick()
+  assert.deepEqual(kills, [['a', 'j1']])
+  // Nothing running, or no jobs plugin: no block.
+  assert.equal(block.type({ ...block.props, actions: {} }), null)
 })

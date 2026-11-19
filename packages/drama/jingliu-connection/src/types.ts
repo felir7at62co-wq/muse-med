@@ -63,3 +63,85 @@ export interface StudioPreferences {
   projectId: string
   hidePromptChips: boolean
 }
+
+/** Production-wide configuration of one project, read-only in the workbench. */
+export interface StudioConfig {
+  projectId: string
+  title: string
+  /** Frame ratio such as `9:16`. */
+  aspect: string
+  artStyle: string
+  /** `drama` (live-action story) or `narration` (narrated drama), as the studio names it. */
+  mode: string
+  resolution: string
+  imageModel: string
+  videoModel: string
+}
+
+/** One episode of a production. */
+export interface StudioEpisode {
+  /** Episode number as the studio counts it, from 1. */
+  number: number
+  title: string
+  hasShots: boolean
+}
+
+/** One shot of an episode with its locked or generated video prompt. */
+export interface StudioShot {
+  id: string
+  /** Position within the whole production. */
+  order: number
+  episode: number
+  /** Position within its episode, from 1. */
+  index: number
+  prompt: string
+  characters: string[]
+  location: string
+  props: string[]
+  durationSec: number | null
+  hasVideo: boolean
+  /** Why the last generation failed, or ''. */
+  failReason: string
+  stale: boolean
+}
+
+/** One generated version of a shot's video. */
+export interface StudioShotVersion {
+  number: number
+  model: string
+  videoPath: string
+  createdAt: string
+}
+
+/** The media of one shot: the video in use, its first frame and every version. */
+export interface StudioShotMedia {
+  shotId: string
+  videoPath: string
+  firstFramePath: string
+  adoptedVersion: number | null
+  versions: StudioShotVersion[]
+}
+
+/** A character, location, prop or other asset of one production. */
+export interface StudioProjectAsset {
+  id: string
+  kind: string
+  name: string
+  imagePath: string
+  prompt: string
+}
+
+/** A voice, narration, music or sound-effect clip of one production. */
+export interface StudioAudioClip {
+  id: string
+  kind: string
+  text: string
+  path: string
+  durationSec: number | null
+}
+
+/** Everything the workbench's asset page shows for one production. */
+export interface StudioProjectAssets {
+  assets: StudioProjectAsset[]
+  audio: StudioAudioClip[]
+}

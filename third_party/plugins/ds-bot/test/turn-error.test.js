@@ -467,7 +467,8 @@ test('the host correction reaches the card for the failed turn', () => {
 })
 
 // The words a Chinese interface may still show in English (design note, 用词).
-const ENGLISH_ALLOWED = /\b(DeepSeek|DS Bot|Bot|API|Key|Harness|DSH|HTTP|Router|Chief)\b/gi
+// Muse: the product name shows in place of DS Bot.
+const ENGLISH_ALLOWED = /\b(DeepSeek|DS Bot|Bot|API|Key|Harness|DSH|HTTP|Router|Chief|Muse)\b/gi
 
 test('in a Chinese interface every repair card state reads in Chinese, outside Technical details', () => {
   const dicts = new Map()

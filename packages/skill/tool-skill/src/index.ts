@@ -52,6 +52,22 @@ export interface SkillCatalogSource {
   readonly entries: readonly { readonly name: string; readonly description: string }[]
 }
 
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * A conversation continues in another Session, such as the next part of a long-lived conversation.
+     * The owner of the skill loader both agents use moves the task skills in effect to the continuation:
+     * on its next admitted step, each skill's current instructions arrive as a skill invocation and are in
+     * effect there. A skill that is gone, or that only the model may load, is left behind, because a skill
+     * invocation is recovered under the user-invocation rule. Other owners ignore the event.
+     * @param payload.from - Agent of the Session being left; its task skills are read when the event is emitted.
+     * @param payload.to - Agent that continues the conversation.
+     * @mode emit
+     */
+    'task-skill/carry'(payload: { from: Agent; to: Agent }): void
+  }
+}
+
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'skill-catalog': SkillCatalogSource

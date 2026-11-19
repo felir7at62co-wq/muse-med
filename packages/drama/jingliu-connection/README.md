@@ -33,6 +33,8 @@ For isolated loopback previews, configure `localPreviewToken: true` and supply t
 
 Host plugins call `ctx.jingliuConnection.connection()` for a verified `JingliuSession`. Its `identity` identifies the Jingliu user and server for submission receipts. The Host also verifies the current Muse login before dispatch and before returning the response. Its `request(path, options)` accepts supported routes relative to the V2 API and returns parsed JSON. Workflow tools choose which results to present.
 
+The client Remote also reads the workbench data as the signed-in user, read-only: `projectConfig`, `episodeList`, `episodeShots`, `shotMedia` and `projectAssets` run the studio's read workflows (`get_project`; `list_episodes`; `list_shots` with `read_shots`; `get_shot` with `list_versions`; `list_assets` with `list_audio_clips`). `video` streams one studio video, up to 64 MiB: its content type first, then base64 chunks. Results keep only paths under the studio's media mount, so the client never receives the studio credential or another address.
+
 ## Model Experience
 
 ### Account changes during a workflow call

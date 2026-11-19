@@ -1751,6 +1751,25 @@ export const DE = {
   "Open this running session": "Diese laufende Sitzung öffnen",
   "A running session keeps using model calls in the background.": "Eine laufende Sitzung verbraucht weiterhin Modellaufrufe im Hintergrund.",
   "This session is still running. Wait for it to finish, or stop it.": "Diese Sitzung läuft noch. Warte, bis sie endet, oder stoppe sie.",
+  // Muse
+  'Muse sessions': 'Muse-Sitzungen',
+  'Jingliu': 'Jingliu',
+  'Asset library': 'Asset-Bibliothek',
+  'Skills/MCP': 'Skills/MCP',
+  'Language model': 'Sprachmodell',
+  'Background jobs': 'Hintergrund',
+  'Stopping…': 'Wird gestoppt…',
+  'Muse Spider': 'Muse-Spinne',
+  'Suggestion box': 'Vorschlagsbox',
+  'Send problems and suggestions to the Muse suggestion box. Paste the diagnostics below when they help.': 'Probleme und Vorschläge an die Muse-Vorschlagsbox senden. Die Diagnose unten einfügen, wenn sie hilft.',
+  'Choose a workspace': 'Arbeitsbereich wählen',
+  'Workspace: {folder}': 'Arbeitsbereich: {folder}',
+  'Another character': 'Andere Figur',
+  'Upload a picture': 'Bild hochladen',
+  'User name': 'Benutzername',
+  'Follows Feishu': 'Folgt Feishu',
+  'Department': 'Abteilung',
+  'Feishu account': 'Feishu-Konto',
 }
 
 export const HOST_ERRORS_DE = [

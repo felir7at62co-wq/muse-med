@@ -7,24 +7,39 @@
   "addedFiles": [
     "MUSE_SOURCE.json",
     "NOTICE",
-    "src/client/muse-spider.js"
+    "src/client/account-page.js",
+    "src/client/muse-brand.js",
+    "src/client/muse-spider.js",
+    "test/muse-account-page.test.js"
   ],
   "modifiedFiles": [
     "cordis.patch.yml",
     "src/client/about.js",
+    "src/client/browser-pane.js",
     "src/client/characters.js",
+    "src/client/composer.js",
     "src/client/connector-marks.js",
     "src/client/context-menu.js",
+    "src/client/details-drawer.js",
     "src/client/feedback.js",
     "src/client/folder-menu.js",
     "src/client/i18n.js",
+    "src/client/icons.js",
     "src/client/index.js",
+    "src/client/locales/de.js",
+    "src/client/locales/es.js",
+    "src/client/locales/fr.js",
+    "src/client/locales/ja.js",
+    "src/client/locales/ko.js",
     "src/client/notify.js",
+    "src/client/overlays.js",
     "src/client/palette.js",
     "src/client/settings.js",
     "src/client/side-model.js",
     "src/client/sidebar.js",
     "src/client/storage.js",
+    "src/client/styles.js",
+    "src/client/team-actions.js",
     "src/client/usage-page.js",
     "src/host/agent-commands.js",
     "src/host/agents.js",
@@ -42,6 +57,7 @@
     "test/session-model.test.js",
     "test/side-panel.test.js",
     "test/side.test.js",
+    "test/turn-error.test.js",
     "test/turn-tail.test.js"
   ],
   "changes": [
@@ -61,6 +77,12 @@
     "An artwork character with `solidEyes` (the Muse spider) keeps its body unmasked and draws dark eyes with a highlight on top, with a thinner happy-eye arc",
     "The command shield no longer re-registers its shadows on a context that is already gone: an agent's scope unwinds before `agent/disposed`, lifting the shadows announces `commands/change`, and every quit or agent unload used to log one \"could not be shadowed … inactive context\" warning per command",
     "The command shield's refusal and menu texts are Chinese and no longer say \"DSH\"; the host shows them as written",
-    "Trailing spaces and extra blank lines at the end of `client.js`, `src/client/connector-marks.js` and eleven test files are removed so the repository whitespace check passes; the code is otherwise unchanged"
+    "Trailing spaces and extra blank lines at the end of `client.js`, `src/client/connector-marks.js` and eleven test files are removed so the repository whitespace check passes; the code is otherwise unchanged",
+    "Sidebar header shows the bare Muse spider (`src/client/muse-brand.js`, a mask painted in the text color, black on light and white on dark) beside the name; the foot replaces the gear and the Plugins button with the user's capsule (avatar and Muse account name, opening the account menu), a \"Skills/MCP\" button (the Capabilities page) and a round asset-library button (the `character-library` page, where registered)",
+    "Bot details drawer: the `···` menu and the copy-conversation button are gone and their entries sit in the tab row (Details, Browser, Side chat, Terminal, Files), followed by Jingliu (the local Jingliu project page for the Bot's current conversation, or the hosted workbench tab) and the asset library; the Sessions block is not shown; usage reads as the language-model line; a Background block lists the conversation's running jobs with Stop. Group details leave out the to-do list",
+    "Muse's own interface strings are translated in the Japanese, Korean, Spanish, French and German dictionaries, as upstream's locale test requires; that test's allowed English names include \"Muse\"",
+    "Settings: an Account page comes first (`src/client/account-page.js`): the user's avatar (another character, or an uploaded picture, saved as the team preference `you`, which the host validates), the Muse account's user name and ID and, following Feishu, the department and Feishu name, with the Muse account section itself below; the list then reads General, Models, Local agents, Connectors, IM, Computer use, Secrets, Usage, a rule, the team pages (Bots, Bot models, Group chats, Skills/MCP, Browser, Scheduled tasks), DSH's sections without the Muse account one, and Feedback and About. The sidebar's user capsule opens the Account page",
+    "The details drawer renders two slots, `bot.drawer.jingliu` and `bot.drawer.assets` (declared as children of the overlay entry, owner `{ sessionId }` = the Bot's current conversation): where a plugin fills one, its tab shows that view inside the drawer instead of opening a page",
+    "The drawer slots also get `quote(text)` and `compose(text)` for the Bot's conversation: `actions.quote(sessionId, text, { plain: true })` puts the text into the message box as written instead of as a quote; the sidebar's asset button opens the current Bot's drawer on its asset tab where `bot.drawer.assets` is filled"
   ]
 }

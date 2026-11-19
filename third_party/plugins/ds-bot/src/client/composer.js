@@ -75,7 +75,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
     if (!quote || !inputActions) return
     actions.clearQuote(quote.token)
     const excerpt = quote.text.replace(/\s+/g, ' ').trim()
-    const line = `> ${excerpt.length > 200 ? `${excerpt.slice(0, 200)}…` : excerpt}\n\n`
+    const line = quote.plain ? quote.text : `> ${excerpt.length > 200 ? `${excerpt.slice(0, 200)}…` : excerpt}\n\n`
     inputActions.insertText(line, inputActions.captureInsertion())
     const box = document.querySelector('[class*="_centerCol"] [role=textbox][contenteditable=true]')
     if (box instanceof HTMLElement) {
