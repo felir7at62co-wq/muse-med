@@ -1767,6 +1767,13 @@ export const JA = {
   'Feishu account': 'Feishu アカウント',
   'Job title': '役職',
   'Manager': '上長',
+  'Quota': '利用枠',
+  'Quota used up': '利用枠を使い切りました',
+  'Unlimited': '無制限',
+  'Used': '使用済み',
+  'On hold': '保留中',
+  'Quota not available right now': '利用枠を読み取れません',
+  'Quota used up. Generation has stopped; ask your team lead to grant more.': '利用枠を使い切りました。生成は停止しています。チームリーダーに追加の割り当てを依頼してください。',
 }
 
 export const HOST_ERRORS_JA = [

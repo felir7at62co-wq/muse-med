@@ -77,6 +77,7 @@ import { needsIdleSample, pollDelay } from './polling.js'
 import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
 import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
+import { QUOTA_CSS, installQuota } from './quota.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -906,6 +907,9 @@ export function apply(ctx) {
     const off = scope.remote.$on('muse-account/session-changed', read)
     scope.effect(() => () => { live = false; museAccount = null; off() }, 'ds-bot: muse account name')
   })
+  // Muse: the Jingliu credit balance for the quota button beside the capsule, while
+  // ui-jingliu has the Jingliu Remote mounted; `actions.refreshQuota` reads it again.
+  installQuota(ctx, { ui, actions })
   // Muse: pages and right-column tabs other plugins add, which the sidebar foot opens:
   // the asset library.
   const hasMainPanel = id => (ctx.slots.entries?.('main') ?? []).some(entry => entry.options.key === id)
@@ -1339,7 +1343,7 @@ export function apply(ctx) {
   // The shell group's sheets. Strip and panel styles also serve the side-chat tabs, which need no bridge.
   const SHELL_SHEETS = [
     [SHELL_CSS, 'shell'],
-    [SIDEBAR_CSS + MUSE_BRAND_CSS + ACCOUNT_CSS + FILES_TREE_CSS + TERMINAL_CSS + BACKGROUND_CSS, 'sidebar'],
+    [SIDEBAR_CSS + QUOTA_CSS + MUSE_BRAND_CSS + ACCOUNT_CSS + FILES_TREE_CSS + TERMINAL_CSS + BACKGROUND_CSS, 'sidebar'],
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'],
     [LEARNING_CSS, 'learning'],
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
