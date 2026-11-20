@@ -36,24 +36,27 @@ const { feishuOf } = module.exports
 const department = (id, path, pathIds) => ({ id, name: path.split(' / ').at(-1), path, pathIds })
 
 test('a relay sign-in shows the Feishu name from the profile and the synced departments', () => {
-  const { feishu, departments } = feishuOf({
+  const { feishu, departments, jobTitle, managerName } = feishuOf({
     protocol: 'account-data-v1', account: { id: '0123456789abcdef', username: 'ylk' },
     profile: { version: 1, account: { id: '0123456789abcdef', username: 'ylk', feishuIdentities: [{ name: '杨老师' }] } },
     organization: { status: 'available', updatedAt: null, departments: [
       department('od-1', '某某影业 / 内容中心 / 编剧组', ['0', 'od-9', 'od-1']),
       department('od-2', '某某影业 / 发行部', ['0', 'od-2']),
-    ] },
+    ], jobTitle: '主编剧', managerName: '制片人' },
   })
   assert.equal(feishu.name, '杨老师')
   assert.deepEqual([...departments], ['内容中心 / 编剧组', '发行部'])
+  assert.deepEqual([jobTitle, managerName], ['主编剧', '制片人'])
 })
 
 test('a person directly under the enterprise keeps its name, and unavailable data gives none', () => {
   const top = feishuOf({ account: { feishuIdentities: [{ name: 'A' }] },
     organization: { status: 'available', departments: [department('0', '某某影业', ['0'])] } })
   assert.deepEqual([...top.departments], ['某某影业'])
-  const none = feishuOf({ account: { feishuIdentities: [{ name: 'A' }] }, organization: { status: 'unavailable', departments: [] } })
+  const none = feishuOf({ account: { feishuIdentities: [{ name: 'A' }] },
+    organization: { status: 'unavailable', departments: [], jobTitle: '旧职位', managerName: '旧上级' } })
   assert.deepEqual([...none.departments], [])
+  assert.deepEqual([none.jobTitle, none.managerName], ['', ''])
   assert.equal(feishuOf(null).feishu, undefined)
 })
 

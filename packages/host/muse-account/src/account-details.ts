@@ -44,6 +44,7 @@ const profileSchema = schema.pick({ account: true, groups: true }).extend({
   version: z.literal(1),
   organization: z.object({ status: z.enum(['available', 'unavailable']), updatedAt: instant.nullable(),
     departments: z.array(department.extend({ path: z.string().max(20000), pathIds: z.array(departmentId).max(100) })),
+    jobTitle: z.string().min(1).max(200).optional(), managerName: z.string().min(1).max(200).optional(),
   }).transform(organization => organization.departments.length > 100
     ? { ...organization, status: 'unavailable' as const, departments: [] } : organization),
 })
