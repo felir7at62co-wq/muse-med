@@ -18,6 +18,7 @@ import { showsDshRow } from './dsh-offer.js'
 import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
+import { QuotaButton } from './quota.js'
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -835,14 +836,16 @@ export function TeamSidebar(props) {
   // The foot stands in for the shell's hidden footer: the account avatar, and on
   // the rail the new-chat button above it.
   // Muse: the user's own capsule (avatar and name, opening Settings at Account) and the
-  // asset library take the gear's and the Plugins button's places.
+  // asset library take the gear's and the Plugins button's places; the Jingliu quota sits
+  // right of the capsule in the open column and below it on the rail.
   const user = useUi(value => value.museUser ?? '')
   const me = { actions, user, look: youLook(roster.prefs, user) }
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(UserCapsule, { ...me, wide: true }), h(AssetsButton, { actions, useUi }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(UserCapsule, { ...me, wide: true }), h(QuotaButton, { actions, useUi }), h(AssetsButton, { actions, useUi }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h(UserCapsule, me),
+        h(QuotaButton, { actions, useUi }),
         h(AssetsButton, { actions, useUi }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
@@ -1334,11 +1337,11 @@ export const SIDEBAR_CSS = `
 .bt-confirm-go:hover:not(:disabled){opacity:.9}
 .bt-confirm-go:disabled{opacity:.6;cursor:default}
 .bt-side-top .bt-brand{cursor:default;padding-left:6px;gap:8px}
-.bt-account.bt-me{width:auto;max-width:150px;min-width:0;height:36px;gap:6px;align-items:center;padding:0 12px 0 5px;border-radius:999px;background:color-mix(in srgb,var(--bt-ink) 5%,var(--bt-sidebar));color:var(--bt-ink);font:inherit;font-size:13px;font-weight:500}
+.bt-account.bt-me{flex:0 1 auto;width:auto;max-width:150px;min-width:0;height:36px;gap:6px;align-items:center;padding:0 12px 0 5px;border-radius:999px;background:color-mix(in srgb,var(--bt-ink) 5%,var(--bt-sidebar));color:var(--bt-ink);font:inherit;font-size:13px;font-weight:500}
 .bt-account.bt-me:hover,.bt-account.bt-me[aria-expanded=true]{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-sidebar))}
 .bt-account.bt-me .bt-you{width:26px;height:26px;background:none!important}
 .bt-me-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-leftcol-foot:not(.bt-leftcol-foot-rail)>.bt-account:last-child:not(.bt-me){margin-left:auto}
+.bt-leftcol-foot:not(.bt-leftcol-foot-rail)>.bt-account:last-child:not(.bt-me):not(.bt-quota){margin-left:auto}
 .bt-side-top .bt-brand:hover{background:none}
 .bt-brand .bt-mark{flex:none}
 .bt-pin{flex:none;display:inline-flex;color:var(--bt-ink-3)}

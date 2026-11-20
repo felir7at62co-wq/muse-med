@@ -1802,6 +1802,14 @@ export const DE = {
   'Feishu account': 'Feishu-Konto',
   'Job title': 'Position',
   'Manager': 'Vorgesetzte Person',
+  'Quota': 'Kontingent',
+  'Quota: {figure}': 'Kontingent: {figure}',
+  'Quota used up': 'Kontingent aufgebraucht',
+  'Unlimited': 'Unbegrenzt',
+  'Used': 'Verbraucht',
+  'On hold': 'Reserviert',
+  'Quota not available right now': 'Kontingent gerade nicht lesbar',
+  'Quota used up. Generation has stopped; ask your team lead to grant more.': 'Kontingent aufgebraucht. Die Generierung ist gestoppt; bitte deine Teamleitung um mehr.',
 }
 
 export const HOST_ERRORS_DE = [

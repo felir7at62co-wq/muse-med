@@ -1802,6 +1802,14 @@ export const ES = {
   'Feishu account': 'Cuenta de Feishu',
   'Job title': 'Cargo',
   'Manager': 'Responsable',
+  'Quota': 'Cuota',
+  'Quota: {figure}': 'Cuota: {figure}',
+  'Quota used up': 'Cuota agotada',
+  'Unlimited': 'Ilimitada',
+  'Used': 'Usado',
+  'On hold': 'Retenido',
+  'Quota not available right now': 'No se puede leer la cuota ahora',
+  'Quota used up. Generation has stopped; ask your team lead to grant more.': 'Cuota agotada. La generación se ha detenido; pide más a tu jefe de equipo.',
 }
 
 export const HOST_ERRORS_ES = [

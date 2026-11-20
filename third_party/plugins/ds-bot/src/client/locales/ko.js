@@ -1802,6 +1802,14 @@ export const KO = {
   'Feishu account': 'Feishu 계정',
   'Job title': '직책',
   'Manager': '상급자',
+  'Quota': '한도',
+  'Quota: {figure}': '한도: {figure}',
+  'Quota used up': '한도 소진',
+  'Unlimited': '무제한',
+  'Used': '사용함',
+  'On hold': '보류 중',
+  'Quota not available right now': '지금은 한도를 읽을 수 없습니다',
+  'Quota used up. Generation has stopped; ask your team lead to grant more.': '한도를 모두 사용했습니다. 생성이 중지되었습니다. 팀장에게 추가 할당을 요청하세요.',
 }
 
 export const HOST_ERRORS_KO = [
