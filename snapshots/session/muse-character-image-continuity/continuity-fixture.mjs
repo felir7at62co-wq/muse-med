@@ -106,7 +106,8 @@ export function apply(ctx) {
         receipt.selected_storyboard_references = body.storyboardMaterialList
         data = null
       } else if (url.pathname.endsWith('/admin/aigc/video/task/list') && method === 'GET') {
-        data = { total: 0, rows: [] }
+        const historicalTask = { id: 31, scriptId: 2708, taskType: 3, taskStatus: 'succeeded' }
+        data = { total: 4, rows: Array.from({ length: 4 }, () => ({ ...historicalTask })) }
       } else throw new Error(`Unexpected continuity fixture request: ${method} ${url.pathname}`)
       saveReceipt()
       return new Response(JSON.stringify({ code: 200, data }), { status: 200 })
