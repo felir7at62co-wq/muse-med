@@ -17,7 +17,7 @@ import css from './DrawerJingliu.module.css'
 
 type Props = PropsLocale<'jingliuStudio'> & PropsRuntime<'bot.drawer.jingliu'> & InjectFace<ProductionActions>
 type Page = 'assets' | 'videos'
-type Kind = 'character' | 'location' | 'prop' | 'audio' | 'poster'
+type Kind = 'character' | 'location' | 'blocking' | 'prop' | 'audio' | 'poster'
 type Card = 'search' | 'new' | 'config' | 'export' | 'poster'
 const NO_ASSETS: StudioProjectAsset[] = []
 const POSTER_RATIOS = ['1:1', '2:3', '3:4', '7:10', '9:16', '16:9'] as const
@@ -303,7 +303,8 @@ type AssetsProps = { t: Text; useResource: Read; epoch: number; projectId: strin
 function AssetsPage({ t, useResource, epoch, projectId, quote, onPoster }: AssetsProps) {
   const data = useResource<'jingliu-project-assets'>(address('jingliu-project-assets', epoch, 0, { id: projectId }))
   const [kind, setKind] = useState<Kind>('character')
-  const kinds: Kind[] = ['character', 'location', 'prop', 'audio', 'poster']
+  // A blocking diagram is the wide picture of one video package: who stands where in a fixed scene.
+  const kinds: Kind[] = ['character', 'location', 'blocking', 'prop', 'audio', 'poster']
   const items = (data.value?.assets ?? []).filter(a => a.kind === kind)
   const frame = kind === 'character' ? css.portrait : kind === 'audio' ? css.wave : css.landscape
   const ready = (path: string) => <span className={path ? css.dot : css.dotPending} aria-hidden="true" />
@@ -331,6 +332,7 @@ function AssetsPage({ t, useResource, epoch, projectId, quote, onPoster }: Asset
                   ? <Picture path={a.imagePath} epoch={epoch} useResource={useResource} name={a.name} unavailable={t('imageFailed')} />
                   : <small>{t('notGenerated')}</small>}</span>
                 <span className={css.assetName}>{ready(a.imagePath)}<strong>{a.name}</strong></span>
+                {a.scope && <small className={css.assetScope}>{a.scope}</small>}
               </button>)}</div>}
   </>
 }

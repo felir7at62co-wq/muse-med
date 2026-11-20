@@ -155,13 +155,15 @@ export interface StudioShotMedia {
   versions: StudioShotVersion[]
 }
 
-/** A character, location, prop or other asset of one production. */
+/** A character, location, prop, blocking diagram or other asset of one production. */
 export interface StudioProjectAsset {
   id: string
   kind: string
   name: string
   imagePath: string
   prompt: string
+  /** Where a blocking diagram applies, as the studio words it (scene and shots); empty for other kinds. */
+  scope: string
 }
 
 /** A voice, narration, music or sound-effect clip of one production. */

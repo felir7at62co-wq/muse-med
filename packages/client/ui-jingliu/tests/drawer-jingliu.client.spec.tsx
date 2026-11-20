@@ -30,7 +30,8 @@ const data: Record<string, unknown> = {
   'jingliu-shots': [shot],
   'jingliu-shot-media': { shotId: 's1', videoPath: '/fw/media/generated/s1.mp4', firstFramePath: '', adoptedVersion: 2,
     versions: [{ number: 1, model: 'seed-1', videoPath: '/fw/media/generated/s1-v1.mp4', createdAt: '' }, { number: 2, model: 'seed-2', videoPath: '/fw/media/generated/s1.mp4', createdAt: '' }] },
-  'jingliu-project-assets': { assets: [{ id: 'a1', kind: 'character', name: 'Ah Qiao', imagePath: '', prompt: 'A young porter' }, { id: 'a2', kind: 'character', name: 'Golden Lion', imagePath: '', prompt: '' }], audio: [] },
+  'jingliu-project-assets': { assets: [{ id: 'a1', kind: 'character', name: 'Ah Qiao', imagePath: '', prompt: 'A young porter' }, { id: 'a2', kind: 'character', name: 'Golden Lion', imagePath: '', prompt: '' },
+    { id: 'a3', kind: 'blocking', name: 'Night market blocking', imagePath: '', prompt: '', scope: 'Night market · episode 1 shots 2–4' }], audio: [] },
 }
 
 function setup(selected: { id: string; title: string } | null, shown: { id: string; title: string } | null = selected) {
@@ -155,6 +156,22 @@ it('prepares a poster request with the exact title, the ratios and the leads', (
   fireEvent.click(view.getByRole('button', { name: '16:9' }))
   fireEvent.click(within(view.getByRole('dialog')).getByRole('button', { name: 'Make posters' }))
   expect(props.compose).toHaveBeenCalledWith('Make posters titled exactly “Bridge Lions”: main posters in 1:1, 2:3, 3:4, 7:10, 9:16; character posters of Ah Qiao, Golden Lion; 7 in all.')
+  view.unmount()
+})
+
+it('lists the blocking diagrams in a tab of their own, right after the locations', () => {
+  const { props } = setup({ id: 'p1', title: 'Bridge Lions' })
+  const view = render(<DrawerJingliu {...props} />)
+  fireEvent.click(view.getByRole('tab', { name: 'Assets' }))
+  const kinds = ['Characters', 'Locations', 'Blocking', 'Props'].map(name => view.getByRole('tab', { name }))
+  expect(kinds[1]?.compareDocumentPosition(kinds[2] as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  expect(kinds[2]?.compareDocumentPosition(kinds[3] as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  expect(view.queryByText('Night market blocking')).toBeNull()
+  fireEvent.click(view.getByRole('tab', { name: 'Blocking' }))
+  // The card says where the diagram applies, as the studio words it.
+  expect(view.getByText('Night market · episode 1 shots 2–4')).toBeTruthy()
+  fireEvent.click(view.getByRole('button', { name: /Night market blocking/u }))
+  expect(props.quote).toHaveBeenCalledWith('Asset “Night market blocking”')
   view.unmount()
 })
 

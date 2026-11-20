@@ -56,6 +56,7 @@
 .assetName { display:flex; align-items:center; gap:6px; min-width:0; }
 .assetName strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
 .assetName small { flex:none; color:var(--dsw-alias-label-tertiary); font-size:11px; }
+.assetScope { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dsw-alias-label-secondary); font-size:11px; }
 .dot, .dotPending { flex:none; width:6px; height:6px; }
 .dot { border-radius:999px; background:var(--dsw-alias-label-tertiary); }
 .dotPending { border-radius:1px; background:var(--dsw-static-amber-600); }

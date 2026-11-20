@@ -231,6 +231,7 @@ export function projectAssets(assets: Record<string, unknown>, audio: Record<str
   return {
     assets: assets.assets.filter(isRecord).map(row => ({
       id: field(row.id), kind: text(row.kind), name: text(row.name), imagePath: media(row.image_url), prompt: text(row.prompt),
+      scope: text(row.scope),
     })),
     audio: (Array.isArray(audio.clips) ? audio.clips : []).filter(isRecord).map(row => ({
       id: field(row.id), kind: text(row.kind), text: text(row.text), path: media(row.url), durationSec: seconds(row.duration),

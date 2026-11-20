@@ -35,10 +35,12 @@ it('keeps only studio media paths for videos and pictures', () => {
       { number: 1, model: 'seed', videoPath: '/fwp/media/generated/s1-v1.mp4', createdAt: '2026-11-19' },
       { number: 2, model: '', videoPath: '', createdAt: '' },
     ] })
-  expect(projectAssets({ ok: true, assets: [{ id: 'a1', kind: 'character', name: '阿桥', image_url: '/fw/media/a.png', prompt: '少年' }] },
-    { ok: true, clips: [{ id: 'c1', kind: 'music', text: null, url: '/fw/media/m.mp3', duration: 12 }] }))
-    .toEqual({ assets: [{ id: 'a1', kind: 'character', name: '阿桥', imagePath: '/fw/media/a.png', prompt: '少年' }],
-      audio: [{ id: 'c1', kind: 'music', text: '', path: '/fw/media/m.mp3', durationSec: 12 }] })
+  expect(projectAssets({ ok: true, assets: [{ id: 'a1', kind: 'character', name: '阿桥', image_url: '/fw/media/a.png', prompt: '少年' },
+    { id: 'b1', kind: 'blocking', name: '渡口清晨站位图', image_url: '/fw/media/b.png', prompt: '', scope: '渡口清晨 · 第 6 集 2–4 镜' }] },
+  { ok: true, clips: [{ id: 'c1', kind: 'music', text: null, url: '/fw/media/m.mp3', duration: 12 }] }))
+    .toEqual({ assets: [{ id: 'a1', kind: 'character', name: '阿桥', imagePath: '/fw/media/a.png', prompt: '少年', scope: '' },
+      { id: 'b1', kind: 'blocking', name: '渡口清晨站位图', imagePath: '/fw/media/b.png', prompt: '', scope: '渡口清晨 · 第 6 集 2–4 镜' }],
+    audio: [{ id: 'c1', kind: 'music', text: '', path: '/fw/media/m.mp3', durationSec: 12 }] })
 })
 
 it('reads the creation choices: modes with their styles, frame ratios, resolutions and models', () => {

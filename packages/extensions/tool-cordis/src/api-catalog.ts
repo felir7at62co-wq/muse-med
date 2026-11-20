@@ -11704,7 +11704,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'StudioProjectAsset',
-    declaration: 'export interface StudioProjectAsset {\n    id: string;\n    kind: string;\n    name: string;\n    imagePath: string;\n    prompt: string;\n}',
+    declaration: 'export interface StudioProjectAsset {\n    id: string;\n    kind: string;\n    name: string;\n    imagePath: string;\n    prompt: string;\n    scope: string;\n}',
   },
   {
     name: 'StudioProjectAssets',
