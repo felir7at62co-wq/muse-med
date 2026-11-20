@@ -40,13 +40,14 @@ test('anonymous viewers are asked to sign in and members are refused',async()=>{
  }
 });
 
-test('administrators see tasks without prompt text, and names are escaped',async()=>{
+test('administrators land on records, see escaped names and links to the existing site pages',async()=>{
  const app=await serve({state:'admin',account:{id:'u1',name:'甲'},organization});
  try{
-  const tasks=await (await fetch(app.origin+'/console')).text();
-  assert.match(tasks,/正在执行/);assert.match(tasks,/制作部 \/ 一组/);assert.doesNotMatch(tasks,/SECRET PROMPT/);
+  const root=await fetch(app.origin+'/console',{redirect:'manual'});
+  assert.equal(root.status,302);assert.equal(root.headers.get('location'),'/console/records');
   const records=await (await fetch(app.origin+'/console/records?range=today&status=failed')).text();
-  assert.match(records,/&lt;乙&gt;/);assert.doesNotMatch(records,/<乙>/);assert.match(records,/失败 402/);
+  assert.match(records,/&lt;乙&gt;/);assert.doesNotMatch(records,/<乙>/);assert.match(records,/失败 402/);assert.match(records,/制作部 \/ 一组/);
+  for(const href of ['/workbench','/admin','/admin/usage','/feedback','/console/services'])assert.match(records,new RegExp('href="'+href.replace(/\//g,'\\/')+'"'));
   const services=await (await fetch(app.origin+'/console/services')).text();
   assert.match(services,/网关/);assert.match(services,/运行中/);
   assert.equal((await fetch(app.origin+'/console/nope')).status,404);

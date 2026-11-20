@@ -23,15 +23,18 @@ form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}select,
 button{cursor:pointer}.tabs{display:flex;gap:4px}.tabs a{padding:4px 10px;border:1px solid var(--line);border-radius:6px;color:var(--fg);text-decoration:none}.tabs a[aria-current]{background:var(--soft)}
 .more{display:inline-block;margin-top:8px;color:var(--accent)}`;
 
+/** Navigation: the console's own pages plus existing pages of the same site, reached with the same sign-in. */
+const NAV=[['tasks','/workbench','任务'],['records',null,'生成记录'],['services',null,'服务'],['accounts','/admin','账号'],['usage','/admin/usage','用量'],['feedback','/feedback','意见']];
+
 /**
  * Wrap a page body in the console shell.
- * @param {{base:string,active:'tasks'|'records'|'services',viewer:{name:string},title:string,body:string}} page Page parts.
+ * @param {{base:string,active:'records'|'services',viewer:{name:string},title:string,body:string}} page Page parts.
  * @returns {string} Complete HTML document.
  */
 export function layout({base,active,viewer,title,body}){
- const link=(id,href,label)=>`<a href="${escape(href)}"${active===id?' aria-current="page"':''}>${label}</a>`;
+ const links=NAV.map(([id,href,label])=>`<a href="${escape(href??base+'/'+id)}"${active===id?' aria-current="page"':''}>${label}</a>`).join('');
  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)} · Muse 管理台</title><style>${STYLE}</style></head>
-<body><header><b>Muse 管理台</b><nav>${link('tasks',base,'任务')}${link('records',base+'/records','生成记录')}${link('services',base+'/services','服务')}</nav><span class="me">${escape(viewer.name)}</span></header><main>${body}</main></body></html>`;
+<body><header><b>Muse 管理台</b><nav>${links}</nav><span class="me">${escape(viewer.name)}</span></header><main>${body}</main></body></html>`;
 }
 
 /**
@@ -46,28 +49,6 @@ export function messagePage({title,text,href,label}){
 
 const table=(head,rows)=>`<div class="scroll"><table><thead><tr>${head.map(cell=>`<th>${cell}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.join(''):`<tr><td colspan="${head.length}" class="muted">没有记录</td></tr>`}</tbody></table></div>`;
 const card=(label,value,tone='')=>`<div class="card"><span>${label}</span><strong class="${tone}">${value}</strong></div>`;
-
-const BOT_STATUS={idle:['空闲',''],running:['正在执行','good'],waiting:['等待处理','warn'],error:['需要处理','bad'],unreported:['未上报','muted']};
-const TASK_STATE={offered:'待确认',accepted:'已接受',dispatching:'派发中',delivered:'执行中',completed:'已完成',failed:'失败',declined:'已拒绝',cancelled:'已取消'};
-
-/**
- * The task page: every online computer's Bot and the Bot-to-Bot tasks.
- * @param {{members:object[],tasks:object[],departmentOf:(id:string)=>string}} data Organization view from the gateway.
- * @returns {string} Page body.
- */
-export function tasksBody({members,tasks,departmentOf}){
- const devices=members.flatMap(member=>member.devices.map(device=>({member,device})));
- const count=status=>devices.filter(item=>item.device.botStatus===status).length;
- const deviceRows=devices.sort((a,b)=>String(a.device.botStatus).localeCompare(String(b.device.botStatus))).map(({member,device})=>{
-  const [label,tone]=BOT_STATUS[device.botStatus]??[device.botStatus,''];
-  return `<tr><td>${escape(member.name)}</td><td>${escape(departmentOf(member.id))}</td><td>${escape(device.name)}</td><td>${escape(device.role==='cloud'?'云端':device.platform)}</td><td class="${tone}">${escape(label)}</td><td>${escape(device.mainBot?.name??'—')}</td><td class="n">${number(device.activeTasks)}</td><td>${time(device.reportedAt?Date.parse(device.reportedAt):null)}</td></tr>`;
- });
- const taskRows=[...tasks].sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0,200).map(task=>
-  `<tr><td>${escape(task.ownerName)}</td><td>${escape(departmentOf(task.ownerAccountId))}</td><td>${escape(task.deviceName)}</td><td>${escape(task.mainBotName??'—')}</td><td>${escape(TASK_STATE[task.state]??task.state)}</td><td>${time(Date.parse(task.createdAt))}</td><td>${time(Date.parse(task.updatedAt))}</td></tr>`);
- return `<div class="cards">${card('在线电脑',number(devices.length))}${card('正在执行',number(count('running')),'good')}${card('等待处理',number(count('waiting')),'warn')}${card('需要处理',number(count('error')),'bad')}${card('未上报',number(count('unreported')),'muted')}</div>
-<h2>Bot</h2>${table(['人','部门','电脑','类型','状态','主 Bot','进行中','上报时间'],deviceRows)}
-<h2>Bot 之间的任务</h2>${table(['发起人','部门','电脑','主 Bot','状态','创建','更新'],taskRows)}`;
-}
 
 const STATUS={failed:'失败',completed:'成功',active:'进行中',interrupted:'中断'};
 const outcome=row=>row.failed?['失败'+(row.http_status?' '+row.http_status:''),'bad']:row.outcome==='active'?['进行中','warn']:row.outcome==='interrupted'?['中断','muted']:['成功',''];

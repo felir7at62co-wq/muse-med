@@ -1,5 +1,6 @@
 /**
- * Muse console HTTP server: read-only pages for administrators, served behind nginx under the configured base path.
+ * Muse console HTTP server: read-only spend and service pages for administrators, served behind nginx under the configured base path.
+ * Tasks, accounts, usage and feedback stay on the existing site pages that the navigation links to.
  *
  * Identity and administrator status come from the account gateway using the viewer's own session cookie
  * (`gateway.mjs`). Request metadata comes from the export database written by `export.mjs`.
@@ -12,7 +13,7 @@ import {loadPrices} from './prices.mjs';
 import {openRecords,summary,list,byAccount,byProvider,choices,exportedAt} from './records.mjs';
 import {serviceStates} from './status.mjs';
 import {dayStart} from './export.mjs';
-import {layout,messagePage,tasksBody,recordsBody,servicesBody} from './html.mjs';
+import {layout,messagePage,recordsBody,servicesBody} from './html.mjs';
 
 const HEADERS={'content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
  'x-content-type-options':'nosniff','referrer-policy':'same-origin','cache-control':'no-store'};
@@ -63,9 +64,7 @@ export function createConsole({config,prices,gateway,records,states=serviceState
    if(viewer.state!=='admin'){send(res,403,messagePage({title:'没有权限',text:'管理台目前只对管理员开放。'}));return;}
    const org=directory(viewer.organization);
    const path=url.pathname.slice(base.length)||'/';
-   if(path==='/'){
-    send(res,200,layout({base,active:'tasks',viewer:viewer.account,title:'任务',body:tasksBody({members:org.members,tasks:viewer.organization.coordination?.tasks??[],departmentOf:org.departmentOf})}));return;
-   }
+   if(path==='/'){res.writeHead(302,{...HEADERS,location:base+'/records'});res.end();return;}
    if(path==='/records'||path==='/records.csv'){
     const filters=filtersOf(url.searchParams),range=rangeOf(filters.range,now());
     const accountIds=filters.account?[filters.account]:filters.department?org.membersOf(filters.department):null;

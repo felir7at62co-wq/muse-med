@@ -9,11 +9,11 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The Muse console is a separately deployed, read-only web service for administrators at `/console` on the Muse site. It shows Bot status and Bot-to-Bot tasks, every model request with estimated spend, and the state of company services. It holds no gateway credential, no provider key and no conversation content.
+The Muse console is a separately deployed, read-only web service for administrators at `/console` on the Muse site. It adds what the existing site pages lack, estimated spend per model request and the health of company services, and links the existing pages for tasks (`/workbench`), accounts (`/admin`), usage (`/admin/usage`) and feedback (`/feedback`) from the same navigation. It holds no gateway credential, no provider key and no conversation content.
 
 ## Pages
 
-- **Tasks** (`/console`): each online computer's Bot status, main Bot and active task count, plus Bot-to-Bot tasks without their prompt text.
+- `/console` redirects to the generation records.
 - **Generation records** (`/console/records`): totals for today, 7 days or 30 days in Asia/Shanghai calendar days; spend by person and department; one row per model request with route, outcome, token counts, duration and estimated cost; filters by department, person, route, model and status; CSV export of up to 10,000 rows. Exported cells that start like a spreadsheet formula are prefixed with `'`.
 - **Services** (`/console/services`): systemd state, start time, restart count and release of each configured service, and per-route request volume, failure rate and average duration over the last 24 hours.
 
