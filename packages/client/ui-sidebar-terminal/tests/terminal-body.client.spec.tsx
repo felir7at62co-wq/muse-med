@@ -8,7 +8,8 @@ import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { TerminalViewState } from '@deepseek-ai/dsh-api-terminal-controller/client'
 import type { WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
-import { TerminalBody, type TerminalBodyProps } from '../src/client/terminal.tsx'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { PanelTerminal, TerminalBody, type TerminalBodyProps } from '../src/client/terminal.tsx'
 import { TerminalTitle } from '../src/client/TerminalTitle.tsx'
 import { en, zh } from '../src/client/locales.ts'
 
@@ -498,6 +499,38 @@ it('keeps the screen on a temporary disconnect and presents reconnection without
   fireEvent.click(h.view.getByRole('button', { name: en.reconnect }))
   expect(h.model.connect).toHaveBeenCalledOnce()
   expect(h.openTab).not.toHaveBeenCalled()
+})
+
+it('shows a Bot panel tab\'s terminal, looks its model up once per tab and opens a new terminal through the panel', () => {
+  const state = createSnapshotStore<TerminalViewState>({ ...idle, info: { ...info, state: 'exited', exitCode: 0 }, phase: 'failed' })
+  const detach = vi.fn()
+  const model = {
+    state, mount: vi.fn(() => detach), refresh: vi.fn(async () => {}),
+    connect: vi.fn(), write: vi.fn(), resize: vi.fn(), acknowledge: vi.fn(),
+  }
+  const panelView = vi.fn(() => model)
+  const replace = vi.fn()
+  const theme: ThemeSnapshot = {
+    preference: 'light', fontSizes: { text: 14, code: 11, terminal: 13 }, fontFamilies: { text: '', code: '', terminal: '' },
+    active: { id: 'light', colorScheme: 'light', tokens: {} }, themes: [], revision: 0,
+  }
+  // The test supplies the owner share and the model lookup; the remaining slot props are framework-owned.
+  const panel = (tabId: string) => <PanelTerminal {...{
+    sessionId: 'session', tabId, visible: true, replace, panelView,
+    useTheme: (select: (value: ThemeSnapshot) => unknown) => select(theme), t: makeTranslate(en),
+  } as never} />
+  const view = render(panel('bot-terminal:1'))
+  expect(panelView).toHaveBeenCalledExactlyOnceWith('session', 'bot-terminal:1', undefined)
+  expect(model.mount).toHaveBeenCalledOnce()
+  expect(view.getByRole('status').textContent).toContain('Process exited (0)')
+  view.rerender(panel('bot-terminal:1'))
+  expect(panelView).toHaveBeenCalledOnce()
+  fireEvent.click(view.getByRole('button', { name: en.new }))
+  expect(replace).toHaveBeenCalledOnce()
+  view.rerender(panel('bot-terminal:2'))
+  expect(panelView).toHaveBeenLastCalledWith('session', 'bot-terminal:2', undefined)
+  view.unmount()
+  expect(detach).toHaveBeenCalled()
 })
 
 it('offers a new terminal after process exit while preserving its final output for reading', () => {

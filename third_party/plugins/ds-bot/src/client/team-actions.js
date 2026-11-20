@@ -57,6 +57,45 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       })
     },
     showDetails: (id, tab = null) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: false, tab, panelYield: yieldTo(state, 'details') })) },
+    // Muse: a Jingliu project opens as a tab of the panel that follows `id`, and the panel
+    // goes to it; closing the tab in view goes back to the project list.
+    openJingliuProject: (id, project) => {
+      ui.set((state) => {
+        const open = state.jingliuTabs?.[id] ?? []
+        const next = open.some(entry => entry.id === project.id)
+          ? open.map(entry => (entry.id === project.id ? { id: project.id, title: project.title } : entry))
+          : [...open, { id: project.id, title: project.title }]
+        return { ...state, jingliuTabs: { ...state.jingliuTabs, [id]: next }, details: id, view: 'details', renaming: false, tab: `jingliu:${project.id}`, panelYield: yieldTo(state, 'details') }
+      })
+    },
+    closeJingliuProject: (id, projectId) => {
+      ui.set((state) => {
+        const open = state.jingliuTabs?.[id] ?? []
+        if (!open.some(entry => entry.id === projectId)) return state
+        const jingliuTabs = { ...state.jingliuTabs, [id]: open.filter(entry => entry.id !== projectId) }
+        return state.details === id && state.tab === `jingliu:${projectId}` ? { ...state, jingliuTabs, tab: 'jingliu' } : { ...state, jingliuTabs }
+      })
+    },
+    // Muse: a terminal opens as a tab of the panel that follows `id`, and the panel goes to it.
+    // `tab` is `{ key, session, terminalId? }`: its identity, the conversation part it runs in
+    // and an existing terminal it shows. Closing the tab in view goes back to the terminal list.
+    openTerminalTab: (id, tab) => {
+      ui.set((state) => {
+        const open = state.terminalTabs?.[id] ?? []
+        const terminalTabs = open.some(entry => entry.key === tab.key) ? state.terminalTabs : { ...state.terminalTabs, [id]: [...open, tab] }
+        return { ...state, terminalTabs, details: id, view: 'details', renaming: false, tab: `terminal:${tab.key}`, panelYield: yieldTo(state, 'details') }
+      })
+    },
+    closeTerminalTab: (id, key) => {
+      ui.set((state) => {
+        const open = state.terminalTabs?.[id] ?? []
+        if (!open.some(entry => entry.key === key)) return state
+        const terminalTabs = { ...state.terminalTabs, [id]: open.filter(entry => entry.key !== key) }
+        return state.details === id && state.tab === `terminal:${key}` ? { ...state, terminalTabs, tab: 'terminal' } : { ...state, terminalTabs }
+      })
+    },
+    // Muse: the tab the open drawer shows, kept apart from `tab` so recording it does not remount the drawer.
+    noteDrawerTab: drawerTab => { ui.set(state => (state.drawerTab === drawerTab ? state : { ...state, drawerTab })) },
     // Opening the conversation would move focus to its composer and blur the name field.
     renameBot: (id) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: true, tab: null, panelYield: yieldTo(state, 'details') })) },
     openSettings,
@@ -150,6 +189,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     folders: () => call('folders'),
     folderPick: () => call('folder-pick'),
     folderList: path => call('folder-list', { path: path ?? '' }),
+    // Muse: one level of a conversation's working folder, for the panel's file tree.
+    workFiles: (sessionId, path) => call('files-list', { sessionId, path: path ?? '' }),
     setTeamWorkspace: path => after(call('team-workspace', { path })),
     deleteBot: id => after(call('delete-bot', { id })),
     releasePrivate: id => after(call('private-release', { id })),

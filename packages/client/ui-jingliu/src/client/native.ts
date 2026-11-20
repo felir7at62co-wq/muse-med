@@ -5,17 +5,16 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { StudioLibraryQuery } from '@deepseek-ai/dsh-jingliu-connection/types'
 import remote from '@deepseek-ai/dsh-jingliu-connection/remote'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { Assets, CreditEntry, DrawerAssets, Environment, ProjectEntry, Projects, ProductionSettings, type ProductionActions } from './Production.tsx'
+import { Assets, CreditEntry, Environment, ProductionSettings, type ProductionActions } from './Production.tsx'
+import { DrawerLibrary } from './DrawerLibrary.tsx'
 import { DrawerJingliu } from './DrawerJingliu.tsx'
 
-const panel = 'jingliu-projects' as MainPanelId
 
 /**
  * One read for a resource frame. A read the resource registry stopped (its view went
@@ -44,7 +43,7 @@ export function installNative(ctx: Context): void {
   // The Bot team's details drawer shows the same library in its asset tab.
   ctx.slots.inject('bot.drawer.assets', () => ctx.slots.register({
     name: 'bot.drawer.assets', locale: 'jingliuStudio', inject: () => ({ hooks: { accountEpoch: epoch } }),
-  }, DrawerAssets))
+  }, DrawerLibrary))
   ctx.inject(['remote', 'layout', 'resources', 'uiWorkspace', 'sessions', 'conversation', 'workspaces'], async (scope) => {
     const unmount = await scope.remote.$mount(remote)
     scope.effect(() => unmount, 'jingliu: studio remote')
@@ -79,6 +78,8 @@ export function installNative(ctx: Context): void {
         open: (address, { signal }) => once(signal, () => api.episodeShots(param(address, 'id'), Number(param(address, 'episode')), signal)) }))
       host.effect(() => host.resources.register<'jingliu-shot-media'>({ protocol: 'jingliu-shot-media',
         open: (address, { signal }) => once(signal, () => api.shotMedia(param(address, 'id'), param(address, 'shot'), signal)) }))
+      host.effect(() => host.resources.register<'jingliu-catalog'>({ protocol: 'jingliu-catalog',
+        open: (_address, { signal }) => once(signal, () => api.catalog(signal)) }))
       host.effect(() => host.resources.register<'jingliu-project-assets'>({ protocol: 'jingliu-project-assets',
         open: (address, { signal }) => once(signal, () => api.projectAssets(param(address, 'id'), signal)) }))
       host.effect(() => host.resources.register<'jingliu-selected'>({ protocol: 'jingliu-selected',
@@ -91,42 +92,37 @@ export function installNative(ctx: Context): void {
             if (!signal.aborted) throw error
           }
         } }))
-      let target: SessionId | undefined
       const locale = 'jingliuStudio'
       const t = host.locale.bind(locale)
       const actions: ProductionActions = {
         hooks: { accountEpoch: epoch, workspaceList: host.workspaces.list },
-        openProjects: (id) => {
-          const list = host.sessions.list.getSnapshot()
-          target = id ?? list.ids.find(key => !!list.byId[key]?.retainedBy.mainView)
-          // A project is selected for one conversation; with none in view, start one first.
-          if (target === undefined) {
-            host.uiWorkspace.startSession()
-            return
-          }
-          host.layout.selectPanel(panel)
-        },
         addWorkspace: async (path) => {
           const workspace = await host.workspaces.create({ path })
           await host.uiWorkspace.openWorkspace(workspace.workspaceId)
-        },
-        openProject: async (project) => {
-          const signal = host.layout.beginNavigation()
-          const signedIn = epoch.getSnapshot()
-          const id = target
-          if (!id) throw new Error('Studio project selection needs a conversation')
-          signal.throwIfAborted()
-          if (epoch.getSnapshot() !== signedIn) throw new Error('Studio account changed')
-          const selection = await api.selectProject(id, project.id, signal)
-          if (!selection.ok) throw selection.error
-          signal.throwIfAborted()
-          if (epoch.getSnapshot() === signedIn) host.uiWorkspace.openSession(id)
         },
         chooseProject: async (sessionId, project) => {
           const signedIn = epoch.getSnapshot()
           const selection = await api.selectProject(sessionId, project.id, new AbortController().signal)
           if (!selection.ok) throw selection.error
           if (epoch.getSnapshot() !== signedIn) throw new Error('Studio account changed')
+        },
+        createProject: async (sessionId, input) => {
+          const signedIn = epoch.getSnapshot()
+          const created = await api.createProject(input, new AbortController().signal)
+          if (!created.ok) throw created.error
+          if (epoch.getSnapshot() !== signedIn) throw new Error('Studio account changed')
+          // The new production becomes the one this conversation works on.
+          const selection = await api.selectProject(sessionId, created.value.id, new AbortController().signal)
+          if (!selection.ok) throw selection.error
+          return created.value
+        },
+        renameProject: async (projectId, title) => {
+          const result = await api.renameProject(projectId, title, new AbortController().signal)
+          if (!result.ok) throw result.error
+        },
+        deleteShot: async (projectId, shotId) => {
+          const result = await api.deleteShot(projectId, shotId, new AbortController().signal)
+          if (!result.ok) throw result.error
         },
         loadVideo: async (path, signal) => {
           let type = ''
@@ -154,9 +150,7 @@ export function installNative(ctx: Context): void {
       const inject = () => actions
       host.slots.inject('sidebar.right.environment', () => host.slots.register({ name: 'sidebar.right.environment', locale, inject,
         children: { 'workspace.environment.directoryFlow': { kind: 'single', scope: 'root' } } }, Environment))
-      host.slots.inject('main', () => host.slots.register({ name: 'main', key: panel, locale, inject }, Projects))
       host.slots.inject('bot.drawer.jingliu', () => host.slots.register({ name: 'bot.drawer.jingliu', locale, inject }, DrawerJingliu))
-      host.slots.inject('sidebar.workspaces.entry', () => host.slots.register({ name: 'sidebar.workspaces.entry', id: 'jingliu-projects', order: 30, locale, inject }, ProjectEntry))
       host.slots.inject('settings.section', () => host.slots.register({ name: 'settings.section', id: 'jingliu', order: 24, locale, label: () => t('studioSettings'), inject }, ProductionSettings))
       host.slots.inject('sidebar.footer.action', () => host.slots.register({ name: 'sidebar.footer.action', id: 'jingliu-credit', order: 30, locale, inject }, CreditEntry))
     })

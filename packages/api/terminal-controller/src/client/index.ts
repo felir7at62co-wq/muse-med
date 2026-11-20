@@ -54,7 +54,8 @@ export class ClientTerminals extends Service {
   private readonly rosters: TerminalRosters
   /** Terminals this window bound to a tab before any view mounted. */
   private readonly adopted = new Set<WebTerminalId>()
-  private openTabs: readonly { sessionId: SessionId; tabId: string; contentId: string }[] = []
+  /** Open terminal occurrences by the layout that supplies them; each layout replaces only its own. */
+  private readonly openTabs = new Map<string, readonly { sessionId: SessionId; tabId: string; contentId: string }[]>()
 
   /**
    * @param ctx - Client root Context with Gateway and terminal Remote namespace.
@@ -159,7 +160,7 @@ export class ClientTerminals extends Service {
   isRepresented(sessionId: SessionId, id: WebTerminalId): boolean {
     if (this.adopted.has(id) || this.closed.has(id) || this.closing.has(id)) return true
     if ([...this.views.get(sessionId)?.values() ?? []].some(view => view.id === id)) return true
-    return this.openTabs.some(tab => tab.sessionId === sessionId && this.bindings.get(sessionId, tab.contentId) === id)
+    return this.occurrences().some(tab => tab.sessionId === sessionId && this.bindings.get(sessionId, tab.contentId) === id)
   }
 
   private inventory(sessionId: SessionId): TerminalInventory {
@@ -213,12 +214,18 @@ export class ClientTerminals extends Service {
   }
 
   /**
-   * Reconcile this window's open terminal occurrences, including dormant saved Sessions.
-   * @param tabs - terminal-kind membership supplied by the sidebar layout owner.
+   * Reconcile one layout's open terminal occurrences, including dormant saved Sessions.
+   * @param tabs - that layout's complete terminal-kind membership.
+   * @param layout - layout that owns the list; the right sidebar is `sidebar`, and another host of terminal views names itself.
    */
-  retainTabs(tabs: readonly { sessionId: SessionId; tabId: string; contentId: string }[]): void {
-    this.openTabs = tabs
+  retainTabs(tabs: readonly { sessionId: SessionId; tabId: string; contentId: string }[], layout = 'sidebar'): void {
+    if (tabs.length === 0) this.openTabs.delete(layout)
+    else this.openTabs.set(layout, tabs)
     this.reconcileHolds()
+  }
+
+  private occurrences(): readonly { sessionId: SessionId; tabId: string; contentId: string }[] {
+    return [...this.openTabs.values()].flat()
   }
 
   private hold(sessionId: SessionId, id: WebTerminalId): TerminalWindowHold {
@@ -236,7 +243,7 @@ export class ClientTerminals extends Service {
   private reconcileHolds(): void {
     if (this.disposed) return
     const wanted = new Map<SessionId, Set<WebTerminalId>>()
-    for (const tab of this.openTabs) {
+    for (const tab of this.occurrences()) {
       const id = this.bindings.get(tab.sessionId, tab.contentId)
       if (id === undefined || this.closed.has(id)) continue
       let ids = wanted.get(tab.sessionId)

@@ -3,12 +3,14 @@
 // folder is fixed when it is made, so a change moves the conversation on to a fresh
 // part (parts.js).
 import { openSessions } from './threads.js'
-import { mkdir, realpath, stat } from 'node:fs/promises'
+import { mkdir, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { unquote } from './text.js'
 
 const PICK_TIMEOUT_MS = 10 * 60_000
+// Muse: the most entries one level of the panel's file tree lists.
+const WORK_FILES_MAX = 500
 
 export const within = (inner, outer) => inner === outer || inner.startsWith(outer.endsWith(sep) ? outer : outer + sep)
 
@@ -228,5 +230,19 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, sessionsOfBot, approveFolder, folderEndpoint })
+  // Muse: one level of a conversation's working folder, for the panel's file tree. Only
+  // names inside that folder are listed, folders first; hidden entries are left out and
+  // links are not followed.
+  async function workFiles(sessionId, sub) {
+    if (!rt.isBotSession(sessionId) && rt.roomOf(sessionId) === undefined) throw Object.assign(new Error('This conversation is not part of your Bot team'), { code: 'bot/invalid' })
+    const root = await real(sessionFolder({ id: sessionId }))
+    const target = await real(resolve(root, typeof sub === 'string' ? sub : ''))
+    if (!within(target, root)) throw Object.assign(new Error('That folder is outside the working folder'), { code: 'bot/invalid' })
+    const all = (await readdir(target, { withFileTypes: true })).filter(entry => !entry.name.startsWith('.'))
+      .map(entry => ({ name: entry.name, dir: entry.isDirectory() }))
+      .sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name))
+    return { name: basename(root), path: relative(root, target), entries: all.slice(0, WORK_FILES_MAX), truncated: all.length > WORK_FILES_MAX }
+  }
+
+  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, sessionsOfBot, approveFolder, folderEndpoint, workFiles })
 }

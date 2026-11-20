@@ -116,5 +116,7 @@ export const ImIcon = lineIcon(['M6.5 3.5h7A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-
 export const QueueIcon = lineIcon(['M4 6h12', 'M4 10h12', 'M4 14h8', 'M14 12.5l2 1.5-2 1.5'])
 // Muse: the asset library (a picture) and Skills / MCP (a four-point spark).
 export const ImageIcon = lineIcon(['M5.5 4h9A2.5 2.5 0 0 1 17 6.5v7a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 3 13.5v-7A2.5 2.5 0 0 1 5.5 4z', 'M7.5 9.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5z', 'M3.5 14l4-4 3.5 3.5 2-2 3.5 3.5'])
+export const FilmIcon = lineIcon(['M5 4h10a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 15 16H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 4z', 'M7 4v12M13 4v12M3.5 8H7M3.5 12H7M13 8h3.5M13 12h3.5'])
+export const LockIcon = lineIcon(['M6 9V7a4 4 0 0 1 8 0v2', 'M5.5 9h9A1.5 1.5 0 0 1 16 10.5v5A1.5 1.5 0 0 1 14.5 17h-9A1.5 1.5 0 0 1 4 15.5v-5A1.5 1.5 0 0 1 5.5 9z'])
 export const SparkIcon = lineIcon(['M10 3c.6 3.6 2.4 5.4 6 6-3.6.6-5.4 2.4-6 6-.6-3.6-2.4-5.4-6-6 3.6-.6 5.4-2.4 6-6z'])
 export const SETTINGS_ICONS = { general: GearIcon, bots: PeopleIcon, groups: ChatsIcon, im: ImIcon, usage: GaugeIcon }

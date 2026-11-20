@@ -48,6 +48,15 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
   }
   const cleaned = texts.map(stripToolCallTags).filter(text => text.trim() !== '')
   const reactions = useUi ? useUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null)) : null
+  // Muse: the message's reaction, reply and more buttons stay in view under it, beside its
+  // time; earlier bubbles of the same message keep theirs on hover.
+  const lastIndex = cleaned.length - 1
+  const settled = lastIndex >= 0 && !streaming
+  const clock = Number.isFinite(time) ? h('span', { key: 'time', className: 'bt-utime', title: clockLabel(time) }, messageClock(time)) : null
+  const tools = settled ? h(MessageTools, {
+    key: 'tools', text: cleaned[lastIndex], name: roster.byId[selfId]?.name ?? t('Bot'), sessionId, actions, below: true,
+    react: msgKey ? emoji => actions.toggleReaction(msgKey, lastIndex, emoji) : undefined,
+  }) : null
   return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, onClickCapture: onClick },
     cleaned.map((text, index) => {
       const last = index === cleaned.length - 1
@@ -57,9 +66,10 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
         live: streaming && last,
         lead: lead && last ? lead : null,
         whole: last ? whole : undefined,
+        tools: !(last && settled),
       })
     }),
-    Number.isFinite(time) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, messageClock(time)) : null)
+    clock || tools ? h('div', { className: 'bt-afoot' }, clock, tools) : null)
 }
 
 // A folded message's last code block shows only its start; DS Bot draws its own
@@ -94,7 +104,7 @@ const foldArea = (body, code, codeHead, actions) => (code === undefined ? body
     h('pre', { className: 'bt-fold-pre' }, h('code', null, codeHead)),
     h(FoldCodeCopy, { code, actions })))
 
-function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
+function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource, tools = true }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
   const body = shown === '' ? null : h(MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
@@ -116,7 +126,7 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
         control ? h('div', { className: 'bt-fold-body' }, area) : area,
         control),
       h(ReplyGuide, { box: bubble, active: !live && !folded }),
-      live ? null : h(MessageTools, { text: folded ? text : shown, name: roster.byId[selfId]?.name ?? t('Bot'), sessionId, react: key ? emoji => actions.toggleReaction(msgKey, index, emoji) : undefined, actions, open: toolsOpen })),
+      live || !tools ? null : h(MessageTools, { text: folded ? text : shown, name: roster.byId[selfId]?.name ?? t('Bot'), sessionId, react: key ? emoji => actions.toggleReaction(msgKey, index, emoji) : undefined, actions, open: toolsOpen })),
     picked.length ? h('div', { className: 'bt-reacts' }, picked.map(emoji => h('button', {
       key: emoji, type: 'button', className: 'bt-react', 'aria-label': t('Remove reaction {emoji}', { emoji }), onClick: () => actions.toggleReaction(msgKey, index, emoji),
     }, emoji))) : null)
@@ -145,7 +155,7 @@ function useDismiss(open, close, refs) {
 
 // The hover toolbar beside a reply bubble: Add reaction, Reply, More. `open` is
 // the touch fallback: a tap on the bubble toggles it (see Bubble).
-function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
+function MessageTools({ text, name, sessionId, react, actions, open: tapped, below = false }) {
   // The anchor element is kept, not its rect: the visible viewport can move
   // (on-screen keyboard) while the popover is open.
   const [panel, setPanel] = useState(null)
@@ -176,7 +186,7 @@ function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   const item = (label, Icon, run) => h('button', { key: label, type: 'button', role: 'menuitem', onClick: () => { close(); run() } }, h(Icon), label)
-  return h('div', { ref: tools, className: 'bt-tools', 'data-open': panel !== null || tapped || undefined },
+  return h('div', { ref: tools, className: below ? 'bt-tools bt-tools-below' : 'bt-tools', 'data-open': panel !== null || tapped || undefined },
     react ? h('button', { type: 'button', className: 'bt-tool', 'aria-label': t('Add reaction'), title: t('Add reaction'), 'aria-expanded': panel?.kind === 'react', onClick: event => open('react', event) }, h(SmileIcon)) : null,
     sessionId ? h('button', { type: 'button', className: 'bt-tool', 'aria-label': t('Reply'), title: t('Reply'), onClick: () => actions.quote(sessionId, text) }, h(ReplyIcon)) : null,
     h('button', { type: 'button', className: 'bt-tool', 'aria-label': t('More message actions'), title: t('More'), 'aria-haspopup': 'menu', 'aria-expanded': panel?.kind === 'more', onClick: event => open('more', event) }, copied ? h(CheckIcon) : h(DotsIcon)),

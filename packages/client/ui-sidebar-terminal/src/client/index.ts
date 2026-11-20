@@ -12,12 +12,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import { PluginArtworkTerminal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { TerminalGuide, type TerminalGuideInjected } from './TerminalGuide.tsx'
-import { LazyTerminalBody } from './LazyTerminalBody.tsx'
+import { LazyPanelTerminal, LazyTerminalBody } from './LazyTerminalBody.tsx'
 import { TerminalTitle } from './TerminalTitle.tsx'
 import { AgentTerminalOpener, type AgentTerminalOpenerInjected } from './AgentTerminalOpener.tsx'
 // import { TerminalRecovery, type TerminalRecoveryInjected } from './TerminalRecovery.tsx'
 // import { TerminalCleanup, type TerminalCleanupInjected } from './TerminalCleanup.tsx'
-import type { TerminalBodyInjected, TerminalInjected } from './face.ts'
+import type { PanelTerminalInjected, TerminalBodyInjected, TerminalInjected } from './face.ts'
 import { en, ja, es, fr, de, ru, pt, zh } from './locales.ts'
 
 /** Services needed by the terminal's two sidebar seats. */
@@ -141,6 +141,12 @@ export function apply(ctx: Context): void {
       return watch
     },
   }, AgentTerminalOpener)), 'ui-sidebar-terminal.agent-terminals')
+  const panelView: PanelTerminalInjected['panelView'] = (sessionId, tabId, terminalId) => ctx.webTerminals.view(sessionId, tabId, tabId, terminalId)
+  // The Bot team's panel hosts terminals in tabs of its own; it reports them to `webTerminals` under its own layout name.
+  ctx.effect(() => ctx.slots.inject('bot.drawer.terminal', () => ctx.slots.register({
+    name: 'bot.drawer.terminal', locale: namespace,
+    inject: (): PanelTerminalInjected => ({ panelView, hooks: { theme } }),
+  }, LazyPanelTerminal)), 'ui-sidebar-terminal.bot-panel')
   // ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
   //   name: 'conversation.session.header.actions', id, locale: namespace,
   //   inject: (sessionId): TerminalRecoveryInjected => ({

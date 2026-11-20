@@ -28,10 +28,12 @@ const TEAM = {
   questions: {},
 }
 
-function start({ presets } = {}) {
+function start({ presets, config = {}, existingOnly = [] } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-agent-preset-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
-  const services = presets === undefined ? {} : { agentPresets: { list: async () => presets } }
+  // `existingOnly`: presets the host keeps for the Sessions already on them, as Muse's desktop does.
+  const resolveForCreation = async (id) => { if (existingOnly.includes(id)) throw new Error(`Agent preset is only available for existing sessions: ${id}`) }
+  const services = presets === undefined ? {} : { agentPresets: { list: async () => presets, ...(existingOnly.length > 0 ? { resolveForCreation } : {}) } }
   const ctx = fakeContext({ services })
   const created = []
   Object.assign(ctx, {
@@ -50,7 +52,7 @@ function start({ presets } = {}) {
     },
     sessionTitle: { rename: async () => {} },
   })
-  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false, ...config })
   const relay = ctx.listeners.get('llm/stream').find(listener => /relayOrPass/.test(String(listener)))
   const warnings = []
   const warn = rt.warn
@@ -94,6 +96,23 @@ test('without a usable standard preset a Bot Session keeps DSH\'s default', asyn
     await rt.createSession('Chief')
     assert.deepEqual(created, [{ workspaceId: 'w1' }])
   }
+})
+
+// Muse: every Bot conversation runs on the product preset; a group's relay Session stays on
+// `standard` only where the host still starts Sessions on it.
+test('a group\'s relay Session runs on the product preset where the host keeps standard for existing Sessions', async (t) => {
+  const presets = [{ id: 'short-drama' }, { id: 'standard' }]
+  const kept = start({ presets, config: { agentPreset: 'short-drama' }, existingOnly: ['standard'] })
+  t.after(kept.stop)
+  await kept.rt.load()
+  await kept.rt.createSession('Chief')
+  await kept.rt.createSession('Writers', { relay: true })
+  assert.deepEqual(kept.created, [{ workspaceId: 'w1', agentPreset: 'short-drama' }, { workspaceId: 'w1', agentPreset: 'short-drama' }])
+  const open = start({ presets, config: { agentPreset: 'short-drama' } })
+  t.after(open.stop)
+  await open.rt.load()
+  await open.rt.createSession('Writers', { relay: true })
+  assert.deepEqual(open.created, [{ workspaceId: 'w1', agentPreset: 'standard' }])
 })
 
 test('a group round calls group_relay directly when the Session declares it', async (t) => {

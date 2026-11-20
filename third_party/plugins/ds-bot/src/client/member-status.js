@@ -3,6 +3,7 @@ import { BotMark, toolState } from './mark.js'
 import { Elapsed, Shimmer, workPhrase } from './cells.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useLinger } from './motion.js'
 import { t } from './i18n.js'
+import { isMainOf } from './sources.js'
 
 // -------------------------------------------------------------------------
 // What a group's members are doing: above the group's composer, one capsule for the
@@ -101,8 +102,15 @@ function useFitWidth(inner, key) {
 }
 
 // Above the composer, one capsule for everything at work: it opens the group's details,
-// or from a Bot's own chat the group it is at work in.
-export function MemberDock({ sessionId, useRoster, useWork, actions }) {
+// or from a Bot's own chat the group it is at work in. Muse: a Main Bot's own chat shows
+// the whole team instead, in a capsule that opens in place.
+export function MemberDock(props) {
+  const roster = props.useRoster(value => value)
+  const self = roster.roomsById[props.sessionId] ? undefined : roster.byId[props.sessionId]
+  return self && isMainOf(roster, self.id) ? h(TeamDock, { ...props, self }) : h(GroupDock, props)
+}
+
+function GroupDock({ sessionId, useRoster, useWork, actions }) {
   const roster = useRoster(value => value)
   const work = useWork(value => value)
   const live = dockModel(sessionId, roster, work)
@@ -124,12 +132,106 @@ export function MemberDock({ sessionId, useRoster, useWork, actions }) {
           model.doing ? h('span', { className: 'bt-mw-doing' }, h(Shimmer, null, model.doing)) : null))))
 }
 
+// Muse: the team as a Main Bot's own chat sees it. Bots waiting for the user (an approval
+// or a question) come first, then the Bots at work; the Main Bot itself has its own row.
+export function teamWork(self, roster, work = NO_WORK) {
+  const asks = new Map()
+  const ask = (bot) => {
+    if (!asks.has(bot.id)) asks.set(bot.id, { bot, approvals: [], question: null, sessionId: null })
+    return asks.get(bot.id)
+  }
+  for (const approval of work.approvals ?? []) {
+    const bot = roster.byId[approval.botId]
+    if (bot && bot.id !== self.id) ask(bot).approvals.push(approval)
+  }
+  for (const [sessionId, question] of Object.entries(roster.questions ?? {})) {
+    const bot = roster.byId[sessionId]
+    if (!question || !bot || bot.id === self.id) continue
+    const entry = ask(bot)
+    entry.question = question
+    entry.sessionId = sessionId
+  }
+  const working = Object.entries(work.bots ?? {})
+    .filter(([id]) => id !== self.id && !asks.has(id) && roster.byId[id])
+    .map(([id, doing]) => ({ bot: roster.byId[id], doing }))
+  return { asking: [...asks.values()], working }
+}
+
+const joinNames = (names) => names.length === 1 ? t('{name} is waiting for you', { name: names[0] })
+  : names.length === 2 ? t('{first} and {second} are waiting for you', { first: names[0], second: names[1] })
+    : t('{first}, {second} and {count} more are waiting for you', { first: names[0], second: names[1], count: names.length - 2 })
+
+function QuestionCard({ entry, actions }) {
+  const [busy, setBusy] = useState(false)
+  const { question, bot, sessionId } = entry
+  const options = Array.isArray(question.options) ? question.options : []
+  const answer = (label) => {
+    setBusy(true)
+    void Promise.resolve(actions.answerQuestion(sessionId, question.id, { selected: [label], custom: '' }))
+      .catch(error => actions.reportError(error, 'question'))
+      .finally(() => setBusy(false))
+  }
+  // A card with several picks or an answer in the user's words is answered in its own chat.
+  const simple = question.multiSelect !== true && question.allowCustom !== true && options.length > 0
+  return h('div', { className: 'bt-mw-card', role: 'group', 'aria-label': t('{name} is waiting for you', { name: bot.name }) },
+    question.detail ? h('div', { className: 'bt-mw-text' }, question.detail) : null,
+    simple
+      ? h('div', { className: 'bt-mw-actions bt-team-options' }, options.map(option =>
+        h('button', { key: option.label, type: 'button', className: 'bt-q-btn', disabled: busy, title: option.description || undefined, onClick: () => answer(option.label) }, option.label)))
+      : h('div', { className: 'bt-mw-actions' },
+        h('button', { type: 'button', className: 'bt-q-btn', onClick: () => actions.openSession(bot.id) }, t("Open {name}'s chat", { name: bot.name }))))
+}
+
+function TeamDock({ self, useRoster, useWork, actions }) {
+  const roster = useRoster(value => value)
+  const work = useWork(value => value)
+  const { asking, working } = teamWork(self, roster, work)
+  const [open, setOpen] = useState(false)
+  const [card, setCard] = useState(null)
+  if (asking.length === 0 && working.length === 0) return null
+  const shown = card !== null && asking.some(entry => entry.bot.id === card) ? card : asking[0]?.bot.id ?? null
+  const faces = [...asking.map(entry => ({ bot: entry.bot, ask: true, state: 'alert' })),
+    ...working.map(entry => ({ bot: entry.bot, ask: false, state: workState(entry.doing) }))].slice(0, FACES_MAX + 1)
+  const waiting = asking.length > 0 ? joinNames(asking.map(entry => entry.bot.name)) : ''
+  const first = working[0]
+  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…${working.length > 1 ? ` +${working.length - 1}` : ''}` : ''
+  const label = [waiting, doing].filter(Boolean).join(' · ')
+  return h('div', { className: 'bt-mw-dock bt-team-dock' },
+    open ? h('div', { className: 'bt-team-panel', role: 'region', 'aria-label': t('Your team') },
+      asking.map((entry) => {
+        const expanded = entry.bot.id === shown
+        const what = entry.question ? entry.question.question : entry.approvals[0]?.tool ?? ''
+        return h('div', { key: entry.bot.id, className: 'bt-team-ask' },
+          h('button', { type: 'button', className: 'bt-team-head', 'aria-expanded': expanded, onClick: () => setCard(expanded ? '' : entry.bot.id) },
+            h(Face, { bot: entry.bot, ask: true, state: 'alert' }),
+            h('strong', { className: 'bt-team-name' }, entry.bot.name),
+            h('span', { className: 'bt-team-what' }, what),
+            h('span', { className: 'bt-team-chevron', 'aria-hidden': true }, expanded ? '⌄' : '›')),
+          expanded ? h('div', { className: 'bt-team-body' },
+            entry.question ? h(QuestionCard, { entry, actions }) : null,
+            entry.approvals.map(approval => h(ApprovalCard, { key: approval.id, approval, bot: entry.bot, actions, inline: true }))) : null)
+      }),
+      working.map(entry => h('button', { key: entry.bot.id, type: 'button', className: 'bt-team-work', onClick: () => actions.openSession(entry.bot.id) },
+        h(Face, { bot: entry.bot, ask: false, state: workState(entry.doing) }),
+        h('strong', { className: 'bt-team-name' }, entry.bot.name),
+        h('span', { className: 'bt-team-what' }, h(Shimmer, null, `${workPhrase(entry.doing)}…`)),
+        typeof entry.doing.since === 'number' ? h(Elapsed, { at: entry.doing.since, className: 'bt-team-time' }) : null))) : null,
+    h('button', { type: 'button', className: 'bt-mw-pill', 'aria-label': label, 'aria-expanded': open, onClick: () => setOpen(!open) },
+      h('span', { className: 'bt-mw-pill-in' },
+        h('span', { className: 'bt-mw-faces', 'aria-hidden': true }, faces.map(face => h(Face, { key: face.bot.id, ...face }))),
+        h('span', { className: 'bt-mw-label', 'aria-hidden': true },
+          waiting ? h('span', { className: 'bt-mw-ask' }, waiting) : null,
+          waiting && doing ? h('span', { className: 'bt-mw-dot' }, '·') : null,
+          doing ? h('span', { className: 'bt-mw-doing' }, h(Shimmer, null, doing)) : null),
+        h('span', { className: 'bt-team-chevron', 'aria-hidden': true }, open ? '⌄' : '⌃'))))
+}
+
 // The clock stays whole at the end; only what comes before it is cut.
 const stateLine = (className, at, ...what) => h('span', { className },
   h('span', { className: 'bt-member-what' }, ...what),
   typeof at === 'number' ? h(Elapsed, { at, className: 'bt-member-time' }) : null)
 
-function ApprovalCard({ approval, bot, actions }) {
+function ApprovalCard({ approval, bot, actions, inline = false }) {
   const [busy, setBusy] = useState(false)
   const answer = (choice) => {
     setBusy(true)
@@ -144,7 +246,7 @@ function ApprovalCard({ approval, bot, actions }) {
     approval.detail?.code ? h('code', { className: 'bt-mw-code', title: approval.detail.code }, approval.detail.code) : null,
     // Own-chat approvals are answerable for IM and the phone app; here the Bot's
     // own DSH card stays the place to answer, so the row still opens that chat.
-    approval.answerable && approval.roomId !== undefined
+    approval.answerable && (inline || approval.roomId !== undefined)
       ? h('div', { className: 'bt-mw-actions' },
         h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('reject') }, t('Reject')),
         h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('allow') }, t('Allow once')))
@@ -219,6 +321,18 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 @keyframes bt-mw-out{to{opacity:0;transform:translateY(6px) scale(.96);filter:var(--bt-fx-blur-3,blur(3px))}}
 @keyframes bt-mw-seat{from{opacity:0;scale:.6}}
 @keyframes bt-mw-swap{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}}
+.bt-team-dock{flex-direction:column;align-items:center;gap:8px}
+.bt-team-panel{pointer-events:auto;box-sizing:border-box;width:min(560px,100%);max-height:min(360px,48vh);overflow:auto;padding:6px;border-radius:18px;background:var(--bt-main);box-shadow:0 0 0 .5px var(--bt-line-2),0 6px 20px -6px rgba(0,0,0,.18);animation:bt-mw-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards}
+.bt-team-ask{border-radius:12px}
+.bt-team-ask+.bt-team-ask,.bt-team-work{margin-top:2px}
+.bt-team-head,.bt-team-work{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:6px 10px;border:0;border-radius:12px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.bt-team-head:hover,.bt-team-work:hover{background:var(--bt-hover)}
+.bt-team-name{flex:none;font-weight:600}
+.bt-team-what{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-2)}
+.bt-team-time{flex:none;color:var(--bt-ink-3);font-size:12px;font-variant-numeric:tabular-nums}
+.bt-team-chevron{flex:none;color:var(--bt-ink-3);font-size:13px;line-height:1}
+.bt-team-body{padding:0 10px 8px 40px}
+.bt-team-options{flex-wrap:wrap}
 .bt-members{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
 .bt-members-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .bt-members-head>.bt-section-title{margin:0}

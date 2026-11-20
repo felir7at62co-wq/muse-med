@@ -101,7 +101,8 @@ const bot = { id: 'a', name: 'Chief', sessionId: 'a' }
 const room = { id: 'g', name: 'Writers', named: true, members: ['a'] }
 const roster = { byId: { a: bot }, roomsById: { g: room }, bots: [], exchangeTurns: {}, questions: {}, memory: false }
 const hook = value => select => select(value)
-const drawer = (sessionId, actions, liveRoster = roster) => DetailsDrawer({
+const drawer = (sessionId, actions, liveRoster = roster, more = {}) => DetailsDrawer({
+  ...more,
   sessionId, roster: liveRoster, actions,
   useSessions: hook({ byId: {} }),
   useSessionStatus: hook(new Map()),
@@ -110,8 +111,8 @@ const drawer = (sessionId, actions, liveRoster = roster) => DetailsDrawer({
   useBrowserTabs: hook({}),
   useBrowserPages: hook({}),
 })
-// Muse: the tab row holds what the upstream `···` menu held, plus Jingliu and the asset
-// library; those tabs hand off to another view instead of switching the drawer body.
+// Muse: a row of tabs sits under the Bot's name, with each tab's content under it; an open
+// Jingliu project has a strip tab of its own and takes the drawer's whole height.
 const tabButtons = (node, out = []) => {
   if (Array.isArray(node)) { for (const child of node) tabButtons(child, out); return out }
   if (node === null || typeof node !== 'object') return out
@@ -120,34 +121,99 @@ const tabButtons = (node, out = []) => {
   return out
 }
 const tabKeys = node => tabButtons(node).map(button => button.props['data-tab-key'])
+const find = (node, pick, out = []) => {
+  if (Array.isArray(node)) { for (const child of node) find(child, pick, out); return out }
+  if (node === null || typeof node !== 'object') return out
+  if (pick(node)) out.push(node)
+  for (const child of node.children ?? []) find(child, pick, out)
+  return out
+}
+const identityOf = tree => find(tree, node => node.props?.className === 'bt-drawer-id')[0]
+const slots = { hasDrawerSlot: name => name === 'bot.drawer.jingliu' || name === 'bot.drawer.assets' }
 
-test('the drawer tab row lists browser, a side chat, the column tabs, Jingliu and the asset library', () => {
-  const picks = { newSideChat: [], newTerminal: [], openFiles: [], openJingliu: [], openAssets: [] }
-  const actions = {
-    ...Object.fromEntries(Object.keys(picks).map(name => [name, (...args) => { picks[name].push([...args]) }])),
-    canOpenTerminal: () => true,
-    canOpenFiles: () => true,
-    canOpenJingliu: () => true,
-    canOpenAssets: () => true,
-  }
-  const tree = drawer('a', actions, { ...roster, browser: true })
+test('the row under the Bot\'s name lists the details, browser, side chat, terminal, files, Jingliu and the asset library', () => {
+  const picks = { newSideChat: [], newTerminal: [] }
+  const actions = { ...slots, ...Object.fromEntries(Object.keys(picks).map(name => [name, (...args) => { picks[name].push([...args]) }])), canOpenTerminal: () => true }
+  const tree = drawer('a', actions, { ...roster, browser: true }, { renderSlot: () => null })
   assert.deepEqual(tabKeys(tree), ['details', 'browser', 'side', 'terminal', 'files', 'jingliu', 'assets'])
-  for (const button of tabButtons(tree).slice(2)) button.props.onClick()
-  assert.deepEqual(picks, { newSideChat: [['a']], newTerminal: [[]], openFiles: [[]], openJingliu: [['a']], openAssets: [[]] })
+  // Side chat and Terminal open in their own places; the others show under the row.
+  for (const button of tabButtons(tree).filter(button => ['side', 'terminal'].includes(button.props['data-tab-key']))) button.props.onClick()
+  assert.deepEqual(picks, { newSideChat: [['a']], newTerminal: [[]] })
+  assert.equal(identityOf(tree).props.hidden, undefined)
 })
 
-test('a Bot without the column tabs still gets Details, Browser and Side chat', () => {
-  assert.deepEqual(tabKeys(drawer('a', {})), ['details', 'browser', 'side'])
+test('a Bot without the terminal or the plugins still gets Details, Browser, Side chat and Files', () => {
+  assert.deepEqual(tabKeys(drawer('a', {})), ['details', 'browser', 'side', 'files'])
 })
 
-test('a group keeps only the column tabs, and no tab row when they are absent', () => {
-  const actions = { canOpenTerminal: () => true, canOpenFiles: () => true, canOpenJingliu: () => true, canOpenAssets: () => true }
-  assert.deepEqual(tabKeys(drawer('g', actions)), ['details', 'terminal', 'files'])
-  assert.deepEqual(tabKeys(drawer('g', {})), [])
+test('a group or a plain conversation shows no tab row', () => {
+  const actions = { ...slots, canOpenTerminal: () => true }
+  assert.deepEqual(tabKeys(drawer('g', actions)), [])
+  assert.deepEqual(tabKeys(drawer('plain', actions)), [])
 })
 
-test('a non-team surface shows no tab row', () => {
-  assert.deepEqual(tabKeys(drawer('plain', { canOpenTerminal: () => true })), [])
+test('the files tab shows the working folder\'s tree under the Bot\'s name', () => {
+  const files = drawer('a', {}, roster, { startTab: 'files' })
+  assert.equal(identityOf(files).props.hidden, undefined)
+  assert.equal(find(files, node => typeof node.type === 'function' && node.type.name === 'FilesTree').length, 1)
+  assert.equal(tabButtons(files).find(button => button.props['data-tab-key'] === 'files').props['aria-selected'], true)
+})
+
+test('the Jingliu tab lists projects under the Bot\'s name; an open project takes the whole drawer', () => {
+  const opened = []
+  const drawn = []
+  const actions = { ...slots, openJingliuProject: (id, project) => opened.push([id, project]), quote: () => {} }
+  const renderSlot = (name, owner) => { drawn.push([name, owner]); return null }
+  const list = drawer('a', actions, roster, { startTab: 'jingliu', renderSlot })
+  const project = drawer('a', actions, roster, { startTab: 'jingliu:p1', projects: [{ id: 'p1', title: 'Bridge Lions' }], renderSlot })
+  // Values made in the bundle's realm compare by content.
+  assert.deepEqual(JSON.parse(JSON.stringify(drawn.map(([name, owner]) => [name, owner.sessionId, owner.project]))), [
+    ['bot.drawer.jingliu', 'a', null],
+    ['bot.drawer.jingliu', 'a', { id: 'p1', title: 'Bridge Lions' }],
+  ])
+  assert.equal(identityOf(list).props.hidden, undefined)
+  assert.equal(identityOf(project).props.hidden, true)
+  assert.deepEqual(tabKeys(project), [])
+  assert.equal(find(project, node => node.props?.['data-info-row'] === 'settings').length, 0, 'no settings gear on a project tab')
+  drawn[0][1].openProject({ id: 'p2', title: 'Harbor Night' })
+  assert.deepEqual(JSON.parse(JSON.stringify(opened)), [['a', { id: 'p2', title: 'Harbor Night' }]])
+})
+
+test('the drawer\'s export button downloads the conversation log where the log export runs', () => {
+  const asked = []
+  const log = node => node.props?.['data-info-row'] === 'log'
+  const actions = { canDownloadLog: () => true, downloadLog: (id) => { asked.push(id); return Promise.resolve() } }
+  const [button] = find(drawer('a', actions), log)
+  assert.equal(button.props['aria-label'], 'Download conversation log')
+  button.props.onClick()
+  find(drawer('g', actions), log)[0].props.onClick()
+  assert.deepEqual(asked, ['a', 'g'])
+  assert.equal(find(drawer('a', {}), log).length, 0)
+  assert.equal(find(drawer('a', { canDownloadLog: () => false }), log).length, 0)
+})
+
+test('the terminal tab lists terminals under the Bot\'s name; an open terminal takes the whole drawer', () => {
+  const drawn = []
+  const calls = []
+  const actions = {
+    hasDrawerSlot: name => name === 'bot.drawer.terminal', canOpenTerminal: () => true, canHostTerminal: () => true,
+    newTerminal: () => calls.push('elsewhere'), replaceTerminal: (...args) => calls.push(args),
+  }
+  const renderSlot = (name, owner) => { drawn.push([name, owner]); return null }
+  const list = drawer('a', actions, roster, { startTab: 'terminal', renderSlot })
+  assert.equal(identityOf(list).props.hidden, undefined)
+  assert.equal(find(list, node => typeof node.type === 'function' && node.type.name === 'TerminalCards').length, 1)
+  // The row tab shows the list in place; nothing opens in DSH's right column.
+  tabButtons(list).find(button => button.props['data-tab-key'] === 'terminal').props.onClick()
+  assert.deepEqual(calls, [])
+  assert.equal(drawn.length, 0)
+  const open = drawer('a', actions, roster, { startTab: 'terminal:t1', terminals: [{ key: 't1', session: 'a-part2', terminalId: 'host-1' }], renderSlot })
+  assert.equal(identityOf(open).props.hidden, true)
+  assert.deepEqual(tabKeys(open), [])
+  assert.deepEqual(JSON.parse(JSON.stringify(drawn.map(([name, owner]) => [name, owner.sessionId, owner.tabId, owner.terminalId, owner.visible]))),
+    [['bot.drawer.terminal', 'a-part2', 't1', 'host-1', true]])
+  drawn[0][1].replace()
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['a', 'a', 't1']])
 })
 
 // The group's Goal buttons act on `room.id`, never on the Session the header shows:

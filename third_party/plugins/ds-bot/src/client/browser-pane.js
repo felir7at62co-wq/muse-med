@@ -14,7 +14,9 @@ import { SPRING_LEAD, SPRING_SHAPE, SPRING_TRAIL, reducedMotion, stepMenuFocus, 
 import { FLIGHT_ENDS, INTENT_MS, createFlight, flightEnd, flightStart, planFlight, uniqueIds } from './mark-flight.js'
 import { DetailsDrawer } from './details-drawer.js'
 import { SideChatView } from './side-chat.js'
-import { panelHasStrip, sideChatsOf, stripMenuKeys } from './side-model.js'
+import { drawerTabOf, listTabOf, panelHasStrip, projectOfTab, sideChatsOf, stripMenuKeys, terminalOfTab } from './side-model.js'
+import { useTerminals } from './terminal-cards.js'
+import { currentPart } from './text.js'
 import { DotsIcon, FolderIcon, SideIcon, TerminalIcon } from './icons.js'
 import { t } from './i18n.js'
 import { rectsOverlap } from './browser-overlap.js'
@@ -27,11 +29,14 @@ const WIDTH_KEY = STORAGE.browserWidth
 const DEFAULT_WIDTH = 520
 const DETAILS_WIDTH = 320
 const DETAILS_MAX = 520
+// Muse: the Jingliu workbench in the drawer opens at least this wide, as far as the window allows.
+const WORKBENCH_WIDTH = 900
 const MIN_WIDTH = 360
 // How long the Bot's mark shows that it read the page.
 const READ_FLASH_MS = 2400
 const EMPTY_PAGE = { url: '', title: '', favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, excerpt: '' }
 const EMPTY_TABS = { ids: [], active: null }
+const NO_PROJECTS = []
 
 const icon = paths => function BrowserIcon() {
   return h('svg', { width: 16, height: 16, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
@@ -67,7 +72,7 @@ const savedWidth = () => {
 // `room` is what the panel and the conversation share: the viewport minus the
 // left column's footprint (frame-layout.js). The panel never takes the last
 // MIN_CHAT px of it; below that it covers the conversation instead.
-const widthRange = (view, room) => (view === 'browser'
+const widthRange = (view, room, workbench = false) => (view === 'browser' || workbench
   ? [MIN_WIDTH, room - MIN_CHAT]
   : [DETAILS_WIDTH, Math.min(DETAILS_MAX, room - MIN_CHAT)])
 const fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, high)))
@@ -120,7 +125,7 @@ export function menuItemFor(key, actions, subject) {
     case 'browser': return { key, icon: GlobeIcon, label: t('Browser'), onPick: report(() => actions.openBrowser(subject)) }
     case 'new-tab': return { key, icon: PlusTabIcon, label: t('New browser tab'), onPick: report(() => actions.browserNewTab(subject)) }
     case 'side': return { key, icon: SideIcon, label: t('Side chat'), onPick: report(() => actions.newSideChat(subject)) }
-    case 'terminal': return { key, icon: TerminalIcon, label: t('Terminal'), onPick: report(() => actions.newTerminal()) }
+    case 'terminal': return { key, icon: TerminalIcon, label: t('Terminal'), onPick: report(() => actions.newTerminal(subject)) }
     case 'files': return { key, icon: FolderIcon, label: t('Files'), onPick: report(() => actions.openFiles()) }
     default: return { sep: true }
   }
@@ -132,8 +137,12 @@ const sideTitle = chat => chat?.entries?.[0]?.question?.trim() || t('Side chat')
 // The strip across the panel's top: the Bot's own tab first (the details view,
 // collapsed), then one tab per browser page, one per side chat, then `···` and
 // close.
-function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, reading, onView, actions, useBrowserPages }) {
+// Muse: the strip also holds one tab per open Jingliu project and per open terminal, beside
+// the pages and the side chats; `tab` is the drawer tab shown while the view is the Bot's own.
+function PanelStrip({ bot, subject, view, tab, projects, terminals, onTab, ids, active, sides, side, canBrowse, reading, onView, actions, useBrowserPages }) {
   const pages = useBrowserPages(map => map)
+  // A terminal tab is named as the Host names its terminal.
+  const listed = useTerminals(terminals.length > 0 ? currentPart(bot) : null, actions)
   const wrap = useRef(null)
   const ind = useRef(null)
   const spot = useRef(null)
@@ -145,7 +154,9 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     const capsule = ind.current
     if (!box || !capsule) return undefined
     const node = view === 'details'
-      ? box.querySelector('.bt-ptab-bot')
+      ? (projectOfTab(tab) !== null ? box.querySelector(`[data-project="${CSS.escape(projectOfTab(tab))}"]`)
+        : terminalOfTab(tab) !== null ? box.querySelector(`[data-terminal="${CSS.escape(terminalOfTab(tab))}"]`)
+          : box.querySelector('.bt-ptab-bot'))
       : view === 'side'
         ? box.querySelector(`[data-side="${side}"]`)
         : box.querySelector(`[data-tab="${active}"]`)
@@ -157,7 +168,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     if (!node) { capsule.style.opacity = '0'; spot.current = null; return undefined }
     // The Bot tab is pinned at the strip's start; showing it scrolls the pages back
     // so the capsule and the pinned tab line up.
-    if (view === 'details') box.scrollLeft = 0
+    if (view === 'details' && projectOfTab(tab) === null && terminalOfTab(tab) === null) box.scrollLeft = 0
     else node.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
     const to = { left: node.offsetLeft, right: box.offsetWidth - node.offsetLeft - node.offsetWidth }
     const from = spot.current
@@ -193,16 +204,49 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
   const items = stripMenuKeys({
     canBrowse,
     canTerminal: actions.canOpenTerminal?.() === true,
-    canFiles: actions.canOpenFiles?.() === true,
+    canFiles: false,
   }).map(key => menuItemFor(key, actions, subject))
+  const shownProject = view === 'details' ? projectOfTab(tab) : null
+  const shownTerminal = view === 'details' ? terminalOfTab(tab) : null
+  const onBot = view === 'details' && shownProject === null && shownTerminal === null
+  const terminalTab = (entry) => {
+    const title = listed.find(info => info.id === actions.terminalOf(entry))?.title || t('Terminal')
+    const end = () => actions.endTerminal(subject, entry.session, { tab: entry.key })
+    return h('button', {
+      key: entry.key, type: 'button', role: 'tab', 'aria-selected': shownTerminal === entry.key, 'data-terminal': entry.key, className: 'bt-ptab', title,
+      onClick: () => onTab(`terminal:${entry.key}`),
+      onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); end() } },
+    },
+      h('span', { className: 'bt-ptab-globe', 'aria-hidden': true }, h(TerminalIcon)),
+      h('span', { className: 'bt-ptab-title' }, title),
+      h('span', {
+        className: 'bt-ptab-x', role: 'button', 'aria-label': t('Close terminal'), title: t('Close terminal'),
+        onClick: (event) => { event.stopPropagation(); end() },
+      }, '×'))
+  }
+  const projectTab = (project) => {
+    const key = `jingliu:${project.id}`
+    return h('button', {
+      key, type: 'button', role: 'tab', 'aria-selected': shownProject === project.id, 'data-project': project.id, className: 'bt-ptab', title: project.title,
+      onClick: () => onTab(key),
+      onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); actions.closeJingliuProject(subject, project.id) } },
+    },
+      h('span', { className: 'bt-ptab-letter', 'aria-hidden': true }, Array.from(String(project.title).trim())[0] ?? '·'),
+      h('span', { className: 'bt-ptab-title' }, project.title),
+      h('span', {
+        className: 'bt-ptab-x', role: 'button', 'aria-label': t('Close tab'), title: t('Close tab'),
+        onClick: (event) => { event.stopPropagation(); actions.closeJingliuProject(subject, project.id) },
+      }, '×'))
+  }
   return h('div', { className: 'bt-ptabs', role: 'tablist', 'aria-label': t('Panel tabs') },
     h('div', { className: 'bt-ptabs-in', ref: wrap },
       h('button', {
-        type: 'button', role: 'tab', 'aria-selected': view === 'details', className: 'bt-ptab bt-ptab-bot',
-        title: bot.name, onClick: () => onView('details'),
+        type: 'button', role: 'tab', 'aria-selected': onBot, className: 'bt-ptab bt-ptab-bot',
+        // From a project's or a terminal's tab the Bot's own tab goes back to the list it was opened from.
+        title: bot.name, onClick: () => onTab(listTabOf(tab)),
       },
         h(BotMark, { bot, size: 20, state: reading ? 'searching' : 'idle' }),
-        view === 'details' ? h('span', { className: 'bt-ptab-name' }, bot.name) : null),
+        onBot ? h('span', { className: 'bt-ptab-name' }, bot.name) : null),
       ids.map((tabId) => {
         const page = pages[tabId] ?? EMPTY_PAGE
         const on = view === 'browser' && tabId === active
@@ -234,6 +278,8 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
             onClick: (event) => { event.stopPropagation(); void actions.closeSideChat(chat.id) },
           }, '×'))
       }),
+      terminals.map(terminalTab),
+      projects.map(projectTab),
       h('span', { ref: ind, className: 'bt-ptab-ind', 'aria-hidden': true })),
     // The `···` and Close stay outside the scrolling tabs, so a narrow panel keeps both.
     h(PanelMenu, { items, className: 'bt-ptab-new', 'aria-label': t('More') }),
@@ -520,7 +566,7 @@ function ImportCard({ flow, page, busy, onApply, onCancel, onCloseAndImport, onD
  * Session id the panel follows and `side` the open chat's id. Without the
  * Desktop bridge the browser view never shows; side chats need no bridge.
  */
-export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer, renderSlot }) {
+export function BotPanel({ pane, workbench = false, roomy = false, projects = NO_PROJECTS, terminals = NO_PROJECTS, leaving, room, overlay, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer, renderSlot }) {
   const bot = roster.byId[pane.id]
   const canBrowse = Boolean(bot && roster.browser === true && actions.browserShow)
   const sideChats = bot ? sideChatsOf(roster, bot.id) : []
@@ -544,7 +590,10 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   const instant = dragging || resizing
   const [reading, setReading] = useState(false)
 
-  const panelWidth = fitWidth(width ?? (view === 'browser' ? DEFAULT_WIDTH : DETAILS_WIDTH), widthRange(view, room))
+  const wide = view === 'details' && workbench
+  // Muse: an open terminal takes the browser's widths: any width the window allows, DEFAULT_WIDTH to begin with.
+  const free = wide || (view === 'details' && roomy)
+  const panelWidth = fitWidth(wide ? Math.max(width ?? 0, WORKBENCH_WIDTH) : width ?? (view === 'browser' || free ? DEFAULT_WIDTH : DETAILS_WIDTH), widthRange(view, room, free))
   // Once the browser has shown, the Bot page keeps its width (up to DETAILS_MAX).
   useLayoutEffect(() => { if (view === 'browser' && width === null) setWidth(DEFAULT_WIDTH) }, [view, width])
   useLayoutEffect(() => { chatRoom.hold(instant) }, [instant])
@@ -684,7 +733,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     const panel = root.current
     const grip = event.currentTarget
     grip.setPointerCapture?.(event.pointerId)
-    const range = widthRange(view, room)
+    const range = widthRange(view, room, free)
     const from = { x: event.clientX, width: panelWidth }
     let next = panelWidth
     setDragging(true)
@@ -717,7 +766,13 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     for (const name of ends) grip.addEventListener(name, onEnd)
   }
 
-  const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length)
+  // Muse: an open Jingliu project or terminal has a strip tab too, so the strip shows for it as well.
+  const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length) || (bot !== undefined && projects.length + terminals.length > 0)
+  const drawerTab = drawerTabOf(pane.tab)
+  const openTab = (key) => {
+    if (view !== 'details') beginSwitch('details')
+    actions.showDetails(pane.id, key)
+  }
   return h('aside', {
     ref: root, className: 'bt-panel', 'data-view': view,
     'aria-label': view === 'browser' && bot ? t("{name}'s browser", { name: bot.name }) : view === 'side' ? t('Side chat') : t('Conversation details'),
@@ -729,14 +784,14 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     // Over the whole window while dragging: the cursor stays a resize cursor and the
     // pages underneath (the chat, the guest) see no pointer.
     dragging ? createPortal(h('div', { className: 'bt-drag-shield', 'aria-hidden': true }), document.body) : null,
-    hasStrip ? h(PanelStrip, { bot, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
+    hasStrip ? h(PanelStrip, { bot, subject: pane.id, view, tab: drawerTab, projects, terminals, onTab: openTab, ids: tabState.ids, active, sides: sideChats, side: pane.side, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
     view === 'browser' && bot
       ? h(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold })
       : view === 'side' && sideChat
         ? h('div', { key: `side:${sideChat.id}`, className: 'bt-panel-view' }, h(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions }))
         : h('div', { key: `details:${pane.id}:${pane.renaming ? 'rename' : ''}:${pane.tab ?? ''}`, className: 'bt-panel-view' },
             h(DetailsDrawer, {
-              sessionId: pane.id, startRenaming: pane.renaming, startTab: pane.tab, hasStrip,
+              sessionId: pane.id, startRenaming: pane.renaming, startTab: pane.tab, hasStrip, projects, terminals,
               roster, actions: panelActions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useComputer, renderSlot,
             })))
 }
@@ -760,6 +815,8 @@ export const BROWSER_CSS = `
 .bt-ptab-globe{display:inline-flex}
 .bt-ptab-globe svg{width:14px;height:14px}
 .bt-ptab-title{max-width:140px;overflow:hidden;text-overflow:ellipsis}
+/* Muse: an open Jingliu project's tab carries its first letter. */
+.bt-ptab-letter{flex:none;display:inline-grid;place-items:center;width:16px;height:16px;border-radius:4px;background:var(--bt-active);color:var(--bt-ink);font-size:10px;font-weight:600;line-height:1}
 .bt-ptab-x{flex:none;width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;color:var(--bt-ink-3);opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease}
 .bt-ptab:hover .bt-ptab-x,.bt-ptab[aria-selected=true] .bt-ptab-x{opacity:1;pointer-events:auto}
 .bt-ptab-x:hover{background:var(--bt-active);color:var(--bt-ink)}

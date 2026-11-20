@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { ChatsIcon, PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon, ImageIcon, SparkIcon } from './icons.js'
+import { ChatsIcon, PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon, ImageIcon } from './icons.js'
 import { lookOf, MAIN_LOOK, youLook } from './characters.js'
 import { MuseGlyph } from './muse-brand.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
@@ -822,17 +822,16 @@ export function TeamSidebar(props) {
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
   // the rail the new-chat button above it.
-  // Muse: the user's own capsule (avatar and name, opening Settings at Account), Skills /
-  // MCP and the asset library take the gear's and the Plugins button's places.
+  // Muse: the user's own capsule (avatar and name, opening Settings at Account) and the
+  // asset library take the gear's and the Plugins button's places.
   const user = useUi(value => value.museUser ?? '')
   const me = { actions, user, look: youLook(roster.prefs, user) }
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(UserCapsule, { ...me, wide: true }), h(SkillsButton, { actions, wide: true }), h(AssetsButton, { actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(UserCapsule, { ...me, wide: true }), h(AssetsButton, { actions, useUi }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h(UserCapsule, me),
-        h(SkillsButton, { actions }),
-        h(AssetsButton, { actions }))
+        h(AssetsButton, { actions, useUi }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
@@ -1301,20 +1300,12 @@ export function UserCapsule({ actions, user, look, wide = false }) {
     wide ? h('span', { className: 'bt-me-name' }, label) : null)
 }
 
-// Muse: Skills / MCP opens the Capabilities page, where skills and MCP servers are added.
-export function SkillsButton({ actions, wide = false }) {
-  const label = t('Skills/MCP')
-  return wide
-    ? h('button', { type: 'button', className: 'bt-chipb', onClick: () => actions.openSettings('capabilities') }, label)
-    : h('button', { type: 'button', className: 'bt-account', 'aria-label': label, title: label, onClick: () => actions.openSettings('capabilities') },
-        h('span', { className: 'bt-you', 'aria-hidden': true }, h(SparkIcon)))
-}
-
 // Muse: the asset library page, where a plugin registered it.
-export function AssetsButton({ actions }) {
+export function AssetsButton({ actions, useUi }) {
+  const open = useUi(state => Boolean(state.details) && (state.view ?? 'details') === 'details' && state.drawerTab === 'assets')
   if (!actions.canOpenAssets?.()) return null
   const label = t('Asset library')
-  return h('button', { type: 'button', className: 'bt-account', 'aria-label': label, title: label, onClick: () => actions.openAssets() },
+  return h('button', { type: 'button', className: 'bt-account', 'aria-label': label, title: label, 'aria-pressed': open, onClick: () => actions.openAssets() },
     h('span', { className: 'bt-you', 'aria-hidden': true }, h(ImageIcon)))
 }
 
@@ -1335,8 +1326,6 @@ export const SIDEBAR_CSS = `
 .bt-account.bt-me:hover,.bt-account.bt-me[aria-expanded=true]{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-sidebar))}
 .bt-account.bt-me .bt-you{width:26px;height:26px;background:none!important}
 .bt-me-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-chipb{flex:none;height:30px;padding:0 11px;border:0;border-radius:999px;background:color-mix(in srgb,var(--bt-ink) 5%,var(--bt-sidebar));color:var(--bt-ink-2);font:inherit;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
-.bt-chipb:hover{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-sidebar));color:var(--bt-ink)}
 .bt-leftcol-foot:not(.bt-leftcol-foot-rail)>.bt-account:last-child:not(.bt-me){margin-left:auto}
 .bt-side-top .bt-brand:hover{background:none}
 .bt-brand .bt-mark{flex:none}

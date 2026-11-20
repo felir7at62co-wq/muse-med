@@ -8,8 +8,8 @@ import type { SelectedProject } from './types.ts'
 import { createHash } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { balance, episodeList, episodeShots, library, options, preferences, projectAssets, projectConfig, projectPath, projects, shotMedia, workflowResult } from './browser.ts'
-import type { StudioBalance, StudioConfig, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from './types.ts'
+import { balance, catalog, createdProject, episodeList, episodeShots, library, options, preferences, projectAssets, projectConfig, projectPath, projects, shotMedia, workflowResult } from './browser.ts'
+import type { StudioBalance, StudioCatalog, StudioConfig, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioNewProject, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from './types.ts'
 import z from '@deepseek-ai/schemastery'
 import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import type {} from '@deepseek-ai/dsh-commands'
@@ -363,7 +363,8 @@ export class JingliuConnection extends TypertRemoteService {
   @Remote
   async sharedAssets(query: StudioLibraryQuery, signal: AbortSignal): Promise<StudioLibrary> {
     if (!Number.isSafeInteger(query.offset) || query.offset < 0 || query.query.length > 200) throw new HarnessError('素材筛选无效。', 'JINGLIU_INVALID_ARGUMENTS')
-    const params = new URLSearchParams({ limit: '24', offset: String(query.offset), q: query.query })
+    // Most used first: what productions reuse most is what a user looks for.
+    const params = new URLSearchParams({ limit: '24', offset: String(query.offset), q: query.query, sort: 'uses' })
     if (query.kind !== 'all') params.set('kind', query.kind)
     return library(await (await this.connection()).request('/library?' + params.toString(), { signal }))
   }
@@ -384,6 +385,76 @@ export class JingliuConnection extends TypertRemoteService {
       image = 'data:' + type + ';base64,' + (await boundedBytes(response, 8 * 1024 * 1024)).toString('base64')
     })
     return image
+  }
+
+  /**
+   * Read the choices the studio offers for a new production.
+   * @param signal - Panel cancellation.
+   * @returns Modes with their art styles, frame ratios, resolutions and models.
+   */
+  @Remote
+  async catalog(signal: AbortSignal): Promise<StudioCatalog> {
+    const session = await this.connection()
+    const [modes, image, video] = await Promise.all([session.request('/production-modes', { signal }),
+      session.request('/providers/image', { signal }), session.request('/providers/video', { signal })])
+    return catalog(modes, image, video)
+  }
+
+  /**
+   * Create a production as the signed-in studio user.
+   * @param input - Its name and settings, each one the catalog offers or '' for the studio default.
+   * @param signal - Form lifetime.
+   * @returns The created production's id and title.
+   */
+  @Remote
+  async createProject(input: StudioNewProject, signal: AbortSignal): Promise<SelectedProject> {
+    const title = input.title.trim()
+    if (title === '' || title.length > 255) throw new HarnessError('请填写项目名称。', 'JINGLIU_INVALID_ARGUMENTS')
+    const offered = await this.catalog(signal)
+    const mode = offered.modes.find(m => m.key === input.mode)
+    const allowed = (value: string, list: string[]) => value === '' || list.includes(value)
+    if (mode === undefined || !allowed(input.artStyle, mode.styles.map(s => s.key)) || !allowed(input.aspect, offered.aspects)
+      || !allowed(input.resolution, offered.resolutions) || !allowed(input.videoModel, offered.videoModels.map(m => m.id))
+      || !allowed(input.imageModel, offered.imageModels.map(m => m.id))
+      || !allowed(input.generationMode, offered.generationModes.map(m => m.id))) {
+      throw new HarnessError('请选择镜流当前提供的设置。', 'JINGLIU_INVALID_ARGUMENTS')
+    }
+    const settings = Object.fromEntries(([['video_model', input.videoModel], ['image_model', input.imageModel],
+      ['generation_mode', input.generationMode], ['resolution', input.resolution]] as const).filter(([, value]) => value !== ''))
+    return createdProject(await (await this.connection()).request('/projects', { method: 'POST', signal, body: {
+      title, production_mode: mode.key, ...input.artStyle ? { art_style: input.artStyle } : {},
+      ...input.aspect ? { base_aspect: input.aspect } : {}, ...Object.keys(settings).length > 0 ? { custom_settings: settings } : {},
+    } }))
+  }
+
+  /**
+   * Rename a production; later generations use the new name in their prompts.
+   * @param projectId - The production.
+   * @param title - Its new name.
+   * @param signal - Form lifetime.
+   * @returns The stored id and title.
+   */
+  @Remote
+  async renameProject(projectId: string, title: string, signal: AbortSignal): Promise<SelectedProject> {
+    const name = title.trim()
+    if (name === '' || name.length > 255) throw new HarnessError('请填写项目名称。', 'JINGLIU_INVALID_ARGUMENTS')
+    const result = await (await this.connection()).request(projectPath(projectId), { method: 'PATCH', signal, body: { title: name } })
+    if (!isRecord(result) || result.title !== name) throw new HarnessError('请刷新并核对项目名称。', 'JINGLIU_INVALID_RESULT')
+    return { id: projectId, title: name }
+  }
+
+  /**
+   * Delete one shot of a production; the studio keeps no copy to restore.
+   * @param projectId - The production the workbench shows.
+   * @param shotId - The shot to delete.
+   * @param signal - Card lifetime.
+   * @returns Nothing once the studio confirms.
+   */
+  @Remote
+  async deleteShot(projectId: string, shotId: string, signal: AbortSignal): Promise<void> {
+    projectPath(projectId)
+    if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(shotId)) throw new HarnessError('镜头编号无效。', 'JINGLIU_INVALID_ARGUMENTS')
+    await (await this.connection()).request('/shots/' + shotId, { method: 'DELETE', signal })
   }
 
   /**

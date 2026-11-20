@@ -169,3 +169,38 @@ export function drawerMenuKeys({ bot, room, canBrowse, canTerminal, canFiles }) 
   if (keys.length > 0 && tail.length > 0) keys.push('sep')
   return [...keys, ...tail]
 }
+
+// Muse: the tab row under a Bot's name, in order: what the `···` menu held, plus the file
+// tree, the Jingliu projects and the asset library. A group's drawer is its details alone.
+export function drawerTabs({ bot, canBrowse, canTerminal, canJingliu, canAssets, computer }) {
+  if (bot !== true) return []
+  const keys = ['details']
+  if (canBrowse === true) keys.push('browser')
+  keys.push('side')
+  if (canTerminal === true) keys.push('terminal')
+  keys.push('files')
+  if (canJingliu === true) keys.push('jingliu')
+  if (canAssets === true) keys.push('assets')
+  if (computer === true) keys.push('computer')
+  return keys
+}
+export const DRAWER_TAB_LABELS = { details: 'Details', browser: 'Browser', side: 'Side chat', terminal: 'Terminal', files: 'Files', jingliu: 'Jingliu', assets: 'Asset library', computer: 'Computer' }
+// The drawer tab a panel shows: its details unless the state names another row tab or an
+// open Jingliu project (`jingliu:<id>`), which has a strip tab of its own.
+export const drawerTabOf = tab => (typeof tab === 'string' && (Object.hasOwn(DRAWER_TAB_LABELS, tab) || tab.startsWith('jingliu:') || tab.startsWith('terminal:')) ? tab : 'details')
+// The Jingliu project a drawer tab key names, or null.
+export const projectOfTab = tab => (typeof tab === 'string' && tab.startsWith('jingliu:') ? tab.slice('jingliu:'.length) : null)
+// The open terminal a drawer tab key names, or null; `terminal` alone is the list of them.
+export const terminalOfTab = tab => (typeof tab === 'string' && tab.startsWith('terminal:') ? tab.slice('terminal:'.length) : null)
+// The row tab the Bot's own strip tab goes back to: the list an opened project or terminal came from.
+export const listTabOf = tab => (projectOfTab(tab) !== null ? 'jingliu' : terminalOfTab(tab) !== null ? 'terminal' : drawerTabOf(tab))
+// The cards of a Bot's Terminal tab: every terminal the Host lists for the conversation, then
+// the open tabs whose terminal it has not listed yet. `terminalOf(tab)` is a tab's terminal id.
+export function terminalCards(listed, tabs, terminalOf) {
+  const tabOf = new Map(tabs.map(tab => [terminalOf(tab), tab.key]))
+  const known = new Set(listed.map(info => info.id))
+  return [
+    ...listed.map(info => ({ id: info.id, title: info.title, cwd: info.cwd, state: info.state, agent: info.control === 'agent', tab: tabOf.get(info.id) ?? null })),
+    ...tabs.filter(tab => !known.has(terminalOf(tab))).map(tab => ({ id: terminalOf(tab) ?? null, title: '', cwd: '', state: 'starting', agent: false, tab: tab.key })),
+  ]
+}

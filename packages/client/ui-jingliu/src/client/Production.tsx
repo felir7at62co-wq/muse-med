@@ -7,19 +7,33 @@ import type {} from '@deepseek-ai/dsh-client-ui-character-library/client'
 import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller/default-workspace'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { SelectedProject, StudioAsset, StudioBalance, StudioConfig, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from '@deepseek-ai/dsh-jingliu-connection/types'
+import type { SelectedProject, StudioAsset, StudioBalance, StudioCatalog, StudioConfig, StudioNewProject, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from '@deepseek-ai/dsh-jingliu-connection/types'
 import css from './Production.module.css'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    /** The Bot team's details drawer: the asset tab of the Bot whose conversation is `sessionId`. */
-    'bot.drawer.assets': { kind: 'single'; scope: 'root'; owner: { sessionId: SessionId } }
     /**
-     * The Bot team's details drawer: the Jingliu tab of the Bot whose conversation is `sessionId`.
-     * `quote` puts a reference above that conversation's message box; `compose` puts a prepared
-     * request into it for the user to send.
+     * The Bot team's details drawer: the asset tab of the Bot whose conversation is `sessionId`.
+     * `compose` puts text into that conversation's message box.
      */
-    'bot.drawer.jingliu': { kind: 'single'; scope: 'root'; owner: { sessionId: SessionId; quote(text: string): void; compose(text: string): void } }
+    'bot.drawer.assets': { kind: 'single'; scope: 'root'; owner: { sessionId: SessionId; quote(text: string): void; compose(text: string): void } }
+    /**
+     * The Bot team's details drawer: the Jingliu tabs of the Bot whose conversation is `sessionId`.
+     * `project` is the production the tab in view shows, or null on the tab that lists them;
+     * `openProject` opens a production in a tab of its own. `quote` puts a reference above that
+     * conversation's message box; `compose` puts a prepared request into it for the user to send.
+     */
+    'bot.drawer.jingliu': {
+      kind: 'single'
+      scope: 'root'
+      owner: {
+        sessionId: SessionId
+        project: SelectedProject | null
+        openProject(project: SelectedProject): void
+        quote(text: string): void
+        compose(text: string): void
+      }
+    }
   }
   interface ResourceProtocolMap {
     'jingliu-selected': SelectedProject | null
@@ -34,17 +48,22 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'jingliu-shots': StudioShot[]
     'jingliu-shot-media': StudioShotMedia
     'jingliu-project-assets': StudioProjectAssets
+    'jingliu-catalog': StudioCatalog
   }
 }
 
 /** Actions owned by the location and account registries. */
 export interface ProductionActions {
   hooks: { accountEpoch: HostObservable<number>; workspaceList: IWorkspaces['list'] }
-  openProjects(session?: SessionId): void
   addWorkspace(path: string): Promise<void>
-  openProject(project: StudioProject): Promise<void>
   /** Tie a production to one conversation without leaving the current view. */
-  chooseProject(sessionId: SessionId, project: StudioProject): Promise<void>
+  chooseProject(sessionId: SessionId, project: Pick<StudioProject, 'id'>): Promise<void>
+  /** Create a production and tie it to one conversation; resolves to the new production. */
+  createProject(sessionId: SessionId, input: StudioNewProject): Promise<SelectedProject>
+  /** Rename a production. */
+  renameProject(projectId: string, title: string): Promise<void>
+  /** Delete one shot; the studio keeps no copy. */
+  deleteShot(projectId: string, shotId: string): Promise<void>
   /** Fetch a studio video through the Host; resolves to an object URL the caller revokes. */
   loadVideo(path: string, signal: AbortSignal): Promise<string>
   saveOption(id: string, key: StudioSetting, value: string): Promise<void>
@@ -111,70 +130,27 @@ export function Failure({ t, retry }: { t: Text; retry: () => void }) {
 }
 
 /**
- * Open the production catalog from the sidebar.
- * @param props - Optional project catalog navigation.
- * @returns A sidebar entry independent of the active conversation.
- */
-export function ProjectEntry({ wide, t, openProjects }: PropsLocale<'jingliuStudio'> & InjectFace<ProductionActions> & { wide: boolean }) {
-  return <button className={css.entryButton} type="button" title={t('projects')} onClick={() => openProjects()}><IconFolderOpenOutlineRegular size={17} />{wide && <span>{t('projects')}</span>}</button>
-}
-
-/**
  * Show the working directory and production of the current conversation.
  * @param props - The conversation visible in this right pane.
  * @returns Its local environment and confirmed production.
  */
-export function Environment({ sessionId, t, useResource, useAccountEpoch, useWorkspaceList, openProjects, addWorkspace, renderSlot }: Props & PropsRenderSlots<'workspace.environment.directoryFlow'> & { sessionId: SessionId }) {
-  const epoch = useAccountEpoch(n => n)
-  const selected = useResource<'jingliu-selected'>(address('jingliu-selected', epoch, 0, { id: sessionId }))
+export function Environment({ sessionId, t, useWorkspaceList, addWorkspace, renderSlot }: Props & PropsRenderSlots<'workspace.environment.directoryFlow'> & { sessionId: SessionId }) {
   const workspace = useWorkspaceList(list => list.items.find(row => row.sessionIds.includes(sessionId)))
   const folderName = workspace && workspaceDisplayTitle(workspace.title, '')
-  const [menu, setMenu] = useState(false)
   const [pick, setPick] = useState(false)
   const [pickerError, setPickerError] = useState(false)
   const act = useAction()
-  return <section className={css.environment} aria-label={t('environment')} onKeyDown={(e) => { if (e.key === 'Escape') setMenu(false) }}>
+  return <section className={css.environment} aria-label={t('environment')}>
     <header><strong>{t('environment')}</strong><button type="button" title={t('addWorkspace')} aria-label={t('addWorkspace')}
-      aria-expanded={menu} onClick={() => setMenu(!menu)}>+</button></header>
+      disabled={act.busy} onClick={() => { setPickerError(false); setPick(true) }}>+</button></header>
     <div className={css.machine} title={workspace?.path}><IconFolderOpenOutlineRegular size={16} /><span>{t('computer')}</span>{folderName && <small>{folderName}</small>}</div>
-    {selected.status === 'live' && selected.value && <button type="button" className={css.projectName} onClick={() => openProjects(sessionId)}>
-      <IconPlayOutlineRegular size={15} />{selected.value.title}</button>}
-    {menu && <div className={css.envMenu}>
-      <button type="button" disabled={act.busy} onClick={() => { setMenu(false); setPickerError(false); setPick(true) }}>{t('addLocal')}</button>
-      <button type="button" onClick={() => { setMenu(false); openProjects(sessionId) }}>{t('linkProject')}</button>
-    </div>}
     {renderSlot('workspace.environment.directoryFlow', {
       open: pick, busy: act.busy,
       onPicked: (path) => { setPick(false); void act.run(() => addWorkspace(path)) },
       onCancel: () => setPick(false), onError: () => { setPick(false); setPickerError(true) },
     })}
-    {(act.error || pickerError || selected.status === 'failed') && <small role="alert">{t('envFailed')}</small>}
+    {(act.error || pickerError) && <small role="alert">{t('envFailed')}</small>}
   </section>
-}
-
-/**
- * Search productions visible to the signed-in account.
- * @param props - Cloud project resource, navigation and current login.
- * @returns Project chooser.
- */
-export function Projects({ t, useResource, useAccountEpoch, openProject }: Props) {
-  const epoch = useAccountEpoch(n => n)
-  const [revision, refresh] = useState(0)
-  const [query, setQuery] = useState('')
-  const data = useResource<'jingliu-projects'>(address('jingliu-projects', epoch, revision))
-  const act = useAction()
-  const rows = (data.value ?? []).filter(p => p.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-  return <main className={css.page}>
-    <header className={css.heading}><h1>{t('projects')}</h1><Button variant="ghost" onClick={() => refresh(n => n + 1)}>{t('refresh')}</Button></header>
-    <Input aria-label={t('searchProjects')} placeholder={t('searchProjects')} value={query} onChange={e => setQuery(e.target.value)} />
-    {data.status === 'failed' ? <Failure t={t} retry={() => refresh(n => n + 1)} /> : data.status !== 'live' ? <p>{t('loading')}</p> :
-      rows.length === 0 ? <p>{t('emptyProjects')}</p> : <div className={css.grid}>{rows.map(p =>
-        <button className={css.card} key={p.id} type="button" disabled={act.busy} onClick={() => { void act.run(() => openProject(p)) }}>
-          <div className={css.poster}><Picture path={p.thumbnail} epoch={epoch} useResource={useResource} name={p.title} /></div>
-          <strong>{p.title}</strong><small>{t('projectStats', { episodes: p.episodes, done: p.completed, shots: p.shots })}</small>
-        </button>)}</div>}
-    {act.error && <p role="alert">{t('navFailed')}</p>}
-  </main>
 }
 
 /**
@@ -187,17 +163,7 @@ export function Assets(props: Pick<Props, 'useResource' | 'useAccountEpoch' | 't
   return <AssetBrowser key={epoch} epoch={epoch} t={props.t} useResource={props.useResource} />
 }
 
-/**
- * Browse the shared media catalog inside the Bot team's details drawer.
- * @param props - Library resources scoped to the current login.
- * @returns The same catalog in the drawer's narrow layout.
- */
-export function DrawerAssets(props: Pick<Props, 'useResource' | 'useAccountEpoch' | 't'>) {
-  const epoch = props.useAccountEpoch(n => n)
-  return <AssetBrowser key={epoch} epoch={epoch} t={props.t} useResource={props.useResource} narrow />
-}
-
-function AssetBrowser({ epoch, t, useResource, narrow = false }: { epoch: number; t: Text; useResource: Read; narrow?: boolean }) {
+function AssetBrowser({ epoch, t, useResource }: { epoch: number; t: Text; useResource: Read }) {
   const [selected, select] = useState<StudioAsset | null>(null)
   const [kind, setKind] = useState<StudioLibraryQuery['kind']>('all')
   const [query, setQuery] = useState('')
@@ -207,8 +173,8 @@ function AssetBrowser({ epoch, t, useResource, narrow = false }: { epoch: number
   const list = useResource<'jingliu-library'>(address('jingliu-library', epoch, revision, { kind, query, offset: String(offset) }))
   const tab = (value: StudioLibraryQuery['kind']) => ({ value, label: t(value), id: 'studio-kind-' + value, panelId: 'studio-assets' })
   const tabs = [tab('all'), tab('character'), tab('location'), tab('prop')] as const
-  return <section className={narrow ? css.drawerPage : css.page}>
-    {!narrow && <div className={css.heading}><h1>{t('shared')}</h1><Button variant="ghost" onClick={() => refresh(n => n + 1)}>{t('refresh')}</Button></div>}
+  return <section className={css.page}>
+    <div className={css.heading}><h1>{t('shared')}</h1><Button variant="ghost" onClick={() => refresh(n => n + 1)}>{t('refresh')}</Button></div>
     <form className={css.toolbar} onSubmit={(e) => { e.preventDefault(); setQuery(draft.trim()); setOffset(0) }}>
       <Input aria-label={t('searchAssets')} placeholder={t('searchAssets')} maxLength={200} value={draft} onChange={e => setDraft(e.target.value)} />
       <Button type="submit" variant="outline">{t('search')}</Button>

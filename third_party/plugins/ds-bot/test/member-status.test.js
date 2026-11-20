@@ -22,12 +22,14 @@ runInNewContext(bundle.outputFiles[0].text, {
     return platform[name]
   },
 })
-const { busyMembers, summaryText, MemberDock, MemberState, StopMemberWork, StopRoomWork, memberWork } = module.exports
+const { busyMembers, summaryText, MemberDock, MemberState, StopMemberWork, StopRoomWork, memberWork, teamWork } = module.exports
 // Values from the bundle's realm compare by content only.
 const plain = value => JSON.parse(JSON.stringify(value))
 // The dock's capsule in an element tree.
 const capsuleOf = (node) => {
   if (node === null || typeof node !== 'object') return null
+  // A component element renders in place, as React would.
+  if (typeof node.type === 'function') return capsuleOf(node.type(node.props))
   if (node.props.className === 'bt-mw-pill') return node
   for (const child of node.children) {
     const found = capsuleOf(child)
@@ -169,4 +171,21 @@ test('a member\'s line runs a clock from its turn\'s start or its approval\'s', 
   assert.equal(stateText({ state: 'work', doing: { roomId: 'r1', tool: 'pwsh', since: 1_000 } }), 'Running shell commands…{1000}')
   assert.equal(stateText({ state: 'ask', approvals: [{ at: 2_000 }] }), 'Waiting for your approval{2000}')
   assert.equal(flat(MemberState({ entry: { state: 'idle' }, bot: { id: 'a', name: 'Anvil', role: 'Writer' }, room: { id: 'r1' }, roster: team })), 'Writer')
+})
+
+// Muse: a Main Bot's own chat shows the whole team in one capsule.
+test('a Main Bot sees who waits for an approval or an answer first, then who is at work', () => {
+  const bots = { m: { id: 'm', name: 'Muse' }, a: { id: 'a', name: 'Anvil' }, b: { id: 'b', name: 'Flint' }, d: { id: 'd', name: 'Quill' } }
+  const roster = {
+    byId: { ...bots, 's-b': bots.b }, roomsById: {}, mainBotIds: ['m'],
+    questions: { 's-b': { id: 'q1', question: 'How does episode 10 end?', options: [{ label: 'Cliffhanger' }, { label: 'Close it' }] } },
+  }
+  const work = { bots: { m: { since: 1 }, d: { since: 1, tool: 'edit' } }, approvals: [{ id: 'p1', botId: 'a', tool: 'image_generate' }] }
+  const { asking, working } = teamWork(bots.m, roster, work)
+  assert.deepEqual(plain(asking.map(entry => [entry.bot.name, entry.approvals.length, entry.question?.id ?? null])), [['Anvil', 1, null], ['Flint', 0, 'q1']])
+  assert.deepEqual(plain(working.map(entry => entry.bot.name)), ['Quill'])
+  const capsule = capsuleOf(MemberDock({ sessionId: 'm', useRoster: pick => pick(roster), useWork: pick => pick(work), actions: {} }))
+  assert.equal(capsule.props['aria-label'], 'Anvil and Flint are waiting for you · Quill · Writing changes…')
+  // Another Bot's own chat keeps the group capsule, which has nothing to show here.
+  assert.equal(capsuleOf(MemberDock({ sessionId: 'd', useRoster: pick => pick(roster), useWork: pick => pick(work), actions: {} })), null)
 })

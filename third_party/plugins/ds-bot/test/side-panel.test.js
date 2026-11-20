@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { drawerMenuKeys, panelHasStrip, stripMenuKeys } from '../src/client/side-model.js'
+import { drawerMenuKeys, drawerTabOf, drawerTabs, listTabOf, panelHasStrip, projectOfTab, stripMenuKeys, terminalCards, terminalOfTab } from '../src/client/side-model.js'
 
 // The strip shows whenever the Bot has a browser tab or a side chat; side chats
 // need no browser bridge, so DSH Web gets them too.
@@ -13,6 +13,48 @@ test('the strip shows with only side chats and no browser', () => {
   assert.equal(panelHasStrip(true, 0, 0), false)
   assert.equal(panelHasStrip(true, 1, 0), true)
   assert.equal(panelHasStrip(true, 0, 2), true)
+})
+
+// Muse: the tab row under a Bot's name.
+test('the row holds the details first, then what the plugins and the desktop offer', () => {
+  const all = { bot: true, canBrowse: true, canTerminal: true, canJingliu: true, canAssets: true, computer: true }
+  assert.deepEqual(drawerTabs(all), ['details', 'browser', 'side', 'terminal', 'files', 'jingliu', 'assets', 'computer'])
+  assert.deepEqual(drawerTabs({ bot: true }), ['details', 'side', 'files'])
+  assert.deepEqual(drawerTabs({ ...all, bot: false }), [])
+})
+
+test('a drawer tab is the details unless the state names a row tab or an open Jingliu project', () => {
+  assert.equal(drawerTabOf(undefined), 'details')
+  assert.equal(drawerTabOf('settings'), 'details')
+  assert.equal(drawerTabOf('nope'), 'details')
+  assert.equal(drawerTabOf('assets'), 'assets')
+  assert.equal(drawerTabOf('jingliu:p1'), 'jingliu:p1')
+  assert.equal(projectOfTab('jingliu:p1'), 'p1')
+  assert.equal(projectOfTab('jingliu'), null)
+})
+
+test('a terminal tab key names its open terminal, and the Bot tab goes back to the list it came from', () => {
+  assert.equal(drawerTabOf('terminal:t1'), 'terminal:t1')
+  assert.equal(terminalOfTab('terminal:t1'), 't1')
+  assert.equal(terminalOfTab('terminal'), null)
+  assert.equal(listTabOf('terminal:t1'), 'terminal')
+  assert.equal(listTabOf('jingliu:p1'), 'jingliu')
+  assert.equal(listTabOf('files'), 'files')
+  assert.equal(listTabOf(undefined), 'details')
+})
+
+test('the terminal cards list what the Host lists, then the open tabs it has not listed yet', () => {
+  const listed = [
+    { id: 'h1', title: 'zsh', cwd: '/work/show', state: 'running', control: 'user' },
+    { id: 'h2', title: 'bash', cwd: '/work/show', state: 'exited', control: 'agent' },
+  ]
+  const tabs = [{ key: 't1', session: 's', terminalId: 'h1' }, { key: 't2', session: 's' }]
+  assert.deepEqual(terminalCards(listed, tabs, tab => tab.terminalId), [
+    { id: 'h1', title: 'zsh', cwd: '/work/show', state: 'running', agent: false, tab: 't1' },
+    { id: 'h2', title: 'bash', cwd: '/work/show', state: 'exited', agent: true, tab: null },
+    { id: null, title: '', cwd: '', state: 'starting', agent: false, tab: 't2' },
+  ])
+  assert.deepEqual(terminalCards([], [], () => undefined), [])
 })
 
 test('the strip `···` offers a browser tab only where the browser works', () => {

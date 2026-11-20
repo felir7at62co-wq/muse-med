@@ -60,6 +60,8 @@ import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, ri
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
+import { FILES_TREE_CSS } from './files-tree.js'
+import { TERMINAL_CSS } from './terminal-cards.js'
 import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
@@ -903,9 +905,8 @@ export function apply(ctx) {
     const off = scope.remote.$on('muse-account/session-changed', read)
     scope.effect(() => () => { live = false; museAccount = null; off() }, 'ds-bot: muse account name')
   })
-  // Muse: pages and right-column tabs other plugins add, which the details drawer's tab
-  // row and the sidebar foot open: the Jingliu projects and the asset library.
-  const slotFace = (key, id) => ctx.slots.entries?.(key)?.find(entry => entry.options.id === id)?.inject?.() ?? null
+  // Muse: pages and right-column tabs other plugins add, which the sidebar foot opens:
+  // the asset library.
   const hasMainPanel = id => (ctx.slots.entries?.('main') ?? []).some(entry => entry.options.key === id)
   actions.canOpenRightTab = kind => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get(kind) !== undefined
   actions.openRightTab = (kind) => {
@@ -916,14 +917,6 @@ export function apply(ctx) {
       actions.reportError(error, 'right-sidebar')
     }
   }
-  // The local Jingliu client lists projects on a page and ties the one picked to the
-  // conversation it was opened for; a hosted workbench is a right-column tab instead.
-  actions.canOpenJingliu = () => actions.canOpenRightTab('jingliu') || slotFace('sidebar.workspaces.entry', 'jingliu-projects') !== null
-  actions.openJingliu = (sessionId) => {
-    if (actions.canOpenRightTab('jingliu')) return actions.openRightTab('jingliu')
-    actions.closePanel()
-    slotFace('sidebar.workspaces.entry', 'jingliu-projects')?.openProjects(sessionId)
-  }
   actions.hasDrawerSlot = name => (ctx.slots.entries?.(name) ?? []).length > 0
   actions.canOpenAssets = () => actions.hasDrawerSlot('bot.drawer.assets') || hasMainPanel('character-library')
   // The sidebar's asset button opens the current Bot's drawer on its asset tab where the
@@ -931,7 +924,12 @@ export function apply(ctx) {
   actions.openAssets = () => {
     const current = ctx.sessions.list.getSnapshot()
     const shown = current.ids.find(id => (current.byId[id]?.retainedBy?.mainView ?? 0) > 0)
-    if (shown !== undefined && roster.getSnapshot().byId[shown] !== undefined && actions.hasDrawerSlot('bot.drawer.assets')) return actions.showDetails(shown, 'assets')
+    if (shown !== undefined && roster.getSnapshot().byId[shown] !== undefined && actions.hasDrawerSlot('bot.drawer.assets')) {
+      // A second press while the drawer shows the library goes back to the details.
+      const state = ui.getSnapshot()
+      const onAssets = (state.view ?? 'details') === 'details' && state.details === shown && state.drawerTab === 'assets'
+      return actions.showDetails(shown, onAssets ? 'details' : 'assets')
+    }
     actions.closePanel()
     ctx.layout.selectPanel('character-library')
   }
@@ -1155,10 +1153,51 @@ export function apply(ctx) {
       actions.reportError(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
     }
   }
-  // A terminal tab in DSH's right column, only where the terminal plugin
+  // Muse: the drawer's export button downloads the conversation's Session log through DSH's own
+  // export (a ZIP of the Session, its sub-sessions and attachments), where that plugin runs.
+  actions.canDownloadLog = () => ctx.get('sessionLogDownload') !== undefined
+  actions.downloadLog = id => ctx.get('sessionLogDownload').download(partFor(id))
+  // Muse: terminals open as tabs of the Bot's own panel where the terminal plugin fills the
+  // panel's slot. A tab's key is also the content identity its terminal is saved under.
+  const terminals = () => ctx.get('webTerminals')
+  actions.canHostTerminal = () => terminals() !== undefined && actions.hasDrawerSlot('bot.drawer.terminal')
+  actions.terminalOf = tab => tab.terminalId ?? terminals()?.boundTerminal(tab.session, tab.key)
+  actions.watchTerminals = (session, listener) => terminals()?.watch(session, listener) ?? (() => {})
+  // Shows the open tab of `terminalId`, else opens a tab: for that terminal, or for a new one.
+  actions.openTerminal = (id, session, terminalId) => {
+    const open = ui.getSnapshot().terminalTabs?.[id] ?? []
+    const shown = terminalId === undefined ? undefined : open.find(tab => actions.terminalOf(tab) === terminalId)
+    if (shown !== undefined) return actions.showDetails(id, `terminal:${shown.key}`)
+    actions.openTerminalTab(id, { key: `bot-terminal:${crypto.randomUUID()}`, session, ...(terminalId === undefined ? {} : { terminalId }) })
+  }
+  // Ends a terminal and closes its tab; a listed terminal without a tab ends by its id.
+  actions.endTerminal = (id, session, { tab = null, terminalId } = {}) => {
+    const entry = (ui.getSnapshot().terminalTabs?.[id] ?? []).find(open => open.key === tab)
+    if (entry !== undefined) {
+      terminals()?.close(entry.session, entry.key, entry.key, entry.terminalId)
+      actions.closeTerminalTab(id, entry.key)
+    } else if (terminalId !== undefined) terminals()?.close(session, `bot-terminal-card:${terminalId}`, `bot-terminal-card:${terminalId}`, terminalId)
+  }
+  actions.replaceTerminal = (id, session, tab) => {
+    actions.endTerminal(id, session, { tab })
+    actions.openTerminal(id, session)
+  }
+  // The open tabs keep their terminals: the terminal service holds what each layout reports.
+  let heldTerminals
+  const holdTerminals = () => {
+    const open = ui.getSnapshot().terminalTabs
+    if (open === heldTerminals) return
+    heldTerminals = open
+    terminals()?.retainTabs(Object.values(open ?? {}).flat().map(tab => ({ sessionId: tab.session, tabId: tab.key, contentId: tab.key })), 'bot-panel')
+  }
+  const offTerminals = ui.subscribe(holdTerminals)
+  ctx.effect(() => () => { offTerminals(); terminals()?.retainTabs([], 'bot-panel') }, 'bot: terminal holds')
+  // Else a terminal tab in DSH's right column, only where the terminal plugin
   // registered its type and the column face is there.
-  actions.canOpenTerminal = () => ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get('terminal') !== undefined
-  actions.newTerminal = () => {
+  actions.canOpenTerminal = () => actions.canHostTerminal()
+    || (ctx.get('sidebarRight') !== undefined && ctx.get('sidebarRightTabs')?.get('terminal') !== undefined)
+  actions.newTerminal = (id, session) => {
+    if (id !== undefined && actions.canHostTerminal()) return actions.openTerminal(id, session ?? partFor(id))
     // The column takes the drawer's space: hand it over first.
     actions.closePanel()
     try {
@@ -1291,7 +1330,7 @@ export function apply(ctx) {
   // The shell group's sheets. Strip and panel styles also serve the side-chat tabs, which need no bridge.
   const SHELL_SHEETS = [
     [SHELL_CSS, 'shell'],
-    [SIDEBAR_CSS + MUSE_BRAND_CSS + ACCOUNT_CSS, 'sidebar'],
+    [SIDEBAR_CSS + MUSE_BRAND_CSS + ACCOUNT_CSS + FILES_TREE_CSS + TERMINAL_CSS, 'sidebar'],
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'],
     [LEARNING_CSS, 'learning'],
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],

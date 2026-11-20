@@ -1,7 +1,7 @@
 /** Translate native Jingliu project, budget and library responses for Muse. */
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { isRecord } from './http.ts'
-import type { StudioAsset, StudioBalance, StudioConfig, StudioEpisode, StudioLibrary, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioShot, StudioShotMedia } from './types.ts'
+import type { StudioAsset, StudioBalance, StudioCatalog, StudioConfig, StudioEpisode, StudioLibrary, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioShot, StudioShotMedia } from './types.ts'
 
 function invalid(): never {
   throw new HarnessError('镜流返回的数据格式已变更，请刷新后重试。', 'JINGLIU_INVALID_RESULT')
@@ -25,8 +25,56 @@ export function projects(value: unknown): StudioProject[] {
   return value.projects.map((row) => {
     if (!isRecord(row)) return invalid()
     return { id: field(row.id), title: field(row.title), episodes: count(row.episodes_count), shots: count(row.shots_total),
-      completed: count(row.shots_done), role: field(row.my_role), thumbnail: typeof row.thumb_url === 'string' ? row.thumb_url : '' }
+      completed: count(row.shots_done), role: field(row.my_role), thumbnail: typeof row.thumb_url === 'string' ? row.thumb_url : '',
+      mode: text(row.production_mode), aspect: text(row.base_aspect), createdAt: text(row.created_at),
+      profile: profileOf(row.default_profile) }
   })
+}
+
+// The technical defaults a production was created with, stored by the studio as a JSON string.
+function profileOf(value: unknown): StudioProject['profile'] {
+  let parsed: unknown = null
+  if (typeof value === 'string' && value !== '') {
+    try { parsed = JSON.parse(value) } catch { parsed = null /* An unreadable profile shows no defaults. */ }
+  }
+  const row = isRecord(parsed) ? parsed : {}
+  return { videoModel: text(row.video_model), generationMode: text(row.generation_mode), resolution: text(row.resolution) }
+}
+
+/**
+ * Read the choices offered for a new production.
+ * @param modes - `/production-modes`: modes with their art styles, aspects and resolutions.
+ * @param image - `/providers/image`: image models.
+ * @param video - `/providers/video`: video models and generation modes.
+ * @returns The catalog the new-production form offers.
+ */
+export function catalog(modes: unknown, image: unknown, video: unknown): StudioCatalog {
+  if (!isRecord(modes) || !isRecord(modes.modes) || !isRecord(image) || !Array.isArray(image.models)) return invalid()
+  if (!isRecord(video) || !Array.isArray(video.providers)) return invalid()
+  const strings = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+  return {
+    modes: Object.entries(modes.modes).flatMap(([key, mode]) => isRecord(mode) ? [{
+      key, label: text(mode.label).replace(/^\P{L}+/u, '').trim() || key,
+      styles: (Array.isArray(mode.styles) ? mode.styles : []).flatMap(style => isRecord(style) && typeof style.key === 'string'
+        ? [{ key: style.key, label: text(style.label) || style.key, enabled: style.enabled !== false }] : []),
+    }] : []),
+    aspects: strings(modes.aspects),
+    resolutions: strings(modes.resolutions),
+    imageModels: image.models.flatMap(model => isRecord(model) && typeof model.id === 'string' ? [{ id: model.id, name: text(model.label) || model.id }] : []),
+    videoModels: video.providers.flatMap(provider => isRecord(provider) && typeof provider.model_id === 'string' ? [{ id: provider.model_id, name: provider.model_id }] : []),
+    generationModes: isRecord(video.generation_modes)
+      ? Object.entries(video.generation_modes).map(([id, name]) => ({ id, name: text(name).split(/[（(]/u)[0]?.trim() || id })) : [],
+  }
+}
+
+/**
+ * Read the production the studio created.
+ * @param value - `POST /projects` response.
+ * @returns Its id and title.
+ */
+export function createdProject(value: unknown): { id: string; title: string } {
+  if (!isRecord(value)) return invalid()
+  return { id: field(value.id), title: field(value.title) }
 }
 
 /**
@@ -39,7 +87,7 @@ export function library(value: unknown): StudioLibrary {
   const items = value.items.map((row): StudioAsset => {
     if (!isRecord(row)) return invalid()
     return { id: field(row.asset_id), kind: field(row.kind), name: field(row.name), thumbnail: typeof row.image_url === 'string' ? row.image_url : '',
-      description: typeof row.prompt === 'string' ? row.prompt : '', referenceOnly: row.reference_only === true }
+      description: typeof row.prompt === 'string' ? row.prompt : '', referenceOnly: row.reference_only === true, uses: count(row.uses) }
   })
   return { total: count(value.total), items }
 }

@@ -39,6 +39,8 @@ Agent 打开的终端会自动出现。Session 的标题栏显示期间，provid
 
 终端背景、默认文字、光标和选区跟随 DSH 主题，包括系统偏好和主题令牌覆盖。切换主题会保留运行中的 shell、输出和应用通过 OSC 设置的颜色。颜色重置命令恢复到当前 DSH 默认值。屏幕使用设置中的终端字号，并把设置中的终端字体排在内置等宽字体栈之前；修改任一项都会保留 shell 与输出，可见且可写的屏幕会按新的单元格尺寸重新适配 Host 网格。xterm 将文字对比度调整到 4.5:1；光标与所在单元格背景保持至少 3:1 的对比度，包括 Vim 配色方案。
 
+加载 Bot 团队插件时，同一终端屏幕填入其 `bot.drawer.terminal` 插槽：Bot 面板的每个终端标签显示该 Bot 对话的一个终端，并以标签自身的标识保存关联。面板以自己的布局名向[终端 controller](../../api/terminal-controller/README.zh.md#understand-the-implementation)上报打开的标签，这些标签与侧栏标签一样保活各自的终端。在已退出或已不存在的终端上点击**新建终端**，会在该标签原位打开新终端。
+
 <a id="understand-the-implementation"></a>
 ## 了解实现
 

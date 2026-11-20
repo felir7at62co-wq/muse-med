@@ -465,6 +465,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-panel-view{flex:1;min-height:0;display:flex;flex-direction:column}
 .bt-drawer-top{display:flex;justify-content:flex-end;gap:8px;padding:12px 17px 6px 12px}
 .bt-drawer-id{display:flex;flex-direction:column;align-items:center;padding:14px 16px 0}
+.bt-drawer-id[hidden]{display:none}
 .bt-drawer-id>.bt-mark,.bt-drawer-id>.bt-cluster,.bt-drawer-id>.bt-pile{margin-bottom:16px}
 .bt-pile{display:flex;align-items:center;justify-content:center;line-height:0}
 .bt-pile-face{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;border-radius:50%;background:var(--bt-main);box-shadow:0 0 0 3px var(--bt-main);animation:bt-pile-in .36s cubic-bezier(.34,1.56,.64,1) backwards}
@@ -482,10 +483,9 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-drawer-role-input:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-drawer-role-input::placeholder{color:var(--bt-ink-3);opacity:.7}
 .bt-tabs{position:relative;display:flex;justify-content:center;gap:2px;margin:16px 16px 0}
-.bt-tabs.bt-tabs-many{flex-wrap:nowrap;justify-content:flex-start;gap:0;margin:14px 8px 0;overflow-x:auto;scrollbar-width:none}
-.bt-tabs.bt-tabs-many::-webkit-scrollbar{display:none}
-.bt-tabs-many .bt-tab{flex:none;padding:4px 5px;font-size:12px}
 .bt-bg-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-tabs.bt-tabs-many{flex-wrap:nowrap;justify-content:center;gap:2px;margin:16px 14px 0}
+.bt-tabs-many .bt-tab{flex:1 1 0;min-width:0;padding:4px 0;text-align:center;overflow:hidden;text-overflow:ellipsis}
 .bt-drawer-hosted{display:flex;flex-direction:column;min-height:0;flex:1 1 auto}
 .bt-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:4px 8px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-tab:hover{color:var(--bt-ink)}
@@ -837,6 +837,12 @@ body[data-bt-layout=flat] .bt-tools::after{display:none}
    The next message is position:relative too, so it paints over that toolbar and
    takes the tap. The active message stays above its neighbors. */
 .bt-msg:hover,.bt-msg:focus-within,.bt-msg:has(>.bt-msg-line>.bt-tools[data-open]){z-index:2}
+/* Muse: a message's tools under it, beside its time, always in view. */
+.bt-afoot{display:flex;align-items:center;gap:6px;min-height:24px;margin-top:-4px}
+.bt-afoot>.bt-utime{margin-top:0}
+.bt-tools.bt-tools-below,body[data-bt-layout=flat] .bt-tools.bt-tools-below{position:static;margin:0;padding:0;opacity:1;visibility:visible;background:none;box-shadow:none;border-radius:0}
+.bt-tools-below::after{display:none}
+.bt-tools-below>.bt-tool{color:var(--bt-ink-3)}
 .bt-tool{width:24px;height:24px;border:0;padding:0;border-radius:6px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-tool:hover,.bt-tool[aria-expanded=true]{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-tool:active{background:var(--bt-active)}
@@ -931,6 +937,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 @media (prefers-reduced-motion:reduce){.bt-palette{animation:bt-fade .1s ease-out}}
 .bt-account-menu{width:224px}
 .bt-account{flex:none;width:36px;height:36px;border:0;padding:0;background:none;border-radius:50%;cursor:pointer;display:inline-flex}
+.bt-account[aria-pressed=true] .bt-you{background:color-mix(in srgb,var(--bt-ink) 16%,var(--bt-sidebar))}
 .bt-account:hover .bt-you,.bt-account[aria-expanded=true] .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-sidebar))}
 /* Popover keyframes move translate and scale, which compose with a transform the popover
    already has. */

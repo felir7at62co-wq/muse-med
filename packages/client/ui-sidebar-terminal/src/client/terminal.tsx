@@ -1,12 +1,12 @@
 /** Sidebar terminal screen and connection recovery. */
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { Button, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TerminalViewState, TerminalView } from '@deepseek-ai/dsh-api-terminal-controller/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
-import type { TerminalBodyInjected } from './face.ts'
+import type { PanelTerminalInjected, TerminalBodyInjected } from './face.ts'
 import type {} from './locales.ts'
 import '@xterm/xterm/css/xterm.css'
 import css from './terminal.module.css'
@@ -23,14 +23,39 @@ export type TerminalBodyProps = PropsRuntime<'sidebar.right.pane.tab'> & PropsLo
  */
 export function TerminalBody({ useTabInfo, useTerminal, useTheme, view, t }: TerminalBodyProps): ReactNode {
   const { tab } = useTabInfo()
-  const theme = useTheme(value => value)
-  const model = view(tab.id)
-  const state = useTerminal(tab.id)
+  return <TerminalPane model={view(tab.id)} state={useTerminal(tab.id)} theme={useTheme(value => value)} visible={tab.visible} t={t}
+    replace={() => { tab.actions.openTab('terminal', { replaceTab: true }) }} />
+}
+
+/** The Bot panel's owner share plus the terminal model lookup and localized copy. */
+export type PanelTerminalProps = PropsRuntime<'bot.drawer.terminal'> & PropsLocale<'sidebarTerminal'> & InjectFace<PanelTerminalInjected>
+
+/**
+ * Render one Bot panel tab's terminal with the application theme.
+ * @param props - the panel tab, its model lookup and translated copy.
+ * @returns the terminal screen and any pending or exceptional state.
+ */
+export function PanelTerminal({ sessionId, tabId, terminalId, visible, replace, panelView, useTheme, t }: PanelTerminalProps): ReactNode {
+  // One lookup per tab: a lookup after the tab's terminal closed would start another terminal.
+  const model = useMemo(() => panelView(sessionId, tabId, terminalId), [panelView, sessionId, tabId, terminalId])
+  const state = useSyncExternalStore(model.state.subscribe, model.state.getSnapshot)
+  return <TerminalPane model={model} state={state} theme={useTheme(value => value)} visible={visible} t={t} replace={replace} />
+}
+
+function TerminalPane({ model, state, theme, visible, t, replace }: {
+  model: TerminalView
+  state: TerminalViewState | undefined
+  theme: ThemeSnapshot
+  visible: boolean
+  t: TerminalBodyProps['t']
+  /** Opens a new terminal in this view's place. */
+  replace: () => void
+}): ReactNode {
   useEffect(() => model.mount(), [model])
   if (state === undefined) return null
   const newTerminal = <Button variant="primary" size={state.issue === 'missingTerminal' ? 'md' : 'sm'}
     icon={<span className={css.actionIcon} aria-hidden="true"><IconPlusOutlineRegular /></span>}
-    onClick={() => { tab.actions.openTab('terminal', { replaceTab: true }) }}>
+    onClick={replace}>
     {t('new')}
   </Button>
   if (state.issue === 'missingTerminal') return <section className={css.root} data-sidebar-terminal>
@@ -63,7 +88,7 @@ export function TerminalBody({ useTabInfo, useTerminal, useTheme, view, t }: Ter
           : <Button variant="outline" size="sm" onClick={() => { model.connect() }}>{t('reconnect')}</Button>)}
         {ended && newTerminal}
       </div>}
-      {state.info !== undefined && <TerminalScreen state={state} model={model} visible={tab.visible} label={t('title')} theme={theme} />}
+      {state.info !== undefined && <TerminalScreen state={state} model={model} visible={visible} label={t('title')} theme={theme} />}
       {error !== undefined && <p className={css.error} role="alert">{t('failed', { message: error })}</p>}
     </section>
   )

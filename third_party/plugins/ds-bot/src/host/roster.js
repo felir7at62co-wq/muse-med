@@ -76,19 +76,33 @@ export function install(rt) {
   // keeps the preset it is made with.
   // Muse: `config.agentPreset` names the product preset every Bot conversation runs on, so
   // each Bot carries the product's own system prompt, tools and skills. A group's relay
-  // Session never asks the model for work and stays on `standard`. A configured preset the
-  // host does not serve fails the creation: a Bot on another preset would work without them.
+  // Session never asks the model for work and stays on `standard` where the host still
+  // starts Sessions on it; a host that keeps `standard` for existing Sessions only (Muse's
+  // desktop) gets the relay on the product preset, which serves native tools as well. A
+  // configured preset the host does not serve fails the creation: a Bot on another preset
+  // would work without them.
+  const startable = async (presets, id) => {
+    if (typeof presets.resolveForCreation !== 'function') return true
+    try {
+      await presets.resolveForCreation(id)
+      return true
+    } catch (refused) {
+      // The host keeps this preset for the Sessions that already run on it.
+      return false
+    }
+  }
   async function botPreset({ relay = false } = {}) {
     const presets = ctx.get?.('agentPresets')
     if (presets === undefined) return {}
     const listed = await presets.list()
     const usable = id => listed.some(preset => preset.id === id && preset.broken === undefined)
-    const wanted = relay ? undefined : rt.config.agentPreset
-    if (wanted !== undefined) {
+    const wanted = rt.config.agentPreset
+    if (!relay && wanted !== undefined) {
       if (!usable(wanted)) throw new Error(`The "${wanted}" preset is not available, so no Bot conversation was started`)
       return { agentPreset: wanted }
     }
-    return usable('standard') ? { agentPreset: 'standard' } : {}
+    if (usable('standard') && await startable(presets, 'standard')) return { agentPreset: 'standard' }
+    return relay && wanted !== undefined && usable(wanted) ? { agentPreset: wanted } : {}
   }
 
   // `dir` is a working folder outside the team workspace. Such a Session is made by cwd

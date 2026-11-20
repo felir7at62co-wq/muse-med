@@ -1,6 +1,6 @@
 /** Reading a production's configuration, episodes, shots, shot media and assets for the workbench. */
 import { expect, it } from 'vitest'
-import { episodeList, episodeShots, projectAssets, projectConfig, shotMedia, workflowResult } from '../src/browser.ts'
+import { catalog, createdProject, episodeList, episodeShots, projectAssets, projectConfig, projects, shotMedia, workflowResult } from '../src/browser.ts'
 
 it('passes a successful workflow result through and reports a refused one with the studio message', () => {
   expect(workflowResult({ ok: true, title: 'x' })).toEqual({ ok: true, title: 'x' })
@@ -39,4 +39,29 @@ it('keeps only studio media paths for videos and pictures', () => {
     { ok: true, clips: [{ id: 'c1', kind: 'music', text: null, url: '/fw/media/m.mp3', duration: 12 }] }))
     .toEqual({ assets: [{ id: 'a1', kind: 'character', name: '阿桥', imagePath: '/fw/media/a.png', prompt: '少年' }],
       audio: [{ id: 'c1', kind: 'music', text: '', path: '/fw/media/m.mp3', durationSec: 12 }] })
+})
+
+it('reads the creation choices: modes with their styles, frame ratios, resolutions and models', () => {
+  const offered = catalog(
+    { modes: { drama: { label: '🎭 真人剧', styles: [{ key: 'urban', label: '都市', enabled: true }, { key: 'period', label: '古风', enabled: false }] } },
+      aspects: ['9:16', '16:9'], resolutions: ['720p', '1080p'] },
+    { models: [{ id: 'nano-banana-pro', label: 'Nano Banana Pro' }, { nope: 1 }] },
+    { providers: [{ model_id: 'seedance-2.0' }], generation_modes: { full_reference: '全参考生成（参考图作身份参考）' } })
+  expect(offered).toEqual({
+    modes: [{ key: 'drama', label: '真人剧', styles: [{ key: 'urban', label: '都市', enabled: true }, { key: 'period', label: '古风', enabled: false }] }],
+    aspects: ['9:16', '16:9'], resolutions: ['720p', '1080p'],
+    imageModels: [{ id: 'nano-banana-pro', name: 'Nano Banana Pro' }], videoModels: [{ id: 'seedance-2.0', name: 'seedance-2.0' }],
+    generationModes: [{ id: 'full_reference', name: '全参考生成' }],
+  })
+  expect(() => catalog({}, {}, {})).toThrow()
+})
+
+it('reads the settings a production was created with, and the production the studio created', () => {
+  const [row] = projects({ projects: [{ id: 'p1', title: '金狮护桥缘', episodes_count: 15, shots_total: 3, shots_done: 1, my_role: 'owner', thumb_url: null,
+    production_mode: 'drama', base_aspect: '9:16', created_at: '2026-11-02T08:00:00+00:00', default_profile: '{"video_model":"seedance-2.0","generation_mode":"full_reference","resolution":"1080p"}' }] })
+  expect(row).toMatchObject({ mode: 'drama', aspect: '9:16', createdAt: '2026-11-02T08:00:00+00:00',
+    profile: { videoModel: 'seedance-2.0', generationMode: 'full_reference', resolution: '1080p' } })
+  expect(projects({ projects: [{ id: 'p2', title: 'x', episodes_count: 0, shots_total: 0, shots_done: 0, my_role: 'owner', default_profile: 'not json' }] })[0]?.profile)
+    .toEqual({ videoModel: '', generationMode: '', resolution: '' })
+  expect(createdProject({ id: 'p3', title: '新项目', base_aspect: '9:16' })).toEqual({ id: 'p3', title: '新项目' })
 })

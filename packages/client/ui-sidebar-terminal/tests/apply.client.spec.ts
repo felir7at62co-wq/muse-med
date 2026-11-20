@@ -15,10 +15,10 @@ import type { SidebarRightOpenTab } from '@deepseek-ai/dsh-client-ui-sidebar-rig
 import { apply, inject } from '../src/client/index.ts'
 import { apply as hostApply } from '../src/index.ts'
 import { TerminalGuide, type TerminalGuideInjected } from '../src/client/TerminalGuide.tsx'
-import { LazyTerminalBody } from '../src/client/LazyTerminalBody.tsx'
+import { LazyPanelTerminal, LazyTerminalBody } from '../src/client/LazyTerminalBody.tsx'
 import { TerminalTitle } from '../src/client/TerminalTitle.tsx'
 import { AgentTerminalOpener, type AgentTerminalOpenerInjected } from '../src/client/AgentTerminalOpener.tsx'
-import type { TerminalBodyInjected } from '../src/client/face.ts'
+import type { PanelTerminalInjected, TerminalBodyInjected } from '../src/client/face.ts'
 import { en, ja, zh, es, fr, de, ru, pt } from '../src/client/locales.ts'
 
 vi.mock('@xterm/xterm', () => ({ Terminal: vi.fn() }))
@@ -121,6 +121,7 @@ it('registers terminal views and the agent terminal opener without recovery or c
       ['sidebar.right.pane.tab', LazyTerminalBody, 'sidebarTerminal'],
       ['sidebar.right.pane.tab.title', TerminalTitle, 'sidebarTerminal'],
       ['conversation.session.header.actions', AgentTerminalOpener, 'sidebarTerminal'],
+      ['bot.drawer.terminal', LazyPanelTerminal, 'sidebarTerminal'],
     ])
     const sessionId = 'session' as SessionId
     const launcher = h.entries[0]!.inject(sessionId) as TerminalGuideInjected
@@ -149,6 +150,11 @@ it('registers terminal views and the agent terminal opener without recovery or c
     expect(face.keyedHooks.terminal('tab')).toBe(h.model.state)
     expect(h.terminals.view).toHaveBeenLastCalledWith(sessionId, 'tab', 'sidebar://terminal/content', terminalId, undefined)
     expect(h.occurrence).toHaveBeenLastCalledWith(sessionId, { id: 'tab' })
+    // A Bot panel tab is its own content identity; the panel holds no sidebar occurrence.
+    const panel = h.entries[4]!.inject(sessionId) as PanelTerminalInjected
+    expect(panel.panelView(sessionId, 'bot-terminal:1', terminalId)).toBe(h.model)
+    expect(h.terminals.view).toHaveBeenLastCalledWith(sessionId, 'bot-terminal:1', 'bot-terminal:1', terminalId)
+    expect(panel.hooks.theme.getSnapshot()).toBe(h.theme)
     if (h.closeHandler === undefined) throw new Error('Terminal close handler was not registered')
     h.closeHandler(sessionId, { id: 'tab', contentId: 'sidebar://terminal/content' } as Parameters<SidebarRightCloseHandler>[1])
     expect(h.terminals.close).toHaveBeenLastCalledWith(sessionId, 'tab', 'sidebar://terminal/content', terminalId)

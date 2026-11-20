@@ -752,6 +752,27 @@ it('retains only open saved occurrences across inactive Sessions and deduplicate
   await expect.poll(() => calls.every(call => call[2]?.aborted)).toBe(true)
 })
 
+it('keeps each layout\'s occurrences until that layout drops them', async () => {
+  storage()
+  const otherId = 'other-terminal' as WebTerminalId
+  const bindings = new TerminalBindings()
+  bindings.set(sessionId, 'sidebar-tab', info.id)
+  bindings.set(sessionId, 'panel-tab', otherId)
+  const h = fixture()
+  const { service } = await h.service()
+  service.retainTabs([{ sessionId, tabId: 'sidebar-tab', contentId: 'sidebar-tab' }])
+  service.retainTabs([{ sessionId, tabId: 'panel-tab', contentId: 'panel-tab' }], 'panel')
+  await expect.poll(() => h.remote.retain).toHaveBeenCalledTimes(2)
+  const calls = vi.mocked(h.remote.retain).mock.calls
+  expect(service.isRepresented(sessionId, otherId)).toBe(true)
+  service.retainTabs([])
+  await expect.poll(() => calls.find(call => call[1] === info.id)?.[2]?.aborted).toBe(true)
+  expect(calls.find(call => call[1] === otherId)?.[2]?.aborted).toBe(false)
+  service.retainTabs([], 'panel')
+  await expect.poll(() => calls.every(call => call[2]?.aborted)).toBe(true)
+  expect(service.isRepresented(sessionId, otherId)).toBe(false)
+})
+
 it('waits for the window hold acknowledgement before restoring an output attachment', async () => {
   storage()
   new TerminalBindings().set(sessionId, 'restored', info.id)

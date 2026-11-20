@@ -10,6 +10,37 @@ export interface StudioProject {
   completed: number
   role: string
   thumbnail: string
+  /** Production mode key, such as `drama`, `narration` or `anime`; '' when unknown. */
+  mode: string
+  /** Frame ratio such as `9:16`; '' when unknown. */
+  aspect: string
+  /** ISO creation time; '' for productions the studio never dated. */
+  createdAt: string
+  /** Technical defaults chosen at creation; '' where not set. */
+  profile: { videoModel: string; generationMode: string; resolution: string }
+}
+
+/** The choices the studio offers for a new production. */
+export interface StudioCatalog {
+  /** Production modes with the art styles each allows, first style the default. */
+  modes: { key: string; label: string; styles: { key: string; label: string; enabled: boolean }[] }[]
+  aspects: string[]
+  resolutions: string[]
+  imageModels: { id: string; name: string }[]
+  videoModels: { id: string; name: string }[]
+  generationModes: { id: string; name: string }[]
+}
+
+/** Settings of a production to create; every value comes from {@link StudioCatalog}, '' for the studio default. */
+export interface StudioNewProject {
+  title: string
+  mode: string
+  artStyle: string
+  aspect: string
+  resolution: string
+  videoModel: string
+  imageModel: string
+  generationMode: string
 }
 
 /** A production asset or a view-only reference from the signed-in studio library. */
@@ -20,6 +51,8 @@ export interface StudioAsset {
   thumbnail: string
   description: string
   referenceOnly: boolean
+  /** Productions that use this asset. */
+  uses: number
 }
 
 /** A page of shared assets and the total matching count. */
