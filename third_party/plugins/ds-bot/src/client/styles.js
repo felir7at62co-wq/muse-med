@@ -465,10 +465,11 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-panel-view{flex:1;min-height:0;display:flex;flex-direction:column}
 .bt-drawer-top{display:flex;justify-content:flex-end;gap:8px;padding:12px 17px 6px 12px}
 /* Muse: Side chat, Terminal and Files sit as one group of quiet round tools beside the gear. */
-.bt-tools{display:flex;align-items:center;gap:2px;padding:2px;border-radius:999px;background:color-mix(in srgb,var(--bt-ink) 5%,transparent)}
-.bt-tools .bt-tool{width:32px;height:32px;border-color:transparent;background:transparent;color:var(--bt-ink-2)}
-.bt-tools .bt-tool:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-tools .bt-tool[aria-pressed=true]{background:var(--bt-ink);color:var(--bt-main)}
+/* Muse: the drawer's tools share one capsule. Its classes stay apart from the message tools' (.bt-tools, .bt-tool), which hide until hover. */
+.bt-dtools{display:flex;align-items:center;gap:2px;padding:2px;border-radius:999px;background:color-mix(in srgb,var(--bt-ink) 5%,transparent)}
+.bt-dtools .bt-dtool{width:32px;height:32px;border-color:transparent;background:transparent;color:var(--bt-ink-2)}
+.bt-dtools .bt-dtool:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-dtools .bt-dtool[aria-pressed=true]{background:var(--bt-ink);color:var(--bt-main)}
 .bt-drawer-id{display:flex;flex-direction:column;align-items:center;padding:14px 16px 0}
 .bt-drawer-id[hidden]{display:none}
 .bt-drawer-id>.bt-mark,.bt-drawer-id>.bt-cluster,.bt-drawer-id>.bt-pile{margin-bottom:16px}
@@ -489,8 +490,11 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-drawer-role-input::placeholder{color:var(--bt-ink-3);opacity:.7}
 .bt-tabs{position:relative;display:flex;justify-content:center;gap:2px;margin:16px 16px 0}
 .bt-bg-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-tabs.bt-tabs-many{flex-wrap:nowrap;justify-content:center;gap:2px;margin:16px 14px 0}
-.bt-tabs-many .bt-tab{flex:1 1 0;min-width:0;padding:4px 0;text-align:center;overflow:hidden;text-overflow:ellipsis}
+/* Muse: the row under a Bot's name is one track; the tab in view is a raised pill on it. */
+.bt-tabs.bt-tabs-many{flex-wrap:nowrap;justify-content:center;gap:2px;margin:16px 14px 0;padding:3px;border-radius:999px;background:var(--bt-hover)}
+.bt-tabs-many .bt-tab{flex:1 1 0;min-width:0;padding:5px 0;text-align:center;overflow:hidden;text-overflow:ellipsis}
+.bt-tabs-many .bt-tab[aria-selected=true]{background:var(--bt-main)}
+.bt-tabs.bt-tabs-many>.bt-thumb{top:3px;bottom:3px;background:var(--bt-main);box-shadow:0 1px 2px color-mix(in srgb,var(--bt-ink) 10%,transparent)}
 .bt-drawer-hosted{display:flex;flex-direction:column;min-height:0;flex:1 1 auto}
 .bt-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:4px 8px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-tab:hover{color:var(--bt-ink)}
