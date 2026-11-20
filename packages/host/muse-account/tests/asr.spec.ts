@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { once } from 'node:events'
+import { createServer, type ServerResponse } from 'node:http'
+import { buffer } from 'node:stream/consumers'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -340,3 +343,103 @@ it('reports a confirmed gateway admission pause without calling it a full ASR po
   const setup = await fixture(async () => Response.json({ error_code: 'server_draining' }, { status: 503, headers: { 'retry-after': '2' } }))
   await expect(setup.client.submit(setup.file, randomUUID(), 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'server_draining', retryAfterSeconds: 2 })
 })
+
+it('allows an active upload to exceed the idle interval without changing its bytes or task ID', async () => {
+  const id = randomUUID(), bytes = Buffer.alloc(192 * 1024, 17)
+  const { file, sessionFile } = await fixture()
+  await writeFile(file, bytes)
+  const slices: Uint8Array[] = []
+  const fetcher: typeof fetch = async (_url, init) => {
+    const transport = init?.signal
+    const reader = new Response(init?.body).body?.getReader()
+    if (reader === undefined) throw new Error('missing upload stream')
+    try {
+      for (;;) {
+        const next = await reader.read()
+        if (next.done) break
+        slices.push(next.value)
+        await vi.advanceTimersByTimeAsync(800)
+        transport?.throwIfAborted()
+      }
+    } finally {
+      await reader.cancel()
+      reader.releaseLock()
+    }
+    return Response.json({ id, status: 'processing' })
+  }
+  const client = new MuseAsrClient({ baseUrl: 'https://muse.test', sessionFile, requestTimeoutMs: 8000,
+    uploadIdleTimeoutMs: 1000, fetcher })
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try { expect(await client.submit(file, id, 'a'.repeat(64), 'zh')).toEqual({ id, status: 'processing' }) }
+  finally { vi.useRealTimers() }
+  expect(slices.length).toBeGreaterThan(1)
+  expect(Buffer.concat(slices)).toEqual(bytes)
+})
+
+it('does not restart the idle timer or accept a late upload reply after the deadline', async () => {
+  const id = randomUUID(), { file, sessionFile } = await fixture()
+  let lateBody: string | undefined, pendingTimers: number | undefined
+  const client = new MuseAsrClient({ baseUrl: 'https://muse.test', sessionFile, requestTimeoutMs: 8000, uploadIdleTimeoutMs: 1000,
+    fetcher: async (_url, init) => {
+      await vi.advanceTimersByTimeAsync(1100)
+      lateBody = await new Response(init?.body).text()
+      pendingTimers = vi.getTimerCount()
+      return Response.json({ id, status: 'processing' })
+    },
+  })
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try { await expect(client.submit(file, id, 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'upload-timeout' }) }
+  finally { vi.useRealTimers() }
+  expect(lateBody).toBe('mock mp3')
+  expect(pendingTimers).toBe(0)
+})
+
+it('recovers an accepted upload and a stalled response body by querying the same UUID without sending audio again', async () => {
+  const id = randomUUID(), bytes = Buffer.from('test PCM audio')
+  const seen: string[] = []
+  let received: { body: Buffer; length: string | undefined; key: string | string[] | undefined } | undefined
+  let uploadError: unknown, stalled: ServerResponse | undefined
+  let queries = 0
+  const server = createServer((req, res) => {
+    seen.push(`${req.method ?? ''} ${req.url ?? ''}`)
+    if (req.method === 'POST') {
+      void buffer(req).then((body) => {
+        received = { body, length: req.headers['content-length'], key: req.headers['idempotency-key'] }
+      }, (error: unknown) => { uploadError = error })
+      return // The gateway receives the audio without acknowledging it.
+    }
+    res.setHeader('content-type', 'application/json')
+    if (++queries === 1) {
+      stalled = res
+      res.write('{"status":')
+      return // Headers arrived. The read timeout must also cover the response body.
+    }
+    res.end(JSON.stringify({ id, status: 'complete', segments: [{ start: 0, end: 1, text: 'recovered' }] }))
+  })
+  server.listen(0, '127.0.0.1')
+  try {
+    await once(server, 'listening')
+    const address = server.address()
+    if (address === null || typeof address === 'string') throw new Error('Missing local test server address')
+    const { file, sessionFile } = await fixture()
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    await writeFile(file, bytes)
+    await writeMuseSession(sessionFile, { baseUrl, cookie: '__Host-muse=fixture', username: 'alice' })
+    const client = new MuseAsrClient({ baseUrl, sessionFile, requestTimeoutMs: 8000, uploadIdleTimeoutMs: 1000, queryTimeoutMs: 400 })
+    await expect(client.submit(file, id, 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'upload-timeout' })
+    expect(uploadError).toBeUndefined()
+    expect(received).toEqual({ body: bytes, length: String(bytes.length), key: id })
+    await expect(client.get(id)).rejects.toMatchObject({ code: 'query-timeout' })
+    if (stalled === undefined) throw new Error('Missing stalled response')
+    if (!stalled.destroyed) await once(stalled, 'close', { signal: AbortSignal.timeout(2000) })
+    expect(await client.get(id)).toMatchObject({ id, status: 'complete' })
+    const lookup = 'GET /api/asr/jobs/' + id
+    expect(seen).toEqual(['POST /api/asr/jobs', lookup, lookup])
+  } finally {
+    const close = new Promise<void>((resolve, reject) => {
+      server.close((error) => { if (error) reject(error); else resolve() })
+    })
+    server.closeAllConnections()
+    await close
+  }
+}, 15_000)

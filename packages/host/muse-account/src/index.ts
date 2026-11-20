@@ -84,8 +84,12 @@ export interface Config {
   readonly modelRequestImageMaxBytes?: number
   /** Optional provider retry policy for every account model route; omission keeps the adapter default. */
   readonly modelRetryPolicy?: RetryPolicyConfig
-  /** Maximum time for one compressed-audio upload and gateway response. */
+  /** Total time ceiling for a transcription request, including an upload and the gateway response. */
   readonly asrRequestTimeoutMs: number
+  /** Time allowed without upload progress or a gateway reply, in milliseconds. */
+  readonly asrUploadIdleTimeoutMs: number
+  /** Maximum time for one transcription status request, in milliseconds. */
+  readonly asrQueryTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
   readonly feedbackExcerptChars: number
   /** Register explicit feedback submission and owner-scoped status tools. */
@@ -170,6 +174,8 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   modelRequestImageMaxBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
   modelRetryPolicy: RetryPolicySchema,
   asrRequestTimeoutMs: Schema.number().step(1).min(10_000).max(1_800_000).default(300_000),
+  asrUploadIdleTimeoutMs: Schema.number().step(1).min(1_000).max(1_800_000).default(30_000),
+  asrQueryTimeoutMs: Schema.number().step(1).min(1_000).max(30_000).default(10_000),
   feedbackExcerptChars: Schema.number().step(1).min(100).max(1_200).default(1_000),
   feedbackTools: Schema.boolean().default(false),
   mediaTools: Schema.boolean().default(false),
@@ -249,7 +255,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.effect(() => () => station.dispose(), 'muse-account: settle data-station Douyin requests')
     mountMuseDouyinTools(ctx, station, { maxWaitSeconds: config.douyinMaxWaitSeconds, pollIntervalMs: config.douyinPollIntervalMs })
   }
-  const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs })
+  const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs,
+    uploadIdleTimeoutMs: config.asrUploadIdleTimeoutMs, queryTimeoutMs: config.asrQueryTimeoutMs })
   const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,
     excludedModelPrefixes: config.excludedModelPrefixes, excludedModels: config.excludedModels,
     excludedProviderIds: config.excludedProviderIds, hiddenProviderIds: config.hiddenProviderIds,
