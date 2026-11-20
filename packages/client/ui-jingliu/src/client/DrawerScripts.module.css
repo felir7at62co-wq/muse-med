@@ -2,7 +2,7 @@
 .failed { color:var(--dsw-alias-state-error-primary); font-size:12px; }
 
 /* the script list */
-.list { display:flex; flex-direction:column; gap:4px; margin:0; padding:0; list-style:none; }
+.list { flex:1 1 auto; display:flex; flex-direction:column; gap:4px; min-height:0; margin:0; padding:0; overflow:auto; list-style:none; }
 .card { display:flex; align-items:center; gap:12px; width:100%; padding:10px; border:0; border-radius:12px; background:transparent; color:inherit; font:inherit; text-align:start; cursor:pointer; }
 .card:hover { background:var(--dsw-alias-bg-layer-2); }
 .letter { flex:none; display:grid; place-items:center; width:36px; height:36px; border-radius:11px; background:var(--dsw-alias-bg-layer-2); font-size:15px; font-weight:600; }
@@ -12,7 +12,7 @@
 .in_production { background:rgba(35,128,74,.12); color:#23804A; }
 
 /* one open script: its parameters beside the text */
-.script { display:flex; gap:20px; height:100%; min-height:0; padding:12px 16px 0; box-sizing:border-box; color:var(--dsw-alias-label-primary); font-size:13px; }
+.script { flex:1 1 auto; display:flex; gap:20px; min-height:0; padding:12px 16px 0; box-sizing:border-box; color:var(--dsw-alias-label-primary); font-size:13px; }
 .side { flex:0 0 260px; display:flex; flex-direction:column; gap:12px; min-height:0; padding-bottom:20px; overflow:auto; }
 .params { display:flex; flex-direction:column; gap:2px; margin:0; }
 .params > div { display:grid; grid-template-columns:76px minmax(0,1fr); align-items:baseline; gap:8px; padding:6px 8px; border-radius:8px; }
