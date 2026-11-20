@@ -6,7 +6,7 @@ import { load } from 'js-yaml'
 /** Source pin and deployment choices recorded in the packaged artifact. */
 export const museBotDesktopCompatibility = Object.freeze({
   upstreamCommit: '5e9b7da8882da3b68d8a0624342708c2150a9156',
-  agentPreset: 'short-drama',
+  agentPreset: 'short-drama-v2',
   updateCheck: false,
   mainName: 'Muse',
   mainRole: '主理人',
@@ -28,7 +28,7 @@ export function applyMuseBotDesktopCompatibility(directory) {
   }
   const patch = load(readFileSync(join(directory, 'cordis.patch.yml'), 'utf8'))
   const expected = [
-    { insert: [{ id: 'bot', name: 'ds-bot', config: { agentPreset: 'short-drama', updateCheck: false, mainName: 'Muse', mainRole: '主理人' } }] },
+    { insert: [{ id: 'bot', name: 'ds-bot', config: { agentPreset: 'short-drama-v2', updateCheck: false, mainName: 'Muse', mainRole: '主理人' } }] },
     { id: 'ui-settings-general', disabled: true },
   ]
   if (JSON.stringify(patch) !== JSON.stringify(expected)) {

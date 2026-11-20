@@ -20,11 +20,11 @@ function staged(run) {
 
 test('qualifies the native plugin without changing its retained manifest or attribution', () => {
   const original = readFileSync(join(source, 'package.json'))
-  assert.equal(museBotDesktopCompatibility.agentPreset, 'short-drama')
+  assert.equal(museBotDesktopCompatibility.agentPreset, 'short-drama-v2')
   assert.equal(museBotDesktopCompatibility.updateCheck, false)
   staged(directory => {
     const patch = readFileSync(join(directory, 'cordis.patch.yml'), 'utf8')
-    assert.match(patch, /agentPreset: short-drama/u)
+    assert.match(patch, /agentPreset: short-drama-v2$/mu)
     applyMuseBotDesktopCompatibility(directory)
     assert.equal(readFileSync(join(directory, 'cordis.patch.yml'), 'utf8'), patch)
     const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
@@ -45,7 +45,7 @@ test('qualifies the native plugin without changing its retained manifest or attr
 test('rejects a bundle that puts Bot conversations on another preset', () => {
   staged(directory => {
     const path = join(directory, 'cordis.patch.yml')
-    writeFileSync(path, readFileSync(path, 'utf8').replace('agentPreset: short-drama', 'agentPreset: standard'))
+    writeFileSync(path, readFileSync(path, 'utf8').replace('agentPreset: short-drama-v2', 'agentPreset: standard'))
     assert.throws(() => applyMuseBotDesktopCompatibility(directory), /preserve the Muse profile services/u)
   })
 })
