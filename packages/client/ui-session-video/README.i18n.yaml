@@ -3,44 +3,44 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-session-video/README.md
 /:
-  en: 0b5055b682df0e60
-  zh: 53d51e92926d7412
+  en: de2e7288d492ed97
+  zh: 171ac89c3c4a4534
 /deepseek-ai-dsh-client-ui-session-video:
   en: 5975ddfb05253476
   zh: 4e7b4cc65df1b1ab
 /deepseek-ai-dsh-client-ui-session-video/summary:
-  en: f2cc7658ba7f975f
-  zh: 9a486bd5656f899c
+  en: 8bf825ea906eacf1
+  zh: 608d2b703e6ba7da
 /deepseek-ai-dsh-client-ui-session-video/table-of-contents:
   en: d152484eb41ac6b4
   zh: ce40cab8e7534137
 /deepseek-ai-dsh-client-ui-session-video/use-this-package:
-  en: 1e10b9f311a6bc3f
-  zh: e75fae0a62bf36d0
+  en: 741e27ee29c7c660
+  zh: 48faef24336f5f47
 /deepseek-ai-dsh-client-ui-session-video/understand-the-implementation:
-  en: 133a04ab9467e53b
-  zh: af135eb07871effc
+  en: 70cae39d3445e65f
+  zh: eaf5f2e293235add
 /deepseek-ai-dsh-client-ui-session-video/further-exploration:
   en: bb8788e866685672
   zh: 24c8a9e64c9fbd2c
 /deepseek-ai-dsh-client-ui-session-video/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
-/deepseek-ai-dsh-client-ui-session-video/model-experience/shot-modification-draft:
-  en: 880c93a3a04c08fc
-  zh: b09cf4e1eee46443
-/deepseek-ai-dsh-client-ui-session-video/model-experience/shot-modification-draft/what-the-model-sees:
-  en: dc23381bb9c22686
-  zh: c4951754c7ceaf1b
-/deepseek-ai-dsh-client-ui-session-video/model-experience/shot-modification-draft/token-effect:
-  en: 4feb0c2048593daa
-  zh: 51bc55b85cbfe020
-/deepseek-ai-dsh-client-ui-session-video/model-experience/shot-modification-draft/kv-cache-effect:
+/deepseek-ai-dsh-client-ui-session-video/model-experience/video-review-and-modification:
+  en: 1e73589a1737b524
+  zh: c7483fd6be460b3b
+/deepseek-ai-dsh-client-ui-session-video/model-experience/video-review-and-modification/what-the-model-sees:
+  en: f7efbc483657bba9
+  zh: 03511ad9e49c0bb4
+/deepseek-ai-dsh-client-ui-session-video/model-experience/video-review-and-modification/token-effect:
+  en: 02e90bab997a56be
+  zh: a43282f7c65f2431
+/deepseek-ai-dsh-client-ui-session-video/model-experience/video-review-and-modification/kv-cache-effect:
   en: 019e487a9219f3d0
   zh: 16c1b942ab2e2bcd
 /deepseek-ai-dsh-client-ui-session-video/known-limitations-and-deferred-work:
-  en: e081205dbbf4ae83
-  zh: 3efc19a5ad0a1303
+  en: 0a5a10d93431b6f9
+  zh: 241c9e4f85c2b998
 /deepseek-ai-dsh-client-ui-session-video/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: e88aeb617ffb74ea

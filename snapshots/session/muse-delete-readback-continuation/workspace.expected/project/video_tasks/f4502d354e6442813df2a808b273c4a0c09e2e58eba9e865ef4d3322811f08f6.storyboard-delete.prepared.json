@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "operation": "storyboard_delete",
+  "script_id": 2708,
+  "delete_reason": "Remove the two reviewed offline cards",
+  "authorization_basis": "User authorized deletion of exactly offline cards 701 and 702",
+  "include_generated_media": false,
+  "targets": [
+    {
+      "storyboard_id": 701,
+      "snapshot_hash": "36579aa5b450f838b2df85a868263479577d586bebbe0de863714e4c299a9ac9",
+      "name": "Offline target 701",
+      "episode_id": 35,
+      "duration": null,
+      "prompt": null,
+      "material_count": 0,
+      "tasks": [],
+      "active_generation": false,
+      "has_generated_media": false
+    },
+    {
+      "storyboard_id": 702,
+      "snapshot_hash": "e4a74d75907b3b05b12a3c748370316585cc6bd95be5531b1fff74b970f8f14b",
+      "name": "Offline target 702",
+      "episode_id": 35,
+      "duration": null,
+      "prompt": null,
+      "material_count": 0,
+      "tasks": [],
+      "active_generation": false,
+      "has_generated_media": false
+    }
+  ],
+  "fingerprint": "f4502d354e6442813df2a808b273c4a0c09e2e58eba9e865ef4d3322811f08f6"
+}

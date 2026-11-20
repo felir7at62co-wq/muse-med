@@ -76,7 +76,8 @@ describe('generate method routing', () => {
       { assertVideoModel: modelCheck })
     expect(result).toMatchObject({ canonical_method: 'legacy_generate_replay', replayed: true,
       outcome: state === 'intent' ? 'unknown' : state, response_sha256: state === 'intent' ? null : 'sha256:response',
-      data: null })
+      data: null, budget: { status: 'not_rechecked', project_accounting: null,
+        this_submission: { reservation: { status: 'unavailable' }, provider_billing: 'not_observed' } } })
     expect(result.next).toContain('未完成对账前不要重新准备并提交同一包')
     expect(fetch).not.toHaveBeenCalled()
     expect(modelCheck).not.toHaveBeenCalled()
@@ -91,6 +92,18 @@ describe('generate method routing', () => {
     const client = new JubianClient({ credential: async () => 'unused', fetch })
     await expect(storyboardMethod(client, ledger, { method: 'generate', idempotency_key: 'original' }))
       .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('preserves the legacy generation reservation without querying the provider or the current budget', async () => {
+    await ledger.begin({ idempotencyKey: 'quoted-legacy', method: 'storyboard_generate', scriptId: 2708,
+      requestSha256: 'sha256:original', quotedAmount: '13.36', quoteUnit: 'CNY' })
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    const result = await storyboardMethod(new JubianClient({ credential: async () => 'unused', fetch }), ledger,
+      { method: 'generate', idempotency_key: 'quoted-legacy', estimated_cost_cny: '999.99', estimate_basis: 'Ignored on replay' })
+    expect(result.budget).toEqual({ status: 'not_rechecked', reason: '', project_accounting: null,
+      this_submission: { reservation: { status: 'recorded', amount: '13.36', unit: 'CNY', basis: 'quote_or_estimate' },
+        provider_billing: 'not_observed' } })
     expect(fetch).not.toHaveBeenCalled()
   })
 })

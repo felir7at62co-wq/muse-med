@@ -12,6 +12,44 @@ const result = (state: VideoSourceState, content: unknown, meta?: unknown) => fo
   seq: 2, type: 'tool/result', data: { meta, message: { toolCallId: 'original-call', content } },
 }, bounds)
 
+it('retains the last valid selection while rejecting malformed serialized scope and unknown bindings', () => {
+  const user = (text: string) => ({ seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } })
+  for (const text of ['<muse-video-selection>{</muse-video-selection>', '<muse-video-selection>{}</muse-video-selection>',
+    `<muse-video-selection>${' '.repeat(bounds.maxResultBytes + 1)}</muse-video-selection>`]) {
+    expect(foldVideoSources(empty(), user(text), bounds).reviewTargets).toEqual([])
+  }
+  const selection = '<muse-video-selection>[{"source_id":"video","source_version":"v1"}]</muse-video-selection>'
+  const older = { sources: [], calls: [], complete: true, issues: [] } satisfies VideoSourceState
+  const restored = foldVideoSources(older, { ...user(selection), data: { content: [{ type: 'text', text: selection }] } }, bounds)
+  expect(restored.reviewTargets).toBeUndefined()
+  const pending = call('muse_video', { method: 'bind' })
+  expect(result(pending, [{ type: 'text', text: JSON.stringify({ binding: { key: 'missing', sourceVersion: 'v1', production: { scriptId: 10 } } }) }]).bindings).toBeUndefined()
+})
+
+it('bounds grouped production output and keeps one diagnostic when metadata repeats', () => {
+  const source = foldVideoSources(empty(), { seq: 1, type: 'deliverables/presented', data: { files: [{ path: 'clip.mp4' }] } }, bounds)
+  const candidate = source.sources[0]
+  if (candidate === undefined) throw Error('Missing recorded source')
+  const production = { scriptId: 10, episodeNumber: 31, shotNumbers: [1, 2, 3] }
+  const initial = { ...source, sources: [{ ...candidate, production }] }
+  const event = { seq: 2, type: 'deliverables/presented', data: { files: [{ path: 'next.mp4' }] } }
+  const issue = 'video production metadata limit reached'
+  for (const issues of [[], [issue]]) {
+    const capped = foldVideoSources({ ...initial, issues }, event, { ...bounds, maxResultBytes: 20 })
+    expect(capped).toMatchObject({ complete: false, productionUnavailable: true, productionBySource: {}, issues: [issue] })
+  }
+  const args = { callId: 'original-call', name: 'jubian_video', arguments: { task_id: 17 } }
+  let state = foldVideoSources(empty(), { seq: 1, type: 'tool/call', data: args }, bounds)
+  state = result(state, [{ type: 'text', text: '{"task":{"task_id":17,"script_id":10}}' }])
+  const duplicate = foldVideoSources(state, { seq: 3, type: 'tool/call', data: args }, bounds)
+  expect(result(duplicate, [{ type: 'text', text: '{"task":{"task_id":17,"script_id":10}}' }]).productionFacts).toHaveLength(1)
+  const retained = { ...call('jubian_video'), productionFacts: [{ scriptId: 10, taskId: 17 }], issues: [issue] }
+  const overflow = foldVideoSources(retained, { seq: 2, type: 'tool/result', data: { message: {
+    toolCallId: 'original-call', content: [{ type: 'text', text: '{"task":{"task_id":18,"script_id":10}}' }],
+  } } }, { ...bounds, maxSources: 1 })
+  expect(overflow).toMatchObject({ complete: false, productionUnavailable: true, issues: [issue] })
+})
+
 it.each([null, [], 1, 'unstructured event'])('ignores non-record durable event data: %j', (data) => {
   const previous = empty()
   expect(foldVideoSources(previous, { seq: 1, type: 'user/message', data }, bounds)).toBe(previous)

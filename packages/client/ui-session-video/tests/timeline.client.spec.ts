@@ -1,8 +1,8 @@
 /** Session filmstrips preserve exact source ranges across multiple generated files. */
 import { expect, it } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { SessionVideoSource, SessionVideoSourceId, SessionVideoAnalysis, SessionVideoShotId } from '@deepseek-ai/dsh-session-video'
-import { assembleTimeline } from '../src/client/timeline.ts'
+import type { SessionVideoSource, SessionVideoSourceId, SessionVideoAnalysis, SessionVideoShotId } from '@deepseek-ai/dsh-session-video/types'
+import { assembleTimeline, authoredShots } from '../src/client/timeline.ts'
 
 function source(name: string): SessionVideoSource {
   return { id: brandString<SessionVideoSourceId>(name), label: name, origin: 'generated', path: `/work/${name}.mp4`, eventSeq: 4,
@@ -38,4 +38,13 @@ it('keeps later source coordinates stable when a completed analysis has no durat
   expect(result.duration).toBe(6)
   expect(result.offsets[b.id]).toBe(0)
   expect(result.shots.map(shot => [shot.startSeconds, shot.endSeconds])).toEqual([[0, 2], [2, 6]])
+})
+
+it('locates authored shot 12 by observed timing independently of detected segment numbering', () => {
+  const item: SessionVideoSource = { ...source('bound'), production: { scriptId: 4660, episodeNumber: 46,
+    shotNumbers: [10, 11, 12, 13, 14], shotRanges: [{ shotNumber: 12, startSeconds: 2, endSeconds: 6 }] } }
+  const [authored] = authoredShots(item)
+  expect(authored).toMatchObject({ authoredNumber: 12, index: 12, localStart: 2, localEnd: 6 })
+  expect(assembleTimeline([item], [analysis(item)]).shots[1]?.index).toBe(2)
+  expect(authoredShots({ ...item, production: { scriptId: 4660, shotNumbers: [10, 11] } })).toEqual([])
 })

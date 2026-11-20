@@ -169,7 +169,7 @@ class StreamingRenderer {
  * single streaming gate — they apply to settled renders only, because a
  * streaming message's vocabulary is not final and frozen cached elements
  * must not bake in handlers that could go stale. A surrounding
- * `MarkdownDelegateProvider` can delegate ordinary HTTP(S) activation while
+ * `MarkdownDelegateProvider` can delegate application-resource and ordinary HTTP(S) activation while
  * modified clicks retain native behavior. `variant="compact"` uses secondary
  * text sizing, uniform bold headings, and tight block spacing; the default
  * `body` variant uses the full document typography. `omitHtml` renders raw

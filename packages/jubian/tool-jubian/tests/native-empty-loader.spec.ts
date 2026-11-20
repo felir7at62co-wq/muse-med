@@ -17,15 +17,23 @@ import { MemoryCredentials } from '../../../credentials/credentials/tests/memory
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import * as Jubian from '../src/index.ts'
 import { bodyHash } from '../src/write.ts'
+// This offline provider fixture is loaded by cordis.yml and has no TypeScript declaration artifact.
+// @ts-expect-error The runtime fixture intentionally has no declaration file.
+import * as episodeFixtureModule from '../../../../snapshots/session/muse-native-episode-ownership/episode-fixture.mjs'
 
-async function mountedNativeTools() {
+const { createEpisodeOwnershipTransport, episodeOwnershipInputs } = episodeFixtureModule as {
+  createEpisodeOwnershipTransport: (root: string) => typeof fetch
+  episodeOwnershipInputs: (storyboardId: number) => Parameters<typeof buildNativeVideoPreview>[0]
+}
+
+async function mountedNativeTools(options: { baseUrl?: string } = {}) {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
     { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
   ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   const ledgerRoot = join(home, 'ledger')
-  await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot, workspaceSecrets: false } })
+  await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot, workspaceSecrets: false, ...options } })
   await ctx.loader.await()
   for (const entry of ctx.loader.entries()) await entry.fiber?.await()
   await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
@@ -164,8 +172,14 @@ it.each(['scan-limit', 'episode-conflict'])('records %s on replay without anothe
   const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const address = new URL(input instanceof Request ? input.url : input.toString())
     requests.push(`${init?.method} ${address.pathname}`)
+    if (kind === 'episode-conflict' && address.pathname.endsWith('/admin/aigc/video/task/100000') && init?.method === 'GET') {
+      return Response.json({ code: 200, data: { ...rows[0], storyboardId: 1 } })
+    }
+    if (kind === 'episode-conflict' && address.pathname.endsWith('/admin/aigc/video/task/sub/list') && init?.method === 'POST') {
+      return Response.json({ code: 200, data: { total: 1, rows: [{ id: 100001, aigcVideoTaskId: 100000, storyboardId: 1 }] } })
+    }
     if (init?.method !== 'GET' || !address.pathname.endsWith('/admin/aigc/video/task/list')) {
-      throw new Error('Unexpected provider write or detail request')
+      throw new Error('Unexpected provider write')
     }
     const page = Number(address.searchParams.get('pageNum'))
     return new Response(JSON.stringify({ code: 200, data: { total: rows.length,
@@ -201,11 +215,65 @@ it.each(['scan-limit', 'episode-conflict'])('records %s on replay without anothe
     expect(results).toMatchSnapshot(`native ${kind} refusal`)
     expect(JSON.stringify(results)).toContain('Jubian video task ownership could not be safely verified')
     expect(JSON.stringify(results)).not.toContain('expected envelope')
-    expect(requests).toHaveLength(kind === 'scan-limit' ? 2 : 1)
-    expect(requests.every(request => request.startsWith('GET '))).toBe(true)
+    expect(requests).toHaveLength(kind === 'scan-limit' ? 2 : 3)
+    expect(requests.every(request => request.startsWith('GET ') || request.endsWith('/admin/aigc/video/task/sub/list'))).toBe(true)
     expect(await ledger.records()).toEqual(originalRecords)
   } finally {
     transport.mockRestore()
     await ctx.fiber.dispose()
   }
 })
+
+it.each([{ storyboardId: 916953, blocked: false }, { storyboardId: 916954, blocked: true }])(
+  'records historical task ownership for card $storyboardId through the Loader', async ({ storyboardId, blocked }) => {
+    const transport = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Provider fixture is not mounted yet'))
+    onTestFinished(() => { transport.mockRestore() })
+    const { ctx, home, ledgerRoot } = await mountedNativeTools({ baseUrl: 'https://episode-ownership.invalid/prod-api' })
+    transport.mockImplementation(createEpisodeOwnershipTransport(home))
+    try {
+      await writeFile(join(home, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
+      await mkdir(join(home, 'video_tasks'))
+      await mkdir(ledgerRoot, { recursive: true })
+      await writeFile(join(ledgerRoot, 'authorization.json'), JSON.stringify({ version: 1,
+        projects: { '2708': { limit: '0.5', unit: 'CNY' } } }))
+      const preview = buildNativeVideoPreview(episodeOwnershipInputs(storyboardId))
+      const previewPath = join(home, 'video_tasks', 'prepared.storyboard-native.prepared.json')
+      const frozen = JSON.stringify(preview)
+      await writeFile(previewPath, frozen)
+      const args = { method: 'submit_video', preview_path: previewPath, idempotency_key: preview.idempotencyKey,
+        estimated_cost_cny: '0.50', estimate_basis: 'Synthetic offline fixture; no real billed request' }
+      const adapter = new MockAdapter([
+        toolCallResponse('episode-submit', 'jubian_storyboard', args),
+        ...blocked ? [] : [toolCallResponse('episode-replay', 'jubian_storyboard', args)],
+        textResponse(blocked ? 'Preserve the original card and key; inspect task 100001.'
+          : 'Submitted task 500000 once; reconciliation sent no second PUT.'),
+      ])
+      ctx.llm.registerAdapter(['mock'], adapter)
+      const agent = await ctx.agentLoop.create(SessionId(`episode-ownership-${storyboardId}`),
+        { provider: 'mock', model: 'mock' }, { cwd: home })
+      agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text',
+        text: 'Submit this approved offline card and preserve its original key when reconciling historical tasks.' }] }))
+      await agent.whenIdle()
+      const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+      expect(results).toHaveLength(blocked ? 1 : 2)
+      expect(results.every(event => event.data.message.isError === blocked), JSON.stringify(results)).toBe(true)
+      if (blocked) {
+        expect(JSON.stringify(results)).toContain('task_id=100001; storyboard_id=916954; ownership=same_storyboard;')
+      } else {
+        for (const result of results) {
+          const content = result.data.message.content[0]
+          if (content?.type !== 'text') throw new Error('Expected native submission result')
+          expect(JSON.parse(content.text)).toMatchObject({ status: 'submitted', task_id: '500000' })
+        }
+      }
+      expect(JSON.parse(await readFile(join(home, 'submission-proof.json'), 'utf8'))).toEqual({
+        paid_puts: { 916953: blocked ? 0 : 1, 916954: 0 }, historical_details_read: [blocked ? 100001 : 100000],
+      })
+      expect(await new JubianLedger({ root: ledgerRoot }).records()).toHaveLength(blocked ? 0 : 1)
+      expect(await readFile(previewPath, 'utf8')).toBe(frozen)
+    } finally {
+      transport.mockRestore()
+      await ctx.fiber.dispose()
+    }
+  },
+)

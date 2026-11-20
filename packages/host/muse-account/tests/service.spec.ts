@@ -30,6 +30,21 @@ it('reports an unsupported usage period without classifying it as a storage fail
   })
 })
 
+it('reports local identity read failures without refreshing Desktop consumers or exposing storage details', async () => {
+  const context = new Context()
+  contexts.push(context)
+  const refresh = vi.fn(async () => {})
+  const status = vi.fn(async (): Promise<MuseAccountStatus> => { throw new Error('Private fixture path') })
+  await context.plugin(MuseAccountService, { controller: { status, logout: status,
+    login: async () => { throw new Error('Unused fixture login') }, details: async () => { throw new Error('Unused fixture details') },
+  }, models: { refresh } })
+  await expect(context.museAccount.readLocalStatus()).rejects.toMatchObject({
+    code: 'muse-account/storage-failed', message: 'MUSE account session could not be read or updated', details: {},
+  })
+  expect(status).toHaveBeenCalledExactlyOnceWith()
+  expect(refresh).not.toHaveBeenCalled()
+})
+
 it('keeps account status authoritative when a notification observer throws', async () => {
   const context = new Context(); contexts.push(context)
   const status = { state: 'signed-out' } as const

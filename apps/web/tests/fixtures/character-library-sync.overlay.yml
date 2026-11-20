@@ -1,0 +1,3 @@
+- id: ui-character-library
+  config:
+    syncIntervalMs: 1000

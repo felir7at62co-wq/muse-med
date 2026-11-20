@@ -1,5 +1,6 @@
 /** Public types for the Host-owned character reference library. */
 import type { CatalogAssetId, MetadataFormat, MetadataStatusClass, OriginalCharacterAssetId } from '@deepseek-ai/dsh-character-asset-catalog'
+export type { CharacterLibraryErrorCode } from './errors.ts'
 
 
 /** The two reviewed historical object prefixes. No caller can supply another prefix. */

@@ -8,7 +8,7 @@ export const name = 'snapshot-asr-purpose-account'
 
 class ReceiptAccount extends Service {
   constructor(ctx) { super(ctx, 'museAccount') }
-  async status() { return { state: 'signed-in', username: 'fixture', verified: false } }
+  async readLocalStatus() { return { state: 'signed-in', username: 'fixture', verified: false } }
   async submitAudio() { throw new Error('The receipt-resume snapshot must not submit audio') }
   async audioStatus() { throw new Error('The receipt-resume snapshot must not query a provider') }
 }

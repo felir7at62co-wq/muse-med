@@ -405,6 +405,8 @@ it('reconciles an already claimed task and records the original provider failure
   const f = await fixture()
   vi.mocked(reconcileRecordedVideo).mockResolvedValue({ status: 'submitted', task_id: '42',
     replayed: true, outcome: 'accepted', response_sha256: null, result_urls: [], next: 'Observe original',
+    budget: { status: 'not_rechecked', reason: '', project_accounting: null,
+      this_submission: { reservation: { status: 'unavailable' }, provider_billing: 'not_observed' } },
     idempotency_key: key, preview_path: f.packs[0]!.previewPath })
   vi.mocked(observeWatchTask).mockResolvedValue({ status: 'failed', detail: 'Original provider task failed' })
   await f.store.create(f.run)

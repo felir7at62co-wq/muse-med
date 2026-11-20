@@ -3,6 +3,8 @@ import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 
 /** Deployment configuration. Historical read prefixes are fixed by the provider. */
 export interface CharacterLibraryTosOptions {
+  /** Read the reviewed public catalog through prefix-scoped listing without credentials. @default false */
+  readonly publicRead?: boolean
   /** Credential reference for the read-only identity's access key id. */
   readonly readAccessKeyIdRef?: string
   /** Credential reference for the read-only identity's secret access key. */

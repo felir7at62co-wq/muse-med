@@ -602,7 +602,7 @@ export type Config = LocalConfig
 
 ## `@deepseek-ai/dsh-character-library-tos`
 
-- `source`: [`packages/drama/character-library-tos/src/index.ts:33`](../packages/drama/character-library-tos/src/index.ts)
+- `source`: [`packages/drama/character-library-tos/src/index.ts:34`](../packages/drama/character-library-tos/src/index.ts)
 
 ```ts config-catalog
 /** Deployment configuration. No read identity is configured by default. */
@@ -615,6 +615,8 @@ export interface Config extends CharacterLibraryTosOptions {
 
 /** Deployment configuration. Historical read prefixes are fixed by the provider. */
 export interface CharacterLibraryTosOptions {
+  /** Read the reviewed public catalog through prefix-scoped listing without credentials. @default false */
+  readonly publicRead?: boolean
   /** Credential reference for the read-only identity's access key id. */
   readonly readAccessKeyIdRef?: string
   /** Credential reference for the read-only identity's secret access key. */
@@ -744,6 +746,23 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-account-notifications -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-character-library -->
+<a id="deepseek-aidsh-client-ui-character-library"></a>
+
+## `@deepseek-ai/dsh-client-ui-character-library`
+
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/client/ui-character-library/src/index.ts:8`](../packages/client/ui-character-library/src/index.ts)
+
+```ts config-catalog
+/** Live synchronization policy projected to browser configuration readers. */
+export interface Config {
+  /** Delay after a completed catalog read, in milliseconds. */
+  readonly syncIntervalMs: Volatile<number>
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-character-library -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-conversation -->
 <a id="deepseek-aidsh-client-ui-conversation"></a>
@@ -4110,12 +4129,18 @@ export interface Config extends SessionTitleLlmConfig {
 
 ## `@deepseek-ai/dsh-session-video`
 
-- `inject`: `sessions` · `sessionQuery` · `sessionProjections` · `fs` · `attachments` · `subprocess` · `sandboxPolicy` · `connection`
-- `source`: [`packages/drama/session-video/src/index.ts:26`](../packages/drama/session-video/src/index.ts)
+- `inject`: `sessions` · `sessionQuery` · `sessionProjections` · `fs` · `attachments` · `subprocess` · `sandboxPolicy` · `connection` · `tools`
+- `source`: [`packages/drama/session-video/src/index.ts:34`](../packages/drama/session-video/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-controlled subprocess, source, cache and playback limits. */
 export interface Config {
+  /** Maximum timestamped observations returned by a quick review. */
+  readonly reviewFrames: number
+  /** Longest interval accepted by a quick review, in seconds. */
+  readonly maxReviewSeconds: number
+  /** Largest extracted review-frame dimension, in pixels. */
+  readonly reviewFrameDimension: number
   /** FFmpeg executable name or path in the configured execution world. */
   readonly ffmpegPath: string
   /** FFprobe executable name or path in the configured execution world. */
@@ -6530,6 +6555,7 @@ export interface Config {
 | --- | --- | --- |
 | `@deepseek-ai/dsh-acp-app` | `cmdlineArgs` | [`packages/bundle/acp-app/src/index.ts`](../packages/bundle/acp-app/src/index.ts) |
 | `@deepseek-ai/dsh-agent` | `sessionProjections` | [`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts) |
+| `@deepseek-ai/dsh-api-character-library` | `characterLibrary` | [`packages/api/character-library/src/index.ts`](../packages/api/character-library/src/index.ts) |
 | `@deepseek-ai/dsh-api-remote-access` | — | [`packages/api/remote-access/src/index.ts`](../packages/api/remote-access/src/index.ts) |
 | `@deepseek-ai/dsh-api-remotes` | `typertGateway` | [`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts) |
 | `@deepseek-ai/dsh-authorization` | `credentials` | [`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts) |

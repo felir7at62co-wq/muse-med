@@ -37,8 +37,7 @@ import { ASSET_CATEGORY_TYPES } from './naming.ts'
 import type { AssetCategory, Naming } from './naming.ts'
 import { uploadAudioReferenceMethod, uploadReferenceMethod } from './reference.ts'
 import type { ReferenceUploadDeps } from './reference.ts'
-import { bodyHash, estimatedCostReservation, need, requireKey, writeUnderLedger } from './write.ts'
-import type { WriteOutcome } from './write.ts'
+import { bodyHash, estimatedCostReservation, need, recordedWriteBudget, requireKey, writeUnderLedger } from './write.ts'
 import { storyboardEditMethod } from './storyboard-edit.ts'
 import type { PromptRiskReviewOptions } from './prompt-risk.ts'
 import { storyboardDeleteMethod } from './storyboard-delete.ts'
@@ -1222,7 +1221,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         return imageCatalogue(cached.data, deps.image?.allowedStandardIds)
       }
       let selectors: ImageModelSelectors | undefined
-      let result: WriteOutcome
+      let result: Awaited<ReturnType<typeof writeUnderLedger>>
       try {
         result = await writeUnderLedger(ledger, args.idempotency_key, 'image_generate',
           async () => {
@@ -1307,7 +1306,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         } }),
         generation_status: imageGenerationStatus(result.outcome, result.replayed, readback.status),
         idempotency_key: args.idempotency_key, response_sha256: result.response_sha256,
-        budget: result.budget ?? null,
+        budget: result.budget,
         identity_reference: result.replayed ? unknownIdentityReference() : managedReference === undefined
           ? (await reference()).identity_reference
           : { status: 'explicit', asset_id: null, material_id: null, url: null,
@@ -1565,6 +1564,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         if (record?.method !== 'storyboard_generate') throw new JubianError('CONTRACT_CHANGED')
         return { canonical_method: 'legacy_generate_replay', replayed: true,
           outcome: record.outcome ?? 'unknown', response_sha256: record.response_sha256, data: null,
+          budget: recordedWriteBudget(record),
           next: '这是原 storyboard_generate 操作的账本回放，未查询或修改当前分镜，未发起生成。'
             + 'accepted 仅表示原请求已被接受，不代表任务或视频成功；unknown 需按原操作核对任务记录，'
             + '不得换 key 重发。先核对原任务结果；未完成对账前不要重新准备并提交同一包。' }

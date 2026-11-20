@@ -660,6 +660,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'characterLibraryBrowser',
+    summary: 'Browser facade exposing catalog reads and verified previews only.',
+    description: 'Browser facade exposing catalog reads and verified previews only.',
+    methods: [
+      {
+        signature: '@Remote status(): Promise<CharacterLibraryStatus>',
+        description: 'Report whether the library is available without reading storage.',
+        parameters: [],
+        returns: 'Configured state and the library\'s read-only status.',
+      },
+      {
+        signature: '@Remote async browse(request: CharacterLibraryBrowseRequest, signal: AbortSignal): Promise<CharacterLibraryBrowseResult>',
+        description: 'Read one bounded catalog page without modifying its metadata.',
+        parameters: [{ name: 'request', description: 'Collection, search text and optional continuation cursor.' }, { name: 'signal', description: 'Caller cancellation.' }],
+        returns: 'Catalog entries and their next-page cursor.',
+      },
+      {
+        signature: '@Remote async preview(request: CharacterLibraryPreviewRequest, signal: AbortSignal): Promise<CharacterLibraryImage>',
+        description: 'Read and verify one catalog image without returning a storage location.',
+        parameters: [{ name: 'request', description: 'Exact catalog identity and optional expected image digest.' }, { name: 'signal', description: 'Caller cancellation.' }],
+        returns: 'Verified image bytes encoded as a data URL and their digest.',
+      },
+    ],
+  },
+  {
     key: 'characterLibraryObjectStore',
     summary: 'Least-capability object store.',
     description: 'Least-capability object store. It deliberately has no delete, copy, ACL, policy or presigned-URL operation.',
@@ -2711,6 +2736,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Query a previously submitted transcription without making another paid submission.',
         parameters: [{ name: 'id', description: 'Persisted idempotency UUID.' }, { name: 'signal', description: 'Cancellation of this status request.' }],
         returns: 'Task state and timed segments when complete.',
+      },
+      {
+        signature: 'async readLocalStatus(): Promise<MuseAccountStatus>',
+        description: 'Read the saved identity for Host tools without refreshing Desktop consumers.',
+        parameters: [],
+        returns: 'Current local account state without credentials.',
       },
       {
         signature: '@Remote(\'status\') async status(request: MuseAccountStatusRequest): Promise<MuseAccountStatus>',
@@ -7231,6 +7262,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CharacterLibraryEntry {\n    readonly catalogAssetId: CatalogAssetId;\n    readonly originalAssetId: OriginalCharacterAssetId;\n    readonly collection: CharacterLibraryCollection;\n    readonly format: MetadataFormat;\n    readonly metadataStatus: MetadataStatusClass;\n    readonly metadataKey: string;\n    readonly imageKey: string;\n    readonly category: string | null;\n    readonly setting: string | null;\n    readonly artStyle: string | null;\n    readonly era: readonly string[];\n    readonly gender: string | null;\n    readonly appearance: readonly string[];\n    readonly tags: readonly string[];\n    readonly safety: {\n        readonly canPublish: false;\n        readonly canReuse: false;\n        readonly canBind: false;\n        readonly applyAllowed: false;\n    };\n}',
   },
   {
+    name: 'CharacterLibraryImage',
+    declaration: 'export interface CharacterLibraryImage {\n    readonly catalogAssetId: CharacterLibraryPreview[\'catalogAssetId\'];\n    readonly dataUrl: string;\n    readonly sha256: string;\n}',
+  },
+  {
     name: 'CharacterLibraryObjectGet',
     declaration: 'export interface CharacterLibraryObjectGet extends CharacterLibraryObjectHead {\n    readonly data: Uint8Array;\n}',
   },
@@ -10851,6 +10886,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionVideoInventory {\n    readonly sessionId: SessionId;\n    readonly sources: readonly SessionVideoSource[];\n    readonly complete: boolean;\n    readonly issues: readonly string[];\n}',
   },
   {
+    name: 'SessionVideoProduction',
+    declaration: 'export interface SessionVideoProduction {\n    readonly scriptId: number;\n    readonly episodeId?: number | undefined;\n    readonly episodeNumber?: number | undefined;\n    readonly packageIndex?: number | undefined;\n    readonly storyboardId?: number | undefined;\n    readonly taskId?: number | undefined;\n    readonly subtaskId?: number | undefined;\n    readonly shotNumbers?: readonly number[] | undefined;\n    readonly shotRanges?: readonly {\n        readonly shotNumber: number;\n        readonly startSeconds: number;\n        readonly endSeconds: number;\n    }[] | undefined;\n}',
+  },
+  {
     name: 'SessionVideoSelection',
     declaration: 'export type SessionVideoSelection = VideoModelOption & {\n    revision: number;\n};',
   },
@@ -10864,7 +10903,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionVideoSource',
-    declaration: 'export interface SessionVideoSource {\n    readonly id: SessionVideoSourceId;\n    readonly label: string;\n    readonly origin: \'workspace\' | \'presented\' | \'attachment\' | \'generated\';\n    readonly path: string | null;\n    readonly eventSeq: number;\n    readonly presentedIndex: number | null;\n    readonly callId: string | null;\n    readonly status: \'local\' | \'remote-only\' | \'missing\' | \'unsupported\';\n    readonly version: string | null;\n    readonly playbackUrl: string | null;\n    readonly remoteUrl: string | null;\n    readonly issue: string | null;\n}',
+    declaration: 'export interface SessionVideoSource {\n    readonly id: SessionVideoSourceId;\n    readonly label: string;\n    readonly origin: \'workspace\' | \'presented\' | \'attachment\' | \'generated\';\n    readonly path: string | null;\n    readonly eventSeq: number;\n    readonly presentedIndex: number | null;\n    readonly callId: string | null;\n    readonly status: \'local\' | \'remote-only\' | \'missing\' | \'unsupported\';\n    readonly version: string | null;\n    readonly playbackUrl: string | null;\n    readonly remoteUrl: string | null;\n    readonly issue: string | null;\n    readonly production?: SessionVideoProduction | undefined;\n}',
   },
   {
     name: 'SessionVideoSourceId',

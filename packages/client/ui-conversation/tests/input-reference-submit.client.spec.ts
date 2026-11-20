@@ -4,6 +4,7 @@
  * accepted prompt.
  */
 import { describe, expect, it, vi } from 'vitest'
+import { UNDO_COMMAND } from 'lexical'
 import type { Context } from '@deepseek-ai/cordis'
 import type { InputTriggerController, SubmitOutcome, PickOutcome } from '../src/client/contract/input.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
@@ -33,6 +34,46 @@ function chip(shell: SessionInputShell): void {
 }
 
 describe('reference submission', () => {
+  it('removes only the matching current reference and restores it with undo', async () => {
+    const shell = new SessionInputShell({ actx: {} as Context, defaultSink: vi.fn(), commandAttachments })
+    try {
+      shell.setDraft('keep @res tail')
+      expect(shell.insertReference({ source: 'reference', ref: mention, label: 'Research', clipboardText: mention },
+        { start: 5, end: 9, draftRev: shell.snapshot.draftRev })).toBe(true)
+      const occurrence = shell.snapshot.occurrences[0]!
+      const before = shell.snapshot.draft
+      expect(shell.removeReference({ ...occurrence, source: 'other' })).toBe(false)
+      expect(shell.removeReference({ ...occurrence, ref: 'other' })).toBe(false)
+      expect(shell.snapshot.draft).toBe(before)
+      expect(shell.removeReference(occurrence)).toBe(true)
+      expect(shell.snapshot.draft).toBe('keep  tail')
+      expect(shell.snapshot.occurrences).toEqual([])
+      expect(shell.removeReference(occurrence)).toBe(false)
+      shell.editor.dispatchCommand(UNDO_COMMAND, undefined)
+      await vi.waitFor(() => { expect(shell.snapshot.draft).toBe(before) })
+      expect(shell.snapshot.occurrences[0]).toEqual(occurrence)
+      shell.setDraft('replacement')
+      expect(shell.removeReference(occurrence)).toBe(false)
+      expect(shell.snapshot.draft).toBe('replacement')
+    } finally { shell.dispose() }
+  })
+
+  it('refuses reference removal during submission and after disposal', async () => {
+    const pending = Promise.withResolvers<SubmitOutcome>()
+    const shell = new SessionInputShell({ actx: {} as Context, defaultSink: () => pending.promise, commandAttachments })
+    chip(shell)
+    const occurrence = shell.snapshot.occurrences[0]!
+    try {
+      shell.submit()
+      expect(shell.removeReference(occurrence)).toBe(false)
+      expect(shell.snapshot.occurrences).toEqual([occurrence])
+      pending.resolve({ kind: 'error', text: 'retry' })
+      await vi.waitFor(() => { expect(shell.snapshot.phase).toBe('plain') })
+      shell.dispose()
+      expect(shell.removeReference(occurrence)).toBe(false)
+    } finally { pending.resolve({ kind: 'success' }); shell.dispose() }
+  })
+
   it('mirrors canonical reference text so a persisted draft remains resolvable after remount', async () => {
     const mirror = vi.fn()
     const first = new SessionInputShell({

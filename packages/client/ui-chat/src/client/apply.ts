@@ -79,7 +79,7 @@ export const CHAT_NODE_INJECT: ChatNodeInjected = {
 /** Services required by the Chat target and its presentation registrations. */
 export const inject = [
   'slots', 'sessions', 'uiWorkspace', 'uiSession', 'uiConversation', 'locale',
-  'configForms', 'connection', 'remote', 'remote.session', 'sidebarRight', 'fileDrag',
+  'configForms', 'connection', 'remote', 'remote.session', 'sidebarRight', 'fileDrag', 'conversation',
 ]
 
 /**
@@ -281,6 +281,12 @@ export function apply(ctx: Context): void {
             await Promise.resolve()
           },
           resolveFilePath: sessionFilePath(ctx, sessionId),
+          openResourceLink: (address) => {
+            try { ctx.sidebarRight.openResource(address) } catch (_error: unknown) {
+              // An unavailable resource remains in the transcript; the composer explains how to retry it.
+              ctx.conversation.input.for(binding.ctx).notify('error', t('resourceOpen.failed'))
+            }
+          },
           openExternalLink: (url) => {
             if (linkOpening.getSnapshot() === 'sidebar' && ctx.get('sidebarRightTabs')?.get('browser') !== undefined) {
               ctx.sidebarRight.openTab('browser', { params: { url } })

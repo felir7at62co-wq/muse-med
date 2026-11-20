@@ -25,15 +25,28 @@ Browse videos recorded in a conversation and detect chronological shot intervals
 <a id="use-this-package"></a>
 ## Use this package
 
-A Host composition mounts this plugin alongside Session queries and projections, filesystem and attachment providers, subprocess execution, sandbox policy, and the authenticated Client connection. The Client consumes the generated `sessionVideo` Remote service.
+A Host composition mounts this plugin alongside Session queries and projections, the tool registry, filesystem and attachment providers, subprocess execution, sandbox policy, and the authenticated Client connection. The Client consumes the generated `sessionVideo` Remote service.
 
 ### Recorded sources and detection
 
 `list` returns recorded video identities, event coordinates, file or provider versions, playback addresses, and availability diagnostics. The inventory accepts explicit user file references and uploaded video attachments, presented videos, supported local generation outputs, and successful Jubian tool results. Assistant prose and arbitrary Client URLs do not introduce video sources. A bounded inventory reports incomplete coverage rather than presenting an omitted suffix as complete.
 
+Sources may include `production` coordinates reconstructed from successful recorded Jubian and `muse_production` results: remote project, episode, storyboard, task and subtask IDs, display episode number, video-package index, and authored shot numbers. Direct calls and committed PTC dispatches share this extraction. Unknown or conflicting associations remain absent; filenames never establish episode membership. Authored shot numbers do not identify FFmpeg-detected visual cuts. Metadata limits report incomplete coverage and omit production grouping without removing playable sources. These additions preserve source identities and rebuild incompatible private projection checkpoints; they neither query a provider nor authorize generation.
+
 `detect` takes a Session identity and the source identity and version returned by `list`. Detection refuses stale versions, probes duration and dimensions, then detects visual changes with FFmpeg. When detection first downloads a provider source, the ready result carries the downloaded content's version; refresh `list` before pairing the result with playback. A ready result covers the entire original video with ordered, nonempty intervals; a continuous video has one interval. A failed result has no shot intervals and includes a diagnostic. Caller cancellation rejects after the owned subprocess has settled.
 
 Local playback uses a Session-bound authenticated byte-range route. Verified public Jubian URLs can play directly; detection obtains their bytes through the existing restricted Jubian downloader and saves them in the attachment store. Downloads omit credentials, refuse redirects, and obey configured byte and timeout limits. No method accepts an arbitrary source path or URL from the Client.
+
+`muse_video list` exposes the inventory to the Agent. `bind` records explicit production coordinates and optional observed `shotRanges` for an already recorded source version after checking its SHA-256, video duration and existing evidence-file identities. Evidence semantics remain the caller's responsibility: planned durations and cut order do not establish authored-shot timing. Bindings survive Session replay, including retained tool metadata, and disappear from the inventory when the video version changes. Present and bind an edited preview separately to retain both versions in the same episode.
+
+`muse_video review` returns sampled images from a bounded source-local interval without starting a complete-episode task. The latest user selection restricts its source, version and interval; runtime context does not replace that selection. The Review action records a read-only intent that permits only video listing/review and tool-discovery operations; shell scripts, other images and media mutations are rejected. Complete-review and contact-sheet tools remain outside selected-interval inspection. A new user message without that intent restores ordinary tool access; its video references define the next interval scope. A message without video references clears that scope. Samples support advice about visible frames, not continuous viewing or audio judgments. Seeks with no frame before the exclusive end are reported in `unavailable_seconds`; an interval with no decodable frame fails visibly. Original media remains unchanged; extracted images use the attachment store.
+
+<a id="tool-failures"></a>
+### Tool failures
+
+Expected `muse_video` failures are error tool results (`isError: true`) with identity in `error.info.name` and `error.info.code`. Missing Agent context uses `ToolContextUnavailableError` (`TOOL_CONTEXT_UNAVAILABLE`); invalid arguments, including binding metadata and interval constraints, use `ToolArgsError` (`INVALID_ARGS`). Video-domain failures use the internal `SessionVideoError`; [`src/errors.ts`](src/errors.ts) owns its codes. Existing `HarnessError` identities and caller cancellation propagate through the tool path.
+
+Consumers use these identities for handling and the message for display. Refresh the inventory and reselect after a source or version change; correct invalid arguments or choose media within processing limits before retrying. Wait for active work after a busy result, and verify source bytes and evidence after binding validation fails. Wrapped foreign failures retain their original cause in the Host error. Resolve the reported condition before repeating a bind or review. Remote detection's `failed` state and playback HTTP failures retain their own response semantics.
 
 ### Configuration
 
@@ -45,9 +58,10 @@ The plugin accepts no required configuration fields. The owning Host composition
 | `sceneThreshold`, `analysisWidth`, `minShotSeconds` | `0.3`, `320`, `0.08` | Visual-change threshold, analysis width, and minimum retained interval separation |
 | `maxSources`, `maxResultBytes` | `500`, `4194304` | Inventory and structured tool-result parsing bounds |
 | `maxSourceBytes`, `maxDurationSeconds`, `maxSourcePixels` | `536870912`, `3600`, `33177600` | Maximum input bytes, duration, and video-track pixel count |
-| `maxShots`, `maxConcurrent`, `maxCachedAnalyses` | `500`, `2`, `128` | Complete interval count, simultaneous detections, and process-local cached results |
+| `maxShots`, `maxConcurrent`, `maxCachedAnalyses` | `500`, `2`, `128` | Complete interval count, simultaneous media operations, and process-local cached results |
 | `commandTimeoutMs`, `downloadTimeoutMs`, `graceMs` | `180000`, `60000`, `1000` | Subprocess deadline, download deadline, and process termination grace |
 | `maxOutputBytes`, `playbackChunkBytes`, `maxPlaybackStreams` | `8388608`, `262144`, `8` | Captured command output, playback read size, and active playback limit |
+| `reviewFrames`, `maxReviewSeconds`, `reviewFrameDimension` | `6`, `60`, `960` | Sample count, interval duration limit and largest review-frame dimension |
 
 The validated schema in [`src/index.ts`](src/index.ts) owns accepted ranges. Raising a source-processing limit does not widen the fixed Jubian download origin allowlist.
 
@@ -61,13 +75,15 @@ The validated schema in [`src/index.ts`](src/index.ts) owns accepted ranges. Rai
 
 A private Session projection retains bounded source coordinates and supported unsettled tool calls. Display labels come from the recorded local path, attachment name, or provider URL without its query. Filesystem hydration supplies current availability and versions without changing Session history. Source identities bind the Session to an exact recorded coordinate; shot identities also bind the source version and interval endpoints. Successful analyses are reused only while the current file version matches the cached version. Analysis and download caches evict their oldest inserted entries when they exceed the configured limit.
 
-The service obtains execution paths through the filesystem provider and uses the Session sandbox policy for subprocesses. It checks file versions again after detection and around playback reads. Plugin disposal cancels operations and streams, joins subprocesses and pending reads, and removes the playback route. The processing helpers return complete results or explicit errors; they do not truncate successful shot lists.
+The service obtains execution paths through the filesystem provider. Probe and scene-analysis subprocesses read video bytes and write only to stdout or null; a confined Session's policy is narrowed to read-only, while `danger-full-access` remains unchanged. Analysis acquires no workspace write grants and creates no media. It checks file versions again after detection and around playback reads. Plugin disposal cancels operations and streams, joins subprocesses and pending reads, and removes the playback route. The processing helpers return complete results or explicit errors; they do not truncate successful shot lists.
 
 | File | Responsibility |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Remote methods, source resolution, bounded downloads, playback and lifecycle |
 | [`src/sources.ts`](src/sources.ts) | Private source projection and recorded-result parsing |
+| [`src/production.ts`](src/production.ts) | Recorded production associations and unambiguous source grouping |
 | [`src/media.ts`](src/media.ts) | Subprocess ownership, validated video facts and complete cut ranges |
+| [`src/errors.ts`](src/errors.ts) | Video tool error class and stable codes |
 | [`src/types.ts`](src/types.ts) | Client-visible inventory, source and interval types |
 
 </details>
@@ -93,15 +109,15 @@ The related packages own source storage, execution, and provider-download rules.
 
 #### What the model sees
 
-The `sessionVideo` service adds no tools, prompts, model requests, or Session messages. Inventory and cut ranges remain Client inspection data. A consumer that submits a user-authored modification draft owns that later model input.
+The `muse_video` tool exposes list, binding and bounded review operations. Results retain source versions, explicit production coordinates and sampled images in ordinary tool history. Inventory, playback and cut detection remain Client inspection data; they do not request a model turn.
 
 #### Token effect
 
-Zero direct request tokens. Listing, playback, downloads, and FFmpeg detection do not build model input.
+Tool schemas and results consume request tokens; review images consume image input tokens. Client listing, playback, downloads and FFmpeg detection do not build model input.
 
 #### KV Cache effect
 
-Inspection preserves the existing request prefix. This package neither changes model history nor owns provider cache availability.
+Tool calls append normal history; review images can increase the request suffix. Client-only inspection preserves the request prefix. Provider cache availability remains provider-owned.
 
 ## Known Limitations and Deferred Work
 

@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-deleted-voice-replacement
+profile: headless
+composition: muse-deleted-voice-replacement
+recording: authored
+header:
+  class: muse-deleted-voice-replacement
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-voice-replacement

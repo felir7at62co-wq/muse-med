@@ -9,7 +9,7 @@ export const name = 'snapshot-asr-queue-full-account'
 
 class ReceiptAccount extends Service {
   constructor(ctx) { super(ctx, 'museAccount') }
-  async status() { return { state: 'signed-in', username: 'fixture', verified: false } }
+  async readLocalStatus() { return { state: 'signed-in', username: 'fixture', verified: false } }
   async submitAudio() { throw new Error('The queue-full snapshot must not submit audio') }
   async audioStatus() { throw new MuseAsrError('queue_full', 2) }
 }

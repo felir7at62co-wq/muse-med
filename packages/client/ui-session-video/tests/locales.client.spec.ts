@@ -25,6 +25,8 @@ it('loads each shipped language through the real plugin scope and withdraws it o
   ctx.provide('remote.sessionVideo', {} as never)
   ctx.provide('configForms', { get: () => form.scope } as never)
   ctx.provide('uiConversation', {} as never)
+  ctx.provide('inputTriggers', { registerSource: () => () => {} } as never)
+  ctx.provide('sidebarRight', {} as never)
   ctx.provide('slots', { inject: () => () => {} } as never)
   const dispose = await apply(ctx)
   const t = locale.bind(NS)
