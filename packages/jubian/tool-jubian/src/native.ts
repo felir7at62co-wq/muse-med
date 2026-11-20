@@ -179,15 +179,19 @@ function checkedInventoryPage(response: JubianResponse, knownTotal: number | nul
  *
  * Page totals are cross-checked and duplicate stable ids are refused, because
  * the before/after id sets are the only boundary that can claim a task: an
- * incomplete list would turn "this task is new" into a guess.
+ * incomplete list would turn "this task is new" into a guess. A selection audit
+ * can count repeated same-page type-3 history rows toward the reported total,
+ * since those rows cannot represent a generated video for the selection.
  * @param client - Jubian transport.
  * @param scriptId - Project id.
- * @param signal - Optional cancellation of provider reads.
+ * @param options - Cancellation or the free selection audit mode.
  * @returns Every task record the provider lists, in provider order.
  */
-async function listAllVideoTasks(client: JubianClient, scriptId: number, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
+async function listAllVideoTasks(client: JubianClient, scriptId: number,
+  options: { signal?: AbortSignal | undefined; selectionAudit?: true } = {}): Promise<Record<string, unknown>[]> {
+  const { signal, selectionAudit } = options
   const collected: Record<string, unknown>[] = []
-  const stable = new Set<string>()
+  const taskPages = new Map<string, number | null>()
   let knownTotal: number | null = null
   for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum += 1) {
     signal?.throwIfAborted()
@@ -199,8 +203,13 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number, signal?
     for (const record of page.rows) {
       const taskId = taskIdOf(record)
       if (taskId === null) throw new JubianError('CONTRACT_CHANGED', 'Video task list contains a row without a stable ID')
-      if (stable.has(taskId)) throw new JubianError('CONTRACT_CHANGED')
-      stable.add(taskId)
+      const historyPage = selectionAudit === true && page.total !== null
+        && wireText(record.taskType) === '3' && wireText(record.scriptId) === String(scriptId) ? pageNum : null
+      const previousPage = taskPages.get(taskId)
+      if (previousPage !== undefined && (historyPage === null || previousPage !== historyPage)) {
+        throw new JubianError('CONTRACT_CHANGED')
+      }
+      taskPages.set(taskId, historyPage)
       collected.push(record)
     }
     const complete = completeInventoryPage(page, collected, knownTotal, TASK_PAGE_SIZE)
@@ -807,7 +816,7 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
       verified_readback: verifySubjectSelection(storyboard, plan.after).verified_readback,
       next: '分镜已经保存的就是这个选择：没有发送 PUT，也没有收费。' }
   }
-  const beforeRecords = await listAllVideoTasks(client, scriptId)
+  const beforeRecords = await listAllVideoTasks(client, scriptId, { selectionAudit: true })
   const beforeIds = new Set<string>()
   for (const record of beforeRecords) {
     if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) continue
@@ -817,7 +826,7 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
   const result = await writeUnderLedger(ledger, key, 'storyboard_select_assets',
     () => plan.payload,
     payload => client.request({ method: 'PUT', path: '/aigc/storyboard', body: payload as Record<string, unknown> }))
-  const afterRecords = await listAllVideoTasks(client, scriptId)
+  const afterRecords = await listAllVideoTasks(client, scriptId, { selectionAudit: true })
   const newRelated: string[] = []
   for (const record of afterRecords) {
     if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) continue
@@ -951,7 +960,7 @@ function assertRecordedVideo(recorded: JubianLedgerRecord, preview: NativeVideoP
 async function reconcileNativePreview(client: JubianClient, recorded: JubianLedgerRecord,
   preview: NativeVideoPreview, previewPath: string, signal?: AbortSignal): Promise<RecordedVideoReconciliation> {
   assertRecordedVideo(recorded, preview)
-  const records = await listAllVideoTasks(client, preview.scriptId, signal)
+  const records = await listAllVideoTasks(client, preview.scriptId, { signal })
   const hydrated = await hydrateRelated(client, records, preview.scriptId, preview.storyboardId,
     nativeEpisodeScope(preview.payload), signal)
   const claim = recorded.before_task_ids === undefined
@@ -1028,7 +1037,7 @@ reconcileOnly = false, signal?: AbortSignal, beforeSend?: (key: string) => Promi
   await assertSelectionReady(ledger, live.scriptId, live.storyboardId, object(JSON.parse(String(live.payload.modelConfig))).prompt)
   if (live.idempotencyKey !== preview.idempotencyKey) throw new JubianError('CONTRACT_CHANGED')
 
-  const preflightRecords = await listAllVideoTasks(client, preview.scriptId, signal)
+  const preflightRecords = await listAllVideoTasks(client, preview.scriptId, { signal })
   const preflight = await hydrateRelated(client, preflightRecords, preview.scriptId,
     preview.storyboardId, nativeEpisodeScope(preview.payload), signal)
   const expectation = expectationOf(preview, [])
@@ -1056,7 +1065,7 @@ reconcileOnly = false, signal?: AbortSignal, beforeSend?: (key: string) => Promi
         + '保留原 preview，并用 original_idempotency_key 只读对账；旧文件缺失或远端任务暂未出现不允许换新 key 再付费。' }
   }
 
-  const beforeRecords = await listAllVideoTasks(client, preview.scriptId, signal)
+  const beforeRecords = await listAllVideoTasks(client, preview.scriptId, { signal })
   const firstIds = preflightRecords.map(taskIdOf).filter((value): value is string => value !== null).sort()
   const secondIds = beforeRecords.map(taskIdOf).filter((value): value is string => value !== null).sort()
   if (beforeRecords.length !== preflightRecords.length || stableJson(firstIds) !== stableJson(secondIds)) {
@@ -1093,7 +1102,7 @@ reconcileOnly = false, signal?: AbortSignal, beforeSend?: (key: string) => Promi
           envelope_layout: 'unparsed', data: null }
       }
       try {
-        const afterRecords = await listAllVideoTasks(client, preview.scriptId, signal)
+        const afterRecords = await listAllVideoTasks(client, preview.scriptId, { signal })
         // The tasks that appeared across the PUT, whether or not any of them could be
         // claimed. An accepted PUT that claims nothing still created a task and may
         // already have billed it, so these ids are the caller's only handle on it.
