@@ -2,7 +2,9 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import type { PanelTerminalProps, TerminalBodyProps } from './terminal.tsx'
 
-const LoadedTerminalBody = lazy(async () => ({ default: (await import('./terminal.tsx')).TerminalBody }))
+// One import expression: the startup bundle then names the terminal chunk once.
+const loadTerminal = () => import('./terminal.tsx')
+const LoadedTerminalBody = lazy(async () => ({ default: (await loadTerminal()).TerminalBody }))
 
 /**
  * Suspend while the package-local terminal chunk arrives.
@@ -13,7 +15,7 @@ export function LazyTerminalBody(props: TerminalBodyProps): ReactNode {
   return <Suspense fallback={null}><LoadedTerminalBody {...props} /></Suspense>
 }
 
-const LoadedPanelTerminal = lazy(async () => ({ default: (await import('./terminal.tsx')).PanelTerminal }))
+const LoadedPanelTerminal = lazy(async () => ({ default: (await loadTerminal()).PanelTerminal }))
 
 /**
  * Suspend while the same terminal chunk arrives for a Bot panel tab.

@@ -13,15 +13,20 @@ With `studioOrigin` mounted at `/jingliu/` on the Muse account gateway, producti
 
 **Shared assets → Characters** shows the studio’s original reference images and descriptions.
 
-In the Bot team's panel, the **Jingliu** tab lists production projects, newest first with their settings as tags; **New project** and the search card sit above the list. A project picked from the list or the search card opens in a panel tab of its own, so several can be open side by side. Opening one to look at it leaves the conversation's project as it is: a conversation with none takes the first one opened, and a request made from another project's tab makes that project the conversation's before it reaches the message box. Each project tab is a workbench that shows the project's assets (characters, locations, props, audio, posters) and, for each episode, every shot as a card: its prompt with the assets it names, its video and versions, its generation settings and materials. A video loads through the Host only when played. The new-project form creates a production from the choices the studio offers; **Project settings** changes only the name and the resolution, the two settings the studio lets a client change. Deleting a shot asks once in place and is carried out by the studio at once. **Quote**, **Make another**, **Copy**, choosing an asset, **Batch export** and **Make posters** put a reference or a prepared request into that conversation's message box; Muse carries them out once the user sends them. The **Asset library** tab lists the shared assets by kind, most used first; picking or dragging one hands it to the message box. Posters, videos, effects, audio, sound effects and BGM have no shared library yet and list nothing.
+The Bot team's panel has its own **Jingliu** and **Asset library** tabs; see [Use this package](#use-this-package).
 
 Embedded tabs retain the document. Changing accounts opens a fresh sign-in frame.
 
 ## Table of Contents
 
+- [Use this package](#use-this-package)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
+
+## Use this package
+
+In the Bot team's panel, the **Jingliu** tab lists production projects, newest first with their settings as tags; **New project** and the search card sit above the list. A project picked from the list or the search card opens in a panel tab of its own, so several can be open side by side. Opening one to look at it leaves the conversation's project as it is: a conversation with none takes the first one opened, and a request made from another project's tab makes that project the conversation's before it reaches the message box. Each project tab is a workbench that shows the project's assets (characters, locations, props, audio, posters) and, for each episode, every shot as a card: its prompt with the assets it names, its video and versions, its generation settings and materials. A video loads through the Host only when played. The new-project form creates a production from the choices the studio offers; **Project settings** changes only the name and the resolution, the two settings the studio lets a client change. Deleting a shot asks once in place and is carried out by the studio at once. **Quote**, **Make another**, **Copy**, choosing an asset, **Batch export** and **Make posters** put a reference or a prepared request into that conversation's message box; Muse carries them out once the user sends them. The **Asset library** tab lists the shared assets by kind, most used first; picking or dragging one hands it to the message box. Posters, videos, effects, audio, sound effects and BGM have no shared library yet and list nothing.
 
 ## Model Experience
 
