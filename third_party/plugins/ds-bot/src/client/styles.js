@@ -755,8 +755,9 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 html:not([data-windows-titlebar]) :not([class*="_collapsed"])>[class*="_logoRow"]{display:none!important}
 html[data-windows-titlebar] :not([class*="_collapsed"])>[class*="_logoRow"]{height:0!important;margin:0!important}
 html[data-windows-titlebar] .bt-side-collapse{display:none}
-/* Muse: a macOS window keeps the shell's title-row opener as the switch (sidebar.js), so our own round switches hide. */
-html[data-platform=darwin]:has([data-sidebar-opener]) :is(.bt-side-collapse,.bt-title-toggle){display:none}
+/* Muse: on a macOS window the shell's title-row opener stands beside the rail and over a hidden column, so it is the
+   switch there (sidebar.js) and our round ones hide; the wide column covers that opener and keeps its own switch. */
+html[data-platform=darwin]:has([data-sidebar-opener]) :is(.bt-rail .bt-side-collapse,.bt-title-toggle){display:none}
 /* The sidebar switch is always the team view's own, so the shell's is hidden wherever it
    sits: in the logo row, or in the top strip of a macOS desktop window. The strip stays,
    as the window's drag area. Left showing, the shell's toggle expands the shell sidebar
