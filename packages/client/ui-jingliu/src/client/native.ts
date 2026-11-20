@@ -101,6 +101,11 @@ export function installNative(ctx: Context): void {
     // A finalized script's original novel or drama, as the 剧本 tab shows it.
     host.effect(() => host.resources.register<'muse-data-work'>({ protocol: 'muse-data-work',
       open: (address, { signal }) => once(signal, () => api.dataWork(param(address, 'id'))) }))
+    // The whole collection (全收录) of one platform, or a search of it.
+    host.effect(() => host.resources.register<'muse-data-works'>({ protocol: 'muse-data-works',
+      open: (address, { signal }) => once(signal, () => api.dataWorks({
+        platform: platformOf(address), q: param(address, 'q'), page: Math.max(1, Number(param(address, 'page')) || 1), limit: Math.min(100, Math.max(1, Number(param(address, 'limit')) || 20)),
+      })) }))
     const rush = async (workId: string): Promise<void> => { await settled(api.dataRush(workId)) }
     host.slots.inject('bot.drawer.data', () => host.slots.register({
       name: 'bot.drawer.data', locale: 'jingliuStudio', inject: () => ({ hooks: { accountEpoch: epoch }, rush }),

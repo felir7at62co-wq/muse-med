@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** The data tab of the Bot team's details drawer: platforms, rankings, the Hongguo stock and 立即转写. */
+/** The data tab of the Bot team's details drawer: platforms, the whole collection, rankings, the Hongguo stock and 立即转写. */
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -27,6 +27,17 @@ const items = {
   douyin: [{ position: null, work: work('douyin:1', 'Office Swap', { video_plays: 12_954_957, video_likes: 102_743 }) }],
   qimao: [],
 }
+/** A work as the whole collection (全收录) lists it. */
+type Listing = Extra & { episodeCount?: number | null }
+const listed = (id: string, title: string | null, metrics: Record<string, number | null>, extra: Listing = {}) => ({
+  ...work(id, title, metrics, extra), episodeCount: extra.episodeCount === undefined ? 80 : extra.episodeCount,
+  board: '综合热播榜', rank: 1, author: null, observedAt: '2026-11-20T08:00:00.000Z', description: 'A daughter returns.',
+})
+const collected: Record<string, ReturnType<typeof listed>[]> = {
+  hongguo: [listed('hongguo:1', 'Spoiled Daughter', { heat: 89_580_000, collection: 1_427_000 }), listed('hongguo:3', null, {}, { tags: [], episodeCount: null })],
+  fanqie: [listed('fanqie:1', 'Handed to the State', { currentReaders: 1_806_207 }, { wordCount: 1_110_841 })],
+  lvpaopao: [],
+}
 const job = (state: string, lane: string, progress: { episode: number; totalEpisodes: number } | null = null) => ({ workId: 'x', state, lane, requestedBy: null, progress })
 const stockItems = [
   { work: { id: 'hongguo:11', sourceId: '11', title: 'Good Girl', tags: [], episodeCount: 88 }, evaluation: { collection: { value: 18_951_000 }, douyin: { viewCount: 3_366_872_375 } },
@@ -44,7 +55,14 @@ const param = (value: string) => new URLSearchParams({ v: value }).toString().sl
 
 afterEach(cleanup)
 
-function setup(options: { platform?: string | null; fail?: string[]; pending?: string[]; total?: number; active?: number } = {}) {
+/** Open the Rankings view of a rendered platform. */
+function rankings<View extends ReturnType<typeof render>>(view: View): View {
+  fireEvent.click(view.getByRole('button', { name: 'Rankings' }))
+  return view
+}
+
+type Options = { platform?: string | null; fail?: string[]; pending?: string[]; total?: number; active?: number; found?: number }
+function setup(options: Options = {}) {
   const reads: string[] = []
   const useResource = ((address: string) => {
     reads.push(address)
@@ -56,6 +74,10 @@ function setup(options: { platform?: string | null; fail?: string[]; pending?: s
     const platform = url.searchParams.get('platform') ?? ''
     if (kind === 'muse-data-boards') return { status, value: boards[platform] }
     if (kind === 'muse-data-period') return { status, value: { platform, board: url.searchParams.get('board'), period: url.searchParams.get('period'), date: '2026-11-20', items: items[platform as keyof typeof items] ?? [] } }
+    if (kind === 'muse-data-works') {
+      const found = collected[platform] ?? []
+      return { status, value: { items: found, total: options.found ?? found.length, page: Number(url.searchParams.get('page')), limit: 20 } }
+    }
     if (kind === 'muse-data-collector') return { status, value: { state: 'never-connected', label: 'Waiting for the collector', message: 'Install the collector to start' } }
     const filter = url.searchParams.get('filter')
     return { status, value: { summary: { stock: 1, queued: 148, active: options.active ?? 1, failures: 1, rejected: 1, candidates: 149 },
@@ -76,7 +98,7 @@ it('lists the five platforms with their rankings, stock and collector, and opens
     'FFanqie novels4 rankings', 'QQimao novels2 rankings'])
   expect(view.getByRole('img', { name: en.stageTranscribing })).toBeTruthy()
   fireEvent.click(view.getByRole('button', { name: /Fanqie novels/u }))
-  expect(props.openPlatform).toHaveBeenCalledWith('fanqie')
+  expect(props.openPlatform).toHaveBeenCalledWith({ id: 'fanqie', title: 'Fanqie novels' })
   view.unmount()
 })
 
@@ -91,7 +113,7 @@ it('leaves out the counts it could not read and the live dot while nothing trans
 
 it('shows a Hongguo ranking with its own metrics, quotes a work and queues 转写', async () => {
   const { props, reads } = setup({ platform: 'hongguo' })
-  const view = render(<DrawerData {...props} />)
+  const view = rankings(render(<DrawerData {...props} />))
   const table = view.getByRole('table', { name: '综合热播榜' })
   expect(table.textContent).toContain('Spoiled Daughter')
   expect(table.textContent).toContain('89.6M')
@@ -112,7 +134,7 @@ it('shows a Hongguo ranking with its own metrics, quotes a work and queues 转�
 it('offers a retry when 转写 could not be queued', async () => {
   const { props } = setup({ platform: 'hongguo' })
   props.rush = vi.fn(async () => { throw new Error('refused') })
-  const view = render(<DrawerData {...props} />)
+  const view = rankings(render(<DrawerData {...props} />))
   const [transcribe] = view.getAllByRole('button', { name: 'Transcribe' })
   await act(async () => { fireEvent.click(transcribe!) })
   await waitFor(() => { expect(view.getByRole('button', { name: 'Retry' }).getAttribute('title')).toBe(en.rushFailed) })
@@ -121,7 +143,7 @@ it('offers a retry when 转写 could not be queued', async () => {
 
 it('walks nested Fanqie rankings and keeps the deeper choice where the next ranking has it', () => {
   const { props, reads } = setup({ platform: 'fanqie' })
-  const view = render(<DrawerData {...props} />)
+  const view = rankings(render(<DrawerData {...props} />))
   expect(view.getByRole('table').textContent).toContain('1.1M chars')
   expect(view.getByRole('table').textContent).toContain('—')
   fireEvent.click(view.getByRole('button', { name: '新书榜' }))
@@ -133,7 +155,7 @@ it('walks nested Fanqie rankings and keeps the deeper choice where the next rank
 
 it('reads the first Qimao ranking when the station names no default, and says when it is empty', () => {
   const { props, reads } = setup({ platform: 'qimao' })
-  const view = render(<DrawerData {...props} />)
+  const view = rankings(render(<DrawerData {...props} />))
   expect(reads.some(address => address.includes(param('男生榜 · 大热榜 · 日榜')))).toBe(true)
   expect(view.getByText(en.nothingHere)).toBeTruthy()
   fireEvent.click(view.getByRole('button', { name: '更新榜' }))
@@ -145,21 +167,21 @@ it('says a platform with no rankings has nothing yet, and waits while its rankin
   const empty = setup({ platform: 'hongguo' })
   boards.hongguo = boards.empty!
   try {
-    const view = render(<DrawerData {...empty.props} />)
+    const view = rankings(render(<DrawerData {...empty.props} />))
     expect(view.getByText(en.nothingHere)).toBeTruthy()
     view.unmount()
   } finally {
     boards.hongguo = { boards: ['综合热播榜', '综合新剧榜'], defaultBoard: '综合热播榜' }
   }
   const pending = setup({ platform: 'hongguo', pending: ['muse-data-boards'] })
-  const view = render(<DrawerData {...pending.props} />)
+  const view = rankings(render(<DrawerData {...pending.props} />))
   expect(view.getByText(en.loading)).toBeTruthy()
   expect(pending.reads).toContain('studio://inactive')
 })
 
 it('marks Douyin as per-video monitoring without ranks or 转写', () => {
   const { props } = setup({ platform: 'douyin' })
-  const view = render(<DrawerData {...props} />)
+  const view = rankings(render(<DrawerData {...props} />))
   expect(view.getByText(en.monitorNote)).toBeTruthy()
   expect(view.getByRole('table').textContent).toContain('13M')
   expect(view.queryByRole('button', { name: 'Transcribe' })).toBeNull()
@@ -170,18 +192,18 @@ it('marks Douyin as per-video monitoring without ranks or 转写', () => {
 
 it('shows the Lvpaopao collector state while it has no rankings', () => {
   const { props } = setup({ platform: 'lvpaopao' })
-  const view = render(<DrawerData {...props} />)
+  const view = rankings(render(<DrawerData {...props} />))
   expect(view.getByText('Waiting for the collector')).toBeTruthy()
   expect(view.getByText('Install the collector to start')).toBeTruthy()
   view.unmount()
   const loading = setup({ platform: 'lvpaopao', pending: ['muse-data-collector'] })
-  const waiting = render(<DrawerData {...loading.props} />)
+  const waiting = rankings(render(<DrawerData {...loading.props} />))
   expect(waiting.getByText(en.loading)).toBeTruthy()
 })
 
 it('reports a ranking it could not read and reads again on refresh', () => {
   const { props, reads } = setup({ platform: 'hongguo', fail: ['muse-data-period'] })
-  const view = render(<DrawerData {...props} />)
+  const view = rankings(render(<DrawerData {...props} />))
   expect(view.getByRole('alert').textContent).toContain(en.dataFailed)
   fireEvent.click(view.getByRole('button', { name: en.refresh }))
   expect(reads.some(address => address.includes('muse-data-period') && address.includes('revision=1'))).toBe(true)
@@ -190,7 +212,7 @@ it('reports a ranking it could not read and reads again on refresh', () => {
 
 it('waits for a ranking that is still loading', () => {
   const { props } = setup({ platform: 'hongguo', pending: ['muse-data-period'] })
-  const view = render(<DrawerData {...props} />)
+  const view = rankings(render(<DrawerData {...props} />))
   expect(view.getByText(en.loading)).toBeTruthy()
   view.unmount()
 })
@@ -202,7 +224,7 @@ it('switches platform from the platform button', () => {
   fireEvent.click(pill)
   expect(pill.getAttribute('aria-expanded')).toBe('true')
   fireEvent.click(view.getAllByRole('button', { name: /Qimao novels/u }).at(-1)!)
-  expect(props.openPlatform).toHaveBeenCalledWith('qimao')
+  expect(props.openPlatform).toHaveBeenCalledWith({ id: 'qimao', title: 'Qimao novels' })
   view.unmount()
 })
 
@@ -252,6 +274,68 @@ it('reports a stock page it could not read, and waits while it loads', () => {
   const pending = setup({ platform: 'hongguo', pending: ['muse-data-stock'] })
   view = render(<DrawerData {...pending.props} />)
   fireEvent.click(view.getByRole('button', { name: 'Stock' }))
+  expect(view.getByText(en.loading)).toBeTruthy()
+  view.unmount()
+})
+
+it('opens a platform on its whole collection, searches it, quotes a work with its ID and queues 转写', async () => {
+  const { props, reads } = setup({ platform: 'hongguo', found: 45 })
+  const view = render(<DrawerData {...props} />)
+  expect(view.getByRole('button', { name: 'All collected' }).getAttribute('aria-pressed')).toBe('true')
+  const table = view.getByRole('table', { name: 'All collected' })
+  expect(table.textContent).toContain('Spoiled DaughterUrban · Family · 80 episodes89.6M1.4M')
+  expect(table.textContent).toContain('3—')
+  expect(reads.at(-1)).toContain('muse-data-works')
+  expect(reads.at(-1)).toContain('platform=hongguo')
+  fireEvent.click(view.getByRole('button', { name: 'Quote Spoiled Daughter in the chat' }))
+  expect(props.quote).toHaveBeenCalledWith('Spoiled Daughter on Hongguo dramas (hongguo:1)')
+  await act(async () => { fireEvent.click(view.getAllByRole('button', { name: 'Transcribe' })[0]!) })
+  expect(props.rush).toHaveBeenCalledWith('hongguo:1')
+  fireEvent.change(view.getByRole('textbox', { name: en.searchCollected }), { target: { value: ' Daughter ' } })
+  fireEvent.submit(view.getByRole('search'))
+  expect(reads.at(-1)).toContain('q=Daughter')
+  fireEvent.click(view.getByRole('button', { name: en.next }))
+  expect(reads.at(-1)).toContain('page=2')
+  fireEvent.click(view.getByRole('button', { name: en.next }))
+  expect(view.getByRole('button', { name: en.next }).hasAttribute('disabled')).toBe(true)
+  fireEvent.click(view.getByRole('button', { name: en.previous }))
+  expect(reads.at(-1)).toContain('page=2')
+  fireEvent.change(view.getByRole('textbox', { name: en.searchCollected }), { target: { value: '' } })
+  expect(reads.at(-1)).toContain('q=&')
+  expect(reads.at(-1)).toContain('page=1')
+  rankings(view)
+  expect(view.getByRole('table', { name: '综合热播榜' })).toBeTruthy()
+  fireEvent.click(view.getByRole('button', { name: 'All collected' }))
+  expect(view.getByRole('table', { name: 'All collected' })).toBeTruthy()
+  view.unmount()
+})
+
+it('shows a novel platform\'s collection without 转写, and says when a search finds nothing', () => {
+  const { props } = setup({ platform: 'fanqie' })
+  const view = render(<DrawerData {...props} />)
+  expect(view.getByRole('table', { name: 'All collected' }).textContent).toContain('1.1M chars')
+  expect(view.queryByRole('button', { name: 'Transcribe' })).toBeNull()
+  expect(view.queryByRole('button', { name: en.next })).toBeNull()
+  view.unmount()
+  const empty = render(<DrawerData {...setup({ platform: 'qimao' }).props} />)
+  expect(empty.getByText(en.nothingHere)).toBeTruthy()
+  empty.unmount()
+  const searched = render(<DrawerData {...setup({ platform: 'lvpaopao' }).props} />)
+  expect(searched.getByText('Waiting for the collector')).toBeTruthy()
+  fireEvent.change(searched.getByRole('textbox', { name: en.searchCollected }), { target: { value: 'x' } })
+  fireEvent.submit(searched.getByRole('search'))
+  expect(searched.getByText(en.nothingHere)).toBeTruthy()
+  searched.unmount()
+})
+
+it('reports a collection page it could not read, and waits while it loads', () => {
+  const failed = setup({ platform: 'hongguo', fail: ['muse-data-works'] })
+  let view = render(<DrawerData {...failed.props} />)
+  expect(view.getByRole('alert')).toBeTruthy()
+  fireEvent.click(view.getByRole('button', { name: en.refresh }))
+  expect(failed.reads.some(address => address.includes('muse-data-works') && address.includes('revision=1'))).toBe(true)
+  view.unmount()
+  view = render(<DrawerData {...setup({ platform: 'hongguo', pending: ['muse-data-works'] }).props} />)
   expect(view.getByText(en.loading)).toBeTruthy()
   view.unmount()
 })

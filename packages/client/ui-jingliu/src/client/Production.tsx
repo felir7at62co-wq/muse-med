@@ -8,7 +8,7 @@ import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SelectedProject, StudioAsset, StudioBalance, StudioCatalog, StudioConfig, StudioNewProject, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from '@deepseek-ai/dsh-jingliu-connection/types'
-import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataStock, MuseDataWorkDetail } from '@deepseek-ai/dsh-muse-account/types'
+import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataStock, MuseDataWorkDetail, MuseDataWorks } from '@deepseek-ai/dsh-muse-account/types'
 import type { ScriptDetail, ScriptList } from '@deepseek-ai/dsh-workbench-connection/types'
 import css from './Production.module.css'
 
@@ -88,6 +88,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'muse-data-stock': MuseDataStock
     'muse-data-collector': MuseDataCollector
     'muse-data-work': MuseDataWorkDetail
+    'muse-data-works': MuseDataWorks
     'workshop-scripts': ScriptList
     'workshop-script': ScriptDetail
   }
