@@ -182,9 +182,9 @@ export interface MuseAccountProfile {
       readonly pathIds: readonly MuseFeishuDepartmentId[]
     }[]
     /** Feishu job title; omitted when the gateway's organization sync has none or may not read it. */
-    readonly jobTitle?: string
+    readonly jobTitle?: string | undefined
     /** Display name of the Feishu direct manager; omitted under the same conditions. */
-    readonly managerName?: string
+    readonly managerName?: string | undefined
   }
 }
 
