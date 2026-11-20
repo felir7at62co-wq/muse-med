@@ -37,10 +37,13 @@ export const inject = ['agentPresets', 'agents', 'llm', 'systemPrompt', 'tools',
 export async function apply(ctx) {
   const patches = loadOverlayPatches('workshop-transcribe-status', overlay)
   const rows = composeEntries([patches])
-  const preset = patches.find(row => row.id === 'agent-preset-registry')?.config.default
+  const registry = patches.find(row => row.id === 'agent-preset-registry')?.config
   const connectionRow = rows.find(row => row.id === 'workshop-connection')
   const discovery = rows.find(row => row.id === 'tool-discovery')
-  assert.equal(preset, 'short-drama')
+  // Recorded on short-drama, which Sessions started before short-drama-v2 became the default keep running on;
+  // v2's craft skills need a skill registry this headless composition does not mount.
+  const preset = 'short-drama'
+  assert.ok(registry?.selectablePresets.includes(preset), 'Existing Sessions can keep the short-drama preset')
   assert.equal(connectionRow?.name, '@deepseek-ai/dsh-workbench-connection')
   assert.ok(!connectionRow.disabled, 'Desktop mounts the Script Workshop connection')
   assert.ok(!discovery.config.alwaysLoad.includes('workshop_video_transcribe'), 'The Workshop tool loads on demand')

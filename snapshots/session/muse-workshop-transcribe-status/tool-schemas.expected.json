@@ -786,7 +786,7 @@
     },
     {
       "name": "end_task_skill",
-      "description": "Release the current task skill when its task is complete, cancelled or replaced. Loading another task skill switches phases automatically.",
+      "description": "Release a task skill when its task is complete or cancelled. Up to 4 task skills stay in effect together and are restored after the conversation is condensed; loading one more releases the oldest.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1635,6 +1635,99 @@
         },
         "required": [
           "hint"
+        ]
+      }
+    },
+    {
+      "name": "script_finalize",
+      "description": "把写完的剧本定稿上传到剧本工坊的定稿库，全组都能看到，组长从里面选用投产。只在剧本写完、检查通过，并且你用提问问过用户「是否定稿」、用户明确同意之后调用；用户没同意就不要调用。同一用户同名的剧本会追加为新版本，正文没变不会新增版本。files 按集给出 Markdown 剧本文件；一个文件里有多集时按「第N集」标题拆分。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "剧名。"
+          },
+          "files": {
+            "type": "array",
+            "description": "剧本文件路径，按集排好；相对路径按当前工作区解析。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rights": {
+            "type": "string",
+            "description": "版权：原创或授权改编，默认原创。",
+            "enum": [
+              "原创",
+              "授权改编"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "description": "剧本形式，默认剧情剧。",
+            "enum": [
+              "剧情剧",
+              "解说剧"
+            ]
+          },
+          "style": {
+            "type": "string",
+            "description": "画面风格，默认仿真人。",
+            "enum": [
+              "仿真人",
+              "3D"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "description": "改编时原小说或原剧在数据站的作品编号，如 fanqie:7300000000000000001 或 hongguo:7460844307990187033。"
+          },
+          "origin_title": {
+            "type": "string",
+            "description": "原小说或原剧的名字。"
+          }
+        },
+        "required": [
+          "title",
+          "files"
+        ]
+      }
+    },
+    {
+      "name": "script_library",
+      "description": "剧本工坊定稿库：全组定稿的剧本，组长从中选用投产。read 把一版剧本按集写进工作区「剧本库/剧名-v版本/」，返回文件路径，用来导入镜流或参考；link 在用选用的剧本建好镜流项目后登记这个项目，剧本库显示为已投产。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "read 取出剧本；link 登记镜流项目。",
+            "enum": [
+              "read",
+              "link"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "description": "剧本库编号。"
+          },
+          "version": {
+            "type": "integer",
+            "description": "read 读取的版本，默认最新版；投产时用被选用的那一版。"
+          },
+          "project_id": {
+            "type": "string",
+            "description": "link 必填：镜流项目 ID。"
+          },
+          "project_title": {
+            "type": "string",
+            "description": "link 必填：镜流项目名。"
+          }
+        },
+        "required": [
+          "action",
+          "id"
         ]
       }
     },
