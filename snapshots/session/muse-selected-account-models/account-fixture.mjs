@@ -52,24 +52,17 @@ export async function apply(ctx) {
   const flashModelId = process.env.DSH_SNAPSHOT_DEEPSEEK_DATED_MODEL === 'true' ? 'deepseek-v4.1-flash-261017' : 'deepseek-flash'
   const promptGuidance = 'Keep the signed-in model catalog answer brief.'
   let guidance = ''
-  const direct = process.env.DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS === 'true'
   const refusal = process.env.DSH_SNAPSHOT_SUPPLIER_REFUSAL === 'true'
   const contentRefusal = process.env.DSH_SNAPSHOT_CONTENT_REFUSAL === 'true'
   const providerFailover = process.env.DSH_SNAPSHOT_PROVIDER_FAILOVER === 'true'
   const earlyLogin = process.env.DSH_SNAPSHOT_EARLY_ACCOUNT_LOGIN === 'true'
   const officialGlm = process.env.DSH_SNAPSHOT_GLM_TOOL_STREAM === 'true'
-  const pooledZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_RELAY === 'true'
-  const leasedZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_DIRECT === 'true'
-  const admissionFailure = process.env.DSH_SNAPSHOT_ADMISSION_FAILURE
-  assert.ok(admissionFailure === undefined || admissionFailure === 'disconnect')
-  assert.ok(!admissionFailure || leasedZhipu && !refusal)
-  assert.ok(!leasedZhipu || pooledZhipu)
-  assert.ok(!officialGlm || direct)
-  assert.ok(!pooledZhipu || direct && officialGlm)
-  assert.ok(!refusal || direct)
-  assert.ok(!contentRefusal || direct && !refusal && !admissionFailure)
-  assert.ok(!promptUpdate || !officialGlm && !refusal && !contentRefusal && !admissionFailure)
-  assert.ok(!providerFailover || !direct && !refusal && !contentRefusal && !admissionFailure)
+  for (const retired of ['DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS', 'DSH_SNAPSHOT_ZHIPU_POOL_RELAY', 'DSH_SNAPSHOT_ZHIPU_POOL_DIRECT', 'DSH_SNAPSHOT_ADMISSION_FAILURE']) {
+    assert.equal(process.env[retired], undefined, `${retired} selected the removed supplier-direct transport`)
+  }
+  assert.ok(!contentRefusal || !refusal)
+  assert.ok(!promptUpdate || !officialGlm && !refusal && !contentRefusal)
+  assert.ok(!providerFailover || !refusal && !contentRefusal)
   assert.ok(!earlyLogin || providerFailover)
 
   const excludedProvider = process.env.DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER
@@ -105,15 +98,13 @@ export async function apply(ctx) {
     : { provider: 'muse-cloud-deepseek-official', model: flashModelId }
   assert.deepEqual({ provider: selection?.provider, model: selection?.model }, selectedModel)
   if (refusal) catalog.providers = catalog.providers.filter(provider => `muse-cloud-${provider.id}` === selectedModel.provider)
-  const directCompletion = direct && (!pooledZhipu || leasedZhipu)
-  const completionPath = `${directCompletion ? '/supplier' : '/api/desktop-models'}/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
+  const completionPath = `/api/desktop-models/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
   const fallbackModel = { provider: 'muse-cloud-yunying', model: 'gpt-6-sol' }
   const fallbackCompletionPath = `/api/desktop-models/${fallbackModel.provider.slice('muse-cloud-'.length)}/chat/completions`
   const script = recorded.filter(event => event.type === 'assistant/message').map(event => event.data.message)
-  assert.equal(script.length, refusal || contentRefusal || admissionFailure ? 0 : 2)
+  assert.equal(script.length, refusal || contentRefusal ? 0 : 2)
   const requests = []
   const fallbackRequests = []
-  let admissionSubmissions = 0
   let supplierSubmissions = 0
   let baseUrl
   let rejected
@@ -142,43 +133,19 @@ export async function apply(ctx) {
         }
         if (request.url === '/api/desktop-models/providers') {
           assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
-          response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ ...catalog,
-            ...(direct ? { transport: 'direct' } : {}) })); return
+          for (const header of ['x-muse-model-access', 'x-muse-provider-routing', 'x-muse-zhipu-direct']) assert.equal(request.headers[header], undefined)
+          response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(catalog)); return
         }
-        if (request.url === '/api/desktop-models/access' && direct) {
-          assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
-          assert.equal(request.headers['x-muse-model-access'], 'direct-v1')
-          assert.equal(request.headers['x-muse-provider-routing'], 'mixed-v1')
-          response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ transport: 'direct',
-            providers: catalog.providers.map(provider => pooledZhipu && provider.id === 'zhipu-official'
-              ? { ...provider, transport: leasedZhipu ? 'leased' : 'relay' } : ({ ...provider, access: {
-              baseURL: `${baseUrl}/supplier/${provider.id}`, apiKey: `supplier-fixture-${provider.id}`,
-            } })) })); return
-        }
-        const leasePath = '/api/desktop-models/zhipu-official/leases'
-        if (leasedZhipu && request.url === leasePath && request.method === 'POST') {
-          assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
-          assert.equal(request.headers['x-muse-zhipu-direct'], 'leased-v1')
-          assert.deepEqual(JSON.parse(body), { model: selectedModel.model })
-          admissionSubmissions++
-          if (admissionFailure === 'disconnect') { request.socket.destroy(); return }
-          response.writeHead(200, { 'content-type': 'application/json' })
-          response.end(JSON.stringify({ id: 'c0b928a2-9bea-416b-80f0-cbd051fba1c9',
-            baseURL: `${baseUrl}/supplier/zhipu-official`, apiKey: 'supplier-fixture-zhipu-official',
-            deadline: Date.now() + 60000, requestMs: 60000, checkMs: 1000 })); return
-        }
-        if (leasedZhipu && request.url === leasePath + '/c0b928a2-9bea-416b-80f0-cbd051fba1c9' && request.method === 'DELETE') {
-          assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
-          response.writeHead(200, { 'content-type': 'application/json' }); response.end('{"released":true}'); return
-        }
+        // Supplier credentials stay on the gateway; Desktop has no access, lease or self-reported usage route.
+        assert.ok(!/^\/api\/(?:desktop-models\/(?:access|zhipu-official\/leases)|muse\.account\/usage)(?:[/?]|$)/u.test(request.url),
+          `Desktop requested removed supplier access route ${request.url}`)
         if (request.url === completionPath || providerFailover && request.url === fallbackCompletionPath) {
           supplierSubmissions++
           const payload = JSON.parse(body)
           const fallback = providerFailover && request.url === fallbackCompletionPath
           const routeModel = fallback ? fallbackModel : selectedModel
-          assert.equal(request.headers.authorization, directCompletion ? `Bearer supplier-fixture-${routeModel.provider.slice('muse-cloud-'.length)}` : 'Bearer snapshot-session')
-          if (directCompletion) { assert.equal(request.headers.cookie, undefined); assert.equal(request.headers.origin, undefined) }
-          else assert.equal(request.headers.origin, baseUrl)
+          assert.equal(request.headers.authorization, 'Bearer snapshot-session')
+          assert.equal(request.headers.origin, baseUrl)
           assert.equal(payload.model, routeModel.model)
           if (officialGlm) {
             assert.equal(payload.max_tokens, 128000)
@@ -382,34 +349,6 @@ export async function apply(ctx) {
         ...(preservesNewerDefault ? { defaultSelectionConflict } : {}) }) }]
     },
   })))
-  if (admissionFailure) {
-    ctx.on('session/event', (session, event) => {
-      if (event.type !== 'turn/end') return
-      if (rejected) throw rejected
-      assert.equal(requests.length, 0)
-      assert.equal(admissionSubmissions, 1)
-      assert.equal(supplierSubmissions, 0)
-      const events = session.snapshotEvents()
-      const retryEvents = events.filter(event => event.type === 'llm/retry').length
-      assert.equal(retryEvents, 0)
-      const attempts = events.filter(event => event.type === 'assistant/attempt')
-      assert.equal(attempts.length, 1)
-      const finish = attempts[0].data.stream.find(entry => entry.type === 'chunk' && entry.chunk.type === 'finish')
-      assert.deepEqual(finish?.chunk.reason, { kind: 'error', failure: {
-        code: 'MODEL_ACCESS_UNCERTAIN',
-        message: 'Muse model access could not be confirmed. Please retry later or contact the Muse administrator.',
-      } })
-      assert.deepEqual(event.data.reason, { kind: 'error', error: finish.chunk.reason.failure })
-      const serialized = JSON.stringify(events)
-      for (const secret of ['snapshot-session', 's'.repeat(43), 'fixture-password', 'supplier-fixture-']) {
-        assert.ok(!serialized.includes(secret))
-      }
-      writeFileSync(join(process.cwd(), 'admission-observation.json'), JSON.stringify({
-        admissionSubmissions, supplierSubmissions, retryEvents,
-        failureCode: finish.chunk.reason.failure.code,
-      }, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
-    })
-  }
   if (contentRefusal) {
     ctx.on('session/event', (session, event) => {
       if (event.type !== 'turn/end') return
@@ -428,7 +367,7 @@ export async function apply(ctx) {
       } })
       assert.deepEqual(event.data.reason, { kind: 'error', error: finish.chunk.reason.failure })
       const serialized = JSON.stringify(events)
-      for (const secret of ['snapshot-session', 's'.repeat(43), 'fixture-password', 'supplier-fixture-']) {
+      for (const secret of ['snapshot-session', 's'.repeat(43), 'fixture-password']) {
         assert.ok(!serialized.includes(secret))
       }
       writeFileSync(join(process.cwd(), 'content-refusal-observation.json'), JSON.stringify({
@@ -437,7 +376,7 @@ export async function apply(ctx) {
     })
   }
   ctx.on('agent/turn-stopping', async ({ agent }) => {
-    if (admissionFailure || contentRefusal) return
+    if (contentRefusal) return
     if (rejected) throw rejected
     assert.equal(requests.length, providerFailover ? 8 : refusal ? 6 : 2)
     if (providerFailover) {
@@ -456,11 +395,6 @@ export async function apply(ctx) {
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('snapshot-session'))
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('s'.repeat(43)))
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('fixture-password'))
-    assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('supplier-fixture-'))
-    if (direct) {
-      const access = JSON.parse(await readFile(join(home, 'model-access.json'), 'utf8'))
-      assert.equal(access.providers.length, pooledZhipu ? 2 : 3)
-      if (pooledZhipu) assert.ok(!access.providers.some(provider => provider.id === 'zhipu-official'))
-    }
+    await assert.rejects(readFile(join(home, 'model-access.json'), 'utf8'), { code: 'ENOENT' })
   })
 }

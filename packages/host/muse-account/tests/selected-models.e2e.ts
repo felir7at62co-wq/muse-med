@@ -56,12 +56,11 @@ function events(model: string, continued: boolean, effort: string | undefined): 
   ]
 }
 
-it.each(['relay', 'direct'] as const)('offers eleven account models through %s after login, streams each through a tool continuation, and preserves personal credentials on logout', async (transport) => {
+it('offers eleven account models through the relay after login, streams each through a tool continuation, and preserves personal credentials on logout', async () => {
   const home = await mkdtemp(join(tmpdir(), 'muse-selected-models-'))
   onTestFinished(() => rm(home, { recursive: true, force: true }))
   const requests: { route: string; authorization: string | undefined; body: WireRequest }[] = []
-  const routeFor = (provider: string): string => transport === 'direct' ? `/supplier/${provider}/chat/completions`
-    : `/api/desktop-models/${provider}/chat/completions`
+  const routeFor = (provider: string): string => `/api/desktop-models/${provider}/chat/completions`
   const server = createServer((request, response) => {
     let body = ''
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
@@ -74,13 +73,7 @@ it.each(['relay', 'direct'] as const)('offers eleven account models through %s a
         response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ username: 'alice' })); return
       }
       if (request.url === '/api/desktop-models/providers') {
-        response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ ...catalog,
-          ...(transport === 'direct' ? { transport } : {}) })); return
-      }
-      if (request.url === '/api/desktop-models/access' && transport === 'direct') {
-        response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ transport,
-          providers: catalog.providers.map(provider => ({ ...provider,
-            access: { baseURL: `${baseUrl}/supplier/${provider.id}`, apiKey: `supplier-fixture-${provider.id}` } })) })); return
+        response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(catalog)); return
       }
       if (request.url?.endsWith('/chat/completions')) {
         const payload = JSON.parse(body) as WireRequest
@@ -141,7 +134,7 @@ it.each(['relay', 'direct'] as const)('offers eleven account models through %s a
     expect(pair).toHaveLength(2)
     expect(pair.map(request => request.route)).toEqual(Array.from({ length: 2 }, () => routeFor(provider.id)))
     for (const request of pair) {
-      expect(request.authorization).toBe(transport === 'direct' ? `Bearer supplier-fixture-${provider.id}` : 'Bearer alice-session')
+      expect(request.authorization).toBe('Bearer alice-session')
       expect(request.body.max_tokens).toBe(model.maxTokens)
       expect(request.body.reasoning_effort).toBe(model.defaultReasoningEffort)
       expect(request.body.thinking).toEqual(provider.id === 'zhipu-official' ? { type: 'enabled', clear_thinking: false }
@@ -195,7 +188,6 @@ it.each(['relay', 'direct'] as const)('offers eleven account models through %s a
   const stored = await readFile(fixture.profile.patchPath, 'utf8')
   expect(stored).not.toContain('alice-session')
   expect(stored).not.toContain('local-test-password')
-  expect(stored).not.toContain('supplier-fixture-')
-  expect(requests.every(request => request.route.startsWith(transport === 'direct' ? '/supplier/' : '/api/desktop-models/'))).toBe(true)
+  expect(requests.every(request => request.route.startsWith('/api/desktop-models/'))).toBe(true)
   await expect(readFile(join(home, 'model-access.json'))).rejects.toMatchObject({ code: 'ENOENT' })
 })

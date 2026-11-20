@@ -21,7 +21,7 @@ export function resolveModelKeyPoolPolicy(env={}){
 
 /** Count whole active streams per credential and wait fairly for a free slot.
  * @param {object} options Current private keys and validated deployment limits.
- * @returns {object} Cancellable acquisition, durable fingerprint reservation restoration, and queued-request shutdown.
+ * @returns {object} Cancellable acquisition and queued-request shutdown.
  */
 export function createModelKeyPool({keys,...limits}){
  const {concurrency,maxQueued,waitMs}=resolveModelKeyPoolPolicy({MUSE_ZHIPU_KEY_CONCURRENCY:limits.concurrency,
@@ -47,11 +47,6 @@ export function createModelKeyPool({keys,...limits}){
   while(!closed&&queue.length){const slot=lease();if(!slot)return;const waiter=queue.shift();waiter.cleanup();waiter.resolve(slot);}
  }
  return {
-  restore(hash){
-   if(!/^[a-f0-9]{64}$/.test(hash)||closed)throw new ModelKeyPoolError('Invalid restored model reservation');
-   active.set(hash,(active.get(hash)??0)+1);let released=false;
-   return ()=>{if(released)return;released=true;const count=active.get(hash)-1;if(count)active.set(hash,count);else active.delete(hash);drain();};
-  },
   acquire(signal){
    if(closed)return Promise.reject(new ModelKeyPoolError('Model key pool is closed'));
    if(signal?.aborted)return Promise.reject(signal.reason);

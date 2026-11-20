@@ -24,9 +24,9 @@ kind: "package-reference"
 
 `GET /api/muse.account/details` 只返回当前登录账号的身份、分组与用量，即使查询指定其他账号或管理员工作区也不改变归属。`period=all|today|7d|30d` 按北京时间选择统计范围，默认为 `30d`。`offset` 为非负整数，`limit` 为 1–100，默认 50。响应包含已知计数汇总、按模型和按日统计、逐次请求记录，以及 `{offset,limit,total,hasMore}` 分页信息。逐次请求缺失的计数保留为 null，汇总只累加供应方提供的计数。缓存输入与推理输出是相关计数的细分，不重复计入总 Token。
 
-桌面和云端代理在响应结束后记录供应商返回的用量。新版桌面通过已认证同源 `POST /api/muse.account/usage` 上报直连请求计数，这些记录明确标记 `desktop-direct` 来源，属于客户端上报，不是独立核验的供应商账单。上报仅含请求 UUID、供应商、模型、已知 HTTP 状态，以及可为 null 的输入、输出、总量、缓存输入和推理计数。相同账号与请求 ID 的相同内容去重，内容改变返回 409。请求正文上限为 4 KiB。`MUSE_USAGE_RATE_PER_MINUTE` 配置每账号／IP 每分钟接收次数，默认 600，范围 1–10000。
+桌面和云端代理在响应结束后记录供应商返回的用量。桌面端不再直接调用供应商，网关因此不接收客户端用量上报，`POST /api/muse.account/usage` 已移除。已有的 `desktop-direct` 记录仍可读取，它们属于客户端上报，不是独立核验的供应商账单。
 
-网关默认在账号文件旁写入仅所有者可访问、只追加的 `model-usage.jsonl`；也可用 `MUSE_USAGE_FILE` 指定发布目录之外的其他私密绝对路径。部署时保留此文件，每份账本只运行一个网关写入者。首条记录确定统计起点，不重建接入前历史。供应商未返回用量、旧客户端、离线操作和直连上报失败均可能造成缺口，因此统计不等于供应商账单。记录不包含消息、生成内容、账号 Cookie 或供应商凭据。启动时拒绝损坏或不完整记录，持久化失败会让用量查询明确报错。嵌入式网关未传入已打开账本时使用独立内存存储。
+网关默认在账号文件旁写入仅所有者可访问、只追加的 `model-usage.jsonl`；也可用 `MUSE_USAGE_FILE` 指定发布目录之外的其他私密绝对路径。部署时保留此文件，每份账本只运行一个网关写入者。首条记录确定统计起点，不重建接入前历史。供应商未返回用量和旧客户端的直连调用均可能造成缺口，因此统计不等于供应商账单。记录不包含消息、生成内容、账号 Cookie 或供应商凭据。启动时拒绝损坏或不完整记录，持久化失败会让用量查询明确报错。嵌入式网关未传入已打开账本时使用独立内存存储。
 
 <a id="production-profile-overlay"></a>
 ## 生产个人资料补丁
@@ -210,13 +210,13 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 启用知识库的网关启动前，须把 `MUSE_KB_USER_ROOT` 指向共享 vault 外已存在、仅所有者可访问的绝对目录。目录缺失、权限过宽或与共享 vault 重叠会阻止启动。已登录账号每次可用 `ingest_script` 提交 1–12 段复核后的 Markdown 剧本；请求上限为 2 MiB，单段上限为 400,000 字符。每段的标题、项目相对来源标识与不可变正文按稳定账号 ID 分开保存；结果逐项报告已写入、已存在或失败。账号可通过 `search`、`read` 和 `read_opening` 阅读自己的 `private/SRC-...` ID；其他账号和机器令牌不能读取这些私有 ID。Muse 召回使用目录、全文关键词和页面链接；MCP 端点不调用语义向量。此工具不上传视频二进制。桌面端使用前，服务器须完成部署和配置；只发布源码不会启用此功能。
 
-桌面模型调用复用网页版的账号会话和全局模型目录。`GET /api/desktop-models/providers` 返回公开元数据；`POST /api/desktop-models/:provider/chat/completions` 接受会话令牌作为 Bearer 凭据，并要求已配置的公开 Origin。默认 `MUSE_DESKTOP_MODEL_TRANSPORT=relay` 模式下，上游密钥保留在服务器。私有目录中的 `zhipu-official` 凭据数组在桌面和云端工作间路由上都使用[共享模型 Key 资源池](#model-key-pools)。单个凭据及其他供应商对已认证请求不设置 Muse 自有的每账号或共享并发上限；Desktop 路由没有 Muse 模型请求频率限制。上游供应商限流与模型输出上限仍然有效。退出登录、账号撤销、会话过期与客户端取消会中止所属请求。启动网关前删除已移除的环境设置 `MUSE_DESKTOP_MODEL_MAX_ACTIVE` 和 `MUSE_DESKTOP_MODEL_MAX_TOTAL`；存在这些设置会拒绝启动并给出迁移提示。
+桌面模型调用复用网页版的账号会话和全局模型目录。`GET /api/desktop-models/providers` 返回公开元数据；`POST /api/desktop-models/:provider/chat/completions` 接受会话令牌作为 Bearer 凭据，并要求已配置的公开 Origin。上游密钥始终保留在服务器。私有目录中的 `zhipu-official` 凭据数组在桌面和云端工作间路由上都使用[共享模型 Key 资源池](#model-key-pools)。单个凭据及其他供应商对已认证请求不设置 Muse 自有的每账号或共享并发上限；Desktop 路由没有 Muse 模型请求频率限制。上游供应商限流与模型输出上限仍然有效。退出登录、账号撤销、会话过期与客户端取消会中止所属请求。启动网关前删除已移除的环境设置 `MUSE_DESKTOP_MODEL_MAX_ACTIVE` 和 `MUSE_DESKTOP_MODEL_MAX_TOTAL`；存在这些设置会拒绝启动并给出迁移提示。
 
 全局目录中的各模型可将 `defaultReasoningEffort` 声明为其 `reasoningEfforts` 映射中已启用的键。两条转发路径只在请求未提供 `reasoning_effort` 时将默认档位映射成上游值；请求显式选择的受支持档位优先。未配置默认档位时保留提供方默认行为。GLM-5.3 请求通过 `clear_thinking: false` 在工具续接时保留思考，关闭该模型思考的请求会被拒绝。配置中的 `maxTokens` 为省略输出上限的请求提供默认值并限制更大的请求，显式更小的上限保持原值。直接编辑私有目录文件后须重启网关；管理员设置更新实时生效。
 
 上游拒绝通过固定的 `error.code` 与 `error.message` 区分认证、额度、限流、上下文、输出上限和无效参数。分类最多读取 64 KiB，提供方控制的诊断和凭据不会返回。仅提及额度而未说明耗尽，不会归为额度耗尽。上游 429 拒绝会保留经验证的整数 `Retry-After`。未知服务器失败返回通用错误；结束原因 `finish_reason: length` 仍报告输出截断。
 
-`MUSE_DESKTOP_MODEL_TRANSPORT=direct` 明确启用向已登录 Desktop Host 分发供应商凭据。新版 Host 在元数据请求中通过 `X-Muse-Model-Access: direct-v1` 协商，再从 `GET /api/desktop-models/access` 取得含供应商私密地址和密钥的当前目录；两个响应均禁止缓存。旧版客户端继续使用中转。直连要求完整的原生全局模型目录：供应商中的每个模型必须解析为其公布的 ID、相同的 HTTPS API 根地址和相同的已配置密钥。智谱 Key 池通过协商后的网关路由使用，其他供应商单独验证直连凭据。配置缺失会报错，不回退到云端中转。Host 将凭据存入账号目录并直接调用供应商；模型请求正文和 SSE 回复不经过此网关。账号禁用、过期和退出会阻止再次领取凭据，但无法使已复制的供应商密钥失效，也无法终止 Muse 之外的直连请求；需要时应在供应商处撤销或轮换密钥。该选项不提供供应商执行的用户配额、临时密钥或请求审计。仅对已获授权分发的凭据启用。
+桌面端直连供应商已移除：网关从不向客户端发送供应商地址或密钥，`GET /api/desktop-models/access` 和 `/api/desktop-models/zhipu-official/leases` 不再存在。`MUSE_DESKTOP_MODEL_TRANSPORT` 取 `relay` 以外的值，或存在已移除的 `MUSE_ZHIPU_DIRECT_TOKEN_MS`、`MUSE_ZHIPU_DIRECT_REQUEST_MS`、`MUSE_ZHIPU_DIRECT_CHECK_MS`、`MUSE_ZHIPU_DIRECT_GRACE_MS` 和 `MUSE_USAGE_RATE_PER_MINUTE` 时，启动会拒绝并给出迁移提示；部署前删除这些设置。曾以 `direct` 运行的网关已把真实供应商密钥分发给所有已登录的桌面端，因此要在各供应商处轮换这些密钥：在此之前，网关之外的副本仍然有效。账号文件旁遗留的 `model-direct-leases.json` 不含密钥，可以删除。
 
 选定的 Muse 账号目录供应官方 DeepSeek Flash、V4 Pro，七个云映模型（包括 GLM-5.3-Flash），以及 [`selected-models.mjs`](selected-models.mjs) 定义的智谱官方 GLM-5.3-Flash 与 FlashX。DeepSeek 和智谱分别使用官方 Chat Completions 路由；云映路由沿用运营者现有 API 根地址。各路由使用独立的服务器凭据引用；用户登录 Muse 后无需填写供应商密钥。桌面端的自定义供应商与独立 Codex 订阅各自保留其凭据与目录。准备这份目录不会部署或启用它。
 
@@ -233,11 +233,7 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 ### 模型 Key 资源池
 
-智谱数组凭据让桌面和云端工作间请求共用一个网关并发池。桌面客户端协商 `X-Muse-Provider-Routing: mixed-v1`；额外发送 `X-Muse-Zhipu-Direct: leased-v1` 且网关已开启直连时，智谱返回 `transport: leased`。这类客户端每次调用前只向 `/api/desktop-models/zhipu-official/leases` POST `{model}`，随后使用短期 JWT 直接向返回的供应商地址发送会话并接收流。GET `/leases/<id>` 核验同一个登录，DELETE 报告供应商流已清理。旧客户端仍收到 `transport: relay`，不领取资源池 Key。两种传输共用 `MUSE_ZHIPU_KEY_CONCURRENCY`（默认 20）、`MUSE_ZHIPU_QUEUE_LIMIT`（1000）和 `MUSE_ZHIPU_QUEUE_TIMEOUT_MS`（120000）。队列满或等待超时会在调用供应商前失败；领取结果不明时不会自动重试。
-
-直连名额在签发凭据前保存到账号文件旁的私密 `model-direct-leases.json`。启动时恢复各凭据指纹的占用后才接收请求，当前目录暂时移除的凭据指纹也会恢复计数；文件不含供应商密钥或 JWT。`MUSE_ZHIPU_DIRECT_TOKEN_MS`（60000）、`MUSE_ZHIPU_DIRECT_REQUEST_MS`（1800000）、`MUSE_ZHIPU_DIRECT_CHECK_MS`（30000）和 `MUSE_ZHIPU_DIRECT_GRACE_MS`（15000）分别配置凭证有效期、请求最长时限、登录检查间隔和释放缓冲期。正常清理后等待缓冲期释放；未收到完成报告时保守占用到原请求时限加缓冲期。持久化失败会停止新的直连准入。部署时保留此文件，同一个共享 Key 池只使用一个拥有者网关进程。
-
-JWT 在过期前仍是可复用的持有者凭证，供应商不会替 Muse 强制执行单次使用或限定模型。登录检查和客户端时限用于协调正常 Muse 客户端，不能保证供应商已取消请求或撤销已签发的 JWT。实际账户并发权益以供应商为准，其他客户端使用这些凭据产生的调用不在网关计数内；承诺用户容量前应验证真实授权与吞吐。
+智谱数组凭据让桌面和云端工作间请求共用一个网关并发池，由 `MUSE_ZHIPU_KEY_CONCURRENCY`（默认 20）、`MUSE_ZHIPU_QUEUE_LIMIT`（1000）和 `MUSE_ZHIPU_QUEUE_TIMEOUT_MS`（120000）配置。队列满或等待超时会在调用供应商前失败；领取结果不明时不会自动重试。
 
 流式中转原样转发字节，直到完整的 SSE `data: [DONE]` 事件，随后关闭上游响应和请求，并在下游发送完成后释放名额。仅收到 `finish_reason` 不会结束转发：后续工具调用片段、其他候选回复和用量仍然保留。支持分片 UTF-8 以及 LF、CRLF 和 CR 事件分隔符；最后一个 CR 立即结束事件，已收到的可选 LF 一并保留。不含 `[DONE]` 的流仍在普通 EOF 时结束；非流式 JSON 保持不变。已转发响应的 `Server-Timing` 字段仅包含耗时：`gateway-queue` 表示使用 Key 资源池时的名额等待时间，`upstream-headers` 表示从发送请求到收到上游 HTTP 响应头的时间，包含建连。这两项都不是模型首 token 延迟，也不包含请求内容、账号标识或凭据。
 

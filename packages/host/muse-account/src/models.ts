@@ -8,9 +8,7 @@ import type {
   LlmProviderInfo,
   LlmResolvedModelInfo,
   PreparedAdapterCall,
-  GenerateOptions,
   RetryPolicyConfig,
-  StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { Agent, ModelSelection, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
@@ -22,27 +20,13 @@ import { SettingsConflictError } from '@deepseek-ai/dsh-settings'
 import { z } from 'zod'
 import { readMuseSession } from './session.ts'
 import { MuseGatewayError } from './gateway.ts'
-import { clearModelAccess, saveModelAccess } from './model-access.ts'
+import { removeModelAccessFile } from './model-access.ts'
 import { safeMuseModelStream } from './model-errors.ts'
-import { streamWithModelLease } from './model-direct.ts'
 import { MuseModelRequestTrace } from './model-request-trace.ts'
-import { MuseModelUsageReporter, type MuseModelUsageObserver } from './model-usage.ts'
 
-const supplierAccess = z.object({
-  baseURL: z.string().max(2048).refine((value) => {
-    try {
-      const url = new URL(value)
-      return !url.username && !url.password && !url.search && !url.hash
-        && (url.protocol === 'https:' || url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))
-    } catch { return false }
-  }),
-  apiKey: z.string().min(1).max(4096).regex(/^[\x21-\x7e]+$/),
-})
-
+/** Public catalog metadata; any supplier address or credential field a gateway adds is discarded unread. */
 const metadata = z.object({ providers: z.array(z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), name: z.string().min(1).max(200),
-  access: supplierAccess.optional(),
-  transport: z.enum(['relay', 'leased']).optional(),
   models: z.array(z.object({
     id: z.string().min(1).max(200), name: z.string().min(1).max(200),
     contextWindow: z.number().int().positive(), maxTokens: z.number().int().positive(),
@@ -56,13 +40,7 @@ const metadata = z.object({ providers: z.array(z.object({
       context.addIssue({ code: 'custom', path: ['defaultReasoningEffort'], message: 'Model default effort must be offered' })
     }
   })).max(256),
-})).max(100), transport: z.enum(['relay', 'direct']).optional() }).superRefine((data, context) => {
-  if (data.providers.some(provider => provider.transport === 'leased' && provider.id !== 'zhipu-official')
-    || data.providers.some(provider => provider.transport !== undefined ? provider.access !== undefined
-      : data.transport === 'direct' ? !provider.access : provider.access !== undefined)) {
-    context.addIssue({ code: 'custom', message: 'Supplier access must match the negotiated transport' })
-  }
-})
+})).max(100) })
 const modelName = (id: string): string => id.slice(id.lastIndexOf('/') + 1)
 
 type AccountModel = z.infer<typeof metadata>['providers'][number]['models'][number]
@@ -75,8 +53,6 @@ function modelFamily(id: string): string {
   return modelName(id).toLowerCase().replace(/[-.].*$/su, '')
 }
 
-type DirectStream = (options: GenerateOptions, signal: AbortSignal) => AsyncIterable<StreamChunk>
-
 /** Capture account catalog defaults with the same prepared generation as its request stream. */
 class MusePiAiAdapter extends PiAiAdapter {
   constructor(
@@ -85,9 +61,7 @@ class MusePiAiAdapter extends PiAiAdapter {
     private readonly authorizationSignal: () => AbortSignal,
     private readonly providerSelectable: (provider: string) => boolean,
     private readonly modelSelectable: (provider: string, model: string) => boolean,
-    private readonly streamOverride: (provider: string, model: string) => DirectStream | undefined,
     private readonly trace: MuseModelRequestTrace,
-    private readonly usageObserver: (provider: string) => Promise<MuseModelUsageObserver | undefined>,
   ) {
     super(options)
   }
@@ -109,16 +83,14 @@ class MusePiAiAdapter extends PiAiAdapter {
   override async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall> {
     const defaultEffort = this.defaultEffort(provider, model)
     const authorization = this.authorizationSignal()
-    const direct = this.streamOverride(provider, model)
-    const preparedCall = super.prepareCall(provider, model, signal)
-    const [prepared, settled] = await Promise.all([preparedCall, this.usageObserver(provider)])
+    const prepared = await super.prepareCall(provider, model, signal)
     return { ...prepared,
       model: defaultEffort === undefined || prepared.model.reasoning === undefined ? prepared.model
         : { ...prepared.model, reasoning: { ...prepared.model.reasoning, defaultEffort } },
       stream: options => this.trace.stream(options, () => safeMuseModelStream(() => {
         const signal = options.signal === undefined ? authorization : AbortSignal.any([authorization, options.signal])
-        return direct ? direct(options, signal) : prepared.stream({ ...options, signal })
-      }), settled),
+        return prepared.stream({ ...options, signal })
+      })),
     }
   }
 
@@ -145,8 +117,6 @@ export interface MuseModelsOptions {
 export class MuseModels {
   private profiles = new Map<string, ResolvedPiAiProviderProfile>()
   private readonly revisions = new WeakMap<ResolvedPiAiProviderProfile, string>()
-  private readonly keys = new WeakMap<ResolvedPiAiProviderProfile, string>()
-  private readonly leased = new WeakMap<ResolvedPiAiProviderProfile, PiAiProviderProfile>()
   private authorization = new AbortController()
   private defaultEfforts: ReadonlyMap<string, ReasoningEffortId> = new Map()
   private registration: AdapterRegistrationHandle | undefined
@@ -156,7 +126,6 @@ export class MuseModels {
   private readonly stop = new AbortController()
   private readonly adapter: PiAiAdapter
   private readonly trace: MuseModelRequestTrace
-  private readonly usage: MuseModelUsageReporter
   private readonly selectionRepairs = new Set<Promise<void>>()
   private readonly disposeAgentCreated: () => void
   private readonly disposeRequestError: () => void
@@ -169,9 +138,6 @@ export class MuseModels {
   private failoverRoutes: readonly FailoverRoute[] = []
 
   constructor(private readonly ctx: Context, private readonly options: MuseModelsOptions) {
-    this.usage = new MuseModelUsageReporter(options, () => {
-      ctx.logger.warn('Muse direct model token usage could not be saved; account totals may be incomplete.')
-    })
     const trace = this.trace = new MuseModelRequestTrace(options.baseUrl, (record) => { ctx.logger.info(JSON.stringify(record)) })
     const adapterOptions: PiAiAdapterOptions = {
       prepareHeaders: (request, headers) => trace.headers(request,
@@ -185,8 +151,6 @@ export class MuseModels {
         const token = session.cookie.slice(session.cookie.indexOf('=') + 1)
         trace.credential(session.cookie)
         trace.credential(token)
-        const key = this.keys.get(profile)
-        if (key !== undefined) return trace.credential(key)
         if (!/^[A-Za-z0-9_-]+$/.test(token)) throw new LlmError('Muse session is invalid', 'MISSING_CREDENTIAL')
         return trace.credential(token)
       },
@@ -211,14 +175,7 @@ export class MuseModels {
     }
     this.adapter = new MusePiAiAdapter(adapterOptions, (provider, model) => this.defaultEfforts.get(`${provider}:${model}`),
       () => this.authorization.signal, provider => this.providerSelectable(provider),
-      (provider, model) => this.modelSelectable(provider, model),
-      (provider, model) => this.directStream(adapterOptions, provider, model), trace,
-      (provider) => {
-        const profile = this.profiles.get(provider)
-        const revision = profile && this.revisions.get(profile)
-        return profile && revision && (this.keys.has(profile) || this.leased.has(profile))
-          ? this.usage.prepare(revision) : Promise.resolve(undefined)
-      })
+      (provider, model) => this.modelSelectable(provider, model), trace)
     this.disposeAgentCreated = ctx.on('agent/created', async ({ agent, signal }) => {
       await this.repairSelection(agent, signal ?? this.stop.signal)
       return undefined
@@ -282,22 +239,8 @@ export class MuseModels {
       ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }) } }
   }
 
-  private directStream(adapterOptions: PiAiAdapterOptions, provider: string, model: string): DirectStream | undefined {
-    const profile = this.profiles.get(provider)
-    const spec = profile && this.leased.get(profile)
-    const revision = profile && this.revisions.get(profile)
-    if (!spec || !revision) return undefined
-    return (options, signal) => streamWithModelLease({ ...this.options, revision }, model, signal,
-      (access, requestSignal) => {
-        const profiles = resolveProfiles({ [provider]: { ...spec, baseURL: access.baseURL, headers: {} } })
-        const adapter = new PiAiAdapter({ ...adapterOptions, profiles: () => profiles,
-          resolveApiKey: () => Promise.resolve(this.trace.credential(access.apiKey)) })
-        return adapter.stream({ ...options, signal: requestSignal })
-      })
-  }
-
   /**
-   * Withdraw models immediately and await pending catalog, selection, and private-file work.
+   * Withdraw models immediately and await pending catalog and selection work.
    * @returns Completion after every previously queued refresh has settled.
    */
   async dispose(): Promise<void> {
@@ -311,7 +254,7 @@ export class MuseModels {
     this.profiles = new Map()
     this.defaultEfforts = new Map()
     this.failoverRoutes = []
-    await Promise.allSettled([this.queue, ...this.selectionRepairs, this.usage.dispose()])
+    await Promise.allSettled([this.queue, ...this.selectionRepairs])
   }
 
   /**
@@ -324,7 +267,7 @@ export class MuseModels {
     return operation
   }
 
-  private async clear(revision = this.revision): Promise<void> {
+  private clear(): void {
     this.authorization.abort()
     this.authorization = new AbortController()
     this.registration?.replace([])
@@ -333,7 +276,6 @@ export class MuseModels {
     this.failoverRoutes = []
     this.revision = undefined
     this.signature = undefined
-    await clearModelAccess(this.options.sessionFile, this.options.baseUrl, revision, this.stop.signal)
   }
 
   private isStopped(): boolean {
@@ -342,50 +284,33 @@ export class MuseModels {
 
   private async synchronize(): Promise<void> {
     if (this.isStopped()) return
+    await removeModelAccessFile(this.options.sessionFile)
+    if (this.isStopped()) return
     const session = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
     if (this.isStopped()) return
-    if (!session) { await this.clear(); return }
-    if (this.revision !== session.revision) await this.clear()
+    if (!session) { this.clear(); return }
+    if (this.revision !== session.revision) this.clear()
     if (this.isStopped()) return
     if ((await readMuseSession(this.options.sessionFile, this.options.baseUrl))?.revision !== session.revision) return
     if (this.isStopped()) return
     const response = await (this.options.fetcher ?? fetch)(new URL('/api/desktop-models/providers', this.options.baseUrl), {
-      headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1', 'x-muse-provider-routing': 'mixed-v1', 'x-muse-zhipu-direct': 'leased-v1' }, redirect: 'error',
+      headers: { cookie: session.cookie }, redirect: 'error',
       signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
     }).catch(() => { throw new MuseGatewayError('gateway-unavailable') })
     if (response.status === 401) {
       const current = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
       if (current?.revision !== session.revision) return
-      await this.clear(session.revision)
+      this.clear()
       throw new MuseGatewayError('gateway-rejected')
     }
     if (!response.ok) throw new MuseGatewayError('gateway-unavailable')
-    let text = await response.text()
-    if (text.length > 2 * 1024 * 1024) throw new MuseGatewayError('gateway-rejected')
-    let announcement: unknown
-    try { announcement = JSON.parse(text) } catch { throw new MuseGatewayError('gateway-rejected') }
-    if (typeof announcement === 'object' && announcement !== null && Reflect.get(announcement, 'transport') === 'direct') {
-      const access = await (this.options.fetcher ?? fetch)(new URL('/api/desktop-models/access', this.options.baseUrl), {
-        headers: { cookie: session.cookie, 'x-muse-model-access': 'direct-v1', 'x-muse-provider-routing': 'mixed-v1', 'x-muse-zhipu-direct': 'leased-v1' }, redirect: 'error',
-        signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
-      }).catch(() => { throw new MuseGatewayError('gateway-unavailable') })
-      if (access.status === 401) {
-        const current = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
-        if (current?.revision !== session.revision) return
-        await this.clear(session.revision)
-        throw new MuseGatewayError('gateway-rejected')
-      }
-      if (!access.ok) throw new MuseGatewayError('gateway-unavailable')
-      text = await access.text()
-    }
+    const text = await response.text()
     if (text.length > 2 * 1024 * 1024) throw new MuseGatewayError('gateway-rejected')
     let data: z.infer<typeof metadata>
     try { data = metadata.parse(JSON.parse(text)) } catch { throw new MuseGatewayError('gateway-rejected') }
-    if (typeof announcement === 'object' && announcement !== null && Reflect.get(announcement, 'transport') === 'direct'
-      && data.transport !== 'direct') throw new MuseGatewayError('gateway-rejected')
     const current = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
     this.stop.signal.throwIfAborted()
-    if (current?.revision !== session.revision) { await this.clear(); return }
+    if (current?.revision !== session.revision) { this.clear(); return }
     const signature = JSON.stringify(data)
     if (signature === this.signature && session.revision === this.revision) {
       await this.repairLiveSelections()
@@ -408,8 +333,8 @@ export class MuseModels {
       }
       providers[id] = {
         displayName: `Muse · ${provider.name}`, api: 'openai-completions',
-        baseURL: provider.access?.baseURL ?? `${this.options.baseUrl}/api/desktop-models/${provider.id}`,
-        ...(provider.access === undefined ? { headers: { origin: this.options.baseUrl } } : {}),
+        baseURL: `${this.options.baseUrl}/api/desktop-models/${provider.id}`,
+        headers: { origin: this.options.baseUrl },
         ...(this.options.modelRequestImageMaxBytes === undefined ? {}
           : { maxRequestImageBytes: this.options.modelRequestImageMaxBytes }),
         ...(this.options.modelRetryPolicy === undefined ? {} : { retryPolicy: this.options.modelRetryPolicy }),
@@ -439,24 +364,7 @@ export class MuseModels {
       }
     }
     const candidate = resolveProfiles(providers)
-    for (const [id, profile] of candidate) {
-      this.revisions.set(profile, session.revision)
-      const key = data.providers.find(provider => `muse-cloud-${provider.id}` === id)?.access?.apiKey
-      if (key !== undefined) this.keys.set(profile, key)
-      if (data.providers.some(provider => `muse-cloud-${provider.id}` === id && provider.transport === 'leased')) {
-        this.leased.set(profile, { ...providers[id] })
-      }
-    }
-    if (data.transport === 'direct') {
-      const access = data.providers.flatMap(provider => provider.access && candidate.has(`muse-cloud-${provider.id}`)
-        ? [{ id: provider.id, access: provider.access }] : [])
-      const accepted = await saveModelAccess(this.options.sessionFile, this.options.baseUrl, session.revision, access, this.stop.signal)
-      if (this.isStopped()) return
-      if (!accepted) { await this.clear(); return }
-    } else await clearModelAccess(this.options.sessionFile, this.options.baseUrl, session.revision, this.stop.signal)
-    const publishedSession = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
-    if (this.isStopped()) return
-    if (publishedSession?.revision !== session.revision) { await this.clear(); return }
+    for (const profile of candidate.values()) this.revisions.set(profile, session.revision)
     const previous = this.profiles
     const previousDefaults = this.defaultEfforts
     const previousRoutes = this.failoverRoutes

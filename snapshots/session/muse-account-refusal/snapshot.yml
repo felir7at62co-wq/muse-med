@@ -1,5 +1,5 @@
 version: 1
-scenario: muse-direct-account-refusal
+scenario: muse-account-refusal
 profile: headless
 composition: muse-selected-account-models
 recording: authored
@@ -7,5 +7,4 @@ header:
   class: muse-selected-account-models
 writerOutput: true
 environment:
-  DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS: "true"
   DSH_SNAPSHOT_SUPPLIER_REFUSAL: "true"

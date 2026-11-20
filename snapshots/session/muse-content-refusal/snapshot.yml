@@ -7,7 +7,6 @@ header:
   class: muse-selected-account-models
 writerOutput: true
 environment:
-  DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS: "true"
   DSH_SNAPSHOT_CONTENT_REFUSAL: "true"
 workspace:
   final: true

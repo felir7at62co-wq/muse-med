@@ -44,15 +44,11 @@ it.each([
     ...official ? { defaultReasoningEffort: 'max' } : {},
   }] }] }
   const sessionFile = join(home, 'session.json')
-  const baseUrl = 'https://muse.test'
+  const baseUrl = server.url
   await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=alice-session' })
   const fixture = await oldSessionFixture(false, home)
   const models = new MuseModels(fixture.ctx, { baseUrl, sessionFile, requestTimeoutMs: 1000,
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
-      ? { ...catalog, transport: 'direct' }
-      : { transport: 'direct', providers: catalog.providers.map(entry => ({ ...entry,
-        access: { baseURL: `${server.url}/api/paas/v4`, apiKey: 'glm-thinking-fixture-key' } })) }),
-  })
+    fetcher: async () => Response.json(catalog) })
   onTestFinished(() => models.dispose())
   fixture.ctx.effect(() => fixture.ctx.tools.register(defineContentToolFixture({ name: 'catalog_probe',
     description: 'Read the acceptance probe result.', parameters: {},
@@ -65,7 +61,7 @@ it.each([
   await idle
   expect(fixture.agent.session.snapshotEvents().filter(event => event.type === 'turn/end'))
     .toMatchObject([{ data: { reason: { kind: 'completed' } } }])
-  expect(server.paths).toEqual(Array.from({ length: 2 }, () => '/api/paas/v4/chat/completions'))
+  expect(server.paths).toEqual(Array.from({ length: 2 }, () => `/api/desktop-models/${provider}/chat/completions`))
   expect(server.requests).toHaveLength(2)
   for (const request of server.requests) {
     expect(request).toMatchObject({ model, max_tokens: 128000 })

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -8,7 +8,6 @@ import LlmRuntime, { createAssistantMessage, createToolResultMessage, createUser
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { MuseModels } from '../src/models.ts'
-import * as modelAccess from '../src/model-access.ts'
 import { inject as accountInject } from '../src/index.ts'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
@@ -57,184 +56,89 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 const sessionFile = (): string => join(root, 'session.json')
-async function login(username = 'alice'): Promise<void> {
-  await writeMuseSession(sessionFile(), { baseUrl, username, cookie: `__Host-muse=${username}-session` })
+async function login(username = 'alice', origin = baseUrl): Promise<void> {
+  await writeMuseSession(sessionFile(), { baseUrl: origin, username, cookie: `__Host-muse=${username}-session` })
 }
+const retiredAccessFile = (): string => join(root, 'model-access.json')
+const pathOf = (url: Parameters<typeof fetch>[0]): string => new URL(url instanceof Request ? url.url : url).pathname
 
-it('negotiates direct supplier streaming and stores private access outside the conversation', async () => {
-  const server = await mockServer([{ events: textEvents }, { events: textEvents }])
-  await login()
-  let key = 'supplier-test-key'
-  const calls: string[] = []
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async (url, init) => {
-      expect(new Headers(init?.headers).get('cookie')).toBe('__Host-muse=alice-session')
-      expect(new Headers(init?.headers).get('x-muse-model-access')).toBe('direct-v1')
-      const path = new URL(url instanceof Request ? url.url : url).pathname
-      calls.push(path)
-      return Response.json(path.endsWith('/providers') ? { ...catalog, transport: 'direct' }
-        : { transport: 'direct', providers: catalog.providers.map(provider => ({ ...provider, access: { baseURL: server.url + '/v1', apiKey: key } })) })
-    } })
-  await models.refresh()
-  const file = join(root, 'model-access.json')
-  expect(JSON.parse(await readFile(file, 'utf8'))).toMatchObject({ baseUrl, providers: [{ id: 'studio', access: { apiKey: key } }] })
-  if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600)
-  const prepared = await ctx.llm.prepareCall({ provider: 'muse-cloud-studio', model: 'writer' })
-  key = 'rotated-supplier-test-key'; await models.refresh()
-  for await (const _chunk of prepared.stream({ ...prepared.config, messages: [] })) { /* Drain the frozen request. */ }
-  const result = await assemble(ctx, { provider: 'muse-cloud-studio', model: 'writer', messages: [] })
-  expect(result.finish).toEqual({ kind: 'stop' })
-  expect(calls).toEqual(['/api/desktop-models/providers', '/api/desktop-models/access', '/api/desktop-models/providers', '/api/desktop-models/access'])
-  expect(server.paths).toEqual(['/v1/chat/completions', '/v1/chat/completions'])
-  expect(server.headers.map(headers => headers.authorization)).toEqual(['Bearer supplier-test-key', 'Bearer rotated-supplier-test-key'])
-  expect(server.headers.every(headers => headers.cookie === undefined && headers.origin === undefined)).toBe(true)
-  expect(JSON.stringify(result)).not.toContain('supplier-test-key')
+it.each(['signed-out', 'signed-in'] as const)('deletes a retired model-access.json beside the session on every %s refresh', async (state) => {
+  if (state === 'signed-in') await login()
   const session = await readMuseSession(sessionFile(), baseUrl)
-  if (!session) throw new Error('Missing account')
-  await clearMuseSessionIfUnchanged(sessionFile(), session); await models.refresh()
-  await expect(readFile(file)).rejects.toMatchObject({ code: 'ENOENT' })
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(catalog) })
+  for (const _refresh of [1, 2]) {
+    await writeFile(retiredAccessFile(), JSON.stringify({ baseUrl: session === null ? 'fixture' : baseUrl,
+      revision: session?.revision ?? 'fixture', providers: [{ id: 'studio', access: { baseURL: 'fixture', apiKey: 'fixture' } }] }))
+    await models.refresh()
+    await expect(readFile(retiredAccessFile())).rejects.toMatchObject({ code: 'ENOENT' })
+  }
+  expect(ctx.llm.listProviders().map(provider => provider.id))
+    .toEqual(state === 'signed-in' ? ['personal', 'muse-cloud-studio'] : ['personal'])
 })
 
-it('cancels a direct stream when its account logs out', async () => {
-  const server = await mockServer([{ events: textEvents.slice(0, 2), holdOpen: true }])
+it('rejects a refresh whose retired model-access.json path cannot be removed', async () => {
   await login()
+  await mkdir(retiredAccessFile())
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json(catalog))
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, fetcher })
+  await expect(models.refresh()).rejects.toMatchObject({ code: 'ERR_FS_EISDIR' })
+  expect(fetcher).not.toHaveBeenCalled()
+  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal'])
+})
+
+it('requests the provider catalog with only the account cookie', async () => {
+  await login()
+  const requests: { method: string; path: string; headers: [string, string][] }[] = []
   models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers') ? { ...catalog, transport: 'direct' }
-      : { transport: 'direct', providers: catalog.providers.map(provider => ({ ...provider, access: { baseURL: server.url, apiKey: 'direct-test-key' } })) }) })
+    fetcher: async (url, init) => {
+      requests.push({ method: init?.method ?? 'GET', path: pathOf(url), headers: [...new Headers(init?.headers).entries()] })
+      return Response.json(catalog)
+    } })
+  await models.refresh()
+  expect(requests).toEqual([{ method: 'GET', path: '/api/desktop-models/providers',
+    headers: [['cookie', '__Host-muse=alice-session']] }])
+})
+
+it('streams through the account relay when a catalog carries supplier transport and access fields', async () => {
+  const gateway = await mockServer([{ events: textEvents }, { events: textEvents }])
+  const supplier = await mockServer([])
+  await login('alice', gateway.url)
+  const requested: string[] = []
+  models = new MuseModels(ctx, { baseUrl: gateway.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async (url, init) => {
+      requested.push(`${init?.method ?? 'GET'} ${pathOf(url)}`)
+      return Response.json({ transport: 'direct', providers: [
+        { ...catalog.providers[0], transport: 'direct', access: { baseURL: `${supplier.url}/v1`, apiKey: 'fixture-supplier-key' } },
+        { ...catalog.providers[0], id: 'zhipu-official', transport: 'leased' },
+      ] })
+    } })
+  await models.refresh()
+  for (const provider of ['muse-cloud-studio', 'muse-cloud-zhipu-official']) {
+    expect((await assemble(ctx, { provider, model: 'writer', messages: [] })).finish).toEqual({ kind: 'stop' })
+  }
+  await models.refresh()
+  expect(requested).toEqual(['GET /api/desktop-models/providers', 'GET /api/desktop-models/providers'])
+  expect(gateway.paths).toEqual(['/api/desktop-models/studio/chat/completions', '/api/desktop-models/zhipu-official/chat/completions'])
+  expect(gateway.headers.map(headers => [headers.authorization, headers.origin]))
+    .toEqual(Array.from({ length: 2 }, () => ['Bearer alice-session', gateway.url]))
+  expect(supplier.paths).toEqual([])
+  await expect(readFile(retiredAccessFile())).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('cancels an account stream when its account logs out', async () => {
+  const server = await mockServer([{ events: textEvents.slice(0, 2), holdOpen: true }])
+  await login('alice', server.url)
+  models = new MuseModels(ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(catalog) })
   await models.refresh()
   const result = assemble(ctx, { provider: 'muse-cloud-studio', model: 'writer', messages: [] })
   await server.requestReceived
-  const session = await readMuseSession(sessionFile(), baseUrl)
+  const session = await readMuseSession(sessionFile(), server.url)
   if (!session) throw new Error('Missing account')
   await clearMuseSessionIfUnchanged(sessionFile(), session); await models.refresh()
   expect((await result).finish).toMatchObject({ kind: 'aborted' })
   await server.responseClosed
-})
-
-it('rejects missing or unsafe direct access without falling back to relay', async () => {
-  await login()
-  let access: unknown = { ...catalog, transport: 'direct' }
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers') ? { ...catalog, transport: 'direct' } : access) })
-  await expect(models.refresh()).rejects.toThrow('gateway-rejected')
-  access = { ...catalog, transport: 'direct', providers: catalog.providers.map(provider => ({ ...provider,
-    access: { baseURL: 'http://public-provider.test/v1', apiKey: 'test-key' } })) }
-  await expect(models.refresh()).rejects.toThrow('gateway-rejected')
-  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal'])
-  await expect(readFile(join(root, 'model-access.json'))).rejects.toMatchObject({ code: 'ENOENT' })
-})
-
-it.each(['network', 'unauthorized', 'unavailable', 'malformed', 'oversized', 'downgrade', 'invalid-url'])(
-  'refuses %s supplier access and never publishes its credentials', async (failure) => {
-    await login()
-    vi.stubGlobal('fetch', async (url: URL) => {
-      if (new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')) return Response.json({ ...catalog, transport: 'direct' })
-      if (failure === 'network') throw new Error('secret-upstream-diagnostic')
-      if (failure === 'unauthorized') return new Response('', { status: 401 })
-      if (failure === 'unavailable') return new Response('', { status: 503 })
-      if (failure === 'malformed') return new Response('{')
-      if (failure === 'oversized') return new Response(' '.repeat(2 * 1024 * 1024 + 1))
-      if (failure === 'downgrade') return Response.json(catalog)
-      return Response.json({ transport: 'direct', providers: catalog.providers.map(provider => ({ ...provider,
-        access: { baseURL: 'not-a-url', apiKey: 'test-key' } })) })
-    })
-    models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000 })
-    await expect(models.refresh()).rejects.toThrow(/^MUSE account gateway: gateway-(?:unavailable|rejected)$/)
-    if (failure === 'unauthorized') {
-      expect(await readMuseSession(sessionFile(), baseUrl)).toMatchObject({ username: 'alice' })
-    }
-    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal'])
-    await expect(readFile(join(root, 'model-access.json'))).rejects.toMatchObject({ code: 'ENOENT' })
-  },
-)
-
-it('keeps the session but removes matching direct access when the access endpoint returns 401 after restart', async () => {
-  await login()
-  let rejectAccess = false
-  const fetcher: typeof fetch = async (url) => {
-    const path = new URL(url instanceof Request ? url.url : url).pathname
-    if (path.endsWith('/providers')) return Response.json({ ...catalog, transport: 'direct' })
-    return rejectAccess ? new Response('', { status: 401 }) : Response.json({ transport: 'direct',
-      providers: catalog.providers.map(provider => ({ ...provider,
-        access: { baseURL: 'https://provider.test/v1', apiKey: 'direct-test-key' } })) })
-  }
-  const accessFile = join(root, 'model-access.json')
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, fetcher })
-  await models.refresh()
-  expect(JSON.parse(await readFile(accessFile, 'utf8'))).toMatchObject({ providers: [{ access: { apiKey: 'direct-test-key' } }] })
-  await models.dispose()
-
-  rejectAccess = true
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, fetcher })
-  await expect(models.refresh()).rejects.toMatchObject({ code: 'gateway-rejected' })
-  expect(await readMuseSession(sessionFile(), baseUrl)).toMatchObject({ username: 'alice' })
-  await expect(readFile(accessFile)).rejects.toMatchObject({ code: 'ENOENT' })
-  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal'])
-
-  rejectAccess = false
-  await models.refresh()
-  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal', 'muse-cloud-studio'])
-})
-
-it('ignores an old revision access 401 without deleting or withdrawing a newer login', async () => {
-  await login()
-  let mode: 'ready' | 'stale' | 'recovered' = 'ready'
-  let entered!: () => void, release!: () => void
-  const started = new Promise<void>((resolve) => { entered = resolve })
-  const gate = new Promise<void>((resolve) => { release = resolve })
-  const fetcher: typeof fetch = async (url) => {
-    const path = new URL(url instanceof Request ? url.url : url).pathname
-    if (path.endsWith('/providers')) return Response.json({ ...catalog, transport: 'direct' })
-    if (mode === 'stale') { entered(); await gate; return new Response('', { status: 401 }) }
-    return Response.json({ transport: 'direct', providers: catalog.providers.map(provider => ({ ...provider,
-      access: { baseURL: 'https://provider.test/v1', apiKey: mode === 'recovered' ? 'bob-key' : 'alice-key' } })) })
-  }
-  const accessFile = join(root, 'model-access.json')
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, fetcher })
-  await models.refresh()
-
-  mode = 'stale'
-  const stale = models.refresh()
-  await started
-  await login('bob')
-  const bob = await readMuseSession(sessionFile(), baseUrl)
-  if (!bob) throw new Error('Missing replacement account')
-  await modelAccess.saveModelAccess(sessionFile(), baseUrl, bob.revision, [{ id: 'studio',
-    access: { baseURL: 'https://provider.test/v1', apiKey: 'bob-key' } }])
-  release()
-
-  await expect(stale).resolves.toBeUndefined()
-  expect(await readMuseSession(sessionFile(), baseUrl)).toMatchObject({ username: 'bob' })
-  expect(JSON.parse(await readFile(accessFile, 'utf8'))).toMatchObject({ revision: bob.revision,
-    providers: [{ access: { apiKey: 'bob-key' } }] })
-  expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('muse-cloud-studio')
-
-  mode = 'recovered'
-  await models.refresh()
-  expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('muse-cloud-studio')
-  expect(await readMuseSession(sessionFile(), baseUrl)).toMatchObject({ username: 'bob' })
-})
-
-it('does not distribute excluded supplier credentials and rejects issuance raced by a new login', async () => {
-  await login()
-  const access = { transport: 'direct', providers: catalog.providers.map(provider => ({ ...provider,
-    access: { baseURL: 'https://provider.test/v1', apiKey: 'test-key' } })) }
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    excludedModelPrefixes: ['writer'],
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers') ? { ...catalog, transport: 'direct' } : access) })
-  await models.refresh()
-  const stored: unknown = JSON.parse(await readFile(join(root, 'model-access.json'), 'utf8'))
-  expect(stored).toMatchObject({ providers: [] })
-  await models.dispose()
-  const save = modelAccess.saveModelAccess
-  vi.spyOn(modelAccess, 'saveModelAccess').mockImplementation(async (...args) => {
-    await login('bob')
-    return await save(...args)
-  })
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers') ? { ...catalog, transport: 'direct' } : access) })
-  await models.refresh()
-  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal'])
 })
 
 it('adds Muse models beside a personal adapter and removes only Muse on logout', async () => {
@@ -269,21 +173,13 @@ it('does not publish catalog fetched for an account that changed during the requ
 it('withdraws Muse routes without deleting the account session when the provider catalog returns 401', async () => {
   await login()
   let rejectProviders = false
-  const accessFile = join(root, 'model-access.json')
   models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async (url) => {
-      const path = new URL(url instanceof Request ? url.url : url).pathname
-      if (path.endsWith('/providers')) return rejectProviders ? new Response('', { status: 401 })
-        : Response.json({ ...catalog, transport: 'direct' })
-      return Response.json({ transport: 'direct', providers: catalog.providers.map(provider => ({ ...provider,
-        access: { baseURL: 'https://provider.test/v1', apiKey: 'direct-test-key' } })) })
-    } })
+    fetcher: async () => rejectProviders ? new Response('', { status: 401 }) : Response.json(catalog) })
   await models.refresh()
-  expect(JSON.parse(await readFile(accessFile, 'utf8'))).toMatchObject({ providers: [{ access: { apiKey: 'direct-test-key' } }] })
+  expect(ctx.llm.listProviders().map(p => p.id)).toContain('muse-cloud-studio')
   rejectProviders = true
   await expect(models.refresh()).rejects.toMatchObject({ code: 'gateway-rejected' })
   expect(await readMuseSession(sessionFile(), baseUrl)).toMatchObject({ username: 'alice' })
-  await expect(readFile(accessFile)).rejects.toMatchObject({ code: 'ENOENT' })
   expect(ctx.llm.listProviders().map(p => p.id)).toEqual(['personal'])
   rejectProviders = false
   await models.refresh()
@@ -425,12 +321,9 @@ it.each(['deepseek-flash', 'deepseek-v4.1-flash-261017'])(
     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
     const providers = suppliedCatalog.providers.map(provider => provider.id === 'deepseek-official'
       ? { ...provider, models: provider.models.map(model => ({ ...model, id: modelId })) } : provider)
-    await login()
-    models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-      fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
-        ? { providers, transport: 'direct' }
-        : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
-          access: { baseURL: `${server.url}/v1`, apiKey: 'test-only-key' } })) }) })
+    await login('alice', server.url)
+    models = new MuseModels(fixture.ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      fetcher: async () => Response.json({ providers }) })
     try {
       await models.refresh()
       fixture.agent.model.select({ provider: 'muse-cloud-deepseek-official', model: modelId })
@@ -443,7 +336,7 @@ it.each(['deepseek-flash', 'deepseek-v4.1-flash-261017'])(
         await idle
       }
       const [first, second] = server.requests as { messages: { role: string; content: unknown }[] }[]
-      expect(server.paths).toEqual(['/v1/chat/completions', '/v1/chat/completions'])
+      expect(server.paths).toEqual(Array.from({ length: 2 }, () => '/api/desktop-models/deepseek-official/chat/completions'))
       expect(second!.messages.slice(0, first!.messages.length)).toEqual(first!.messages)
       expect(second!.messages.filter(message => message.role === 'system')).toHaveLength(2)
     } finally { await fixture.ctx.fiber.dispose() }
@@ -622,22 +515,21 @@ it('exposes only the allowed Yunying model while retaining hidden model routes',
 
 it('streams Gemini and a saved hidden Yunying model through their original provider route', async () => {
   const server = await mockServer([{ events: textEvents }, { events: textEvents }])
-  await login()
+  await login('alice', server.url)
   const entry = suppliedCatalog.providers[0]!.models[0]!
   const provider = { id: 'yunying', name: '云映', models: ['gpt-6-sol', 'gemini-3.1-pro']
     .map(id => ({ ...entry, id, name: id })) }
   models = new MuseModels(ctx, {
-    baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     hiddenProviderIds: ['yunying'], visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' }],
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
-      ? { transport: 'direct', providers: [provider] }
-      : { transport: 'direct', providers: [{ ...provider, access: { baseURL: server.url + '/v1', apiKey: 'fixture-key' } }] }),
+    fetcher: async () => Response.json({ providers: [provider] }),
   })
   await models.refresh()
   for (const model of ['gemini-3.1-pro', 'gpt-6-sol']) {
     expect((await assemble(ctx, { provider: 'muse-cloud-yunying', model, messages: [] })).finish).toEqual({ kind: 'stop' })
   }
   expect(server.requests).toEqual([expect.objectContaining({ model: 'gemini-3.1-pro' }), expect.objectContaining({ model: 'gpt-6-sol' })])
+  expect(server.paths).toEqual(Array.from({ length: 2 }, () => '/api/desktop-models/yunying/chat/completions'))
 })
 
 it.each(['plugin', 'desktop'] as const)('routes an existing unconfigured direct session through the %s Muse scope and records the actual selection and request', async (composition) => {
@@ -1304,82 +1196,6 @@ it('repairs only Agents covered by the account plugin scope', async () => {
   expect(other.model.current()).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
 })
 
-it('routes a pooled provider through Muse while another provider streams directly', async () => {
-  const server = await mockServer([{ events: textEvents }, { events: textEvents }])
-  await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
-  const providers = [
-    { ...catalog.providers[0], access: { baseURL: server.url + '/v1', apiKey: 'direct-studio-key' } },
-    { ...catalog.providers[0], id: 'zhipu-official', transport: 'relay' },
-  ]
-  models = new MuseModels(ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async (_url, init) => {
-      expect(new Headers(init?.headers).get('x-muse-provider-routing')).toBe('mixed-v1')
-      return Response.json({ transport: 'direct', providers })
-    } })
-  await models.refresh()
-  expect((await assemble(ctx, { provider: 'muse-cloud-studio', model: 'writer', messages: [] })).finish).toEqual({ kind: 'stop' })
-  expect((await assemble(ctx, { provider: 'muse-cloud-zhipu-official', model: 'writer', messages: [] })).finish).toEqual({ kind: 'stop' })
-  expect(server.paths).toEqual(['/v1/chat/completions', '/api/desktop-models/zhipu-official/chat/completions'])
-  expect(server.headers.map(headers => headers.authorization)).toEqual(['Bearer direct-studio-key', 'Bearer alice-session'])
-  expect(server.headers[0]?.origin).toBeUndefined()
-  expect(server.headers[1]?.origin).toBe(server.url)
-  const stored: unknown = JSON.parse(await readFile(join(root, 'model-access.json'), 'utf8'))
-  expect(stored).toMatchObject({ baseUrl: server.url,
-    providers: [{ id: 'studio', access: { baseURL: server.url + '/v1', apiKey: 'direct-studio-key' } }] })
-})
-
-it('rejects supplier credentials attached to an explicitly pooled relay route', async () => {
-  await login()
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async () => Response.json({ transport: 'direct', providers: [{ ...catalog.providers[0], transport: 'relay',
-      access: { baseURL: 'https://provider.test/v1', apiKey: 'must-not-be-issued' } }] }) })
-  await expect(models.refresh()).rejects.toMatchObject({ code: 'gateway-rejected' })
-  expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['personal'])
-})
-
-it('streams leased Zhipu directly with a fresh per-request token while keeping the model history credential-free', async () => {
-  const supplier = await mockServer([{ events: textEvents }, { events: textEvents }])
-  await login()
-  const calls: string[] = []
-  let admitted = 0
-  const glm = { ...catalog.providers[0]!, id: 'zhipu-official', name: 'GLM', transport: 'leased' }
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async (url, init) => {
-      const path = new URL(url instanceof Request ? url.url : url).pathname
-      calls.push(`${init?.method ?? 'GET'} ${path}`)
-      expect(new Headers(init?.headers).get('x-muse-zhipu-direct')).toBe('leased-v1')
-      if (path.endsWith('/providers')) return Response.json({ ...catalog, transport: 'direct' })
-      if (path.endsWith('/access')) return Response.json({ transport: 'direct', providers: [glm] })
-      if (init?.method === 'POST') {
-        admitted++
-        expect(JSON.parse(typeof init.body === 'string' ? init.body : '')).toEqual({ model: 'writer' })
-        return Response.json({ id: 'c0b928a2-9bea-416b-80f0-cbd051fba1c9', apiKey: `temporary-token-${admitted}`,
-          baseURL: supplier.url + '/v1', deadline: Date.now() + 60000, requestMs: 60000, checkMs: 1000 })
-      }
-      return Response.json({ released: true })
-    } })
-  await models.refresh()
-  const prepared = await ctx.llm.prepareCall({ provider: 'muse-cloud-zhipu-official', model: 'writer' })
-  expect(admitted).toBe(0)
-  const output: StreamChunk[] = []
-  for await (const chunk of prepared.stream({ ...prepared.config, messages: [] })) output.push(chunk)
-  const next = await assemble(ctx, { provider: 'muse-cloud-zhipu-official', model: 'writer', messages: [] })
-  expect(next.finish).toEqual({ kind: 'stop' })
-  expect(supplier.headers.map(header => header.authorization)).toEqual(['Bearer temporary-token-1', 'Bearer temporary-token-2'])
-  expect(supplier.headers.every(header => header.cookie === undefined && header.origin === undefined)).toBe(true)
-  expect(calls.filter(call => call.startsWith('DELETE'))).toHaveLength(2)
-  expect(await readFile(join(root, 'model-access.json'), 'utf8')).not.toContain('temporary-token')
-  expect(JSON.stringify(output)).not.toContain('temporary-token')
-})
-
-it('refuses a leased route assigned to a supplier other than official Zhipu', async () => {
-  await login()
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
-      ? { ...catalog, transport: 'direct' } : { transport: 'direct', providers: [{ ...catalog.providers[0], transport: 'leased' }] }) })
-  await expect(models.refresh()).rejects.toThrow()
-})
-
 it('requests Google thought summaries only for the exact Yunying Gemini route', async () => {
   const events = [
     '{"choices":[{"delta":{"role":"assistant"},"index":0,"finish_reason":null}]}',
@@ -1398,18 +1214,15 @@ it('requests Google thought summaries only for the exact Yunying Gemini route', 
     JSON.stringify({ choices: [], usage: { balance_rmb: 10, cost_currency: 'CNY', cost_rmb: 0.01 } }), '[DONE]',
   ]
   const server = await mockServer([{ events }, { events }, { events }, { events }, { events: toolEvents }, { events }])
-  await login()
+  await login('alice', server.url)
   const base = suppliedCatalog.providers[0]!.models[0]!
   const providers = [
     { id: 'yunying', name: '云映', models: ['gemini-3.1-pro', 'gpt-6.1-sol'].map(id => ({ ...base, id, name: id })) },
     { id: 'deepseek-official', name: 'DeepSeek', models: [{ ...base, id: 'deepseek-flash', name: 'DeepSeek Flash' }] },
     { id: 'volcengine', name: '火山', models: [{ ...base, id: 'glm-5.3-flash', name: 'GLM Flash' }] },
   ]
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
-      ? { providers, transport: 'direct' }
-      : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
-        access: { baseURL: server.url, apiKey: 'fake-test-key' } })) }) })
+  models = new MuseModels(ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json({ providers }) })
   await models.refresh()
   const gemini = await assemble(ctx, { provider: 'muse-cloud-yunying', model: 'gemini-3.1-pro', messages: [] })
   expect(gemini.finish).toEqual({ kind: 'stop' })
@@ -1443,7 +1256,7 @@ it('keeps the Yunying Sol high reasoning default through tool continuation and s
       usage: { prompt_tokens: 30, completion_tokens: 12, total_tokens: 42 } }), '[DONE]',
   ]
   const server = await mockServer([{ events }, ...Array.from({ length: 5 }, () => ({ events: textEvents }))])
-  await login()
+  await login('alice', server.url)
   const base = { contextWindow: 128000, maxTokens: 8192, input: ['text'] }
   const sol = { ...base, id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol',
     reasoningEfforts: { high: 'high' }, defaultReasoningEffort: 'high' }
@@ -1456,11 +1269,8 @@ it('keeps the Yunying Sol high reasoning default through tool continuation and s
       reasoningEfforts: { low: 'low', high: 'high', max: 'max' }, defaultReasoningEffort: 'max' }] },
     { id: 'studio', name: 'Studio', models: [sol] },
   ]
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
-      ? { providers, transport: 'direct' }
-      : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
-        access: { baseURL: server.url, apiKey: 'sol-reasoning-fixture-key' } })) }) })
+  models = new MuseModels(ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json({ providers }) })
   await models.refresh()
   const request = { provider: 'muse-cloud-yunying', model: 'gpt-6.1-sol' }
   const prepared = await ctx.llm.prepareCall(request)
@@ -1502,7 +1312,8 @@ it('keeps the Yunying Sol high reasoning default through tool continuation and s
   expect(server.requests[3]).toMatchObject({ reasoning_effort: 'low', thinking: { type: 'enabled' } })
   expect(server.requests[4]).toMatchObject({ reasoning_effort: 'max', thinking: { type: 'enabled', clear_thinking: false } })
   for (const wire of server.requests.slice(3)) expect(wire).not.toHaveProperty('extra_body')
-  expect(server.paths).toEqual(Array.from({ length: 6 }, () => '/chat/completions'))
+  expect(server.paths).toEqual([...Array.from({ length: 3 }, () => 'yunying'), 'deepseek-official', 'zhipu-official', 'studio']
+    .map(provider => `/api/desktop-models/${provider}/chat/completions`))
 })
 
 it.each([
@@ -1516,7 +1327,7 @@ it.each([
   ['gemini-3.1-pro', 'high'],
 ] as const)('sends selected Yunying %s effort %s without changing the model default', async (model, effort) => {
   const server = await mockServer([{ events: textEvents }])
-  await login()
+  await login('alice', server.url)
   const base = { contextWindow: 128000, maxTokens: 8192, input: ['text'] }
   const providers = [{ id: 'yunying', name: '云映', models: [
     { ...base, id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol',
@@ -1525,11 +1336,8 @@ it.each([
       reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' } },
   ] }]
   const originalProviders = structuredClone(providers)
-  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
-      ? { providers, transport: 'direct' }
-      : { transport: 'direct', providers: providers.map(provider => ({ ...provider,
-        access: { baseURL: server.url, apiKey: 'yunying-effort-fixture-key' } })) }) })
+  models = new MuseModels(ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json({ providers }) })
   await models.refresh()
   const request = { provider: 'muse-cloud-yunying', model }
   const defaultBefore = await ctx.llm.prepareCall(request)

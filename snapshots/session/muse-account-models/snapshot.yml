@@ -1,5 +1,5 @@
 version: 1
-scenario: muse-direct-account-models
+scenario: muse-account-models
 profile: headless
 composition: muse-selected-account-models
 recording: authored
@@ -8,5 +8,3 @@ header:
   pin: true
   toolSchemasSource: muse-selected-account-models
 writerOutput: true
-environment:
-  DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS: "true"

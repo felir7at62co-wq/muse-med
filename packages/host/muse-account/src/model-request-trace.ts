@@ -107,11 +107,9 @@ export class MuseModelRequestTrace {
   /** Wrap every iterator operation in its own async context, including suspended generator resumption.
    * @param options - Exact request routing; messages, tools and credentials are never retained.
    * @param source - Deferred adapter stream, preserving its prepared route and cancellation.
-   * @param settled - Optional content-free terminal observer; omission reports diagnostics only.
    * @returns Byte-for-byte chunk stream with one UUID per consumed iterator and a bounded terminal receipt.
    */
-  stream(options: GenerateOptions<string>, source: () => AsyncIterable<StreamChunk>,
-    settled?: (record: MuseModelRequestMetadata) => void): AsyncIterable<StreamChunk> {
+  stream(options: GenerateOptions<string>, source: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> {
     const route = { session_id: options.sessionId ?? null, provider: options.provider,
       model: options.model, purpose: options.purpose ?? null }
     return { [Symbol.asyncIterator]: (): AsyncIterator<StreamChunk> => {
@@ -127,12 +125,9 @@ export class MuseModelRequestTrace {
         if (finished) return
         finished = true
         run(() => {
-          const record: MuseModelRequestMetadata = { event: 'model_client_request_metadata', phase: 'finish', ...identity, outcome,
+          this.emit({ event: 'model_client_request_metadata', phase: 'finish', ...identity, outcome,
             response_id: this.identifier(response?.responseId, 'id'), response_model: this.identifier(response?.responseModel, 'model'),
-            response_stop: response?.stopReason ?? null, stop, ...usage === undefined ? {} : { usage } }
-          this.emit(record)
-          try { settled?.(record) }
-          catch (_error) { /* Receipt diagnostics cannot change the consumed model stream. */ }
+            response_stop: response?.stopReason ?? null, stop, ...usage === undefined ? {} : { usage } })
         })
         context.credentials.clear()
         this.active.delete(context)

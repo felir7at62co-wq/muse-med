@@ -62,13 +62,6 @@ function createLedger({startedAt,entries=[],save=async()=>{},now=Date.now}){
    return record({accountId,id:metadata.server_request_id,at:new Date(now()).toISOString(),provider:metadata.route,model:metadata.requested_model,
     status:metadata.client_status??502,source:'gateway-relay',...tokens(metadata.usage)});
   },
-  /** Commit a bounded client report; duplicate submissions retain the first server timestamp. */
-  report(accountId,value){
-   if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['id','provider','model','status',...fields].includes(key)))return Promise.reject(Object.assign(Error('Invalid direct usage report'),{status:400}));
-   const previous=records.get(accountId+'\0'+value.id),entry={accountId,id:value.id,at:previous?.at??new Date(now()).toISOString(),provider:value.provider,model:value.model,status:value.status,source:'desktop-direct',...Object.fromEntries(fields.map(field=>[field,value[field]]))};
-   if(!validEntry(entry))return Promise.reject(Object.assign(Error('Invalid direct usage report'),{status:400}));
-   return record(entry);
-  },
   async flush(){await queue;if(writeFailure)throw writeFailure;},
   async details(account,query={period:'30d',offset:0,limit:50},{tracking='gateway-relay'}={}){
    await queue;if(writeFailure)throw writeFailure;
@@ -99,7 +92,7 @@ export function createMemoryUsageLedger({now=Date.now}={}){return createLedger({
 /** Open append-only private usage storage; malformed records stop startup.
  * @param {string} file Absolute durable JSONL path; its first line records the start of measurement.
  * @param {object} options Clock used for server-owned timestamps.
- * @returns {Promise<object>} Account-scoped capture, reporting, read and flush operations.
+ * @returns {Promise<object>} Account-scoped capture, read and flush operations.
  */
 export async function openUsageLedger(file,{now=Date.now}={}){
  if(!isAbsolute(file))throw Error('Usage ledger path must be absolute');

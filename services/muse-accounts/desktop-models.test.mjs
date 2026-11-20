@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {desktopModelCatalog,createDesktopModels} from './desktop-models.mjs';
+import {desktopModelCatalog} from './desktop-models.mjs';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -73,45 +73,39 @@ test('native DeepSeek metadata exposes capacity and reasoning without private co
  assert.ok(!JSON.stringify(result).includes('SECRET'));
 });
 
-test('only enabled, negotiated, live account access distributes supplier keys',async t=>{
- const dir=await mkdtemp(join(tmpdir(),'muse-direct-access-'));let server;
+test('supplier credentials never leave the gateway, even for clients that ask for direct access',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-no-direct-access-'));let server;
  t.after(async()=>{if(server){server.closeAllConnections();await new Promise(r=>server.close(r));}await rm(dir,{recursive:true,force:true});});
  const store=await openStore(join(dir,'accounts.json'));await store.create('editor','pw');
- let key='direct-test-key',baseURL='https://provider.test/v1';
- const globalModels={metadata:()=>({providers:{studio:{models:[{id:'writer',contextWindow:128000,maxTokens:8192,reasoningEfforts:false}]}}}),
-  resolve:()=>({model:'writer',apiKey:key,baseURL,maxTokens:8192,reasoningEfforts:false})};
+ const key='gateway-only-test-key',baseURL='https://provider.test/v1';
+ const globalModels={metadata:()=>({providers:{studio:{models:[{id:'writer',contextWindow:128000,maxTokens:8192,reasoningEfforts:false}]},
+  'zhipu-official':{models:[{id:'glm',contextWindow:128000,maxTokens:8192,reasoningEfforts:false}]}}}),
+  resolve:(route,id)=>({model:id,apiKey:key,baseURL,maxTokens:8192,reasoningEfforts:false}),credentialPool:()=>[key]};
  const origin='https://muse.test';
- server=createAccountServer({store,globalModels,publicOrigin:origin,desktopModelTransport:'direct'});
+ server=createAccountServer({store,globalModels,publicOrigin:origin});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
  const call=(path,options={})=>fetch(base+path,{redirect:'manual',...options});
- const accessHeaders={'x-muse-model-access':'direct-v1'};
- assert.equal((await call('/api/desktop-models/access',{headers:accessHeaders})).status,401);
  const login=await call('/login',{method:'POST',headers:{origin},body:'username=editor&password=pw'});
- const cookie=login.headers.get('set-cookie').split(';')[0],headers={cookie,...accessHeaders};
- assert.equal((await call('/api/desktop-models/access',{headers:{cookie}})).status,404);
- const legacy=await (await call('/api/desktop-models/providers',{headers:{cookie}})).json();
- assert.equal(legacy.transport,undefined);assert.ok(!JSON.stringify(legacy).includes(key));
- const announced=await (await call('/api/desktop-models/providers',{headers})).json();
- assert.equal(announced.transport,'direct');assert.ok(!JSON.stringify(announced).includes(key));
- const access=await call('/api/desktop-models/access',{headers});
- assert.equal(access.headers.get('cache-control'),'no-store');
- assert.deepEqual((await access.json()).providers[0].access,{baseURL,apiKey:key});
- baseURL='https://provider.test';
- assert.equal((await (await call('/api/desktop-models/access',{headers})).json()).providers[0].access.baseURL,'https://provider.test/v1');
- assert.equal((await call('/api/desktop-models/access',{headers:{...headers,origin:'https://evil.test'}})).status,403);
- key='';assert.equal((await call('/api/desktop-models/access',{headers})).status,503);
- key='rotated-test-key';baseURL='http://private.test';assert.equal((await call('/api/desktop-models/access',{headers})).status,503);
- baseURL='https://provider.test/v1';
- assert.equal((await (await call('/api/desktop-models/access',{headers})).json()).providers[0].access.apiKey,key);
- await call('/logout',{method:'POST',headers:{cookie,origin}});
- assert.equal((await call('/api/desktop-models/access',{headers})).status,401);
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ const headers={cookie,origin,'x-muse-model-access':'direct-v1','x-muse-provider-routing':'mixed-v1','x-muse-zhipu-direct':'leased-v1'};
+ const catalog=await call('/api/desktop-models/providers',{headers});
+ const text=await catalog.text();
+ assert.equal(catalog.status,200);assert.ok(!text.includes(key));assert.ok(!text.includes(baseURL));
+ assert.equal(JSON.parse(text).transport,undefined);
+ assert.ok(JSON.parse(text).providers.every(provider=>provider.transport===undefined&&provider.access===undefined));
+ for(const [path,method] of [['/api/desktop-models/access','GET'],['/api/desktop-models/zhipu-official/leases','POST'],
+  ['/api/desktop-models/zhipu-official/leases/c0b928a2-9bea-416b-80f0-cbd051fba1c9','GET']]){
+  const response=await call(path,{method,headers:{...headers,'content-type':'application/json'},...method==='POST'?{body:JSON.stringify({model:'glm'})}:{}});
+  assert.equal(response.status,404,path);assert.ok(!(await response.text()).includes(key),path);
+ }
 });
 
-test('direct access is unavailable by default and invalid transport fails at load',async t=>{
- assert.throws(()=>createDesktopModels({transport:'typo'}),/transport/);
+test('desktop usage self-reports are no longer accepted',async t=>{
  const fixture=await capacityFixture(t);
  const cookie=await fixture.login('editor-one');
- assert.equal((await fixture.call('/api/desktop-models/access',{headers:{cookie,'x-muse-model-access':'direct-v1'}})).status,404);
+ const response=await fixture.call('/api/muse.account/usage',{method:'POST',headers:{cookie,origin:'https://muse.test','content-type':'application/json'},
+  body:JSON.stringify({id:'c0b928a2-9bea-416b-80f0-cbd051fba1c9',provider:'studio',model:'writer',status:200,inputTokens:1,outputTokens:1,totalTokens:2,cachedInputTokens:0,reasoningTokens:0})});
+ assert.notEqual(response.status,204);assert.ok(response.status>=400,String(response.status));
 });
 
 async function capacityFixture(t,options={}){
@@ -162,35 +156,20 @@ test('malformed input and upstream failures release capacity before later submis
  assert.equal((await fixture.generate(two)).status,200);assert.equal(calls,2);
 });
 
+for(const [name,value] of [['MUSE_DESKTOP_MODEL_TRANSPORT','direct'],['MUSE_ZHIPU_DIRECT_TOKEN_MS','60000'],['MUSE_USAGE_RATE_PER_MINUTE','600']]){
+ test(`removed direct access setting ${name} stops startup before listening`,async()=>{
+  await assert.rejects(promisify(execFile)(process.execPath,[fileURLToPath(new URL('./gateway.mjs',import.meta.url))],{
+   env:{[name]:value},timeout:20000,
+  }),error=>{assert.match(error.stderr,new RegExp(name));assert.match(error.stderr,/direct/i);assert.doesNotMatch(error.stdout,/listening/);return true;});
+ });
+}
+
 test('removed Desktop capacity configuration fails with an operator migration instruction',async()=>{
  await assert.rejects(promisify(execFile)(process.execPath,[fileURLToPath(new URL('./gateway.mjs',import.meta.url))],{
   env:{MUSE_DESKTOP_MODEL_MAX_TOTAL:'0'},timeout:20000,
  }),error=>{assert.match(error.stderr,/MUSE_DESKTOP_MODEL_MAX_TOTAL.*remove/);assert.doesNotMatch(error.stdout,/listening/);return true;});
 });
 
-
-test('pooled Zhipu stays in the gateway while other suppliers keep direct access',async t=>{
- const dir=await mkdtemp(join(tmpdir(),'muse-mixed-models-'));t.after(()=>rm(dir,{recursive:true,force:true}));
- const store=await openStore(join(dir,'accounts.json'));await store.create('editor','pw');
- const entries={studio:['writer'],'zhipu-official':['glm-5.3-flash','glm-5.3-flashx']};
- const keys=['private-one','private-two'];
- const globalModels={credentialPool:route=>route==='zhipu-official'?keys:undefined,
-  metadata:()=>({providers:Object.fromEntries(Object.entries(entries).map(([id,ids])=>[id,{displayName:id,models:ids.map(id=>({id,name:id,contextWindow:128000,maxTokens:8192,input:['text'],reasoningEfforts:false}))}]))}),
-  resolve:(route,id)=>entries[route]?.includes(id)?{model:id,apiKey:route==='studio'?'direct-studio-key':keys[0],baseURL:'https://provider.test/v1',maxTokens:8192,reasoningEfforts:false}:undefined};
- const server=createAccountServer({store,globalModels,publicOrigin:'https://muse.test',desktopModelTransport:'direct'});
- t.after(()=>new Promise(resolve=>{server.close(resolve);server.closeAllConnections();}));
- await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
- const login=await fetch(base+'/login',{method:'POST',redirect:'manual',headers:{origin:'https://muse.test'},body:'username=editor&password=pw'});
- const cookie=login.headers.get('set-cookie').split(';')[0];
- const legacy={cookie,'x-muse-model-access':'direct-v1'},modern={...legacy,'x-muse-provider-routing':'mixed-v1'};
- const old=await(await fetch(base+'/api/desktop-models/providers',{headers:legacy})).json();assert.equal(old.transport,undefined);
- const catalog=await(await fetch(base+'/api/desktop-models/providers',{headers:modern})).json();assert.equal(catalog.transport,'direct');
- const access=await fetch(base+'/api/desktop-models/access',{headers:modern});assert.equal(access.status,200);
- const data=await access.json();assert.equal(data.providers[0].access.apiKey,'direct-studio-key');
- assert.equal(data.providers[1].transport,'relay');assert.equal(data.providers[1].access,undefined);
- assert.ok(keys.every(key=>!JSON.stringify(data).includes(key)));
- assert.equal((await fetch(base+'/api/desktop-models/access',{headers:legacy})).status,404);
-});
 
 test('two supplier credentials hold twenty whole streams each and reuse a released slot without replay',{timeout:30000},async()=>{
  const dir=await mkdtemp(join(tmpdir(),'muse-stream-pool-')),origin='https://muse.test';let server;

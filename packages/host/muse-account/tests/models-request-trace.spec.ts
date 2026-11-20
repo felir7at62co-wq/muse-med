@@ -21,7 +21,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-it.each(['relay', 'direct'] as const)('preserves public contributions and isolates %s wire attribution and retry receipts', async (transport) => {
+it('preserves public contributions and isolates relay wire attribution and retry receipts', async () => {
   const events = textEvents.map(text => text === '[DONE]' ? text : JSON.stringify({ ...JSON.parse(text), id: 'chatcmpl-safe', model: 'actual-writer' }))
   const server = await mockServer([{ status: 502, body: '{"error":{"message":"private-upstream-body"}}' }, { events }, { events }, { events }])
   const root = await mkdtemp(join(tmpdir(), 'muse-trace-wire-'))
@@ -31,22 +31,14 @@ it.each(['relay', 'direct'] as const)('preserves public contributions and isolat
   await ctx.plugin(LlmRuntime)
   const records: string[] = []
   vi.spyOn(ctx.logger, 'info').mockImplementation((message) => { records.push(String(message)) })
-  const baseUrl = transport === 'relay' ? server.url : 'https://company.test'
+  const baseUrl = server.url
   const sessionFile = join(root, 'session.json')
-  const usageReports: { id: string; provider: string; status: number | null; inputTokens: number | null }[] = []
+  const fetched: string[] = []
   await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=private-login-cookie' })
   const models = new MuseModels(ctx, { baseUrl, sessionFile, requestTimeoutMs: 1000,
-    fetcher: async (url, init) => {
-      const path = new URL(url instanceof Request ? url.url : url).pathname
-      if (path === '/api/muse.account/usage') {
-        usageReports.push(z.object({ id: z.string(), provider: z.string(),
-          status: z.number().nullable(), inputTokens: z.number().nullable(),
-        }).parse(JSON.parse(typeof init?.body === 'string' ? init.body : '')))
-        expect(new Headers(init?.headers).get('cookie')).toBe('__Host-muse=private-login-cookie')
-        return new Response(null, { status: 204 })
-      }
-      return Response.json(transport === 'relay' || path.endsWith('/providers') ? { ...catalog, transport }
-        : { transport: 'direct', providers: [{ ...catalog.providers[0], access: { baseURL: `${server.url}/v1`, apiKey: 'private-supplier-key' } }] })
+    fetcher: async (url) => {
+      fetched.push(new URL(url instanceof Request ? url.url : url).pathname)
+      return Response.json(catalog)
     } })
   cleanup.push(() => models.dispose())
   const seen: string[] = []
@@ -78,25 +70,18 @@ it.each(['relay', 'direct'] as const)('preserves public contributions and isolat
   expect(ends.map(record => record.client_request_id).toSorted()).toEqual(starts.map(record => record.client_request_id).toSorted())
   expect(ends[1]).toMatchObject({ session_id: 'retry-session', response_id: 'chatcmpl-safe', response_model: 'actual-writer', stop: 'stop' })
   const identities = new Map(starts.map(record => [record.client_request_id, record.session_id]))
-  if (transport === 'direct') {
-    expect(usageReports).toHaveLength(4)
-    expect(usageReports.map(report => report.id).toSorted()).toEqual(starts.map(record => record.client_request_id).toSorted())
-    expect(usageReports[0]).toMatchObject({ provider: 'studio', status: null, inputTokens: null })
-    expect(usageReports[1]).toMatchObject({ provider: 'studio', status: 200 })
-  } else expect(usageReports).toEqual([])
+  expect(fetched).toEqual(['/api/desktop-models/providers'])
+  expect(server.paths).toEqual(Array(4).fill('/api/desktop-models/studio/chat/completions'))
   for (const headers of server.headers) {
     const id = headers['x-muse-client-request-id']
-    if (transport === 'relay') {
-      expect(typeof id).toBe('string')
-      expect(identities.get(String(id))).toBe(headers['x-contributed-session'])
-    } else expect(id).toBeUndefined()
+    expect(typeof id).toBe('string')
+    expect(identities.get(String(id))).toBe(headers['x-contributed-session'])
   }
-  expect(JSON.stringify(records)).not.toMatch(/private-login-cookie|private-supplier-key|private-upstream-body/u)
+  expect(JSON.stringify(records)).not.toMatch(/private-login-cookie|private-upstream-body/u)
 })
 
-it.each(['relay', 'direct', 'leased'] as const)('redacts a reflected real %s request credential without changing replay metadata', async (transport) => {
-  const token = 'private-login-canary', key = 'private-supplier-canary', leasedKey = 'private-leased-canary'
-  const canary = transport === 'relay' ? token : transport === 'direct' ? key : leasedKey
+it('redacts a reflected real relay request credential without changing replay metadata', async () => {
+  const canary = 'private-login-canary'
   const events = textEvents.map(text => text === '[DONE]' ? text
     : JSON.stringify({ ...JSON.parse(text), id: `chatcmpl-${canary}`, model: `model-${canary}` }))
   const server = await mockServer([{ status: 502, headers: { 'x-request-id': `request-${canary}` }, body: '{}' }, { events }])
@@ -108,36 +93,26 @@ it.each(['relay', 'direct', 'leased'] as const)('redacts a reflected real %s req
   const records: string[] = []
   vi.spyOn(ctx.logger, 'info').mockImplementation((message) => { records.push(String(message)) })
   vi.spyOn(ctx.logger, 'warn').mockImplementation((message) => { records.push(String(message)) })
-  const baseUrl = transport === 'relay' ? server.url : 'https://company.test'
+  const baseUrl = server.url
   const sessionFile = join(root, 'session.json')
-  await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: `__Host-muse=${token}` })
-  const provider = transport === 'leased' ? { ...catalog.providers[0], id: 'zhipu-official', transport: 'leased' } : catalog.providers[0]
+  await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: `__Host-muse=${canary}` })
   const models = new MuseModels(ctx, { baseUrl, sessionFile, requestTimeoutMs: 1000,
-    fetcher: async (url, init) => {
-      const path = new URL(url instanceof Request ? url.url : url).pathname
-      if (path.endsWith('/providers')) return Response.json({ ...catalog, transport: transport === 'relay' ? 'relay' : 'direct' })
-      if (path.endsWith('/access')) return Response.json({ transport: 'direct', providers: [transport === 'direct'
-        ? { ...provider, access: { baseURL: `${server.url}/v1`, apiKey: key } } : provider] })
-      if (init?.method === 'POST') return Response.json({ id: 'c0b928a2-9bea-416b-80f0-cbd051fba1c9', apiKey: leasedKey,
-        baseURL: `${server.url}/v1`, deadline: Date.now() + 60000, requestMs: 60000, checkMs: 1000 })
-      return Response.json({ released: true })
-    } })
+    fetcher: async () => Response.json(catalog) })
   cleanup.push(() => models.dispose())
   await models.refresh()
-  const request = { provider: transport === 'leased' ? 'muse-cloud-zhipu-official' : 'muse-cloud-studio',
-    model: 'writer', sessionId: SessionId('reflection-session'), messages: [] }
+  const request = { provider: 'muse-cloud-studio', model: 'writer', sessionId: SessionId('reflection-session'), messages: [] }
   expect((await assemble(ctx, request)).finish.kind).toBe('error')
   const result = await assemble(ctx, request)
   expect(result.finish.kind).toBe('stop')
   expect(server.headers.map(headers => headers.authorization)).toEqual([`Bearer ${canary}`, `Bearer ${canary}`])
   expect(JSON.stringify(result.message)).toContain(canary)
-  expect(JSON.stringify(records)).not.toMatch(/private-login-canary|private-supplier-canary|private-leased-canary/u)
+  expect(JSON.stringify(records)).not.toContain(canary)
   const ends = records.filter(record => record.startsWith('{')).map((record): unknown => JSON.parse(record))
   expect(ends.at(-1)).toMatchObject({ phase: 'finish', response_id: null, response_model: null })
 })
 
 it('excludes a credential reflected through installed SDK usage parsing without changing caller usage', async () => {
-  const canary = 'private-supplier-usage-canary'
+  const canary = 'private-login-usage-canary'
   const events = textEvents.map((text) => {
     if (text === '[DONE]') return text
     const frame = JSON.parse(text) as { usage?: object }
@@ -152,13 +127,11 @@ it('excludes a credential reflected through installed SDK usage parsing without 
   await ctx.plugin(LlmRuntime)
   const records: string[] = []
   vi.spyOn(ctx.logger, 'info').mockImplementation((message) => { records.push(String(message)) })
-  const baseUrl = 'https://company.test'
+  const baseUrl = server.url
   const sessionFile = join(root, 'session.json')
-  await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=private-login-cookie' })
+  await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: `__Host-muse=${canary}` })
   const models = new MuseModels(ctx, { baseUrl, sessionFile, requestTimeoutMs: 1000,
-    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
-      ? { ...catalog, transport: 'direct' }
-      : { transport: 'direct', providers: [{ ...catalog.providers[0], access: { baseURL: `${server.url}/v1`, apiKey: canary } }] }) })
+    fetcher: async () => Response.json(catalog) })
   cleanup.push(() => models.dispose())
   await models.refresh()
   const result = await assemble(ctx, { provider: 'muse-cloud-studio', model: 'writer',

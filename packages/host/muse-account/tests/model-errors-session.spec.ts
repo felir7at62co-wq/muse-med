@@ -21,25 +21,22 @@ it.each([
   { status: 200, code: 'CONTENT_FILTER', finishReason: 'content_filter' },
   { status: 200, code: 'TRANSPORT', finishReason: 'network_error' },
 ])(
-  'keeps supplier credentials out of durable $code failure events', async ({ status, code, finishReason }) => {
+  'keeps the account request credential out of durable $code failure events', async ({ status, code, finishReason }) => {
     const root = await mkdtemp(join(tmpdir(), 'muse-model-errors-session-'))
     cleanup.push(() => rm(root, { recursive: true, force: true }))
     const owned = await oldSessionFixture(false, root)
     cleanup.push(() => owned.ctx.fiber.dispose())
-    const key = 'synthetic-supplier-refusal-credential'
+    const key = 'synthetic-relay-refusal-credential'
     const server = await mockServer([finishReason === undefined
       ? { status, body: JSON.stringify({ error: { message: `Request credential ${key}` } }) }
       : { events: [JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: finishReason }] }), '[DONE]'] }])
-    const baseUrl = 'https://muse.test'
+    const baseUrl = server.url
     const sessionFile = join(root, 'session.json')
-    await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=alice-session' })
+    await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: `__Host-muse=${key}` })
     const catalog = { providers: [{ id: 'studio', name: 'Studio', models: [{ id: 'writer', name: 'Writer',
       contextWindow: 128000, maxTokens: 8192, input: ['text'], reasoningEfforts: false }] }] }
     const models = new MuseModels(owned.ctx, { baseUrl, sessionFile, requestTimeoutMs: 1000,
-      fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
-        ? { ...catalog, transport: 'direct' } : { transport: 'direct', providers: catalog.providers.map(provider => ({
-          ...provider, access: { baseURL: server.url, apiKey: key },
-        })) }) })
+      fetcher: async () => Response.json(catalog) })
     cleanup.push(() => models.dispose())
     await models.refresh()
     await owned.controller.selectModel({ sessionId: owned.agent.id, provider: 'muse-cloud-studio', model: 'writer' })
@@ -50,7 +47,8 @@ it.each([
     expect(events.some(event => event.type === 'assistant/attempt')).toBe(true)
     const ending = events.find(event => event.type === 'turn/end')
     expect(ending?.data.reason).toMatchObject({ kind: 'error', error: { code } })
-    expect(server.paths).toEqual(['/chat/completions'])
+    expect(server.paths).toEqual(['/api/desktop-models/studio/chat/completions'])
+    expect(server.headers[0]?.authorization).toBe(`Bearer ${key}`)
     expect(JSON.stringify(events)).not.toContain(key)
     expect(JSON.stringify(events)).not.toContain('Request credential')
   })
