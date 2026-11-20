@@ -928,6 +928,8 @@ export const ES = {
   'Your team': 'Tu equipo',
   'Empty folder': 'Carpeta vacía',
   'Download conversation log': 'Descargar el registro de la conversación',
+  'Jubian': 'Jubian',
+  'Jubian projects, assets and generation tasks': 'Proyectos, recursos y tareas de generación de Jubian',
   'Open terminal': 'Abrir terminal',
   'New terminal': 'Nueva terminal',
   'Close terminal': 'Cerrar terminal',

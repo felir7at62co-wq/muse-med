@@ -12,7 +12,10 @@ import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, PlusIcon, SearchIcon } fr
 import { hostText, t } from './i18n.js'
 
 const CATEGORIES = [['dev', 'Developer'], ['docs', 'Docs & files'], ['work', 'Work'], ['design', 'Design'], ['data', 'Data'], ['commerce', 'Commerce'], ['search', 'Search']]
-const FEATURED = ['github', 'mail', 'notion', 'linear', 'figma', 'slack']
+// Muse: Jubian is a production channel, not an MCP server. Its tile opens the token form the
+// Jubian plugin registers as a DSH settings section, and the page lists it only where that plugin runs.
+const JUBIAN_SECTION = 'jubian'
+const FEATURED = ['jubian', 'github', 'mail', 'notion', 'linear', 'figma', 'slack']
 const PREVIEW = 6
 
 const matches = (query, ...texts) => query === '' || texts.join(' ').toLowerCase().includes(query.toLowerCase())
@@ -31,6 +34,21 @@ function useJustConnected(state) {
     return () => clearTimeout(timer)
   }, [state])
   return fresh
+}
+
+// The Jubian tile: connected once the Host holds a token. The state is read again whenever
+// the page comes back from the token form.
+function useJubian(actions, dsh, view) {
+  const present = (dsh?.sections ?? []).some(row => row.id === JUBIAN_SECTION)
+  const [configured, setConfigured] = useState(false)
+  useEffect(() => {
+    if (!present || !actions.jubianStatus) return undefined
+    let current = true
+    Promise.resolve(actions.jubianStatus()).then((status) => { if (current) setConfigured(status?.configured === true) }, () => {})
+    return () => { current = false }
+  }, [present, view])
+  if (!present) return null
+  return { id: 'jubian', name: t('Jubian'), category: 'work', about: t('Jubian projects, assets and generation tasks'), state: configured ? 'ready' : 'off', account: null }
 }
 
 function AppIcon({ app, size = 36 }) {
@@ -58,7 +76,7 @@ function AppTile({ app, actions, onOpen, showsSignIn, onSignIn }) {
   // inside the click so it is not blocked.
   const connect = () => {
     const auth = app.auth ?? {}
-    if (app.id === 'mail' || auth.kind === 'key' || (auth.kind === 'oauth' && auth.token && !auth.client?.id)) return onOpen()
+    if (app.id === 'mail' || app.id === 'jubian' || auth.kind === 'key' || (auth.kind === 'oauth' && auth.token && !auth.client?.id)) return onOpen()
     if (auth.kind === 'oauth') {
       onSignIn()
       const win = reserveWindow()
@@ -125,7 +143,7 @@ function ConnectedSummary({ apps, count, onClick }) {
     t('{count} connected', { count }), h(ChevronRightIcon))
 }
 
-export function ConnectorsPage({ roster, actions }) {
+export function ConnectorsPage({ roster, actions, dsh }) {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('')
   const [view, setView] = useState(null)
@@ -140,7 +158,8 @@ export function ConnectorsPage({ roster, actions }) {
     state: accounts.length > 0 ? 'ready' : (mail.pending?.length ?? 0) > 0 ? 'connecting' : 'off',
     account: accounts.length === 1 ? accounts[0].address : accounts.length > 1 ? t('{count} accounts', { count: accounts.length }) : null,
   }
-  const apps = [mailbox, ...(data.connectors ?? []).filter(c => c.id !== 'mail')]
+  const jubian = useJubian(actions, dsh, view)
+  const apps = [mailbox, ...(jubian ? [jubian] : []), ...(data.connectors ?? []).filter(c => c.id !== 'mail')]
   const connected = apps.filter(app => app.state !== 'off' || app.pending)
   const marks = [...accounts.map(account => ({ id: `mail-${account.provider}`, name: account.address })), ...connected.filter(app => app.id !== 'mail')]
   const count = accounts.length + connected.filter(app => app.id !== 'mail').length
@@ -156,6 +175,10 @@ export function ConnectorsPage({ roster, actions }) {
         h(MailCatalogRow, { mail, actions }),
         h(MailRules, { mail, bots: roster?.bots, actions, run })))
   }
+  if (view?.app === 'jubian' && jubian) {
+    return h(Subview, { title: jubian.name, onBack: back },
+      h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close: back }, { only: JUBIAN_SECTION })))
+  }
   const shown = view?.app ? apps.find(app => app.id === view.app) : null
   if (shown) {
     return h(Subview, { title: shown.name, onBack: back },
@@ -163,10 +186,11 @@ export function ConnectorsPage({ roster, actions }) {
       shown.about ? h('p', { className: 'bt-app-about' }, t(shown.about)) : null)
   }
   if (view === 'connected') {
-    const rows = connected.filter(app => app.id !== 'mail')
+    const rows = connected.filter(app => app.id !== 'mail' && app.id !== 'jubian')
     return h(Subview, { title: t('Connected'), onBack: back }, banner,
       h('div', { className: 'bt-set-card bt-connectors-card' },
         count === 0 ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No connectors connected'))) : null,
+        jubian?.state === 'ready' ? h(AppTile, { key: 'jubian', app: jubian, actions, onOpen: () => open('jubian') }) : null,
         rows.map(app => h(ConnectorRow, { key: app.id, connector: app, actions })),
         accounts.map(account => h(MailAccount, { key: account.id, account, actions, run })),
         (mail.pending ?? []).map(p => h(MailPending, { key: p.address ?? 'google', pending: p })),

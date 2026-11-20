@@ -45,7 +45,10 @@ it('loads desktop Jingliu on the Host and short-drama skill tools from the bundl
     const plugins = hostPatches.flatMap(patch => patch.insert ?? [])
     const jingliu = plugins.find(row => row.id === 'tool-jingliu')
     const connection = plugins.find(row => row.id === 'jingliu-connection')
-    expect(plugins.some(row => row.name === '@deepseek-ai/dsh-tool-jubian')).toBe(false)
+    // Jubian is an optional second channel on the Host, mounted without its conversation video selector.
+    const jubian = plugins.find(row => row.name === '@deepseek-ai/dsh-tool-jubian')
+    expect(jubian).toMatchObject({ id: 'tool-jubian', config: { generationWatch: true, imagePlatformId: 'KU_AI' } })
+    expect(jubian).not.toHaveProperty('config.sessionVideoSelection')
     // The Host owns the only skill provider: the presets declare none, and the overlay is where
     // that provider's row comes from (its runtime directories arrive from `src/index.ts`).
     const provider = hostPatches.find(row => row.id === 'skill-filesystem')

@@ -916,6 +916,8 @@ export const JA = {
   "Your team": "あなたのチーム",
   "Empty folder": "空のフォルダー",
   "Download conversation log": "会話ログをダウンロード",
+  "Jubian": "Jubian",
+  "Jubian projects, assets and generation tasks": "Jubian のプロジェクト、素材、生成タスク",
   "Open terminal": "ターミナルを開く",
   "New terminal": "新しいターミナル",
   "Close terminal": "ターミナルを閉じる",

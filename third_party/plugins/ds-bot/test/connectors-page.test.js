@@ -338,3 +338,36 @@ test('a sign-in found after a reload is drawn once, and a browser sign-in says w
   renderPage(pageWith(github({ state: 'connecting', pending: { kind: 'browser', url: 'https://github.com/login/oauth' } })))
   assert.equal(pageText().split('Finish signing in in your browser.').length - 1, 1)
 })
+
+// Muse: Jubian is a production channel, not an MCP server. Its tile opens the connection form the
+// Jubian plugin registers as a DSH settings section, and shows only where that plugin runs.
+test('the Jubian tile leads the page where its plugin runs and opens the plugin\'s own form', () => {
+  const tiles = () => has('bt-app').filter(node => flatten(node).join(' ').includes('Jubian'))
+  slots.length = 0
+  renderPage(pageWith(github({})))
+  assert.equal(tiles().length, 0, 'no tile without the plugin')
+  slots.length = 0
+  const drawn = []
+  const dsh = { sections: [{ id: 'jubian' }], renderSlot: (name, owner, pick) => { drawn.push([name, pick.only, typeof owner.close]); return 'jubian form' } }
+  renderPage({ ...pageWith(github({})), dsh })
+  const [first] = tiles()
+  assert.equal(sectionOf(first), 'Recommended')
+  assert.equal(has('bt-app')[0], first, 'Jubian is the first tile')
+  // Not connected yet: the tile offers Connect, which opens the plugin's form instead of an MCP sign-in.
+  const within = (root, match, out = []) => {
+    const walk = (node) => {
+      if (Array.isArray(node)) { node.forEach(walk); return }
+      if (node === null || typeof node !== 'object') return
+      if (match(node)) out.push(node)
+      walk(node.props?.children)
+    }
+    walk(root)
+    return out
+  }
+  const [connect] = within(first, node => node.type === 'button' && flatten(node).join('') === 'Connect')
+  assert.ok(connect, 'the Jubian tile has a Connect button')
+  connect.props.onClick()
+  assert.deepEqual(drawn, [['settings.section', 'jubian', 'function']])
+  assert.ok(pageText().includes('jubian form'))
+  assert.equal(tiles().length, 0, 'the form replaces the catalog')
+})

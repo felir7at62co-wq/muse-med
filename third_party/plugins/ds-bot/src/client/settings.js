@@ -45,7 +45,8 @@ const SETTINGS_PAGES = [['account', 'Account'], ['general', 'General'], ['models
 const LAST_PAGES = new Set(['feedback', 'about'])
 const TEAM_PAGES = new Set(['bots', 'bot-models', 'groups', 'capabilities', 'browser', 'schedules'])
 // DSH sections DS Bot's own pages already hold; Account holds the Muse account section.
-const MERGED_SECTIONS = new Set(['general', 'models', MUSE_ACCOUNT_SECTION])
+// Muse: Jubian's token form opens from its tile on the Connectors page.
+const MERGED_SECTIONS = new Set(['general', 'models', MUSE_ACCOUNT_SECTION, 'jubian'])
 // DSH General rows that sit under Appearance; the rest go under More.
 const LOOK_ITEMS = ['appearance', 'font-size']
 const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPresetOutlineMedium, plugins: IconPersonalizationOutlineMedium, 'archived-sessions': IconArchiveOutlineMedium }
@@ -380,7 +381,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           shown === 'bot-models' ? h(BotModelsPage, { roster, actions, run, Section: SetSection }) : null,
           room ? h('div', { className: 'bt-settings-form' }, h(GroupSettingsForm, { key: room.id, room, roster, actions, run })) : null,
           shown === 'groups' && !room ? h(GroupsPage, { roster, actions, run }) : null,
-          shown === 'connectors' ? h(ConnectorsPage, { roster, actions }) : null,
+          shown === 'connectors' ? h(ConnectorsPage, { roster, actions, dsh }) : null,
           shown === 'im' ? h(ImPage, { roster, actions }) : null,
           shown === 'capabilities' ? h(CapabilitiesPage, { roster, actions, run }) : null,
           shown === 'phone' ? h(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
