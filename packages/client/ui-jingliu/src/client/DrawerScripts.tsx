@@ -109,7 +109,7 @@ function Library({ epoch, t, useResource, openScript }: DrawerScriptsProps & { e
       </button>)}
       <button type="button" className={data.chip} aria-pressed={mine} onClick={() => { setMine(on => !on); setPage(1) }}>{t('onlyMine')}</button>
     </div>
-    {list.status === 'failed' ? <Failure t={t} retry={() => { refresh(n => n + 1) }} />
+    {list.status === 'failed' ? <Failure t={t} text="scriptsFailed" retry={() => { refresh(n => n + 1) }} />
       : list.value === undefined ? <p className={data.quiet}>{t('loading')}</p>
         : list.value.items.length === 0 ? <p className={data.quiet}>{t('nothingHere')}</p>
           : <ul className={css.list}>{list.value.items.map(item => <li key={item.id}>
@@ -135,7 +135,7 @@ function ScriptView({ epoch, id, t, useResource, quote, compose, pick, link }: D
   const detail = useResource<'workshop-script'>(address('workshop-script', epoch, revision, {
     id: String(id), ...(version === undefined ? {} : { version: String(version) }),
   }))
-  if (detail.status === 'failed') return <section className={css.drawer}><Failure t={t} retry={() => { refresh(n => n + 1) }} /></section>
+  if (detail.status === 'failed') return <section className={css.drawer}><Failure t={t} text="scriptsFailed" retry={() => { refresh(n => n + 1) }} /></section>
   if (detail.value === undefined) return <section className={css.drawer}><p className={data.quiet}>{t('loading')}</p></section>
   return <ScriptPage key={detail.value.content.version} detail={detail.value} epoch={epoch} t={t} useResource={useResource}
     quote={quote} compose={compose} pick={pick} link={link} chooseVersion={setVersion} reload={() => { refresh(n => n + 1) }} />
@@ -280,6 +280,6 @@ function LinkCard({ scriptId, epoch, t, useResource, link, done }: Pick<DrawerSc
   </div>
 }
 
-function Failure({ t, text = 'scriptsFailed', retry }: { t: Text; text?: Key; retry: () => void }) {
+function Failure({ t, text, retry }: { t: Text; text: Key; retry: () => void }) {
   return <div className={data.failure} role="alert">{t(text)} <Button variant="ghost" size="sm" onClick={retry}>{t('refresh')}</Button></div>
 }

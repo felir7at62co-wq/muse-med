@@ -13,7 +13,7 @@ With `studioOrigin` mounted at `/jingliu/` on the Muse account gateway, producti
 
 **Shared assets → Characters** shows the studio’s original reference images and descriptions.
 
-The Bot team's panel has its own **Scripts**, **Jingliu**, **Asset library** and **数据** (Data) tabs; see [Use this package](#use-this-package).
+The Bot team's panel has its own **Scripts**, **Jingliu**, **Asset library** and **数据** tabs; see [Use this package](#use-this-package).
 
 Embedded tabs retain the document. Changing accounts opens a fresh sign-in frame.
 

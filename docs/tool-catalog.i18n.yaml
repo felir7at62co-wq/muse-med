@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: bb12cff9291893e3
-  zh: 8ede9e7cacb23721
+  en: dd4cb7482a22e984
+  zh: aa04aef5335389ef
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
@@ -122,6 +122,12 @@
 /tool-schema-catalog/deepseek-ai-dsh-tool-workshop:
   en: fc166b2c776f42f9
   zh: fc166b2c776f42f9
+/tool-schema-catalog/deepseek-ai-dsh-tool-workshop/script-finalize:
+  en: 2ff530cf497ab567
+  zh: e086886f3eedda85
+/tool-schema-catalog/deepseek-ai-dsh-tool-workshop/script-library:
+  en: 84bc83b8bec482d1
+  zh: c5c4d211bcd1b4c8
 /tool-schema-catalog/deepseek-ai-dsh-tool-workshop/workshop-video-transcribe:
   en: 14e8747b93cc0917
   zh: 14e8747b93cc0917

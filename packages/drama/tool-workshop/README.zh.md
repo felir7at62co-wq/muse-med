@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`@deepseek-ai/dsh-tool-workshop` 注册模型可见的 `workshop_video_transcribe` 工具。它是剧本工坊「视频转剧本」步骤在 Muse 中的入口：一个工厂任务从数据站爆款队列领剧，运行数据站的 AI 观众选材，下载红果整剧并用云端 Muse 逐集转写，再把每部出稿的剧存为工坊剧本。本工具以当前登录的 Muse 用户身份，发送与工坊流水线卡片相同的五个参数。任务、转写位和结果都归剧本工坊；本包只通过 `ctx.workshopConnection` 调用它的工厂和 `/script-library` 接口。它还注册 `script_finalize` 和 `script_library`：前者在用户同意定稿后把工作区里写完的剧本上传到工坊定稿库，后者把定稿库里的一版剧本取回工作区，并登记被选用剧本投产成的镜流项目。
+`@deepseek-ai/dsh-tool-workshop` 注册 Muse 的剧本工坊工具，它们通过 `ctx.workshopConnection` 以当前登录的 Muse 用户身份工作。`workshop_video_transcribe` 按工坊流水线卡片的五个参数查看、开始和停止视频转剧本工厂任务：任务从数据站爆款队列领剧，下载红果整剧，用云端 Muse 逐集转写，再把结果存为工坊剧本。`script_finalize` 在用户同意定稿后把写完的剧本上传到定稿库；`script_library` 把定稿库里的一版剧本取回，并登记它投产成的镜流项目。
 
 ## 目录
 

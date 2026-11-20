@@ -422,10 +422,18 @@ const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-tool-workshop',
     dir: 'tool-workshop',
-    source: 'packages/drama/tool-workshop/src/index.ts',
-    requires: ['ctx.tools', 'ctx.workshopConnection', 'ctx.approval to start a job'],
-    writes: ['tool/call', 'tool/result', 'video_transcribe factory jobs on the configured Script Workshop'],
+    source: {
+      script_finalize: 'packages/drama/tool-workshop/src/finalize.ts',
+      script_library: 'packages/drama/tool-workshop/src/library.ts',
+      workshop_video_transcribe: 'packages/drama/tool-workshop/src/index.ts',
+    },
+    requires: ['ctx.tools', 'ctx.workshopConnection', 'ctx.approval to start a job', 'ctx.fs and ctx.sandboxPolicy for script files'],
+    writes: [
+      'tool/call', 'tool/result', 'video_transcribe factory jobs on the configured Script Workshop',
+      'finalized-script versions and production links in the Workshop library', 'script files under 剧本库/ in the workspace',
+    ],
     async mount(ctx) {
+      await ctx.plugin(SandboxPolicy)
       await ctx.plugin(WorkshopConnection, {})
       await ctx.plugin(ToolWorkshop)
     },

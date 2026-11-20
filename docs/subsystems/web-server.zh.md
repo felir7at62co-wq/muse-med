@@ -230,6 +230,47 @@ async workbenchGrant( audience: MuseWorkbenchAudience, challenge: string, ): Pro
 async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Promise<unknown>
 
 /**
+ * The rankings one data-station platform publishes, as the signed-in member.
+ * @param platform - Data-station platform.
+ * @returns Ranking names and the station's default ranking.
+ */
+@Remote('dataBoards') async dataBoards(platform: MuseDataPlatform): Promise<MuseDataBoards>
+
+/**
+ * One data-station ranking for a day, week or month.
+ * @param request - Platform, ranking, period and optional Beijing date.
+ * @returns Ranked works with the platform's own metrics.
+ */
+@Remote('dataPeriod') async dataPeriod(request: MuseDataPeriodRequest): Promise<MuseDataPeriod>
+
+/**
+ * One page of the data station's 储备看板 (Hongguo dramas selected for transcription).
+ * @param request - Filter, optional title or ID search and page.
+ * @returns The board's counts and one page of dramas with their stage.
+ */
+@Remote('dataStock') async dataStock(request: MuseDataStockRequest): Promise<MuseDataStock>
+
+/**
+ * Move one Hongguo drama to the front of the transcription queue; the station records the signed-in member as requester.
+ * @param workId - Station work ID (`hongguo:<series id>`).
+ * @returns The queued job.
+ */
+@Remote('dataRush') async dataRush(workId: string): Promise<MuseDataRush>
+
+/**
+ * One work as the data station last recorded it, such as a finalized script's original.
+ * @param id - Station work ID (`fanqie:<id>`, `hongguo:<id>`, …).
+ * @returns The work with its platform metrics, ranking and collection time.
+ */
+@Remote('dataWork') async dataWork(id: string): Promise<MuseDataWorkDetail>
+
+/**
+ * The 绿泡泡 collector's connection to the data station.
+ * @returns Its state, label and message.
+ */
+@Remote('dataCollector') async dataCollector(): Promise<MuseDataCollector>
+
+/**
  * Submit one explicitly authored remark to the signed-in Muse account's inbox.
  * @param request - Target, category, note and optional related-excerpt choice.
  * @returns A confirmed durable inbox receipt, without a cookie or transcript.

@@ -26,7 +26,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`, `ctx.museAccount`, `FFmpeg and FFprobe on PATH (or configured)` | `tool/call`, `tool/result`, `transcript/jobs task receipt`, `transcript/raw timed TXT and JSON when complete` | - | `start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway. |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`, `TOS access key credential references`, `network access to Volcengine TOS` | `tool/call`, `tool/result`, `public TOS objects below download-video-date/{platform}/{date}/{work_id}/`, `local file deletion only when remove_local is true` | - | Optional package: only the cloud transcription deployment composes it, with its credential references. |
 | `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`, `jingliu_narration`, `jingliu_projects`, `jingliu_run`, `jingliu_studio`, `jingliu_workflows` | `ctx.tools`, `ctx.jingliuConnection`, `ctx.approval for changes and paid workflows` | `tool/call`, `tool/result`, `project updates and jobs on the configured Jingliu service`, `conversation project selections, image and narration job receipts, and local Jianying drafts` | - | - |
-| `@deepseek-ai/dsh-tool-workshop` | `workshop_video_transcribe` | `ctx.tools`, `ctx.workshopConnection`, `ctx.approval to start a job` | `tool/call`, `tool/result`, `video_transcribe factory jobs on the configured Script Workshop` | - | - |
+| `@deepseek-ai/dsh-tool-workshop` | `script_finalize`, `script_library`, `workshop_video_transcribe` | `ctx.tools`, `ctx.workshopConnection`, `ctx.approval to start a job`, `ctx.fs and ctx.sandboxPolicy for script files` | `tool/call`, `tool/result`, `video_transcribe factory jobs on the configured Script Workshop`, `finalized-script versions and production links in the Workshop library`, `script files under 剧本库/ in the workspace` | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`, `data station service token credential reference`, `network access to the data station service API` | `tool/call`, `tool/result`, `data station transcription job state` | - | Optional package: only the cloud transcription deployment composes it. Each dispatched worker claims its own work; the Main Session router does not call it. |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect`, `video_ocr` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | `video_source_review` | The default video_inspect retains metadata and sample operations. Creation enables sourceReviewCompanion to add video_source_review with complete scan/next/observe operations without replacing legacy sampling or trusted receipts. Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`, `ctx.tools`, `ctx.ptcRuntime`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | The PTC executor exposes only run_code to the model and declares other visible capabilities in a generated SDK in the runtime’s language. Program bindings enter the shared guarded tool pipeline in submission order; concurrency-safe bodies overlap up to maxParallelSubCalls, and nested results remain linked to the outer program. The resolved timeout and maxSubCallsPerMinute set the total call allowance; exceeding it terminates the program. |
@@ -2137,6 +2137,109 @@ Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jing
 <a id="deepseek-aidsh-tool-workshop"></a>
 
 ## `@deepseek-ai/dsh-tool-workshop`
+
+### `script_finalize`
+
+把写完的剧本定稿上传到剧本工坊的定稿库，全组都能看到，组长从里面选用投产。只在剧本写完、检查通过，并且你用提问问过用户「是否定稿」、用户明确同意之后调用；用户没同意就不要调用。同一用户同名的剧本会追加为新版本，正文没变不会新增版本。files 按集给出 Markdown 剧本文件；一个文件里有多集时按「第N集」标题拆分。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "剧名。"
+    },
+    "files": {
+      "type": "array",
+      "description": "剧本文件路径，按集排好；相对路径按当前工作区解析。",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rights": {
+      "type": "string",
+      "description": "版权：原创或授权改编，默认原创。",
+      "enum": [
+        "原创",
+        "授权改编"
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "description": "剧本形式，默认剧情剧。",
+      "enum": [
+        "剧情剧",
+        "解说剧"
+      ]
+    },
+    "style": {
+      "type": "string",
+      "description": "画面风格，默认仿真人。",
+      "enum": [
+        "仿真人",
+        "3D"
+      ]
+    },
+    "origin": {
+      "type": "string",
+      "description": "改编时原小说或原剧在数据站的作品编号，如 fanqie:7300000000000000001 或 hongguo:7460844307990187033。"
+    },
+    "origin_title": {
+      "type": "string",
+      "description": "原小说或原剧的名字。"
+    }
+  },
+  "required": [
+    "title",
+    "files"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-workshop/src/finalize.ts`](../packages/drama/tool-workshop/src/finalize.ts)
+
+### `script_library`
+
+剧本工坊定稿库：全组定稿的剧本，组长从中选用投产。read 把一版剧本按集写进工作区「剧本库/剧名-v版本/」，返回文件路径，用来导入镜流或参考；link 在用选用的剧本建好镜流项目后登记这个项目，剧本库显示为已投产。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "read 取出剧本；link 登记镜流项目。",
+      "enum": [
+        "read",
+        "link"
+      ]
+    },
+    "id": {
+      "type": "integer",
+      "description": "剧本库编号。"
+    },
+    "version": {
+      "type": "integer",
+      "description": "read 读取的版本，默认最新版；投产时用被选用的那一版。"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "link 必填：镜流项目 ID。"
+    },
+    "project_title": {
+      "type": "string",
+      "description": "link 必填：镜流项目名。"
+    }
+  },
+  "required": [
+    "action",
+    "id"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-workshop/src/library.ts`](../packages/drama/tool-workshop/src/library.ts)
 
 ### `workshop_video_transcribe`
 

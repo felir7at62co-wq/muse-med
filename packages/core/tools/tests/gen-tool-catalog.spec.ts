@@ -42,7 +42,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'office_render', 'plugin_manager', 'plugin_market', 'present', 'propose_action',
       'pwsh', 'pwsh', 'ralph', 'read', 'read_image',
       'read_mcp_resource', 'run_code', 'schedule_create', 'schedule_edit', 'schedule_list',
-      'schedule_view', 'screenplay_project', 'send_message', 'session_event_read', 'session_event_search',
+      'schedule_view', 'screenplay_project', 'script_finalize', 'script_library', 'send_message', 'session_event_read', 'session_event_search',
       'session_event_trace', 'session_search', 'session_trace', 'skill', 'skill_catalog', 'stagehand_act',
       'stagehand_extract', 'stagehand_navigate', 'stagehand_observe', 'stagehand_screenshot', 'stagehand_tabs',
       'str_replace_editor', 'subagent', 'subagent_oar', 'team_task_create', 'team_task_get',

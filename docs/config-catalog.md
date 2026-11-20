@@ -6599,7 +6599,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-workbench-connection`
 
-- `source`: [`packages/drama/workbench-connection/src/index.ts:27`](../packages/drama/workbench-connection/src/index.ts)
+- `source`: [`packages/drama/workbench-connection/src/index.ts:32`](../packages/drama/workbench-connection/src/index.ts)
 
 ```ts config-catalog
 /** Server address and limits for this installation, after `WorkshopConnection.Config` applied its defaults. */

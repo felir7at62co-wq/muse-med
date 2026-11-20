@@ -30,7 +30,7 @@
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`、`ctx.museAccount`、PATH 中的 FFmpeg 与 FFprobe | `tool/call`、`tool/result`，`transcript/jobs` 中的任务收据，`transcript/raw` 中的 TXT 与 JSON | - | start 使用已登录的 Muse 账号上传压缩音轨并提交云转写；status 根据收据查询同一任务，完成后保存带时间戳的结果。需要可读取的本地音视频与服务端转写配置。 |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`、TOS 访问密钥的凭据引用、可访问火山引擎 TOS 的网络 | `tool/call`、`tool/result`，`download-video-date/{platform}/{date}/{work_id}/` 下的公开 TOS 对象，`remove_local` 为 true 时删除本地文件 | - | 可选包：只由云端转写部署组合，并由它提供凭据引用。 |
 | `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`、`jingliu_narration`、`jingliu_projects`、`jingliu_run`、`jingliu_studio`、`jingliu_workflows` | `ctx.tools`、`ctx.jingliuConnection`，更改和计费操作需 `ctx.approval` | `tool/call`、`tool/result`、镜流服务的项目更新和任务、会话项目关联、生图与解说剧任务回执、本地剪映草稿 | - | - |
-| `@deepseek-ai/dsh-tool-workshop` | `workshop_video_transcribe` | `ctx.tools`、`ctx.workshopConnection`，开始任务需 `ctx.approval` | `tool/call`、`tool/result`，所配置剧本工坊上的 `video_transcribe` 工厂任务 | - | - |
+| `@deepseek-ai/dsh-tool-workshop` | `script_finalize`、`script_library`、`workshop_video_transcribe` | `ctx.tools`、`ctx.workshopConnection`，开始任务需 `ctx.approval`，剧本文件需 `ctx.fs` 与 `ctx.sandboxPolicy` | `tool/call`、`tool/result`，所配置剧本工坊上的 `video_transcribe` 工厂任务、定稿库版本与投产登记，工作区 `剧本库/` 下的剧本文件 | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`、数据站服务令牌的凭据引用、可访问数据站服务接口的网络 | `tool/call`、`tool/result`，数据站转写任务状态 | - | 可选包：只由云端转写部署组合。每个被派出的工人自己领取作品，主会话路由器不调用它。 |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`、`ctx.tools`、`ctx.ptcRuntime`、`ctx.systemPrompt` | `tool/call`、`one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`、`tool/result` | - | PTC 执行器只向模型公开 run_code，并在运行时语言生成的 SDK 中声明其他可见能力。程序绑定按提交顺序进入共享的受守卫工具流水线；并行安全的函数体最多重叠 maxParallelSubCalls 个，嵌套结果保持与外层程序关联。最终超时时间与 maxSubCallsPerMinute 决定调用总额度；超限会终止程序。 |
@@ -2141,6 +2141,109 @@ Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jing
 <a id="deepseek-aidsh-tool-workshop"></a>
 
 ## `@deepseek-ai/dsh-tool-workshop`
+
+### `script_finalize`
+
+把写完的剧本定稿上传到剧本工坊的定稿库，全组都能看到，组长从里面选用投产。只在剧本写完、检查通过，并且你用提问问过用户「是否定稿」、用户明确同意之后调用；用户没同意就不要调用。同一用户同名的剧本会追加为新版本，正文没变不会新增版本。files 按集给出 Markdown 剧本文件；一个文件里有多集时按「第N集」标题拆分。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "剧名。"
+    },
+    "files": {
+      "type": "array",
+      "description": "剧本文件路径，按集排好；相对路径按当前工作区解析。",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rights": {
+      "type": "string",
+      "description": "版权：原创或授权改编，默认原创。",
+      "enum": [
+        "原创",
+        "授权改编"
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "description": "剧本形式，默认剧情剧。",
+      "enum": [
+        "剧情剧",
+        "解说剧"
+      ]
+    },
+    "style": {
+      "type": "string",
+      "description": "画面风格，默认仿真人。",
+      "enum": [
+        "仿真人",
+        "3D"
+      ]
+    },
+    "origin": {
+      "type": "string",
+      "description": "改编时原小说或原剧在数据站的作品编号，如 fanqie:7300000000000000001 或 hongguo:7460844307990187033。"
+    },
+    "origin_title": {
+      "type": "string",
+      "description": "原小说或原剧的名字。"
+    }
+  },
+  "required": [
+    "title",
+    "files"
+  ]
+}
+```
+
+来源：[`packages/drama/tool-workshop/src/finalize.ts`](../packages/drama/tool-workshop/src/finalize.ts)
+
+### `script_library`
+
+剧本工坊定稿库：全组定稿的剧本，组长从中选用投产。read 把一版剧本按集写进工作区「剧本库/剧名-v版本/」，返回文件路径，用来导入镜流或参考；link 在用选用的剧本建好镜流项目后登记这个项目，剧本库显示为已投产。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "read 取出剧本；link 登记镜流项目。",
+      "enum": [
+        "read",
+        "link"
+      ]
+    },
+    "id": {
+      "type": "integer",
+      "description": "剧本库编号。"
+    },
+    "version": {
+      "type": "integer",
+      "description": "read 读取的版本，默认最新版；投产时用被选用的那一版。"
+    },
+    "project_id": {
+      "type": "string",
+      "description": "link 必填：镜流项目 ID。"
+    },
+    "project_title": {
+      "type": "string",
+      "description": "link 必填：镜流项目名。"
+    }
+  },
+  "required": [
+    "action",
+    "id"
+  ]
+}
+```
+
+来源：[`packages/drama/tool-workshop/src/library.ts`](../packages/drama/tool-workshop/src/library.ts)
 
 ### `workshop_video_transcribe`
 

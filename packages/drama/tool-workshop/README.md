@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`@deepseek-ai/dsh-tool-workshop` registers the model-facing `workshop_video_transcribe` tool. It is the Muse entry to Script Workshop's 视频转剧本 step: a factory job that claims series from the data station's hit queue, runs the station's audience review, downloads the complete Hongguo series and transcribes every episode with cloud Muse, then stores each delivered series as a Workshop script. The tool sends the same five parameters as the Workshop pipeline card, as the Muse user who is signed in. The Workshop owns the job, its slots and its results; this package only calls its factory and `/script-library` APIs through `ctx.workshopConnection`. It also registers `script_finalize`, which uploads a finished script from the workspace to the Workshop's finalized-script library after the user agreed, and `script_library`, which reads a library version back into the workspace and records the Jingliu project a picked script became.
+`@deepseek-ai/dsh-tool-workshop` registers Muse's Script Workshop tools, which act as the signed-in Muse user through `ctx.workshopConnection`. `workshop_video_transcribe` reports, starts and stops the 视频转剧本 factory job with the five parameters of the Workshop pipeline card: the job claims series from the data station's hit queue, downloads each complete Hongguo series, transcribes every episode with cloud Muse and stores the result as a Workshop script. `script_finalize` uploads a finished script to the finalized-script library after the user agreed; `script_library` reads a library version back and records the Jingliu project it became.
 
 ## Table of Contents
 

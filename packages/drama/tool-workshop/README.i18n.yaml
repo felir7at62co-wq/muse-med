@@ -3,23 +3,26 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-workshop/README.md
 /:
-  en: 6cec5242d01d7bc9
-  zh: 6f8531a77727d1b0
+  en: f8d74e4348d48d3f
+  zh: 95fe24f7b87a294e
 /deepseek-ai-dsh-tool-workshop:
   en: 05c1005e4708e625
   zh: ee45f984e186bf49
 /deepseek-ai-dsh-tool-workshop/summary:
-  en: 7f041f4557c6b74d
-  zh: 52dc4271716d6168
+  en: 87784f6575eab6a8
+  zh: 9cb3dc25c596aec5
 /deepseek-ai-dsh-tool-workshop/table-of-contents:
-  en: 02d3aea69e8dd482
-  zh: 50cbf025ea027d58
+  en: 88ddee3a22b8d963
+  zh: fbed4c78ff5a1c13
 /deepseek-ai-dsh-tool-workshop/use-this-package:
-  en: c1020ee0090b020a
-  zh: 215ba72d0358fc5f
+  en: 4c18e2c856f0c36a
+  zh: 993c1bd53a576f75
 /deepseek-ai-dsh-tool-workshop/actions:
-  en: 7eae56fb4e0065c6
-  zh: 92b963b07610fd64
+  en: d111459fc3728340
+  zh: caef130c41a3eab3
+/deepseek-ai-dsh-tool-workshop/finalized-scripts:
+  en: b4f8f16ae8bfa25b
+  zh: 51abe62dcbc6e41c
 /deepseek-ai-dsh-tool-workshop/further-exploration:
   en: 441677f6612a1997
   zh: b7dc1719af81e99f
@@ -38,9 +41,21 @@
 /deepseek-ai-dsh-tool-workshop/model-experience/tool/kv-cache-effect:
   en: ed92ccab0178a33a
   zh: 75c660bb554afe3b
+/deepseek-ai-dsh-tool-workshop/model-experience/finalized-script-tools:
+  en: bad5d3fa8e186fed
+  zh: 88c1ab330e6080d3
+/deepseek-ai-dsh-tool-workshop/model-experience/finalized-script-tools/what-the-model-sees:
+  en: 4275a8c07b3e9341
+  zh: c67772465432e758
+/deepseek-ai-dsh-tool-workshop/model-experience/finalized-script-tools/token-effect:
+  en: fd8c58ca7b41d6dc
+  zh: a81f69ded5f1a4ff
+/deepseek-ai-dsh-tool-workshop/model-experience/finalized-script-tools/kv-cache-effect:
+  en: 11d07e30efcbeee1
+  zh: 1dd2266268b1005d
 /deepseek-ai-dsh-tool-workshop/known-limitations-and-deferred-work:
-  en: 8a30c34524d9de00
-  zh: 751c9d01b7e41d08
+  en: eb0f3c94ac5f4e3b
+  zh: 33b351aa0d68e411
 /deepseek-ai-dsh-tool-workshop/known-limitations-and-deferred-work/dev-note:
-  en: 5baafafbcd5e1d45
-  zh: cd901fabc80ad8d4
+  en: 7fcf4d7da8842a58
+  zh: da95efd51c66395d

@@ -185,7 +185,10 @@ export class MuseAccountService extends TypertRemoteService {
     return await this.withData(data => data.work(id))
   }
 
-  /** @returns The 绿泡泡 collector's connection state. */
+  /**
+   * The 绿泡泡 collector's connection to the data station.
+   * @returns Its state, label and message.
+   */
   @Remote('dataCollector')
   async dataCollector(): Promise<MuseDataCollector> {
     return await this.withData(data => data.collector())
