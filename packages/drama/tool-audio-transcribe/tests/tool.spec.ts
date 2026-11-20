@@ -121,6 +121,8 @@ it('validates a batch result that stops at a local error and explains a queue re
     expect(result.value).toEqual(response)
     expect(result.content).toEqual([
       ...(index === 1 ? [{ type: 'text', text: 'Muse 转写队列已满，请稍后重试' }] : []),
+      { type: 'text', text: index === 1 ? '转写进度：第1项暂未推进、第2项暂未推进、另有 1 项本次未开始。'
+        : '转写进度：第1项处理中、第2项出错、另有 1 项本次未开始。' },
       { type: 'text', text: JSON.stringify(response) },
     ])
   }
@@ -144,6 +146,25 @@ it('queries the original receipt and renders the canonical response', async () =
   expect(probeMediaDuration).toHaveBeenCalledWith('original-staged.wav', config, signal)
   expect(startAudioTranscription).not.toHaveBeenCalled()
   expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.value) }])
+})
+
+it('reports the batch stages in input order and points a timed-out item back to its original receipt', async () => {
+  const { call } = await fixture()
+  const stages = [{ status: 'complete' }, { status: 'silent' }, { status: 'failed' }, { status: 'processing', queued: true },
+    { status: 'preparing' }, { status: 'submitting' }, { status: 'uncertain', error_code: 'upload-timeout', resume_status: {
+      method: 'inspect', project: 'project', receipt: 'project/transcript/jobs/clip-7-v1.json',
+    } }] as const
+  const response: AudioBatchResult = { items: stages.map((stage, index) => ({
+    ...stage, input: `clip-${index + 1}.mp4`, receipt: `project/transcript/jobs/clip-${index + 1}-v1.json`, job_id: `job-${index + 1}`,
+  })), not_started: ['clip-8.mp4'] }
+  vi.mocked(startAudioTranscriptionBatch).mockResolvedValueOnce(response)
+  const result = await call({ method: 'start', project: 'project', inputs: [...response.items.map(item => item.input), 'clip-8.mp4'] })
+  expect(result.value).toEqual(response)
+  expect(result.content).toEqual([
+    { type: 'text', text: '转写进度：第1项已完成、第2项无语音、第3项失败、第4项已排队、第5项提交中、第6项提交中、第7项待确认、另有 1 项本次未开始。' },
+    { type: 'text', text: '本次未能确认转写状态。请用原收据查询，已受理的任务仍可继续处理。' },
+    { type: 'text', text: JSON.stringify(response) },
+  ])
 })
 
 it('routes inspect to the original receipt without permitting a recovery upload', async () => {

@@ -191,17 +191,28 @@ it('prepends the silent note once to a batch after any queue refusal sentence', 
   const complete = { input: 'a.mp4', status: 'complete', receipt: '/w/proj/transcript/jobs/a-v1.json', job_id: 'job-1', purpose: 'screenplay' } satisfies AudioBatchResult['items'][number]
   const mixed = { items: [complete, { input: 'b.mp4', ...silent }, { input: 'c.mp4', ...silent }] } satisfies AudioBatchResult
   const mixedContent = render(mixed)
-  expect(mixedContent).toHaveLength(2)
+  expect(mixedContent).toHaveLength(3)
   expect(note(mixedContent)).toEqual([mixedContent[0]])
+  expect(mixedContent[1]).toEqual({ type: 'text', text: '转写进度：第1项已完成、第2项无语音、第3项无语音。' })
   const queued = { items: [
     { input: 'a.mp4', status: 'processing', receipt: complete.receipt, job_id: 'job-1', error_code: 'queue_full' },
     { input: 'b.mp4', ...silent },
   ] } satisfies AudioBatchResult
   const queuedContent = render(queued)
-  expect(queuedContent).toHaveLength(3)
+  expect(queuedContent).toHaveLength(4)
   expect(queuedContent[0]).toEqual({ type: 'text', text: 'Muse 转写队列已满，请稍后重试' })
   expect(note(queuedContent)).toEqual([queuedContent[1]])
-  expect(queuedContent[2]).toEqual({ type: 'text', text: JSON.stringify(queued) })
+  expect(queuedContent[2]).toEqual({ type: 'text', text: '转写进度：第1项暂未推进、第2项无语音。' })
+  expect(queuedContent[3]).toEqual({ type: 'text', text: JSON.stringify(queued) })
   const stopped = { items: [complete, { input: 'b.mp4', error: 'Transcription input is not a file' }], not_started: ['c.mp4'] } satisfies AudioBatchResult
-  expect(render(stopped)).toEqual([{ type: 'text', text: JSON.stringify(stopped) }])
+  expect(render(stopped)).toEqual([
+    { type: 'text', text: '转写进度：第1项已完成、第2项出错、另有 1 项本次未开始。' },
+    { type: 'text', text: JSON.stringify(stopped) },
+  ])
+})
+
+it('does not label an unfamiliar status as a successful upload', async () => {
+  const { render } = await fixture()
+  const batch = { items: [{ input: 'clip.mp4', status: 'not-recognized' }] }
+  expect(render(batch)[0]).toEqual({ type: 'text', text: '转写进度：第1项待核对。' })
 })
