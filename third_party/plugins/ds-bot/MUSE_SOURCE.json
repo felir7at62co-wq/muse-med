@@ -38,6 +38,7 @@
     "src/client/folder-menu.js",
     "src/client/i18n.js",
     "src/client/icons.js",
+    "src/client/im-page.js",
     "src/client/index.js",
     "src/client/locales/de.js",
     "src/client/locales/es.js",
@@ -71,6 +72,7 @@
     "src/host/goals.js",
     "src/host/groups.js",
     "src/host/im/index.js",
+    "src/host/im/platforms/feishu.js",
     "src/host/learning.js",
     "src/host/local-agents/discover.js",
     "src/host/memory-copy.js",
@@ -108,6 +110,8 @@
     "test/group-goal.test.js",
     "test/group-work.test.js",
     "test/handoff-note-budget.test.js",
+    "test/im-feishu.test.js",
+    "test/im.test.js",
     "test/images.test.js",
     "test/learning.test.js",
     "test/link-bundle.test.js",
@@ -183,6 +187,7 @@
     "Settings → Connectors lists Jubian (剧变), a production channel rather than an MCP server, first among the recommended tiles and only where the Jubian plugin registers its `jubian` settings section: the tile opens that section (the plugin's own token form) inside the page, shows connected once the Host holds a token (`actions.jubianStatus` reads `remote.jubianToken.describe()`), and the section is no longer a page of its own in the settings navigation",
     "IM chat Bots (`im/index.js`, `roster.js` `greet: false`, `tools.js` `im_send`): a chat app chat with no binding of its own gets a Bot of its own the first time it writes, named after the chat, filed in the platform's sidebar section (飞书, …) and made without a greeting turn: every group, and every private chat except the connection owner's (the first person paired keeps the connection's Bot). A chat whose Bot was deleted gets a new one; `chatBots: false` on a connection leaves chats to bindings made by hand. `/new` starts a fresh part of the chat's Bot. `im_send` lets a Bot write to its own chats unprompted, for results, reports and alerts",
     "The data station's 储备 changes wake the main Bot (`station-events.js`): with `MUSE_STATION_EVENTS_SECRET_FILE` (or config `stationEventsSecretFile`) naming a private secret file, the route `POST /api/muse/station-events` verifies the station's HMAC-SHA256 signature over timestamp and body (5-minute window), and turns each batch of job changes into one message in the main Bot's chat (`rt.sendUser`, request id `station:<deliveryId>`); a repeated delivery id is acknowledged without a second message, and without a main Bot or secret the station is told to retry (503)",
-    "The details page and the settings behind its gear no longer repeat each other, and the page opens with what runs in the background. `BotSettingsForm` takes `lean`: the details panel passes it and the form then leaves out the name, label, model, working folder, instructions, memory and scheduled tasks, which the details page edits; Settings → Bots keeps the full form. `background-panel.js` replaces the details page's last block: a Background section right under the run statistics, shown even when empty, lists the live jobs of the conversation as Tasks or Commands (`bash` / `pwsh` jobs) and its running terminals as Services, each with Stop. A group's details page has the same section after its members, watching the group's own Session and each member's Session there (`memberSessions` in the room view, from the saved `sessions` map) and leading every row with the member's mark. With tasks listed, the scheduled-tasks title carries a plus that starts a new task for the Bot"
+    "The details page and the settings behind its gear no longer repeat each other, and the page opens with what runs in the background. `BotSettingsForm` takes `lean`: the details panel passes it and the form then leaves out the name, label, model, working folder, instructions, memory and scheduled tasks, which the details page edits; Settings → Bots keeps the full form. `background-panel.js` replaces the details page's last block: a Background section right under the run statistics, shown even when empty, lists the live jobs of the conversation as Tasks or Commands (`bash` / `pwsh` jobs) and its running terminals as Services, each with Stop. A group's details page has the same section after its members, watching the group's own Session and each member's Session there (`memberSessions` in the room view, from the saved `sessions` map) and leading every row with the member's mark. With tasks listed, the scheduled-tasks title carries a plus that starts a new task for the Bot",
+    "IM names and access (`im/index.js`, `im/platforms/feishu.js`, `im-page.js`, `account-page.js`): the Feishu adapter reads each chat's name and its members' names (`im:chat:readonly`, cached ten minutes, ids stand in when it cannot) and still hands messages on in arrival order. A chat Bot is named after the group, or after the person in a private chat; a Bot that still carries an id takes the real name once it can be read, and a Bot renamed by hand keeps its name. Settings → IM gains the old IM plugin's access settings per connection: for private chats and for groups, who can talk (approved people or everyone) and who can use commands and approvals (`/stop`, `/new`, approval answers and buttons: everyone who can talk, or only the owner), with a per-person Commands switch (`im-person`) and the A Bot for each chat switch. The Account page reads the Feishu name from the profile and the departments from the account-level organization, so a relay sign-in shows them, each as its path below the enterprise root"
   ]
 }

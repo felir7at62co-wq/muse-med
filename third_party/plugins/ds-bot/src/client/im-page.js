@@ -249,6 +249,32 @@ function Requests({ conn, run, busy, actions, withSource = false }) {
       h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => run(actions.imPair(conn.id, request.id, true)) }, t('Allow')))))
 }
 
+// Who may talk to an IM bot and who may use its commands, set for private chats and for
+// groups. Commands are /stop, /new and answering an approval.
+const ACCESS_SCENES = [
+  ['direct', 'Private chats: who can talk', 'Private chats: commands and approvals'],
+  ['group', 'Groups: who can talk', 'Groups: commands and approvals'],
+]
+const WHO = [['paired', 'Approved people'], ['everyone', 'Everyone']]
+const COMMANDS = [['all', 'Everyone who can talk'], ['owner', 'Only me']]
+
+function Choice({ label, options, value, disabled, onPick }) {
+  return h(Row, { label: t(label) },
+    h(Segmented, { label: t(label), value },
+      options.map(([id, text]) => h('button', { key: id, type: 'button', 'aria-pressed': value === id, disabled, onClick: () => { if (value !== id) onPick(id) } }, t(text)))))
+}
+
+function Access({ conn, busy, run, actions }) {
+  const access = conn.access ?? { direct: { who: 'paired', commands: 'all' }, group: { who: 'paired', commands: 'all' } }
+  return h('section', { className: 'bt-set-section' },
+    h('h3', null, t('Access')),
+    h('div', { className: 'bt-set-card' },
+      ACCESS_SCENES.flatMap(([scene, whoLabel, commandLabel]) => [
+        h(Choice, { key: `${scene}-who`, label: whoLabel, options: WHO, value: access[scene].who, disabled: busy, onPick: who => run(actions.imUpdate(conn.id, { access: { [scene]: { who } } })) }),
+        h(Choice, { key: `${scene}-commands`, label: commandLabel, options: COMMANDS, value: access[scene].commands, disabled: busy, onPick: commands => run(actions.imUpdate(conn.id, { access: { [scene]: { commands } } })) }),
+      ])))
+}
+
 function useRun() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -281,7 +307,9 @@ function DetailView({ conn, status, roster, actions, onBack }) {
         h('span', { className: 'bt-set-control' },
           state === 'error' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => run(actions.imRetry(conn.id)) }, t('Try again')) : null,
           h(Switch, { on: conn.enabled, label: t('Enabled'), disabled: busy, onChange: on => run(actions.imUpdate(conn.id, { enabled: on })) }))),
-      h(Row, { label: t('Talks to') }, h(TargetMenu, { value: conn.botId ? { botId: conn.botId } : null, roster, label: t('Talks to'), disabled: busy, onPick: next => next?.botId && run(actions.imUpdate(conn.id, { botId: next.botId })) }))),
+      h(Row, { label: t('Talks to') }, h(TargetMenu, { value: conn.botId ? { botId: conn.botId } : null, roster, label: t('Talks to'), disabled: busy, onPick: next => next?.botId && run(actions.imUpdate(conn.id, { botId: next.botId })) })),
+      h(Row, { label: t('A Bot for each chat') }, h(Switch, { on: conn.chatBots !== false, label: t('A Bot for each chat'), disabled: busy, onChange: on => run(actions.imUpdate(conn.id, { chatBots: on })) }))),
+    h(Access, { conn, busy, run, actions }),
     conn.requests.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Waiting for approval')),
       h('div', { className: 'bt-set-card bt-im-attn' }, h(Requests, { conn, run, busy, actions }))) : null,
@@ -290,9 +318,15 @@ function DetailView({ conn, status, roster, actions, onBack }) {
       h('div', { className: 'bt-set-card' },
         conn.paired.length === 0
           ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Send the IM bot a message to connect your account')))
-          : conn.paired.map(entry => h('div', { key: entry.id, className: 'bt-set-row' },
+          : conn.paired.map((entry, index) => h('div', { key: entry.id, className: 'bt-set-row' },
             h(Initial, { name: entry.name }),
             h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-im-name' }, entry.name)),
+            // The first person approved owns the connection and may always use commands.
+            index === 0 ? null : h(Switch, {
+              on: entry.commands ?? ((conn.access?.direct?.commands ?? 'all') === 'all' && (conn.access?.group?.commands ?? 'all') === 'all'),
+              label: `${t('Commands')} · ${entry.name}`, disabled: busy,
+              onChange: on => run(actions.imPerson(conn.id, entry.id, { commands: on })),
+            }),
             h('button', { type: 'button', className: 'bt-mini bt-im-danger', 'data-confirm': confirm === `p:${entry.id}` || undefined, disabled: busy, onClick: () => ask(`p:${entry.id}`, () => actions.imUnpair(conn.id, entry.id)) }, confirm === `p:${entry.id}` ? t('Remove?') : t('Remove')))))),
     chats.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Chats')),

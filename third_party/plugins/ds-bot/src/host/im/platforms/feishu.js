@@ -10,6 +10,10 @@ import { chunkMarkdown } from '../format.js'
 import { retryDelay, retryWait } from './retry.js'
 
 const TEXT_LIMIT = 4000
+// Chat and member names are read again after this long, so renames show up.
+const NAME_TTL_MS = 10 * 60_000
+// Member pages of 100 read per chat for names; a larger group's later members keep their ids.
+const NAME_MEMBER_PAGES = 10
 const SOCKET_TIMEOUT = 30_000
 const pingInterval = seconds => {
   const ms = Number(seconds) * 1000
@@ -150,6 +154,7 @@ export default {
     let botOpenId = ''
     // Split data frames reassemble by (sum, seq) until all parts arrive.
     const parts = new Map()
+    let inbound = Promise.resolve()
 
     // Inbound downloads share the expiry check: a socket that only receives
     // still needs a live token. Callers wait on the one in-flight refresh —
@@ -166,6 +171,36 @@ export default {
 
     const rest = async (path, { method = 'POST', body } = {}) =>
       api(env, apiBase(env, fields), await freshToken(), path, { method, body })
+
+    // Message events carry ids only. A group's name comes from its chat info and a
+    // person's from the chat's member list, both readable with the app's
+    // im:chat:readonly scope; without it, or for a member past the pages read, the id
+    // stands in. Each chat is read once and again after NAME_TTL_MS.
+    const chatNames = new Map()
+    const namesOf = async (chatId, direct) => {
+      const held = chatNames.get(chatId)
+      if (held !== undefined && Date.now() - held.at < NAME_TTL_MS) return held
+      const entry = { at: Date.now(), title: '', members: new Map() }
+      chatNames.set(chatId, entry)
+      const chatPath = `/open-apis/im/v1/chats/${encodeURIComponent(chatId)}`
+      try {
+        if (!direct) entry.title = String((await rest(chatPath, { method: 'GET' }))?.data?.name ?? '').trim()
+        let pageToken
+        for (let page = 0; page < NAME_MEMBER_PAGES; page += 1) {
+          const query = `member_id_type=open_id&page_size=100${pageToken === undefined ? '' : `&page_token=${encodeURIComponent(pageToken)}`}`
+          const data = (await rest(`${chatPath}/members?${query}`, { method: 'GET' }))?.data ?? {}
+          for (const item of data.items ?? []) {
+            const name = String(item.name ?? '').trim()
+            if (item.member_id && name !== '') entry.members.set(String(item.member_id), name)
+          }
+          if (data.has_more !== true || !data.page_token) break
+          pageToken = String(data.page_token)
+        }
+      } catch (error) {
+        env.log?.warn?.('ds-bot im: feishu names for %s unavailable: %s', chatId, error?.message ?? error)
+      }
+      return entry
+    }
 
     const sendFrame = (buffer) => { if (socket?.readyState === 1) socket.send(buffer) }
     const pong = (frame) => sendFrame(encodeFrame({ ...frame, headers: frame.headers.map(h => h.key === 'type' ? { key: 'type', value: 'pong' } : h), payload: Buffer.from('pong') }))
@@ -195,10 +230,13 @@ export default {
             images.push({ mediaType: imageMediaType(buffer), data: buffer.toString('base64') })
           } else env.log?.warn?.('ds-bot im: feishu image download failed for %s', String(message.message_id ?? ''))
         }
-        const sender = event.sender?.sender_id?.open_id ?? event.sender?.user_id ?? ''
+        const sender = String(event.sender?.sender_id?.open_id ?? event.sender?.user_id ?? '')
+        const chatId = String(message.chat_id ?? '')
+        const names = await namesOf(chatId, direct)
+        const senderName = names.members.get(sender) ?? sender
         await handlers.onMessage({
-          chat: { key: String(message.chat_id ?? ''), kind: direct ? 'direct' : 'group', title: String(message.chat_id ?? '') },
-          sender: { id: String(sender), name: String(sender) },
+          chat: { key: chatId, kind: direct ? 'direct' : 'group', title: direct ? senderName : (names.title || chatId) },
+          sender: { id: sender, name: senderName },
           text, images, files: [],
           mentioned, messageId: String(message.message_id ?? ''),
         })
@@ -331,7 +369,11 @@ export default {
           frame.payload = Buffer.concat([...held.received.keys()].sort((a, b) => a - b).map(s => held.received.get(s)))
           parts.delete(messageId)
         }
-        void dispatch(type, frame.payload).catch(error => env.log?.warn?.('ds-bot im: feishu event failed: %s', error?.message ?? error))
+        // Events are handled one after another in the order they arrived: reading a name or an
+        // image must not let a later message overtake an earlier one.
+        const payload = frame.payload
+        inbound = inbound.then(() => dispatch(type, payload))
+          .catch(error => env.log?.warn?.('ds-bot im: feishu event failed: %s', error?.message ?? error))
       })
       next.addEventListener('open', () => {
         if (!current()) return

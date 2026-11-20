@@ -456,3 +456,29 @@ test('images arriving together after expiry share one token refresh', async (t) 
   assert.equal(messages[0].images.length, 1)
   assert.equal(messages[1].images.length, 1)
 })
+
+test('a group message carries the group and sender names read from Feishu; without the scope the ids stand in', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  fake.replies['/open-apis/im/v1/chats/oc_2'] = { result: { code: 0, data: { name: '短剧剧组' } } }
+  fake.replies['/open-apis/im/v1/chats/oc_2/members?member_id_type=open_id&page_size=100'] = { result: { code: 0, data: { items: [{ member_id: 'ou_x', name: 'X' }], has_more: true, page_token: 'p2' } } }
+  fake.replies['/open-apis/im/v1/chats/oc_2/members?member_id_type=open_id&page_size=100&page_token=p2'] = { result: { code: 0, data: { items: [{ member_id: 'ou_u1', name: '杨礼楷' }], has_more: false } } }
+  fake.replies['/open-apis/im/v1/chats/oc_1/members?member_id_type=open_id&page_size=100'] = { result: { code: 0, data: { items: [{ member_id: 'ou_u1', name: '杨礼楷' }] } } }
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  const mention = [{ key: '@_user_1', id: { open_id: 'ou_bot' } }]
+  fake.push(ws, fake.dataFrame('event', message({ chat_type: 'group', chat_id: 'oc_2', message_id: 'om_1', message_type: 'text', content: JSON.stringify({ text: '@_user_1 hi' }), mentions: mention })))
+  fake.push(ws, fake.dataFrame('event', message({ chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_2', message_type: 'text', content: JSON.stringify({ text: 'hi' }) })))
+  fake.push(ws, fake.dataFrame('event', message({ chat_type: 'group', chat_id: 'oc_9', message_id: 'om_3', message_type: 'text', content: JSON.stringify({ text: '@_user_1 hi' }), mentions: mention })))
+  await until(() => messages.length === 3)
+  assert.deepEqual(messages[0].chat, { key: 'oc_2', kind: 'group', title: '短剧剧组' })
+  assert.deepEqual(messages[0].sender, { id: 'ou_u1', name: '杨礼楷' })
+  assert.deepEqual(messages[1].chat, { key: 'oc_1', kind: 'direct', title: '杨礼楷' })
+  assert.deepEqual(messages[2].chat, { key: 'oc_9', kind: 'group', title: 'oc_9' })
+  assert.deepEqual(messages[2].sender, { id: 'ou_u1', name: 'ou_u1' })
+  // Names are read once per chat, not for every message.
+  fake.push(ws, fake.dataFrame('event', message({ chat_type: 'group', chat_id: 'oc_2', message_id: 'om_4', message_type: 'text', content: JSON.stringify({ text: '@_user_1 again' }), mentions: mention })))
+  await until(() => messages.length === 4)
+  assert.equal(fake.calls.filter(call => call.path === '/open-apis/im/v1/chats/oc_2').length, 1)
+})

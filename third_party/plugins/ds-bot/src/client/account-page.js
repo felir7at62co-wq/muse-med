@@ -25,6 +25,26 @@ const shuffled = (current) => {
   }
 }
 
+// The person's own Feishu departments, each as its path below the enterprise root
+// ("内容中心 / 编剧组"). The account-level organization comes from the gateway's sync; the
+// identity's own organization is the older record. Anything not available gives none.
+export const departmentNames = (organization, identity) => {
+  const source = organization?.status === 'available' ? organization
+    : identity?.organization?.status === 'available' ? identity.organization : null
+  const names = (source?.departments ?? []).map((entry) => {
+    const parts = String(entry.path || entry.name || '').split(' / ').filter(Boolean)
+    return (entry.pathIds?.[0] === '0' && parts.length > 1 ? parts.slice(1) : parts).join(' / ')
+  })
+  return [...new Set(names.filter(Boolean))]
+}
+
+// The first Feishu identity and its departments from the Muse account details. A relay
+// sign-in carries only id and user name in `account`; the identities come with `profile`.
+export const feishuOf = (details) => {
+  const feishu = (details?.profile?.account ?? details?.account)?.feishuIdentities?.[0]
+  return { feishu, departments: departmentNames(details?.organization ?? details?.profile?.organization, feishu) }
+}
+
 export function AccountPage({ roster, actions, run, dsh, Section, Row }) {
   const [details, setDetails] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -41,8 +61,7 @@ export function AccountPage({ roster, actions, run, dsh, Section, Row }) {
   }, [name])
   const account = details?.account
   const look = youLook(roster.prefs, account?.username ?? name)
-  const feishu = account?.feishuIdentities?.[0]
-  const departments = (feishu?.organization?.departments ?? []).map(entry => entry.path || entry.name).filter(Boolean)
+  const { feishu, departments } = feishuOf(details)
   const save = you => run(actions.setPrefs({ you }))
   const upload = async (picked) => {
     if (!picked) return

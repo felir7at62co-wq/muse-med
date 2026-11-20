@@ -48,6 +48,7 @@ export function install(rt) {
         newChat: 'Started a new conversation.',
         newBusy: 'Still working — wait for it to finish, or send /stop, then /new.',
         newGroup: 'This chat goes to a Bot group, which has no /new; start a new topic in Muse.',
+        noCommands: 'Only people allowed to use commands can do that here.',
         roleGroup: `${values.platform} group`,
         roleDirect: `${values.platform} chat`,
         connected: `Connected — you can talk to ${values.target} now.`,
@@ -73,6 +74,7 @@ export function install(rt) {
         newChat: '已开始新对话。',
         newBusy: '还在处理上一件事，等它结束，或发 /stop 后再发 /new。',
         newGroup: '这个聊天连的是 Bot 群，不支持 /new；请在 Muse 里开新话题。',
+        noCommands: '这里只有获准的人能用命令或批准操作。',
         roleGroup: `${values.platform}群聊`,
         roleDirect: `${values.platform}私聊`,
         connected: `已连接，现在可以和 ${values.target} 说话了。`,
@@ -98,6 +100,7 @@ export function install(rt) {
         newChat: '已開始新對話。',
         newBusy: '還在處理上一件事，等它結束，或發 /stop 後再發 /new。',
         newGroup: '這個聊天連的是 Bot 群，不支援 /new；請在 Muse 裡開新話題。',
+        noCommands: '這裡只有獲准的人能用指令或批准操作。',
         roleGroup: `${values.platform}群聊`,
         roleDirect: `${values.platform}私聊`,
         connected: `已連線，現在可以和 ${values.target} 說話了。`,
@@ -123,6 +126,7 @@ export function install(rt) {
         newChat: '新しい会話を始めました。',
         newBusy: 'まだ作業中です。終わるのを待つか、/stop を送ってから /new してください。',
         newGroup: 'このチャットは Bot グループにつながっているため /new は使えません。Muse で新しい話題を始めてください。',
+        noCommands: 'ここでは許可された人だけがコマンドや承認を使えます。',
         roleGroup: `${values.platform}グループ`,
         roleDirect: `${values.platform}チャット`,
         connected: `接続しました。${values.target} と話せます。`,
@@ -148,6 +152,7 @@ export function install(rt) {
         newChat: '새 대화를 시작했습니다.',
         newBusy: '아직 작업 중입니다. 끝날 때까지 기다리거나 /stop 을 보낸 뒤 /new 하세요.',
         newGroup: '이 채팅은 Bot 그룹에 연결되어 있어 /new 를 쓸 수 없습니다. Muse에서 새 주제를 시작하세요.',
+        noCommands: '여기서는 허용된 사람만 명령과 승인을 쓸 수 있습니다.',
         roleGroup: `${values.platform} 그룹`,
         roleDirect: `${values.platform} 채팅`,
         connected: `연결되었습니다. 이제 ${values.target}와(과) 대화할 수 있습니다.`,
@@ -173,6 +178,7 @@ export function install(rt) {
         newChat: 'Empecé una conversación nueva.',
         newBusy: 'Sigo trabajando; espera a que termine o envía /stop y luego /new.',
         newGroup: 'Este chat va a un grupo de Bots, que no admite /new; empieza un tema nuevo en Muse.',
+        noCommands: 'Aquí solo quien tiene permiso puede usar comandos o aprobar acciones.',
         roleGroup: `Grupo de ${values.platform}`,
         roleDirect: `Chat de ${values.platform}`,
         connected: `Conectado — ya puedes hablar con ${values.target}.`,
@@ -198,6 +204,7 @@ export function install(rt) {
         newChat: 'Nouvelle conversation commencée.',
         newBusy: 'Je travaille encore ; attendez la fin ou envoyez /stop, puis /new.',
         newGroup: 'Ce chat est relié à un groupe de Bots, qui n’accepte pas /new ; commencez un nouveau sujet dans Muse.',
+        noCommands: 'Ici, seules les personnes autorisées peuvent utiliser les commandes ou approuver.',
         roleGroup: `Groupe ${values.platform}`,
         roleDirect: `Chat ${values.platform}`,
         connected: `Connecté — vous pouvez maintenant parler à ${values.target}.`,
@@ -223,6 +230,7 @@ export function install(rt) {
         newChat: 'Neues Gespräch begonnen.',
         newBusy: 'Ich arbeite noch – warte, bis es fertig ist, oder sende /stop und dann /new.',
         newGroup: 'Dieser Chat geht an eine Bot-Gruppe, die /new nicht kennt; beginne in Muse ein neues Thema.',
+        noCommands: 'Hier dürfen nur berechtigte Personen Befehle nutzen oder Aktionen freigeben.',
         roleGroup: `${values.platform}-Gruppe`,
         roleDirect: `${values.platform}-Chat`,
         connected: `Verbunden — du kannst jetzt mit ${values.target} sprechen.`,
@@ -471,6 +479,20 @@ export function install(rt) {
   // is unpaired. A request lives until the message it names is admitted, however long
   // that message waits in the queue behind a busy Bot.
   const paired = (conn, senderId) => (conn.paired ?? []).some(entry => entry.id === senderId)
+  // Who may talk to the bot and who may use its commands, set apart for private chats
+  // and groups. "paired" admits only people approved under Accounts; "everyone" admits
+  // anyone who writes (in a group, anyone who mentions it). Commands are /stop, /new and
+  // answering an approval, which lets the agent run the action it asked for: "all"
+  // allows everyone who may talk, "owner" only the connection owner. A person's own
+  // setting under Accounts overrides the scene's; the owner may always.
+  const ACCESS_SCENE = { who: 'paired', commands: 'all' }
+  const sceneOf = (conn, kind) => ({ ...ACCESS_SCENE, ...(conn.access?.[kind === 'group' ? 'group' : 'direct'] ?? {}) })
+  const mayTalk = (conn, kind, senderId) => paired(conn, senderId) || sceneOf(conn, kind).who === 'everyone'
+  const canCommand = (conn, kind, senderId) => {
+    if (senderId !== undefined && senderId === conn.paired?.[0]?.id) return true
+    const own = (conn.paired ?? []).find(entry => entry.id === senderId)?.commands
+    return own === undefined ? sceneOf(conn, kind).commands === 'all' : own === true
+  }
   // Session id → the chat its running turn came from.
   const origins = new Map()
   const mixed = new Set()
@@ -552,9 +574,9 @@ export function install(rt) {
     if (entry === undefined) return undefined
     const conn = Object.values(connections()).find(item => item.id === entry.connId)
     if (conn === undefined || !runners.has(conn.id)) return undefined
-    if (entry.senderId !== undefined && !paired(conn, entry.senderId)) return undefined
     const chat = conn.chats?.[entry.chatKey]
     if (chat === undefined) return undefined
+    if (entry.senderId !== undefined && !mayTalk(conn, chat.kind, entry.senderId)) return undefined
     // The chat may have been unbound or pointed at another Bot or group while the work
     // it started keeps running; that work's late lines must not follow the old origin.
     if (entry.binding === undefined || bindingOf(conn, entry.chatKey) !== entry.binding) return undefined
@@ -736,11 +758,30 @@ export function install(rt) {
     if (conn.platform === 'feishu' && conn.settings?.domain === 'lark') return 'Lark'
     return LOCAL_PLATFORM_NAMES[langKey()]?.[conn.platform] ?? (conn.platform === 'feishu' ? 'Feishu' : imPlatform(conn.platform)?.name ?? conn.platform)
   }
-  const chatBotName = (conn, chatKey, chat, senderName) => {
+  const chatBotBase = (conn, chatKey, chat, senderName) => {
     const label = platformLabel(conn)
-    const raw = String(chat.title ?? senderName ?? '').replace(/[@`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()
-    const base = raw === '' ? `${label} ${chatKey.slice(-4)}` : nameProblem(raw) === undefined ? raw : `${label} ${raw}`
-    return rt.freshBotName(base)
+    // A group goes by its own name only; a private chat by the person in it.
+    const raw = String((chat.kind === 'group' ? chat.title : chat.title || senderName) ?? '').replace(/[@`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()
+    return raw === '' ? `${label} ${chatKey.slice(-4)}` : nameProblem(raw) === undefined ? raw : `${label} ${raw}`
+  }
+  const chatBotInstructions = (conn, chat) => `You answer one ${platformLabel(conn)} ${chat.kind === 'group' ? 'group chat' : 'private chat'}; its messages come from the people in it, so reply in their language. When the work needs the rest of the team, pass it on with message_bot and tell the chat what you passed on.`
+  // Feishu chat and open ids, which chat Bots were named after before names were read.
+  const ID_NAME = /^o[cnu]_[0-9a-z]+$/i
+  // A chat Bot keeps following its chat's name until someone renames it by hand.
+  const followChatName = async (conn, chatKey, chat) => {
+    if (chat.auto !== true || chat.target?.botId === undefined) return
+    const bot = rt.botOf(chat.target.botId)
+    if (bot === undefined || (chat.botName === undefined ? !ID_NAME.test(bot.name) : bot.name !== chat.botName)) return
+    const base = chatBotBase(conn, chatKey, chat)
+    if (base === bot.name || ID_NAME.test(base)) return
+    try {
+      const stale = /"o[cnu]_[0-9a-z]+"/i.test(bot.instructions ?? '')
+      const name = rt.freshBotName(base)
+      await rt.updateBot(bot.id, { name, ...(stale ? { instructions: chatBotInstructions(conn, chat) } : {}) })
+      chat.botName = name
+    } catch (error) {
+      rt.warn('ds-bot: the Bot for the %s chat %s kept its name: %s', conn.platform, chatKey, error?.message ?? error)
+    }
   }
   // One creation per chat even when its first messages arrive together.
   const makingBots = new Map()
@@ -750,17 +791,16 @@ export function install(rt) {
     if (running !== undefined) return running
     const work = (async () => {
       const label = platformLabel(conn)
-      const title = String(chat.title ?? senderName ?? '').trim()
-      const where = chat.kind === 'group' ? 'group chat' : 'private chat'
       const bot = await rt.createBot({
-        name: chatBotName(conn, chatKey, chat, senderName),
+        name: rt.freshBotName(chatBotBase(conn, chatKey, chat, senderName)),
         role: text(chat.kind === 'group' ? 'roleGroup' : 'roleDirect', { platform: label }),
-        instructions: `You answer the ${label} ${where}${title === '' ? '' : ` "${title}"`}. Its messages come from the people in that chat; reply in their language. When the work needs the rest of the team, pass it on with message_bot and tell the chat what you passed on.`,
+        instructions: chatBotInstructions(conn, chat),
         section: label,
         greet: false,
       })
       chat.target = { botId: bot.id }
       chat.auto = true
+      chat.botName = bot.name
       await rt.save()
       return { botId: bot.id }
     })().finally(() => { makingBots.delete(key) })
@@ -853,7 +893,7 @@ export function install(rt) {
   }
 
   const onMessage = (conn) => async (msg) => {
-    if (!paired(conn, msg.sender.id)) {
+    if (!mayTalk(conn, msg.chat.kind, msg.sender.id)) {
       if (msg.chat.kind === 'group' && !msg.mentioned) return
       if (!requested(conn, msg)) return
       await rt.save()
@@ -868,9 +908,11 @@ export function install(rt) {
     }
     const body = String(msg.text ?? '').trim()
     const chat = conn.chats[msg.chat.key]
-    // A group renamed on the platform keeps its current name here.
-    if (msg.chat.kind === 'group' && msg.chat.title && chat.title !== msg.chat.title) {
+    // A chat renamed on the platform, or whose name could only now be read, keeps its
+    // current name here, and so does the Bot made for it.
+    if (msg.chat.title && chat.title !== msg.chat.title) {
       chat.title = msg.chat.title
+      await followChatName(conn, msg.chat.key, chat)
       await rt.save()
     }
     await ensureChatBot(conn, msg.chat.key, chat, msg.sender.id, msg.sender.name)
@@ -878,6 +920,11 @@ export function install(rt) {
     if (/^\/start(?:@\S+)?\s*$/.test(body)) {
       const name = target === undefined ? undefined : targetName(conn, target)
       await sendText(conn, msg.chat, name === undefined ? text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound') : text('greeting', { name }))
+      return
+    }
+    const command = /^\/(?:stop|new)(?:@\S+)?\s*$/.test(body)
+    if (command && !canCommand(conn, msg.chat.kind, msg.sender.id)) {
+      await sendText(conn, msg.chat, text('noCommands'))
       return
     }
     if (/^\/stop(?:@\S+)?\s*$/.test(body)) {
@@ -923,6 +970,10 @@ export function install(rt) {
       } else if (held !== undefined && held.cardKey.startsWith('a:')
         && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)
         && rt.approvalsView().some(entry => `a:${entry.id}` === held.cardKey)) {
+        if (!canCommand(conn, msg.chat.kind, msg.sender.id)) {
+          await sendText(conn, msg.chat, text('noCommands'))
+          return
+        }
         const answered = await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')
         if (answered === 'answered') claimChat(conn, msg.chat, msg.sender.id)
         if (answered !== false) return
@@ -960,7 +1011,9 @@ export function install(rt) {
   }
 
   const onAction = (conn) => async (action) => {
-    if (!paired(conn, action.sender.id)) return
+    // A platform may not say what kind of chat a button was pressed in; the recorded chat does.
+    const kind = conn.chats?.[action.chat.key]?.kind ?? action.chat.kind
+    if (!mayTalk(conn, kind, action.sender.id)) return
     const data = String(action.data ?? '')
     const chat = { key: action.chat.key, kind: action.chat.kind, title: action.chat.title }
     // Button data is `<kind>:<id>:<choice>`; the id is everything between the
@@ -980,6 +1033,10 @@ export function install(rt) {
       return
     }
     if (data.startsWith('a:') && cut > 2) {
+      if (!canCommand(conn, kind, action.sender.id)) {
+        await sendCardReply(conn, chat, text('noCommands'))
+        return
+      }
       if (choice === 'allow' || choice === 'reject') {
         const answered = await answerApprovalCard(conn, chat, cardKey, choice)
         if (answered === 'answered') claimChat(conn, chat, action.sender.id)
@@ -1323,6 +1380,8 @@ export function install(rt) {
     enabled: conn.enabled !== false,
     paired: conn.paired ?? [],
     requests: conn.requests ?? [],
+    chatBots: conn.chatBots !== false,
+    access: { direct: sceneOf(conn, 'direct'), group: sceneOf(conn, 'group') },
     chats: Object.fromEntries(Object.entries(conn.chats ?? {}).map(([key, chat]) => [key, { ...chat }])),
     createdAt: conn.createdAt,
   })
@@ -1370,6 +1429,18 @@ export function install(rt) {
         conn.botId = bot.id
       }
       if (body.enabled !== undefined) conn.enabled = body.enabled === true
+      if (body.chatBots !== undefined) conn.chatBots = body.chatBots === true
+      if (body.access !== undefined) {
+        const next = { direct: sceneOf(conn, 'direct'), group: sceneOf(conn, 'group') }
+        for (const scene of ['direct', 'group']) {
+          const given = body.access?.[scene]
+          if (given === undefined) continue
+          if (given.who !== undefined && !['paired', 'everyone'].includes(given.who)) throw new Error('Choose who may talk')
+          if (given.commands !== undefined && !['all', 'owner'].includes(given.commands)) throw new Error('Choose who may use commands')
+          next[scene] = { ...next[scene], ...(given.who === undefined ? {} : { who: given.who }), ...(given.commands === undefined ? {} : { commands: given.commands }) }
+        }
+        conn.access = next
+      }
       if (body.fields !== undefined) {
         const fields = cleanFields(platform, body.fields, conn.settings)
         const env = await envFor(conn)
@@ -1427,6 +1498,18 @@ export function install(rt) {
       } else {
         await rt.save()
       }
+      return true
+    },
+    // One approved person's own command setting: true, false, or null to follow the chat kind's.
+    async 'im-person'(body) {
+      const conn = connections()[String(body.id ?? '')]
+      if (conn === undefined) throw new Error('No such IM bot')
+      const entry = (conn.paired ?? []).find(item => item.id === String(body.senderId ?? ''))
+      if (entry === undefined) throw new Error('No such account')
+      if (body.commands === null) delete entry.commands
+      else if (typeof body.commands === 'boolean') entry.commands = body.commands
+      else throw new Error('Choose whether this account may use commands')
+      await rt.save()
       return true
     },
     async 'im-unpair'(body) {

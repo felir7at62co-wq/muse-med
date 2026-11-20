@@ -296,6 +296,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     imRemove: id => after(call('im-remove', { id })),
     imPair: (id, senderId, allow) => after(call('im-pair', { id, senderId, allow })),
     imUnpair: (id, senderId) => after(call('im-unpair', { id, senderId })),
+    imPerson: (id, senderId, patch) => after(call('im-person', { id, senderId, ...patch })),
     imChat: (id, body) => after(call('im-chat', { id, ...body })),
     imRetry: id => after(call('im-retry', { id })),
     imLoginStart: payload => call('im-login-start', payload),
