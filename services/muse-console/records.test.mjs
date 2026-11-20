@@ -4,7 +4,7 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {openExport,rebuildDaily,COLUMNS} from './export.mjs';
-import {openRecords,summary,list,byAccount,byProvider,choices} from './records.mjs';
+import {openRecords,summary,list,byAccount,byModel,byProvider,dailySeries,choices} from './records.mjs';
 import {createPrices} from './prices.mjs';
 
 const prices=createPrices({version:'t1',currency:'CNY',rows:[
@@ -52,6 +52,16 @@ test('list pages newest first and filters by status and account',()=>{
   assert.equal(second.next,null);
   assert.deepEqual(list(db,prices,{from:0,to:10_000,status:'failed'}).rows.map(row=>row.id),['b']);
   assert.deepEqual(list(db,prices,{from:0,to:10_000,accountIds:['u1'],status:'completed'}).rows.map(row=>row.id),['a']);
+ }finally{db.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('per-model spend and a daily series that includes empty days',()=>{
+ const {dir,db}=fixture();
+ try{
+  const models=byModel(db,prices,{from:0,to:10_000});
+  assert.deepEqual(models.map(item=>[item.model,item.requests,item.unpricedRequests]).sort(),[['gpt-6.1-sol',1,1],['m1',3,0]]);
+  const series=dailySeries(db,prices,{from:0,to:2*86_400_000});
+  assert.equal(series.length,3);assert.equal(series[0].requests,4);assert.equal(series[1].requests,0);
  }finally{db.close();rmSync(dir,{recursive:true,force:true});}
 });
 

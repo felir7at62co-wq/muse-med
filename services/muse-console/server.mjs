@@ -1,5 +1,5 @@
 /**
- * Muse console HTTP server: read-only spend and service pages for administrators, served behind nginx under the configured base path.
+ * Muse console HTTP server: read-only generation-record, spend and service pages for administrators, served behind nginx under the configured base path.
  * Tasks, accounts, usage and feedback stay on the existing site pages that the navigation links to.
  *
  * Identity and administrator status come from the account gateway using the viewer's own session cookie
@@ -11,19 +11,31 @@ import {realpathSync} from 'node:fs';
 import {loadConfig} from './config.mjs';
 import {createGatewayReader} from './gateway.mjs';
 import {loadPrices} from './prices.mjs';
-import {openRecords,summary,list,byAccount,byProvider,choices,exportedAt} from './records.mjs';
+import {openRecords,summary,list,byAccount,byModel,byProvider,dailySeries,choices,exportedAt} from './records.mjs';
 import {serviceStates} from './status.mjs';
 import {dayStart} from './export.mjs';
-import {layout,messagePage,recordsBody,servicesBody} from './html.mjs';
+import {layout,messagePage,recordsBody,spendBody,servicesBody} from './html.mjs';
 
 const HEADERS={'content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
  'x-content-type-options':'nosniff','referrer-policy':'same-origin','cache-control':'no-store'};
 const DAY=86_400_000;
 const RANGES=[{id:'today',label:'今天'},{id:'7d',label:'7 天'},{id:'30d',label:'30 天'}];
+const SPEND_RANGES=[{id:'month',label:'本月'},{id:'last',label:'上月'},{id:'7d',label:'7 天'},{id:'30d',label:'30 天'}];
 
 function rangeOf(id,now){
  const today=dayStart(now);
  return {from:id==='7d'?today-6*DAY:id==='30d'?today-29*DAY:today,to:now+1};
+}
+
+function monthStart(ms,offset=0){
+ const local=new Date(ms+8*3_600_000);
+ return Date.UTC(local.getUTCFullYear(),local.getUTCMonth()+offset,1)-8*3_600_000;
+}
+
+function spendRangeOf(id,now){
+ if(id==='last')return {from:monthStart(now,-1),to:monthStart(now)};
+ if(id==='7d'||id==='30d')return rangeOf(id,now);
+ return {from:monthStart(now),to:now+1};
 }
 
 const text=(value,max=200)=>typeof value==='string'&&value.length<=max&&!/[\x00-\x1f\x7f]/.test(value)?value:'';
@@ -77,16 +89,31 @@ export function createConsole({config,prices,gateway,records,states=serviceState
      send(res,200,'﻿'+lines.join('\n'),'text/csv; charset=utf-8',{'content-disposition':'attachment; filename="muse-records.csv"'});return;
     }
     const page=list(db,prices,{...scope,before:filters.before,limit:100});
-    const perAccount=byAccount(db,prices,{...range,accountIds});
-    const people=[...perAccount].map(([id,item])=>({label:org.nameOf(id),...item})).sort((a,b)=>b.yuan-a.yuan||b.requests-a.requests);
-    const grouped=new Map();
-    for(const [id,item] of perAccount){const label=org.departmentOf(id),entry=grouped.get(label)??{label,requests:0,failed:0,yuan:0};entry.requests+=item.requests;entry.failed+=item.failed;entry.yuan+=item.yuan;grouped.set(label,entry);}
     const seen=choices(db,range);
     const query=changes=>{const params=new URLSearchParams();const merged={...filters,before:filters.before?filters.before.startedAt+'.'+filters.before.id:null,...changes};
      for(const key of ['range','department','account','provider','model','status','before'])if(merged[key])params.set(key,merged[key]);return params.toString();};
     send(res,200,layout({base,active:'records',viewer:viewer.account,title:'生成记录',body:recordsBody({base,range:filters.range,ranges:RANGES,totals:summary(db,prices,{...range,accountIds}),filters,
      options:{departments:org.departmentOptions,accounts:org.members.map(member=>[member.id,member.name||member.username]).sort((a,b)=>a[1].localeCompare(b[1],'zh-CN')),providers:seen.providers,models:seen.models},
-     rows:page.rows,next:page.next,people,departments:[...grouped.values()].sort((a,b)=>b.yuan-a.yuan),nameOf:org.nameOf,departmentOf:org.departmentOf,exportedAt:exportedAt(db),priceVersion:prices.version,query})}));
+     rows:page.rows,next:page.next,nameOf:org.nameOf,departmentOf:org.departmentOf,exportedAt:exportedAt(db),priceVersion:prices.version,query})}));
+    return;
+   }
+   if(path==='/spend'){
+    const params=url.searchParams,id=SPEND_RANGES.some(item=>item.id===params.get('range'))?params.get('range'):'month';
+    const group=['department','person','model'].includes(params.get('group'))?params.get('group'):'department';
+    const range=spendRangeOf(id,now()),db=records();
+    let ranking;
+    if(group==='model')ranking=byModel(db,prices,range).map(item=>({key:item.provider+'/'+item.model,label:item.model,sub:item.provider+(item.unpricedRequests?' · 未定价':''),requests:item.requests,yuan:item.yuan}));
+    else{
+     const perAccount=byAccount(db,prices,range);
+     if(group==='person')ranking=[...perAccount].map(([key,item])=>({key,label:org.nameOf(key),sub:org.departmentOf(key),requests:item.requests,yuan:item.yuan}));
+     else{
+      const grouped=new Map();
+      for(const [key,item] of perAccount){const label=org.departmentOf(key),entry=grouped.get(label)??{key:label,label,people:0,requests:0,yuan:0};entry.people++;entry.requests+=item.requests;entry.yuan+=item.yuan;grouped.set(label,entry);}
+      ranking=[...grouped.values()].map(item=>({...item,sub:item.people+' 人'}));
+     }
+    }
+    ranking.sort((a,b)=>b.yuan-a.yuan||b.requests-a.requests);
+    send(res,200,layout({base,active:'spend',viewer:viewer.account,title:'花费',body:spendBody({base,range:id,ranges:SPEND_RANGES,group,totals:summary(db,prices,range),series:dailySeries(db,prices,range),ranking,priceVersion:prices.version})}));
     return;
    }
    if(path==='/services'){

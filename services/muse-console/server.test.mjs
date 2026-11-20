@@ -47,11 +47,24 @@ test('administrators land on records, see escaped names and links to the existin
   assert.equal(root.status,302);assert.equal(root.headers.get('location'),'/console/records');
   const records=await (await fetch(app.origin+'/console/records?range=today&status=failed')).text();
   assert.match(records,/&lt;乙&gt;/);assert.doesNotMatch(records,/<乙>/);assert.match(records,/失败 402/);assert.match(records,/制作部 \/ 一组/);
-  for(const href of ['/workbench','/admin','/admin/usage','/feedback','/console/services'])assert.match(records,new RegExp('href="'+href.replace(/\//g,'\\/')+'"'));
+  for(const href of ['/workbench','/admin','/admin/usage','/feedback','/console/services','/console/spend'])assert.match(records,new RegExp('href="'+href.replace(/\//g,'\\/')+'"'));
   const services=await (await fetch(app.origin+'/console/services')).text();
   assert.match(services,/网关/);assert.match(services,/运行中/);
   assert.equal((await fetch(app.origin+'/console/nope')).status,404);
   assert.equal((await fetch(app.origin+'/console',{method:'POST'})).status,405);
+ }finally{await app.close();}
+});
+
+test('the spend page ranks departments, people and models and draws one bar per day',async()=>{
+ const app=await serve({state:'admin',account:{id:'u1',name:'甲'},organization});
+ try{
+  const departments=await (await fetch(app.origin+'/console/spend?range=7d')).text();
+  assert.match(departments,/制作部 \/ 一组/);assert.match(departments,/aria-current="page">7 天/);
+  assert.equal((departments.match(/class="col"/g)??[]).length,7);
+  const people=await (await fetch(app.origin+'/console/spend?range=month&group=person')).text();
+  assert.match(people,/&lt;乙&gt;/);assert.match(people,/>甲</);
+  const models=await (await fetch(app.origin+'/console/spend?group=model')).text();
+  assert.match(models,/m1/);assert.match(models,/未定价/);
  }finally{await app.close();}
 });
 

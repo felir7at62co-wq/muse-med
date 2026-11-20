@@ -100,6 +100,39 @@ export function byAccount(db,prices,range){
 }
 
 /**
+ * Spend and volume per route and model for whole Asia/Shanghai days.
+ * @param {DatabaseSync} db Export database.
+ * @param {object} prices Price lookup.
+ * @param {{from:number,to:number,accountIds?:string[]|null}} range Range widened to the start of `from`'s day.
+ * @returns {Array<{provider:string,model:string,requests:number,failed:number,yuan:number,unpricedRequests:number}>} One row per route and model.
+ */
+export function byModel(db,prices,range){
+ const {sql,params}=dailyWhere(range);
+ return db.prepare(`SELECT provider,model,sum(requests) requests,sum(failed) failed,sum(input_tokens) input_tokens,sum(cache_read_tokens) cache_read_tokens,sum(output_tokens) output_tokens FROM daily WHERE ${sql} GROUP BY provider,model`).all(...params)
+  .map(group=>{const value=prices.cost(group);return {provider:group.provider,model:group.model,requests:Number(group.requests),failed:Number(group.failed??0),yuan:value??0,unpricedRequests:value===null?Number(group.requests):0};});
+}
+
+/**
+ * One entry per Asia/Shanghai day in the range, including days without requests.
+ * @param {DatabaseSync} db Export database.
+ * @param {object} prices Price lookup.
+ * @param {{from:number,to:number,accountIds?:string[]|null}} range Range widened to the start of `from`'s day.
+ * @returns {Array<{dayStart:number,requests:number,yuan:number}>} Days in order.
+ */
+export function dailySeries(db,prices,range){
+ const {sql,params}=dailyWhere(range);
+ const days=new Map();
+ for(const group of db.prepare(`SELECT day_start,provider,model,sum(requests) requests,sum(input_tokens) input_tokens,sum(cache_read_tokens) cache_read_tokens,sum(output_tokens) output_tokens FROM daily WHERE ${sql} GROUP BY day_start,provider,model`).all(...params)){
+  const entry=days.get(group.day_start)??{dayStart:group.day_start,requests:0,yuan:0};
+  entry.requests+=Number(group.requests);entry.yuan+=prices.cost(group)??0;
+  days.set(group.day_start,entry);
+ }
+ const result=[];
+ for(let start=dayStart(range.from);start<range.to;start+=86_400_000)result.push(days.get(start)??{dayStart:start,requests:0,yuan:0});
+ return result;
+}
+
+/**
  * Volume, failure rate and latency per route.
  * @param {DatabaseSync} db Export database.
  * @param {{from:number,to:number}} range Time range.
