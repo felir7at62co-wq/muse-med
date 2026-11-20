@@ -17,6 +17,9 @@ export const RIGHTS = { 原创: 'original', 授权改编: 'licensed' } as const
 export const KINDS = { 剧情剧: 'drama', 解说剧: 'narration' } as const
 /** Visual styles, matching Jingliu's projects. */
 export const STYLES = { 仿真人: 'realistic', '3D': '3d' } as const
+const RIGHT_NAMES = ['原创', '授权改编'] as const satisfies readonly (keyof typeof RIGHTS)[]
+const KIND_NAMES = ['剧情剧', '解说剧'] as const satisfies readonly (keyof typeof KINDS)[]
+const STYLE_NAMES = ['仿真人', '3D'] as const satisfies readonly (keyof typeof STYLES)[]
 /** Workshop limits, checked before upload so a failure names the episode. */
 export const LIMITS = { files: 300, episodes: 300, episodeChars: 60_000, totalChars: 3_000_000 } as const
 
@@ -105,7 +108,10 @@ async function existing(session: WorkbenchSession, title: string, signal: AbortS
   return page.items.find(item => item.title === title)
 }
 
-function report(script: ScriptSummary, created: boolean, version: number): Fields {
+/** What `script_finalize` reports: the script's card fields, the version and whether the text was new. */
+export type FinalizeReport = { id: number; version: number } & Fields
+
+function report(script: ScriptSummary, created: boolean, version: number): FinalizeReport {
   return {
     id: script.id, title: script.title, version, created, status: script.status, episodes: script.episodes, words: script.words,
     latest_version: script.latestVersion,
@@ -126,18 +132,18 @@ export function finalizeTool(deps: FinalizeDependencies): ToolDefinition {
     parameters: {
       title: { type: 'string', required: true, description: '剧名。' },
       files: { type: 'array', items: { type: 'string' }, required: true, description: '剧本文件路径，按集排好；相对路径按当前工作区解析。' },
-      rights: { type: 'string', enum: Object.keys(RIGHTS), description: '版权：原创或授权改编，默认原创。' },
-      kind: { type: 'string', enum: Object.keys(KINDS), description: '剧本形式，默认剧情剧。' },
-      style: { type: 'string', enum: Object.keys(STYLES), description: '画面风格，默认仿真人。' },
+      rights: { type: 'string', enum: RIGHT_NAMES, description: '版权：原创或授权改编，默认原创。' },
+      kind: { type: 'string', enum: KIND_NAMES, description: '剧本形式，默认剧情剧。' },
+      style: { type: 'string', enum: STYLE_NAMES, description: '画面风格，默认仿真人。' },
       origin: { type: 'string', description: '改编时原小说或原剧在数据站的作品编号，如 fanqie:7300000000000000001 或 hongguo:7460844307990187033。' },
       origin_title: { type: 'string', description: '原小说或原剧的名字。' },
     },
     output: {
       schema: { type: 'object', additionalProperties: true, properties: { id: { type: 'integer', required: true }, version: { type: 'integer', required: true } } },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
-      presentationMeta: (_args, value) => ({ title: value.title, version: value.version, created: value.created }),
+      presentationMeta: (_args, value) => ({ title: value.title ?? null, version: value.version, created: value.created ?? null }),
     },
-    async execute(args, exec): Promise<Fields> {
+    async execute(args, exec): Promise<FinalizeReport> {
       if (!exec.agent) throw new HarnessError('请在 Muse 会话中定稿。', 'WORKSHOP_SESSION_REQUIRED')
       const title = args.title.trim()
       const violations = [

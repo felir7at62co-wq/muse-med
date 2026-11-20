@@ -5479,6 +5479,9 @@ importers:
       '@deepseek-ai/dsh-jingliu-connection':
         specifier: workspace:*
         version: link:../../drama/jingliu-connection
+      '@deepseek-ai/dsh-workbench-connection':
+        specifier: workspace:*
+        version: link:../../drama/workbench-connection
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -10372,9 +10375,15 @@ importers:
       '@deepseek-ai/dsh-error':
         specifier: workspace:*
         version: link:../../util/error
+      '@deepseek-ai/dsh-fs':
+        specifier: workspace:*
+        version: link:../../fs/fs
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:*
+        version: link:../../sandbox/sandbox-policy
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:*
         version: link:../../core/system-prompt
@@ -10409,6 +10418,9 @@ importers:
       '@deepseek-ai/dsh-muse-account':
         specifier: workspace:*
         version: link:../../host/muse-account
+      '@deepseek-ai/dsh-typert-protocol':
+        specifier: workspace:*
+        version: link:../../typert/protocol
 
   packages/experimental/action-cards:
     dependencies:

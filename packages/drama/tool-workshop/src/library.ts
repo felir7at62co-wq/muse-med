@@ -25,6 +25,15 @@ export interface LibraryArgs {
   project_title?: string
 }
 
+/** What `script_library` reports: the action, the script ID and its stage, then the action's fields. */
+export type LibraryReport = { action: typeof LIBRARY_ACTIONS[number]; id: number; status: string } & Fields
+
+/** One script version as workspace files: the folder and one Markdown file per episode. */
+export interface EpisodeFiles {
+  folder: string
+  files: { path: string; text: string }[]
+}
+
 /** Writes one workspace file as text; the caller resolves paths against the conversation's workspace. */
 export type WriteFile = (path: string, text: string, signal: AbortSignal) => Promise<void>
 
@@ -42,7 +51,7 @@ export interface LibraryDependencies {
  * @param episodes - The version's episodes.
  * @returns The folder and the files in episode order.
  */
-export function episodeFiles(title: string, version: number, episodes: readonly ScriptEpisode[]): { folder: string; files: { path: string; text: string }[] } {
+export function episodeFiles(title: string, version: number, episodes: readonly ScriptEpisode[]): EpisodeFiles {
   const name = title.replace(/[\\/:*?"<>|\p{Cc}]/gu, '_').replace(/^\.+/u, '_').trim().slice(0, 80) || '剧本'
   const folder = LIBRARY_FOLDER + '/' + name + '-v' + String(version)
   return {
@@ -54,7 +63,7 @@ export function episodeFiles(title: string, version: number, episodes: readonly 
   }
 }
 
-async function read(deps: LibraryDependencies, session: WorkbenchSession, args: LibraryArgs, exec: ToolRunContext): Promise<Fields> {
+async function read(deps: LibraryDependencies, session: WorkbenchSession, args: LibraryArgs, exec: ToolRunContext): Promise<LibraryReport> {
   if (args.version !== undefined && (!Number.isSafeInteger(args.version) || args.version < 1)) throw new ToolArgsError(['version 是从 1 开始的版本号'])
   const query = args.version === undefined ? '' : '?version=' + String(args.version)
   const detail = scriptDetail(await session.request('/script-library/' + String(args.id) + query, { signal: exec.signal }))
@@ -69,7 +78,7 @@ async function read(deps: LibraryDependencies, session: WorkbenchSession, args: 
   }
 }
 
-async function link(session: WorkbenchSession, args: LibraryArgs, exec: ToolRunContext): Promise<Fields> {
+async function link(session: WorkbenchSession, args: LibraryArgs, exec: ToolRunContext): Promise<LibraryReport> {
   const projectId = args.project_id?.trim() ?? ''
   const projectTitle = args.project_title?.trim() ?? ''
   const violations = [
@@ -95,18 +104,20 @@ export function libraryTool(deps: LibraryDependencies): ToolDefinition {
       + 'read 把一版剧本按集写进工作区「剧本库/剧名-v版本/」，返回文件路径，用来导入镜流或参考；'
       + 'link 在用选用的剧本建好镜流项目后登记这个项目，剧本库显示为已投产。',
     parameters: {
-      action: { type: 'string', enum: [...LIBRARY_ACTIONS], required: true, description: 'read 取出剧本；link 登记镜流项目。' },
+      action: { type: 'string', enum: LIBRARY_ACTIONS, required: true, description: 'read 取出剧本；link 登记镜流项目。' },
       id: { type: 'integer', required: true, description: '剧本库编号。' },
       version: { type: 'integer', description: 'read 读取的版本，默认最新版；投产时用被选用的那一版。' },
       project_id: { type: 'string', description: 'link 必填：镜流项目 ID。' },
       project_title: { type: 'string', description: 'link 必填：镜流项目名。' },
     },
     output: {
-      schema: { type: 'object', additionalProperties: true, properties: { id: { type: 'integer', required: true }, status: { type: 'string', required: true } } },
+      schema: { type: 'object', additionalProperties: true, properties: { action: { type: 'string', enum: LIBRARY_ACTIONS, required: true }, id: { type: 'integer', required: true }, status: { type: 'string', required: true } } },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
-      presentationMeta: (_args, value) => ({ title: value.title, version: value.version, episodes: value.episodes, project: value.project }),
+      presentationMeta: (_args, value) => ({
+        title: value.title ?? null, version: value.version ?? null, episodes: value.episodes ?? null, project: value.project ?? null,
+      }),
     },
-    async execute(args, exec): Promise<Fields> {
+    async execute(args, exec): Promise<LibraryReport> {
       if (!Number.isSafeInteger(args.id) || args.id < 1) throw new ToolArgsError(['id 是剧本库编号'])
       if (args.action === 'read' && !exec.agent) throw new HarnessError('请在 Muse 会话中取出剧本。', 'WORKSHOP_SESSION_REQUIRED')
       const session = await deps.connect()

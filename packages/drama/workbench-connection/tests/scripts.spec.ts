@@ -10,7 +10,8 @@ const CARD = {
 
 describe('script library responses', () => {
   it('reads a page with its counts and pick permission', () => {
-    const page = scriptList({ items: [CARD], total: 1, page: 1, limit: 50, counts: { waiting: 0, picked: 0, in_production: 1, all: 1 }, can_pick: true })
+    const counts = { waiting: 0, picked: 0, in_production: 1, all: 1 }
+    const page = scriptList({ items: [CARD], total: 1, page: 1, limit: 50, counts, can_pick: true })
     expect(page.counts).toEqual({ waiting: 0, picked: 0, inProduction: 1, all: 1 })
     expect(page.items[0]).toMatchObject({ id: 7, originWorkId: 'hongguo:7481108346636864536', latestVersion: 3, picked: { by: { id: 2, name: null }, version: 2 }, project: { id: 'p-9' } })
     expect(page.canPick).toBe(true)
@@ -27,7 +28,8 @@ describe('script library responses', () => {
 
   it('rejects a stage or field the library does not define', () => {
     expect(() => scriptOf({ script: { ...CARD, status: 'archived' } })).toThrow(expect.objectContaining({ code: 'WORKSHOP_INVALID_RESULT' }))
-    expect(() => scriptList({ items: [], total: 0, page: 1, limit: 50, counts: { waiting: 0, picked: 0, in_production: 0, all: 0 } })).toThrow(/剧本库/u)
+    const counts = { waiting: 0, picked: 0, in_production: 0, all: 0 }
+    expect(() => scriptList({ items: [], total: 0, page: 1, limit: 50, counts })).toThrow(/剧本库/u)
     expect(() => scriptDetail({ script: CARD, can_pick: true, versions: [], content: { version: 0, episodes: [] } })).toThrow(/剧本库/u)
   })
 })

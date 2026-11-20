@@ -101,7 +101,8 @@ describe('script_library', () => {
   it('reads the requested version into the workspace', async () => {
     const written: Record<string, string> = {}
     const { session, request } = sessionOf(() => ({
-      script: SCRIPT, can_pick: true, versions: [{ number: 2, words: 40, created_at: null, by: { id: 1, name: null } }], content: { version: 2, episodes: EPISODES },
+      script: SCRIPT, can_pick: true, versions: [{ number: 2, words: 40, created_at: null, by: { id: 1, name: null } }],
+      content: { version: 2, episodes: EPISODES },
     }))
     const call = await bench(libraryTool({ connect: async () => session, write: () => async (path, text) => { written[path] = text } }))
     const result = await call({ action: 'read', id: 7, version: 2 })

@@ -94,7 +94,9 @@ function Library({ epoch, t, useResource, openScript }: DrawerScriptsProps & { e
     status: stage === 'all' ? '' : stage, q: query, mine: mine ? '1' : '', page: String(page), limit: String(PAGE),
   }))
   const counts = list.value?.counts
-  const countOf: Record<Stage, number | undefined> = { all: counts?.all, waiting: counts?.waiting, picked: counts?.picked, in_production: counts?.inProduction }
+  const countOf: Record<Stage, number | undefined> = {
+    all: counts?.all, waiting: counts?.waiting, picked: counts?.picked, in_production: counts?.inProduction,
+  }
   const total = list.value?.total ?? 0
   return <section className={css.drawer} aria-label={t('scriptLibrary')}>
     <form className={data.search} role="search" onSubmit={(e) => { e.preventDefault(); setQuery(draft.trim()); setPage(1) }}>
@@ -186,7 +188,8 @@ function ScriptPage({ detail, epoch, t, useResource, quote, compose, pick, link,
           compose(t('scriptProjectRequest', { ...reference, version: String(script.picked?.version ?? content.version), form: t(script.kind === 'narration' ? 'typeNarration' : 'typeDrama'), look: t(script.style === '3d' ? 'look3d' : 'lookLive'), episodes: String(script.episodes) }))
         }}>{t('newJingliuProject')}</Button>}
         {picked && <Button size="sm" variant="ghost" aria-expanded={linking} onClick={() => { setLinking(open => !open) }}>{t('linkProject')}</Button>}
-        {linking && <LinkCard scriptId={script.id} epoch={epoch} t={t} useResource={useResource} link={link} done={() => { setLinking(false); reload() }} />}
+        {linking && <LinkCard scriptId={script.id} epoch={epoch} t={t} useResource={useResource} link={link}
+          done={() => { setLinking(false); reload() }} />}
         <Button size="sm" variant="ghost" onClick={() => { quote(t('scriptReference', reference)) }}>{t('quoteAsset')}</Button>
       </div>
     </aside>

@@ -40,7 +40,11 @@ const work = z.object({
   episodeCount: count.nullable(), wordCount: count.nullable(), metrics: z.array(metric).max(80),
 })
 const boards = z.object({ boards: z.array(label).max(1000), defaultBoard: label.nullable() })
-const workDetail = z.object({ work: work.extend({ board: label, rank: count.nullable(), author: label.nullable().optional(), observedAt: z.string().max(64) }) })
+const workDetail = z.object({
+  work: work.extend({
+    board: label, rank: count.nullable(), author: label.nullish().transform(value => value ?? null), observedAt: z.string().max(64),
+  }),
+})
 const WORK_ID = /^(?:hongguo|fanqie|qimao|douyin|lvpaopao):[0-9A-Za-z_-]{1,64}$/u
 const period = z.object({
   platform: z.enum(PLATFORMS), board: label, period: z.enum(['day', 'week', 'month']), date: z.string().max(32),

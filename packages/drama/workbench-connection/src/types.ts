@@ -67,11 +67,19 @@ export interface ScriptEpisode {
   readonly content: string
 }
 
+/** One saved version of a script: its number, length, time and author. */
+export interface ScriptVersion {
+  readonly number: number
+  readonly words: number
+  readonly createdAt: string | null
+  readonly by: ScriptPerson
+}
+
 /** One script with its versions, newest first, and the text of one version. */
 export interface ScriptDetail {
   readonly script: ScriptSummary
   readonly canPick: boolean
-  readonly versions: readonly { readonly number: number; readonly words: number; readonly createdAt: string | null; readonly by: ScriptPerson }[]
+  readonly versions: readonly ScriptVersion[]
   readonly content: { readonly version: number; readonly episodes: readonly ScriptEpisode[] }
 }
 

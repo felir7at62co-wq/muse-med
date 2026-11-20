@@ -404,7 +404,7 @@ export interface MuseDataWork {
 export interface MuseDataWorkDetail extends MuseDataWork {
   readonly board: string
   readonly rank: number | null
-  readonly author?: string | null
+  readonly author: string | null
   readonly observedAt: string
 }
 

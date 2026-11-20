@@ -441,7 +441,7 @@ export class JingliuConnection extends TypertRemoteService {
     const session = await this.connection()
     let type = ''
     let bytes: Buffer | undefined
-    await session.media?.(path, AbortSignal.any([signal, AbortSignal.timeout(this.timeout * 4)]), async (response) => {
+    await session.media?.(path, AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs * 4)]), async (response) => {
       type = response.headers.get('content-type')?.split(';')[0] ?? ''
       if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(type)) throw new HarnessError('镜流素材不是可播放的视频。', 'JINGLIU_INVALID_MEDIA')
       bytes = await boundedBytes(response, VIDEO_MAX_BYTES)
