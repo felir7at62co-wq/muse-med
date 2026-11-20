@@ -1,0 +1,23 @@
+- heading "Character library" [level=1]
+- paragraph: Browse ancient and urban character references for Muse character generation
+- text: Read-only references
+- tablist "Character collection":
+  - tab "All" [selected]
+  - tab "Ancient"
+  - tab "Urban"
+- textbox "Search appearance, style or tags"
+- button "Search"
+- button "Refresh"
+- tabpanel "All":
+  - 'button "View character reference: char_3d_0004"':
+    - img "char_3d_0004"
+    - text: char_3d_0004 blue robe
+  - 'button "View character reference: char_3d_0002"':
+    - img "char_3d_0002"
+    - text: char_3d_0002 black suit
+  - 'button "View character reference: char_urban_future_001"':
+    - img "char_urban_future_001"
+    - text: char_urban_future_001 new cloud reference
+- text: 3 items on this page
+- button "Previous" [disabled]
+- button "Next" [disabled]

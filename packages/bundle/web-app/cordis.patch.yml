@@ -113,18 +113,19 @@
     - id: plugin-inventory
       name: '@deepseek-ai/dsh-host-plugin-inventory'
 
-    # Public character references stay read-only and unconfigured unless a
-    # deployment supplies both reviewed credential references. Mount the
-    # provider and domain before the Remote facade so an unconfigured install
-    # renders the explicit offline state without loading the TOS SDK.
+    # The public catalog discovers characters through prefix-scoped TOS reads.
     - id: character-library-tos
       name: '@deepseek-ai/dsh-character-library-tos'
       config:
+        publicRead: true
         connectionTimeoutMs: 10000
         requestTimeoutMs: 30000
 
     - id: character-library
       name: '@deepseek-ai/dsh-character-library'
+
+    - id: character-library-browser
+      name: '@deepseek-ai/dsh-api-character-library'
 
     # Session commands, cold reads, and live control over Typert Remote.
     - id: session-controller
@@ -446,6 +447,11 @@
 
     - id: ui-reference
       name: '@deepseek-ai/dsh-client-ui-reference'
+
+    - id: ui-character-library
+      name: '@deepseek-ai/dsh-client-ui-character-library'
+      config:
+        syncIntervalMs: 30000
 
     # Display masking for recognized credentials in sent user text; remove
     # this entry to draw credentials as written.

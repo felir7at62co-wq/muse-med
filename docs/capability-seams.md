@@ -17,8 +17,11 @@ flowchart LR
   pkg_character_library["character-library"]
   svc_characterLibrary["ctx.characterLibrary<br/>Read-only character reference catalog"]
   pkg_tool_character_reference["tool-character-reference"]
+  pkg_api_character_library["api-character-library"]
   svc_characterLibraryObjectStore["ctx.characterLibraryObjectStore<br/>Character reference object reads"]
   pkg_character_library_tos["character-library-tos"]
+  svc_characterLibraryBrowser["ctx.characterLibraryBrowser<br/>Read-only character library Remote"]
+  pkg_client_ui_character_library["client-ui-character-library"]
   svc_characterReferenceAuthority["ctx.characterReferenceAuthority<br/>Current-project character reference identity"]
   pkg_tool_jubian["tool-jubian"]
   pkg_api_agent_notes["api-agent-notes"]
@@ -363,6 +366,7 @@ flowchart LR
   pkg_agent_preset_registry --> svc_agentPresets
   pkg_agent_team --> svc_agentTeams
   pkg_api_agent_notes --> svc_agentNotes
+  pkg_api_character_library --> svc_characterLibraryBrowser
   pkg_api_gateway --> svc_typertGateway
   pkg_api_job_controller --> svc_jobController
   pkg_api_remote_access --> svc_remoteAccess
@@ -571,7 +575,9 @@ flowchart LR
   svc_browserUse --> pkg_experimental_browser_use_chrome_devtools_mcp
   svc_browserUse --> pkg_experimental_browser_use_playwright_mcp
   svc_browserUse --> pkg_experimental_browser_use_stagehand_native
+  svc_characterLibrary --> pkg_api_character_library
   svc_characterLibrary --> pkg_tool_character_reference
+  svc_characterLibraryBrowser --> pkg_client_ui_character_library
   svc_characterLibraryObjectStore --> pkg_character_library
   svc_characterReferenceAuthority --> pkg_tool_jubian
   svc_clientModules --> pkg_client_hmr
@@ -745,8 +751,9 @@ flowchart LR
 | `ctx.sessionActivity` | `core` | [`session-activity`](../packages/session/session-activity) | - | [`session-coordinator`](../packages/session/session-coordinator) | - | Renders each Session as the session list shows it and delivers one replaceable status digest to each watching parent; waiting for input, failed turns and stalls wake it. |
 | `ctx.sessionCoordinator` | `core` | [`session-coordinator`](../packages/session/session-coordinator) | - | [`session-coordinator`](../packages/session/session-coordinator), [`client-ui-session-coordinator`](../packages/client/ui-session-coordinator) | - | Routing-only Main Sessions assign independent durable tasks to ordinary workers; native receipts and explicit reports distinguish delivery, completion and confirmed stopping. |
 | `ctx.toolDiscovery` | `core` | [`tool-discovery`](../packages/core/tool-discovery) | - | [`tool-discovery`](../packages/core/tool-discovery) | - | Selects authorized tool definitions and records session loading; optional Bot adapters own durable preferred names. |
-| `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | Validates historical metadata and bounded images for character-reference search; recommendations grant no publication, binding or generation permission. |
-| `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | Lists objects, reads metadata and retrieves bounded image bytes from fixed historical prefixes through Host-owned credentials. |
+| `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference), [`api-character-library`](../packages/api/character-library) | - | Validates historical metadata and bounded images for character-reference search; recommendations grant no publication, binding or generation permission. |
+| `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | Discovers current metadata and reads bounded images from fixed historical prefixes; publicRead uses live cloud listings without storage credentials. |
+| `ctx.characterLibraryBrowser` | `core` | [`api-character-library`](../packages/api/character-library) | - | [`client-ui-character-library`](../packages/client/ui-character-library) | - | Exposes catalog browsing and verified image previews to the browser without storage credentials or mutation methods. |
 | `ctx.characterReferenceAuthority` | `service` | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Re-reads the current project, registered character and Catalog image digest for managed reference use; it does not grant image rights. |
 | `ctx.agentNotes` | `core` | [`api-agent-notes`](../packages/api/agent-notes) | - | [`api-remotes`](../packages/api/remotes), `client-ui-agent-notes` | - | Lists and edits existing notes under the configured root with filesystem version checks; the browser receives note contents through Typert Remote. |
 | `ctx.generationWorkspaceAuthority` | `seam` | [`tool-jubian`](../packages/jubian/tool-jubian) | `desktop-host` | [`tool-jubian`](../packages/jubian/tool-jubian), `desktop-host` | - | Holds exclusive durable Workspace membership for the original native Session through submission, automatic continuation or strict source-QA publication; missing or changed ownership refuses admission. |

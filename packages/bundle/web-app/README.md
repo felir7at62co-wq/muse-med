@@ -46,6 +46,8 @@ After startup you see a `dsh web:` line whose root URL carries a fresh process t
 
 Saved model selections override the composition default. The settings card accepts a Messages-compatible API address and a credential reference.
 
+The left navigation opens the [character reference library](../../client/ui-character-library/README.md). People can filter the catalog and preview images; the browser API exposes reads only. Web and Muse Desktop enable the [TOS provider](../../drama/character-library-tos/README.md)'s `publicRead` mode by default, discovering published characters through live cloud listings without Muse-account or TOS credentials. The open page synchronizes cloud additions automatically.
+
 ### Configuration
 
 The `minimal` agent preset uses a persistent shell, the `read_image` tool, and a fixed persona, with automatic history compaction and the idle-session `/compact` command. It shares the Host token meter and owns an isolated compaction backend. [Compaction configuration and retention](../../compaction/compaction-basic/README.md#use-this-package) follow the existing backend. Image reads reuse the Host filesystem and attachment store and require an image-capable model; text read, write, and edit tools remain excluded.

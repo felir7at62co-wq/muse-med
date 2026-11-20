@@ -2909,6 +2909,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'root\' (client-ui-layout), so it exists while that entry is mounted',
     occupants: [
+      'client-ui-character-library LibraryPage',
       'client-ui-conversation ConversationPanel key \'conversation\'',
       'client-ui-muse-market MarketPage',
       'client-ui-muse-market MarketCreatorPanel',
@@ -4591,6 +4592,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'factory \'sidebar.panel.icon\' (client-ui-sidebar), so it exists while that definition is registered',
     occupants: [
+      'client-ui-character-library LibraryIcon',
       'client-ui-muse-market MarketPanelIcon',
       'client-ui-plugin-manager PluginsPanelIcon',
       'client-ui-schedule TaskManagerIcon',
