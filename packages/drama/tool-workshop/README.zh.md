@@ -1,5 +1,5 @@
 ---
-description: "让 Muse 运行剧本工坊的视频转剧本工厂任务，把写完的剧本上传到工坊定稿库，并为投产取回。"
+description: "让 Muse 开始、停止、续跑和查看剧本工坊的视频转剧本工厂任务，把写完的剧本上传到工坊定稿库，并为投产取回。"
 kind: "package-reference"
 ---
 
@@ -26,7 +26,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在 Agent 预设中挂载本插件；所有 Bot 使用的 Desktop `short-drama` 预设已无配置挂载。Host 提供 `@deepseek-ai/dsh-workbench-connection` 的 `workshopConnection` 后才注册工具，该服务消失时移除工具，因此没有工坊连接的组合不提供工坊工具。开始任务时通过 Host `approval` 服务征求用户确认；没有该服务时 `start` 以 `WORKSHOP_APPROVAL_REQUIRED` 失败。在 Desktop 组合中，本工具归在「剧本工坊」能力下，经 `tool_search` 按需加载，不常驻。`script_finalize` 和 `script_library` 还需要 `fs` 与 `sandboxPolicy` 服务，按当前对话的工作区解析路径；两者归在同一能力下。
+在 Agent 预设中挂载本插件；所有 Bot 使用的 Desktop `short-drama` 预设已无配置挂载。Host 提供 `@deepseek-ai/dsh-workbench-connection` 的 `workshopConnection` 后才注册工具，该服务消失时移除工具，因此没有工坊连接的组合不提供工坊工具。开始或续跑任务时通过 Host `approval` 服务征求用户确认；没有该服务时 `start` 和 `resume` 以 `WORKSHOP_APPROVAL_REQUIRED` 失败。在 Desktop 组合中，本工具归在「剧本工坊」能力下，经 `tool_search` 按需加载，不常驻。`script_finalize` 和 `script_library` 还需要 `fs` 与 `sandboxPolicy` 服务，按当前对话的工作区解析路径；两者归在同一能力下。
 
 <a id="actions"></a>
 ## 操作
@@ -37,8 +37,9 @@ kind: "package-reference"
 | 带 `job_id` 的 `status` | 先查就绪状态，再 `GET /factory/jobs/{job_id}` | `{ service, job }`：任务参数、各转写位状态，以及每类结果最新 20 条 |
 | `start` | 先查就绪状态，经用户确认后 `POST /factory/jobs`，`job_type` 为 `video_transcribe` | `{ job_id, config }`，含实际发送的参数 |
 | `stop` | `GET /factory/jobs/{job_id}`；任务等待中或运行中时 `POST /factory/jobs/{job_id}/stop`，再读一次任务 | `{ stop_requested, job }` |
+| `resume` | `GET /factory/jobs/{job_id}`；任务已停止、失败或已完成时先查就绪状态，经用户确认后 `POST /factory/jobs/{job_id}/resume`，再读一次任务 | `{ resumed, job }` |
 
-`start` 沿用流水线卡片的默认值：`count` 为 0（持续运行直到停止）、`concurrency` 为 1、`quality` 为 `720p`、`publish` 为 false、不设 `only_series`（按队列顺序）。`concurrency` 不能超过部署的 `max_slots`；`only_series` 接收 15 到 25 位的红果作品编号并去重。步骤未就绪时以 `WORKSHOP_TRANSCRIBE_UNAVAILABLE` 失败，并附上运维给出的原因。工坊没有确认新任务时，`start` 以 `WORKSHOP_JOB_OUTCOME_UNKNOWN` 失败，并提示模型先用 `status` 核对再重试。其他类型的任务以 `WORKSHOP_NOT_TRANSCRIBE_JOB` 失败；其他用户的任务或不存在的任务以 `WORKSHOP_JOB_NOT_FOUND` 失败。停止会保留已领取的每部剧；已结束的任务返回 `stop_requested: false`，不发送停止请求。
+`start` 沿用流水线卡片的默认值：`count` 为 0（持续运行直到停止）、`concurrency` 为 1、`quality` 为 `720p`、`publish` 为 false、不设 `only_series`（按队列顺序）。`concurrency` 不能超过部署的 `max_slots`；`only_series` 接收 15 到 25 位的红果作品编号并去重。步骤未就绪时以 `WORKSHOP_TRANSCRIBE_UNAVAILABLE` 失败，并附上运维给出的原因。工坊没有确认新任务时，`start` 以 `WORKSHOP_JOB_OUTCOME_UNKNOWN` 失败，并提示模型先用 `status` 核对再重试。其他类型的任务以 `WORKSHOP_NOT_TRANSCRIBE_JOB` 失败；其他用户的任务或不存在的任务以 `WORKSHOP_JOB_NOT_FOUND` 失败。停止会保留已领取的每部剧；已结束的任务返回 `stop_requested: false`，不发送停止请求。`resume` 沿用原任务保存的参数和已领取的剧继续运行，确认卡片列出这些参数。仍在等待或运行的任务，或工坊返回 409 时已重新运行的任务，返回 `resumed: false`。工坊没有确认 `resumed: true` 时，调用以 `WORKSHOP_RESUME_UNSUPPORTED` 失败。
 
 待执行卡片的标题写明操作和任务，`start` 卡片显示补全默认值后的参数。完成卡片的标题取自持久化的结果要点：新任务、停止请求、任务状态与百分比，或就绪状态与任务数量。
 
@@ -94,7 +95,7 @@ kind: "package-reference"
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **不能续跑已停止的任务** —— 已停止的独立任务保留已领取的剧，但只有工坊流水线运行能续跑；`start` 会新建任务。
+- **续跑需要更新后的剧本工坊** —— `POST /factory/jobs/{id}/resume` 没有视频转剧本分支的工坊版本会按大纲恢复作答；本工具此时报告 `WORKSHOP_RESUME_UNSUPPORTED`，不会当作已续跑。
 - **不检查重复开始** —— 另一个视频转剧本任务运行时 `start` 不会拒绝；任务共用部署的转写位，第二个任务只占用空闲的转写位。
 - **只看最近的任务** —— 不带 `job_id` 的 `status` 只扫描最新 50 个各类工厂任务；更早的视频转剧本任务需要提供 `job_id`。
 - **模型不能选用** —— Muse 不能选用版本；组长在客户端「剧本」标签里选用，没人选用的剧本工坊会拒绝 `link`。

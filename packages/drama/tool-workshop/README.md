@@ -1,5 +1,5 @@
 ---
-description: "Let Muse run Script Workshop's 视频转剧本 factory job, upload finished scripts to the Workshop's finalized-script library, and read them back for production."
+description: "Let Muse start, stop, resume and report Script Workshop's 视频转剧本 factory job, upload finished scripts to the Workshop's finalized-script library, and read them back for production."
 kind: "package-reference"
 ---
 
@@ -26,7 +26,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin in an Agent preset; the Desktop `short-drama` preset, which every Bot uses, mounts it with no configuration. It registers the tool once the Host provides `workshopConnection` from `@deepseek-ai/dsh-workbench-connection` and removes it when that service goes away, so a composition without the Workshop connection offers no Workshop tool. Starting a job asks the user through the Host `approval` service; without it, `start` fails with `WORKSHOP_APPROVAL_REQUIRED`. In the Desktop composition the tool is loaded on demand through `tool_search` under the 剧本工坊 capability; it is not resident. `script_finalize` and `script_library` also need the `fs` and `sandboxPolicy` services and resolve paths against the conversation's workspace; both sit under the same capability.
+Mount the plugin in an Agent preset; the Desktop `short-drama` preset, which every Bot uses, mounts it with no configuration. It registers the tool once the Host provides `workshopConnection` from `@deepseek-ai/dsh-workbench-connection` and removes it when that service goes away, so a composition without the Workshop connection offers no Workshop tool. Starting or resuming a job asks the user through the Host `approval` service; without it, `start` and `resume` fail with `WORKSHOP_APPROVAL_REQUIRED`. In the Desktop composition the tool is loaded on demand through `tool_search` under the 剧本工坊 capability; it is not resident. `script_finalize` and `script_library` also need the `fs` and `sandboxPolicy` services and resolve paths against the conversation's workspace; both sit under the same capability.
 
 <a id="actions"></a>
 ## Actions
@@ -37,8 +37,9 @@ Mount the plugin in an Agent preset; the Desktop `short-drama` preset, which eve
 | `status` with `job_id` | the readiness request, then `GET /factory/jobs/{job_id}` | `{ service, job }`: the job's parameters, slot states and the 20 newest entries of each outcome list |
 | `start` | the readiness request, user approval, then `POST /factory/jobs` with `job_type: video_transcribe` | `{ job_id, config }` with the parameters sent |
 | `stop` | `GET /factory/jobs/{job_id}`, `POST /factory/jobs/{job_id}/stop` while the job is pending or running, then the job again | `{ stop_requested, job }` |
+| `resume` | `GET /factory/jobs/{job_id}`; for a stopped, failed or completed job the readiness request, user approval, `POST /factory/jobs/{job_id}/resume`, then the job again | `{ resumed, job }` |
 
-`start` applies the pipeline card's defaults: `count` 0 (run until stopped), `concurrency` 1, `quality` `720p`, `publish` false and no `only_series` (queue order). `concurrency` must not exceed the deployment's `max_slots`; `only_series` takes Hongguo series IDs of 15 to 25 digits and drops duplicates. A step that is not ready fails with `WORKSHOP_TRANSCRIBE_UNAVAILABLE` and the operator's reason. When the Workshop does not confirm the new job, `start` fails with `WORKSHOP_JOB_OUTCOME_UNKNOWN` and tells the model to check `status` before trying again. A job of another type fails with `WORKSHOP_NOT_TRANSCRIBE_JOB`; a job of another user or a missing one fails with `WORKSHOP_JOB_NOT_FOUND`. Stopping keeps every claimed series; a finished job is reported with `stop_requested: false` and no stop request.
+`start` applies the pipeline card's defaults: `count` 0 (run until stopped), `concurrency` 1, `quality` `720p`, `publish` false and no `only_series` (queue order). `concurrency` must not exceed the deployment's `max_slots`; `only_series` takes Hongguo series IDs of 15 to 25 digits and drops duplicates. A step that is not ready fails with `WORKSHOP_TRANSCRIBE_UNAVAILABLE` and the operator's reason. When the Workshop does not confirm the new job, `start` fails with `WORKSHOP_JOB_OUTCOME_UNKNOWN` and tells the model to check `status` before trying again. A job of another type fails with `WORKSHOP_NOT_TRANSCRIBE_JOB`; a job of another user or a missing one fails with `WORKSHOP_JOB_NOT_FOUND`. Stopping keeps every claimed series; a finished job is reported with `stop_requested: false` and no stop request. `resume` continues the same job with its saved parameters and claimed series; the approval card lists those parameters. A job that is still pending or running, or is running again when the Workshop answers 409, is reported with `resumed: false`. A Workshop that does not confirm `resumed: true` fails the call with `WORKSHOP_RESUME_UNSUPPORTED`.
 
 The pending card title names the action and job, and a `start` card shows the parameters with defaults applied. The completed card title is derived from the persisted result facts: the new job, the stop request, a job's state and percentage, or the readiness and job count.
 
@@ -94,7 +95,7 @@ The definitions are fixed; results are appended after the reusable prefix.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **No resume of a stopped job** — a stopped standalone job keeps its claimed series, but only a Workshop pipeline run can resume it; `start` creates a new job.
+- **Resume needs the updated Workshop** — a Workshop release without the 视频转剧本 branch of `POST /factory/jobs/{id}/resume` answers with its outline recovery; the tool reports `WORKSHOP_RESUME_UNSUPPORTED` instead of a resumed job.
 - **No duplicate-start check** — `start` does not refuse when another 视频转剧本 job is running; jobs share the deployment's slots, so the second job only takes free ones.
 - **Recent jobs only** — `status` without `job_id` scans the 50 newest factory jobs of all types; an older 视频转剧本 job needs its `job_id`.
 - **No pick for the model** — Muse cannot pick a version; leads pick in the Client's 剧本 tab, and the Workshop refuses `link` for a script nobody picked.

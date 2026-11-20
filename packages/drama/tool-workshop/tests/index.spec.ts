@@ -66,7 +66,8 @@ describe('workshop_video_transcribe', () => {
     const { ctx, fiber, service } = await bench(() => READY)
     const definition = ctx.tools.get('workshop_video_transcribe')
     expect(definition?.description).toBe('剧本工坊的视频转剧本任务：从数据站爆款队列领剧，经 AI 观众选材、红果整剧下载和云端 Muse 逐集转写，出稿存为工坊剧本。'
-      + 'status 查看是否就绪、队列和任务进度；start 按参数开始一个任务，会产生下载与转写费用，提交前请用户确认；stop 停止任务，已领取的剧保留进度。')
+      + 'status 查看是否就绪、队列和任务进度；start 按参数开始一个任务，resume 沿用原参数续跑已停止的任务，两者都会产生下载与转写费用，提交前请用户确认；'
+      + 'stop 停止任务，已领取的剧保留进度。')
     expect(definition?.isConcurrencySafe?.({ action: 'status' })).toBe(true)
     expect(definition?.isConcurrencySafe?.({ action: 'start' })).toBe(false)
     await service?.dispose()
@@ -233,6 +234,64 @@ describe('workshop_video_transcribe', () => {
     expect(failure(await call({ action: 'stop', job_id: 12 }, false))).toMatchObject({ code: 'WORKSHOP_SESSION_REQUIRED' })
   })
 
+  it('resumes a stopped job with its saved parameters after the user confirms them', async () => {
+    let state = 'stopped'
+    const saved = { count: 3, concurrency: 2, quality: '1080p', publish: true, only_series: [SERIES] }
+    const { call, request, asked } = await bench((path) => {
+      if (path === '/factory/jobs/12/resume') { state = 'running'; return { job_id: 12, resumed: true, message: '已续跑视频转剧本任务' } }
+      if (path === '/factory/jobs/12') return job(12, state, { config_json: saved, result: { delivered: [{ series_id: SERIES }] } })
+      return READY
+    })
+    const resumed = await call({ action: 'resume', job_id: 12 })
+    expect(resumed.value).toEqual({ action: 'resume', resumed: true, job: {
+      id: 12, status: 'running', config: saved, delivered: 1, attention: 0, rejected: 0, created_at: '2026-11-20T00:05:00' } })
+    expect(asked).toHaveBeenCalledWith([
+      '剧本工坊 · 续跑视频转剧本任务 #12', '部数：3 部', '同时转写：2 部（最多 4 部）', '画质：1080p', '通过检查后上架：是', '只转这些剧：' + SERIES,
+      '沿用原参数，接着处理已领取的剧并继续领取新剧，会产生下载与转写费用。',
+    ].join('\n'))
+    expect(request.mock.calls.map(([path, init]) => [path, init?.method])).toEqual([
+      ['/factory/jobs/12', undefined], ['/factory/video-transcribe/status', undefined], ['/factory/jobs/12/resume', 'POST'], ['/factory/jobs/12', undefined]])
+    expect(resumed.meta).toEqual({ action: 'resume', job_id: 12, status: 'running', resumed: true })
+    request.mockClear()
+    expect((await call({ action: 'resume', job_id: 12 })).value).toMatchObject({ resumed: false, job: { status: 'running' } })
+    expect(request.mock.calls.map(([path]) => path)).toEqual(['/factory/jobs/12'])
+    expect(asked).toHaveBeenCalledOnce()
+  })
+
+  it('names the card defaults when a resumed job has no saved parameters', async () => {
+    const { call, asked } = await bench(path => path === '/factory/jobs/9/resume' ? { job_id: 9, resumed: true }
+      : path === '/factory/jobs/9' ? job(9, 'failed') : { ready: true })
+    expect((await call({ action: 'resume', job_id: 9 })).value).toMatchObject({ action: 'resume', resumed: true, job: { id: 9 } })
+    expect(asked.mock.calls[0]?.[0]).toBe([
+      '剧本工坊 · 续跑视频转剧本任务 #9', '部数：持续运行直到停止', '同时转写：1 部', '画质：720p', '通过检查后上架：否', '只转这些剧：按队列顺序',
+      '沿用原参数，接着处理已领取的剧并继续领取新剧，会产生下载与转写费用。',
+    ].join('\n'))
+  })
+
+  it.each<[string, unknown, Record<string, unknown>]>([
+    ['the job running again', new WorkbenchHttpError(409, 'WORKSHOP_HTTP_ERROR', '任务正在运行，无需续跑'), { value: { action: 'resume', resumed: false } }],
+    ['a server failure', new WorkbenchHttpError(502, 'WORKSHOP_HTTP_ERROR', '剧本工坊请求失败。'), { code: 'WORKSHOP_HTTP_ERROR' }],
+    ['a Workshop without 视频转剧本 resume', { message: '没有卡住的大纲', resumed: 0 }, { code: 'WORKSHOP_RESUME_UNSUPPORTED' }],
+    ['an answer without the resume flag', { message: '已重启' }, { code: 'WORKSHOP_RESUME_UNSUPPORTED' }],
+    ['an empty answer', null, { code: 'WORKSHOP_RESUME_UNSUPPORTED' }],
+    ['a text answer', 'ok', { code: 'WORKSHOP_RESUME_UNSUPPORTED' }],
+  ])('reports %s after a resume request', async (_name, answer, outcome) => {
+    const { call } = await bench(path => path === '/factory/jobs/4/resume' ? answer : path === '/factory/jobs/4' ? job(4, 'stopped') : READY)
+    const result = await call({ action: 'resume', job_id: 4 })
+    if ('value' in outcome) expect(result.value).toMatchObject(outcome.value as object)
+    else expect(failure(result)).toMatchObject(outcome)
+  })
+
+  it('resumes nothing without confirmation, readiness or a job ID', async () => {
+    const route: Route = path => path === '/factory/jobs/4' ? job(4, 'stopped') : READY
+    const denied = await bench(route, { approval: 'denied' })
+    expect(failure(await denied.call({ action: 'resume', job_id: 4 }))).toMatchObject({ code: 'WORKSHOP_APPROVAL_REQUIRED', message: '本次续跑未获确认。' })
+    expect(denied.request.mock.calls.map(([path]) => path)).not.toContain('/factory/jobs/4/resume')
+    const offline = await bench(path => path === '/factory/jobs/4' ? job(4, 'stopped') : { ready: false, error: '数据站暂时无法访问（ConnectError）' })
+    expect(failure(await offline.call({ action: 'resume', job_id: 4 }))).toMatchObject({ code: 'WORKSHOP_TRANSCRIBE_UNAVAILABLE', message: '数据站暂时无法访问（ConnectError）' })
+    expect(failure(await offline.call({ action: 'resume' }))).toMatchObject({ code: 'INVALID_ARGS' })
+  })
+
   it('titles pending and completed cards from the arguments and the persisted result facts', async () => {
     const { ctx } = await bench(() => READY)
     const definition = ctx.tools.get('workshop_video_transcribe')
@@ -240,6 +299,8 @@ describe('workshop_video_transcribe', () => {
     expect(definition?.presentCall?.({ action: 'status', job_id: 3 })).toEqual({ card: 'generic', kind: 'read', title: '视频转剧本 · 任务 #3' })
     expect(definition?.presentCall?.({ action: 'stop', job_id: 3 })).toEqual({ card: 'generic', kind: 'other', title: '视频转剧本 · 停止任务 #3' })
     expect(definition?.presentCall?.({ action: 'stop' })).toEqual({ card: 'generic', kind: 'other', title: '视频转剧本 · 停止任务' })
+    expect(definition?.presentCall?.({ action: 'resume', job_id: 3 })).toEqual({ card: 'generic', kind: 'other', title: '视频转剧本 · 续跑任务 #3' })
+    expect(definition?.presentCall?.({ action: 'resume' })).toEqual({ card: 'generic', kind: 'other', title: '视频转剧本 · 续跑任务' })
     expect(definition?.presentCall?.({ action: 'start', count: 2 })).toEqual({ card: 'generic', kind: 'other', title: '视频转剧本 · 开始转写',
       rawInput: { count: 2, concurrency: 1, quality: '720p', publish: false, only_series: [] } })
     const done = (meta: JsonValue | undefined, isError = false): ToolResult => ({
@@ -251,6 +312,10 @@ describe('workshop_video_transcribe', () => {
       [{ action: 'stop', job_id: 12, stop_requested: true, status: 'running' }, '视频转剧本 · 已请求停止任务 #12'],
       [{ action: 'stop', job_id: 12, stop_requested: false, status: 'completed' }, '视频转剧本 · 任务 #12 已完成'],
       [{ action: 'stop', job_id: 12, stop_requested: false }, '视频转剧本 · 任务 #12'],
+      [{ action: 'resume', job_id: 12, resumed: true, status: 'running' }, '视频转剧本 · 已续跑任务 #12'],
+      [{ action: 'resume', job_id: 12, resumed: false, status: 'running' }, '视频转剧本 · 任务 #12 运行中'],
+      [{ action: 'resume', job_id: 12, resumed: false }, '视频转剧本 · 任务 #12'],
+      [{ action: 'resume' }, undefined],
       [{ action: 'status', job_id: 12, status: 'paused', percent: 30 }, '视频转剧本 · 任务 #12 paused 30%'],
       [{ action: 'status', job_id: 12 }, '视频转剧本 · 任务 #12'],
       [{ action: 'status', ready: false }, '视频转剧本 · 暂不可用'],

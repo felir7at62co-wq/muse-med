@@ -2280,7 +2280,7 @@ Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jing
 
 ### `workshop_video_transcribe`
 
-剧本工坊的视频转剧本任务：从数据站爆款队列领剧，经 AI 观众选材、红果整剧下载和云端 Muse 逐集转写，出稿存为工坊剧本。status 查看是否就绪、队列和任务进度；start 按参数开始一个任务，会产生下载与转写费用，提交前请用户确认；stop 停止任务，已领取的剧保留进度。
+剧本工坊的视频转剧本任务：从数据站爆款队列领剧，经 AI 观众选材、红果整剧下载和云端 Muse 逐集转写，出稿存为工坊剧本。status 查看是否就绪、队列和任务进度；start 按参数开始一个任务，resume 沿用原参数续跑已停止的任务，两者都会产生下载与转写费用，提交前请用户确认；stop 停止任务，已领取的剧保留进度。
 
 ```json
 {
@@ -2291,12 +2291,13 @@ Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jing
       "enum": [
         "status",
         "start",
-        "stop"
+        "stop",
+        "resume"
       ]
     },
     "job_id": {
       "type": "integer",
-      "description": "status：查看这个任务的进度和出稿，省略时列出最近的任务。stop：必填。"
+      "description": "status：查看这个任务的进度和出稿，省略时列出最近的任务。stop 和 resume：必填。"
     },
     "count": {
       "type": "integer",
