@@ -243,8 +243,11 @@ export function BotSchedules({ bot, roster, actions }) {
 export function ScheduleSummary({ bot, actions }) {
   const view = useSchedules(actions)
   const tasks = view?.available ? view.tasks.filter(task => task.botId === bot.id && task.status === 'active') : []
+  const title = h('div', { className: 'bt-section-title' }, tasks.length === 0 ? t('Scheduled tasks') : t('Scheduled tasks · {count}', { count: tasks.length }))
   return h('div', null,
-    h('div', { className: 'bt-section-title' }, tasks.length === 0 ? t('Scheduled tasks') : t('Scheduled tasks · {count}', { count: tasks.length })),
+    // Muse: with tasks listed, the plus beside the title adds another; the empty line below is the way in otherwise.
+    tasks.length === 0 ? title : h('div', { className: 'bt-members-head' }, title,
+      h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('New task'), title: t('New task'), onClick: () => actions.openSettings('schedules', bot.id) }, h(PlusIcon))),
     tasks.length === 0
       ? h('button', { type: 'button', className: 'bt-more', onClick: () => actions.openSettings('schedules', bot.id) }, view?.available === false ? t('Switch on Automation tasks on the Plugins page in Settings.') : t('No scheduled tasks yet. Add one'))
       : h('div', { className: 'bt-task-list' }, tasks.slice(0, 3).map(task => h('button', { key: task.id, type: 'button', className: 'bt-task-line', onClick: () => actions.openSettings('schedules', `bot:${bot.id}`) },
@@ -253,6 +256,7 @@ export function ScheduleSummary({ bot, actions }) {
 }
 
 export const SCHEDULE_CSS = `
+.bt-members-head>.bt-icon-btn{flex:none;margin:-6px -4px -6px 0}
 .bt-task{gap:10px}
 .bt-task[data-done]{opacity:.6}
 .bt-task[data-busy]{opacity:.4}

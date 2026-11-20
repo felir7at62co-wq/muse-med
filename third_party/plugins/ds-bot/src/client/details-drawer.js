@@ -1,4 +1,4 @@
-import { createElement as h, Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
 import { currentPart, runStatsOf, usageOf } from './text.js'
 import { PlusIcon, CloseIcon, ChevronLeftIcon, GearIcon, ShareIcon, SideIcon, TerminalIcon, FolderIcon, MonitorIcon } from './icons.js'
@@ -20,6 +20,7 @@ import { ComputerView } from './computer.js'
 import { t } from './i18n.js'
 import { DRAWER_TAB_LABELS, drawerTabOf, drawerTabs, drawerTools, listTabOf, platformOfTab, projectOfTab, scriptOfTab, terminalOfTab } from './side-model.js'
 import { TerminalCards } from './terminal-cards.js'
+import { BotBackground, GroupBackground } from './background-panel.js'
 import { FilesTree } from './files-tree.js'
 
 // Muse: a row of tabs sits under the Bot's name and each tab's content shows under it: the
@@ -38,26 +39,6 @@ const TOOL_ICONS = { side: SideIcon, terminal: TerminalIcon, files: FolderIcon, 
 const TERMINAL_SLOT = 'bot.drawer.terminal'
 export const DRAWER_SLOTS = Object.fromEntries([...Object.values(TAB_SLOTS), TERMINAL_SLOT].map(name => [name, { kind: 'single', scope: 'root' }]))
 const NO_PROJECTS = []
-
-// Muse: the background jobs running in the Bot's current conversation, each with Stop.
-const NO_SUBSCRIBE = () => () => {}
-const NO_JOBS = []
-function BackgroundJobs({ part, actions }) {
-  const jobs = actions.backgroundJobs?.() ?? null
-  useEffect(() => (jobs && part ? jobs.watchRows(part) : undefined), [jobs, part])
-  // The store's methods read `this`, so they are called on the store.
-  const subscribe = useMemo(() => (jobs ? listener => jobs.state.subscribe(listener) : NO_SUBSCRIBE), [jobs])
-  const rows = useSyncExternalStore(subscribe, () => (jobs ? jobs.state.getSnapshot().rows?.[part] : undefined) ?? NO_JOBS)
-  const live = rows.filter(job => job.status === 'running' || job.status === 'stopping')
-  if (live.length === 0) return null
-  return h('div', { className: 'bt-drawer-model' },
-    h('div', { className: 'bt-section-title' }, t('Background jobs')),
-    live.map(job => h('div', { key: String(job.id), className: 'bt-kv' },
-      h('span', { className: 'bt-bg-label' }, job.label),
-      job.status === 'stopping'
-        ? h('span', { className: 'bt-note' }, t('Stopping…'))
-        : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { void jobs.kill(part, job.id).catch(error => actions.reportError?.(error, 'jobs')) } }, t('Stop')))))
-}
 
 const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return '' } }
 const shortUrl = url => String(url ?? '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '')
@@ -226,6 +207,7 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
       h('div', { className: 'bt-members', role: 'list' }, members.map(member => h(MemberRow, {
         key: member.id, member, entry: entries.find(item => item.id === member.id), room, roster, actions,
       })))),
+    h(GroupBackground, { key: 'background', room, roster, actions }),
     h('div', { key: 'tasks' }, h(TaskBoard, { room, roster, actions })),
     h('div', { key: 'goal' }, h('div', { className: 'bt-section-title' }, t('Goal')),
       h('div', { className: 'bt-kv' },
@@ -297,7 +279,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
         h('span', { className: 'bt-subhead-title' }, bot ? t('Settings') : t('Group settings')),
         hasStrip ? null : h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close details'), onClick: close }, h(CloseIcon))),
       h('div', { key: 'set-body', className: 'bt-drawer-body bt-set-body', 'data-move': move }, errorLine,
-        bot ? h(BotSettingsForm, { bot, roster, actions, run }) : h(GroupSettingsForm, { room, roster, actions, run, onDeleted: close })),
+        bot ? h(BotSettingsForm, { bot, roster, actions, run, lean: true }) : h(GroupSettingsForm, { room, roster, actions, run, onDeleted: close })),
     ]
   }
   // An open script, Jingliu project, data platform or terminal takes the whole drawer; every row tab keeps the Bot's top.
@@ -401,6 +383,8 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
       })) : null,
       bot && tab === 'details' ? [
         h(RunStats, { key: 'stats', bot, part, running, actions }),
+        // Muse: what runs in the background comes first; the settings follow.
+        h(BotBackground, { key: 'background', sessionId, part, tabs: terminals, actions }),
         h('div', { key: 'model', className: 'bt-drawer-model' },
           h('div', { className: 'bt-section-title' }, t('Model')),
           h(ModelMenu, { bot, roster, actions, run, wide: true, inline: true }),
@@ -420,7 +404,6 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
         usage ? h('div', { key: 'usage' }, h('div', { className: 'bt-section-title' }, t('Usage')),
           h('div', { className: 'bt-kv' }, h('span', null, t('Language model')), h('span', null, usage))) : null,
         h(ScheduleSummary, { key: 'routines', bot, actions }),
-        h(BackgroundJobs, { key: 'background', part, actions }),
       ] : null,
       bot && tab === 'browser' ? h(BrowserCards, { bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) : null)]
 }

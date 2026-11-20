@@ -62,6 +62,24 @@ test('a private Bot can always turn privacy off, and cannot become Main or be du
   assert.equal(tree.some(node => node.props?.onClick && node.props.className === 'bt-set-row bt-bs-row' && JSON.stringify(node).includes('Duplicate')), false)
 })
 
+// Muse: the form behind the gear of the details panel leaves out what the details page edits.
+test('the lean form keeps only the settings the details page lacks', () => {
+  const titles = (tree) => tree.filter(node => typeof node.props?.title === 'string').map(node => node.props.title)
+  const roster = { mainBotIds: [], mainBotId: null, rooms: [], models: [], memory: true }
+  const form = lean => walk(BotSettingsForm({ bot: { ...bot, workDir: '/work' }, roster, actions: {}, run: fn => fn, lean }))
+  const full = titles(form(false))
+  for (const title of ['Profile', 'Model', 'Working folder', 'Instructions']) assert.ok(full.includes(title), title)
+  const lean = titles(form(true))
+  for (const title of ['Profile', 'Model', 'Working folder', 'Instructions']) assert.equal(lean.includes(title), false, title)
+  for (const title of ['Privacy', 'Main Bot', 'Sidebar', 'Manage']) assert.ok(lean.includes(title), title)
+  // Memory and scheduled tasks are components of their own: present in the full form only.
+  const named = (tree, name) => tree.some(node => node.type?.name === name)
+  assert.equal(named(form(false), 'MemoryCard'), true)
+  assert.equal(named(form(false), 'BotSchedules'), true)
+  assert.equal(named(form(true), 'MemoryCard'), false)
+  assert.equal(named(form(true), 'BotSchedules'), false)
+})
+
 // One InlineText with working state, so a test can type into it, press keys and blur it.
 function field(props) {
   const cells = []

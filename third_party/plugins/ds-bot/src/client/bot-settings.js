@@ -199,7 +199,10 @@ function MemoryCard({ bot, actions }) {
 // A Bot's settings as grouped cards: who it is (avatar, name, label), what it runs on
 // (model), what it does (instructions), its memory and tasks, its Main Bot role, its
 // sidebar place, and copies.
-export function BotSettingsForm({ bot, roster, actions, run }) {
+// Muse: `lean` is the form behind the gear of the details panel. The details page beside it
+// already edits the name, label, model, working folder, instructions, memory and scheduled
+// tasks, so the lean form keeps only what that page lacks.
+export function BotSettingsForm({ bot, roster, actions, run, lean = false }) {
   const [editing, setEditing] = useState(false)
   const [editorShown, editorLeaving] = useLinger(editing, 120)
   const [confirming, setConfirming] = useState(false)
@@ -230,15 +233,15 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       h('div', { className: 'bt-bs-who' },
         h('span', { className: 'bt-bs-name' }, bot.name),
         h('span', { className: 'bt-bs-sub' }, [bot.role, isMainBot ? t('Main Bot') : ''].filter(Boolean).join(' · ') || t('Bot')))),
-    h(Card, { title: t('Profile') },
+    lean ? null : h(Card, { title: t('Profile') },
       h(Row, { label: t('Name') }, h(InlineText, { label: t('Name'), value: bot.name, placeholder: 'Bob', required: true, maxLength: 40, onSave: name => save({ name }) })),
       h(Row, { label: t('Label'), hint: t('Optional. Shown under the name.') }, h(InlineText, { label: t('Label'), value: bot.role, placeholder: t('Research, admin…'), maxLength: 24, onSave: role => save({ role }) }))),
     h(RunModeCard, { bot, roster, actions, run, Card }),
-    h(Card, { title: t('Model') },
+    lean ? null : h(Card, { title: t('Model') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Model')), h('span', { className: 'bt-set-hint' }, modelHint(bot, roster))),
         h(ModelMenu, { bot, roster, actions, run }))),
-    h(Card, { title: t('Working folder') },
+    lean ? null : h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
         h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) }))),
@@ -250,13 +253,13 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
         disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir),
         onChange: value => save({ private: value }),
       })),
-    h(Card, { title: t('Instructions') },
+    lean ? null : h(Card, { title: t('Instructions') },
       h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
         h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
     h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
     h(BotComputerCard, { bot, roster, actions, run, Card, Row }),
-    roster.memory === false ? null : h(MemoryCard, { bot, actions }),
-    h(BotSchedules, { bot, roster, actions }),
+    lean || roster.memory === false ? null : h(MemoryCard, { bot, actions }),
+    lean ? null : h(BotSchedules, { bot, roster, actions }),
     h(Card, { title: t('Main Bot') },
       onlyMain
         ? h('div', { className: 'bt-set-row bt-bs-row' },

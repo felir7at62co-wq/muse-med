@@ -1278,6 +1278,24 @@ test('a photo that cannot be read changes nothing, and a non-Main Bot cannot set
   assert.equal((await call('state', {})).value.bots.find(bot => bot.id === writer.id).avatar.image, PNG_DATA_URL)
 })
 
+// Muse: the group's details page watches each member's Session in the group for background work.
+test('a group names each member\'s current Session there', async (t) => {
+  const { call, stop } = start({
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: { chief: { id: 'chief', name: 'Chief' }, writer: { id: 'writer', name: 'Writer' } },
+    rooms: {
+      r1: { id: 'r1', name: 'Ops', members: ['chief', 'writer'], mode: 'admin', admin: 'chief', named: true, log: [], seq: 0, seen: {}, sessions: { writer: 'writer-in-r1' } },
+      r2: { id: 'r2', name: 'Quiet', members: ['chief', 'writer'], mode: 'admin', admin: 'chief', named: true, log: [], seq: 0, seen: {} },
+    },
+  })
+  t.after(stop)
+  const rooms = (await call('state', {})).value.rooms
+  assert.deepEqual(rooms.find(room => room.id === 'r1').memberSessions, { writer: 'writer-in-r1' })
+  assert.deepEqual(rooms.find(room => room.id === 'r2').memberSessions, {})
+  assert.equal('sessions' in rooms.find(room => room.id === 'r1'), false)
+})
+
 test('old late-round and relay-limit fields of a group load away; calls it parked stay for the next round', async (t) => {
   const parked = [{ id: 'writer', name: 'Writer', note: 'Chief mentioned you', by: 'chief' }]
   const { call, stop, home } = start({

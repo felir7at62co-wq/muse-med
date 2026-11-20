@@ -62,6 +62,7 @@ import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { FILES_TREE_CSS } from './files-tree.js'
 import { TERMINAL_CSS } from './terminal-cards.js'
+import { BACKGROUND_CSS } from './background-panel.js'
 import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
@@ -1338,7 +1339,7 @@ export function apply(ctx) {
   // The shell group's sheets. Strip and panel styles also serve the side-chat tabs, which need no bridge.
   const SHELL_SHEETS = [
     [SHELL_CSS, 'shell'],
-    [SIDEBAR_CSS + MUSE_BRAND_CSS + ACCOUNT_CSS + FILES_TREE_CSS + TERMINAL_CSS, 'sidebar'],
+    [SIDEBAR_CSS + MUSE_BRAND_CSS + ACCOUNT_CSS + FILES_TREE_CSS + TERMINAL_CSS + BACKGROUND_CSS, 'sidebar'],
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'],
     [LEARNING_CSS, 'learning'],
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],

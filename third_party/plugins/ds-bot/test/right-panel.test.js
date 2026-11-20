@@ -487,28 +487,78 @@ test('the Bot status line needs the runStats action and then draws turns, speed,
   assert.equal(RunStats({ bot, part: 'a-2', running: false, actions: { runStats: () => ({ then() {} }) } }), null)
 })
 
-// Muse: the Background block reads the jobs store of the Bot's current conversation.
-test('the Background block lists the running jobs of the conversation and stops one', () => {
-  const kills = []
+// Muse: the Background section opens the details page. It reads the jobs store of the Bot's
+// current conversation and that conversation's open terminals.
+const jobsOf = (rows, kills = []) => {
   const state = {
-    rows: { a: [{ id: 'j1', label: 'render episode 3', status: 'running' }, { id: 'j2', label: 'finished', status: 'succeeded' }] },
-    listeners: new Set(),
+    rows, listeners: new Set(),
     getSnapshot() { return { rows: this.rows } },
     subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener) },
   }
-  const jobs = { state, watchRows: () => () => {}, kill: (sessionId, id) => { kills.push([sessionId, id]); return Promise.resolve({ ok: true }) } }
-  const find = (node) => {
-    if (Array.isArray(node)) return node.map(find).find(Boolean)
-    if (node === null || typeof node !== 'object') return undefined
-    if (node.props?.key === 'background') return node
-    return (node.children ?? []).map(find).find(Boolean)
+  return { state, watchRows: () => () => {}, kill: (sessionId, id) => { kills.push([sessionId, id]); return Promise.resolve({ ok: true }) } }
+}
+const keyed = (node, key) => {
+  if (Array.isArray(node)) return node.map(child => keyed(child, key)).find(Boolean)
+  if (node === null || typeof node !== 'object') return undefined
+  if (node.props?.key === key) return node
+  return (node.children ?? []).map(child => keyed(child, key)).find(Boolean)
+}
+test('the Background section groups what runs in the conversation and stops a job or a terminal', () => {
+  const kills = []
+  const ended = []
+  const jobs = jobsOf({ a: [
+    { id: 'j1', kind: 'workflow', label: 'render episode 3', status: 'running', progress: '3/8', startedAt: Date.now() },
+    { id: 'j2', kind: 'bash', label: 'ffmpeg -i ep05.mp4', status: 'running', startedAt: Date.now() },
+    { id: 'j3', kind: 'bash', label: 'finished', status: 'succeeded', startedAt: Date.now() },
+    { id: 'j4', kind: 'workflow', label: 'on its way out', status: 'stopping', startedAt: Date.now() },
+  ] }, kills)
+  const actions = {
+    backgroundJobs: () => jobs, terminalOf: tab => tab.terminalId,
+    endTerminal: (sessionId, part, target) => ended.push([sessionId, part, target]),
   }
-  const block = find(drawer('a', { backgroundJobs: () => jobs }))
+  const block = keyed(drawer('a', actions, roster, { terminals: [{ key: 't1', terminalId: 'term-1' }] }), 'background')
+  const text = textOf(block)
+  assert.match(text, /^Background jobs · 4/)
+  // Tasks first, then commands, then the open terminal.
+  assert.ok(text.indexOf('Tasks') < text.indexOf('render episode 3') && text.indexOf('render episode 3') < text.indexOf('Commands'))
+  assert.ok(text.indexOf('Commands') < text.indexOf('ffmpeg -i ep05.mp4') && text.indexOf('ffmpeg -i ep05.mp4') < text.indexOf('Services'))
+  assert.match(text, /render episode 33\/8/)
+  assert.match(text, /on its way outStopping…/)
+  assert.doesNotMatch(text, /finished/)
+  const stops = buttonsOf(block).filter(entry => textOf(entry) === 'Stop')
+  assert.deepEqual(stops.map(entry => entry.props['aria-label']), ['Stop render episode 3', 'Stop ffmpeg -i ep05.mp4', 'Stop Terminal'])
+  stops[1].props.onClick()
+  assert.deepEqual(kills, [['a', 'j2']])
+  stops[2].props.onClick()
+  // The target object comes from the bundle's own realm, so it is compared as JSON.
+  assert.equal(JSON.stringify(ended), JSON.stringify([['a', 'a', { tab: 't1', terminalId: 'term-1' }]]))
+})
+
+test('the Background section stays on the page when nothing runs', () => {
+  assert.match(textOf(keyed(drawer('a', { backgroundJobs: () => jobsOf({}) }), 'background')), /^Background jobsNothing running$/)
+  // Without the jobs plugin the section still shows, empty.
+  assert.match(textOf(keyed(drawer('a', {}), 'background')), /^Background jobsNothing running$/)
+})
+
+test('a group\'s Background section watches each member\'s conversation there and leads a row with the member', () => {
+  const kills = []
+  const watched = []
+  const jobs = jobsOf({ 'g-a': [{ id: 'j1', kind: 'bash', label: 'pnpm build', status: 'running', startedAt: Date.now() }] }, kills)
+  jobs.watchRows = (sessionId) => { watched.push(sessionId); return () => {} }
+  const group = { ...room, sessionId: 'g-own', admin: 'a', memberSessions: { a: 'g-a' } }
+  const live = { ...roster, roomsById: { g: group } }
+  // The group's overview is a component of its own inside the drawer.
+  const typed = (node, name) => {
+    if (Array.isArray(node)) return node.map(child => typed(child, name)).find(Boolean)
+    if (node === null || typeof node !== 'object') return undefined
+    if (node.type?.name === name) return node
+    return (node.children ?? []).map(child => typed(child, name)).find(Boolean)
+  }
+  const overview = typed(drawer('g', { backgroundJobs: () => jobs }, live), 'GroupOverview')
+  const block = keyed(overview.type(overview.props), 'background')
   const shown = block.type(block.props)
-  assert.match(textOf(shown), /render episode 3/)
-  assert.doesNotMatch(textOf(shown), /finished/)
-  buttonsOf(shown).find(entry => textOf(entry) === 'Stop').props.onClick()
-  assert.deepEqual(kills, [['a', 'j1']])
-  // Nothing running, or no jobs plugin: no block.
-  assert.equal(block.type({ ...block.props, actions: {} }), null)
+  assert.equal(JSON.stringify(shown.props.sources.map(source => [source.sessionId, source.bot?.id])), JSON.stringify([['g-own', 'a'], ['g-a', 'a']]))
+  assert.match(textOf(block), /^Background jobs · 1Commands/)
+  buttonsOf(block).find(entry => textOf(entry) === 'Stop').props.onClick()
+  assert.deepEqual(kills, [['g-a', 'j1']])
 })
