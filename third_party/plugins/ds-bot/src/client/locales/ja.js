@@ -1734,6 +1734,7 @@ export const JA = {
   'Muse sessions': 'Muse セッション',
   'Jingliu': 'Jingliu',
   'Asset library': 'アセットライブラリ',
+  'Tools': 'ツール',
   'Skills/MCP': 'Skills/MCP',
   'Language model': '言語モデル',
   'Background jobs': 'バックグラウンド',

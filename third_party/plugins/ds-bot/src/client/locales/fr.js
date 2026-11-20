@@ -1734,6 +1734,7 @@ export const FR = {
   'Muse sessions': 'Sessions Muse',
   'Jingliu': 'Jingliu',
   'Asset library': 'Bibliothèque de ressources',
+  'Tools': 'Outils',
   'Skills/MCP': 'Skills/MCP',
   'Language model': 'Modèle de langage',
   'Background jobs': 'Arrière-plan',

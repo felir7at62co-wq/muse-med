@@ -1769,6 +1769,7 @@ export const KO = {
   'Muse sessions': 'Muse 세션',
   'Jingliu': 'Jingliu',
   'Asset library': '에셋 라이브러리',
+  'Tools': '도구',
   'Skills/MCP': 'Skills/MCP',
   'Language model': '언어 모델',
   'Background jobs': '백그라운드',

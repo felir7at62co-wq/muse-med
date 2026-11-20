@@ -308,7 +308,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
   const top = !onDetails ? null : h('div', { className: 'bt-drawer-top', 'data-move': side },
     tools.length > 0 ? h('div', { className: 'bt-tools', role: 'group', 'aria-label': t('Tools') },
       tools.map(key => h('button', {
-        key, type: 'button', className: 'bt-round bt-tool', 'aria-label': t(DRAWER_TAB_LABELS[key]), title: t(DRAWER_TAB_LABELS[key]),
+        key, type: 'button', className: 'bt-round bt-tool', 'data-tool-key': key, 'aria-label': t(DRAWER_TAB_LABELS[key]), title: t(DRAWER_TAB_LABELS[key]),
         'aria-pressed': listTabOf(tab) === key, onClick: pickTool(key),
       }, h(TOOL_ICONS[key])))) : null,
     bot || room ? h('button', { type: 'button', className: 'bt-round', 'aria-label': bot ? t('Edit Bot') : t('Group settings'), title: bot ? t('Edit Bot') : t('Group settings'), 'data-info-row': 'settings', onClick: () => setView('settings') }, h(GearIcon)) : null,
