@@ -1,4 +1,4 @@
-/** Model tool that searches the data station's whole collection (全收录) with the signed-in Muse account. */
+/** Model tools on the data station with the signed-in Muse account: whole-collection (全收录) search and 立即转写 requeue. */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { MuseDataError, museDataFailure, type MuseDataFailure, type MuseDataStationClient } from './data-station.ts'
@@ -11,6 +11,7 @@ export interface MuseDataToolOptions {
 }
 
 const PLATFORMS = ['hongguo', 'douyin', 'lvpaopao', 'fanqie', 'qimao'] as const
+const HONGGUO_ID = /^hongguo:\d{1,32}$/u
 /** Longest search words the station accepts. */
 const MAX_QUERY_CHARS = 200
 /** Highest page number the station accepts. */
@@ -20,11 +21,12 @@ const failureGuidance: Record<MuseDataFailure, string> = {
   'sign-in-required': '未登录 Muse 账号或登录已失效。请用户先在设置中登录 Muse，再重试。',
   'team-access-required': '当前 Muse 账号不在数据站成员名单中，不能查看数据站。请用户联系数据站管理员加入名单。',
   'station-unavailable': '数据站暂时不可用。稍后重试。',
-  'invalid-input': `query 最多 ${MAX_QUERY_CHARS} 个字，page 是从 1 开始的整数。`,
+  'invalid-input': `query 最多 ${MAX_QUERY_CHARS} 个字，page 是从 1 开始的整数；重新排队的 id 形如 hongguo:7550544718799588376。`,
   'invalid-response': '数据站返回了无法识别的结果。稍后重试。',
   unconfirmed: '没有取得数据站的结果。稍后重试。',
   timeout: '数据站请求超时，没有取得结果。稍后重试。',
   unavailable: '暂时无法连接数据站，没有取得结果。稍后重试。',
+  'not-requeueable': '这部剧正在转写或已经有剧本，数据站没有重新排队。用 workshop_video_transcribe status 查看它的进度。',
 }
 
 function failed(error: unknown) {
@@ -47,12 +49,13 @@ function listed(work: MuseDataWorks['items'][number]) {
 }
 
 /**
- * Register `data_station_search`: find dramas and source novels in the data station's whole collection.
+ * Register `data_station_search`, which finds dramas and source novels in the data station's whole collection, and
+ * `data_station_requeue`, which puts a Hongguo drama back at the front of the transcription queue as the signed-in member.
  * @param ctx - Context with the owning tool registry.
  * @param client - Account-token station transport owned by the plugin.
  * @param options - Validated result size.
  */
-export function mountMuseDataTools(ctx: Context, client: Pick<MuseDataStationClient, 'works'>, options: MuseDataToolOptions): void {
+export function mountMuseDataTools(ctx: Context, client: Pick<MuseDataStationClient, 'works' | 'rush'>, options: MuseDataToolOptions): void {
   ctx.tools.register(defineTool({
     name: 'data_station_search', deferLoading: true,
     description: '在数据站的全收录里找剧和原著：红果短剧、抖音、绿泡泡的短剧和番茄、七猫的小说，使用当前登录的 Muse 账号。'
@@ -76,6 +79,25 @@ export function mountMuseDataTools(ctx: Context, client: Pick<MuseDataStationCli
         })
         return { state: 'ok' as const, total: found.total, page: found.page, pages: Math.ceil(found.total / options.pageSize), works: found.items.map(listed),
           ...(found.items.length === 0 ? { guidance: '没有找到。换个关键词，或去掉 platform 搜全部平台。' } : {}) }
+      } catch (error) { return failed(error) }
+    },
+  }))
+  ctx.tools.register(defineTool({
+    name: 'data_station_requeue', deferLoading: true,
+    description: '把一部红果短剧放回数据站转写队列最前（立即转写），使用当前登录的 Muse 账号，记在这个账号名下。'
+      + '用于待处理、失败或被淘汰的剧再转一次：已下载的原片和已通过的集沿用，没通过的集再给一轮。正在转写或已有剧本的剧不会重新排队。'
+      + '排队后由转写任务领取；负责这部剧的视频转剧本任务已经结束时，要续跑它才会接着转。',
+    parameters: {
+      id: { type: 'string', required: true, description: '数据站编号，形如 hongguo:7550544718799588376。' },
+    },
+    output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+    presentCall: args => ({ card: 'generic', title: args.id, kind: 'execute' }),
+    async execute(args) {
+      try {
+        const id = args.id.trim()
+        if (!HONGGUO_ID.test(id)) throw new MuseDataError('invalid-input')
+        const job = await client.rush(id)
+        return { state: 'ok' as const, id: job.workId, jobState: job.state, lane: job.lane }
       } catch (error) { return failed(error) }
     },
   }))

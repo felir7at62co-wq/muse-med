@@ -140,7 +140,7 @@ export interface Config {
   readonly douyinListLimit: number
   /**
    * Offer the 数据 drawer tab's data-station reads and 立即转写, and register `data_station_search` over the station's whole
-   * collection, through the current private Muse login.
+   * collection and `data_station_requeue` for 立即转写, through the current private Muse login.
    */
   readonly dataStation: boolean
   /** Data-station member route prefix for desktop Muse, joined to the `baseUrl` origin. */

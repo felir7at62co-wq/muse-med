@@ -573,8 +573,10 @@ it('loads the 数据 tab data-station reads through Loader and sends only the ac
   expect(requests[0]?.headers.get('x-muse-account-token')).toBe(token)
   expect(requests[0]?.headers.has('origin')).toBe(false)
   expect(ctx.tools.get('data_station_search')?.deferLoading).toBe(true)
+  expect(ctx.tools.get('data_station_requeue')?.deferLoading).toBe(true)
   await plugin.dispose()
   expect(ctx.tools.get('data_station_search')).toBeUndefined()
+  expect(ctx.tools.get('data_station_requeue')).toBeUndefined()
 })
 
 it('keeps the data-station Douyin tool opt-in and validates its route prefix and bounds', () => {

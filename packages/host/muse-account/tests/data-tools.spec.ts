@@ -1,4 +1,4 @@
-/** Data-station whole-collection search tool: schema, arguments, model-visible results and failures. */
+/** Data-station tools (whole-collection search, 立即转写 requeue): schema, arguments, model-visible results and failures. */
 import { Context } from '@deepseek-ai/cordis'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
@@ -23,18 +23,22 @@ async function fixture(pageSize = 10) {
   const ctx = new Context(); contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
   const works = vi.fn<MuseDataStationClient['works']>()
-  const fiber = ctx.plugin({ inject: ['tools'], apply: (scope: Context) => { mountMuseDataTools(scope, { works }, { pageSize }) } })
+  const rush = vi.fn<MuseDataStationClient['rush']>()
+  const fiber = ctx.plugin({ inject: ['tools'], apply: (scope: Context) => { mountMuseDataTools(scope, { works, rush }, { pageSize }) } })
   await fiber.await()
   let next = 0
-  return { ctx, fiber, works,
-    call: async (args: object) => (await executeToolFixture(ctx, {
-      name: 'data_station_search', arguments: args, callId: ToolCallId(`data-${++next}`), signal: new AbortController().signal })).value }
+  const run = async (name: string, args: object) => (await executeToolFixture(ctx, {
+    name, arguments: args, callId: ToolCallId(`data-${++next}`), signal: new AbortController().signal })).value
+  return { ctx, fiber, works, rush,
+    call: async (args: object) => await run('data_station_search', args),
+    requeue: async (args: object) => await run('data_station_requeue', args) }
 }
 
-it('registers one deferred Chinese tool with its page size, presents reads and removes it on unload', async () => {
+it('registers deferred Chinese search and requeue tools, presents their calls and removes them on unload', async () => {
   const f = await fixture(15)
   const [schema] = f.ctx.tools.schemas()
-  expect(f.ctx.tools.schemas().map(row => row.name)).toEqual(['data_station_search'])
+  expect(f.ctx.tools.schemas().map(row => row.name)).toEqual(['data_station_search', 'data_station_requeue'])
+  expect(f.ctx.tools.schemas().every(row => row.deferLoading)).toBe(true)
   expect(schema?.deferLoading).toBe(true)
   expect(schema?.description).toContain('全收录')
   expect(schema?.description).toContain('每页 15 部')
@@ -42,6 +46,7 @@ it('registers one deferred Chinese tool with its page size, presents reads and r
   expect(tool?.presentCall?.({ query: '乖乖女' })).toEqual({ card: 'generic', title: '乖乖女', kind: 'read' })
   expect(tool?.presentCall?.({ platform: 'fanqie' })).toEqual({ card: 'generic', title: 'fanqie', kind: 'read' })
   expect(tool?.presentCall?.({})).toEqual({ card: 'generic', title: '全收录', kind: 'read' })
+  expect(f.ctx.tools.get('data_station_requeue')?.presentCall?.({ id: 'hongguo:1' })).toEqual({ card: 'generic', title: 'hongguo:1', kind: 'execute' })
   await f.fiber.dispose()
   expect(f.ctx.tools.schemas()).toEqual([])
 })
@@ -84,4 +89,25 @@ it('turns station failures into fixed codes with guidance', async () => {
   expect(await f.call({ query: 'x' })).toMatchObject({ state: 'error', code: 'invalid-response' })
   f.works.mockRejectedValueOnce(new Error('socket closed'))
   expect(await f.call({ query: 'x' })).toMatchObject({ state: 'error', code: 'unavailable' })
+})
+
+it('requeues one Hongguo drama by its station ID and reports the queued job', async () => {
+  const f = await fixture()
+  f.rush.mockResolvedValueOnce({ workId: 'hongguo:7550544718799588376', state: 'queued', lane: 'new' })
+  expect(await f.requeue({ id: ' hongguo:7550544718799588376 ' })).toEqual({ state: 'ok', id: 'hongguo:7550544718799588376', jobState: 'queued', lane: 'new' })
+  expect(f.rush).toHaveBeenLastCalledWith('hongguo:7550544718799588376')
+  for (const id of ['7550544718799588376', 'fanqie:1', 'hongguo:x']) {
+    expect(await f.requeue({ id }), id).toMatchObject({ state: 'error', code: 'invalid-input' })
+  }
+  expect(f.rush).toHaveBeenCalledTimes(1)
+})
+
+it('tells the model when a drama cannot be requeued or the outcome is unknown', async () => {
+  const f = await fixture()
+  f.rush.mockRejectedValueOnce(new MuseDataError('not-requeueable'))
+  const busy = await f.requeue({ id: 'hongguo:1' })
+  expect(busy).toMatchObject({ state: 'error', code: 'not-requeueable' })
+  expect(JSON.stringify(busy)).toContain('workshop_video_transcribe status')
+  f.rush.mockRejectedValueOnce(new MuseDataError('unconfirmed'))
+  expect(await f.requeue({ id: 'hongguo:1' })).toMatchObject({ state: 'error', code: 'unconfirmed' })
 })

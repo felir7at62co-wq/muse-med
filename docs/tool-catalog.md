@@ -15,7 +15,7 @@ This table connects model-visible tool names to the plugin package and service s
 
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
-| `@deepseek-ai/dsh-muse-account` | `data_station_search`, `douyin_download`, `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`, `signed-in Muse account for execution`, `data station on the account origin for douyin_download and data_station_search` | `tool/call`, `tool/result`, `explicit feedback submission to the central inbox`, `Douyin download queue entries on the data station` | - | Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. With dataStation, data_station_search is deferred too and searches the station's whole collection (全收录) as the signed-in member. |
+| `@deepseek-ai/dsh-muse-account` | `data_station_requeue`, `data_station_search`, `douyin_download`, `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`, `signed-in Muse account for execution`, `data station on the account origin for douyin_download, data_station_search and data_station_requeue` | `tool/call`, `tool/result`, `explicit feedback submission to the central inbox`, `Douyin download queue entries on the data station`, `data-station transcription queue (立即转写) as the signed-in member` | - | Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. With dataStation, data_station_search and data_station_requeue are deferred too: the first searches the station's whole collection (全收录), the second puts a Hongguo drama back at the front of the transcription queue (立即转写), both as the signed-in member. |
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
@@ -73,6 +73,27 @@ This table connects model-visible tool names to the plugin package and service s
 <a id="deepseek-aidsh-muse-account"></a>
 
 ## `@deepseek-ai/dsh-muse-account`
+
+### `data_station_requeue`
+
+把一部红果短剧放回数据站转写队列最前（立即转写），使用当前登录的 Muse 账号，记在这个账号名下。用于待处理、失败或被淘汰的剧再转一次：已下载的原片和已通过的集沿用，没通过的集再给一轮。正在转写或已有剧本的剧不会重新排队。排队后由转写任务领取；负责这部剧的视频转剧本任务已经结束时，要续跑它才会接着转。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "数据站编号，形如 hongguo:7550544718799588376。"
+    }
+  },
+  "required": [
+    "id"
+  ]
+}
+```
+
+Source: [`packages/host/muse-account/src/data-tools.ts`](../packages/host/muse-account/src/data-tools.ts)
 
 ### `data_station_search`
 
@@ -215,7 +236,7 @@ Submit a product problem or suggestion to the Muse feedback inbox when the user 
 
 Source: [`packages/host/muse-account/src/feedback-tools.ts`](../packages/host/muse-account/src/feedback-tools.ts)
 
-Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. With dataStation, data_station_search is deferred too and searches the station's whole collection (全收录) as the signed-in member.
+Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. With dataStation, data_station_search and data_station_requeue are deferred too: the first searches the station's whole collection (全收录), the second puts a Hongguo drama back at the front of the transcription queue (立即转写), both as the signed-in member.
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 

@@ -110,7 +110,7 @@ Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回
 
 ## 用户 Skill 目录
 
-Desktop 扫描内置资源、`<Muse home>/skills`、显式配置的 `customSkillDirs`，以及当前项目的 `.muse/skills`、`.dsh/skills`、`.agents/skills`。启动时在既有产品／用户根后保留额外目录，不复制、删除或替换用户文件。字面路径会规范化并去重，`!!js` 目录表达式仍由 Loader 在激活时求值。共享用户 `.agents/skills` 与旧环境目录仍保持隔离，除非用户显式配置。通过 `includeProjectRoots: true` 单独启用项目发现，不需要将 `includeDefaultRoots: false` 改为开启。
+Desktop 扫描内置资源、`<Muse home>/skills`、显式配置的 `customSkillDirs`，以及当前项目的 `.muse/skills`、`.dsh/skills`、`.agents/skills`。启动时在既有产品／用户根后保留额外目录，不复制、删除或替换用户文件。字面路径会规范化并去重，`!!js` 目录表达式仍由 Loader 在激活时求值。共享用户 `.agents/skills` 与旧环境目录仍保持隔离，除非用户显式配置。通过 `includeProjectRoots: true` 单独启用项目发现，不需要将 `includeDefaultRoots: false` 改为开启。`cloud-skills/` 存放云端 Bot 团队的技能（储备调度与单部剧转写）；桌面端从不扫描它，只有云端部署通过 `customSkillDirs` 加入。
 
 Creation 保留原有经允许的全局内置 Skill 与用户目录来源，同时按请求 Agent 日志中的发布集合加载显式启用的市场 Skill。选定的市场版本仅在该 Session 中覆盖同名可变原文件；归档资源缺失时会拒绝加载，不会改用原文件。卸载激活插件会移除这些限定作用域的版本并恢复原目录视图。
 

@@ -265,9 +265,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
       muse_feedback_status: 'packages/host/muse-account/src/feedback-tools.ts',
       douyin_download: 'packages/host/muse-account/src/douyin-tools.ts',
       data_station_search: 'packages/host/muse-account/src/data-tools.ts',
+      data_station_requeue: 'packages/host/muse-account/src/data-tools.ts',
     },
-    requires: ['ctx.tools', 'signed-in Muse account for execution', 'data station on the account origin for douyin_download and data_station_search'],
-    writes: ['tool/call', 'tool/result', 'explicit feedback submission to the central inbox', 'Douyin download queue entries on the data station'],
+    requires: ['ctx.tools', 'signed-in Muse account for execution', 'data station on the account origin for douyin_download, data_station_search and data_station_requeue'],
+    writes: ['tool/call', 'tool/result', 'explicit feedback submission to the central inbox', 'Douyin download queue entries on the data station', 'data-station transcription queue (立即转写) as the signed-in member'],
     mount(ctx) {
       mountMuseFeedbackTools(ctx, {
         submit: () => Promise.reject(new Error('Catalog collection cannot submit feedback')),
@@ -277,11 +278,12 @@ const TOOL_PACKAGES: ToolPackage[] = [
       const defaults = MuseAccountConfig({ baseUrl: 'https://muse.invalid' })
       mountMuseDouyinTools(ctx, { run: () => Promise.reject(new Error('Catalog collection cannot reach the data station')) },
         { maxWaitSeconds: defaults.douyinMaxWaitSeconds, pollIntervalMs: defaults.douyinPollIntervalMs })
-      mountMuseDataTools(ctx, { works: () => Promise.reject(new Error('Catalog collection cannot reach the data station')) },
+      const offline = () => Promise.reject(new Error('Catalog collection cannot reach the data station'))
+      mountMuseDataTools(ctx, { works: offline, rush: offline },
         { pageSize: defaults.dataSearchPageSize })
       return Promise.resolve()
     },
-    note: 'Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. With dataStation, data_station_search is deferred too and searches the station\'s whole collection (全收录) as the signed-in member.',
+    note: 'Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. With dataStation, data_station_search and data_station_requeue are deferred too: the first searches the station\'s whole collection (全收录), the second puts a Hongguo drama back at the front of the transcription queue (立即转写), both as the signed-in member.',
   },
   {
     pkg: '@deepseek-ai/dsh-plugin-manager',

@@ -153,7 +153,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `douyinMaxWaitSeconds` | 60 | Largest `wait_seconds`, 0–600. |
 | `douyinPollIntervalMs` | 5,000 | Pause between record queries while waiting, 1,000–60,000 ms. |
 | `douyinListLimit` | 300 | Records requested by one query, 1–500; the station page holds at most 500. |
-| `dataStation` | `false` | Serve the 数据 tab's data-station remote methods and register `data_station_search`; Desktop enables it. |
+| `dataStation` | `false` | Serve the 数据 tab's data-station remote methods and register `data_station_search` and `data_station_requeue` (立即转写); Desktop enables it. |
 | `dataStationPath` | `/data/api/muse-client/data` | Absolute member route prefix joined to the `baseUrl` origin, with the same segment rules as `douyinStationPath`. |
 | `dataRequestTimeoutMs` | 20,000 | One data-station read or 立即转写 and its complete reply, 1,000–120,000 ms. |
 | `dataMaxReplyBytes` | 8,388,608 | Complete ranking or 储备看板 JSON reply cap, 1 KiB–32 MiB. |

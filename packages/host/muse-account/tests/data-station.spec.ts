@@ -119,7 +119,7 @@ it('searches the whole collection on one platform or all, newest first, cutting 
 
 it.each([
   [400, false, 'invalid-input'], [401, false, 'sign-in-required'], [403, false, 'team-access-required'], [503, false, 'station-unavailable'],
-  [500, false, 'unavailable'], [404, false, 'unavailable'], [500, true, 'unconfirmed'], [404, true, 'unavailable'],
+  [500, false, 'unavailable'], [404, false, 'unavailable'], [500, true, 'unconfirmed'], [404, true, 'unavailable'], [409, true, 'not-requeueable'],
 ] as const)('maps HTTP %i (write %s) to %s', async (status, write, code) => {
   const { client } = await fixture(() => Response.json({ error: 'station text' }, { status }))
   const call = write ? client.rush(work.id) : client.collector()

@@ -153,7 +153,7 @@ Muse 账号模型在当前供应商的有界重试结束后，遇到已归类的
 | `douyinMaxWaitSeconds` | 60 | `wait_seconds` 上限，范围 0–600。 |
 | `douyinPollIntervalMs` | 5,000 | 等待期间两次记录查询的间隔，范围 1,000–60,000 毫秒。 |
 | `douyinListLimit` | 300 | 一次查询请求的记录数，范围 1–500；数据站单页最多 500 条。 |
-| `dataStation` | `false` | 提供数据页签的数据站远程方法并注册 `data_station_search`；桌面默认启用。 |
+| `dataStation` | `false` | 提供数据页签的数据站远程方法并注册 `data_station_search` 和 `data_station_requeue`（立即转写）；桌面默认启用。 |
 | `dataStationPath` | `/data/api/muse-client/data` | 拼接到 `baseUrl` 源站的成员路由前缀，路径段规则与 `douyinStationPath` 相同。 |
 | `dataRequestTimeoutMs` | 20,000 | 一次数据站读取或立即转写及其完整响应的时限，范围 1,000–120,000 毫秒。 |
 | `dataMaxReplyBytes` | 8,388,608 | 一个榜单或储备看板完整 JSON 响应的上限，范围 1 KiB–32 MiB。 |

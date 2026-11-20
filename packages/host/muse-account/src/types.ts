@@ -321,6 +321,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'muse-data/unconfirmed': {}
     'muse-data/timeout': {}
     'muse-data/unavailable': {}
+    'muse-data/not-requeueable': {}
     'muse-feedback/sign-in-required': {}
     'muse-feedback/account-changed': {}
     'muse-feedback/unconfirmed': {}

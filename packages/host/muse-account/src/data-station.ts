@@ -10,6 +10,7 @@ import type {
 /** Fixed failures; station response bodies and the account token are never retained. */
 export type MuseDataFailure =
   | 'sign-in-required' | 'team-access-required' | 'station-unavailable' | 'invalid-input' | 'invalid-response' | 'unconfirmed' | 'timeout' | 'unavailable'
+  | 'not-requeueable'
 
 /** Coded data-station failure. */
 export class MuseDataError extends Error {
@@ -84,6 +85,7 @@ function failure(code: number, write: boolean): MuseDataFailure {
     case 400: return 'invalid-input'
     case 401: return 'sign-in-required'
     case 403: return 'team-access-required'
+    case 409: return 'not-requeueable'
     case 503: return 'station-unavailable'
     default: return write && code >= 500 ? 'unconfirmed' : 'unavailable'
   }
