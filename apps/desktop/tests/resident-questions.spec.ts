@@ -77,7 +77,8 @@ it.each(['classic', 'bot', 'view'] as const)('presents and executes the %s quest
     if (mode !== 'classic') {
       const entry = [...ctx.loader.entries()].find(entry => entry.options.id === 'bot-tools')
       expect(entry?.fiber?.state).toBe(FiberState.ACTIVE)
-      expect(ctx.tools.schemas().map(schema => schema.name)).toContain('ask_user')
+      // The Bot plugin serves its team tools only inside Bot Sessions, never globally.
+      expect(ctx.tools.schemas().map(schema => schema.name)).not.toContain('ask_user')
     }
     const answer = vi.fn(async () => ({ answers: [{ id: 'delivery', selected: ['Word'] }] }))
     ctx.on('user-questions/request', answer)
@@ -102,6 +103,7 @@ it.each(['classic', 'bot', 'view'] as const)('presents and executes the %s quest
     const agent = (await ctx.agents.create({ sessionId: SessionId(`${mode}-resident-question`), meta: { cwd: root },
       agentOptions: { provider: 'mock', model: 'mock' } })).agent
     agent.ctx.tools.restrict({ deny: ['read_browser'] })
+    if (mode !== 'classic') expect(ctx.tools.schemas(agent).map(schema => schema.name)).toContain('ask_user')
     agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Clarify the output format.' }] }))
     await agent.whenIdle()
     const initial = adapter.requests[0]

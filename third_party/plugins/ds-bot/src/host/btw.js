@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path'
 import { replaceFile } from './files.js'
 import { assembleLlmStream } from './models.js'
 
-export const RESTART_ERROR = 'DS Bot restarted before this answer finished.'
+export const RESTART_ERROR = 'Muse restarted before this answer finished.'
 export const TOOL_ERROR = 'The model called a tool again after being told not to, so this aside was not answered.'
 export const EMPTY_ERROR = 'The model wrote nothing.'
 // Events that still belong to a turn. A model selection or a title does not.

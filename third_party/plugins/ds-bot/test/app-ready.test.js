@@ -100,9 +100,9 @@ test('the desktop app hears once that the team sidebar drew the first state', as
   assert.deepEqual(calls, [[]], 'later states and a second mount report nothing more')
 })
 
-// The Main Bot in the start window's whale: the report says where its avatar is drawn, so the
-// desktop app's whale can land on it.
-const whaleTeam = { ...TEAM, byId: { main: { ...main, color: 'deepseek', avatar: { shape: 'whale' } } } }
+// The Main Bot in the product's own look (Muse: the violet spider): the report says where its
+// avatar is drawn, so the desktop app's start mark can land on it.
+const whaleTeam = { ...TEAM, byId: { main: { ...main, color: 'violet', avatar: { shape: 'muse-spider' } } } }
 const avatarPage = app => page(app, {
   querySelector: selector => (selector === '.bt-side [data-bot-id="main"] .bt-mark' ? { checkVisibility: () => true, getBoundingClientRect: () => ({ left: 98, top: 70, width: 60, height: 60 }) } : null),
   documentElement: { clientWidth: 1280, clientHeight: 800, setAttribute() {}, removeAttribute() {} },
@@ -159,14 +159,14 @@ test('the return button says where it goes, and a click goes back to the Bot sur
   const text = node => (typeof node === 'string' ? node : [node?.props?.children].flat().filter(Boolean).map(text).join(''))
   const modes = []
   const wide = mount(BotReturn)({ ...returnProps('agent', TEAM), actions: { setSurface: mode => modes.push(mode) } })
-  assert.equal(wide.props['aria-label'], 'Back to DS Bot')
-  assert.equal(text(wide), 'Back to DS Bot')
+  assert.equal(wide.props['aria-label'], 'Back to Muse')
+  assert.equal(text(wide), 'Back to Muse')
   wide.props.onClick()
   assert.deepEqual(modes, ['bot'])
   // The narrow footer keeps the whale alone; the name stays in the label and tooltip.
   const narrow = mount(BotReturn)({ ...returnProps('agent', TEAM), wide: false })
-  assert.equal(narrow.props['aria-label'], 'Back to DS Bot')
-  assert.equal(narrow.props.title, 'Back to DS Bot')
+  assert.equal(narrow.props['aria-label'], 'Back to Muse')
+  assert.equal(narrow.props.title, 'Back to Muse')
   assert.equal(text(narrow), '')
 })
 

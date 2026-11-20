@@ -204,8 +204,11 @@ test('a group Session made before the member\'s level applied gets it on the nex
     { b: { model: 'deepseek/v4-flash', effort: 'low', appliedModel: 'deepseek/v4-flash', appliedEffort: 'low' } }, llm)
   await host.call('state', {})
   // The group Session gets the member's level once; the own chat is not re-selected.
-  await settle(() => host.selected.length === 1)
-  assert.deepEqual(host.selected, [{ sessionId: 'gb', provider: 'deepseek', model: 'v4-flash', reasoningEffort: 'low' }])
+  // The group's own relay Session r1 is kept on the default model as well (the first save,
+  // which adds the Muse 会话 row, syncs it), so only member Sessions are compared.
+  const members = () => host.selected.filter(entry => entry.sessionId !== 'r1')
+  await settle(() => members().length === 1)
+  assert.deepEqual(members(), [{ sessionId: 'gb', provider: 'deepseek', model: 'v4-flash', reasoningEffort: 'low' }])
 })
 
 test('a member\'s group Session runs on the member\'s model and thinking level', async (t) => {

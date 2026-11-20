@@ -169,6 +169,16 @@ test('a CIMD client never carries the secret of the client before it', async () 
   assert.deepEqual(reused.clientInformation, { client_id: oauth.CIMD_CLIENT_ID })
 })
 
+test('a configured client document signs new connectors in; an earlier document is not reused for a new sign-in', async () => {
+  const discovery = { authorizationServerUrl: 'https://as.test', metadata: { ...AS, client_id_metadata_document_supported: true }, resource: 'r' }
+  const clientDocument = 'https://muse.test/oauth/client.json'
+  const fresh = await oauth.resolveClient({ auth: { kind: 'oauth' } }, discovery, 'http://127.0.0.1:38517/callback', true, undefined, { clientDocument })
+  assert.deepEqual(fresh.clientInformation, { client_id: clientDocument })
+  const earlier = { via: 'cimd', clientId: oauth.CIMD_CLIENT_ID }
+  const moved = await oauth.resolveClient({ auth: { kind: 'oauth' } }, discovery, 'http://127.0.0.1:38517/callback', true, earlier, { clientDocument })
+  assert.deepEqual(moved.clientInformation, { client_id: clientDocument })
+})
+
 test('browser PKCE carries state, code challenge, and resource; tokens exchange and refresh', async () => {
   const discovery = { authorizationServerUrl: 'https://as.test', metadata: AS, scope: 'mcp:all', resource: 'https://mcp.test/mcp' }
   const client = { client_id: 'dcr-1' }
@@ -373,10 +383,10 @@ test('refresh uses the client that signed in: cimd, catalog, and legacy inferenc
   const real = globalThis.fetch
   globalThis.fetch = request
   t.after(() => { globalThis.fetch = real })
-  const make = async (connectors, secret, github = false) => {
+  const make = async (connectors, secret, github = false, config = {}) => {
     const home = teamHome({ connectors })
     const ctx = fakeContext()
-    const rt = createRuntime(ctx, { home, github })
+    const rt = createRuntime(ctx, { home, github, ...config })
     await rt.load(); await rt.loadSecrets()
     await rt.secretEndpoint('secret-set', secret)
     return { rt, done: async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) } }
@@ -390,6 +400,15 @@ test('refresh uses the client that signed in: cimd, catalog, and legacy inferenc
     assert.equal(await rt.connectorsInternals.refreshConnector('notion'), true, JSON.stringify(rt.connectorsInternals.statuses.get('notion')))
     assert.equal(seen.at(-1), 'https://dsbot.app/oauth/client.json')
     assert.equal(rt.state.connectors.notion.client.via, 'cimd')
+  }
+  // Its token stays bound to that document after another one is configured for new sign-ins.
+  {
+    const { rt, done } = await make(
+      { notion: { oauth: { authorizationServerUrl: 'https://as.test' }, client: { via: 'cimd', clientId: 'https://dsbot.app/oauth/client.json' } } },
+      { name: 'CONNECTOR_NOTION_REFRESH', value: 'RT-moved', scope: [] }, false, { oauthClientDocument: 'https://muse.test/oauth/client.json' })
+    t.after(done)
+    assert.equal(await rt.connectorsInternals.refreshConnector('notion'), true)
+    assert.equal(seen.at(-1), 'https://dsbot.app/oauth/client.json')
   }
   // A catalog sign-in refreshes with the current catalog client id.
   {
@@ -781,7 +800,7 @@ test('163 and 126 presets send the IMAP ID identity', () => {
   for (const domain of ['163.com', '126.com']) {
     const options = imapOptions({ address: `${'me'}@${domain}`, imap: { host: `imap.${domain}`, port: 993, secure: true } }, { password: 'x' })
     assert.deepEqual(options.id, IMAP_ID)
-    assert.equal(options.id.vendor, 'DS Bot')
+    assert.equal(options.id.vendor, 'Muse')
   }
 })
 

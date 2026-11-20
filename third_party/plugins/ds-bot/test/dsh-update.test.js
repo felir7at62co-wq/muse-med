@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, test } from 'node:test'
 import { install } from '../src/host/dsh-update.js'
 
@@ -129,7 +131,12 @@ test('the desktop app pins its DSH: it reports the running version, asks no netw
   assert.deepEqual(fetched, [])
 })
 
-test('without a running version there is nothing to compare against', async () => {
+test('without a running version there is nothing to compare against', async (t) => {
+  // Muse vendors this plugin inside the Harness checkout, whose root package.json the
+  // install lookup would find above the test runner's script.
+  const script = process.argv[1]
+  process.argv[1] = join(tmpdir(), 'no-dsh-install', 'run.js')
+  t.after(() => { process.argv[1] = script })
   const { rt } = start({ current: null, source: `${PKG.name}@^${PKG.version}` })
   const view = await rt.dshUpdateCheck()
   assert.equal(view.current, null)

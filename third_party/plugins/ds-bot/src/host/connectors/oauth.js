@@ -16,6 +16,8 @@ import {
 const TIMEOUT_MS = 20_000
 // The loopback port the client-metadata document at this address may name.
 export const FIXED_CALLBACK_PORT = 38517
+// Upstream's published client document. Muse: `config.oauthClientDocument` names the
+// document new sign-ins use; a connector keeps refreshing with the one it signed in with.
 export const CIMD_CLIENT_ID = 'https://dsbot.app/oauth/client.json'
 
 const timed = (request = fetch) => (url, init) => request(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(TIMEOUT_MS) })
@@ -59,14 +61,15 @@ export async function discover(serverUrl, { fetch: request = fetch, originFallba
 // Picks how this attempt identifies itself to the AS. Returns {clientInformation,
 // via, store} or null when nothing works — the row then shows the client form.
 // `stored` is the client state saved last time; `persist` writes DCR results.
-export async function resolveClient(entry, discovery, redirectUri, fixedPort, stored, { fetch: request = fetch, persist } = {}) {
+export async function resolveClient(entry, discovery, redirectUri, fixedPort, stored, { fetch: request = fetch, persist, clientDocument = CIMD_CLIENT_ID } = {}) {
   const catalogClient = entry.auth?.client?.id
   if (catalogClient) return { via: 'catalog', clientInformation: { client_id: catalogClient } }
   if (stored?.clientId) {
     const expired = Number.isFinite(stored.secretExpiresAt) && stored.secretExpiresAt * 1000 <= Date.now()
     const uriMissing = Array.isArray(stored.redirectUris) && !stored.redirectUris.includes(redirectUri)
-    // A stored CIMD client still needs the fixed port its document names.
-    const usable = !expired && !uriMissing && (stored.via !== 'cimd' || fixedPort)
+    // A stored CIMD client still needs the fixed port its document names, and a new
+    // sign-in moves to the configured document.
+    const usable = !expired && !uriMissing && (stored.via !== 'cimd' || (fixedPort && stored.clientId === clientDocument))
     // A confidential client signs the token request with its secret, whether it was
     // registered (DCR) or typed in by hand: without it the AS answers bad_client_secret.
     // A CIMD client is public, so a secret left behind by an earlier DCR client must not
@@ -76,11 +79,11 @@ export async function resolveClient(entry, discovery, redirectUri, fixedPort, st
   }
   const metadata = discovery.metadata
   if (metadata?.client_id_metadata_document_supported === true && fixedPort) {
-    return { via: 'cimd', clientInformation: { client_id: CIMD_CLIENT_ID } }
+    return { via: 'cimd', clientInformation: { client_id: clientDocument } }
   }
   if (typeof metadata?.registration_endpoint === 'string') {
     const clientMetadata = {
-      client_name: 'DS Bot',
+      client_name: 'Muse',
       redirect_uris: [redirectUri],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],

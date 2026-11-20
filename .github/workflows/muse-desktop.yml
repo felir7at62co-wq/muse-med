@@ -172,7 +172,7 @@ jobs:
           node --import tsx/esm --test third_party/plugins/compatibility/feishu-desktop.test.mjs
       - name: Replay the Feishu delivery, Codex subscription and Bot memory Sessions
         if: matrix.target == 'mac-arm64'
-        run: pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t 'replays (muse-feishu-send-file|muse-codex-subscription|muse-bot-roster) through'
+        run: pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t 'replays (muse-feishu-send-file|muse-codex-subscription) through'
       - name: Record the exact unsigned build
         env:
           MUSE_RELEASE_TARGET: ${{ matrix.target }}

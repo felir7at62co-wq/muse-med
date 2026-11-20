@@ -1,7 +1,0 @@
-- id: tool-bash
-  disabled: true
-- id: tool-pwsh
-  disabled: true
-- insert:
-    - id: snapshot-muse-bot-roster
-      name: './roster-fixture.mjs'

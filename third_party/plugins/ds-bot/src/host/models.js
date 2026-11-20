@@ -67,7 +67,7 @@ function canRetryPolicy(policy, code, retry) {
 // route with the provider's own retry policy, discarding partial chunks from failed attempts.
 export async function assembleLlmStream(ctx, options, { signal, backoff, random = Math.random } = {}) {
   const service = serviceOf(ctx, 'llm')
-  if (service === undefined) throw Object.assign(new Error('DS Bot is shutting down'), { code: 'ABORTED', failure: { code: 'ABORTED', message: 'DS Bot is shutting down' } })
+  if (service === undefined) throw Object.assign(new Error('Muse is shutting down'), { code: 'ABORTED', failure: { code: 'ABORTED', message: 'Muse is shutting down' } })
   const fused = options.signal && signal ? AbortSignal.any([options.signal, signal]) : (options.signal ?? signal)
   const request = fused === options.signal ? options : { ...options, signal: fused }
   for (let retry = 1; ; retry += 1) {
@@ -259,7 +259,7 @@ export function install(rt) {
   async function resolveLocalModel(ref) {
     const { provider, model } = splitRef(ref)
     const service = llm()
-    if (service === undefined) throw new Error('DS Bot is shutting down')
+    if (service === undefined) throw new Error('Muse is shutting down')
     const known = await service.listModels(provider).catch(() => [])
     const served = known.some(entry => entry.id === model) ? known : await rt.localAgentModels(provider)
     if (served.some(entry => entry.id === model)) return ref

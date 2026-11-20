@@ -6,7 +6,7 @@
 
 [owned-downloads.json](owned-downloads.json) 单独固定 Muse 红果和抖音下载 bundle 的版本。清单还包含本地[逆向工具](muse-reverse-tools/README.zh.md)和独立[番茄下载器](muse-fanqie-download/README.zh.md)及[绿泡泡下载器](muse-lvpaopao/README.zh.md)。各包 README 说明配置与验证限制；它们不改变保留的上游清单。
 
-源码清单中 `desktop: false` 的条目和已归档的 `ds-bot` 源码均不参与默认构建。`dsh-plugin-subscriptions` 提供当前订阅 bundle；旧 Codex 固定版本与源码保留，供显式恢复构建使用。桌面打包独立选择包闭包，不会复制所有可用 tarball。`--only dsh-plugin-subscriptions` 选择当前订阅产物；`--only dsh-codex-subscription` 选择归档兼容路径。
+源码清单中 `desktop: false` 的条目不参与默认构建。`dsh-plugin-subscriptions` 提供当前订阅 bundle；旧 Codex 固定版本与源码保留，供显式恢复构建使用。桌面打包独立选择包闭包，不会复制所有可用 tarball。`--only dsh-plugin-subscriptions` 选择当前订阅产物；`--only dsh-codex-subscription` 选择归档兼容路径。
 
 unknown 断言门禁通过[文件来源锁](../../scripts/retained-plugin-origins.json)核验已审阅的上游文件，不采用目录豁免。未修改的文件必须匹配固定内容哈希。维护过的文件还须匹配已登记哈希与精确原文；只有断言操作符和类型能通过未改行一对一映回原文时，才保留上游归属。新增或改动的断言行、未登记文件和自有适配器仍接受检查。五份原文样本保留固定 Visualize 源码的 [BSD-3-Clause 许可证](dsh-visualize/LICENSE)；更新 pin 时须一并审阅源哈希与原文。源文件、pin、锁、原文及许可证路径逐组件校验；即使内容哈希相同，祖先符号链接或 junction、非普通文件及超出 canonical 仓库的路径仍会被拒绝。
 
@@ -100,6 +100,8 @@ Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence
 `ds-bot/` 中的 DS Bot 源码是产品的 Bot 工作区。默认构建通过[桌面兼容层](compatibility/muse-bot-desktop.mjs)打包它：兼容层只接受已评审的版本和 Muse 自己的组合补丁，并去掉上游的网页搜索组件、`bin/` 诊断脚本和 `@deepseek-ai/dsh-web` 对等依赖。[`MUSE_SOURCE.json`](ds-bot/MUSE_SOURCE.json) 列出 Muse 改动的文件及原因。
 
 构建会从 `src/client` 重新生成 Client 包，因此仓库中提交的 `client.js` 保持上游内容。`pnpm --dir third_party/plugins/toolchain run test:bot` 检查兼容层和打包结果。Bot 数据位于 Harness 主目录的 `bot` 目录；此前 Muse Bot 留在 `muse-bot` 中的数据保持原样，不做迁移。
+
+通过客户端 ID 元数据文档登录的连接器出示的是上游的 `https://dsbot.app/oauth/client.json`，因此授权页显示 DS Bot。[`muse-oauth-client.json`](compatibility/muse-oauth-client.json) 是 Muse 自己的文档。将它原样部署到其 `client_id` 地址后，在[组合补丁](ds-bot/cordis.patch.yml)和桌面兼容层的 Bot 行中把 `oauthClientDocument` 设为该地址。此后新的登录使用它；此前已登录的连接器继续用登录时的文档刷新。
 
 ### 红果公开数据
 

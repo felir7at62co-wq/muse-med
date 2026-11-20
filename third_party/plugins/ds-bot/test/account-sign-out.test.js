@@ -199,11 +199,13 @@ test('the account menu opens the connectors and the automation panel', () => {
   assert.deepEqual(calls, ['connectors', 'schedules'])
 })
 
-test('the account menu switches to classic Agent mode, and only where the surface can switch', () => {
+// Muse has one product surface: the account menu offers no way into classic Agent mode,
+// even where the surface could switch.
+test('the account menu offers no classic Agent mode', () => {
   const calls = []
   const side = launcher({ actions: { setSurface: mode => calls.push(mode) } })
-  side.item(side.open(), 'Classic Agent mode').props.onClick()
-  assert.deepEqual(calls, ['agent'])
+  assert.equal(side.item(side.open(), 'Classic Agent mode'), undefined)
   const plain = launcher()
   assert.equal(plain.item(plain.open(), 'Classic Agent mode'), undefined)
+  assert.deepEqual(calls, [])
 })

@@ -175,7 +175,7 @@ test('capability tool descriptions and attach results explain approval', async t
     { name: 'blocked' },
     { agent: { id: 'worker' } },
   )
-  assert.ok(attached.endsWith(' The user must allow blocked in DS Bot settings before it can work.'))
+  assert.ok(attached.endsWith(' The user must allow blocked in Muse settings before it can work.'))
 })
 
 test('a deleted Bot drops only a pending local MCP it alone asked for', async t => {

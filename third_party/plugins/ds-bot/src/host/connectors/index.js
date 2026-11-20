@@ -47,6 +47,10 @@ export function install(rt) {
   for (const entry of CATALOG) CONNECTOR_IDS.add(entry.id)
   const options = rt.config.github === false ? null : { api: 'https://api.github.com', ...rt.config.github }
   const insecure = (url) => !/^https:\/\//i.test(String(url))
+  // Muse: the client document is fetched by each authorization server at this address.
+  if (rt.config.oauthClientDocument !== undefined && insecure(rt.config.oauthClientDocument)) {
+    throw new Error('ds-bot: oauthClientDocument must be an https:// address')
+  }
   let stopped = false
   let queue = Promise.resolve()
   const mounts = new Map()
@@ -276,7 +280,7 @@ export function install(rt) {
       try { url = new URL(req.url ?? '/', 'http://127.0.0.1') } catch { res.writeHead(400); res.end(); return }
       if (url.pathname !== '/callback') { res.writeHead(404); res.end(); return }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-      res.end('<!doctype html><title>Signed in</title><p style="font-family:sans-serif;margin:3em;text-align:center">Signed in — you can close this tab and go back to DS Bot.</p>')
+      res.end('<!doctype html><title>Signed in</title><p style="font-family:sans-serif;margin:3em;text-align:center">Signed in — you can close this tab and go back to Muse.</p>')
       void ready({ code: url.searchParams.get('code'), state: url.searchParams.get('state'), iss: url.searchParams.get('iss'), error: url.searchParams.get('error'), errorDescription: url.searchParams.get('error_description') }).catch(error => rt.warn('ds-bot: connector sign-in callback failed: %s', reason(error)))
     })
     listener.on('error', error => {
@@ -312,7 +316,7 @@ export function install(rt) {
         if (clientSecret !== undefined) await writeSecret(clientSecretOf(id), clientSecret, `${entry.name} connector`)
         await saveState(id, { client: rest })
       }
-      const resolved = await oauth.resolveClient(entry, pending.discovery, redirectUri, fixed, saved?.client ? { ...saved.client, clientSecret: rt.secretValue(clientSecretOf(id)) } : undefined, { persist })
+      const resolved = await oauth.resolveClient(entry, pending.discovery, redirectUri, fixed, saved?.client ? { ...saved.client, clientSecret: rt.secretValue(clientSecretOf(id)) } : undefined, { persist, clientDocument: rt.config.oauthClientDocument ?? oauth.CIMD_CLIENT_ID })
       if (resolved === null) {
         statuses.set(id, { state: 'needs-client' })
         return
@@ -433,12 +437,12 @@ export function install(rt) {
       try {
         const discovery = await oauth.rediscover(saved.oauth)
         // Refresh with the client that signed in: catalog → the current catalog id,
-        // CIMD → the published document id, DCR/manual → the stored id (+ secret).
+        // CIMD → the document it signed in with, DCR/manual → the stored id (+ secret).
         // Rows signed in before clients were persisted have no `client`: fall back to
         // CIMD when the AS supports it, otherwise ask the user to sign in again.
         const via = saved.client?.via
         const clientId = via === 'catalog' ? entryFor(id)?.auth?.client?.id
-          : via === 'cimd' ? oauth.CIMD_CLIENT_ID
+          : via === 'cimd' ? saved.client?.clientId ?? oauth.CIMD_CLIENT_ID
           : saved.client?.clientId ?? (discovery.metadata?.client_id_metadata_document_supported === true ? oauth.CIMD_CLIENT_ID : undefined)
         const clientVia = via ?? (saved.client?.clientId ? 'manual' : 'cimd')
         if (via === undefined && clientId !== undefined) path = `inferred/${clientVia}`

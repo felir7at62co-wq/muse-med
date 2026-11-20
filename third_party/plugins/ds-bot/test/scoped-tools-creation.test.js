@@ -351,9 +351,9 @@ test("a deleted Bot's Session keeps none of the scope when it is adopted as a pl
   assert.equal((await host.call('delete-bot', { id: 'b' })).ok, true)
   assert.deepEqual(scopedNames(host, 'b'), [])
   assert.equal(host.restricted.some(entry => entry.sessionId === 'b'), false)
-  // The Session lives on unowned: adopting it into the DSH Agent must not bring
+  // The Session lives on unowned: adopting it into the Muse 会话 row must not bring
   // the team tools back.
-  const agent = (await host.call('add-agent', {})).value
+  const agent = (await host.call('state', {})).value.agents[0]
   assert.equal((await host.call('agent-adopt', { agentId: agent.id, sessionId: 'b' })).ok, true)
   assert.deepEqual(scopedNames(host, 'b'), [])
   assert.equal(host.restricted.some(entry => entry.sessionId === 'b'), false)

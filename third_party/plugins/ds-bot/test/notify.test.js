@@ -37,7 +37,7 @@ test('the switches and the mute win over the event', () => {
 test('what goes out is the name and one line', () => {
   assert.deepEqual(noticeText({ title: 'Writer', kind: 'reply' }), { title: 'Writer', body: 'A new reply is waiting' })
   assert.deepEqual(noticeText({ title: 'Ops', kind: 'question' }), { title: 'Ops', body: 'Waiting for your answer' })
-  assert.equal(noticeText({ title: '   ', kind: 'reply' }).title, 'DS Bot')
+  assert.equal(noticeText({ title: '   ', kind: 'reply' }).title, 'Muse')
   assert.equal(noticeText({ title: 'x'.repeat(200), kind: 'reply' }).title.length, 60)
 })
 

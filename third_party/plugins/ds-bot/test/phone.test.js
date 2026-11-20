@@ -5,7 +5,10 @@ import { join } from 'node:path'
 import { after, test } from 'node:test'
 import { apply } from '../index.js'
 import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPair, parsePairingUri, randomToken } from '../link.js'
-import { startRelayServer } from '../../link/server/server.ts'
+// Muse vendors only the plugin directory, so upstream's relay server (../../link/server)
+// may be absent; Muse ships no Phone page. Without it the phone tests are skipped.
+const relay = await import('../../link/server/server.ts').catch(() => null)
+const NO_RELAY = relay === null && 'upstream relay server sources are not vendored'
 import { fakeContext } from './fake-ctx.js'
 import { DEFAULT_SERVER } from '../src/host/phone.js'
 
@@ -20,8 +23,8 @@ const TEAM = {
   questions: {},
 }
 
-const server = await startRelayServer()
-after(() => server.close())
+const server = relay === null ? null : await relay.startRelayServer()
+after(() => server?.close())
 
 function open(home) {
   const ctx = fakeContext()
@@ -50,7 +53,7 @@ function phone(offer, hello, keys = generateKeyPair(), token = randomToken()) {
   return { client, keys, token }
 }
 
-test('a phone pairs with the QR code and calls the same endpoints as the window', async (t) => {
+test('a phone pairs with the QR code and calls the same endpoints as the window', { skip: NO_RELAY }, async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-phone-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   let desk = open(home)
@@ -98,7 +101,7 @@ test('a phone pairs with the QR code and calls the same endpoints as the window'
   assert.equal((await desk.call('state', {})).value.phone.status, 'off')
 })
 
-test('a phone write that moved the team carries the new state in its reply', async (t) => {
+test('a phone write that moved the team carries the new state in its reply', { skip: NO_RELAY }, async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-phone-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const desk = open(home)
@@ -132,7 +135,7 @@ test('a phone write that moved the team carries the new state in its reply', asy
   await link.client.close()
 })
 
-test('a bare Server host means the link path; a dead Server shows why', async (t) => {
+test('a bare Server host means the link path; a dead Server shows why', { skip: NO_RELAY }, async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-phone-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const desk = open(home)

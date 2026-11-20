@@ -82,6 +82,14 @@ function start(team, { config = {} } = {}) {
   return { call, stop, home, created, archived, failArchive, restricted, scoped, renamed, createdAgents, ctx }
 }
 
+// Muse: every team has the "Muse 会话" row from its first load, with no Session until the
+// user picks a workspace. A test that needs a Session makes the row's first one.
+async function theRow(call) {
+  const row = (await call('state', {})).value.agents[0]
+  await call('agent-session', { agentId: row.id })
+  return (await call('state', {})).value.agents[0]
+}
+
 const TEAM = {
   version: 1,
   mainBotIds: ['m1'],
@@ -93,12 +101,13 @@ const TEAM = {
   questions: {},
 }
 
-test('add-agent creates one record with a first Session in the DS Bot workspace', async (t) => {
+test('a team starts with the Muse 会话 row, whose first Session is made in the Bot workspace', async (t) => {
   const { call, stop, created } = start(TEAM)
   t.after(stop)
-  await call('state', {})
-  const agent = (await call('add-agent')).value
-  assert.equal(agent.name, 'DSH Agent')
+  const first = (await call('state', {})).value
+  assert.deepEqual(first.agents.map(entry => [entry.name, entry.sessions]), [['Muse 会话', []]])
+  const agent = await theRow(call)
+  assert.equal(agent.id, first.agents[0].id)
   assert.equal(agent.sessions.length, 1)
   const view = (await call('state', {})).value
   assert.deepEqual(view.agents.map(entry => entry.id), [agent.id])
@@ -111,7 +120,6 @@ test('a team holds at most one DSH Agent', async (t) => {
   const { call, stop } = start(TEAM)
   t.after(stop)
   await call('state', {})
-  assert.equal((await call('add-agent')).ok, true)
   const again = await call('add-agent')
   assert.equal(again.ok, false)
   assert.equal(again.error.message, 'The team already has a DSH Agent')
@@ -121,7 +129,7 @@ test('agent-session appends Sessions; agent-archive removes one and archives it'
   const { call, stop, archived } = start(TEAM)
   t.after(stop)
   await call('state', {})
-  const agent = (await call('add-agent')).value
+  const agent = await theRow(call)
   const second = (await call('agent-session', { agentId: agent.id })).value
   assert.equal((await call('state', {})).value.agents[0].sessions.length, 2)
   assert.equal((await call('agent-archive', { agentId: agent.id, sessionId: second.sessionId })).ok, true)
@@ -134,7 +142,7 @@ test('a failed archive keeps the Session in the Agent and answers with the error
   const { call, stop, archived, failArchive } = start(TEAM)
   t.after(stop)
   await call('state', {})
-  const agent = (await call('add-agent')).value
+  const agent = await theRow(call)
   const second = (await call('agent-session', { agentId: agent.id })).value
   failArchive.on = true
   const failed = await call('agent-archive', { agentId: agent.id, sessionId: second.sessionId })
@@ -150,7 +158,7 @@ test('agent-rename retitles an owned Session and refuses others', async (t) => {
   const { call, stop, renamed } = start(TEAM)
   t.after(stop)
   await call('state', {})
-  const agent = (await call('add-agent')).value
+  const agent = await theRow(call)
   assert.equal((await call('agent-rename', { agentId: agent.id, sessionId: agent.sessions[0], title: '  Scratch  ' })).ok, true)
   assert.deepEqual(renamed.at(-1), { id: agent.sessions[0], title: 'Scratch' })
   assert.equal((await call('agent-rename', { agentId: agent.id, sessionId: agent.sessions[0], title: '   ' })).ok, false)
@@ -162,7 +170,7 @@ test('remove-agent keeps the Agent with the Sessions it could not archive', asyn
   const { call, stop, archived, failArchive } = start(TEAM)
   t.after(stop)
   await call('state', {})
-  const agent = (await call('add-agent')).value
+  const agent = await theRow(call)
   const second = (await call('agent-session', { agentId: agent.id })).value
   failArchive.on = true
   const failed = await call('remove-agent', { agentId: agent.id })
@@ -172,24 +180,27 @@ test('remove-agent keeps the Agent with the Sessions it could not archive', asyn
   assert.deepEqual(archived, [])
   failArchive.on = false
   assert.equal((await call('remove-agent', { agentId: agent.id })).ok, true)
-  assert.equal((await call('state', {})).value.agents.length, 0)
+  // The row is always there: the next load starts it again, empty.
+  const after = (await call('state', {})).value.agents
+  assert.deepEqual(after.map(entry => entry.sessions), [[]])
+  assert.notEqual(after[0].id, agent.id)
 })
 
 test('remove-agent archives every Session and drops the record', async (t) => {
   const { call, stop, archived } = start(TEAM)
   t.after(stop)
   await call('state', {})
-  const agent = (await call('add-agent')).value
+  const agent = await theRow(call)
   const second = (await call('agent-session', { agentId: agent.id })).value
   assert.equal((await call('remove-agent', { agentId: agent.id })).ok, true)
-  assert.deepEqual((await call('state', {})).value.agents, [])
+  assert.deepEqual((await call('state', {})).value.agents.map(entry => entry.sessions), [[]])
   assert.deepEqual([...archived].sort(), [agent.sessions[0], second.sessionId].sort())
 })
 
 test('agents survive a state reload', async (t) => {
   const { call, stop, home } = start(TEAM)
   await call('state', {})
-  const agent = (await call('add-agent')).value
+  const agent = await theRow(call)
   // Restart on the saved file: the agent record is adopted, not lost.
   const saved = readFileSync(join(home, 'state.json'), 'utf8')
   await stop()
@@ -203,7 +214,8 @@ test('a corrupt agents field resets instead of crashing the view', async (t) => 
   const { call, stop } = start({ ...TEAM, agents: 'junk' })
   t.after(stop)
   const view = (await call('state', {})).value
-  assert.deepEqual(view.agents, [])
+  // The field starts over with the row every team has.
+  assert.deepEqual(view.agents.map(entry => [entry.name, entry.sessions]), [['Muse 会话', []]])
 })
 
 test('TEAM_TOOLS names exactly the tools ds-bot defines for Bot sessions', async (t) => {
@@ -217,7 +229,7 @@ test('agent-session honors a known workspace and falls back to the team workspac
   const { call, stop, created, ctx } = start(TEAM)
   t.after(stop)
   await call('state', {})
-  const agent = (await call('add-agent')).value
+  const agent = await theRow(call)
   // An unknown workspace id falls back; a real one is used as given.
   await call('agent-session', { agentId: agent.id, workspaceId: 'nope' })
   assert.equal(created.at(-1).workspaceId, (await call('state', {})).value.workspaceId)
@@ -230,7 +242,7 @@ test('agent-adopt takes an unowned Session and refuses team-owned ones', async (
   const { call, stop, restricted, scoped } = start(TEAM)
   t.after(stop)
   await call('state', {})
-  const agent = (await call('add-agent')).value
+  const agent = await theRow(call)
   // A plain root Session (the workspace picker's blank, or a fork) joins the Agent.
   const adopted = (await call('agent-adopt', { agentId: agent.id, sessionId: 'fresh' })).value
   assert.equal(adopted.sessionId, 'fresh')
@@ -268,7 +280,7 @@ test('a Bot Session gets the team tools in its own scope; a DSH Agent Session ge
   assert.equal(restricted.length, 0)
   // An Agent Session is a plain dsh conversation: nothing is scoped onto it and
   // nothing is masked, because the team tools never reach the global layer.
-  const agent = (await call('add-agent')).value
+  const agent = await theRow(call)
   createdAgents({
     agent: {
       session: { id: agent.sessions[0] },

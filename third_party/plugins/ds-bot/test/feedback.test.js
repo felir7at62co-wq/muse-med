@@ -12,7 +12,7 @@ const bundle = await build({
 const ISSUES = 'https://github.com/Fei2411/DS-Bot/issues/new'
 
 // Settings → Feedback in a window whose `open` is `open`, with every state change kept.
-function page(window) {
+function page(window, globals = {}) {
   const notes = []
   const react = {
   createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
@@ -30,7 +30,7 @@ function page(window) {
   }
   const module = { exports: {} }
   runInNewContext(bundle.outputFiles[0].text, {
-    module, exports: module.exports, window, URL, URLSearchParams, setTimeout, clearTimeout,
+    module, exports: module.exports, window, URL, URLSearchParams, setTimeout, clearTimeout, ...globals,
     navigator: { clipboard: { writeText: () => Promise.resolve() } },
     require: (name) => {
       if (name === 'react') return react
@@ -45,6 +45,7 @@ function page(window) {
   const find = node => (Array.isArray(node) ? node.flatMap(find) : node && typeof node === 'object' ? [...(node.props?.className === 'bt-fb-primary' ? [node] : []), ...find(node.children)] : [])
   return {
     notes,
+    tree,
     report: async () => {
       find(tree)[0].props.onClick()
       await pending
@@ -52,33 +53,26 @@ function page(window) {
   }
 }
 
-// 公开#182: the Desktop hands only an http(s) address to the system browser and returns
-// null for every window.open. The blank window reserved for the issue got nothing, and
-// the page said the browser blocked the new window.
-test('on the Desktop, "Report on GitHub" hands the issue address to the system browser', async () => {
-  const opened = []
-  const window = { dshDesktop: { protocolVersion: 1 }, open: (url = '') => { opened.push(String(url)); return null } }
-  const { notes, report } = page(window)
-  await report()
-  assert.equal(opened.length, 1)
-  assert.ok(opened[0].startsWith(`${ISSUES}?template=bug.yml`))
-  assert.equal(notes.some(note => /blocked the new window/.test(note)), false)
-  assert.ok(notes.includes('Opened a new GitHub issue with the diagnostics filled in. Check it before you submit.'))
+// Muse: problems go to the product's own suggestion box, whose address the account plugin
+// publishes on the page; the page has no GitHub issue button.
+const nodes = (node, pick) => (Array.isArray(node) ? node.flatMap(one => nodes(one, pick))
+  : node && typeof node === 'object' ? [...(pick(node) ? [node] : []), ...nodes(node.children, pick)] : [])
+
+test('the suggestion box opens the published feedback address, and nothing reports on GitHub', () => {
+  const address = 'https://feedback.test/box'
+  const { tree } = page({ open: () => null }, { __MUSE_FEEDBACK_CONFIG__: { feedbackUrl: address } })
+  const [row] = nodes(tree, node => node.props?.label === 'Suggestion box')
+  const [link] = nodes(row?.children ?? [], node => node.type === 'a')
+  assert.equal(link.props.href, address)
+  assert.equal(link.props.rel, 'noopener noreferrer')
+  assert.equal(nodes(tree, node => node.type === 'button' && /GitHub/.test(String(node.children[0]))).length, 0)
 })
 
-test('in a browser, the window reserved in the click gets the issue address', async () => {
-  const reserved = { location: { href: '' } }
-  const window = { open: () => reserved }
-  const { notes, report } = page(window)
-  await report()
-  assert.equal(reserved.opener, null)
-  assert.ok(reserved.location.href.startsWith(`${ISSUES}?template=bug.yml`))
-  assert.ok(notes.includes('Opened a new GitHub issue with the diagnostics filled in. Check it before you submit.'))
-})
-
-test('in a browser that blocks the window, the page offers the link instead', async () => {
-  const { notes, report } = page({ open: () => null })
-  await report()
-  assert.ok(notes.includes('The browser blocked the new window.'))
-  assert.ok(notes.some(note => note.startsWith(`${ISSUES}?template=bug.yml`)))
+test('without a published https or loopback address there is no suggestion box', () => {
+  for (const globals of [{}, { __MUSE_FEEDBACK_CONFIG__: { feedbackUrl: 'http://feedback.test/box' } }, { __MUSE_FEEDBACK_CONFIG__: { feedbackUrl: 'javascript:alert(1)' } }]) {
+    const { tree } = page({ open: () => null }, globals)
+    assert.equal(nodes(tree, node => node.props?.label === 'Suggestion box').length, 0)
+  }
+  const { tree } = page({ open: () => null }, { __MUSE_FEEDBACK_CONFIG__: { feedbackUrl: 'http://127.0.0.1:8080/feedback' } })
+  assert.equal(nodes(tree, node => node.props?.label === 'Suggestion box').length, 1)
 })

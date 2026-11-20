@@ -103,7 +103,7 @@ export function install(rt) {
     source: store.locked ? null : store.source,
     ...(store.locked && store.reason ? { reason: store.reason } : {}),
   })
-  const LOCKED = 'The secrets store is locked. Unlock it in Settings → Secrets, or start DS Bot with DS_BOT_SECRETS_PASSPHRASE_FILE set to a file that holds the passphrase.'
+  const LOCKED = 'The secrets store is locked. Unlock it in Settings → Secrets, or start Muse with DS_BOT_SECRETS_PASSPHRASE_FILE set to a file that holds the passphrase.'
 
   /** @type {Map<string, {name:string, value:string, purpose:string, scope:'all'|string[], requestedBy:string|null, createdAt:number, updatedAt:number, lastUsedAt?:number}>} */
   const secrets = new Map()
@@ -315,7 +315,7 @@ export function install(rt) {
 
   // Resolves once secrets.json holds the current map; rejects when the write failed.
   const persist = () => {
-    if (blocked !== undefined) return Promise.reject(new Error(`The secrets file ${path} could not be read (${blocked}). DS Bot does not change it; fix or move the file and reload.`))
+    if (blocked !== undefined) return Promise.reject(new Error(`The secrets file ${path} could not be read (${blocked}). Muse does not change it; fix or move the file and reload.`))
     const readOnly = rt.readOnly()
     if (readOnly !== undefined) return Promise.reject(new Error(readOnly))
     if (store.mode === 'encrypted' && (store.locked || store.passphrase === null)) return Promise.reject(new Error(LOCKED))
@@ -802,7 +802,7 @@ export function install(rt) {
       unregister = null
       declared = key
       if (list.length === 0) return
-      const variables = Object.fromEntries(list.map(secret => [envName(secret.name), { description: `DS Bot secret ${secret.name}${secret.purpose ? `: ${secret.purpose}` : ''}` }]))
+      const variables = Object.fromEntries(list.map(secret => [envName(secret.name), { description: `Muse secret ${secret.name}${secret.purpose ? `: ${secret.purpose}` : ''}` }]))
       const declaredKeys = new Set(Object.keys(variables))
       try {
         unregister = sub.shellEnv.register({

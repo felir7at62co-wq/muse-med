@@ -140,7 +140,7 @@ export function install(rt) {
     if (path === await realTeam()) return path
     const clash = await rt.privateClash(path)
     if (clash) throw new Error(`${text} is in or around the folder of ${clash.name}, a private Bot, so it cannot be the team workspace`)
-    const workspace = await ctx.workspaceRegistry.resolveByPath(path) ?? await ctx.workspaceRegistry.create(path, 'DS Bot')
+    const workspace = await ctx.workspaceRegistry.resolveByPath(path) ?? await ctx.workspaceRegistry.create(path, 'Muse')
     state.workspaceId = workspace.id
     await rt.save()
     return path

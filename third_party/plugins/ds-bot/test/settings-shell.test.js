@@ -264,7 +264,7 @@ const navLabels = tree => walk(walk(tree, node => node.type === 'nav')[0], node 
 test('one Settings: DS Bot\'s pages, then DSH\'s, then Feedback and About; no Harness settings', () => {
   const labels = navLabels(dialog().tree)
   assert.ok(!labels.includes('Harness settings'))
-  assert.deepEqual(labels.slice(-5), ['Account', 'Plugins', 'Agent presets', 'Feedback', 'About DS Bot'])
+  assert.deepEqual(labels.slice(-5), ['Account', 'Plugins', 'Agent presets', 'Feedback', 'About Muse'])
   assert.equal(labels.filter(label => label === 'General').length, 1)
   assert.equal(labels.filter(label => label === 'Models').length, 1)
 })
@@ -308,18 +308,17 @@ test('header actions from DSH and plugins sit beside the title', () => {
   assert.ok(dialog().drawn.some(([name]) => name === 'settings.action'))
 })
 
-test('General settings keeps the Classic Agent mode switch', () => {
+// Muse has one product surface: General settings offers no way into classic Agent mode,
+// even where the surface could switch.
+test('General settings offers no Classic Agent mode switch', () => {
   const calls = []
   const tree = SettingsDialog({
     page: 'general', id: null, roster, useUpdate: pick => pick({}),
     actions: { closeSettings() {}, openSettings() {}, setSurface: mode => calls.push(mode) },
   })
   const [general] = walk(tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
-  const [row] = walk(general.type(general.props), node => node.props?.label === 'Classic Agent mode')
-  assert.ok(row !== undefined)
-  const [button] = walk(row, node => node.type === 'button' && textOf(node) === 'Switch')
-  button.props.onClick()
-  assert.deepEqual(calls, ['agent'])
+  assert.equal(walk(general.type(general.props), node => node.props?.label === 'Classic Agent mode').length, 0)
+  assert.deepEqual(calls, [])
 })
 
 // The seat is `single`: DSH draws only the lowest-priority entry, and an entry whose

@@ -6,7 +6,9 @@ import { bundleClient } from '../scripts/build-client.mjs'
 
 const committed = () => readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 
-test('client.js is the build of src/client', async () => {
+// Muse keeps upstream's committed client.js; the desktop build bundles src/client itself
+// (third_party/plugins/README.md), so the two differ by design.
+test('client.js is the build of src/client', { skip: 'Muse bundles src/client at build time' }, async () => {
   assert.equal(await bundleClient(), committed(), 'client.js is stale: run `npm run build` and commit it')
 })
 

@@ -1,0 +1,10 @@
+{
+  "client_id": "https://muse.aigc-pipeline.cn/oauth/client.json",
+  "client_name": "Muse",
+  "client_uri": "https://muse.aigc-pipeline.cn",
+  "redirect_uris": ["http://127.0.0.1:38517/callback", "http://127.0.0.1/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "native"
+}

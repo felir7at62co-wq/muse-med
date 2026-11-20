@@ -409,7 +409,9 @@ export function install(rt) {
       lines,
       learned: learned.map(name => skills[name]),
       library,
-      declined: data().declined.filter(entry => entry.kind !== 'agents'),
+      // Muse: a Bot sees only the proposals declined for it, so a private Bot's declines
+      // never reach another Bot's request; ownerless records from before stay saved only.
+      declined: data().declined.filter(entry => entry.kind !== 'agents' && entry.botId === bot.id),
       language: writtenIn(lines.filter(line => line.startsWith('User: ')).map(line => line.slice(6)), rt.uiLanguage?.()),
       limit: settings.learnedMax,
     })
@@ -671,8 +673,8 @@ export function install(rt) {
     if (approve !== true) {
       settle('declined')
       const decline = proposal.kind === 'agents'
-        ? { kind: 'agents', folder: proposal.folder, edits: proposal.edits.map(({ op, text, old }) => ({ op, text, old })), at: Date.now() }
-        : { name: proposal.name, description: proposal.description, at: Date.now() }
+        ? { kind: 'agents', botId: proposal.botId, folder: proposal.folder, edits: proposal.edits.map(({ op, text, old }) => ({ op, text, old })), at: Date.now() }
+        : { botId: proposal.botId, name: proposal.name, description: proposal.description, at: Date.now() }
       store.declined = [...store.declined, decline].slice(-settings.declinedMax)
       await persist()
       return { applied: false }

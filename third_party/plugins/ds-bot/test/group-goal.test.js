@@ -327,7 +327,7 @@ test('an idle round wakes the admin for a goal check; [PASS] waits for the user'
   await settle(() => host.agentOf('ga').calls.length === 2)
   const prompt = text(host.agentOf('ga').calls[1])
   assert.match(prompt, /goal check/)
-  assert.match(prompt, /Goal check from DS Bot/)
+  assert.match(prompt, /Goal check from Muse/)
   host.begin('ga')
   host.finish('ga', '[PASS]')
   await settle(() => check() !== undefined)

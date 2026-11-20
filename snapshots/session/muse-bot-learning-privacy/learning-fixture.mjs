@@ -6,7 +6,6 @@ import { join } from 'node:path'
 import { install as installLearning } from '../../../third_party/plugins/ds-bot/src/host/learning.js'
 import { install as installMemory } from '../../../third_party/plugins/ds-bot/src/host/memory.js'
 import { install as installStore } from '../../../third_party/plugins/ds-bot/src/host/store.js'
-import { resolveMuseConfig } from '../../../third_party/plugins/ds-bot/src/host/muse-config.js'
 import { output } from '../../../third_party/plugins/ds-bot/src/host/tools.js'
 
 /** Loader name for the real learning module fixture. */
@@ -40,8 +39,10 @@ export async function apply(ctx) {
         return ctx.on(event, listener, ...options)
       },
     },
-    config: resolveMuseConfig({ memoryReview: false, agentsMd: false, learningTimes: { minTurnMs: 0, tickMs: 100_000 } }),
+    config: { memoryReview: false, agentsMd: false, github: false, updateCheck: false, learningTimes: { minTurnMs: 0, tickMs: 100_000 } },
     home, dshHome: home, statePath: join(home, 'state.json'),
+    // The Bot tools memory and learning add; Bot Sessions get them in their own scope.
+    teamTools: [],
     desiredModel: async bot => bot.model,
     defaultModel: async () => 'snapshot-learning/writer',
     redactSecrets: text => text,

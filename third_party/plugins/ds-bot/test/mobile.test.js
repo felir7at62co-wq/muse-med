@@ -358,7 +358,7 @@ test('a phone stages photos one by one, then send puts them in one message with 
   const { call, sent, stop } = start()
   const { chief } = await team(call)
   const pixel = Buffer.from('ffd8ffe000104a464946', 'hex').toString('base64')
-  assert.deepEqual(await call('stage-image', { mediaType: 'text/html', data: pixel }), { ok: false, error: { code: 'bot/invalid', message: 'This is not a photo DS Bot can send', details: {} } })
+  assert.deepEqual(await call('stage-image', { mediaType: 'text/html', data: pixel }), { ok: false, error: { code: 'bot/invalid', message: 'This is not a photo Muse can send', details: {} } })
   const first = (await call('stage-image', { mediaType: 'image/jpeg', data: pixel })).value.id
   const second = (await call('stage-image', { mediaType: 'image/png', data: pixel })).value.id
   const before = sent.length

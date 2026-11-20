@@ -92,20 +92,9 @@
             "type": "string",
             "description": "Why the user wants it, passed to the new Bot as its first context"
           },
-          "preset": {
-            "type": "string",
-            "description": "Registered agent preset for the new Bot. Defaults to short-drama for Muse specialist work; bot-coordinator supplies general coordination."
-          },
-          "resident_tools": {
-            "type": "array",
-            "description": "Exact tool names to keep resident for this Bot. Tools remain subject to its existing permissions; it can later search, pin or release them with tool_search and tool_context.",
-            "items": {
-              "type": "string"
-            }
-          },
           "model": {
             "type": "string",
-            "description": "Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the model you run on."
+            "description": "Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the team default model from Muse settings, or the model you run on."
           },
           "effort": {
             "type": "string",
@@ -114,6 +103,10 @@
           "work_dir": {
             "type": "string",
             "description": "Full path of the folder to work in, where commands and file tools start. Only when the user asks for it"
+          },
+          "section": {
+            "type": "string",
+            "description": "Sidebar section name to group Bots and group chats that work on the same project together; creates the section if it does not exist"
           },
           "avatar": {
             "type": "string",
@@ -124,26 +117,6 @@
           "name",
           "role",
           "instructions"
-        ]
-      }
-    },
-    {
-      "name": "create_goal",
-      "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "objective": {
-            "type": "string",
-            "description": "The concrete completion objective inferred from the direct human request."
-          },
-          "max_goal_rounds": {
-            "type": "number",
-            "description": "Optional positive safe-integer limit on automatic continuation rounds."
-          }
-        },
-        "required": [
-          "objective"
         ]
       }
     },
@@ -166,7 +139,7 @@
           },
           "notice": {
             "type": "string",
-            "description": "Shared instructions every member reads before speaking in this group"
+            "description": "Shared instructions every member reads before speaking in this group; at most 2000 characters"
           },
           "admin": {
             "type": "string",
@@ -179,6 +152,10 @@
               "everyone",
               "admin"
             ]
+          },
+          "section": {
+            "type": "string",
+            "description": "Sidebar section name to group Bots and group chats that work on the same project together; creates the section if it does not exist"
           }
         },
         "required": [
@@ -280,14 +257,6 @@
       }
     },
     {
-      "name": "get_goal",
-      "description": "Read the current session goal, including the id and revision that update_goal requires.",
-      "parameters": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
       "name": "glob",
       "description": "Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved.",
       "parameters": {
@@ -384,14 +353,6 @@
       }
     },
     {
-      "name": "list_agents",
-      "description": "List your entire subagent tree: the root agent and all reachable continuable descendants, including yourself. Rows carry names, descriptions, and status. A descendant's name is its path from the root, such as reviewer/checker. You can message any other agent in the subagent tree. running means it is working; inactive means no turn is executing; it does not indicate task completion, success, or failure. corrupt, unsupported, or unavailable means this row's own descendants could not be read; the row itself is still a member you can message. While you remain active, you will be notified when a direct child finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
-      "parameters": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
       "name": "list_bot_models",
       "description": "List the models a Bot can run on, as provider/model refs for create_bot and update_bot. A model in use also lists the thinking levels it serves.",
       "parameters": {
@@ -401,10 +362,19 @@
     },
     {
       "name": "list_bots",
-      "description": "List every Bot on the user's team with its role, what it does and what it is doing right now, and the group chats you can see.",
+      "description": "List every Bot on the user's team with its role, what it does and what it is doing right now, and the group chats you can see. Give bot or group to list only that Bot or that group's members; with both, the Bot must be in the group.",
       "parameters": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "bot": {
+            "type": "string",
+            "description": "Exact name of one Bot to list, with the group chats you can see that it is in"
+          },
+          "group": {
+            "type": "string",
+            "description": "Exact group chat name: list only its members and that group"
+          }
+        }
       }
     },
     {
@@ -417,7 +387,7 @@
     },
     {
       "name": "message_bot",
-      "description": "Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to \"user\" it answers the user in its own chat instead. In a group chat it reaches only members of that group, as writing \"@Name\" there does. With request_id you name the request yourself: a repeat of that name with the same message is not sent again, but gives the receipt of the first call back.",
+      "description": "Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to \"user\" it answers the user in its own chat instead. Do not message a Bot that is waiting for the result of the work you are doing (the Bot that asked you for it, or one above that): your answer reaches it by itself once you end your turn and everything you handed on is back. In a group chat it reaches only members of that group, as writing \"@Name\" there does. With request_id you name the request yourself: a repeat of that name with the same message is not sent again, but gives the receipt of the first call back.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -599,27 +569,6 @@
       }
     },
     {
-      "name": "send_message",
-      "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "agent": {
-            "type": "string",
-            "description": "The name of another agent in your subagent tree, as shown by list_agents."
-          },
-          "message": {
-            "type": "string",
-            "description": "The message to deliver to the agent."
-          }
-        },
-        "required": [
-          "agent",
-          "message"
-        ]
-      }
-    },
-    {
       "name": "show_view",
       "description": "Draw a view in your own chat as part of your reply: a chart, key numbers, a table, a small calculator the user can try values in, or a choice, confirmation or short form. Text you write before and after the call shows around it. Use a view when it answers better than text: a chart to compare values or show a trend, inputs with formulas to let the user try numbers (worked out in the page, no new turn), options to let the user pick. Plain rows and columns read fine as a Markdown table, and one number needs no view. Give the answer first, then the view. Never invent data; mark sample numbers and assumptions as such. Do not repeat the same data as text, chart and table. Add only the controls the user needs. A view with options, confirm, form or submit ends your turn, and the answer arrives as the user's next message. Never collect a key, token or password. Keep the view under 8 KB.",
       "parameters": {
@@ -677,64 +626,6 @@
         },
         "required": [
           "bot"
-        ]
-      }
-    },
-    {
-      "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its name. If you are still online when it finishes, the runtime automatically delivers its completion notice. The notice includes the final answer unless the child sent you a message just before finishing. Use `send_message` to steer it while running or continue its conversation after it finishes.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "cwd": {
-            "type": "string",
-            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
-          },
-          "description": {
-            "type": "string",
-            "description": "A short (3-5 word) description of the delegated task, for display. Use the language of the user's current request."
-          },
-          "name": {
-            "type": "string",
-            "description": "Optional short name for the subagent, unique among the subagents you create: lower-case letters, digits, and hyphens, starting with a letter, at most 32 characters; lead is reserved for the root agent. Omitted names default to agent-1, agent-2, and so on."
-          },
-          "prompt": {
-            "type": "string",
-            "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
-          }
-        },
-        "required": [
-          "description",
-          "prompt"
-        ]
-      }
-    },
-    {
-      "name": "subagent_fork",
-      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This tool starts an independently managed subagent and immediately returns its name. If you are still online when it finishes, the runtime automatically delivers its completion notice. The notice includes the final answer unless the child sent you a message just before finishing. Use `send_message` to steer it while running or continue its conversation after it finishes.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "cwd": {
-            "type": "string",
-            "description": "Initial child working directory. Relative paths use your current directory; omitted inherits it. Later directory changes in either agent are independent."
-          },
-          "description": {
-            "type": "string",
-            "description": "A short (3-5 word) description of the delegated task, for display. Use the language of the user's current request."
-          },
-          "name": {
-            "type": "string",
-            "description": "Optional short name for the subagent, unique among the subagents you create: lower-case letters, digits, and hyphens, starting with a letter, at most 32 characters; lead is reserved for the root agent. Omitted names default to agent-1, agent-2, and so on."
-          },
-          "prompt": {
-            "type": "string",
-            "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
-          }
-        },
-        "required": [
-          "description",
-          "prompt"
         ]
       }
     },
@@ -884,17 +775,6 @@
             "type": "string",
             "description": "Replacement instructions"
           },
-          "preset": {
-            "type": "string",
-            "description": "Registered preset for future new Sessions of this Bot. Its current conversation and preset remain intact."
-          },
-          "resident_tools": {
-            "type": "array",
-            "description": "Replacement exact-name resident tools. An empty list clears residency; existing permissions still apply. Use tool_context to adjust your own active tools.",
-            "items": {
-              "type": "string"
-            }
-          },
           "color": {
             "type": "string",
             "description": "One of deepseek, blue, violet, orange, green, magenta, cyan, red, yellow, brown, gray, black, aurora, charcoal, graphite, rose, sky, tangerine, cobalt"
@@ -905,7 +785,7 @@
           },
           "model": {
             "type": "string",
-            "description": "Move the Bot to another model, as provider/model or a model id"
+            "description": "Move the Bot to another model, as provider/model or a model id. It stays on what it runs on: only the user moves a Bot between Muse models and a local agent CLI, or between two CLIs, in its settings."
           },
           "effort": {
             "type": "string",
@@ -914,66 +794,12 @@
           "work_dir": {
             "type": "string",
             "description": "Full path of the folder to work in, where commands and file tools start. Only when the user asks for it; an empty string returns it to the team workspace"
+          },
+          "section": {
+            "type": "string",
+            "description": "Sidebar section name to group Bots and group chats that work on the same project together; creates the section if it does not exist; an empty string removes the Bot from its section (Main Bot only)"
           }
         }
-      }
-    },
-    {
-      "name": "update_goal",
-      "description": "Update the current goal.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "goal_id": {
-            "type": "string",
-            "description": "Exact id returned by get_goal."
-          },
-          "revision": {
-            "type": "number",
-            "description": "Exact positive revision returned by get_goal."
-          },
-          "action": {
-            "type": "string",
-            "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer.",
-            "enum": [
-              "edit",
-              "pause",
-              "resume",
-              "complete",
-              "blocked",
-              "wait"
-            ]
-          },
-          "objective": {
-            "type": "string",
-            "description": "Replacement objective; valid only with action edit."
-          },
-          "max_goal_rounds": {
-            "type": "number",
-            "description": "Replacement cap; valid only with action edit."
-          },
-          "blocked_reason": {
-            "type": "string",
-            "description": "Required only with action blocked: the concrete condition that persisted across rounds and blocks progress."
-          },
-          "wait_reason": {
-            "type": "string",
-            "description": "With action wait: describe what new information or event is needed."
-          },
-          "wake_after_seconds": {
-            "type": "number",
-            "description": "With action wait: optional positive whole seconds before continuing."
-          },
-          "job_id": {
-            "type": "string",
-            "description": "With action wait: optional owned job to watch for new output or settlement."
-          }
-        },
-        "required": [
-          "goal_id",
-          "revision",
-          "action"
-        ]
       }
     },
     {
@@ -992,7 +818,7 @@
           },
           "notice": {
             "type": "string",
-            "description": "Replacement notice, the shared instructions every member reads; an empty string clears it"
+            "description": "Replacement notice, the shared instructions every member reads; an empty string clears it; at most 2000 characters"
           },
           "add_members": {
             "type": "array",
@@ -1023,6 +849,10 @@
           "work_dir": {
             "type": "string",
             "description": "Full path of the folder to work in, where commands and file tools start. Only when the user asks for it. Every member works there in this group; an empty string lets each member work in its own folder again (Main Bots only)"
+          },
+          "section": {
+            "type": "string",
+            "description": "Sidebar section name to group Bots and group chats that work on the same project together; creates the section if it does not exist; an empty string removes the group from its section (Main Bots only)"
           }
         },
         "required": [
@@ -1062,84 +892,6 @@
         },
         "required": [
           "queries"
-        ]
-      }
-    },
-    {
-      "name": "workflow",
-      "description": "Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.\n\nScript-body hooks:\n- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object, and the child must call its `structured_output` tool to report it: a `schema` call whose child answers in plain text resolves `null`. If the prompt text states its own return format, that text describes the payload, never the reporting channel. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.\n- `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.\n- `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.\n- `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.\n\nMisused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) end the whole script instead of producing `null`. The script has no filesystem, network, timer, or Node.js APIs; the agents do the work.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "script": {
-            "type": "string",
-            "description": "The plain JavaScript body, not TypeScript and without an `export const meta` statement; top-level await is allowed. End with `return <value>`; the JSON-serializable value is this tool's result."
-          },
-          "meta": {
-            "type": "object",
-            "description": "The workflow identity as plain JSON, not code.",
-            "additionalProperties": true,
-            "properties": {
-              "name": {
-                "type": "string",
-                "description": "Short kebab-case workflow name."
-              },
-              "description": {
-                "type": "string",
-                "description": "One-line description of what the workflow does."
-              },
-              "whenToUse": {
-                "type": "string",
-                "description": "Optional guidance on when this workflow applies."
-              },
-              "phases": {
-                "type": "array",
-                "description": "Optional phase declarations matched by phase() calls.",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "title": {
-                      "type": "string",
-                      "description": "The phase title phase() calls match by exact string."
-                    },
-                    "detail": {
-                      "type": "string",
-                      "description": "Optional one-line description of the phase."
-                    },
-                    "provider": {
-                      "type": "string",
-                      "description": "Optional provider override this phase is expected to use."
-                    },
-                    "model": {
-                      "type": "string",
-                      "description": "Optional model override this phase is expected to use."
-                    }
-                  },
-                  "required": [
-                    "title"
-                  ]
-                }
-              }
-            },
-            "required": [
-              "name",
-              "description"
-            ]
-          },
-          "args": {
-            "type": "object",
-            "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
-            "additionalProperties": true
-          },
-          "run_in_background": {
-            "type": "boolean",
-            "description": "Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice."
-          }
-        },
-        "required": [
-          "script",
-          "meta"
         ]
       }
     },

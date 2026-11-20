@@ -54,7 +54,7 @@ test('the Browser page says default browsing is read-only and names browserPlugi
   assert.match(text, /How to enable interactive browsing/)
   assert.match(text, /browserPlugin/)
   assert.match(text, /refs, script or task/)
-  assert.match(text, /restart DS Bot/)
+  assert.match(text, /restart Muse/)
   assert.match(text, /With an interactive plugin, Bots browse, click and fill in forms/)
   assert.match(text, /These grants apply only after an interactive browser plugin is enabled/)
   assert.doesNotMatch(text, /Bots browse, click and fill in forms freely\./)

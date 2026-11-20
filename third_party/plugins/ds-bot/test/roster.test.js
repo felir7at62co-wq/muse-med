@@ -366,15 +366,15 @@ test('a window holding live state gets fresh fields after the host restarts at t
   assert.equal(quiet.activity, undefined)
 })
 
-test('a new team starts with a DeepSeek-blue whale as its Main Bot', async (t) => {
+test('a new team starts with the violet Muse spider as its Main Bot', async (t) => {
   const { call, stop } = start()
   t.after(stop)
   const team = (await call('state', {})).value
   assert.equal(team.mainBotIds.length, 1)
   const main = team.bots.find(bot => bot.id === team.mainBotId)
   assert.equal(main.name, 'Chief')
-  assert.equal(main.color, 'deepseek')
-  assert.deepEqual(main.avatar, { shape: 'whale' })
+  assert.equal(main.color, 'violet')
+  assert.deepEqual(main.avatar, { shape: 'muse-spider' })
 
   // Other Bots keep no stored look, so the client picks one from the id.
   const writer = (await call('create-bot', { name: 'Writer', role: '写作' })).value
@@ -428,8 +428,8 @@ test('another Bot takes the Main Bot place in one step', async (t) => {
   const team = (await call('set-main', { id: writer.id, main: true, replace: chief })).value
   assert.deepEqual(team.mainBotIds, [writer.id])
   assert.equal(team.mainBotId, writer.id)
-  // The whale stays with the Bot it was given to.
-  assert.deepEqual(team.bots.find(bot => bot.id === chief).avatar, { shape: 'whale' })
+  // The spider stays with the Bot it was given to.
+  assert.deepEqual(team.bots.find(bot => bot.id === chief).avatar, { shape: 'muse-spider' })
   // The old Main Bot can now be deleted, and no new Chief is made in its place.
   assert.equal((await call('delete-bot', { id: chief })).ok, true)
   const after = (await call('state', {})).value
@@ -1420,7 +1420,9 @@ test('a model-less create-bot starts the Bot on the saved team default model', a
 test('a window learns that the other dsh closed and takes the team over without a reload', async (t) => {
   const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'])
   t.after(() => holder.kill())
-  const { call, stop } = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', sessionId: 'chief', name: 'Chief' } } }, {
+  // A saved Muse team already has its Muse 会话 row, so taking the team over saves nothing new.
+  const row = { id: 'row', name: 'Muse 会话', sessions: [], createdAt: 1 }
+  const { call, stop } = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', sessionId: 'chief', name: 'Chief' } }, agents: { row } }, {
     models: ['deepseek-v4-flash'],
     lock: { pid: holder.pid, host: hostname(), token: 'other', since: Date.now() },
   })
