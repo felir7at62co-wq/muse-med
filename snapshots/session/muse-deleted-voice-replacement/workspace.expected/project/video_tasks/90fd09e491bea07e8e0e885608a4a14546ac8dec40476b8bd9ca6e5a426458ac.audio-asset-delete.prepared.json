@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "operation": "audio_asset_delete",
+  "script_id": 2708,
+  "asset": {
+    "asset_id": 51,
+    "script_id": 2708,
+    "asset_type": 4,
+    "name": "Original voice ⟦muse-voice:v1:WzI3MDgsInpob3UiLCJhZHVsdCJd⟧",
+    "url": "https://media.example/original.wav",
+    "audio_duration": null,
+    "is_local": true,
+    "liveness": "active",
+    "character_id": "zhou",
+    "voice_period_id": "adult",
+    "voice_slot_tag": "⟦muse-voice:v1:WzI3MDgsInpob3UiLCJhZHVsdCJd⟧"
+  },
+  "asset_urls": [
+    "https://media.example/original.wav"
+  ],
+  "references": {
+    "characters": [],
+    "storyboards": [],
+    "complete": true
+  },
+  "delete_reason": "Remove the reviewed offline voice before replacing it",
+  "authorization_basis": "User authorized deletion of audio 51 and a new replacement registration",
+  "fingerprint": "90fd09e491bea07e8e0e885608a4a14546ac8dec40476b8bd9ca6e5a426458ac"
+}

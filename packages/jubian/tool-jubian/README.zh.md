@@ -387,9 +387,11 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 卡片正文中的音频标记若尚未进入选择列表，保留名称与 key，提供已核对的同项目音频资产 ID，即可补回绑定。旧模型配置已有对应音频行时，也可清除失配标记。任一保存列表中仍属于图片的 key 按图片处理。
 
-角色感知引用同时提供 `character_id`，分期声线还须提供 `voice_period_id`。其精确资产 ID 和 URL 必须匹配当前项目角色及人生时期；儿童声线不能替代成年声线，更换服装保留声线时期。已删除资产不能绑定；分期引用还须有提供方明确有效的证据（delFlag=0 且没有矛盾的删除字段）。分期引用的有效状态未知时不保存该卡，其他独立工作可继续。冻结预览保存选定声音配置，并在新保存前复验。制作方案发布会把共享人物和时期 ID 转交同一核验器，不会代为采纳或认可声线。提供方材质行不接收本地身份字段。带 `audio_asset_id` 且解析到共享槽的引用，以及匹配已采纳分期配置的引用，必须显式提供本地身份字段，不能通过省略字段选择旧式检查。项目圣经尚未采纳声线时会报告本地配置错误与所需修正。未分期旧引用和无关的仅 URL 音频保留已有兼容性，但不验证说话人身份。没有资产 ID、也不匹配本地已采纳配置的 URL 无法证明远端共享身份。
+角色感知引用同时提供 `character_id`，分期声线还须提供 `voice_period_id`。其精确资产 ID 和 URL 必须匹配当前项目角色及人生时期；儿童声线不能替代成年声线，更换服装保留声线时期。已删除资产不能绑定；分期引用还须有提供方明确有效的证据（delFlag=0 且没有矛盾的删除字段）。删除字段明确有歧义时，所有带资产 ID 的音频引用都不能保存该卡；分期引用还会在有效状态证据缺失时停止。其他独立工作可继续。冻结预览保存选定声音配置，并在新保存前复验。制作方案发布会把共享人物和时期 ID 转交同一核验器，不会代为采纳或认可声线。提供方材质行不接收本地身份字段。带 `audio_asset_id` 且解析到共享槽的引用，以及匹配已采纳分期配置的引用，必须显式提供本地身份字段，不能通过省略字段选择旧式检查。项目圣经尚未采纳声线时会报告本地配置错误与所需修正。未分期旧引用和无关的仅 URL 音频保留已有兼容性，但不验证说话人身份。没有资产 ID、也不匹配本地已采纳配置的 URL 无法证明远端共享身份。
 
 共享声线登记同时提供 character_id 与 voice_period_id。规范音频名称后缀保留精确项目／人物／人生时期，普通名称不能认领声线。完整库存先复用已有候选。首次创建带共享身份的音频需要仅供 Host 使用的 Muse 账号协调器：认领槽、持久化开始状态，再用原账本 key 提交一次。忙碌、不可用或已经提交的状态不会另发 POST。完成时核对真实音频资产，再向协作者发布，客户端还会独立回读资产。coordination_state 与 exclusive_registration 表示协调状态，atomic_registration=false 保留供应商限制。旧客户端和剧变网页不参与协调，重复条目仍如实报告且不自动删除。已提交认领不会到期后放行新创建，未知结果沿原 key 对账。采用录音仍需核对实际说话人与时期。迁移或清理前，用[共享用途查询](../../drama/tool-drama-assets/README.zh.md#shared-project-uses)定位当前绑定。
+
+已明确删除、此前已就绪的声线可以接受另行授权的替代登记。新操作发出 POST 前，[网关](../../../services/muse-accounts/README.zh.md#shared-voice-registration)必须退役原操作，并返回 replaces_asset_id，与完整本地清单中同槽位的已删除资产匹配。删除证据缺失、矛盾或未经共享登记跟踪时仍保持待处理。替换已删除声线不会重新开放结果不确定的原请求，也不允许用其 key 再发 POST。
 
 新分期角色音频须同时提供这两项身份字段，仅未分期旧音频可省略。coordination_unavailable、coordination_busy 和 coordination_pending 返回 submission_attempted=false、retry_registration=false 和原 key。保留候选并对账原操作，不能重试登记或删除身份字段。待处理状态只影响声线登记，无此参考的已授权初始视频或其他独立工作可继续。
 
@@ -468,6 +470,8 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 普通 Muse 会话可将本人委托生成并亲自上传、仍为 `pending_review` 的图片，仅用于**当前单个项目的一张衍生参考生图**。Agent 实际看图后调用 `jubian_character_reference_authorize`；Host 重读经验证的项目、已登记角色、Catalog 原图字节与 SHA-256，直接询问当前用户图片来源及交给剧变做本项目参考生图的权利。Agent 消息、metadata 声明或聊天推断不能替代本人在界面的确认。拒绝或界面不可用时不会创建授权。用户回答后，Host 再次核对身份，才将一次性授权写入 `<DSH_HOME>/jubian/character-reference-private/authorizations.sqlite`，并将它绑定当前 Session、项目、角色、Catalog ID 与 SHA。它不修改 TOS metadata，也不把图片变成公共库已批准素材。
 
 用返回的授权 ID 与版本调用 `jubian_asset upload_character_reference`，再把 Host 私有的 `managed_reference_id` 交给一次 `jubian_video image_generate`。不得传路径、TOS key、原始 URL 或 `references`。可选的 `episode` 只说明剧情来源，不改变已核验的项目角色身份。Host 为这张一次性衍生图生成稳定且绑定授权的候选资产名，避免与该角色已有的正式资产或回退生成资产重名。项目预算与付费幂等账本照常生效；上传或生成结果未知时，只用原 key 做只读对账，不得换 key。生图结果标明 `project_private_only: true`、`qa_only: false`，但原图和衍生图仍不得自动确认出演、正式绑定、发布、供他人使用或跨项目复用；这些动作需要另行审核。本人确认只是**项目私有权利声明**，不是公共库权威审核。
+
+申请上传额度前，Host 使用现有 FFmpeg 路径，在本地临时副本中对齐尺寸不合规的项目私有图片。TOS 原图字节与授权 SHA 保持不变。规范化后，Host 重新核对所有者与授权，并校验上传副本的摘要。取消时会等待 FFmpeg 子进程关闭后再清理临时文件。隔离 QA 仍只接受尺寸合规且字节不变的原图。
 
 ### 隔离 QA 托管人物参考
 

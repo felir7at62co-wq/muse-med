@@ -1,0 +1,14 @@
+{
+  "registeredAssets": [
+    51,
+    52
+  ],
+  "deletedAssets": [
+    51
+  ],
+  "retiredOperations": 1,
+  "originalIntents": 3,
+  "oldOperationClosedAfterRestart": true,
+  "replaySentNoWrites": true,
+  "paidRequests": 0
+}

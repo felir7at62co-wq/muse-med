@@ -151,6 +151,16 @@ export function createAssembledRemote(options: AssembledRemoteOptions = {}): Ass
           ns: 'ui-settings',
           schema: { type: 'object', dict: { enabled: { type: 'boolean' } } },
           value: { enabled: options.developerTools ?? true }, autoGenerate: false, applies: 'live', secrets: [], revision: 0,
+        }, {
+          ns: 'ui-character-library',
+          schema: {
+            uid: 8,
+            refs: {
+              7: { type: 'number', meta: { step: 1, min: 1000, max: 300_000, default: 30_000 } },
+              8: { type: 'object', meta: { default: {} }, dict: { syncIntervalMs: 7 } },
+            },
+          },
+          value: { syncIntervalMs: 30_000 }, autoGenerate: false, applies: 'live', secrets: [], revision: 0,
         }],
       }),
       'credentials/describe': structuredClone(fixture.credentialsDescribe),
