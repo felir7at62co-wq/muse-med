@@ -34,7 +34,7 @@ Estimated spend applies a versioned price table (`MUSE_CONSOLE_PRICES_FILE`) per
 ## Deployment
 
 1. Create the `muse-console` system user and group, `/var/lib/muse-console/export` owned by `muse-gateway:muse-console` with mode 2750, and copy this directory to a release under `/opt/muse/console/`, pointing `current` at it.
-2. Install the environment, price and service files under `/etc/muse/`, and the units in `deploy/`.
+2. Install the environment file as `/etc/muse/console.env` (read by systemd), the price and service files under `/etc/muse-console/` owned by `root:muse-console` with mode 0750 for the directory and 0640 for the files, and the units in `deploy/`. The console user cannot enter `/etc/muse`.
 3. Run `muse-console-export.service` once and wait for the first copy; then enable `muse-console-export.timer` and start `muse-console.service`.
 4. Add `deploy/nginx-console.conf` inside the site's TLS server block before the catch-all location, test the configuration and reload nginx.
 5. Verify `/console/healthz` returns `ok`, an anonymous request returns 401 and an administrator sees all three pages.

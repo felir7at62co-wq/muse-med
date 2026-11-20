@@ -34,7 +34,7 @@ Muse 管理台是一个单独部署的只读网页服务，挂在 Muse 主站的
 ## Deployment
 
 1. 建系统账号和组 `muse-console`；建 `/var/lib/muse-console/export`，属主 `muse-gateway:muse-console`，权限 2750；把本目录复制到 `/opt/muse/console/` 下的一个发布目录，并让 `current` 指向它。
-2. 在 `/etc/muse/` 下放环境变量、价目表和服务清单文件，安装 `deploy/` 里的 systemd 单元。
+2. 环境变量文件放在 `/etc/muse/console.env`（由 systemd 读取）；价目表和服务清单放在 `/etc/muse-console/`，属主 `root:muse-console`，目录 0750、文件 0640；再安装 `deploy/` 里的 systemd 单元。管理台账号进不了 `/etc/muse`。
 3. 先手动跑一次 `muse-console-export.service`，等第一次复制完成；再启用 `muse-console-export.timer`，启动 `muse-console.service`。
 4. 把 `deploy/nginx-console.conf` 放进主站 TLS server 块、兜底 location 之前，检查配置后重载 nginx。
 5. 验证 `/console/healthz` 返回 `ok`、未登录访问返回 401、管理员能看到三个页面。
