@@ -13,6 +13,8 @@ import { MuseFeedbackError, type MuseFeedbackClient } from './feedback.ts'
 import type { MuseFeedbackRequest, MuseFeedbackReceipt, MuseWorkbenchGrant, MuseWorkbenchGrantRequest } from './types.ts'
 import type { MuseDesktopRemote } from './desktop-remote.ts'
 import { MuseVoiceSlotError, type MuseVoiceSlotRequest, type MuseVoiceSlotsClient } from './voice-slots.ts'
+import { museDataFailure, type MuseDataStationClient } from './data-station.ts'
+import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataPeriodRequest, MuseDataPlatform, MuseDataRush, MuseDataStock, MuseDataStockRequest } from './types.ts'
 import type { MuseAccountDetails, MuseAccountDetailsRequest, MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
@@ -35,6 +37,8 @@ export interface MuseAccountServiceOptions {
   readonly feedback?: Pick<MuseFeedbackClient, 'submit'>
   readonly remote?: Pick<MuseDesktopRemote, 'refresh' | 'pause'>
   readonly voiceSlots?: Pick<MuseVoiceSlotsClient, 'request'>
+  /** Data-station reads and 立即转写 for the 数据 drawer tab; absent where the product does not offer it. */
+  readonly data?: Pick<MuseDataStationClient, 'boards' | 'period' | 'stock' | 'rush' | 'collector'>
 }
 
 /** MUSE account Remote namespace. The Connection carrier authenticates every call. */
@@ -48,6 +52,7 @@ export class MuseAccountService extends TypertRemoteService {
   private readonly feedbackClient: Pick<MuseFeedbackClient, 'submit'> | undefined
   private readonly remote: Pick<MuseDesktopRemote, 'refresh' | 'pause'> | undefined
   private readonly voiceSlots: Pick<MuseVoiceSlotsClient, 'request'> | undefined
+  private readonly data: MuseAccountServiceOptions['data']
 
   /**
    * @param ctx - Host context owning the service.
@@ -64,6 +69,7 @@ export class MuseAccountService extends TypertRemoteService {
     this.feedbackClient = options.feedback
     this.remote = options.remote
     this.voiceSlots = options.voiceSlots
+    this.data = options.data
   }
 
   /**
@@ -124,6 +130,63 @@ export class MuseAccountService extends TypertRemoteService {
   async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Promise<unknown> {
     if (!this.voiceSlots) throw new MuseVoiceSlotError('not-configured')
     return await this.voiceSlots.request(request, jubianToken)
+  }
+
+  /**
+   * The rankings one data-station platform publishes, as the signed-in member.
+   * @param platform - Data-station platform.
+   * @returns Ranking names and the station's default ranking.
+   */
+  @Remote('dataBoards')
+  async dataBoards(platform: MuseDataPlatform): Promise<MuseDataBoards> {
+    return await this.withData(data => data.boards(platform))
+  }
+
+  /**
+   * One data-station ranking for a day, week or month.
+   * @param request - Platform, ranking, period and optional Beijing date.
+   * @returns Ranked works with the platform's own metrics.
+   */
+  @Remote('dataPeriod')
+  async dataPeriod(request: MuseDataPeriodRequest): Promise<MuseDataPeriod> {
+    return await this.withData(data => data.period(request))
+  }
+
+  /**
+   * One page of the data station's 储备看板 (Hongguo dramas selected for transcription).
+   * @param request - Filter, optional title or ID search and page.
+   * @returns The board's counts and one page of dramas with their stage.
+   */
+  @Remote('dataStock')
+  async dataStock(request: MuseDataStockRequest): Promise<MuseDataStock> {
+    return await this.withData(data => data.stock(request))
+  }
+
+  /**
+   * Move one Hongguo drama to the front of the transcription queue; the station records the signed-in member as requester.
+   * @param workId - Station work ID (`hongguo:<series id>`).
+   * @returns The queued job.
+   */
+  @Remote('dataRush')
+  async dataRush(workId: string): Promise<MuseDataRush> {
+    return await this.withData(data => data.rush(workId))
+  }
+
+  /** @returns The 绿泡泡 collector's connection state. */
+  @Remote('dataCollector')
+  async dataCollector(): Promise<MuseDataCollector> {
+    return await this.withData(data => data.collector())
+  }
+
+  private async withData<Result>(read: (data: NonNullable<MuseAccountServiceOptions['data']>) => Promise<Result>): Promise<Result> {
+    try {
+      if (!this.data) throw new RemoteError('muse-data/unavailable', 'MUSE data station: unavailable', {})
+      return await read(this.data)
+    } catch (error) {
+      if (error instanceof RemoteError) throw error
+      const code = museDataFailure(error).code
+      throw new RemoteError(`muse-data/${code}`, `MUSE data station: ${code}`, {})
+    }
   }
 
   /**

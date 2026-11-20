@@ -8,6 +8,7 @@ import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SelectedProject, StudioAsset, StudioBalance, StudioCatalog, StudioConfig, StudioNewProject, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from '@deepseek-ai/dsh-jingliu-connection/types'
+import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataStock } from '@deepseek-ai/dsh-muse-account/types'
 import css from './Production.module.css'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -34,6 +35,22 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         compose(text: string): void
       }
     }
+    /**
+     * The Bot team's details drawer: the data tab of the Bot whose conversation is `sessionId`.
+     * `platform` is the open data platform, or null on the tab that lists them; `openPlatform`
+     * opens one under the same tab (null goes back to the list).
+     */
+    'bot.drawer.data': {
+      kind: 'single'
+      scope: 'root'
+      owner: {
+        sessionId: SessionId
+        platform: string | null
+        openPlatform(platform: string | null): void
+        quote(text: string): void
+        compose(text: string): void
+      }
+    }
   }
   interface ResourceProtocolMap {
     'jingliu-selected': SelectedProject | null
@@ -49,6 +66,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'jingliu-shot-media': StudioShotMedia
     'jingliu-project-assets': StudioProjectAssets
     'jingliu-catalog': StudioCatalog
+    'muse-data-boards': MuseDataBoards
+    'muse-data-period': MuseDataPeriod
+    'muse-data-stock': MuseDataStock
+    'muse-data-collector': MuseDataCollector
   }
 }
 

@@ -352,3 +352,100 @@ export interface MuseWorkbenchGrantRequest {
 export interface MuseWorkbenchGrant {
   readonly code: string
 }
+
+/** A data-station platform. */
+export type MuseDataPlatform = 'hongguo' | 'lvpaopao' | 'douyin' | 'fanqie' | 'qimao'
+
+/** One platform's rankings. */
+export interface MuseDataBoards {
+  readonly boards: readonly string[]
+  readonly defaultBoard: string | null
+}
+
+/** One ranking period to read; `date` is a Beijing date and defaults to the latest collected day. */
+export interface MuseDataPeriodRequest {
+  readonly platform: MuseDataPlatform
+  readonly board: string
+  readonly period: 'day' | 'week' | 'month'
+  readonly date?: string
+}
+
+/** One metric as the platform reports it; `value` is null when the platform gave none. */
+export interface MuseDataMetric {
+  readonly key: string
+  readonly label: string
+  readonly value: number | null
+}
+
+/** One work on a ranking. */
+export interface MuseDataWork {
+  readonly id: string
+  readonly sourceId: string
+  readonly platform: MuseDataPlatform
+  readonly title: string | null
+  readonly tags: readonly string[]
+  readonly episodeCount: number | null
+  readonly wordCount: number | null
+  readonly metrics: readonly MuseDataMetric[]
+}
+
+/** One ranking period: its works in ranked order; `position` is null where the platform gave no rank. */
+export interface MuseDataPeriod {
+  readonly platform: MuseDataPlatform
+  readonly board: string
+  readonly period: 'day' | 'week' | 'month'
+  readonly date: string
+  readonly items: readonly { readonly position: number | null; readonly work: MuseDataWork }[]
+}
+
+/** A transcription job's stage. */
+export type MuseDataJobState = 'queued' | 'downloading' | 'transcribing' | 'checking' | 'published' | 'failed' | 'needs-attention' | 'rejected'
+
+/** One 储备看板 page to read. */
+export interface MuseDataStockRequest {
+  readonly filter: 'all' | 'script' | 'active' | 'queued' | 'failed' | 'rejected'
+  readonly q?: string
+  readonly page: number
+  readonly limit: number
+}
+
+/** One Hongguo drama on the 储备看板 with its collection, Douyin topic plays, job and script. */
+export interface MuseDataStockItem {
+  readonly work: { readonly id: string; readonly sourceId: string; readonly title: string | null; readonly tags: readonly string[]; readonly episodeCount: number | null }
+  readonly evaluation: {
+    readonly collection?: { readonly value: number } | null
+    readonly douyin?: { readonly viewCount?: number | null } | null
+  } | null
+  readonly job: {
+    readonly workId: string
+    readonly state: MuseDataJobState
+    readonly lane: 'manual' | 'new' | 'backlog'
+    readonly requestedBy: string | null
+    readonly progress: { readonly episode: number | null; readonly totalEpisodes: number | null } | null
+    readonly lastError?: { readonly reason: string } | null
+  } | null
+  readonly script: { readonly id: string; readonly fileName: string } | null
+}
+
+/** One 储备看板 page with the board's counts. */
+export interface MuseDataStock {
+  readonly summary: { readonly stock: number; readonly queued: number; readonly active: number; readonly failures: number; readonly rejected: number; readonly candidates: number }
+  readonly items: readonly MuseDataStockItem[]
+  readonly total: number
+  readonly page: number
+  readonly limit: number
+}
+
+/** The job 立即转写 queued. */
+export interface MuseDataRush {
+  readonly workId: string
+  readonly state: MuseDataJobState
+  readonly lane: 'manual' | 'new' | 'backlog'
+}
+
+/** The 绿泡泡 collector's connection state. */
+export interface MuseDataCollector {
+  readonly state: string
+  readonly label: string
+  readonly message: string
+}

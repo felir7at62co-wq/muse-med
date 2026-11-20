@@ -225,6 +225,8 @@
         mediaTools: true
         # Douyin videos are downloaded only by the data station under this account origin.
         douyinDownloadTool: true
+        # The 数据 drawer tab reads rankings and the 储备看板 as the signed-in member.
+        dataStation: true
         mediaNodePath: !!js process.execPath
         mediaFfmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
         mediaFfprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
