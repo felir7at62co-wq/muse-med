@@ -76,6 +76,25 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         return state.details === id && state.tab === `jingliu:${projectId}` ? { ...state, jingliuTabs, tab: 'jingliu' } : { ...state, jingliuTabs }
       })
     },
+    // Muse: a finalized script opens as a tab of the panel that follows `id`, as a Jingliu project
+    // does; closing the tab in view goes back to the script list.
+    openScript: (id, script) => {
+      ui.set((state) => {
+        const open = state.scriptTabs?.[id] ?? []
+        const next = open.some(entry => entry.id === script.id)
+          ? open.map(entry => (entry.id === script.id ? { id: script.id, title: script.title } : entry))
+          : [...open, { id: script.id, title: script.title }]
+        return { ...state, scriptTabs: { ...state.scriptTabs, [id]: next }, details: id, view: 'details', renaming: false, tab: `script:${script.id}`, panelYield: yieldTo(state, 'details') }
+      })
+    },
+    closeScript: (id, scriptId) => {
+      ui.set((state) => {
+        const open = state.scriptTabs?.[id] ?? []
+        if (!open.some(entry => entry.id === scriptId)) return state
+        const scriptTabs = { ...state.scriptTabs, [id]: open.filter(entry => entry.id !== scriptId) }
+        return state.details === id && state.tab === `script:${scriptId}` ? { ...state, scriptTabs, tab: 'scripts' } : { ...state, scriptTabs }
+      })
+    },
     // Muse: a terminal opens as a tab of the panel that follows `id`, and the panel goes to it.
     // `tab` is `{ key, session, terminalId? }`: its identity, the conversation part it runs in
     // and an existing terminal it shows. Closing the tab in view goes back to the terminal list.

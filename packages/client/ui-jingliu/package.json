@@ -68,6 +68,7 @@
     "@deepseek-ai/dsh-client-store": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~",
     "@deepseek-ai/dsh-jingliu-connection": "workspace:*",
+    "@deepseek-ai/dsh-workbench-connection": "workspace:*",
     "@deepseek-ai/dsh-brand": "workspace:*"
   },
   "files": [

@@ -18,7 +18,7 @@ import { PermissionPicker, presetDanger, presetName } from './permission-picker.
 import { TaskBoard } from './task-board.js'
 import { ComputerView } from './computer.js'
 import { t } from './i18n.js'
-import { DRAWER_TAB_LABELS, drawerTabOf, drawerTabs, drawerTools, listTabOf, platformOfTab, projectOfTab, terminalOfTab } from './side-model.js'
+import { DRAWER_TAB_LABELS, drawerTabOf, drawerTabs, drawerTools, listTabOf, platformOfTab, projectOfTab, scriptOfTab, terminalOfTab } from './side-model.js'
 import { TerminalCards } from './terminal-cards.js'
 import { FilesTree } from './files-tree.js'
 
@@ -32,7 +32,7 @@ import { FilesTree } from './files-tree.js'
 // also gets the open `project` (null on its project list) and `openProject` to open one as a
 // tab; the data station gets the open `platform` (null on its platform list) and
 // `openPlatform`, which widens the drawer to that platform under the same tab row.
-const TAB_SLOTS = { jingliu: 'bot.drawer.jingliu', assets: 'bot.drawer.assets', data: 'bot.drawer.data' }
+const TAB_SLOTS = { scripts: 'bot.drawer.scripts', jingliu: 'bot.drawer.jingliu', assets: 'bot.drawer.assets', data: 'bot.drawer.data' }
 const TOOL_ICONS = { side: SideIcon, terminal: TerminalIcon, files: FolderIcon }
 // One open terminal, in its own strip tab; the Terminal row tab lists them (terminal-cards.js).
 const TERMINAL_SLOT = 'bot.drawer.terminal'
@@ -255,7 +255,7 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
 }
 
 
-export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, projects = NO_PROJECTS, terminals = NO_PROJECTS, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useComputer, renderSlot }) {
+export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, projects = NO_PROJECTS, scripts = NO_PROJECTS, terminals = NO_PROJECTS, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useComputer, renderSlot }) {
   const owner = roster.byId[sessionId]
   const part = owner ? currentPart(owner) : sessionId
   const isMainBot = isMainOf(roster, owner?.id)
@@ -301,7 +301,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
     ]
   }
   // An open Jingliu project or terminal takes the whole drawer; every row tab keeps the Bot's top.
-  const onDetails = projectOfTab(tab) === null && terminalOfTab(tab) === null
+  const onDetails = projectOfTab(tab) === null && scriptOfTab(tab) === null && terminalOfTab(tab) === null
   // A top-bar tool acts as its row tab did; `pick` is declared below and runs at click time.
   function pickTool(key) { return () => pick(key)() }
   const tools = bot ? drawerTools({ bot: true, canTerminal: actions.canOpenTerminal?.() === true }) : []
@@ -334,13 +334,14 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
   const subtitle = bot ? undefined : roomSubtitle(room, roster)
   const projectId = projectOfTab(tab)
   const platformId = platformOfTab(tab)
+  const scriptId = scriptOfTab(tab)
   const fills = name => typeof renderSlot === 'function' && actions.hasDrawerSlot?.(name) === true
-  const slot = projectId !== null ? TAB_SLOTS.jingliu : platformId !== null ? TAB_SLOTS.data : TAB_SLOTS[tab]
+  const slot = projectId !== null ? TAB_SLOTS.jingliu : scriptId !== null ? TAB_SLOTS.scripts : platformId !== null ? TAB_SLOTS.data : TAB_SLOTS[tab]
   const hosted = slot !== undefined && fills(slot)
   const hostsTerminal = fills(TERMINAL_SLOT) && actions.canHostTerminal?.() === true
   const tabs = !onDetails ? [] : drawerTabs({
     bot: bot !== undefined, canBrowse: true,
-    canJingliu: fills(TAB_SLOTS.jingliu), canAssets: fills(TAB_SLOTS.assets) || actions.canOpenAssets?.() === true, canData: fills(TAB_SLOTS.data),
+    canScripts: fills(TAB_SLOTS.scripts), canJingliu: fills(TAB_SLOTS.jingliu), canAssets: fills(TAB_SLOTS.assets) || actions.canOpenAssets?.() === true, canData: fills(TAB_SLOTS.data),
     computer: roster.computer?.enabled === true,
   })
   // Side chat opens in its own place; so does Terminal where no plugin shows terminals in the panel,
@@ -392,6 +393,10 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
         ...(slot === TAB_SLOTS.jingliu ? {
           project: projectId === null ? null : { id: projectId, title: projects.find(entry => entry.id === projectId)?.title ?? '' },
           openProject: project => actions.openJingliuProject(sessionId, project),
+        } : {}),
+        ...(slot === TAB_SLOTS.scripts ? {
+          script: scriptId === null ? null : { id: scriptId, title: scripts.find(entry => entry.id === scriptId)?.title ?? '' },
+          openScript: script => actions.openScript(sessionId, script),
         } : {}),
         ...(slot === TAB_SLOTS.data ? { platform: platformId, openPlatform: platform => setTab(platform === null ? 'data' : `data:${platform}`) } : {}),
       })) : null,

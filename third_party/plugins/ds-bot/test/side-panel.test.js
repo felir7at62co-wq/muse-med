@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { drawerMenuKeys, drawerTabOf, drawerTabs, drawerTools, listTabOf, panelHasStrip, platformOfTab, projectOfTab, stripMenuKeys, terminalCards, terminalOfTab } from '../src/client/side-model.js'
+import { drawerMenuKeys, drawerTabOf, drawerTabs, drawerTools, listTabOf, panelHasStrip, platformOfTab, projectOfTab, scriptOfTab, stripMenuKeys, terminalCards, terminalOfTab } from '../src/client/side-model.js'
 
 // The strip shows whenever the Bot has a browser tab or a side chat; side chats
 // need no browser bridge, so DSH Web gets them too.
@@ -17,8 +17,8 @@ test('the strip shows with only side chats and no browser', () => {
 
 // Muse: the tab row under a Bot's name, and the round tools beside its gear.
 test('the row holds the details and the browser, then what the plugins and the desktop offer', () => {
-  const all = { bot: true, canBrowse: true, canJingliu: true, canAssets: true, canData: true, computer: true }
-  assert.deepEqual(drawerTabs(all), ['details', 'browser', 'jingliu', 'assets', 'data', 'computer'])
+  const all = { bot: true, canBrowse: true, canScripts: true, canJingliu: true, canAssets: true, canData: true, computer: true }
+  assert.deepEqual(drawerTabs(all), ['details', 'browser', 'scripts', 'jingliu', 'assets', 'data', 'computer'])
   assert.deepEqual(drawerTabs({ bot: true }), ['details'])
   assert.deepEqual(drawerTabs({ ...all, bot: false }), [])
 })
@@ -218,4 +218,13 @@ test('a stored failure renders under the input and typing clears it', () => {
   input.props.onChange({ target: { value: 'next' } })
   assert.deepEqual(calls.draft, [['next']])
   assert.deepEqual(calls.fail, [[null]])
+})
+
+// Muse: a finalized script opens as its own panel tab, like a Jingliu project.
+test('a script tab key names its open script, and the Bot tab goes back to the script list', () => {
+  assert.equal(drawerTabOf('scripts'), 'scripts')
+  assert.equal(drawerTabOf('script:42'), 'script:42')
+  assert.equal(scriptOfTab('script:42'), '42')
+  assert.equal(scriptOfTab('scripts'), null)
+  assert.equal(listTabOf('script:42'), 'scripts')
 })
