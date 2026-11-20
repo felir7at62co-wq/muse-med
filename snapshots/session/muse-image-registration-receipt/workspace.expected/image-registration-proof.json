@@ -1,0 +1,18 @@
+{
+  "post_count": 1,
+  "submitted_images": [
+    {
+      "name": "lead coat",
+      "url": "https://media.example/coat.png"
+    }
+  ],
+  "provider_asset_ids": [
+    501,
+    502
+  ],
+  "returned_asset_ids": [
+    501,
+    501
+  ],
+  "changed_request_rejected": true
+}

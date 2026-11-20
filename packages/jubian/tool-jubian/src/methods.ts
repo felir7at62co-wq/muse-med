@@ -48,6 +48,7 @@ import { getAudioAsset, listAudioAssets } from './audio-asset-read.ts'
 import { audioAssetDeleteMethod, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
 import type { AudioReferenceScanOptions } from './audio-asset-delete.ts'
 import { registerAudioAsset } from './audio-asset-register.ts'
+import { registerImageAsset, resolveAssetRegistrationScanOptions, type AssetRegistrationScanOptions } from './asset-register.ts'
 import { readUpscaleQuote } from './upscale-price.ts'
 import { readSubtitleEraseQuote } from './subtitle-price.ts'
 import type { VoiceCoordinator } from './voice-coordination.ts'
@@ -317,6 +318,8 @@ export interface MethodDeps {
   voiceCoordinator?: VoiceCoordinator
   /** Resolved complete-reference inspection limits before deleting audio assets. */
   audioReferenceScan?: AudioReferenceScanOptions
+  /** Resolved complete inventory limits for uploaded image registration. */
+  assetRegistrationScan?: AssetRegistrationScanOptions
   /** Local reference upload: transport, re-encode, clock and `ffmpeg` path. */
   reference?: ReferenceUploadDeps
   /** Paid image generation: the pinned catalogue row and the post-write readback budget. */
@@ -782,19 +785,6 @@ export async function catalogMethod(client: JubianClient, args: MethodArgs,
 }
 
 /**
- * Every asset the provider lists for one project, as identity plus declared category.
- * @param client - Jubian transport.
- * @param scriptId - The project to list.
- * @returns One entry per listed asset.
- */
-async function listedAssets(client: JubianClient, scriptId: number):
-Promise<{ asset_id: number; asset_type: number | null }[]> {
-  const result = await client.request({ method: 'GET',
-    path: `/aigc/asset/list?scriptId=${scriptId}&pageNum=1&pageSize=1000` })
-  return readAssetList(result.data).rows.map(row => ({ asset_id: row.asset_id, asset_type: row.asset_type }))
-}
-
-/**
  * `jubian_asset` — asset and material reads, the state-changing casting
  * confirmation, the irreversible removal, the explicit-category registration
  * and the local reference upload.
@@ -947,27 +937,9 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
         ...(args.character_id === undefined ? {} : { character_id: args.character_id }),
         ...(args.voice_period_id === undefined ? {} : { voice_period_id: args.voice_period_id }),
       }, deps.audioReferenceScan ?? resolveAudioReferenceScanOptions(), deps.voiceCoordinator)
-      // Existing media registration uses isLocal without modelConfig or
-      // isGenerate; it creates a library entry without starting generation.
-      const before = await listedAssets(client, scriptId)
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'asset_register',
-        () => ({ scriptId, assetName, assetType, isLocal: 1, url: assetUrl }),
-        payload => client.request({ method: 'POST', path: '/aigc/asset', body: need(payload) }))
-      if (result.replayed) {
-        return { ...result, created_asset_id: null, new_asset_ids: [],
-          next: '同一个 idempotency_key 已经登记过，没有重发。用 jubian_asset list 按名字核对那条资产的类别。' }
-      }
-      // The complete before/after lists identify additions independently of the
-      // registration response, which does not reliably carry an asset ID.
-      const created = (await listedAssets(client, scriptId))
-        .filter(asset => !before.some(seen => seen.asset_id === asset.asset_id) && asset.asset_type === assetType)
-      return { ...result,
-        created_asset_id: created.length === 1 ? (created[0] as (typeof created)[number]).asset_id : null,
-        new_asset_ids: created.map(asset => asset.asset_id),
-        next: created.length === 1
-          ? '新资产已登记：它引用你给的图片地址，没有触发生成。费用与状态以账户账单为准，不要仅凭本结果断言免费。'
-            + '让它进入主体设定还需要一步确认（jubian_asset confirm_casting 要的是生成材质 ID）。'
-          : '登记请求已受理，但列表里无法唯一确定新资产：用 jubian_asset list 按名字人工核对类别。' }
+      return await registerImageAsset(client, ledger, { script_id: scriptId, asset_name: assetName,
+        asset_type: assetType, asset_url: assetUrl, idempotency_key: requireKey(args.idempotency_key) },
+      deps.assetRegistrationScan ?? resolveAssetRegistrationScanOptions())
     }
     case 'upload_reference':
       // Free and task-free, but it does write one object into the provider's

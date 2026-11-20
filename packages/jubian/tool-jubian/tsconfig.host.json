@@ -31,6 +31,8 @@
     "src/audio-readback.ts",
     "src/audio-asset-read.ts",
     "src/audio-asset-register.ts",
+    "src/asset-register.ts",
+    "src/asset-register-receipt.ts",
     "src/voice-slot.ts",
     "src/voice-coordination.ts",
     "src/audio-operation-lock.ts",
