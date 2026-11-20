@@ -69,12 +69,27 @@
     taskSkills: ['*']
     taskSkillMaxChars: 20000
     taskSkillLimit: 8
-    # A production tool runs only once the skill holding its working method is in effect.
+    # A production call runs only once the skills holding its working method are in effect. Every matching
+    # rule applies, and the Host adds the missing skills to the conversation before the call is repeated.
+    # Jingliu generates through named workflows: asset images need the asset method, shot videos need the
+    # video method and the blocking-reference rules.
     toolSkills:
       - tools: [jingliu_image]
         skill: muse-asset-design
+      - tools: [jingliu_run]
+        arguments:
+          workflow: [run_asset_fill, run_asset_generate, generate_scene_views]
+        skill: muse-asset-design
       - tools: ['jingliu_*']
         skill: muse-jingliu-production
+      - tools: [jingliu_run]
+        arguments:
+          workflow: [run_shot_videos]
+        skill: muse-video-production
+      - tools: [jingliu_run]
+        arguments:
+          workflow: [run_shot_videos]
+        skill: muse-blocking-reference
       - tools: [drama_shot, muse_production]
         skill: muse-video-production
       - tools: ['drama_character_reference*']

@@ -5977,14 +5977,20 @@ export interface Config {
    */
   taskSkillLimit?: number
   /**
-   * Tools refused until their task skill is in effect. `tools` holds exact names or a prefix ending in `*`;
-   * the first matching rule applies.
+   * Tool calls refused until their task skills are in effect. Every rule matching a call applies, so one call
+   * can require several skills; the refusal says which skills are missing, and the agent's next step adds them
+   * to the conversation. One tool name may require at most `taskSkillLimit` skills across its rules.
    */
   toolSkills?: {
     /** Exact tool names, or a prefix followed by `*`. */
     tools: string[]
-    /** Task skill that must be in effect before those tools run. */
+    /** Task skill that must be in effect before those calls run. */
     skill: string
+    /**
+     * Top-level arguments that narrow the rule to some calls: it applies only when each named argument of the
+     * call is a string equal to one of the listed values.
+     */
+    arguments?: Record<string, string[]>
   }[]
 }
 

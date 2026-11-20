@@ -68,10 +68,15 @@ it('mounts the craft skills instead of the resident guidance rows and keeps them
   expect(names).toContain('muse-script-refine')
   const skills = lean.find(row => row.id === 'tool-skill')?.config
   expect(skills).toMatchObject({ taskSkills: ['*'], taskSkillLimit: 8 })
-  // Each production tool family names a craft skill of this preset, and the narrower rule comes first.
+  // Each production tool family names a craft skill of this preset; Jingliu's image and video workflows add theirs.
   expect(skills?.toolSkills?.map(rule => rule.skill).every(name => names.includes(name))).toBe(true)
-  expect(skills?.toolSkills?.[0]).toEqual({ tools: ['jingliu_image'], skill: 'muse-asset-design' })
-  expect(skills?.toolSkills?.[1]).toEqual({ tools: ['jingliu_*'], skill: 'muse-jingliu-production' })
+  expect(skills?.toolSkills).toEqual(expect.arrayContaining([
+    { tools: ['jingliu_image'], skill: 'muse-asset-design' },
+    { tools: ['jingliu_run'], arguments: { workflow: ['run_asset_fill', 'run_asset_generate', 'generate_scene_views'] }, skill: 'muse-asset-design' },
+    { tools: ['jingliu_*'], skill: 'muse-jingliu-production' },
+    { tools: ['jingliu_run'], arguments: { workflow: ['run_shot_videos'] }, skill: 'muse-video-production' },
+    { tools: ['jingliu_run'], arguments: { workflow: ['run_shot_videos'] }, skill: 'muse-blocking-reference' },
+  ]))
   expect(Math.max(...Craft.readCraftSkills().map(skill => skill.content.length))).toBeLessThan(skills?.taskSkillMaxChars ?? 0)
   expect(full.find(row => row.id === 'tool-skill')?.config?.toolSkills).toBeUndefined()
   expect(prefix(lean).length).toBeLessThan(prefix(full).length * 0.6)
