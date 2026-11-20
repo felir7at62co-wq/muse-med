@@ -103,3 +103,24 @@ it('binds each iframe to its configured audience and replaces all open documents
   await active.dispose()
   expect(off).toHaveBeenCalled()
 })
+
+it('fills the Bot drawer\'s data slot once the account Remote and the resource registry arrive', async () => {
+  vi.stubGlobal(STUDIO_URL_GLOBAL, 'https://muse.test/jingliu/')
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  await ctx.plugin(SlotRegistry).await()
+  ctx.provide('locale', new LocaleRuntime(ctx))
+  ctx.provide('sidebarRightTabs', new SidebarRightTabRegistry(ctx))
+  const slots = ctx.get('slots') as SlotRegistry
+  slots.register({ name: 'root', children: { 'bot.drawer.data': { kind: 'single', scope: 'root' } } } as never, () => null)
+  await ctx.plugin(studio).await()
+  expect(slots.entries('bot.drawer.data')).toHaveLength(0)
+  const register = vi.fn(() => () => {})
+  ctx.provide('resources', { register })
+  ctx.provide('remote', { $on: () => () => {}, museAccount: {} })
+  ctx.provide('remote.museAccount', {})
+  await vi.waitFor(() => { expect(slots.entries('bot.drawer.data')).toHaveLength(1) })
+  expect(register.mock.calls.map(call => (call as unknown[])[0])).toEqual(expect.arrayContaining([
+    expect.objectContaining({ protocol: 'muse-data-boards' }), expect.objectContaining({ protocol: 'muse-data-stock' }),
+  ]))
+})

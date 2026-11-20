@@ -48,7 +48,9 @@ export function installNative(ctx: Context): void {
     name: 'bot.drawer.assets', locale: 'jingliuStudio', inject: () => ({ hooks: { accountEpoch: epoch } }),
   }, DrawerLibrary))
   // The data tab reads the data station as the signed-in member through the account Host.
-  ctx.inject(['remote.museAccount', 'resources'], (host) => {
+  // `remote` is named too: the callback reads the namespace through `host.remote`, and the Client's Remote service
+  // is not readable in a scope that did not name it (the tab then never registers, with no error on the console).
+  ctx.inject(['remote', 'remote.museAccount', 'resources'], (host) => {
     const api = host.remote.museAccount
     const reset = () => { epoch.set(epoch.getSnapshot() + 1) }
     host.effect(() => host.remote.$on('muse-account/session-changed', reset), 'data: signed-in station')
