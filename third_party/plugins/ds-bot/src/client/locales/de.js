@@ -1768,6 +1768,7 @@ export const DE = {
   // Muse
   'Muse sessions': 'Muse-Sitzungen',
   'Jingliu': 'Jingliu',
+  Scripts: 'Drehbücher',
   'Asset library': 'Asset-Bibliothek',
   'Tools': 'Werkzeuge',
   'Skills/MCP': 'Skills/MCP',
