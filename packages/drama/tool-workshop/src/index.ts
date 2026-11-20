@@ -1,6 +1,7 @@
 /**
- * The model-facing `workshop_video_transcribe` tool: report, start and stop Script Workshop's 视频转剧本 factory job
- * with the parameters of the Workshop pipeline card, as the signed-in Muse user.
+ * The model-facing Script Workshop tools, as the signed-in Muse user: `workshop_video_transcribe` reports, starts and stops
+ * the 视频转剧本 factory job with the parameters of the Workshop pipeline card; `script_finalize` uploads a finished
+ * script to the finalized-script library after the user agreed.
  * @module @deepseek-ai/dsh-tool-workshop
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -10,6 +11,10 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import { WorkbenchHttpError, type WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
 import { detail, isActive, isTranscribeEntry, JOB_TYPE, service, summary, transcribeJob, type Fields, type TranscribeJob } from './jobs.ts'
+import { applyFinalize } from './finalize.ts'
+
+export { checkEpisodes, finalizeTool, KINDS, LIMITS, RIGHTS, splitEpisodes, STYLES } from './finalize.ts'
+export type { FinalizeArgs, FinalizeDependencies, ReadFile, UploadEpisode } from './finalize.ts'
 
 /** Cordis plugin name. */
 export const name = 'tool-workshop'
@@ -262,10 +267,12 @@ export function transcribeTool(deps: Dependencies): ToolDefinition {
 }
 
 /**
- * Register `workshop_video_transcribe` in this scope while the Host provides the Script Workshop connection.
+ * Register `workshop_video_transcribe` while the Host provides the Script Workshop connection, and `script_finalize`
+ * while it also provides workspace files.
  * @param ctx - Agent or Host context with the tool registry.
  */
 export function apply(ctx: Context): void {
+  applyFinalize(ctx)
   ctx.inject(['workshopConnection'], (scope) => {
     const tool = transcribeTool({
       connect: () => scope.workshopConnection.connection(),

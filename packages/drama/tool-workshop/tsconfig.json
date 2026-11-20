@@ -1,14 +1,39 @@
 {
   "extends": "../../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
-  "include": ["src"],
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../../../vendor/cosmokit" },
-    { "path": "../../../vendor/cordis" },
-    { "path": "../../core/tools" },
-    { "path": "../../interaction/user-approval" },
-    { "path": "../../util/error" },
-    { "path": "../../util/values" },
-    { "path": "../workbench-connection" }
+    {
+      "path": "../../../vendor/cosmokit"
+    },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../util/error"
+    },
+    {
+      "path": "../../util/values"
+    },
+    {
+      "path": "../workbench-connection"
+    },
+    {
+      "path": "../../fs/fs"
+    },
+    {
+      "path": "../../sandbox/sandbox-policy"
+    }
   ]
 }

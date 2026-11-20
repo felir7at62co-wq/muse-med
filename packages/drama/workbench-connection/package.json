@@ -20,7 +20,19 @@
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./typert": {
+      "types": "./lib/typert.host.d.ts",
+      "default": "./lib/typert.host.js"
+    },
+    "./remote": {
+      "types": "./lib/typert.remote-client.d.ts",
+      "default": "./lib/typert.remote-client.js"
+    },
+    "./types": {
+      "types": "./lib/types/types.d.ts",
+      "default": "./lib/types/types.js"
+    }
   },
   "files": [
     "locale/*.json",
@@ -28,16 +40,24 @@
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "lib/**/*.js.map",
+    "lib/types/**/*.js",
+    "lib/typert.host.js",
+    "lib/typert.host.d.ts",
+    "lib/typert.remote-client.js",
+    "lib/typert.remote-client.d.ts",
+    "lib/typert.remote-client.d.ts.map",
     "src"
   ],
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
-    "@deepseek-ai/dsh-muse-account": "workspace:*"
+    "@deepseek-ai/dsh-muse-account": "workspace:*",
+    "@deepseek-ai/dsh-typert-protocol": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
-    "@deepseek-ai/dsh-muse-account": "workspace:*"
+    "@deepseek-ai/dsh-muse-account": "workspace:*",
+    "@deepseek-ai/dsh-typert-protocol": "workspace:*"
   },
   "dependencies": {
     "@deepseek-ai/dsh-error": "workspace:*",

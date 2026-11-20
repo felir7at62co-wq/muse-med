@@ -42,6 +42,7 @@
       "@deepseek-ai/dsh-jingliu-connection/types": ["./packages/drama/jingliu-connection/src/types.ts"],
       "@deepseek-ai/dsh-jingliu-connection": ["./packages/drama/jingliu-connection/src"],
       "@deepseek-ai/dsh-tool-jingliu": ["./packages/drama/tool-jingliu/src"],
+      "@deepseek-ai/dsh-workbench-connection/types": ["./packages/drama/workbench-connection/src/types.ts"],
       "@deepseek-ai/dsh-workbench-connection": ["./packages/drama/workbench-connection/src"],
       "@deepseek-ai/dsh-tool-workshop": ["./packages/drama/tool-workshop/src"],
       "@deepseek-ai/dsh-client-ui-jingliu": ["./packages/client/ui-jingliu/src"],
