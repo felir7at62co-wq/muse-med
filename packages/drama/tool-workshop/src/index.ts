@@ -6,6 +6,7 @@
  * @module @deepseek-ai/dsh-tool-workshop
  */
 import type { Context } from '@deepseek-ai/cordis'
+import Schema from '@deepseek-ai/schemastery'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { defineTool, ToolArgsError, type ToolDefinition, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-user-approval'
@@ -24,6 +25,26 @@ export type { EpisodeFiles, LibraryArgs, LibraryDependencies, LibraryReport, Wri
 export const name = 'tool-workshop'
 /** The tool registers once the Host also provides `workshopConnection`. */
 export const inject = ['tools']
+
+/** Deployment choice for unattended transcription. */
+export interface Config {
+  /**
+   * Start or resume a job that names its dramas (`only_series`) without asking, for a deployment where Bots run
+   * transcription unattended within the Workshop's slot limit. A job without named dramas still asks.
+   */
+  readonly autoStartNamedSeries: boolean
+}
+
+/** Validated plugin configuration; asking before every start is the default. */
+export const Config: Schema<Config> = Schema.object({
+  autoStartNamedSeries: Schema.boolean().default(false),
+})
+
+/** How `workshop_video_transcribe` confirms paid actions. */
+export interface TranscribeOptions {
+  /** See {@link Config.autoStartNamedSeries}. */
+  readonly autoStartNamedSeries: boolean
+}
 
 /** Actions of `workshop_video_transcribe`. */
 export const ACTIONS = ['status', 'start', 'stop', 'resume'] as const
@@ -164,15 +185,20 @@ async function readyService(session: WorkbenchSession, signal: AbortSignal): Pro
   return readiness
 }
 
+/** Whether a paid action proceeds without asking: only a job that names its dramas, and only where the deployment allows it. */
+function unattended(options: TranscribeOptions, spec: StartSpec): boolean {
+  return options.autoStartNamedSeries && spec.only_series.length > 0
+}
+
 async function start(
-  deps: Dependencies, session: WorkbenchSession, spec: StartSpec, agent: CallingAgent, exec: ToolRunContext,
+  deps: Dependencies, options: TranscribeOptions, session: WorkbenchSession, spec: StartSpec, agent: CallingAgent, exec: ToolRunContext,
 ): Promise<Report> {
   const readiness = await readyService(session, exec.signal)
   if (typeof readiness.max_slots === 'number' && spec.concurrency > readiness.max_slots) {
     throw new ToolArgsError(['concurrency 必须是 1 到 ' + String(readiness.max_slots)])
   }
   const reason = describe('剧本工坊 · 视频转剧本', spec, readiness.max_slots, '领取数据站队列中的剧，下载红果全集并逐集转写，会产生下载与转写费用。')
-  if (!await deps.approve(agent, exec, reason)) {
+  if (!unattended(options, spec) && !await deps.approve(agent, exec, reason)) {
     throw new HarnessError('本次视频转剧本任务未获确认。', 'WORKSHOP_APPROVAL_REQUIRED')
   }
   exec.signal.throwIfAborted()
@@ -204,14 +230,15 @@ async function stop(session: WorkbenchSession, id: number, signal: AbortSignal):
 }
 
 async function resume(
-  deps: Dependencies, session: WorkbenchSession, id: number, agent: CallingAgent, exec: ToolRunContext,
+  deps: Dependencies, options: TranscribeOptions, session: WorkbenchSession, id: number, agent: CallingAgent, exec: ToolRunContext,
 ): Promise<Report> {
   const before = await readJob(session, id, exec.signal)
   if (isActive(before)) return { action: 'resume', resumed: false, job: summary(before) }
   const readiness = await readyService(session, exec.signal)
-  const reason = describe('剧本工坊 · 续跑视频转剧本任务 #' + String(id), savedSpec(summary(before).config), readiness.max_slots,
+  const saved = savedSpec(summary(before).config)
+  const reason = describe('剧本工坊 · 续跑视频转剧本任务 #' + String(id), saved, readiness.max_slots,
     '沿用原参数，接着处理已领取的剧并继续领取新剧，会产生下载与转写费用。')
-  if (!await deps.approve(agent, exec, reason)) throw new HarnessError('本次续跑未获确认。', 'WORKSHOP_APPROVAL_REQUIRED')
+  if (!unattended(options, saved) && !await deps.approve(agent, exec, reason)) throw new HarnessError('本次续跑未获确认。', 'WORKSHOP_APPROVAL_REQUIRED')
   exec.signal.throwIfAborted()
   let answer: unknown
   try {
@@ -257,13 +284,15 @@ function resultTitle(meta: { [key: string]: JsonValue }): string | undefined {
 /**
  * Report, start, stop and resume the 视频转剧本 factory job.
  * @param deps - Workshop connection and the confirmation channel.
+ * @param options - Whether jobs that name their dramas proceed without asking.
  * @returns The tool definition; Workshop credentials never appear in its arguments or results.
  */
-export function transcribeTool(deps: Dependencies): ToolDefinition {
+export function transcribeTool(deps: Dependencies, options: TranscribeOptions = { autoStartNamedSeries: false }): ToolDefinition {
   return defineTool({
     name: 'workshop_video_transcribe',
     description: '剧本工坊的视频转剧本任务：从数据站爆款队列领剧，经 AI 观众选材、红果整剧下载和云端 Muse 逐集转写，出稿存为工坊剧本。'
-      + 'status 查看是否就绪、队列和任务进度；start 按参数开始一个任务，resume 沿用原参数续跑已停止的任务，两者都会产生下载与转写费用，提交前请用户确认；'
+      + 'status 查看是否就绪、队列和任务进度；start 按参数开始一个任务，resume 沿用原参数续跑已停止的任务，两者都会产生下载与转写费用，'
+      + (options.autoStartNamedSeries ? '用 only_series 指定了剧的任务直接执行，没有指定的提交前请用户确认；' : '提交前请用户确认；')
       + 'stop 停止任务，已领取的剧保留进度。',
     parameters: {
       action: { type: 'string', enum: ACTIONS, required: true },
@@ -303,9 +332,9 @@ export function transcribeTool(deps: Dependencies): ToolDefinition {
           if (args.job_id !== undefined) return { action: 'status', service: readiness, job: detail(await readJob(session, jobId(args), exec.signal)) }
           return { action: 'status', service: readiness, jobs: await recentJobs(session, exec.signal) }
         }
-        case 'start': return await start(deps, session, checkStart(startSpec(args)), agent, exec)
+        case 'start': return await start(deps, options, session, checkStart(startSpec(args)), agent, exec)
         case 'stop': return await stop(session, jobId(args), exec.signal)
-        case 'resume': return await resume(deps, session, jobId(args), agent, exec)
+        case 'resume': return await resume(deps, options, session, jobId(args), agent, exec)
         /* v8 ignore next -- the tool schema admits only the handled actions */
         default: return assertNever(args.action)
       }
@@ -330,8 +359,9 @@ export function transcribeTool(deps: Dependencies): ToolDefinition {
  * Register `workshop_video_transcribe` while the Host provides the Script Workshop connection, and `script_finalize` and
  * `script_library` while it also provides workspace files.
  * @param ctx - Agent or Host context with the tool registry.
+ * @param config - Whether jobs that name their dramas start without asking.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config?: Config): void {
   applyFinalize(ctx)
   applyLibrary(ctx)
   ctx.inject(['workshopConnection'], (scope) => {
@@ -341,7 +371,7 @@ export function apply(ctx: Context): void {
         const approval = scope.get('approval')
         return !!approval && await approval.request({ agent, callId: exec.callId, toolName: exec.name, reason, signal: exec.signal }) === 'allowed-once'
       },
-    })
+    }, { autoStartNamedSeries: config?.autoStartNamedSeries === true })
     scope.effect(() => scope.tools.register(tool))
   })
 }

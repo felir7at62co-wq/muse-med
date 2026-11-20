@@ -26,7 +26,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在 Agent 预设中挂载本插件；所有 Bot 使用的 Desktop `short-drama` 预设已无配置挂载。Host 提供 `@deepseek-ai/dsh-workbench-connection` 的 `workshopConnection` 后才注册工具，该服务消失时移除工具，因此没有工坊连接的组合不提供工坊工具。开始或续跑任务时通过 Host `approval` 服务征求用户确认；没有该服务时 `start` 和 `resume` 以 `WORKSHOP_APPROVAL_REQUIRED` 失败。在 Desktop 组合中，本工具归在「剧本工坊」能力下，经 `tool_search` 按需加载，不常驻。`script_finalize` 和 `script_library` 还需要 `fs` 与 `sandboxPolicy` 服务，按当前对话的工作区解析路径；两者归在同一能力下。
+在 Agent 预设中挂载本插件；Desktop 的 `short-drama` 与 `short-drama-v2` 预设挂载本插件，`autoStartNamedSeries` 取自 `MUSE_WORKSHOP_AUTOSTART_NAMED`（只有云端 Muse 设为 `1`）。Host 提供 `@deepseek-ai/dsh-workbench-connection` 的 `workshopConnection` 后才注册工具，该服务消失时移除工具，因此没有工坊连接的组合不提供工坊工具。开始或续跑任务时通过 Host `approval` 服务征求用户确认；没有该服务时 `start` 和 `resume` 以 `WORKSHOP_APPROVAL_REQUIRED` 失败。开启 `autoStartNamedSeries`（默认关闭）后，用 `only_series` 指定了剧的任务在 `start` 和 `resume` 时不再征求确认；没有指定剧的任务仍要确认，工具说明会告诉模型哪些任务直接执行。云端 Muse 开启它，让 Bot 在工坊的槽位上限内无人值守地转写。在 Desktop 组合中，本工具归在「剧本工坊」能力下，经 `tool_search` 按需加载，不常驻。`script_finalize` 和 `script_library` 还需要 `fs` 与 `sandboxPolicy` 服务，按当前对话的工作区解析路径；两者归在同一能力下。
 
 <a id="actions"></a>
 ## 操作

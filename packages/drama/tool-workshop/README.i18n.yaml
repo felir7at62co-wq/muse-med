@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-workshop/README.md
 /:
-  en: f8d74e4348d48d3f
-  zh: 95fe24f7b87a294e
+  en: 6bf4b6518c358ec6
+  zh: c4cfac753ef6ff2c
 /deepseek-ai-dsh-tool-workshop:
   en: 05c1005e4708e625
   zh: ee45f984e186bf49
@@ -15,11 +15,11 @@
   en: 88ddee3a22b8d963
   zh: fbed4c78ff5a1c13
 /deepseek-ai-dsh-tool-workshop/use-this-package:
-  en: 4c18e2c856f0c36a
-  zh: 993c1bd53a576f75
+  en: ee91b7319f27bd9a
+  zh: 37d9615aa14b3282
 /deepseek-ai-dsh-tool-workshop/actions:
-  en: d111459fc3728340
-  zh: caef130c41a3eab3
+  en: d11ae7b51080ee49
+  zh: 3d7aaf11f90842cb
 /deepseek-ai-dsh-tool-workshop/finalized-scripts:
   en: b4f8f16ae8bfa25b
   zh: 51abe62dcbc6e41c
@@ -54,8 +54,8 @@
   en: 11d07e30efcbeee1
   zh: 1dd2266268b1005d
 /deepseek-ai-dsh-tool-workshop/known-limitations-and-deferred-work:
-  en: eb0f3c94ac5f4e3b
-  zh: 33b351aa0d68e411
+  en: 5590a8fbb637a196
+  zh: 6906576ccf9e2a63
 /deepseek-ai-dsh-tool-workshop/known-limitations-and-deferred-work/dev-note:
   en: 7fcf4d7da8842a58
   zh: da95efd51c66395d

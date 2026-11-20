@@ -10368,6 +10368,9 @@ importers:
       '@deepseek-ai/dsh-workbench-connection':
         specifier: workspace:*
         version: link:../workbench-connection
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~

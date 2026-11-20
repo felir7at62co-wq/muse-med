@@ -19,7 +19,7 @@ function job(id: number, status: string, extra: Record<string, unknown> = {}) {
   return { id, job_type: 'video_transcribe', status, progress: {}, result: {}, error: null, created_at: '2026-11-20T00:05:00', finished_at: null, ...extra }
 }
 
-async function bench(route: Route, options: { approval?: string | null; connection?: boolean } = {}) {
+async function bench(route: Route, options: { approval?: string | null; connection?: boolean; config?: Partial<plugin.Config> } = {}) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(SystemPrompt)
@@ -43,7 +43,7 @@ async function bench(route: Route, options: { approval?: string | null; connecti
   if (options.approval !== null) await ctx.plugin(Approval)
   const service = options.connection === false ? undefined : ctx.plugin(Connection)
   await service?.await()
-  const fiber = ctx.plugin({ name: plugin.name, inject: plugin.inject, apply: plugin.apply })
+  const fiber = ctx.plugin({ name: plugin.name, inject: plugin.inject, Config: plugin.Config, apply: plugin.apply }, options.config ?? {})
   await fiber.await()
   const call = (args: unknown, agent = true) => executeToolFixture(ctx, {
     name: 'workshop_video_transcribe', arguments: args, callId: ToolCallId('workshop-call'), signal: new AbortController().signal,
@@ -196,6 +196,24 @@ describe('workshop_video_transcribe', () => {
       expect(failure(await call({ action: 'start' }))).toMatchObject({ code: 'WORKSHOP_APPROVAL_REQUIRED', message: '本次视频转剧本任务未获确认。' })
       expect(request.mock.calls.map(([path]) => path)).toEqual(['/factory/video-transcribe/status'])
     }
+  })
+
+  it('starts and resumes a job that names its dramas without asking where the deployment allows it', async () => {
+    let state = 'stopped'
+    const { ctx, call, asked } = await bench((path) => {
+      if (path === '/factory/jobs') return { job_id: 21 }
+      if (path === '/factory/jobs/12') return job(12, state, { config_json: { count: 1, concurrency: 1, quality: '720p', publish: true, only_series: [SERIES] } })
+      if (path === '/factory/jobs/13') return job(13, 'stopped', { config_json: { count: 0 } })
+      if (path === '/factory/jobs/12/resume') { state = 'running'; return { job_id: 12, resumed: true } }
+      return READY
+    }, { approval: 'denied', config: { autoStartNamedSeries: true } })
+    expect(ctx.tools.get('workshop_video_transcribe')?.description).toContain('用 only_series 指定了剧的任务直接执行，没有指定的提交前请用户确认')
+    expect((await call({ action: 'start', count: 1, publish: true, only_series: [SERIES] })).value).toMatchObject({ action: 'start', job_id: 21 })
+    expect((await call({ action: 'resume', job_id: 12 })).value).toMatchObject({ action: 'resume', resumed: true })
+    expect(asked).not.toHaveBeenCalled()
+    expect(failure(await call({ action: 'start' }))).toMatchObject({ code: 'WORKSHOP_APPROVAL_REQUIRED' })
+    expect(failure(await call({ action: 'resume', job_id: 13 }))).toMatchObject({ code: 'WORKSHOP_APPROVAL_REQUIRED' })
+    expect(asked).toHaveBeenCalledTimes(2)
   })
 
   it('keeps a cancellation as a cancellation', async () => {

@@ -79,6 +79,9 @@
 # Script Workshop jobs register only while the Host provides workshopConnection.
 - id: tool-workshop
   name: '@deepseek-ai/dsh-tool-workshop'
+  config:
+    # Cloud Muse transcribes unattended: there a job that names its dramas starts without a card.
+    autoStartNamedSeries: !!js process.env.MUSE_WORKSHOP_AUTOSTART_NAMED === '1'
 
 - id: tool-shot-script
   name: '@deepseek-ai/dsh-tool-shot-script'
