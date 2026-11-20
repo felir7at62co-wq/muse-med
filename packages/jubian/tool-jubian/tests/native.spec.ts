@@ -1451,6 +1451,8 @@ describe('submit_video', () => {
   it.each([
     { label: 'negative total', page: () => ({ total: -1, rows: [] }) },
     { label: 'duplicate IDs', page: () => ({ total: 2, rows: [{ id: 1 }, { id: 1 }] }) },
+    { label: 'duplicate type-3 history', page: () => ({ total: 2, rows:
+      Array.from({ length: 2 }, () => ({ id: 1, scriptId: 2708, taskType: 3 })) }) },
     { label: 'more rows than total', page: () => ({ total: 1, rows: [{ id: 1 }, { id: 2 }] }) },
     { label: 'short incomplete page', page: () => ({ total: 2, rows: [{ id: 1 }] }) },
     { label: 'changing total', page: (page: number) => ({ total: page === 1 ? 200 : 201,
@@ -2268,6 +2270,10 @@ describe('submit_video_batch', () => {
     await expect(submitVideoBatchMethod(clientFor(provider), auto, { items: estimates })).rejects.toThrow()
     expect(putCalls(provider)).toHaveLength(0)
     expect(await auto.records()).toEqual([])
+    await auto.begin({ idempotencyKey: 'earlier-project-reservation', method: 'video_upscale', scriptId: 2708,
+      requestSha256: 'sha256:earlier', quotedAmount: '97.69', quoteUnit: 'CNY' })
+    await auto.settle('earlier-project-reservation', { httpStatus: 200, applicationCode: 200,
+      responseSha256: null, outcome: 'accepted' })
     estimates[0]!.estimated_cost_cny = '8.00'
     estimates[1]!.estimated_cost_cny = '9.00'
     provider.onPut = (payload) => {
@@ -2276,7 +2282,14 @@ describe('submit_video_batch', () => {
       provider.tasks.push({ id: taskId, scriptId: 2708, taskType: 1 })
       provider.subtasks[String(taskId)] = [childOf(payload, { aigcVideoTaskId: taskId, storyboardId: id })]
     }
-    await submitVideoBatchMethod(clientFor(provider), auto, { items: estimates })
+    const submitted = await submitVideoBatchMethod(clientFor(provider), auto, { items: estimates })
+    expect(submitted.results.map(result => result.budget)).toEqual(['8.00', '9.00'].map(amount => ({
+      status: 'authorized', reason: '',
+      this_submission: { reservation: { status: 'recorded', amount, unit: 'CNY', basis: 'quote_or_estimate' },
+        provider_billing: 'not_observed' },
+      project_accounting: { scope: 'project_before_submission', basis: 'local_reservations', unit: 'CNY',
+        accepted_reservations_cents: 9769, pending_reservations_cents: 0 },
+    })))
     expect(putCalls(provider)).toHaveLength(2)
     expect((await auto.find(items[0]!.idempotency_key))?.quoted_amount).toBe('8.00')
     expect((await auto.find(items[1]!.idempotency_key))?.quoted_amount).toBe('9.00')
@@ -2499,6 +2512,56 @@ describe('select_assets', () => {
     expect(result).toMatchObject({ status: 'applied', applied: true, paid_requests: 0,
       verified_readback: [{ materialKey: 'lead', materialAssetId: '81285' }, { materialKey: 'guest', materialAssetId: '83670' }] })
     expect((await ledger.find('select-1'))?.method).toBe('storyboard_select_assets')
+  })
+
+  it('selects assets over HTTP with repeated type-3 history rows on one page', async () => {
+    const history = { id: 197, scriptId: 2708, taskType: 3, taskStatus: 'succeeded' }
+    const tasks = Array.from({ length: 200 }, (_, index) => index >= 196
+      ? { ...history } : { id: index + 1, scriptId: 2708, storyboardId: 999999, taskType: 1 })
+    const pages: number[] = []
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks, subtasks: {},
+      taskPage: (page) => {
+        pages.push(page)
+        return { total: tasks.length, rows: tasks.slice((page - 1) * 100, page * 100) }
+      },
+    }
+    const local = await localClientFor(provider)
+    try {
+      const result = await selectAssetsMethod(local.client, ledger, { storyboard_id: 916953,
+        selections, idempotency_key: 'select-repeated-history' })
+      expect(result).toMatchObject({ status: 'applied', paid_requests: 0, outcome: 'accepted',
+        verification: { matches: true },
+        verified_readback: [{ materialKey: 'lead', materialAssetId: '81285' },
+          { materialKey: 'guest', materialAssetId: '83670' }] })
+      expect(pages).toEqual([1, 2, 1, 2])
+      expect(putCalls(provider)).toHaveLength(1)
+      expect(putCalls(provider)[0]?.body).toMatchObject({ isGenerate: 0 })
+      const records = await ledger.records()
+      expect(records).toHaveLength(1)
+      expect(records[0]).toMatchObject({ method: 'storyboard_select_assets', outcome: 'accepted', quoted_amount: null })
+    } finally { await local.close() }
+  })
+
+  it.each([
+    { label: 'generation rows', types: [1, 1] },
+    { label: 'unknown task types', types: [undefined, undefined] },
+    { label: 'generation and history sharing an ID', types: [3, 1] },
+    { label: 'a history row from another project', types: [3, 3], secondProject: 2709 },
+    { label: 'history without a declared total', types: [3, 3], noTotal: true },
+    { label: 'history duplicated across page boundaries', types: [3, 3], crossPage: true },
+  ])('rejects a repeated task ID for $label before writing', async ({ types, secondProject, noTotal, crossPage }) => {
+    const first = { id: 1, scriptId: 2708, taskType: types[0] }
+    const repeat = { id: 1, scriptId: secondProject ?? 2708, taskType: types[1] }
+    const tasks = crossPage
+      ? [first, ...Array.from({ length: 99 }, (_, index) => ({ id: index + 2, scriptId: 2708, taskType: 1 })), repeat]
+      : [first, repeat]
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks, subtasks: {},
+      taskPage: page => ({ ...(noTotal ? {} : { total: tasks.length }), rows: tasks.slice((page - 1) * 100, page * 100) }),
+    }
+    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953,
+      selections, idempotency_key: 'select-reject-duplicate' })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
   })
 
   it('shouts when a selection-only save created a task', async () => {

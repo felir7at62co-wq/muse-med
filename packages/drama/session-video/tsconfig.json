@@ -3,8 +3,9 @@
   "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
   "include": ["src"],
   "references": [
+    { "path": "../../core/tools" }, { "path": "../../llm/llm" },
     { "path": "../../../vendor/cordis" }, { "path": "../../../vendor/schemastery" },
-    { "path": "../../util/brand" }, { "path": "../../util/home-paths" },
+    { "path": "../../util/brand" }, { "path": "../../util/error" }, { "path": "../../util/home-paths" },
     { "path": "../../jubian/jubian-api" }, { "path": "../../typert/protocol" },
     { "path": "../../attachment/attachment" }, { "path": "../../fs/fs" },
     { "path": "../../core/session" }, { "path": "../../session-query/session-query" },

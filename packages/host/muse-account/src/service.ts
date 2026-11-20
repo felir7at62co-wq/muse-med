@@ -117,6 +117,15 @@ export class MuseAccountService extends TypertRemoteService {
   }
 
   /**
+   * Read the saved identity for Host tools without refreshing Desktop consumers.
+   * @returns Current local account state without credentials.
+   */
+  async readLocalStatus(): Promise<MuseAccountStatus> {
+    try { return await this.controller.status() }
+    catch (error) { throw remoteFailure(error) }
+  }
+
+  /**
    * Read the stored identity or confirm it with the gateway.
    * @param request - Whether to verify the cookie online.
    * @returns A browser-safe status without a cookie.

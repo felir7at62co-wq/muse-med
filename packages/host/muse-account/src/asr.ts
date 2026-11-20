@@ -1,5 +1,6 @@
 /** Host-only cloud transcription client using the saved MUSE account session. */
 import { openAsBlob } from 'node:fs'
+import { readMuseAccountJson } from './account-details.ts'
 import { readMuseSession } from './session.ts'
 
 /** Transcription use chosen by the caller; the gateway owns the recognition service. */
@@ -136,16 +137,29 @@ function retryAfterSeconds(response: Response): number | undefined {
   return seconds !== null && /^\d+$/.test(seconds) && Number.isSafeInteger(Number(seconds)) ? Number(seconds) : undefined
 }
 
-async function rejection(response: Response): Promise<MuseAsrError> {
+async function rejection(response: Response, method: string | undefined): Promise<MuseAsrError> {
+  const { status } = response
+  if (status === 405 || (status === 404 && method !== 'GET')) return new MuseAsrError('server-not-configured')
+  if (status >= 500 && status !== 503) return new MuseAsrError('server-unavailable', retryAfterSeconds(response))
   let value: unknown
-  try { value = await response.json() }
-  catch { return new MuseAsrError('request-rejected') }
-  const code = typeof value === 'object' && value !== null && 'error_code' in value ? value.error_code : undefined
-  if (response.status === 429 && (code === 'queue_full' || code === 'upload_busy' || code === 'request_rate' || code === 'provider_rate' || code === 'daily_quota')) {
+  try { value = await readMuseAccountJson(response) }
+  catch { value = undefined }
+  const detail = typeof value === 'object' && value !== null ? value as Record<string, unknown> : undefined
+  const code = detail?.error_code
+  if (status === 404) {
+    // Only the gateway's job lookup can confirm absence and permit upload recovery under the original ID.
+    return new MuseAsrError(detail?.error === 'ASR job not found' ? 'job-not-found' : 'server-not-configured')
+  }
+  if (status === 429 && (code === 'queue_full' || code === 'upload_busy' || code === 'request_rate' || code === 'provider_rate' || code === 'daily_quota')) {
     return new MuseAsrError(code, retryAfterSeconds(response))
   }
-  if (response.status === 503 && code === 'server_draining') return new MuseAsrError(code, retryAfterSeconds(response))
-  if (response.status === 409 && code === 'idempotency_conflict') return new MuseAsrError(code)
+  if (status === 503) {
+    const retryAfter = retryAfterSeconds(response)
+    if (code === 'server_draining') return new MuseAsrError(code, retryAfter)
+    if (detail?.error === 'Muse cloud transcription is not configured on this server') return new MuseAsrError('server-not-configured')
+    return new MuseAsrError('server-unavailable', retryAfter)
+  }
+  if (status === 409 && code === 'idempotency_conflict') return new MuseAsrError(code)
   return new MuseAsrError('request-rejected')
 }
 
@@ -182,13 +196,7 @@ export class MuseAsrClient {
     try {
       signal?.throwIfAborted()
       if (response.status === 303 || response.status === 401) throw new MuseAsrError('sign-in-required')
-      if (response.status === 404 && init.method === 'GET') throw new MuseAsrError('job-not-found')
-      if (response.status === 503 && retryAfterSeconds(response) !== undefined) {
-        const error = await rejection(response)
-        throw error.code === 'server_draining' ? error : new MuseAsrError('server-unavailable', retryAfterSeconds(response))
-      }
-      if (response.status === 404 || response.status === 405 || response.status === 503) throw new MuseAsrError('server-not-configured')
-      if (!response.ok) throw await rejection(response)
+      if (!response.ok) throw await rejection(response, init.method)
       let value: unknown
       try { value = await response.json() } catch { throw new MuseAsrError('response-invalid') }
       if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new MuseAsrError('response-invalid')

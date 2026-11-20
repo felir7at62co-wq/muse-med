@@ -9,7 +9,7 @@ import Tools from '../../../core/tools/src/index.ts'
 import SystemPrompt from '../../../core/system-prompt/src/index.ts'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import { DramaSettingsSchema, apply } from '../src/index.ts'
-import { readProjectBible, previewProjectBible, updateProjectBible } from '../src/project-bible.ts'
+import { readProjectBible, previewProjectBible, updateProjectBible, createProjectBinding } from '../src/project-bible.ts'
 
 async function bench() {
   return configurationFixture({ rows: [
@@ -21,6 +21,69 @@ async function bench() {
     { id: 'drama-settings', name: 'cordis:drama' },
   ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
 }
+
+it('creates only a new verified project binding and never replaces existing files', async () => {
+  const { home } = await bench()
+  const source = join(home, 'source.txt')
+  await writeFile(source, 'existing creative source')
+  const result = await createProjectBinding(home, 6682)
+  expect(result.script_id).toBe(6682)
+  expect(JSON.parse(await readFile(join(home, 'project_config.json'), 'utf8'))).toEqual({ jubian_script_id: 6682 })
+  await expect(readFile(join(home, 'project-bible.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(createProjectBinding(home, 6542)).rejects.toMatchObject({ code: 'EEXIST' })
+  expect(JSON.parse(await readFile(join(home, 'project_config.json'), 'utf8'))).toEqual({ jubian_script_id: 6682 })
+  expect(await readFile(source, 'utf8')).toBe('existing creative source')
+})
+
+it('serializes simultaneous binding attempts and keeps the original project identity', async () => {
+  const { home } = await bench()
+  const outcomes = await Promise.allSettled([createProjectBinding(home, 6682), createProjectBinding(home, 6542)])
+  expect(outcomes.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+  expect(outcomes.filter(result => result.status === 'rejected')).toHaveLength(1)
+  const binding = JSON.parse(await readFile(join(home, 'project_config.json'), 'utf8')) as { jubian_script_id: number }
+  expect([6682, 6542]).toContain(binding.jubian_script_id)
+})
+
+it('refuses an unbound directory with an existing project bible', async () => {
+  const { home } = await bench()
+  const bible = join(home, 'project-bible.md')
+  await writeFile(bible, 'Existing project identity')
+  await expect(createProjectBinding(home, 6682)).rejects.toThrow('existing project bible')
+  expect(await readFile(bible, 'utf8')).toBe('Existing project identity')
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('does not create a binding after cancellation', async () => {
+  const { home } = await bench()
+  const controller = new AbortController()
+  controller.abort()
+  await expect(createProjectBinding(home, 6682, controller.signal)).rejects.toThrow()
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('rejects invalid project identities without creating a binding', async () => {
+  const { home } = await bench()
+  await expect(createProjectBinding(home, 0)).rejects.toThrow()
+  await expect(createProjectBinding(home, 1.5)).rejects.toThrow()
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('exposes minimal binding through the model tool without budget or delivery defaults', async () => {
+  const { ctx, home } = await bench()
+  const result = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('bind-only'),
+    arguments: { action: 'bind_only', project_dir: home, changes: { jubian_script_id: 6682 } }, signal: new AbortController().signal })
+  expect(result.isError).toBe(false)
+  expect(JSON.parse(await readFile(join(home, 'project_config.json'), 'utf8'))).toEqual({ jubian_script_id: 6682 })
+})
+
+it('rejects bind_only with a migration source without creating a binding', async () => {
+  const { ctx, home } = await bench()
+  const result = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('bind-migration'),
+    arguments: { action: 'bind_only', project_dir: home, changes: { jubian_script_id: 6682 },
+      migration_from: { project_dir: home, script_id: 6542 } }, signal: new AbortController().signal })
+  expect(result.isError).toBe(true)
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
 
 type MigrationFixtureConfig = Record<string, JsonValue> & {
   project_bible: Record<string, JsonValue> & {

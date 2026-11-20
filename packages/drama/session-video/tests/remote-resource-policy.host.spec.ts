@@ -20,6 +20,8 @@ import { provideBrowserCredentials } from '../../../api/gateway/tests/browser-cr
 import { executableRemoteModule } from '../../../typert/generator/tests/remote-module.ts'
 import { TestSessionQueryEngine } from '../../../session-query/session-query/tests/test-service.ts'
 import SessionVideo from '../src/index.ts'
+import Tools from '@deepseek-ai/dsh-tools'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface PrincipalMap {
@@ -57,6 +59,8 @@ async function fixture() {
   await ctx.plugin(Attachments, { dshHome: root }).await()
   await ctx.plugin(Subprocess).await()
   await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root }).await()
+  await ctx.plugin(SystemPrompt).await()
+  await ctx.plugin(Tools).await()
   await ctx.plugin(SessionVideo).await()
   ctx.typert.register(host)
   ctx.typert.remotes.register(remote)

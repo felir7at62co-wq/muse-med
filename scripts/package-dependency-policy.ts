@@ -85,7 +85,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/cosmokit': ['isVolatile'],
   '@deepseek-ai/dsh-credentials': ['credentialRef'],
   '@deepseek-ai/dsh-jubian': [
-    'JUBIAN_TOKEN_REF', 'JubianError', 'JubianLedger', 'centsOf', 'checkBudget',
+    'JUBIAN_TOKEN_REF', 'SPENDING_METHODS', 'JubianError', 'JubianLedger', 'centsOf', 'checkBudget',
     'configuredJubianClient', 'workspacePipelineToken',
     'describePayload', 'readProjectBudget', 'updateProjectBudget',
   ],

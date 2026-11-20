@@ -75,7 +75,7 @@ export async function apply(ctx) {
   let expired
   class ReceiptAccount extends Service {
     constructor(context) { super(context, 'museAccount') }
-    async status() { return { state: 'signed-in', username: 'fixture', verified: false } }
+    async readLocalStatus() { return { state: 'signed-in', username: 'fixture', verified: false } }
     async submitAudio() { accountSubmissions++; throw Error('Receipt inspection must not submit another transcription') }
     async audioStatus(requestId) {
       statusReads++

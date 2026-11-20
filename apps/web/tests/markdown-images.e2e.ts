@@ -330,20 +330,71 @@ describe('web e2e: Markdown image rendering', () => {
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, ['ui.expected.md'])
     const input = page.locator('[data-composer-input]').first()
-    const imagePath = normalize(join(scaffold.workspaceCwd, 'valid.png'))
-    const fileRead = page.waitForResponse((response) => {
-      const url = new URL(response.url())
-      return url.pathname === '/api/file' && normalize(url.searchParams.get('path') ?? '') === imagePath
+    const preparation = await page.evaluateHandle(() => {
+      const descriptor = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
+      if (descriptor === undefined) throw new Error('URL.createObjectURL descriptor is unavailable')
+      const create = URL.createObjectURL.bind(URL), channel = new MessageChannel()
+      const starts: { trusted: boolean; cancelled: boolean; token: boolean }[] = []
+      const drops: { trusted: boolean; accepted: boolean; token: boolean }[] = []
+      const proof = { ready: false, starts, drops }
+      let notified = false
+      channel.port1.onmessage = () => {
+        proof.ready = true; channel.port1.close(); channel.port2.close()
+      }
+      URL.createObjectURL = function (value) {
+        const url = create(value)
+        if (!notified && value instanceof File && value.name === 'valid.png' && value.type === 'image/png') {
+          notified = true
+          // browser(file) returns synchronously after this URL; its prepare/hook Promise reactions finish before this task.
+          channel.port2.postMessage(null)
+        }
+        return url
+      }
+      const start = (event: globalThis.DragEvent): void => {
+        if (event.target instanceof HTMLImageElement && event.target.alt === 'Workspace test image') {
+          starts.push({ trusted: event.isTrusted, cancelled: event.defaultPrevented,
+            token: Boolean(event.dataTransfer?.getData('application/x-dsh-file')) })
+        }
+      }
+      const drop = (event: globalThis.DragEvent): void => {
+        if (event.target instanceof Element && event.target.closest('[data-composer-card]') !== null) {
+          drops.push({ trusted: event.isTrusted, accepted: event.defaultPrevented,
+            token: Boolean(event.dataTransfer?.getData('application/x-dsh-file')) })
+        }
+      }
+      document.addEventListener('dragstart', start)
+      document.addEventListener('drop', drop)
+      return { proof, dispose() {
+        Object.defineProperty(URL, 'createObjectURL', descriptor); channel.port1.close(); channel.port2.close()
+        document.removeEventListener('dragstart', start); document.removeEventListener('drop', drop)
+      } }
     })
-    await workspaceImage.scrollIntoViewIfNeeded()
-    const source = await workspaceImage.boundingBox()
-    const target = await input.boundingBox()
-    if (source === null || target === null) throw new Error('image or composer is not visible')
-    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
-    await page.mouse.down()
-    await fileRead
-    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 })
-    await page.mouse.up()
+    let pressed = false
+    try {
+      await workspaceImage.scrollIntoViewIfNeeded()
+      const source = await workspaceImage.boundingBox()
+      const target = await input.boundingBox()
+      if (source === null || target === null) throw new Error('image or composer is not visible')
+      await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
+      await page.mouse.down()
+      pressed = true
+      const ready = await page.waitForFunction(value => value.proof.ready, preparation)
+      await ready.dispose()
+      await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 })
+      await page.mouse.up()
+      pressed = false
+      await expect.poll(() => preparation.evaluate(value => value.proof)).toEqual({
+        ready: true, starts: [{ trusted: true, cancelled: false, token: true }], drops: [{ trusted: true, accepted: true, token: true }],
+      })
+    } finally {
+      try {
+        if (!page.isClosed() && pressed) await page.mouse.up()
+      } finally {
+        try {
+          if (!page.isClosed()) await preparation.evaluate((value) => { value.dispose() })
+        } finally { await preparation.dispose() }
+      }
+    }
     const dragged = page.getByRole('group', { name: 'Pending attachments', exact: true }).getByRole('img')
     await dragged.waitFor({ state: 'visible' })
     expect(Buffer.from(await dragged.evaluate(async (node: HTMLImageElement) =>

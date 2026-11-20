@@ -5,7 +5,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import Schema from '@deepseek-ai/schemastery'
 import { defineTool, ToolArgsError } from '@deepseek-ai/dsh-tools'
 import { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
-import { finishAudioTranscription, probeMediaDuration, startAudioTranscription, startAudioTranscriptionBatch } from './runner.ts'
+import { finishAudioTranscription, probeMediaDuration, startAudioTranscription, startAudioTranscriptionBatch, type AudioAccount } from './runner.ts'
 
 /** Cordis row name for model-visible speech transcription. */
 export const name = 'tool-audio-transcribe'
@@ -121,7 +121,12 @@ function projectRoot(project: string, workspace: string | undefined): string {
  * @param config - Media binaries and local size/time limits.
  */
 export function apply(ctx: Context, config: Config): void {
-  const account = ctx.get('museAccount') as MuseAccountService
+  const museAccount = ctx.get('museAccount') as MuseAccountService
+  const account: AudioAccount = {
+    status: () => museAccount.readLocalStatus(),
+    submitAudio: (...args) => museAccount.submitAudio(...args),
+    audioStatus: (...args) => museAccount.audioStatus(...args),
+  }
   ctx.tools.register(defineTool({
     name: 'audio_transcribe',
     description: '使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；多集用 inputs 一次提交，工具逐集上传，上传繁忙或请求过频时按服务端提示等待，并沿用同一收据重试。inspect 只查询原任务、不补传音轨，完成后发布文字、字词时间戳及说话人标签覆盖摘要；角色对齐读取 output_json，TXT/SRT 不含标签。status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件，也不要删除收据。需要先登录 Muse。',

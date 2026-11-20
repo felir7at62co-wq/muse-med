@@ -1,6 +1,6 @@
 /** Authoritative project settings, revision previews and a derived readable project bible. */
-import { createHash } from 'node:crypto'
-import { lstat, open, readFile, readdir, unlink } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { link, lstat, open, readFile, readdir, unlink } from 'node:fs/promises'
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type SettingsForms from '@deepseek-ai/dsh-settings'
@@ -166,6 +166,49 @@ async function projectRoot(directory: string): Promise<string> {
   }
   if (!(await lstat(root)).isDirectory()) throw new Error('Project path must be a directory.')
   return root
+}
+
+/** Create only the confirmed remote identity, without initializing project defaults.
+ * Existing project files are never replaced; choose the directory and ID from verified project evidence.
+ * @param directory - Existing project directory verified to belong to this project.
+ * @param scriptId - Verified remote project ID.
+ * @param signal - Optional cancellation signal, checked before publishing the binding.
+ * @returns The newly created binding and its path.
+ */
+export async function createProjectBinding(directory: string, scriptId: number,
+  signal?: AbortSignal): Promise<{ project_dir: string; script_id: number }> {
+  signal?.throwIfAborted()
+  const root = await projectRoot(directory)
+  const id = positive(scriptId, 'jubian_script_id')
+  const configPath = join(root, 'project_config.json')
+  const lockPath = join(root, '.project-bible.lock')
+  const lock = await open(lockPath, 'wx', 0o600)
+  let committed = false
+  try {
+    try {
+      try {
+        await lstat(join(root, 'project-bible.md'))
+        throw new Error('An existing project bible needs manual identity review before binding.')
+      } catch (error) {
+        if (!hasCode(error, 'ENOENT')) throw error
+      }
+      const temporary = join(root, `.project-binding-${randomUUID()}.tmp`)
+      const file = await open(temporary, 'wx', 0o600)
+      try {
+        try { await file.writeFile(`${JSON.stringify({ jubian_script_id: id })}\n`, 'utf8') } finally { await file.close() }
+        signal?.throwIfAborted()
+        await link(temporary, configPath)
+        committed = true
+      } finally { await unlink(temporary) }
+      return { project_dir: root, script_id: id }
+    } finally {
+      await lock.close()
+      await unlink(lockPath)
+    }
+  } catch (error) {
+    if (committed) throw new Error('Project binding was created but cleanup failed; read the original config before retrying.', { cause: error })
+    throw error
+  }
 }
 
 /** JSON object from a durable file or model/tool input. */

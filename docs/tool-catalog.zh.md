@@ -6358,7 +6358,7 @@ Read and validate the Jianying draft root from Settings, or save and reread the 
 
 ### `drama_project`
 
-Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves existing project bindings. To migrate, provide migration_from and a different empty target project_dir with changes.jubian_script_id: copies creative settings and local character identities, excluding old remote references, tasks and authorization. Validate exact target project and model settings through Jubian tools before preview; register target assets and recheck before production.
+Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. bind_only creates a minimal project binding only when no project_config.json exists; first verify the remote project ID and that this exact directory belongs to it. Never use a directory already bound to another project. It does not set budget or delivery. To migrate, provide migration_from and a different empty target project_dir with changes.jubian_script_id: copies creative settings and local character identities, excluding old remote references, tasks and authorization. Validate exact target project and model settings through Jubian tools before preview; register target assets and recheck before production.
 
 ```json
 {
@@ -6369,7 +6369,8 @@ Read the authoritative project bible, preview a confirmed change and its downstr
       "enum": [
         "read",
         "preview",
-        "update"
+        "update",
+        "bind_only"
       ]
     },
     "project_dir": {

@@ -4,16 +4,26 @@ import { basename, extname, join, win32 } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { MEDIA_ALLOWED_ORIGINS } from '@deepseek-ai/dsh-jubian-api'
 import { z } from 'zod'
+import { productionFacts, productionRequest, productionSchema, resolveVideoProduction, videoProduction, videoBindingSchema } from './production.ts'
 
 const attachmentSchema = z.object({ attachmentId: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   name: z.string(), bytes: z.number().int().nonnegative() })
 const candidateSchema = z.object({ key: z.string(), label: z.string(), origin: z.enum(['workspace', 'presented', 'attachment', 'generated']),
   path: z.string().nullable(), eventSeq: z.number().int().nonnegative(), presentedIndex: z.number().int().nonnegative().nullable(),
-  callId: z.string().nullable(), remoteUrl: z.string().nullable(), attachment: attachmentSchema.nullable() })
-const callSchema = z.object({ id: z.string(), name: z.string(), taskId: z.number().nullable(), mediaKind: z.string().nullable() })
+  callId: z.string().nullable(), remoteUrl: z.string().nullable(), attachment: attachmentSchema.nullable(),
+  production: productionSchema.optional() })
+const callSchema = z.object({ id: z.string(), name: z.string(), taskId: z.number().nullable(), mediaKind: z.string().nullable(),
+  method: z.string().optional(), scriptId: z.number().int().positive().optional(), storyboardId: z.number().int().positive().optional(),
+  subtaskId: z.number().int().positive().optional() })
 /** Validates the private projection cache without trusting persisted JSON. */
 export const sourceStateSchema = z.object({ sources: z.array(candidateSchema), calls: z.array(callSchema),
-  complete: z.boolean(), issues: z.array(z.string()) })
+  complete: z.boolean(), issues: z.array(z.string()), productionFacts: z.array(productionSchema).optional(),
+  productionUnavailable: z.boolean().optional(), productionBySource: z.record(z.string(), productionSchema).optional(),
+  bindings: z.record(z.string(), z.object({ sourceVersion: z.string(), production: productionSchema })).optional(),
+  reviewOnly: z.boolean().optional(),
+  reviewTargets: z.array(z.object({ source_id: z.string(), source_version: z.string(),
+    review_link: z.string().optional(),
+    start_seconds: z.number().nonnegative().optional(), end_seconds: z.number().positive().optional() })).optional() })
 /** One source coordinate retained by the private Session projection. */
 export type VideoCandidate = z.infer<typeof candidateSchema>
 /** Bounded video facts and unsettled supported-tool calls. */
@@ -21,7 +31,8 @@ export type VideoSourceState = z.infer<typeof sourceStateSchema>
 /** Deployment limits applied during the complete source fold. */
 export interface SourceBounds { readonly maxSources: number; readonly maxResultBytes: number }
 
-const tools = new Set(['jubian_video', 'jubian_media', 'video_generate', 'ffmpeg_cut', 'ffmpeg_concat', 'ffmpeg_encode', 'ffmpeg_adjust'])
+const tools = new Set(['jubian_video', 'jubian_media', 'video_generate', 'ffmpeg_cut', 'ffmpeg_concat', 'ffmpeg_encode', 'ffmpeg_adjust',
+  'jubian_model', 'jubian_catalog', 'jubian_storyboard', 'muse_production', 'muse_video'])
 /**
  * Read an untrusted durable object without converting arrays to records.
  * @param value - Parsed durable value.
@@ -76,6 +87,14 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
   bounds: SourceBounds): VideoSourceState {
   const data = record(event.data)
   if (!data) return previous
+  if (event.type === 'tool/ptc-dispatch' && typeof data.subCallId === 'string' && typeof data.name === 'string' && tools.has(data.name)) {
+    const pending = foldVideoSources(previous, { seq: event.seq, type: 'tool/call', data: {
+      callId: data.subCallId, name: data.name, arguments: data.arguments,
+    } }, bounds)
+    return foldVideoSources(pending, { seq: event.seq, type: 'tool/result', data: { meta: data.meta,
+      message: { toolCallId: data.subCallId, content: data.content, isError: data.isError },
+    } }, bounds)
+  }
   let state = previous
   let ownsSources = false
   const add = (source: Omit<VideoCandidate, 'key' | 'label' | 'eventSeq'>, labelPath: string): void => {
@@ -92,12 +111,18 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
     const label = labelPath.includes('\\') ? win32.basename(labelPath) : basename(labelPath.replace(/\?.*$/s, ''))
     state.sources.push({ ...source, key: `${event.seq}:${index}`, eventSeq: event.seq, label })
   }
-  const local = (path: string, origin: VideoCandidate['origin'], callId: string | null = null, presentedIndex: number | null = null): void => {
-    if (videoPath(path)) add({ origin, path, callId, presentedIndex, remoteUrl: null, attachment: null }, path)
+  const local = (path: string, origin: VideoCandidate['origin'], callId: string | null = null, presentedIndex: number | null = null,
+    production?: VideoCandidate['production']): void => {
+    if (videoPath(path)) add({ origin, path, callId, presentedIndex, remoteUrl: null, attachment: null,
+      ...(production === undefined ? {} : { production }) }, path)
   }
   if (event.type === 'deliverables/presented' && Array.isArray(data.files)) {
     data.files.forEach((file, index) => { const path = record(file)?.path; if (typeof path === 'string') local(path, 'presented', null, index) })
   } else if (event.type === 'user/message' && Array.isArray(data.content)) {
+    // Runtime context does not replace the user's selected review scope.
+    const ownsReview = record(data.source)?.kind === 'user'
+    const reviewTargets: NonNullable<VideoSourceState['reviewTargets']> = []
+    let reviewOnly = false
     for (const block of data.content) {
       const item = record(block)
       if (item?.type === 'file') {
@@ -105,6 +130,16 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
         if (parsed.success && videoPath(parsed.data.name)) add({ origin: 'attachment', path: null, callId: null,
           presentedIndex: null, remoteUrl: null, attachment: parsed.data }, parsed.data.name)
       } else if (item?.type === 'text' && typeof item.text === 'string') {
+        if (ownsReview) {
+          if (item.text.includes('<!-- muse-video-review:')) reviewOnly = true
+          const match = /<muse-video-selection>\s*([\s\S]*?)\s*<\/muse-video-selection>/u.exec(item.text)
+          if (match?.[1] !== undefined && Buffer.byteLength(match[1]) <= bounds.maxResultBytes) {
+            try {
+              const parsed = sourceStateSchema.shape.reviewTargets.unwrap().safeParse(JSON.parse(match[1]))
+              if (parsed.success) reviewTargets.push(...parsed.data)
+            } catch (_error) { /* Invalid selection text grants no inspection scope. */ }
+          }
+        }
         // Desktop file chips serialize with the shared @path / @"quoted path" grammar.
         for (const match of item.text.matchAll(/(?:^|\s)@(?:"([^"\r\n]+)"|([^\s]+))/gu)) {
           const path = match[1] ?? match[2]
@@ -112,18 +147,27 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
         }
       }
     }
+    if (ownsReview) state = { ...state, reviewTargets, reviewOnly }
   } else if (event.type === 'tool/call' && typeof data.callId === 'string' && typeof data.name === 'string' && tools.has(data.name)) {
     if (previous.calls.length >= bounds.maxSources) return { ...previous, complete: false,
       issues: previous.issues.includes('unsettled video call limit reached') ? previous.issues : [...previous.issues, 'unsettled video call limit reached'] }
     const args = json(data.arguments, bounds)
     state = { ...previous, calls: [...previous.calls, { id: data.callId, name: data.name,
-      taskId: typeof args?.task_id === 'number' ? args.task_id : null, mediaKind: typeof args?.media_kind === 'string' ? args.media_kind : null }] }
+      taskId: typeof args?.task_id === 'number' ? args.task_id : null, mediaKind: typeof args?.media_kind === 'string' ? args.media_kind : null,
+      ...productionRequest(args) }] }
   } else if (event.type === 'tool/result') {
     const message = record(data.message)
     const call = previous.calls.find(item => item.id === message?.toolCallId)
     if (!call) return previous
     state = { ...previous, calls: previous.calls.filter(item => item !== call) }
     if (message?.isError === true || !Array.isArray(message?.content)) return state
+    if (call.name === 'muse_video') {
+      const parsed = z.object({ museVideoBinding: videoBindingSchema }).safeParse(data.meta)
+      if (parsed.success && state.sources.some(source => source.key === parsed.data.museVideoBinding.key)) {
+        const { key, ...binding } = parsed.data.museVideoBinding
+        state = { ...state, bindings: { ...state.bindings, [key]: binding } }
+      }
+    }
     if (call.name === 'video_generate') {
       const name = record(data.meta)?.fileName
       if (typeof name === 'string' && /^[\w.-]+\.mp4$/i.test(name) && name !== '..') {
@@ -139,7 +183,31 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
       }
       const result = json(item.text, bounds)
       if (!result) continue
-      if (call.name === 'jubian_media' && call.mediaKind === 'video' && typeof result.path === 'string') local(result.path, 'generated', call.id)
+      if (call.name === 'muse_video') {
+        const parsed = z.object({ binding: videoBindingSchema }).safeParse(result)
+        if (parsed.success && state.sources.some(source => source.key === parsed.data.binding.key)) {
+          const { key, ...binding } = parsed.data.binding
+          state = { ...state, bindings: { ...state.bindings, [key]: binding } }
+        }
+      }
+      const additions = productionFacts(call, result)
+      if (additions.length > 0 && state.productionUnavailable !== true) {
+        const facts = [...state.productionFacts ?? []]
+        for (const fact of additions) {
+          if (facts.some(value => JSON.stringify(value) === JSON.stringify(fact))) continue
+          if (facts.length >= bounds.maxSources || Buffer.byteLength(JSON.stringify([...facts, fact])) > bounds.maxResultBytes) {
+            state = { ...state, productionUnavailable: true, complete: false,
+              issues: state.issues.includes('video production metadata limit reached') ? state.issues
+                : [...state.issues, 'video production metadata limit reached'] }
+            break
+          }
+          facts.push(fact)
+        }
+        state = { ...state, productionFacts: facts }
+      }
+      if (call.name === 'jubian_media' && call.mediaKind === 'video' && typeof result.path === 'string') {
+        local(result.path, 'generated', call.id, null, videoProduction(call, result, undefined, state.productionFacts ?? []))
+      }
       if (call.name.startsWith('ffmpeg_') && typeof result.output === 'string') local(result.output, 'workspace', call.id)
       if (call.name !== 'jubian_video') continue
       const subtasks = record(result.subtasks)
@@ -150,8 +218,25 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
         if (!row || typeof row.video_url !== 'string' || typeof row.status !== 'string'
           || !['succeeded', 'completed', 'success'].includes(row.status.toLowerCase())) continue
         if (subtasks && (call.taskId === null || row.parent_task_id !== call.taskId)) continue
-        add({ origin: 'generated', path: null, callId: call.id, presentedIndex: null, remoteUrl: row.video_url, attachment: null }, row.video_url)
+        const production = videoProduction(call, result, row, state.productionFacts ?? [])
+        add({ origin: 'generated', path: null, callId: call.id, presentedIndex: null, remoteUrl: row.video_url, attachment: null,
+          ...(production === undefined ? {} : { production }) }, row.video_url)
       }
+    }
+  }
+  if (state.sources !== previous.sources || state.productionFacts !== previous.productionFacts
+    || state.productionUnavailable !== previous.productionUnavailable) {
+    const entries = state.productionUnavailable === true ? [] : state.sources.flatMap((source) => {
+      const production = resolveVideoProduction(source.production, state.productionFacts ?? [])
+      return production === undefined ? [] : [[source.key, production] as const]
+    })
+    if (entries.length > 0 || state.productionBySource !== undefined) {
+      const productionBySource = Object.fromEntries(entries)
+      if (Buffer.byteLength(JSON.stringify(productionBySource)) > bounds.maxResultBytes) {
+        state = { ...state, productionBySource: {}, productionUnavailable: true, complete: false,
+          issues: state.issues.includes('video production metadata limit reached') ? state.issues
+            : [...state.issues, 'video production metadata limit reached'] }
+      } else state = { ...state, productionBySource }
     }
   }
   return state
