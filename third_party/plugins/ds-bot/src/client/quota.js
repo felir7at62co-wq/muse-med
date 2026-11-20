@@ -11,7 +11,8 @@ import { t } from './i18n.js'
 export const QUOTA_INJECT = ['remote', 'remote.jingliuConnection']
 export const QUOTA_REFRESH_MS = 60_000
 export const QUOTA_HIDDEN_REFRESH_MS = 5 * 60_000
-// Showing the window again reads at once, unless the last read started this recently.
+// Showing the window again reads at once, unless the last read started this recently; the next
+// read then comes a minute after that one.
 const WAKE_MS = 15_000
 // Failures that mean the Host does not serve the namespace: the button stays out.
 const ABSENT = new Set(['gateway/invocation-unavailable', 'gateway/definition-unavailable', 'gateway/service-unavailable', 'gateway/method-unavailable'])
@@ -31,17 +32,23 @@ export function quotaFrom(result) {
 
 const sameQuota = (a, b) => a?.state === b?.state && JSON.stringify(a?.value) === JSON.stringify(b?.value)
 
-// Keeps `ui.quota` while the Jingliu namespace is mounted: `loading`, then what each read found.
-// It reads on mount, every minute (five while the window is hidden), when the window shows again,
-// after a Muse sign-in change or a reconnect, and on `actions.refreshQuota()`. A failed read drops
-// the figure. When the namespace goes away `ui.quota` is cleared, and the button with it.
+// Keeps `ui.quota` while the Jingliu namespace is mounted: unset until the first read answers, then
+// what each read found. It reads on mount, every minute (five while the window is hidden), when the
+// window shows again, after a Muse sign-in change or a reconnect, and on `actions.refreshQuota()`.
+// A failed read drops the figure. A sign-in change or a reconnect shows `loading` only while the
+// button is in, so a Host without the service never shows it. When the namespace goes away
+// `ui.quota` is cleared, and the button with it.
 export function installQuota(ctx, { ui, actions }) {
   ctx.inject(QUOTA_INJECT, (scope) => {
     let live = true
     let reading = null
     let started = 0
     let timer
-    const put = next => ui.set(state => (sameQuota(state.quota, next) ? state : { ...state, quota: next }))
+    // `next` is the new state, or a function of the current one.
+    const put = next => ui.set((state) => {
+      const quota = typeof next === 'function' ? next(state.quota) : next
+      return sameQuota(state.quota, quota) ? state : { ...state, quota }
+    })
     const read = () => {
       if (!live) return
       clearTimeout(timer)
@@ -60,9 +67,19 @@ export function installQuota(ctx, { ui, actions }) {
         .then(result => settle(quotaFrom(result)), () => settle({ state: 'unknown' }))
     }
     // After a sign-in change or a reconnect the figure shown may be another account's.
-    const reread = () => { put({ state: 'loading' }); read() }
-    const onShow = () => { if (!document.hidden && Date.now() - started > WAKE_MS) read() }
-    put({ state: 'loading' })
+    const reread = () => {
+      put(quota => (quota === undefined || quota.state === 'absent' ? quota : { state: 'loading' }))
+      read()
+    }
+    // A read made while hidden scheduled the next one five minutes out; a skipped wake read
+    // brings it back to a minute after that read.
+    const onShow = () => {
+      if (document.hidden) return
+      const since = Date.now() - started
+      if (since > WAKE_MS) { read(); return }
+      clearTimeout(timer)
+      timer = setTimeout(read, QUOTA_REFRESH_MS - since)
+    }
     read()
     actions.refreshQuota = read
     const off = scope.remote.$on('muse-account/session-changed', reread)
@@ -109,6 +126,7 @@ export function QuotaButton({ actions, useUi }) {
   const [shown, leaving] = useLinger(open, 120)
   const [box, setBox] = useState(null)
   const button = useRef(null)
+  const menu = useRef(null)
   useEffect(() => { if (hidden) setOpen(false) }, [hidden])
   useEffect(() => {
     if (!open) return undefined
@@ -127,6 +145,8 @@ export function QuotaButton({ actions, useUi }) {
     if (rect) setBox({ left: Math.max(8, Math.min(rect.left, window.innerWidth - MENU_WIDTH - 8)), bottom: viewBottom() - rect.top + 5 })
   }
   useLayoutEffect(() => { if (open) anchor() }, [open, tick])
+  // Opening moves focus into the popover, which the page lists last; Escape brings it back.
+  useLayoutEffect(() => { if (open && box) menu.current?.focus() }, [open, box === null])
   // Hooks first: the Jingliu namespace can mount after the sidebar did.
   if (hidden) return null
   const toggle = () => {
@@ -135,14 +155,16 @@ export function QuotaButton({ actions, useUi }) {
   }
   const exhausted = view.state === 'exhausted'
   const label = exhausted ? t('Quota used up') : t('Quota')
+  // Screen readers hear the figure with the name; the tooltip stays the name alone.
+  const spoken = view.figure === undefined || exhausted ? label : t('Quota: {figure}', { figure: view.figure })
   return h(Fragment, null,
     h('button', {
-      ref: button, type: 'button', className: 'bt-account bt-quota', 'data-state': view.state, 'aria-label': label, title: label,
+      ref: button, type: 'button', className: 'bt-account bt-quota', 'data-state': view.state, 'aria-label': spoken, title: label,
       'aria-haspopup': 'dialog', 'aria-expanded': open, onClick: toggle,
     },
       h('span', { className: 'bt-you', 'aria-hidden': true }, h(CoinIcon)),
       exhausted ? h('span', { className: 'bt-quota-dot', 'aria-hidden': true }) : null),
-    shown && box ? createPortal(h('div', { className: 'bt-menu bt-menu-up bt-quota-menu', role: 'dialog', 'aria-label': t('Quota'), 'data-state': view.state, style: box, 'data-leaving': leaving || undefined },
+    shown && box ? createPortal(h('div', { ref: menu, tabIndex: -1, className: 'bt-menu bt-menu-up bt-quota-menu', role: 'dialog', 'aria-label': t('Quota'), 'data-state': view.state, style: box, 'data-leaving': leaving || undefined },
       h('div', { className: 'bt-quota-head' },
         h('div', { className: 'bt-quota-figure' }, view.figure ?? '—'),
         view.state === 'unknown' ? h('div', { className: 'bt-quota-note' }, t('Quota not available right now')) : null),
@@ -160,6 +182,7 @@ export const QUOTA_CSS = `
 .bt-quota:is([data-state=loading],[data-state=unknown]) .bt-you{color:var(--bt-ink-3)}
 .bt-quota-dot{position:absolute;top:2px;right:2px;width:7px;height:7px;border-radius:50%;background:var(--bt-danger);box-shadow:0 0 0 1.5px var(--bt-sidebar);pointer-events:none}
 .bt-quota-menu{width:${MENU_WIDTH}px}
+.bt-quota-menu:focus{outline:none}
 .bt-quota-head{display:flex;flex-direction:column;gap:2px;padding:8px 8px 6px}
 .bt-quota-figure{font-size:20px;line-height:26px;font-weight:600;color:var(--bt-ink);font-variant-numeric:tabular-nums}
 .bt-quota-menu[data-state=exhausted] .bt-quota-figure{color:var(--bt-danger)}

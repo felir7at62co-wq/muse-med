@@ -1803,6 +1803,7 @@ export const DE = {
   'Job title': 'Position',
   'Manager': 'Vorgesetzte Person',
   'Quota': 'Kontingent',
+  'Quota: {figure}': 'Kontingent: {figure}',
   'Quota used up': 'Kontingent aufgebraucht',
   'Unlimited': 'Unbegrenzt',
   'Used': 'Verbraucht',

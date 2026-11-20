@@ -1803,6 +1803,7 @@ export const ES = {
   'Job title': 'Cargo',
   'Manager': 'Responsable',
   'Quota': 'Cuota',
+  'Quota: {figure}': 'Cuota: {figure}',
   'Quota used up': 'Cuota agotada',
   'Unlimited': 'Ilimitada',
   'Used': 'Usado',

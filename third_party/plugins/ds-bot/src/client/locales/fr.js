@@ -1768,6 +1768,7 @@ export const FR = {
   'Job title': 'Poste',
   'Manager': 'Responsable',
   'Quota': 'Quota',
+  'Quota: {figure}': 'Quota : {figure}',
   'Quota used up': 'Quota épuisé',
   'Unlimited': 'Illimité',
   'Used': 'Utilisé',

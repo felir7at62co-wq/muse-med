@@ -837,7 +837,7 @@ export function TeamSidebar(props) {
   // the rail the new-chat button above it.
   // Muse: the user's own capsule (avatar and name, opening Settings at Account) and the
   // asset library take the gear's and the Plugins button's places; the Jingliu quota sits
-  // right of the capsule.
+  // right of the capsule in the open column and below it on the rail.
   const user = useUi(value => value.museUser ?? '')
   const me = { actions, user, look: youLook(roster.prefs, user) }
   const foot = wideContent

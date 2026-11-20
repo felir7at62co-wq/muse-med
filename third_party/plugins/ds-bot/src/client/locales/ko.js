@@ -1803,6 +1803,7 @@ export const KO = {
   'Job title': '직책',
   'Manager': '상급자',
   'Quota': '한도',
+  'Quota: {figure}': '한도: {figure}',
   'Quota used up': '한도 소진',
   'Unlimited': '무제한',
   'Used': '사용함',

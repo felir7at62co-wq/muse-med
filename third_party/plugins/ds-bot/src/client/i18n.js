@@ -800,6 +800,7 @@ const ZH = {
   'Job title': '职位',
   'Manager': '上级',
   Quota: '额度',
+  'Quota: {figure}': '额度：{figure}',
   'Quota used up': '额度已用完',
   Unlimited: '不限额',
   Used: '已用',

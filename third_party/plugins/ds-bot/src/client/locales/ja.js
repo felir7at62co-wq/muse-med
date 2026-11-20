@@ -1768,6 +1768,7 @@ export const JA = {
   'Job title': '役職',
   'Manager': '上長',
   'Quota': '利用枠',
+  'Quota: {figure}': '利用枠：{figure}',
   'Quota used up': '利用枠を使い切りました',
   'Unlimited': '無制限',
   'Used': '使用済み',
