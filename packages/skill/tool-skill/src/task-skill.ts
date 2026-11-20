@@ -26,16 +26,64 @@ type ActiveSkill = z.infer<typeof activeSchema>
 /** Name in `taskSkills` that makes every skill the model or user loads a task skill. */
 export const ANY_TASK_SKILL = '*'
 
-/** Tools that run only while one task skill is in effect. */
+/** Tool calls that run only while one task skill is in effect. Every rule matching a call applies. */
 export interface ToolSkillRule {
   /** Exact tool names, or a prefix followed by `*`. */
   readonly tools: readonly string[]
-  /** Task skill that must be in effect before those tools run. */
+  /** Task skill that must be in effect before those calls run. */
   readonly skill: string
+  /**
+   * Top-level arguments that narrow the rule to some calls of those tools: the rule applies only when each
+   * named argument of the call is a string equal to one of its listed values.
+   */
+  readonly arguments?: Readonly<Record<string, readonly string[]>>
 }
 
 function matchesTool(pattern: string, tool: string): boolean {
   return pattern.endsWith('*') ? tool.startsWith(pattern.slice(0, -1)) : pattern === tool
+}
+
+function matchesCall(rule: ToolSkillRule, tool: string, args: unknown): boolean {
+  if (!rule.tools.some(pattern => matchesTool(pattern, tool))) return false
+  // Spreading copies the named values of an object and nothing from null or a number, so a rule that names
+  // an argument does not apply to a call whose arguments are not an object.
+  const given = new Map<string, unknown>(Object.entries({ ...(args as object) }))
+  return Object.entries({ ...rule.arguments }).every(([name, values]) => {
+    const value = given.get(name)
+    return typeof value === 'string' && values.includes(value)
+  })
+}
+
+/**
+ * Count the task skills one tool can require at once. Argument conditions are ignored, so rules that
+ * no single call satisfies together still count together.
+ * @param rules - Tool requirements of one preset.
+ * @returns The largest number of distinct skills required by rules that share a tool name.
+ */
+export function toolSkillDemand(rules: readonly ToolSkillRule[]): number {
+  // A name equal to a prefix matches every rule that a longer name under that prefix could match by prefix.
+  const names = new Set(rules.flatMap(rule => rule.tools.map(pattern => pattern.endsWith('*') ? pattern.slice(0, -1) : pattern)))
+  return Math.max(0, ...[...names].map(name =>
+    new Set(rules.filter(rule => rule.tools.some(pattern => matchesTool(pattern, name))).map(rule => rule.skill)).size))
+}
+
+/**
+ * Choose the skills to load so that every required one is in effect afterwards. Loading releases the
+ * oldest skills beyond the limit; a required skill that this loading would release is loaded again.
+ * @param required - Distinct skills one call requires; no more than `limit`.
+ * @param active - Skills in effect, oldest first.
+ * @param limit - Task skills kept in effect at once.
+ * @returns The skills to load, in loading order.
+ */
+function skillsToLoad(required: readonly string[], active: readonly string[], limit: number): string[] {
+  let load = required.filter(name => !active.includes(name))
+  for (;;) {
+    const rest = active.filter(name => !load.includes(name))
+    const kept = rest.slice(Math.max(0, rest.length - (limit - load.length)))
+    const released = required.filter(name => !load.includes(name) && !kept.includes(name))
+    if (released.length === 0) return load
+    load = [...load, ...released]
+  }
 }
 
 /** Put one activation last, replacing the same skill's earlier activation, and keep the newest `limit`. */
@@ -101,7 +149,8 @@ function reloadNotice(name: string): string {
  * @param maxChars - Maximum length of each recovered skill's context contribution.
  * @param loader - The exact visible skill loader that owns these activations.
  * @param limit - Task skills kept in effect at once; one more activation releases the oldest.
- * @param requirements - Tools refused until their task skill is in effect; the first matching rule applies. Every rule names a task skill.
+ * @param requirements - Tool calls refused until their task skills are in effect; every matching rule applies, and the
+ * next admitted step loads the missing skills. Every rule names a task skill, and no tool requires more than `limit`.
  */
 export async function installTaskSkillRecovery(
   ctx: Context, names: ReadonlySet<string>, maxChars: number, loader: ToolDefinition,
@@ -165,35 +214,67 @@ export async function installTaskSkillRecovery(
     const active = inEffect(from)
     if (active.length > 0) carried.set(to, active)
   })
+  // Skills a refused tool call is waiting for; the agent's next admitted step loads them.
+  const requested = new WeakMap<Agent, Set<string>>()
+  // Requested skills that the last attempt could not add; the next refusal leaves loading them to the model.
+  const unavailable = new WeakMap<Agent, ReadonlySet<string>>()
   ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
     const decision = await next()
-    const waiting = carried.get(agent)
-    if (waiting === undefined || decision.kind === 'reject' || ctx.tools.get('skill', agent) !== loader) return decision
+    const waiting = carried.get(agent) ?? []
+    const wanted = requested.get(agent) ?? new Set<string>()
+    if (decision.kind === 'reject' || ctx.tools.get('skill', agent) !== loader) return decision
+    // What could not be added is known only from the attempt of the step just before a refusal.
+    unavailable.delete(agent)
+    if (waiting.length + wanted.size === 0) return decision
     const cwd = await ctx.workingDirectory.ensure(agent, signal)
     const injections: UserMessage[] = []
-    for (const phase of waiting) {
-      const skill = await ctx.skills.get(phase.name, { cwd, scope: agent, signal })
+    const loadable = async (name: string, modelOnly: boolean): Promise<boolean> => {
+      const skill = await ctx.skills.get(name, { cwd, scope: agent, signal })
       signal.throwIfAborted()
-      if (skill === undefined || !isUserInvocable(skill) || !(phase.explicit || isModelInvocable(skill))) continue
-      const source: SkillInvocationSource = {
-        kind: 'skill-invocation', name: phase.name, form: 'instructions', taskVersion: taskSkillVersion(skill),
-      }
+      // The injection is logged as a direct invocation, which recovery restores only for a user-invocable skill.
+      if (skill === undefined || !isUserInvocable(skill) || (modelOnly && !isModelInvocable(skill))) return false
+      const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions', taskVersion: taskSkillVersion(skill) }
       injections.push(createUserMessage({ content: [{ type: 'text', text: renderSkillContent(skill) }], source }))
+      return true
     }
+    for (const phase of waiting) await loadable(phase.name, !phase.explicit)
+    const gone = new Set<string>()
+    // The Host adds a required skill only where the model may load it too.
+    for (const name of wanted) if (!await loadable(name, true)) gone.add(name)
     // A step that was refused or aborted keeps the skills waiting; an admitted one takes them once.
     carried.delete(agent)
+    requested.delete(agent)
+    if (gone.size > 0) unavailable.set(agent, gone)
     return injections.length === 0 ? decision : { ...decision, messages: [...decision.messages, ...injections] }
   })
   if (requirements.length > 0) {
+    const listed = (skills: readonly string[]): string => {
+      const quoted = skills.map(name => `"${name}"`)
+      return quoted.length === 1 ? `the ${quoted[0]} skill` : `the ${quoted.slice(0, -1).join(', ')} and ${quoted.at(-1)} skills`
+    }
     ctx.effect(() => ctx.tools.guard((exec) => {
-      if (!exec.agent || ctx.tools.get('skill', exec.agent) !== loader) return undefined
-      const rule = requirements.find(item => item.tools.some(pattern => matchesTool(pattern, exec.name)))
-      if (rule === undefined || inEffect(exec.agent).some(item => item.name === rule.skill)) return undefined
+      const agent = exec.agent
+      if (!agent || ctx.tools.get('skill', agent) !== loader) return undefined
+      const required = [...new Set(requirements.filter(rule => matchesCall(rule, exec.name, exec.arguments)).map(rule => rule.skill))]
+      const active = inEffect(agent).map(item => item.name)
+      if (required.every(name => active.includes(name))) return undefined
+      const load = skillsToLoad(required, active, limit)
+      const wanted = requested.get(agent) ?? new Set<string>()
+      for (const name of load) wanted.add(name)
+      requested.set(agent, wanted)
+      const gone = load.filter(name => unavailable.get(agent)?.has(name) === true)
+      if (gone.length > 0) {
+        const them = gone.length === 1 ? 'it' : 'them'
+        return {
+          reason: `${exec.name} has not run: its working method is in ${listed(gone)}, which could not be added to this conversation. Load ${them} with the skill tool if the skill catalog lists ${them}, then repeat the call; otherwise tell the user that ${exec.name} cannot run.`,
+          info: { name: 'TaskSkillUnavailable', code: 'TASK_SKILL_UNAVAILABLE' },
+        }
+      }
       return {
-        reason: `Load the "${rule.skill}" skill with the skill tool before calling ${exec.name}: it holds the working method for this tool. Then repeat the call.`,
+        reason: `${exec.name} has not run: its working method is in ${listed(load)}, now added to this conversation. Read ${load.length === 1 ? 'it' : 'them'}, then repeat the call.`,
         info: { name: 'TaskSkillRequired', code: 'TASK_SKILL_REQUIRED' },
       }
-    }), 'tool-skill: tools that require a task skill')
+    }), 'tool-skill: tool calls that require task skills')
   }
   ctx.tools.register(defineTool({
     name: 'end_task_skill',

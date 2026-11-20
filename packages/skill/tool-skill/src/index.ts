@@ -23,7 +23,7 @@ import {
 } from '@deepseek-ai/dsh-skill'
 
 import { needsCatalogSelection, selectCatalogSkills, type CatalogSourceLimits } from './catalog-selection.ts'
-import { ANY_TASK_SKILL, installTaskSkillRecovery, taskSkillVersion } from './task-skill.ts'
+import { ANY_TASK_SKILL, installTaskSkillRecovery, taskSkillVersion, toolSkillDemand } from './task-skill.ts'
 import { pageSkillCatalog, SkillCatalogError } from './catalog-directory.ts'
 export type { SkillCatalogCursor, SkillCatalogRequest, SkillCatalogDirectoryEntry, SkillCatalogPage } from './catalog-directory.ts'
 
@@ -105,14 +105,20 @@ export interface Config {
    */
   taskSkillLimit?: number
   /**
-   * Tools refused until their task skill is in effect. `tools` holds exact names or a prefix ending in `*`;
-   * the first matching rule applies.
+   * Tool calls refused until their task skills are in effect. Every rule matching a call applies, so one call
+   * can require several skills; the refusal says which skills are missing, and the agent's next step adds them
+   * to the conversation. One tool name may require at most `taskSkillLimit` skills across its rules.
    */
   toolSkills?: {
     /** Exact tool names, or a prefix followed by `*`. */
     tools: string[]
-    /** Task skill that must be in effect before those tools run. */
+    /** Task skill that must be in effect before those calls run. */
     skill: string
+    /**
+     * Top-level arguments that narrow the rule to some calls: it applies only when each named argument of the
+     * call is a string equal to one of the listed values.
+     */
+    arguments?: Record<string, string[]>
   }[]
 }
 
@@ -125,7 +131,9 @@ export const Config: z<Config> = z.object({
   taskSkills: z.array(z.string()).default([]),
   taskSkillMaxChars: z.number().min(512).step(1).default(8192),
   taskSkillLimit: z.number().min(1).max(16).step(1).default(1),
-  toolSkills: z.array(z.object({ tools: z.array(z.string()).required(), skill: z.string().required() })).default([]),
+  toolSkills: z.array(z.object({
+    tools: z.array(z.string()).required(), skill: z.string().required(), arguments: z.dict(z.array(z.string())),
+  })).default([]),
 })
 
 /**
@@ -154,8 +162,15 @@ export function apply(ctx: Context, config: Config = {}): void | Promise<void> {
   if (toolSkills.some(rule => !isSkillName(rule.skill) || rule.tools.length === 0 || rule.tools.some(tool => tool === '' || tool === '*'))) {
     throw new TypeError('tool-skill: each toolSkills rule needs a skill name and at least one tool name or prefix')
   }
+  if (toolSkills.some(rule => Object.entries({ ...rule.arguments }).some(([name, values]) => name === '' || values.length === 0 || values.includes('')))) {
+    throw new TypeError('tool-skill: each argument a toolSkills rule names needs a name and at least one nonempty value')
+  }
   const outside = toolSkills.find(rule => !isTaskSkill(rule.skill))
   if (outside !== undefined) throw new TypeError(`tool-skill: toolSkills names "${outside.skill}", which is not a task skill`)
+  const demand = toolSkillDemand(toolSkills)
+  if (demand > taskSkillLimit) {
+    throw new RangeError(`tool-skill: toolSkills requires ${demand} task skills for one tool, more than taskSkillLimit ${taskSkillLimit} keeps in effect`)
+  }
   const limited = Object.keys(limits).length > 0
   const prepared = new WeakMap<Agent, WeakMap<AbortSignal, { enabled: boolean }>>()
 
