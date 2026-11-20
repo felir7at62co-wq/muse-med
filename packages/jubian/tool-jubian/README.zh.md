@@ -492,7 +492,11 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 
 只有 intent 没有 settle 的那条，就是超时留下的"未知态"，也是回答那次调用到底扣没扣费的唯一依据。只有 HTTP 为 2xx 且信封 `code` 为 `0` 或 `200` 时 `outcome` 才是 `accepted`；其余一律 `unknown`。
 
-费用报告分列提交估算、账本占账与提供方任务行 `real_cost` 观测。账本 `settled` 和 `reserved` 金额采用提交报价或估算，不是提供方官方账单。包括 ASR 在内的未返回费用保持未知，不当作零；已知任务行合计不代表整集官方总实扣。
+受账本保护的写入回执将本次预留与项目累计分开。`budget.this_submission.reservation` 的 `recorded` 状态包含 `amount`、`unit` 和 `quote_or_estimate` 依据；`not_required` 表示非付费方法，`unavailable` 则保留付费历史记录缺少金额或货币的未知状态。`provider_billing: not_observed` 表明本回执不能证明提供方实扣，即使预留为已核实的零价也如此。
+
+`budget.project_accounting` 用 `accepted_reservations_cents` 和 `pending_reservations_cents` 报告本次提交前项目已接受与待定的本地预留合计，并带 `scope: project_before_submission`、`basis: local_reservations` 和 `unit`。未检查项目额度或重放时，该字段为 null。新写入保留 `budget.status: authorized`；重放报告 `not_rechecked` 和原始预留，不重复授权，也不用当前项目累计替代原提交金额。原生视频提交／恢复与旧生成操作回放均使用这些分组；新批次每项分别报告自己的预留，并使用整批提交前共同的项目累计。
+
+实际费用报告单独采用提供方任务行 `real_cost` 观测。包括 ASR 在内的未返回费用保持未知，不当作零；已知任务行合计不代表整集官方总实扣。
 
 `erase_subtitle` 未提供显式估算时，会从实时 taskType=10 目录读取所选模型价格。`quzimuToB` 按源片时长向上取整到整分钟，再按目录元/分钟单价计算，并将人民币金额向上取整到分；仅当实时目录唯一匹配 `ark-erase-video-subtitle-pro / AI_MEDIA_KIT / 67`、数值价格为 `0` 且单位为 `元/条` 时，允许不依赖项目额度按 `0.00 CNY` 提交去字幕。提交前记录零价、模型规格和观察时间，原幂等 key 仍防止重复请求。其他零价路线保留正额预留；缺价、身份不唯一或单位不受支持不能证明免费。这些是保守的预算预留，并非实际结算账单。已知模型若无权读取目录，仍可沿用现有可信授权文件中的估算；两者都没有时，没有报价的请求仍被拒绝。调用方也可同时提供 `estimated_cost_cny` 和 `estimate_basis`，据当前价格或可比实际费用作正额人民币预留。估算不发送给提供方、不提高项目预算上限；同一 key 回放不会发出新请求。
 

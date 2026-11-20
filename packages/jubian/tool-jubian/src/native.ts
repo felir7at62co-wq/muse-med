@@ -38,8 +38,8 @@ import {
 } from '@deepseek-ai/dsh-jubian-api'
 import type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeScope, NativeVideoPreview,
   SubjectIdentityItem, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
-import { acceptedWriteResponse, bodyHash, estimatedCostReservation, need, requireKey, writeUnderLedger } from './write.ts'
-import type { CostEstimate } from './write.ts'
+import { acceptedWriteResponse, bodyHash, checkedWriteBudget, estimatedCostReservation, need, recordedWriteBudget, requireKey, writeUnderLedger } from './write.ts'
+import type { CostEstimate, WriteBudgetReceipt } from './write.ts'
 import { atomicWriteJson } from './json-file.ts'
 import { assertSelectionReady, clearReselection } from './reselection.ts'
 export { atomicWriteJson } from './json-file.ts'
@@ -948,6 +948,8 @@ export interface RecordedVideoReconciliation extends VideoClaimReport {
   replayed: true
   idempotency_key: string
   outcome: 'accepted' | 'unknown' | 'not_sent'
+  /** Original reservation without a repeated authorization check or current project totals. */
+  budget: WriteBudgetReceipt
 }
 
 function assertRecordedVideo(recorded: JubianLedgerRecord, preview: NativeVideoPreview): void {
@@ -967,6 +969,7 @@ async function reconcileNativePreview(client: JubianClient, recorded: JubianLedg
     ? classifyExistingNativeMatches(hydrated, expectationOf(preview, []))
     : classifyNewNativeCandidates(hydrated, expectationOf(preview, recorded.before_task_ids))
   return { replayed: true, outcome: recorded.outcome ?? 'unknown', response_sha256: recorded.response_sha256,
+    budget: recordedWriteBudget(recorded),
     preview_path: previewPath, idempotency_key: preview.idempotencyKey, ...claimReport(claim),
     next: `同一个 idempotency_key 已有一条记录（outcome=${recorded.outcome ?? 'unknown'}），`
       + '因此不会再发送任何 PUT。上面是对账结果：submitted 表示这次提交确实已经创建了任务；'
@@ -1403,6 +1406,7 @@ Promise<VideoBatchReport> {
     item.beforeTaskIds = secondRecords.filter(record => isRelatedTaskCandidate(record, item.preview.scriptId,
       item.preview.storyboardId)).map(taskIdOf).filter((id): id is string => id !== null)
   }
+  const budgetReceipts: WriteBudgetReceipt[] = []
   await ledger.beginManyChecked(keys, async () => {
     const decisions = await Promise.all(items.map(item => checkBudget({ ledger,
       method: 'storyboard_native_submit', scriptId: item.preview.scriptId, quote: estimatedCostReservation(item) })))
@@ -1420,6 +1424,7 @@ Promise<VideoBatchReport> {
     if (aggregate.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', aggregate.reason)
     await Promise.all(items.map(item => assertNoEpisodePaidHold(item.preview_path, item.preview)))
     for (const item of items) assertModel?.(object(JSON.parse(String(item.preview.payload.modelConfig))))
+    budgetReceipts.push(...decisions.map(decision => checkedWriteBudget('storyboard_native_submit', decision)))
     return items.map((item, index) => {
       const budget = budgets[index] as { amount: string; unit: string }
       return { idempotencyKey: item.idempotency_key,
@@ -1461,6 +1466,7 @@ Promise<VideoBatchReport> {
     const submitted = report?.status === 'submitted'
     return { preview_path: item.preview_path, idempotency_key: item.idempotency_key,
       storyboard_id: item.preview.storyboardId, replayed: false, put_sent: true,
+      budget: budgetReceipts[index] as WriteBudgetReceipt,
       outcome: write.outcome, response_sha256: write.response_sha256,
       status: submitted ? 'submitted' : 'reconcile_required',
       task_id: submitted ? report.task_id : null, put_ambiguous: write.put_ambiguous,

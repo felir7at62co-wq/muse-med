@@ -106,6 +106,8 @@ it.each([false, true])('restores a partially verified batch without another PUT 
     signal?.throwIfAborted()
     expect(item.idempotency_key).toBe(keys[1])
     return providerReady ? { replayed: true, outcome: 'accepted', response_sha256: null, preview_path: item.preview_path,
+      budget: { status: 'not_rechecked', reason: '', project_accounting: null,
+        this_submission: { reservation: { status: 'unavailable' }, provider_billing: 'not_observed' } },
       idempotency_key: item.idempotency_key, status: 'submitted', task_id: String(secondId), result_urls: [], next: 'observed' } : undefined
   })
   const deliver = vi.fn<ConstructorParameters<typeof GenerationWatchRuntime>[0]['deliver']>(async () => 'settled')
