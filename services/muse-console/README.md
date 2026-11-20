@@ -9,12 +9,13 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The Muse console is a separately deployed, read-only web service for administrators at `/console` on the Muse site. It adds what the existing site pages lack, estimated spend per model request and the health of company services, and links the existing pages for tasks (`/workbench`), accounts (`/admin`), usage (`/admin/usage`) and feedback (`/feedback`) from the same navigation. It holds no gateway credential, no provider key and no conversation content.
+The Muse console is a separately deployed, read-only web service for administrators at `/console` on the Muse site. It adds what the existing site pages lack, estimated spend per model request and per day, and the health of company services, and links the existing pages for tasks (`/workbench`), accounts (`/admin`), usage (`/admin/usage`) and feedback (`/feedback`) from the same navigation. It holds no gateway credential, no provider key and no conversation content.
 
 ## Pages
 
 - `/console` redirects to the generation records.
 - **Generation records** (`/console/records`): totals for today, 7 days or 30 days in Asia/Shanghai calendar days; spend by person and department; one row per model request with route, outcome, token counts, duration and estimated cost; filters by department, person, route, model and status; CSV export of up to 10,000 rows. Exported cells that start like a spreadsheet formula are prefixed with `'`.
+- **Spend** (`/console/spend`): estimated spend, requests, people and unpriced requests for this month, last month, 7 or 30 days; one bar per day; ranking by department, person or model.
 - **Services** (`/console/services`): systemd state, start time, restart count and release of each configured service, and per-route request volume, failure rate and average duration over the last 24 hours.
 
 ## Access
