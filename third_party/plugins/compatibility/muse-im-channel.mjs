@@ -21,7 +21,7 @@ export const Config = z.object({
   activeSessionId: z.string().default('').volatile(),
   requireMention: z.boolean().default(true),
   denyTools: z.array(z.string()).default(['exit_plan_mode']),
-  agentPreset: z.string().default('short-drama'),
+  agentPreset: z.string().default('short-drama-v2'),
   defaultCwd: z.string().required(false),
   dataDir: z.string().required(false),
   dshHome: z.string().required(false),
