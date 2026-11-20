@@ -1733,6 +1733,7 @@ export const JA = {
   // Muse
   'Muse sessions': 'Muse セッション',
   'Jingliu': 'Jingliu',
+  Scripts: '脚本',
   'Asset library': 'アセットライブラリ',
   'Tools': 'ツール',
   'Skills/MCP': 'Skills/MCP',

@@ -17,6 +17,8 @@ import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import JingliuConnection from '@deepseek-ai/dsh-jingliu-connection'
 import * as ToolJingliu from '@deepseek-ai/dsh-tool-jingliu'
+import WorkshopConnection from '@deepseek-ai/dsh-workbench-connection'
+import * as ToolWorkshop from '@deepseek-ai/dsh-tool-workshop'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type OfficeKit from '@deepseek-ai/dsh-office-kit'
@@ -415,6 +417,25 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(LocalCredentialProvider, { path: join(home, 'credentials.yaml'), dshHome: home, watch: false })
       await ctx.plugin(JingliuConnection)
       await ctx.plugin(ToolJingliu)
+    },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-workshop',
+    dir: 'tool-workshop',
+    source: {
+      script_finalize: 'packages/drama/tool-workshop/src/finalize.ts',
+      script_library: 'packages/drama/tool-workshop/src/library.ts',
+      workshop_video_transcribe: 'packages/drama/tool-workshop/src/index.ts',
+    },
+    requires: ['ctx.tools', 'ctx.workshopConnection', 'ctx.approval to start a job', 'ctx.fs and ctx.sandboxPolicy for script files'],
+    writes: [
+      'tool/call', 'tool/result', 'video_transcribe factory jobs on the configured Script Workshop',
+      'finalized-script versions and production links in the Workshop library', 'script files under 剧本库/ in the workspace',
+    ],
+    async mount(ctx) {
+      await ctx.plugin(SandboxPolicy)
+      await ctx.plugin(WorkshopConnection, {})
+      await ctx.plugin(ToolWorkshop)
     },
   },
   {

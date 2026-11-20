@@ -1,10 +1,11 @@
-import { createServer, type IncomingMessage } from 'node:http'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { CommandDefinition, CommandInvocation } from '@deepseek-ai/dsh-commands'
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import JingliuConnection, { type Config } from '../src/index.ts'
-import { requestJson, studioOrigin } from '../src/http.ts'
+import { requestJson } from '@deepseek-ai/dsh-workbench-connection'
+import { JINGLIU, studioOrigin } from '../src/http.ts'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -14,19 +15,25 @@ const challenge = 'C'.repeat(43)
 async function fixture(route: (req: IncomingMessage) => Reply | Promise<Reply>) {
   const requests: IncomingMessage[] = []
   const bodies: string[] = []
-  const server = createServer(async (req, res) => {
+  const reply = async (req: IncomingMessage, res: ServerResponse) => {
     const chunks: Buffer[] = []
-    for await (const chunk of req) chunks.push(Buffer.from(chunk))
+    for await (const chunk of req) chunks.push(chunk as Buffer)
     requests.push(req)
     bodies.push(Buffer.concat(chunks).toString('utf8'))
     const [status, value] = await route(req)
+    if (Buffer.isBuffer(value)) {
+      res.writeHead(status, { 'content-type': 'image/png' })
+      res.end(value)
+      return
+    }
     res.writeHead(status, { 'content-type': 'application/json' })
     res.end(JSON.stringify(value))
-  })
+  }
+  const server = createServer((req, res) => { void reply(req, res) })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   onTestFinished(async () => {
     server.closeAllConnections()
-    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    await new Promise<void>((resolve, reject) => { server.close((error) => { if (error) reject(error); else resolve() }) })
   })
   return { origin: 'http://127.0.0.1:' + String((server.address() as AddressInfo).port), requests, bodies }
 }
@@ -41,6 +48,7 @@ async function mount(config: Config, loadAccount = true) {
     expect(proof).toBe(challenge)
     return { code: 'once-' + account.id, expiresIn: 60, accountId: account.id }
   })
+  const mounted = vi.fn(async (_audience: string, _owner: string, url: URL, init: RequestInit) => await fetch(url, init))
   class Commands extends Service {
     constructor(parent: Context) { super(parent, 'commands') }
     register(command: CommandDefinition) {
@@ -55,6 +63,7 @@ async function mount(config: Config, loadAccount = true) {
       return account.id
     }
     workbenchGrant = grant
+    requestMountedWorkbench = mounted
   }
   await ctx.plugin(Commands).await()
   if (loadAccount) await ctx.plugin(Account).await()
@@ -67,7 +76,7 @@ async function mount(config: Config, loadAccount = true) {
       agent: { session: { id: owner } }, rawInput: '', signal: new AbortController().signal,
     } as CommandInvocation)
   }
-  return { ctx, commands, command, account, grant, fiber }
+  return { ctx, commands, command, account, grant, mounted, fiber }
 }
 
 function authenticated(req: IncomingMessage): Reply {
@@ -195,9 +204,40 @@ it('stops a previously approved request on a changed local session', async () =>
 
 it('preserves an upstream confirmation requirement and confines authenticated routes to the configured deployment', async () => {
   const { origin, requests } = await fixture(() => [409, { detail: { code: 'needs_confirm', message: '替换剧本？' } }])
-  await expect(requestJson(origin, '/desktop-agent/tool', 1000)).rejects.toMatchObject({ status: 409, code: 'needs_confirm', message: '替换剧本？' })
-  await expect(requestJson(origin, '/../other', 1000)).rejects.toMatchObject({ code: 'JINGLIU_PATH_INVALID' })
+  await expect(requestJson(JINGLIU, origin + '/fwp/v2', '/desktop-agent/tool', 1000)).rejects.toMatchObject({ status: 409, code: 'needs_confirm', message: '替换剧本？' })
+  await expect(requestJson(JINGLIU, origin + '/fwp/v2', '/../other', 1000)).rejects.toMatchObject({ code: 'JINGLIU_PATH_INVALID' })
   expect(requests.length).toBe(1)
   expect(() => studioOrigin('http://jingliu.test')).toThrow()
   expect(() => studioOrigin('https://user@jingliu.test')).toThrow()
+})
+
+it('reads routes and media of the studio mounted on the Muse gateway with the Muse login', async () => {
+  const png = Buffer.from('png-bytes')
+  const { origin, requests } = await fixture((req) => {
+    switch (req.url) {
+      case '/jingliu/fwp/v2/auth/me': return [200, { user: { id: 45 } }]
+      case '/jingliu/fwp/v2/projects': return [200, { projects: [] }]
+      case '/jingliu/fwp/media/a.png': return [200, png]
+      case '/jingliu/fwp/media/b.png': return [200, { not: 'an image' }]
+      default: return [404, {}]
+    }
+  })
+  const { ctx, command, grant, mounted } = await mount({ studioOrigin: origin + '/jingliu' })
+  const signal = new AbortController().signal
+  const scope = await ctx.jingliuConnection.connection()
+  expect(await scope.request('/projects')).toEqual({ projects: [] })
+  expect(await ctx.jingliuConnection.thumbnail('/fw/media/a.png', signal)).toBe('data:image/png;base64,' + png.toString('base64'))
+  await expect(ctx.jingliuConnection.thumbnail('/fwp/media/b.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_MEDIA' })
+  await expect(ctx.jingliuConnection.thumbnail('/fw/media/missing.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_UNAVAILABLE', status: 404 })
+  await expect(ctx.jingliuConnection.thumbnail('/other/a.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_MEDIA' })
+  expect(grant).not.toHaveBeenCalled()
+  expect(mounted.mock.calls.map(([audience, owner, url]) => [audience, owner, url.pathname])).toEqual([
+    ['jingliu', 'muse-login-a', '/jingliu/fwp/v2/auth/me'], ['jingliu', 'muse-login-a', '/jingliu/fwp/v2/projects'],
+    ['jingliu', 'muse-login-a', '/jingliu/fwp/media/a.png'], ['jingliu', 'muse-login-a', '/jingliu/fwp/media/b.png'],
+    ['jingliu', 'muse-login-a', '/jingliu/fwp/media/missing.png'],
+  ])
+  expect(requests.map(req => req.headers.authorization)).toEqual([undefined, undefined, undefined, undefined, undefined])
+  expect((await command('jingliu-logout', 'a')).text).toBe('本次镜流工具连接已结束。下次调用会使用当前 Muse 账号。')
+  expect(requests).toHaveLength(5)
+  await expect(scope.request('/projects')).rejects.toMatchObject({ code: 'JINGLIU_ACCOUNT_CHANGED' })
 })

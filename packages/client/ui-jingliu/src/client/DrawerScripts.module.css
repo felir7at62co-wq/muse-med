@@ -1,0 +1,47 @@
+.drawer { display:flex; flex-direction:column; gap:12px; min-height:0; padding:12px 16px 20px; box-sizing:border-box; color:var(--dsw-alias-label-primary); font-size:13px; }
+.failed { color:var(--dsw-alias-state-error-primary); font-size:12px; }
+
+/* the script list */
+.list { flex:1 1 auto; display:flex; flex-direction:column; gap:4px; min-height:0; margin:0; padding:0; overflow:auto; list-style:none; }
+.card { display:flex; align-items:center; gap:12px; width:100%; padding:10px; border:0; border-radius:12px; background:transparent; color:inherit; font:inherit; text-align:start; cursor:pointer; }
+.card:hover { background:var(--dsw-alias-bg-layer-2); }
+.letter { flex:none; display:grid; place-items:center; width:36px; height:36px; border-radius:11px; background:var(--dsw-alias-bg-layer-2); font-size:15px; font-weight:600; }
+.card:hover .letter { background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-1)); }
+.stage { flex:none; padding:1px 8px; border-radius:999px; background:var(--dsw-alias-bg-layer-2); color:var(--dsw-alias-label-secondary); font-size:11.5px; line-height:20px; white-space:nowrap; }
+.picked { background:rgba(37,99,235,.12); color:#2563EB; }
+.in_production { background:rgba(35,128,74,.12); color:#23804A; }
+
+/* one open script: its parameters beside the text */
+.script { flex:1 1 auto; display:flex; gap:20px; min-height:0; padding:12px 16px 0; box-sizing:border-box; color:var(--dsw-alias-label-primary); font-size:13px; }
+.side { flex:0 0 260px; display:flex; flex-direction:column; gap:12px; min-height:0; padding-bottom:20px; overflow:auto; }
+.params { display:flex; flex-direction:column; gap:2px; margin:0; }
+.params > div { display:grid; grid-template-columns:76px minmax(0,1fr); align-items:baseline; gap:8px; padding:6px 8px; border-radius:8px; }
+.params > div:hover { background:var(--dsw-alias-bg-layer-2); }
+.params dt { color:var(--dsw-alias-label-secondary); font-size:12px; }
+.params dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+.origin { max-width:100%; padding:2px 10px; border:0; border-radius:999px; background:var(--dsw-alias-bg-layer-2); color:inherit; font:inherit; text-align:start; cursor:pointer; }
+.origin:hover, .origin[aria-expanded=true] { background:var(--dsw-alias-label-primary); color:var(--dsw-alias-bg-layer-1); }
+.select { max-width:100%; height:28px; padding:0 8px; border:0; border-radius:8px; background:var(--dsw-alias-bg-layer-2); color:inherit; font:inherit; }
+.originCard { display:flex; flex-direction:column; gap:8px; padding:12px; border-radius:12px; background:var(--dsw-alias-bg-layer-2); }
+.originHead { display:flex; align-items:center; gap:10px; min-width:0; }
+.metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin:0; }
+.metrics > div { display:flex; flex-direction:column; gap:2px; min-width:0; padding:6px 8px; border-radius:8px; background:var(--dsw-alias-bg-layer-1); }
+.metrics dt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dsw-alias-label-secondary); font-size:11px; }
+.metrics dd { margin:0; font-variant-numeric:tabular-nums; }
+.actions { display:flex; flex-direction:column; gap:6px; }
+.link { display:flex; flex-direction:column; gap:6px; padding:8px; border-radius:12px; background:var(--dsw-alias-bg-layer-2); }
+.link .select { background:var(--dsw-alias-bg-layer-1); }
+.body { flex:1 1 auto; display:flex; flex-direction:column; gap:12px; min-width:0; min-height:0; }
+.page { flex:1 1 auto; min-height:0; overflow:auto; padding:0 4px 32px; font-size:14px; line-height:1.8; }
+.episodeHead { position:sticky; top:0; display:flex; align-items:center; gap:8px; padding:4px 0 8px; background:var(--dsw-alias-bg-layer-1); }
+.episodeHead h3 { flex:1 1 auto; margin:0; font-size:16px; font-weight:600; }
+.scene { margin:18px 0 6px; color:var(--dsw-alias-label-secondary); font-size:13px; font-weight:600; }
+.action { margin:4px 0; color:var(--dsw-alias-label-secondary); }
+.speech { margin:4px 0; }
+.speech b { margin-inline-end:6px; font-weight:600; }
+.line { margin:4px 0; }
+@media (max-width:720px) {
+  .script { flex-direction:column; overflow:auto; }
+  .side { flex:none; overflow:visible; }
+  .page { overflow:visible; }
+}

@@ -113,14 +113,14 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'bot.drawer.assets\', () => ctx.slots.register(\n      { name: \'bot.drawer.assets\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-jingliu/src/client/Production.tsx:20',
+    source: 'packages/client/ui-jingliu/src/client/Production.tsx:21',
   },
   {
     key: 'bot.drawer.data',
     kind: 'single',
     scope: 'root',
     summary: 'The Bot team\'s details drawer: the data tab of the Bot whose conversation is `sessionId`.',
-    doc: 'The Bot team\'s details drawer: the data tab of the Bot whose conversation is `sessionId`.\n`platform` is the open data platform, or null on the tab that lists them; `openPlatform`\nopens one under the same tab (null goes back to the list).',
+    doc: 'The Bot team\'s details drawer: the data tab of the Bot whose conversation is `sessionId`.\n`platform` is the open data platform, or null on the tab that lists them; `openPlatform`\nopens one in a panel tab of its own, named `title`.',
     registerOptions: [],
     ownerProps: [],
     ownerPropsReferences: [],
@@ -145,7 +145,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'bot.drawer.data\', () => ctx.slots.register(\n      { name: \'bot.drawer.data\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-jingliu/src/client/Production.tsx:43',
+    source: 'packages/client/ui-jingliu/src/client/Production.tsx:60',
   },
   {
     key: 'bot.drawer.jingliu',
@@ -179,7 +179,39 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'bot.drawer.jingliu\', () => ctx.slots.register(\n      { name: \'bot.drawer.jingliu\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-jingliu/src/client/Production.tsx:27',
+    source: 'packages/client/ui-jingliu/src/client/Production.tsx:28',
+  },
+  {
+    key: 'bot.drawer.scripts',
+    kind: 'single',
+    scope: 'root',
+    summary: 'The Bot team\'s details drawer: the 剧本 tabs of the Bot whose conversation is `sessionId`.',
+    doc: 'The Bot team\'s details drawer: the 剧本 tabs of the Bot whose conversation is `sessionId`.\n`script` is the finalized script the tab in view shows, or null on the tab that lists them;\n`openScript` opens one in a tab of its own. `quote` and `compose` act as on the Jingliu tabs.',
+    registerOptions: [],
+    ownerProps: [],
+    ownerPropsReferences: [],
+    standardProps: [
+      'useRemoteAccess: (action: RemoteEndpoint) => boolean',
+      'useResource: UseResource',
+      'useContextMenu: UseContextMenu',
+      'useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>',
+      'usePanelInfo: UsePanelInfo',
+      'useSessions: UseSessions',
+      'useSessionStatus: UseSessionStatus',
+      'useSessionRetainInfo: UseSessionRetainInfo',
+      'useSessionAccess: (sessionId: SessionId, action: RemoteEndpoint) => boolean',
+      'useWorkspaceAccess: (workspaceId: WorkspaceId, action: RemoteEndpoint) => boolean',
+    ],
+    keyDomain: '',
+    hookContext: '',
+    slotInject: '',
+    declaredBy: 'the runtime itself (built in; always present)',
+    occupants: [
+      'client-ui-jingliu DrawerScripts',
+    ],
+    replaceRisk: 'shadows-shipped-ui',
+    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'bot.drawer.scripts\', () => ctx.slots.register(\n      { name: \'bot.drawer.scripts\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+    source: 'packages/client/ui-jingliu/src/client/Production.tsx:44',
   },
   {
     key: 'bot.drawer.terminal',
@@ -1973,8 +2005,13 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
         doc: 'Display text where the owner projects one (nav rows, tabs). A thunk is re-read on every projection, so localized text follows the active locale without re-registering.',
       },
     ],
-    ownerProps: [],
-    ownerPropsReferences: [],
+    ownerProps: [
+      '/** JSON object fields returned to the model. */\nexport type Fields = { [key: string]: JsonValue }',
+      '/** Canonical value of one call: the action and its report fields. */\nexport type Report = { action: typeof ACTIONS[number] } & Fields',
+    ],
+    ownerPropsReferences: [
+      'JsonValue',
+    ],
     standardProps: [
       'useRemoteAccess: (action: RemoteEndpoint) => boolean',
       'useResource: UseResource',
@@ -5005,6 +5042,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     ownerPropsReferences: [
       'DocumentContent',
+      'Report',
     ],
     standardProps: [
       'useRemoteAccess: (action: RemoteEndpoint) => boolean',
@@ -5065,6 +5103,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     ownerPropsReferences: [
       'DocumentTextPage',
+      'Report',
     ],
     standardProps: [
       'useRemoteAccess: (action: RemoteEndpoint) => boolean',
@@ -5177,6 +5216,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     ownerPropsReferences: [
       'DocumentContent',
+      'Report',
     ],
     standardProps: [
       'useRemoteAccess: (action: RemoteEndpoint) => boolean',

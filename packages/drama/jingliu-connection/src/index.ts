@@ -5,17 +5,18 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SelectedProject } from './types.ts'
-import { createHash } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { balance, catalog, createdProject, episodeList, episodeShots, library, options, preferences, projectAssets, projectConfig, projectPath, projects, shotMedia, workflowResult } from './browser.ts'
 import type { StudioBalance, StudioCatalog, StudioConfig, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioNewProject, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from './types.ts'
 import z from '@deepseek-ai/schemastery'
-import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
+import type {} from '@deepseek-ai/dsh-muse-account'
+import { WorkbenchSessions } from '@deepseek-ai/dsh-workbench-connection'
+import type { WorkbenchDefinition, WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
 import type {} from '@deepseek-ai/dsh-commands'
 import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import { HarnessError } from '@deepseek-ai/dsh-error'
-import { boundedBytes, isRecord, JingliuHttpError, mediaUrl, requestJson, studioOrigin } from './http.ts'
+import { boundedBytes, isRecord, JINGLIU, JingliuHttpError, mediaUrl, studioOrigin } from './http.ts'
 import type { JingliuRequest } from './http.ts'
 
 export { JingliuHttpError, boundedBytes }
@@ -61,9 +62,10 @@ export interface JingliuSession {
   request(path: string, options?: JingliuRequest): Promise<unknown>
 }
 
-interface ActiveConnection {
-  readonly owner: string
-  readonly session: Promise<JingliuSession>
+/** Jingliu as a Muse workbench: the ShotFlow V2 API, the `jingliu` gateway mount and its studio session token. */
+const STUDIO: WorkbenchDefinition = {
+  ...JINGLIU, audience: 'jingliu', mount: 'jingliu', api: '/fwp/v2', credential: 'token', profileUser: profile => profile.user,
+  changed: '镜流工具连接已变更。请核对原账号下已提交的操作，并重新选择项目。',
 }
 
 /** Resolves user grants at execution time, keeping tokens outside model input and output. */
@@ -76,11 +78,10 @@ export class JingliuConnection extends TypertRemoteService {
   })
 
   private readonly origin: string | undefined
-  private readonly lifetime = new AbortController()
   private readonly changes = new EventEmitter().setMaxListeners(0)
-  private readonly preview: boolean
-  private readonly timeout: number
-  private active: ActiveConnection | undefined
+  private readonly sessions: WorkbenchSessions
+  private readonly timeoutMs: number
+  private readonly studios = new WeakMap<WorkbenchSession, JingliuSession>()
 
   /** @param ctx - Muse host context.
    * @param config - Jingliu deployment and transport configuration.
@@ -88,169 +89,64 @@ export class JingliuConnection extends TypertRemoteService {
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'jingliuConnection')
     this.origin = config.studioOrigin ? studioOrigin(config.studioOrigin) : undefined
-    this.preview = config.localPreviewToken === true
-    this.timeout = config.timeoutMs ?? 30_000
-    if (this.preview && (!this.origin || !['127.0.0.1', '[::1]'].includes(new URL(this.origin).hostname))) {
+    const preview = config.localPreviewToken === true
+    this.timeoutMs = config.timeoutMs ?? 30_000
+    if (preview && (!this.origin || !['127.0.0.1', '[::1]'].includes(new URL(this.origin).hostname))) {
       throw new HarnessError('本机预览凭据只能用于回环服务。', 'JINGLIU_PREVIEW_ORIGIN_INVALID')
     }
-    if (!this.origin) return
-    if (!this.preview) {
-      ctx.on('muse-account/session-changed', () => { this.active = undefined; this.changes.emit('account') })
-      const command = (name: string, description: string, run: (signal: AbortSignal) => Promise<string>) => {
-        ctx.effect(() => ctx.commands.register({
-          name, description, definitionId: CommandDefinitionId('@deepseek-ai/dsh-jingliu-connection/' + name), recordInput: false,
-          handler: async ({ rawInput, signal }) => {
-            if (rawInput.trim()) return { kind: 'error', text: '该命令无需输入参数。' }
-            signal.throwIfAborted()
-            return { kind: 'success', text: await run(signal) }
-          },
-        }), name)
-      }
-      command('jingliu-login', '检查当前 Muse 账号的镜流连接', async (signal) => {
-        await this.connection()
-        signal.throwIfAborted()
-        return '已使用当前 Muse 账号连接镜流。'
-      })
-      command('jingliu-logout', '结束当前镜流工具连接', signal => this.disconnect(signal))
+    this.sessions = new WorkbenchSessions(ctx, STUDIO, {
+      origin: this.origin, timeoutMs: this.timeoutMs,
+      ...(preview && { previewToken: () => process.env.MUSE_JINGLIU_SESSION_TOKEN }),
+    }, () => this.changes.emit('account'))
+    if (!this.origin || preview) return
+    const command = (name: string, description: string, run: (signal: AbortSignal) => Promise<string>) => {
+      ctx.effect(() => ctx.commands.register({
+        name, description, definitionId: CommandDefinitionId('@deepseek-ai/dsh-jingliu-connection/' + name), recordInput: false,
+        handler: async ({ rawInput, signal }) => {
+          if (rawInput.trim()) return { kind: 'error', text: '该命令无需输入参数。' }
+          signal.throwIfAborted()
+          return { kind: 'success', text: await run(signal) }
+        },
+      }), name)
     }
-    ctx.effect(() => () => { this.active = undefined; this.lifetime.abort() }, 'jingliu account lifetime')
-  }
-
-  private async muse<T>(operation: (account: MuseAccountService) => Promise<T>): Promise<T> {
-    const account = this.ctx.get('museAccount')
-    if (!account) throw new HarnessError('请先在 Muse 的账号设置中登录。', 'JINGLIU_SIGN_IN_REQUIRED')
-    try {
-      return await operation(account)
-    } catch (error) {
-      if (isRecord(error) && error.code === 'invalid-credentials') {
-        throw new HarnessError('请在 Muse 的账号设置中重新登录。', 'JINGLIU_SIGN_IN_REQUIRED', { cause: error })
-      }
-      throw new HarnessError('无法验证 Muse 登录状态，请检查账号服务后重试。', 'JINGLIU_MUSE_AUTH_UNAVAILABLE', { cause: error })
-    }
-  }
-
-  private async owner(): Promise<string> {
-    if (!this.preview) return this.muse(account => account.workbenchIdentity())
-    const token = process.env.MUSE_JINGLIU_SESSION_TOKEN
-    if (token) return token
-    throw new HarnessError('镜流本地预览尚未配置测试会话。', 'JINGLIU_SIGN_IN_REQUIRED')
-  }
-
-  private async call(path: string, options: JingliuRequest, headers?: Record<string, string>, mountedOwner?: string): Promise<unknown> {
-    const signal = options.signal === undefined ? this.lifetime.signal : AbortSignal.any([options.signal, this.lifetime.signal])
-    if (!this.origin) throw new HarnessError('尚未配置镜流站点。', 'JINGLIU_UNCONFIGURED')
-    const transport = mountedOwner === undefined ? undefined : (url: URL, init: RequestInit) =>
-      this.muse(account => account.requestMountedJingliu(mountedOwner, url, init))
-    return await requestJson(this.origin, path, this.timeout, {
-      ...options, signal, ...(headers && { headers }), ...(transport && { transport }),
+    command('jingliu-login', '检查当前 Muse 账号的镜流连接', async (signal) => {
+      await this.connection()
+      signal.throwIfAborted()
+      return '已使用当前 Muse 账号连接镜流。'
+    })
+    command('jingliu-logout', '结束当前镜流工具连接', async (signal) => {
+      await this.sessions.disconnect(signal)
+      return '本次镜流工具连接已结束。下次调用会使用当前 Muse 账号。'
     })
   }
 
-  private async exchange(path: '/auth/muse/challenge' | '/auth/muse/exchange', body?: { requestId: string; code: string }): Promise<unknown> {
-    try {
-      return await this.call(path, { method: 'POST', body })
-    } catch (error) {
-      if (!(error instanceof JingliuHttpError)) throw error
-      const message = error.status === 403
-        ? '镜流未授权当前 Muse 账号，请管理员核对账号绑定和角色。'
-        : '镜流未能完成 Muse 登录（HTTP ' + String(error.status) + '）。'
-      throw new JingliuHttpError(error.status, 'JINGLIU_MUSE_EXCHANGE_FAILED', message)
+  private studio(session: WorkbenchSession): JingliuSession {
+    let studio = this.studios.get(session)
+    if (studio) return studio
+    studio = {
+      identity: session.identity,
+      media: async (path: string, signal: AbortSignal, consume: (response: Response) => Promise<void>) => {
+        await session.check()
+        const response = await session.fetch(mediaUrl(session.origin, path), { method: 'GET', signal })
+        if (!response.ok) {
+          await response.body?.cancel()
+          throw new JingliuHttpError(response.status, 'JINGLIU_MEDIA_UNAVAILABLE', '镜流素材暂时无法读取。')
+        }
+        try { await consume(response) }
+        finally { if (!response.bodyUsed) await response.body?.cancel() }
+        await session.check()
+      },
+      request: (path: string, options?: JingliuRequest) => session.request(path, options),
     }
-  }
-
-  private async assertOwner(owner: string): Promise<void> {
-    if (owner !== await this.owner()) throw this.changed()
-  }
-
-  private changed(): HarnessError {
-    return new HarnessError('镜流工具连接已变更。请核对原账号下已提交的操作，并重新选择项目。', 'JINGLIU_ACCOUNT_CHANGED')
-  }
-
-  private async authorize(owner: string): Promise<{ token: string; userId: number }> {
-    let token = owner
-    let profile: unknown
-    if (this.origin?.endsWith('/jingliu')) {
-      profile = await this.call('/auth/me', {}, undefined, owner)
-    } else if (this.preview) {
-      profile = await this.call('/auth/me', {}, { authorization: 'Bearer ' + token })
-    } else {
-      const challenge = await this.exchange('/auth/muse/challenge')
-      if (!isRecord(challenge) || typeof challenge.requestId !== 'string' || !challenge.requestId ||
-        typeof challenge.challenge !== 'string' || !/^[A-Za-z0-9_-]{43}$/u.test(challenge.challenge)) {
-        throw new HarnessError('镜流未返回有效的 Muse 登录请求。', 'JINGLIU_INVALID_CHALLENGE')
-      }
-      const proof = challenge.challenge
-      const grant = await this.muse(account => account.workbenchGrant('jingliu', proof))
-      if (grant.accountId !== owner) throw this.changed()
-      await this.assertOwner(owner)
-      profile = await this.exchange('/auth/muse/exchange', { requestId: challenge.requestId, code: grant.code })
-      if (!isRecord(profile) || typeof profile.token !== 'string' || !profile.token) {
-        throw new HarnessError('镜流未返回有效的工具连接。', 'JINGLIU_INVALID_ACCOUNT')
-      }
-      token = profile.token
-    }
-    if (!isRecord(profile) || !isRecord(profile.user) || typeof profile.user.id !== 'number' || !Number.isSafeInteger(profile.user.id)) {
-      throw new HarnessError('镜流未返回有效的登录用户。', 'JINGLIU_INVALID_ACCOUNT')
-    }
-    await this.assertOwner(owner)
-    return { token, userId: profile.user.id }
+    this.studios.set(session, studio)
+    return studio
   }
 
   /** Resolve the active account on the selected deployment.
    * @returns A transport bound to this Muse login and Jingliu user.
    */
   async connection(): Promise<JingliuSession> {
-    const origin = this.origin
-    if (!origin) throw new HarnessError('请在 Muse 安装配置中选择镜流站点。', 'JINGLIU_UNCONFIGURED')
-    this.lifetime.signal.throwIfAborted()
-    const owner = await this.owner()
-    if (this.active?.owner === owner) return this.active.session
-    const session: Promise<JingliuSession> = this.authorize(owner).then(({ token, userId }) => {
-      if (this.active?.session !== session) throw this.changed()
-      const mounted = origin.endsWith('/jingliu')
-      const headers = mounted ? undefined : { authorization: 'Bearer ' + token }
-      const check = async () => {
-        await this.assertOwner(owner)
-        if (this.active?.session !== session) throw this.changed()
-      }
-      return {
-        identity: createHash('sha256').update(origin + '/' + String(userId)).digest('hex'),
-        media: async (path: string, signal: AbortSignal, consume: (response: Response) => Promise<void>) => {
-          await check()
-          const url = mediaUrl(origin, path)
-          const init: RequestInit = { method: 'GET', redirect: 'error', ...(headers && { headers }), signal: AbortSignal.any([signal, this.lifetime.signal]) }
-          const response = mounted ? await this.muse(account => account.requestMountedJingliu(owner, url, init)) : await fetch(url, init)
-          if (!response.ok) {
-            await response.body?.cancel()
-            throw new JingliuHttpError(response.status, 'JINGLIU_MEDIA_UNAVAILABLE', '镜流素材暂时无法读取。')
-          }
-          try { await consume(response) }
-          finally { if (!response.bodyUsed) await response.body?.cancel() }
-          await check()
-        },
-        request: async (path: string, options: JingliuRequest = {}) => {
-          await check()
-          let response: unknown
-          try {
-            response = await this.call(path, options, headers, mounted ? owner : undefined)
-          } catch (error) {
-            await check()
-            if (error instanceof JingliuHttpError && error.status === 401 && this.active?.session === session) this.active = undefined
-            throw error
-          }
-          await check()
-          return response
-        },
-      }
-    })
-    const active = { owner, session }
-    this.active = active
-    try {
-      return await session
-    } catch (error) {
-      if (this.active === active) this.active = undefined
-      throw error
-    }
+    return this.studio(await this.sessions.connection())
   }
 
   /**
@@ -309,9 +205,9 @@ export class JingliuConnection extends TypertRemoteService {
     if ('error' in resolved) throw resolved.error
     signal.throwIfAborted()
     const project = { id: projectId, title: result.title }
-    if ((await this.connection()) !== session) throw this.changed()
+    if ((await this.connection()) !== session) throw this.sessions.changed()
     await storeSelection(sessionId, session.identity, project)
-    if ((await this.connection()) !== session) throw this.changed()
+    if ((await this.connection()) !== session) throw this.sessions.changed()
     this.changes.emit(sessionId)
     resolved.agent.inject(createUserMessage({ source: { kind: 'jingliu-project', form: 'notice', summary: '已关联镜流制片项目' },
       content: [{ type: 'text', text: JSON.stringify({ jingliu_project: project, instruction: '用户确认了这个云制片项目。后续制片工作和审校使用此项目 ID，本机会话的文件夹独立。' }) }] }))
@@ -326,7 +222,7 @@ export class JingliuConnection extends TypertRemoteService {
    */
   @Remote({ mode: 'stream' })
   async *watchProject(sessionId: SessionId, signal: AbortSignal): AsyncIterable<SelectedProject | null> {
-    const closed = AbortSignal.any([signal, this.lifetime.signal])
+    const closed = AbortSignal.any([signal, this.sessions.signal])
     const updates = new EventEmitter()
     const changed = () => updates.emit('change')
     this.changes.on(sessionId, changed).on('account', changed)
@@ -379,7 +275,7 @@ export class JingliuConnection extends TypertRemoteService {
   async thumbnail(path: string, signal: AbortSignal): Promise<string> {
     const session = await this.connection()
     let image = ''
-    await session.media?.(path, AbortSignal.any([signal, AbortSignal.timeout(this.timeout)]), async (response) => {
+    await session.media?.(path, AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)]), async (response) => {
       const type = response.headers.get('content-type')?.split(';')[0]
       if (!type || !['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif'].includes(type)) throw new HarnessError('镜流素材没有可显示的缩略图。', 'JINGLIU_INVALID_MEDIA')
       image = 'data:' + type + ';base64,' + (await boundedBytes(response, 8 * 1024 * 1024)).toString('base64')
@@ -545,7 +441,7 @@ export class JingliuConnection extends TypertRemoteService {
     const session = await this.connection()
     let type = ''
     let bytes: Buffer | undefined
-    await session.media?.(path, AbortSignal.any([signal, AbortSignal.timeout(this.timeout * 4)]), async (response) => {
+    await session.media?.(path, AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs * 4)]), async (response) => {
       type = response.headers.get('content-type')?.split(';')[0] ?? ''
       if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(type)) throw new HarnessError('镜流素材不是可播放的视频。', 'JINGLIU_INVALID_MEDIA')
       bytes = await boundedBytes(response, VIDEO_MAX_BYTES)
@@ -635,20 +531,6 @@ export class JingliuConnection extends TypertRemoteService {
     return preferences(await session.request(path, { signal }), value.projectId)
   }
 
-  private async disconnect(signal: AbortSignal): Promise<string> {
-    const active = this.active
-    if (this.origin?.endsWith('/jingliu')) this.active = undefined
-    else if (active && active.owner === await this.owner()) {
-      try {
-        await (await active.session).request('/auth/logout', { method: 'POST', signal })
-      } catch (error) {
-        if (!(error instanceof JingliuHttpError && error.status === 401)) throw error
-      } finally {
-        if (this.active === active) this.active = undefined
-      }
-    }
-    return '本次镜流工具连接已结束。下次调用会使用当前 Muse 账号。'
-  }
 }
 
 export default JingliuConnection

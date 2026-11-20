@@ -1733,6 +1733,7 @@ export const FR = {
   // Muse
   'Muse sessions': 'Sessions Muse',
   'Jingliu': 'Jingliu',
+  Scripts: 'Scénarios',
   'Asset library': 'Bibliothèque de ressources',
   'Tools': 'Outils',
   'Skills/MCP': 'Skills/MCP',

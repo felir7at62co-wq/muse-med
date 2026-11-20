@@ -350,9 +350,12 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/** Workbench registered at the Muse gateway. */
+export type MuseWorkbenchAudience = 'script-workshop' | 'jingliu'
+
 /** Workbench and S256 challenge supplied by the trusted Muse renderer. */
 export interface MuseWorkbenchGrantRequest {
-  readonly audience: 'script-workshop' | 'jingliu'
+  readonly audience: MuseWorkbenchAudience
   readonly challenge: string
 }
 
@@ -395,6 +398,14 @@ export interface MuseDataWork {
   readonly episodeCount: number | null
   readonly wordCount: number | null
   readonly metrics: readonly MuseDataMetric[]
+}
+
+/** One work as the data station last recorded it: its ranking, rank there and collection time. */
+export interface MuseDataWorkDetail extends MuseDataWork {
+  readonly board: string
+  readonly rank: number | null
+  readonly author: string | null
+  readonly observedAt: string
 }
 
 /** One ranking period: its works in ranked order; `position` is null where the platform gave no rank. */

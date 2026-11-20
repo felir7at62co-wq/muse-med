@@ -2165,6 +2165,66 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'A preview image for this account.',
       },
       {
+        signature: '@Remote async catalog(signal: AbortSignal): Promise<StudioCatalog>',
+        description: 'Read the choices the studio offers for a new production.',
+        parameters: [{ name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'Modes with their art styles, frame ratios, resolutions and models.',
+      },
+      {
+        signature: '@Remote async createProject(input: StudioNewProject, signal: AbortSignal): Promise<SelectedProject>',
+        description: 'Create a production as the signed-in studio user.',
+        parameters: [{ name: 'input', description: 'Its name and settings, each one the catalog offers or \'\' for the studio default.' }, { name: 'signal', description: 'Form lifetime.' }],
+        returns: 'The created production\'s id and title.',
+      },
+      {
+        signature: '@Remote async renameProject(projectId: string, title: string, signal: AbortSignal): Promise<SelectedProject>',
+        description: 'Rename a production; later generations use the new name in their prompts.',
+        parameters: [{ name: 'projectId', description: 'The production.' }, { name: 'title', description: 'Its new name.' }, { name: 'signal', description: 'Form lifetime.' }],
+        returns: 'The stored id and title.',
+      },
+      {
+        signature: '@Remote async deleteShot(projectId: string, shotId: string, signal: AbortSignal): Promise<void>',
+        description: 'Delete one shot of a production; the studio keeps no copy to restore.',
+        parameters: [{ name: 'projectId', description: 'The production the workbench shows.' }, { name: 'shotId', description: 'The shot to delete.' }, { name: 'signal', description: 'Card lifetime.' }],
+        returns: 'Nothing once the studio confirms.',
+      },
+      {
+        signature: '@Remote async projectConfig(projectId: string, signal: AbortSignal): Promise<StudioConfig>',
+        description: 'Read a project\'s configuration for the workbench.',
+        parameters: [{ name: 'projectId', description: 'Selected cloud project.' }, { name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'Title, frame ratio, styles and models of the production.',
+      },
+      {
+        signature: '@Remote async episodeList(projectId: string, signal: AbortSignal): Promise<StudioEpisode[]>',
+        description: 'List a production\'s episodes.',
+        parameters: [{ name: 'projectId', description: 'Selected cloud project.' }, { name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'Episodes in studio order.',
+      },
+      {
+        signature: '@Remote async episodeShots(projectId: string, episode: number, signal: AbortSignal): Promise<StudioShot[]>',
+        description: 'Read every shot of one episode with its full prompt.',
+        parameters: [{ name: 'projectId', description: 'Selected cloud project.' }, { name: 'episode', description: 'Episode number.' }, { name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'The episode\'s shots in order.',
+      },
+      {
+        signature: '@Remote async shotMedia(projectId: string, shotId: string, signal: AbortSignal): Promise<StudioShotMedia>',
+        description: 'Read one shot\'s video, first frame and version chain.',
+        parameters: [{ name: 'projectId', description: 'Selected cloud project.' }, { name: 'shotId', description: 'Shot of that project.' }, { name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'The shot\'s media.',
+      },
+      {
+        signature: '@Remote async projectAssets(projectId: string, signal: AbortSignal): Promise<StudioProjectAssets>',
+        description: 'Read a production\'s assets and audio clips.',
+        parameters: [{ name: 'projectId', description: 'Selected cloud project.' }, { name: 'signal', description: 'Panel cancellation.' }],
+        returns: 'The workbench asset page\'s data.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) async *video(path: string, signal: AbortSignal): AsyncIterable<string>',
+        description: 'Stream a studio video for playback without exposing the studio credential.',
+        parameters: [{ name: 'path', description: 'Media path of a video in the current studio.' }, { name: 'signal', description: 'Playback cancellation.' }],
+        returns: 'The content type first, then base64 chunks of the file.',
+      },
+      {
         signature: '@Remote async balance(signal: AbortSignal): Promise<StudioBalance>',
         description: 'Read the current account allowance and usage.',
         parameters: [{ name: 'signal', description: 'Panel cancellation.' }],
@@ -2804,9 +2864,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'MUSE account Remote namespace. The Connection carrier authenticates every call.',
     methods: [
       {
-        signature: 'async requestMountedJingliu(owner: string, url: URL, options: RequestInit): Promise<Response>',
-        description: 'Authenticate a Host request to the studio mounted on the signed-in Muse gateway.',
-        parameters: [{ name: 'owner', description: 'Local login identifier.' }, { name: 'url', description: 'Mounted studio address, verified by the account owner.' }, { name: 'options', description: 'Transport options supplied by the studio client.' }],
+        signature: 'async requestMountedWorkbench(audience: MuseWorkbenchAudience, owner: string, url: URL, options: RequestInit): Promise<Response>',
+        description: 'Authenticate a Host request to a workbench mounted on the signed-in Muse gateway.',
+        parameters: [{ name: 'audience', description: 'Workbench whose mounted paths the address must name.' }, { name: 'owner', description: 'Local login identifier.' }, { name: 'url', description: 'Mounted workbench address, verified by the account owner.' }, { name: 'options', description: 'Transport options supplied by the workbench client.' }],
         returns: 'A response stream scoped to that user.',
       },
       {
@@ -2816,7 +2876,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'The current private Muse login identifier for Host-side workbench operations.',
       },
       {
-        signature: 'async workbenchGrant(audience: \'script-workshop\' | \'jingliu\', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }>',
+        signature: 'async workbenchGrant( audience: MuseWorkbenchAudience, challenge: string, ): Promise<{ code: string; expiresIn: number; accountId: string }>',
         description: 'Start one authentication exchange for a configured workbench.',
         parameters: [{ name: 'audience', description: 'Business application receiving the user\'s login.' }, { name: 'challenge', description: 'S256 challenge returned by that application.' }],
         returns: 'The one-time code, lifetime and session identifier for this exchange.',
@@ -2832,6 +2892,42 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Coordinate a voice registration through the current private Muse account. This Host-only method is deliberately absent from the renderer\'s Remote interface.',
         parameters: [{ name: 'request', description: 'Exact original operation and project/person/life-period identifiers.' }, { name: 'jubianToken', description: 'Private provider token for project-access verification.' }],
         returns: 'Wire response validated by the Jubian registration consumer.',
+      },
+      {
+        signature: '@Remote(\'dataBoards\') async dataBoards(platform: MuseDataPlatform): Promise<MuseDataBoards>',
+        description: 'The rankings one data-station platform publishes, as the signed-in member.',
+        parameters: [{ name: 'platform', description: 'Data-station platform.' }],
+        returns: 'Ranking names and the station\'s default ranking.',
+      },
+      {
+        signature: '@Remote(\'dataPeriod\') async dataPeriod(request: MuseDataPeriodRequest): Promise<MuseDataPeriod>',
+        description: 'One data-station ranking for a day, week or month.',
+        parameters: [{ name: 'request', description: 'Platform, ranking, period and optional Beijing date.' }],
+        returns: 'Ranked works with the platform\'s own metrics.',
+      },
+      {
+        signature: '@Remote(\'dataStock\') async dataStock(request: MuseDataStockRequest): Promise<MuseDataStock>',
+        description: 'One page of the data station\'s 储备看板 (Hongguo dramas selected for transcription).',
+        parameters: [{ name: 'request', description: 'Filter, optional title or ID search and page.' }],
+        returns: 'The board\'s counts and one page of dramas with their stage.',
+      },
+      {
+        signature: '@Remote(\'dataRush\') async dataRush(workId: string): Promise<MuseDataRush>',
+        description: 'Move one Hongguo drama to the front of the transcription queue; the station records the signed-in member as requester.',
+        parameters: [{ name: 'workId', description: 'Station work ID (`hongguo:<series id>`).' }],
+        returns: 'The queued job.',
+      },
+      {
+        signature: '@Remote(\'dataWork\') async dataWork(id: string): Promise<MuseDataWorkDetail>',
+        description: 'One work as the data station last recorded it, such as a finalized script\'s original.',
+        parameters: [{ name: 'id', description: 'Station work ID (`fanqie:<id>`, `hongguo:<id>`, …).' }],
+        returns: 'The work with its platform metrics, ranking and collection time.',
+      },
+      {
+        signature: '@Remote(\'dataCollector\') async dataCollector(): Promise<MuseDataCollector>',
+        description: 'The 绿泡泡 collector\'s connection to the data station.',
+        parameters: [],
+        returns: 'Its state, label and message.',
       },
       {
         signature: '@Remote(\'feedback\') async feedback(request: MuseFeedbackRequest): Promise<MuseFeedbackReceipt>',
@@ -5720,6 +5816,43 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'workshopConnection',
+    summary: 'Opens Script Workshop sessions as the signed-in Muse user and serves the Client\'s 剧本 tab from the finalized-script library; native tokens never reach model input or output.',
+    description: 'Opens Script Workshop sessions as the signed-in Muse user and serves the Client\'s 剧本 tab from the finalized-script library; native tokens never reach model input or output.',
+    methods: [
+      {
+        signature: 'async connection(): Promise<WorkbenchSession>',
+        description: 'Resolve the active Muse account on the configured Workshop.',
+        parameters: [],
+        returns: 'A session bound to this Muse login and Workshop user.',
+      },
+      {
+        signature: '@Remote(\'scripts\') async scripts(request: ScriptListRequest): Promise<ScriptList>',
+        description: 'One page of the finalized-script library, which every signed-in member can read.',
+        parameters: [{ name: 'request', description: 'Stage filter, title search, own scripts only, and page.' }],
+        returns: 'The page, counts per stage for the same search, and whether this member may pick.',
+      },
+      {
+        signature: '@Remote(\'script\') async script(request: ScriptReadRequest): Promise<ScriptDetail>',
+        description: 'One script with its versions and the text of one version.',
+        parameters: [{ name: 'request', description: 'Script and optional version; the latest when omitted.' }],
+        returns: 'The script, its versions and that version\'s episodes.',
+      },
+      {
+        signature: '@Remote(\'pickScript\') async pickScript(request: ScriptPickRequest): Promise<ScriptSummary>',
+        description: 'Pick one version for production; the Workshop refuses members without the pick permission.',
+        parameters: [{ name: 'request', description: 'Script and version.' }],
+        returns: 'The script\'s card after the pick.',
+      },
+      {
+        signature: '@Remote(\'scriptProduction\') async scriptProduction(request: ScriptProductionRequest): Promise<ScriptSummary>',
+        description: 'Record the Jingliu project a picked script became.',
+        parameters: [{ name: 'request', description: 'Script and the project\'s ID and title.' }],
+        returns: 'The script\'s card, now in production.',
+      },
+    ],
+  },
+  {
     key: 'workspaceChanges',
     summary: 'Serves the summaries and file comparisons the recorder keeps for live Sessions.',
     description: 'Serves the summaries and file comparisons the recorder keeps for live Sessions.',
@@ -6634,6 +6767,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Emitted when any prompt provider changes.',
     description: 'Emitted when any prompt provider changes. This registry notification is unfiltered because a global change affects every scope.',
     parameters: [],
+  },
+  {
+    name: 'task-skill/carry',
+    mode: 'emit',
+    signature: '\'task-skill/carry\'(payload: { from: Agent; to: Agent }): void',
+    summary: 'A conversation continues in another Session, such as the next part of a long-lived conversation.',
+    description: 'A conversation continues in another Session, such as the next part of a long-lived conversation. The owner of the skill loader both agents use moves the task skills in effect to the continuation: on its next admitted step, each skill\'s current instructions arrive as a skill invocation and are in effect there. A skill that is gone, or that only the model may load, is left behind, because a skill invocation is recovered under the user-invocation rule. Other owners ignore the event.',
+    parameters: [{ name: 'payload', description: '.to - Agent that continues the conversation.' }],
   },
   {
     name: 'tools/change',
@@ -8617,7 +8758,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'JingliuRequest',
-    declaration: 'export interface JingliuRequest {\n    method?: \'GET\' | \'POST\' | \'PUT\' | \'PATCH\' | \'DELETE\';\n    body?: unknown;\n    signal?: AbortSignal;\n}',
+    declaration: 'export type JingliuRequest = WorkbenchRequest;',
   },
   {
     name: 'JingliuSession',
@@ -9364,6 +9505,58 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type MuseBrowserLoginResult = {\n    readonly state: \'pending\' | \'expired\' | \'cancelled\';\n} | {\n    readonly state: \'signed-in\';\n    readonly status: Extract<MuseAccountStatus, {\n        readonly state: \'signed-in\';\n    }>;\n};',
   },
   {
+    name: 'MuseDataBoards',
+    declaration: 'export interface MuseDataBoards {\n    readonly boards: readonly string[];\n    readonly defaultBoard: string | null;\n}',
+  },
+  {
+    name: 'MuseDataCollector',
+    declaration: 'export interface MuseDataCollector {\n    readonly state: string;\n    readonly label: string;\n    readonly message: string;\n}',
+  },
+  {
+    name: 'MuseDataJobState',
+    declaration: 'export type MuseDataJobState = \'queued\' | \'downloading\' | \'transcribing\' | \'checking\' | \'published\' | \'failed\' | \'needs-attention\' | \'rejected\';',
+  },
+  {
+    name: 'MuseDataMetric',
+    declaration: 'export interface MuseDataMetric {\n    readonly key: string;\n    readonly label: string;\n    readonly value: number | null;\n}',
+  },
+  {
+    name: 'MuseDataPeriod',
+    declaration: 'export interface MuseDataPeriod {\n    readonly platform: MuseDataPlatform;\n    readonly board: string;\n    readonly period: \'day\' | \'week\' | \'month\';\n    readonly date: string;\n    readonly items: readonly {\n        readonly position: number | null;\n        readonly work: MuseDataWork;\n    }[];\n}',
+  },
+  {
+    name: 'MuseDataPeriodRequest',
+    declaration: 'export interface MuseDataPeriodRequest {\n    readonly platform: MuseDataPlatform;\n    readonly board: string;\n    readonly period: \'day\' | \'week\' | \'month\';\n    readonly date?: string;\n}',
+  },
+  {
+    name: 'MuseDataPlatform',
+    declaration: 'export type MuseDataPlatform = \'hongguo\' | \'lvpaopao\' | \'douyin\' | \'fanqie\' | \'qimao\';',
+  },
+  {
+    name: 'MuseDataRush',
+    declaration: 'export interface MuseDataRush {\n    readonly workId: string;\n    readonly state: MuseDataJobState;\n    readonly lane: \'manual\' | \'new\' | \'backlog\';\n}',
+  },
+  {
+    name: 'MuseDataStock',
+    declaration: 'export interface MuseDataStock {\n    readonly summary: {\n        readonly stock: number;\n        readonly queued: number;\n        readonly active: number;\n        readonly failures: number;\n        readonly rejected: number;\n        readonly candidates: number;\n    };\n    readonly items: readonly MuseDataStockItem[];\n    readonly total: number;\n    readonly page: number;\n    readonly limit: number;\n}',
+  },
+  {
+    name: 'MuseDataStockItem',
+    declaration: 'export interface MuseDataStockItem {\n    readonly work: {\n        readonly id: string;\n        readonly sourceId: string;\n        readonly title: string | null;\n        readonly tags: readonly string[];\n        readonly episodeCount: number | null;\n    };\n    readonly evaluation: {\n        readonly collection?: {\n            readonly value: number;\n        } | null | undefined;\n        readonly douyin?: {\n            readonly viewCount?: number | null | undefined;\n        } | null | undefined;\n    } | null;\n    readonly job: {\n        readonly workId: string;\n        readonly state: MuseDataJobState;\n        readonly lane: \'manual\' | \'new\' | \'backlog\';\n        readonly requestedBy: string | null;\n        readonly progress: {\n            readonly episode: number | null;\n            readonly totalEpisodes: number | null;\n        } | null;\n        readonly lastError?: {\n            readonly reason: string;\n        } | null | undefined;\n    } | null;\n    readonly script: {\n        readonly id: string;\n        readonly fileName: string;\n    } | null;\n}',
+  },
+  {
+    name: 'MuseDataStockRequest',
+    declaration: 'export interface MuseDataStockRequest {\n    readonly filter: \'all\' | \'script\' | \'active\' | \'queued\' | \'failed\' | \'rejected\';\n    readonly q?: string;\n    readonly page: number;\n    readonly limit: number;\n}',
+  },
+  {
+    name: 'MuseDataWork',
+    declaration: 'export interface MuseDataWork {\n    readonly id: string;\n    readonly sourceId: string;\n    readonly platform: MuseDataPlatform;\n    readonly title: string | null;\n    readonly tags: readonly string[];\n    readonly episodeCount: number | null;\n    readonly wordCount: number | null;\n    readonly metrics: readonly MuseDataMetric[];\n}',
+  },
+  {
+    name: 'MuseDataWorkDetail',
+    declaration: 'export interface MuseDataWorkDetail extends MuseDataWork {\n    readonly board: string;\n    readonly rank: number | null;\n    readonly author: string | null;\n    readonly observedAt: string;\n}',
+  },
+  {
     name: 'MuseDesktopConnectionState',
     declaration: 'export type MuseDesktopConnectionState = \'connecting\' | \'online\' | \'offline\' | \'rejected\';',
   },
@@ -9428,12 +9621,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MuseVoiceSlotRequest {\n    readonly action: \'acquire\' | \'start\' | \'complete\' | \'abandon\' | \'read\';\n    readonly script_id: number;\n    readonly character_id: string;\n    readonly voice_period_id: string;\n    readonly operation_key: string;\n    readonly lease_id?: MuseVoiceLeaseId;\n    readonly asset_id?: number;\n}',
   },
   {
+    name: 'MuseWorkbenchAudience',
+    declaration: 'export type MuseWorkbenchAudience = \'script-workshop\' | \'jingliu\';',
+  },
+  {
     name: 'MuseWorkbenchGrant',
     declaration: 'export interface MuseWorkbenchGrant {\n    readonly code: string;\n}',
   },
   {
     name: 'MuseWorkbenchGrantRequest',
-    declaration: 'export interface MuseWorkbenchGrantRequest {\n    readonly audience: \'script-workshop\' | \'jingliu\';\n    readonly challenge: string;\n}',
+    declaration: 'export interface MuseWorkbenchGrantRequest {\n    readonly audience: MuseWorkbenchAudience;\n    readonly challenge: string;\n}',
   },
   {
     name: 'NativeFileApplication',
@@ -10358,6 +10555,62 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ScopeKey',
     declaration: 'export type ScopeKey = object;',
+  },
+  {
+    name: 'ScriptDetail',
+    declaration: 'export interface ScriptDetail {\n    readonly script: ScriptSummary;\n    readonly canPick: boolean;\n    readonly versions: readonly ScriptVersion[];\n    readonly content: {\n        readonly version: number;\n        readonly episodes: readonly ScriptEpisode[];\n    };\n}',
+  },
+  {
+    name: 'ScriptEpisode',
+    declaration: 'export interface ScriptEpisode {\n    readonly order: number;\n    readonly title: string;\n    readonly content: string;\n}',
+  },
+  {
+    name: 'ScriptKind',
+    declaration: 'export type ScriptKind = \'drama\' | \'narration\';',
+  },
+  {
+    name: 'ScriptList',
+    declaration: 'export interface ScriptList {\n    readonly items: readonly ScriptSummary[];\n    readonly total: number;\n    readonly page: number;\n    readonly limit: number;\n    readonly counts: {\n        readonly waiting: number;\n        readonly picked: number;\n        readonly inProduction: number;\n        readonly all: number;\n    };\n    readonly canPick: boolean;\n}',
+  },
+  {
+    name: 'ScriptListRequest',
+    declaration: 'export interface ScriptListRequest {\n    readonly status?: ScriptStatus;\n    readonly q?: string;\n    readonly mine?: boolean;\n    readonly page: number;\n    readonly limit: number;\n}',
+  },
+  {
+    name: 'ScriptPerson',
+    declaration: 'export interface ScriptPerson {\n    readonly id: number;\n    readonly name: string | null;\n}',
+  },
+  {
+    name: 'ScriptPickRequest',
+    declaration: 'export interface ScriptPickRequest {\n    readonly id: number;\n    readonly version: number;\n}',
+  },
+  {
+    name: 'ScriptProductionRequest',
+    declaration: 'export interface ScriptProductionRequest {\n    readonly id: number;\n    readonly projectId: string;\n    readonly projectTitle: string;\n}',
+  },
+  {
+    name: 'ScriptReadRequest',
+    declaration: 'export interface ScriptReadRequest {\n    readonly id: number;\n    readonly version?: number;\n}',
+  },
+  {
+    name: 'ScriptRights',
+    declaration: 'export type ScriptRights = \'original\' | \'licensed\';',
+  },
+  {
+    name: 'ScriptStatus',
+    declaration: 'export type ScriptStatus = \'waiting\' | \'picked\' | \'in_production\';',
+  },
+  {
+    name: 'ScriptStyle',
+    declaration: 'export type ScriptStyle = \'realistic\' | \'3d\';',
+  },
+  {
+    name: 'ScriptSummary',
+    declaration: 'export interface ScriptSummary {\n    readonly id: number;\n    readonly title: string;\n    readonly owner: ScriptPerson;\n    readonly rights: ScriptRights;\n    readonly originWorkId: string | null;\n    readonly originTitle: string | null;\n    readonly kind: ScriptKind;\n    readonly style: ScriptStyle;\n    readonly episodes: number;\n    readonly words: number;\n    readonly status: ScriptStatus;\n    readonly latestVersion: number;\n    readonly picked: {\n        readonly by: ScriptPerson;\n        readonly version: number;\n        readonly at: string | null;\n    } | null;\n    readonly project: {\n        readonly id: string;\n        readonly title: string;\n    } | null;\n    readonly createdAt: string | null;\n    readonly updatedAt: string | null;\n}',
+  },
+  {
+    name: 'ScriptVersion',
+    declaration: 'export interface ScriptVersion {\n    readonly number: number;\n    readonly words: number;\n    readonly createdAt: string | null;\n    readonly by: ScriptPerson;\n}',
   },
   {
     name: 'SearchFileMatches',
@@ -11389,11 +11642,27 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'StudioAsset',
-    declaration: 'export interface StudioAsset {\n    id: string;\n    name: string;\n    kind: string;\n    thumbnail: string;\n    description: string;\n    referenceOnly: boolean;\n}',
+    declaration: 'export interface StudioAsset {\n    id: string;\n    name: string;\n    kind: string;\n    thumbnail: string;\n    description: string;\n    referenceOnly: boolean;\n    uses: number;\n}',
+  },
+  {
+    name: 'StudioAudioClip',
+    declaration: 'export interface StudioAudioClip {\n    id: string;\n    kind: string;\n    text: string;\n    path: string;\n    durationSec: number | null;\n}',
   },
   {
     name: 'StudioBalance',
     declaration: 'export interface StudioBalance {\n    unlimited: boolean;\n    available: string;\n    usedFen: number;\n    heldFen: number;\n}',
+  },
+  {
+    name: 'StudioCatalog',
+    declaration: 'export interface StudioCatalog {\n    modes: {\n        key: string;\n        label: string;\n        styles: {\n            key: string;\n            label: string;\n            enabled: boolean;\n        }[];\n    }[];\n    aspects: string[];\n    resolutions: string[];\n    imageModels: {\n        id: string;\n        name: string;\n    }[];\n    videoModels: {\n        id: string;\n        name: string;\n    }[];\n    generationModes: {\n        id: string;\n        name: string;\n    }[];\n}',
+  },
+  {
+    name: 'StudioConfig',
+    declaration: 'export interface StudioConfig {\n    projectId: string;\n    title: string;\n    aspect: string;\n    artStyle: string;\n    mode: string;\n    resolution: string;\n    imageModel: string;\n    videoModel: string;\n}',
+  },
+  {
+    name: 'StudioEpisode',
+    declaration: 'export interface StudioEpisode {\n    number: number;\n    title: string;\n    hasShots: boolean;\n}',
   },
   {
     name: 'StudioLibrary',
@@ -11402,6 +11671,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StudioLibraryQuery',
     declaration: 'export interface StudioLibraryQuery {\n    kind: \'all\' | \'character\' | \'location\' | \'prop\';\n    query: string;\n    offset: number;\n}',
+  },
+  {
+    name: 'StudioNewProject',
+    declaration: 'export interface StudioNewProject {\n    title: string;\n    mode: string;\n    artStyle: string;\n    aspect: string;\n    resolution: string;\n    videoModel: string;\n    imageModel: string;\n    generationMode: string;\n}',
   },
   {
     name: 'StudioOptions',
@@ -11413,11 +11686,31 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'StudioProject',
-    declaration: 'export interface StudioProject {\n    id: string;\n    title: string;\n    episodes: number;\n    shots: number;\n    completed: number;\n    role: string;\n    thumbnail: string;\n}',
+    declaration: 'export interface StudioProject {\n    id: string;\n    title: string;\n    episodes: number;\n    shots: number;\n    completed: number;\n    role: string;\n    thumbnail: string;\n    mode: string;\n    aspect: string;\n    createdAt: string;\n    profile: {\n        videoModel: string;\n        generationMode: string;\n        resolution: string;\n    };\n}',
+  },
+  {
+    name: 'StudioProjectAsset',
+    declaration: 'export interface StudioProjectAsset {\n    id: string;\n    kind: string;\n    name: string;\n    imagePath: string;\n    prompt: string;\n}',
+  },
+  {
+    name: 'StudioProjectAssets',
+    declaration: 'export interface StudioProjectAssets {\n    assets: StudioProjectAsset[];\n    audio: StudioAudioClip[];\n}',
   },
   {
     name: 'StudioSetting',
     declaration: 'export type StudioSetting = \'resolution\' | \'character\' | \'location\' | \'prop\';',
+  },
+  {
+    name: 'StudioShot',
+    declaration: 'export interface StudioShot {\n    id: string;\n    order: number;\n    episode: number;\n    index: number;\n    prompt: string;\n    characters: string[];\n    location: string;\n    props: string[];\n    durationSec: number | null;\n    hasVideo: boolean;\n    failReason: string;\n    stale: boolean;\n}',
+  },
+  {
+    name: 'StudioShotMedia',
+    declaration: 'export interface StudioShotMedia {\n    shotId: string;\n    videoPath: string;\n    firstFramePath: string;\n    adoptedVersion: number | null;\n    versions: StudioShotVersion[];\n}',
+  },
+  {
+    name: 'StudioShotVersion',
+    declaration: 'export interface StudioShotVersion {\n    number: number;\n    model: string;\n    videoPath: string;\n    createdAt: string;\n}',
   },
   {
     name: 'SubagentActivation',
@@ -12398,6 +12691,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WeeklyScheduleRecord',
     declaration: 'export interface WeeklyScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'weekly\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly time: string;\n    readonly timeZone: string;\n    readonly weekdays: number[];\n    readonly scheduledAt: string;\n}',
+  },
+  {
+    name: 'WorkbenchRequest',
+    declaration: 'export interface WorkbenchRequest {\n    method?: \'GET\' | \'POST\' | \'PUT\' | \'PATCH\' | \'DELETE\';\n    body?: unknown;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'WorkbenchSession',
+    declaration: 'export interface WorkbenchSession {\n    readonly identity: string;\n    readonly origin: string;\n    request(path: string, options?: WorkbenchRequest): Promise<unknown>;\n    fetch(url: URL, init: RequestInit): Promise<Response>;\n    check(): Promise<void>;\n}',
   },
   {
     name: 'WorkerReport',

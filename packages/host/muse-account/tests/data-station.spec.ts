@@ -94,6 +94,15 @@ it('queues 立即转写 for a Hongguo work only, as a JSON POST', async () => {
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
 
+it('reads one work for a finalized script\'s source card, refusing anything but a station work ID', async () => {
+  const { client, fetcher } = await fixture(() => Response.json({ work: { ...work, board: '综合热播榜', rank: 3, author: null, observedAt: '2026-11-20T08:00:00.000Z', script: null } }))
+  const { description: _description, ...parsed } = work
+  expect(await client.work('fanqie:7300000000000000001')).toEqual({ ...parsed, board: '综合热播榜', rank: 3, author: null, observedAt: '2026-11-20T08:00:00.000Z' })
+  expect(sent(fetcher).url).toBe(`${prefix}/works/${encodeURIComponent('fanqie:7300000000000000001')}`)
+  await expect(client.work('fanqie:../admin')).rejects.toMatchObject({ code: 'invalid-input' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
 it.each([
   [400, false, 'invalid-input'], [401, false, 'sign-in-required'], [403, false, 'team-access-required'], [503, false, 'station-unavailable'],
   [500, false, 'unavailable'], [404, false, 'unavailable'], [500, true, 'unconfirmed'], [404, true, 'unavailable'],

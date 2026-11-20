@@ -4,7 +4,7 @@ import { museGatewayOrigin } from './gateway.ts'
 import { readMuseSession } from './session.ts'
 import type {
   MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataPeriodRequest, MuseDataPlatform, MuseDataRush, MuseDataStock,
-  MuseDataStockRequest,
+  MuseDataStockRequest, MuseDataWorkDetail,
 } from './types.ts'
 
 /** Fixed failures; station response bodies and the account token are never retained. */
@@ -40,6 +40,12 @@ const work = z.object({
   episodeCount: count.nullable(), wordCount: count.nullable(), metrics: z.array(metric).max(80),
 })
 const boards = z.object({ boards: z.array(label).max(1000), defaultBoard: label.nullable() })
+const workDetail = z.object({
+  work: work.extend({
+    board: label, rank: count.nullable(), author: label.nullish().transform(value => value ?? null), observedAt: z.string().max(64),
+  }),
+})
+const WORK_ID = /^(?:hongguo|fanqie|qimao|douyin|lvpaopao):[0-9A-Za-z_-]{1,64}$/u
 const period = z.object({
   platform: z.enum(PLATFORMS), board: label, period: z.enum(['day', 'week', 'month']), date: z.string().max(32),
   items: z.array(z.object({ position: count.nullable(), work })).max(2000),
@@ -127,6 +133,16 @@ export class MuseDataStationClient {
   async rush(id: string): Promise<MuseDataRush> {
     if (!/^hongguo:\d{1,32}$/u.test(id)) throw new MuseDataError('invalid-input')
     return rush.parse(await this.exchange(`/hits/${encodeURIComponent(id)}/rush`, '{}'))
+  }
+
+  /**
+   * One work as the data station last recorded it, such as a finalized script's original novel or drama.
+   * @param id - Station work ID (`fanqie:<id>`, `hongguo:<id>`, …).
+   * @returns The work with its platform metrics, ranking and collection time.
+   */
+  async work(id: string): Promise<MuseDataWorkDetail> {
+    if (!WORK_ID.test(id)) throw new MuseDataError('invalid-input')
+    return workDetail.parse(await this.exchange(`/works/${encodeURIComponent(id)}`)).work
   }
 
   /** @returns The 绿泡泡 collector's state, label and message. */

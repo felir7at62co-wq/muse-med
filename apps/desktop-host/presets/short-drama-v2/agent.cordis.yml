@@ -81,7 +81,7 @@
         skill: muse-asset-design
       - tools: [drama_render, jianying_draft, drama_draft_dir]
         skill: muse-episode-delivery
-      - tools: [screenplay_export_docx]
+      - tools: [screenplay_export_docx, script_finalize]
         skill: muse-manuscript-delivery
       - tools: ['hongguo_*', 'douyin_*', muse_media_data]
         skill: muse-source-download

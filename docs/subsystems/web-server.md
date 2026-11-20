@@ -190,13 +190,14 @@ MUSE account Remote namespace. The Connection carrier authenticates every call.
 
 ```ts cordis-catalog
 /**
- * Authenticate a Host request to the studio mounted on the signed-in Muse gateway.
+ * Authenticate a Host request to a workbench mounted on the signed-in Muse gateway.
+ * @param audience - Workbench whose mounted paths the address must name.
  * @param owner - Local login identifier.
- * @param url - Mounted studio address, verified by the account owner.
- * @param options - Transport options supplied by the studio client.
+ * @param url - Mounted workbench address, verified by the account owner.
+ * @param options - Transport options supplied by the workbench client.
  * @returns A response stream scoped to that user.
  */
-async requestMountedJingliu(owner: string, url: URL, options: RequestInit): Promise<Response>
+async requestMountedWorkbench(audience: MuseWorkbenchAudience, owner: string, url: URL, options: RequestInit): Promise<Response>
 
 /**
  * Identify the login currently available to a Host-side workbench.
@@ -210,7 +211,7 @@ async workbenchIdentity(): Promise<string>
  * @param challenge - S256 challenge returned by that application.
  * @returns The one-time code, lifetime and session identifier for this exchange.
  */
-async workbenchGrant(audience: 'script-workshop' | 'jingliu', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }>
+async workbenchGrant( audience: MuseWorkbenchAudience, challenge: string, ): Promise<{ code: string; expiresIn: number; accountId: string }>
 
 /**
  * Authorize sign-in in a configured workbench embedded in Muse.
@@ -227,6 +228,47 @@ async workbenchGrant(audience: 'script-workshop' | 'jingliu', challenge: string)
  * @returns Wire response validated by the Jubian registration consumer.
  */
 async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Promise<unknown>
+
+/**
+ * The rankings one data-station platform publishes, as the signed-in member.
+ * @param platform - Data-station platform.
+ * @returns Ranking names and the station's default ranking.
+ */
+@Remote('dataBoards') async dataBoards(platform: MuseDataPlatform): Promise<MuseDataBoards>
+
+/**
+ * One data-station ranking for a day, week or month.
+ * @param request - Platform, ranking, period and optional Beijing date.
+ * @returns Ranked works with the platform's own metrics.
+ */
+@Remote('dataPeriod') async dataPeriod(request: MuseDataPeriodRequest): Promise<MuseDataPeriod>
+
+/**
+ * One page of the data station's 储备看板 (Hongguo dramas selected for transcription).
+ * @param request - Filter, optional title or ID search and page.
+ * @returns The board's counts and one page of dramas with their stage.
+ */
+@Remote('dataStock') async dataStock(request: MuseDataStockRequest): Promise<MuseDataStock>
+
+/**
+ * Move one Hongguo drama to the front of the transcription queue; the station records the signed-in member as requester.
+ * @param workId - Station work ID (`hongguo:<series id>`).
+ * @returns The queued job.
+ */
+@Remote('dataRush') async dataRush(workId: string): Promise<MuseDataRush>
+
+/**
+ * One work as the data station last recorded it, such as a finalized script's original.
+ * @param id - Station work ID (`fanqie:<id>`, `hongguo:<id>`, …).
+ * @returns The work with its platform metrics, ranking and collection time.
+ */
+@Remote('dataWork') async dataWork(id: string): Promise<MuseDataWorkDetail>
+
+/**
+ * The 绿泡泡 collector's connection to the data station.
+ * @returns Its state, label and message.
+ */
+@Remote('dataCollector') async dataCollector(): Promise<MuseDataCollector>
 
 /**
  * Submit one explicitly authored remark to the signed-in Muse account's inbox.

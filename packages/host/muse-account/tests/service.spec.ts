@@ -189,7 +189,7 @@ it('publishes account setup and explicit inbox submission over the authenticated
   await context.plugin(MuseAccountService, { controller })
   const service = context.get('museAccount') as MuseAccountService
 
-  expect(remoteMethods(service).map(entry => entry.method)).toEqual(['issueWorkbenchCode', 'dataBoards', 'dataPeriod', 'dataStock', 'dataRush', 'dataCollector', 'feedback', 'status', 'details', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
+  expect(remoteMethods(service).map(entry => entry.method)).toEqual(['issueWorkbenchCode', 'dataBoards', 'dataPeriod', 'dataStock', 'dataRush', 'dataWork', 'dataCollector', 'feedback', 'status', 'details', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
   await expect(service.feedback({ sessionId: 'session' as never, target: { kind: 'session' }, includeDiagnostics: false }))
     .rejects.toMatchObject({ code: 'muse-feedback/unavailable', details: {} })
   await expect(service.login({ username: 'writer', password: 'secret-value', registerIfMissing: false }))
@@ -229,7 +229,7 @@ it('forwards the receipt purpose through the Host service without adding transcr
     expect(await service.submitAudio(file, id, 'a'.repeat(64), 'zh', 'screenplay')).toEqual({ id, status: 'processing', purpose: 'screenplay', service_version: 'standard-v2' })
     await service.audioStatus(id)
     expect(headers.map(row => row.get('x-muse-asr-purpose'))).toEqual(['screenplay', null])
-    expect(remoteMethods(service).map(entry => entry.method)).toEqual(['issueWorkbenchCode', 'dataBoards', 'dataPeriod', 'dataStock', 'dataRush', 'dataCollector', 'feedback', 'status', 'details', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
+    expect(remoteMethods(service).map(entry => entry.method)).toEqual(['issueWorkbenchCode', 'dataBoards', 'dataPeriod', 'dataStock', 'dataRush', 'dataWork', 'dataCollector', 'feedback', 'status', 'details', 'login', 'logout', 'startBrowserLogin', 'checkBrowserLogin', 'cancelBrowserLogin'])
     const controller = new AbortController(), reason = new Error('cancelled service call')
     controller.abort(reason)
     await expect(service.submitAudio(file, id, 'a'.repeat(64), 'zh', 'screenplay', controller.signal)).rejects.toBe(reason)
@@ -455,6 +455,28 @@ it('keeps voice coordination Host-only and explicitly reports a missing provider
   } } })
   expect(await next.museAccount.requestVoiceSlot(request, 'private-provider')).toEqual({ state: 'available' })
   expect(calls).toEqual(['private-provider'])
+})
+
+it('sends a mounted workbench request through the Host login and refuses it without one', async () => {
+  const context = new Context()
+  contexts.push(context)
+  const status = async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' })
+  const controller = { status, logout: status, login: async () => { throw Error('Unused login') }, details: async () => { throw Error('Unused details') } }
+  const mounted = vi.fn(async () => Response.json({ ok: true }))
+  await context.plugin(MuseAccountService, { controller, workbench: { issue: vi.fn(), identity: async () => 'host-private', mounted } })
+  const url = new URL('https://accounts.example/jubengongfang/v1/auth/me')
+  expect(await (await context.museAccount.requestMountedWorkbench('script-workshop', 'host-private', url, {})).json()).toEqual({ ok: true })
+  expect(mounted).toHaveBeenCalledWith('script-workshop', 'host-private', url, {})
+  expect(await context.museAccount.workbenchIdentity()).toBe('host-private')
+  const bare = new Context()
+  contexts.push(bare)
+  await bare.plugin(MuseAccountService, { controller, workbench: { issue: vi.fn(), identity: async () => 'host-private' } })
+  await expect(bare.museAccount.requestMountedWorkbench('jingliu', 'host-private', url, {})).rejects.toMatchObject({ code: 'gateway-unavailable' })
+  const none = new Context()
+  contexts.push(none)
+  await none.plugin(MuseAccountService, { controller })
+  await expect(none.museAccount.workbenchIdentity()).rejects.toMatchObject({ code: 'gateway-unavailable' })
+  await expect(none.museAccount.workbenchGrant('script-workshop', 'x'.repeat(43))).rejects.toMatchObject({ code: 'gateway-unavailable' })
 })
 
 it('gives the authenticated renderer only the single-use code or a bounded failure', async () => {

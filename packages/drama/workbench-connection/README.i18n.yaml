@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/workbench-connection/README.md
+/:
+  en: 98c77adac2f730f0
+  zh: 59d6ea8668101b31
+/workbench-connection:
+  en: 6d736ed9ad4bc8c9
+  zh: 3f6461fe89b8ac79
+/workbench-connection/summary:
+  en: 646e319705d748c8
+  zh: 031677de654446eb
+/workbench-connection/table-of-contents:
+  en: 404f534a780f4221
+  zh: d9f05419ebbd12fb
+/workbench-connection/configure-the-workshop:
+  en: 9f90d8019cbd058d
+  zh: 930330b0296ad280
+/workbench-connection/sign-in:
+  en: 66649a20b15667d6
+  zh: 58def469ea72d80f
+/workbench-connection/host-api:
+  en: 3c6a140aad683ee4
+  zh: 7570e76f4a41cd70
+/workbench-connection/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/workbench-connection/model-experience/workshop-tool-failures:
+  en: bf98605f0d635e18
+  zh: 2e96d3863fa738c9
+/workbench-connection/model-experience/workshop-tool-failures/what-the-model-sees:
+  en: b59b9aa92b90fa9b
+  zh: 47de6f8f192166a9
+/workbench-connection/model-experience/workshop-tool-failures/token-effect:
+  en: 4cbfdd662db56cc1
+  zh: 558f9e960f5e02eb
+/workbench-connection/model-experience/workshop-tool-failures/kv-cache-effect:
+  en: 879132aefd7c98f0
+  zh: 3e46738925c750be
+/workbench-connection/known-limitations-and-deferred-work:
+  en: e36f66d244e7301a
+  zh: 932391df8d9758a5
+/workbench-connection/known-limitations-and-deferred-work/dev-note:
+  en: e9646f10f0757af0
+  zh: 62293055c3c25042
