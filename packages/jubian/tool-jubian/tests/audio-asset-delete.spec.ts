@@ -20,6 +20,7 @@ let materialRows: unknown
 let boardPages: Map<number, unknown> | undefined
 let retainDeletedAsset: boolean
 let failReadback: boolean
+let softDeleted: Record<string, unknown> | undefined
 const url = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/zhou-voice.wav'
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'jubian-audio-delete-'))
@@ -29,6 +30,7 @@ beforeEach(async () => {
   boards = []; deletes = []; lostReply = false; pageTotal = undefined
   materialRows = []
   boardPages = undefined; retainDeletedAsset = false; failReadback = false
+  softDeleted = undefined
   client = new JubianClient({ credential: async () => 'mock-token', fetch: async (target, init) => {
     const requestUrl = new URL(target instanceof Request ? target.url : target.toString())
     const path = requestUrl.pathname.replace('/prod-api', '')
@@ -41,7 +43,7 @@ beforeEach(async () => {
       return answer(audio)
     }
     if (init?.method === 'DELETE') {
-      deletes.push(path); if (!retainDeletedAsset) audio = null
+      deletes.push(path); if (!retainDeletedAsset) audio = softDeleted ?? null
       if (lostReply) throw new Error('reply lost after deletion')
       return answer(null)
     }
@@ -83,6 +85,22 @@ it('previews and deletes only the inspected audio asset with verified readback',
   expect(await apply(plan)).toMatchObject({ replayed: true, status: 'deleted' })
   expect(deletes).toHaveLength(1)
 })
+it.each([false, true])('confirms a soft-deleted audio row and keeps replay read-only; lost reply=%s', async (lost) => {
+  const plan = await preview()
+  softDeleted = { ...audio, delFlag: '1', deleted: true }
+  lostReply = lost
+  expect(await apply(plan)).toMatchObject({ status: 'deleted', verified_readback: true,
+    response_status: lost ? 'unknown' : 'accepted' })
+  expect(await apply(plan)).toMatchObject({ status: 'deleted', replayed: true, verified_readback: true })
+  expect(deletes).toHaveLength(1)
+})
+it.each([{ delFlag: '1', deleted: false }, { delFlag: '0', deleted: true }, { delFlag: null }])(
+  'does not confirm deletion from conflicting or unreadable flags %j', async (flags) => {
+    const plan = await preview()
+    softDeleted = { ...audio, ...flags }
+    expect(await apply(plan)).toMatchObject({ status: 'still_present', verified_readback: false })
+    expect(deletes).toHaveLength(1)
+  })
 
 it('reports character and card references and refuses deletion until they are removed', async () => {
   await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708,

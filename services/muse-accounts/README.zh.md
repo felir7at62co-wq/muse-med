@@ -115,6 +115,8 @@ node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate
 
 操作为 acquire、start、complete、abandon 与 read，键包含项目／人物／人生时期及原登记操作。排他文件系统锁在多个网关进程间串行化写入。只有尚未开始的认领会到期，持久化 submitted 操作不会放行第二次创建。完成后保留精确资产 ID，不悄悄更换。未知结果沿原操作对账。遗留锁目录须确认写进程已停止后由运维核查，不能删除 submitted 回执，不能把登录过期当成重新创建许可。未配置返回 503。服务协调参与的新 Muse 客户端，不阻止剧变网页或旧客户端写入，也不自动删除资产。
 
+替换已就绪声线前，须独立核验精确旧资产所属项目、槽位及明确删除状态，仅成功的 data:null 不能释放槽位。新操作接收仅向其所有者返回的 replaces_asset_id 许可，start 再次核验删除状态。当前回执改变前，原账号／key 已通过 retired-<hash>.json 持久化关闭。未使用的替代登记预留在到期或放弃后仍保留此许可，重新预留时再次核验删除状态。备份整个 MUSE_VOICE_SLOTS_DIR，包含已退役回执；参见[升级指南](../../docs/upgrade-guide/v0.2.2-rc.2/deleted-voice-replacement/guide.zh.md)。不要通过移除 submitted 或已退役回执来解除登记阻塞。
+
 ## Release inputs
 
 网关开始监听后，启动日志报告实际回环端口。隔离部署检查可设置 `MUSE_PORT=0`，由操作系统分配可用端口。
