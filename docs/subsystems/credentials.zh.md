@@ -547,6 +547,21 @@ Host service backing the generated `ctx.remote.jubianToken` namespace: the Jubia
 
 Source: [`packages/jubian/tool-jubian/src/token.ts`](../../packages/jubian/tool-jubian/src/token.ts)
 
+<a id="ctxworkshopconnection--workshopconnection"></a>
+
+### `ctx.workshopConnection` — `WorkshopConnection`
+
+Opens Script Workshop sessions as the signed-in Muse user; native tokens never reach model input or output.
+
+```ts cordis-catalog
+/** Resolve the active Muse account on the configured Workshop.
+ * @returns A session bound to this Muse login and Workshop user.
+ */
+async connection(): Promise<WorkbenchSession>
+```
+
+Source: [`packages/drama/workbench-connection/src/index.ts`](../../packages/drama/workbench-connection/src/index.ts)
+
 <a id="authorization-events"></a>
 
 ### `authorization/*` events

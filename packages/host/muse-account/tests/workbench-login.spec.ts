@@ -23,19 +23,36 @@ async function fixture(fetcher?: typeof fetch) {
   return { client: new MuseWorkbenchLogin({ sessionFile, baseUrl, requestTimeoutMs: 1000, ...(fetcher ? { fetcher } : {}) }), signIn }
 }
 
-it('authenticates only the currently signed-in owner at the mounted studio paths', async () => {
+it('authenticates only the currently signed-in owner at each mounted workbench path', async () => {
   const fetched = vi.fn<typeof fetch>(async () => Response.json({ ok: true }))
   const { client, signIn } = await fixture(fetched)
   await signIn('one')
   const owner = await client.identity()
-  const target = new URL(baseUrl + '/jingliu/fwp/v2/projects')
-  await client.jingliu(owner, target, {})
-  expect(new Headers(fetched.mock.calls[0]?.[1]?.headers).get('cookie')).toBe('__Host-muse=one')
-  await expect(client.jingliu(owner, new URL('/api/account', baseUrl), {})).rejects.toThrow()
-  await expect(client.jingliu(owner, new URL('https://studio.example/jingliu/fwp/v2/projects'), {})).rejects.toThrow()
+  const studio = new URL(baseUrl + '/jingliu/fwp/v2/projects')
+  const workshop = new URL(baseUrl + '/jubengongfang/v1/factory/video-transcribe/status')
+  await client.mounted('jingliu', owner, studio, {})
+  await client.mounted('script-workshop', owner, workshop, { method: 'POST' })
+  expect(fetched.mock.calls.map(([url, init]) => [
+    url instanceof Request ? url.url : new URL(url).href, new Headers(init?.headers).get('cookie'), new Headers(init?.headers).get('origin'), init?.redirect,
+  ]))
+    .toEqual([[studio.href, '__Host-muse=one', baseUrl, 'error'], [workshop.href, '__Host-muse=one', baseUrl, 'error']])
+  await expect(client.mounted('jingliu', owner, workshop, {})).rejects.toThrow()
+  await expect(client.mounted('script-workshop', owner, studio, {})).rejects.toThrow()
+  await expect(client.mounted('script-workshop', owner, new URL(baseUrl + '/jubengongfang/v1/%2e%2e/admin'), {})).rejects.toThrow()
+  for (const other of ['https://user@accounts.example/jubengongfang/v1/x', 'https://:secret@accounts.example/jubengongfang/v1/x', baseUrl + '/jubengongfang/v1/x#part']) {
+    await expect(client.mounted('script-workshop', owner, new URL(other), {})).rejects.toMatchObject({ code: 'gateway-rejected' })
+  }
+  await expect(client.mounted('jingliu', owner, new URL('/api/account', baseUrl), {})).rejects.toThrow()
+  await expect(client.mounted('jingliu', owner, new URL('https://studio.example/jingliu/fwp/v2/projects'), {})).rejects.toThrow()
   await signIn('two')
-  await expect(client.jingliu(owner, target, {})).rejects.toThrow()
-  expect(fetched).toHaveBeenCalledTimes(1)
+  await expect(client.mounted('jingliu', owner, studio, {})).rejects.toThrow()
+  expect(fetched).toHaveBeenCalledTimes(2)
+  const global = vi.fn<typeof fetch>(async () => Response.json({ ok: true }))
+  vi.stubGlobal('fetch', global)
+  const plain = await fixture()
+  await plain.signIn('three')
+  await plain.client.mounted('script-workshop', await plain.client.identity(), workshop, {})
+  expect(global).toHaveBeenCalledOnce()
 })
 
 it('uses the private Host session only at its issuer and hands out a single workbench code', async () => {

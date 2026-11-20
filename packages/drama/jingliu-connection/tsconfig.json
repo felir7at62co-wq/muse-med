@@ -24,6 +24,9 @@
       "path": "../../host/muse-account/tsconfig.host.json"
     },
     {
+      "path": "../workbench-connection"
+    },
+    {
       "path": "../../interaction/commands"
     },
     {

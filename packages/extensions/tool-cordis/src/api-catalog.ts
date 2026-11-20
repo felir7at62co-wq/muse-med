@@ -2804,9 +2804,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'MUSE account Remote namespace. The Connection carrier authenticates every call.',
     methods: [
       {
-        signature: 'async requestMountedJingliu(owner: string, url: URL, options: RequestInit): Promise<Response>',
-        description: 'Authenticate a Host request to the studio mounted on the signed-in Muse gateway.',
-        parameters: [{ name: 'owner', description: 'Local login identifier.' }, { name: 'url', description: 'Mounted studio address, verified by the account owner.' }, { name: 'options', description: 'Transport options supplied by the studio client.' }],
+        signature: 'async requestMountedWorkbench(audience: MuseWorkbenchAudience, owner: string, url: URL, options: RequestInit): Promise<Response>',
+        description: 'Authenticate a Host request to a workbench mounted on the signed-in Muse gateway.',
+        parameters: [{ name: 'audience', description: 'Workbench whose mounted paths the address must name.' }, { name: 'owner', description: 'Local login identifier.' }, { name: 'url', description: 'Mounted workbench address, verified by the account owner.' }, { name: 'options', description: 'Transport options supplied by the workbench client.' }],
         returns: 'A response stream scoped to that user.',
       },
       {
@@ -2816,7 +2816,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'The current private Muse login identifier for Host-side workbench operations.',
       },
       {
-        signature: 'async workbenchGrant(audience: \'script-workshop\' | \'jingliu\', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }>',
+        signature: 'async workbenchGrant( audience: MuseWorkbenchAudience, challenge: string, ): Promise<{ code: string; expiresIn: number; accountId: string }>',
         description: 'Start one authentication exchange for a configured workbench.',
         parameters: [{ name: 'audience', description: 'Business application receiving the user\'s login.' }, { name: 'challenge', description: 'S256 challenge returned by that application.' }],
         returns: 'The one-time code, lifetime and session identifier for this exchange.',
@@ -5720,6 +5720,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'workshopConnection',
+    summary: 'Opens Script Workshop sessions as the signed-in Muse user; native tokens never reach model input or output.',
+    description: 'Opens Script Workshop sessions as the signed-in Muse user; native tokens never reach model input or output.',
+    methods: [
+      {
+        signature: 'async connection(): Promise<WorkbenchSession>',
+        description: 'Resolve the active Muse account on the configured Workshop.',
+        parameters: [],
+        returns: 'A session bound to this Muse login and Workshop user.',
+      },
+    ],
+  },
+  {
     key: 'workspaceChanges',
     summary: 'Serves the summaries and file comparisons the recorder keeps for live Sessions.',
     description: 'Serves the summaries and file comparisons the recorder keeps for live Sessions.',
@@ -8617,7 +8630,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'JingliuRequest',
-    declaration: 'export interface JingliuRequest {\n    method?: \'GET\' | \'POST\' | \'PUT\' | \'PATCH\' | \'DELETE\';\n    body?: unknown;\n    signal?: AbortSignal;\n}',
+    declaration: 'export type JingliuRequest = WorkbenchRequest;',
   },
   {
     name: 'JingliuSession',
@@ -9428,12 +9441,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MuseVoiceSlotRequest {\n    readonly action: \'acquire\' | \'start\' | \'complete\' | \'abandon\' | \'read\';\n    readonly script_id: number;\n    readonly character_id: string;\n    readonly voice_period_id: string;\n    readonly operation_key: string;\n    readonly lease_id?: MuseVoiceLeaseId;\n    readonly asset_id?: number;\n}',
   },
   {
+    name: 'MuseWorkbenchAudience',
+    declaration: 'export type MuseWorkbenchAudience = \'script-workshop\' | \'jingliu\';',
+  },
+  {
     name: 'MuseWorkbenchGrant',
     declaration: 'export interface MuseWorkbenchGrant {\n    readonly code: string;\n}',
   },
   {
     name: 'MuseWorkbenchGrantRequest',
-    declaration: 'export interface MuseWorkbenchGrantRequest {\n    readonly audience: \'script-workshop\' | \'jingliu\';\n    readonly challenge: string;\n}',
+    declaration: 'export interface MuseWorkbenchGrantRequest {\n    readonly audience: MuseWorkbenchAudience;\n    readonly challenge: string;\n}',
   },
   {
     name: 'NativeFileApplication',
@@ -12398,6 +12415,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WeeklyScheduleRecord',
     declaration: 'export interface WeeklyScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'weekly\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly time: string;\n    readonly timeZone: string;\n    readonly weekdays: number[];\n    readonly scheduledAt: string;\n}',
+  },
+  {
+    name: 'WorkbenchRequest',
+    declaration: 'export interface WorkbenchRequest {\n    method?: \'GET\' | \'POST\' | \'PUT\' | \'PATCH\' | \'DELETE\';\n    body?: unknown;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'WorkbenchSession',
+    declaration: 'export interface WorkbenchSession {\n    readonly identity: string;\n    readonly origin: string;\n    request(path: string, options?: WorkbenchRequest): Promise<unknown>;\n    fetch(url: URL, init: RequestInit): Promise<Response>;\n    check(): Promise<void>;\n}',
   },
   {
     name: 'WorkerReport',

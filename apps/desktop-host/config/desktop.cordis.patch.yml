@@ -162,6 +162,11 @@
     - id: tool-jingliu
       name: '@deepseek-ai/dsh-tool-jingliu'
 
+    - id: workshop-connection
+      name: '@deepseek-ai/dsh-workbench-connection'
+      config:
+        workshopOrigin: !!js process.env.MUSE_SCRIPT_WORKSHOP_ORIGIN || (process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn') + '/jubengongfang'
+
     - id: ui-jingliu
       name: '@deepseek-ai/dsh-client-ui-jingliu'
       config:
@@ -279,6 +284,7 @@
           jingliu_workflows: [镜流, 镜流工作台, 镜流项目, 新建项目, 分集, 查询模型, Jingliu, ShotFlow]
           jingliu_run: [镜流执行, 镜流制作, 镜流分镜, 镜流任务, 制作分镜, 角色素材, 生成视频, 任务进度, ShotFlow]
           jingliu_narration: [镜流解说剧, 解说剧拆镜, 角色开口, 解说剧交付]
+          workshop_video_transcribe: [剧本工坊, 视频转剧本, 批量转写, 爆款转写, 转写任务, 停止转写, 转写进度, 工坊流水线]
           drama_project: [项目圣经, 本地项目圣经, 人物关系, 修改画幅]
           drama_shot: [写镜头脚本, 校验分镜, 本地镜头预算]
           drama_character_reference_project: [角色参考项目, 人物参考项目]
@@ -324,6 +330,10 @@
             title: 镜流
             description: 查找镜流工作流，按项目查看分集、分镜、素材、任务和交付。
             tools: [jingliu_projects, jingliu_workflows, jingliu_run, jingliu_narration, jingliu_image, jingliu_studio]
+          - id: script-workshop
+            title: 剧本工坊
+            description: 开始、停止和查看剧本工坊的视频转剧本任务。
+            tools: ['workshop_*']
           - id: interaction
             title: 对话交互与反馈
             description: 展示交互卡片、收集选择与表单，提交和查询本人的产品反馈。

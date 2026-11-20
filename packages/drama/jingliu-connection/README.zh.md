@@ -33,7 +33,7 @@ Host 以当前 Muse 账号访问同站镜流接口和媒体文件。每段本地
 <a id="host-api"></a>
 ## Host 接口
 
-Host 插件通过 `ctx.jingliuConnection.connection()` 取得已核验的 `JingliuSession`。其中的 `identity` 标识提交回执所属的镜流用户和服务器。Host 在发出请求前和返回结果前都会核对当前 Muse 登录身份。`request(path, options)` 访问相对于 V2 接口的受支持路由并返回解析后的 JSON。工作流工具选择向模型展示哪些结果。
+Host 插件通过 `ctx.jingliuConnection.connection()` 取得已核验的 `JingliuSession`。其中的 `identity` 标识提交回执所属的镜流用户和服务器。Host 在发出请求前和返回结果前都会核对当前 Muse 登录身份。`request(path, options)` 访问相对于 V2 接口的受支持路由并返回解析后的 JSON。工作流工具选择向模型展示哪些结果。登录、账号变化检查和有界 JSON 请求来自共用的[工作台连接](../workbench-connection/README.zh.md)核心。
 
 <a id="model-experience"></a>
 ## 模型体验

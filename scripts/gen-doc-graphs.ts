@@ -232,6 +232,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Verifies the signed-in Jingliu user and sends workflow requests to that deployment.',
   },
   {
+    key: 'workshopConnection',
+    pkg: 'workbench-connection',
+    title: 'Authenticated Script Workshop requests',
+    mode: 'service',
+    consumers: ['tool-workshop'],
+    note: 'Verifies the signed-in Workshop user and sends factory job requests to that deployment.',
+  },
+  {
     key: 'jubianToken',
     pkg: 'tool-jubian',
     title: 'Jubian credential settings',

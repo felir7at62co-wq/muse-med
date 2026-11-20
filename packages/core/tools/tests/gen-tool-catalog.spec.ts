@@ -32,7 +32,8 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'douyin_download', 'drama_assets', 'drama_bgm', 'drama_character_reference_project', 'drama_character_reference_view', 'drama_character_references',
       'drama_draft_dir', 'drama_hit_queue', 'drama_project', 'drama_render', 'drama_shot', 'drama_tos_upload', 'drama_video',
       'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep',
-      'interrupt_agent', 'job_kill', 'job_list', 'job_output', 'jubian_asset',
+      'interrupt_agent', 'jingliu_image', 'jingliu_narration', 'jingliu_projects', 'jingliu_run', 'jingliu_studio', 'jingliu_workflows',
+      'job_kill', 'job_list', 'job_output', 'jubian_asset',
       'jubian_budget', 'jubian_catalog', 'jubian_character_reference_authorize', 'jubian_claim', 'jubian_find',
       'jubian_manuscript', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_project', 'jubian_snatch', 'jubian_storyboard',
       'jubian_video', 'jubian_video_model', 'jubian_video_review', 'jubian_watch', 'list_agents',
@@ -49,7 +50,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'terminal_read', 'terminal_send', 'terminal_signal', 'todo_update', 'todo_write',
       'tool_context', 'tool_search', 'update_goal', 'user_terminal_list', 'user_terminal_read',
       'video_contact_sheet', 'video_inspect', 'video_ocr', 'wait_agent', 'web_fetch',
-      'web_search', 'workflow', 'working_directory', 'write',
+      'web_search', 'workflow', 'working_directory', 'workshop_video_transcribe', 'write',
     ])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).
     for (const entry of catalog) {

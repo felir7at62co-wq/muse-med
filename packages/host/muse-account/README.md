@@ -95,7 +95,7 @@ With `douyinDownloadTool: true`, the deferred `douyin_download` tool is the only
 <a id="host-credential-reads"></a>
 ### Host credential reads
 
-For a registered writing or production workbench, the Host uses its current Muse session to obtain an audience-specific, one-time code from the account gateway. The workbench redeems the code with its own verifier and service credential. The Host rejects a pending grant if the account changes.
+For a registered writing or production workbench, the Host uses its current Muse session to obtain an audience-specific, one-time code from the account gateway. The workbench redeems the code with its own verifier and service credential. The Host rejects a pending grant if the account changes. A workbench served by the Muse gateway itself receives Host requests through `requestMountedWorkbench(audience, owner, url, options)`: the Muse cookie is attached only for the current login, only on the gateway origin and only below that workbench's paths, `/jingliu/fwp/v2/` and `/jingliu/fwp/media/` for Jingliu and `/jubengongfang/v1/` for Script Workshop.
 
 The package's main export `readMuseSession(file, baseUrl)` reads the explicitly selected private session file for one configured canonical gateway origin. An absent file or a session for another origin returns null; malformed stored data refuses. Host integrations can reuse this reader without mounting the account's model providers. The returned cookie is private Host data and must never enter Remote results, model messages or another origin's requests. [`muse-market/cloud`](../muse-market/README.md#account-bound-cloud) uses this reader with its independent `sessionFile` setting.
 

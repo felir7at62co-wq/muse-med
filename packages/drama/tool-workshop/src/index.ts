@@ -1,0 +1,279 @@
+/**
+ * The model-facing `workshop_video_transcribe` tool: report, start and stop Script Workshop's 视频转剧本 factory job
+ * with the parameters of the Workshop pipeline card, as the signed-in Muse user.
+ * @module @deepseek-ai/dsh-tool-workshop
+ */
+import type { Context } from '@deepseek-ai/cordis'
+import { HarnessError } from '@deepseek-ai/dsh-error'
+import { defineTool, ToolArgsError, type ToolDefinition, type ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-user-approval'
+import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
+import { WorkbenchHttpError, type WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import { detail, isActive, isTranscribeEntry, JOB_TYPE, service, summary, transcribeJob, type Fields, type TranscribeJob } from './jobs.ts'
+
+/** Cordis plugin name. */
+export const name = 'tool-workshop'
+/** The tool registers once the Host also provides `workshopConnection`. */
+export const inject = ['tools']
+
+/** Actions of `workshop_video_transcribe`. */
+export const ACTIONS = ['status', 'start', 'stop'] as const
+/** Download qualities the Workshop accepts. */
+export const QUALITIES = ['720p', '1080p'] as const
+/** Most recent factory jobs scanned when `status` names no job. */
+export const RECENT_JOBS = 50
+/** 视频转剧本 jobs listed by `status` without a job ID. */
+export const LISTED_JOBS = 10
+
+const SERIES_ID = /^[1-9][0-9]{14,24}$/u
+
+/** Canonical value of one call: the action and its report fields. */
+export type Report = { action: typeof ACTIONS[number] } & Fields
+
+/** The Agent whose conversation called the tool. */
+type CallingAgent = NonNullable<ToolRunContext['agent']>
+
+/** Authenticated Workshop access and one-time human confirmation. */
+export interface Dependencies {
+  connect(): Promise<WorkbenchSession>
+  approve(agent: CallingAgent, exec: ToolRunContext, reason: string): Promise<boolean>
+}
+
+/** Arguments after schema validation. */
+export interface Args {
+  action: typeof ACTIONS[number]
+  job_id?: number
+  count?: number
+  concurrency?: number
+  quality?: typeof QUALITIES[number]
+  publish?: boolean
+  only_series?: string[]
+}
+
+/** The job parameters sent to the Workshop, with the pipeline card's defaults applied. */
+export type StartSpec = {
+  count: number
+  concurrency: number
+  quality: typeof QUALITIES[number]
+  publish: boolean
+  only_series: string[]
+}
+
+/**
+ * Apply the pipeline card's defaults: 0 series (run until stopped), 1 at a time, 720p, not published, queue order.
+ * @param args - `start` arguments.
+ * @returns The parameters of the new job, not yet range-checked.
+ */
+export function startSpec(args: Args): StartSpec {
+  return {
+    count: args.count ?? 0,
+    concurrency: args.concurrency ?? 1,
+    quality: args.quality ?? '720p',
+    publish: args.publish ?? false,
+    only_series: [...new Set(args.only_series ?? [])],
+  }
+}
+
+/**
+ * Check the ranges the parameter schema cannot express.
+ * @param spec - Parameters of the new job.
+ * @returns The same parameters.
+ */
+export function checkStart(spec: StartSpec): StartSpec {
+  const violations = [
+    ...(spec.count < 0 ? ['count 必须不小于 0，0 表示持续运行'] : []),
+    ...(spec.concurrency < 1 ? ['concurrency 必须不小于 1'] : []),
+    ...(spec.only_series.some(id => !SERIES_ID.test(id)) ? ['only_series 只能是红果作品编号（15 到 25 位数字）'] : []),
+  ]
+  if (violations.length > 0) throw new ToolArgsError(violations)
+  return spec
+}
+
+function jobId(args: Args): number {
+  if (args.job_id === undefined) throw new ToolArgsError([args.action + ' 需要 job_id'])
+  if (args.job_id < 1) throw new ToolArgsError(['job_id 必须是正整数'])
+  return args.job_id
+}
+
+function describe(spec: StartSpec, maxSlots: JsonValue | undefined): string {
+  return [
+    '剧本工坊 · 视频转剧本',
+    '部数：' + (spec.count === 0 ? '持续运行直到停止' : String(spec.count) + ' 部'),
+    '同时转写：' + String(spec.concurrency) + ' 部' + (typeof maxSlots === 'number' ? '（最多 ' + String(maxSlots) + ' 部）' : ''),
+    '画质：' + spec.quality,
+    '通过检查后上架：' + (spec.publish ? '是' : '否'),
+    '只转这些剧：' + (spec.only_series.length > 0 ? spec.only_series.join('、') : '按队列顺序'),
+    '领取数据站队列中的剧，下载红果全集并逐集转写，会产生下载与转写费用。',
+  ].join('\n')
+}
+
+async function readJob(session: WorkbenchSession, id: number, signal: AbortSignal): Promise<TranscribeJob> {
+  try {
+    return transcribeJob(await session.request('/factory/jobs/' + String(id), { signal }), id)
+  } catch (error) {
+    if (error instanceof WorkbenchHttpError && error.status === 404) {
+      throw new HarnessError('剧本工坊里没有当前账号的任务 #' + String(id) + '。', 'WORKSHOP_JOB_NOT_FOUND', { cause: error })
+    }
+    throw error
+  }
+}
+
+async function readService(session: WorkbenchSession, signal: AbortSignal): Promise<Fields> {
+  return service(await session.request('/factory/video-transcribe/status', { signal }))
+}
+
+async function recentJobs(session: WorkbenchSession, signal: AbortSignal): Promise<Fields[]> {
+  const listed = await session.request('/factory/jobs?limit=' + String(RECENT_JOBS), { signal })
+  if (!Array.isArray(listed)) throw new HarnessError('剧本工坊返回了无法识别的任务列表。', 'WORKSHOP_INVALID_RESULT')
+  const items: unknown[] = listed
+  return items.filter(isTranscribeEntry).slice(0, LISTED_JOBS).map(job => summary(transcribeJob(job)))
+}
+
+async function start(
+  deps: Dependencies, session: WorkbenchSession, spec: StartSpec, agent: CallingAgent, exec: ToolRunContext,
+): Promise<Report> {
+  const readiness = await readService(session, exec.signal)
+  if (readiness.ready !== true) {
+    throw new HarnessError(typeof readiness.error === 'string' ? readiness.error : '剧本工坊的视频转剧本暂不可用。', 'WORKSHOP_TRANSCRIBE_UNAVAILABLE')
+  }
+  if (typeof readiness.max_slots === 'number' && spec.concurrency > readiness.max_slots) {
+    throw new ToolArgsError(['concurrency 必须是 1 到 ' + String(readiness.max_slots)])
+  }
+  if (!await deps.approve(agent, exec, describe(spec, readiness.max_slots))) {
+    throw new HarnessError('本次视频转剧本任务未获确认。', 'WORKSHOP_APPROVAL_REQUIRED')
+  }
+  exec.signal.throwIfAborted()
+  let created: unknown
+  try {
+    created = await session.request('/factory/jobs', { method: 'POST', body: { job_type: JOB_TYPE, config: spec }, signal: exec.signal })
+  } catch (error) {
+    if (error instanceof HarnessError || exec.signal.aborted) throw error
+    throw new HarnessError('剧本工坊没有确认任务是否已创建。先用 status 查看最近的任务，确认没有新任务后再重试。', 'WORKSHOP_JOB_OUTCOME_UNKNOWN', { cause: error })
+  }
+  const id = typeof created === 'object' && created !== null && 'job_id' in created ? created.job_id : undefined
+  if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) {
+    throw new HarnessError('剧本工坊没有返回任务编号。先用 status 查看最近的任务，确认没有新任务后再重试。', 'WORKSHOP_JOB_OUTCOME_UNKNOWN')
+  }
+  return { action: 'start', job_id: id, config: spec }
+}
+
+async function stop(session: WorkbenchSession, id: number, signal: AbortSignal): Promise<Report> {
+  const before = await readJob(session, id, signal)
+  if (!isActive(before)) return { action: 'stop', stop_requested: false, job: summary(before) }
+  try {
+    await session.request('/factory/jobs/' + String(id) + '/stop', { method: 'POST', signal })
+  } catch (error) {
+    // The Workshop answers 400 when the job finished after it was read; report its final state.
+    if (!(error instanceof WorkbenchHttpError && error.status === 400)) throw error
+    return { action: 'stop', stop_requested: false, job: summary(await readJob(session, id, signal)) }
+  }
+  return { action: 'stop', stop_requested: true, job: summary(await readJob(session, id, signal)) }
+}
+
+const STATUS_LABELS: Readonly<Record<string, string>> = {
+  pending: '等待开始', running: '运行中', stopped: '已停止', completed: '已完成', failed: '失败',
+}
+
+function isMeta(value: JsonValue | undefined): value is { [key: string]: JsonValue } {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function resultTitle(meta: { [key: string]: JsonValue }): string | undefined {
+  const job = typeof meta.job_id === 'number' ? '任务 #' + String(meta.job_id) : undefined
+  const state = typeof meta.status === 'string' ? STATUS_LABELS[meta.status] ?? meta.status : undefined
+  switch (meta.action) {
+    case 'start': return job && '视频转剧本 · 已开始' + job
+    case 'stop': return job && (meta.stop_requested === true ? '视频转剧本 · 已请求停止' + job : '视频转剧本 · ' + job + (state ? ' ' + state : ''))
+    case 'status':
+      if (job) return '视频转剧本 · ' + job + (state ? ' ' + state : '') + (typeof meta.percent === 'number' ? ' ' + String(meta.percent) + '%' : '')
+      if (meta.ready === false) return '视频转剧本 · 暂不可用'
+      return typeof meta.jobs === 'number' ? '视频转剧本 · 已就绪，最近 ' + String(meta.jobs) + ' 个任务' : undefined
+    default: return undefined
+  }
+}
+
+/**
+ * Report, start and stop the 视频转剧本 factory job.
+ * @param deps - Workshop connection and the confirmation channel.
+ * @returns The tool definition; Workshop credentials never appear in its arguments or results.
+ */
+export function transcribeTool(deps: Dependencies): ToolDefinition {
+  return defineTool({
+    name: 'workshop_video_transcribe',
+    description: '剧本工坊的视频转剧本任务：从数据站爆款队列领剧，经 AI 观众选材、红果整剧下载和云端 Muse 逐集转写，出稿存为工坊剧本。'
+      + 'status 查看是否就绪、队列和任务进度；start 按参数开始一个任务，会产生下载与转写费用，提交前请用户确认；stop 停止任务，已领取的剧保留进度。',
+    parameters: {
+      action: { type: 'string', enum: ACTIONS, required: true },
+      job_id: { type: 'integer', description: 'status：查看这个任务的进度和出稿，省略时列出最近的任务。stop：必填。' },
+      count: { type: 'integer', description: 'start：转写部数，0 表示持续运行直到停止，默认 0。' },
+      concurrency: { type: 'integer', description: 'start：同时转写部数，1 到 status 返回的 max_slots，默认 1。' },
+      quality: { type: 'string', enum: QUALITIES, description: 'start：下载画质，默认 720p。' },
+      publish: { type: 'boolean', description: 'start：通过检查的剧本上架到数据站储备看板，默认 false。' },
+      only_series: { type: 'array', items: { type: 'string' }, description: 'start：只转这些红果作品编号，省略时按队列顺序领取。' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true, properties: { action: { type: 'string', enum: ACTIONS, required: true } } },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      presentationMeta: (_args, value) => {
+        const job = isMeta(value.job) ? value.job : {}
+        const id = value.job_id ?? job.id
+        return {
+          action: value.action,
+          ...(typeof id === 'number' ? { job_id: id } : {}),
+          ...(typeof job.status === 'string' ? { status: job.status } : {}),
+          ...(typeof job.percent === 'number' ? { percent: job.percent } : {}),
+          ...(typeof value.stop_requested === 'boolean' ? { stop_requested: value.stop_requested } : {}),
+          ...(isMeta(value.service) && typeof value.service.ready === 'boolean' ? { ready: value.service.ready } : {}),
+          ...(Array.isArray(value.jobs) ? { jobs: value.jobs.length } : {}),
+        }
+      },
+    },
+    isConcurrencySafe: args => args.action === 'status',
+    async execute(args, exec): Promise<Report> {
+      const agent = exec.agent
+      if (!agent) throw new HarnessError('请在 Muse 会话中使用剧本工坊。', 'WORKSHOP_SESSION_REQUIRED')
+      const session = await deps.connect()
+      switch (args.action) {
+        case 'status': {
+          const readiness = await readService(session, exec.signal)
+          if (args.job_id !== undefined) return { action: 'status', service: readiness, job: detail(await readJob(session, jobId(args), exec.signal)) }
+          return { action: 'status', service: readiness, jobs: await recentJobs(session, exec.signal) }
+        }
+        case 'start': return await start(deps, session, checkStart(startSpec(args)), agent, exec)
+        case 'stop': return await stop(session, jobId(args), exec.signal)
+        /* v8 ignore next -- the tool schema admits only the handled actions */
+        default: return assertNever(args.action)
+      }
+    },
+    presentCall: args => ({
+      card: 'generic',
+      kind: args.action === 'status' ? 'read' : 'other',
+      title: args.action === 'start' ? '视频转剧本 · 开始转写'
+        : args.action === 'stop' ? '视频转剧本 · 停止任务' + (args.job_id === undefined ? '' : ' #' + String(args.job_id))
+          : args.job_id === undefined ? '视频转剧本 · 状态' : '视频转剧本 · 任务 #' + String(args.job_id),
+      ...(args.action === 'start' ? { rawInput: startSpec(args) } : {}),
+    }),
+    presentResult: (_args, result) => {
+      if (result.isError || !isMeta(result.meta)) return undefined
+      const title = resultTitle(result.meta)
+      return title === undefined ? undefined : { card: 'generic', title }
+    },
+  })
+}
+
+/**
+ * Register `workshop_video_transcribe` in this scope while the Host provides the Script Workshop connection.
+ * @param ctx - Agent or Host context with the tool registry.
+ */
+export function apply(ctx: Context): void {
+  ctx.inject(['workshopConnection'], (scope) => {
+    const tool = transcribeTool({
+      connect: () => scope.workshopConnection.connection(),
+      approve: async (agent, exec, reason) => {
+        const approval = scope.get('approval')
+        return !!approval && await approval.request({ agent, callId: exec.callId, toolName: exec.name, reason, signal: exec.signal }) === 'allowed-once'
+      },
+    })
+    scope.effect(() => scope.tools.register(tool))
+  })
+}

@@ -31,7 +31,7 @@ For isolated loopback previews, configure `localPreviewToken: true` and supply t
 
 ## Host API
 
-Host plugins call `ctx.jingliuConnection.connection()` for a verified `JingliuSession`. Its `identity` identifies the Jingliu user and server for submission receipts. The Host also verifies the current Muse login before dispatch and before returning the response. Its `request(path, options)` accepts supported routes relative to the V2 API and returns parsed JSON. Workflow tools choose which results to present.
+Host plugins call `ctx.jingliuConnection.connection()` for a verified `JingliuSession`. Its `identity` identifies the Jingliu user and server for submission receipts. The Host also verifies the current Muse login before dispatch and before returning the response. Its `request(path, options)` accepts supported routes relative to the V2 API and returns parsed JSON. Workflow tools choose which results to present. Sign-in, account-change checks and bounded JSON requests come from the shared [workbench connection](../workbench-connection/README.md) core.
 
 ## Model Experience
 

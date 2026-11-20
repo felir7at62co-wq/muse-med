@@ -217,6 +217,8 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-tool-hit-queue` | yes | Transcription worker access to the data station's hit-transcription job queue |
 | `@deepseek-ai/dsh-tool-jingliu` | no | Discover and run ShotFlow production workflows with the current Jingliu account |
 | `@deepseek-ai/dsh-tool-shot-script` | yes | Short-drama shot-script checks, advisory packaging suggestions and strict episode compilation |
+| `@deepseek-ai/dsh-tool-workshop` | no | Start, stop and report Script Workshop's video-to-screenplay factory job from a Muse conversation |
+| `@deepseek-ai/dsh-workbench-connection` | yes | Host-side Script Workshop connection and the Muse-account workbench session core shared with Jingliu |
 
 ## experimental
 

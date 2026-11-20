@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: f058522289125000
-  zh: d63dd64a83bb364f
+  en: bb12cff9291893e3
+  zh: 8ede9e7cacb23721
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
@@ -117,8 +117,14 @@
   en: 5a09d6b334aa7c29
   zh: 5a09d6b334aa7c29
 /tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-workflows:
-  en: 9ebf330ecd090f25
-  zh: 9ebf330ecd090f25
+  en: 8f883442bfe654d0
+  zh: 8f883442bfe654d0
+/tool-schema-catalog/deepseek-ai-dsh-tool-workshop:
+  en: fc166b2c776f42f9
+  zh: fc166b2c776f42f9
+/tool-schema-catalog/deepseek-ai-dsh-tool-workshop/workshop-video-transcribe:
+  en: 14e8747b93cc0917
+  zh: 14e8747b93cc0917
 /tool-schema-catalog/deepseek-ai-dsh-tool-hit-queue:
   en: d472e2a550629ed4
   zh: d472e2a550629ed4
