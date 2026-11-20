@@ -72,7 +72,7 @@ export function installNative(ctx: Context): void {
     name: 'bot.drawer.assets', locale: 'jingliuStudio', inject: () => ({ hooks: { accountEpoch: epoch } }),
   }, DrawerLibrary))
   // The data tab reads the data station as the signed-in member through the account Host.
-  ctx.inject(['remote.museAccount', 'resources'], (host) => {
+  ctx.inject(['remote', 'remote.museAccount', 'resources'], (host) => {
     const api = host.remote.museAccount
     const reset = () => { epoch.set(epoch.getSnapshot() + 1) }
     host.effect(() => host.remote.$on('muse-account/session-changed', reset), 'data: signed-in station')
@@ -110,7 +110,7 @@ export function installNative(ctx: Context): void {
   ctx.inject(['remote', 'resources'], async (scope) => {
     const unmount = await scope.remote.$mount(workshopRemote)
     scope.effect(() => unmount, 'workshop: script library remote')
-    scope.inject(['remote.workshopConnection'], (host) => {
+    scope.inject(['remote', 'remote.workshopConnection'], (host) => {
       const api = host.remote.workshopConnection
       const statusOf = (address: string): ScriptStatus | undefined => {
         const status = param(address, 'status')

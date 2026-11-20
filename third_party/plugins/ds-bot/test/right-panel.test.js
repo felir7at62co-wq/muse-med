@@ -151,9 +151,10 @@ test('a Bot without the terminal or the plugins still gets Details and Browser, 
   assert.deepEqual(toolKeys(drawer('a', {})), ['side', 'files'])
 })
 
-test('the data tab lists platforms under the Bot\'s name; an open platform keeps the row and hides the name', () => {
+test('the data tab lists platforms under the Bot\'s name; an open platform takes the whole drawer', () => {
+  const opened = []
   const drawn = []
-  const actions = { hasDrawerSlot: name => name === 'bot.drawer.data', quote: () => {} }
+  const actions = { hasDrawerSlot: name => name === 'bot.drawer.data', openDataPlatform: (id, platform) => opened.push([id, platform]), quote: () => {} }
   const renderSlot = (name, owner) => { drawn.push([name, owner]); return null }
   const list = drawer('a', actions, roster, { startTab: 'data', renderSlot })
   const platform = drawer('a', actions, roster, { startTab: 'data:hongguo', renderSlot })
@@ -164,8 +165,9 @@ test('the data tab lists platforms under the Bot\'s name; an open platform keeps
   assert.deepEqual(tabKeys(list), ['details', 'browser', 'data'])
   assert.equal(identityOf(list).props.hidden, undefined)
   assert.equal(identityOf(platform).props.hidden, true)
-  assert.equal(tabButtons(platform).find(button => button.props['data-tab-key'] === 'data').props['aria-selected'], true)
-  assert.equal(typeof drawn[1][1].openPlatform, 'function')
+  assert.deepEqual(tabKeys(platform), [])
+  drawn[0][1].openPlatform({ id: 'fanqie', title: '番茄小说' })
+  assert.deepEqual(JSON.parse(JSON.stringify(opened)), [['a', { id: 'fanqie', title: '番茄小说' }]])
 })
 
 // Muse: the 剧本 tab lists finalized scripts; an open script, like a Jingliu project, takes the whole drawer.

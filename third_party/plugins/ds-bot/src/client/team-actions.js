@@ -1,6 +1,28 @@
 import { countCards, heldCardKey } from './sources.js'
 import { noteClientError } from './diagnostics.js'
 
+// Muse: the panel tabs opened from a drawer list, by tab-key prefix: the UI state key holding
+// each panel's open `{ id, title }` entries, and the row tab that lists them.
+const LIST_TABS = { jingliu: { key: 'jingliuTabs', list: 'jingliu' }, script: { key: 'scriptTabs', list: 'scripts' }, data: { key: 'dataTabs', list: 'data' } }
+
+// Add (or retitle) one entry's tab in the panel that follows `id` and show it.
+function openListTab(state, prefix, id, entry, panelYield) {
+  const { key } = LIST_TABS[prefix]
+  const open = state[key]?.[id] ?? []
+  const item = { id: entry.id, title: entry.title }
+  const next = open.some(other => other.id === entry.id) ? open.map(other => (other.id === entry.id ? item : other)) : [...open, item]
+  return { ...state, [key]: { ...state[key], [id]: next }, details: id, view: 'details', renaming: false, tab: `${prefix}:${entry.id}`, panelYield }
+}
+
+// Remove one entry's tab; when it was in view, the panel goes back to the list it came from.
+function closeListTab(state, prefix, id, entryId) {
+  const { key, list } = LIST_TABS[prefix]
+  const open = state[key]?.[id] ?? []
+  if (!open.some(entry => entry.id === entryId)) return state
+  const tabs = { ...state[key], [id]: open.filter(entry => entry.id !== entryId) }
+  return state.details === id && state.tab === `${prefix}:${entryId}` ? { ...state, [key]: tabs, tab: list } : { ...state, [key]: tabs }
+}
+
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
 // source), requests to the host, and the notes the transcript keeps. The shell around the
 // views adds navigation and its own panels. `after` reads the team again once a request
@@ -57,44 +79,14 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       })
     },
     showDetails: (id, tab = null) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: false, tab, panelYield: yieldTo(state, 'details') })) },
-    // Muse: a Jingliu project opens as a tab of the panel that follows `id`, and the panel
-    // goes to it; closing the tab in view goes back to the project list.
-    openJingliuProject: (id, project) => {
-      ui.set((state) => {
-        const open = state.jingliuTabs?.[id] ?? []
-        const next = open.some(entry => entry.id === project.id)
-          ? open.map(entry => (entry.id === project.id ? { id: project.id, title: project.title } : entry))
-          : [...open, { id: project.id, title: project.title }]
-        return { ...state, jingliuTabs: { ...state.jingliuTabs, [id]: next }, details: id, view: 'details', renaming: false, tab: `jingliu:${project.id}`, panelYield: yieldTo(state, 'details') }
-      })
-    },
-    closeJingliuProject: (id, projectId) => {
-      ui.set((state) => {
-        const open = state.jingliuTabs?.[id] ?? []
-        if (!open.some(entry => entry.id === projectId)) return state
-        const jingliuTabs = { ...state.jingliuTabs, [id]: open.filter(entry => entry.id !== projectId) }
-        return state.details === id && state.tab === `jingliu:${projectId}` ? { ...state, jingliuTabs, tab: 'jingliu' } : { ...state, jingliuTabs }
-      })
-    },
-    // Muse: a finalized script opens as a tab of the panel that follows `id`, as a Jingliu project
-    // does; closing the tab in view goes back to the script list.
-    openScript: (id, script) => {
-      ui.set((state) => {
-        const open = state.scriptTabs?.[id] ?? []
-        const next = open.some(entry => entry.id === script.id)
-          ? open.map(entry => (entry.id === script.id ? { id: script.id, title: script.title } : entry))
-          : [...open, { id: script.id, title: script.title }]
-        return { ...state, scriptTabs: { ...state.scriptTabs, [id]: next }, details: id, view: 'details', renaming: false, tab: `script:${script.id}`, panelYield: yieldTo(state, 'details') }
-      })
-    },
-    closeScript: (id, scriptId) => {
-      ui.set((state) => {
-        const open = state.scriptTabs?.[id] ?? []
-        if (!open.some(entry => entry.id === scriptId)) return state
-        const scriptTabs = { ...state.scriptTabs, [id]: open.filter(entry => entry.id !== scriptId) }
-        return state.details === id && state.tab === `script:${scriptId}` ? { ...state, scriptTabs, tab: 'scripts' } : { ...state, scriptTabs }
-      })
-    },
+    // Muse: a Jingliu project, a finalized script or a data platform opens as a tab of the panel
+    // that follows `id`, and the panel goes to it; closing the tab in view goes back to its list.
+    openJingliuProject: (id, project) => { ui.set(state => openListTab(state, 'jingliu', id, project, yieldTo(state, 'details'))) },
+    closeJingliuProject: (id, projectId) => { ui.set(state => closeListTab(state, 'jingliu', id, projectId)) },
+    openScript: (id, script) => { ui.set(state => openListTab(state, 'script', id, script, yieldTo(state, 'details'))) },
+    closeScript: (id, scriptId) => { ui.set(state => closeListTab(state, 'script', id, scriptId)) },
+    openDataPlatform: (id, platform) => { ui.set(state => openListTab(state, 'data', id, platform, yieldTo(state, 'details'))) },
+    closeDataPlatform: (id, platformId) => { ui.set(state => closeListTab(state, 'data', id, platformId)) },
     // Muse: a terminal opens as a tab of the panel that follows `id`, and the panel goes to it.
     // `tab` is `{ key, session, terminalId? }`: its identity, the conversation part it runs in
     // and an existing terminal it shows. Closing the tab in view goes back to the terminal list.

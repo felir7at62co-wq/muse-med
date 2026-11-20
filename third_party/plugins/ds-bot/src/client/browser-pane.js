@@ -14,7 +14,7 @@ import { SPRING_LEAD, SPRING_SHAPE, SPRING_TRAIL, reducedMotion, stepMenuFocus, 
 import { FLIGHT_ENDS, INTENT_MS, createFlight, flightEnd, flightStart, planFlight, uniqueIds } from './mark-flight.js'
 import { DetailsDrawer } from './details-drawer.js'
 import { SideChatView } from './side-chat.js'
-import { drawerTabOf, listTabOf, panelHasStrip, projectOfTab, scriptOfTab, sideChatsOf, stripMenuKeys, terminalOfTab } from './side-model.js'
+import { drawerTabOf, listTabOf, panelHasStrip, platformOfTab, projectOfTab, scriptOfTab, sideChatsOf, stripMenuKeys, terminalOfTab } from './side-model.js'
 import { useTerminals } from './terminal-cards.js'
 import { currentPart } from './text.js'
 import { DotsIcon, FolderIcon, SideIcon, TerminalIcon } from './icons.js'
@@ -137,9 +137,10 @@ const sideTitle = chat => chat?.entries?.[0]?.question?.trim() || t('Side chat')
 // The strip across the panel's top: the Bot's own tab first (the details view,
 // collapsed), then one tab per browser page, one per side chat, then `···` and
 // close.
-// Muse: the strip also holds one tab per open Jingliu project and per open terminal, beside
-// the pages and the side chats; `tab` is the drawer tab shown while the view is the Bot's own.
-function PanelStrip({ bot, subject, view, tab, projects, scripts, terminals, onTab, ids, active, sides, side, canBrowse, reading, onView, actions, useBrowserPages }) {
+// Muse: the strip also holds one tab per open terminal, finalized script, Jingliu project and
+// data platform, beside the pages and the side chats; `tab` is the drawer tab shown while the
+// view is the Bot's own.
+function PanelStrip({ bot, subject, view, tab, projects, scripts, platforms, terminals, onTab, ids, active, sides, side, canBrowse, reading, onView, actions, useBrowserPages }) {
   const pages = useBrowserPages(map => map)
   // A terminal tab is named as the Host names its terminal.
   const listed = useTerminals(terminals.length > 0 ? currentPart(bot) : null, actions)
@@ -153,8 +154,9 @@ function PanelStrip({ bot, subject, view, tab, projects, scripts, terminals, onT
     const box = wrap.current
     const capsule = ind.current
     if (!box || !capsule) return undefined
+    const listed = projectOfTab(tab) !== null || scriptOfTab(tab) !== null || platformOfTab(tab) !== null
     const node = view === 'details'
-      ? (projectOfTab(tab) !== null ? box.querySelector(`[data-project="${CSS.escape(projectOfTab(tab))}"]`)
+      ? (listed ? box.querySelector(`[data-list-tab="${CSS.escape(tab)}"]`)
         : terminalOfTab(tab) !== null ? box.querySelector(`[data-terminal="${CSS.escape(terminalOfTab(tab))}"]`)
           : box.querySelector('.bt-ptab-bot'))
       : view === 'side'
@@ -168,7 +170,7 @@ function PanelStrip({ bot, subject, view, tab, projects, scripts, terminals, onT
     if (!node) { capsule.style.opacity = '0'; spot.current = null; return undefined }
     // The Bot tab is pinned at the strip's start; showing it scrolls the pages back
     // so the capsule and the pinned tab line up.
-    if (view === 'details' && projectOfTab(tab) === null && terminalOfTab(tab) === null) box.scrollLeft = 0
+    if (view === 'details' && !listed && terminalOfTab(tab) === null) box.scrollLeft = 0
     else node.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
     const to = { left: node.offsetLeft, right: box.offsetWidth - node.offsetLeft - node.offsetWidth }
     const from = spot.current
@@ -208,8 +210,9 @@ function PanelStrip({ bot, subject, view, tab, projects, scripts, terminals, onT
   }).map(key => menuItemFor(key, actions, subject))
   const shownProject = view === 'details' ? projectOfTab(tab) : null
   const shownScript = view === 'details' ? scriptOfTab(tab) : null
+  const shownPlatform = view === 'details' ? platformOfTab(tab) : null
   const shownTerminal = view === 'details' ? terminalOfTab(tab) : null
-  const onBot = view === 'details' && shownProject === null && shownScript === null && shownTerminal === null
+  const onBot = view === 'details' && shownProject === null && shownScript === null && shownPlatform === null && shownTerminal === null
   const terminalTab = (entry) => {
     const title = listed.find(info => info.id === actions.terminalOf(entry))?.title || t('Terminal')
     const end = () => actions.endTerminal(subject, entry.session, { tab: entry.key })
@@ -225,33 +228,20 @@ function PanelStrip({ bot, subject, view, tab, projects, scripts, terminals, onT
         onClick: (event) => { event.stopPropagation(); end() },
       }, '×'))
   }
-  const projectTab = (project) => {
-    const key = `jingliu:${project.id}`
+  // Muse: an open Jingliu project, finalized script or data platform has a tab lettered and named
+  // by its title, closed with × or a middle click.
+  const listTab = (prefix, entry, shown, close) => {
+    const key = `${prefix}:${entry.id}`
     return h('button', {
-      key, type: 'button', role: 'tab', 'aria-selected': shownProject === project.id, 'data-project': project.id, className: 'bt-ptab', title: project.title,
+      key, type: 'button', role: 'tab', 'aria-selected': shown === entry.id, 'data-list-tab': key, className: 'bt-ptab', title: entry.title,
       onClick: () => onTab(key),
-      onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); actions.closeJingliuProject(subject, project.id) } },
+      onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); close(subject, entry.id) } },
     },
-      h('span', { className: 'bt-ptab-letter', 'aria-hidden': true }, Array.from(String(project.title).trim())[0] ?? '·'),
-      h('span', { className: 'bt-ptab-title' }, project.title),
+      h('span', { className: 'bt-ptab-letter', 'aria-hidden': true }, Array.from(String(entry.title).trim())[0] ?? '·'),
+      h('span', { className: 'bt-ptab-title' }, entry.title),
       h('span', {
         className: 'bt-ptab-x', role: 'button', 'aria-label': t('Close tab'), title: t('Close tab'),
-        onClick: (event) => { event.stopPropagation(); actions.closeJingliuProject(subject, project.id) },
-      }, '×'))
-  }
-  // Muse: an open finalized script has a tab like a Jingliu project's, closed the same way.
-  const scriptTab = (script) => {
-    const key = `script:${script.id}`
-    return h('button', {
-      key, type: 'button', role: 'tab', 'aria-selected': shownScript === script.id, 'data-script': script.id, className: 'bt-ptab', title: script.title,
-      onClick: () => onTab(key),
-      onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); actions.closeScript(subject, script.id) } },
-    },
-      h('span', { className: 'bt-ptab-letter', 'aria-hidden': true }, Array.from(String(script.title).trim())[0] ?? '·'),
-      h('span', { className: 'bt-ptab-title' }, script.title),
-      h('span', {
-        className: 'bt-ptab-x', role: 'button', 'aria-label': t('Close tab'), title: t('Close tab'),
-        onClick: (event) => { event.stopPropagation(); actions.closeScript(subject, script.id) },
+        onClick: (event) => { event.stopPropagation(); close(subject, entry.id) },
       }, '×'))
   }
   return h('div', { className: 'bt-ptabs', role: 'tablist', 'aria-label': t('Panel tabs') },
@@ -295,8 +285,9 @@ function PanelStrip({ bot, subject, view, tab, projects, scripts, terminals, onT
           }, '×'))
       }),
       terminals.map(terminalTab),
-      scripts.map(scriptTab),
-      projects.map(projectTab),
+      scripts.map(script => listTab('script', script, shownScript, actions.closeScript)),
+      projects.map(project => listTab('jingliu', project, shownProject, actions.closeJingliuProject)),
+      platforms.map(platform => listTab('data', platform, shownPlatform, actions.closeDataPlatform)),
       h('span', { ref: ind, className: 'bt-ptab-ind', 'aria-hidden': true })),
     // The `···` and Close stay outside the scrolling tabs, so a narrow panel keeps both.
     h(PanelMenu, { items, className: 'bt-ptab-new', 'aria-label': t('More') }),
@@ -583,7 +574,7 @@ function ImportCard({ flow, page, busy, onApply, onCancel, onCloseAndImport, onD
  * Session id the panel follows and `side` the open chat's id. Without the
  * Desktop bridge the browser view never shows; side chats need no bridge.
  */
-export function BotPanel({ pane, workbench = false, roomy = false, projects = NO_PROJECTS, scripts = NO_PROJECTS, terminals = NO_PROJECTS, leaving, room, overlay, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer, renderSlot }) {
+export function BotPanel({ pane, workbench = false, roomy = false, projects = NO_PROJECTS, scripts = NO_PROJECTS, platforms = NO_PROJECTS, terminals = NO_PROJECTS, leaving, room, overlay, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer, renderSlot }) {
   const bot = roster.byId[pane.id]
   const canBrowse = Boolean(bot && roster.browser === true && actions.browserShow)
   const sideChats = bot ? sideChatsOf(roster, bot.id) : []
@@ -783,8 +774,8 @@ export function BotPanel({ pane, workbench = false, roomy = false, projects = NO
     for (const name of ends) grip.addEventListener(name, onEnd)
   }
 
-  // Muse: an open Jingliu project, script or terminal has a strip tab too, so the strip shows for it as well.
-  const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length) || (bot !== undefined && projects.length + scripts.length + terminals.length > 0)
+  // Muse: an open Jingliu project, script, data platform or terminal has a strip tab too, so the strip shows for it as well.
+  const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length) || (bot !== undefined && projects.length + scripts.length + platforms.length + terminals.length > 0)
   const drawerTab = drawerTabOf(pane.tab)
   const openTab = (key) => {
     if (view !== 'details') beginSwitch('details')
@@ -801,7 +792,7 @@ export function BotPanel({ pane, workbench = false, roomy = false, projects = NO
     // Over the whole window while dragging: the cursor stays a resize cursor and the
     // pages underneath (the chat, the guest) see no pointer.
     dragging ? createPortal(h('div', { className: 'bt-drag-shield', 'aria-hidden': true }), document.body) : null,
-    hasStrip ? h(PanelStrip, { bot, subject: pane.id, view, tab: drawerTab, projects, scripts, terminals, onTab: openTab, ids: tabState.ids, active, sides: sideChats, side: pane.side, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
+    hasStrip ? h(PanelStrip, { bot, subject: pane.id, view, tab: drawerTab, projects, scripts, platforms, terminals, onTab: openTab, ids: tabState.ids, active, sides: sideChats, side: pane.side, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
     view === 'browser' && bot
       ? h(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold })
       : view === 'side' && sideChat

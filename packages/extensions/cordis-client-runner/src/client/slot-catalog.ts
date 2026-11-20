@@ -120,7 +120,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     kind: 'single',
     scope: 'root',
     summary: 'The Bot team\'s details drawer: the data tab of the Bot whose conversation is `sessionId`.',
-    doc: 'The Bot team\'s details drawer: the data tab of the Bot whose conversation is `sessionId`.\n`platform` is the open data platform, or null on the tab that lists them; `openPlatform`\nopens one under the same tab (null goes back to the list).',
+    doc: 'The Bot team\'s details drawer: the data tab of the Bot whose conversation is `sessionId`.\n`platform` is the open data platform, or null on the tab that lists them; `openPlatform`\nopens one in a panel tab of its own, named `title`.',
     registerOptions: [],
     ownerProps: [],
     ownerPropsReferences: [],

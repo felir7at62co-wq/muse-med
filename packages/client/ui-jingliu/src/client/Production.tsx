@@ -55,7 +55,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     /**
      * The Bot team's details drawer: the data tab of the Bot whose conversation is `sessionId`.
      * `platform` is the open data platform, or null on the tab that lists them; `openPlatform`
-     * opens one under the same tab (null goes back to the list).
+     * opens one in a panel tab of its own, named `title`.
      */
     'bot.drawer.data': {
       kind: 'single'
@@ -63,7 +63,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       owner: {
         sessionId: SessionId
         platform: string | null
-        openPlatform(platform: string | null): void
+        openPlatform(platform: { id: string; title: string }): void
         quote(text: string): void
         compose(text: string): void
       }

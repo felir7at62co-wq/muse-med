@@ -36,8 +36,8 @@ export interface DrawerDataProps {
   useAccountEpoch: <T>(select: (value: number) => T) => T
   /** The open platform, or null on the platform list. */
   platform: string | null
-  /** Open one platform under the same tab, or go back to the list with null. */
-  openPlatform: (platform: string | null) => void
+  /** Open one platform in a panel tab of its own, named `title`. */
+  openPlatform: (platform: { id: string; title: string }) => void
   /** Put a reference above the message box of the drawer's conversation. */
   quote: (text: string) => void
   /** Move a Hongguo drama to the front of the transcription queue as the signed-in member. */
@@ -88,7 +88,7 @@ function PlatformList({ epoch, t, useResource, openPlatform }: DrawerDataProps &
   const busy = (stock.value?.summary.active ?? 0) > 0
   return <section className={css.drawer} aria-label={t('dataPlatforms')}>
     <ul className={css.platforms}>{PLATFORMS.map(entry => <li key={entry.id}>
-      <button type="button" className={css.platform} onClick={() => { openPlatform(entry.id) }}>
+      <button type="button" className={css.platform} onClick={() => { openPlatform({ id: entry.id, title: t(entry.name) }) }}>
         <Glyph id={entry.id} t={t} glyph={entry.glyph} />
         <span className={css.text}><strong>{t(entry.name)}</strong>{lines[entry.id] !== '' && <small>{lines[entry.id]}</small>}</span>
         {entry.id === 'hongguo' && busy && <span className={css.live} role="img" aria-label={t('stageTranscribing')} />}
@@ -112,7 +112,8 @@ function PlatformView({ epoch, platform, t, useResource, openPlatform, quote, ru
       </div>}
     </div>
     {choosing && <ul className={css.menu}>{PLATFORMS.map(entry => <li key={entry.id}>
-      <button type="button" className={css.platform} aria-pressed={entry.id === platform.id} onClick={() => { setChoosing(false); openPlatform(entry.id) }}>
+      <button type="button" className={css.platform} aria-pressed={entry.id === platform.id}
+        onClick={() => { setChoosing(false); openPlatform({ id: entry.id, title: t(entry.name) }) }}>
         <Glyph id={entry.id} t={t} glyph={entry.glyph} /><span className={css.text}><strong>{t(entry.name)}</strong></span>
       </button>
     </li>)}</ul>}
