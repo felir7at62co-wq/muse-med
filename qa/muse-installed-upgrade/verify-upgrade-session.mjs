@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -86,6 +87,27 @@ async function verifyWorkspace(root, home, seed, workspacePath) {
   'The seeded workspace and session binding are missing or ambiguous')
 }
 
+async function verifySkills(root, home, workspace, seed) {
+  const nonce = userMarkerPattern.exec(seed.userText)?.[1]
+  check(nonce && seed.skills?.name === `muse-upgrade-qa-${nonce}`, 'The synthetic skill identity is missing')
+  const insideHome = relative(home, workspace)
+  const insideWorkspace = relative(workspace, home)
+  check(insideHome && (insideHome === '..' || insideHome.startsWith(`..${sep}`) || isAbsolute(insideHome))
+    && insideWorkspace && (insideWorkspace === '..' || insideWorkspace.startsWith(`..${sep}`) || isAbsolute(insideWorkspace)),
+  'Workspace and product home must be separate')
+  for (const [role, path, expected] of [
+    ['user', join(home, 'skills', `${seed.skills.name}-user`, 'SKILL.md'), seed.skills.userSha256],
+    ['workspace', join(workspace, '.agents', 'skills', `${seed.skills.name}-workspace`, 'SKILL.md'), seed.skills.workspaceSha256],
+  ]) {
+    const owned = await ownedPath(root, path)
+    const bytes = await readPlain(owned, 4096)
+    const expectedBytes = Buffer.from(`---\nname: ${seed.skills.name}-${role}\ndescription: Isolated ${role} upgrade sentinel\n---\n\nSynthetic ${role} skill ${nonce}.\n`)
+    const digest = createHash('sha256').update(bytes).digest('hex')
+    check(typeof expected === 'string' && digest === expected && bytes.equals(expectedBytes),
+      `The synthetic ${role} skill changed or disappeared`)
+  }
+}
+
 async function selectGeneration(root, home, sessionId, workspacePath) {
   const sessions = await ownedPath(root, join(home, 'sessions'))
   const rows = await readdir(sessions, { withFileTypes: true, recursive: true })
@@ -153,12 +175,14 @@ async function main() {
   const workspacePath = await ownedPath(root, requiredPath(seed.workspacePath, 'Seed workspace path'))
   check((await lstat(workspacePath)).isDirectory(), 'Seed workspace directory is missing')
   await verifyWorkspace(root, home, seed, workspacePath)
+  await verifySkills(root, home, workspacePath, seed)
   const snapshot = await selectGeneration(root, home, seed.sessionId, workspacePath)
   const sessionTitle = verifyPayload(snapshot, seed)
   console.log(JSON.stringify({
     schemaVersion: 1, verified: true, sessionId: seed.sessionId, sessionTitle, workspaceId: seed.workspaceId,
     workspaceTitle: seed.workspaceTitle, sessionPath: relative(home, snapshot.path), sessionLogGeneration: snapshot.generation,
     userMessageVerified: true, assistantMessageVerified: true, workspaceBindingVerified: true,
+    userSkillOriginalPathAndBytesVerified: true, workspaceSkillOriginalPathAndBytesVerified: true,
   }))
 }
 

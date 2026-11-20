@@ -178,6 +178,9 @@ try {
     if (-not $readback.verified -or $readback.sessionId -ne $seeded.sessionId -or $readback.workspaceId -ne $seeded.workspaceId) {
         throw 'Session identity after the upgrade differs from the seeded session.'
     }
+    if ($readback.userSkillOriginalPathAndBytesVerified -ne $true -or $readback.workspaceSkillOriginalPathAndBytesVerified -ne $true) {
+        throw 'An original-path user or workspace Skill did not survive the upgrade.'
+    }
     $readback | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'readback.json') -Encoding utf8NoBOM
     $sessionUi = @{
         Context = $ui; SuccessorPid = $successor.Pid; WorkspaceTitle = $seeded.workspaceTitle
@@ -193,6 +196,7 @@ try {
         exactBaselineInstallerSha256 = $fromHash; exactCandidateInstallerSha256 = $candidateHash
         installedProductGuiCheckedAndDownloaded = $true; actualInstallerHandoffAndRestart = $true
         installedVersion = $installedVersion; installDirUserSkillBytePreserved = $true
+        userSkillOriginalPathAndBytesPreserved = $true; workspaceSkillOriginalPathAndBytesPreserved = $true
         testSessionIdentityAndMessagesPreserved = $true; sessionReopenedInGui = $true; successor = $successor
     } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'result.json') -Encoding utf8NoBOM
 } finally {

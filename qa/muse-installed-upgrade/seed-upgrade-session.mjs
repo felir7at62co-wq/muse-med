@@ -217,6 +217,18 @@ async function main() {
   const seed = await mkdtemp(join(dirname(home), 'muse-session-seed-profile-'))
   const workspace = await mkdtemp(join(dirname(home), 'muse-upgrade-workspace-'))
   const nonce = randomUUID()
+  const skillName = `muse-upgrade-qa-${nonce}`
+  const skillContents = role => `---\nname: ${skillName}-${role}\ndescription: Isolated ${role} upgrade sentinel\n---\n\nSynthetic ${role} skill ${nonce}.\n`
+  check(!ownedBy(install, workspace) && !ownedBy(home, workspace) && !ownedBy(workspace, home),
+    'Synthetic workspace must be separate from the install and product home')
+  const userSkill = await ownedPath(owner, join(home, 'skills', `${skillName}-user`, 'SKILL.md'))
+  const workspaceSkill = await ownedPath(owner, join(workspace, '.agents', 'skills', `${skillName}-workspace`, 'SKILL.md'))
+  await Promise.all([mkdir(dirname(userSkill), { recursive: true }), mkdir(dirname(workspaceSkill), { recursive: true })])
+  await Promise.all([
+    writeFile(userSkill, skillContents('user'), { flag: 'wx', mode: 0o600 }),
+    writeFile(workspaceSkill, skillContents('workspace'), { flag: 'wx', mode: 0o600 }),
+  ])
+  const skills = { name: skillName, userSha256: await digest(userSkill), workspaceSha256: await digest(workspaceSkill) }
   const marker = { workspace, workspaceTitle: 'Muse Upgrade QA ' + nonce.slice(0, 8),
     sessionTitle: 'Muse QA Session ' + nonce.slice(0, 8),
     userText: 'Verify preserved user message ' + nonce, assistantText: 'Verified deterministic answer ' + nonce }
@@ -239,7 +251,7 @@ async function main() {
     const report = await seedFromHost(install, baseline, profile, home, config)
     const persisted = await persistedSession(home, [marker.userText, marker.assistantText, marker.sessionTitle], report.sessionId)
     const { executable: _executable, ...identity } = baseline
-    const receipt = { schemaVersion: 1, ...identity, ...marker, workspacePath: workspace,
+    const receipt = { schemaVersion: 1, ...identity, ...marker, workspacePath: workspace, skills,
       sessionId: report.sessionId, workspaceId: report.workspaceId, ...persisted,
       gracefulShutdown: true, synthetic: true, guiStarted: false, processNetworkBlocked: report.processNetworkBlocked }
     const temporary = output + '.' + nonce + '.tmp'
