@@ -44,6 +44,8 @@ Resolve relative paths mentioned by this skill against the base directory before
 
 \`project_config.json\` 是唯一权威的结构化项目圣经；\`project-bible.md\` 由 \`drama_project\` 从同一数据生成，供人阅读。设定、版本与影响记录在 \`project_bible\`，远端身份保留顶层 \`jubian_script_id\`，每镜有效字上限兼容顶层 \`delivery.max_effective_chars_per_shot\`。不要分别编辑两份设定，也不要猜测远端 ID。
 
+对已存在的剧变项目，先按真实 \`script_id\` 核对本地目录的 \`jubian_script_id\`，不要把当前目录或同名目录当成项目归属。目录已绑定其他项目时保留原配置与产物，使用经过剧本或其他实际项目证据核对的目标目录；身份不明或存在多个候选时先核对，不自动猜测。目标已有工作稿但缺少 \`project_config.json\` 和 \`project-bible.md\` 时，可用 \`drama_project action=bind_only\`、该目录及 \`changes={jubian_script_id:真实ID}\` 建立最小绑定并回读；它不写预算、交付默认值或项目圣经，也不覆盖已有配置。报错时先回读该目录配置确认是否已创建及实际 ID，不换目录盲目重试；不支持硬链接的文件系统会报错。之后用目标目录对原卡做预览，保持原卡 ID；不要因绑定错误重建卡或提交生成。正常新项目的完整设定仍沿下述流程。
+
 ## 短剧的创作方向
 
 短剧以故事讲好、情绪到位和画面有吸引力为首要目标，3D 动漫与仿真人都结合具体作品的题材与情绪形成方案。实际读过剧本后，结合用户已定方向理解观看兴趣与情绪体验，自主设计影视风格，简短结论自然融入当前方案；无需固定分析模板、额外报告或独立模型轮次。需要启发时参考[受众与影视风格](references/audience-and-style.md)。只提供片段时沿用该范围，不凭标题宣称了解整部作品，也不虚构人口画像、市场数据或热度。普通转写与格式转换无需额外分析。
