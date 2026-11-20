@@ -19,5 +19,5 @@ The client requires a matching deleted slot in its complete inventory before usi
 
 1. Stop gateway writers and back up the entire private `MUSE_VOICE_SLOTS_DIR`, including retired receipts and pending locks. Retain the original local operation ledgers.
 2. Upgrade the gateway and clients together. Do not clear submitted receipts, remove interrupted locks while their writer is running, or retry an uncertain registration with a new key.
-3. For an intentionally deleted, previously ready voice, submit the newly authorized replacement with its own operation key. An old client or gateway cannot authorize this replacement. A missing or ambiguous asset requires reconciliation rather than another registration.
+3. For an intentionally deleted, previously ready voice, submit the newly authorized replacement with its own operation key. An old gateway cannot authorize this replacement; upgraded clients also require the deleted-inventory proof. A missing or ambiguous asset requires reconciliation rather than another registration.
 4. Confirm that the new audio asset is independently active and the original operation remains closed after gateway restart. Back up current and retired receipts together. Keep pending voice work scoped to that reference; independent production work may continue.
