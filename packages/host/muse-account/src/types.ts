@@ -400,6 +400,14 @@ export interface MuseDataWork {
   readonly metrics: readonly MuseDataMetric[]
 }
 
+/** One work as the data station last recorded it: its ranking, rank there and collection time. */
+export interface MuseDataWorkDetail extends MuseDataWork {
+  readonly board: string
+  readonly rank: number | null
+  readonly author?: string | null
+  readonly observedAt: string
+}
+
 /** One ranking period: its works in ranked order; `position` is null where the platform gave no rank. */
 export interface MuseDataPeriod {
   readonly platform: MuseDataPlatform

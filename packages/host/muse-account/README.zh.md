@@ -82,7 +82,7 @@ Muse 账号模型在当前供应商的有界重试结束后，遇到已归类的
 
 启用 `douyinDownloadTool: true` 后，延迟加载的 `douyin_download` 是唯一的抖音视频下载工具。它把当前 Muse 会话令牌放在 `X-Muse-Account-Token` 中，发送到 `baseUrl` 源站上 `douyinStationPath` 处的数据站；公网 `/data/` 代理会清空 `Authorization`，数据站拒绝带 `Origin` 的请求。请求不带 cookie、`Origin` 或请求人姓名，拒绝重定向，用 `douyinMaxReplyBytes` 限制完整 JSON 响应，并拒绝回显令牌的响应。数据站向 Muse 网关核对令牌，只放行成员名单中的账号，并把核对出的成员记为请求人。
 
-启用 `dataStation: true` 后，`museAccount` 远程方法 `dataBoards`、`dataPeriod`、`dataStock`、`dataRush`、`dataCollector` 为详情抽屉的数据页签提供数据站榜单、储备看板、立即转写和绿泡泡采集端状态；它们用同一个账号令牌读取 `baseUrl` 源站上 `dataStationPath` 下的接口，不带 cookie 和 `Origin`。数据站以令牌对应的成员身份处理每个请求，所以立即转写记录的是该成员。响应受 `dataMaxReplyBytes` 限制并逐项校验，回显令牌的响应会被拒绝，失败统一报告为固定的 `muse-data/<code>` 远程错误。
+启用 `dataStation: true` 后，`museAccount` 远程方法 `dataBoards`、`dataPeriod`、`dataStock`、`dataRush`、`dataCollector` 为详情抽屉的数据页签提供数据站榜单、储备看板、立即转写和绿泡泡采集端状态，`dataWork` 为剧本页签的原作卡片读取单部作品的记录；它们用同一个账号令牌读取 `baseUrl` 源站上 `dataStationPath` 下的接口，不带 cookie 和 `Origin`。数据站以令牌对应的成员身份处理每个请求，所以立即转写记录的是该成员。响应受 `dataMaxReplyBytes` 限制并逐项校验，回显令牌的响应会被拒绝，失败统一报告为固定的 `muse-data/<code>` 远程错误。
 
 `action: download` 按 URL、分享文本或 `aweme_id` 排队一个作品，或按 `mix_id`、`douyin.com/collection/<编号>` 链接排队一个合集的全部剧集。`v.douyin.com` 分享短链在 `douyinLinkTimeoutMs` 内读取一次重定向解析，不读取正文，也不携带任何账号凭据。`action: query` 只读取已有记录、不提交；`action: quota` 报告可用状态以及数据站网页与 Muse 共用的每日额度。`wait_seconds` 取 0 至 `douyinMaxWaitSeconds`，按 `douyinPollIntervalMs` 轮询记录，直到每个作品为 `done` 或 `failed`；取消会结束等待。一次查询最多请求 `douyinListLimit` 条记录。结果列出每个作品的状态，完成时附公开存储地址；私有模式的记录会读取签名地址与 `expiresAt`。这些地址不是本地文件。数据站不会重复下载已排队或已保存的作品，再次提交失败的作品会重新排队。固定代码报告登录、成员名单、每日额度、数据站可用性、账号变化、提交未确认、超时与取消，不包含数据站响应文本。每次请求都会复核调用开始时捕获的登录修订。
 

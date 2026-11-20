@@ -14,7 +14,7 @@ import type { MuseFeedbackRequest, MuseFeedbackReceipt, MuseWorkbenchAudience, M
 import type { MuseDesktopRemote } from './desktop-remote.ts'
 import { MuseVoiceSlotError, type MuseVoiceSlotRequest, type MuseVoiceSlotsClient } from './voice-slots.ts'
 import { museDataFailure, type MuseDataStationClient } from './data-station.ts'
-import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataPeriodRequest, MuseDataPlatform, MuseDataRush, MuseDataStock, MuseDataStockRequest } from './types.ts'
+import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataPeriodRequest, MuseDataPlatform, MuseDataRush, MuseDataStock, MuseDataStockRequest, MuseDataWorkDetail } from './types.ts'
 import type { MuseAccountDetails, MuseAccountDetailsRequest, MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
@@ -38,7 +38,7 @@ export interface MuseAccountServiceOptions {
   readonly remote?: Pick<MuseDesktopRemote, 'refresh' | 'pause'>
   readonly voiceSlots?: Pick<MuseVoiceSlotsClient, 'request'>
   /** Data-station reads and 立即转写 for the 数据 drawer tab; absent where the product does not offer it. */
-  readonly data?: Pick<MuseDataStationClient, 'boards' | 'period' | 'stock' | 'rush' | 'collector'>
+  readonly data?: Pick<MuseDataStationClient, 'boards' | 'period' | 'stock' | 'rush' | 'collector' | 'work'>
 }
 
 /** MUSE account Remote namespace. The Connection carrier authenticates every call. */
@@ -173,6 +173,16 @@ export class MuseAccountService extends TypertRemoteService {
   @Remote('dataRush')
   async dataRush(workId: string): Promise<MuseDataRush> {
     return await this.withData(data => data.rush(workId))
+  }
+
+  /**
+   * One work as the data station last recorded it, such as a finalized script's original.
+   * @param id - Station work ID (`fanqie:<id>`, `hongguo:<id>`, …).
+   * @returns The work with its platform metrics, ranking and collection time.
+   */
+  @Remote('dataWork')
+  async dataWork(id: string): Promise<MuseDataWorkDetail> {
+    return await this.withData(data => data.work(id))
   }
 
   /** @returns The 绿泡泡 collector's connection state. */
