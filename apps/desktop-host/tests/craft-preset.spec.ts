@@ -43,6 +43,9 @@ const sentences = (text: string): string[] => text.split(/(?<=。)/u).map(compac
 const REPLACED = [
   // The lean persona opens with its own identity line.
   '你是muse-med短剧编导Agent。',
+  // The lean persona replies in DS Bot's short chat style; the grouped status list is kept for the end of multi-step work.
+  '直接面向用户时，先简短说明结论，再按事项分组，区分已完成、进行中和待决定。',
+  '突出实际产物与下一步，避免重复堆砌。',
   // Only the section heading is dropped; the sentence after it opens muse-video-production.
   '##短剧制作：镜头、人物与节奏以下规则用于将剧本制作为视频，不把视频转写或小说改剧本的来源正文强行改成分镜。',
 ]
