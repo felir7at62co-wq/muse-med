@@ -295,6 +295,8 @@
           jingliu_run: [镜流执行, 镜流制作, 镜流分镜, 镜流任务, 制作分镜, 角色素材, 生成视频, 任务进度, ShotFlow]
           jingliu_narration: [镜流解说剧, 解说剧拆镜, 角色开口, 解说剧交付]
           workshop_video_transcribe: [剧本工坊, 视频转剧本, 批量转写, 爆款转写, 转写任务, 停止转写, 转写进度, 工坊流水线]
+          script_finalize: [定稿, 剧本定稿, 上传定稿, 定稿上传, 定稿库, 交稿给组长]
+          script_library: [剧本库, 定稿剧本, 取出剧本, 选用剧本, 投产, 登记投产, 剧本建镜流项目]
           drama_project: [项目圣经, 本地项目圣经, 人物关系, 修改画幅]
           drama_shot: [写镜头脚本, 校验分镜, 本地镜头预算]
           drama_character_reference_project: [角色参考项目, 人物参考项目]
@@ -342,8 +344,8 @@
             tools: [jingliu_projects, jingliu_workflows, jingliu_run, jingliu_narration, jingliu_image, jingliu_studio]
           - id: script-workshop
             title: 剧本工坊
-            description: 开始、停止和查看剧本工坊的视频转剧本任务。
-            tools: ['workshop_*']
+            description: 开始、停止和查看剧本工坊的视频转剧本任务；定稿上传、取出定稿剧本、登记投产。
+            tools: ['workshop_*', 'script_finalize', 'script_library']
           - id: interaction
             title: 对话交互与反馈
             description: 展示交互卡片、收集选择与表单，提交和查询本人的产品反馈。

@@ -1,5 +1,5 @@
 ---
-description: "让 Muse 按剧本工坊流水线卡片的参数查看、开始和停止视频转剧本工厂任务。"
+description: "让 Muse 运行剧本工坊的视频转剧本工厂任务，把写完的剧本上传到工坊定稿库，并为投产取回。"
 kind: "package-reference"
 ---
 
@@ -9,12 +9,13 @@ kind: "package-reference"
 
 ## 概述
 
-`@deepseek-ai/dsh-tool-workshop` 注册模型可见的 `workshop_video_transcribe` 工具。它是剧本工坊「视频转剧本」步骤在 Muse 中的入口：一个工厂任务从数据站爆款队列领剧，运行数据站的 AI 观众选材，下载红果整剧并用云端 Muse 逐集转写，再把每部出稿的剧存为工坊剧本。本工具以当前登录的 Muse 用户身份，发送与工坊流水线卡片相同的五个参数。任务、转写位和结果都归剧本工坊；本包只通过 `ctx.workshopConnection` 调用它的工厂接口。
+`@deepseek-ai/dsh-tool-workshop` 注册模型可见的 `workshop_video_transcribe` 工具。它是剧本工坊「视频转剧本」步骤在 Muse 中的入口：一个工厂任务从数据站爆款队列领剧，运行数据站的 AI 观众选材，下载红果整剧并用云端 Muse 逐集转写，再把每部出稿的剧存为工坊剧本。本工具以当前登录的 Muse 用户身份，发送与工坊流水线卡片相同的五个参数。任务、转写位和结果都归剧本工坊；本包只通过 `ctx.workshopConnection` 调用它的工厂和 `/script-library` 接口。它还注册 `script_finalize` 和 `script_library`：前者在用户同意定稿后把工作区里写完的剧本上传到工坊定稿库，后者把定稿库里的一版剧本取回工作区，并登记被选用剧本投产成的镜流项目。
 
 ## 目录
 
 - [使用本包](#use-this-package)
 - [操作](#actions)
+- [定稿剧本](#finalized-scripts)
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与后续工作](#known-limitations-and-deferred-work)
@@ -25,7 +26,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在 Agent 预设中挂载本插件；所有 Bot 使用的 Desktop `short-drama` 预设已无配置挂载。Host 提供 `@deepseek-ai/dsh-workbench-connection` 的 `workshopConnection` 后才注册工具，该服务消失时移除工具，因此没有工坊连接的组合不提供工坊工具。开始任务时通过 Host `approval` 服务征求用户确认；没有该服务时 `start` 以 `WORKSHOP_APPROVAL_REQUIRED` 失败。在 Desktop 组合中，本工具归在「剧本工坊」能力下，经 `tool_search` 按需加载，不常驻。
+在 Agent 预设中挂载本插件；所有 Bot 使用的 Desktop `short-drama` 预设已无配置挂载。Host 提供 `@deepseek-ai/dsh-workbench-connection` 的 `workshopConnection` 后才注册工具，该服务消失时移除工具，因此没有工坊连接的组合不提供工坊工具。开始任务时通过 Host `approval` 服务征求用户确认；没有该服务时 `start` 以 `WORKSHOP_APPROVAL_REQUIRED` 失败。在 Desktop 组合中，本工具归在「剧本工坊」能力下，经 `tool_search` 按需加载，不常驻。`script_finalize` 和 `script_library` 还需要 `fs` 与 `sandboxPolicy` 服务，按当前对话的工作区解析路径；两者归在同一能力下。
 
 <a id="actions"></a>
 ## 操作
@@ -40,6 +41,13 @@ kind: "package-reference"
 `start` 沿用流水线卡片的默认值：`count` 为 0（持续运行直到停止）、`concurrency` 为 1、`quality` 为 `720p`、`publish` 为 false、不设 `only_series`（按队列顺序）。`concurrency` 不能超过部署的 `max_slots`；`only_series` 接收 15 到 25 位的红果作品编号并去重。步骤未就绪时以 `WORKSHOP_TRANSCRIBE_UNAVAILABLE` 失败，并附上运维给出的原因。工坊没有确认新任务时，`start` 以 `WORKSHOP_JOB_OUTCOME_UNKNOWN` 失败，并提示模型先用 `status` 核对再重试。其他类型的任务以 `WORKSHOP_NOT_TRANSCRIBE_JOB` 失败；其他用户的任务或不存在的任务以 `WORKSHOP_JOB_NOT_FOUND` 失败。停止会保留已领取的每部剧；已结束的任务返回 `stop_requested: false`，不发送停止请求。
 
 待执行卡片的标题写明操作和任务，`start` 卡片显示补全默认值后的参数。完成卡片的标题取自持久化的结果要点：新任务、停止请求、任务状态与百分比，或就绪状态与任务数量。
+
+<a id="finalized-scripts"></a>
+## 定稿剧本
+
+`script_finalize` 把写完的剧本上传为该成员定稿库条目的新版本：`POST /script-library`，带剧名、版权、剧本形式、画面风格、原作在数据站的编号和每集正文。文件里有「第N集」标题时按标题拆分；没有时取文件名里的数字，否则按在列表中的位置。工具先按工坊的限制检查（最多 300 集、每集 60,000 字、全剧 3,000,000 字），并指出出问题的集。同一成员同名的条目接收新版本，正文没变则不新增。授权改编需要 `origin`。工坊没有确认上传时，工具以 `WORKSHOP_FINALIZE_OUTCOME_UNKNOWN` 失败。在 Desktop `short-drama-v2` 预设中，`muse-manuscript-delivery` 生效后工具才能运行，该技能要求 Muse 定稿前先用 `ask_user_question` 问用户。
+
+`script_library` 的 `read` 把一版剧本（默认最新版）写到工作区的 `剧本库/<剧名>-v<版本>/第NNN集.md`，每个文件以「第N集」标题开头，`script_finalize` 读回时仍是同样的分集，并返回路径。`link` 用 `POST /script-library/{id}/production` 登记被选用剧本的镜流项目 ID 和项目名，剧本随之变为已投产。选用版本是组长在客户端「剧本」标签里的操作，不是工具操作。
 
 -----
 
@@ -68,6 +76,20 @@ kind: "package-reference"
 
 定义文本固定；按需加载后会加入该对话之后的请求。结果是追加在可复用前缀之后的普通工具结果。
 
+### 定稿剧本工具
+
+#### 模型看到的内容
+
+两个定义都像视频转剧本工具一样，归在「剧本工坊」能力下按需加载。`script_finalize` 返回剧本编号、剧名、版本、正文是否有变化、阶段和规模；`script_library` 的 `read` 返回版本、阶段、文件夹和文件路径，`link` 返回阶段和项目。
+
+#### Token 影响
+
+每个加载的定义增加一份固定的参数定义。`read` 结果每集列一个路径，最多 300 个；剧本正文写进工作区文件，不进入结果。
+
+#### KV Cache 影响
+
+定义固定；结果追加在可复用前缀之后。
+
 ## 已知限制与后续工作
 
 <a id="known-limitations-and-deferred-work"></a>
@@ -75,6 +97,8 @@ kind: "package-reference"
 - **不能续跑已停止的任务** —— 已停止的独立任务保留已领取的剧，但只有工坊流水线运行能续跑；`start` 会新建任务。
 - **不检查重复开始** —— 另一个视频转剧本任务运行时 `start` 不会拒绝；任务共用部署的转写位，第二个任务只占用空闲的转写位。
 - **只看最近的任务** —— 不带 `job_id` 的 `status` 只扫描最新 50 个各类工厂任务；更早的视频转剧本任务需要提供 `job_id`。
+- **模型不能选用** —— Muse 不能选用版本；组长在客户端「剧本」标签里选用，没人选用的剧本工坊会拒绝 `link`。
+- **`read` 会覆盖** —— `read` 直接替换同一版本文件夹里的文件，不检查本地改动。
 
 <a id="dev-note"></a>
 ### 开发备注
@@ -82,6 +106,6 @@ kind: "package-reference"
 <details>
 <summary>维护者工作背景 —— 点击展开</summary>
 
-工坊一侧是分支 `muse/workshop-transcribe-workflow` 上的 `services/muse-workbenches/video_transcribe.py` 和 `install_transcribe.py`；其中的 `options()` 是本工具对照的共享参数校验。
+工坊一侧是分支 `muse/workshop-transcribe-workflow` 上的 `services/muse-workbenches/video_transcribe.py` 和 `install_transcribe.py`；其中的 `options()` 是本工具对照的共享参数校验。定稿库是同一分支上的 `script_library.py` 和 `install_scripts.py`。
 
 </details>

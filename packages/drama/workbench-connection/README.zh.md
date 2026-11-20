@@ -46,6 +46,8 @@ Desktop Host 用 `MUSE_SCRIPT_WORKSHOP_ORIGIN` 挂载本服务；该变量未设
 
 `WorkbenchSessions` 接收 `WorkbenchDefinition`（受众、网关挂载路径、API 根路径、凭据字段和面向用户的名称）与 `WorkbenchDeployment`（已校验的源站、超时和可选的回环预览凭据）。`disconnect(signal)` 在独立源站下到 `/auth/logout` 注销原生令牌；在网关挂载下只丢弃会话。
 
+`workshopConnection` 同时是供客户端「剧本」标签使用的 Typert Remote 服务：`scripts` 读取定稿库的一页及各阶段计数，`script` 读取一个剧本的版本列表和某一版的各集正文，`pickScript` 选用一版投产，`scriptProduction` 登记被选用剧本投产成的镜流项目。所有成员都能读定稿库；没有 `script_pick` 权限时工坊拒绝 `pickScript` 和 `scriptProduction`。`scriptList`、`scriptDetail` 和 `scriptOf` 校验响应，不符合时以 `WORKSHOP_INVALID_RESULT` 失败。
+
 <a id="model-experience"></a>
 ## 模型体验
 

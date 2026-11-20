@@ -46,6 +46,8 @@ A session belongs to the Muse login that opened it. It is discarded when Muse an
 
 `WorkbenchSessions` takes a `WorkbenchDefinition` naming the audience, gateway mount, API root, credential field and user-facing name, and a `WorkbenchDeployment` with the validated origin, timeout and an optional loopback preview credential. `disconnect(signal)` revokes a dedicated deployment's native token at `/auth/logout`; on the gateway mount it only discards the session.
 
+`workshopConnection` is also a Typert Remote service for the Client's 剧本 tab: `scripts` reads one page of the finalized-script library with counts per stage, `script` reads one script with its versions and one version's episodes, `pickScript` picks a version for production, and `scriptProduction` records the Jingliu project a picked script became. Every member can read the library; the Workshop refuses `pickScript` and `scriptProduction` without the `script_pick` permission. `scriptList`, `scriptDetail` and `scriptOf` check the responses; one that does not match fails with `WORKSHOP_INVALID_RESULT`.
+
 <a id="model-experience"></a>
 ## Model Experience
 
