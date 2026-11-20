@@ -313,6 +313,14 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
     'muse-workbench/sign-in-required': {}
     'muse-workbench/unavailable': {}
+    'muse-data/sign-in-required': {}
+    'muse-data/team-access-required': {}
+    'muse-data/station-unavailable': {}
+    'muse-data/invalid-input': {}
+    'muse-data/invalid-response': {}
+    'muse-data/unconfirmed': {}
+    'muse-data/timeout': {}
+    'muse-data/unavailable': {}
     'muse-feedback/sign-in-required': {}
     'muse-feedback/account-changed': {}
     'muse-feedback/unconfirmed': {}
@@ -411,10 +419,16 @@ export interface MuseDataStockRequest {
 
 /** One Hongguo drama on the 储备看板 with its collection, Douyin topic plays, job and script. */
 export interface MuseDataStockItem {
-  readonly work: { readonly id: string; readonly sourceId: string; readonly title: string | null; readonly tags: readonly string[]; readonly episodeCount: number | null }
+  readonly work: {
+    readonly id: string
+    readonly sourceId: string
+    readonly title: string | null
+    readonly tags: readonly string[]
+    readonly episodeCount: number | null
+  }
   readonly evaluation: {
-    readonly collection?: { readonly value: number } | null
-    readonly douyin?: { readonly viewCount?: number | null } | null
+    readonly collection?: { readonly value: number } | null | undefined
+    readonly douyin?: { readonly viewCount?: number | null | undefined } | null | undefined
   } | null
   readonly job: {
     readonly workId: string
@@ -422,14 +436,21 @@ export interface MuseDataStockItem {
     readonly lane: 'manual' | 'new' | 'backlog'
     readonly requestedBy: string | null
     readonly progress: { readonly episode: number | null; readonly totalEpisodes: number | null } | null
-    readonly lastError?: { readonly reason: string } | null
+    readonly lastError?: { readonly reason: string } | null | undefined
   } | null
   readonly script: { readonly id: string; readonly fileName: string } | null
 }
 
 /** One 储备看板 page with the board's counts. */
 export interface MuseDataStock {
-  readonly summary: { readonly stock: number; readonly queued: number; readonly active: number; readonly failures: number; readonly rejected: number; readonly candidates: number }
+  readonly summary: {
+    readonly stock: number
+    readonly queued: number
+    readonly active: number
+    readonly failures: number
+    readonly rejected: number
+    readonly candidates: number
+  }
   readonly items: readonly MuseDataStockItem[]
   readonly total: number
   readonly page: number

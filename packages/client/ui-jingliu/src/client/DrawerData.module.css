@@ -4,7 +4,6 @@
 
 /* platform marks, in the data station's own colours */
 .glyph { flex:none; display:grid; place-items:center; width:36px; height:36px; border-radius:11px; font-size:16px; font-weight:700; }
-.glyphBig { width:44px; height:44px; border-radius:13px; font-size:19px; }
 .hongguo { background:#C8423A; color:#fff; }
 .douyin { background:#596575; color:#fff; }
 .lvpaopao { background:#23804A; color:#fff; }

@@ -324,7 +324,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.dataStation) {
     const station = new MuseDataStationClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), path: config.dataStationPath,
       requestTimeoutMs: config.dataRequestTimeoutMs, maxReplyBytes: config.dataMaxReplyBytes })
-    ctx.effect(() => () => station.dispose(), 'muse-account: stop data-station reads')
+    ctx.effect(() => () => { station.dispose() }, 'muse-account: stop data-station reads')
     data = station
   }
   const service = ctx.plugin(MuseAccountService, { controller, workbench, browserLogin, asr, models, feedback, voiceSlots,

@@ -50,7 +50,7 @@ export function installNative(ctx: Context): void {
   // The data tab reads the data station as the signed-in member through the account Host.
   ctx.inject(['remote.museAccount', 'resources'], (host) => {
     const api = host.remote.museAccount
-    const reset = () => epoch.set(epoch.getSnapshot() + 1)
+    const reset = () => { epoch.set(epoch.getSnapshot() + 1) }
     host.effect(() => host.remote.$on('muse-account/session-changed', reset), 'data: signed-in station')
     const value = async <T>(result: Promise<{ ok: true; value: T } | { ok: false; error: unknown }>): Promise<T> => {
       const settled = await result
@@ -68,18 +68,18 @@ export function installNative(ctx: Context): void {
       return filter === 'script' || filter === 'active' || filter === 'queued' || filter === 'failed' || filter === 'rejected' ? filter : 'all'
     }
     host.effect(() => host.resources.register<'muse-data-boards'>({ protocol: 'muse-data-boards',
-      open: (address, { signal }) => once(signal, () => value(api.dataBoards(platformOf(address)))) }))
+      open: (address, { signal }) => once(signal, () => api.dataBoards(platformOf(address))) }))
     host.effect(() => host.resources.register<'muse-data-period'>({ protocol: 'muse-data-period',
       open: (address, { signal }) => once(signal, () => {
         const period = param(address, 'period')
-        return value(api.dataPeriod({ platform: platformOf(address), board: param(address, 'board'), period: period === 'day' || period === 'month' ? period : 'week' }))
+        return api.dataPeriod({ platform: platformOf(address), board: param(address, 'board'), period: period === 'day' || period === 'month' ? period : 'week' })
       }) }))
     host.effect(() => host.resources.register<'muse-data-stock'>({ protocol: 'muse-data-stock',
-      open: (address, { signal }) => once(signal, () => value(api.dataStock({
+      open: (address, { signal }) => once(signal, () => api.dataStock({
         filter: filterOf(address), q: param(address, 'q'), page: Math.max(1, Number(param(address, 'page')) || 1), limit: Math.min(100, Math.max(1, Number(param(address, 'limit')) || 50)),
-      }))) }))
+      })) }))
     host.effect(() => host.resources.register<'muse-data-collector'>({ protocol: 'muse-data-collector',
-      open: (_address, { signal }) => once(signal, () => value(api.dataCollector())) }))
+      open: (_address, { signal }) => once(signal, () => api.dataCollector()) }))
     const rush = async (workId: string): Promise<void> => { await value(api.dataRush(workId)) }
     host.slots.inject('bot.drawer.data', () => host.slots.register({
       name: 'bot.drawer.data', locale: 'jingliuStudio', inject: () => ({ hooks: { accountEpoch: epoch }, rush }),
@@ -89,7 +89,7 @@ export function installNative(ctx: Context): void {
     const unmount = await scope.remote.$mount(remote)
     scope.effect(() => unmount, 'jingliu: studio remote')
     scope.inject(['remote.jingliuConnection'], (host) => {
-      const reset = () => epoch.set(epoch.getSnapshot() + 1)
+      const reset = () => { epoch.set(epoch.getSnapshot() + 1) }
       host.effect(() => host.remote.$on('muse-account/session-changed', reset), 'jingliu: signed-in library')
       host.on('connection/reset', reset)
       const api = host.remote.jingliuConnection

@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { museGatewayOrigin } from './gateway.ts'
 import { readMuseSession } from './session.ts'
 import type {
-  MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataPeriodRequest, MuseDataPlatform, MuseDataRush, MuseDataStock, MuseDataStockRequest,
+  MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataPeriodRequest, MuseDataPlatform, MuseDataRush, MuseDataStock,
+  MuseDataStockRequest,
 } from './types.ts'
 
 /** Fixed failures; station response bodies and the account token are never retained. */
@@ -50,7 +51,9 @@ const job = z.object({
   lastError: z.object({ reason: label }).nullable().optional(),
 })
 const stockItem = z.object({
-  work: z.object({ id: workId, sourceId: z.string().max(160), title: label.nullable(), tags: z.array(label).max(80), episodeCount: count.nullable() }),
+  work: z.object({
+    id: workId, sourceId: z.string().max(160), title: label.nullable(), tags: z.array(label).max(80), episodeCount: count.nullable(),
+  }),
   evaluation: z.object({
     collection: z.object({ value: z.number() }).nullable().optional(),
     douyin: z.object({ viewCount: z.number().nullable().optional() }).nullable().optional(),

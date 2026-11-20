@@ -534,6 +534,47 @@ it('loads explicit feedback tools through Loader, submits one authenticated rece
   expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(previous)
 })
 
+it('keeps the 数据 tab data-station reads opt-in and validates their route prefix and bounds', () => {
+  expect(Config({ baseUrl })).toMatchObject({ dataStation: false, dataStationPath: '/data/api/muse-client/data',
+    dataRequestTimeoutMs: 20_000, dataMaxReplyBytes: 8_388_608 })
+  for (const dataStationPath of ['data/api', '/data/', '/data/../api', '/data api']) {
+    expect(() => Config({ baseUrl, dataStationPath }), dataStationPath).toThrow()
+  }
+  const bounds = [{ dataRequestTimeoutMs: 999 }, { dataRequestTimeoutMs: 120_001 },
+    { dataMaxReplyBytes: 1023 }, { dataMaxReplyBytes: 33_554_433 }]
+  for (const bound of bounds) {
+    expect(() => Config({ baseUrl, ...bound }), JSON.stringify(bound)).toThrow()
+  }
+})
+
+it('loads the 数据 tab data-station reads through Loader and sends only the account token', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'muse-data-plugin-')); homes.push(home)
+  const loaded = await oldSessionFixture(false, home), ctx = loaded.ctx
+  contexts.push(ctx)
+  const token = 'data-account-private'
+  const requests: { url: string; headers: Headers }[] = []
+  await writeMuseSession(join(home, 'session.json'), { baseUrl, username: 'alice', cookie: `__Host-muse=${token}` })
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input, init) => {
+    const target = new URL(input instanceof Request ? input.url : input)
+    if (target.pathname === '/api/desktop-models/providers') return Response.json({ providers: [] })
+    if (!target.pathname.startsWith('/station/data/')) throw Error('Unexpected fixture request')
+    requests.push({ url: target.href, headers: new Headers(init?.headers) })
+    return Response.json({ state: 'online', label: '已连接', message: '' })
+  }))
+  ctx.loader.builtins['data-account'] = { inject: accountInject, Config, apply }
+  const id = await ctx.loader.create({ name: 'cordis:data-account', config: { baseUrl, accountHome: home, dataStation: true, dataStationPath: '/station/data' } })
+  await ctx.loader.await()
+  const plugin = ctx.loader.resolve(id).fiber
+  if (plugin === undefined) throw Error('Account plugin fiber was not created')
+  await plugin.await()
+  const service = ctx.get('museAccount') as import('../src/service.ts').MuseAccountService
+  expect(await service.dataCollector()).toEqual({ state: 'online', label: '已连接', message: '' })
+  expect(requests.map(request => request.url)).toEqual([`${baseUrl}/station/data/lvpaopao/status`])
+  expect(requests[0]?.headers.get('x-muse-account-token')).toBe(token)
+  expect(requests[0]?.headers.has('origin')).toBe(false)
+  await plugin.dispose()
+})
+
 it('keeps the data-station Douyin tool opt-in and validates its route prefix and bounds', () => {
   expect(Config({ baseUrl })).toMatchObject({ douyinDownloadTool: false, douyinStationPath: '/data/api/muse-client/douyin',
     douyinRequestTimeoutMs: 15_000, douyinLinkTimeoutMs: 10_000, douyinMaxReplyBytes: 1_048_576, douyinMaxWaitSeconds: 60,

@@ -35,6 +35,7 @@
     "src/media-file-helper.ts",
     "src/media-tools.ts",
     "src/douyin-station.ts",
+    "src/data-station.ts",
     "src/douyin-tools.ts"
   ],
   "references": [

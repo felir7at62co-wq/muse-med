@@ -33,15 +33,15 @@ const LEVEL = ' · '
 export interface DrawerDataProps {
   t: Text
   useResource: Read
-  useAccountEpoch<T>(select: (value: number) => T): T
+  useAccountEpoch: <T>(select: (value: number) => T) => T
   /** The open platform, or null on the platform list. */
   platform: string | null
   /** Open one platform under the same tab, or go back to the list with null. */
-  openPlatform(platform: string | null): void
+  openPlatform: (platform: string | null) => void
   /** Put a reference above the message box of the drawer's conversation. */
-  quote(text: string): void
+  quote: (text: string) => void
   /** Move a Hongguo drama to the front of the transcription queue as the signed-in member. */
-  rush(workId: string): Promise<void>
+  rush: (workId: string) => Promise<void>
 }
 
 /**
@@ -53,8 +53,8 @@ export function DrawerData(props: DrawerDataProps) {
   const epoch = props.useAccountEpoch(n => n)
   const shown = PLATFORMS.find(entry => entry.id === props.platform)
   return shown === undefined
-    ? <PlatformList key={epoch} epoch={epoch} {...props} />
-    : <PlatformView key={`${epoch}:${shown.id}`} epoch={epoch} platform={shown} {...props} />
+    ? <PlatformList key={epoch} {...props} epoch={epoch} />
+    : <PlatformView key={`${epoch}:${shown.id}`} {...props} epoch={epoch} platform={shown} />
 }
 
 function short(value: number | null | undefined, t: Text): string {
@@ -67,8 +67,8 @@ function metricOf(work: MuseDataWork, key: string, t: Text): string {
   return short(work.metrics.find(metric => metric.key === key)?.value, t)
 }
 
-function Glyph({ id, t, glyph, big = false }: { id: MuseDataPlatform; t: Text; glyph: Key; big?: boolean }) {
-  return <span aria-hidden="true" className={`${css.glyph} ${css[id]} ${big ? css.glyphBig : ''}`}>{t(glyph)}</span>
+function Glyph({ id, t, glyph }: { id: MuseDataPlatform; t: Text; glyph: Key }) {
+  return <span aria-hidden="true" className={`${css.glyph} ${css[id]}`}>{t(glyph)}</span>
 }
 
 function PlatformList({ epoch, t, useResource, openPlatform }: DrawerDataProps & { epoch: number }) {
@@ -88,7 +88,7 @@ function PlatformList({ epoch, t, useResource, openPlatform }: DrawerDataProps &
   const busy = (stock.value?.summary.active ?? 0) > 0
   return <section className={css.drawer} aria-label={t('dataPlatforms')}>
     <ul className={css.platforms}>{PLATFORMS.map(entry => <li key={entry.id}>
-      <button type="button" className={css.platform} onClick={() => openPlatform(entry.id)}>
+      <button type="button" className={css.platform} onClick={() => { openPlatform(entry.id) }}>
         <Glyph id={entry.id} t={t} glyph={entry.glyph} />
         <span className={css.text}><strong>{t(entry.name)}</strong>{lines[entry.id] !== '' && <small>{lines[entry.id]}</small>}</span>
         {entry.id === 'hongguo' && busy && <span className={css.live} role="img" aria-label={t('stageTranscribing')} />}
@@ -97,18 +97,18 @@ function PlatformList({ epoch, t, useResource, openPlatform }: DrawerDataProps &
   </section>
 }
 
-function PlatformView({ epoch, platform, t, useResource, openPlatform, quote, rush }: DrawerDataProps & { epoch: number; platform: typeof PLATFORMS[number] }) {
+function PlatformView({ epoch, platform, t, useResource, openPlatform, quote, rush }: Omit<DrawerDataProps, 'platform'> & { epoch: number; platform: typeof PLATFORMS[number] }) {
   const [view, setView] = useState<'rank' | 'stock'>('rank')
   const [choosing, setChoosing] = useState(false)
   const hongguo = platform.id === 'hongguo'
   return <section className={css.drawer}>
     <div className={css.bar}>
-      <button type="button" className={css.pill} aria-expanded={choosing} aria-label={t('switchPlatform', { name: t(platform.name) })} onClick={() => setChoosing(open => !open)}>
+      <button type="button" className={css.pill} aria-expanded={choosing} aria-label={t('switchPlatform', { name: t(platform.name) })} onClick={() => { setChoosing(open => !open) }}>
         <Glyph id={platform.id} t={t} glyph={platform.glyph} /><strong>{t(platform.name)}</strong>
       </button>
       {hongguo && <div className={css.chips} role="group" aria-label={t('dataView')}>
-        <button type="button" className={css.chip} aria-pressed={view === 'rank'} onClick={() => setView('rank')}>{t('viewRankings')}</button>
-        <button type="button" className={css.chip} aria-pressed={view === 'stock'} onClick={() => setView('stock')}>{t('viewStock')}</button>
+        <button type="button" className={css.chip} aria-pressed={view === 'rank'} onClick={() => { setView('rank') }}>{t('viewRankings')}</button>
+        <button type="button" className={css.chip} aria-pressed={view === 'stock'} onClick={() => { setView('stock') }}>{t('viewStock')}</button>
       </div>}
     </div>
     {choosing && <ul className={css.menu}>{PLATFORMS.map(entry => <li key={entry.id}>
@@ -124,52 +124,55 @@ function PlatformView({ epoch, platform, t, useResource, openPlatform, quote, ru
 
 /** The ranking levels a set of nested names offers under the chosen one. */
 function levelsOf(names: readonly string[], chosen: string): { options: string[]; value: string }[] {
-  const parts = names.map(name => name.split(LEVEL))
   const want = chosen.split(LEVEL)
   const levels: { options: string[]; value: string }[] = []
-  let pool = parts
-  for (let depth = 0; pool.some(part => part.length > depth); depth += 1) {
-    const options = [...new Set(pool.filter(part => part.length > depth).map(part => part[depth] ?? ''))]
-    const value = options.includes(want[depth] ?? '') ? want[depth] ?? '' : options[0] ?? ''
+  let pool = names.map(name => name.split(LEVEL))
+  for (;;) {
+    const depth = levels.length
+    const options = [...new Set(pool.flatMap(part => part.slice(depth, depth + 1)))]
+    const value = options.find(option => option === want[depth]) ?? options[0]
+    if (value === undefined) return levels
     levels.push({ options, value })
     pool = pool.filter(part => part[depth] === value)
   }
-  return levels
 }
 
 /** The ranking a choice at one level leads to, keeping the deeper choices where that ranking has them. */
-function boardAfter(names: readonly string[], chosen: string, depth: number, option: string): string {
+function boardAfter(names: readonly string[], chosen: string, depth: number, option: string): string | undefined {
   const want = chosen.split(LEVEL)
-  const prefix = [...want.slice(0, depth), option]
-  const same = [...prefix, ...want.slice(depth + 1)].join(LEVEL)
-  return names.find(name => name === same) ?? names.find(name => name.startsWith(prefix.join(LEVEL) + LEVEL)) ?? names.find(name => name === prefix.join(LEVEL)) ?? chosen
+  const prefix = [...want.slice(0, depth), option].join(LEVEL)
+  const same = [prefix, ...want.slice(depth + 1)].join(LEVEL)
+  return names.find(name => name === same) ?? names.find(name => name === prefix || name.startsWith(prefix + LEVEL))
 }
 
 function Rankings({ epoch, platform, t, useResource, quote, rush }: Pick<DrawerDataProps, 't' | 'useResource' | 'quote' | 'rush'> & { epoch: number; platform: typeof PLATFORMS[number] }) {
   const [revision, refresh] = useState(0)
   const boards = useResource<'muse-data-boards'>(address('muse-data-boards', epoch, revision, { platform: platform.id }))
   const names = boards.value?.boards ?? []
-  const [picked, setPicked] = useState<string | null>(null)
-  const board = picked !== null && names.includes(picked) ? picked : boards.value?.defaultBoard ?? names[0] ?? null
+  // An unset pick, or one the platform no longer lists, follows the station's default ranking.
+  const [picked, setPicked] = useState<string | undefined>()
+  const board = picked !== undefined && names.includes(picked) ? picked : boards.value?.defaultBoard ?? names[0] ?? null
   const [period, setPeriod] = useState<Period>('week')
   const ranking = useResource<'muse-data-period'>(board === null ? 'studio://inactive'
     : address('muse-data-period', epoch, revision, { platform: platform.id, board, period }))
-  if (platform.id === 'lvpaopao' && boards.status === 'live' && names.length === 0) return <Collector epoch={epoch} t={t} useResource={useResource} />
+  if (boards.status === 'live' && names.length === 0) {
+    return platform.id === 'lvpaopao' ? <Collector epoch={epoch} t={t} useResource={useResource} /> : <p className={css.quiet}>{t('nothingHere')}</p>
+  }
   const failed = boards.status === 'failed' || ranking.status === 'failed'
-  const levels = board === null ? [] : levelsOf(names, board)
+  const levels = board === null ? [] : levelsOf(names, board).map(level => ({ ...level, board }))
   return <>
     {platform.id === 'douyin'
       ? <p className={css.quiet}>{t('monitorNote')}</p>
       : <div className={css.controls}>
         {levels.map((level, depth) => level.options.length > 1 && <div key={depth} className={css.chips} role="group" aria-label={t('rankingLevel')}>
           {level.options.map(option => <button key={option} type="button" className={css.chip} aria-pressed={option === level.value}
-            onClick={() => board !== null && setPicked(boardAfter(names, board, depth, option))}>{option}</button>)}
+            onClick={() => { setPicked(boardAfter(names, level.board, depth, option)) }}>{option}</button>)}
         </div>)}
         <div className={css.chips} role="group" aria-label={t('rankingPeriod')}>
-          {PERIODS.map(([value, label]) => <button key={value} type="button" className={css.chip} aria-pressed={period === value} onClick={() => setPeriod(value)}>{t(label)}</button>)}
+          {PERIODS.map(([value, label]) => <button key={value} type="button" className={css.chip} aria-pressed={period === value} onClick={() => { setPeriod(value) }}>{t(label)}</button>)}
         </div>
       </div>}
-    {failed ? <DataFailure t={t} retry={() => refresh(n => n + 1)} />
+    {failed ? <DataFailure t={t} retry={() => { refresh(n => n + 1) }} />
       : ranking.value === undefined ? <p className={css.quiet}>{t('loading')}</p>
         : ranking.value.items.length === 0 ? <p className={css.quiet}>{t('nothingHere')}</p>
           : <RankRows period={ranking.value} platform={platform} t={t} quote={quote} rush={rush} />}
@@ -190,7 +193,7 @@ function RankRows({ period, platform, t, quote, rush }: Pick<DrawerDataProps, 't
         <span role="cell" className={css.text}><strong>{title}</strong><small>{work.tags.slice(0, 3).join(' · ')}</small></span>
         {platform.columns.map(([key]) => <span key={key} role="cell" className={css.num}>{metricOf(work, key, t)}</span>)}
         <span role="cell" className={css.acts}>
-          <QuoteButton t={t} title={title} onQuote={() => quote(t('workReference', { platform: t(platform.name), board: period.board, rank: String(position ?? '—'), title }))} />
+          <QuoteButton t={t} title={title} onQuote={() => { quote(t('workReference', { platform: t(platform.name), board: period.board, rank: String(position ?? '—'), title })) }} />
           {platform.id === 'hongguo' && <RushButton t={t} workId={work.id} rush={rush} label="transcribe" />}
         </span>
       </div>
@@ -206,6 +209,7 @@ function Stock({ epoch, t, useResource, quote, rush }: Pick<DrawerDataProps, 't'
   const [revision, refresh] = useState(0)
   const board = useResource<'muse-data-stock'>(address('muse-data-stock', epoch, revision, { filter, q: query, page: String(page), limit: String(STOCK_PAGE) }))
   const summary = board.value?.summary
+  const total = board.value?.total ?? 0
   const counts: Partial<Record<Filter, number>> = summary === undefined ? {}
     : { active: summary.active, queued: summary.queued, script: summary.stock, failed: summary.failures, rejected: summary.rejected }
   const pick = (next: Filter) => { setFilter(next); setPage(1) }
@@ -215,11 +219,11 @@ function Stock({ epoch, t, useResource, quote, rush }: Pick<DrawerDataProps, 't'
         onChange={(e) => { setDraft(e.target.value); if (e.target.value.trim() === '') { setQuery(''); setPage(1) } }} />
     </form>
     <div className={css.chips} role="group" aria-label={t('stockFilter')}>
-      {FILTERS.map(([value, label]) => <button key={value} type="button" className={css.chip} aria-pressed={filter === value} onClick={() => pick(value)}>
+      {FILTERS.map(([value, label]) => <button key={value} type="button" className={css.chip} aria-pressed={filter === value} onClick={() => { pick(value) }}>
         {t(label)}{counts[value] !== undefined && <small className={css.count}>{counts[value]}</small>}
       </button>)}
     </div>
-    {board.status === 'failed' ? <DataFailure t={t} retry={() => refresh(n => n + 1)} />
+    {board.status === 'failed' ? <DataFailure t={t} retry={() => { refresh(n => n + 1) }} />
       : board.value === undefined ? <p className={css.quiet}>{t('loading')}</p>
         : board.value.items.length === 0 ? <p className={css.quiet}>{t('nothingHere')}</p>
           : <div className={css.table} role="table" aria-label={t('viewStock')}>
@@ -231,9 +235,9 @@ function Stock({ epoch, t, useResource, quote, rush }: Pick<DrawerDataProps, 't'
             </div>
             {board.value.items.map(item => <StockRow key={item.work.id} item={item} t={t} quote={quote} rush={rush} />)}
           </div>}
-    {(board.value?.total ?? 0) > STOCK_PAGE && <div className={css.pages}>
-      <Button variant="ghost" size="sm" disabled={page === 1} onClick={() => setPage(n => Math.max(1, n - 1))}>{t('previous')}</Button>
-      <Button variant="ghost" size="sm" disabled={page * STOCK_PAGE >= (board.value?.total ?? 0)} onClick={() => setPage(n => n + 1)}>{t('next')}</Button>
+    {total > STOCK_PAGE && <div className={css.pages}>
+      <Button variant="ghost" size="sm" disabled={page === 1} onClick={() => { setPage(n => Math.max(1, n - 1)) }}>{t('previous')}</Button>
+      <Button variant="ghost" size="sm" disabled={page * STOCK_PAGE >= total} onClick={() => { setPage(n => n + 1) }}>{t('next')}</Button>
     </div>}
   </>
 }
@@ -254,18 +258,18 @@ function StockRow({ item, t, quote, rush }: Pick<DrawerDataProps, 't' | 'quote' 
       {done !== null && total !== null && total > 0
         ? <><span className={`${css.track} ${running ? css.trackLive : ''}`} role="img" aria-label={t('episodeProgress', { done: String(done), total: String(total) })}>
           <span style={{ width: `${Math.min(100, Math.round(done / total * 100))}%` }} /></span>
-          <small>{done}/{total}</small></>
+        <small>{done}/{total}</small></>
         : <small>{job === null ? '' : t(STAGES[job.state])}</small>}
     </span>
     <span role="cell" className={css.acts}>
-      <QuoteButton t={t} title={title} onQuote={() => quote(t('stockReference', { title }))} />
+      <QuoteButton t={t} title={title} onQuote={() => { quote(t('stockReference', { title })) }} />
       {running ? <span className={css.live} role="img" aria-label={t('stageTranscribing')} />
         : canRush ? <RushButton t={t} workId={work.id} rush={rush} label="rushNow" /> : null}
     </span>
   </div>
 }
 
-function QuoteButton({ t, title, onQuote }: { t: Text; title: string; onQuote(): void }) {
+function QuoteButton({ t, title, onQuote }: { t: Text; title: string; onQuote: () => void }) {
   return <button type="button" className={css.quote} aria-label={t('quoteWork', { title })} title={t('quoteWork', { title })} onClick={onQuote}>
     <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 15a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" /><path d="M9 10h6" />
@@ -278,7 +282,7 @@ function RushButton({ t, workId, rush, label }: Pick<DrawerDataProps, 't' | 'rus
   if (state === 'queued') return <span className={css.tag}>{t('queuedNow')}</span>
   const go = () => {
     setState('busy')
-    rush(workId).then(() => setState('queued'), () => setState('failed'))
+    rush(workId).then(() => { setState('queued') }, () => { setState('failed') })
   }
   return <Button size="sm" variant="outline" disabled={state === 'busy'} title={state === 'failed' ? t('rushFailed') : undefined} onClick={go}>
     {state === 'failed' ? t('retry') : t(label)}
