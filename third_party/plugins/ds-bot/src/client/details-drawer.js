@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { isMainOf } from './sources.js'
 import { currentPart, runStatsOf, usageOf } from './text.js'
-import { PlusIcon, CloseIcon, ChevronLeftIcon, GearIcon, ShareIcon } from './icons.js'
+import { PlusIcon, CloseIcon, ChevronLeftIcon, GearIcon, ShareIcon, SideIcon, TerminalIcon, FolderIcon } from './icons.js'
 import { botState, BotMark, BotAvatar } from './mark.js'
 import { GlobeIcon, Favicon } from './browser-pane.js'
 import { useEscape } from './overlay-hooks.js'
@@ -18,19 +18,22 @@ import { PermissionPicker, presetDanger, presetName } from './permission-picker.
 import { TaskBoard } from './task-board.js'
 import { ComputerView } from './computer.js'
 import { t } from './i18n.js'
-import { DRAWER_TAB_LABELS, drawerTabOf, drawerTabs, projectOfTab, terminalOfTab } from './side-model.js'
+import { DRAWER_TAB_LABELS, drawerTabOf, drawerTabs, drawerTools, listTabOf, platformOfTab, projectOfTab, terminalOfTab } from './side-model.js'
 import { TerminalCards } from './terminal-cards.js'
 import { FilesTree } from './files-tree.js'
 
 // Muse: a row of tabs sits under the Bot's name and each tab's content shows under it: the
-// details, the Bot's browser, the file tree, the computer, or a slot another plugin fills —
-// the Jingliu project list and the asset library. Side chat and Terminal open elsewhere.
-// A Jingliu project opened from the list has a tab of its own in the panel's strip
-// (browser-pane.js) and takes the drawer's whole height. Each slot gets the Bot's current
-// conversation as `sessionId`, and `quote` / `compose` to put a reference or a prepared
-// request into its message box; Jingliu also gets the open `project` (null on its project
-// list) and `openProject` to open one as a tab.
-const TAB_SLOTS = { jingliu: 'bot.drawer.jingliu', assets: 'bot.drawer.assets' }
+// details, the Bot's browser, the computer, or a slot another plugin fills — the Jingliu
+// project list, the asset library and the data station. Side chat, Terminal and Files are
+// round tools in the top bar; Side chat and Terminal open elsewhere. A Jingliu project opened
+// from the list has a tab of its own in the panel's strip (browser-pane.js) and takes the
+// drawer's whole height. Each slot gets the Bot's current conversation as `sessionId`, and
+// `quote` / `compose` to put a reference or a prepared request into its message box; Jingliu
+// also gets the open `project` (null on its project list) and `openProject` to open one as a
+// tab; the data station gets the open `platform` (null on its platform list) and
+// `openPlatform`, which widens the drawer to that platform under the same tab row.
+const TAB_SLOTS = { jingliu: 'bot.drawer.jingliu', assets: 'bot.drawer.assets', data: 'bot.drawer.data' }
+const TOOL_ICONS = { side: SideIcon, terminal: TerminalIcon, files: FolderIcon }
 // One open terminal, in its own strip tab; the Terminal row tab lists them (terminal-cards.js).
 const TERMINAL_SLOT = 'bot.drawer.terminal'
 export const DRAWER_SLOTS = Object.fromEntries([...Object.values(TAB_SLOTS), TERMINAL_SLOT].map(name => [name, { kind: 'single', scope: 'root' }]))
@@ -299,7 +302,15 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
   }
   // An open Jingliu project or terminal takes the whole drawer; every row tab keeps the Bot's top.
   const onDetails = projectOfTab(tab) === null && terminalOfTab(tab) === null
+  // A top-bar tool acts as its row tab did; `pick` is declared below and runs at click time.
+  function pickTool(key) { return () => pick(key)() }
+  const tools = bot ? drawerTools({ bot: true, canTerminal: actions.canOpenTerminal?.() === true }) : []
   const top = !onDetails ? null : h('div', { className: 'bt-drawer-top', 'data-move': side },
+    tools.length > 0 ? h('div', { className: 'bt-tools', role: 'group', 'aria-label': t('Tools') },
+      tools.map(key => h('button', {
+        key, type: 'button', className: 'bt-round bt-tool', 'aria-label': t(DRAWER_TAB_LABELS[key]), title: t(DRAWER_TAB_LABELS[key]),
+        'aria-pressed': listTabOf(tab) === key, onClick: pickTool(key),
+      }, h(TOOL_ICONS[key])))) : null,
     bot || room ? h('button', { type: 'button', className: 'bt-round', 'aria-label': bot ? t('Edit Bot') : t('Group settings'), title: bot ? t('Edit Bot') : t('Group settings'), 'data-info-row': 'settings', onClick: () => setView('settings') }, h(GearIcon)) : null,
     // Muse: the export button downloads the conversation's Session log, where DSH's log export runs.
     (bot || room) && actions.canDownloadLog?.() === true ? h('button', {
@@ -322,13 +333,14 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
   }
   const subtitle = bot ? undefined : roomSubtitle(room, roster)
   const projectId = projectOfTab(tab)
+  const platformId = platformOfTab(tab)
   const fills = name => typeof renderSlot === 'function' && actions.hasDrawerSlot?.(name) === true
-  const slot = projectId !== null ? TAB_SLOTS.jingliu : TAB_SLOTS[tab]
+  const slot = projectId !== null ? TAB_SLOTS.jingliu : platformId !== null ? TAB_SLOTS.data : TAB_SLOTS[tab]
   const hosted = slot !== undefined && fills(slot)
   const hostsTerminal = fills(TERMINAL_SLOT) && actions.canHostTerminal?.() === true
   const tabs = !onDetails ? [] : drawerTabs({
-    bot: bot !== undefined, canBrowse: true, canTerminal: actions.canOpenTerminal?.() === true,
-    canJingliu: fills(TAB_SLOTS.jingliu), canAssets: fills(TAB_SLOTS.assets) || actions.canOpenAssets?.() === true,
+    bot: bot !== undefined, canBrowse: true,
+    canJingliu: fills(TAB_SLOTS.jingliu), canAssets: fills(TAB_SLOTS.assets) || actions.canOpenAssets?.() === true, canData: fills(TAB_SLOTS.data),
     computer: roster.computer?.enabled === true,
   })
   // Side chat opens in its own place; so does Terminal where no plugin shows terminals in the panel,
@@ -343,7 +355,8 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
     : () => setTab(key))
   return [h(Fragment, { key: 'top' }, top),
     // Muse: an open Jingliu project's tab takes the whole height; the Bot's name stays in the strip above.
-    h('div', { key: 'id', className: 'bt-drawer-id', 'data-move': side, hidden: onDetails ? undefined : true },
+    // Muse: an open data platform keeps the tab row but gives the Bot's name its height.
+    h('div', { key: 'id', className: 'bt-drawer-id', 'data-move': side, hidden: onDetails && platformOfTab(tab) === null ? undefined : true },
       bot ? h(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== undefined), main: isMainBot, badge: false, gaze: true, pokeable: true })
         : h(MemberPile, { room, roster }),
       editing
@@ -361,9 +374,9 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
         : subtitle ? h('span', { className: 'bt-drawer-role' }, subtitle) : null),
     tabs.length > 1 ? h('div', { key: 'tabs', ref: glide.box, className: 'bt-tabs bt-tabs-many', role: 'tablist', 'data-move': side },
       h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
-      // Muse: the row spans the drawer, each tab as wide as its label weighs.
-      tabs.map(key => h('button', { key, type: 'button', role: 'tab', className: 'bt-tab', 'aria-selected': tab === key, 'data-tab-key': key, onClick: pick(key),
-        style: { flexGrow: Array.from(t(DRAWER_TAB_LABELS[key])).length } }, t(DRAWER_TAB_LABELS[key])))) : null,
+      // Muse: the row spans the drawer in equal tabs; an open data platform keeps Data selected.
+      tabs.map(key => h('button', { key, type: 'button', role: 'tab', className: 'bt-tab', 'aria-selected': listTabOf(tab) === key, 'data-tab-key': key, onClick: pick(key) },
+        t(DRAWER_TAB_LABELS[key])))) : null,
     h('div', { key: `body:${tab}`, className: 'bt-drawer-body', 'data-move': move, 'data-fill': terminal !== undefined || undefined },
       errorLine,
       room && tab === 'details' ? h(GroupOverview, { room, roster, actions, usage, useWork, openSettings: () => setView('settings') }) : null,
@@ -380,6 +393,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
           project: projectId === null ? null : { id: projectId, title: projects.find(entry => entry.id === projectId)?.title ?? '' },
           openProject: project => actions.openJingliuProject(sessionId, project),
         } : {}),
+        ...(slot === TAB_SLOTS.data ? { platform: platformId, openPlatform: platform => setTab(platform === null ? 'data' : `data:${platform}`) } : {}),
       })) : null,
       bot && tab === 'details' ? [
         h(RunStats, { key: 'stats', bot, part, running, actions }),

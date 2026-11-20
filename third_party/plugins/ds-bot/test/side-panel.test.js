@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { drawerMenuKeys, drawerTabOf, drawerTabs, listTabOf, panelHasStrip, projectOfTab, stripMenuKeys, terminalCards, terminalOfTab } from '../src/client/side-model.js'
+import { drawerMenuKeys, drawerTabOf, drawerTabs, drawerTools, listTabOf, panelHasStrip, platformOfTab, projectOfTab, stripMenuKeys, terminalCards, terminalOfTab } from '../src/client/side-model.js'
 
 // The strip shows whenever the Bot has a browser tab or a side chat; side chats
 // need no browser bridge, so DSH Web gets them too.
@@ -15,12 +15,26 @@ test('the strip shows with only side chats and no browser', () => {
   assert.equal(panelHasStrip(true, 0, 2), true)
 })
 
-// Muse: the tab row under a Bot's name.
-test('the row holds the details first, then what the plugins and the desktop offer', () => {
-  const all = { bot: true, canBrowse: true, canTerminal: true, canJingliu: true, canAssets: true, computer: true }
-  assert.deepEqual(drawerTabs(all), ['details', 'browser', 'side', 'terminal', 'files', 'jingliu', 'assets', 'computer'])
-  assert.deepEqual(drawerTabs({ bot: true }), ['details', 'side', 'files'])
+// Muse: the tab row under a Bot's name, and the round tools beside its gear.
+test('the row holds the details and the browser, then what the plugins and the desktop offer', () => {
+  const all = { bot: true, canBrowse: true, canJingliu: true, canAssets: true, canData: true, computer: true }
+  assert.deepEqual(drawerTabs(all), ['details', 'browser', 'jingliu', 'assets', 'data', 'computer'])
+  assert.deepEqual(drawerTabs({ bot: true }), ['details'])
   assert.deepEqual(drawerTabs({ ...all, bot: false }), [])
+})
+
+test('side chat, terminal and files are tools beside the gear, terminal only where it can open', () => {
+  assert.deepEqual(drawerTools({ bot: true, canTerminal: true }), ['side', 'terminal', 'files'])
+  assert.deepEqual(drawerTools({ bot: true }), ['side', 'files'])
+  assert.deepEqual(drawerTools({ bot: false, canTerminal: true }), [])
+})
+
+test('a data tab key names its open platform, and Data stays the row tab while one is open', () => {
+  assert.equal(drawerTabOf('data'), 'data')
+  assert.equal(drawerTabOf('data:hongguo'), 'data:hongguo')
+  assert.equal(platformOfTab('data:hongguo'), 'hongguo')
+  assert.equal(platformOfTab('data'), null)
+  assert.equal(listTabOf('data:fanqie'), 'data')
 })
 
 test('a drawer tab is the details unless the state names a row tab or an open Jingliu project', () => {

@@ -464,6 +464,11 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-drag-shield{position:fixed;inset:0;z-index:45;cursor:col-resize}
 .bt-panel-view{flex:1;min-height:0;display:flex;flex-direction:column}
 .bt-drawer-top{display:flex;justify-content:flex-end;gap:8px;padding:12px 17px 6px 12px}
+/* Muse: Side chat, Terminal and Files sit as one group of quiet round tools beside the gear. */
+.bt-tools{display:flex;align-items:center;gap:2px;padding:2px;border-radius:999px;background:color-mix(in srgb,var(--bt-ink) 5%,transparent)}
+.bt-tools .bt-tool{width:32px;height:32px;border-color:transparent;background:transparent;color:var(--bt-ink-2)}
+.bt-tools .bt-tool:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-tools .bt-tool[aria-pressed=true]{background:var(--bt-ink);color:var(--bt-main)}
 .bt-drawer-id{display:flex;flex-direction:column;align-items:center;padding:14px 16px 0}
 .bt-drawer-id[hidden]{display:none}
 .bt-drawer-id>.bt-mark,.bt-drawer-id>.bt-cluster,.bt-drawer-id>.bt-pile{margin-bottom:16px}

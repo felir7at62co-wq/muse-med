@@ -773,6 +773,8 @@ const ZH = {
   'Muse sessions': 'Muse 会话',
   Jingliu: '镜流',
   'Asset library': '资产库',
+  Data: '数据',
+  Tools: '工具',
   'Skills/MCP': 'Skills/MCP',
   'Language model': '语言模型',
   'Background jobs': '后台',

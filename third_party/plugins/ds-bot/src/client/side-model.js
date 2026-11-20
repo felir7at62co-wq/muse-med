@@ -170,30 +170,36 @@ export function drawerMenuKeys({ bot, room, canBrowse, canTerminal, canFiles }) 
   return [...keys, ...tail]
 }
 
-// Muse: the tab row under a Bot's name, in order: what the `···` menu held, plus the file
-// tree, the Jingliu projects and the asset library. A group's drawer is its details alone.
-export function drawerTabs({ bot, canBrowse, canTerminal, canJingliu, canAssets, computer }) {
+// Muse: the tab row under a Bot's name, in order: its details, the browser, the Jingliu
+// projects, the asset library and the data station. Side chat, Terminal and Files are the
+// top bar's tools (`drawerTools`). A group's drawer is its details alone.
+export function drawerTabs({ bot, canBrowse, canJingliu, canAssets, canData, computer }) {
   if (bot !== true) return []
   const keys = ['details']
   if (canBrowse === true) keys.push('browser')
-  keys.push('side')
-  if (canTerminal === true) keys.push('terminal')
-  keys.push('files')
   if (canJingliu === true) keys.push('jingliu')
   if (canAssets === true) keys.push('assets')
+  if (canData === true) keys.push('data')
   if (computer === true) keys.push('computer')
   return keys
 }
-export const DRAWER_TAB_LABELS = { details: 'Details', browser: 'Browser', side: 'Side chat', terminal: 'Terminal', files: 'Files', jingliu: 'Jingliu', assets: 'Asset library', computer: 'Computer' }
-// The drawer tab a panel shows: its details unless the state names another row tab or an
-// open Jingliu project (`jingliu:<id>`), which has a strip tab of its own.
-export const drawerTabOf = tab => (typeof tab === 'string' && (Object.hasOwn(DRAWER_TAB_LABELS, tab) || tab.startsWith('jingliu:') || tab.startsWith('terminal:')) ? tab : 'details')
+// Muse: the round tool buttons beside the gear in a Bot's drawer, in order.
+export function drawerTools({ bot, canTerminal }) {
+  if (bot !== true) return []
+  return canTerminal === true ? ['side', 'terminal', 'files'] : ['side', 'files']
+}
+export const DRAWER_TAB_LABELS = { details: 'Details', browser: 'Browser', side: 'Side chat', terminal: 'Terminal', files: 'Files', jingliu: 'Jingliu', assets: 'Asset library', data: 'Data', computer: 'Computer' }
+// The drawer tab a panel shows: its details unless the state names another row tab, an
+// open Jingliu project (`jingliu:<id>`), terminal (`terminal:<id>`) or data platform (`data:<id>`).
+export const drawerTabOf = tab => (typeof tab === 'string' && (Object.hasOwn(DRAWER_TAB_LABELS, tab) || tab.startsWith('jingliu:') || tab.startsWith('terminal:') || tab.startsWith('data:')) ? tab : 'details')
 // The Jingliu project a drawer tab key names, or null.
 export const projectOfTab = tab => (typeof tab === 'string' && tab.startsWith('jingliu:') ? tab.slice('jingliu:'.length) : null)
+// Muse: the data platform a drawer tab key names, or null; `data` alone is the platform list.
+export const platformOfTab = tab => (typeof tab === 'string' && tab.startsWith('data:') ? tab.slice('data:'.length) : null)
 // The open terminal a drawer tab key names, or null; `terminal` alone is the list of them.
 export const terminalOfTab = tab => (typeof tab === 'string' && tab.startsWith('terminal:') ? tab.slice('terminal:'.length) : null)
 // The row tab the Bot's own strip tab goes back to: the list an opened project or terminal came from.
-export const listTabOf = tab => (projectOfTab(tab) !== null ? 'jingliu' : terminalOfTab(tab) !== null ? 'terminal' : drawerTabOf(tab))
+export const listTabOf = tab => (projectOfTab(tab) !== null ? 'jingliu' : terminalOfTab(tab) !== null ? 'terminal' : platformOfTab(tab) !== null ? 'data' : drawerTabOf(tab))
 // The cards of a Bot's Terminal tab: every terminal the Host lists for the conversation, then
 // the open tabs whose terminal it has not listed yet. `terminalOf(tab)` is a tab's terminal id.
 export function terminalCards(listed, tabs, terminalOf) {
