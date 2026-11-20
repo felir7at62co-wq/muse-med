@@ -24,7 +24,9 @@ function assertSafeError(error,expected){
  assert.equal(error.operation,expected.operation);assert.ok(['timeout','transport','http','response','json','result','audio'].includes(error.reason));
  assert.equal(error.httpStatus,expected.httpStatus);
  assert.equal(error.providerCode,expected.providerCode);
- assert.deepEqual(Object.getOwnPropertyNames(error).sort(),['message','code','operation','reason',...expected.httpStatus===undefined?[]:['httpStatus'],...expected.providerCode===undefined?[]:['providerCode']].sort());
+ assert.equal(error.quotaType,expected.quotaType);
+ if(expected.operation!=='query')assert.equal(error.retryAfterSeconds,undefined);
+ assert.deepEqual(Object.getOwnPropertyNames(error).sort(),['message','code','operation','reason',...expected.httpStatus===undefined?[]:['httpStatus'],...expected.providerCode===undefined?[]:['providerCode'],...expected.quotaType===undefined?[]:['quotaType']].sort());
  assert.equal(error.stack,undefined);
  assert.equal(error.cause,undefined);
  for(const representation of [String(error),JSON.stringify(error),inspect(error)]){
@@ -80,6 +82,29 @@ for(const [operation,invoke] of Object.entries(operations)){
  });
 }
 
+for(const operation of ['submit','flash']){
+ test(operation+' retains an explicit HTTP 429 quota type for diagnosis',async()=>{
+  let calls=0;
+  const error=await rejected(operations[operation](async()=>{
+   calls++;
+   return new Response('secret-response',{status:429,headers:{'X-Api-Status-Code':'45000292','X-Api-Message':'quota exceeded for types: concurrency','Retry-After':'10'}});
+  }));
+  assertSafeError(error,{operation,code:'provider_rejected',httpStatus:429,providerCode:'45000292',quotaType:'concurrency'});
+  assert.equal(calls,1);
+ });
+
+ test(operation+' ignores unsupported quota messages and quota messages outside HTTP 429',async()=>{
+  for(const [status,message] of [
+   [429,'quota exceeded for types: concurrency, qps'],
+   [429,'quota exceeded for types: secret_response'],
+   [503,'quota exceeded for types: concurrency'],
+  ]){
+   const error=await rejected(operations[operation](async()=>new Response('secret-response',{status,headers:{'X-Api-Message':message}})));
+   assertSafeError(error,{operation,code:status===429?'provider_rejected':'provider_unavailable',httpStatus:status});
+  }
+ });
+}
+
 for(const operation of ['query','flash']){
  test(`${operation} retains safe status fields when the success body is invalid JSON`,async()=>{
   const error=await rejected(operations[operation](async()=>new Response('secret-json fixture-secret-token',{headers:{'X-Api-Status-Code':'20000000'}})));
@@ -109,7 +134,7 @@ test('flash local audio failures omit the local path and do not invoke the suppl
  assert.equal(calls,0);
 });
 
-for(const code of ['45000006','45000092','55001010']){
+for(const code of ['45000006','45000092','55001010','55001011']){
  test(`query records explicit terminal supplier ${code} as a failed task without a new submission`,async()=>{
   let calls=0;const result=await provider.queryAsr(config,input.id,async()=>{calls++;return new Response('{}',{headers:{'X-Api-Status-Code':code,'X-Api-Message':'secret-response'}});});
   assert.deepEqual(result,{status:'failed',providerCode:code});assert.equal(calls,1);

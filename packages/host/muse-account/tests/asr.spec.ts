@@ -36,15 +36,47 @@ it('uses the current account cookie and a persisted UUID without returning crede
   expect(JSON.stringify(await client.get(id))).not.toContain('secret-session')
 })
 
-it('reports an unconfigured server and a missing old task as distinct failures', async () => {
+it('requires an explicit gateway job-missing response to report an absent original task', async () => {
   const id = randomUUID()
-  const missing = await fixture(async () => new Response('{}', { status: 404 }))
-  await expect(missing.client.submit(missing.file, id, 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'server-not-configured' })
-  await expect(missing.client.get(id)).rejects.toMatchObject({ code: 'job-not-found' })
-  const unavailable = await fixture(async () => new Response('{}', { status: 503 }))
-  await expect(unavailable.client.get(id)).rejects.toMatchObject({ code: 'server-not-configured' })
+  const absent = await fixture(async () => Response.json({ error: 'ASR job not found' }, { status: 404 }))
+  await expect(absent.client.get(id)).rejects.toMatchObject({ code: 'job-not-found' })
+  await expect(absent.client.submit(absent.file, id, 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'server-not-configured' })
+  const proxy = await fixture(async () => new Response('<html>Not Found</html>', { status: 404 }))
+  await expect(proxy.client.get(id)).rejects.toMatchObject({ code: 'server-not-configured' })
+  const other = await fixture(async () => Response.json({ error: 'Not Found' }, { status: 404 }))
+  await expect(other.client.get(id)).rejects.toMatchObject({ code: 'server-not-configured' })
 })
 
+it('reports only the documented gateway disabled response as unconfigured for HTTP 503', async () => {
+  const disabled = await fixture(async () => Response.json({ error: 'Muse cloud transcription is not configured on this server' }, { status: 503 }))
+  await expect(disabled.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-not-configured' })
+  const temporary = await fixture(async () => Response.json({ error: 'ASR job storage is unavailable' }, { status: 503 }))
+  await expect(temporary.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-unavailable' })
+})
+
+it.each([
+  { status: 404, envelope: { error: 'ASR job not found' }, code: 'server-not-configured' },
+  { status: 503, envelope: { error: 'Muse cloud transcription is not configured on this server' }, code: 'server-unavailable' },
+])('caps a $status error body before trusting its JSON and releases the reader', async ({ status, envelope, code }) => {
+  const cancel = vi.fn()
+  const body = new ReadableStream<Uint8Array>({
+    start(stream) {
+      stream.enqueue(new Uint8Array(4 * 1024 * 1024 + 1).fill(0x20))
+      stream.enqueue(new TextEncoder().encode(JSON.stringify(envelope)))
+      stream.close()
+    },
+    cancel,
+  })
+  const { client } = await fixture(async () => new Response(body, { status }))
+  await expect(client.get(randomUUID())).rejects.toMatchObject({ code })
+  expect(cancel).toHaveBeenCalledOnce()
+  expect(body.locked).toBe(false)
+})
+
+it.each([502, 504])('treats HTTP %s during upload as an unconfirmed result', async (status) => {
+  const setup = await fixture(async () => new Response('Proxy error', { status }))
+  await expect(setup.client.submit(setup.file, randomUUID(), 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'server-unavailable' })
+})
 
 it('retains word times and rejects invalid nested timing from the gateway', async () => {
   const id = randomUUID()
@@ -142,11 +174,11 @@ it('bounds network failures and unreadable error bodies without leaking provider
   const offline = await fixture(async () => { throw new Error('PRIVATE_PROVIDER_DETAIL') })
   await expect(offline.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-unavailable' })
   const invalidError = await fixture(async () => new Response('PRIVATE_PROVIDER_DETAIL', { status: 500 }))
-  await expect(invalidError.client.get(randomUUID())).rejects.toMatchObject({ code: 'request-rejected' })
+  await expect(invalidError.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-unavailable' })
   const nonObject = await fixture(async () => Response.json(null, { status: 400 }))
   await expect(nonObject.client.get(randomUUID())).rejects.toMatchObject({ code: 'request-rejected' })
   const hugeRetry = await fixture(async () => Response.json({}, { status: 503, headers: { 'retry-after': '9007199254740992' } }))
-  await expect(hugeRetry.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-not-configured' })
+  await expect(hugeRetry.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-unavailable', retryAfterSeconds: undefined })
 })
 
 it.each([null, [], 'string', { id: undefined }, { id: 7 }, { id: 'bad' }, { status: 'private' }, { retentionExpired: 1 }])(
@@ -217,14 +249,14 @@ it.each(['submit', 'get'] as const)('cancels %s transport and awaits it before r
   await expect(task).rejects.toBe(reason)
 })
 
-it.each([200, 429])('preserves cancellation while reading a %s response body', async (status) => {
+it.each([200, 404, 429, 503])('preserves cancellation while reading a %s response body', async (status) => {
   const reading = Promise.withResolvers<undefined>(), controller = new AbortController(), reason = new Error('cancelled body')
   const f = await fixture(async (_url, init) => new Response(new ReadableStream({
     start(stream) {
       init!.signal!.addEventListener('abort', () => { stream.error(init!.signal!.reason) }, { once: true })
     },
     pull() { reading.resolve(undefined) },
-  }), { status }))
+  }, { highWaterMark: 0 }), { status }))
   const task = f.client.get(randomUUID(), controller.signal)
   const observed = task.catch(() => {})
   await reading.promise
