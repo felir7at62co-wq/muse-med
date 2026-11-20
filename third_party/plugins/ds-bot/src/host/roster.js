@@ -213,7 +213,7 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId, greet = true }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
@@ -271,7 +271,8 @@ export function install(rt) {
       const scopeTools = () => rt.resolveAgent(id)
         .catch(error => rt.warn('ds-bot: scoped tools for %s not applied: %s', cleanName, error))
       if (modelRef === undefined) {
-        bot.kickoff = greeting
+        // A Bot made for a chat app chat says nothing on its own: the chat's first message is its first turn.
+        if (greet) bot.kickoff = greeting
         await rt.save()
         // The Session was resolved before the Bot existed, so its scoped tools land now.
         await scopeTools()
@@ -282,7 +283,7 @@ export function install(rt) {
       // The greeting runs on the Bot's own model, once its provider is registered.
       void rt.waitForModel(bot)
         .then(() => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)))
-        .then(() => sendKickoff(bot, greeting))
+        .then(() => { if (greet) sendKickoff(bot, greeting) })
       return bot
     } catch (error) {
       // The Bot's Session was already made: archive it instead of leaving an orphan.
@@ -1045,7 +1046,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
+    ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags, freshBotName: freshName,
     saveSection, reorderSections, deleteSection,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
     addRoomTodo, setRoomTodoDone, removeRoomTodo, clearDoneRoomTodos,

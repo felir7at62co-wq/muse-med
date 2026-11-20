@@ -69,6 +69,7 @@ async function start({ platform = 'telegram', adapter, seed, services = {} } = {
   writeFileSync(join(home, 'state.json'), JSON.stringify(seed ?? TEAM()))
   const ctx = fakeContext({ services })
   const prompts = []
+  let sessionCount = 0
   const agents = new Map()
   const agentOf = id => {
     if (!agents.has(id)) agents.set(id, {
@@ -85,11 +86,14 @@ async function start({ platform = 'telegram', adapter, seed, services = {} } = {
     llm: { listProviders: () => [] },
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async () => ({ id: 'w1' }), archiveSession: async () => {} },
     sessionController: {
+      // Chat Bots made for IM chats get Sessions of their own.
+      create: async () => ({ sessionId: `s${++sessionCount}` }),
       prompt: async (request) => { prompts.push(request); return { ok: true } },
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async () => {},
     },
     sessions: { flush: async () => {} },
+    sessionTitle: { rename: async () => {} },
   })
   const fake = adapter ?? fakeAdapter()
   const real = adapters[platform]
@@ -199,11 +203,12 @@ test('unpaired DM asks once, allow pairs it, next message prompts the Bot', asyn
   assert.deepEqual(s.prompts[0].content, [{ type: 'text', text: 'do a thing' }])
 })
 
-test('unbound group mention replies unbound and records the chat; binding routes mentions', async (t) => {
+test('with chat Bots off, an unbound group mention replies unbound and records the chat; binding routes mentions', async (t) => {
   const s = await start()
   t.after(s.stop)
   const conn = await add(s)
   s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'User u1', at: 1 })
+  s.rt.state.im.connections[conn.id].chatBots = false
   await s.rt.save()
   await gm(s, 'u1', 'hi all', { mentioned: false })
   assert.equal(s.fake.sent.length, 0)
@@ -1192,6 +1197,7 @@ async function startSwitchHarness(t, { tokens = new Map([['a', 1_000]]), cwd = (
     },
   })
   const prompts = []
+  let sessionCount = 0
   const agents = new Map()
   const agentOf = (id) => {
     if (!agents.has(id)) {
@@ -1251,6 +1257,8 @@ async function startSwitchHarness(t, { tokens = new Map([['a', 1_000]]), cwd = (
       archiveSession: async () => {},
     },
     sessionController: {
+      // Chat Bots made for IM chats get Sessions of their own.
+      create: async () => ({ sessionId: `s${++sessionCount}` }),
       prompt: async (request) => { prompts.push(request); return { ok: true } },
       create: async () => {
         if (createGate) await createGate()
@@ -1263,6 +1271,7 @@ async function startSwitchHarness(t, { tokens = new Map([['a', 1_000]]), cwd = (
     },
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
+    sessionTitle: { rename: async () => {} },
   })
   const rt = createRuntime(ctx, { home })
   t.after(async () => {
@@ -1877,6 +1886,7 @@ test('a group attachment uploads under the group current Session, not the id it 
   t.after(s.stop)
   const conn = await add(s)
   s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'User u1', at: 1 })
+  s.rt.state.im.connections[conn.id].chatBots = false
   await s.rt.save()
   // The chat is recorded by the first mention; binding then points it at the group.
   await gm(s, 'u1', '@fakebot hello group')
@@ -1936,4 +1946,119 @@ test('a failed update keeps the network reason and redacts a secret as it appear
     assert.ok(!error.message.includes('new%2Btok%2F1'), 'the encoded token is redacted')
     return true
   })
+})
+
+// ------------------------------------------------------------------ chat Bots
+
+const pairAll = async (s, conn, ...ids) => {
+  for (const id of ids) s.rt.state.im.connections[conn.id].paired.push({ id, name: `User ${id}`, at: 1 })
+  await s.rt.save()
+}
+const botNamed = (s, name) => Object.values(s.rt.state.bots).find(bot => bot.name === name)
+
+test('a group mention gives the group a Bot of its own in the platform section, silent until the chat writes', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  await Promise.all([gm(s, 'u1', 'first'), gm(s, 'u1', 'second')])
+  const bot = botNamed(s, 'Group One')
+  assert.ok(bot, 'the group got a Bot named after it')
+  assert.equal(Object.values(s.rt.state.bots).filter(each => each.name.startsWith('Group One')).length, 1)
+  assert.equal(bot.role, 'Telegram group')
+  assert.equal(s.rt.state.sections.find(sec => sec.id === bot.sectionId)?.name, 'Telegram')
+  assert.equal(bot.kickoff, undefined)
+  assert.match(bot.instructions, /Telegram group chat "Group One"/)
+  const chat = s.rt.state.im.connections[conn.id].chats.g1
+  assert.deepEqual(chat.target, { botId: bot.id })
+  assert.equal(chat.auto, true)
+  assert.deepEqual(s.prompts.map(prompt => prompt.sessionId), [bot.id, bot.id])
+  await gm(s, 'u1', 'third')
+  assert.equal(s.prompts.at(-1).sessionId, bot.id)
+})
+
+test('the owner keeps the connection Bot in a private chat; anyone else gets a Bot of their own', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await dm(s, 'u1', 'hello')
+  await s.rt.imEndpoint('im-pair', { id: conn.id, senderId: 'u1', allow: true })
+  await dm(s, 'u1', 'for the boss')
+  assert.equal(s.prompts.at(-1).sessionId, 'a')
+  await dm(s, 'u2', 'hi')
+  await s.rt.imEndpoint('im-pair', { id: conn.id, senderId: 'u2', allow: true })
+  const mine = botNamed(s, 'User u2')
+  assert.ok(mine, 'the second person got a Bot named after them')
+  assert.match(s.fake.sent.at(-1).text, /talk to User u2/)
+  await dm(s, 'u2', 'my own work')
+  assert.equal(s.prompts.at(-1).sessionId, mine.id)
+  assert.equal(mine.role, 'Telegram chat')
+})
+
+test('a chat Bot deleted later is made again; a renamed group keeps its new title', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  await gm(s, 'u1', 'hi')
+  const first = botNamed(s, 'Group One')
+  await s.rt.deleteBot(first.id)
+  await gm(s, 'u1', 'again', { chat: { key: 'g1', kind: 'group', title: 'Group Renamed' } })
+  const chat = s.rt.state.im.connections[conn.id].chats.g1
+  assert.equal(chat.title, 'Group Renamed')
+  const second = botNamed(s, 'Group Renamed')
+  assert.ok(second && second.id !== first.id)
+  assert.equal(s.prompts.at(-1).sessionId, second.id)
+})
+
+test('a chat name that is taken, empty or not a valid Bot name still makes a usable Bot name', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  await gm(s, 'u1', 'one', { chat: { key: 'g-chief', kind: 'group', title: 'Chief' } })
+  await gm(s, 'u1', 'two', { chat: { key: 'g-at', kind: 'group', title: '@all `team`' } })
+  await gm(s, 'u1', 'three', { chat: { key: 'g-none-1234', kind: 'group', title: '' } })
+  assert.ok(botNamed(s, 'Chief 2'))
+  assert.ok(botNamed(s, 'all team'))
+  assert.ok(botNamed(s, 'Telegram 1234'))
+})
+
+test('/new starts a fresh part of the chat\'s Bot; a busy Bot or a group binding says why not', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  const parts = []
+  s.rt.newPart = async (sessionId) => { parts.push(sessionId); if (parts.length > 1) throw new Error('busy'); return true }
+  await dm(s, 'u1', '/new')
+  assert.deepEqual(parts, ['a'])
+  assert.match(s.fake.sent.at(-1).text, /new conversation/)
+  await dm(s, 'u1', '/new')
+  assert.match(s.fake.sent.at(-1).text, /Still working/)
+  s.rt.state.im.connections[conn.id].chats.g1 = { kind: 'group', title: 'Group One', target: { roomId: 'r1' }, at: 1 }
+  await gm(s, 'u1', '/new')
+  assert.match(s.fake.sent.at(-1).text, /Bot group/)
+  assert.equal(s.prompts.length, 0)
+})
+
+test('im_send reaches only the calling Bot\'s own chats and names them when it must choose', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  const send = (args, sessionId) => s.rt.teamTools.find(def => def.name === 'im_send').execute(args, { agent: { id: sessionId } })
+  await assert.rejects(send({ text: 'hi' }, 'b'), /nowhere to send/)
+  await dm(s, 'u1', 'hello')
+  s.fake.sent.length = 0
+  assert.equal(await send({ text: 'daily report' }, 'a'), 'Sent to u1.')
+  await s.flush()
+  assert.equal(s.fake.sent.at(-1).text, 'daily report')
+  assert.equal(s.fake.sent.at(-1).chat.key, 'dm-u1')
+  s.rt.state.im.connections[conn.id].chats.g1 = { kind: 'group', title: 'Group One', target: { botId: 'a' }, at: 1 }
+  await assert.rejects(send({ text: 'x' }, 'a'), /several chats.*u1, Group One/)
+  await assert.rejects(send({ text: 'x', chat: 'Nope' }, 'a'), /No chat by that name/)
+  assert.equal(await send({ text: 'to the group', chat: 'Group One' }, 'a'), 'Sent to Group One.')
+  await assert.rejects(send({ text: '' }, 'a'), /empty/)
+  await assert.rejects(send({ text: 'x'.repeat(4001) }, 'a'), /4001 characters/)
 })

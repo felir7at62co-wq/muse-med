@@ -15,6 +15,8 @@ import { plainToolSchema } from './tool-schema.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
+// Longest message im_send passes to a chat; the platform adapters split long text further.
+const IM_SEND_MAX = 4000
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
 const BLOCKING_QUESTION_TOOL = 'ask_user_question'
 // DS Bot has its own group goals; DSH's session goal still does not survive conversation parts.
@@ -409,6 +411,29 @@ export function install(rt) {
       const why = String(args.reason ?? '').trim() || 'Stop what you are doing; the previous turn was ended on purpose. Acknowledge briefly.'
       await rt.deliver({ fromId: sender.id, toId: target.id, ...callerPart(exec), text: why, role: 'stopped', ...callerRoom(exec) })
       return `Stopped ${target.name} in ${running.map(whereOf).join(' and ')}. It is told why in a new turn, whose reply comes back to you.`
+    },
+  }))
+
+  rt.teamTools.push(defineTool({
+    name: 'im_send',
+    description: 'Send a message to one of your chat app chats (Feishu, WeChat, …) without waiting for someone there to write first: a finished result, a scheduled report, or something a person must decide. Only chats whose messages come to you can be reached. With a single such chat, leave chat out. Replies in that chat come back to you as usual.',
+    parameters: {
+      text: { type: 'string', required: true, description: `The message, plain text or Markdown, at most ${IM_SEND_MAX} characters` },
+      chat: { type: 'string', description: 'Chat name, needed only when you have several; a refusal lists them' },
+    },
+    output,
+    async execute(args, exec) {
+      await rt.load()
+      const sender = callerBot(exec)
+      if (sender === undefined) refuse('Only a Bot can send to its chats.')
+      const body = String(args.text ?? '').trim()
+      if (body === '') refuse('text is empty.')
+      if (body.length > IM_SEND_MAX) refuse(`text has ${body.length} characters; send at most ${IM_SEND_MAX} at a time.`)
+      const result = await rt.imSend(sender.id, args.chat === undefined ? undefined : String(args.chat).trim(), body)
+      if ('sent' in result) return `Sent to ${result.sent}.`
+      if (result.error === 'none') refuse('No chat app chat comes to you, so there is nowhere to send this.')
+      if (result.error === 'offline') refuse('That chat\'s connection is offline right now; try again later or tell the user in Muse.')
+      refuse(`${result.error === 'which' ? 'You have several chats; name one' : 'No chat by that name'}. Your chats: ${result.chats.join(', ')}`)
     },
   }))
 

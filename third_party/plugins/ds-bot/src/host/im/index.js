@@ -10,6 +10,7 @@ import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { REPLY_KIND, SOURCE_KIND } from '../constants.js'
 import { adapters } from './platforms/index.js'
+import { nameProblem } from '../../shared/mentions.js'
 
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
@@ -44,6 +45,11 @@ export function install(rt) {
         requested: 'A connection request was sent to Muse; allow it in Settings → IM on the computer.',
         unbound: 'This IM bot is not bound to a Bot yet; pick one in Muse Settings → IM.',
         unboundGroup: 'This group is not bound yet; pick a group or a Bot for it in Muse Settings → IM.',
+        newChat: 'Started a new conversation.',
+        newBusy: 'Still working — wait for it to finish, or send /stop, then /new.',
+        newGroup: 'This chat goes to a Bot group, which has no /new; start a new topic in Muse.',
+        roleGroup: `${values.platform} group`,
+        roleDirect: `${values.platform} chat`,
         connected: `Connected — you can talk to ${values.target} now.`,
         stopped: 'Stopped.',
         idle: 'Nothing is running.',
@@ -64,6 +70,11 @@ export function install(rt) {
         requested: '已向 Muse 发出连接请求，请在电脑上的 Muse 设置 → IM 里允许。',
         unbound: '这个 IM 机器人还没绑定 Bot，请在 Muse 设置 → IM 里选一个。',
         unboundGroup: '这个群还没绑定，请在 Muse 设置 → IM 里给它选一个群或 Bot。',
+        newChat: '已开始新对话。',
+        newBusy: '还在处理上一件事，等它结束，或发 /stop 后再发 /new。',
+        newGroup: '这个聊天连的是 Bot 群，不支持 /new；请在 Muse 里开新话题。',
+        roleGroup: `${values.platform}群聊`,
+        roleDirect: `${values.platform}私聊`,
         connected: `已连接，现在可以和 ${values.target} 说话了。`,
         stopped: '已停下。',
         idle: '现在没有在做的活。',
@@ -84,6 +95,11 @@ export function install(rt) {
         requested: '已向 Muse 發出連線請求，請在電腦上的 Muse 設定 → IM 裡允許。',
         unbound: '這個 IM 機器人還沒綁定 Bot，請在 Muse 設定 → IM 裡選一個。',
         unboundGroup: '這個群還沒綁定，請在 Muse 設定 → IM 裡給它選一個群或 Bot。',
+        newChat: '已開始新對話。',
+        newBusy: '還在處理上一件事，等它結束，或發 /stop 後再發 /new。',
+        newGroup: '這個聊天連的是 Bot 群，不支援 /new；請在 Muse 裡開新話題。',
+        roleGroup: `${values.platform}群聊`,
+        roleDirect: `${values.platform}私聊`,
         connected: `已連線，現在可以和 ${values.target} 說話了。`,
         stopped: '已停下。',
         idle: '現在沒有在做的活。',
@@ -104,6 +120,11 @@ export function install(rt) {
         requested: 'Muse に接続リクエストを送信しました。PC の Muse 設定 → IM で許可してください。',
         unbound: 'この IM ボットはまだ Bot に紐付けられていません。Muse 設定 → IM で選択してください。',
         unboundGroup: 'このグループはまだ紐付けられていません。Muse 設定 → IM でグループまたは Bot を選択してください。',
+        newChat: '新しい会話を始めました。',
+        newBusy: 'まだ作業中です。終わるのを待つか、/stop を送ってから /new してください。',
+        newGroup: 'このチャットは Bot グループにつながっているため /new は使えません。Muse で新しい話題を始めてください。',
+        roleGroup: `${values.platform}グループ`,
+        roleDirect: `${values.platform}チャット`,
         connected: `接続しました。${values.target} と話せます。`,
         stopped: '停止しました。',
         idle: '実行中のタスクはありません。',
@@ -124,6 +145,11 @@ export function install(rt) {
         requested: 'Muse에 연결 요청을 보냈습니다. 컴퓨터의 Muse 설정 → IM에서 허용해 주세요.',
         unbound: '이 IM 봇은 아직 Bot에 연결되지 않았습니다. Muse 설정 → IM에서 선택해 주세요.',
         unboundGroup: '이 그룹은 아직 연결되지 않았습니다. Muse 설정 → IM에서 그룹이나 Bot을 선택해 주세요.',
+        newChat: '새 대화를 시작했습니다.',
+        newBusy: '아직 작업 중입니다. 끝날 때까지 기다리거나 /stop 을 보낸 뒤 /new 하세요.',
+        newGroup: '이 채팅은 Bot 그룹에 연결되어 있어 /new 를 쓸 수 없습니다. Muse에서 새 주제를 시작하세요.',
+        roleGroup: `${values.platform} 그룹`,
+        roleDirect: `${values.platform} 채팅`,
         connected: `연결되었습니다. 이제 ${values.target}와(과) 대화할 수 있습니다.`,
         stopped: '중지되었습니다.',
         idle: '진행 중인 작업이 없습니다.',
@@ -144,6 +170,11 @@ export function install(rt) {
         requested: 'Se envió una solicitud de conexión a Muse; permítela en Ajustes → IM en el ordenador.',
         unbound: 'Este bot de IM aún no está vinculado a un Bot; elige uno en Ajustes de Muse → IM.',
         unboundGroup: 'Este grupo aún no está vinculado; elige un grupo o un Bot en Ajustes de Muse → IM.',
+        newChat: 'Empecé una conversación nueva.',
+        newBusy: 'Sigo trabajando; espera a que termine o envía /stop y luego /new.',
+        newGroup: 'Este chat va a un grupo de Bots, que no admite /new; empieza un tema nuevo en Muse.',
+        roleGroup: `Grupo de ${values.platform}`,
+        roleDirect: `Chat de ${values.platform}`,
         connected: `Conectado — ya puedes hablar con ${values.target}.`,
         stopped: 'Detenido.',
         idle: 'No hay nada en curso.',
@@ -164,6 +195,11 @@ export function install(rt) {
         requested: 'Une demande de connexion a été envoyée à Muse ; autorisez-la dans Paramètres → IM sur l’ordinateur.',
         unbound: 'Ce bot IM n’est pas encore lié à un Bot ; choisissez-en un dans Paramètres Muse → IM.',
         unboundGroup: 'Ce groupe n’est pas encore lié ; choisissez un groupe ou un Bot dans Paramètres Muse → IM.',
+        newChat: 'Nouvelle conversation commencée.',
+        newBusy: 'Je travaille encore ; attendez la fin ou envoyez /stop, puis /new.',
+        newGroup: 'Ce chat est relié à un groupe de Bots, qui n’accepte pas /new ; commencez un nouveau sujet dans Muse.',
+        roleGroup: `Groupe ${values.platform}`,
+        roleDirect: `Chat ${values.platform}`,
         connected: `Connecté — vous pouvez maintenant parler à ${values.target}.`,
         stopped: 'Arrêté.',
         idle: 'Rien n’est en cours.',
@@ -184,6 +220,11 @@ export function install(rt) {
         requested: 'Eine Verbindungsanfrage wurde an Muse gesendet; erlaube sie am Computer unter Einstellungen → IM.',
         unbound: 'Dieser IM-Bot ist noch keinem Bot zugewiesen; wähle einen in den Muse-Einstellungen → IM.',
         unboundGroup: 'Diese Gruppe ist noch nicht zugewiesen; wähle eine Gruppe oder einen Bot in den Muse-Einstellungen → IM.',
+        newChat: 'Neues Gespräch begonnen.',
+        newBusy: 'Ich arbeite noch – warte, bis es fertig ist, oder sende /stop und dann /new.',
+        newGroup: 'Dieser Chat geht an eine Bot-Gruppe, die /new nicht kennt; beginne in Muse ein neues Thema.',
+        roleGroup: `${values.platform}-Gruppe`,
+        roleDirect: `${values.platform}-Chat`,
         connected: `Verbunden — du kannst jetzt mit ${values.target} sprechen.`,
         stopped: 'Gestoppt.',
         idle: 'Aktuell läuft nichts.',
@@ -660,7 +701,7 @@ export function install(rt) {
   // ----------------------------------------------------------------- inbound
   const requested = (conn, msg) => {
     if ((conn.requests ?? []).some(entry => entry.id === msg.sender.id)) return false
-    conn.requests = [...(conn.requests ?? []), { id: msg.sender.id, name: msg.sender.name, chatKey: msg.chat.key, chatKind: msg.chat.kind, at: Date.now() }]
+    conn.requests = [...(conn.requests ?? []), { id: msg.sender.id, name: msg.sender.name, chatKey: msg.chat.key, chatKind: msg.chat.kind, chatTitle: msg.chat.title, at: Date.now() }]
     return true
   }
 
@@ -674,6 +715,66 @@ export function install(rt) {
     if (target?.botId !== undefined && rt.botOf(target.botId) !== undefined) return target
     if (target?.roomId !== undefined && rt.roomOf(target.roomId) !== undefined) return target
     return undefined
+  }
+
+  // ------------------------------------------------------------- chat Bots
+  // A chat with no binding of its own gets a Bot of its own the first time it writes,
+  // filed under the platform's sidebar section, so every group and every other person's
+  // private chat keeps its own context and memory. The connection owner, the first
+  // person paired, keeps the connection's Bot in a private chat. A chat whose own Bot
+  // was deleted gets a new one; `chatBots: false` leaves chats to bindings made by hand.
+  const ownerOf = conn => conn.paired?.[0]?.id
+  const wantsOwnBot = (conn, chat, senderId) => conn.chatBots !== false
+    && (chat.target === undefined
+      ? !(chat.kind === 'direct' && senderId === ownerOf(conn))
+      : chat.auto === true && resolveTarget(conn, chat) === undefined)
+  const LOCAL_PLATFORM_NAMES = {
+    zh: { feishu: '飞书', weixin: '微信', dingtalk: '钉钉', wecom: '企业微信' },
+    'zh-TW': { feishu: '飛書', weixin: '微信', dingtalk: '釘釘', wecom: '企業微信' },
+  }
+  const platformLabel = (conn) => {
+    if (conn.platform === 'feishu' && conn.settings?.domain === 'lark') return 'Lark'
+    return LOCAL_PLATFORM_NAMES[langKey()]?.[conn.platform] ?? (conn.platform === 'feishu' ? 'Feishu' : imPlatform(conn.platform)?.name ?? conn.platform)
+  }
+  const chatBotName = (conn, chatKey, chat, senderName) => {
+    const label = platformLabel(conn)
+    const raw = String(chat.title ?? senderName ?? '').replace(/[@`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()
+    const base = raw === '' ? `${label} ${chatKey.slice(-4)}` : nameProblem(raw) === undefined ? raw : `${label} ${raw}`
+    return rt.freshBotName(base)
+  }
+  // One creation per chat even when its first messages arrive together.
+  const makingBots = new Map()
+  const makeChatBot = (conn, chatKey, chat, senderName) => {
+    const key = `${conn.id}\u0000${chatKey}`
+    const running = makingBots.get(key)
+    if (running !== undefined) return running
+    const work = (async () => {
+      const label = platformLabel(conn)
+      const title = String(chat.title ?? senderName ?? '').trim()
+      const where = chat.kind === 'group' ? 'group chat' : 'private chat'
+      const bot = await rt.createBot({
+        name: chatBotName(conn, chatKey, chat, senderName),
+        role: text(chat.kind === 'group' ? 'roleGroup' : 'roleDirect', { platform: label }),
+        instructions: `You answer the ${label} ${where}${title === '' ? '' : ` "${title}"`}. Its messages come from the people in that chat; reply in their language. When the work needs the rest of the team, pass it on with message_bot and tell the chat what you passed on.`,
+        section: label,
+        greet: false,
+      })
+      chat.target = { botId: bot.id }
+      chat.auto = true
+      await rt.save()
+      return { botId: bot.id }
+    })().finally(() => { makingBots.delete(key) })
+    makingBots.set(key, work)
+    return work
+  }
+  const ensureChatBot = async (conn, chatKey, chat, senderId, senderName) => {
+    if (!wantsOwnBot(conn, chat, senderId)) return
+    try {
+      await makeChatBot(conn, chatKey, chat, senderName)
+    } catch (error) {
+      // The chat then gets the unbound reply and can still be bound by hand.
+      rt.warn('ds-bot: no Bot made for the %s chat %s: %s', conn.platform, chatKey, error?.message ?? error)
+    }
   }
 
   // One card this chat was sent and has not answered yet. A button names its own
@@ -767,6 +868,12 @@ export function install(rt) {
     }
     const body = String(msg.text ?? '').trim()
     const chat = conn.chats[msg.chat.key]
+    // A group renamed on the platform keeps its current name here.
+    if (msg.chat.kind === 'group' && msg.chat.title && chat.title !== msg.chat.title) {
+      chat.title = msg.chat.title
+      await rt.save()
+    }
+    await ensureChatBot(conn, msg.chat.key, chat, msg.sender.id, msg.sender.name)
     const target = resolveTarget(conn, chat)
     if (/^\/start(?:@\S+)?\s*$/.test(body)) {
       const name = target === undefined ? undefined : targetName(conn, target)
@@ -780,6 +887,20 @@ export function install(rt) {
       }
       const stopped = target.botId !== undefined ? await rt.stopChat(target.botId) : await rt.stopRoomWork(target.roomId)
       await sendText(conn, msg.chat, text(stopped ? 'stopped' : 'idle'))
+      return
+    }
+    // A fresh part of the Bot's own chat: the earlier talk stays in Muse, out of context.
+    if (/^\/new(?:@\S+)?\s*$/.test(body)) {
+      if (target === undefined) {
+        await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+        return
+      }
+      if (target.botId === undefined) {
+        await sendText(conn, msg.chat, text('newGroup'))
+        return
+      }
+      const started = await rt.newPart(rt.chatOf(target.botId)).then(() => true, () => false)
+      await sendText(conn, msg.chat, text(started ? 'newChat' : 'newBusy'))
       return
     }
     if (NUMBERS.test(body)) {
@@ -1295,9 +1416,10 @@ export function install(rt) {
       if (body.allow === true) {
         conn.paired = [...(conn.paired ?? []), { id: request.id, name: request.name, at: Date.now() }]
         conn.chats ??= {}
-        conn.chats[request.chatKey] ??= { kind: request.chatKind, title: request.name, at: Date.now() }
+        conn.chats[request.chatKey] ??= { kind: request.chatKind, title: request.chatKind === 'group' ? (request.chatTitle ?? request.name) : request.name, at: Date.now() }
         await rt.save()
         const chat = conn.chats[request.chatKey]
+        await ensureChatBot(conn, request.chatKey, chat, request.id, request.name)
         const target = resolveTarget(conn, chat)
         const name = target === undefined ? undefined : targetName(conn, target)
         await sendTo(conn, request.chatKey, { key: request.chatKey, kind: request.chatKind, title: chat.title },
@@ -1555,5 +1677,35 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin })
+  // The chats whose messages a Bot answers: chats bound to it, and the owner's private
+  // chat that falls back to the connection's Bot. Only connected ones can be written to.
+  const chatsOfBot = (botId) => {
+    const out = []
+    for (const conn of Object.values(connections())) {
+      for (const [chatKey, chat] of Object.entries(conn.chats ?? {})) {
+        if (resolveTarget(conn, chat)?.botId === botId) out.push({ conn, chatKey, chat, name: chat.title || chatKey })
+      }
+    }
+    return out
+  }
+  const imChatsOf = botId => chatsOfBot(botId).map(item => ({ name: item.name, platform: item.conn.platform, kind: item.chat.kind, connected: runners.has(item.conn.id) }))
+  /**
+   * Send a Bot's own message to one of its chats, unprompted.
+   * @param {string} botId - The Bot that writes.
+   * @param {string | undefined} chatName - The chat's name; may be left out when the Bot has one chat.
+   * @param {string} body - Message text.
+   * @returns {Promise<{ sent: string } | { error: 'none' | 'which' | 'unknown' | 'offline', chats: string[] }>}
+   */
+  const imSend = async (botId, chatName, body) => {
+    const chats = chatsOfBot(botId)
+    const names = chats.map(item => item.name)
+    if (chats.length === 0) return { error: 'none', chats: names }
+    const picked = chatName === undefined || chatName === '' ? (chats.length === 1 ? chats[0] : undefined) : chats.find(item => item.name === chatName)
+    if (picked === undefined) return { error: chatName === undefined || chatName === '' ? 'which' : 'unknown', chats: names }
+    if (!runners.has(picked.conn.id)) return { error: 'offline', chats: names }
+    await sendTo(picked.conn, picked.chatKey, { key: picked.chatKey, kind: picked.chat.kind, title: picked.chat.title }, body)
+    return { sent: picked.name }
+  }
+
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, imChatsOf, imSend })
 }
