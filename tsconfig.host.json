@@ -298,7 +298,8 @@
     "apps/web/tests/websocket-host-diagnostics.ts",
     "third_party/plugins/dsh-visualize/src/**/*.ts",
     "snapshots/session/subagent-child-question-rejection/assertions.ts",
-    "snapshots/session/managed-subagent-assertions.ts"
+    "snapshots/session/managed-subagent-assertions.ts",
+    "snapshots/session/muse-production-delivery/assertions.ts"
   ],
   "exclude": [
     "apps/desktop/tests/keyboard.spec.ts",

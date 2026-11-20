@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "operation": "muse_production",
+  "mode": "advisory",
+  "media_acceptance": false,
+  "episode": "01",
+  "script_id": 4908,
+  "episode_id": 102505,
+  "plan_path": ".muse/production/e5ebf5134fd9d1a492150f6ae3665f7ea6450791fefdee20d7471d80f3551b99.json",
+  "plan_fingerprint": "e5ebf5134fd9d1a492150f6ae3665f7ea6450791fefdee20d7471d80f3551b99",
+  "source_path": "shots.txt",
+  "source_sha256": "43d0f255d92aaa0d89affc538180b5ade0ad90891838708bfce3ee7c97b980c2",
+  "model": {
+    "modelId": "doubao-seedance-2-5-260628",
+    "platformId": "FANG_ZHOU",
+    "standardId": 61,
+    "modelGenerationTypeId": 71,
+    "videoStandardId": 337,
+    "genType": 3,
+    "ratio": "16:9",
+    "resolution": "480p",
+    "maxDurationSeconds": 30,
+    "revision": 1
+  },
+  "video_tasks": [
+    {
+      "index": 1,
+      "name": "EP01-P1",
+      "shots": [
+        1,
+        2
+      ],
+      "requested_duration": 11,
+      "prompt": "写实3D CG渲染风格\n【镜头1】\n出镜人物：秦明枝\n核心场景：萧家后院走廊\n关键道具：无\n景别：近景\n运镜：相机固定，秦明枝扶住柱子\n视角：平视\n台词：秦明枝：这里是……1986年\n发声类型：dialogue\n无噪点，无跳帧，五官稳定不变形\n\n写实3D CG渲染风格\n本镜素材：@[全剧｜角色｜秦明枝（大红婚服）](asset_177496)、@[萧家后院走廊](asset_175841)\n\n写实3D CG渲染风格\n【镜头2】\n出镜人物：秦明枝\n核心场景：萧家后院走廊\n关键道具：无\n景别：近景\n运镜：相机固定，秦明枝扶住柱子\n视角：平视\n台词：秦明枝：这里是……1986年\n发声类型：dialogue\n无噪点，无跳帧，五官稳定不变形\n本镜素材：@[全剧｜角色｜秦明枝（大红婚服）](asset_177496)、@[萧家后院走廊](asset_175841)",
+      "storyboard_id": 10000,
+      "snapshot_sha256": "dd87f765f56933152c0d1d4c24dacc4f3f8636267f22634f46df62c4b0965d9f",
+      "material_bindings": [
+        {
+          "materialAssetId": 177496,
+          "assetId": "image-red",
+          "materialKey": "asset_177496",
+          "materialType": "image",
+          "materialUrl": "https://cdn.example.test/red.png",
+          "fileName": "全剧｜角色｜秦明枝（大红婚服）",
+          "sortOrder": 1
+        },
+        {
+          "materialAssetId": 175841,
+          "assetId": "image-corridor",
+          "materialKey": "asset_175841",
+          "materialType": "image",
+          "materialUrl": "https://cdn.example.test/corridor.png",
+          "fileName": "萧家后院走廊",
+          "sortOrder": 2
+        }
+      ]
+    }
+  ]
+}

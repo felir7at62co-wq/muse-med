@@ -5829,7 +5829,7 @@ export interface ProductionConfig {
   workspaceSecrets?: boolean
   /** Native storyboard ledger root; use the same location as tool-jubian when overridden. */
   ledgerRoot?: string
-  /** Maximum rows acquired per provider page, 1–1000; defaults to 1000. */
+  /** Maximum rows acquired per provider page, 1–1000; defaults to 50. */
   pageSize?: number
   /** Maximum pages per complete inventory; defaults to 100. */
   pageLimit?: number
