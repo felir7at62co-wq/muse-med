@@ -190,10 +190,33 @@ test('the scripts tab lists finalized scripts under the Bot\'s name; an open scr
   assert.deepEqual(JSON.parse(JSON.stringify(opened)), [['a', { id: '8', title: '家里家外' }]])
 })
 
-test('a group or a plain conversation shows no tab row', () => {
+// Muse: Computer is a tool in the capsule beside the gear, not a row tab; it shows its view under the Bot's name.
+test('the computer is a tool beside the gear where the desktop offers it', () => {
+  const withComputer = { ...roster, computer: { enabled: true } }
+  const tree = drawer('a', { ...slots, canOpenTerminal: () => true }, withComputer, { renderSlot: () => null })
+  assert.deepEqual(toolKeys(tree), ['side', 'terminal', 'files', 'computer'])
+  assert.ok(!tabKeys(tree).includes('computer'))
+  const shown = drawer('a', slots, withComputer, { startTab: 'computer', renderSlot: () => null })
+  assert.equal(toolButtons(shown).find(button => button.props['data-tool-key'] === 'computer').props['aria-pressed'], true)
+  assert.equal(find(shown, node => typeof node.type === 'function' && node.type.name === 'ComputerView').length, 1)
+  assert.equal(identityOf(shown).props.hidden, undefined)
+  assert.ok(!toolKeys(drawer('a', slots, roster, { renderSlot: () => null })).includes('computer'))
+})
+
+// Muse: a group opens the same libraries as a Bot; the browser, the computer and the tools are a Bot's own.
+test('a group\'s drawer lists the libraries the plugins fill; a plain conversation shows no tab row', () => {
   const actions = { ...slots, canOpenTerminal: () => true }
-  assert.deepEqual(tabKeys(drawer('g', actions)), [])
-  assert.deepEqual(tabKeys(drawer('plain', actions)), [])
+  const drawn = []
+  const renderSlot = (name, owner) => { drawn.push([name, owner.sessionId]); return null }
+  const group = drawer('g', actions, roster, { renderSlot })
+  assert.deepEqual(tabKeys(group), ['details', ...['scripts', 'jingliu', 'assets', 'data'].filter(key => slots.hasDrawerSlot(`bot.drawer.${key}`))])
+  assert.equal(find(group, node => node.props?.['data-tool-key'] !== undefined).length, 0, 'no Bot tools on a group')
+  assert.deepEqual(tabKeys(drawer('g', {})), [], 'without a library the group keeps its details alone')
+  // A library tab in a group hands what it picks to the group's own message box.
+  const quoted = []
+  drawer('g', { ...actions, quote: (...args) => quoted.push(args) }, roster, { startTab: 'jingliu', renderSlot: (name, owner) => { owner.compose('请出第 3 集'); return null } })
+  assert.deepEqual(JSON.parse(JSON.stringify(quoted)), [['g', '请出第 3 集', { plain: true }]])
+  assert.deepEqual(tabKeys(drawer('plain', actions, roster, { renderSlot })), [])
 })
 
 test('the files tab shows the working folder\'s tree under the Bot\'s name', () => {

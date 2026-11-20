@@ -201,6 +201,24 @@ test('nine consecutive synthesized calls add no repeat-tool reminder', async (t)
   }
 })
 
+// Muse: the desktop shows tools to the model on demand, so a group Session's request does not
+// list group_relay although its Agent may call it; no reply came back from the group.
+test('a group round calls group_relay when the Agent can call it though the request does not list it', async (t) => {
+  const { rt, relay, warnings, stop } = start()
+  t.after(stop)
+  const asked = []
+  rt.ctx.tools.get = (name, agent) => { asked.push([name, agent?.id]); return name === 'group_relay' ? { name } : undefined }
+  const block = await relayCall(relay, declared('read', 'tool_search'))
+  assert.equal(block.name, 'group_relay')
+  assert.match(JSON.parse(block.arguments).roundId, /^\d+-[0-9a-f-]{36}$/)
+  assert.deepEqual(asked, [['group_relay', 'room']])
+  assert.ok(!warnings.some(line => line.includes('cannot relay')))
+  // A request that lists run_code keeps the PTC path, and one that lists the tool asks nobody.
+  assert.equal((await relayCall(relay, declared('run_code'))).name, 'run_code')
+  assert.equal((await relayCall(relay, declared('group_relay'))).name, 'group_relay')
+  assert.equal(asked.length, 1)
+})
+
 test('a group Session without either relay tool ends visibly instead of calling nothing', async (t) => {
   // #826: the relay used to synthesize group_relay even when the Session did not
   // declare it, and the "unknown tool" failure left no trace.

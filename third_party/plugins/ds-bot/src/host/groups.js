@@ -2016,10 +2016,23 @@ export function install(rt) {
         return
       }
       const declared = new Set((options.tools ?? []).map(tool => tool.name))
-      // Neither relay path is declared, so a synthesized call could only fail
+      // Muse: a host that shows tools to the model on demand (tool discovery) leaves
+      // group_relay out of the request although the Session's Agent may call it. No model
+      // reads this request, so the relay asks the registry what the Agent can call.
+      const callable = async () => {
+        if (typeof ctx.tools?.get !== 'function') return false
+        try {
+          return ctx.tools.get('group_relay', await rt.resolveAgent(options.sessionId)) !== undefined
+        } catch (error) {
+          rt.warn('ds-bot: group %s could not look up its relay tool: %s', room.name, error)
+          return false
+        }
+      }
+      const native = declared.has('group_relay') || (!declared.has('run_code') && await callable())
+      // Neither relay path can be called, so a synthesized call could only fail
       // unseen. The assemble scope keeps this unreachable; if it is reached the
       // step ends with a line the user can read instead.
-      if (!declared.has('group_relay') && !declared.has('run_code')) {
+      if (!native && !declared.has('run_code')) {
         rt.warn('ds-bot: group %s cannot relay: group_relay is not available in its Session', room.name)
         const text = 'This group could not pass the message on: its relay tool is not available. Restart Muse; if it keeps happening, report it.'
         yield { type: 'block-start', index: 0, blockType: 'text' }
@@ -2034,7 +2047,7 @@ export function install(rt) {
       const roundId = `${Date.now()}-${randomUUID()}`
       // Only for a group made under the PTC preset, which can call nothing but run_code;
       // new group Sessions get the standard preset.
-      const [name, args] = declared.has('run_code') && !declared.has('group_relay')
+      const [name, args] = !native
         ? ['run_code', JSON.stringify({ description: `Relay the group chat to its Bots (${roundId})`, code: `return await tools.group_relay({ roundId: ${JSON.stringify(roundId)} })`, timeoutMs: 600_000 })]
         : ['group_relay', JSON.stringify({ roundId })]
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }

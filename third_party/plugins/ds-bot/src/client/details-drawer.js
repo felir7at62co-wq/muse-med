@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { isMainOf } from './sources.js'
 import { currentPart, runStatsOf, usageOf } from './text.js'
-import { PlusIcon, CloseIcon, ChevronLeftIcon, GearIcon, ShareIcon, SideIcon, TerminalIcon, FolderIcon } from './icons.js'
+import { PlusIcon, CloseIcon, ChevronLeftIcon, GearIcon, ShareIcon, SideIcon, TerminalIcon, FolderIcon, MonitorIcon } from './icons.js'
 import { botState, BotMark, BotAvatar } from './mark.js'
 import { GlobeIcon, Favicon } from './browser-pane.js'
 import { useEscape } from './overlay-hooks.js'
@@ -33,7 +33,7 @@ import { FilesTree } from './files-tree.js'
 // `platform`; null on the list) and a call that opens one as a tab (`openScript`,
 // `openProject`, `openPlatform`).
 const TAB_SLOTS = { scripts: 'bot.drawer.scripts', jingliu: 'bot.drawer.jingliu', assets: 'bot.drawer.assets', data: 'bot.drawer.data' }
-const TOOL_ICONS = { side: SideIcon, terminal: TerminalIcon, files: FolderIcon }
+const TOOL_ICONS = { side: SideIcon, terminal: TerminalIcon, files: FolderIcon, computer: MonitorIcon }
 // One open terminal, in its own strip tab; the Terminal row tab lists them (terminal-cards.js).
 const TERMINAL_SLOT = 'bot.drawer.terminal'
 export const DRAWER_SLOTS = Object.fromEntries([...Object.values(TAB_SLOTS), TERMINAL_SLOT].map(name => [name, { kind: 'single', scope: 'root' }]))
@@ -304,7 +304,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
   const onDetails = projectOfTab(tab) === null && scriptOfTab(tab) === null && platformOfTab(tab) === null && terminalOfTab(tab) === null
   // A top-bar tool acts as its row tab did; `pick` is declared below and runs at click time.
   function pickTool(key) { return () => pick(key)() }
-  const tools = bot ? drawerTools({ bot: true, canTerminal: actions.canOpenTerminal?.() === true }) : []
+  const tools = bot ? drawerTools({ bot: true, canTerminal: actions.canOpenTerminal?.() === true, computer: roster.computer?.enabled === true }) : []
   const top = !onDetails ? null : h('div', { className: 'bt-drawer-top', 'data-move': side },
     tools.length > 0 ? h('div', { className: 'bt-dtools', role: 'group', 'aria-label': t('Tools') },
       tools.map(key => h('button', {
@@ -340,9 +340,8 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
   const hosted = slot !== undefined && fills(slot)
   const hostsTerminal = fills(TERMINAL_SLOT) && actions.canHostTerminal?.() === true
   const tabs = !onDetails ? [] : drawerTabs({
-    bot: bot !== undefined, canBrowse: true,
+    bot: bot !== undefined, room: room !== undefined, canBrowse: true,
     canScripts: fills(TAB_SLOTS.scripts), canJingliu: fills(TAB_SLOTS.jingliu), canAssets: fills(TAB_SLOTS.assets) || actions.canOpenAssets?.() === true, canData: fills(TAB_SLOTS.data),
-    computer: roster.computer?.enabled === true,
   })
   // Side chat opens in its own place; so does Terminal where no plugin shows terminals in the panel,
   // and the asset library opens its page where no plugin fills the tab.
@@ -387,7 +386,8 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
         sessionId: terminal.session, tabId: terminal.key, terminalId: terminal.terminalId, visible: true,
         replace: () => actions.replaceTerminal(sessionId, part, terminal.key),
       })) : null,
-      bot && hosted ? h('div', { className: 'bt-drawer-hosted' }, renderSlot(slot, {
+      // Muse: a group opens the same libraries; what they hand over goes to the group's message box.
+      (bot || room) && hosted ? h('div', { className: 'bt-drawer-hosted' }, renderSlot(slot, {
         sessionId: part, quote: text => actions.quote(part, text), compose: text => actions.quote(part, text, { plain: true }),
         ...(slot === TAB_SLOTS.jingliu ? {
           project: projectId === null ? null : { id: projectId, title: projects.find(entry => entry.id === projectId)?.title ?? '' },

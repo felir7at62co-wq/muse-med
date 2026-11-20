@@ -17,7 +17,7 @@ import { SideChatView } from './side-chat.js'
 import { drawerTabOf, listTabOf, panelHasStrip, platformOfTab, projectOfTab, scriptOfTab, sideChatsOf, stripMenuKeys, terminalOfTab } from './side-model.js'
 import { useTerminals } from './terminal-cards.js'
 import { currentPart } from './text.js'
-import { DotsIcon, FolderIcon, SideIcon, TerminalIcon } from './icons.js'
+import { ChatsIcon, DotsIcon, FolderIcon, SideIcon, TerminalIcon } from './icons.js'
 import { t } from './i18n.js'
 import { rectsOverlap } from './browser-overlap.js'
 
@@ -140,10 +140,12 @@ const sideTitle = chat => chat?.entries?.[0]?.question?.trim() || t('Side chat')
 // Muse: the strip also holds one tab per open terminal, finalized script, Jingliu project and
 // data platform, beside the pages and the side chats; `tab` is the drawer tab shown while the
 // view is the Bot's own.
-function PanelStrip({ bot, subject, view, tab, projects, scripts, platforms, terminals, onTab, ids, active, sides, side, canBrowse, reading, onView, actions, useBrowserPages }) {
+// Muse: a group's panel has the strip too once a script, project or data platform is open in it;
+// `group` is that group and stands where the Bot's own tab does.
+function PanelStrip({ bot, group, subject, view, tab, projects, scripts, platforms, terminals, onTab, ids, active, sides, side, canBrowse, reading, onView, actions, useBrowserPages }) {
   const pages = useBrowserPages(map => map)
   // A terminal tab is named as the Host names its terminal.
-  const listed = useTerminals(terminals.length > 0 ? currentPart(bot) : null, actions)
+  const listed = useTerminals(bot && terminals.length > 0 ? currentPart(bot) : null, actions)
   const wrap = useRef(null)
   const ind = useRef(null)
   const spot = useRef(null)
@@ -203,7 +205,8 @@ function PanelStrip({ bot, subject, view, tab, projects, scripts, platforms, ter
     if (under.current) observer.observe(under.current)
     return () => { watcher.current = null; observer.disconnect() }
   }, [])
-  const items = stripMenuKeys({
+  // The `···` menu starts a Bot's own things (a page, a side chat, a terminal); a group has none.
+  const items = bot === undefined ? [] : stripMenuKeys({
     canBrowse,
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: false,
@@ -249,10 +252,10 @@ function PanelStrip({ bot, subject, view, tab, projects, scripts, platforms, ter
       h('button', {
         type: 'button', role: 'tab', 'aria-selected': onBot, className: 'bt-ptab bt-ptab-bot',
         // From a project's or a terminal's tab the Bot's own tab goes back to the list it was opened from.
-        title: bot.name, onClick: () => onTab(listTabOf(tab)),
+        title: (bot ?? group).name, onClick: () => onTab(listTabOf(tab)),
       },
-        h(BotMark, { bot, size: 20, state: reading ? 'searching' : 'idle' }),
-        onBot ? h('span', { className: 'bt-ptab-name' }, bot.name) : null),
+        bot ? h(BotMark, { bot, size: 20, state: reading ? 'searching' : 'idle' }) : h('span', { className: 'bt-ptab-globe', 'aria-hidden': true }, h(ChatsIcon)),
+        onBot ? h('span', { className: 'bt-ptab-name' }, (bot ?? group).name) : null),
       ids.map((tabId) => {
         const page = pages[tabId] ?? EMPTY_PAGE
         const on = view === 'browser' && tabId === active
@@ -775,7 +778,8 @@ export function BotPanel({ pane, workbench = false, roomy = false, projects = NO
   }
 
   // Muse: an open Jingliu project, script, data platform or terminal has a strip tab too, so the strip shows for it as well.
-  const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length) || (bot !== undefined && projects.length + scripts.length + platforms.length + terminals.length > 0)
+  const group = bot === undefined ? roster.roomsById[pane.id] : undefined
+  const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length) || ((bot !== undefined || group !== undefined) && projects.length + scripts.length + platforms.length + terminals.length > 0)
   const drawerTab = drawerTabOf(pane.tab)
   const openTab = (key) => {
     if (view !== 'details') beginSwitch('details')
@@ -792,7 +796,7 @@ export function BotPanel({ pane, workbench = false, roomy = false, projects = NO
     // Over the whole window while dragging: the cursor stays a resize cursor and the
     // pages underneath (the chat, the guest) see no pointer.
     dragging ? createPortal(h('div', { className: 'bt-drag-shield', 'aria-hidden': true }), document.body) : null,
-    hasStrip ? h(PanelStrip, { bot, subject: pane.id, view, tab: drawerTab, projects, scripts, platforms, terminals, onTab: openTab, ids: tabState.ids, active, sides: sideChats, side: pane.side, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
+    hasStrip ? h(PanelStrip, { bot, group, subject: pane.id, view, tab: drawerTab, projects, scripts, platforms, terminals, onTab: openTab, ids: tabState.ids, active, sides: sideChats, side: pane.side, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
     view === 'browser' && bot
       ? h(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold })
       : view === 'side' && sideChat

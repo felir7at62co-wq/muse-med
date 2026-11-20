@@ -17,16 +17,20 @@ test('the strip shows with only side chats and no browser', () => {
 
 // Muse: the tab row under a Bot's name, and the round tools beside its gear.
 test('the row holds the details and the browser, then what the plugins and the desktop offer', () => {
-  const all = { bot: true, canBrowse: true, canScripts: true, canJingliu: true, canAssets: true, canData: true, computer: true }
-  assert.deepEqual(drawerTabs(all), ['details', 'browser', 'scripts', 'jingliu', 'assets', 'data', 'computer'])
+  const all = { bot: true, canBrowse: true, canScripts: true, canJingliu: true, canAssets: true, canData: true }
+  assert.deepEqual(drawerTabs(all), ['details', 'browser', 'scripts', 'jingliu', 'assets', 'data'])
   assert.deepEqual(drawerTabs({ bot: true }), ['details'])
   assert.deepEqual(drawerTabs({ ...all, bot: false }), [])
+  // A group opens the libraries; the browser stays a Bot's own.
+  assert.deepEqual(drawerTabs({ ...all, bot: false, room: true }), ['details', 'scripts', 'jingliu', 'assets', 'data'])
+  assert.deepEqual(drawerTabs({ room: true }), ['details'])
 })
 
-test('side chat, terminal and files are tools beside the gear, terminal only where it can open', () => {
+test('side chat, terminal, files and the computer are tools beside the gear, each only where it can open', () => {
   assert.deepEqual(drawerTools({ bot: true, canTerminal: true }), ['side', 'terminal', 'files'])
   assert.deepEqual(drawerTools({ bot: true }), ['side', 'files'])
-  assert.deepEqual(drawerTools({ bot: false, canTerminal: true }), [])
+  assert.deepEqual(drawerTools({ bot: true, canTerminal: true, computer: true }), ['side', 'terminal', 'files', 'computer'])
+  assert.deepEqual(drawerTools({ bot: false, canTerminal: true, computer: true }), [])
 })
 
 test('a data tab key names its open platform, and Data stays the row tab while one is open', () => {

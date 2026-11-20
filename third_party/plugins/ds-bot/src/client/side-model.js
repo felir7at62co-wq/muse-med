@@ -171,23 +171,28 @@ export function drawerMenuKeys({ bot, room, canBrowse, canTerminal, canFiles }) 
 }
 
 // Muse: the tab row under a Bot's name, in order: its details, the browser, the finalized
-// scripts, the Jingliu projects, the asset library and the data station. Side chat, Terminal and Files are the
-// top bar's tools (`drawerTools`). A group's drawer is its details alone.
-export function drawerTabs({ bot, canBrowse, canScripts, canJingliu, canAssets, canData, computer }) {
-  if (bot !== true) return []
+// scripts, the Jingliu projects, the asset library and the data station. Side chat, Terminal, Files and
+// Computer are the top bar's tools (`drawerTools`).
+export function drawerTabs({ bot, room, canBrowse, canScripts, canJingliu, canAssets, canData }) {
+  // Muse: a group's drawer opens the same libraries as a Bot's; the browser is a Bot's own.
+  if (bot !== true && room !== true) return []
   const keys = ['details']
-  if (canBrowse === true) keys.push('browser')
+  if (bot === true && canBrowse === true) keys.push('browser')
   if (canScripts === true) keys.push('scripts')
   if (canJingliu === true) keys.push('jingliu')
   if (canAssets === true) keys.push('assets')
   if (canData === true) keys.push('data')
-  if (computer === true) keys.push('computer')
   return keys
 }
-// Muse: the round tool buttons beside the gear in a Bot's drawer, in order.
-export function drawerTools({ bot, canTerminal }) {
+// Muse: the tool buttons in the capsule beside the gear of a Bot's drawer, in order; Terminal
+// only where it can open and Computer only where the desktop offers it.
+export function drawerTools({ bot, canTerminal, computer }) {
   if (bot !== true) return []
-  return canTerminal === true ? ['side', 'terminal', 'files'] : ['side', 'files']
+  const keys = ['side']
+  if (canTerminal === true) keys.push('terminal')
+  keys.push('files')
+  if (computer === true) keys.push('computer')
+  return keys
 }
 export const DRAWER_TAB_LABELS = { details: 'Details', browser: 'Browser', scripts: 'Scripts', side: 'Side chat', terminal: 'Terminal', files: 'Files', jingliu: 'Jingliu', assets: 'Asset library', data: 'Data', computer: 'Computer' }
 // The drawer tab a panel shows: its details unless the state names another row tab, an

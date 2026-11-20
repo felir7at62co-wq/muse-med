@@ -15,12 +15,12 @@ import css from './Production.module.css'
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
-     * The Bot team's details drawer: the asset tab of the Bot whose conversation is `sessionId`.
+     * The Bot team's details drawer: the asset tab of the Bot or group whose conversation is `sessionId`.
      * `compose` puts text into that conversation's message box.
      */
     'bot.drawer.assets': { kind: 'single'; scope: 'root'; owner: { sessionId: SessionId; quote(text: string): void; compose(text: string): void } }
     /**
-     * The Bot team's details drawer: the Jingliu tabs of the Bot whose conversation is `sessionId`.
+     * The Bot team's details drawer: the Jingliu tabs of the Bot or group whose conversation is `sessionId`.
      * `project` is the production the tab in view shows, or null on the tab that lists them;
      * `openProject` opens a production in a tab of its own. `quote` puts a reference above that
      * conversation's message box; `compose` puts a prepared request into it for the user to send.
@@ -37,7 +37,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       }
     }
     /**
-     * The Bot team's details drawer: the 剧本 tabs of the Bot whose conversation is `sessionId`.
+     * The Bot team's details drawer: the 剧本 tabs of the Bot or group whose conversation is `sessionId`.
      * `script` is the finalized script the tab in view shows, or null on the tab that lists them;
      * `openScript` opens one in a tab of its own. `quote` and `compose` act as on the Jingliu tabs.
      */
@@ -53,7 +53,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       }
     }
     /**
-     * The Bot team's details drawer: the data tab of the Bot whose conversation is `sessionId`.
+     * The Bot team's details drawer: the data tab of the Bot or group whose conversation is `sessionId`.
      * `platform` is the open data platform, or null on the tab that lists them; `openPlatform`
      * opens one in a panel tab of its own, named `title`.
      */
