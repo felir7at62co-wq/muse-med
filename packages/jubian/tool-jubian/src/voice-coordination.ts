@@ -26,6 +26,8 @@ export interface VoiceCoordinationState {
   readonly owner_operation?: boolean
   readonly started_now?: boolean
   readonly blocking_state?: 'reserved' | 'submitted'
+  /** Deleted ready asset retired by this operation; only its owner receives this permission. */
+  readonly replaces_asset_id?: number
   readonly asset?: CoordinatedVoiceAsset
 }
 
@@ -83,6 +85,9 @@ export function readVoiceCoordination(value: unknown, request: MuseVoiceSlotRequ
   if (state === 'reserved' && (source.owner_operation !== true || typeof source.lease_id !== 'string')) invalid()
   if (state === 'busy' && (source.blocking_state !== 'reserved' && source.blocking_state !== 'submitted')) invalid()
   if (state === 'busy' && (source.lease_id !== undefined || source.owner_operation === true)) invalid()
+  if (source.replaces_asset_id !== undefined && (typeof source.replaces_asset_id !== 'number'
+    || !Number.isSafeInteger(source.replaces_asset_id) || source.replaces_asset_id < 1
+    || source.owner_operation !== true || (state !== 'reserved' && state !== 'submitted' && state !== 'ready'))) invalid()
   let asset: CoordinatedVoiceAsset | undefined
   if (state === 'ready') {
     const row = record(source.asset)
@@ -97,12 +102,14 @@ export function readVoiceCoordination(value: unknown, request: MuseVoiceSlotRequ
     if (url.protocol !== 'https:' || url.username || url.password || url.hash || !url.hostname) invalid()
     asset = { asset_id: row.asset_id, script_id: request.script_id, asset_type: 4, name: row.name, url: row.url,
       character_id: request.character_id, voice_period_id: request.voice_period_id, voice_slot_tag: tag }
+    if (source.replaces_asset_id === asset.asset_id) invalid()
   } else if (source.asset !== undefined) invalid()
   return { state, script_id: request.script_id, character_id: request.character_id, voice_period_id: request.voice_period_id,
     ...(typeof source.lease_id === 'string' ? { lease_id: source.lease_id as MuseVoiceLeaseId } : {}),
     ...(typeof source.owner_operation === 'boolean' ? { owner_operation: source.owner_operation } : {}),
     ...(typeof source.started_now === 'boolean' ? { started_now: source.started_now } : {}),
     ...(state === 'busy' ? { blocking_state: source.blocking_state as 'reserved' | 'submitted' } : {}),
+    ...(typeof source.replaces_asset_id === 'number' ? { replaces_asset_id: source.replaces_asset_id } : {}),
     ...(asset === undefined ? {} : { asset }) }
 }
 

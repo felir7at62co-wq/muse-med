@@ -21,6 +21,16 @@ function fixture(payload: unknown, status = 200, bare = false): { client: Jubian
 }
 
 describe('readAudioAsset', () => {
+  it.each([
+    [{ delFlag: 1 }, 'deleted'], [{ delFlag: '1', deleted: '1' }, 'deleted'],
+    [{ delFlag: '1', deleted: 1 }, 'deleted'], [{ delFlag: 1, deleted: true }, 'deleted'],
+    [{ deleted: true }, 'deleted'], [{ deleted: '1' }, 'deleted'], [{ deleted: 1 }, 'deleted'],
+    [{ delFlag: 1, deleted: false }, 'unknown'], [{ delFlag: '1', deleted: null }, 'unknown'],
+    [{ delFlag: 0, deleted: true }, 'unknown'], [{ delFlag: null, deleted: true }, 'unknown'],
+    [{ delFlag: true }, 'unknown'], [{ delFlag: '0', deleted: false }, 'active'],
+  ])('requires nonconflicting deletion evidence %j', (flags, liveness) => {
+    expect(readAudioAsset({ ...AUDIO, ...flags }, 2708).liveness).toBe(liveness)
+  })
   it('reads a project audio identity without treating generated duration as measured audio', () => {
     expect(readAudioAsset({ ...AUDIO, modelConfig: '{"duration":10}', audioDuration: 10 }, 2708, 77)).toEqual(EXPECTED)
   })
@@ -179,8 +189,8 @@ it.each([
   { fields: { delFlag: 0, deleted: '0' }, liveness: 'active' },
   { fields: { delFlag: '1' }, liveness: 'deleted' },
   { fields: { delFlag: 1 }, liveness: 'deleted' },
-  { fields: { delFlag: true }, liveness: 'deleted' },
-  { fields: { delFlag: '0', deleted: true }, liveness: 'deleted' },
+  { fields: { delFlag: true }, liveness: 'unknown' },
+  { fields: { delFlag: '0', deleted: true }, liveness: 'unknown' },
   { fields: { deleted: '1' }, liveness: 'deleted' },
   { fields: { deleted: 1 }, liveness: 'deleted' },
   { fields: { delFlag: null }, liveness: 'unknown' },

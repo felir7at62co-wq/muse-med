@@ -12,7 +12,7 @@ export interface AudioAsset {
   url: string | null
   audio_duration: number | null
   is_local: boolean
-  /** Provider deletion evidence; active requires delFlag=0 without conflicting deletion, absence is unknown. */
+  /** Nonconflicting provider deletion evidence; active requires delFlag=0, absent or contradictory flags are unknown. */
   liveness?: 'active' | 'deleted' | 'unknown'
   /** Stable character ID decoded from a canonical project-bound voice suffix; absent on legacy or malformed names. */
   character_id?: string
@@ -65,7 +65,8 @@ function optionalText(value: unknown): string | null {
 function deletionEvidence(source: Record<string, unknown>): Pick<AudioAsset, 'liveness'> {
   const flag = source.delFlag, deleted = source.deleted
   if (flag === undefined && deleted === undefined) return {}
-  if ([flag, deleted].some(value => value === 1 || value === '1' || value === true)) return { liveness: 'deleted' }
+  if ((flag === 1 || flag === '1') && (deleted === undefined || deleted === 1 || deleted === '1' || deleted === true)
+    || flag === undefined && (deleted === 1 || deleted === '1' || deleted === true)) return { liveness: 'deleted' }
   if ((flag === 0 || flag === '0')
     && (deleted === undefined || deleted === 0 || deleted === '0' || deleted === false)) {
     return { liveness: 'active' }
