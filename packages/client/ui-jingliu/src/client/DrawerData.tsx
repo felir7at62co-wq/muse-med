@@ -194,7 +194,7 @@ function RankRows({ period, platform, t, quote, rush }: Pick<DrawerDataProps, 't
         {platform.columns.map(([key]) => <span key={key} role="cell" className={css.num}>{metricOf(work, key, t)}</span>)}
         <span role="cell" className={css.acts}>
           <QuoteButton t={t} title={title} onQuote={() => { quote(t('workReference', { platform: t(platform.name), board: period.board, rank: String(position ?? '—'), title })) }} />
-          {platform.id === 'hongguo' && <RushButton t={t} workId={work.id} rush={rush} label="transcribe" />}
+          {platform.id === 'hongguo' && <RushButton t={t} workId={work.id} rush={rush} kind="transcribe" />}
         </span>
       </div>
     })}
@@ -264,7 +264,7 @@ function StockRow({ item, t, quote, rush }: Pick<DrawerDataProps, 't' | 'quote' 
     <span role="cell" className={css.acts}>
       <QuoteButton t={t} title={title} onQuote={() => { quote(t('stockReference', { title })) }} />
       {running ? <span className={css.live} role="img" aria-label={t('stageTranscribing')} />
-        : canRush ? <RushButton t={t} workId={work.id} rush={rush} label="rushNow" /> : null}
+        : canRush ? <RushButton t={t} workId={work.id} rush={rush} kind="rushNow" /> : null}
     </span>
   </div>
 }
@@ -277,7 +277,7 @@ function QuoteButton({ t, title, onQuote }: { t: Text; title: string; onQuote: (
   </button>
 }
 
-function RushButton({ t, workId, rush, label }: Pick<DrawerDataProps, 't' | 'rush'> & { workId: string; label: 'transcribe' | 'rushNow' }) {
+function RushButton({ t, workId, rush, kind }: Pick<DrawerDataProps, 't' | 'rush'> & { workId: string; kind: 'transcribe' | 'rushNow' }) {
   const [state, setState] = useState<'idle' | 'busy' | 'queued' | 'failed'>('idle')
   if (state === 'queued') return <span className={css.tag}>{t('queuedNow')}</span>
   const go = () => {
@@ -285,7 +285,7 @@ function RushButton({ t, workId, rush, label }: Pick<DrawerDataProps, 't' | 'rus
     rush(workId).then(() => { setState('queued') }, () => { setState('failed') })
   }
   return <Button size="sm" variant="outline" disabled={state === 'busy'} title={state === 'failed' ? t('rushFailed') : undefined} onClick={go}>
-    {state === 'failed' ? t('retry') : t(label)}
+    {state === 'failed' ? t('retry') : t(kind)}
   </Button>
 }
 

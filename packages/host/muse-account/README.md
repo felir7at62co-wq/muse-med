@@ -82,6 +82,8 @@ Cloud submission requires a stable `requestId`; uncertainty requires querying th
 
 With `douyinDownloadTool: true`, the deferred `douyin_download` tool is the only Douyin video downloader. It sends the current Muse session token in `X-Muse-Account-Token` to the data station at `douyinStationPath` on the `baseUrl` origin; the public `/data/` proxy clears `Authorization`, and the station refuses requests carrying `Origin`. Requests carry no cookie, `Origin` or requester name, refuse redirects, bound the complete JSON reply with `douyinMaxReplyBytes`, and reject a reply that echoes the token. The station checks the token with the Muse gateway, admits only its team list, and records the verified member as the requester.
 
+With `dataStation: true`, the `museAccount` remote methods `dataBoards`, `dataPeriod`, `dataStock`, `dataRush` and `dataCollector` serve the drawer's 数据 tab: data-station rankings, the 储备看板, 立即转写 and the 绿泡泡 collector state, read at `dataStationPath` on the `baseUrl` origin with the same account token, no cookie and no `Origin`. The station runs each request as the member the token names, so 立即转写 records that member. Replies are bounded by `dataMaxReplyBytes` and validated, a reply that echoes the token is refused, and failures surface as fixed `muse-data/<code>` remote errors.
+
 `action: download` queues one work from a URL, share text or `aweme_id`, or every episode of one series from `mix_id` or a `douyin.com/collection/<id>` link. A `v.douyin.com` share link is resolved by one redirect read within `douyinLinkTimeoutMs`, without its body or any account credential. `action: query` reads existing records without submitting, and `action: quota` reports availability and the daily allowance that the station shares between its web page and Muse. `wait_seconds` from 0 to `douyinMaxWaitSeconds` polls records every `douyinPollIntervalMs` until every work is `done` or `failed`; cancellation ends the wait. A query requests at most `douyinListLimit` records. Results list each work's state and, when done, its public storage address; a private-mode record reads its signed address and `expiresAt`. These addresses are not local files. The station does not download a queued or saved work again, and resubmitting a failed work queues it again. Fixed codes report sign-in, team list, daily allowance, station availability, account change, unconfirmed submission, timeout and cancellation without station response text. Every request rechecks the login revision captured when the call started.
 
 ### Shared voice registration
@@ -151,6 +153,10 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `douyinMaxWaitSeconds` | 60 | Largest `wait_seconds`, 0–600. |
 | `douyinPollIntervalMs` | 5,000 | Pause between record queries while waiting, 1,000–60,000 ms. |
 | `douyinListLimit` | 300 | Records requested by one query, 1–500; the station page holds at most 500. |
+| `dataStation` | `false` | Serve the 数据 tab's data-station remote methods; Desktop enables it. |
+| `dataStationPath` | `/data/api/muse-client/data` | Absolute member route prefix joined to the `baseUrl` origin, with the same segment rules as `douyinStationPath`. |
+| `dataRequestTimeoutMs` | 20,000 | One data-station read or 立即转写 and its complete reply, 1,000–120,000 ms. |
+| `dataMaxReplyBytes` | 8,388,608 | Complete ranking or 储备看板 JSON reply cap, 1 KiB–32 MiB. |
 | `feedbackExcerptChars` | 1,000 | Visible characters per optional related request or answer excerpt, from 100 to 1,200. |
 | `activityReportIntervalMs` | 30,000 | Minimum interval between activity reports for one login, from 1,000 to 3,600,000 milliseconds. |
 | `activityRequestTimeoutMs` | 5,000 | Best-effort activity request deadline, from 100 to 30,000 milliseconds. |

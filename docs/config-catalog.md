@@ -2375,7 +2375,7 @@ export interface TlsConfig {
 ## `@deepseek-ai/dsh-jingliu-connection`
 
 - `inject`: `commands`
-- `source`: [`packages/drama/jingliu-connection/src/index.ts:38`](../packages/drama/jingliu-connection/src/index.ts)
+- `source`: [`packages/drama/jingliu-connection/src/index.ts:42`](../packages/drama/jingliu-connection/src/index.ts)
 
 ```ts config-catalog
 /** Limits and server address for this installation. */
@@ -3053,7 +3053,7 @@ export interface Config {
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
 - `refs`: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/host/muse-account/src/index.ts:51`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:52`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -3144,6 +3144,14 @@ export interface Config {
   readonly douyinPollIntervalMs: number
   /** Records requested by one query; the station serves at most 500 and queues at most its own series limit. */
   readonly douyinListLimit: number
+  /** Offer the 数据 drawer tab's data-station reads and 立即转写 through the current private Muse login. */
+  readonly dataStation: boolean
+  /** Data-station member route prefix for desktop Muse, joined to the `baseUrl` origin. */
+  readonly dataStationPath: string
+  /** Deadline for one data-station read or 立即转写 and its complete reply. */
+  readonly dataRequestTimeoutMs: number
+  /** Maximum complete JSON reply accepted for one ranking or 储备看板 page. */
+  readonly dataMaxReplyBytes: number
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
@@ -5941,7 +5949,7 @@ export type DramaShotReviewMode = 'strict' | 'advisory'
 ## `@deepseek-ai/dsh-tool-skill`
 
 - `inject`: `agents` · `tools` · `skills` · `workingDirectory` · `sessionProjections` · `systemPrompt`
-- `source`: [`packages/skill/tool-skill/src/index.ts:73`](../packages/skill/tool-skill/src/index.ts)
+- `source`: [`packages/skill/tool-skill/src/index.ts:89`](../packages/skill/tool-skill/src/index.ts)
 
 ```ts config-catalog
 /** Model-facing skill catalog configuration. */
