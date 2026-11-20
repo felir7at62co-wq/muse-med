@@ -20,13 +20,13 @@ import NativePreset from '../../desktop-host/src/native-preset.ts'
 const productRoot = fileURLToPath(new URL('../../desktop-host/presets', import.meta.url))
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/defaults.cordis.patch.yml', import.meta.url))
 
-it('defaults ordinary sessions to short-drama and offers no Main Session', async () => {
+it('defaults ordinary sessions to short-drama-v2 and offers no Main Session', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-product-preset-'))
   const ctx = new Context()
   try {
     const patch = loadOverlayPatches('muse-med', patchPath).find(row => row.id === 'agent-preset-registry')
     const presetConfig = patch?.config as Record<string, unknown> | undefined
-    expect(presetConfig).toMatchObject({ default: 'short-drama', selectablePresets: ['short-drama', 'short-drama-v2'], allowUserDefault: false })
+    expect(presetConfig).toMatchObject({ default: 'short-drama-v2', selectablePresets: ['short-drama', 'short-drama-v2'], allowUserDefault: false })
     const productRows = yaml.load(await readFile(join(productRoot, 'short-drama', 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema }) as Array<{ id: string; name: string }>
     expect(productRows.map(row => row.id)).not.toContain('drama-gate')
@@ -66,7 +66,7 @@ it('defaults ordinary sessions to short-drama and offers no Main Session', async
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     expect((await ctx.agentPresets.list()).map(row => row.id).sort()).toEqual(['bot-coordinator', 'cordis', 'creation', 'main-session', 'minimal', 'ptc', 'short-drama', 'short-drama-v2', 'standard'])
-    expect(ctx.agentPresets.defaultId).toBe('short-drama')
+    expect(ctx.agentPresets.defaultId).toBe('short-drama-v2')
     await expect(ctx.agentPresets.resolveForCreation('bot-coordinator')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
     expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama', 'short-drama-v2'])
     expect(await ctx.agentPresets.resolve('bot-coordinator')).toMatchObject({ id: 'bot-coordinator' })

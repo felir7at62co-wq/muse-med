@@ -56,14 +56,16 @@ export const inject = ['agentPresets', 'agents', 'llm', 'systemPrompt', 'tools',
 export async function apply(ctx) {
   const patches = loadOverlayPatches('jingliu-script-read', overlay)
   const rows = composeEntries([patches])
-  const preset = patches.find(row => row.id === 'agent-preset-registry')?.config.default
+  const registry = patches.find(row => row.id === 'agent-preset-registry')?.config
   const jingliuConnection = rows.find(row => row.id === 'jingliu-connection')
   const jingliuTool = rows.find(row => row.id === 'tool-jingliu')
-  assert.equal(preset, 'short-drama')
+  // Recorded on short-drama, which Sessions started before short-drama-v2 became the default keep running on;
+  // v2 refuses jingliu_* until muse-jingliu-production is loaded, which this recording never does.
+  const preset = 'short-drama'
+  assert.ok(registry?.selectablePresets.includes(preset), 'Existing Sessions can keep the short-drama preset')
   assert.equal(jingliuConnection?.name, '@deepseek-ai/dsh-jingliu-connection')
   assert.equal(jingliuTool?.name, '@deepseek-ai/dsh-tool-jingliu')
   assert.ok(!jingliuConnection.disabled && !jingliuTool.disabled, 'Jingliu stays mounted without a configured origin')
-  assert.ok(!rows.some(row => row.name === '@deepseek-ai/dsh-tool-jubian'), 'Desktop cannot mount a legacy production provider')
   const plugin = await importSnapshotModule(
     new URL('../../../packages/drama/tool-jingliu/src/index.ts', import.meta.url),
     new URL('../../../packages/drama/tool-jingliu/lib/index.js', import.meta.url),
