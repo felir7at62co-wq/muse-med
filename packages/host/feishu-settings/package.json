@@ -79,7 +79,7 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "workspace:~",
     "@larksuite/channel": "0.4.1",
-    "qrcode-generator": "1.4.4",
+    "qrcode-generator": "2.0.4",
     "zod": "4.6.6",
     "@deepseek-ai/dsh-typert-protocol": "workspace:*"
   },
