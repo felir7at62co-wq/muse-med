@@ -9,11 +9,14 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: dd4cb7482a22e984
-  zh: aa04aef5335389ef
+  en: f16ff2655e1fc730
+  zh: 88d4281d416bbe24
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
+/tool-schema-catalog/deepseek-ai-dsh-muse-account/data-station-search:
+  en: 7bad531105e3beab
+  zh: 740d32e914ffdb3d
 /tool-schema-catalog/deepseek-ai-dsh-muse-account/douyin-download:
   en: 373a0cefd3aa6c45
   zh: 44e6833440d808a9
@@ -21,8 +24,8 @@
   en: 65cb53ead3d79365
   zh: 6364366516248ae2
 /tool-schema-catalog/deepseek-ai-dsh-muse-account/muse-feedback-submit:
-  en: 2b08984c88debbe2
-  zh: 2657f37b9d812825
+  en: e6486343e30d0942
+  zh: 6bcf59c9c6e8da65
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762

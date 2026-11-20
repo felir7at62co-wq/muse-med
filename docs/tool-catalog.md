@@ -15,7 +15,7 @@ This table connects model-visible tool names to the plugin package and service s
 
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
-| `@deepseek-ai/dsh-muse-account` | `douyin_download`, `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`, `signed-in Muse account for execution`, `data station on the account origin for douyin_download` | `tool/call`, `tool/result`, `explicit feedback submission to the central inbox`, `Douyin download queue entries on the data station` | - | Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. |
+| `@deepseek-ai/dsh-muse-account` | `data_station_search`, `douyin_download`, `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`, `signed-in Muse account for execution`, `data station on the account origin for douyin_download and data_station_search` | `tool/call`, `tool/result`, `explicit feedback submission to the central inbox`, `Douyin download queue entries on the data station` | - | Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. With dataStation, data_station_search is deferred too and searches the station's whole collection (全收录) as the signed-in member. |
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
@@ -73,6 +73,39 @@ This table connects model-visible tool names to the plugin package and service s
 <a id="deepseek-aidsh-muse-account"></a>
 
 ## `@deepseek-ai/dsh-muse-account`
+
+### `data_station_search`
+
+在数据站的全收录里找剧和原著：红果短剧、抖音、绿泡泡的短剧和番茄、七猫的小说，使用当前登录的 Muse 账号。query 按剧名、作者、编号、简介和标签匹配，不填则列出最近收录的作品；platform 限定平台，不填则搜全部平台。每页 10 部，最近采到的在前；每部带数据站编号 id、集数或字数、平台指标（如热度、收藏、在读）、最近所在榜单和名次、采集时间和简介开头。这里是团队数据站已经收录的作品，不是平台实时搜索；找不到时换个关键词或去掉 platform 再试。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "剧名、作者、编号或关键词，最多 200 字；不填则列出最近收录的作品。"
+    },
+    "platform": {
+      "type": "string",
+      "description": "hongguo 红果短剧，douyin 抖音，lvpaopao 绿泡泡，fanqie 番茄小说，qimao 七猫小说；不填则搜全部平台。",
+      "enum": [
+        "hongguo",
+        "douyin",
+        "lvpaopao",
+        "fanqie",
+        "qimao"
+      ]
+    },
+    "page": {
+      "type": "integer",
+      "description": "页码，从 1 开始，默认 1。"
+    }
+  }
+}
+```
+
+Source: [`packages/host/muse-account/src/data-tools.ts`](../packages/host/muse-account/src/data-tools.ts)
 
 ### `douyin_download`
 
@@ -182,7 +215,7 @@ Submit a product problem or suggestion to the Muse feedback inbox when the user 
 
 Source: [`packages/host/muse-account/src/feedback-tools.ts`](../packages/host/muse-account/src/feedback-tools.ts)
 
-Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files.
+Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. With dataStation, data_station_search is deferred too and searches the station's whole collection (全收录) as the signed-in member.
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 

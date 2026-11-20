@@ -36,6 +36,7 @@
     "src/media-tools.ts",
     "src/douyin-station.ts",
     "src/data-station.ts",
+    "src/data-tools.ts",
     "src/douyin-tools.ts"
   ],
   "references": [

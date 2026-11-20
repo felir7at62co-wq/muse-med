@@ -3053,7 +3053,7 @@ export interface Config {
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
 - `refs`: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/host/muse-account/src/index.ts:52`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:54`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -3144,7 +3144,10 @@ export interface Config {
   readonly douyinPollIntervalMs: number
   /** Records requested by one query; the station serves at most 500 and queues at most its own series limit. */
   readonly douyinListLimit: number
-  /** Offer the 数据 drawer tab's data-station reads and 立即转写 through the current private Muse login. */
+  /**
+   * Offer the 数据 drawer tab's data-station reads and 立即转写, and register `data_station_search` over the station's whole
+   * collection, through the current private Muse login.
+   */
   readonly dataStation: boolean
   /** Data-station member route prefix for desktop Muse, joined to the `baseUrl` origin. */
   readonly dataStationPath: string
@@ -3152,6 +3155,8 @@ export interface Config {
   readonly dataRequestTimeoutMs: number
   /** Maximum complete JSON reply accepted for one ranking or 储备看板 page. */
   readonly dataMaxReplyBytes: number
+  /** Works one `data_station_search` call returns per page. */
+  readonly dataSearchPageSize: number
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */

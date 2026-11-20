@@ -100,6 +100,7 @@ import * as ScreenplayProject from '@deepseek-ai/dsh-screenplay-project'
 import * as ToolVideoInspect from '@deepseek-ai/dsh-tool-video-inspect'
 import { Config as MuseAccountConfig, mountMuseFeedbackTools, type MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import { mountMuseDouyinTools } from '../packages/host/muse-account/src/douyin-tools.ts'
+import { mountMuseDataTools } from '../packages/host/muse-account/src/data-tools.ts'
 import * as ToolShotScript from '@deepseek-ai/dsh-tool-shot-script'
 import * as DramaSettings from '@deepseek-ai/dsh-drama-settings'
 import SettingsForms from '@deepseek-ai/dsh-settings'
@@ -263,8 +264,9 @@ const TOOL_PACKAGES: ToolPackage[] = [
       muse_feedback_submit: 'packages/host/muse-account/src/feedback-tools.ts',
       muse_feedback_status: 'packages/host/muse-account/src/feedback-tools.ts',
       douyin_download: 'packages/host/muse-account/src/douyin-tools.ts',
+      data_station_search: 'packages/host/muse-account/src/data-tools.ts',
     },
-    requires: ['ctx.tools', 'signed-in Muse account for execution', 'data station on the account origin for douyin_download'],
+    requires: ['ctx.tools', 'signed-in Muse account for execution', 'data station on the account origin for douyin_download and data_station_search'],
     writes: ['tool/call', 'tool/result', 'explicit feedback submission to the central inbox', 'Douyin download queue entries on the data station'],
     mount(ctx) {
       mountMuseFeedbackTools(ctx, {
@@ -275,9 +277,11 @@ const TOOL_PACKAGES: ToolPackage[] = [
       const defaults = MuseAccountConfig({ baseUrl: 'https://muse.invalid' })
       mountMuseDouyinTools(ctx, { run: () => Promise.reject(new Error('Catalog collection cannot reach the data station')) },
         { maxWaitSeconds: defaults.douyinMaxWaitSeconds, pollIntervalMs: defaults.douyinPollIntervalMs })
+      mountMuseDataTools(ctx, { works: () => Promise.reject(new Error('Catalog collection cannot reach the data station')) },
+        { pageSize: defaults.dataSearchPageSize })
       return Promise.resolve()
     },
-    note: 'Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files.',
+    note: 'Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. With dataStation, data_station_search is deferred too and searches the station\'s whole collection (全收录) as the signed-in member.',
   },
   {
     pkg: '@deepseek-ai/dsh-plugin-manager',

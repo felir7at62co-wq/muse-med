@@ -19,7 +19,7 @@
 
 | 工具包 | 模型可见名称 | 依赖 | 写入／影响 | 随产品发布的别名 | 部署说明 |
 | --- | --- | --- | --- | --- | --- |
-| `@deepseek-ai/dsh-muse-account` | `douyin_download`, `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`、执行时已登录的 Muse 账号、douyin_download 所需的账号源站数据站 | `tool/call`、`tool/result`、向中心意见箱显式提交反馈、数据站上的抖音下载队列记录 | - | Muse 桌面端常驻提供反馈提交和回执状态查询。仅支持当前登录账号提交和查看本人反馈，不开放管理员能力。桌面端以延迟加载方式启用 douyin_download；它是唯一的抖音视频下载工具，在数据站排队下载，返回公开存储地址而非本地文件。 |
+| `@deepseek-ai/dsh-muse-account` | `data_station_search`, `douyin_download`, `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`、执行时已登录的 Muse 账号、douyin_download 与 data_station_search 所需的账号源站数据站 | `tool/call`、`tool/result`、向中心意见箱显式提交反馈、数据站上的抖音下载队列记录 | - | Muse 桌面端常驻提供反馈提交和回执状态查询。仅支持当前登录账号提交和查看本人反馈，不开放管理员能力。桌面端以延迟加载方式启用 douyin_download；它是唯一的抖音视频下载工具，在数据站排队下载，返回公开存储地址而非本地文件。启用 dataStation 时，data_station_search 同样延迟加载，以当前登录成员身份搜索数据站的全收录。 |
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
@@ -77,6 +77,39 @@
 <a id="deepseek-aidsh-muse-account"></a>
 
 ## `@deepseek-ai/dsh-muse-account`
+
+### `data_station_search`
+
+在数据站的全收录里找剧和原著：红果短剧、抖音、绿泡泡的短剧和番茄、七猫的小说，使用当前登录的 Muse 账号。query 按剧名、作者、编号、简介和标签匹配，不填则列出最近收录的作品；platform 限定平台，不填则搜全部平台。每页 10 部，最近采到的在前；每部带数据站编号 id、集数或字数、平台指标（如热度、收藏、在读）、最近所在榜单和名次、采集时间和简介开头。这里是团队数据站已经收录的作品，不是平台实时搜索；找不到时换个关键词或去掉 platform 再试。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "剧名、作者、编号或关键词，最多 200 字；不填则列出最近收录的作品。"
+    },
+    "platform": {
+      "type": "string",
+      "description": "hongguo 红果短剧，douyin 抖音，lvpaopao 绿泡泡，fanqie 番茄小说，qimao 七猫小说；不填则搜全部平台。",
+      "enum": [
+        "hongguo",
+        "douyin",
+        "lvpaopao",
+        "fanqie",
+        "qimao"
+      ]
+    },
+    "page": {
+      "type": "integer",
+      "description": "页码，从 1 开始，默认 1。"
+    }
+  }
+}
+```
+
+来源：[`packages/host/muse-account/src/data-tools.ts`](../packages/host/muse-account/src/data-tools.ts)
 
 ### `douyin_download`
 
@@ -186,7 +219,7 @@
 
 来源：[`packages/host/muse-account/src/feedback-tools.ts`](../packages/host/muse-account/src/feedback-tools.ts)
 
-Muse 桌面端常驻提供反馈提交和回执状态查询。仅支持当前登录账号提交和查看本人反馈，不开放管理员能力。桌面端以延迟加载方式启用 douyin_download；它是唯一的抖音视频下载工具，在数据站排队下载，返回公开存储地址而非本地文件。
+Muse 桌面端常驻提供反馈提交和回执状态查询。仅支持当前登录账号提交和查看本人反馈，不开放管理员能力。桌面端以延迟加载方式启用 douyin_download；它是唯一的抖音视频下载工具，在数据站排队下载，返回公开存储地址而非本地文件。启用 dataStation 时，data_station_search 同样延迟加载，以当前登录成员身份搜索数据站的全收录。
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 

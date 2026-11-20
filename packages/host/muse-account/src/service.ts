@@ -14,7 +14,7 @@ import type { MuseFeedbackRequest, MuseFeedbackReceipt, MuseWorkbenchAudience, M
 import type { MuseDesktopRemote } from './desktop-remote.ts'
 import { MuseVoiceSlotError, type MuseVoiceSlotRequest, type MuseVoiceSlotsClient } from './voice-slots.ts'
 import { museDataFailure, type MuseDataStationClient } from './data-station.ts'
-import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataPeriodRequest, MuseDataPlatform, MuseDataRush, MuseDataStock, MuseDataStockRequest, MuseDataWorkDetail } from './types.ts'
+import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataPeriodRequest, MuseDataPlatform, MuseDataRush, MuseDataStock, MuseDataStockRequest, MuseDataWorkDetail, MuseDataWorks, MuseDataWorksRequest } from './types.ts'
 import type { MuseAccountDetails, MuseAccountDetailsRequest, MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
@@ -38,7 +38,7 @@ export interface MuseAccountServiceOptions {
   readonly remote?: Pick<MuseDesktopRemote, 'refresh' | 'pause'>
   readonly voiceSlots?: Pick<MuseVoiceSlotsClient, 'request'>
   /** Data-station reads and 立即转写 for the 数据 drawer tab; absent where the product does not offer it. */
-  readonly data?: Pick<MuseDataStationClient, 'boards' | 'period' | 'stock' | 'rush' | 'collector' | 'work'>
+  readonly data?: Pick<MuseDataStationClient, 'boards' | 'period' | 'stock' | 'rush' | 'collector' | 'work' | 'works'>
 }
 
 /** MUSE account Remote namespace. The Connection carrier authenticates every call. */
@@ -183,6 +183,16 @@ export class MuseAccountService extends TypertRemoteService {
   @Remote('dataWork')
   async dataWork(id: string): Promise<MuseDataWorkDetail> {
     return await this.withData(data => data.work(id))
+  }
+
+  /**
+   * Search the data station's whole collection (全收录) as the signed-in member.
+   * @param request - Optional platform, optional words and page.
+   * @returns One page of matching works, newest observation first, and how many match.
+   */
+  @Remote('dataWorks')
+  async dataWorks(request: MuseDataWorksRequest): Promise<MuseDataWorks> {
+    return await this.withData(data => data.works(request))
   }
 
   /**

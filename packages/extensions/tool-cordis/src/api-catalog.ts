@@ -2924,6 +2924,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'The work with its platform metrics, ranking and collection time.',
       },
       {
+        signature: '@Remote(\'dataWorks\') async dataWorks(request: MuseDataWorksRequest): Promise<MuseDataWorks>',
+        description: 'Search the data station\'s whole collection (全收录) as the signed-in member.',
+        parameters: [{ name: 'request', description: 'Optional platform, optional words and page.' }],
+        returns: 'One page of matching works, newest observation first, and how many match.',
+      },
+      {
         signature: '@Remote(\'dataCollector\') async dataCollector(): Promise<MuseDataCollector>',
         description: 'The 绿泡泡 collector\'s connection to the data station.',
         parameters: [],
@@ -9555,6 +9561,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MuseDataWorkDetail',
     declaration: 'export interface MuseDataWorkDetail extends MuseDataWork {\n    readonly board: string;\n    readonly rank: number | null;\n    readonly author: string | null;\n    readonly observedAt: string;\n}',
+  },
+  {
+    name: 'MuseDataWorks',
+    declaration: 'export interface MuseDataWorks {\n    readonly items: readonly (MuseDataWorkDetail & {\n        readonly description: string;\n    })[];\n    readonly total: number;\n    readonly page: number;\n    readonly limit: number;\n}',
+  },
+  {
+    name: 'MuseDataWorksRequest',
+    declaration: 'export interface MuseDataWorksRequest {\n    readonly platform?: MuseDataPlatform;\n    readonly q?: string;\n    readonly page: number;\n    readonly limit: number;\n}',
   },
   {
     name: 'MuseDesktopConnectionState',

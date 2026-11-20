@@ -408,6 +408,26 @@ export interface MuseDataWorkDetail extends MuseDataWork {
   readonly observedAt: string
 }
 
+/** A search of the data station's whole collection (全收录). */
+export interface MuseDataWorksRequest {
+  /** One platform, or every platform when absent. */
+  readonly platform?: MuseDataPlatform
+  /** Words matched against title, author, ID, description and tags; absent or blank lists the collection. */
+  readonly q?: string
+  readonly page: number
+  /** Works per page, at most 100. */
+  readonly limit: number
+}
+
+/** One page of the whole collection, newest observation first, with each work's description cut to 300 characters. */
+export interface MuseDataWorks {
+  readonly items: readonly (MuseDataWorkDetail & { readonly description: string })[]
+  /** Works that match in all. */
+  readonly total: number
+  readonly page: number
+  readonly limit: number
+}
+
 /** One ranking period: its works in ranked order; `position` is null where the platform gave no rank. */
 export interface MuseDataPeriod {
   readonly platform: MuseDataPlatform

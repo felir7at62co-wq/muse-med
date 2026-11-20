@@ -1105,6 +1105,8 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   MuseDataStockRequest: 'data-station reads for the 数据 and 剧本 drawer tabs are owned by packages/host/muse-account/README.md and src/types.ts',
   MuseDataRush: 'data-station reads for the 数据 and 剧本 drawer tabs are owned by packages/host/muse-account/README.md and src/types.ts',
   MuseDataWorkDetail: 'data-station reads for the 数据 and 剧本 drawer tabs are owned by packages/host/muse-account/README.md and src/types.ts',
+  MuseDataWorks: 'data-station reads for the 数据 and 剧本 drawer tabs are owned by packages/host/muse-account/README.md and src/types.ts',
+  MuseDataWorksRequest: 'data-station reads for the 数据 and 剧本 drawer tabs are owned by packages/host/muse-account/README.md and src/types.ts',
   MuseDataCollector: 'data-station reads for the 数据 and 剧本 drawer tabs are owned by packages/host/muse-account/README.md and src/types.ts',
   ScriptList: 'finalized-script library fields are owned by packages/drama/workbench-connection/README.md and src/types.ts',
   ScriptListRequest: 'finalized-script library fields are owned by packages/drama/workbench-connection/README.md and src/types.ts',

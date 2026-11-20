@@ -535,13 +535,13 @@ it('loads explicit feedback tools through Loader, submits one authenticated rece
 })
 
 it('keeps the 数据 tab data-station reads opt-in and validates their route prefix and bounds', () => {
-  expect(Config({ baseUrl })).toMatchObject({ dataStation: false, dataStationPath: '/data/api/muse-client/data',
+  expect(Config({ baseUrl })).toMatchObject({ dataStation: false, dataSearchPageSize: 10, dataStationPath: '/data/api/muse-client/data',
     dataRequestTimeoutMs: 20_000, dataMaxReplyBytes: 8_388_608 })
   for (const dataStationPath of ['data/api', '/data/', '/data/../api', '/data api']) {
     expect(() => Config({ baseUrl, dataStationPath }), dataStationPath).toThrow()
   }
   const bounds = [{ dataRequestTimeoutMs: 999 }, { dataRequestTimeoutMs: 120_001 },
-    { dataMaxReplyBytes: 1023 }, { dataMaxReplyBytes: 33_554_433 }]
+    { dataMaxReplyBytes: 1023 }, { dataMaxReplyBytes: 33_554_433 }, { dataSearchPageSize: 0 }, { dataSearchPageSize: 51 }]
   for (const bound of bounds) {
     expect(() => Config({ baseUrl, ...bound }), JSON.stringify(bound)).toThrow()
   }
@@ -572,7 +572,9 @@ it('loads the 数据 tab data-station reads through Loader and sends only the ac
   expect(requests.map(request => request.url)).toEqual([`${baseUrl}/station/data/lvpaopao/status`])
   expect(requests[0]?.headers.get('x-muse-account-token')).toBe(token)
   expect(requests[0]?.headers.has('origin')).toBe(false)
+  expect(ctx.tools.get('data_station_search')?.deferLoading).toBe(true)
   await plugin.dispose()
+  expect(ctx.tools.get('data_station_search')).toBeUndefined()
 })
 
 it('keeps the data-station Douyin tool opt-in and validates its route prefix and bounds', () => {

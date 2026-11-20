@@ -103,6 +103,20 @@ it('reads one work for a finalized script\'s source card, refusing anything but 
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
 
+it('searches the whole collection on one platform or all, newest first, cutting long descriptions', async () => {
+  const listed = { ...work, board: '综合热播榜', rank: 3, author: '某作者', observedAt: '2026-11-20T08:00:00.000Z', script: null, description: '简'.repeat(400) }
+  const reply = { items: [listed], total: 1, page: 1, limit: 20, categories: [], boards: [] }
+  const { client, fetcher } = await fixture(() => Response.json(reply))
+  const found = await client.works({ platform: 'hongguo', q: ' 乖乖女 ', page: 1, limit: 20 })
+  const { description: _description, ...parsed } = work
+  expect(found).toEqual({ items: [{ ...parsed, board: '综合热播榜', rank: 3, author: '某作者', observedAt: '2026-11-20T08:00:00.000Z', description: '简'.repeat(300) }], total: 1, page: 1, limit: 20 })
+  await client.works({ q: '  ', page: 2, limit: 10 })
+  await client.works({ platform: 'qimao', page: 1, limit: 5 })
+  expect(sent(fetcher, 0).url).toBe(`${prefix}/works?origin=live&sort=recent&page=1&limit=20&platform=hongguo&q=${encodeURIComponent('乖乖女')}`)
+  expect(sent(fetcher, 1).url).toBe(`${prefix}/works?origin=live&sort=recent&page=2&limit=10`)
+  expect(sent(fetcher, 2).url).toBe(`${prefix}/works?origin=live&sort=recent&page=1&limit=5&platform=qimao`)
+})
+
 it.each([
   [400, false, 'invalid-input'], [401, false, 'sign-in-required'], [403, false, 'team-access-required'], [503, false, 'station-unavailable'],
   [500, false, 'unavailable'], [404, false, 'unavailable'], [500, true, 'unconfirmed'], [404, true, 'unavailable'],

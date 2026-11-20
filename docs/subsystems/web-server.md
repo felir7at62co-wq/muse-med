@@ -265,6 +265,13 @@ async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Prom
 @Remote('dataWork') async dataWork(id: string): Promise<MuseDataWorkDetail>
 
 /**
+ * Search the data station's whole collection (全收录) as the signed-in member.
+ * @param request - Optional platform, optional words and page.
+ * @returns One page of matching works, newest observation first, and how many match.
+ */
+@Remote('dataWorks') async dataWorks(request: MuseDataWorksRequest): Promise<MuseDataWorks>
+
+/**
  * The 绿泡泡 collector's connection to the data station.
  * @returns Its state, label and message.
  */
