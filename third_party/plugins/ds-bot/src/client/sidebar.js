@@ -804,8 +804,20 @@ export function TeamSidebar(props) {
       event.stopPropagation()
       toggleRef.current()
     }
+    // Muse: on a macOS window the shell keeps its own sidebar opener in the title row beside
+    // the traffic lights (`data-sidebar-opener`). That button stays the column's only switch:
+    // its click is caught the same way as the shortcut, and our own round switches hide
+    // (styles.js), so the title row does not show a second one under it.
+    const onClick = (event) => {
+      if (document.documentElement.dataset.platform !== 'darwin') return
+      if (!(event.target instanceof Element) || event.target.closest('[data-sidebar-opener]') === null) return
+      event.preventDefault()
+      event.stopPropagation()
+      toggleRef.current()
+    }
     document.addEventListener('keydown', onKey, true)
-    return () => document.removeEventListener('keydown', onKey, true)
+    document.addEventListener('click', onClick, true)
+    return () => { document.removeEventListener('keydown', onKey, true); document.removeEventListener('click', onClick, true) }
   }, [])
   const top = wideContent
     ? h('div', { className: 'bt-side-top' },
