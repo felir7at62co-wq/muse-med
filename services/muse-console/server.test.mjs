@@ -90,7 +90,10 @@ test('gateway reader maps profile and organization answers to viewer states',asy
  assert.equal((await make({'/api/muse/profile':()=>answer(200,profile),'/api/workbench':()=>answer(403)}).viewer('__Host-muse=x')).state,'member');
  const admin=make({'/api/muse/profile':()=>answer(200,profile),'/api/workbench':()=>answer(200,{administrator:true,members:[]})});
  const first=await admin.viewer('__Host-muse=y');
+ assert.match(calls.at(-1),/\/api\/workbench\?scope=organization&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}$/);
  assert.equal(first.state,'admin');assert.equal(first.account.name,'甲');
  const before=calls.length;await admin.viewer('__Host-muse=y');assert.equal(calls.length,before);
  await assert.rejects(make({'/api/muse/profile':()=>answer(500)}).viewer('__Host-muse=z'),/gateway_profile_unavailable/);
+ const slow=createGatewayReader({origin:'http://127.0.0.1:1',cookieName:'__Host-muse',timeoutMs:10,fetch:(url,{signal})=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason)))});
+ await assert.rejects(slow.viewer('__Host-muse=w'),error=>error.message==='gateway_timeout'&&error.status===502);
 });

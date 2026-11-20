@@ -123,7 +123,7 @@ export function createConsole({config,prices,gateway,records,states=serviceState
    send(res,404,messagePage({title:'找不到页面',text:''}));
   }catch(error){
    const unavailable=error?.status===502;
-   send(res,unavailable?502:500,messagePage({title:unavailable?'暂时读不到账号信息':'出错了',text:unavailable?'账号网关没有响应，请稍后刷新。':'请稍后刷新；问题持续请联系管理员。'}));
+   send(res,unavailable?502:500,messagePage({title:unavailable?'暂时读不到账号信息':'出错了',text:unavailable?(error?.message==='gateway_timeout'?'账号网关响应太慢，请稍后刷新。':'账号网关没有响应，请稍后刷新。'):'请稍后刷新；问题持续请联系管理员。'}));
    console.error(JSON.stringify({level:'error',code:error?.message?.slice(0,80)??'unknown'}));
   }
  };
