@@ -4,7 +4,7 @@ import { museGatewayOrigin } from './gateway.ts'
 import { readMuseSession } from './session.ts'
 import type {
   MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataPeriodRequest, MuseDataPlatform, MuseDataRush, MuseDataStock,
-  MuseDataStockRequest,
+  MuseDataStockRequest, MuseDataWorkDetail, MuseDataWorks, MuseDataWorksRequest,
 } from './types.ts'
 
 /** Fixed failures; station response bodies and the account token are never retained. */
@@ -40,6 +40,17 @@ const work = z.object({
   episodeCount: count.nullable(), wordCount: count.nullable(), metrics: z.array(metric).max(80),
 })
 const boards = z.object({ boards: z.array(label).max(1000), defaultBoard: label.nullable() })
+const recorded = work.extend({
+  board: label, rank: count.nullable(), author: label.nullish().transform(value => value ?? null), observedAt: z.string().max(64),
+})
+const workDetail = z.object({ work: recorded })
+/** Characters of a work's description kept in a search result. */
+const DESCRIPTION_CHARS = 300
+const works = z.object({
+  items: z.array(recorded.extend({ description: z.string().transform(value => value.slice(0, DESCRIPTION_CHARS)) })).max(100),
+  total: count, page: count, limit: count,
+})
+const WORK_ID = /^(?:hongguo|fanqie|qimao|douyin|lvpaopao):[0-9A-Za-z_-]{1,64}$/u
 const period = z.object({
   platform: z.enum(PLATFORMS), board: label, period: z.enum(['day', 'week', 'month']), date: z.string().max(32),
   items: z.array(z.object({ position: count.nullable(), work })).max(2000),
@@ -127,6 +138,30 @@ export class MuseDataStationClient {
   async rush(id: string): Promise<MuseDataRush> {
     if (!/^hongguo:\d{1,32}$/u.test(id)) throw new MuseDataError('invalid-input')
     return rush.parse(await this.exchange(`/hits/${encodeURIComponent(id)}/rush`, '{}'))
+  }
+
+  /**
+   * One work as the data station last recorded it, such as a finalized script's original novel or drama.
+   * @param id - Station work ID (`fanqie:<id>`, `hongguo:<id>`, …).
+   * @returns The work with its platform metrics, ranking and collection time.
+   */
+  async work(id: string): Promise<MuseDataWorkDetail> {
+    if (!WORK_ID.test(id)) throw new MuseDataError('invalid-input')
+    return workDetail.parse(await this.exchange(`/works/${encodeURIComponent(id)}`)).work
+  }
+
+  /**
+   * Search the station's whole collection (全收录): every work it recorded from rankings and catalog discovery, newest
+   * observation first.
+   * @param request - Optional platform, optional words matched against title, author, ID, description and tags, and page.
+   * @returns One page of matching works and how many match in all.
+   */
+  async works(request: MuseDataWorksRequest): Promise<MuseDataWorks> {
+    const query = new URLSearchParams({ origin: 'live', sort: 'recent', page: String(request.page), limit: String(request.limit) })
+    if (request.platform !== undefined) query.set('platform', request.platform)
+    const words = request.q?.trim() ?? ''
+    if (words !== '') query.set('q', words)
+    return works.parse(await this.exchange(`/works?${query}`))
   }
 
   /** @returns The 绿泡泡 collector's state, label and message. */

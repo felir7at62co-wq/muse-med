@@ -1,0 +1,9 @@
+version: 1
+scenario: muse-workshop-transcribe-status
+profile: headless
+composition: muse-workshop-transcribe-status
+recording: authored
+writerOutput: true
+header:
+  class: muse-workshop-transcribe-status
+  pin: true

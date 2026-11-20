@@ -17,6 +17,8 @@ import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import JingliuConnection from '@deepseek-ai/dsh-jingliu-connection'
 import * as ToolJingliu from '@deepseek-ai/dsh-tool-jingliu'
+import WorkshopConnection from '@deepseek-ai/dsh-workbench-connection'
+import * as ToolWorkshop from '@deepseek-ai/dsh-tool-workshop'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type OfficeKit from '@deepseek-ai/dsh-office-kit'
@@ -98,6 +100,7 @@ import * as ScreenplayProject from '@deepseek-ai/dsh-screenplay-project'
 import * as ToolVideoInspect from '@deepseek-ai/dsh-tool-video-inspect'
 import { Config as MuseAccountConfig, mountMuseFeedbackTools, type MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import { mountMuseDouyinTools } from '../packages/host/muse-account/src/douyin-tools.ts'
+import { mountMuseDataTools } from '../packages/host/muse-account/src/data-tools.ts'
 import * as ToolShotScript from '@deepseek-ai/dsh-tool-shot-script'
 import * as DramaSettings from '@deepseek-ai/dsh-drama-settings'
 import SettingsForms from '@deepseek-ai/dsh-settings'
@@ -261,8 +264,9 @@ const TOOL_PACKAGES: ToolPackage[] = [
       muse_feedback_submit: 'packages/host/muse-account/src/feedback-tools.ts',
       muse_feedback_status: 'packages/host/muse-account/src/feedback-tools.ts',
       douyin_download: 'packages/host/muse-account/src/douyin-tools.ts',
+      data_station_search: 'packages/host/muse-account/src/data-tools.ts',
     },
-    requires: ['ctx.tools', 'signed-in Muse account for execution', 'data station on the account origin for douyin_download'],
+    requires: ['ctx.tools', 'signed-in Muse account for execution', 'data station on the account origin for douyin_download and data_station_search'],
     writes: ['tool/call', 'tool/result', 'explicit feedback submission to the central inbox', 'Douyin download queue entries on the data station'],
     mount(ctx) {
       mountMuseFeedbackTools(ctx, {
@@ -273,9 +277,11 @@ const TOOL_PACKAGES: ToolPackage[] = [
       const defaults = MuseAccountConfig({ baseUrl: 'https://muse.invalid' })
       mountMuseDouyinTools(ctx, { run: () => Promise.reject(new Error('Catalog collection cannot reach the data station')) },
         { maxWaitSeconds: defaults.douyinMaxWaitSeconds, pollIntervalMs: defaults.douyinPollIntervalMs })
+      mountMuseDataTools(ctx, { works: () => Promise.reject(new Error('Catalog collection cannot reach the data station')) },
+        { pageSize: defaults.dataSearchPageSize })
       return Promise.resolve()
     },
-    note: 'Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files.',
+    note: 'Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. Desktop enables douyin_download as a deferred tool; it is the only Douyin video downloader and queues works on the data station, which returns public storage addresses rather than local files. With dataStation, data_station_search is deferred too and searches the station\'s whole collection (全收录) as the signed-in member.',
   },
   {
     pkg: '@deepseek-ai/dsh-plugin-manager',
@@ -415,6 +421,25 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(LocalCredentialProvider, { path: join(home, 'credentials.yaml'), dshHome: home, watch: false })
       await ctx.plugin(JingliuConnection)
       await ctx.plugin(ToolJingliu)
+    },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-workshop',
+    dir: 'tool-workshop',
+    source: {
+      script_finalize: 'packages/drama/tool-workshop/src/finalize.ts',
+      script_library: 'packages/drama/tool-workshop/src/library.ts',
+      workshop_video_transcribe: 'packages/drama/tool-workshop/src/index.ts',
+    },
+    requires: ['ctx.tools', 'ctx.workshopConnection', 'ctx.approval to start a job', 'ctx.fs and ctx.sandboxPolicy for script files'],
+    writes: [
+      'tool/call', 'tool/result', 'video_transcribe factory jobs on the configured Script Workshop',
+      'finalized-script versions and production links in the Workshop library', 'script files under 剧本库/ in the workspace',
+    ],
+    async mount(ctx) {
+      await ctx.plugin(SandboxPolicy)
+      await ctx.plugin(WorkshopConnection, {})
+      await ctx.plugin(ToolWorkshop)
     },
   },
   {

@@ -2377,7 +2377,7 @@ export interface TlsConfig {
 ## `@deepseek-ai/dsh-jingliu-connection`
 
 - `inject`: `commands`
-- `source`: [`packages/drama/jingliu-connection/src/index.ts:42`](../packages/drama/jingliu-connection/src/index.ts)
+- `source`: [`packages/drama/jingliu-connection/src/index.ts:43`](../packages/drama/jingliu-connection/src/index.ts)
 
 ```ts config-catalog
 /** Limits and server address for this installation. */
@@ -3055,7 +3055,7 @@ export interface Config {
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
 - `refs`: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/host/muse-account/src/index.ts:52`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:54`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -3146,7 +3146,10 @@ export interface Config {
   readonly douyinPollIntervalMs: number
   /** Records requested by one query; the station serves at most 500 and queues at most its own series limit. */
   readonly douyinListLimit: number
-  /** Offer the 数据 drawer tab's data-station reads and 立即转写 through the current private Muse login. */
+  /**
+   * Offer the 数据 drawer tab's data-station reads and 立即转写, and register `data_station_search` over the station's whole
+   * collection, through the current private Muse login.
+   */
   readonly dataStation: boolean
   /** Data-station member route prefix for desktop Muse, joined to the `baseUrl` origin. */
   readonly dataStationPath: string
@@ -3154,6 +3157,8 @@ export interface Config {
   readonly dataRequestTimeoutMs: number
   /** Maximum complete JSON reply accepted for one ranking or 储备看板 page. */
   readonly dataMaxReplyBytes: number
+  /** Works one `data_station_search` call returns per page. */
+  readonly dataSearchPageSize: number
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
@@ -6596,6 +6601,27 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-webhook-github -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-workbench-connection -->
+<a id="deepseek-aidsh-workbench-connection"></a>
+
+## `@deepseek-ai/dsh-workbench-connection`
+
+- `source`: [`packages/drama/workbench-connection/src/index.ts:32`](../packages/drama/workbench-connection/src/index.ts)
+
+```ts config-catalog
+/** Server address and limits for this installation, after `WorkshopConnection.Config` applied its defaults. */
+export interface Config {
+  /**
+   * HTTPS or loopback Workshop origin, or `<Muse gateway>/jubengongfang` for the deployment served by the gateway.
+   * An absent origin leaves the connection unconfigured.
+   */
+  workshopOrigin?: string
+  /** Maximum time in milliseconds for one JSON request, including its response body. */
+  timeoutMs: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-workbench-connection -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-workflow-ptc -->
 <a id="deepseek-aidsh-workflow-ptc"></a>
 
@@ -6791,6 +6817,7 @@ export interface Config {
 | `@deepseek-ai/dsh-tool-jingliu` | `tools` · `jingliuConnection` | [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts) |
 | `@deepseek-ai/dsh-tool-schedule` | `tools` · `systemPrompt` | [`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts) |
 | `@deepseek-ai/dsh-tool-working-directory` | `tools` · `workingDirectory` | [`packages/session/tool-working-directory/src/index.ts`](../packages/session/tool-working-directory/src/index.ts) |
+| `@deepseek-ai/dsh-tool-workshop` | `tools` | [`packages/drama/tool-workshop/src/index.ts`](../packages/drama/tool-workshop/src/index.ts) |
 | `@deepseek-ai/dsh-tools` | `systemPrompt` | [`packages/core/tools/src/index.ts`](../packages/core/tools/src/index.ts) |
 | `@deepseek-ai/dsh-user-questions` | — | [`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts) |
 | `@deepseek-ai/dsh-webhook` | `agents` · `agentDefaultModel` · `agentPresets` · `permissionPresets` · `sessionTitle` · `workspaceRegistry` | [`packages/experimental/webhook/src/index.ts`](../packages/experimental/webhook/src/index.ts) |

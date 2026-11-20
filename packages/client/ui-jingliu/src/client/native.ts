@@ -15,8 +15,11 @@ import { Assets, CreditEntry, Environment, ProductionSettings, type ProductionAc
 import { DrawerLibrary } from './DrawerLibrary.tsx'
 import { DrawerJingliu } from './DrawerJingliu.tsx'
 import { DrawerData } from './DrawerData.tsx'
+import { DrawerScripts } from './DrawerScripts.tsx'
 import type {} from '@deepseek-ai/dsh-muse-account/remote'
 import type { MuseDataPlatform, MuseDataStockRequest } from '@deepseek-ai/dsh-muse-account/types'
+import workshopRemote from '@deepseek-ai/dsh-workbench-connection/remote'
+import type { ScriptStatus } from '@deepseek-ai/dsh-workbench-connection/types'
 
 
 /**
@@ -35,6 +38,27 @@ async function* once<T>(signal: AbortSignal, read: () => Promise<T>): AsyncGener
 }
 
 /**
+ * The value of a settled Remote call.
+ * @param result - The call.
+ * @returns Its value; a failed call throws its error.
+ */
+async function settled<T>(result: Promise<{ ok: true; value: T } | { ok: false; error: unknown }>): Promise<T> {
+  const outcome = await result
+  if (!outcome.ok) throw outcome.error
+  return outcome.value
+}
+
+/**
+ * One query parameter of a resource address.
+ * @param address - The resource address.
+ * @param name - Parameter name.
+ * @returns Its value, or '' when absent.
+ */
+function param(address: string, name: string): string {
+  return new URL(address).searchParams.get(name) ?? ''
+}
+
+/**
  * Mount the production catalog, environment and settings in the local client.
  * @param ctx - Client shell and authenticated remote namespaces.
  */
@@ -48,16 +72,10 @@ export function installNative(ctx: Context): void {
     name: 'bot.drawer.assets', locale: 'jingliuStudio', inject: () => ({ hooks: { accountEpoch: epoch } }),
   }, DrawerLibrary))
   // The data tab reads the data station as the signed-in member through the account Host.
-  ctx.inject(['remote.museAccount', 'resources'], (host) => {
+  ctx.inject(['remote', 'remote.museAccount', 'resources'], (host) => {
     const api = host.remote.museAccount
     const reset = () => { epoch.set(epoch.getSnapshot() + 1) }
     host.effect(() => host.remote.$on('muse-account/session-changed', reset), 'data: signed-in station')
-    const value = async <T>(result: Promise<{ ok: true; value: T } | { ok: false; error: unknown }>): Promise<T> => {
-      const settled = await result
-      if (!settled.ok) throw settled.error
-      return settled.value
-    }
-    const param = (address: string, name: string) => new URL(address).searchParams.get(name) ?? ''
     const platformOf = (address: string): MuseDataPlatform => {
       const platform = param(address, 'platform')
       if (platform === 'hongguo' || platform === 'lvpaopao' || platform === 'douyin' || platform === 'fanqie' || platform === 'qimao') return platform
@@ -80,10 +98,49 @@ export function installNative(ctx: Context): void {
       })) }))
     host.effect(() => host.resources.register<'muse-data-collector'>({ protocol: 'muse-data-collector',
       open: (_address, { signal }) => once(signal, () => api.dataCollector()) }))
-    const rush = async (workId: string): Promise<void> => { await value(api.dataRush(workId)) }
+    // A finalized script's original novel or drama, as the 剧本 tab shows it.
+    host.effect(() => host.resources.register<'muse-data-work'>({ protocol: 'muse-data-work',
+      open: (address, { signal }) => once(signal, () => api.dataWork(param(address, 'id'))) }))
+    // The whole collection (全收录) of one platform, or a search of it.
+    host.effect(() => host.resources.register<'muse-data-works'>({ protocol: 'muse-data-works',
+      open: (address, { signal }) => once(signal, () => api.dataWorks({
+        platform: platformOf(address), q: param(address, 'q'), page: Math.max(1, Number(param(address, 'page')) || 1), limit: Math.min(100, Math.max(1, Number(param(address, 'limit')) || 20)),
+      })) }))
+    const rush = async (workId: string): Promise<void> => { await settled(api.dataRush(workId)) }
     host.slots.inject('bot.drawer.data', () => host.slots.register({
       name: 'bot.drawer.data', locale: 'jingliuStudio', inject: () => ({ hooks: { accountEpoch: epoch }, rush }),
     }, DrawerData))
+  })
+  // The 剧本 tab reads Script Workshop's finalized-script library as the signed-in member.
+  ctx.inject(['remote', 'resources'], async (scope) => {
+    const unmount = await scope.remote.$mount(workshopRemote)
+    scope.effect(() => unmount, 'workshop: script library remote')
+    scope.inject(['remote', 'remote.workshopConnection'], (host) => {
+      const api = host.remote.workshopConnection
+      const statusOf = (address: string): ScriptStatus | undefined => {
+        const status = param(address, 'status')
+        return status === 'waiting' || status === 'picked' || status === 'in_production' ? status : undefined
+      }
+      host.effect(() => host.resources.register<'workshop-scripts'>({ protocol: 'workshop-scripts',
+        open: (address, { signal }) => once(signal, () => {
+          const status = statusOf(address)
+          return api.scripts({
+            ...(status === undefined ? {} : { status }), q: param(address, 'q'), mine: param(address, 'mine') === '1',
+            page: Math.max(1, Number(param(address, 'page')) || 1), limit: Math.min(100, Math.max(1, Number(param(address, 'limit')) || 50)),
+          })
+        }) }))
+      host.effect(() => host.resources.register<'workshop-script'>({ protocol: 'workshop-script',
+        open: (address, { signal }) => once(signal, () => {
+          const version = Number(param(address, 'version'))
+          return api.script({ id: Number(param(address, 'id')), ...(Number.isSafeInteger(version) && version > 0 ? { version } : {}) })
+        }) }))
+      const inject = () => ({
+        hooks: { accountEpoch: epoch },
+        pick: async (request: { id: number; version: number }) => { await settled(api.pickScript(request)) },
+        link: async (request: { id: number; projectId: string; projectTitle: string }) => { await settled(api.scriptProduction(request)) },
+      })
+      host.slots.inject('bot.drawer.scripts', () => host.slots.register({ name: 'bot.drawer.scripts', locale: 'jingliuStudio', inject }, DrawerScripts))
+    })
   })
   ctx.inject(['remote', 'layout', 'resources', 'uiWorkspace', 'sessions', 'conversation', 'workspaces'], async (scope) => {
     const unmount = await scope.remote.$mount(remote)
@@ -110,7 +167,6 @@ export function installNative(ctx: Context): void {
         open: (address, { signal }) => once(signal, () => api.preferences(new URL(address).searchParams.get('id') ?? '', signal)) }))
       host.effect(() => host.resources.register<'jingliu-image'>({ protocol: 'jingliu-image',
         open: (address, { signal }) => once(signal, () => api.thumbnail(new URL(address).searchParams.get('path') ?? '', signal)) }))
-      const param = (address: string, name: string) => new URL(address).searchParams.get(name) ?? ''
       host.effect(() => host.resources.register<'jingliu-config'>({ protocol: 'jingliu-config',
         open: (address, { signal }) => once(signal, () => api.projectConfig(param(address, 'id'), signal)) }))
       host.effect(() => host.resources.register<'jingliu-episodes'>({ protocol: 'jingliu-episodes',

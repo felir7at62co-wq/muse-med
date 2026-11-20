@@ -25,6 +25,7 @@ import { mountMuseMediaTools } from './media-tools.ts'
 import { MuseDouyinStationClient } from './douyin-station.ts'
 import { MuseDataStationClient } from './data-station.ts'
 import { mountMuseDouyinTools } from './douyin-tools.ts'
+import { mountMuseDataTools } from './data-tools.ts'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -41,6 +42,7 @@ export { readMuseSession } from './session.ts'
 export type * from './types.ts'
 export { mountMuseFeedbackTools } from './feedback-tools.ts'
 export type { MuseDouyinToolOptions } from './douyin-tools.ts'
+export type { MuseDataToolOptions } from './data-tools.ts'
 
 /** Cordis plugin name used by Loader diagnostics. */
 export const name = 'muse-account'
@@ -136,7 +138,10 @@ export interface Config {
   readonly douyinPollIntervalMs: number
   /** Records requested by one query; the station serves at most 500 and queues at most its own series limit. */
   readonly douyinListLimit: number
-  /** Offer the 数据 drawer tab's data-station reads and 立即转写 through the current private Muse login. */
+  /**
+   * Offer the 数据 drawer tab's data-station reads and 立即转写, and register `data_station_search` over the station's whole
+   * collection, through the current private Muse login.
+   */
   readonly dataStation: boolean
   /** Data-station member route prefix for desktop Muse, joined to the `baseUrl` origin. */
   readonly dataStationPath: string
@@ -144,6 +149,8 @@ export interface Config {
   readonly dataRequestTimeoutMs: number
   /** Maximum complete JSON reply accepted for one ranking or 储备看板 page. */
   readonly dataMaxReplyBytes: number
+  /** Works one `data_station_search` call returns per page. */
+  readonly dataSearchPageSize: number
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
@@ -208,6 +215,7 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   dataStationPath: Schema.string().pattern(/^(?:\/(?!\.\.?(?:\/|$))[A-Za-z0-9._~-]+)+$/u).default('/data/api/muse-client/data'),
   dataRequestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(20_000),
   dataMaxReplyBytes: Schema.number().step(1).min(1024).max(33_554_432).default(8_388_608),
+  dataSearchPageSize: Schema.number().step(1).min(1).max(50).default(10),
   activityReportIntervalMs: Schema.number().step(1).min(1_000).max(3_600_000).default(30_000),
   activityRequestTimeoutMs: Schema.number().step(1).min(100).max(30_000).default(5_000),
   remoteAccess: Schema.boolean().default(false),
@@ -325,6 +333,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const station = new MuseDataStationClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), path: config.dataStationPath,
       requestTimeoutMs: config.dataRequestTimeoutMs, maxReplyBytes: config.dataMaxReplyBytes })
     ctx.effect(() => () => { station.dispose() }, 'muse-account: stop data-station reads')
+    mountMuseDataTools(ctx, station, { pageSize: config.dataSearchPageSize })
     data = station
   }
   const service = ctx.plugin(MuseAccountService, { controller, workbench, browserLogin, asr, models, feedback, voiceSlots,

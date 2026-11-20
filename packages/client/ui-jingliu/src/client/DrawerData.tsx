@@ -1,7 +1,7 @@
-/** The data tab of the Bot team's details drawer: platforms, their rankings and the Hongguo transcription stock. */
+/** The data tab of the Bot team's details drawer: platforms, their whole collection, rankings and the Hongguo transcription stock. */
 import { useState } from 'react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { MuseDataPeriod, MuseDataPlatform, MuseDataStockItem, MuseDataStockRequest, MuseDataWork } from '@deepseek-ai/dsh-muse-account/types'
+import type { MuseDataPeriod, MuseDataPlatform, MuseDataStockItem, MuseDataStockRequest, MuseDataWork, MuseDataWorks } from '@deepseek-ai/dsh-muse-account/types'
 import { address, type Read, type Text } from './Production.tsx'
 import css from './DrawerData.module.css'
 
@@ -26,6 +26,7 @@ const STAGES: Record<NonNullable<MuseDataStockItem['job']>['state'], Key> = {
 const LANES: Record<NonNullable<MuseDataStockItem['job']>['lane'], Key> = { manual: 'laneManual', new: 'laneNew', backlog: 'laneBacklog' }
 const RUNNING = new Set(['downloading', 'transcribing', 'checking'])
 const STOCK_PAGE = 50
+const COLLECTED_PAGE = 20
 /** Ranking names nest by this separator, e.g. 男频 · 阅读榜 · 都市脑洞. */
 const LEVEL = ' · '
 
@@ -36,8 +37,8 @@ export interface DrawerDataProps {
   useAccountEpoch: <T>(select: (value: number) => T) => T
   /** The open platform, or null on the platform list. */
   platform: string | null
-  /** Open one platform under the same tab, or go back to the list with null. */
-  openPlatform: (platform: string | null) => void
+  /** Open one platform in a panel tab of its own, named `title`. */
+  openPlatform: (platform: { id: string; title: string }) => void
   /** Put a reference above the message box of the drawer's conversation. */
   quote: (text: string) => void
   /** Move a Hongguo drama to the front of the transcription queue as the signed-in member. */
@@ -88,7 +89,7 @@ function PlatformList({ epoch, t, useResource, openPlatform }: DrawerDataProps &
   const busy = (stock.value?.summary.active ?? 0) > 0
   return <section className={css.drawer} aria-label={t('dataPlatforms')}>
     <ul className={css.platforms}>{PLATFORMS.map(entry => <li key={entry.id}>
-      <button type="button" className={css.platform} onClick={() => { openPlatform(entry.id) }}>
+      <button type="button" className={css.platform} onClick={() => { openPlatform({ id: entry.id, title: t(entry.name) }) }}>
         <Glyph id={entry.id} t={t} glyph={entry.glyph} />
         <span className={css.text}><strong>{t(entry.name)}</strong>{lines[entry.id] !== '' && <small>{lines[entry.id]}</small>}</span>
         {entry.id === 'hongguo' && busy && <span className={css.live} role="img" aria-label={t('stageTranscribing')} />}
@@ -98,7 +99,8 @@ function PlatformList({ epoch, t, useResource, openPlatform }: DrawerDataProps &
 }
 
 function PlatformView({ epoch, platform, t, useResource, openPlatform, quote, rush }: Omit<DrawerDataProps, 'platform'> & { epoch: number; platform: typeof PLATFORMS[number] }) {
-  const [view, setView] = useState<'rank' | 'stock'>('rank')
+  // A platform opens on its whole collection (全收录); rankings and the Hongguo stock are one chip away.
+  const [view, setView] = useState<'all' | 'rank' | 'stock'>('all')
   const [choosing, setChoosing] = useState(false)
   const hongguo = platform.id === 'hongguo'
   return <section className={css.drawer}>
@@ -106,19 +108,21 @@ function PlatformView({ epoch, platform, t, useResource, openPlatform, quote, ru
       <button type="button" className={css.pill} aria-expanded={choosing} aria-label={t('switchPlatform', { name: t(platform.name) })} onClick={() => { setChoosing(open => !open) }}>
         <Glyph id={platform.id} t={t} glyph={platform.glyph} /><strong>{t(platform.name)}</strong>
       </button>
-      {hongguo && <div className={css.chips} role="group" aria-label={t('dataView')}>
+      <div className={css.chips} role="group" aria-label={t('dataView')}>
+        <button type="button" className={css.chip} aria-pressed={view === 'all'} onClick={() => { setView('all') }}>{t('viewCollected')}</button>
         <button type="button" className={css.chip} aria-pressed={view === 'rank'} onClick={() => { setView('rank') }}>{t('viewRankings')}</button>
-        <button type="button" className={css.chip} aria-pressed={view === 'stock'} onClick={() => { setView('stock') }}>{t('viewStock')}</button>
-      </div>}
+        {hongguo && <button type="button" className={css.chip} aria-pressed={view === 'stock'} onClick={() => { setView('stock') }}>{t('viewStock')}</button>}
+      </div>
     </div>
     {choosing && <ul className={css.menu}>{PLATFORMS.map(entry => <li key={entry.id}>
-      <button type="button" className={css.platform} aria-pressed={entry.id === platform.id} onClick={() => { setChoosing(false); openPlatform(entry.id) }}>
+      <button type="button" className={css.platform} aria-pressed={entry.id === platform.id}
+        onClick={() => { setChoosing(false); openPlatform({ id: entry.id, title: t(entry.name) }) }}>
         <Glyph id={entry.id} t={t} glyph={entry.glyph} /><span className={css.text}><strong>{t(entry.name)}</strong></span>
       </button>
     </li>)}</ul>}
-    {hongguo && view === 'stock'
-      ? <Stock epoch={epoch} t={t} useResource={useResource} quote={quote} rush={rush} />
-      : <Rankings epoch={epoch} platform={platform} t={t} useResource={useResource} quote={quote} rush={rush} />}
+    {view === 'all' ? <Collected epoch={epoch} platform={platform} t={t} useResource={useResource} quote={quote} rush={rush} />
+      : hongguo && view === 'stock' ? <Stock epoch={epoch} t={t} useResource={useResource} quote={quote} rush={rush} />
+        : <Rankings epoch={epoch} platform={platform} t={t} useResource={useResource} quote={quote} rush={rush} />}
   </section>
 }
 
@@ -194,6 +198,52 @@ function RankRows({ period, platform, t, quote, rush }: Pick<DrawerDataProps, 't
         {platform.columns.map(([key]) => <span key={key} role="cell" className={css.num}>{metricOf(work, key, t)}</span>)}
         <span role="cell" className={css.acts}>
           <QuoteButton t={t} title={title} onQuote={() => { quote(t('workReference', { platform: t(platform.name), board: period.board, rank: String(position ?? '—'), title })) }} />
+          {platform.id === 'hongguo' && <RushButton t={t} workId={work.id} rush={rush} kind="transcribe" />}
+        </span>
+      </div>
+    })}
+  </div>
+}
+
+function Collected({ epoch, platform, t, useResource, quote, rush }: Pick<DrawerDataProps, 't' | 'useResource' | 'quote' | 'rush'> & { epoch: number; platform: typeof PLATFORMS[number] }) {
+  const [draft, setDraft] = useState('')
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const [revision, refresh] = useState(0)
+  const found = useResource<'muse-data-works'>(address('muse-data-works', epoch, revision, { platform: platform.id, q: query, page: String(page), limit: String(COLLECTED_PAGE) }))
+  const total = found.value?.total ?? 0
+  const empty = platform.id === 'lvpaopao' && query === '' ? <Collector epoch={epoch} t={t} useResource={useResource} /> : <p className={css.quiet}>{t('nothingHere')}</p>
+  return <>
+    <form className={css.search} role="search" onSubmit={(e) => { e.preventDefault(); setQuery(draft.trim()); setPage(1) }}>
+      <Input aria-label={t('searchCollected')} placeholder={t('searchCollected')} maxLength={100} value={draft}
+        onChange={(e) => { setDraft(e.target.value); if (e.target.value.trim() === '') { setQuery(''); setPage(1) } }} />
+    </form>
+    {found.status === 'failed' ? <DataFailure t={t} retry={() => { refresh(n => n + 1) }} />
+      : found.value === undefined ? <p className={css.quiet}>{t('loading')}</p>
+        : found.value.items.length === 0 ? empty
+          : <CollectedRows works={found.value} platform={platform} t={t} quote={quote} rush={rush} />}
+    {total > COLLECTED_PAGE && <div className={css.pages}>
+      <Button variant="ghost" size="sm" disabled={page === 1} onClick={() => { setPage(n => Math.max(1, n - 1)) }}>{t('previous')}</Button>
+      <Button variant="ghost" size="sm" disabled={page * COLLECTED_PAGE >= total} onClick={() => { setPage(n => n + 1) }}>{t('next')}</Button>
+    </div>}
+  </>
+}
+
+function CollectedRows({ works, platform, t, quote, rush }: Pick<DrawerDataProps, 't' | 'quote' | 'rush'> & { works: MuseDataWorks; platform: typeof PLATFORMS[number] }) {
+  return <div className={css.table} role="table" aria-label={t('viewCollected')}>
+    <div className={`${css.row} ${css.collectedRow} ${css.head}`} role="row">
+      <span role="columnheader" />
+      {platform.columns.map(([key, label]) => <span key={key} role="columnheader" className={css.num}>{t(label)}</span>)}
+      <span role="columnheader" />
+    </div>
+    {works.items.map((work) => {
+      const title = work.title ?? work.sourceId
+      const meta = [work.tags.slice(0, 2).join(' · '), work.episodeCount === null ? '' : t('episodeCount', { count: String(work.episodeCount) })].filter(Boolean).join(' · ')
+      return <div key={work.id} className={`${css.row} ${css.collectedRow}`} role="row">
+        <span role="cell" className={css.text}><strong>{title}</strong>{meta !== '' && <small>{meta}</small>}</span>
+        {platform.columns.map(([key]) => <span key={key} role="cell" className={css.num}>{metricOf(work, key, t)}</span>)}
+        <span role="cell" className={css.acts}>
+          <QuoteButton t={t} title={title} onQuote={() => { quote(t('collectedReference', { platform: t(platform.name), title, id: work.id })) }} />
           {platform.id === 'hongguo' && <RushButton t={t} workId={work.id} rush={rush} kind="transcribe" />}
         </span>
       </div>

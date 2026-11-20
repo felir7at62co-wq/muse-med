@@ -1,0 +1,87 @@
+/** Data-station whole-collection search tool: schema, arguments, model-visible results and failures. */
+import { Context } from '@deepseek-ai/cordis'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { afterEach, expect, it, vi } from 'vitest'
+import { z } from 'zod'
+import { mountMuseDataTools } from '../src/data-tools.ts'
+import { MuseDataError, type MuseDataStationClient } from '../src/data-station.ts'
+import type { MuseDataWorks } from '../src/types.ts'
+
+const contexts: Context[] = []
+afterEach(async () => { await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose())) })
+
+type Listed = MuseDataWorks['items'][number]
+const listed = (patch: Partial<Listed>): Listed => ({
+  id: 'hongguo:7600000000000000001', sourceId: '7600000000000000001', platform: 'hongguo', title: '好一个乖乖女', tags: ['都市', '逆袭'],
+  episodeCount: 88, wordCount: null, metrics: [{ key: 'heat', label: '热度', value: 89_580_000 }, { key: 'collection', label: '收藏', value: null }],
+  board: '综合热播榜', rank: 3, author: null, observedAt: '2026-11-20T08:00:00.000Z', description: '她回家了。', ...patch,
+})
+
+async function fixture(pageSize = 10) {
+  const ctx = new Context(); contexts.push(ctx)
+  await mountAgentLoopTestDependencies(ctx)
+  const works = vi.fn<MuseDataStationClient['works']>()
+  const fiber = ctx.plugin({ inject: ['tools'], apply: (scope: Context) => { mountMuseDataTools(scope, { works }, { pageSize }) } })
+  await fiber.await()
+  let next = 0
+  return { ctx, fiber, works,
+    call: async (args: object) => (await executeToolFixture(ctx, {
+      name: 'data_station_search', arguments: args, callId: ToolCallId(`data-${++next}`), signal: new AbortController().signal })).value }
+}
+
+it('registers one deferred Chinese tool with its page size, presents reads and removes it on unload', async () => {
+  const f = await fixture(15)
+  const [schema] = f.ctx.tools.schemas()
+  expect(f.ctx.tools.schemas().map(row => row.name)).toEqual(['data_station_search'])
+  expect(schema?.deferLoading).toBe(true)
+  expect(schema?.description).toContain('全收录')
+  expect(schema?.description).toContain('每页 15 部')
+  const tool = f.ctx.tools.get('data_station_search')
+  expect(tool?.presentCall?.({ query: '乖乖女' })).toEqual({ card: 'generic', title: '乖乖女', kind: 'read' })
+  expect(tool?.presentCall?.({ platform: 'fanqie' })).toEqual({ card: 'generic', title: 'fanqie', kind: 'read' })
+  expect(tool?.presentCall?.({})).toEqual({ card: 'generic', title: '全收录', kind: 'read' })
+  await f.fiber.dispose()
+  expect(f.ctx.tools.schemas()).toEqual([])
+})
+
+it('searches one platform or all and reports each work compactly with its ID, metrics and ranking', async () => {
+  const f = await fixture()
+  f.works.mockResolvedValueOnce({ items: [listed({}), listed({ id: 'fanqie:1', sourceId: '1', platform: 'fanqie', title: null, tags: [], episodeCount: null,
+    wordCount: 1_110_841, metrics: [{ key: 'currentReaders', label: '在读', value: 1_806_207 }, { key: 'dup', label: '在读', value: 1 }],
+    rank: null, author: '某作者', description: '' })], total: 23, page: 2, limit: 10 })
+  expect(await f.call({ query: ' 乖乖女 ', platform: 'hongguo', page: 2 })).toEqual({ state: 'ok', total: 23, page: 2, pages: 3, works: [
+    { id: 'hongguo:7600000000000000001', platform: 'hongguo', title: '好一个乖乖女', tags: ['都市', '逆袭'], episodes: 88, metrics: { 热度: 89_580_000 },
+      board: '综合热播榜', rank: 3, observedAt: '2026-11-20T08:00:00.000Z', description: '她回家了。' },
+    { id: 'fanqie:1', platform: 'fanqie', title: '1', author: '某作者', words: 1_110_841, metrics: { 在读: 1_806_207 }, board: '综合热播榜', observedAt: '2026-11-20T08:00:00.000Z' },
+  ] })
+  expect(f.works).toHaveBeenLastCalledWith({ platform: 'hongguo', q: '乖乖女', page: 2, limit: 10 })
+  f.works.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 10 })
+  const empty = await f.call({ query: '  ' })
+  expect(empty).toMatchObject({ state: 'ok', total: 0, works: [] })
+  expect(JSON.stringify(empty)).toContain('换个关键词')
+  expect(f.works).toHaveBeenLastCalledWith({ page: 1, limit: 10 })
+})
+
+it('refuses words or pages the station would not accept, without asking it', async () => {
+  const f = await fixture()
+  for (const args of [{ query: '剧'.repeat(201) }, { page: 0 }, { page: 100_001 }]) {
+    const refused = await f.call(args)
+    expect(refused, JSON.stringify(args)).toMatchObject({ state: 'error', code: 'invalid-input' })
+    expect(JSON.stringify(refused)).toContain('200')
+  }
+  expect(f.works).not.toHaveBeenCalled()
+})
+
+it('turns station failures into fixed codes with guidance', async () => {
+  const f = await fixture()
+  f.works.mockRejectedValueOnce(new MuseDataError('sign-in-required'))
+  const signedOut = await f.call({ query: 'x' })
+  expect(signedOut).toMatchObject({ state: 'error', code: 'sign-in-required' })
+  expect(JSON.stringify(signedOut)).toContain('登录 Muse')
+  f.works.mockRejectedValueOnce(new z.ZodError([]))
+  expect(await f.call({ query: 'x' })).toMatchObject({ state: 'error', code: 'invalid-response' })
+  f.works.mockRejectedValueOnce(new Error('socket closed'))
+  expect(await f.call({ query: 'x' })).toMatchObject({ state: 'error', code: 'unavailable' })
+})

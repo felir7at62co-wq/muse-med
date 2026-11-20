@@ -1,0 +1,19 @@
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- insert:
+    - id: subagent-model-selection-settings
+      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: short-drama
+    - id: workshop-transcribe-status
+      name: ./workshop-fixture.mjs

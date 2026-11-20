@@ -10,11 +10,11 @@ import type { MuseBrowserLoginAttempt, MuseBrowserLoginId, MuseBrowserLoginResul
 import { MuseAsrClient, type MuseAsrJob, type MuseAsrPurpose } from './asr.ts'
 import type { MuseModels } from './models.ts'
 import { MuseFeedbackError, type MuseFeedbackClient } from './feedback.ts'
-import type { MuseFeedbackRequest, MuseFeedbackReceipt, MuseWorkbenchGrant, MuseWorkbenchGrantRequest } from './types.ts'
+import type { MuseFeedbackRequest, MuseFeedbackReceipt, MuseWorkbenchAudience, MuseWorkbenchGrant, MuseWorkbenchGrantRequest } from './types.ts'
 import type { MuseDesktopRemote } from './desktop-remote.ts'
 import { MuseVoiceSlotError, type MuseVoiceSlotRequest, type MuseVoiceSlotsClient } from './voice-slots.ts'
 import { museDataFailure, type MuseDataStationClient } from './data-station.ts'
-import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataPeriodRequest, MuseDataPlatform, MuseDataRush, MuseDataStock, MuseDataStockRequest } from './types.ts'
+import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataPeriodRequest, MuseDataPlatform, MuseDataRush, MuseDataStock, MuseDataStockRequest, MuseDataWorkDetail, MuseDataWorks, MuseDataWorksRequest } from './types.ts'
 import type { MuseAccountDetails, MuseAccountDetailsRequest, MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
@@ -29,7 +29,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** The controller passed by the mounted product plugin. */
 export interface MuseAccountServiceOptions {
-  readonly workbench?: Pick<MuseWorkbenchLogin, 'issue' | 'identity'> & Partial<Pick<MuseWorkbenchLogin, 'jingliu'>>
+  readonly workbench?: Pick<MuseWorkbenchLogin, 'issue' | 'identity'> & Partial<Pick<MuseWorkbenchLogin, 'mounted'>>
   readonly controller: AccountOperations
   readonly browserLogin?: Pick<MuseBrowserLogin, 'start' | 'check' | 'cancel'>
   readonly asr?: MuseAsrClient
@@ -38,7 +38,7 @@ export interface MuseAccountServiceOptions {
   readonly remote?: Pick<MuseDesktopRemote, 'refresh' | 'pause'>
   readonly voiceSlots?: Pick<MuseVoiceSlotsClient, 'request'>
   /** Data-station reads and 立即转写 for the 数据 drawer tab; absent where the product does not offer it. */
-  readonly data?: Pick<MuseDataStationClient, 'boards' | 'period' | 'stock' | 'rush' | 'collector'>
+  readonly data?: Pick<MuseDataStationClient, 'boards' | 'period' | 'stock' | 'rush' | 'collector' | 'work' | 'works'>
 }
 
 /** MUSE account Remote namespace. The Connection carrier authenticates every call. */
@@ -73,15 +73,16 @@ export class MuseAccountService extends TypertRemoteService {
   }
 
   /**
-   * Authenticate a Host request to the studio mounted on the signed-in Muse gateway.
+   * Authenticate a Host request to a workbench mounted on the signed-in Muse gateway.
+   * @param audience - Workbench whose mounted paths the address must name.
    * @param owner - Local login identifier.
-   * @param url - Mounted studio address, verified by the account owner.
-   * @param options - Transport options supplied by the studio client.
+   * @param url - Mounted workbench address, verified by the account owner.
+   * @param options - Transport options supplied by the workbench client.
    * @returns A response stream scoped to that user.
    */
-  async requestMountedJingliu(owner: string, url: URL, options: RequestInit): Promise<Response> {
-    if (!this.workbench?.jingliu) throw new MuseGatewayError('gateway-unavailable')
-    return await this.workbench.jingliu(owner, url, options)
+  async requestMountedWorkbench(audience: MuseWorkbenchAudience, owner: string, url: URL, options: RequestInit): Promise<Response> {
+    if (!this.workbench?.mounted) throw new MuseGatewayError('gateway-unavailable')
+    return await this.workbench.mounted(audience, owner, url, options)
   }
 
   /**
@@ -99,7 +100,9 @@ export class MuseAccountService extends TypertRemoteService {
    * @param challenge - S256 challenge returned by that application.
    * @returns The one-time code, lifetime and session identifier for this exchange.
    */
-  async workbenchGrant(audience: 'script-workshop' | 'jingliu', challenge: string): Promise<{ code: string; expiresIn: number; accountId: string }> {
+  async workbenchGrant(
+    audience: MuseWorkbenchAudience, challenge: string,
+  ): Promise<{ code: string; expiresIn: number; accountId: string }> {
     if (!this.workbench) throw new MuseGatewayError('gateway-unavailable')
     return await this.workbench.issue(audience, challenge)
   }
@@ -172,7 +175,30 @@ export class MuseAccountService extends TypertRemoteService {
     return await this.withData(data => data.rush(workId))
   }
 
-  /** @returns The 绿泡泡 collector's connection state. */
+  /**
+   * One work as the data station last recorded it, such as a finalized script's original.
+   * @param id - Station work ID (`fanqie:<id>`, `hongguo:<id>`, …).
+   * @returns The work with its platform metrics, ranking and collection time.
+   */
+  @Remote('dataWork')
+  async dataWork(id: string): Promise<MuseDataWorkDetail> {
+    return await this.withData(data => data.work(id))
+  }
+
+  /**
+   * Search the data station's whole collection (全收录) as the signed-in member.
+   * @param request - Optional platform, optional words and page.
+   * @returns One page of matching works, newest observation first, and how many match.
+   */
+  @Remote('dataWorks')
+  async dataWorks(request: MuseDataWorksRequest): Promise<MuseDataWorks> {
+    return await this.withData(data => data.works(request))
+  }
+
+  /**
+   * The 绿泡泡 collector's connection to the data station.
+   * @returns Its state, label and message.
+   */
   @Remote('dataCollector')
   async dataCollector(): Promise<MuseDataCollector> {
     return await this.withData(data => data.collector())

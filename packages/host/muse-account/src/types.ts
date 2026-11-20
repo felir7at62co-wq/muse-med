@@ -350,9 +350,12 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/** Workbench registered at the Muse gateway. */
+export type MuseWorkbenchAudience = 'script-workshop' | 'jingliu'
+
 /** Workbench and S256 challenge supplied by the trusted Muse renderer. */
 export interface MuseWorkbenchGrantRequest {
-  readonly audience: 'script-workshop' | 'jingliu'
+  readonly audience: MuseWorkbenchAudience
   readonly challenge: string
 }
 
@@ -395,6 +398,34 @@ export interface MuseDataWork {
   readonly episodeCount: number | null
   readonly wordCount: number | null
   readonly metrics: readonly MuseDataMetric[]
+}
+
+/** One work as the data station last recorded it: its ranking, rank there and collection time. */
+export interface MuseDataWorkDetail extends MuseDataWork {
+  readonly board: string
+  readonly rank: number | null
+  readonly author: string | null
+  readonly observedAt: string
+}
+
+/** A search of the data station's whole collection (全收录). */
+export interface MuseDataWorksRequest {
+  /** One platform, or every platform when absent. */
+  readonly platform?: MuseDataPlatform
+  /** Words matched against title, author, ID, description and tags; absent or blank lists the collection. */
+  readonly q?: string
+  readonly page: number
+  /** Works per page, at most 100. */
+  readonly limit: number
+}
+
+/** One page of the whole collection, newest observation first, with each work's description cut to 300 characters. */
+export interface MuseDataWorks {
+  readonly items: readonly (MuseDataWorkDetail & { readonly description: string })[]
+  /** Works that match in all. */
+  readonly total: number
+  readonly page: number
+  readonly limit: number
 }
 
 /** One ranking period: its works in ranked order; `position` is null where the platform gave no rank. */

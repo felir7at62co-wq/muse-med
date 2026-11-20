@@ -471,6 +471,89 @@ async inheritProject(worker: SessionId, project: SelectedProject & { owner: stri
 @Remote async thumbnail(path: string, signal: AbortSignal): Promise<string>
 
 /**
+ * Read the choices the studio offers for a new production.
+ * @param signal - Panel cancellation.
+ * @returns Modes with their art styles, frame ratios, resolutions and models.
+ */
+@Remote async catalog(signal: AbortSignal): Promise<StudioCatalog>
+
+/**
+ * Create a production as the signed-in studio user.
+ * @param input - Its name and settings, each one the catalog offers or '' for the studio default.
+ * @param signal - Form lifetime.
+ * @returns The created production's id and title.
+ */
+@Remote async createProject(input: StudioNewProject, signal: AbortSignal): Promise<SelectedProject>
+
+/**
+ * Rename a production; later generations use the new name in their prompts.
+ * @param projectId - The production.
+ * @param title - Its new name.
+ * @param signal - Form lifetime.
+ * @returns The stored id and title.
+ */
+@Remote async renameProject(projectId: string, title: string, signal: AbortSignal): Promise<SelectedProject>
+
+/**
+ * Delete one shot of a production; the studio keeps no copy to restore.
+ * @param projectId - The production the workbench shows.
+ * @param shotId - The shot to delete.
+ * @param signal - Card lifetime.
+ * @returns Nothing once the studio confirms.
+ */
+@Remote async deleteShot(projectId: string, shotId: string, signal: AbortSignal): Promise<void>
+
+/**
+ * Read a project's configuration for the workbench.
+ * @param projectId - Selected cloud project.
+ * @param signal - Panel cancellation.
+ * @returns Title, frame ratio, styles and models of the production.
+ */
+@Remote async projectConfig(projectId: string, signal: AbortSignal): Promise<StudioConfig>
+
+/**
+ * List a production's episodes.
+ * @param projectId - Selected cloud project.
+ * @param signal - Panel cancellation.
+ * @returns Episodes in studio order.
+ */
+@Remote async episodeList(projectId: string, signal: AbortSignal): Promise<StudioEpisode[]>
+
+/**
+ * Read every shot of one episode with its full prompt.
+ * @param projectId - Selected cloud project.
+ * @param episode - Episode number.
+ * @param signal - Panel cancellation.
+ * @returns The episode's shots in order.
+ */
+@Remote async episodeShots(projectId: string, episode: number, signal: AbortSignal): Promise<StudioShot[]>
+
+/**
+ * Read one shot's video, first frame and version chain.
+ * @param projectId - Selected cloud project.
+ * @param shotId - Shot of that project.
+ * @param signal - Panel cancellation.
+ * @returns The shot's media.
+ */
+@Remote async shotMedia(projectId: string, shotId: string, signal: AbortSignal): Promise<StudioShotMedia>
+
+/**
+ * Read a production's assets and audio clips.
+ * @param projectId - Selected cloud project.
+ * @param signal - Panel cancellation.
+ * @returns The workbench asset page's data.
+ */
+@Remote async projectAssets(projectId: string, signal: AbortSignal): Promise<StudioProjectAssets>
+
+/**
+ * Stream a studio video for playback without exposing the studio credential.
+ * @param path - Media path of a video in the current studio.
+ * @param signal - Playback cancellation.
+ * @returns The content type first, then base64 chunks of the file.
+ */
+@Remote({ mode: 'stream' }) async *video(path: string, signal: AbortSignal): AsyncIterable<string>
+
+/**
  * Read the current account allowance and usage.
  * @param signal - Panel cancellation.
  * @returns The current Jingliu account allowance.
@@ -546,6 +629,49 @@ Host service backing the generated `ctx.remote.jubianToken` namespace: the Jubia
 ```
 
 Source: [`packages/jubian/tool-jubian/src/token.ts`](../../packages/jubian/tool-jubian/src/token.ts)
+
+<a id="ctxworkshopconnection--workshopconnection"></a>
+
+### `ctx.workshopConnection` — `WorkshopConnection`
+
+Opens Script Workshop sessions as the signed-in Muse user and serves the Client's 剧本 tab from the finalized-script library; native tokens never reach model input or output.
+
+```ts cordis-catalog
+/** Resolve the active Muse account on the configured Workshop.
+ * @returns A session bound to this Muse login and Workshop user.
+ */
+async connection(): Promise<WorkbenchSession>
+
+/**
+ * One page of the finalized-script library, which every signed-in member can read.
+ * @param request - Stage filter, title search, own scripts only, and page.
+ * @returns The page, counts per stage for the same search, and whether this member may pick.
+ */
+@Remote('scripts') async scripts(request: ScriptListRequest): Promise<ScriptList>
+
+/**
+ * One script with its versions and the text of one version.
+ * @param request - Script and optional version; the latest when omitted.
+ * @returns The script, its versions and that version's episodes.
+ */
+@Remote('script') async script(request: ScriptReadRequest): Promise<ScriptDetail>
+
+/**
+ * Pick one version for production; the Workshop refuses members without the pick permission.
+ * @param request - Script and version.
+ * @returns The script's card after the pick.
+ */
+@Remote('pickScript') async pickScript(request: ScriptPickRequest): Promise<ScriptSummary>
+
+/**
+ * Record the Jingliu project a picked script became.
+ * @param request - Script and the project's ID and title.
+ * @returns The script's card, now in production.
+ */
+@Remote('scriptProduction') async scriptProduction(request: ScriptProductionRequest): Promise<ScriptSummary>
+```
+
+Source: [`packages/drama/workbench-connection/src/index.ts`](../../packages/drama/workbench-connection/src/index.ts)
 
 <a id="authorization-events"></a>
 

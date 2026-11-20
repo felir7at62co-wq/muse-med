@@ -9,11 +9,14 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: f058522289125000
-  zh: d63dd64a83bb364f
+  en: f16ff2655e1fc730
+  zh: 88d4281d416bbe24
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
+/tool-schema-catalog/deepseek-ai-dsh-muse-account/data-station-search:
+  en: 7bad531105e3beab
+  zh: 740d32e914ffdb3d
 /tool-schema-catalog/deepseek-ai-dsh-muse-account/douyin-download:
   en: 373a0cefd3aa6c45
   zh: 44e6833440d808a9
@@ -21,8 +24,8 @@
   en: 65cb53ead3d79365
   zh: 6364366516248ae2
 /tool-schema-catalog/deepseek-ai-dsh-muse-account/muse-feedback-submit:
-  en: 2b08984c88debbe2
-  zh: 2657f37b9d812825
+  en: e6486343e30d0942
+  zh: 6bcf59c9c6e8da65
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -117,8 +120,20 @@
   en: 5a09d6b334aa7c29
   zh: 5a09d6b334aa7c29
 /tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-workflows:
-  en: 9ebf330ecd090f25
-  zh: 9ebf330ecd090f25
+  en: 8f883442bfe654d0
+  zh: 8f883442bfe654d0
+/tool-schema-catalog/deepseek-ai-dsh-tool-workshop:
+  en: fc166b2c776f42f9
+  zh: fc166b2c776f42f9
+/tool-schema-catalog/deepseek-ai-dsh-tool-workshop/script-finalize:
+  en: 2ff530cf497ab567
+  zh: e086886f3eedda85
+/tool-schema-catalog/deepseek-ai-dsh-tool-workshop/script-library:
+  en: 84bc83b8bec482d1
+  zh: c5c4d211bcd1b4c8
+/tool-schema-catalog/deepseek-ai-dsh-tool-workshop/workshop-video-transcribe:
+  en: 14e8747b93cc0917
+  zh: 14e8747b93cc0917
 /tool-schema-catalog/deepseek-ai-dsh-tool-hit-queue:
   en: d472e2a550629ed4
   zh: d472e2a550629ed4

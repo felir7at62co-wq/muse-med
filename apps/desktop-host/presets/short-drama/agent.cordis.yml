@@ -76,6 +76,10 @@
     - id: tool-character-reference
       name: '@deepseek-ai/dsh-tool-character-reference'
 
+# Script Workshop jobs register only while the Host provides workshopConnection.
+- id: tool-workshop
+  name: '@deepseek-ai/dsh-tool-workshop'
+
 - id: tool-shot-script
   name: '@deepseek-ai/dsh-tool-shot-script'
   config:

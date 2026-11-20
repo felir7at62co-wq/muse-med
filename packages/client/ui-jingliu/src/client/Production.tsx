@@ -8,7 +8,8 @@ import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SelectedProject, StudioAsset, StudioBalance, StudioCatalog, StudioConfig, StudioNewProject, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from '@deepseek-ai/dsh-jingliu-connection/types'
-import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataStock } from '@deepseek-ai/dsh-muse-account/types'
+import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataStock, MuseDataWorkDetail, MuseDataWorks } from '@deepseek-ai/dsh-muse-account/types'
+import type { ScriptDetail, ScriptList } from '@deepseek-ai/dsh-workbench-connection/types'
 import css from './Production.module.css'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -36,9 +37,25 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       }
     }
     /**
+     * The Bot team's details drawer: the 剧本 tabs of the Bot whose conversation is `sessionId`.
+     * `script` is the finalized script the tab in view shows, or null on the tab that lists them;
+     * `openScript` opens one in a tab of its own. `quote` and `compose` act as on the Jingliu tabs.
+     */
+    'bot.drawer.scripts': {
+      kind: 'single'
+      scope: 'root'
+      owner: {
+        sessionId: SessionId
+        script: { id: string; title: string } | null
+        openScript(script: { id: string; title: string }): void
+        quote(text: string): void
+        compose(text: string): void
+      }
+    }
+    /**
      * The Bot team's details drawer: the data tab of the Bot whose conversation is `sessionId`.
      * `platform` is the open data platform, or null on the tab that lists them; `openPlatform`
-     * opens one under the same tab (null goes back to the list).
+     * opens one in a panel tab of its own, named `title`.
      */
     'bot.drawer.data': {
       kind: 'single'
@@ -46,7 +63,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       owner: {
         sessionId: SessionId
         platform: string | null
-        openPlatform(platform: string | null): void
+        openPlatform(platform: { id: string; title: string }): void
         quote(text: string): void
         compose(text: string): void
       }
@@ -70,6 +87,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'muse-data-period': MuseDataPeriod
     'muse-data-stock': MuseDataStock
     'muse-data-collector': MuseDataCollector
+    'muse-data-work': MuseDataWorkDetail
+    'muse-data-works': MuseDataWorks
+    'workshop-scripts': ScriptList
+    'workshop-script': ScriptDetail
   }
 }
 

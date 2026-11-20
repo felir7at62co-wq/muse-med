@@ -41,6 +41,9 @@ flowchart LR
   pkg_jingliu_connection["jingliu-connection"]
   svc_jingliuConnection["ctx.jingliuConnection<br/>Authenticated Jingliu workflow requests"]
   pkg_tool_jingliu["tool-jingliu"]
+  pkg_workbench_connection["workbench-connection"]
+  svc_workshopConnection["ctx.workshopConnection<br/>Authenticated Script Workshop requests"]
+  pkg_tool_workshop["tool-workshop"]
   svc_jubianToken["ctx.jubianToken<br/>Jubian credential settings"]
   pkg_muse_account["muse-account"]
   svc_museAccount["ctx.museAccount<br/>Muse authenticated account operations"]
@@ -552,6 +555,7 @@ flowchart LR
   pkg_web_fetch_http --> svc_web
   pkg_web_search_deepseek --> svc_web
   pkg_webhook --> svc_webhookRuntime
+  pkg_workbench_connection --> svc_workshopConnection
   pkg_workflow --> svc_workflowEngine
   pkg_workflow_ptc --> svc_workflowEngine
   pkg_working_directory --> svc_workingDirectory
@@ -747,6 +751,7 @@ flowchart LR
   svc_workingDirectory --> pkg_tool_fs
   svc_workingDirectory --> pkg_tool_pwsh
   svc_workingDirectory --> pkg_tool_working_directory
+  svc_workshopConnection --> pkg_tool_workshop
   svc_workspaceRegistry --> pkg_api_session_controller
   svc_workspaceRegistry --> pkg_api_workspace_controller
   svc_worktrees --> pkg_experimental_tool_worktree
@@ -770,6 +775,7 @@ flowchart LR
 | `ctx.jubianEpisodeDelivery` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | `desktop-host` | - | Owns admitted local render jobs and publication records; Desktop Host pauses admission and observes remaining work during update or quit. |
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | Reads account-accessible image generation routes without exposing the credential or submitting paid work. |
 | `ctx.jingliuConnection` | `service` | [`jingliu-connection`](../packages/drama/jingliu-connection) | - | [`tool-jingliu`](../packages/drama/tool-jingliu) | - | 核验镜流登录用户，并向该用户所在的镜流站点提交工作流请求。 |
+| `ctx.workshopConnection` | `service` | [`workbench-connection`](../packages/drama/workbench-connection) | - | [`tool-workshop`](../packages/drama/tool-workshop) | - | 核验剧本工坊登录用户，并向该用户所在的工坊站点提交工厂任务请求。 |
 | `ctx.jubianToken` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Describes, stores and clears the credential through the existing credential provider; the browser receives status without the stored token. |
 | `ctx.museAccount` | `service` | [`muse-account`](../packages/host/muse-account) | - | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe), [`tool-jubian`](../packages/jubian/tool-jubian), `ui-muse-account` | - | Muse Account owns the service definition and Host implementation; tools use authenticated transcription and shared voice registration, while the account UI uses its public Remote methods. Voice-slot transport remains Host-only. |
 | `ctx.museMarket` | `service` | [`muse-market`](../packages/host/muse-market) | - | [`client-ui-muse-market`](../packages/client/ui-muse-market) | - | Muse Market owns the local publication API and immutable storage. Explicit Remote callers prepare, import, verify, export and remove disabled releases. |
