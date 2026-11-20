@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.2/jubian-delete-readback/guide.md
+/:
+  en: e56232d393c0fdb3
+  zh: 750152c159b98f8c
+/storyboard-deletion-readback:
+  en: 8554502900713e73
+  zh: e5e729480dea640c
+/storyboard-deletion-readback/change:
+  en: 937f85f22f9ddebb
+  zh: 9875c107fc2f39b9
+/storyboard-deletion-readback/migration:
+  en: 620f1ba679eded02
+  zh: 81c5bdc4a643d90d
