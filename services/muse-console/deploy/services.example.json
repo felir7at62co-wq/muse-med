@@ -1,0 +1,11 @@
+[
+  {"id": "gateway", "name": "账号网关", "unit": "muse-minimal-accounts.service"},
+  {"id": "jingliu", "name": "镜流", "unit": "muse-wb-jingliu.service", "release": "/srv/muse-workbenches/current"},
+  {"id": "workshop", "name": "剧本工坊", "unit": "muse-wb-workshop.service", "release": "/srv/muse-workbenches/current"},
+  {"id": "workbench-worker", "name": "工坊任务", "unit": "muse-wb-worker.service", "release": "/srv/muse-workbenches/current"},
+  {"id": "data-station", "name": "数据站", "unit": "muse-data-web.service"},
+  {"id": "cloud-muse", "name": "云端 Muse", "unit": "muse-cloud.service"},
+  {"id": "transcription", "name": "云端转写", "unit": "muse-hit-resume-20261120c.service"},
+  {"id": "market", "name": "Skill 市场", "unit": "muse-market.service"},
+  {"id": "console", "name": "管理台", "unit": "muse-console.service"}
+]

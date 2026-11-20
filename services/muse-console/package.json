@@ -1,0 +1,11 @@
+{
+  "name": "muse-console",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

@@ -1,0 +1,25 @@
+[Unit]
+Description=Muse console (read-only administrator pages)
+After=network-online.target muse-minimal-accounts.service
+
+[Service]
+Type=simple
+User=muse-console
+Group=muse-console
+EnvironmentFile=/etc/muse/console.env
+WorkingDirectory=/opt/muse/console/current
+ExecStart=/opt/muse/runtime/node/bin/node /opt/muse/console/current/server.mjs
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

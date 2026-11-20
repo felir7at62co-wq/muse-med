@@ -1,0 +1,14 @@
+[Unit]
+Description=Copy gateway request metadata for the Muse console
+
+[Service]
+Type=oneshot
+User=muse-gateway
+UMask=0027
+ExecStart=/opt/muse/runtime/node/bin/node /opt/muse/console/current/export.mjs --source /var/lib/muse/accounts/model-usage/requests.sqlite --target /var/lib/muse-console/export/export.sqlite
+TimeoutStartSec=15min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/muse-console/export
+ProtectHome=yes

@@ -1,0 +1,7 @@
+{
+  "version": "estimate-20261121",
+  "currency": "CNY",
+  "rows": [
+    {"provider": "deepseek-official", "model": "*", "inputMissPerMillion": 1.0, "inputHitPerMillion": 0.02, "outputPerMillion": 4.0}
+  ]
+}
