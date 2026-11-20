@@ -38,11 +38,14 @@ export const departmentNames = (organization, identity) => {
   return [...new Set(names.filter(Boolean))]
 }
 
-// The first Feishu identity and its departments from the Muse account details. A relay
-// sign-in carries only id and user name in `account`; the identities come with `profile`.
+// The first Feishu identity, its departments, job title and manager from the Muse account
+// details. A relay sign-in carries only id and user name in `account`; the identities come
+// with `profile`, the rest with the account-level organization the gateway syncs.
 export const feishuOf = (details) => {
   const feishu = (details?.profile?.account ?? details?.account)?.feishuIdentities?.[0]
-  return { feishu, departments: departmentNames(details?.organization ?? details?.profile?.organization, feishu) }
+  const organization = details?.organization ?? details?.profile?.organization
+  const synced = organization?.status === 'available' ? organization : null
+  return { feishu, departments: departmentNames(organization, feishu), jobTitle: synced?.jobTitle ?? '', managerName: synced?.managerName ?? '' }
 }
 
 export function AccountPage({ roster, actions, run, dsh, Section, Row }) {
@@ -61,7 +64,7 @@ export function AccountPage({ roster, actions, run, dsh, Section, Row }) {
   }, [name])
   const account = details?.account
   const look = youLook(roster.prefs, account?.username ?? name)
-  const { feishu, departments } = feishuOf(details)
+  const { feishu, departments, jobTitle, managerName } = feishuOf(details)
   const save = you => run(actions.setPrefs({ you }))
   const upload = async (picked) => {
     if (!picked) return
@@ -83,11 +86,11 @@ export function AccountPage({ roster, actions, run, dsh, Section, Row }) {
     account ? h(Section, { title: null },
       h(Row, { label: t('User name') }, h('span', { className: 'bt-you-value' }, account.username)),
       h(Row, { label: 'ID' }, h('span', { className: 'bt-you-value' }, String(account.id)))) : null,
-    // Read-only, kept by Feishu; job title and manager arrive once Feishu sync provides them.
+    // Read-only, kept by Feishu and synced by the account gateway.
     account ? h(Section, { title: h('span', { className: 'bt-you-lock' }, h(LockIcon), t('Follows Feishu')) },
       h(Row, { label: t('Department') }, h('span', { className: 'bt-you-value' }, departments.join('、') || '—')),
-      h(Row, { label: t('Job title') }, h('span', { className: 'bt-you-value' }, '—')),
-      h(Row, { label: t('Manager') }, h('span', { className: 'bt-you-value' }, '—')),
+      h(Row, { label: t('Job title') }, h('span', { className: 'bt-you-value' }, jobTitle || '—')),
+      h(Row, { label: t('Manager') }, h('span', { className: 'bt-you-value' }, managerName || '—')),
       h(Row, { label: t('Feishu account') }, h('span', { className: 'bt-you-value' }, feishu?.name || '—'))) : null,
     dsh ? h('div', { className: 'bt-dsh-section bt-you-section' }, dsh.renderSlot('settings.section', { close: () => actions.closeSettings() }, { only: MUSE_ACCOUNT_SECTION })) : null)
 }

@@ -187,6 +187,20 @@ it('retains verified empty Muse groups separately from unavailable organization 
   expect(result.availability).toEqual({ profile: 'available', groups: 'available', feishuOrganization: 'unavailable' })
 })
 
+it('keeps the synchronized Feishu job title and manager name and drops other organization fields', async () => {
+  const fixture = profileFixture()
+  const result = await createMuseAccountGateway(baseUrl, 1000, profileFetcher({ ...fixture,
+    organization: { ...fixture.organization, jobTitle: 'Lead writer', managerName: 'Producer', managerOpenId: 'PRIVATE_MANAGER' },
+  })).details(cookie, {})
+  if (result.protocol !== 'account-data-v1') throw new Error('Expected relay protocol')
+  expect(result.organization).toMatchObject({ status: 'available', jobTitle: 'Lead writer', managerName: 'Producer' })
+  expect(JSON.stringify(result)).not.toContain('PRIVATE_MANAGER')
+  const plain = await createMuseAccountGateway(baseUrl, 1000, profileFetcher(fixture)).details(cookie, {})
+  if (plain.protocol !== 'account-data-v1') throw new Error('Expected relay protocol')
+  expect(plain.organization).not.toHaveProperty('jobTitle')
+  expect(plain.organization).not.toHaveProperty('managerName')
+})
+
 it('preserves all 257 legal Feishu bindings in a personal profile', async () => {
   const fixture = profileFixture()
   const identities = Array.from({ length: 257 }, (_, index) => ({ ...fixture.account.feishuIdentities[0], name: 'Member ' + String(index) }))
