@@ -33,7 +33,7 @@ Host 以当前 Muse 账号访问同站镜流接口和媒体文件。每段本地
 <a id="host-api"></a>
 ## Host 接口
 
-Host 插件通过 `ctx.jingliuConnection.connection()` 取得已核验的 `JingliuSession`。其中的 `identity` 标识提交回执所属的镜流用户和服务器。Host 在发出请求前和返回结果前都会核对当前 Muse 登录身份。`request(path, options)` 访问相对于 V2 接口的受支持路由并返回解析后的 JSON。工作流工具选择向模型展示哪些结果。
+Host 插件通过 `ctx.jingliuConnection.connection()` 取得已核验的 `JingliuSession`。其中的 `identity` 标识提交回执所属的镜流用户和服务器。Host 在发出请求前和返回结果前都会核对当前 Muse 登录身份。`request(path, options)` 访问相对于 V2 接口的受支持路由并返回解析后的 JSON。工作流工具选择向模型展示哪些结果。登录、账号变化检查和有界 JSON 请求来自共用的[工作台连接](../workbench-connection/README.zh.md)核心。
 
 客户端 Remote 还以当前登录用户的身份只读地读取工作台数据：`projectConfig`、`episodeList`、`episodeShots`、`shotMedia` 和 `projectAssets` 调用镜流的只读工作流（`get_project`；`list_episodes`；`list_shots` 与 `read_shots`；`get_shot` 与 `list_versions`；`list_assets` 与 `list_audio_clips`）。`video` 以流的方式传回一段镜流视频，最多 64 MiB：先传内容类型，再传 base64 分段。结果只保留镜流媒体目录下的路径，客户端拿不到镜流凭据，也拿不到别的地址。另有四个调用供工作台的表单使用：`catalog` 读取镜流提供的模式及其画风、画面比例、分辨率和模型；`createProject` 按该目录逐项核对后创建项目；`renameProject` 重命名项目并核对保存后的名称；`deleteShot` 删除一个镜头，镜流不保留副本。
 

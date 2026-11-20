@@ -30,6 +30,7 @@
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`、`ctx.museAccount`、PATH 中的 FFmpeg 与 FFprobe | `tool/call`、`tool/result`，`transcript/jobs` 中的任务收据，`transcript/raw` 中的 TXT 与 JSON | - | start 使用已登录的 Muse 账号上传压缩音轨并提交云转写；status 根据收据查询同一任务，完成后保存带时间戳的结果。需要可读取的本地音视频与服务端转写配置。 |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`、TOS 访问密钥的凭据引用、可访问火山引擎 TOS 的网络 | `tool/call`、`tool/result`，`download-video-date/{platform}/{date}/{work_id}/` 下的公开 TOS 对象，`remove_local` 为 true 时删除本地文件 | - | 可选包：只由云端转写部署组合，并由它提供凭据引用。 |
 | `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`、`jingliu_narration`、`jingliu_projects`、`jingliu_run`、`jingliu_studio`、`jingliu_workflows` | `ctx.tools`、`ctx.jingliuConnection`，更改和计费操作需 `ctx.approval` | `tool/call`、`tool/result`、镜流服务的项目更新和任务、会话项目关联、生图与解说剧任务回执、本地剪映草稿 | - | - |
+| `@deepseek-ai/dsh-tool-workshop` | `workshop_video_transcribe` | `ctx.tools`、`ctx.workshopConnection`，开始任务需 `ctx.approval` | `tool/call`、`tool/result`，所配置剧本工坊上的 `video_transcribe` 工厂任务 | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`、数据站服务令牌的凭据引用、可访问数据站服务接口的网络 | `tool/call`、`tool/result`，数据站转写任务状态 | - | 可选包：只由云端转写部署组合。每个被派出的工人自己领取作品，主会话路由器不调用它。 |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`、`ctx.tools`、`ctx.ptcRuntime`、`ctx.systemPrompt` | `tool/call`、`one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`、`tool/result` | - | PTC 执行器只向模型公开 run_code，并在运行时语言生成的 SDK 中声明其他可见能力。程序绑定按提交顺序进入共享的受守卫工具流水线；并行安全的函数体最多重叠 maxParallelSubCalls 个，嵌套结果保持与外层程序关联。最终超时时间与 maxSubCallsPerMinute 决定调用总额度；超限会终止程序。 |
@@ -2136,6 +2137,66 @@ Source: [`packages/drama/tool-jingliu/src/studio.ts`](../packages/drama/tool-jin
 ```
 
 Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
+
+<a id="deepseek-aidsh-tool-workshop"></a>
+
+## `@deepseek-ai/dsh-tool-workshop`
+
+### `workshop_video_transcribe`
+
+剧本工坊的视频转剧本任务：从数据站爆款队列领剧，经 AI 观众选材、红果整剧下载和云端 Muse 逐集转写，出稿存为工坊剧本。status 查看是否就绪、队列和任务进度；start 按参数开始一个任务，会产生下载与转写费用，提交前请用户确认；stop 停止任务，已领取的剧保留进度。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "status",
+        "start",
+        "stop"
+      ]
+    },
+    "job_id": {
+      "type": "integer",
+      "description": "status：查看这个任务的进度和出稿，省略时列出最近的任务。stop：必填。"
+    },
+    "count": {
+      "type": "integer",
+      "description": "start：转写部数，0 表示持续运行直到停止，默认 0。"
+    },
+    "concurrency": {
+      "type": "integer",
+      "description": "start：同时转写部数，1 到 status 返回的 max_slots，默认 1。"
+    },
+    "quality": {
+      "type": "string",
+      "description": "start：下载画质，默认 720p。",
+      "enum": [
+        "720p",
+        "1080p"
+      ]
+    },
+    "publish": {
+      "type": "boolean",
+      "description": "start：通过检查的剧本上架到数据站储备看板，默认 false。"
+    },
+    "only_series": {
+      "type": "array",
+      "description": "start：只转这些红果作品编号，省略时按队列顺序领取。",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-workshop/src/index.ts`](../packages/drama/tool-workshop/src/index.ts)
 
 <a id="deepseek-aidsh-tool-hit-queue"></a>
 

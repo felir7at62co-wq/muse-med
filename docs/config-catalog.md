@@ -2375,7 +2375,7 @@ export interface TlsConfig {
 ## `@deepseek-ai/dsh-jingliu-connection`
 
 - `inject`: `commands`
-- `source`: [`packages/drama/jingliu-connection/src/index.ts:42`](../packages/drama/jingliu-connection/src/index.ts)
+- `source`: [`packages/drama/jingliu-connection/src/index.ts:43`](../packages/drama/jingliu-connection/src/index.ts)
 
 ```ts config-catalog
 /** Limits and server address for this installation. */
@@ -6594,6 +6594,27 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-webhook-github -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-workbench-connection -->
+<a id="deepseek-aidsh-workbench-connection"></a>
+
+## `@deepseek-ai/dsh-workbench-connection`
+
+- `source`: [`packages/drama/workbench-connection/src/index.ts:27`](../packages/drama/workbench-connection/src/index.ts)
+
+```ts config-catalog
+/** Server address and limits for this installation, after `WorkshopConnection.Config` applied its defaults. */
+export interface Config {
+  /**
+   * HTTPS or loopback Workshop origin, or `<Muse gateway>/jubengongfang` for the deployment served by the gateway.
+   * An absent origin leaves the connection unconfigured.
+   */
+  workshopOrigin?: string
+  /** Maximum time in milliseconds for one JSON request, including its response body. */
+  timeoutMs: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-workbench-connection -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-workflow-ptc -->
 <a id="deepseek-aidsh-workflow-ptc"></a>
 
@@ -6789,6 +6810,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-tool-jingliu` | `tools` · `jingliuConnection` | [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts) |
 | `@deepseek-ai/dsh-tool-schedule` | `tools` · `systemPrompt` | [`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts) |
 | `@deepseek-ai/dsh-tool-working-directory` | `tools` · `workingDirectory` | [`packages/session/tool-working-directory/src/index.ts`](../packages/session/tool-working-directory/src/index.ts) |
+| `@deepseek-ai/dsh-tool-workshop` | `tools` | [`packages/drama/tool-workshop/src/index.ts`](../packages/drama/tool-workshop/src/index.ts) |
 | `@deepseek-ai/dsh-tools` | `systemPrompt` | [`packages/core/tools/src/index.ts`](../packages/core/tools/src/index.ts) |
 | `@deepseek-ai/dsh-user-questions` | — | [`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts) |
 | `@deepseek-ai/dsh-webhook` | `agents` · `agentDefaultModel` · `agentPresets` · `permissionPresets` · `sessionTitle` · `workspaceRegistry` | [`packages/experimental/webhook/src/index.ts`](../packages/experimental/webhook/src/index.ts) |

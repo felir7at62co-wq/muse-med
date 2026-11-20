@@ -350,9 +350,12 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/** Workbench registered at the Muse gateway. */
+export type MuseWorkbenchAudience = 'script-workshop' | 'jingliu'
+
 /** Workbench and S256 challenge supplied by the trusted Muse renderer. */
 export interface MuseWorkbenchGrantRequest {
-  readonly audience: 'script-workshop' | 'jingliu'
+  readonly audience: MuseWorkbenchAudience
   readonly challenge: string
 }
 
