@@ -7,6 +7,7 @@
  */
 import {createServer} from 'node:http';
 import {pathToFileURL} from 'node:url';
+import {realpathSync} from 'node:fs';
 import {loadConfig} from './config.mjs';
 import {createGatewayReader} from './gateway.mjs';
 import {loadPrices} from './prices.mjs';
@@ -113,5 +114,6 @@ async function main(){
  process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
 
-if(import.meta.url===pathToFileURL(process.argv[1]??'').href)
+// Compare real paths: deployments start the file through the `current` release symlink.
+if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1])).href)
  main().catch(error=>{console.error(JSON.stringify({level:'fatal',message:String(error?.message??error).slice(0,300)}));process.exitCode=1;});

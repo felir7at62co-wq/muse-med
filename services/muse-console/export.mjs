@@ -10,6 +10,7 @@
 import {DatabaseSync} from 'node:sqlite';
 import {isAbsolute} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {realpathSync} from 'node:fs';
 
 export const COLUMNS=['id','account_id','provider','model','entry','started_at','finished_at','outcome','usage_state','http_status',
  'input_tokens','output_tokens','total_tokens','cache_read_tokens','cache_write_tokens','reasoning_tokens'];
@@ -127,5 +128,6 @@ async function main(){
  }finally{source.close();target.close();}
 }
 
-if(import.meta.url===pathToFileURL(process.argv[1]??'').href)
+// Compare real paths: deployments start the file through the `current` release symlink.
+if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1])).href)
  main().catch(error=>{console.error(JSON.stringify({ok:false,code:error?.message==='usage'?'usage':'export_failed'}));process.exitCode=1;});
