@@ -6,7 +6,7 @@
 
 - id: agent-preset-registry
   config:
-    default: short-drama
+    default: short-drama-v2
     selectablePresets: [short-drama, short-drama-v2]
     allowUserDefault: false
 

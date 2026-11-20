@@ -17,7 +17,7 @@
 # New tasks use one unified creative Agent; legacy preset ids remain recoverable.
 - id: agent-preset-registry
   config:
-    default: short-drama
+    default: short-drama-v2
     selectablePresets: [short-drama, short-drama-v2]
     allowUserDefault: false
 
@@ -87,7 +87,7 @@
 - id: ui-settings-agent-notes
   disabled: true
 
-# The dedicated Main Session entry and the short-drama default do not require a chooser.
+# The dedicated Main Session entry and the short-drama-v2 default do not require a chooser.
 - id: ui-agent-preset
   disabled: true
 
