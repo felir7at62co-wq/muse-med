@@ -1153,6 +1153,14 @@ export function apply(ctx) {
       actions.reportError(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
     }
   }
+  // Muse: Settings → Connectors shows whether Jubian is connected; the Jubian plugin owns the
+  // token and its form, and only reports that one is stored.
+  actions.jubianStatus = async () => {
+    const remote = ctx.get('remote.jubianToken')
+    if (remote === undefined) return null
+    const result = await remote.describe()
+    return result.ok ? result.value : null
+  }
   // Muse: the drawer's export button downloads the conversation's Session log through DSH's own
   // export (a ZIP of the Session, its sub-sessions and attachments), where that plugin runs.
   actions.canDownloadLog = () => ctx.get('sessionLogDownload') !== undefined

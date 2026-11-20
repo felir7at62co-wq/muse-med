@@ -170,6 +170,21 @@
     - id: tool-jingliu
       name: '@deepseek-ai/dsh-tool-jingliu'
 
+    # Jubian is an optional second production channel beside Jingliu: its tools are found only
+    # by a search that names 剧变, and they need the token saved under Settings → Connectors. It
+    # also publishes the Remote services that connection reads, so it belongs on the Host
+    # rather than inside one agent preset.
+    - id: tool-jubian
+      name: '@deepseek-ai/dsh-tool-jubian'
+      config:
+        imagePlatformId: KU_AI
+        imageAllowedStandardIds: [76, 66, 86]
+        promptRiskReview:
+          terms: [国旗, 国徽, 党旗, 党徽, 军旗, 军徽, 政治标语, 领袖画像, 共产主义红色象征, 露骨色情, 血腥伤害, 极端主义标识]
+          contextChars: 24
+          maxMatches: 100
+        generationWatch: true
+
     - id: workshop-connection
       name: '@deepseek-ai/dsh-workbench-connection'
       config:
@@ -294,6 +309,14 @@
           jingliu_workflows: [镜流, 镜流工作台, 镜流项目, 新建项目, 分集, 查询模型, Jingliu, ShotFlow]
           jingliu_run: [镜流执行, 镜流制作, 镜流分镜, 镜流任务, 制作分镜, 角色素材, 生成视频, 任务进度, ShotFlow]
           jingliu_narration: [镜流解说剧, 解说剧拆镜, 角色开口, 解说剧交付]
+          jubian_find: [剧变剧本, 剧变项目, 剧变可认领剧本]
+          jubian_project: [剧变建项目, 剧变项目回执, 剧变分享项目]
+          jubian_manuscript: [剧变稿件, 剧变上传剧本]
+          jubian_asset: [剧变素材, 剧变角色素材, 剧变场景素材]
+          jubian_storyboard: [剧变视频卡, 剧变分镜卡, 剧变去字幕]
+          jubian_video: [剧变出片, 剧变视频生成, 剧变视频任务]
+          jubian_catalog: [剧变模型, 剧变报价, 剧变分集列表]
+          jubian_media: [剧变超分, 剧变擦字幕]
           workshop_video_transcribe: [剧本工坊, 视频转剧本, 批量转写, 爆款转写, 转写任务, 停止转写, 转写进度, 工坊流水线]
           script_finalize: [定稿, 剧本定稿, 上传定稿, 定稿上传, 定稿库, 交稿给组长]
           script_library: [剧本库, 定稿剧本, 取出剧本, 选用剧本, 投产, 登记投产, 剧本建镜流项目]
@@ -343,6 +366,10 @@
             title: 镜流
             description: 查找镜流工作流，按项目查看分集、分镜、素材、任务和交付。
             tools: [jingliu_projects, jingliu_workflows, jingliu_run, jingliu_narration, jingliu_image, jingliu_studio]
+          - id: jubian
+            title: 剧变（可选渠道）
+            description: 用户点名剧变、或项目本来就在剧变上时才用：查项目与素材，提交出图、出片、去字幕和超分。默认制作走镜流。工具报未连接时，请用户到 设置 → 连接器 里连接剧变。
+            tools: ['jubian_*']
           - id: script-workshop
             title: 剧本工坊
             description: 开始、停止和查看剧本工坊的视频转剧本任务；定稿上传、取出定稿剧本、登记投产。

@@ -956,6 +956,8 @@ const ZH = {
   'Your team': '你的团队',
   'Empty folder': '空文件夹',
   'Download conversation log': '下载会话日志',
+  'Jubian': '剧变',
+  'Jubian projects, assets and generation tasks': '剧变的项目、素材和生成任务',
   'Open terminal': '打开终端',
   'New terminal': '新建终端',
   'Close terminal': '关闭终端',

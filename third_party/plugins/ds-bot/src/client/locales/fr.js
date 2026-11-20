@@ -916,6 +916,8 @@ export const FR = {
   "Your team": "Votre équipe",
   "Empty folder": "Dossier vide",
   "Download conversation log": "Télécharger le journal de la discussion",
+  "Jubian": "Jubian",
+  "Jubian projects, assets and generation tasks": "Projets, ressources et tâches de génération Jubian",
   "Open terminal": "Ouvrir le terminal",
   "New terminal": "Nouveau terminal",
   "Close terminal": "Fermer le terminal",

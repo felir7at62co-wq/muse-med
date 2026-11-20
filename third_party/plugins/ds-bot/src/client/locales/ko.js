@@ -928,6 +928,8 @@ export const KO = {
   'Your team': '내 팀',
   'Empty folder': '빈 폴더',
   'Download conversation log': '대화 로그 다운로드',
+  'Jubian': 'Jubian',
+  'Jubian projects, assets and generation tasks': 'Jubian 프로젝트, 소재, 생성 작업',
   'Open terminal': '터미널 열기',
   'New terminal': '새 터미널',
   'Close terminal': '터미널 닫기',
