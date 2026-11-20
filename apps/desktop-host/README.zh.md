@@ -62,7 +62,7 @@ Muse 内置 Codex 订阅插件，并在设置中提供 ChatGPT 登录入口。�
 
 ## 用户返稿对照
 
-Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回的 Markdown、UTF-8 文本或 Word 文稿。同一会话此前交付的文件在下一次真人输入时检测外部变化，修改者保持未确认。改名文件可以通过明确路径关联；缺少基线时如实说明，不声称已经识别历史修改。
+Desktop Host 在代码中挂载 Office 组合（`@deepseek-ai/dsh-desktop-host/office`：`manuscript_revision`、`screenplay_export_docx`、`source_recover` 和 `jianying_draft`），以自带的主运行时作为 `source`；不经 Desktop Host 运行这套组合的部署（如云端 Muse）需自行声明这一项，配置相同。Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回的 Markdown、UTF-8 文本或 Word 文稿。同一会话此前交付的文件在下一次真人输入时检测外部变化，修改者保持未确认。改名文件可以通过明确路径关联；缺少基线时如实说明，不声称已经识别历史修改。
 
 修改已有稿前，使用 `snapshot` 和明确的 `source_paths`，将完整原件字节保留在工作区 `.muse/manuscript-revisions/versions`。Word 批注和格式保留在这些原件中。`history` 按明确的来源路径返回经过核验的快照路径，当前来源已删除时也可查询；不会根据文件名或历史顺序选择当前稿。后续对照可以将快照路径作为原稿。重复保留相同内容会复用原件，内容不同则分别保留以便恢复。`maxVersions` 和 `maxVersionBytes` 限制保留容量，不淘汰旧版本。原件损坏或超限时明确失败。独立的第一版索引不替换已有对照记录。保存版本不判断剧情质量，也不表示已落实批注。
 

@@ -1,4 +1,7 @@
-/** Desktop screenplay revision and authoring tools. */
+/**
+ * Desktop screenplay revision and authoring tools. Desktop Host mounts this plugin in code with its primary runtime;
+ * a deployment without Desktop Host declares it as `@deepseek-ai/dsh-desktop-host/office` with the same config.
+ */
 
 import type { Context } from '@deepseek-ai/cordis'
 import * as screenplayDocx from './screenplay-docx.ts'
