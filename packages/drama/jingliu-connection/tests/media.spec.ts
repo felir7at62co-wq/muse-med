@@ -249,7 +249,7 @@ it('limits simultaneous downloads and removes the least recently viewed files be
 it('uploads a local file straight to object storage and confirms it with the studio', async () => {
   let ticket: Record<string, unknown> = {}
   let complete: [number, unknown] = [200, {}]
-  const { session, seen, host } = await studio((req, body, res) => {
+  const { session, seen, host } = await studio((req, _body, res) => {
     if (req.url === '/fwp/v2/media/upload-url') { json(res, 200, ticket); return }
     if (req.url === '/fwp/v2/media/upload-complete') { json(res, ...complete); return }
     if (req.method === 'PUT') { res.writeHead(200); res.end(); return }

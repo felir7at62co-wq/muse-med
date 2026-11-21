@@ -2,6 +2,7 @@
 import { join } from 'node:path'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { projectMediaFolder } from '@deepseek-ai/dsh-jingliu-connection'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { isFields } from './catalog.ts'
@@ -76,11 +77,15 @@ export function narrationTool(deps: Dependencies): ToolDefinition {
         return response(await session.request(scope + '/shots/' + shot_id + '/accept', { method: 'POST', body: { beat }, signal: exec.signal }))
       }
       if (action === 'export') {
-        const root = await deps.draftRoot?.()
-        if (deps.draftRoot && !root) throw new HarnessError('请先在 Muse 的短剧设置指定剪映草稿根目录。', 'JINGLIU_DRAFT_ROOT_REQUIRED')
+        // Only a Host that keeps local media installs the draft; elsewhere the studio's own pack is returned.
+        const local = session.download !== undefined && deps.draftRoot !== undefined
+        const root = local ? await deps.draftRoot?.() : undefined
+        if (local && !root) throw new HarnessError('请先在 Muse 的短剧设置指定剪映草稿根目录。', 'JINGLIU_DRAFT_ROOT_REQUIRED')
         await ask('导出' + (episode === undefined ? '全剧' : '第 ' + episode + ' 集') + '剪映草稿' + (root ? '到 ' + root : ''))
         const result = response(await session.request(scope + '/export', { method: 'POST', body: { episode: episode ?? null, single_file: !root }, signal: exec.signal }))
-        return root ? { draft: await installDraft(session, result, root, exec.agent.session.id + ':' + exec.callId, exec.signal) } : result
+        const workspace = exec.agent.session.header.cwd
+        const folder = workspace ? projectMediaFolder(workspace, pid) : undefined
+        return root ? { draft: await installDraft(session, result, root, exec.agent.session.id + ':' + exec.callId, exec.signal, folder) } : result
       }
       const kind = action === 'produce' ? 'nd_produce' : 'nd_breakdown'
       const payload: Record<string, JsonValue> = { project_id: pid }

@@ -82,7 +82,8 @@ export function workflowTools(deps: Dependencies): ToolDefinition[] {
       if (!workflow.account_scoped && selected && selected.id !== project) throw new HarnessError('这个工作流指向另一个云项目，请先确认要切换的项目。', 'JINGLIU_INVALID_PROJECT')
       const businessArgs = workflowArgs(workflow, project, args)
       let destination: string | undefined
-      if (workflow.name === 'export_jianying' && deps.draftRoot) {
+      // Only a Host that keeps local media installs the draft; elsewhere the studio's own export result is returned.
+      if (workflow.name === 'export_jianying' && deps.draftRoot && session.download) {
         destination = await deps.draftRoot()
         if (!destination) throw new HarnessError('请先在 Muse 的短剧设置指定剪映草稿根目录，或使用 drama_draft_dir 设置。', 'JINGLIU_DRAFT_ROOT_REQUIRED')
         businessArgs.single_file = false

@@ -27,7 +27,7 @@ function pack(materials: { name: string; url: string; size: number }[]) {
 // A studio session whose `download` stores files under the given folder, as a desktop Host's does.
 function session(files: Record<string, Buffer>, archive: Buffer) {
   const media = vi.fn<NonNullable<JingliuSession['media']>>(async (path, _signal, consume) => {
-    await consume(new Response(path.endsWith('.zip') ? archive : files[path] ?? Buffer.alloc(0)))
+    await consume(new Response(new Uint8Array(path.endsWith('.zip') ? archive : files[path] ?? Buffer.alloc(0))))
   })
   const download = vi.fn(async (paths: readonly string[], folder: string) => {
     const result = new Map<string, LocalMedia>()
@@ -108,7 +108,7 @@ it('downloads studio files into the project folder only on a Host that keeps loc
 
 it('uploads a workspace file only after the user approves it', async () => {
   const upload = vi.fn(async () => ({ path: '/fw/media/uploads/u1.png', size: 3 }))
-  const approve = vi.fn(async () => false)
+  const approve = vi.fn(async (_exec: ToolRunContext, _reason: string) => false)
   const call = tool({ identity: 'u', request: vi.fn(), upload }, approve)
   await expect(call({ action: 'upload', file: 'faces/a.png' })).rejects.toMatchObject({ code: 'JINGLIU_APPROVAL_REQUIRED' })
   expect(upload).not.toHaveBeenCalled()
@@ -118,4 +118,23 @@ it('uploads a workspace file only after the user approves it', async () => {
   expect(approve.mock.calls.at(-1)?.[1]).toContain(join('/work', 'faces', 'a.png'))
   await expect(call({ action: 'upload' })).rejects.toMatchObject({ code: 'JINGLIU_INVALID_ARGUMENTS' })
   await expect(tool({ identity: 'u', request: vi.fn(), upload }, approve, null)({ action: 'upload', file: 'a.png' })).rejects.toMatchObject({ code: 'JINGLIU_WORKSPACE_REQUIRED' })
+})
+
+it('returns the studio export result instead of installing a draft on a Host that keeps no local media', async () => {
+  const exporter = { name: 'export_jianying', description: '导出剪映', role: 'editor', risk: 'read', account_scoped: false, costs: false,
+    long_running: false, needs_confirm: false, parameters: { type: 'object', properties: { project_id: { type: 'string' } } } }
+  const request = vi.fn<JingliuSession['request']>()
+  request.mockResolvedValueOnce({ count: 1, tools: [exporter] }).mockResolvedValueOnce({ ok: true, url: '/fw/media/exports/jianying/p.zip', shots: 1 })
+  const draftRoot = vi.fn(async () => '/drafts')
+  const tools = workflowTools({ connect: async () => ({ identity: 'u', request }), approve: async () => true, draftRoot })
+  const id = ToolCallId('call-1')
+  const args = { workflow: 'export_jianying', project_id: 'p1' }
+  const ctx: ToolRunContext = {
+    callId: id, rootCallId: id, token: Symbol() as ToolExecutionToken, arguments: args, name: 'jingliu_run',
+    agent: { session: { id: 'session-9', header: { cwd: '/work' } } } as ToolRunContext['agent'] & object,
+    signal: new AbortController().signal, deferContext() {}, concludeTurn() {},
+  }
+  await expect(tools.find(entry => entry.name === 'jingliu_run')!.execute(args, ctx)).resolves.toMatchObject({ result: { url: '/fw/media/exports/jianying/p.zip' } })
+  expect(draftRoot).not.toHaveBeenCalled()
+  expect(JSON.stringify(request.mock.calls.at(-1)?.[1]?.body)).not.toContain('single_file')
 })
