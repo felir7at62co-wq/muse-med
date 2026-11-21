@@ -151,5 +151,6 @@ class TTSProvider:
         async with http.client("tts-download", timeout=300.0, follow_redirects=True) as c:
             r = await c.get(url)
             r.raise_for_status()
-            dest.write_bytes(r.content)
-        return f"/fw/media/generated/{dest.name}"
+            data = r.content
+        from ..media_store import store_bytes_async
+        return await store_bytes_async(data, dest)

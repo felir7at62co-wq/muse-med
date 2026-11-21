@@ -425,9 +425,9 @@ async def _see_image(message_id: str, image_key: str) -> str:
 
     try:
         data = await asyncio.to_thread(feishu_open.download_image, message_id, image_key)
+        from .media_store import store_bytes_async
         dest = UPLOAD_DIR / f"{uuid.uuid4().hex[:12]}{_image_ext(data)}"
-        await asyncio.to_thread(dest.write_bytes, data)
-        url = f"/fw/media/uploads/{dest.name}"
+        url = await store_bytes_async(data, dest)
     except Exception as e:  # noqa: BLE001
         logger.warning("[feishu-bot] 下载图片失败：%r", e)
         return f"[用户发来一张图片，但下载失败：{str(e)[:120]}]"

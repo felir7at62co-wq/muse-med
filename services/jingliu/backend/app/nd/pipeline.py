@@ -187,7 +187,8 @@ async def _tts(ref_path: Path, text: str) -> tuple[str, float]:
     if proc.returncode != 0 or not dst.exists():
         raise RuntimeError("旁白音频处理失败")
     from ..media import probe_duration_local
-    out = f"/fw/media/generated/{dst.name}"
+    from ..media_store import commit_async
+    out = await commit_async(dst)
     return out, round(await probe_duration_local(out), 3)
 
 

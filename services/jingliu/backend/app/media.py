@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from . import media_store
 from .config import get_settings
 from .executors import run_long_blocking
 
@@ -182,7 +183,7 @@ async def media_upload(file: UploadFile = File(...),
     # 都正确包了 to_thread，只有这一处漏掉 —— 所以修法就只是补上外面这层。
     written = await asyncio.to_thread(_spool_to_disk, file, dest)
 
-    url = f"/fw/media/uploads/{dest.name}"
+    url = await media_store.commit_async(dest)
     kind = ("video" if ext in {".mp4", ".mov", ".mkv", ".webm"}
             else "audio" if ext in {".mp3", ".wav", ".aac", ".m4a"}
             else "image" if ext in _IMAGE_EXT else "other")
@@ -368,13 +369,27 @@ def _touch_used(rel: str) -> None:
         logger.debug("[cache] 使用时间更新失败: %s", rel, exc_info=True)
 
 
+def _resolve_for_read(url: str) -> Path | None:
+    """读取用的路径解析：`_resolve_local` 认得的目录，外加其余归桶管的目录
+    （Muse 角色参考图 `character-references/`、导出包 `exports/jianying/`）。
+
+    只给 `ensure_local*` 用。删除路径（删素材、彻底删项目）仍只认
+    `_resolve_local`：角色参考图属于共享参考库，不归任何一个项目所有。
+    """
+    p = _resolve_local(url)
+    if p is not None:
+        return p
+    rel, _err = media_store.parse_media_path(url)
+    return DATA_DIR / rel if rel else None
+
+
 def ensure_local(url: str) -> Path | None:
     """解析为本地路径；本地没有就从桶拉回来。**同步版，会阻塞。**
 
     只给本来就在同步上下文里的调用方用（如 `scene_board._open_local`）。
     异步代码一律用 `ensure_local_async`。
     """
-    p = _resolve_local(url)
+    p = _resolve_for_read(url)
     if p is None or p.is_file():
         if p is not None:
             rel = _rel_of(p)
@@ -390,17 +405,17 @@ def ensure_local(url: str) -> Path | None:
         return p
     try:
         storage.fetch(rel, p)
+        media_store.count("restored")
         _touch_used(rel)
-        logger.info("[cache] 回填 %s", rel)
-    except Exception:      # noqa: BLE001
+    except Exception as e:      # noqa: BLE001
         # 拉不回来就当文件不存在，交给调用方的既有降级分支
-        logger.warning("[cache] 回填失败: %s", rel, exc_info=True)
+        media_store.note_failure("restore", rel, e)
     return p
 
 
 async def ensure_local_async(url: str) -> Path | None:
     """`ensure_local` 的异步版：下载放到线程里，不占事件循环。"""
-    p = _resolve_local(url)
+    p = _resolve_for_read(url)
     if p is None:
         return None
     if p.is_file():
@@ -419,10 +434,10 @@ async def ensure_local_async(url: str) -> Path | None:
         # 放进默认 executor 的话，它和鉴权 verify_session 抢同一批 20 个槽，
         # 一次冷缓存回填就能让全站排队几十秒。见 app/executors.py 模块头。
         await run_long_blocking(storage.fetch, rel, p)
+        media_store.count("restored")
         await asyncio.to_thread(_touch_used, rel)
-        logger.info("[cache] 回填 %s", rel)
-    except Exception:      # noqa: BLE001
-        logger.warning("[cache] 回填失败: %s", rel, exc_info=True)
+    except Exception as e:      # noqa: BLE001
+        media_store.note_failure("restore", rel, e)
     return p
 
 
@@ -498,7 +513,7 @@ async def make_thumb(video_url: str, *, at_sec: float = 0.5) -> str | None:
             "-q:v", "4", str(dest),
         ])
         if code == 0 and dest.exists() and dest.stat().st_size > 0:
-            return f"/fw/media/generated/{name}"
+            return await media_store.commit_async(dest)
     dest.unlink(missing_ok=True)
     return None
 
@@ -642,7 +657,8 @@ async def extract_audio(video_url: str, *, in_sec: float | None = None,
         logger.warning("[media] 抽音频失败 %s: %s", video_url[:120], log[-200:])
         dest.unlink(missing_ok=True)
         return None
-    return f"/fw/media/generated/{name}", await _probe_duration(dest)
+    dur = await _probe_duration(dest)
+    return await media_store.commit_async(dest), dur
 
 
 # ---- TB-06 缓存统计与清理 ----

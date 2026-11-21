@@ -58,6 +58,9 @@ PRESIGN_TTL_EXPORT = 7 * 24 * 3600
 #: 覆盖任何正常排队，又不至于把链接长期散在外面。
 PRESIGN_TTL_REMOTE = 24 * 3600
 
+#: 客户端直传（`POST /v2/media/upload-url`）的 PUT 地址有效期。
+PRESIGN_TTL_UPLOAD = 900
+
 #: 单个对象大小上限。实测现网最大 57.7MB，远低于此；超过就该上分片上传了，
 #: 所以这里**宁可报错也不静默截断**。
 MAX_PUT_BYTES = 200 * 1024 * 1024
@@ -72,11 +75,12 @@ def enabled() -> bool:
     return bool(s.tos_bucket and s.tos_access_key_id and s.tos_access_key_secret)
 
 
-def _cfg():
+def _cfg(*, public: bool = False):
     s = get_settings()
     if not enabled():
         raise StorageNotConfigured("FW_TOS_* 未配置")
-    host = f"{s.tos_bucket}.{s.tos_endpoint}"
+    endpoint = (s.tos_public_endpoint or s.tos_endpoint) if public else s.tos_endpoint
+    host = f"{s.tos_bucket}.{endpoint}"
     return s, host
 
 
@@ -100,9 +104,14 @@ def _signing_key(secret: str, datestamp: str, region: str) -> bytes:
 
 
 def presign(method: str, key: str, *, ttl: int = PRESIGN_TTL,
-            query: dict | None = None) -> str:
-    """生成预签名 URL。key 为空串 = 对桶本身操作（如 list）。"""
-    s, host = _cfg()
+            query: dict | None = None, public: bool = False) -> str:
+    """生成预签名 URL。key 为空串 = 对桶本身操作（如 list）。
+
+    `public=True`：签在 `tos_public_endpoint` 上 —— 凡是交给服务器之外的
+    人或服务（浏览器、Muse、剪映导入器、远端生成服务）的地址都必须这样签。
+    主机名参与签名，所以不能签好之后再换主机。
+    """
+    s, host = _cfg(public=public)
     now = datetime.datetime.now(datetime.timezone.utc)
     amzdate = now.strftime("%Y%m%dT%H%M%SZ")
     datestamp = now.strftime("%Y%m%d")
@@ -177,7 +186,53 @@ def public_url(rel: str, *, ttl: int = PRESIGN_TTL,
     q = None
     if download_name:
         q = {"response-content-disposition": content_disposition(download_name)}
-    return presign("GET", key_for(rel), ttl=ttl, query=q)
+    return presign("GET", key_for(rel), ttl=ttl, query=q, public=True)
+
+
+def upload_url(rel: str, *, ttl: int = PRESIGN_TTL_UPLOAD) -> str:
+    """给客户端直传用的预签名 PUT（公网主机）。只签 host：大小与类型由
+    `POST /v2/media/upload-complete` 事后 HEAD 核对，不符就删对象。"""
+    return presign("PUT", key_for(rel), ttl=ttl, public=True)
+
+
+def _md5_hex(data: bytes | None = None, local: Path | None = None) -> str:
+    md5 = hashlib.md5()
+    if data is not None:
+        md5.update(data)
+    elif local is not None:
+        with local.open("rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                md5.update(chunk)
+    return md5.hexdigest()
+
+
+def _put(rel: str, body, size: int, want: str, content_type: str | None) -> dict:
+    key = key_for(rel)
+    url = presign("PUT", key, ttl=900)
+    headers = {"Content-Length": str(size)}
+    if content_type:
+        headers["Content-Type"] = content_type
+    r = httpx.put(url, content=body, headers=headers, timeout=600.0)
+    if r.status_code // 100 != 2:
+        raise RuntimeError(f"上传失败 HTTP {r.status_code}")
+
+    etag = (r.headers.get("ETag") or "").strip('"')
+    if etag and etag.lower() != want:
+        # 立刻把坏对象删掉，不留给下一轮当成"已存在"跳过
+        try:
+            delete(rel)
+        except Exception:      # noqa: BLE001
+            pass
+        raise RuntimeError(f"ETag 不符：本地 {want} 远端 {etag}，已删除远端对象")
+    return {"key": key, "size": size, "etag": etag or want}
+
+
+def put_bytes(data: bytes, rel: str, *, content_type: str | None = None) -> dict:
+    """把内存里的一段字节传进桶（图片落盘时用，免得再从盘上读一遍）。
+    返回 {key, size, etag}；ETag 校验与 `put_file` 相同。"""
+    if len(data) > MAX_PUT_BYTES:
+        raise ValueError(f"{rel} 有 {len(data)/1048576:.1f}MB，超过单次上传上限；需要分片上传")
+    return _put(rel, data, len(data), _md5_hex(data=data), content_type)
 
 
 def put_file(local: Path, rel: str, *, content_type: str | None = None) -> dict:
@@ -190,31 +245,9 @@ def put_file(local: Path, rel: str, *, content_type: str | None = None) -> dict:
     if size > MAX_PUT_BYTES:
         raise ValueError(f"{local.name} 有 {size/1048576:.1f}MB，超过单次上传上限；需要分片上传")
 
-    key = key_for(rel)
-    url = presign("PUT", key, ttl=900)
-    md5 = hashlib.md5()
+    want = _md5_hex(local=local)
     with local.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            md5.update(chunk)
-    want = md5.hexdigest()
-
-    headers = {"Content-Length": str(size)}
-    if content_type:
-        headers["Content-Type"] = content_type
-    with local.open("rb") as f:
-        r = httpx.put(url, content=f, headers=headers, timeout=600.0)
-    if r.status_code // 100 != 2:
-        raise RuntimeError(f"上传失败 {r.status_code}: {r.text[:200]}")
-
-    etag = (r.headers.get("ETag") or "").strip('"')
-    if etag and etag.lower() != want:
-        # 立刻把坏对象删掉，不留给下一轮当成"已存在"跳过
-        try:
-            delete(rel)
-        except Exception:      # noqa: BLE001
-            pass
-        raise RuntimeError(f"ETag 不符：本地 {want} 远端 {etag}，已删除远端对象")
-    return {"key": key, "size": size, "etag": etag or want}
+        return _put(rel, f, size, want, content_type)
 
 
 #: 每个本地目标路径一把锁，防止同一对象被并发回填时互相踩临时文件。
@@ -276,14 +309,24 @@ def fetch(rel: str, dest: Path) -> Path:
 
 
 def head(rel: str) -> dict | None:
-    """对象存在则返回 {size, etag}，否则 None。"""
+    """对象存在则返回 {size, etag, content_type}，否则 None。"""
     r = httpx.head(presign("HEAD", key_for(rel)), timeout=30.0)
     if r.status_code == 404:
         return None
     if r.status_code // 100 != 2:
         raise RuntimeError(f"HEAD 失败 {r.status_code}")
     return {"size": int(r.headers.get("Content-Length") or 0),
-            "etag": (r.headers.get("ETag") or "").strip('"')}
+            "etag": (r.headers.get("ETag") or "").strip('"'),
+            "content_type": (r.headers.get("Content-Type") or "").split(";", 1)[0].strip()}
+
+
+def read_head_bytes(rel: str, n: int = 32) -> bytes:
+    """读对象开头 `n` 个字节（Range 请求），用来核对文件头。"""
+    r = httpx.get(presign("GET", key_for(rel)), headers={"Range": f"bytes=0-{n - 1}"},
+                  timeout=30.0)
+    if r.status_code not in (200, 206):
+        raise RuntimeError(f"读取文件头失败 HTTP {r.status_code}")
+    return r.content[:n]
 
 
 def delete(rel: str) -> None:

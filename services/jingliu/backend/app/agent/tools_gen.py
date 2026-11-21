@@ -379,7 +379,8 @@ async def export_jianying(ctx: ToolCtx, project_id: str,
     from ..routers.jianying import ExportReq, export_draft
 
     req = ExportReq(episode=episode, single_file=bool(single_file))
-    out = export_draft(project_id, req)
+    # 路由函数是同步的（打包 + 直传进桶），放进线程，不占事件循环
+    out = await asyncio.to_thread(export_draft, project_id, req)
     if isinstance(out, dict) and out.get("url"):
         out.setdefault("note", "下载后双击包内的一键导入即可")
     return {"ok": True, **(out or {})}

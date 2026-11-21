@@ -364,8 +364,9 @@ class MediaKitUpscaleProvider:
                         # 如实降级：交回无声画面，并在 note 里说清楚。
                         logger.warning("[mediakit] 合音轨失败，返回无声产物：%r", e)
                         out["audio_missing"] = str(e)[:160]
+                    from ..media_store import commit_async
                     return {**out, "ok": True,
-                            "video_url": f"/fw/media/generated/{local.name}",
+                            "video_url": await commit_async(local),
                             "task_id": task_id, "remote_url": url,
                             "cost_sec": round(gen, 1)}
 

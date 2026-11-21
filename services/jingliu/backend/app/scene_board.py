@@ -279,4 +279,5 @@ def build(project_title: str, scene_name: str, views: list[dict],
     except Exception as e:                  # noqa: BLE001
         log.warning("[board] 设定板落盘失败：%s", e)
         return None
-    return f"/fw/media/generated/{name}"
+    from .media_store import commit
+    return commit(GENERATED_DIR / name)

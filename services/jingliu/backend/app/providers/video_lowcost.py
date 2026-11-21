@@ -63,6 +63,7 @@ import httpx
 from ..config import get_settings
 from . import http
 from ..media import GENERATED_DIR
+from ..media_store import commit_async
 from .base import (AudioMode, VideoProvider, VideoRequest, VideoResult, VisualMode,
                    sanitize_video_prompt, to_public_url)
 
@@ -780,13 +781,18 @@ class LowCostSeedanceProvider(VideoProvider):
     async def _download(self, url: str, ch: Channel) -> str:
         name = f"lc_{uuid.uuid4().hex[:12]}.mp4"
         dest = GENERATED_DIR / name
-        async with http.client("lowcost-download", timeout=900.0, follow_redirects=True) as c:
-            async with c.stream("GET", url, headers=ch.headers) as resp:
-                resp.raise_for_status()
-                with dest.open("wb") as w:
-                    async for chunk in resp.aiter_bytes(1024 * 256):
-                        w.write(chunk)
-        return f"/fw/media/generated/{name}"
+        try:
+            async with http.client("lowcost-download", timeout=900.0,
+                                   follow_redirects=True) as c:
+                async with c.stream("GET", url, headers=ch.headers) as resp:
+                    resp.raise_for_status()
+                    with dest.open("wb") as w:
+                        async for chunk in resp.aiter_bytes(1024 * 256):
+                            w.write(chunk)
+        except BaseException:
+            dest.unlink(missing_ok=True)     # 半截文件不能留给巡检当成片传进桶
+            raise
+        return await commit_async(dest)
 
     async def _run_one(self, ch: Channel, req: VideoRequest, refs: list[str],
                        ratio: str) -> VideoResult:

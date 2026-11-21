@@ -227,6 +227,8 @@ def export(project_id: str, episode: int | None, single_file: bool) -> dict:
             for f in sorted(pack.rglob("*")):
                 if f.is_file():
                     z.write(f, str(Path(pack_name) / f.relative_to(pack)))
+        from ..media_store import commit
+        commit(zip_path)
     finally:
         if pack.exists():
             shutil.rmtree(pack, ignore_errors=True)

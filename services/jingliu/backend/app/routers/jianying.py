@@ -47,6 +47,7 @@ from pydantic import BaseModel
 from .. import access
 from ..db import AudioClip, Shot, SubtitleClip, Project, get_session
 from ..media import DATA_DIR
+from ..media_store import commit as commit_media
 from ..shot_timing import (shot_output_sec, shot_source_window, shot_speed,
                            subtitle_output_span)
 
@@ -975,6 +976,7 @@ def _emit_single_file(pack: Path, pack_name: str, built: dict,
     bat_name = f"镜流导入-{pack_name}.bat"
     bat_path = EXPORT_DIR / bat_name
     bat_path.write_text(_BAT_BOOT + wrapped + "\r\n", encoding="ascii")
+    commit_media(bat_path)
 
     total_bytes = sum(m["size"] for m in mats)
     return {
@@ -1122,6 +1124,7 @@ def export_draft(project_id: str, req: ExportReq) -> dict:
                 if f.is_file():
                     # 非 ASCII 文件名要置 UTF-8 标志位，否则资源管理器解出乱码
                     z.write(f, str(Path(pack_name) / f.relative_to(pack)))
+        commit_media(zip_path)
     finally:
         # 单文件分支在产完包之后也要落盘（它把包内内容内联进 .bat），
         # 所以清理统一放 finally，别让异常路径留下半截目录。

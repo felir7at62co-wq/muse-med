@@ -882,8 +882,8 @@ class RunningHubH3VideoProvider(VideoProvider):
                 ext = cand
                 break
         name = f"h3_{uuid.uuid4().hex[:12]}{ext}"
-        (GENERATED_DIR / name).write_bytes(r.content)
-        return f"/fw/media/generated/{name}"
+        from ..media_store import store_bytes_async
+        return await store_bytes_async(r.content, GENERATED_DIR / name)
 
     # ---- VideoProvider 接口 ----
     async def submit(self, req: VideoRequest) -> VideoResult:

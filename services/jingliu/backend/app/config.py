@@ -138,11 +138,18 @@ class Settings(BaseSettings):
     tos_access_key_id: str = ""
     tos_access_key_secret: str = ""
     tos_key_prefix: str = ""          # 形如 shotflow/dev/
+    #: 交给浏览器、Muse 客户端与远端服务的预签名地址用的主机（不含桶名）。
+    #: 留空 = 与 `tos_endpoint` 相同。服务端自己读写桶可以走内网 endpoint，
+    #: 但内网主机名在服务器之外解析不到，所以凡是交出去的地址都签这一个。
+    tos_public_endpoint: str = ""
 
     #: 哪些子目录归桶管。appcast 刻意不在内：桌面客户端更新器读
     #: /fw/media/appcast/latest.json，改成 302 跳转未经验证，而出问题时
     #: 影响的是正式版客户端的自动更新。outputs 可再生，也不值得进桶。
-    tos_dirs: list[str] = ["generated", "uploads"]
+    #: character-references（Muse 角色参考图）与 exports（剪映导出包，
+    #: 只认 `exports/jianying/<文件>`）各占自己的前缀。
+    tos_dirs: list[str] = ["generated", "uploads", "character-references", "exports"]
+
 
     #: 本地缓存水位：盘用量超过 high 就开始淘汰最久未用的**已上传**文件，
     #: 降到 low 为止。按剩余空间自适应，换盘/清理后自动跟随，不必手改绝对值。

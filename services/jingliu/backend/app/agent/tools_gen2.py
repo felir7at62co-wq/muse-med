@@ -26,6 +26,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Optional
@@ -166,8 +167,9 @@ async def build_scene_board(ctx: ToolCtx, project_id: str, asset_id: str) -> dic
         desc, name = desc_of(a), a.name
         session.commit()
 
-    url = scene_board.build(title, name, views, description=desc,
-                            look_text=look_text or None)
+    # 拼板与直传进桶都是同步 IO，放进线程，不占事件循环
+    url = await asyncio.to_thread(scene_board.build, title, name, views, description=desc,
+                                  look_text=look_text or None)
     if not url:
         return {"ok": False, "error": "设定板拼装失败（详见后端日志）"}
     with get_session() as session:

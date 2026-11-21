@@ -22,6 +22,7 @@ from . import http
 # 落盘目录统一从 media 取（读 settings.data_dir）；这里再写一份硬编码路径
 # 会让 prod 把视频写进 dev 目录，见 2026-09-01 的「参考素材不可用」。
 from ..media import GENERATED_DIR
+from ..media_store import commit_async
 from .base import (AudioMode, VideoProvider, VideoRequest, VideoResult, VisualMode,
                    sanitize_video_prompt, to_public_url)
 
@@ -108,13 +109,18 @@ class ChatVideoProvider(VideoProvider):
     async def _download(self, remote: str) -> str:
         name = f"shot_{uuid.uuid4().hex[:12]}.mp4"
         dest = GENERATED_DIR / name
-        async with http.client("video-download", timeout=600.0, follow_redirects=True) as client:
-            async with client.stream("GET", remote) as resp:
-                resp.raise_for_status()
-                with dest.open("wb") as w:
-                    async for chunk in resp.aiter_bytes(1024 * 256):
-                        w.write(chunk)
-        return f"/fw/media/generated/{name}"
+        try:
+            async with http.client("video-download", timeout=600.0,
+                                   follow_redirects=True) as client:
+                async with client.stream("GET", remote) as resp:
+                    resp.raise_for_status()
+                    with dest.open("wb") as w:
+                        async for chunk in resp.aiter_bytes(1024 * 256):
+                            w.write(chunk)
+        except BaseException:
+            dest.unlink(missing_ok=True)     # 半截文件不能留给巡检当成片传进桶
+            raise
+        return await commit_async(dest)
 
     async def poll(self, task_id: str) -> VideoResult:
         # 同步通道：submit 即完成，不存在待轮询任务

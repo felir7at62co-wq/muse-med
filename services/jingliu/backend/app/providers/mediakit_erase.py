@@ -264,8 +264,9 @@ class MediaKitEraseProvider(MediaKitUpscaleProvider):
                         # 画面已出、已计费，不能因为音频合不上整条作废。
                         logger.warning("[desub] 合音轨失败，交付无声产物：%r", e)
                         out["audio_missing"] = str(e)[:160]
+                    from ..media_store import commit_async
                     out.update(ok=True, elapsed=round(waited, 1),
-                               video_url=f"/fw/media/generated/{local.name}",
+                               video_url=await commit_async(local),
                                remote_url=url)
                     return out
                 if st in _FAILED:

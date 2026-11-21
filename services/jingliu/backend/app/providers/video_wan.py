@@ -32,6 +32,7 @@ import uuid
 from ..config import get_settings
 from . import http
 from ..media import GENERATED_DIR
+from ..media_store import commit_async
 from .base import (AudioMode, VideoProvider, VideoRequest, VideoResult, VisualMode,
                    sanitize_video_prompt, to_public_url)
 
@@ -325,12 +326,16 @@ class WanVideoProvider(VideoProvider):
         name = f"wan_{uuid.uuid4().hex[:12]}.mp4"
         dest = GENERATED_DIR / name
         c = http.get("download", timeout=600.0, follow_redirects=True)
-        async with c.stream("GET", remote) as resp:
-            resp.raise_for_status()
-            with dest.open("wb") as w:
-                async for chunk in resp.aiter_bytes(1024 * 256):
-                    w.write(chunk)
-        return f"/fw/media/generated/{name}"
+        try:
+            async with c.stream("GET", remote) as resp:
+                resp.raise_for_status()
+                with dest.open("wb") as w:
+                    async for chunk in resp.aiter_bytes(1024 * 256):
+                        w.write(chunk)
+        except BaseException:
+            dest.unlink(missing_ok=True)     # 半截文件不能留给巡检当成片传进桶
+            raise
+        return await commit_async(dest)
 
     async def poll(self, task_id: str) -> VideoResult:
         key, base = self._cfg()

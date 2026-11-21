@@ -497,9 +497,10 @@ def _only_images(images: list[bytes]) -> list[bytes]:
 
 
 def _save(raw: bytes) -> str:
+    """落盘并直传进桶（用内存里这份字节，不再读盘）。同步：在线程里调用。"""
+    from ..media_store import store_bytes
     name = f"img_{uuid.uuid4().hex[:12]}.png"
-    (GENERATED_DIR / name).write_bytes(_flatten_alpha(raw))
-    return f"/fw/media/generated/{name}"
+    return store_bytes(_flatten_alpha(raw), GENERATED_DIR / name)
 
 
 def _save_all(images: list[bytes]) -> list[str]:
@@ -1561,9 +1562,10 @@ class ImageProvider:
                     from .. import usage as _usage
                     _usage.record("image", model_id=self.model_id, channel=name,
                                   units=len(images) if images else n)
-                    # 落盘是同步 IO，丢线程池避免阻塞事件循环（无并发上限时
-                    # 几百张图同时落盘，累计阻塞很可观）
-                    return await asyncio.to_thread(_save_all, images)
+                    # 落盘与直传进桶是同步 IO，进长阻塞池（见 app/executors.py）：
+                    # 无并发上限时几百张图同时落盘上传，不能占默认线程池。
+                    from ..executors import run_long_blocking
+                    return await run_long_blocking(_save_all, images)
 
         if mod_reject is not None and all("审核拒绝" in e for e in errs):
             # 全部渠道都因内容审核被拒 → 抛 ContentRejected 而非泛化 RuntimeError，

@@ -52,7 +52,8 @@ def erase(monkeypatch, tmp_path):
     monkeypatch.setattr(get_settings(), "mediakit_api_key", "AKLT-test-only")
     src = tmp_path / "src.mp4"
     src.write_bytes(b"video")
-    out = tmp_path / "out.mp4"
+    # 取件结果落在数据目录里：通道把它当成片直传进桶（没配桶时只返回地址）
+    out = media.GENERATED_DIR / "desub_test_out.mp4"
     out.write_bytes(b"erased")
 
     async def publish(self, video_url):
@@ -154,8 +155,11 @@ def test_upscale_has_no_fake_cancel_and_keeps_polling_through_blips(monkeypatch,
             raise step
         return step
 
+    out = media.GENERATED_DIR / "up_test_out.mp4"
+    out.write_bytes(b"upscaled")
+
     async def download(self, url):
-        return src
+        return out
 
     async def mux(video, source):
         return video

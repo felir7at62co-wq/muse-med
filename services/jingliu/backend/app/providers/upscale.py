@@ -98,6 +98,14 @@ _VIDEO_MIME = {".mp4": "video/mp4", ".mov": "video/quicktime",
                ".webm": "video/webm", ".mkv": "video/x-matroska"}
 
 
+async def _committed(r: dict) -> dict:
+    """单段放大的最终产物直传进桶。切段放大的中间段不经过这里（拼完就删）。"""
+    if r.get("ok") and isinstance(r.get("video_url"), str):
+        from ..media_store import commit_async
+        r = {**r, "video_url": await commit_async(GENERATED_DIR / Path(r["video_url"]).name)}
+    return r
+
+
 class UpscaleProvider:
     """把一个本地视频交给 SeedVR2 工作流放大，返回落盘后的本地地址。
 
@@ -574,7 +582,7 @@ class UpscaleProvider:
         返回结构与 `_upscale_single` 相同，另加 `segments`（段数）。
         """
         if isinstance(video_url, str) and video_url.startswith(_REMOTE_PREFIX):
-            return await self._upscale_single(video_url)
+            return await _committed(await self._upscale_single(video_url))
         from ..media import WORK_DIR, _probe_duration, ensure_local_async
         src = await ensure_local_async(video_url)
         if src is None or not src.is_file():
@@ -583,7 +591,7 @@ class UpscaleProvider:
         dur = await _probe_duration(src)
         if dur <= SEGMENT_MAX_SEC + 0.5:
             r = await self._upscale_single(video_url)
-            return {**r, "segments": 1}
+            return {**(await _committed(r)), "segments": 1}
 
         frames, fps = await _probe_frames(src)
         if frames <= 0 or fps <= 0:
@@ -639,7 +647,8 @@ class UpscaleProvider:
             await _concat_with_source_audio(outs, src, GENERATED_DIR / name, work)
             for o in outs:                      # 段产物是中间件，拼完就删
                 o.unlink(missing_ok=True)
-            return {**base, "ok": True, "video_url": f"/fw/media/generated/{name}",
+            from ..media_store import commit_async
+            return {**base, "ok": True, "video_url": await commit_async(GENERATED_DIR / name),
                     "error": None}
         except Exception as e:  # noqa: BLE001
             logger.warning("[upscale] 切段放大异常：%r", e)

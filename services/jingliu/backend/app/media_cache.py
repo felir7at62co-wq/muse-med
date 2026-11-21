@@ -5,15 +5,12 @@
 - `app/storage.py` 只管"怎么跟桶说话"（签名、PUT/GET/HEAD/DELETE）。
 - 本模块管"什么时候传、什么时候删"，以及 `media_objects` 台账的维护。
 
-## 为什么是"扫目录补传"而不是"生成时同步上传"
+## 直传为主，扫目录补传
 
-素材的落盘点散在十几个地方（三条视频通道、图像、TTS、去字幕、放大、抽帧、
-烧字幕…），逐个塞上传代码既容易漏，又会把生成链路的耗时和失败率绑到桶上——
-桶抖一下就导致一条已经出片的镜头被判失败，那是净损失。
-
-改成巡检扫目录：**生成路径一行不用改**，漏不掉任何写入点，桶挂了也只是
-本轮没传上去，下一轮继续。代价是上传滞后最多一轮（300 秒），而这段时间里
-文件本来就在本地，读取完全不受影响。
+各写入点写完文件就经 `media_store.commit` 直传进桶（失败只记日志，不判
+生成失败）。本模块的巡检扫托管目录，把直传失败或漏掉的文件补传上去：
+桶挂了也只是这一轮没传上，下一轮继续。刚写出不到 `FRESH_SEC` 的文件跳过，
+那是写入点自己正在传、甚至还没写完的文件。
 
 ## 删本地的前提是"确认传成功"
 
@@ -46,9 +43,8 @@ UPLOAD_BATCH = 300
 #: 删了立刻要从桶拉回，纯属来回折腾。
 MIN_AGE_SEC = 3600
 
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+#: 补传跳过多新的文件（秒）。写入点直传完之前，巡检不去碰它。
+FRESH_SEC = 120
 
 
 def _managed_dirs() -> list[Path]:
@@ -108,17 +104,24 @@ def upload_pending(limit: int = UPLOAD_BATCH) -> dict:
     if not storage.enabled():
         return {"uploaded": 0, "failed": 0, "bytes": 0, "skipped": "未配置桶"}
 
+    from .media_store import managed_rel
+
     with engine.begin() as conn:
         known = {r[0] for r in conn.execute(text("SELECT rel_path FROM media_objects"))}
 
+    fresh = datetime.now(timezone.utc).timestamp() - FRESH_SEC
     todo: list[Path] = []
     for d in _managed_dirs():
         if not d.is_dir():
             continue
         for p in d.rglob("*"):
-            if not p.is_file() or p.name.endswith(".part"):
+            try:
+                if not p.is_file() or p.stat().st_mtime > fresh:
+                    continue
+            except OSError:
                 continue
-            if _rel(p) in known:
+            rel = _rel(p)
+            if rel in known or not managed_rel(rel):
                 continue
             todo.append(p)
             if len(todo) >= limit:
@@ -126,31 +129,21 @@ def upload_pending(limit: int = UPLOAD_BATCH) -> dict:
         if len(todo) >= limit:
             break
 
+    from .media_store import content_type_for, note_failure, upsert_ledger
+
     up = fail = total = 0
     for p in todo:
         rel = _rel(p)
         try:
             meta = probe_meta(p)
-            r = storage.put_file(p, rel)
-        except Exception:      # noqa: BLE001
+            r = storage.put_file(p, rel, content_type=content_type_for(p.name))
+            upsert_ledger(rel, key=r["key"], size=r["size"], etag=r["etag"], meta=meta)
+        except Exception as e:      # noqa: BLE001
             fail += 1
-            logger.warning("[cache] 上传失败: %s", rel, exc_info=True)
+            note_failure("upload", rel, e)
             continue
-        with engine.begin() as conn:
-            conn.execute(text("""
-                INSERT INTO media_objects
-                  (rel_path, obj_key, size, etag, width, height, duration_us,
-                   uploaded_at, last_used_at)
-                VALUES (:rel, :key, :size, :etag, :w, :h, :dur, :now, :now)
-                ON CONFLICT(rel_path) DO UPDATE SET
-                  obj_key=:key, size=:size, etag=:etag, uploaded_at=:now
-            """), {"rel": rel, "key": r["key"], "size": r["size"], "etag": r["etag"],
-                   "w": meta["width"], "h": meta["height"],
-                   "dur": meta["duration_us"], "now": _now()})
         up += 1
         total += r["size"]
-    if up or fail:
-        logger.info("[cache] 上传 %d 个（%.1f MB），失败 %d", up, total / 1048576, fail)
     return {"uploaded": up, "failed": fail, "bytes": total}
 
 
@@ -223,11 +216,57 @@ def evict(*, high: int | None = None, low: int | None = None) -> dict:
     return {"evicted": n, "bytes": freed, "disk_pct": round(disk_pct(), 1)}
 
 
+def sweep_export_objects(ttl_sec: int | None = None) -> int:
+    """导出包在桶里的副本按导出包的 TTL 删（本地那份由 `jianying.sweep_exports` 删）。
+    返回删掉的个数。"""
+    if not storage.enabled():
+        return 0
+    if ttl_sec is None:
+        from .routers.jianying import EXPORT_TTL_SEC
+        ttl_sec = EXPORT_TTL_SEC
+    cutoff = datetime.fromtimestamp(
+        datetime.now(timezone.utc).timestamp() - ttl_sec, timezone.utc
+    ).isoformat(timespec="seconds")
+    with engine.begin() as conn:
+        rels = [r[0] for r in conn.execute(text(
+            "SELECT rel_path FROM media_objects "
+            "WHERE rel_path LIKE 'exports/%' AND uploaded_at < :c"), {"c": cutoff})]
+    n = 0
+    for rel in rels:
+        try:
+            storage.delete(rel)
+        except Exception:      # noqa: BLE001
+            logger.warning("[cache] 删除过期导出包失败，下一轮重试: %s", rel)
+            continue
+        (DATA_DIR / rel).unlink(missing_ok=True)
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM media_objects WHERE rel_path=:r"), {"r": rel})
+        from .providers.base import invalidate_in_ledger
+        invalidate_in_ledger(rel)
+        n += 1
+    return n
+
+
 def sweep() -> dict:
-    """一轮：先补传，再按水位淘汰。供常驻巡检调用。"""
+    """一轮：补传、删过期导出包、按水位淘汰，最后记一行本周期的计数。
+    供常驻巡检调用。"""
+    from . import media_store
+
     up = upload_pending()
+    exports = 0
+    try:
+        exports = sweep_export_objects()
+    except Exception as e:      # noqa: BLE001
+        logger.warning("[cache] 过期导出包清理失败: %s", media_store.brief_error(e))
     ev = evict()
-    return {"upload": up, "evict": ev}
+    if storage.enabled():
+        c = media_store.take_counts()
+        logger.info(
+            "[media] 本周期：直传 %d，补传 %d，上传失败 %d，回填 %d，回填失败 %d，"
+            "过期导出包 %d，淘汰 %d",
+            c["uploaded"], up.get("uploaded", 0), c["upload_failed"],
+            c["restored"], c["restore_failed"], exports, ev.get("evicted", 0))
+    return {"upload": up, "evict": ev, "exports": exports}
 
 
 def ledger_sizes(paths: list[Path]) -> dict[Path, int]:

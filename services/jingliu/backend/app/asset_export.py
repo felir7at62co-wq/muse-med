@@ -346,6 +346,7 @@ def emit_pack(man: dict, *, single_file: bool = True) -> dict:
     import io
     import textwrap
 
+    from .media_store import commit
     from .pack_boot import PAYLOAD_MARK, bat_boot
     from .routers.jianying import EXPORT_DIR
 
@@ -387,6 +388,7 @@ def emit_pack(man: dict, *, single_file: bool = True) -> dict:
             dest.write_text(bat_boot(PACK_SCRIPT_REL, tmp_prefix="sf-assets-")
                             + PAYLOAD_MARK + "\r\n" + wrapped + "\r\n",
                             encoding="ascii")
+            commit(dest)
             return {"url": "/fw/media/exports/jianying/" + quote(name), "name": name,
                     "file_size": dest.stat().st_size, "single_file": True,
                     "count": len(man["items"]), "total_bytes": man["total_bytes"],
@@ -399,6 +401,7 @@ def emit_pack(man: dict, *, single_file: bool = True) -> dict:
                 if f.is_file():
                     # 非 ASCII 文件名要置 UTF-8 标志位，否则资源管理器解出乱码
                     z.write(f, str(Path(man["folder"]) / f.relative_to(pack)))
+        commit(zip_path)
         return {"url": "/fw/media/exports/jianying/" + quote(zip_path.name),
                 "name": zip_path.name, "file_size": zip_path.stat().st_size,
                 "single_file": False, "count": len(man["items"]),
