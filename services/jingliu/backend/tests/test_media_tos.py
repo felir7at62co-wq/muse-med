@@ -470,6 +470,78 @@ def test_upload_complete_needs_the_object_and_a_matching_token(tos, monkeypatch)
 
 # ---------------------------------------------------------------- 本地副本
 
+def test_job_deletes_its_local_copies_when_it_ends(drop_local):
+    from app import job_submit, media_store
+
+    written: list[Path] = []
+
+    async def runner(jid):
+        dest = _gen()
+        await media_store.store_bytes_async(PNG, dest)
+        written.append(dest)
+        assert dest.is_file()                                 # 任务进行中本地一直在
+
+    run(job_submit._run_job_guarded(runner, "job-media-1", "image"))
+    assert written and not written[0].exists()
+    assert f"generated/{written[0].name}" in drop_local.objects
+
+
+def test_keep_local_default_keeps_every_copy(tos):
+    from app import media_store
+
+    scope = media_store.open_scope()
+    dest = _gen()
+    media_store.store_bytes(PNG, dest)
+    media_store.close_scope(scope)
+    assert media_store.drop_local_copies(scope) == 0 and dest.is_file()
+
+
+def test_a_file_another_running_job_reads_waits_for_that_job(drop_local):
+    import contextvars
+
+    from app import media_store
+    from app.media import ensure_local
+
+    dest = _gen()
+    writer = media_store.open_scope()
+    media_store.store_bytes(PNG, dest)
+    media_store.close_scope(writer)
+
+    def reader_job():
+        scope = media_store.open_scope()
+        assert ensure_local(f"/fw/media/generated/{dest.name}").resolve() == dest.resolve()
+        return scope
+
+    reader = contextvars.copy_context().run(reader_job)
+    assert media_store.drop_local_copies(writer) == 0 and dest.is_file()
+    media_store.close_scope(reader)
+    assert media_store.drop_local_copies(reader) == 1 and not dest.exists()
+
+
+def test_local_copy_stays_when_the_bucket_copy_is_missing(drop_local):
+    from app import media_store
+
+    scope = media_store.open_scope()
+    dest = _gen()
+    media_store.store_bytes(PNG, dest)
+    media_store.close_scope(scope)
+    drop_local.objects.clear()
+    assert media_store.drop_local_copies(scope) == 0 and dest.is_file()
+
+
+def test_sweep_deletes_old_copies_outside_jobs_only(drop_local, caplog):
+    from app import media_cache, media_store
+
+    old, young = _gen(), _gen()
+    for p in (old, young):
+        media_store.store_bytes(PNG, p)
+    _age(old, media_cache.MIN_AGE_SEC + 5)
+    with caplog.at_level(logging.INFO, logger="app.media_cache"):
+        out = media_cache.sweep()
+    assert out["local_deleted"] == 1 and not old.exists() and young.is_file()
+    [line] = [r.getMessage() for r in caplog.records if "本周期" in r.getMessage()]
+    assert "直传 2" in line and "删本地 1" in line
+
 
 def test_ensure_local_restores_references_and_logs_failures_briefly(tos, caplog):
     from app.media import DATA_DIR, ensure_local

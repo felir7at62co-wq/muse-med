@@ -394,6 +394,7 @@ def ensure_local(url: str) -> Path | None:
         if p is not None:
             rel = _rel_of(p)
             if rel:
+                media_store.note_read(rel)
                 _touch_used(rel)
         return p
 
@@ -405,7 +406,7 @@ def ensure_local(url: str) -> Path | None:
         return p
     try:
         storage.fetch(rel, p)
-        media_store.count("restored")
+        media_store.note_restored(rel)
         _touch_used(rel)
     except Exception as e:      # noqa: BLE001
         # 拉不回来就当文件不存在，交给调用方的既有降级分支
@@ -421,6 +422,7 @@ async def ensure_local_async(url: str) -> Path | None:
     if p.is_file():
         rel = _rel_of(p)
         if rel:
+            media_store.note_read(rel)
             await asyncio.to_thread(_touch_used, rel)
         return p
     from . import storage
@@ -434,7 +436,7 @@ async def ensure_local_async(url: str) -> Path | None:
         # 放进默认 executor 的话，它和鉴权 verify_session 抢同一批 20 个槽，
         # 一次冷缓存回填就能让全站排队几十秒。见 app/executors.py 模块头。
         await run_long_blocking(storage.fetch, rel, p)
-        media_store.count("restored")
+        media_store.note_restored(rel)
         await asyncio.to_thread(_touch_used, rel)
     except Exception as e:      # noqa: BLE001
         media_store.note_failure("restore", rel, e)

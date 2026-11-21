@@ -150,6 +150,13 @@ class Settings(BaseSettings):
     #: 只认 `exports/jianying/<文件>`）各占自己的前缀。
     tos_dirs: list[str] = ["generated", "uploads", "character-references", "exports"]
 
+    #: 写进桶之后是否还留本地副本（FW_MEDIA_KEEP_LOCAL）。
+    #: true = 与改动前相同：本地一直留着，只按盘水位淘汰。
+    #: false = 写出文件的那一步任务结束时删本地副本（桶里确认存在才删），
+    #: 不属于任何任务的文件在巡检时满 `media_cache.MIN_AGE_SEC` 再删；
+    #: 之后要读本地文件的地方经 `media.ensure_local` 从桶拉回。
+    #: 每个客户端都改用 `POST /v2/media/resolve` 下载之后再设为 false。
+    media_keep_local: bool = True
 
     #: 本地缓存水位：盘用量超过 high 就开始淘汰最久未用的**已上传**文件，
     #: 降到 low 为止。按剩余空间自适应，换盘/清理后自动跟随，不必手改绝对值。

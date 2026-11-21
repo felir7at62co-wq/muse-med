@@ -15,6 +15,20 @@
 
 上传失败只记一行日志、计一次数，照常返回地址：文件还在本地，巡检下一轮补传。
 没配桶（`storage.enabled()` 为假）时只写盘，不碰台账，行为与接入前完全相同。
+
+## 本地副本什么时候删
+
+`settings.media_keep_local` 为真（默认）时从不删。为假时：
+
+- 任务（`job_submit._run_job_guarded`）开一个「作用域」，作用域里写出的文件
+  在任务结束时删本地副本；
+- 另一个仍在运行的任务读过同一个文件（`media.ensure_local*` 记读取）时不删，
+  改由那个任务结束时再删；
+- 不属于任何任务的文件（接口里直接写的、回填回来的缓存）由巡检
+  `drop_stray_local` 在文件满一定年龄后删。
+
+删之前都核对：台账有这一行、本地大小与台账一致、HEAD 桶里对象存在且大小一致。
+任何一项不满足就保留本地文件。
 """
 from __future__ import annotations
 
@@ -22,6 +36,9 @@ import logging
 import mimetypes
 import re
 import threading
+import time
+from contextvars import ContextVar, Token
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
@@ -221,6 +238,165 @@ def note_failure(what: str, rel: str, exc: BaseException) -> None:
                    brief_error(exc))
 
 
+# ---------------------------------------------------------------- 作用域（任务）
+
+@dataclass(eq=False)
+class MediaScope:
+    """一次任务执行期间写出与读过的文件（rel）。"""
+
+    written: set[str] = field(default_factory=set)
+    read: set[str] = field(default_factory=set)
+    token: Token | None = None
+
+
+_SCOPE: ContextVar[MediaScope | None] = ContextVar("fw_media_scope", default=None)
+_ACTIVE: set[MediaScope] = set()
+_SCOPE_LOCK = threading.Lock()
+
+#: 不在任何任务里的读取（接口直接读文件）：rel → 最近一次读取的 monotonic 时刻。
+#: 这段时间内不删它的本地副本，免得刚交出去的路径马上失效。
+_UNSCOPED_READS: dict[str, float] = {}
+UNSCOPED_READ_HOLD_SEC = 600.0
+
+
+def open_scope() -> MediaScope:
+    """在当前上下文里开一个作用域。与 `close_scope` 成对，在同一个协程里调用。"""
+    scope = MediaScope()
+    scope.token = _SCOPE.set(scope)
+    with _SCOPE_LOCK:
+        _ACTIVE.add(scope)
+    return scope
+
+
+def close_scope(scope: MediaScope) -> None:
+    """结束作用域（不做 I/O）。之后再调 `drop_local_copies(scope)` 删本地副本。"""
+    with _SCOPE_LOCK:
+        _ACTIVE.discard(scope)
+    if scope.token is not None:
+        try:
+            _SCOPE.reset(scope.token)
+        except ValueError:
+            # 不在开它的那个上下文里：作用域已从 _ACTIVE 摘掉，变量随上下文一起丢弃
+            pass
+        scope.token = None
+
+
+def _track_written(rel: str) -> None:
+    scope = _SCOPE.get()
+    if scope is not None:
+        with _SCOPE_LOCK:
+            scope.written.add(rel)
+
+
+def note_read(rel: str) -> None:
+    """`media.ensure_local*` 交出一个本地路径时调用。"""
+    scope = _SCOPE.get()
+    if scope is not None:
+        with _SCOPE_LOCK:
+            scope.read.add(rel)
+    else:
+        with _SCOPE_LOCK:
+            _UNSCOPED_READS[rel] = time.monotonic()
+            if len(_UNSCOPED_READS) > 20000:
+                _UNSCOPED_READS.clear()
+
+
+def note_restored(rel: str) -> None:
+    """`media.ensure_local*` 从桶里拉回了一个本地副本。"""
+    count("restored")
+    _track_written(rel)
+    note_read(rel)
+
+
+def _held(rel: str) -> MediaScope | bool | None:
+    """仍在用这个文件的作用域；不在作用域里的近期读取返回 True；没人用返回 None。"""
+    with _SCOPE_LOCK:
+        for s in _ACTIVE:
+            if rel in s.read or rel in s.written:
+                return s
+        t = _UNSCOPED_READS.get(rel)
+        if t is not None and time.monotonic() - t < UNSCOPED_READ_HOLD_SEC:
+            return True
+    return None
+
+
+def _may_drop_local() -> bool:
+    return (not get_settings().media_keep_local) and storage.enabled()
+
+
+def _drop_if_safe(rel: str, row: dict | None) -> bool:
+    """确认桶里有完整的一份后删本地副本。返回是否删了。"""
+    p = _data_dir() / rel
+    try:
+        size = p.stat().st_size
+    except OSError:
+        return False
+    if not row or int(row.get("size") or 0) != size:
+        return False
+    try:
+        h = storage.head(rel)
+    except Exception as e:      # noqa: BLE001
+        note_failure("check", rel, e)
+        return False
+    if not h or int(h.get("size") or 0) != size:
+        return False
+    try:
+        p.unlink()
+    except FileNotFoundError:
+        return False
+    count("local_deleted")
+    return True
+
+
+def drop_local_copies(scope: MediaScope) -> int:
+    """作用域结束后删它写出的本地副本。同步（有 HEAD 请求），放线程里跑。
+
+    别的仍在运行的作用域读过或写过同一个文件时不删，把它交给那个作用域。
+    """
+    if not scope.written or not _may_drop_local():
+        return 0
+    pending: list[str] = []
+    for rel in sorted(scope.written):
+        holder = _held(rel)
+        if isinstance(holder, MediaScope):
+            with _SCOPE_LOCK:
+                holder.written.add(rel)
+            continue
+        if holder is True or not managed_rel(rel):
+            continue
+        pending.append(rel)
+    if not pending:
+        return 0
+    rows = ledger_rows(pending)
+    return sum(1 for rel in pending if _drop_if_safe(rel, rows.get(rel)))
+
+
+def drop_stray_local(min_age_sec: float) -> int:
+    """巡检用：删不属于任何作用域、满 `min_age_sec` 的本地副本。"""
+    if not _may_drop_local():
+        return 0
+    cutoff = time.time() - min_age_sec
+    base = _data_dir()
+    cands: list[str] = []
+    for d in get_settings().tos_dirs:
+        root = base / d
+        if not root.is_dir():
+            continue
+        for p in root.rglob("*"):
+            try:
+                if not p.is_file() or p.stat().st_mtime > cutoff:
+                    continue
+            except OSError:
+                continue
+            rel = p.relative_to(base).as_posix()
+            if managed_rel(rel) and _held(rel) is None:
+                cands.append(rel)
+    if not cands:
+        return 0
+    rows = ledger_rows(cands)
+    return sum(1 for rel in cands if rel in rows and _drop_if_safe(rel, rows[rel]))
+
+
 # ---------------------------------------------------------------- 写入
 
 def commit(path: Path, *, data: bytes | None = None) -> str:
@@ -232,6 +408,7 @@ def commit(path: Path, *, data: bytes | None = None) -> str:
     rel = rel_of_path(path)
     if rel is None:
         raise ValueError(f"不在数据目录下：{path.name}")
+    _track_written(rel)
     if not storage.enabled() or not managed_rel(rel):
         return url_for(rel)
     try:

@@ -116,6 +116,10 @@ async def _run_job_guarded(runner, jid: str, kind: str) -> None:
     # 用量归属：本任务里所有上游调用都记到这个 job / 项目 / 提交者名下。
     # gather 派出的子协程会复制这份 ContextVar，不需要层层传参。
     _utok = usage.set_ctx(usage.ctx_for_job(jid))
+    # 本任务写出、读过的媒体文件（见 app/media_store.py）。任务结束时删本地副本
+    # （FW_MEDIA_KEEP_LOCAL=false 时；为真时什么都不删）。
+    from . import media_store
+    _mscope = media_store.open_scope()
     try:
         await runner(jid)
     except asyncio.CancelledError:
@@ -157,3 +161,10 @@ async def _run_job_guarded(runner, jid: str, kind: str) -> None:
                 settle(jid, cancelled=True, reason="用户取消")
         except Exception:  # noqa: BLE001
             logger.exception("[job %s] 积分结算失败（不影响任务结果）", jid)
+        # 放在结算之后：这里要等 HEAD 请求，取消落在这一步时结算已经做完。
+        media_store.close_scope(_mscope)
+        try:
+            await asyncio.to_thread(media_store.drop_local_copies, _mscope)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[job %s] 删本地媒体副本失败：%s", jid,
+                           media_store.brief_error(e))

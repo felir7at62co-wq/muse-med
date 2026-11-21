@@ -40,7 +40,8 @@ logger = logging.getLogger(__name__)
 UPLOAD_BATCH = 300
 
 #: 淘汰候选的最小年龄（秒）。刚生成的文件极可能马上被读（抽帧、注入参考图），
-#: 删了立刻要从桶拉回，纯属来回折腾。
+#: 删了立刻要从桶拉回，纯属来回折腾。`FW_MEDIA_KEEP_LOCAL=false` 时，不属于
+#: 任何任务的本地副本也按这个年龄删（`media_store.drop_stray_local`）。
 MIN_AGE_SEC = 3600
 
 #: 补传跳过多新的文件（秒）。写入点直传完之前，巡检不去碰它。
@@ -248,25 +249,28 @@ def sweep_export_objects(ttl_sec: int | None = None) -> int:
 
 
 def sweep() -> dict:
-    """一轮：补传、删过期导出包、按水位淘汰，最后记一行本周期的计数。
-    供常驻巡检调用。"""
+    """一轮：补传、删过期导出包、按设置删本地副本、按水位淘汰，
+    最后记一行本周期的计数。供常驻巡检调用。"""
     from . import media_store
 
     up = upload_pending()
     exports = 0
+    local = 0
     try:
         exports = sweep_export_objects()
+        local = media_store.drop_stray_local(MIN_AGE_SEC)
     except Exception as e:      # noqa: BLE001
-        logger.warning("[cache] 过期导出包清理失败: %s", media_store.brief_error(e))
+        logger.warning("[cache] 本地副本清理失败: %s", media_store.brief_error(e))
     ev = evict()
     if storage.enabled():
         c = media_store.take_counts()
         logger.info(
             "[media] 本周期：直传 %d，补传 %d，上传失败 %d，回填 %d，回填失败 %d，"
-            "过期导出包 %d，淘汰 %d",
+            "删本地 %d，过期导出包 %d，淘汰 %d",
             c["uploaded"], up.get("uploaded", 0), c["upload_failed"],
-            c["restored"], c["restore_failed"], exports, ev.get("evicted", 0))
-    return {"upload": up, "evict": ev, "exports": exports}
+            c["restored"], c["restore_failed"], c["local_deleted"], exports,
+            ev.get("evicted", 0))
+    return {"upload": up, "evict": ev, "exports": exports, "local_deleted": local}
 
 
 def ledger_sizes(paths: list[Path]) -> dict[Path, int]:
