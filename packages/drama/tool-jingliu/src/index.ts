@@ -1,6 +1,6 @@
 /** Discover and invoke the current Jingliu desktop-agent workflow catalog. @module */
 import type { Context } from '@deepseek-ai/cordis'
-import { JingliuHttpError, type JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
+import { JingliuHttpError, projectMediaFolder, type JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { defineTool, type ToolDefinition, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-user-approval'
@@ -14,6 +14,7 @@ import { studioTool } from './studio.ts'
 import { reviewedShots } from './shots.ts'
 import { imageTool, projectsTool } from './production.ts'
 import { narrationTool } from './narration.ts'
+import { mediaTool } from './media.ts'
 
 /** Cordis plugin name. */
 export const name = 'tool-jingliu'
@@ -132,13 +133,16 @@ export function workflowTools(deps: Dependencies): ToolDefinition[] {
         throw new HarnessError(typeof message === 'string' ? message : '镜流未完成本次工作流。', 'JINGLIU_WORKFLOW_REJECTED')
       }
       if (destination) {
-        const draft = await installDraft(session, result, destination, callId, exec.signal)
+        // Drafts of one production share its media folder, so a shot used by several episodes downloads once.
+        const workspace = exec.agent.session.header.cwd
+        const folder = workspace && project ? projectMediaFolder(workspace, project) : undefined
+        const draft = await installDraft(session, result, destination, callId, exec.signal, folder)
         return { workflow: workflow.name, project_id: project, draft }
       }
       return { workflow: workflow.name, project_id: project, result }
     },
     presentCall: args => ({ card: 'generic', title: '镜流 · ' + args.workflow, kind: 'other', rawInput: args }),
-  }), narrationTool(deps), projectsTool(deps), imageTool(deps), studioTool(deps)]
+  }), narrationTool(deps), projectsTool(deps), imageTool(deps), studioTool(deps), mediaTool(deps)]
 }
 
 /**

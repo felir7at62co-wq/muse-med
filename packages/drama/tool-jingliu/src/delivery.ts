@@ -8,7 +8,7 @@ import { pipeline } from 'node:stream/promises'
 import { unzipSync } from 'fflate'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import type { JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
-import { boundedBytes } from '@deepseek-ai/dsh-jingliu-connection'
+import { boundedBytes, mediaPath } from '@deepseek-ai/dsh-jingliu-connection'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { isFields } from './catalog.ts'
 
@@ -31,16 +31,19 @@ function fill(value: JsonValue, paths: Record<string, string>): JsonValue {
 }
 
 /**
- * Install an exported production in the user’s local Jianying draft folder.
+ * Install an exported production in the user’s local Jianying draft folder. With a media folder and a session that
+ * downloads to local files, materials are downloaded once into that folder, shared by every draft of the production,
+ * and linked or copied into the draft; otherwise each material is streamed into the draft.
  * @param session - Same studio owner that exported the project.
  * @param result - Native export result.
  * @param root - User's configured draft root.
  * @param receipt - Stable Session and call identifiers.
  * @param signal - Cancellation.
+ * @param mediaFolder - The production's local media folder, `<workspace>/jingliu/<project>`.
  * @returns Local draft, counts and verified material bytes.
  */
 export async function installDraft(
-  session: JingliuSession, result: Record<string, JsonValue>, root: string, receipt: string, signal: AbortSignal,
+  session: JingliuSession, result: Record<string, JsonValue>, root: string, receipt: string, signal: AbortSignal, mediaFolder?: string,
 ): Promise<Record<string, JsonValue>> {
   if (!session.media || typeof result.url !== 'string' || !result.url.endsWith('.zip') || typeof result.shots !== 'number' || result.shots < 1) throw invalid()
   let archive: Buffer | undefined
@@ -92,25 +95,35 @@ export async function installDraft(
     const mediaDir = join(stage, 'media')
     await mkdir(mediaDir)
     const names = new Set<string>()
-    let bytes = 0
-    for (const file of manifest.materials) {
+    const materials = manifest.materials.map((file) => {
       if (!isFields(file) || !leaf(file.name) || typeof file.url !== 'string' || typeof file.size !== 'number' || !Number.isSafeInteger(file.size) ||
           file.size < 1 || names.has(file.name.toLowerCase())) throw invalid()
       names.add(file.name.toLowerCase())
-      const target = join(mediaDir, file.name)
-      const size = file.size
-      await session.media(nativeMedia(file.url), signal, async (response) => {
-        if (!response.body) throw invalid()
-        let received = 0
-        const meter = new Transform({ transform(chunk: Buffer, _encoding, next) {
-          received += chunk.length
-          if (received > size) next(invalid()); else next(null, chunk)
-        } })
-        await pipeline(Readable.from(response.body), meter, createWriteStream(target, { flags: 'wx', mode: 0o600 }), { signal })
-        if (received !== size) throw invalid()
-      })
-      bytes += (await stat(target)).size
+      return { target: join(mediaDir, file.name), path: nativeMedia(file.url), size: file.size }
+    })
+    if (mediaFolder !== undefined && session.download && session.place) {
+      const local = await session.download(materials.map(m => m.path), mediaFolder, signal)
+      for (const material of materials) {
+        const file = local.get(mediaPath(material.path).path)
+        if (file?.size !== material.size) throw invalid()
+        await session.place(file, material.target)
+      }
+    } else {
+      for (const { target, path, size } of materials) {
+        await session.media(path, signal, async (response) => {
+          if (!response.body) throw invalid()
+          let received = 0
+          const meter = new Transform({ transform(chunk: Buffer, _encoding, next) {
+            received += chunk.length
+            if (received > size) next(invalid()); else next(null, chunk)
+          } })
+          await pipeline(Readable.from(response.body), meter, createWriteStream(target, { flags: 'wx', mode: 0o600 }), { signal })
+          if (received !== size) throw invalid()
+        })
+      }
     }
+    let bytes = 0
+    for (const { target } of materials) bytes += (await stat(target)).size
     const paths = { __SFMAT__: join(directory, 'media').split(sep).join('/'), __SFDRAFT__: directory.split(sep).join('/'), __SFROOT__: resolve(root).split(sep).join('/') }
     content.name = basename(directory)
     metadata.draft_name = basename(directory)
