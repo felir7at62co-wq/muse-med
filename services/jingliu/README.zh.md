@@ -35,16 +35,16 @@ Muse 通过已登录的[镜流连接](../../packages/drama/jingliu-connection/RE
 
 ## 测试与静态检查
 
-云端运行环境使用 Python 3.12。除 `requirements.txt` 外还需要 python-multipart、`pyJianYingDraft==0.3.1`、Pillow 和 numpy，该文件未列出这些包。在仓库之外创建虚拟环境，并在 `backend/` 下运行：
+云端运行环境使用 Python 3.12。在仓库之外创建虚拟环境，并在 `backend/` 下运行：
 
 ```sh
 uv venv --python 3.12 ~/.venvs/jingliu
-uv pip install --python ~/.venvs/jingliu/bin/python -r requirements.txt python-multipart pyJianYingDraft==0.3.1 pillow numpy pytest pyflakes
-~/.venvs/jingliu/bin/python -m pytest tests
+uv pip install --python ~/.venvs/jingliu/bin/python -r requirements.txt pytest pyflakes
+~/.venvs/jingliu/bin/python -m pytest -p no:cacheprovider tests
 ~/.venvs/jingliu/bin/python scripts/check_undefined_names.py
 ```
 
-测试使用临时 SQLite 数据库和数据目录，不访问网络。`check_lazy_imports.py`、`check_module_attrs.py` 和 `check_self_misuse.py` 只解析 `app/` 的源码，不导入它。`check_undefined_names.py` 调用 pyflakes。
+测试使用临时 SQLite 数据库和数据目录，不访问网络。仓库根目录的 `pytest.ini` 让 pytest 以仓库根目录为根目录，因此用 `-p no:cacheprovider` 避免 pytest 在那里写入 `.pytest_cache`。`check_lazy_imports.py`、`check_module_attrs.py` 和 `check_self_misuse.py` 只解析 `app/` 的源码，不导入它。`check_undefined_names.py` 用同一个解释器调用 pyflakes，因此该解释器中必须装有 pyflakes；没有装时这项检查会报告通过。
 
 ## 仓库属性
 

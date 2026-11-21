@@ -35,16 +35,16 @@ The overlay is not part of this tree. [`../muse-workbenches/install.py`](../muse
 
 ## Tests and static checks
 
-The cloud runtime uses Python 3.12. Besides `requirements.txt` it needs python-multipart, `pyJianYingDraft==0.3.1`, Pillow and numpy, which that file does not list. Create the virtual environment outside the repository and run from `backend/`:
+The cloud runtime uses Python 3.12. Create the virtual environment outside the repository and run from `backend/`:
 
 ```sh
 uv venv --python 3.12 ~/.venvs/jingliu
-uv pip install --python ~/.venvs/jingliu/bin/python -r requirements.txt python-multipart pyJianYingDraft==0.3.1 pillow numpy pytest pyflakes
-~/.venvs/jingliu/bin/python -m pytest tests
+uv pip install --python ~/.venvs/jingliu/bin/python -r requirements.txt pytest pyflakes
+~/.venvs/jingliu/bin/python -m pytest -p no:cacheprovider tests
 ~/.venvs/jingliu/bin/python scripts/check_undefined_names.py
 ```
 
-The tests use a temporary SQLite database and data directory and make no network calls. `check_lazy_imports.py`, `check_module_attrs.py` and `check_self_misuse.py` parse `app/` without importing it. `check_undefined_names.py` runs pyflakes.
+The tests use a temporary SQLite database and data directory and make no network calls. The repository's root `pytest.ini` makes the repository root pytest's root directory, so `-p no:cacheprovider` keeps pytest from writing `.pytest_cache` there. `check_lazy_imports.py`, `check_module_attrs.py` and `check_self_misuse.py` parse `app/` without importing it. `check_undefined_names.py` runs pyflakes from the same interpreter, so pyflakes must be installed there; without it the check reports success.
 
 ## Repository attributes
 

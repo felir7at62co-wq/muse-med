@@ -4,8 +4,13 @@ pydantic==2.10.4
 pydantic-settings==2.7.1
 httpx==0.28.1
 sqlalchemy==2.0.36
-python-docx
-pypdf
+python-docx==1.2.0
+pypdf==7.1.0
+# 表单上传与 numpy 在启动时导入，Pillow 与剪映草稿导出在用到时导入；版本与云端运行环境一致
+python-multipart==0.0.34
+numpy==2.5.5
+pillow==13.0.0
+pyJianYingDraft==0.3.1
 
 # ---- 超级 Agent（2026-10-20）----
 # LangGraph 编排 + SQLite checkpoint。三个包必须版本对齐：
