@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -187,6 +188,20 @@ async def _sweep_loop() -> None:
             logging.getLogger(__name__).exception("[sweep] 本轮巡检失败，继续下一轮")
 
 
+#: `/media` 挂的是整个数据目录，库文件与备份可能也在里面：这些名字一律 404。
+_PRIVATE_MEDIA_RE = re.compile(r"\.(db|sqlite3?)(-wal|-shm|-journal)?$|\.tos$", re.IGNORECASE)
+
+
+def _private_media(path: str) -> bool:
+    """库文件、库备份、点开头的文件（如 `.env`）不经 `/media` 对外。"""
+    parts = [p for p in path.replace("\\", "/").split("/") if p]
+    if not parts:
+        return False
+    if parts[0] == "backups" or any(p.startswith(".") for p in parts):
+        return True
+    return bool(_PRIVATE_MEDIA_RE.search(parts[-1]))
+
+
 class _MediaFiles(StaticFiles):
     """静态素材：本地命中就直发，本地没有就 302 到桶的预签名地址。
 
@@ -202,6 +217,8 @@ class _MediaFiles(StaticFiles):
 
     async def get_response(self, path: str, scope):
         from starlette.responses import RedirectResponse
+        if _private_media(path):
+            raise StarletteHTTPException(status_code=404)
         try:
             resp = await super().get_response(path, scope)
         except StarletteHTTPException as e:

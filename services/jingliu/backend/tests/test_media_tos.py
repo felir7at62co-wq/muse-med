@@ -622,3 +622,27 @@ def test_database_backups_are_copied_once_and_removed_with_the_local_copy(tos):
     finally:
         for p in d.glob(f"{stem}_20990101_000000.db*"):
             p.unlink()
+
+
+def test_media_route_refuses_database_files_and_backups(db):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+    from app.media import DATA_DIR
+
+    files = {"jingliu.db": b"SQLite", "jingliu.db-wal": b"x", "backups/jingliu_1.db": b"x",
+             "backups/jingliu_1.db.tos": b"x", ".env": b"x", "generated/.hidden.png": PNG}
+    for rel, data in files.items():
+        (DATA_DIR / rel).parent.mkdir(parents=True, exist_ok=True)
+        (DATA_DIR / rel).write_bytes(data)
+    ok = _gen()
+    ok.write_bytes(PNG)
+    client = TestClient(create_app())
+    try:
+        for rel in files:
+            assert client.get(f"/media/{rel}").status_code == 404, rel
+        r = client.get(f"/media/generated/{ok.name}")
+        assert r.status_code == 200 and r.content == PNG
+    finally:
+        for rel in files:
+            (DATA_DIR / rel).unlink(missing_ok=True)
