@@ -70,7 +70,7 @@ async def assets_generate(body: AssetGenerateIn) -> AssetGenerateOut:
     from ..providers.image import ContentRejected
     from .. import charge
 
-    # 同步出图：先扣费再出图（生图是确定价 0.15 元/张，不需要事后结算）。
+    # 同步出图：先扣费再出图（生图是确定价 0.25 元/张（pricing.IMAGE_PER_PIC），不需要事后结算）。
     # 走 charge_sync 而不是 hold/settle —— 这条没有 job 行，没有"终态"可等。
     charge.charge_sync("asset_generate", {"project_id": body.project_id,
                                           "n": body.n},

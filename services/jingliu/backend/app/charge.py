@@ -48,7 +48,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import func
 
-from . import pricing
+from . import pricing, scene_view
 from .config import get_settings
 from .db import BudgetLedger, BudgetPool, UsageEvent, UserBudget, get_session
 
@@ -156,7 +156,7 @@ def _fill_gap_count(pid: str | None, kinds: set[str]) -> int:
     if "character" in kinds:
         n += len(a.get("stages_no_image") or []) + len(a.get("chars_need_stage") or [])
     if "location" in kinds:
-        n += 8 * len(a.get("locations_no_image") or [])
+        n += scene_view.VIEW_COUNT * len(a.get("locations_no_image") or [])
     if "prop" in kinds:
         n += len(a.get("props_no_image") or [])
     return n
@@ -248,7 +248,8 @@ def estimate(kind: str, payload: dict) -> tuple[int, str]:
             #    所以取一个**上界**，宁可多预扣（结算按实测退）。
             kinds = [str((it or {}).get("kind") or "") for it in (p.get("only") or [])
                      if isinstance(it, dict)]
-            n = sum(8 if k == "location" else 1 for k in kinds) or len(kinds) or 1
+            n = (sum(scene_view.VIEW_COUNT if k == "location" else 1 for k in kinds)
+                 or len(kinds) or 1)
         elif kind == "asset_fill" and _fill_kinds(p):
             # ⚠️ **按页补全必须按页报价**（2026-10-19）。理由同上：不处理的话落到
             #    `_area_seconds` 兜底 = 按整片预扣，只补 3 个道具也会锁住大额余额。
@@ -261,7 +262,7 @@ def estimate(kind: str, payload: dict) -> tuple[int, str]:
         else:
             n = len(p.get("items") or []) or _area_seconds(p) or 1
         fen = pricing.image_cost(n or 1)
-        return fen, f"生图 {n or 1} 张 × 0.15 元"
+        return fen, f"生图 {n or 1} 张 × {pricing.fen_to_yuan(pricing.IMAGE_PER_PIC)} 元"
 
     if kind == "upscale":
         # ⚠️ 筛法**必须**与 run_upscale 共用 `upscale_candidates`（2026-10-15）。
@@ -337,7 +338,9 @@ def estimate(kind: str, payload: dict) -> tuple[int, str]:
 
     if kind == "one_click_film":
         fen = pricing.LLM_PER_OPERATION
-        return fen, "一键成片：先收文本操作费，出片与生图在子任务里各自结算"
+        # 子任务在本任务的 runner 里直接跑、用量记在本任务名下，所以出片与生图
+        # 由本任务结算时按实际花费补扣，不在子任务里另行结算（子任务 `_billing=child`）。
+        return fen, "一键成片：先收文本操作费，出片与生图在本任务结算时按实际花费补扣"
 
     # 未登记的 kind：**不静默放过**，记一条日志便于发现漏配
     log.warning("[charge] kind=%s 没有计价规则，按 0 处理", kind)

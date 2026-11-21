@@ -1306,7 +1306,7 @@ class ImageProvider:
                     if errs:   # 前面有渠道失败过，记一笔便于事后追因
                         logger.info("图像渠道已切换到 %s（前序失败：%s）",
                                     name, "；".join(errs))
-                    # 用量：0.15 元/张，所有生图模型同价（见 app/pricing.py）
+                    # 用量：单价见 pricing.IMAGE_PER_PIC（0.25 元/张），所有生图模型同价
                     from .. import usage as _usage
                     _usage.record("image", model_id=self.model_id, channel=name,
                                   units=len(images) if images else n)
