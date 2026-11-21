@@ -43,6 +43,8 @@ export class MuseWorkbenchLogin {
 
   /**
    * Fetch one resource of a workbench mounted on this gateway with the cookie confined to its exact issuing origin.
+   * Redirects are refused unless the caller asks for `redirect: 'manual'`; it then receives the redirect response itself,
+   * and the cookie never leaves this origin.
    * @param audience - Workbench whose API or media paths the address must name.
    * @param owner - Identity captured before the operation.
    * @param url - Canonical workbench address on this Muse gateway.
@@ -58,7 +60,7 @@ export class MuseWorkbenchLogin {
     const headers = new Headers(options.headers)
     headers.set('cookie', session.cookie)
     headers.set('origin', this.origin)
-    return await (this.options.fetcher ?? fetch)(url, { ...options, headers, redirect: 'error' })
+    return await (this.options.fetcher ?? fetch)(url, { ...options, headers, redirect: options.redirect === 'manual' ? 'manual' : 'error' })
   }
 
   /**

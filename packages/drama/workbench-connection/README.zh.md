@@ -35,7 +35,7 @@ Desktop Host 用 `MUSE_SCRIPT_WORKSHOP_ORIGIN` 挂载本服务；该变量未设
 <a id="sign-in"></a>
 ## 登录
 
-在 Muse 账号设置中登录即可，不需要单独登录剧本工坊。在网关挂载下，Host 通过 Muse 账号服务发送每个请求；账号服务只对签发它的网关、只对 `/jubengongfang/v1/` 路径附带 Muse Cookie。`GET /v1/auth/me` 确定工坊用户。在独立源站下，Host 先请求登录挑战，从 Muse 网关取得一次性的 `script-workshop` 授权，再兑换工坊的 `access_token`，之后以 Bearer 令牌发送。请求一律不跟随重定向。
+在 Muse 账号设置中登录即可，不需要单独登录剧本工坊。在网关挂载下，Host 通过 Muse 账号服务发送每个请求；账号服务只对签发它的网关、只对 `/jubengongfang/v1/` 路径附带 Muse Cookie。`GET /v1/auth/me` 确定工坊用户。在独立源站下，Host 先请求登录挑战，从 Muse 网关取得一次性的 `script-workshop` 授权，再兑换工坊的 `access_token`，之后以 Bearer 令牌发送。请求一律不跟随重定向；`WorkbenchSession.fetch` 传入 `redirect: 'manual'` 时返回重定向响应，由调用方检查。上游请求失败时保留其原始错误；只有 Muse 账号服务拒绝时才报告 Muse 登录失败。
 
 会话属于打开它的 Muse 登录。Muse 通知登录变化、请求前后出现另一个登录，或工坊返回 401 时，会话即被丢弃。在这类变化期间仍在进行的请求以 `WORKSHOP_ACCOUNT_CHANGED` 失败并丢弃响应。下一次连接用当前登录重新登录。
 
