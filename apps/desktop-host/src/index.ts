@@ -150,6 +150,8 @@ async function main(): Promise<void> {
     throw new Error('muse-med: expected runtime and profile directories, optional primary runtime and paired package-manager paths, and Node IPC')
   }
   const primarySource = primaryRuntime || join(runtimeDir, '..', 'runtime', 'primary-runtime')
+  // Desktop-only behavior in the shared Desktop patch, such as keeping studio media as local files, keys on this.
+  process.env.MUSE_DESKTOP_HOST = '1'
   process.env.DSH_PRIMARY_RUNTIME = primarySource
   process.env.MUSE_OCR_PYTHON_PATH = workspaceDependencyPaths(primarySource, await readPrimaryRuntime(primarySource)).python
   const downloadEnvironment = await desktopDownloadEnvironment(primarySource, process.env)

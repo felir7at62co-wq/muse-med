@@ -32,7 +32,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'douyin_download', 'drama_assets', 'drama_bgm', 'drama_character_reference_project', 'drama_character_reference_view', 'drama_character_references',
       'drama_draft_dir', 'drama_hit_queue', 'drama_project', 'drama_render', 'drama_shot', 'drama_tos_upload', 'drama_video',
       'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep',
-      'interrupt_agent', 'jingliu_image', 'jingliu_narration', 'jingliu_projects', 'jingliu_run', 'jingliu_studio', 'jingliu_workflows',
+      'interrupt_agent', 'jingliu_image', 'jingliu_media', 'jingliu_narration', 'jingliu_projects', 'jingliu_run', 'jingliu_studio', 'jingliu_workflows',
       'job_kill', 'job_list', 'job_output', 'jubian_asset',
       'jubian_budget', 'jubian_catalog', 'jubian_character_reference_authorize', 'jubian_claim', 'jubian_find',
       'jubian_manuscript', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_project', 'jubian_snatch', 'jubian_storyboard',

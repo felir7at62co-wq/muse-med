@@ -25,7 +25,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.agents`, `ctx.sandboxPolicy when filesystem confinement is enabled` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | Source-unit identities, revisions, candidate digests, timestamps and rendered line references are issued by the host. Facts and episode candidates require a different reviewing session before acceptance. |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`, `ctx.museAccount`, `FFmpeg and FFprobe on PATH (or configured)` | `tool/call`, `tool/result`, `transcript/jobs task receipt`, `transcript/raw timed TXT and JSON when complete` | - | `start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway. |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`, `TOS access key credential references`, `network access to Volcengine TOS` | `tool/call`, `tool/result`, `public TOS objects below download-video-date/{platform}/{date}/{work_id}/`, `local file deletion only when remove_local is true` | - | Optional package: only the cloud transcription deployment composes it, with its credential references. |
-| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`, `jingliu_narration`, `jingliu_projects`, `jingliu_run`, `jingliu_studio`, `jingliu_workflows` | `ctx.tools`, `ctx.jingliuConnection`, `ctx.approval for changes and paid workflows` | `tool/call`, `tool/result`, `project updates and jobs on the configured Jingliu service`, `conversation project selections, image and narration job receipts, and local Jianying drafts` | - | - |
+| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`, `jingliu_media`, `jingliu_narration`, `jingliu_projects`, `jingliu_run`, `jingliu_studio`, `jingliu_workflows` | `ctx.tools`, `ctx.jingliuConnection`, `ctx.approval for changes and paid workflows` | `tool/call`, `tool/result`, `project updates and jobs on the configured Jingliu service`, `conversation project selections, image and narration job receipts, local Jianying drafts, downloaded studio media under the workspace, and uploads to the Jingliu media store` | - | - |
 | `@deepseek-ai/dsh-tool-workshop` | `script_finalize`, `script_library`, `workshop_video_transcribe` | `ctx.tools`, `ctx.workshopConnection`, `ctx.approval to start a job`, `ctx.fs and ctx.sandboxPolicy for script files` | `tool/call`, `tool/result`, `video_transcribe factory jobs on the configured Script Workshop`, `finalized-script versions and production links in the Workshop library`, `script files under 剧本库/ in the workspace` | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`, `data station service token credential reference`, `network access to the data station service API` | `tool/call`, `tool/result`, `data station transcription job state` | - | Optional package: only the cloud transcription deployment composes it. Each dispatched worker claims its own work; the Main Session router does not call it. |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect`, `video_ocr` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | `video_source_review` | The default video_inspect retains metadata and sample operations. Creation enables sourceReviewCompanion to add video_source_review with complete scan/next/observe operations without replacing legacy sampling or trusted receipts. Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
@@ -1976,6 +1976,45 @@ Optional package: only the cloud transcription deployment composes it, with its 
 ```
 
 Source: [`packages/drama/tool-jingliu/src/production.ts`](../packages/drama/tool-jingliu/src/production.ts)
+
+### `jingliu_media`
+
+把镜流素材下载到本机工作区（同一文件只下载一次），或把本机图片、音频、视频上传到镜流。上传返回的 path 可填入需要素材地址的镜流工作流参数。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "download",
+        "upload"
+      ]
+    },
+    "project_id": {
+      "type": "string",
+      "description": "镜流项目；省略时用本会话关联的项目。download 必须有项目。"
+    },
+    "paths": {
+      "type": "array",
+      "description": "download：镜流结果中的 /fw/media/ 地址，最多 200 个。",
+      "items": {
+        "type": "string"
+      }
+    },
+    "file": {
+      "type": "string",
+      "description": "upload：本机文件，相对路径从工作区解析。"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/media.ts`](../packages/drama/tool-jingliu/src/media.ts)
 
 ### `jingliu_narration`
 

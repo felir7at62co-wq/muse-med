@@ -166,6 +166,10 @@
       config:
         studioOrigin: !!js process.env.MUSE_JINGLIU_ORIGIN || (process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn') + '/jingliu'
         localPreviewToken: !!js process.env.MUSE_JINGLIU_LOCAL_PREVIEW === '1'
+        # Only Desktop Host sets MUSE_DESKTOP_HOST. Cloud Muse loads this patch too, and without it the
+        # Web Host never writes studio media to the server's disk.
+        localMedia: !!js process.env.MUSE_DESKTOP_HOST === '1'
+        mediaHosts: !!js (process.env.MUSE_JINGLIU_MEDIA_HOSTS || 'muse.tos-cn-beijing.volces.com').split(',')
 
     - id: tool-jingliu
       name: '@deepseek-ai/dsh-tool-jingliu'
@@ -310,6 +314,7 @@
           jingliu_workflows: [镜流, 镜流工作台, 镜流项目, 新建项目, 分集, 查询模型, Jingliu, ShotFlow]
           jingliu_run: [镜流执行, 镜流制作, 镜流分镜, 镜流任务, 制作分镜, 角色素材, 生成视频, 任务进度, ShotFlow]
           jingliu_narration: [镜流解说剧, 解说剧拆镜, 角色开口, 解说剧交付]
+          jingliu_media: [镜流素材下载, 下载镜流素材, 上传到镜流, 镜流上传, 镜头视频下载]
           jubian_find: [剧变剧本, 剧变项目, 剧变可认领剧本]
           jubian_project: [剧变建项目, 剧变项目回执, 剧变分享项目]
           jubian_manuscript: [剧变稿件, 剧变上传剧本]
@@ -367,7 +372,7 @@
           - id: jingliu
             title: 镜流
             description: 查找镜流工作流，按项目查看分集、分镜、素材、任务和交付。
-            tools: [jingliu_projects, jingliu_workflows, jingliu_run, jingliu_narration, jingliu_image, jingliu_studio]
+            tools: [jingliu_projects, jingliu_workflows, jingliu_run, jingliu_narration, jingliu_image, jingliu_studio, jingliu_media]
           - id: jubian
             title: 剧变（可选渠道）
             description: 用户点名剧变、或项目本来就在剧变上时才用：查项目与素材，提交出图、出片、去字幕和超分。默认制作走镜流。工具报未连接时，请用户到 设置 → 连接器 里连接剧变。
