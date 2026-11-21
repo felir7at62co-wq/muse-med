@@ -96,8 +96,8 @@ async def list_projects(ctx: ToolCtx, q: str = "") -> dict:
     role="viewer",
     # 账号级：不属于任何项目。桌面网关据此跳过项目成员校验（见 routers/desktop_agent.py）。
     tags=["account"],
-    description="查**当前使用者**的积分余额（元）。管理员显示 unlimited。"
-                "花钱之前先看它，再把余额告诉用户。",
+    description="查**当前使用者**的积分余额（元）。"
+                "花钱之前先看它，再把余额告诉用户。enforced=false 表示现在不扣积分，余额为 0 也能生成。",
 )
 async def get_my_balance(ctx: ToolCtx) -> dict:
     """本人余额。**必须用 `ctx.user_id`，不能用 `budget.my_balance()`**。
@@ -107,11 +107,13 @@ async def get_my_balance(ctx: ToolCtx) -> dict:
     于是它必然抛 `PermissionError: 需要登录`。这不是偶发，是每一条都失败，
     而且失败得"很像真的没登录"（实测 2026-10-29 第一次调用就撞上了）。
 
-    所以这里按 `ctx.user_id` 自己算一遍，口径与 `budget.my_balance()` 对齐：
-    同一个人一池（`MEMBER_PREFIX + uid`），余额走 `budget._balances`（那个函数
-    本身就是按 uid 算的，不依赖请求上下文）。
+    所以这里按 `ctx.user_id` 自己算一遍。余额与 `enforced` 的口径和 `budget.my_balance()`
+    相同：同一个人一池（`MEMBER_PREFIX + uid`），余额走 `budget._balances`（那个函数
+    本身就是按 uid 算的，不依赖请求上下文），`enforced` 走 `charge._budget_on`。
+    `my_balance` 的 `unlimited` 这里不给：它要看平台管理员身份，那只在 HTTP 请求上下文里有。
     """
     from .. import budget
+    from ..charge import _budget_on
     from ..db import BudgetPool, UserBudget, get_session
 
     uid = ctx.user_id
@@ -130,6 +132,7 @@ async def get_my_balance(ctx: ToolCtx) -> dict:
             "ungrouped": bool(u and u.manager_id is None and not budget.is_root_role(role)),
             "role": role or budget.ROLE_MEMBER,
             **bal,
+            "enforced": _budget_on(),
             # 桌面端侧栏余额条展开时要显示这两项。放在这里而不是另开一个工具：
             # 它们与余额是同一个问题的三面，多一个工具就多一段系统提示。
             "today_spent_fen": today_fen,

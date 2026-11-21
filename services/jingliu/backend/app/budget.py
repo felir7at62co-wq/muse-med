@@ -1108,7 +1108,12 @@ def _require_grant_target(uid: int, *, allow_inactive: bool = False) -> UserBudg
 
 
 def my_balance() -> dict:
-    """当前登录者的额度（一人一池）。管理员额外带 `unlimited: true`。"""
+    """当前登录者的额度（一人一池）。管理员额外带 `unlimited: true`。
+
+    `enforced`：积分闸门（`FW_BUDGET_ENFORCED`）开没开，与扣费用同一个判断（`charge._budget_on`）。
+    关着时不扣也不拦，余额 0 不等于停下。
+    """
+    from .charge import _budget_on
     a = current_actor()
     with get_session() as s:
         u = s.get(UserBudget, a.uid)
@@ -1116,6 +1121,7 @@ def my_balance() -> dict:
     bal = _balances(pool, a.uid)
     out = {"role": ROLE_ADMIN if a.is_root else (canon_role(u.org_role) if u else ROLE_MEMBER),
            "name": u.name if u else "", "unlimited": a.is_root,
+           "enforced": _budget_on(),
            "ungrouped": bool(u and u.manager_id is None and not a.is_root),
            "in_org": a.in_org, **bal}
     out["ledger"] = []
