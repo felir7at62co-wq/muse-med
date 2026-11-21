@@ -86,16 +86,21 @@ def voice_library() -> dict:
 def asr_status() -> dict:
     """语音识别通道是否可用（前端据此启用/置灰「自动生成字幕」）。
 
-    2026-10-20 起返回**具体走的哪一条**：白炼 Paraformer 与旧 whisper 二选一。
+    返回**具体走的哪一条**（`pick_asr_provider` 的顺序：火山极速版、百炼 Paraformer、旧 whisper）。
     只回一个布尔值时，用户看到"字幕生成失败"根本不知道是没配 key、
     还是配了但渠道挂了 —— 而那正是此前自动字幕长期不可用的真实体验。
+    `volc_config_error`：配了 `FW_DRAMA_ASR_CONFIG` 却读不了时的原因（只有错误类型），否则为 null。
     """
     from ..providers.asr import ASRProvider, pick_asr_provider
+    from ..providers.asr_volc import VolcFlashASR
 
     provider = pick_asr_provider()
+    volc = VolcFlashASR()
     return {
         "available": provider is not None,
         "provider": getattr(provider, "name", None),
+        "volc_configured": volc.available,
+        "volc_config_error": volc.config_error,
         "bailian_configured": bool(
             getattr(__import__("app.config", fromlist=["get_settings"])
                     .get_settings(), "bailian_api_key", "")),

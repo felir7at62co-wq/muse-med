@@ -1942,14 +1942,28 @@ async def run_desub_scan(ctx: ToolCtx, project_id: str,
     costs=True,
     long_running=True,
     role="editor",
-    description="从**实际发声的音轨**转写生成字幕（Paraformer，带句级/字级时间戳）。"
-                "replace=true 会先清掉旧字幕。",
+    description="一步出字幕：把**实际发声的音轨**（真人剧是镜头原声）转写成字幕，"
+                "再用这一镜剧本里的台词逐字纠正——连声调都相同的同音字（轻声只认「的」「地」「得」「了」）、"
+                "数字写法和听错的人名（人名不比声调）换成剧本的字；读音不同的、"
+                "改了会多出或少掉「不」「没」这类否定字的按听到的保留，时间与断句来自声音，"
+                "没念的台词不补、多念的保留（align_script=false 关掉纠正；旁白不纠正）。"
+                "每条不超过 20 字、不带标点，写进字幕轨，可导出 SRT / 剪映。"
+                "episode 只做这一集；replace=true 先清掉（这一集的）旧自动字幕，手加的字幕不动。"
+                "结果的 script_check.review 先列和剧本对不上或没念出来的镜头（原因、相似度、"
+                "differs 读音不同而保留的字，doubts 多念、少念或换掉的「不」「没」「别」这类字和"
+                "分不出听错还是改词的字），再列只按剧本改过字的（fixes 每一处听到的与剧本的字）；"
+                "没列进来的镜头数在 omitted_mismatch_shots、omitted_fix_shots。",
 )
 async def run_auto_subtitles(ctx: ToolCtx, project_id: str,
-                             replace: bool = False) -> dict:
+                             replace: bool = False, episode: int | None = None,
+                             align_script: bool = True) -> dict:
+    payload = {"project_id": project_id, "replace": bool(replace),
+               "align_script": bool(align_script)}
+    if episode is not None:
+        payload["episode"] = int(episode)
     return await submit_idempotent(
         ctx, kind="auto_subtitles",
-        payload={"project_id": project_id, "replace": bool(replace)},
+        payload=payload,
         tool_call_id=ctx.tool_call_id or "auto_subtitles",
         tool="run_auto_subtitles")
 

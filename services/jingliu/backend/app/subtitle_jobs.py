@@ -216,10 +216,70 @@ async def _extract_asr_audio(video):
     return out
 
 
+#: 一镜里有这么多字的台词没被念出来，就列进「请人看一眼」的清单。
+_REVIEW_UNSPOKEN_CHARS = 4
+#: 「请人看一眼」的清单最多列多少镜（`review_count` 是全部镜数，各项字数也都是全部的）：
+#: 先列和剧本对不上的，最多 `_REVIEW_MISMATCH_MAX` 镜；只按剧本改过字的补到 `_REVIEW_MAX` 镜为止。
+#: 整个项目跑一遍时几乎每镜都有改过的字（「2」→「两」、同音字），按镜号截断会把后面对不上的挤掉。
+_REVIEW_MAX = 60
+_REVIEW_MISMATCH_MAX = 300
+#: 任务提示里最多点名几个和剧本对不上的镜头（全部在 `script_check.review` 里）。
+_WARN_ORDERS_MAX = 20
+
+
+def _mismatch_reason(st: dict) -> str | None:
+    """这一镜念的和剧本对不上、要请人看一眼的原因；没有就返回 None。
+
+    列进来的：什么都没听到（剧本却有台词）、和剧本差得多（`deviated`）、
+    没念出来的台词有 `_REVIEW_UNSPOKEN_CHARS` 个字以上、读音不同而按听到的保留（`differs`）、
+    分不出是听错还是念了别的字而按听到的保留（`doubts`，规则见 `subtitle_align`）。
+    其余多念的字、零星几个没念的字只记在字数里；剧本里没有台词的镜头由调用方整个任务报一次。
+    """
+    why = []
+    if st.get("unheard"):
+        why.append(("视频没有音轨" if st.get("no_audio") else "没有识别出说话声")
+                   + f"，剧本里这一镜有 {st['unspoken']} 个字的台词")
+    elif st.get("deviated"):
+        why.append("念的内容和剧本差得多，没按剧本改")
+    elif st.get("unspoken", 0) >= _REVIEW_UNSPOKEN_CHARS:
+        why.append(f"剧本里有 {st['unspoken']} 个字的台词没念出来")
+    if st.get("differs"):
+        why.append("念的字和剧本不同、读音也不同，按听到的保留："
+                   + "、".join(f"{d['heard']}（剧本是{d['script']}）" for d in st["differs"]))
+    if st.get("doubts"):
+        why.append("分不出是听错还是念的就和剧本不同，按听到的保留："
+                   + "、".join(_doubt_text(d) for d in st["doubts"]))
+    return "；".join(why) or None
+
+
+def _doubt_text(d: dict) -> str:
+    """`doubts` 的一处写给人看：没念的、多念的、对不上的三种说法。"""
+    if not d["heard"]:
+        return f"没念「{d['script']}」"
+    if not d["script"]:
+        return f"多念了「{d['heard']}」"
+    return f"{d['heard']}（剧本是{d['script']}）"
+
+
+def _fix_note(st: dict) -> str | None:
+    """这一镜按剧本改了哪些字；一处没改返回 None。"""
+    if not st.get("fixes"):
+        return None
+    return "按剧本改了读音相同的字：" + "、".join(f"{f['heard']}→{f['script']}" for f in st["fixes"])
+
+
 async def run_auto_subtitles(jid: str) -> None:
     """TB-08 自动字幕：把**实际发声的那条音轨**转写成字幕段落。
 
-    payload = {"project_id": "...", "replace": false}
+    payload = {"project_id": "...", "replace": false, "episode": null, "align_script": true}
+
+    - `episode`：只做这一集（`replace` 也只清这一集的自动字幕）；不填 = 整个项目。
+    - `align_script`：镜头原声转写完，用这一镜剧本里的台词逐字纠正（`subtitle_align`）：
+      读音相同的人名、同音字和数字写法换成剧本的字，时间与断句仍来自声音；没念的台词不补，
+      多念的保留。纠正不调语言模型，只在转写镜头原声时做（旁白不纠正）。
+      要人看一眼的镜头在结果的 `script_check.review` 里：先列 `_mismatch_reason` 列出的，
+      再列只按剧本改过字的（条数上限见 `_REVIEW_MAX`），`review_count` 是全部条数；
+      剧本里没有台词的镜头只数在 `no_script_shots` 里，任务的提示里说一次。
 
     为什么走 job：Whisper 单段几秒到几十秒，一个项目几十条旁白就是分钟级，
     同步接口必撞 nginx 504。
@@ -258,11 +318,13 @@ async def run_auto_subtitles(jid: str) -> None:
     from datetime import datetime, timezone
 
     from .config import get_settings
-    from .db import AudioClip, Project, SubtitleClip
+    from .db import Asset, AudioClip, Project, SubtitleClip
     # 在函数内取而不是模块顶部：见文件头「模块图必须单向」那段。
     from .jobs import _update, get_job, is_cancelled, set_job_phase
     from .media import _probe_duration, ensure_local_async
+    from .drama_timing import speaker_of, split_units, spoken_lines
     from .providers.asr import SIMPLIFIED_ZH_PROMPT, pick_asr_provider
+    from .subtitle_align import correct_segments
 
     job = get_job(jid)
     if not job:
@@ -275,10 +337,19 @@ async def run_auto_subtitles(jid: str) -> None:
 
     asr = pick_asr_provider()
     if asr is None:
+        from .providers.asr_volc import VolcFlashASR
+        volc_error = VolcFlashASR().config_error
         _update(jid, status="failed",
-                error="未配置任何语音识别通道，无法自动生成字幕"
-                      "（可按 FW_BAILIAN_API_KEY 启用阿里云百炼 Paraformer）")
+                error=(f"没有可用的语音识别通道，无法自动生成字幕：{volc_error}；"
+                       "阿里云百炼 Paraformer（FW_BAILIAN_API_KEY）也未配置")
+                if volc_error else
+                ("未配置任何语音识别通道，无法自动生成字幕"
+                 "（配置 FW_DRAMA_ASR_CONFIG 用火山录音文件识别，"
+                 "或 FW_BAILIAN_API_KEY 用阿里云百炼 Paraformer）"))
         return
+    episode = p.get("episode")
+    episode = int(episode) if episode not in (None, "") else None
+    align_script = p.get("align_script", True) is not False
 
     _update(jid, status="running", progress=1)
 
@@ -302,12 +373,26 @@ async def run_auto_subtitles(jid: str) -> None:
                            AudioClip.start_offset_sec).all())
         narration = [(c.url, c.start_shot_order, float(c.start_offset_sec or 0.0))
                      for c in clips]
-        shots = (session.query(Shot)
-                 .filter(Shot.project_id == project_id,
-                         Shot.video_url.isnot(None))
-                 .order_by(Shot.order).all())
+        q = session.query(Shot).filter(Shot.project_id == project_id)
+        if episode is not None:
+            q = q.filter(Shot.episode == episode)
+        all_shots = q.order_by(Shot.order).all()
+        in_scope = {s.order for s in all_shots}
+        # 空字符串的 video_url 照旧进来：下载不到，计进识别失败
+        shots = [s for s in all_shots if s.video_url is not None]
         # 停用的镜头不进成片，也就不该有字幕
         videos = [(s.video_url, s.order, 0.0) for s in shots if not s.disabled]
+        # 每一镜会被念出来的台词：镜头原声转写完拿它逐字纠正
+        lines_of = {s.order: spoken_lines(s.script_ref or "") for s in shots}
+        shot_of = {s.order: (s.id, s.episode) for s in shots}
+        # 剧里的人名（角色资产、剧本里的说话人）：按剧本改人名时不比声调（见 subtitle_align）
+        names = {a.name for a in session.query(Asset).filter(Asset.project_id == project_id,
+                                                              Asset.kind == "character")}
+        names.update(speaker_of(u.raw) for s in shots for u in split_units(s.script_ref or "")
+                     if u.kind in ("dialog", "vo"))
+        names.discard("")
+        if episode is not None:
+            narration = [n for n in narration if n[1] in in_scope]
 
     # 真人剧一律转写镜头原声：台词只在那里。其余模式优先用旁白，
     # 没有旁白时也退到镜头原声——比报一句"请先合成配音"有用。
@@ -324,9 +409,11 @@ async def run_auto_subtitles(jid: str) -> None:
     if p.get("replace"):
         # 重跑时先清掉上一轮自动生成的（手工加的字幕不动——它们 kind=normal/title）
         with get_session() as session:
-            for old in (session.query(SubtitleClip)
-                        .filter(SubtitleClip.project_id == project_id,
-                                SubtitleClip.kind == "subtitle").all()):
+            q = session.query(SubtitleClip).filter(SubtitleClip.project_id == project_id,
+                                                   SubtitleClip.kind == "subtitle")
+            if episode is not None:
+                q = q.filter(SubtitleClip.start_shot_order.in_(sorted(in_scope) or [-1]))
+            for old in q.all():
                 session.delete(old)
             session.commit()
 
@@ -340,6 +427,8 @@ async def run_auto_subtitles(jid: str) -> None:
     # ⚠️ 若这里成为瓶颈（429/限流），正确解法是加 API KEY / 提配额，不是降并发。
     sem = asyncio.Semaphore(max(1, get_settings().default_concurrency))
     rows: list[tuple[str, int, float, float]] = []   # (text, order, offset, dur)
+    checks: dict[int, dict] = {}                      # order -> 按剧本纠正的统计
+    check_script = from_video and align_script
     lock = asyncio.Lock()
     done = failed = silent = 0
 
@@ -364,12 +453,19 @@ async def run_auto_subtitles(jid: str) -> None:
                             # 无音轨 ≠ 失败：这一镜本来就没人说话（空镜/环境镜）。
                             # 计进 failed 会让"全片只有几个镜有台词"误报成故障。
                             silent += 1
+                            if check_script and lines_of.get(order):
+                                # 剧本却有台词：请人看一眼
+                                checks[order] = {**correct_segments([], lines_of[order])[1],
+                                                 "no_audio": True}
                             return
                     segs = await asr.transcribe(
                         tmp or path, prompt=SIMPLIFIED_ZH_PROMPT)
                 finally:
                     if tmp is not None:
                         tmp.unlink(missing_ok=True)
+                if check_script and (segs or lines_of.get(order)):
+                    segs, st = correct_segments(list(segs), lines_of.get(order) or [], names)
+                    checks[order] = st
 
                 # 时长兜底：某些返回体既无 segments 也无 duration，end 会是 0。
                 # 直接 max(0.3, 0-0) 就是"50 个字闪 0.3 秒"——比没有字幕更糟。
@@ -416,6 +512,44 @@ async def run_auto_subtitles(jid: str) -> None:
 
     set_job_phase(jid, None)
 
+    script_check = None
+    mismatch_orders: list[int] = []
+    if check_script:
+        # 和剧本对不上的镜头、按剧本改过字的镜头都列进来：改过的字要有人能核对。
+        # 对不上的排在前面，清单满了先省掉只改过字的（见 `_REVIEW_MAX`）
+        mismatched, fix_only = [], []
+        fixed_shots = 0
+        for order in sorted(checks):
+            st = checks[order]
+            if st["no_script"]:
+                continue
+            mismatch, fixed = _mismatch_reason(st), _fix_note(st)
+            fixed_shots += fixed is not None
+            if mismatch or fixed:
+                sid, ep = shot_of.get(order, (None, None))
+                (mismatched if mismatch else fix_only).append({
+                    "order": order, "episode": ep, "shot_id": sid, "similarity": st["similarity"],
+                    "reason": "；".join(w for w in (mismatch, fixed) if w),
+                    "fixes": st["fixes"], "differs": st["differs"], "doubts": st["doubts"]})
+        review = mismatched[:_REVIEW_MISMATCH_MAX]
+        review += fix_only[:max(0, _REVIEW_MAX - len(review))]
+        listed_mismatch = min(len(mismatched), _REVIEW_MISMATCH_MAX)
+        script_check = {
+            "shots": len(checks),
+            "fixed_chars": sum(c["fixed"] for c in checks.values()),
+            "kept_chars": sum(c["kept"] for c in checks.values()),
+            "extra_chars": sum(c["extra"] for c in checks.values()),
+            "unspoken_chars": sum(c["unspoken"] for c in checks.values()),
+            "fixed_shots": fixed_shots,
+            "mismatch_shots": len(mismatched),
+            "no_script_shots": sum(c["no_script"] for c in checks.values()),
+            "review_count": len(mismatched) + len(fix_only),
+            "review": review,
+            "omitted_mismatch_shots": len(mismatched) - listed_mismatch,
+            "omitted_fix_shots": len(fix_only) - (len(review) - listed_mismatch),
+        }
+        mismatch_orders = [r["order"] for r in mismatched]
+
     # 全军覆没要报失败，不能报 done。
     # 原来无论如何都 status="done"：ASR 服务挂了、密钥过期、所有音频都识别失败，
     # 用户看到的仍是一个绿色的"已完成"，字幕轨空空如也 ——
@@ -435,7 +569,9 @@ async def run_auto_subtitles(jid: str) -> None:
             err = f"自动字幕失败：{total} 段{src_label}里没有识别到任何语音"
         _update(jid, status="failed", progress=100, error=err,
                 result=json.dumps({"created": 0, "failed": failed, "total": total,
-                                   "silent": silent, "source": src_label},
+                                   "silent": silent, "source": src_label,
+                                   "asr": getattr(asr, "name", None), "episode": episode,
+                                   "script_check": script_check},
                                   ensure_ascii=False))
         return
 
@@ -446,8 +582,22 @@ async def run_auto_subtitles(jid: str) -> None:
         warn.append(f"{failed}/{total} 段{src_label}识别失败")
     if silent:
         warn.append(f"{silent} 个镜头无音轨（无台词）")
+    if script_check and script_check["review_count"]:
+        parts = []
+        if script_check["mismatch_shots"]:
+            named = "、".join(str(o) for o in mismatch_orders[:_WARN_ORDERS_MAX])
+            more = " 等" if len(mismatch_orders) > _WARN_ORDERS_MAX else ""
+            parts.append(f"{script_check['mismatch_shots']} 个镜头和剧本对不上（镜号 {named}{more}）")
+        if script_check["fixed_shots"]:
+            parts.append(f"{script_check['fixed_shots']} 个镜头按剧本改了字")
+        warn.append("、".join(parts) + "，请看一眼")
+    if script_check and script_check["no_script_shots"]:
+        warn.append(f"{script_check['no_script_shots']} 个镜头的剧本里没有「角色：台词」格式的台词，"
+                    "没有按剧本纠正")
     _update(jid, status="done", progress=100,
             error=("；".join(warn) + "，其余已生成" if warn else None),
             result=json.dumps({"created": made, "failed": failed, "total": total,
-                               "silent": silent, "source": src_label},
+                               "silent": silent, "source": src_label,
+                               "asr": getattr(asr, "name", None), "episode": episode,
+                               "script_check": script_check},
                               ensure_ascii=False))

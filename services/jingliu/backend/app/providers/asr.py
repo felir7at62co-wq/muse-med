@@ -62,9 +62,17 @@ SIMPLIFIED_ZH_PROMPT = "以下是简体中文短剧台词的转写。"
 def pick_asr_provider():
     """选出**当前可用**的语音识别通道；都不可用返回 None。
 
-    优先级：**百炼 Paraformer → whisper**。
+    优先级：**火山极速版 → 百炼 Paraformer → whisper**。通道在这里一次选定，
+    调用失败不换下一家（理由见下）。
 
-    ## 为什么 Paraformer 排第一
+    ## 为什么火山排第一（2026-11-21）
+
+    它是 Muse 转写用的同一个语音应用，配了 `FW_DRAMA_ASR_CONFIG` 就说明服务器已经
+    接通了它；字幕与转写用同一家，听写结果的风格一致。火山每句回一段，长句由
+    `subtitle_jobs._split_cue` 按标点切行、时长按字数分，不像百炼那样按字级戳切
+    （原因见 `asr_volc` 模块说明）。
+
+    ## 为什么 Paraformer 排在 whisper 前面
 
     实测对比（2026-10-20，同一段 10.6 秒 m4a）：
 
@@ -80,13 +88,17 @@ def pick_asr_provider():
 
     ## 为什么不做"运行时自动降级"
 
-    两家都可用时**固定走 Paraformer**，不在调用失败时静默切到 whisper：
-    两者的断行与时间戳粒度不同，同一条音轨先后用两家转出来的字幕
+    几家都可用时**固定走排在前面的那家**，不在调用失败时静默切到下一家：
+    各家的断行与时间戳粒度不同，同一条音轨先后用两家转出来的字幕
     **边界会不一样**，而用户看到的现象是"重跑一次字幕全变了"却不知道为什么。
     通道故障应当报错让人知道，不是悄悄换一个产出不同结果的东西。
     """
     from .asr_bailian import BailianASR
+    from .asr_volc import VolcFlashASR
 
+    volc = VolcFlashASR()
+    if volc.available:
+        return volc
     bailian = BailianASR()
     if bailian.available:
         return bailian
