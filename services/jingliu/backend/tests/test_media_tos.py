@@ -310,6 +310,80 @@ def _client():
     return TestClient(a)
 
 
+def test_resolve_signs_bucket_files_and_reports_the_rest(tos):
+    from app import media_store
+
+    in_tos = _gen()
+    media_store.store_bytes(PNG, in_tos)
+    local_only = _gen()
+    local_only.write_bytes(PNG)
+    paths = [f"/fwp/media/generated/{in_tos.name}?t=1", f"/fw/media/generated/{local_only.name}",
+             "/fw/media/generated/img_missing.png", "/fw/media/outputs/final.mp4",
+             "/fw/media/generated/../../test.db", "/fw/media/backups/jingliu.db",
+             "/media/generated/x.png", "https://elsewhere.example/x.png",
+             "/fw/media/generated/%2e%2e/x.png", "/fw/media/generated/a\nb.png"]
+    r = _client().post("/v2/media/resolve", json={"paths": paths})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["tos"] is True
+    items = body["items"]
+    assert [i["path"] for i in items] == paths
+    signed = items[0]
+    assert urlparse(signed["url"]).hostname == "bucket.tos-public.example"
+    assert urlparse(signed["url"]).path == f"/muse-jingliu/generated/{in_tos.name}"
+    assert signed["size"] == len(PNG) and signed["etag"] == hashlib.md5(PNG).hexdigest()
+    assert signed["content_type"] == "image/png"
+    left = datetime.fromisoformat(signed["expires_at"]) - datetime.now(timezone.utc)
+    assert timedelta(minutes=55) < left <= timedelta(hours=1)
+    assert items[1] == {"path": paths[1], "local": True}
+    assert items[2] == {"path": paths[2], "error": "not_found"}
+    assert items[3] == {"path": paths[3], "error": "not_in_tos"}
+    assert all(i.get("error") == "invalid" for i in items[4:])
+
+
+def test_resolve_accepts_at_most_200_paths(tos):
+    ok = _client().post("/v2/media/resolve", json={"paths": ["/fw/media/generated/a.png"] * 200})
+    assert ok.status_code == 200
+    r = _client().post("/v2/media/resolve", json={"paths": ["/fw/media/generated/a.png"] * 201})
+    assert r.status_code == 422
+
+
+def test_resolve_without_a_bucket_points_back_to_local_files(db):
+    f = _gen()
+    f.write_bytes(PNG)
+    r = _client().post("/v2/media/resolve",
+                       json={"paths": [f"/fw/media/generated/{f.name}", "/fw/media/uploads/no.png"]})
+    assert r.json() == {"tos": False, "items": [
+        {"path": f"/fw/media/generated/{f.name}", "local": True},
+        {"path": "/fw/media/uploads/no.png", "error": "not_found"}]}
+
+
+def test_media_endpoints_need_a_login_like_other_v2_routes(tos, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.auth import AuthSession, _hash_token
+    from app.config import get_settings
+    from app.main import create_app
+
+    monkeypatch.setattr(get_settings(), "auth_upstream", "https://login.example")
+    client = TestClient(create_app())
+    body = {"paths": ["/fw/media/generated/a.png"]}
+    assert client.post("/v2/media/resolve", json=body).status_code == 401
+    assert client.post("/v2/media/upload-url", json={
+        "filename": "a.png", "content_type": "image/png", "size": 10}).status_code == 401
+    assert client.post("/v2/media/upload-complete",
+                       json={"path": "/fw/media/uploads/a.png", "token": "x"}).status_code == 401
+
+    from app.db import get_session
+    with get_session() as s:
+        s.add(AuthSession(token=_hash_token("tok-1"), user_id=7, username="tester",
+                          role="user",
+                          expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()))
+        s.commit()
+    r = client.post("/v2/media/resolve", json=body, headers={"Authorization": "Bearer tok-1"})
+    assert r.status_code == 200 and r.json()["items"][0]["error"] == "not_found"
+
+
 # ---------------------------------------------------------------- 直传
 
 def _upload_url(**kw):
@@ -317,9 +391,81 @@ def _upload_url(**kw):
     return _client().post("/v2/media/upload-url", json=body)
 
 
+def test_upload_url_checks_type_size_and_extension(tos):
+    r = _upload_url()
+    assert r.status_code == 200
+    out = r.json()
+    assert set(out) == {"upload_url", "headers", "path", "token"}
+    assert out["headers"] == {"Content-Type": "image/png"}
+    name = out["path"].removeprefix("/fw/media/uploads/")
+    assert len(name) == len("0123456789ab.png") and name.endswith(".png")
+    put = urlparse(out["upload_url"])
+    assert put.hostname == "bucket.tos-public.example"
+    assert put.path == f"/muse-jingliu/uploads/{name}" and "X-Tos-Expires=900" in put.query
+
+    mib = 1024 * 1024
+    assert _upload_url(content_type="text/plain", filename="a.txt").status_code == 415
+    assert _upload_url(size=50 * mib + 1).status_code == 413
+    assert _upload_url(content_type="video/mp4", filename="a.mp4", size=1024 * mib).status_code == 200
+    assert _upload_url(content_type="video/mp4", filename="a.mp4", size=1024 * mib + 1).status_code == 413
+    assert _upload_url(content_type="audio/mpeg", filename="a.mp3", size=200 * mib + 1).status_code == 413
+    assert _upload_url(filename="a.jpg").status_code == 400
+    assert _upload_url(size=0).status_code == 422
+
+
+def test_upload_url_without_a_bucket_answers_503(db):
+    assert _upload_url().status_code == 503
+
+
 def _complete(out, path=None):
     return _client().post("/v2/media/upload-complete",
                           json={"path": path or out["path"], "token": out["token"]})
+
+
+def test_upload_complete_records_the_file_and_the_project_clip(tos):
+    from app.db import MediaClip, get_session
+
+    make_project(get_session)
+    out = _upload_url(project_id=PID).json()
+    rel = out["path"].removeprefix("/fw/media/")
+    tos.objects[rel] = (PNG, "image/png")                     # 客户端 PUT 进了桶
+    r = _complete(out, path=out["path"].replace("/fw/", "/fwp/", 1))
+    assert r.status_code == 200 and r.json() == {"path": out["path"], "size": len(PNG)}
+    assert _ledger()[rel][0] == len(PNG)
+    assert _complete(out).status_code == 200                  # 重复确认：结果相同，不重复登记
+    with get_session() as s:
+        clips = s.query(MediaClip).all()
+        assert [(c.name, c.url, c.kind, c.size) for c in clips] == [
+            ("封面.png", out["path"], "image", len(PNG))]
+
+
+@pytest.mark.parametrize("stored, reason", [
+    ((PNG + b"extra", "image/png"), "size_mismatch"),
+    ((PNG, "application/octet-stream"), "type_mismatch"),
+    ((b"GIF89a" + PNG[6:], "image/png"), "not_an_image"),
+])
+def test_upload_complete_deletes_a_mismatching_object(tos, stored, reason):
+    out = _upload_url().json()
+    rel = out["path"].removeprefix("/fw/media/")
+    tos.objects[rel] = stored
+    r = _complete(out)
+    assert r.status_code == 422 and r.json()["detail"]["reason"] == reason
+    assert rel not in tos.objects and _ledger() == {}
+
+
+def test_upload_complete_needs_the_object_and_a_matching_token(tos, monkeypatch):
+    from app.routers import media_tos
+
+    out = _upload_url().json()
+    missing = _complete(out)
+    assert missing.status_code == 422 and missing.json()["detail"]["reason"] == "missing"
+    other = _upload_url().json()
+    assert _complete(out, path=other["path"]).status_code == 403
+    forged = out["token"][:-2] + ("AA" if not out["token"].endswith("AA") else "BB")
+    assert _client().post("/v2/media/upload-complete",
+                          json={"path": out["path"], "token": forged}).status_code == 403
+    monkeypatch.setattr(media_tos.access, "current_user_id", lambda: 99)
+    assert _complete(out).status_code == 403                  # 别人的令牌
 
 
 # ---------------------------------------------------------------- 本地副本

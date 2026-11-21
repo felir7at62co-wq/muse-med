@@ -620,6 +620,8 @@ def create_app() -> FastAPI:
     # 注册位置不影响任何旧端点的匹配优先级。
     app.include_router(library_router)
     app.include_router(media_router)
+    from .routers.media_tos import router as media_tos_router
+    app.include_router(media_tos_router)     # 桶里的媒体：resolve / 直传（见 app/media_store.py）
     # 素材/成片静态访问：/media/uploads/... /media/outputs/...
     app.mount("/media", _MediaFiles(directory=str(DATA_DIR)), name="media")
 
