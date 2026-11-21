@@ -600,3 +600,25 @@ def test_export_objects_expire_with_the_export_ttl(tos):
         conn.execute(text("UPDATE media_objects SET uploaded_at='2020-01-01T00:00:00+00:00'"))
     assert media_cache.sweep_export_objects() == 1
     assert rel not in tos.objects and rel not in _ledger() and not zip_path.exists()
+
+
+def test_database_backups_are_copied_once_and_removed_with_the_local_copy(tos):
+    from app import maintenance
+
+    found = maintenance._backup_dir()
+    if found is None:
+        assert maintenance.backup_sqlite()
+        found = maintenance._backup_dir()
+    d, stem = found
+    bak = d / f"{stem}_20990101_000000.db"
+    bak.write_bytes(b"SQLite format 3\x00")
+    try:
+        assert maintenance.upload_backups()["uploaded"] >= 1
+        assert f"backups/{bak.name}" in tos.objects
+        assert maintenance.upload_backups()["uploaded"] == 0
+        bak.unlink()
+        assert maintenance.upload_backups()["removed"] == 1
+        assert f"backups/{bak.name}" not in tos.objects
+    finally:
+        for p in d.glob(f"{stem}_20990101_000000.db*"):
+            p.unlink()

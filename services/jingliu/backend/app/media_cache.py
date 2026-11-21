@@ -249,9 +249,10 @@ def sweep_export_objects(ttl_sec: int | None = None) -> int:
 
 
 def sweep() -> dict:
-    """一轮：补传、删过期导出包、按设置删本地副本、按水位淘汰，
+    """一轮：补传、删过期导出包、按设置删本地副本、按水位淘汰、备份进桶，
     最后记一行本周期的计数。供常驻巡检调用。"""
     from . import media_store
+    from .maintenance import upload_backups
 
     up = upload_pending()
     exports = 0
@@ -262,15 +263,17 @@ def sweep() -> dict:
     except Exception as e:      # noqa: BLE001
         logger.warning("[cache] 本地副本清理失败: %s", media_store.brief_error(e))
     ev = evict()
+    bk = upload_backups()
     if storage.enabled():
         c = media_store.take_counts()
         logger.info(
             "[media] 本周期：直传 %d，补传 %d，上传失败 %d，回填 %d，回填失败 %d，"
-            "删本地 %d，过期导出包 %d，淘汰 %d",
+            "删本地 %d，过期导出包 %d，淘汰 %d，备份进桶 %d，备份失败 %d",
             c["uploaded"], up.get("uploaded", 0), c["upload_failed"],
             c["restored"], c["restore_failed"], c["local_deleted"], exports,
-            ev.get("evicted", 0))
-    return {"upload": up, "evict": ev, "exports": exports, "local_deleted": local}
+            ev.get("evicted", 0), bk.get("uploaded", 0), c["backup_failed"])
+    return {"upload": up, "evict": ev, "exports": exports, "local_deleted": local,
+            "backups": bk}
 
 
 def ledger_sizes(paths: list[Path]) -> dict[Path, int]:

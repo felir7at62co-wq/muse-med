@@ -5,6 +5,7 @@
    用户在看板一眼看到可重试，而不是无限等待（易用性）。
 2. SQLite 自动备份：全部项目数据在单文件，启动时备份到 backups/ 保留最近 7 份
    （数据安全）。用 sqlite3 backup API 保证一致性（拷文件可能撕裂热库）。
+   配了桶时，巡检再把每份备份复制到桶里的私有前缀 `backups/`（`upload_backups`）。
 """
 from __future__ import annotations
 
@@ -287,3 +288,59 @@ def backup_sqlite() -> str | None:
                 pass
 
     return str(dest)
+
+
+#: 备份在桶里的前缀（相对 `tos_key_prefix`）。不在 `tos_dirs` 里，
+#: `media_store.managed_rel` 也把它排除在外：它永远不会被签成对外地址。
+BACKUP_TOS_PREFIX = "backups"
+
+#: 已复制进桶的备份旁边放一个同名加此后缀的标记文件。
+_TOS_MARK = ".tos"
+
+
+def _backup_dir() -> tuple[Path, str] | None:
+    if not DATABASE_URL.startswith("sqlite"):
+        return None
+    db_path = Path(DATABASE_URL.split("///", 1)[1])
+    d = db_path.parent / "backups"
+    return (d, db_path.stem) if d.is_dir() else None
+
+
+def upload_backups() -> dict:
+    """把还没进桶的备份复制到 `backups/<文件名>`；本地已按保留策略删掉的，
+    桶里那份一起删。返回 {uploaded, removed}。由常驻巡检按轮调用，同步。
+
+    启动时不传：`backup_sqlite` 跑在启动路径上，桶不通时不能让服务起不来。
+    每份备份传成功后写一个 `<备份>.tos` 标记，下一轮不再传。
+    """
+    from . import storage
+    from .media_store import note_failure
+
+    out = {"uploaded": 0, "removed": 0}
+    found = _backup_dir()
+    if found is None or not storage.enabled():
+        return out
+    d, stem = found
+    for f in sorted(d.glob(f"{stem}_*.db")):
+        mark = f.with_name(f.name + _TOS_MARK)
+        if mark.exists():
+            continue
+        try:
+            storage.put_file(f, f"{BACKUP_TOS_PREFIX}/{f.name}",
+                             content_type="application/vnd.sqlite3")
+            mark.write_text(datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                            encoding="utf-8")
+            out["uploaded"] += 1
+        except Exception as e:      # noqa: BLE001
+            note_failure("backup", f.name, e)
+    for mark in d.glob(f"{stem}_*.db{_TOS_MARK}"):
+        db = mark.with_name(mark.name[:-len(_TOS_MARK)])
+        if db.exists():
+            continue
+        try:
+            storage.delete(f"{BACKUP_TOS_PREFIX}/{db.name}")
+            mark.unlink(missing_ok=True)
+            out["removed"] += 1
+        except Exception as e:      # noqa: BLE001
+            note_failure("backup", db.name, e)
+    return out
