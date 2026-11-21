@@ -358,7 +358,8 @@ def _try_next_name(e: BaseException) -> bool:
     """
     if isinstance(e, ChannelDown) and e.account_level:
         return False
-    return bool(getattr(e, "no_channel", False)) or _is_model_missing(e)
+    # 只看由完整响应体判定的标记，不看报错文本（文本可能被截断、也可能碰巧含这些字样）
+    return bool(getattr(e, "no_channel", False) or getattr(e, "model_missing", False))
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -484,6 +485,29 @@ def _flatten_alpha(raw: bytes) -> bytes:
         return raw
 
 
+#: 常见图片格式的文件头。上游 200 却给了空内容 / 一页 HTML / 一段 JSON 时，靠它拦下来。
+_IMAGE_MAGIC = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a")
+
+
+def _is_image(raw: bytes) -> bool:
+    if not raw or len(raw) < 12:
+        return False
+    if raw.startswith(_IMAGE_MAGIC):
+        return True
+    return raw[:4] == b"RIFF" and raw[8:12] == b"WEBP"
+
+
+def _only_images(images: list[bytes]) -> list[bytes]:
+    """只留真的图片。一张都不是 → AcceptedFailure（上游已受理、已计费，不重发；也不记用量）。"""
+    good = [raw for raw in images or [] if _is_image(raw)]
+    if len(good) < len(images or []):
+        logger.warning("上游给的 %d 份内容里有 %d 份不是图片，已丢弃",
+                       len(images or []), len(images or []) - len(good))
+    if not good:
+        raise _accepted_failure("上游返回的不是图片")
+    return good
+
+
 def _save(raw: bytes) -> str:
     name = f"img_{uuid.uuid4().hex[:12]}.png"
     (GENERATED_DIR / name).write_bytes(_flatten_alpha(raw))
@@ -495,10 +519,78 @@ def _save_all(images: list[bytes]) -> list[str]:
     return [_save(raw) for raw in images]
 
 
+#: 取件的安全边界（2026-11-21 审查）。链接来自上游（及其跳转），不能被它带去本机、内网、云元数据服务，
+#: 也不能被一个超大 / 不结束的响应拖住：每一跳只允许 http/https、主机必须解析成公网地址，
+#: 最多跟 5 次跳转，单张最大 50 MiB，整次最长 180 秒。
+_DOWNLOAD_MAX_BYTES = 50 * 1024 * 1024
+_DOWNLOAD_TIMEOUT_SEC = 180.0
+_DOWNLOAD_MAX_HOPS = 5
+_REDIRECT_STATUS = frozenset({301, 302, 303, 307, 308})
+
+
+class UnsafeDownload(RuntimeError):
+    """取件地址或内容越界（协议不对、指向内网、跳转太多、太大）。报错里不带地址。"""
+
+
+async def _host_addresses(host: str) -> list[str]:
+    """主机名 → 解析出的全部 IP（同步解析放线程池）。测试里会被替换。"""
+    import socket
+    infos = await asyncio.to_thread(socket.getaddrinfo, host, None, 0, socket.SOCK_STREAM)
+    return sorted({i[4][0] for i in infos})
+
+
+def _is_public_ip(addr: str) -> bool:
+    """公网地址才放行：回环、私网、链路本地（含 169.254 元数据）、100.64/10、ULA、保留段一律不算。"""
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(addr.split("%", 1)[0])
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)
+    if mapped is not None:
+        ip = mapped
+    return bool(ip.is_global) and not ip.is_multicast
+
+
+async def _check_download_url(url: str) -> None:
+    from urllib.parse import urlsplit
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise UnsafeDownload(f"取件地址协议不允许（{parts.scheme or '无'}）")
+    try:
+        addrs = await _host_addresses(parts.hostname)
+    except OSError as e:
+        raise UnsafeDownload(f"取件地址解析失败（{type(e).__name__}）") from e
+    if not addrs or not all(_is_public_ip(a) for a in addrs):
+        raise UnsafeDownload("取件地址指向本机或内网，已拒绝")
+
+
 async def _download(client: httpx.AsyncClient, url: str) -> bytes:
-    r = await client.get(url)
-    r.raise_for_status()
-    return r.content
+    """取一份图片 / 素材。跳转自己跟（每一跳都检查地址），有大小与时间上限，见上面的常量。"""
+    return await asyncio.wait_for(_download_checked(client, url), _DOWNLOAD_TIMEOUT_SEC)
+
+
+async def _download_checked(client: httpx.AsyncClient, url: str) -> bytes:
+    for _hop in range(_DOWNLOAD_MAX_HOPS + 1):
+        await _check_download_url(url)
+        async with client.stream("GET", url, follow_redirects=False) as r:
+            if r.status_code in _REDIRECT_STATUS:
+                loc = r.headers.get("location")
+                if not loc:
+                    raise UnsafeDownload("跳转响应没有目标地址")
+                url = str(httpx.URL(url).join(loc))
+                continue
+            r.raise_for_status()
+            declared = r.headers.get("content-length") or ""
+            if declared.isdigit() and int(declared) > _DOWNLOAD_MAX_BYTES:
+                raise UnsafeDownload("取件内容超过大小上限")
+            buf = bytearray()
+            async for chunk in r.aiter_bytes():
+                buf.extend(chunk)
+                if len(buf) > _DOWNLOAD_MAX_BYTES:
+                    raise UnsafeDownload("取件内容超过大小上限")
+            return bytes(buf)
+    raise UnsafeDownload(f"跳转超过 {_DOWNLOAD_MAX_HOPS} 次")
 
 
 async def _download_accepted(client: httpx.AsyncClient, urls: list[str], what: str) -> list[bytes]:
@@ -611,14 +703,23 @@ async def _oai_images(base: str, key: str, model: str | list[str], prompt: str,
                 # 其余（如 400 提示词被拒）照常抛，换渠道也是同样结果，白花一次钱。
                 raise _http_fail(resp.status_code, resp.text)
             # —— 从这里起上游已经受理（已计费）：取件失败、解析失败、没给图都不能重发 ——
+            # 任何异常都转成 AcceptedFailure（不只列出来的几种：InvalidURL、RuntimeError、
+            # 解码错误……漏一种就会掉进 generate 的通用分支，被当成能重发的错误）。
             got: list[bytes] = []
             try:
-                for item in resp.json().get("data", []) or []:
+                items = resp.json().get("data", []) or []
+                links = [it["url"] for it in items if not it.get("b64_json") and it.get("url")]
+                for item in items:
                     if item.get("b64_json"):
                         got.append(base64.b64decode(item["b64_json"]))
-                    elif item.get("url"):
-                        got.append(await _download(client, item["url"]))
-            except (httpx.HTTPError, ValueError, TypeError, AttributeError, KeyError) as e:
+                if links:
+                    # 取件单独一个客户端；上游给的往往是 CDN 签名链接、可能 302 ——
+                    # `_download` 自己跟跳转（每一跳都检查是不是公网地址，见 `_check_download_url`）。
+                    # 以前用网关那个不跟跳转的客户端取件 = 每次都付钱、每次都拿不到图
+                    async with http.client("image-download", timeout=120) as dl:
+                        for link in links:
+                            got.append(await _download(dl, link))
+            except Exception as e:  # noqa: BLE001
                 if got:
                     lost_after_accept = True
                     logger.warning("图像取件中途失败，交回已取到的 %d 张：%s", len(got), type(e).__name__)
@@ -768,7 +869,7 @@ async def _gemini_gen(base: str, key: str, model: str, prompt: str,
                     "Authorization": f"Bearer {key}"}
 
         fallback = ""          # 非空 = 上游没受理 native，可以改走 chat（值是原因，记日志用）
-        for _ in range(want):
+        while len(out) < want:
             try:
                 resp = await client.post(
                     f"{root}/v1beta/models/{model}:generateContent",
@@ -777,24 +878,30 @@ async def _gemini_gen(base: str, key: str, model: str, prompt: str,
                 fallback = f"连不上 {type(e).__name__}"
                 break
             except (httpx.TimeoutException, httpx.TransportError) as e:
+                # 含 RemoteProtocolError「没回应就断开」：httpcore 是在**整个请求写完之后**才报它，
+                # 对端可能已经读了请求、在出图（网关重启、出图中途崩、代理超时都是这样）——
+                # 改走 chat 就可能一张图付两次钱（2026-11-21 审查，真实 socket 复现）。不回退。
                 if out:
                     logger.warning("[gemini] %s native 中途网络异常（%s），交回已有的 %d 张",
                                    model, type(e).__name__, len(out))
-                    return out
+                    return out[:want]
                 _raise_network_fault(e)
             if resp.status_code == 200:
+                # —— native 200：已受理（已计费），这之后的任何异常都不能重发 ——
                 try:
                     data = resp.json()
-                except ValueError:
-                    data = {}
-                imgs, blocked, finish = _native_images(data if isinstance(data, dict) else {})
+                    imgs, blocked, finish = _native_images(data if isinstance(data, dict) else {})
+                except Exception as e:  # noqa: BLE001
+                    if out:
+                        return out[:want]
+                    raise _accepted_failure("gemini native 200 但解析不出图", e) from e
                 if imgs:
                     out.extend(imgs)
                     continue
                 if out:
                     logger.warning("[gemini] %s native 有一张没出（%s），交回已有的 %d 张",
                                    model, blocked or finish or "无原因", len(out))
-                    return out
+                    return out[:want]
                 if blocked:
                     raise ContentRejected(f"内容审核拒绝（Gemini {blocked}）",
                                           categories=blocked.split("、"))
@@ -807,14 +914,14 @@ async def _gemini_gen(base: str, key: str, model: str, prompt: str,
                 if out:
                     logger.warning("[gemini] %s native 中途失败（%s），交回已有的 %d 张",
                                    model, str(err)[:120], len(out))
-                    return out
+                    return out[:want]
                 raise err
             fallback = (f"native HTTP {resp.status_code}"
                         f"（{_error_code(resp.text) or '无 code'}）")
             break
 
         if len(out) >= want:
-            return out
+            return out[:want]
         logger.info("[gemini] %s native 未受理，改走 chat 补 %d 张：%s",
                     model, want - len(out), fallback)
         if refs:
@@ -828,39 +935,53 @@ async def _gemini_gen(base: str, key: str, model: str, prompt: str,
                    "messages": [{"role": "user", "content": content}],
                    "modalities": ["image", "text"]}
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        for _ in range(want - len(out)):
+        while len(out) < want:
             try:
                 resp = await client.post(f"{base}/chat/completions",
                                          headers=headers, json=payload)
             except (httpx.TimeoutException, httpx.TransportError) as e:
                 if out:
-                    return out
+                    return out[:want]
                 _raise_network_fault(e)
             if resp.status_code != 200:
                 if out:
-                    return out
+                    return out[:want]
                 # native 已经没受理过一轮，chat 再挂基本就是渠道问题（余额/上游没货）
                 raise _http_fail(resp.status_code, resp.text, "chat HTTP")
             # —— chat 200：已受理（已计费），解析失败 / 没给图都不再重发 ——
             try:
-                msg = (resp.json().get("choices") or [{}])[0].get("message", {}) or {}
-                text = msg.get("content")
-                if isinstance(text, list):
-                    text = " ".join((p.get("text") or "") if isinstance(p, dict) else str(p)
-                                    for p in text)
-                for m in _DATA_URL_RE.finditer(text or ""):
-                    out.append(base64.b64decode(m.group(1)))
-                for im in msg.get("images") or []:
-                    u = (im or {}).get("image_url", {}).get("url") if isinstance(im, dict) else None
-                    if u:
-                        for m in _DATA_URL_RE.finditer(u):
-                            out.append(base64.b64decode(m.group(1)))
-            except (ValueError, TypeError, AttributeError, IndexError) as e:
+                got = _chat_images(resp.json())
+            except Exception as e:  # noqa: BLE001
                 if out:
-                    return out
+                    return out[:want]
                 raise _accepted_failure("gemini chat 200 但解析不出图", e) from e
+            if not got:
+                # 这一次付了钱却没给图：到此为止，不再发下一次（以前会接着循环，n>1 时多付）
+                break
+            out.extend(got)
     if not out:
         raise _accepted_failure("gemini chat 200 但没有图")
+    return out[:want]
+
+
+def _chat_images(data: dict) -> list[bytes]:
+    """chat/completions 200 的响应 → 图片。同一张图常同时出现在 content 和 images[] 里，按内容去重。"""
+    msg = ((data.get("choices") or [{}])[0].get("message") or {}) if isinstance(data, dict) else {}
+    text = msg.get("content")
+    if isinstance(text, list):
+        text = " ".join((p.get("text") or "") if isinstance(p, dict) else str(p) for p in text)
+    blobs = [m.group(1) for m in _DATA_URL_RE.finditer(text or "")]
+    for im in msg.get("images") or []:
+        u = (im or {}).get("image_url", {}).get("url") if isinstance(im, dict) else None
+        if u:
+            blobs.extend(m.group(1) for m in _DATA_URL_RE.finditer(u))
+    seen: set[bytes] = set()
+    out: list[bytes] = []
+    for b in blobs:
+        raw = base64.b64decode(b)
+        if raw not in seen:
+            seen.add(raw)
+            out.append(raw)
     return out
 
 
@@ -893,7 +1014,12 @@ _RH_ASPECTS = {"1:1", "3:2", "2:3", "5:4", "4:5", "16:9", "9:16", "21:9", "3:4",
 
 async def _rh_v2_t2i(endpoint: str, prompt: str, n: int, size: str,
                      poll_interval: float = 5.0, poll_max: int = 60) -> list[bytes]:
-    """RunningHub v2 标准模型：提交 → 轮询 /openapi/v2/query → 下载产出。"""
+    """RunningHub v2 标准模型：提交 → 轮询 /openapi/v2/query → 下载产出。
+
+    拿到 taskId 就是**已受理**（RunningHub 按机时计费）：之后轮询超时、任务失败、没产出、
+    取件失败、任何意外都是 AcceptedFailure，不重新提交（2026-11-21 审查）。n>1 时中途出错，
+    交回已经拿到的那几张。
+    """
     s = get_settings()
     if not s.runninghub_api_key:
         raise RuntimeError("RUNNINGHUB_API_KEY not configured")
@@ -907,43 +1033,85 @@ async def _rh_v2_t2i(endpoint: str, prompt: str, n: int, size: str,
     out: list[bytes] = []
     async with http.client("runninghub-image", timeout=90) as client:
         for _ in range(max(1, n)):
-            resp = await client.post(f"{base}{endpoint}", headers=headers, json=payload)
-            if resp.status_code != 200:
-                raise RuntimeError(f"RH submit HTTP {resp.status_code}: {resp.text[:150]}")
-            j = resp.json()
-            if j.get("errorCode"):
-                raise RuntimeError(f"RH submit {j.get('errorCode')}: {j.get('errorMessage')}")
-            tid = j.get("taskId")
-            if not tid:
-                raise RuntimeError(f"RH no taskId: {str(j)[:150]}")
-            urls: list[str] = []
-            for _i in range(poll_max):
-                await asyncio.sleep(poll_interval)
-                qr = await client.post(f"{base}/openapi/v2/query", headers=headers,
-                                       json={"taskId": str(tid)})
-                if qr.status_code != 200:
-                    continue
-                qj = qr.json()
-                st = str(qj.get("status") or "").upper()
-                if st == "SUCCESS":
-                    urls = [it["url"] for it in (qj.get("results") or [])
-                            if isinstance(it, dict) and it.get("url")]
-                    break
-                if st in ("FAILED", "ERROR", "CANCELED", "CANCELLED"):
-                    raise _task_failed("RH 任务失败", f"RH task {st}: {qj.get('errorMessage')}")
-            # —— 提交已受理（RunningHub 按机时计费）：超时 / 没产出 / 取件失败都不重发 ——
-            if not urls:
-                raise _accepted_failure("RH 任务超时或无产出图")
-            out.extend(await _download_accepted(client, urls, "RH 任务"))
+            try:
+                tid = await _rh_v2_submit(client, base, endpoint, headers, payload)
+            except Exception:
+                if out:
+                    return out
+                raise
+            try:
+                out.extend(await _rh_v2_finish(client, base, headers, tid,
+                                               poll_interval, poll_max))
+            except Exception as e:  # noqa: BLE001
+                if out:
+                    logger.warning("RH 第 %d 张失败（%s），交回已有的 %d 张",
+                                   len(out) + 1, type(e).__name__, len(out))
+                    return out
+                if isinstance(e, (ContentRejected, AcceptedFailure)):
+                    raise
+                raise _accepted_failure("RH 任务处理出错", e) from e
     if not out:
         raise _accepted_failure("RH 没有产出图")
     return out
 
 
+async def _rh_v2_submit(client, base: str, endpoint: str, headers: dict, payload: dict) -> str:
+    """提交一张。返回 taskId；没受理就抛普通错误（可按状态码重试），受理了却解析不了 → AcceptedFailure。"""
+    try:
+        resp = await client.post(f"{base}{endpoint}", headers=headers, json=payload)
+    except (httpx.TimeoutException, httpx.TransportError) as e:
+        _raise_network_fault(e)
+    if resp.status_code != 200:
+        raise _http_fail(resp.status_code, resp.text, "RH submit HTTP")
+    try:
+        j = resp.json()
+    except Exception as e:  # noqa: BLE001
+        raise _accepted_failure("RH 提交返回解析不了", e) from e
+    if not isinstance(j, dict):
+        raise _accepted_failure("RH 提交返回格式不对")
+    if j.get("errorCode"):
+        raise RuntimeError(f"RH submit {j.get('errorCode')}: {j.get('errorMessage')}")
+    tid = j.get("taskId")
+    if not tid:
+        raise RuntimeError(f"RH no taskId: {str(j)[:150]}")
+    return str(tid)
+
+
+async def _rh_v2_finish(client, base: str, headers: dict, tid: str,
+                        poll_interval: float, poll_max: int) -> list[bytes]:
+    """taskId 之后：轮询到结束、取件。轮询单次出错（网络、非 JSON）跳过，下一轮再查。"""
+    urls: list[str] = []
+    for _i in range(poll_max):
+        await asyncio.sleep(poll_interval)
+        try:
+            qr = await client.post(f"{base}/openapi/v2/query", headers=headers,
+                                   json={"taskId": tid})
+            if qr.status_code != 200:
+                continue
+            qj = qr.json()
+        except (httpx.HTTPError, ValueError):
+            continue
+        if not isinstance(qj, dict):
+            continue
+        st = str(qj.get("status") or "").upper()
+        if st == "SUCCESS":
+            urls = [it["url"] for it in (qj.get("results") or [])
+                    if isinstance(it, dict) and it.get("url")]
+            break
+        if st in ("FAILED", "ERROR", "CANCELED", "CANCELLED"):
+            raise _task_failed("RH 任务失败", f"RH task {st}: {qj.get('errorMessage')}")
+    if not urls:
+        raise _accepted_failure("RH 任务超时或无产出图")
+    return await _download_accepted(client, urls, "RH 任务")
+
+
 # ---------- 协议 4：RunningHub ComfyUI 人像专用工作流（z-image 主渠道）----------
 async def _rh_portrait(prompt: str, n: int, size: str,
                        poll_interval: float = 5.0, poll_max: int = 60) -> list[bytes]:
-    """人像工作流：提示词入节点 #200，宽高入节点 #196；每任务出 1 张。"""
+    """人像工作流：提示词入节点 #200，宽高入节点 #196；每任务出 1 张。
+
+    受理（拿到 taskId）之后的规则同 `_rh_v2_t2i`：不重新提交，n>1 中途出错交回已有的。
+    """
     s = get_settings()
     if not s.runninghub_api_key or not s.runninghub_portrait_workflow_id:
         raise RuntimeError("RUNNINGHUB portrait not configured")
@@ -964,37 +1132,76 @@ async def _rh_portrait(prompt: str, n: int, size: str,
                     {"nodeId": "196", "fieldName": "height", "fieldValue": str(h)},
                 ],
             }
-            r = await client.post(f"{base}/task/openapi/create", json=payload)
-            d = r.json()
-            if r.status_code != 200 or d.get("code") != 0:
-                raise RuntimeError(f"RH portrait create: {d.get('msg') or r.status_code}")
-            tid = (d.get("data") or {}).get("taskId")
-            if not tid:
-                raise RuntimeError("RH portrait no taskId")
-            urls: list[str] = []
-            for _i in range(poll_max):
-                await asyncio.sleep(poll_interval)
-                sr = await client.post(f"{base}/task/openapi/status",
-                                       json={"apiKey": s.runninghub_api_key, "taskId": tid})
-                st = str((sr.json() or {}).get("data") or "").upper()
-                if st in ("SUCCESS", "SUCCEED", "SUCCEEDED"):
-                    orr = await client.post(f"{base}/task/openapi/outputs",
-                                            json={"apiKey": s.runninghub_api_key, "taskId": tid})
-                    od = orr.json()
-                    if od.get("code") == 0:
-                        urls = [it.get("fileUrl") or it.get("url")
-                                for it in (od.get("data") or [])
-                                if isinstance(it, dict) and (it.get("fileUrl") or it.get("url"))]
-                    break
-                if st in ("FAILED", "ERROR", "CANCELED", "CANCELLED"):
-                    raise _accepted_failure(f"RH portrait task {st}")
-            # —— 提交已受理：超时 / 没产出 / 取件失败都不重发 ——
-            if not urls:
-                raise _accepted_failure("RH portrait 超时或无产出")
-            out.extend(await _download_accepted(client, urls, "RH portrait"))
+            try:
+                tid = await _rh_portrait_submit(client, base, payload)
+            except Exception:
+                if out:
+                    return out
+                raise
+            try:
+                out.extend(await _rh_portrait_finish(client, base, s.runninghub_api_key, tid,
+                                                     poll_interval, poll_max))
+            except Exception as e:  # noqa: BLE001
+                if out:
+                    return out
+                if isinstance(e, (ContentRejected, AcceptedFailure)):
+                    raise
+                raise _accepted_failure("RH portrait 任务处理出错", e) from e
     if not out:
         raise _accepted_failure("RH portrait 没有产出图")
     return out
+
+
+async def _rh_portrait_submit(client, base: str, payload: dict) -> str:
+    try:
+        r = await client.post(f"{base}/task/openapi/create", json=payload)
+    except (httpx.TimeoutException, httpx.TransportError) as e:
+        _raise_network_fault(e)
+    if r.status_code != 200:
+        raise _http_fail(r.status_code, r.text, "RH portrait create HTTP")
+    try:
+        d = r.json()
+    except Exception as e:  # noqa: BLE001
+        raise _accepted_failure("RH portrait 提交返回解析不了", e) from e
+    if not isinstance(d, dict):
+        raise _accepted_failure("RH portrait 提交返回格式不对")
+    if d.get("code") != 0:
+        raise RuntimeError(f"RH portrait create: {d.get('msg') or d.get('code')}")
+    tid = (d.get("data") or {}).get("taskId") if isinstance(d.get("data"), dict) else None
+    if not tid:
+        raise RuntimeError("RH portrait no taskId")
+    return tid
+
+
+async def _rh_portrait_finish(client, base: str, api_key: str, tid,
+                              poll_interval: float, poll_max: int) -> list[bytes]:
+    urls: list[str] = []
+    for _i in range(poll_max):
+        await asyncio.sleep(poll_interval)
+        try:
+            sr = await client.post(f"{base}/task/openapi/status",
+                                   json={"apiKey": api_key, "taskId": tid})
+            sj = sr.json() or {}
+        except (httpx.HTTPError, ValueError):
+            continue
+        st = str((sj.get("data") if isinstance(sj, dict) else "") or "").upper()
+        if st in ("SUCCESS", "SUCCEED", "SUCCEEDED"):
+            try:
+                orr = await client.post(f"{base}/task/openapi/outputs",
+                                        json={"apiKey": api_key, "taskId": tid})
+                od = orr.json()
+            except (httpx.HTTPError, ValueError):
+                continue                      # 取产出列表抖了：下一轮再取
+            if isinstance(od, dict) and od.get("code") == 0:
+                urls = [it.get("fileUrl") or it.get("url")
+                        for it in (od.get("data") or [])
+                        if isinstance(it, dict) and (it.get("fileUrl") or it.get("url"))]
+            break
+        if st in ("FAILED", "ERROR", "CANCELED", "CANCELLED"):
+            raise _accepted_failure(f"RH portrait task {st}")
+    if not urls:
+        raise _accepted_failure("RH portrait 超时或无产出")
+    return await _download_accepted(client, urls, "RH portrait")
 
 
 #: Midjourney 版本。**以实测为准**：2026-10-21 在 zx1 上 `--v 8.2` 出图正常，
@@ -1041,11 +1248,13 @@ async def _mj_imagine(root: str, key: str, prompt: str, size: str,
         except httpx.HTTPError as e:
             _raise_network_fault(e)
             raise
-        bad = _classify_http(r.status_code, r.text)
-        if bad is not None:
-            raise bad
-        body = r.json() if r.content else {}
-        code = body.get("code")
+        if r.status_code != 200:
+            raise _http_fail(r.status_code, r.text, "Midjourney 提交 HTTP")
+        try:
+            body = r.json() if r.content else {}
+            code = body.get("code")
+        except Exception as e:  # noqa: BLE001 —— 200 却解析不了：可能已受理，不重发
+            raise _accepted_failure("Midjourney 提交返回解析不了", e) from e
         if code == 24:
             raise ContentRejected(f"Midjourney 判定提示词含敏感词：{body.get('description') or ''}")
         if code == 23:
@@ -1055,37 +1264,50 @@ async def _mj_imagine(root: str, key: str, prompt: str, size: str,
         if code not in (1, 22) or not tid:
             raise RuntimeError(f"Midjourney 提交失败（code={code}）：{body.get('description') or body}")
 
-        deadline = time.monotonic() + timeout
-        task: dict = {}
-        while time.monotonic() < deadline:
-            await asyncio.sleep(5)
-            try:
-                fr = await c.get(f"{root}/mj/task/{tid}/fetch", headers=headers)
-            except httpx.HTTPError:
-                continue                     # 轮询抖一下不算失败，下一轮再查
+        try:
+            return await _mj_finish(c, root, headers, tid, timeout)
+        except (ContentRejected, AcceptedFailure):
+            raise
+        except Exception as e:  # noqa: BLE001 —— 提交已受理：任何意外都不重新提交
+            raise _accepted_failure(f"Midjourney 任务 {tid} 处理出错", e) from e
+
+
+async def _mj_finish(c, root: str, headers: dict, tid: str, timeout: float) -> list[bytes]:
+    """Midjourney 提交已受理之后：轮询到结束、取图。这里的失败一律不重新提交（见 `_mj_imagine`）。"""
+    deadline = time.monotonic() + timeout
+    task: dict = {}
+    while time.monotonic() < deadline:
+        await asyncio.sleep(5)
+        try:
+            fr = await c.get(f"{root}/mj/task/{tid}/fetch", headers=headers)
             if fr.status_code != 200:
                 continue
             task = fr.json() or {}
-            if task.get("status") in ("SUCCESS", "FAILURE"):
-                break
-        else:
-            # —— 提交已受理：从这里起任何失败都不重发（重新提交 = 再付一次钱，2026-11-21 审查）——
-            raise _accepted_failure(f"Midjourney 任务 {tid} 超过 {int(timeout)} 秒仍未完成")
+        except (httpx.HTTPError, ValueError):
+            continue                     # 轮询抖一下 / 回了一页不是 JSON 的东西：下一轮再查
+        if not isinstance(task, dict):
+            task = {}
+            continue
+        if task.get("status") in ("SUCCESS", "FAILURE"):
+            break
+    else:
+        # —— 提交已受理：从这里起任何失败都不重发（重新提交 = 再付一次钱，2026-11-21 审查）——
+        raise _accepted_failure(f"Midjourney 任务 {tid} 超过 {int(timeout)} 秒仍未完成")
 
-        if task.get("status") == "FAILURE":
-            why = str(task.get("failReason") or "未知原因")
-            if any(w in why.lower() for w in ("sensitive", "banned", "违规", "敏感")):
-                raise ContentRejected(f"Midjourney 审核未通过：{why[:120]}")
-            raise _task_failed("Midjourney 生成失败", why)
+    if task.get("status") == "FAILURE":
+        why = str(task.get("failReason") or "未知原因")
+        if any(w in why.lower() for w in ("sensitive", "banned", "违规", "敏感")):
+            raise ContentRejected(f"Midjourney 审核未通过：{why[:120]}")
+        raise _task_failed("Midjourney 生成失败", why)
 
-        urls = [it.get("url") for it in (task.get("imageUrls") or [])
-                if isinstance(it, dict) and it.get("url") and it.get("status", "ok") == "ok"]
-        if not urls and task.get("imageUrl"):
-            urls = [task["imageUrl"]]        # 没有分图时退回四宫格整图，总比没有强
-        if not urls:
-            raise _accepted_failure("Midjourney 返回成功但没有图片地址")
-        async with http.client("image-download", timeout=120, follow_redirects=True) as dl:
-            return await _download_accepted(dl, urls, "Midjourney")
+    urls = [it.get("url") for it in (task.get("imageUrls") or [])
+            if isinstance(it, dict) and it.get("url") and it.get("status", "ok") == "ok"]
+    if not urls and task.get("imageUrl"):
+        urls = [task["imageUrl"]]        # 没有分图时退回四宫格整图，总比没有强
+    if not urls:
+        raise _accepted_failure("Midjourney 返回成功但没有图片地址")
+    async with http.client("image-download", timeout=120) as dl:
+        return await _download_accepted(dl, urls, "Midjourney")
 
 
 class ImageProvider:
@@ -1252,10 +1474,13 @@ class ImageProvider:
 
         errs: list[str] = []
         mod_reject: ContentRejected | None = None  # 记录第一次审核拒绝，便于抛错时带上
+        accepted_lost = False   # 某条渠道已受理却没取回图：到此为止，不再换渠道
         for name, factory in ordered:
+            if accepted_lost:
+                break
             for attempt in range(max(1, s.image_retries)):
                 try:
-                    images = await factory()
+                    images = _only_images(await factory())
                 except ChannelDown as e:
                     # 渠道级故障：冷却后立刻换下一条，不在这条上继续耗
                     _mark_down(name, self.model_id, s.image_channel_cooldown, e)
@@ -1263,8 +1488,10 @@ class ImageProvider:
                     break
                 except AcceptedFailure as e:
                     # 上游已受理（可能已计费）却没拿到图：**不重试**（重发 = 再付一次钱）、
-                    # **不冷却**（渠道是好的）。仍可试下一条渠道——那是别家、另一个账号。
+                    # **不冷却**（渠道是好的），也**不再换下一条渠道**——换过去又是一笔钱
+                    # （2026-11-21 审查）。报给用户「已受理但没取回」，由用户决定要不要重来。
                     errs.append(f"{name}={str(e)[:150]}")
+                    accepted_lost = True
                     break
                 except ContentRejected as e:
                     # 内容审核拒绝：**不重试**（同样提示词必然同样判定）、
@@ -1337,6 +1564,10 @@ class ImageProvider:
             cats = "、".join(mod_reject.categories) if mod_reject.categories else ""
             hint = (f"其中 {n_mod} 条渠道判定内容违规{('：' + cats) if cats else ''}"
                     "——若重试仍失败，请改写提示词或换生图模型。")
+        if accepted_lost:
+            # 不是渠道或配额的问题，别让用户去「加 KEY / 提配额」
+            raise RuntimeError(f"{self.model_id} 上游已受理但未取回图片，请稍后重试。明细: "
+                               + "; ".join(errs))
         raise RuntimeError(
             f"{self.model_id} 全部 {len(ordered)} 条渠道均失败。{hint}"
             "若为限流，建议增加 API KEY 或提升配额，而非降并发。明细: "

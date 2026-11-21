@@ -15,6 +15,10 @@ import base64
 import io
 import json
 import re
+import time as _time
+import asyncio as _asyncio
+
+_REAL_SLEEP = _asyncio.sleep          # 取件超时测试要真等一下（fixture 会把 asyncio.sleep 换成快进的）
 from contextlib import asynccontextmanager
 
 import httpx
@@ -62,6 +66,8 @@ def _accepted(b: dict) -> bool:
         return True
     if b["kind"] == "mj":
         return b["body"].get("code") in (1, 22)
+    if b["kind"] == "rh":
+        return bool(b["body"].get("taskId"))
     if b["kind"] == "raise":
         return not isinstance(b["exc"], (httpx.ConnectError, httpx.ConnectTimeout))
     body = b["body"]
@@ -80,6 +86,8 @@ class FakeGateway:
         self.billed = 0
         self.downloads: dict[str, object] = {}      # 取件地址 → 状态码或异常
         self.fetches = 0
+        self.queries = 0
+        self.gets: list[str] = []                   # 取件 / 轮询请求过的地址，按顺序
 
     def _behaviour(self, kind: str, model: str) -> dict:
         for key in ((kind, model), model):
@@ -102,6 +110,17 @@ class FakeGateway:
             kind, model = "edits", data["model"]
         elif url.endswith("/mj/submit/imagine"):
             kind, model = "mj-submit", "midjourney"
+        elif url.endswith("/openapi/v2/query"):          # RunningHub 轮询：不计费，不记进 calls
+            self.queries += 1
+            q = self.script.get("rh-query", {"status": "SUCCESS",
+                                             "results": [{"url": "https://cdn.example/rh.png"}]})
+            if isinstance(q, list):
+                q = q.pop(0) if len(q) > 1 else q[0]
+            if isinstance(q, str):
+                return httpx.Response(200, text=q, request=httpx.Request("POST", url))
+            return httpx.Response(200, json=q, request=httpx.Request("POST", url))
+        elif "/openapi/v2/" in url:
+            kind, model = "rh-submit", url.rsplit("/openapi/v2/", 1)[1]
         else:
             raise AssertionError(f"unexpected url {url}")
         self.calls.append((kind, model))
@@ -117,12 +136,20 @@ class FakeGateway:
             return httpx.Response(200, json=b["body"], request=req)
         if b["kind"] == "url":
             link = b.get("url", "https://cdn.example/out.png")
-            self.downloads[link] = b.get("dl", 404)
+            dl = b.get("dl", 404)
+            if isinstance(dl, int) and 300 <= dl < 400:
+                target = b.get("loc", "https://cdn2.example/final.png")
+                self.downloads[link] = {"status": dl, "loc": target}
+                self.downloads.setdefault(target, b.get("loc_dl", 200))
+            else:
+                self.downloads[link] = dl
             return httpx.Response(200, json={"data": [{"url": link}]}, request=req)
-        if b["kind"] == "mj":
+        if b["kind"] in ("mj", "rh"):
             return httpx.Response(200, json=b["body"], request=req)
         if b["kind"] == "empty":
             return httpx.Response(200, json={"data": []}, request=req)
+        if kind == "rh-submit":
+            return httpx.Response(200, json={"taskId": "rh-task-1"}, request=req)
         if kind == "mj-submit":
             body = {"code": 1, "result": "mj-task-1"}
         elif kind == "native":
@@ -133,22 +160,58 @@ class FakeGateway:
             body = {"data": [{"b64_json": _B64}]}
         return httpx.Response(200, json=body, request=req)
 
-    async def get(self, url, **kw):
+    async def get(self, url, follow=False, **kw):
         req = httpx.Request("GET", url)
+        self.gets.append(url)
         if "/mj/task/" in url:                       # Midjourney 轮询
             self.fetches += 1
             task = self.script.get("mj-fetch", {"status": "IN_PROGRESS"})
+            if isinstance(task, list):
+                task = task.pop(0) if len(task) > 1 else task[0]
+            if isinstance(task, str):
+                return httpx.Response(200, text=task, request=req)
             return httpx.Response(200, json=task, request=req)
         # 取件（上游给的是图片链接时）
         dl = self.downloads.get(url, self.script.get("download", 404))
         if isinstance(dl, Exception):
             raise dl
-        if dl == 200:
+        if dl == "hang":                             # 一直不回（测取件总时长上限）
+            await _REAL_SLEEP(5)
+        if isinstance(dl, dict):                     # 跳转
+            return httpx.Response(dl["status"], headers={"Location": dl["loc"]}, request=req)
+        if isinstance(dl, bytes):                    # 指定内容（测大小上限 / 非图片）
+            return httpx.Response(200, content=dl, request=req)
+        if dl == 200 or dl == "hang":
             return httpx.Response(200, content=base64.b64decode(_B64), request=req)
         if 300 <= dl < 400:
             return httpx.Response(dl, headers={"Location": "https://cdn.example/x?Expires=1795290429"},
                                   request=req)
         return httpx.Response(dl, text="cdn error", request=req)
+
+
+class _Bound:
+    """一个 `http.client(...)` 拿到的客户端：记住它跟不跟随跳转。"""
+
+    def __init__(self, fake: FakeGateway, follow: bool):
+        self.fake, self.follow = fake, follow
+
+    async def post(self, url, **kw):
+        return await self.fake.post(url, **kw)
+
+    async def get(self, url, **kw):
+        # 同真 httpx：客户端设了跟随跳转（且这次请求没关掉），就自动一路跟下去——不管跳到哪
+        follow = kw.pop("follow_redirects", self.follow)
+        for _ in range(20):
+            r = await self.fake.get(url, follow=follow, **kw)
+            if not (follow and r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location")):
+                return r
+            url = r.headers["location"]
+        return r
+
+    @asynccontextmanager
+    async def stream(self, method, url, **kw):
+        assert kw.get("follow_redirects") is False         # 跳转必须由我们自己一跳一跳地查
+        yield await self.fake.get(url)
 
 
 @pytest.fixture()
@@ -171,11 +234,14 @@ def gateway(db, monkeypatch):
 
     monkeypatch.setattr(image, "_backoff", no_backoff)
 
-    class Clock:                                              # Midjourney 轮询用的假时钟
+    class Clock:                                              # 只替换 monotonic；其余照用真 time
         t = 1000.0
 
         def monotonic(self):
             return self.t
+
+        def __getattr__(self, name):
+            return getattr(_time, name)
 
     clock = Clock()
     monkeypatch.setattr(image, "time", clock)
@@ -187,6 +253,16 @@ def gateway(db, monkeypatch):
 
     monkeypatch.setattr(image.asyncio, "sleep", fast_sleep)
 
+    # 取件地址解析：*.example 是公网；IP 字面量就是它自己；intranet.example 故意指向内网
+    async def resolve(host):
+        if host == "intranet.example":
+            return ["10.0.0.5"]
+        if host.endswith(".example"):
+            return ["93.184.216.34"]
+        return [host]
+
+    monkeypatch.setattr(image, "_host_addresses", resolve, raising=False)
+
     def script(behaviours: dict | None = None, base: str = JUBIAN) -> FakeGateway:
         monkeypatch.setattr(s, "gateway_base_url", base)
         image._COOLDOWN.clear()
@@ -194,7 +270,7 @@ def gateway(db, monkeypatch):
 
         @asynccontextmanager
         async def client(name, **kw):
-            yield fake
+            yield _Bound(fake, bool(kw.get("follow_redirects")))
 
         monkeypatch.setattr(http_mod, "client", client)
         return fake
@@ -259,17 +335,20 @@ _SIGNED_429 = "https://cdn.example/out.png?Expires=1795290429&Signature=abc"
     {"kind": "url", "dl": 504},          # CDN 504（文本里有 timeout）
     {"kind": "url", "dl": 429},          # CDN 429
     {"kind": "url", "dl": 408},          # CDN 408
-    {"kind": "url", "dl": 302},          # 重定向（Location 里有 429）
+    {"kind": "url", "dl": RuntimeError("weird")},           # 取件时任何意外
+    {"kind": "json", "body": {"data": [{"b64_json": "!!!not-base64"}]}},   # 解码失败
+    {"kind": "json", "body": {"data": [{"b64_json": base64.b64encode(b"<html>busy</html>").decode()}]}},
     {"kind": "url", "dl": 403, "url": _SIGNED_429},          # 签名链接本身含 "429"
     {"kind": "url", "dl": httpx.ReadTimeout("cdn slow")},    # 取件读超时
     {"kind": "empty"},                   # 200 但 data: []
     {"kind": "json", "body": {"oops": True}},                # 200 但不是图片结构
     status(500, _MODERATION),            # 审核拒绝
 ], ids=["504", "500", "read-timeout", "download-404", "download-504", "download-429", "download-408",
-        "download-302", "signed-url-429", "download-read-timeout", "empty-200", "odd-200", "moderation"])
+        "download-other-error", "bad-base64", "not-an-image", "signed-url-429", "download-read-timeout", "empty-200", "odd-200", "moderation"])
 def test_gpt_image_2_never_pays_twice(gateway, answer):
+    from app.providers.image import ContentRejected
     fake = gateway({"gpt-image-2-c": status(503, _MISSING), "gpt-image-2": answer})
-    with pytest.raises(Exception) as e:
+    with pytest.raises((RuntimeError, ContentRejected)) as e:
         _gen("gpt-image-2")
     assert fake.calls == [("images", "gpt-image-2-c"), ("images", "gpt-image-2")]  # 没重发、没换到 -high
     assert fake.billed <= 1
@@ -448,3 +527,237 @@ def test_midjourney_works_and_a_full_queue_is_retried(gateway):
     with pytest.raises(RuntimeError):
         _gen("midjourney")
     assert fake.calls == [("mj-submit", "midjourney")] * 3 and fake.billed == 0
+
+
+# ---------------------------------------------------------------- patch 11：受理之后的各种边角
+
+def test_a_redirecting_image_link_is_followed_with_a_single_post(gateway):
+    fake = gateway({"gpt-image-2-c": status(503, _MISSING), "gpt-image-2": {"kind": "url", "dl": 302}})
+    assert len(_gen("gpt-image-2")) == 1
+    assert fake.calls == [("images", "gpt-image-2-c"), ("images", "gpt-image-2")] and fake.billed == 1
+    assert fake.gets == ["https://cdn.example/out.png", "https://cdn2.example/final.png"]   # 我们自己跟的跳转
+
+
+def test_name_switching_reads_flags_not_text():
+    from app.providers.image import ChannelDown, _try_next_name
+    assert not _try_next_name(RuntimeError("HTTP 400: model_not_found 字样出现在别处"))
+    assert not _try_next_name(ChannelDown("HTTP 503: no available channel"))     # 没带标记
+    assert _try_next_name(ChannelDown("x", model_missing=True))
+    assert _try_next_name(ChannelDown("x", no_channel=True))
+    assert not _try_next_name(ChannelDown("x", account_level=True, no_channel=True))
+
+
+def test_a_non_image_200_is_not_recorded_as_usage(gateway, monkeypatch):
+    from app import usage
+    recorded = []
+    monkeypatch.setattr(usage, "record", lambda *a, **k: recorded.append(k))
+    fake = gateway({"gpt-image-2-c": status(503, _MISSING), "gpt-image-2": {"kind": "json", "body": {
+        "data": [{"b64_json": base64.b64encode(b"").decode() or "AAAA"}]}}})
+    with pytest.raises(RuntimeError, match="上游已受理但未取回图片"):
+        _gen("gpt-image-2")
+    assert recorded == [] and fake.billed == 1
+
+
+def test_after_an_accepted_loss_the_chain_stops_and_no_quota_hint_is_given(gateway, monkeypatch):
+    from app.config import get_settings
+    s = get_settings()
+    fake = gateway({"gpt-image-2-c": status(503, _MISSING), "gpt-image-2": {"kind": "empty"}})
+    monkeypatch.setattr(s, "kege_base_url", "https://kege.example")        # 再配一家
+    monkeypatch.setattr(s, "kege_gpt_api_key", "sk-kege-test")
+    with pytest.raises(RuntimeError) as e:
+        _gen("gpt-image-2")
+    assert "上游已受理但未取回图片" in str(e.value) and "API KEY" not in str(e.value)
+    assert fake.calls == [("images", "gpt-image-2-c"), ("images", "gpt-image-2")]   # 没换到 kege
+
+
+def test_gemini_caps_at_n_and_dedupes_chat_images(gateway):
+    two = {"candidates": [{"content": {"parts": [{"inlineData": {"data": _B64}},
+                                                 {"inlineData": {"data": _B64}}]}}]}
+    fake = gateway({("native", "gemini-3.1-flash-image"): native_200(two)})
+    assert len(_gen("nano-banana-2", n=1)) == 1                   # 一次回两张，只要一张
+    assert fake.calls == [("native", "gemini-3.1-flash-image")]
+
+    dup = {"choices": [{"message": {"content": f"data:image/png;base64,{_B64}",
+                                    "images": [{"image_url": {"url": f"data:image/png;base64,{_B64}"}}]}}]}
+    fake = gateway({("native", "gemini-3.1-flash-image"): status(404, "not found"),
+                    ("chat", "gemini-3.1-flash-image"): native_200(dup)})
+    assert len(_gen("nano-banana-2", n=2)) == 2                   # 每次 chat 那张图只算一张
+    assert fake.calls == [("native", "gemini-3.1-flash-image")] + [("chat", "gemini-3.1-flash-image")] * 2
+
+
+def test_gemini_chat_stops_at_the_first_200_without_an_image(gateway):
+    empty = native_200({"choices": [{"message": {"content": "抱歉"}}]})
+    fake = gateway({("native", "gemini-3.1-flash-image"): status(404, "not found"),
+                    ("chat", "gemini-3.1-flash-image"): [OK, empty, OK]})
+    assert len(_gen("nano-banana-2", n=3)) == 1                   # 第二次没给图就停，不发第三次
+    assert fake.calls == [("native", "gemini-3.1-flash-image")] + [("chat", "gemini-3.1-flash-image")] * 2
+    assert fake.billed == 2
+
+
+def test_gemini_native_bad_body_and_a_dropped_connection_are_terminal(gateway):
+    fake = gateway({("native", "gemini-3.1-flash-image"): native_200({"candidates": "oops"})})
+    with pytest.raises(RuntimeError, match="上游已受理但未取回图片"):
+        _gen("nano-banana-2")
+    assert fake.calls == [("native", "gemini-3.1-flash-image")]
+
+    # 「没回应就断开」是在整个请求写完之后才报的：对端可能已经在出图 —— 不改走 chat（审查实测会重复计费）
+    gone = raises(httpx.RemoteProtocolError("Server disconnected without sending a response."))
+    fake = gateway({("native", "gemini-3.1-flash-image"): gone})
+    with pytest.raises(RuntimeError):
+        _gen("nano-banana-2")
+    assert fake.calls == [("native", "gemini-3.1-flash-image")] and fake.billed == 1
+
+
+def test_midjourney_tolerates_a_bad_poll_body(gateway):
+    fake = gateway({"mj-fetch": ["<html>busy</html>", _MJ_DONE], "download": 200})
+    assert len(_gen("midjourney")) == 4
+    assert fake.calls == [("mj-submit", "midjourney")] and fake.fetches == 2
+
+
+@pytest.fixture()
+def runninghub(gateway, monkeypatch):
+    """只配 RunningHub（gpt-image-2 链上只剩 rh-g2）。"""
+    from app.config import get_settings
+    s = get_settings()
+
+    def script(behaviours=None):
+        fake = gateway(behaviours)
+        monkeypatch.setattr(s, "gateway_api_key", "")
+        monkeypatch.setattr(s, "runninghub_api_key", "rh-test-only")
+        monkeypatch.setattr(s, "runninghub_base_url", "https://rh.example")
+        return fake
+    return script
+
+
+def test_runninghub_never_resubmits_after_a_task_id(runninghub):
+    from app.providers.image import channel_names
+    fake = runninghub({"rh-query": ["not json", {"status": "SUCCESS",
+                                                 "results": [{"url": "https://cdn.example/rh.png"}]}],
+                       "download": 200})
+    assert channel_names("gpt-image-2") == ["rh-g2"]
+    assert len(_gen("gpt-image-2")) == 1                          # 轮询回了一次怪东西，下一轮照常
+    assert [c[0] for c in fake.calls] == ["rh-submit"]
+
+    fake = runninghub({"rh-query": {"status": "RUNNING"}})
+    with pytest.raises(RuntimeError, match="上游已受理但未取回图片"):
+        _gen("gpt-image-2")
+    assert [c[0] for c in fake.calls] == ["rh-submit"] and fake.queries == 60   # 等到点，不重新提交
+
+    fake = runninghub({"download": 504})
+    with pytest.raises(RuntimeError):
+        _gen("gpt-image-2")
+    assert [c[0] for c in fake.calls] == ["rh-submit"]
+
+
+def test_runninghub_keeps_what_it_has_when_a_later_task_fails(runninghub):
+    fake = runninghub({"rh-query": [{"status": "SUCCESS", "results": [{"url": "https://cdn.example/1.png"}]},
+                                    {"status": "FAILED", "errorMessage": "gpu oom"}],
+                       "download": 200})
+    assert len(_gen("gpt-image-2", n=2)) == 1
+    assert [c[0] for c in fake.calls] == ["rh-submit", "rh-submit"]
+
+
+# ---------------------------------------------------------------- patch 11 v2：取件的安全边界
+
+@pytest.mark.parametrize("target", [
+    "http://127.0.0.1/admin",
+    "http://169.254.169.254/latest/meta-data/",
+    "http://100.100.100.200/latest/meta-data/",
+    "http://[::1]/x.png",
+    "http://[fd00::1]/x.png",
+    "https://intranet.example/x.png",                      # 域名解析到 10.0.0.5
+    "file:///etc/passwd",
+], ids=["loopback", "metadata", "cgnat", "ipv6-loopback", "ipv6-ula", "resolves-private", "file"])
+def test_a_redirect_into_the_private_network_is_refused(gateway, target):
+    fake = gateway({"gpt-image-2-c": status(503, _MISSING),
+                    "gpt-image-2": {"kind": "url", "dl": 302, "loc": target}})
+    with pytest.raises(RuntimeError) as e:
+        _gen("gpt-image-2")
+    assert fake.gets == ["https://cdn.example/out.png"]      # 跳转目标一次都没请求
+    assert fake.billed == 1 and "上游已受理但未取回图片" in str(e.value)
+    assert "127.0.0.1" not in str(e.value) and "169.254" not in str(e.value)
+
+
+def test_a_private_first_link_is_refused_before_any_request(gateway):
+    fake = gateway({"gpt-image-2-c": status(503, _MISSING),
+                    "gpt-image-2": {"kind": "url", "url": "http://192.168.1.10/out.png", "dl": 200}})
+    with pytest.raises(RuntimeError):
+        _gen("gpt-image-2")
+    assert fake.gets == []
+
+
+def test_redirects_are_capped_at_five_hops(gateway):
+    fake = gateway({"gpt-image-2-c": status(503, _MISSING),
+                    "gpt-image-2": {"kind": "url", "dl": 302, "loc": "https://cdn.example/hop1"}})
+    original_post = fake.post
+
+    async def post(url, **kw):                                # 出图之后再把跳转链挂上
+        r = await original_post(url, **kw)
+        for i in range(1, 8):
+            fake.downloads[f"https://cdn.example/hop{i}"] = {"status": 302, "loc": f"https://cdn.example/hop{i + 1}"}
+        return r
+
+    fake.post = post
+    with pytest.raises(RuntimeError):
+        _gen("gpt-image-2")
+    assert len(fake.gets) == 6                                # 原链接 + 5 跳，第 6 跳不再请求
+
+
+def test_downloads_are_capped_in_size_and_time(gateway, monkeypatch):
+    import app.providers.image as image
+    monkeypatch.setattr(image, "_DOWNLOAD_MAX_BYTES", 1000)
+    png = base64.b64decode(_B64)
+
+    fake = gateway({"gpt-image-2-c": status(503, _MISSING),
+                    "gpt-image-2": {"kind": "url", "url": "https://cdn.example/big.png", "dl": png + b"\0" * 2000}})
+    with pytest.raises(RuntimeError, match="上游已受理但未取回图片"):   # 带 Content-Length：先看头就拒
+        _gen("gpt-image-2")
+    assert fake.billed == 1
+
+    monkeypatch.setattr(image, "_DOWNLOAD_TIMEOUT_SEC", 0.05)          # 一直不回：到点放弃，不重发
+    fake = gateway({"gpt-image-2-c": status(503, _MISSING), "gpt-image-2": {"kind": "url", "dl": "hang"}})
+    with pytest.raises(RuntimeError, match="上游已受理但未取回图片"):
+        _gen("gpt-image-2")
+    assert fake.calls == [("images", "gpt-image-2-c"), ("images", "gpt-image-2")] and fake.billed == 1
+
+
+def test_streamed_size_cap_without_a_length_header(monkeypatch):
+    import app.providers.image as image
+
+    class Resp:
+        status_code = 200
+        headers: dict = {}
+
+        def raise_for_status(self):
+            return None
+
+        async def aiter_bytes(self):
+            for _ in range(10):
+                yield b"x" * 400
+
+    class Client:
+        @asynccontextmanager
+        async def stream(self, method, url, **kw):
+            yield Resp()
+
+    async def public(host):
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(image, "_DOWNLOAD_MAX_BYTES", 1000)
+    monkeypatch.setattr(image, "_host_addresses", public)
+    with pytest.raises(image.UnsafeDownload, match="大小上限"):
+        run(image._download(Client(), "https://cdn.example/big"))
+
+
+def test_reference_images_from_the_private_network_are_refused(gateway):
+    import app.providers.image as image
+    fake = gateway()
+    with pytest.raises(image.RefUnavailable):
+        run(image._load_ref_bytes(["http://127.0.0.1:8080/ref.png"]))
+    assert fake.gets == []                                    # 一次都没去请求
+
+
+def test_bmp_magic_alone_is_not_an_image():
+    from app.providers.image import _is_image
+    assert not _is_image(b"BM this is plain text, not a bitmap")
+    assert _is_image(base64.b64decode(_B64))
