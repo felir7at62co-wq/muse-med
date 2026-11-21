@@ -79,7 +79,9 @@ it('streams draft materials into the draft when the session keeps no local files
     .rejects.toMatchObject({ code: 'JINGLIU_INVALID_DRAFT' })
 })
 
-function tool(studio: JingliuSession, approve = vi.fn(async () => true), cwd: string | null = '/work') {
+const allow = () => vi.fn(async (_exec: ToolRunContext, _reason: string) => true)
+
+function tool(studio: JingliuSession, approve = allow(), cwd: string | null = '/work') {
   const tools = workflowTools({ connect: async () => studio, approve, selected: async () => ({ id: 'p1', title: '雨夜' }) })
   const definition = tools.find(entry => entry.name === 'jingliu_media')!
   return (args: Record<string, unknown>) => {

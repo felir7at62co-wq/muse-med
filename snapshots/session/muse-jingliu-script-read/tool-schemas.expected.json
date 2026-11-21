@@ -1263,6 +1263,40 @@
       }
     },
     {
+      "name": "jingliu_media",
+      "description": "把镜流素材下载到本机工作区（同一文件只下载一次），或把本机图片、音频、视频上传到镜流。上传返回的 path 可填入需要素材地址的镜流工作流参数。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "download",
+              "upload"
+            ]
+          },
+          "project_id": {
+            "type": "string",
+            "description": "镜流项目；省略时用本会话关联的项目。download 必须有项目。"
+          },
+          "paths": {
+            "type": "array",
+            "description": "download：镜流结果中的 /fw/media/ 地址，最多 200 个。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "file": {
+            "type": "string",
+            "description": "upload：本机文件，相对路径从工作区解析。"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
       "name": "jingliu_narration",
       "description": "镜流「解说剧·角色开口」工作流。state 查分集、镜头、核对报告和可用模型；model 切换模型；breakdown 拆解台词；produce 出片、对齐和核对；accept 接受某句差异；export 导出剪映草稿。任务提交后用 get_job 查进度。",
       "parameters": {
