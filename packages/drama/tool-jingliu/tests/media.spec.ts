@@ -102,10 +102,10 @@ it('downloads studio files into the project folder only on a Host that keeps loc
   await expect(call({ action: 'download', paths: ['/fwp/media/generated/a.png'] })).resolves.toEqual({ project_id: 'p1', files: [
     { path: '/fw/media/generated/a.png', file: join(workspace, 'jingliu', 'p1', 'generated', 'a.png'), size: 3, content_type: 'video/mp4' },
   ] })
-  await expect(call({ action: 'download', project_id: 'p2', paths: ['/fw/media/a.png'] })).rejects.toMatchObject({ code: 'JINGLIU_INVALID_PROJECT' })
+  await expect(call({ action: 'download', project_id: 'p2', paths: ['/fw/media/generated/a.png'] })).rejects.toMatchObject({ code: 'JINGLIU_INVALID_PROJECT' })
   await expect(call({ action: 'download', paths: [] })).rejects.toMatchObject({ code: 'JINGLIU_INVALID_ARGUMENTS' })
   const web = tool({ identity: 'u', request: vi.fn(), media: fake.media })
-  await expect(web({ action: 'download', paths: ['/fw/media/a.png'] })).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_LOCAL_DISABLED' })
+  await expect(web({ action: 'download', paths: ['/fw/media/generated/a.png'] })).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_LOCAL_DISABLED' })
 })
 
 it('uploads a workspace file only after the user approves it', async () => {

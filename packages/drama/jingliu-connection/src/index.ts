@@ -154,6 +154,7 @@ export class JingliuConnection extends TypertRemoteService {
     this.media = new JingliuMedia({
       hosts: config.mediaHosts ?? [], downloads: config.mediaDownloads ?? 4, cacheBytes: config.mediaCacheBytes ?? 2 * 1024 ** 3,
       maxBytes: config.mediaMaxBytes ?? 2 * 1024 ** 3, timeoutMs: config.mediaTimeoutMs ?? 30 * 60_000,
+      warn: (message) => { ctx.logger.warn(message) },
     })
     if (preview && (!this.origin || !['127.0.0.1', '[::1]'].includes(new URL(this.origin).hostname))) {
       throw new HarnessError('本机预览凭据只能用于回环服务。', 'JINGLIU_PREVIEW_ORIGIN_INVALID')

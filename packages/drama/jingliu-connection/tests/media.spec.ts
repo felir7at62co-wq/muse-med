@@ -76,7 +76,12 @@ function objectStore(res: ServerResponse, req: IncomingMessage, objects: Record<
 
 it('normalizes stored addresses and refuses traversal and names a platform cannot store', () => {
   expect(mediaPath('/fwp/media/generated/a.png')).toEqual({ path: '/fw/media/generated/a.png', parts: ['generated', 'a.png'] })
-  for (const bad of ['/fw/media/../a.png', '/fw/media/a%2e%2e/b', '/fw/media/a:b.png', '/fw/media/CON', '/other/a.png', '/fw/media/a.png?x=1']) {
+  expect(mediaPath('/fw/media/exports/jianying/%E5%8C%85.zip').parts).toEqual(['exports', 'jianying', '%E5%8C%85.zip'])
+  expect(mediaPath('/fw/media/bgm-library/calm.mp3').parts).toEqual(['bgm-library', 'calm.mp3'])
+  for (const bad of ['/fw/media/../a.png', '/fw/media/a%2e%2e/b', '/fw/media/generated/a:b.png', '/fw/media/generated/CON', '/other/a.png',
+    '/fw/media/generated/a.png?x=1', '/fw/media/a.png', '/fw/media/.muse-media.json', '/fw/media/secret/a.png', '/fw/media/backups/j.db',
+    '/fw/media/generated/.env', '/fw/media/generated/.hidden/a.png', '/fw/media/generated/x.png.part', '/fw/media/generated/x.png.PART.json',
+    '/fw/media/exports/a/b/c.zip']) {
     expect(() => mediaPath(bad)).toThrow(expect.objectContaining({ code: 'JINGLIU_INVALID_MEDIA' }))
   }
   expect(projectMediaFolder('/work', 'p-1')).toBe(join('/work', 'jingliu', 'p-1'))
@@ -101,7 +106,8 @@ it('resolves in batches of 200 and reads every address through the Host once the
   expect(sources.size).toBe(201)
   expect(sources.get('/fw/media/generated/0.png')).toMatchObject({ kind: 'object', size: 3, etag: 'e', contentType: 'image/png' })
   expect(sources.get('/fw/media/generated/1.png')).toEqual({ kind: 'host', path: '/fw/media/generated/1.png' })
-  expect(sources.get('/fw/media/generated/2.png')).toEqual({ kind: 'missing', path: '/fw/media/generated/2.png', reason: 'not_in_tos' })
+  // A file outside the folders object storage manages is still served by the studio.
+  expect(sources.get('/fw/media/generated/2.png')).toEqual({ kind: 'host', path: '/fw/media/generated/2.png' })
   resolveStatus = 404
   const fresh = { ...session }
   expect([...(await store.resolve(fresh, paths.slice(0, 2), signal)).values()].map(source => source.kind)).toEqual(['host', 'host'])
@@ -109,16 +115,56 @@ it('resolves in batches of 200 and reads every address through the Host once the
   expect(seen).toHaveLength(3)
 })
 
-it('rejects a resolve answer that omits an address or links to an untrusted host', async () => {
+it('rejects a resolve answer that omits an address and reads a link to an untrusted host through the Host', async () => {
   let items: unknown[] = []
-  const { session, host } = await studio((_req, _body, res) => { json(res, 200, { items }) })
+  const image = Buffer.from('kept by the studio')
+  const { session, host, seen } = await studio((req, _body, res) => {
+    if (req.url === '/fwp/v2/media/resolve') { json(res, 200, { items }); return }
+    res.writeHead(200, { 'content-type': 'image/png' }); res.end(image)
+  })
+  const warn = vi.fn()
+  const store = media(host, { warn })
+  const signal = new AbortController().signal
+  const a = '/fw/media/generated/a.png'
+  const b = '/fw/media/generated/b.png'
+  await expect(store.resolve(session, [a], signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_INVALID_RESULT' })
+  items = [{ path: a, url: 'https://evil.example/a.png', size: 1, etag: 'e' }, { path: b, url: `https://user:pw@${host}/b.png`, size: 1, etag: 'e' }]
+  expect([...(await store.resolve(session, [a, b], signal)).values()]).toEqual([{ kind: 'host', path: a }, { kind: 'host', path: b }])
+  expect(warn).toHaveBeenCalledTimes(1)
+  expect(String(warn.mock.calls[0]?.[0])).toContain('evil.example')
+  items = [{ path: a, url: 'https://evil.example/a.png', size: 1, etag: 'e' }]
+  expect(Buffer.from(await (await store.open(session, a, signal)).arrayBuffer())).toEqual(image)
+  expect(seen.at(-1)).toMatchObject({ url: '/fwp/media/generated/a.png', cookie: 'muse=private' })
+})
+
+it('uses the resolved media type when object storage reports none or application/octet-stream', async () => {
+  const bytes = Buffer.from('\x89PNG image')
+  let reported: string | undefined = 'application/octet-stream'
+  const { session, host } = await studio((req, _body, res) => {
+    if (req.url === '/fwp/v2/media/resolve') {
+      json(res, 200, { items: [{ path: '/fw/media/generated/o.png', url: `http://${host}/tos/o`, size: bytes.length, etag: md5(bytes), content_type: 'image/png' },
+        { path: '/fw/media/outputs/f.mp4', local: true }] })
+      return
+    }
+    res.writeHead(200, reported === undefined ? {} : { 'content-type': reported }); res.end(bytes)
+  })
   const store = media(host)
   const signal = new AbortController().signal
-  await expect(store.resolve(session, ['/fw/media/a.png'], signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_INVALID_RESULT' })
-  items = [{ path: '/fw/media/a.png', url: 'https://evil.example/a.png', size: 1, etag: 'e' }]
-  await expect(store.resolve(session, ['/fw/media/a.png'], signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_HOST_REFUSED' })
-  items = [{ path: '/fw/media/a.png', url: `https://user:pw@${host}/a.png`, size: 1, etag: 'e' }]
-  await expect(store.resolve(session, ['/fw/media/a.png'], signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_HOST_REFUSED' })
+  const typeOf = async (path: string) => {
+    const response = await store.open(session, path, signal)
+    await response.arrayBuffer()
+    return response.headers.get('content-type')
+  }
+  expect(await typeOf('/fw/media/generated/o.png')).toBe('image/png')
+  expect(await typeOf('/fw/media/outputs/f.mp4')).toBe('video/mp4')
+  reported = undefined
+  expect(await typeOf('/fw/media/generated/o.png')).toBe('image/png')
+  reported = 'image/webp; charset=binary'
+  expect(await typeOf('/fw/media/generated/o.png')).toBe('image/webp; charset=binary')
+  reported = 'application/octet-stream'
+  const root = await folder()
+  const files = await store.files(session, ['/fw/media/generated/o.png', '/fw/media/outputs/f.mp4'], root, { keep: false, evict: false, signal })
+  expect([...files.values()].map(file => file.contentType)).toEqual(['image/png', 'video/mp4'])
 })
 
 it('downloads from object storage without the studio credential, checks the ETag and never downloads a file twice', async () => {
@@ -201,17 +247,17 @@ it('reads a file the studio keeps through the Host and follows a redirect only t
 it('names a missing or unreachable file instead of a login failure', async () => {
   const { session, host } = await studio((req, _body, res) => {
     if (req.url === '/fwp/v2/media/resolve') {
-      json(res, 200, { items: [{ path: '/fw/media/x.png', error: 'not_found' }, { path: '/fw/media/y.png', local: true }] })
+      json(res, 200, { items: [{ path: '/fw/media/generated/x.png', error: 'not_found' }, { path: '/fw/media/generated/y.png', local: true }] })
       return
     }
     res.writeHead(502); res.end()
   })
   const store = media(host)
   const signal = new AbortController().signal
-  await expect(store.open(session, '/fw/media/x.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_NOT_FOUND' })
-  await expect(store.open(session, '/fw/media/y.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_UNAVAILABLE' })
+  await expect(store.open(session, '/fw/media/generated/x.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_NOT_FOUND' })
+  await expect(store.open(session, '/fw/media/generated/y.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_UNAVAILABLE' })
   const failing: WorkbenchSession = { ...session, fetch: async () => { throw new TypeError('fetch failed') } }
-  await expect(store.open(failing, '/fw/media/y.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_UNAVAILABLE' })
+  await expect(store.open(failing, '/fw/media/generated/y.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_UNAVAILABLE' })
 })
 
 it('limits simultaneous downloads and removes the least recently viewed files beyond the cache size, never kept ones', async () => {
@@ -229,21 +275,21 @@ it('limits simultaneous downloads and removes the least recently viewed files be
     }
     const paths = (JSON.parse(body.toString('utf8')) as { paths: string[] }).paths
     json(res, 200, { items: paths.map((path) => {
-      const name = path.slice('/fw/media/v/'.length, -'.png'.length)
+      const name = path.slice('/fw/media/generated/'.length, -'.png'.length)
       return { path, url: `http://${host}/tos/${name}`, size: 10, etag: md5(objects[name]!) }
     }) })
   })
   const root = await folder()
   const store = media(host, { downloads: 2, cacheBytes: 20 })
   const signal = new AbortController().signal
-  await store.files(session, ['/fw/media/v/k.png'], root, { keep: true, evict: false, signal })
-  await store.files(session, ['/fw/media/v/a.png', '/fw/media/v/b.png'], root, { keep: false, evict: true, signal })
-  await store.files(session, ['/fw/media/v/c.png'], root, { keep: false, evict: true, signal })
+  await store.files(session, ['/fw/media/generated/k.png'], root, { keep: true, evict: false, signal })
+  await store.files(session, ['/fw/media/generated/a.png', '/fw/media/generated/b.png'], root, { keep: false, evict: true, signal })
+  await store.files(session, ['/fw/media/generated/c.png'], root, { keep: false, evict: true, signal })
   expect(peak).toBe(2)
-  const present = async (name: string) => await stat(join(root, 'v', name + '.png')).then(() => true, () => false)
+  const present = async (name: string) => await stat(join(root, 'generated', name + '.png')).then(() => true, () => false)
   expect(await Promise.all(['k', 'a', 'b', 'c'].map(present))).toEqual([true, false, true, true])
   const index = JSON.parse(await readFile(join(root, '.muse-media.json'), 'utf8')) as { files: Record<string, unknown> }
-  expect(Object.keys(index.files).sort()).toEqual(['/fw/media/v/b.png', '/fw/media/v/c.png', '/fw/media/v/k.png'])
+  expect(Object.keys(index.files).sort()).toEqual(['/fw/media/generated/b.png', '/fw/media/generated/c.png', '/fw/media/generated/k.png'])
 })
 
 it('uploads a local file straight to object storage and confirms it with the studio', async () => {

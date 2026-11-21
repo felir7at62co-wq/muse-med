@@ -221,8 +221,8 @@ it('reads routes and media of the studio mounted on the Muse gateway with the Mu
     switch (req.url) {
       case '/jingliu/fwp/v2/auth/me': return [200, { user: { id: 45 } }]
       case '/jingliu/fwp/v2/projects': return [200, { projects: [] }]
-      case '/jingliu/fwp/media/a.png': return [200, png]
-      case '/jingliu/fwp/media/b.png': return [200, { not: 'an image' }]
+      case '/jingliu/fwp/media/generated/a.png': return [200, png]
+      case '/jingliu/fwp/media/generated/b.png': return [200, { not: 'an image' }]
       default: return [404, {}]
     }
   })
@@ -230,15 +230,15 @@ it('reads routes and media of the studio mounted on the Muse gateway with the Mu
   const signal = new AbortController().signal
   const scope = await ctx.jingliuConnection.connection()
   expect(await scope.request('/projects')).toEqual({ projects: [] })
-  expect(await ctx.jingliuConnection.thumbnail('/fw/media/a.png', signal)).toEqual({ kind: 'inline', url: 'data:image/png;base64,' + png.toString('base64') })
-  await expect(ctx.jingliuConnection.thumbnail('/fwp/media/b.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_MEDIA' })
-  await expect(ctx.jingliuConnection.thumbnail('/fw/media/missing.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_NOT_FOUND' })
+  expect(await ctx.jingliuConnection.thumbnail('/fw/media/generated/a.png', signal)).toEqual({ kind: 'inline', url: 'data:image/png;base64,' + png.toString('base64') })
+  await expect(ctx.jingliuConnection.thumbnail('/fwp/media/generated/b.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_MEDIA' })
+  await expect(ctx.jingliuConnection.thumbnail('/fw/media/generated/missing.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_NOT_FOUND' })
   await expect(ctx.jingliuConnection.thumbnail('/other/a.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_MEDIA' })
   expect(grant).not.toHaveBeenCalled()
   expect(mounted.mock.calls.map(([audience, owner, url]) => [audience, owner, url.pathname])).toEqual([
     ['jingliu', 'muse-login-a', '/jingliu/fwp/v2/auth/me'], ['jingliu', 'muse-login-a', '/jingliu/fwp/v2/projects'],
-    ['jingliu', 'muse-login-a', '/jingliu/fwp/v2/media/resolve'], ['jingliu', 'muse-login-a', '/jingliu/fwp/media/a.png'], ['jingliu', 'muse-login-a', '/jingliu/fwp/media/b.png'],
-    ['jingliu', 'muse-login-a', '/jingliu/fwp/media/missing.png'],
+    ['jingliu', 'muse-login-a', '/jingliu/fwp/v2/media/resolve'], ['jingliu', 'muse-login-a', '/jingliu/fwp/media/generated/a.png'], ['jingliu', 'muse-login-a', '/jingliu/fwp/media/generated/b.png'],
+    ['jingliu', 'muse-login-a', '/jingliu/fwp/media/generated/missing.png'],
   ])
   expect(requests.map(req => req.headers.authorization)).toEqual([undefined, undefined, undefined, undefined, undefined, undefined])
   expect((await command('jingliu-logout', 'a')).text).toBe('本次镜流工具连接已结束。下次调用会使用当前 Muse 账号。')

@@ -19,6 +19,9 @@ import { mediaUrl } from './http.ts'
 const RESOLVE_BATCH = 200
 const INDEX_FILE = '.muse-media.json'
 const REDIRECTS = new Set([301, 302, 303, 307, 308])
+// Top-level folders of the studio's media root that hold files a client may read.
+const MEDIA_DIRS = new Set(['generated', 'uploads', 'outputs', 'character-references', 'exports', 'bgm-library', 'sfx-library', 'voice-library'])
+// Media types by file extension: what an upload declares, and the type of a download whose server reported none.
 const UPLOAD_TYPES: Readonly<Record<string, string>> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.avif': 'image/avif',
   '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac',
@@ -39,6 +42,8 @@ export interface MediaConfig {
   readonly maxBytes: number
   /** Maximum duration of one download or upload, in milliseconds. */
   readonly timeoutMs: number
+  /** Receives one line when the studio links to a host outside `hosts` and those files are read through the Host instead. */
+  readonly warn?: ((message: string) => void) | undefined
 }
 
 /** How one stored address can be read. */
@@ -93,12 +98,14 @@ const leaf = (v: string) => !!v && v.length <= 180 && !/[\\/:*?"<>|\x00-\x1f]/u.
 /**
  * Normalize a stored address.
  * @param value - `/fw/media/...` or `/fwp/media/...` address from a studio result.
- * @returns The `/fw/media/...` form and its path segments below the media root, each a valid file name on every platform.
+ * @returns The `/fw/media/...` form and its path segments below the media root: a known media folder and one or two
+ * names, each a valid file name on every platform that is neither hidden nor a partial download.
  */
 export function mediaPath(value: string): { path: string; parts: string[] } {
   mediaUrl('https://studio.invalid', value)
   const parts = value.replace(/^\/fwp?\/media\//u, '').split('/')
-  if (parts.length > 8 || !parts.every(leaf)) throw invalidMedia()
+  if (parts.length < 2 || parts.length > 3 || !MEDIA_DIRS.has(parts[0] ?? '') || !parts.every(leaf)
+    || parts.some(part => part.startsWith('.') || /\.part(?:\.json)?$/iu.test(part))) throw invalidMedia()
   return { path: '/fw/media/' + parts.join('/'), parts }
 }
 
@@ -132,15 +139,47 @@ function trusted(value: unknown, hosts: readonly string[], code: string): URL {
 
 const etagOf = (value: string | null) => (value ?? '').replace(/^W\//u, '').replaceAll('"', '').trim()
 const typeOf = (value: string | null) => (value ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
+const typeOfName = (path: string) => UPLOAD_TYPES[extname(path).toLowerCase()] ?? ''
 
-function parseSource(item: unknown, hosts: readonly string[]): MediaSource | undefined {
+/**
+ * The media type of a download: the type the server reported, unless it reported none or only
+ * `application/octet-stream`, as object storage does for an object stored without a type.
+ * @param reported - Content-Type of the response.
+ * @param known - Type the studio resolved for the file, if any; otherwise the type of the file extension is used.
+ * @param path - Stored address.
+ * @returns A lower-case media type without parameters, or an empty string.
+ */
+function mediaType(reported: string | null, known: string, path: string): string {
+  const type = typeOf(reported)
+  return type && type !== 'application/octet-stream' ? type : known || typeOfName(path) || type
+}
+
+// A response whose Content-Type is replaced by `mediaType` when the server reported none.
+function typed(response: Response, known: string, path: string): Response {
+  const type = mediaType(response.headers.get('content-type'), known, path)
+  if (!type || type === typeOf(response.headers.get('content-type'))) return response
+  const headers = new Headers(response.headers)
+  headers.set('content-type', type)
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
+}
+
+// One resolve item; a link to a host outside `hosts` is read through the Host instead and reported in `refused`.
+function parseSource(item: unknown, hosts: readonly string[], refused: string[]): MediaSource | undefined {
   if (!isRecord(item) || typeof item.path !== 'string') return undefined
   const { path } = mediaPath(item.path)
-  if (item.local === true) return { kind: 'host', path }
+  // A file outside the storage-managed folders, such as `outputs/`, is still served by the studio itself.
+  if (item.local === true || item.error === 'not_in_tos') return { kind: 'host', path }
   if (typeof item.error === 'string') return { kind: 'missing', path, reason: item.error }
   if (typeof item.size !== 'number' || !Number.isSafeInteger(item.size) || item.size < 0 || typeof item.etag !== 'string') return undefined
   const contentType = typeof item.content_type === 'string' ? typeOf(item.content_type) : ''
-  return { kind: 'object', path, url: trusted(item.url, hosts, 'JINGLIU_MEDIA_HOST_REFUSED'), size: item.size, etag: etagOf(item.etag), contentType }
+  let url: URL
+  try { url = trusted(item.url, hosts, 'JINGLIU_MEDIA_HOST_REFUSED') } catch (_error) {
+    let host = 'an invalid link'
+    try { host = new URL(String(item.url)).host || host } catch (_invalid) { /* The link is reported without its host. */ }
+    refused.push(host)
+    return { kind: 'host', path }
+  }
+  return { kind: 'object', path, url, size: item.size, etag: etagOf(item.etag), contentType }
 }
 
 function parseIndex(value: unknown): MediaIndex {
@@ -195,9 +234,14 @@ export class JingliuMedia {
         return sources
       }
       if (!isRecord(result) || !Array.isArray(result.items)) throw invalidResult()
+      const refused: string[] = []
       for (const item of result.items) {
-        const source = parseSource(item, this.config.hosts)
+        const source = parseSource(item, this.config.hosts, refused)
         if (source && batch.includes(source.path)) sources.set(source.path, source)
+      }
+      if (refused.length) {
+        this.config.warn?.(`Jingliu media links point to ${[...new Set(refused)].join(', ')}, which is not in mediaHosts; `
+          + `reading ${String(refused.length)} file(s) through the Host instead.`)
       }
       if (batch.some(path => !sources.has(path))) throw invalidResult()
     }
@@ -216,8 +260,8 @@ export class JingliuMedia {
     const canonical = mediaPath(path).path
     const source = (await this.resolve(session, [canonical], signal)).get(canonical)
     if (!source || source.kind === 'missing') throw notFound(canonical)
-    if (source.kind === 'object') return await this.direct(canonical, source.url, signal)
-    return await this.viaHost(session, canonical, signal)
+    if (source.kind === 'object') return typed(await this.direct(canonical, source.url, signal), source.contentType, canonical)
+    return typed(await this.viaHost(session, canonical, signal), '', canonical)
   }
 
   /**
@@ -428,7 +472,8 @@ export class JingliuMedia {
     }
     await rename(part, file)
     await rm(record, { force: true })
-    return { local: { path: source.path, file, size: source.size, contentType: source.contentType }, etag: source.etag }
+    const contentType = source.contentType || mediaType(response.headers.get('content-type'), '', source.path)
+    return { local: { path: source.path, file, size: source.size, contentType }, etag: source.etag }
   }
 
   private async saveFromHost(session: WorkbenchSession, path: string, file: string, signal: AbortSignal): Promise<Downloaded> {
@@ -441,7 +486,8 @@ export class JingliuMedia {
     if (size !== undefined && received !== size) throw damaged()
     await rename(part, file)
     await session.check()
-    return { local: { path, file, size: received, contentType: typeOf(response.headers.get('content-type')) }, etag: etagOf(response.headers.get('etag')) }
+    const contentType = mediaType(response.headers.get('content-type'), '', path)
+    return { local: { path, file, size: received, contentType }, etag: etagOf(response.headers.get('etag')) }
   }
 
   private async write(
