@@ -11664,7 +11664,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'StudioBalance',
-    declaration: 'export interface StudioBalance {\n    unlimited: boolean;\n    available: string;\n    usedFen: number;\n    heldFen: number;\n}',
+    declaration: 'export interface StudioBalance {\n    unlimited: boolean;\n    available: string;\n    usedFen: number;\n    heldFen: number;\n    enforced: boolean | null;\n}',
   },
   {
     name: 'StudioCatalog',

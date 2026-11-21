@@ -74,6 +74,8 @@ export interface StudioBalance {
   available: string
   usedFen: number
   heldFen: number
+  /** Whether the studio stops generation at a zero balance; null when the studio does not say. */
+  enforced: boolean | null
 }
 
 /** Project-specific model overrides and video resolution from the native studio. */

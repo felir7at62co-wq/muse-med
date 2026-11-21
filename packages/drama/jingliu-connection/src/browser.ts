@@ -100,7 +100,8 @@ export function library(value: unknown): StudioLibrary {
 export function balance(value: unknown): StudioBalance {
   if (!isRecord(value) || typeof value.unlimited !== 'boolean') return invalid()
   return { unlimited: value.unlimited, available: field(value.available_yuan),
-    usedFen: count(value.used_fen), heldFen: count(value.held_fen) }
+    usedFen: count(value.used_fen), heldFen: count(value.held_fen),
+    enforced: typeof value.enforced === 'boolean' ? value.enforced : null }
 }
 
 /**

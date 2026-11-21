@@ -1,11 +1,19 @@
 /** Reading a production's configuration, episodes, shots, shot media and assets for the workbench. */
 import { expect, it } from 'vitest'
-import { catalog, createdProject, episodeList, episodeShots, projectAssets, projectConfig, projects, shotMedia, workflowResult } from '../src/browser.ts'
+import { balance, catalog, createdProject, episodeList, episodeShots, projectAssets, projectConfig, projects, shotMedia, workflowResult } from '../src/browser.ts'
 
 it('passes a successful workflow result through and reports a refused one with the studio message', () => {
   expect(workflowResult({ ok: true, title: 'x' })).toEqual({ ok: true, title: 'x' })
   expect(() => workflowResult({ ok: false, error: '项目不存在' })).toThrow('项目不存在')
   expect(() => workflowResult('nope')).toThrow()
+})
+
+it('reads the balance and whether the studio stops generation at zero, null when it does not say', () => {
+  const answer = { unlimited: false, available_yuan: '0.00', used_fen: 1200, held_fen: 0 }
+  expect(balance({ ...answer, enforced: true })).toEqual({ unlimited: false, available: '0.00', usedFen: 1200, heldFen: 0, enforced: true })
+  expect(balance({ ...answer, enforced: false }).enforced).toBe(false)
+  expect(balance(answer).enforced).toBeNull()
+  expect(balance({ ...answer, enforced: 'yes' }).enforced).toBeNull()
 })
 
 it('reads the project configuration and the episodes in order', () => {
