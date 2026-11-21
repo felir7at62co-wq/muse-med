@@ -12,6 +12,7 @@ poll() 仅为满足 VideoProvider 接口——同步通道提交即完成。
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import uuid
 
@@ -28,6 +29,11 @@ from .base import (AudioMode, VideoProvider, VideoRequest, VideoResult, VisualMo
 
 # markdown 链接 / 裸 URL 两种返回形态都兼容
 _URL_RE = re.compile(r"\((https?://[^\s)]+)\)|(?<!\()(https?://[^\s\]\)\"']+)")
+
+
+#: 远端出片地址下载的尝试次数与间隔（秒，第 n 次失败后等 n 倍）。
+DOWNLOAD_ATTEMPTS = 3
+DOWNLOAD_RETRY_SEC = 5.0
 
 
 def _extract_url(content: str) -> str | None:
@@ -97,14 +103,20 @@ class ChatVideoProvider(VideoProvider):
         if not remote:
             return VideoResult(status="failed", error=f"模型未返回视频链接: {text[:300]}", raw=data)
 
-        # 立刻落盘（远端签名 URL 会过期）
-        try:
-            local_url = await self._download(remote)
-        except Exception as e:  # noqa: BLE001
-            # 下载失败也把远端地址给出去，让上层还有机会用
-            return VideoResult(status="done", video_url=remote,
-                              error=f"落盘失败(已返回远端地址): {e!r}", raw=data)
-        return VideoResult(status="done", video_url=local_url, raw=data)
+        # 立刻落盘（远端签名 URL 会过期）。下载不下来就判这一镜失败：
+        # 远端地址过期后就是死链，绝不能当成片地址写进库。
+        last: Exception | None = None
+        for attempt in range(DOWNLOAD_ATTEMPTS):
+            try:
+                local_url = await self._download(remote)
+                return VideoResult(status="done", video_url=local_url, raw=data)
+            except Exception as e:  # noqa: BLE001
+                last = e
+                if attempt < DOWNLOAD_ATTEMPTS - 1:
+                    await asyncio.sleep(DOWNLOAD_RETRY_SEC * (attempt + 1))
+        # 错误里只给异常类型：httpx 的异常文本带着远端签名地址
+        return VideoResult(status="failed",
+                           error=f"视频已生成但下载失败（{type(last).__name__}），请重新生成")
 
     async def _download(self, remote: str) -> str:
         name = f"shot_{uuid.uuid4().hex[:12]}.mp4"

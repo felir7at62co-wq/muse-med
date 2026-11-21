@@ -285,6 +285,18 @@ def _zx1(monkeypatch, fail: bool):
     return run(video.ChatVideoProvider("veo-test").submit(VideoRequest(prompt="一个镜头")))
 
 
+def test_zx1_download_failure_fails_the_shot_and_keeps_no_vendor_address(tos, monkeypatch):
+    res = _zx1(monkeypatch, fail=True)
+    assert res.status == "failed" and res.video_url is None
+    assert "vendor.example" not in (res.error or "") and "ConnectError" in res.error
+
+
+def test_zx1_download_is_uploaded(tos, monkeypatch):
+    res = _zx1(monkeypatch, fail=False)
+    assert res.status == "done" and res.video_url.startswith("/fw/media/generated/shot_")
+    assert res.video_url.removeprefix("/fw/media/") in _ledger()
+
+
 # ---------------------------------------------------------------- resolve
 
 def _client():
