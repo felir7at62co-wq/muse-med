@@ -998,7 +998,13 @@ def _emit_single_file(pack: Path, pack_name: str, built: dict,
 
 @router.post("/projects/{project_id}/jianying/export")
 @access.requires(access.ROLE_VIEWER)
-def export_draft(project_id: str, req: ExportReq) -> dict:
+async def export_draft(project_id: str, req: ExportReq) -> dict:
+    """产出剪映草稿包（见 `_export_draft`）。打包与直传进桶都是同步 IO，可能被桶挂住几分钟：整段放进长阻塞池（见 `app/executors.py`），不占默认线程池。"""
+    from ..executors import run_long_blocking
+    return await run_long_blocking(_export_draft, project_id, req)
+
+
+def _export_draft(project_id: str, req: ExportReq) -> dict:
     """产出一个剪映草稿包，返回下载地址。
 
     包里只有草稿 JSON + 清单（几十 KB）；素材由导入器按清单从

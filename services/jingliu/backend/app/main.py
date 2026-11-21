@@ -189,7 +189,8 @@ async def _sweep_loop() -> None:
 
 
 #: `/media` 挂的是整个数据目录，库文件与备份可能也在里面：这些名字一律 404。
-_PRIVATE_MEDIA_RE = re.compile(r"\.(db|sqlite3?)(-wal|-shm|-journal)?$|\.tos$", re.IGNORECASE)
+_PRIVATE_MEDIA_RE = re.compile(r"\.(db|sqlite3?)(-wal|-shm|-journal)?$|\.tos(-skip)?$",
+                               re.IGNORECASE)
 
 
 def _private_media(path: str) -> bool:

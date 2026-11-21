@@ -101,9 +101,11 @@ class ExportIn(BaseModel):
 
 @router.post("/projects/{project_id}/nd/export")
 @access.requires(access.ROLE_VIEWER)
-def nd_export(project_id: str, body: ExportIn) -> dict:
+async def nd_export(project_id: str, body: ExportIn) -> dict:
+    """打包与直传进桶都是同步 IO，可能被桶挂住几分钟：整段放进长阻塞池（见 `app/executors.py`），不占默认线程池。"""
+    from ..executors import run_long_blocking
     from ..nd.export import export
-    return export(project_id, body.episode, body.single_file)
+    return await run_long_blocking(export, project_id, body.episode, body.single_file)
 
 
 class AcceptIn(BaseModel):

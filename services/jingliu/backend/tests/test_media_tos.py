@@ -220,11 +220,96 @@ def test_presigned_addresses_for_clients_use_the_public_host(tos):
     from app import storage
 
     get = urlparse(storage.public_url("generated/a.png"))
-    put = urlparse(storage.upload_url("uploads/a.png"))
+    put = urlparse(storage.upload_url("uploads/a.png", content_type="image/png", size=10))
     inner = urlparse(storage.presign("HEAD", storage.key_for("generated/a.png")))
     assert get.hostname == put.hostname == "bucket.tos-public.example"
     assert inner.hostname == "bucket.tos-internal.example"
     assert get.path == "/muse-jingliu/generated/a.png"
+
+
+def _signature_ok(url: str, method: str, headers: dict[str, str]) -> bool:
+    """按 TOS/S3 V4 的查询串签名规则，用请求实际带的头重算签名（与桶的做法相同）。"""
+    import hmac
+    from urllib.parse import parse_qsl, quote
+
+    u = urlparse(url)
+    q = dict(parse_qsl(u.query, keep_blank_values=True))
+    sig = q.pop("X-Tos-Signature")
+    names = q["X-Tos-SignedHeaders"].split(";")
+    sent = {k.lower(): " ".join(v.split()) for k, v in headers.items()}
+    sent["host"] = u.netloc
+    if any(n not in sent for n in names):
+        return False
+    cq = "&".join(f"{quote(k, safe='-_.~')}={quote(v, safe='-_.~')}" for k, v in sorted(q.items()))
+    ch = "".join(f"{n}:{sent[n]}\n" for n in names)
+    creq = f"{method}\n{u.path}\n{cq}\n{ch}\n{';'.join(names)}\nUNSIGNED-PAYLOAD"
+    date, scope = q["X-Tos-Date"], q["X-Tos-Credential"].split("/", 1)[1]
+    sts = f"TOS4-HMAC-SHA256\n{date}\n{scope}\n{hashlib.sha256(creq.encode()).hexdigest()}"
+    k = b"SKTEST"
+    for part in scope.split("/"):
+        k = hmac.new(k, part.encode(), hashlib.sha256).digest()
+    return hmac.compare_digest(sig, hmac.new(k, sts.encode(), hashlib.sha256).hexdigest())
+
+
+def test_upload_link_signs_content_type_and_length(tos):
+    from app import storage
+
+    url = storage.upload_url("uploads/a.png", content_type="image/png", size=108)
+    assert "X-Tos-SignedHeaders=content-length%3Bcontent-type%3Bhost" in url
+    assert _signature_ok(url, "PUT", {"Content-Type": "image/png", "Content-Length": "108"})
+    assert not _signature_ok(url, "PUT", {"Content-Type": "text/html", "Content-Length": "108"})
+    assert not _signature_ok(url, "PUT", {"Content-Type": "image/png", "Content-Length": "38000"})
+    assert not _signature_ok(url, "PUT", {"Content-Type": "image/png"})
+    # 只签 host 的地址照旧（读、HEAD、服务端自己的 PUT）
+    get = storage.public_url("generated/a.png")
+    assert "X-Tos-SignedHeaders=host&" in get and _signature_ok(get, "GET", {})
+
+
+def test_every_put_to_the_bucket_sets_a_content_type(tos, monkeypatch):
+    from app import storage
+
+    seen: list[dict] = []
+
+    class _R:
+        status_code = 200
+        headers = {"ETag": '"' + hashlib.md5(PNG).hexdigest() + '"'}
+
+    def put(url, content=None, headers=None, timeout=None):
+        seen.append(dict(headers or {}))
+        return _R()
+
+    monkeypatch.setattr(storage.httpx, "put", put)
+    md5 = hashlib.md5(PNG).hexdigest()
+    storage._put("generated/a.png", PNG, len(PNG), md5, None)
+    storage._put("exports/jianying/包.zip", PNG, len(PNG), md5, None)
+    storage._put("generated/a.bin", PNG, len(PNG), md5, None)
+    storage._put("generated/b.png", PNG, len(PNG), md5, "image/webp")
+    assert [h["Content-Type"] for h in seen] == [
+        "image/png", "application/zip", "application/octet-stream", "image/webp"]
+    assert all(h["Content-Length"] == str(len(PNG)) for h in seen)
+
+
+def test_export_and_scene_board_routes_run_in_the_long_blocking_pool(db, monkeypatch):
+    import inspect
+
+    from app import executors
+    from app.routers import assets, jianying, look, nd
+
+    called: list[str] = []
+
+    async def long_pool(func, /, *args, **kwargs):
+        called.append(getattr(func, "__name__", repr(func)))
+        return {"ok": True}
+
+    monkeypatch.setattr(executors, "run_long_blocking", long_pool)
+    routes = [(jianying.export_draft, ("p", jianying.ExportReq())),
+              (nd.nd_export, ("p", nd.ExportIn())),
+              (assets.asset_export, ("p", assets.AssetExportIn())),
+              (look.build_scene_board, ("a",))]
+    for fn, args in routes:
+        assert inspect.iscoroutinefunction(fn), fn.__name__
+        assert run(fn(*args)) == {"ok": True}
+    assert called == ["_export_draft", "export", "_asset_export", "_build_scene_board"]
 
 
 def test_image_provider_saves_through_the_bucket(tos):
@@ -341,6 +426,27 @@ def test_resolve_signs_bucket_files_and_reports_the_rest(tos):
     assert all(i.get("error") == "invalid" for i in items[4:])
 
 
+def test_resolve_points_to_local_files_in_directories_the_bucket_does_not_manage(tos):
+    from app.media import DATA_DIR
+
+    files = {"outputs/ep1_final.mp4": b"\x00\x00\x00\x18ftypmp42",
+             "bgm-library/calm.mp3": b"ID3", "sfx-library/door.wav": b"RIFF",
+             "voice-library/v1.mp3": b"ID3", "outputs/old.db": b"SQLite"}
+    for rel, data in files.items():
+        (DATA_DIR / rel).parent.mkdir(parents=True, exist_ok=True)
+        (DATA_DIR / rel).write_bytes(data)
+    try:
+        paths = [f"/fw/media/{rel}" for rel in files] + ["/fwp/media/outputs/gone.mp4"]
+        items = _client().post("/v2/media/resolve", json={"paths": paths}).json()["items"]
+        assert items[:4] == [{"path": p, "local": True} for p in paths[:4]]
+        # 库文件名 `/media` 不发，也就不说本地有
+        assert items[4] == {"path": paths[4], "error": "not_in_tos"}
+        assert items[5] == {"path": paths[5], "error": "not_in_tos"}
+    finally:
+        for rel in files:
+            (DATA_DIR / rel).unlink(missing_ok=True)
+
+
 def test_resolve_accepts_at_most_200_paths(tos):
     ok = _client().post("/v2/media/resolve", json={"paths": ["/fw/media/generated/a.png"] * 200})
     assert ok.status_code == 200
@@ -402,6 +508,9 @@ def test_upload_url_checks_type_size_and_extension(tos):
     put = urlparse(out["upload_url"])
     assert put.hostname == "bucket.tos-public.example"
     assert put.path == f"/muse-jingliu/uploads/{name}" and "X-Tos-Expires=900" in put.query
+    assert "X-Tos-SignedHeaders=content-length%3Bcontent-type%3Bhost" in put.query
+    assert _signature_ok(out["upload_url"], "PUT",
+                         {**out["headers"], "Content-Length": str(len(PNG))})
 
     mib = 1024 * 1024
     assert _upload_url(content_type="text/plain", filename="a.txt").status_code == 415
@@ -451,6 +560,49 @@ def test_upload_complete_deletes_a_mismatching_object(tos, stored, reason):
     r = _complete(out)
     assert r.status_code == 422 and r.json()["detail"]["reason"] == reason
     assert rel not in tos.objects and _ledger() == {}
+
+
+def test_upload_complete_rechecks_an_object_rewritten_after_confirmation(tos):
+    """复现交叉审查的覆盖攻击：确认之后在 PUT 地址有效期内再写一次同一个对象。"""
+    from app.db import MediaClip, get_session
+
+    make_project(get_session)
+    out = _upload_url(project_id=PID).json()
+    rel = out["path"].removeprefix("/fw/media/")
+    tos.objects[rel] = (PNG, "image/png")
+    assert _complete(out).status_code == 200
+    calls = len(tos.calls)
+    assert _complete(out).status_code == 200                  # 没改过：照旧
+    assert ("head", rel) in tos.calls[calls:]                 # 重复确认也 HEAD
+
+    # 另一种类型、另一种大小：桶按签名直接 403（见上面的签名测试）。即使绕过了，
+    # 确认时也会因大小不符删掉对象。
+    tos.objects[rel] = (b"<html><script>alert(1)</script></html>" * 1000, "text/html")
+    r = _complete(out)
+    assert r.status_code == 422 and r.json()["detail"]["reason"] == "size_mismatch"
+    assert rel not in tos.objects and rel not in _ledger()
+
+    # 同类型同大小、内容不同：签名拦不住，靠 ETag 发现
+    out = _upload_url(project_id=PID).json()
+    rel = out["path"].removeprefix("/fw/media/")
+    tos.objects[rel] = (PNG, "image/png")
+    assert _complete(out).status_code == 200
+    tos.objects[rel] = (PNG[:8] + b"\x01" * (len(PNG) - 8), "image/png")
+    r = _complete(out)
+    assert r.status_code == 422 and r.json()["detail"]["reason"] == "changed"
+    assert rel not in tos.objects and rel not in _ledger()
+    with get_session() as s:
+        assert s.get(MediaClip, rel.split("/")[1].split(".")[0]) is None
+
+    # 对象没了：台账行一并去掉
+    out = _upload_url().json()
+    rel = out["path"].removeprefix("/fw/media/")
+    tos.objects[rel] = (PNG, "image/png")
+    assert _complete(out).status_code == 200
+    del tos.objects[rel]
+    r = _complete(out)
+    assert r.status_code == 422 and r.json()["detail"]["reason"] == "missing"
+    assert rel not in _ledger()
 
 
 def test_upload_complete_needs_the_object_and_a_matching_token(tos, monkeypatch):
@@ -624,6 +776,35 @@ def test_database_backups_are_copied_once_and_removed_with_the_local_copy(tos):
             p.unlink()
 
 
+def test_a_backup_above_the_single_put_limit_is_skipped_once_with_a_marker(tos, monkeypatch, caplog):
+    from app import maintenance, storage
+
+    found = maintenance._backup_dir()
+    if found is None:
+        assert maintenance.backup_sqlite()
+        found = maintenance._backup_dir()
+    d, stem = found
+    big = d / f"{stem}_20990102_000000.db"
+    big.write_bytes(b"SQLite format 3\x00" + b"x" * 64)
+    monkeypatch.setattr(storage, "MAX_PUT_BYTES", 32)
+    try:
+        with caplog.at_level(logging.WARNING, logger="app.maintenance"):
+            first = maintenance.upload_backups()
+            second = maintenance.upload_backups()
+        assert first["skipped"] == 1 and second["skipped"] == 0
+        assert f"backups/{big.name}" not in tos.objects
+        assert big.with_name(big.name + ".tos-skip").exists()
+        lines = [r.getMessage() for r in caplog.records if big.name in r.getMessage()]
+        assert len(lines) == 1 and "分片" in lines[0]
+        assert ("put_file", f"backups/{big.name}") not in tos.calls
+        big.unlink()
+        maintenance.upload_backups()
+        assert not big.with_name(big.name + ".tos-skip").exists()
+    finally:
+        for p in d.glob(f"{stem}_20990102_000000.db*"):
+            p.unlink()
+
+
 def test_media_route_refuses_database_files_and_backups(db):
     from fastapi.testclient import TestClient
 
@@ -631,7 +812,8 @@ def test_media_route_refuses_database_files_and_backups(db):
     from app.media import DATA_DIR
 
     files = {"jingliu.db": b"SQLite", "jingliu.db-wal": b"x", "backups/jingliu_1.db": b"x",
-             "backups/jingliu_1.db.tos": b"x", ".env": b"x", "generated/.hidden.png": PNG}
+             "backups/jingliu_1.db.tos": b"x", "backups/jingliu_1.db.tos-skip": b"x",
+             ".env": b"x", "generated/.hidden.png": PNG}
     for rel, data in files.items():
         (DATA_DIR / rel).parent.mkdir(parents=True, exist_ok=True)
         (DATA_DIR / rel).write_bytes(data)

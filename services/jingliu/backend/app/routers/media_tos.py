@@ -6,8 +6,10 @@
 - `POST /v2/media/resolve`：`/fw/media/...` 地址 → 1 小时的公网 GET 预签名地址。
 - `POST /v2/media/upload-url`：登记一次直传，发 15 分钟的公网 PUT 预签名地址
   与一个令牌，地址固定为 `/fw/media/uploads/<id>.<ext>`。
-- `POST /v2/media/upload-complete`：凭令牌确认上传完成。服务器 HEAD 对象核对
-  大小与类型（图片再读文件头），写台账；不符就删对象并回 422。
+- `POST /v2/media/upload-complete`：凭令牌确认上传完成。服务器每次都 HEAD 对象
+  核对大小与类型（图片再读文件头），写台账；不符就删对象并回 422。PUT 地址把
+  Content-Type 与 Content-Length 签了进去，有效期内也换不了类型和大小；
+  同类型同大小的改写在再次确认时由 ETag 发现。
 
 `/fw/media/...` 仍是文件的永久地址，库里不存任何预签名地址。
 """
@@ -102,21 +104,23 @@ def media_resolve(body: ResolveIn) -> dict:
 
     - 桶里有：`{path, url, size, etag, content_type, expires_at}`，`url` 是公网
       主机上 1 小时有效的 GET 预签名地址；
-    - 桶没配，或文件只在本地：`{path, local: true}`，客户端照旧经 `/fwp/media/...` 取；
+    - 桶没配，或文件只在本地：`{path, local: true}`，客户端照旧经 `/fwp/media/...` 取。
+      桶不管的目录（`outputs/`、配乐 / 音效 / 音色库等）里本地存在的文件也是这样；
     - 否则 `{path, error}`：`invalid`（不是合法的媒体地址）、`not_in_tos`
-      （目录不归桶管，如 `outputs/`）、`not_found`（桶里与本地都没有）。
+      （目录不归桶管，本地也没有）、`not_found`（桶里与本地都没有）。
 
     `tos` 说明服务器是否配了桶。
     """
-    from ..media import DATA_DIR
-
     tos = storage.enabled()
-    parsed = [(p, *media_store.parse_media_path(p)) for p in body.paths]
-    rows = (media_store.ledger_rows(sorted({rel for _p, rel, _e in parsed if rel}))
+    parsed = [(p, *media_store.split_media_path(p)) for p in body.paths]
+    rows = (media_store.ledger_rows(sorted({rel for _p, rel, e in parsed if rel and not e}))
             if tos else {})
     now = time.time()
     items: list[dict] = []
     for path, rel, err in parsed:
+        if err == "not_in_tos" and rel and media_store.local_file(rel) is not None:
+            items.append({"path": path, "local": True})
+            continue
         if err:
             items.append({"path": path, "error": err})
             continue
@@ -130,7 +134,7 @@ def media_resolve(body: ResolveIn) -> dict:
                 "content_type": media_store.content_type_for(rel),
                 "expires_at": _iso(now + storage.PRESIGN_TTL),
             })
-        elif (DATA_DIR / rel).is_file():
+        elif media_store.local_file(rel) is not None:
             items.append({"path": path, "local": True})
         else:
             items.append({"path": path, "error": "not_found"})
@@ -188,8 +192,8 @@ class UploadUrlIn(BaseModel):
 
 @router.post("/media/upload-url")
 def media_upload_url(body: UploadUrlIn) -> dict:
-    """登记一次直传。客户端随后 `PUT upload_url`（带上 `headers`），再调
-    `upload-complete`。只收图片 / 音频 / 视频：类型不对 415，超过上限 413，
+    """登记一次直传。客户端随后 `PUT upload_url`（带上 `headers`，Content-Length
+    等于申请时的 `size`；地址签了这两个头，值不同桶回 403），再调 `upload-complete`。只收图片 / 音频 / 视频：类型不对 415，超过上限 413，
     扩展名与类型对不上 400，桶没配 503（此时改用 `POST /v2/media/upload`）。"""
     if not storage.enabled():
         raise HTTPException(503, "对象存储未配置，请改用普通上传")
@@ -215,7 +219,9 @@ def media_upload_url(body: UploadUrlIn) -> dict:
         "n": body.filename, "e": int(time.time()) + UPLOAD_TOKEN_TTL,
     })
     return {
-        "upload_url": storage.upload_url(rel),
+        # Content-Length 也签进了地址，但不放进 headers：客户端按文件大小自己发
+        # （浏览器与 fetch 不许脚本设置它），值与申请时的 size 相同即可。
+        "upload_url": storage.upload_url(rel, content_type=ct, size=body.size),
         "headers": {"Content-Type": ct},
         "path": media_store.url_for(rel),
         "token": token,
@@ -229,22 +235,32 @@ class UploadCompleteIn(BaseModel):
     token: str = Field(..., min_length=1, max_length=4096)
 
 
-def _reject(rel: str, reason: str, message: str) -> HTTPException:
-    """删掉不合格的对象，返回要抛出的 422。"""
+def _reject(rel: str, reason: str, message: str, *, pid: str | None = None) -> HTTPException:
+    """删掉不合格的对象和它的台账行（以及这次直传登记的素材），返回要抛出的 422。"""
     try:
         storage.delete(rel)
     except Exception as e:      # noqa: BLE001
         media_store.note_failure("upload", rel, e)
+    media_store.drop_ledger(rel)
+    if pid:
+        _drop_clip(rel)
     return HTTPException(422, {"reason": reason, "message": message})
+
+
+def _check_failed(rel: str, e: BaseException) -> HTTPException:
+    media_store.note_failure("check", rel, e)
+    return HTTPException(502, "暂时无法核对上传结果，请稍后重试")
 
 
 @router.post("/media/upload-complete")
 def media_upload_complete(body: UploadCompleteIn) -> dict:
     """凭 `upload-url` 发的令牌确认直传完成，返回 `{path, size}`。
 
-    核对：对象存在（不存在 422 `missing`）、大小等于申请时的大小（`size_mismatch`）、
-    Content-Type 等于申请时的类型（`type_mismatch`）、图片的文件头与扩展名一致
-    （`not_an_image`）。后三种不符时先删掉对象。同一个令牌重复确认返回同样的结果。
+    每次都 HEAD 桶里的对象核对：存在（不存在 422 `missing`）、大小等于申请时的
+    大小（`size_mismatch`）、Content-Type 等于申请时的类型（`type_mismatch`）、
+    图片的文件头与扩展名一致（`not_an_image`）。同一个令牌重复确认时，对象的大小
+    与 ETag 和台账一致就返回同样的结果；不一致说明确认之后有人用同一个 PUT 地址
+    改写了对象（`changed`）。不符时删掉对象与台账行再回 422。
     """
     if not storage.enabled():
         raise HTTPException(503, "对象存储未配置")
@@ -260,33 +276,50 @@ def media_upload_complete(body: UploadCompleteIn) -> dict:
         with get_session() as session:
             access.require_project_access(session, pid)
 
-    if media_store.ledger_rows([rel]).get(rel) is None:
+    try:
+        h = storage.head(rel)
+    except Exception as e:      # noqa: BLE001
+        raise _check_failed(rel, e) from None
+    row = media_store.ledger_rows([rel]).get(rel)
+    if h is None:
+        if row is not None:
+            media_store.drop_ledger(rel)
+            if pid:
+                _drop_clip(rel)
+        raise HTTPException(422, {"reason": "missing", "message": "桶里没有这个文件，请先上传"})
+    if h["size"] != size:
+        raise _reject(rel, "size_mismatch",
+                      f"上传的文件有 {h['size']} 字节，申请时是 {size} 字节", pid=pid)
+    if _norm_type(h.get("content_type") or "") != ct:
+        raise _reject(rel, "type_mismatch", f"上传时的 Content-Type 不是 {ct}", pid=pid)
+    if kind == "image":
         try:
-            h = storage.head(rel)
+            head = storage.read_head_bytes(rel, 32)
         except Exception as e:      # noqa: BLE001
-            media_store.note_failure("check", rel, e)
-            raise HTTPException(502, "暂时无法核对上传结果，请稍后重试") from None
-        if h is None:
-            raise HTTPException(422, {"reason": "missing", "message": "桶里没有这个文件，请先上传"})
-        if h["size"] != size:
-            raise _reject(rel, "size_mismatch",
-                          f"上传的文件有 {h['size']} 字节，申请时是 {size} 字节")
-        if _norm_type(h.get("content_type") or "") != ct:
-            raise _reject(rel, "type_mismatch", f"上传时的 Content-Type 不是 {ct}")
-        if kind == "image":
-            try:
-                head = storage.read_head_bytes(rel, 32)
-            except Exception as e:      # noqa: BLE001
-                media_store.note_failure("check", rel, e)
-                raise HTTPException(502, "暂时无法核对上传结果，请稍后重试") from None
-            if not _IMAGE_MAGIC[Path(rel).suffix.lower()](head):
-                raise _reject(rel, "not_an_image", "文件内容不是声明的图片格式")
-        media_store.upsert_ledger(rel, key=storage.key_for(rel), size=size,
-                                  etag=h.get("etag") or "")
+            raise _check_failed(rel, e) from None
+        if not _IMAGE_MAGIC[Path(rel).suffix.lower()](head):
+            raise _reject(rel, "not_an_image", "文件内容不是声明的图片格式", pid=pid)
+    etag = h.get("etag") or ""
+    if row is not None:
+        if int(row["size"]) != h["size"] or (row["etag"] or "") != etag:
+            raise _reject(rel, "changed", "确认上传之后文件又被改写过，已删除，请重新上传",
+                          pid=pid)
+    else:
+        media_store.upsert_ledger(rel, key=storage.key_for(rel), size=size, etag=etag)
 
     if pid:
         _register_clip(rel, pid, str(claims.get("n") or Path(rel).name), size, kind)
     return {"path": media_store.url_for(rel), "size": size}
+
+
+def _drop_clip(rel: str) -> None:
+    """删掉 `_register_clip` 为这次直传登记的素材行（只认同一个 id 与地址）。"""
+    from ..db import MediaClip, get_session
+    with get_session() as session:
+        clip = session.get(MediaClip, Path(rel).stem)
+        if clip is not None and clip.url == media_store.url_for(rel):
+            session.delete(clip)
+            session.commit()
 
 
 def _register_clip(rel: str, pid: str, name: str, size: int, kind: str) -> None:

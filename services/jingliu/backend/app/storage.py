@@ -15,7 +15,8 @@ TOS 是 S3 风格对象存储，SigV4 自己签即可：零新依赖、dev/prod 
 
 ## 一切都走预签名 URL
 
-GET / PUT / HEAD / DELETE / LIST 共用同一个 `presign()`，不做请求头签名。
+GET / PUT / HEAD / DELETE / LIST 共用同一个 `presign()`。默认只签 host；
+交给客户端直传的 PUT 另把 Content-Type 与 Content-Length 签进去（`upload_url`）。
 好处是只有一处签名逻辑要维护和验证，而且浏览器与剪映导入器拿到的就是同一种
 URL，服务端不必代理流量。
 
@@ -33,6 +34,7 @@ import datetime
 import hashlib
 import hmac
 import logging
+import mimetypes
 import re
 import threading
 import urllib.parse
@@ -104,12 +106,19 @@ def _signing_key(secret: str, datestamp: str, region: str) -> bytes:
 
 
 def presign(method: str, key: str, *, ttl: int = PRESIGN_TTL,
-            query: dict | None = None, public: bool = False) -> str:
+            query: dict | None = None, public: bool = False,
+            headers: dict[str, str] | None = None) -> str:
     """生成预签名 URL。key 为空串 = 对桶本身操作（如 list）。
 
     `public=True`：签在 `tos_public_endpoint` 上 —— 凡是交给服务器之外的
     人或服务（浏览器、Muse、剪映导入器、远端生成服务）的地址都必须这样签。
     主机名参与签名，所以不能签好之后再换主机。
+
+    `headers`：除 host 外一并签进去的请求头（名字不区分大小写）。拿到地址的人
+    发请求时必须带上**完全相同**的值，否则桶回 403——客户端直传就靠它把
+    Content-Type 与 Content-Length 钉死。规范化与 SigV4 相同：名字小写、
+    值去首尾空白并把连续空白压成一个，按名字排序，`X-Tos-SignedHeaders`
+    用分号连起来。
     """
     s, host = _cfg(public=public)
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -123,15 +132,21 @@ def presign(method: str, key: str, *, ttl: int = PRESIGN_TTL,
         "X-Tos-Credential": f"{s.tos_access_key_id}/{scope}",
         "X-Tos-Date": amzdate,
         "X-Tos-Expires": str(ttl),
-        "X-Tos-SignedHeaders": "host",
     })
+    signed = {"host": host}
+    for name, value in (headers or {}).items():
+        signed[name.strip().lower()] = " ".join(str(value).split())
+    names = sorted(signed)
+    q["X-Tos-SignedHeaders"] = ";".join(names)
     # 规范化查询串：必须按 key 排序、逐字段 percent-encode，且 `~` 不转义。
     # 少一步签名就对不上，而服务端只回一个没有细节的 403。
     cq = "&".join(
         f"{urllib.parse.quote(k, safe='-_.~')}={urllib.parse.quote(str(v), safe='-_.~')}"
         for k, v in sorted(q.items()))
     uri = "/" + urllib.parse.quote(key, safe="/-_.~")
-    creq = f"{method}\n{uri}\n{cq}\nhost:{host}\n\nhost\nUNSIGNED-PAYLOAD"
+    canonical_headers = "".join(f"{n}:{signed[n]}\n" for n in names)
+    creq = (f"{method}\n{uri}\n{cq}\n{canonical_headers}\n"
+            f"{q['X-Tos-SignedHeaders']}\nUNSIGNED-PAYLOAD")
     sts = (f"TOS4-HMAC-SHA256\n{amzdate}\n{scope}\n"
            f"{hashlib.sha256(creq.encode()).hexdigest()}")
     sig = hmac.new(_signing_key(s.tos_access_key_secret, datestamp, s.tos_region),
@@ -189,10 +204,16 @@ def public_url(rel: str, *, ttl: int = PRESIGN_TTL,
     return presign("GET", key_for(rel), ttl=ttl, query=q, public=True)
 
 
-def upload_url(rel: str, *, ttl: int = PRESIGN_TTL_UPLOAD) -> str:
-    """给客户端直传用的预签名 PUT（公网主机）。只签 host：大小与类型由
-    `POST /v2/media/upload-complete` 事后 HEAD 核对，不符就删对象。"""
-    return presign("PUT", key_for(rel), ttl=ttl, public=True)
+def upload_url(rel: str, *, content_type: str, size: int,
+               ttl: int = PRESIGN_TTL_UPLOAD) -> str:
+    """给客户端直传用的预签名 PUT（公网主机）。
+
+    Content-Type 与 Content-Length 签进地址：有效期内拿这个地址再 PUT
+    别的类型或别的大小，桶直接 403。同类型同大小的改写签名拦不住：
+    `POST /v2/media/upload-complete` 每次都 HEAD 核对，ETag 与台账不同就删对象。
+    """
+    return presign("PUT", key_for(rel), ttl=ttl, public=True,
+                   headers={"Content-Type": content_type, "Content-Length": str(int(size))})
 
 
 def _md5_hex(data: bytes | None = None, local: Path | None = None) -> str:
@@ -206,12 +227,32 @@ def _md5_hex(data: bytes | None = None, local: Path | None = None) -> str:
     return md5.hexdigest()
 
 
+#: 扩展名 → Content-Type。`mimetypes` 在不同系统上对这几种给的值不一样，固定下来。
+_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".webp": "image/webp", ".gif": "image/gif",
+    ".mp4": "video/mp4", ".mov": "video/quicktime", ".mkv": "video/x-matroska",
+    ".webm": "video/webm",
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".aac": "audio/aac", ".m4a": "audio/mp4",
+    ".flac": "audio/flac",
+    ".zip": "application/zip", ".bat": "application/octet-stream",
+    ".db": "application/vnd.sqlite3",
+}
+
+
+def content_type_for(name: str) -> str:
+    """按扩展名给 Content-Type；认不出的给 `application/octet-stream`。"""
+    ext = Path(name).suffix.lower()
+    return _TYPES.get(ext) or mimetypes.guess_type(name)[0] or "application/octet-stream"
+
+
 def _put(rel: str, body, size: int, want: str, content_type: str | None) -> dict:
+    """每次 PUT 都带 Content-Type：调用方没给就按扩展名推。不带的话桶存成
+    `application/octet-stream`，客户端拿到的图与视频就认不出类型。"""
     key = key_for(rel)
     url = presign("PUT", key, ttl=900)
-    headers = {"Content-Length": str(size)}
-    if content_type:
-        headers["Content-Type"] = content_type
+    headers = {"Content-Length": str(size),
+               "Content-Type": content_type or content_type_for(rel)}
     r = httpx.put(url, content=body, headers=headers, timeout=600.0)
     if r.status_code // 100 != 2:
         raise RuntimeError(f"上传失败 HTTP {r.status_code}")

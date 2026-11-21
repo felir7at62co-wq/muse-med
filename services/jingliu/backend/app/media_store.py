@@ -33,7 +33,6 @@
 from __future__ import annotations
 
 import logging
-import mimetypes
 import re
 import threading
 import time
@@ -63,22 +62,8 @@ _PRIVATE_DIRS = frozenset({"backups"})
 #: 一个路径段里不允许的字符：控制字符、路径分隔符。
 _BAD_SEGMENT = re.compile(r"[\x00-\x1f\x7f/\\]")
 
-#: 扩展名 → Content-Type。`mimetypes` 在不同系统上对这几种给的值不一样，固定下来。
-_TYPES = {
-    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-    ".webp": "image/webp", ".gif": "image/gif",
-    ".mp4": "video/mp4", ".mov": "video/quicktime", ".mkv": "video/x-matroska",
-    ".webm": "video/webm",
-    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".aac": "audio/aac", ".m4a": "audio/mp4",
-    ".flac": "audio/flac",
-    ".zip": "application/zip", ".bat": "application/octet-stream",
-}
-
-
-def content_type_for(name: str) -> str:
-    """按扩展名给 Content-Type；认不出的给 `application/octet-stream`。"""
-    ext = Path(name).suffix.lower()
-    return _TYPES.get(ext) or mimetypes.guess_type(name)[0] or "application/octet-stream"
+#: 按扩展名给 Content-Type（表在 `storage` 里，每次 PUT 都用它）。
+content_type_for = storage.content_type_for
 
 
 def _data_dir() -> Path:
@@ -112,12 +97,12 @@ def managed_rel(rel: str) -> bool:
     return all(_safe_segment(p) for p in parts[1:])
 
 
-def parse_media_path(path: object) -> tuple[str | None, str | None]:
-    """客户端给的地址 → `(rel, None)` 或 `(None, 错误码)`。
+def split_media_path(path: object) -> tuple[str | None, str | None]:
+    """客户端给的地址 → `(rel, None)`（归桶管）、`(rel, "not_in_tos")`（格式正确，
+    但目录不归桶管，例如 `outputs/`、配乐库）或 `(None, "invalid")`。
 
     接受 `/fw/media/...` 与 `/fwp/media/...`，去掉查询串与片段，百分号解码一次。
-    错误码：`invalid`（不是媒体地址、带 `..`/控制字符/空段等）、
-    `not_in_tos`（格式正确但目录不归桶管，例如 `outputs/`）。
+    `invalid`：不是媒体地址、带 `..`/控制字符/空段/点开头的段、库备份等。
     """
     if not isinstance(path, str) or not path or len(path) > 1024:
         return None, "invalid"
@@ -134,8 +119,38 @@ def parse_media_path(path: object) -> tuple[str | None, str | None]:
     parts = rel.split("/")
     if (len(parts) >= 2 and parts[0] not in _PRIVATE_DIRS
             and all(_safe_segment(p) for p in parts)):
-        return None, "not_in_tos"
+        return rel, "not_in_tos"
     return None, "invalid"
+
+
+def parse_media_path(path: object) -> tuple[str | None, str | None]:
+    """客户端给的地址 → `(rel, None)` 或 `(None, 错误码)`；只有归桶管的文件给 rel。
+    错误码见 `split_media_path`。"""
+    rel, err = split_media_path(path)
+    return (rel, None) if err is None else (None, err)
+
+
+#: `/media` 不对外发的文件名（与 `main._PRIVATE_MEDIA_RE` 相同）：库文件与备份标记。
+_PRIVATE_NAME = re.compile(r"\.(db|sqlite3?)(-wal|-shm|-journal)?$|\.tos(-skip)?$", re.IGNORECASE)
+
+
+def local_file(rel: str) -> Path | None:
+    """`rel` 在本地有一份 `/media` 会直接发出去的文件时返回它，否则 None。
+
+    `rel` 应已经过 `split_media_path`。这里再挡一次库文件名，并要求解析符号链接
+    之后仍在 DATA_DIR 里（StaticFiles 也不跟出目录的链接）。
+    """
+    if _PRIVATE_NAME.search(rel.rsplit("/", 1)[-1]):
+        return None
+    base = _data_dir()
+    p = base / rel
+    try:
+        if not p.is_file():
+            return None
+        p.resolve().relative_to(base.resolve())
+    except (ValueError, OSError):
+        return None
+    return p
 
 
 def url_for(rel: str) -> str:
@@ -178,6 +193,15 @@ def upsert_ledger(rel: str, *, key: str, size: int, etag: str,
                "w": m.get("width"), "h": m.get("height"), "dur": m.get("duration_us"),
                "now": _now()})
     # 出片热路径上的「在不在桶里」缓存：刚写进台账的文件要立刻转正
+    from .providers.base import invalidate_in_ledger
+    invalidate_in_ledger(rel)
+
+
+def drop_ledger(rel: str) -> None:
+    """删掉 `media_objects` 的一行（没有也不报错）。"""
+    from .db import engine
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM media_objects WHERE rel_path=:r"), {"r": rel})
     from .providers.base import invalidate_in_ledger
     invalidate_in_ledger(rel)
 

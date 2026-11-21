@@ -1013,7 +1013,13 @@ def asset_export_preview(project_id: str, scopes: str = "base") -> dict:
 
 @router.post("/projects/{project_id}/asset-export")
 @access.requires(access.ROLE_VIEWER)
-def asset_export(project_id: str, body: AssetExportIn) -> dict:
+async def asset_export(project_id: str, body: AssetExportIn) -> dict:
+    """产出资产交付物（见 `_asset_export`）。打包与直传进桶都是同步 IO，可能被桶挂住几分钟：整段放进长阻塞池（见 `app/executors.py`），不占默认线程池。"""
+    from ..executors import run_long_blocking
+    return await run_long_blocking(_asset_export, project_id, body)
+
+
+def _asset_export(project_id: str, body: AssetExportIn) -> dict:
     """产出「清单 + 下载脚本」的交付物，返回下载地址。
 
     交付物里**没有图**（图在你自己的机器上下），只有几十 KB 的清单与脚本。

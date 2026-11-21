@@ -213,7 +213,14 @@ def clear_scene_view(asset_id: str, view_key: str) -> dict:
 
 
 @router.post("/assets/{asset_id}/board")
-def build_scene_board(asset_id: str) -> dict:
+async def build_scene_board(asset_id: str) -> dict:
+    """拼美术设定板（见 `_build_scene_board`）。拼板与直传进桶都是同步 IO，可能被桶
+    挂住几分钟：整段放进长阻塞池（见 `app/executors.py`），不占默认线程池。"""
+    from ..executors import run_long_blocking
+    return await run_long_blocking(_build_scene_board, asset_id)
+
+
+def _build_scene_board(asset_id: str) -> dict:
     """把该场景已有的视角图拼成**美术设定板**并落库（`Asset.board_url`）。
 
     ⚠️ 设定板是**派生产物、只给人看**：它带格子线与中文标注，一旦当参考图注入

@@ -297,6 +297,10 @@ BACKUP_TOS_PREFIX = "backups"
 #: 已复制进桶的备份旁边放一个同名加此后缀的标记文件。
 _TOS_MARK = ".tos"
 
+#: 超过单次上传上限（`storage.MAX_PUT_BYTES`）、要分片上传才进得了桶的备份旁边
+#: 放这个标记：以后每轮都跳过它，只在第一次记一行日志，不再每轮重试、每轮报错。
+_TOS_SKIP_MARK = ".tos-skip"
+
 
 def _backup_dir() -> tuple[Path, str] | None:
     if not DATABASE_URL.startswith("sqlite"):
@@ -311,19 +315,33 @@ def upload_backups() -> dict:
     桶里那份一起删。返回 {uploaded, removed}。由常驻巡检按轮调用，同步。
 
     启动时不传：`backup_sqlite` 跑在启动路径上，桶不通时不能让服务起不来。
-    每份备份传成功后写一个 `<备份>.tos` 标记，下一轮不再传。
+    每份备份传成功后写一个 `<备份>.tos` 标记，下一轮不再传。超过单次上传上限的
+    备份写 `<备份>.tos-skip` 标记、记一行日志后跳过（要分片上传才传得进去），
+    计入返回值的 `skipped`。
     """
     from . import storage
     from .media_store import note_failure
 
-    out = {"uploaded": 0, "removed": 0}
+    out = {"uploaded": 0, "removed": 0, "skipped": 0}
     found = _backup_dir()
     if found is None or not storage.enabled():
         return out
     d, stem = found
     for f in sorted(d.glob(f"{stem}_*.db")):
         mark = f.with_name(f.name + _TOS_MARK)
-        if mark.exists():
+        skip = f.with_name(f.name + _TOS_SKIP_MARK)
+        if mark.exists() or skip.exists():
+            continue
+        try:
+            size = f.stat().st_size
+        except OSError:
+            continue
+        if size > storage.MAX_PUT_BYTES:
+            logger.warning("[backup] %s 有 %.1f MB，超过单次上传上限 %d MB，需要分片上传；"
+                           "这份备份不进桶，以后不再重试", f.name, size / 1048576,
+                           storage.MAX_PUT_BYTES // 1048576)
+            skip.write_text(f"{size}\n", encoding="utf-8")
+            out["skipped"] += 1
             continue
         try:
             storage.put_file(f, f"{BACKUP_TOS_PREFIX}/{f.name}",
@@ -333,6 +351,9 @@ def upload_backups() -> dict:
             out["uploaded"] += 1
         except Exception as e:      # noqa: BLE001
             note_failure("backup", f.name, e)
+    for skip in d.glob(f"{stem}_*.db{_TOS_SKIP_MARK}"):
+        if not skip.with_name(skip.name[:-len(_TOS_SKIP_MARK)]).exists():
+            skip.unlink(missing_ok=True)
     for mark in d.glob(f"{stem}_*.db{_TOS_MARK}"):
         db = mark.with_name(mark.name[:-len(_TOS_MARK)])
         if db.exists():
