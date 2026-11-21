@@ -761,3 +761,84 @@ def test_bmp_magic_alone_is_not_an_image():
     from app.providers.image import _is_image
     assert not _is_image(b"BM this is plain text, not a bitmap")
     assert _is_image(base64.b64decode(_B64))
+
+
+# ---------------------------------------------------------------- patch 12：IPv6 里藏着的 IPv4、被拒参考图计数
+
+@pytest.mark.parametrize("addr, public", [
+    ("93.184.216.34", True), ("2606:4700::1111", True), ("64:ff9b::808:808", True),     # NAT64 → 8.8.8.8
+    ("::7f00:1", False), ("::a00:5", False), ("::1", False), ("::", False),          # IPv4 兼容 / 回环 / 空
+    ("::ffff:10.0.0.1", False), ("64:ff9b::7f00:1", False), ("64:ff9b::a9fe:a9fe", False),
+    ("64:ff9b:1::a00:1", False), ("2002:7f00:1::1", False),
+    ("2001:0:4136:e378:8000:63bf:80ff:fffe", False),                                   # Teredo
+    ("100.64.1.1", False), ("169.254.169.254", False), ("fd00::1", False), ("not-an-ip", False),
+])
+def test_embedded_ipv4_inside_ipv6_is_checked(addr, public):
+    from app.providers.image import _is_public_ip
+    assert _is_public_ip(addr) is public
+
+
+def test_refused_reference_images_are_counted_in_the_error(gateway):
+    import app.providers.image as image
+    gateway()
+    with pytest.raises(image.RefUnavailable, match="其中 2 张地址不安全被拒"):
+        run(image._load_ref_bytes(["http://127.0.0.1/a.png", "http://169.254.169.254/b.png"]))
+
+
+# ---------------------------------------------------------------- patch 12 v2：IDNA、异常写法、SIIT
+
+@pytest.mark.parametrize("host", ["ß.x.example", "ς.x.example", "faß.x.example"])
+def test_the_guard_checks_the_name_httpx_will_connect_to(gateway, monkeypatch, host):
+    """IDNA 2003（Python 自带）与 2008（httpx）对这些字符编码不同：两种名字分别答公网 / 内网。"""
+    import app.providers.image as image
+
+    async def split_brain(name):
+        # IDNA 2008 的名字（httpx 真正去连的）→ 内网；其余（2003 的 ss / xn--4xa 之类）→ 公网
+        return ["10.0.0.5"] if name in ("xn--zca.x.example", "xn--3xa.x.example", "xn--fa-hia.x.example") \
+            else ["93.184.216.34"]
+
+    fake = gateway()
+    monkeypatch.setattr(image, "_host_addresses", split_brain)
+    with pytest.raises(image.UnsafeDownload, match="内网"):
+        run(image._download(_Bound(fake, False), f"http://{host}/a.png"))
+    assert fake.gets == []
+
+
+@pytest.mark.parametrize("url", ["http://[127.0.0.1]/x.png", "http://a..b.example/x.png",
+                                 "http://" + "a" * 64 + ".example/x.png", "ftp://cdn.example/x.png"])
+def test_odd_address_forms_are_refused_as_unsafe(gateway, monkeypatch, url):
+    import app.providers.image as image
+
+    async def real_resolver_shape(name):                      # 同真解析：坏标签在编码时就抛 UnicodeError
+        name.encode("idna")
+        return ["93.184.216.34"]
+
+    fake = gateway()
+    monkeypatch.setattr(image, "_host_addresses", real_resolver_shape)
+    with pytest.raises(image.UnsafeDownload):
+        run(image._download(_Bound(fake, False), url))
+    if url.startswith("http"):                                # ftp:// 参考图在更前面就按「认不出」丢了
+        with pytest.raises(image.RefUnavailable, match="其中 1 张地址不安全被拒"):
+            run(image._load_ref_bytes([url]))
+    assert fake.gets == []
+
+
+def test_our_ipv6_rules_hold_even_if_the_stdlib_called_everything_global(monkeypatch):
+    """3.12.4+ 的标准库本身已经拒了这些；把 is_global 改成永远 True，验证我们自己的分支。"""
+    import ipaddress
+    from app.providers.image import _is_public_ip
+    monkeypatch.setattr(ipaddress.IPv6Address, "is_global", property(lambda self: True))
+    for addr in ("2002:7f00:1::1", "2001:0:4136:e378:8000:63bf:80ff:fffe", "64:ff9b:1::a00:1",
+                 "::ffff:10.0.0.1", "::ffff:0:a00:1", "::ffff:0:7f00:1", "::7f00:1", "64:ff9b::7f00:1"):
+        assert _is_public_ip(addr) is False, addr
+    assert _is_public_ip("2606:4700::1111") is True
+
+
+def test_the_reference_error_keeps_the_action_within_the_first_200_chars(gateway):
+    import app.providers.image as image
+    gateway()
+    long = "http://127.0.0.1/" + "x" * 300 + ".png"
+    with pytest.raises(image.RefUnavailable) as e:
+        run(image._load_ref_bytes([long, long, long]))
+    head = str(e.value)[:200]
+    assert "请补上图片后重试" in head and "其中 3 张地址不安全被拒" in head

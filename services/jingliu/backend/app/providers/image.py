@@ -54,6 +54,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import ipaddress
 import json
 import logging
 import random
@@ -336,19 +337,6 @@ def _body_no_channel(body: str) -> bool:
     return any(m in low for m in _NO_CHANNEL_MARKERS)
 
 
-def _is_model_missing(msg: "str | BaseException") -> bool:
-    """该错误是不是"上游没有这个模型名"（→ 值得换候选名再试一次）。
-
-    给异常时优先看它身上的 `model_missing` 标记（由完整响应体判定）。
-    """
-    if isinstance(msg, BaseException):
-        if getattr(msg, "model_missing", False):
-            return True
-        msg = str(msg)
-    low = msg.lower()
-    return any(m in low for m in _MODEL_MISSING_MARKERS)
-
-
 def _try_next_name(e: BaseException) -> bool:
     """同一网关、同一把 key 上，换下一个候选名是否**安全**（不会重复计费）。
 
@@ -539,27 +527,55 @@ async def _host_addresses(host: str) -> list[str]:
     return sorted({i[4][0] for i in infos})
 
 
+#: IPv6 里内嵌 IPv4 的几种写法（2026-11-21 审查）。不同 Python 版本对它们的 `is_global` 判断不一样
+#: （线上 3.12、本机 3.13），所以不交给标准库，显式处理：
+#:   · `::ffff:a.b.c.d`（映射）、`::a.b.c.d`（IPv4 兼容，::/96）、`::ffff:0:a.b.c.d`（SIIT）、
+#:     `64:ff9b::a.b.c.d`（NAT64 公用前缀）→ 把里面的 IPv4 拿出来按 IPv4 查；
+#:   · 本地 NAT64 `64:ff9b:1::/48`、6to4 `2002::/16`、Teredo `2001::/32` → 一律拒绝（正常 CDN 不会用）。
+_V6_EMBEDS_V4 = (ipaddress.ip_network("::/96"), ipaddress.ip_network("::ffff:0:0:0/96"),
+                 ipaddress.ip_network("64:ff9b::/96"))
+_V6_REFUSED = (ipaddress.ip_network("64:ff9b:1::/48"), ipaddress.ip_network("2002::/16"),
+               ipaddress.ip_network("2001::/32"))
+
+
 def _is_public_ip(addr: str) -> bool:
     """公网地址才放行：回环、私网、链路本地（含 169.254 元数据）、100.64/10、ULA、保留段一律不算。"""
-    import ipaddress
     try:
         ip = ipaddress.ip_address(addr.split("%", 1)[0])
     except ValueError:
         return False
-    mapped = getattr(ip, "ipv4_mapped", None)
-    if mapped is not None:
-        ip = mapped
+    if ip.version == 6:
+        if ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        elif any(ip in net for net in _V6_EMBEDS_V4):
+            ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+        elif any(ip in net for net in _V6_REFUSED):
+            return False
     return bool(ip.is_global) and not ip.is_multicast
 
 
 async def _check_download_url(url: str) -> None:
-    from urllib.parse import urlsplit
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise UnsafeDownload(f"取件地址协议不允许（{parts.scheme or '无'}）")
+    """检查的必须是 **httpx 真正会去连的那个主机名**（2026-11-21 审查）。
+
+    以前用 `urlsplit(url).hostname` 交给 getaddrinfo：那条路走 Python 自带的 IDNA 2003 编码，
+    而 httpx 0.28 + idna 3.x 连的是 IDNA 2008 的名字 —— `ß` 一边是 `ss`、一边是 `xn--zca`，
+    `ς`、零宽连接符同理。一个对两种名字分别答公网 / 127.0.0.1 的域名就能绕过检查。
+    现在取 `httpx.URL(url).raw_host`（已是 ASCII），检查与连接用的是同一个名字。
+    地址写法异常（`[127.0.0.1]`、空标签、超长标签……）一律当作不安全。
+    """
     try:
-        addrs = await _host_addresses(parts.hostname)
-    except OSError as e:
+        parsed = httpx.URL(url)
+        scheme = parsed.scheme
+        host = parsed.raw_host.decode("ascii")
+    except (httpx.InvalidURL, UnicodeError, ValueError) as e:
+        raise UnsafeDownload("取件地址格式不对") from e
+    if scheme not in ("http", "https"):
+        raise UnsafeDownload(f"取件地址协议不允许（{scheme or '无'}）")
+    if not host:
+        raise UnsafeDownload("取件地址没有主机")
+    try:
+        addrs = await _host_addresses(host)
+    except (OSError, UnicodeError, ValueError) as e:
         raise UnsafeDownload(f"取件地址解析失败（{type(e).__name__}）") from e
     if not addrs or not all(_is_public_ip(a) for a in addrs):
         raise UnsafeDownload("取件地址指向本机或内网，已拒绝")
@@ -578,7 +594,10 @@ async def _download_checked(client: httpx.AsyncClient, url: str) -> bytes:
                 loc = r.headers.get("location")
                 if not loc:
                     raise UnsafeDownload("跳转响应没有目标地址")
-                url = str(httpx.URL(url).join(loc))
+                try:
+                    url = str(httpx.URL(url).join(loc))
+                except (httpx.InvalidURL, UnicodeError, ValueError) as e:
+                    raise UnsafeDownload("跳转地址格式不对") from e
                 continue
             r.raise_for_status()
             declared = r.headers.get("content-length") or ""
@@ -627,6 +646,7 @@ async def _load_ref_bytes(urls: list[str]) -> list[bytes]:
     from ..media import ensure_local_async
     out: list[bytes] = []
     missing: list[str] = []
+    refused = 0         # 地址不安全被拒的（指向内网 / 协议不对 / 跳转太多 / 太大）
     async with http.client("image-refs", timeout=120) as client:
         for u in urls[:4]:
             p = await ensure_local_async(u)
@@ -636,6 +656,8 @@ async def _load_ref_bytes(urls: list[str]) -> list[bytes]:
                 try:
                     out.append(await _download(client, u))
                 except Exception as e:  # noqa: BLE001
+                    if isinstance(e, UnsafeDownload):
+                        refused += 1
                     logger.warning("参考图下载失败：%s（%s）", u, str(e)[:120])
                     missing.append(u)
             else:
@@ -643,6 +665,8 @@ async def _load_ref_bytes(urls: list[str]) -> list[bytes]:
                 # 旧代码在这里**连下载都不试**就丢弃，连日志都没有
                 logger.warning("参考图无法解析（scheme 不认识、本地也没有）：%s", u)
                 missing.append(u)
+    if refused:
+        logger.warning("参考图有 %d 张因地址不安全被拒（指向内网、协议不对、跳转太多或太大）", refused)
     if missing:
         # ⚠️ 口径：**缺任何一张就中止**，不是"缺了就用剩下的凑"。
         #    因为参考图对应的是"这一镜里的某个角色/场景"，少一张就意味着一
@@ -652,10 +676,10 @@ async def _load_ref_bytes(urls: list[str]) -> list[bytes]:
         #      `if not out:` 即可，即只在**全丢**时中止——那也正是旧代码
         #      真正会退化成文生图的那个点。留此注记便于将来调整。）
         raise RefUnavailable(
-            f"{len(missing)}/{len(urls[:4])} 张参考图取不到（"
-            + "；".join(u[-60:] for u in missing[:3])
-            + "）；已中止生成——缺的那张会让对应角色/场景画错，"
-              "请补上图片后重试", missing=missing)
+            f"{len(missing)}/{len(urls[:4])} 张参考图取不到，已中止生成，请补上图片后重试"
+            + (f"（其中 {refused} 张地址不安全被拒）" if refused else "")
+            + "——缺的那张会让对应角色/场景画错。取不到的："
+            + "；".join(u[-60:] for u in missing[:3]), missing=missing)
     return out
 
 
