@@ -10,7 +10,7 @@ Muse 通过已登录的[镜流连接](../../packages/drama/jingliu-connection/RE
 
 ## 来源
 
-此目录是云端发布 `20261121-jingliu-blocking-01` 的后端，即 2026-11-17 工作台备份加上四项已部署改动。镜头脚本改由 Muse 撰写并锁定，取代镜流自己的提示词撰写。存库的报错、任务结果和日志中的密钥已脱敏。`FW_ARK_TRUSTED_ASSETS` 把人像参考图入库交给模型网关，首帧生成已下线。站位图单独保存并绑定到镜头。除 Muse 登录适配和以下几处外，`backend/app` 与该发布逐字节一致：`app/at_refs.py`、`app/auth.py`、`app/budget.py`、`app/jobs.py`、`app/notify.py`、`app/routers/library.py`、`app/routers/shots.py` 和 `app/user_directory.py` 的注释与文档字符串用占位值代替用户和管理员的姓名、一个昵称和 IP 地址，`app/config.py` 中 `feishu_notify_contact` 的默认值是「管理员」，而不是一位管理员的姓名。
+此目录是云端发布 `20261121-jingliu-mkwait-01` 的后端，即 2026-11-17 工作台备份加上五项已部署改动。镜头脚本改由 Muse 撰写并锁定，取代镜流自己的提示词撰写。存库的报错、任务结果和日志中的密钥已脱敏。`FW_ARK_TRUSTED_ASSETS` 把人像参考图入库交给模型网关，首帧生成已下线。站位图单独保存并绑定到镜头。字幕擦除等待火山 MediaKit 出片的上限放宽；字幕擦除和超分在状态查询失败时继续轮询，也不再发送取消请求，因为该接口不支持取消。除 Muse 登录适配和以下几处外，`backend/app` 与该发布逐字节一致：`app/at_refs.py`、`app/auth.py`、`app/budget.py`、`app/jobs.py`、`app/notify.py`、`app/routers/library.py`、`app/routers/shots.py` 和 `app/user_directory.py` 的注释与文档字符串用占位值代替用户和管理员的姓名、一个昵称和 IP 地址，`app/config.py` 中 `feishu_notify_contact` 的默认值是「管理员」，而不是一位管理员的姓名。
 
 登录适配不在此目录中，由 [`../muse-workbenches/install.py`](../muse-workbenches/install.py) 在安装时写入发布副本。云端发布包含适配中的登录和共享素材库改动，但不包含安装器对剪映导出的适配。
 

@@ -18,8 +18,9 @@
 | ⚠️ 全局框与分时段框**互斥**，同时传直接 400 | 二选一，见 `_build_body` |
 | 不传坐标 = 自动识别整条 | — |
 | 产出**保留音轨**、帧率帧数与原片一致（24→24、265→265） | 仍贴回原片音轨，保证一字节不差 |
-| ⚠️ 素材拉不到时**不报错、一直 running**（实测 31 分钟） | 必须我方设超时，见 `_poll_timeout` |
-| 慢：11 秒片约 345 秒（标准版 81 秒） | 执行改成多镜并行 |
+| ⚠️ 素材拉不到时**不报错、一直 running**（实测 31 分钟） | 必须我方设等待上限，见 `_timeout_for` |
+| 慢：11 秒片约 345 秒（标准版 81 秒）；1080×1920 的 5 秒片 354 秒 | 执行改成多镜并行；等待上限要宽 |
+| ⚠️ **没有取消接口**（2026-11-21 实测 `DELETE /tasks/{id}` 返回 405，官方 CLI 也只有查询） | 停止等待 ≠ 停止计费，见 `_TIMEOUT_FACTOR` |
 
 ## 为什么坐标与时间都要
 
@@ -60,22 +61,38 @@ _SRC_PREFIX = "desub-src"
 #: 火山字幕擦除的模型版本。**不是**我们自己的版本号，是上游枚举值。
 MODEL_VERSION = "v5.6"
 
-#: 超时系数：实测约 31 倍时长（11 秒 → 345 秒），给到 60 倍再兜一个下限。
-#: ⚠️ 这个上限是**必需的**：素材拉不到时上游既不出片也不报错（实测 31 分钟
-#: 仍 running），没有上限就会把 job 永远钉在 running，之后该项目再也提交不了
-#: 同组任务。
-_TIMEOUT_FACTOR = 60.0
-_TIMEOUT_MIN_SEC = 180.0
-_TIMEOUT_MAX_SEC = 1800.0
+#: 等待上限：镜头时长的几倍，再夹在最少 / 最多之间（秒）。
+#:
+#: ⚠️ 火山这套接口**没有取消**：到了上限我们只是不再等，火山那边照样跑完、照样计费，
+#: 片子却没人取回。所以上限宁宽勿窄 —— 旧值（60 倍、最少 180 秒）把 1080P 镜头
+#: 全判成了失败：2026-11-21 实测 1080×1920 的 5 秒片 354 秒才出（约 71 倍，含排队），
+#: 496×864 的 4 秒片 190 秒（约 46 倍）。现在给 150 倍、最少 15 分钟。
+#:
+#: 上限本身仍然**必需**：素材拉不到时上游既不出片也不报错（实测 31 分钟仍 running），
+#: 没有上限就会把 job 永远钉在 running，之后该项目再也提交不了同组任务。
+_TIMEOUT_FACTOR = 150.0
+_TIMEOUT_MIN_SEC = 900.0
+_TIMEOUT_MAX_SEC = 5400.0
+
+#: 进度条按「大概要多久」走（1080P 实测约 71 倍），不按上限走 —— 按上限走的话
+#: 正常出片时进度条只走到一半就跳完成，看着像卡住。
+_EXPECTED_FACTOR = 75.0
+_EXPECTED_MIN_SEC = 120.0
 
 #: 观测到的「平台已经完成」的状态集合。
 _DONE = {"completed"}
 #: 终态里的失败型。
 _FAILED = {"failed", "error", "cancelled", "canceled", "timeout"}
+#: 这一轮没问到状态（网络抖动、5xx），见 `_status`。
+_UNKNOWN = "?"
 
 
 def _timeout_for(dur: float) -> float:
     return min(_TIMEOUT_MAX_SEC, max(_TIMEOUT_MIN_SEC, dur * _TIMEOUT_FACTOR))
+
+
+def _expected_for(dur: float) -> float:
+    return max(_EXPECTED_MIN_SEC, dur * _EXPECTED_FACTOR)
 
 
 def _ratio_box(x: float, y: float, w: float, h: float) -> dict:
@@ -216,6 +233,7 @@ class MediaKitEraseProvider(MediaKitUpscaleProvider):
                            else "auto")
 
             limit = _timeout_for(dur)
+            expected = _expected_for(dur)
             waited = 0.0
             lost = 0
             while waited < limit:
@@ -223,10 +241,12 @@ class MediaKitEraseProvider(MediaKitUpscaleProvider):
                 waited += self.poll_interval
                 if on_progress is not None:
                     try:
-                        on_progress(min(0.95, waited / limit))
+                        on_progress(min(0.95, waited / expected))
                     except Exception:            # noqa: BLE001
                         pass
                 st, raw = await self._status(base, key, task_id)
+                if st == _UNKNOWN:
+                    continue
                 if not st:
                     lost += 1
                     if lost >= _LOST_STREAK:
@@ -250,9 +270,13 @@ class MediaKitEraseProvider(MediaKitUpscaleProvider):
                     return out
                 if st in _FAILED:
                     raise RuntimeError(f"火山任务 {st}：{self._err(raw, None, st)}")
-            # 超时：主动取消，别让上游继续计费。
-            await self.cancel(base, key, task_id)
-            raise RuntimeError(f"等待超过 {int(limit)} 秒仍未出片，已取消任务")
+            # 到上限：只能停止等待。火山没有取消接口，任务可能还在跑、还会计费 ——
+            # 任务号写进日志和报错，事后要取回或对账都靠它。
+            logger.warning("[desub] 火山任务 %s 等待 %d 秒仍未出片，停止等待（火山不支持取消）",
+                           task_id, int(limit))
+            raise RuntimeError(
+                f"火山处理超过 {int(limit // 60)} 分钟仍未出片，已停止等待。"
+                f"火山不支持取消，这条任务可能仍在处理（任务号 {task_id}）")
 
         except Exception as e:                   # noqa: BLE001
             out["error"] = human_error(e)
@@ -282,21 +306,23 @@ class MediaKitEraseProvider(MediaKitUpscaleProvider):
         return prefix
 
     async def _status(self, base: str, key: str, task_id: str) -> tuple[str, dict]:
-        c = http.get(base, timeout=self.timeout)
-        r = await c.get(f"{base}/tasks/{task_id}",
-                        headers={"Authorization": f"Bearer {key}"})
+        """(status, 原始响应)。
+
+        - 平台说查不到（404）→ `("", {})`，调用方连续几次才认定丢失；
+        - 查询本身没成（网络抖动、5xx）→ `(_UNKNOWN, {})`，调用方下一轮再查，**不算丢失**：
+          任务多半还在火山那边跑、还在计费，一次没问到就判失败等于白付钱。
+        """
+        try:
+            c = http.get(base, timeout=self.timeout)
+            r = await c.get(f"{base}/tasks/{task_id}",
+                            headers={"Authorization": f"Bearer {key}"})
+        except Exception as e:                   # noqa: BLE001
+            logger.info("[desub] 查询火山任务 %s 没成，下一轮再查：%r", task_id, e)
+            return _UNKNOWN, {}
         if r.status_code == 404:
             return "", {}
         if r.status_code // 100 != 2:
-            return "", {}
+            logger.info("[desub] 查询火山任务 %s 返回 HTTP %s，下一轮再查", task_id, r.status_code)
+            return _UNKNOWN, {}
         d = self._json(r)
         return str(d.get("status") or "").lower(), d
-
-    async def cancel(self, base: str, key: str, task_id: str) -> bool:
-        try:
-            c = http.get(base, timeout=self.timeout)
-            r = await c.delete(f"{base}/tasks/{task_id}",
-                               headers={"Authorization": f"Bearer {key}"})
-            return r.status_code // 100 == 2
-        except Exception:                        # noqa: BLE001
-            return False

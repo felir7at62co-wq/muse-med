@@ -192,19 +192,10 @@ class MediaKitUpscaleProvider:
             raise RuntimeError(f"mediakit status HTTP {r.status_code}: {r.text[:200]}")
         return str(d.get("status") or "").lower(), d
 
-    async def cancel(self, task_id: str) -> bool:
-        """取消任务。火山文档有「取消媒体处理任务」接口，但**失败不影响主流程**。
-
-        取消的语义只是"别再继续烧"，与我们这边怎么记账无关；拿不到结果就当没取消成。
-        """
-        try:
-            key, base, _res, _scene = self._cfg()
-            c = http.get(base, timeout=self.timeout)
-            r = await c.delete(f"{base}/tasks/{task_id}",
-                               headers={"Authorization": f"Bearer {key}"})
-            return r.status_code // 100 == 2
-        except Exception:  # noqa: BLE001
-            return False
+    # ⚠️ 没有 `cancel()`：火山 AI MediaKit 这套 Bearer 接口**没有取消任务**。
+    # 2026-11-21 实测 `DELETE /tasks/{id}` 返回 405，官方 CLI 也只有查询；文档里的
+    # 「取消媒体处理任务」（KillJob）属于旧版 AK/SK 签名的智能处理接口，不是这一套。
+    # 以前这里发的 DELETE 从没生效过：我们这边「已取消」，火山照样跑完、照样计费。
 
     async def _download(self, url: str) -> Path:
         """把产物拉回 generated/。返回本地磁盘路径。"""
@@ -327,16 +318,20 @@ class MediaKitUpscaleProvider:
                 n += 1
                 await asyncio.sleep(self.poll_interval)
 
-                # 用户取消：拦在轮询里才拦得住已派发的任务。
-                # 火山按输出时长计费，**没出片就不该收**；出片了照实收。
+                # 用户取消：我们停止等待、不向用户收费。火山没有取消接口，
+                # 已派发的任务会照样跑完 —— 这一笔由我们承担，记账原因里写明。
                 if _usage.cancel_requested():
-                    await self.cancel(task_id)
                     self._record(task_id, media_seconds=dur, gen_seconds=0.0,
-                                 ok=False, free_reason="用户取消")
+                                 ok=False, free_reason="用户取消（火山不支持取消，任务仍会跑完）")
                     return {**out, "error": "已取消", "cancelled": True,
                             "charged_fen": 0}
 
-                st, raw = await self.status(task_id)
+                try:
+                    st, raw = await self.status(task_id)
+                except Exception as e:  # noqa: BLE001
+                    # 一次没问到（网络抖动、5xx）不是失败：任务多半还在跑、还在计费。
+                    logger.info("[mediakit] 查询任务 %s 没成，下一轮再查：%r", task_id, e)
+                    continue
                 if not st:
                     lost += 1
                     if lost >= _LOST_STREAK:
@@ -384,14 +379,13 @@ class MediaKitUpscaleProvider:
                     logger.info("[mediakit] 任务 %s 仍在 %s，已等待 %.0f 分钟",
                                 task_id, st, n * self.poll_interval / 60)
 
-            await self.cancel(task_id)
             self._record(task_id, media_seconds=dur, gen_seconds=0.0,
                          ok=False, free_reason="轮询达到上限")
-            return {**out, "error": f"轮询达到显式上限 {self.poll_max} 次，已取消任务"}
+            return {**out, "error": f"轮询达到显式上限 {self.poll_max} 次，已停止等待"
+                                    f"（火山不支持取消，任务号 {task_id}）"}
 
         except Exception as e:  # noqa: BLE001
             if task_id:
-                await self.cancel(task_id)
                 self._record(task_id, media_seconds=float(out.get("media_seconds") or 0),
                              gen_seconds=0.0, ok=False, free_reason="我方异常")
             out["error"] = human_error(e)
