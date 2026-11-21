@@ -51,10 +51,11 @@ describe('Jingliu workflow gateway', () => {
     onTestFinished(async () => { vi.unstubAllEnvs(); await rm(dir, { recursive: true, force: true }) })
     const f = fixture()
     const models = { models: [{ id: 'gpt-image-2' }] }
-    f.request.mockResolvedValueOnce(models).mockResolvedValueOnce({ ok: true, kind: 'image', estimate_fen: 200 }).mockResolvedValueOnce({ id: 'job-image' })
-    const args = { action: 'generate', project_id: 'film', prompt: '暮色中的小站' }
+    f.request.mockResolvedValueOnce(models).mockResolvedValueOnce({ ok: true, kind: 'image', estimate_fen: 25 }).mockResolvedValueOnce({ id: 'job-image' })
+    const args = { action: 'generate', project_id: 'film', prompt: '暮色中的小站', count: 2 }
     await expect(f.call('jingliu_image', args)).resolves.toMatchObject({ job_id: 'job-image' })
-    expect(f.request.mock.calls.at(-1)).toMatchObject(['/jobs', { method: 'POST', body: { kind: 'image', payload: { model_id: 'gpt-image-2', project_id: 'film', n: 1 } } }])
+    expect(f.approve.mock.calls[0]?.[1]).toContain('预计 ¥0.50')
+    expect(f.request.mock.calls.at(-1)).toMatchObject(['/jobs', { method: 'POST', body: { kind: 'image', payload: { model_id: 'gpt-image-2', project_id: 'film', n: 2 } } }])
     f.request.mockResolvedValueOnce(models)
     await expect(f.call('jingliu_image', args)).resolves.toMatchObject({ job_id: 'job-image' })
     expect(f.approve).toHaveBeenCalledTimes(1)

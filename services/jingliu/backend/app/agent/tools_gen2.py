@@ -56,10 +56,13 @@ async def generate_scene_views(ctx: ToolCtx, project_id: str, asset_id: str,
                                model_id: str | None = None) -> dict:
     from .. import charge
     from ..jobs import (RUNNERS, _resolve_asset_image_model,
-                        create_job, find_active_job, scene_view_items_for_asset)
+                        create_job, find_active_job, get_job, scene_view_items_for_asset)
     from ..job_submit import _SUBMIT_LOCK, spawn_job
     from ..look_profile import ensure as _ensure_look
     from ..scene_view import BY_KEY
+    from . import store
+    from .registry import deterministic_job_id
+    from .tools_gen import _cid
 
     with get_session() as session:
         a = session.get(Asset, asset_id)
@@ -83,7 +86,22 @@ async def generate_scene_views(ctx: ToolCtx, project_id: str, asset_id: str,
         logger.warning("[tool] 场景视角生成时取影调失败，按无影调继续: %r", e)
         look = None
 
+    # job id 与 `registry.submit_idempotent` 同一算法：同一个 (run, tool_call) 只提交、只预扣一次。
+    # 桌面端 `call_id` 的约定（重发只接管已有任务）靠它兑现；点名视角时下面的
+    # `find_active_job` 不去重，重发会再建一条任务、再扣一次钱。
+    jid = deterministic_job_id(ctx.run_id, _cid(ctx, "scene_views"))
+
     async with _SUBMIT_LOCK:
+        existing = get_job(jid)
+        if existing is not None:
+            # 从未推进过的 pending 行没有执行体（进程重启留下的），重新派发；running 一律不动。
+            if (existing.status == "pending"
+                    and (existing.updated_at or "") == (existing.created_at or "")):
+                spawn_job(None, jid, existing.kind)
+            ctx.spent_fen += store.reserved_of_job(jid)
+            return {"ok": True, "job_id": jid, "kind": existing.kind,
+                    "status": existing.status, "deduped": True,
+                    "note": "这次调用已提交过，直接接管那条任务，没有重复提交。"}
         # 与端点同一条去重规则：没点名视角时与在跑的 asset_batch 完全重叠。
         if not keys:
             dup = find_active_job("asset_batch", project_id)
@@ -98,14 +116,23 @@ async def generate_scene_views(ctx: ToolCtx, project_id: str, asset_id: str,
         if not items:
             return {"ok": True, "nothing_to_do": True,
                     "note": "这个场景的参考图都已生成。要重画请指定 view_keys。"}
-        est, _note = charge.estimate("asset_batch",
-                                     {"project_id": project_id, "items": items})
-        jid = create_job("asset_batch", {"project_id": project_id, "items": items,
-                                         "size": "1792x1024", "model_id": image_model})
+        payload = {"project_id": project_id, "items": items,
+                   "size": "1792x1024", "model_id": image_model}
+        # 报价与扣费分开算（同 registry.submit_idempotent）：不扣钱的人（管理员、
+        # 闸门关着）照样拿到报价。2026-11-21 之前这里只把报价记进 `ctx.spent_fen`，
+        # 从不预扣，视角图不收钱。预扣挂在先算好的 job id 上，
+        # `_run_job_guarded` 结束时按实际出图张数多退少补。
+        est, note = charge.estimate("asset_batch", payload)
+        charged, _why = charge.should_charge("asset_batch", payload)
+        if charged and est > 0:
+            charge.hold("asset_batch", payload, jid, amount_fen=est, note=note)
+        create_job("asset_batch", payload, jid=jid)
+        # 连到本轮：重发时按这一行补记预扣额，停止本轮时这条任务一并停掉。
+        store.link_run_job(ctx.run_id, jid, "generate_scene_views", est)
+        ctx.spent_fen += est
 
     # 派发放在锁外：`spawn_job` 一进去就要读 job 行，持锁只是让出控制权。
     spawn_job(None, jid, "asset_batch")
-    ctx.spent_fen += est
     return {"ok": True, "job_id": jid, "kind": "asset_batch",
             "count": len(items), "estimate_fen": est,
             "note": "已派发，用 wait_for_job 等它跑完"}

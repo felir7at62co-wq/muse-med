@@ -127,6 +127,12 @@ def _payload_for(tool: str, kwargs: dict) -> dict:
               "orders", "clip_ids", "region_ids", "resolution"):
         if k in kwargs and kwargs[k] is not None:
             p[k] = kwargs[k]
+    if tool == "generate_scene_views":
+        # 按要画几张报价（2026-11-21）：点名的视角各一张；不点名 = 补缺，上界是全部视角。
+        # 不给 items 的话 asset_batch 恒报 1 张。
+        from ..scene_view import VIEW_COUNT
+        keys = list(dict.fromkeys(k for k in (kwargs.get("view_keys") or []) if k))
+        p["items"] = [{"view_key": k} for k in keys] or [{} for _ in range(VIEW_COUNT)]
     return p
 
 

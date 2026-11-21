@@ -151,6 +151,7 @@ async def generate_scene_views(asset_id: str, body: SceneViewsGenerateIn,
     #   · 没点名视角（= 补齐缺失）→ 与在跑的 asset_batch **完全重叠**，挡住；
     #   · 点名了视角（= 用户要重画这一张）→ 定向操作，放行，否则"重画"点了没反应。
     # 查重与建 job 之间不能有 await，故共用 `_SUBMIT_LOCK`（见 submit_job 的说明）。
+    from .. import charge
     from ..jobs import RUNNERS, create_job, find_active_job
 
     async with _SUBMIT_LOCK:
@@ -171,8 +172,18 @@ async def generate_scene_views(asset_id: str, body: SceneViewsGenerateIn,
                 "reason": "nothing_to_do",
                 "message": "这个场景的 8 张参考图都已生成。要重画请指定视角。"})
 
-        jid = create_job("asset_batch", {"project_id": project_id, "items": items,
-                                         "size": body.size, "model_id": image_model})
+        payload = {"project_id": project_id, "items": items,
+                   "size": body.size, "model_id": image_model}
+        # 积分预扣（2026-11-21 补上：此前这条路由不扣费，视角图不收钱）。顺序与
+        # POST /v2/jobs 一致：查重 → 扣 → 建 job，钱和任务共用先生成的 id；
+        # `_run_job_guarded` 结束时按实际出图张数多退少补，失败全额退。
+        jid = uuid.uuid4().hex[:12]
+        _charged, _ = charge.should_charge("asset_batch", payload)
+        if _charged:
+            _est, _note = charge.estimate("asset_batch", payload)
+            if _est > 0:
+                charge.hold("asset_batch", payload, jid, amount_fen=_est, note=_note)
+        create_job("asset_batch", payload, jid=jid)
     background.add_task(_run_job_guarded, RUNNERS["asset_batch"], jid, "asset_batch")
     return JobOut(id=jid, kind="asset_batch", status="pending", progress=0)
 

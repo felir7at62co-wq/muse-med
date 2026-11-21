@@ -162,6 +162,24 @@ def _fill_gap_count(pid: str | None, kinds: set[str]) -> int:
     return n
 
 
+def _image_count(p: dict) -> int:
+    """自由生图 / 候选图一次出几张：与 runner 同一个钳位 1–4。
+
+    固定张数的模型（Midjourney 一次 4 张，`IMAGE_MODELS` 的 `fixed_n`）按它的张数算：
+    不论 `n` 传多少，它都出 4 张、用量也记 4 张。
+    """
+    from .providers.image import IMAGE_MODELS
+    mid = p.get("model_id")
+    fixed = next((m.get("fixed_n") for m in IMAGE_MODELS if mid and m["id"] == mid), None)
+    if fixed:
+        return int(fixed)
+    try:
+        n = int(p.get("n") or 1)
+    except (TypeError, ValueError):
+        n = 1
+    return max(1, min(n, 4))
+
+
 def _upscale_channel() -> str:
     """当前生效的超分渠道（`mediakit` / `runninghub`）。"""
     try:
@@ -233,12 +251,18 @@ def estimate(kind: str, payload: dict) -> tuple[int, str]:
         return fen, f"海螺 H3 预扣：{n} 镜 × 0.2 元/秒（结算按实际生成耗时多退少补）"
 
     if kind in ("asset_batch", "asset_fill", "asset_candidates",
-                "asset_generate", "first_frames"):
+                "asset_generate", "first_frames", "image"):
         n = 0
         if kind == "asset_batch":
             n = len(p.get("items") or [])
         elif kind == "asset_generate":
             n = max(1, int(p.get("n") or 1))
+        elif kind in ("image", "asset_candidates"):
+            # 自由生图（生图页、Muse 的 `jingliu_image`）与候选图按要出的张数报价
+            # （2026-11-21）。此前 `image` 没有计价规则、一分不收；候选图落到下面的
+            # 兜底，按项目镜头数预扣。不带 `n` 的报价是一张的价：Muse 的
+            # `cost_estimate` 只问单价，自己乘张数。
+            n = _image_count(p)
         elif kind == "asset_fill" and p.get("only"):
             # ⚠️ **子集补全必须按子集报价**（2026-10-15）。`asset_fill` 在提交时
             #    items 还是空的（清单要 runner 跑起来才算得出来），下面那条兜底
@@ -250,15 +274,17 @@ def estimate(kind: str, payload: dict) -> tuple[int, str]:
                      if isinstance(it, dict)]
             n = (sum(scene_view.VIEW_COUNT if k == "location" else 1 for k in kinds)
                  or len(kinds) or 1)
-        elif kind == "asset_fill" and _fill_kinds(p):
+        elif kind == "asset_fill":
             # ⚠️ **按页补全必须按页报价**（2026-10-19）。理由同上：不处理的话落到
             #    `_area_seconds` 兜底 = 按整片预扣，只补 3 个道具也会锁住大额余额。
             #    缺口用 runner 自己用的那份盘点（compute_readiness）现算，
             #    分类过滤用同一个 `fill_kinds` —— 报价与实际跑的清单同源。
             #    场景按 8 视角取上界，宁可多预扣（结算按实测退）。
-            n = _fill_gap_count(pid, _fill_kinds(p))
+            #    不带 `kinds` 的整项目补全同样按缺口报价（2026-11-21），三类都算。
+            kinds = _fill_kinds(p)
+            n = _fill_gap_count(pid, kinds or {"character", "location", "prop"})
             if n <= 0:
-                return 0, "当前分类没有缺图的要素"
+                return 0, "当前分类没有缺图的要素" if kinds else "没有缺图的要素"
         else:
             n = len(p.get("items") or []) or _area_seconds(p) or 1
         fen = pricing.image_cost(n or 1)

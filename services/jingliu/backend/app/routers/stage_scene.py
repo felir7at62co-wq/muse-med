@@ -2036,9 +2036,13 @@ async def stage_candidates(stage_id: str, body: StageCandidatesIn) -> dict:
                                 detail="该造型阶段已删除，请先恢复再生成候选图")
         # 同步出候选图：按张数先扣（确定价）。放在全部前置校验之后——
         # 上面两条 404/409 都不该扣用户的钱。
+        # 按这次真要出的张数扣（2026-11-21）。报价用 `asset_generate`（按 n 原样计）：
+        # `asset_candidates` 按异步 runner 的上限 4 张钳，而这条路由最多出 9 张。
+        # 此前传的是 asset_candidates + 固定 4，落到"按项目镜头数"那条兜底。
+        n_pics = max(1, min(body.n, 9))
         from .. import charge
-        charge.charge_sync("asset_candidates",
-                           {"project_id": st.project_id, "n": 4},
+        charge.charge_sync("asset_generate",
+                           {"project_id": st.project_id, "n": n_pics},
                            desc="候选定妆图", project_id=st.project_id)
         prompt = (f"角色定妆照, {st.character_name}, {st.stage_name}, "
                   f"{st.description or ''}, 全身, 正面, 高质量, 短剧风格, 纯色背景")
@@ -2047,7 +2051,7 @@ async def stage_candidates(stage_id: str, body: StageCandidatesIn) -> dict:
                                   exclude_stage_ids={stage_id})
     provider = ImageProvider(model_id=body.model_id)
     try:
-        urls = await provider.generate(prompt, n=max(1, min(body.n, 9)),
+        urls = await provider.generate(prompt, n=n_pics,
                                        ref_urls=[base] if base else None)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"候选图生成失败: {e!r}")
