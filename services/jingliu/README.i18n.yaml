@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write services/jingliu/README.md
+/jingliu-backend:
+  en: a32fb4e8a87c9b6b
+  zh: 8ecb64c2206db406
+/jingliu-backend/how-muse-reaches-it:
+  en: a685e91032cc17f0
+  zh: 07df486cd9622700
+/jingliu-backend/source:
+  en: 3cd754eb40e0c1cb
+  zh: 191bd6a60d4bf0c5
+/jingliu-backend/layout:
+  en: 15e710a5c7bd151a
+  zh: d4bcb8bf81b173a4
+/jingliu-backend/tests-and-static-checks:
+  en: 132b140cb97d2142
+  zh: bcc219c540dbcf0f
+/jingliu-backend/repository-attributes:
+  en: fc2848b5a75d397f
+  zh: 80132064a1099c47
+/jingliu-backend/not-in-this-repository:
+  en: 596aedd426631535
+  zh: 74e90a68ae5bab58
+/jingliu-backend/known-limitations-and-deferred-work:
+  en: d842c711ddd8bd8a
+  zh: 90bdc42aca9ea06c

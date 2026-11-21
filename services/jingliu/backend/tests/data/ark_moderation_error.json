@@ -1,0 +1,1 @@
+HTTP 400: {"error":{"code":"InputImageSensitiveContentDetected.PrivacyInformation","message":"The request failed because the input image 'content[7]' may contain real person. Request id: 021791799367730d6f60410e67e178f28d968f0420b51c365c56e","param":"content[7]","type":"BadRequest"}}

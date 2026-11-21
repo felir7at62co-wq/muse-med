@@ -31,6 +31,16 @@ third_party/plugins/dsh-im/CHANGELOG.md whitespace=-blank-at-eof
 third_party/plugins/dsh-im/docs/方案/PR-222-飞书话题首文去重修复方案.md whitespace=-blank-at-eol
 third_party/plugins/dsh-im/lib/index.js whitespace=-blank-at-eol
 
+# The Jianying pack sends these CRLF batch files to Windows users as stored, so neither commit
+# nor checkout converts them; they stay byte-identical to the Jingliu cloud release.
+services/jingliu/backend/app/routers/jianying_pack/*.bat -text whitespace=cr-at-eol
+# These Jingliu files keep the whitespace of the deployed release.
+services/jingliu/backend/app/charge.py whitespace=-blank-at-eol
+services/jingliu/backend/app/agent/policy.py whitespace=-blank-at-eof
+services/jingliu/backend/app/providers/video_runninghub.py whitespace=-blank-at-eof
+services/jingliu/backend/app/routes_v2.py whitespace=-blank-at-eof
+services/jingliu/backend/app/shot_timing.py whitespace=-blank-at-eof
+
 # The persistence catalog is the readable projection of these generated schemas.
 docs/persistence-schema.json linguist-generated=true
 docs/persistence-changes/*.schema.json linguist-generated=true

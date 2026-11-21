@@ -18,3 +18,5 @@ English | [中文](README.zh.md)
 [`muse-host-retention`](muse-host-retention/README.md) inventories application releases and archived logs on the host and plans their retention. It never treats account databases, employee projects, provider credentials or media volumes as cleanup targets.
 
 The [workbench login adapters](muse-workbenches/README.md) sign Script workshop and Jingliu users into their original business accounts through the Muse account gateway.
+
+[`jingliu`](jingliu/README.md) holds the backend of Jingliu, Muse's production engine: the cloud release's backend without the login overlay, plus the changes its README lists as not yet deployed.

@@ -18,3 +18,5 @@ kind: "reference"
 [`muse-host-retention`](muse-host-retention/README.zh.md) 盘点主机上的应用版本和归档日志并规划其保留期。账号数据库、员工项目、提供方凭据及媒体卷不作为清理目标。
 
 [工作台登录适配器](muse-workbenches/README.zh.md)通过 Muse 网关将用户登录到剧本工坊和镜流原有的业务账号。
+
+[`jingliu`](jingliu/README.zh.md) 收录 Muse 制片引擎镜流的后端：云端发布的后端去掉登录适配，再加上其 README 列出的尚未部署的改动。
