@@ -1097,6 +1097,8 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   StudioShot: 'Jingliu project and asset fields are owned by packages/drama/jingliu-connection/README.md and src/types.ts',
   StudioShotMedia: 'Jingliu project and asset fields are owned by packages/drama/jingliu-connection/README.md and src/types.ts',
   StudioProjectAssets: 'Jingliu project and asset fields are owned by packages/drama/jingliu-connection/README.md and src/types.ts',
+  StudioImage: 'Jingliu project and asset fields are owned by packages/drama/jingliu-connection/README.md and src/types.ts',
+  StudioVideoRequest: 'Jingliu project and asset fields are owned by packages/drama/jingliu-connection/README.md and src/types.ts',
   MuseDataBoards: 'data-station reads for the 数据 and 剧本 drawer tabs are owned by packages/host/muse-account/README.md and src/types.ts',
   MuseDataPlatform: 'data-station reads for the 数据 and 剧本 drawer tabs are owned by packages/host/muse-account/README.md and src/types.ts',
   MuseDataPeriod: 'data-station reads for the 数据 and 剧本 drawer tabs are owned by packages/host/muse-account/README.md and src/types.ts',

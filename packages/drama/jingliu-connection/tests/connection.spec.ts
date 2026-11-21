@@ -1,8 +1,12 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { CommandDefinition, CommandInvocation } from '@deepseek-ai/dsh-commands'
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 import JingliuConnection, { type Config } from '../src/index.ts'
 import { requestJson } from '@deepseek-ai/dsh-workbench-connection'
 import { JINGLIU, studioOrigin } from '../src/http.ts'
@@ -211,7 +215,7 @@ it('preserves an upstream confirmation requirement and confines authenticated ro
   expect(() => studioOrigin('https://user@jingliu.test')).toThrow()
 })
 
-it('reads routes and media of the studio mounted on the Muse gateway with the Muse login', async () => {
+it('reads routes and media of the studio mounted on the Muse gateway with the Muse login, through the Host when the studio cannot resolve media', async () => {
   const png = Buffer.from('png-bytes')
   const { origin, requests } = await fixture((req) => {
     switch (req.url) {
@@ -226,18 +230,64 @@ it('reads routes and media of the studio mounted on the Muse gateway with the Mu
   const signal = new AbortController().signal
   const scope = await ctx.jingliuConnection.connection()
   expect(await scope.request('/projects')).toEqual({ projects: [] })
-  expect(await ctx.jingliuConnection.thumbnail('/fw/media/a.png', signal)).toBe('data:image/png;base64,' + png.toString('base64'))
+  expect(await ctx.jingliuConnection.thumbnail('/fw/media/a.png', signal)).toEqual({ kind: 'inline', url: 'data:image/png;base64,' + png.toString('base64') })
   await expect(ctx.jingliuConnection.thumbnail('/fwp/media/b.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_MEDIA' })
-  await expect(ctx.jingliuConnection.thumbnail('/fw/media/missing.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_UNAVAILABLE', status: 404 })
+  await expect(ctx.jingliuConnection.thumbnail('/fw/media/missing.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_NOT_FOUND' })
   await expect(ctx.jingliuConnection.thumbnail('/other/a.png', signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_MEDIA' })
   expect(grant).not.toHaveBeenCalled()
   expect(mounted.mock.calls.map(([audience, owner, url]) => [audience, owner, url.pathname])).toEqual([
     ['jingliu', 'muse-login-a', '/jingliu/fwp/v2/auth/me'], ['jingliu', 'muse-login-a', '/jingliu/fwp/v2/projects'],
-    ['jingliu', 'muse-login-a', '/jingliu/fwp/media/a.png'], ['jingliu', 'muse-login-a', '/jingliu/fwp/media/b.png'],
+    ['jingliu', 'muse-login-a', '/jingliu/fwp/v2/media/resolve'], ['jingliu', 'muse-login-a', '/jingliu/fwp/media/a.png'], ['jingliu', 'muse-login-a', '/jingliu/fwp/media/b.png'],
     ['jingliu', 'muse-login-a', '/jingliu/fwp/media/missing.png'],
   ])
-  expect(requests.map(req => req.headers.authorization)).toEqual([undefined, undefined, undefined, undefined, undefined])
+  expect(requests.map(req => req.headers.authorization)).toEqual([undefined, undefined, undefined, undefined, undefined, undefined])
   expect((await command('jingliu-logout', 'a')).text).toBe('本次镜流工具连接已结束。下次调用会使用当前 Muse 账号。')
-  expect(requests).toHaveLength(5)
+  expect(requests).toHaveLength(6)
   await expect(scope.request('/projects')).rejects.toMatchObject({ code: 'JINGLIU_ACCOUNT_CHANGED' })
+})
+
+it('keeps thumbnails in the account cache and plays videos from the conversation workspace only on a Host with local media', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'jingliu-home-'))
+  const workspace = await mkdtemp(join(tmpdir(), 'jingliu-workspace-'))
+  onTestFinished(async () => { await Promise.all([home, workspace].map(path => rm(path, { recursive: true, force: true }))) })
+  vi.stubEnv('DSH_HOME', home)
+  const png = Buffer.from('png-bytes')
+  const mp4 = Buffer.from('mp4-bytes')
+  let base = ''
+  const { origin, requests } = await fixture((req) => {
+    switch (req.url) {
+      case '/jingliu/fwp/v2/auth/me': return [200, { user: { id: 45 } }]
+      case '/jingliu/fwp/v2/media/resolve': return [200, { items: [
+        { path: '/fw/media/generated/a.png', url: base + '/tos/a.png', size: png.length, etag: 'multi-2', content_type: 'image/png' },
+        { path: '/fw/media/generated/v.mp4', url: base + '/tos/v.mp4', size: mp4.length, etag: 'multi-2', content_type: 'video/mp4' },
+      ] }]
+      case '/tos/a.png': return [200, png]
+      case '/tos/v.mp4': return [200, mp4]
+      default: return [404, {}]
+    }
+  })
+  base = origin
+  const { ctx } = await mount({ studioOrigin: origin + '/jingliu', localMedia: true, mediaHosts: [new URL(origin).host] })
+  class Controller extends Service {
+    constructor(parent: Context) { super(parent, 'sessionController') }
+    resolveAgent = async () => ({ agent: { session: { header: { cwd: workspace } } } })
+  }
+  await ctx.plugin(Controller).await()
+  const signal = new AbortController().signal
+  const identity = (await ctx.jingliuConnection.connection()).identity
+  const thumbnail = join(home, 'jingliu', 'media', identity.slice(0, 32), 'generated', 'a.png')
+  expect(await ctx.jingliuConnection.thumbnail('/fw/media/generated/a.png', signal)).toEqual({ kind: 'file', path: thumbnail })
+  expect(await readFile(thumbnail)).toEqual(png)
+  const count = requests.length
+  expect(await ctx.jingliuConnection.thumbnail('/fwp/media/generated/a.png', signal)).toEqual({ kind: 'file', path: thumbnail })
+  expect(requests).toHaveLength(count)
+  const request = { sessionId: SessionId('s1'), projectId: 'p1', path: '/fw/media/generated/v.mp4' }
+  const video = join(workspace, 'jingliu', 'p1', 'generated', 'v.mp4')
+  expect(await ctx.jingliuConnection.localVideo(request, signal)).toBe(video)
+  expect(await readFile(video)).toEqual(mp4)
+  await expect(ctx.jingliuConnection.localVideo({ ...request, path: '/fw/media/generated/a.png' }, signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_MEDIA' })
+  await expect(ctx.jingliuConnection.localVideo({ ...request, projectId: '../p' }, signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_PROJECT' })
+  const web = await mount({ studioOrigin: origin + '/jingliu', mediaHosts: [new URL(origin).host] })
+  expect(await web.ctx.jingliuConnection.localVideo(request, signal)).toBeNull()
+  expect((await web.ctx.jingliuConnection.connection()).download).toBeUndefined()
 })

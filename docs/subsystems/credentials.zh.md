@@ -463,12 +463,14 @@ async inheritProject(worker: SessionId, project: SelectedProject & { owner: stri
 @Remote async sharedAssets(query: StudioLibraryQuery, signal: AbortSignal): Promise<StudioLibrary>
 
 /**
- * Load a bounded thumbnail without exposing the studio credential.
+ * Load a thumbnail without exposing the studio credential. With `localMedia` the image is downloaded once into this
+ * account's cache folder in the Host home, `jingliu/media/<account>`, and returned as that file; otherwise it is returned
+ * inline, up to 8 MiB.
  * @param path - Native thumbnail path in the current library.
  * @param signal - Panel cancellation.
  * @returns A preview image for this account.
  */
-@Remote async thumbnail(path: string, signal: AbortSignal): Promise<string>
+@Remote async thumbnail(path: string, signal: AbortSignal): Promise<StudioImage>
 
 /**
  * Read the choices the studio offers for a new production.
@@ -546,10 +548,19 @@ async inheritProject(worker: SessionId, project: SelectedProject & { owner: stri
 @Remote async projectAssets(projectId: string, signal: AbortSignal): Promise<StudioProjectAssets>
 
 /**
- * Stream a studio video for playback without exposing the studio credential.
+ * Download a studio video once into the production's media folder of a conversation's workspace, for playback from
+ * that file. Kept tool and draft files stay; other viewed files beyond `mediaCacheBytes` are removed, oldest first.
+ * @param request - Conversation, production and stored video address.
+ * @param signal - Playback cancellation.
+ * @returns The absolute local file, or null when this Host keeps no local media or the conversation has no workspace.
+ */
+@Remote async localVideo(request: StudioVideoRequest, signal: AbortSignal): Promise<string | null>
+
+/**
+ * Stream a studio video for playback without exposing the studio credential, for a Host without local media.
  * @param path - Media path of a video in the current studio.
  * @param signal - Playback cancellation.
- * @returns The content type first, then base64 chunks of the file.
+ * @returns The content type first, then base64 chunks of the file, up to 64 MiB.
  */
 @Remote({ mode: 'stream' }) async *video(path: string, signal: AbortSignal): AsyncIterable<string>
 

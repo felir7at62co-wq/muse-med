@@ -2112,6 +2112,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Resolves user grants at execution time, keeping tokens outside model input and output.',
     methods: [
       {
+        signature: 'readonly localMedia: boolean',
+        description: 'Whether this Host keeps studio media as local files; see `Config.localMedia`.',
+        parameters: [],
+      },
+      {
         signature: 'async connection(): Promise<JingliuSession>',
         description: 'Resolve the active account on the selected deployment.',
         parameters: [],
@@ -2159,8 +2164,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'A native catalog page.',
       },
       {
-        signature: '@Remote async thumbnail(path: string, signal: AbortSignal): Promise<string>',
-        description: 'Load a bounded thumbnail without exposing the studio credential.',
+        signature: '@Remote async thumbnail(path: string, signal: AbortSignal): Promise<StudioImage>',
+        description: 'Load a thumbnail without exposing the studio credential. With `localMedia` the image is downloaded once into this account\'s cache folder in the Host home, `jingliu/media/<account>`, and returned as that file; otherwise it is returned inline, up to 8 MiB.',
         parameters: [{ name: 'path', description: 'Native thumbnail path in the current library.' }, { name: 'signal', description: 'Panel cancellation.' }],
         returns: 'A preview image for this account.',
       },
@@ -2219,10 +2224,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'The workbench asset page\'s data.',
       },
       {
+        signature: '@Remote async localVideo(request: StudioVideoRequest, signal: AbortSignal): Promise<string | null>',
+        description: 'Download a studio video once into the production\'s media folder of a conversation\'s workspace, for playback from that file. Kept tool and draft files stay; other viewed files beyond `mediaCacheBytes` are removed, oldest first.',
+        parameters: [{ name: 'request', description: 'Conversation, production and stored video address.' }, { name: 'signal', description: 'Playback cancellation.' }],
+        returns: 'The absolute local file, or null when this Host keeps no local media or the conversation has no workspace.',
+      },
+      {
         signature: '@Remote({ mode: \'stream\' }) async *video(path: string, signal: AbortSignal): AsyncIterable<string>',
-        description: 'Stream a studio video for playback without exposing the studio credential.',
+        description: 'Stream a studio video for playback without exposing the studio credential, for a Host without local media.',
         parameters: [{ name: 'path', description: 'Media path of a video in the current studio.' }, { name: 'signal', description: 'Playback cancellation.' }],
-        returns: 'The content type first, then base64 chunks of the file.',
+        returns: 'The content type first, then base64 chunks of the file, up to 64 MiB.',
       },
       {
         signature: '@Remote async balance(signal: AbortSignal): Promise<StudioBalance>',
@@ -8768,7 +8779,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'JingliuSession',
-    declaration: 'export interface JingliuSession {\n    readonly identity: string;\n    media?(path: string, signal: AbortSignal, consume: (response: Response) => Promise<void>): Promise<void>;\n    request(path: string, options?: JingliuRequest): Promise<unknown>;\n}',
+    declaration: 'export interface JingliuSession {\n    readonly identity: string;\n    media?(path: string, signal: AbortSignal, consume: (response: Response) => Promise<void>): Promise<void>;\n    download?(paths: readonly string[], folder: string, signal: AbortSignal): Promise<Map<string, LocalMedia>>;\n    place?(file: LocalMedia, target: string): Promise<void>;\n    upload?(file: string, projectId: string | undefined, signal: AbortSignal): Promise<UploadedMedia>;\n    request(path: string, options?: JingliuRequest): Promise<unknown>;\n}',
   },
   {
     name: 'JobAppendOptions',
@@ -9021,6 +9032,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LocalizedText',
     declaration: 'export type LocalizedText = string | {\n    readonly en: string;\n    readonly [locale: string]: string;\n};',
+  },
+  {
+    name: 'LocalMedia',
+    declaration: 'export interface LocalMedia {\n    readonly path: string;\n    readonly file: string;\n    readonly size: number;\n    readonly contentType: string;\n}',
   },
   {
     name: 'LogExporterOptions',
@@ -9448,7 +9463,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MuseAccountProfile',
-    declaration: 'export interface MuseAccountProfile {\n    readonly version: 1;\n    readonly account: MuseAccountFullDetails[\'account\'];\n    readonly groups: MuseAccountFullDetails[\'groups\'];\n    readonly organization: {\n        readonly status: \'available\' | \'unavailable\';\n        readonly updatedAt: string | null;\n        readonly departments: readonly {\n            readonly id: MuseFeishuDepartmentId;\n            readonly name: string;\n            readonly path: string;\n            readonly pathIds: readonly MuseFeishuDepartmentId[];\n        }[];\n    };\n}',
+    declaration: 'export interface MuseAccountProfile {\n    readonly version: 1;\n    readonly account: MuseAccountFullDetails[\'account\'];\n    readonly groups: MuseAccountFullDetails[\'groups\'];\n    readonly organization: {\n        readonly status: \'available\' | \'unavailable\';\n        readonly updatedAt: string | null;\n        readonly departments: readonly {\n            readonly id: MuseFeishuDepartmentId;\n            readonly name: string;\n            readonly path: string;\n            readonly pathIds: readonly MuseFeishuDepartmentId[];\n        }[];\n        readonly jobTitle?: string | undefined;\n        readonly managerName?: string | undefined;\n    };\n}',
   },
   {
     name: 'MuseAccountRelayDetails',
@@ -11679,6 +11694,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface StudioEpisode {\n    number: number;\n    title: string;\n    hasShots: boolean;\n}',
   },
   {
+    name: 'StudioImage',
+    declaration: 'export type StudioImage = {\n    kind: \'inline\';\n    url: string;\n} | {\n    kind: \'file\';\n    path: string;\n};',
+  },
+  {
     name: 'StudioLibrary',
     declaration: 'export interface StudioLibrary {\n    total: number;\n    items: StudioAsset[];\n}',
   },
@@ -11725,6 +11744,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StudioShotVersion',
     declaration: 'export interface StudioShotVersion {\n    number: number;\n    model: string;\n    videoPath: string;\n    createdAt: string;\n}',
+  },
+  {
+    name: 'StudioVideoRequest',
+    declaration: 'export interface StudioVideoRequest {\n    sessionId: SessionId;\n    projectId: string;\n    path: string;\n}',
   },
   {
     name: 'SubagentActivation',
@@ -12497,6 +12520,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'UpdateTeamTaskRequest',
     declaration: 'export interface UpdateTeamTaskRequest {\n    readonly taskId: TeamTaskId;\n    readonly expectedRevision: number;\n    readonly action: TeamTaskAction;\n    readonly subject?: string;\n    readonly description?: string;\n    readonly blockedBy?: readonly TeamTaskId[];\n    readonly writeScopes?: readonly string[];\n    readonly owner?: SessionId;\n}',
+  },
+  {
+    name: 'UploadedMedia',
+    declaration: 'export interface UploadedMedia {\n    readonly path: string;\n    readonly size: number;\n}',
   },
   {
     name: 'UserMessage',

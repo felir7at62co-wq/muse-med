@@ -132,7 +132,7 @@ it('plays a shot only when asked, through the Host', async () => {
   const view = render(<DrawerJingliu {...props} />)
   expect(props.loadVideo).not.toHaveBeenCalled()
   fireEvent.click(view.getByRole('button', { name: 'Play' }))
-  await waitFor(() => expect(props.loadVideo).toHaveBeenCalledWith('/fw/media/generated/s1.mp4', expect.any(AbortSignal)))
+  await waitFor(() => expect(props.loadVideo).toHaveBeenCalledWith({ sessionId: 'part-1', projectId: 'p1', path: '/fw/media/generated/s1.mp4' }, expect.any(AbortSignal)))
   view.unmount()
 })
 

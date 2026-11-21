@@ -7,7 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-character-library/client'
 import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller/default-workspace'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { SelectedProject, StudioAsset, StudioBalance, StudioCatalog, StudioConfig, StudioNewProject, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from '@deepseek-ai/dsh-jingliu-connection/types'
+import type { SelectedProject, StudioAsset, StudioBalance, StudioCatalog, StudioConfig, StudioNewProject, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia, StudioVideoRequest } from '@deepseek-ai/dsh-jingliu-connection/types'
 import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataStock, MuseDataWorkDetail, MuseDataWorks } from '@deepseek-ai/dsh-muse-account/types'
 import type { ScriptDetail, ScriptList } from '@deepseek-ai/dsh-workbench-connection/types'
 import css from './Production.module.css'
@@ -106,8 +106,8 @@ export interface ProductionActions {
   renameProject(projectId: string, title: string): Promise<void>
   /** Delete one shot; the studio keeps no copy. */
   deleteShot(projectId: string, shotId: string): Promise<void>
-  /** Fetch a studio video through the Host; resolves to an object URL the caller revokes. */
-  loadVideo(path: string, signal: AbortSignal): Promise<string>
+  /** Make a studio video playable; resolves to a local file's playback URL, or an object URL the caller revokes. */
+  loadVideo(request: StudioVideoRequest, signal: AbortSignal): Promise<string>
   saveOption(id: string, key: StudioSetting, value: string): Promise<void>
   savePreferences(value: StudioPreferences): Promise<void>
 }
