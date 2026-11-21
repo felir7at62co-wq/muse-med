@@ -41,6 +41,7 @@ from typing import Any, Callable
 
 from .db import (
     Asset,
+    AssetImageVersion,
     AssetStage,
     AudioClip,
     BlockingImage,
@@ -76,6 +77,19 @@ def _lut_urls(transform_meta: str | None) -> list[str]:
     """
     lut = _json_dict(transform_meta).get("lut")
     return [lut] if isinstance(lut, str) and lut else []
+
+
+def _ref_urls(profile_override: str | None) -> list[str]:
+    """镜头 `profile_override.refs` 里用户加的参考图 URL。
+
+    出片时这些图作为参考图带上（`jobs._owned_user_refs`），而它们可以是任何一张库里的图：
+    上传的、别的镜头的首帧、历史版本的资产图。只记在这一列里的图不登记的话，
+    「清理缓存」会把它当孤儿删掉，下次出片就少一张参考图，也不报错。
+    """
+    refs = _json_dict(profile_override).get("refs")
+    if not isinstance(refs, list):
+        return []
+    return [u for u in refs if isinstance(u, str) and u]
 
 
 def _candidate_urls(result: str | None) -> list[str]:
@@ -166,6 +180,9 @@ URL_COLUMNS: tuple[UrlColumn, ...] = (
     UrlColumn("shots", Shot, Shot.transform_meta, "shot_lut",
               lambda r: _shot_label(r, "调色 LUT"),
               project_col=Shot.project_id, expand=_lut_urls),
+    UrlColumn("shots", Shot, Shot.profile_override, "shot_ref",
+              lambda r: _shot_label(r, "参考图"),
+              project_col=Shot.project_id, expand=_ref_urls),
 
     # ---- 版本历史：shot_versions 没有 project_id，只能经 shots join 回去 ----
     # 漏了这张表 = 每个镜头的每个历史版本（一个 mp4 + 一张缩略图）全部残留，
@@ -193,6 +210,12 @@ URL_COLUMNS: tuple[UrlColumn, ...] = (
               lambda r: f"资产「{r.name}」的音色", project_col=Asset.project_id),
     UrlColumn("assets", Asset, Asset.board_url, "asset_board",
               lambda r: f"资产「{r.name}」的设定板", project_col=Asset.project_id),
+    # 资产图版本历史：重新生成后旧图只记在这里，「版本」面板靠它回退。
+    # 漏登记 = 清理缓存把每一张被替换下来的、花钱生成的旧版本图删掉。
+    UrlColumn("asset_image_versions", AssetImageVersion, AssetImageVersion.image_url,
+              "asset_image_version",
+              lambda r: f"「{r.label or r.kind}」的图片历史版本 v{r.version_no}",
+              project_col=AssetImageVersion.project_id),
     UrlColumn("asset_stages", AssetStage, AssetStage.image_url, "asset_stage",
               lambda r: f"角色「{r.character_name}」造型「{r.stage_name}」的定妆图",
               project_col=AssetStage.project_id),

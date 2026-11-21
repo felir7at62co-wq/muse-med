@@ -344,6 +344,29 @@ def test_ensure_local_restores_references_and_logs_failures_briefly(tos, caplog)
 
 # ---------------------------------------------------------------- 清理与引用
 
+def test_version_images_and_shot_references_count_as_referenced(db):
+    import json
+
+    from app import media_refs
+    from app.db import AssetImageVersion, get_session
+    from conftest import add_shot
+
+    make_project(db)
+    add_shot(db, PID, 1, profile_override=json.dumps(
+        {"refs": ["/fw/media/generated/img_ref.png"]}))
+    with get_session() as s:
+        s.add(AssetImageVersion(id="v1", project_id=PID, kind="character", target_id="a1",
+                                version_no=1, image_url="/fw/media/generated/img_old.png",
+                                label="林晨"))
+        s.commit()
+        names = media_refs.referenced_filenames(s)
+        assert {"img_ref.png", "img_old.png"} <= names
+        refs = media_refs.find_references(s, "/fw/media/generated/img_old.png")
+        assert [(r["type"], r["label"]) for r in refs] == [
+            ("asset_image_version", "「林晨」的图片历史版本 v1")]
+        assert [r["type"] for r in media_refs.find_references(
+            s, "/fw/media/generated/img_ref.png")] == ["shot_ref"]
+
 
 def test_export_objects_expire_with_the_export_ttl(tos):
     from app import media_cache, media_store
