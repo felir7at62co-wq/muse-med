@@ -54,6 +54,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import json
 import logging
 import random
 import re
@@ -81,11 +82,40 @@ _DATA_URL_RE = re.compile(r"data:image/[^;]+;base64,([A-Za-z0-9+/=]+)")
 class ChannelDown(Exception):
     """该渠道当前不可用（欠费/鉴权/无渠道/5xx/网络），应当切换到下一条。"""
 
-    def __init__(self, msg: str, account_level: bool = False) -> None:
+    def __init__(self, msg: str, account_level: bool = False, *,
+                 model_missing: bool = False, no_channel: bool = False) -> None:
         super().__init__(msg)
         #: True = 账号级故障（欠费/鉴权）——该渠道所有模型都别试了；
         #: False = 模型级故障（该渠道没上架这个模型）——同渠道其它模型照常走。
         self.account_level = account_level
+        #: 上游说「没有这个模型名」/「这个名字下无可用渠道」。两者都意味着**这次请求上游没受理、
+        #: 没计费**，所以可以安全地换同一网关上的下一个候选名（见 `_try_next_name`）。
+        #: 由完整响应体判定，不受 `msg` 截断影响。
+        self.model_missing = model_missing
+        self.no_channel = no_channel
+
+
+class AcceptedFailure(Exception):
+    """上游**已经受理**了这次请求（多半已经计费），之后却没拿到图：取件失败、200 但没给图、
+    提交后轮询超时 / 任务失败。
+
+    ⚠️ **绝不重发**（2026-11-21 审查）：这一类以前掉进 `generate` 的通用分支，而 `_is_transient`
+    在报错文本里找 "429"/"timeout" —— 取件链接里的签名（如 `Expires=…0429`）、CDN 的 504/408、
+    重定向地址都会命中，于是整次请求最多再发 3 遍：付 3 次钱、0 张图。
+    也不冷却渠道（渠道是好的）。报错文本里不带链接（签名 URL 不进日志、不影响判定）。
+    """
+
+
+def _accepted_failure(what: str, e: BaseException | None = None) -> AcceptedFailure:
+    """受理后的失败 → AcceptedFailure；只留状态码 / 异常类型，不带 URL。"""
+    if isinstance(e, httpx.HTTPStatusError):
+        detail = f"HTTP {e.response.status_code}"
+    elif e is not None:
+        detail = type(e).__name__
+    else:
+        detail = ""
+    return AcceptedFailure(f"{what}（上游已受理，可能已计费，不重发）"
+                           + (f"：{detail}" if detail else ""))
 
 
 def _raise_network_fault(e: Exception) -> None:
@@ -204,8 +234,17 @@ def _as_moderation(status: int, body: str) -> ContentRejected | None:
 _COOLDOWN: dict[str, float] = {}
 
 
+def _account(name: str) -> str:
+    """渠道名 → 它用的那个账号（同一把 key）。`zx1` / `zx1-mj` → `zx1`，`rh-g2` / `rh-npro` → `rh`。
+
+    账号级故障（欠费、key 失效）按账号冷却：以前按渠道名冷却，同一把死 key 下的每条
+    渠道都要各撞一次（2026-11-21 审查指出）。
+    """
+    return name.split("-", 1)[0]
+
+
 def _mark_down(name: str, model: str, seconds: int, exc: ChannelDown) -> None:
-    key = name if exc.account_level else f"{name}:{model}"
+    key = _account(name) if exc.account_level else f"{name}:{model}"
     _COOLDOWN[key] = time.monotonic() + seconds
     logger.warning("图像渠道 %s 判定不可用（%s），冷却 %ds：%s", key,
                    "账号级" if exc.account_level else "模型级", seconds, exc)
@@ -213,7 +252,7 @@ def _mark_down(name: str, model: str, seconds: int, exc: ChannelDown) -> None:
 
 def _healthy(name: str, model: str) -> bool:
     now = time.monotonic()
-    for key in (name, f"{name}:{model}"):
+    for key in (_account(name), f"{name}:{model}"):
         until = _COOLDOWN.get(key)
         if until is None:
             continue
@@ -240,29 +279,86 @@ def _classify_http(status: int, body: str) -> ChannelDown | ContentRejected | No
     if rejected is not None:
         return rejected
     low = body.lower()
-    if status in (401, 403) or "insufficient_user_quota" in low or "无可用渠道" in body:
-        if status in (401, 403) or "quota" in low or "balance" in low:
+    missing, no_channel = _body_model_missing(body), _body_no_channel(body)
+    if (status in (401, 402, 403) or "insufficient_user_quota" in low
+            or "insufficient_balance" in low or "insufficient balance" in low or no_channel):
+        if status in (401, 402, 403) or "quota" in low or "balance" in low:
             return ChannelDown(f"账号级故障 HTTP {status}: {body[:150]}",
                                account_level=True)
-        return ChannelDown(f"模型不可用 HTTP {status}: {body[:150]}")
+        return ChannelDown(f"模型不可用 HTTP {status}: {body[:150]}",
+                           model_missing=missing, no_channel=no_channel)
     if status in (404, 502, 503, 504) or status >= 500:
-        return ChannelDown(f"HTTP {status}: {body[:150]}")
+        return ChannelDown(f"HTTP {status}: {body[:150]}",
+                           model_missing=missing, no_channel=no_channel)
     return None
 
 
+def _http_fail(status: int, body: str, prefix: str = "HTTP") -> Exception:
+    """非 200 响应 → 要抛的异常：渠道故障 / 审核拒绝，否则一个带 `model_missing` 标记的 RuntimeError。"""
+    down = _classify_http(status, body)
+    if down is not None:
+        return down
+    err = RuntimeError(f"{prefix} {status}: {body[:200]}")
+    err.model_missing = _body_model_missing(body)          # type: ignore[attr-defined]
+    err.status = status                                    # type: ignore[attr-defined]
+    return err
+
+
 #: 上游**改了模型名**时返回的文案（"这个 id 不存在"，不是"渠道暂时挂了"）。
-#: ⚠️ 与 `无可用渠道` 有本质区别：后者是"上游暂时没货"，换个名字也一样，属可用性问题；
-#: 这里只收**命名类**文案，才能安全地拿它去驱动"换候选名"。
 #:   实测 2026-10-09 zx1 返回：
 #:   HTTP 503 {"error":{"code":"model_not_found","message":"Failed to get available
 #:   channel for model gpt-image-2 under group codex (distributor): channel not found"}}
 _MODEL_MISSING_MARKERS = ("model_not_found", "channel not found", "model not found")
 
+#: 「这个名字下无可用渠道」：上游没受理这次请求（也就没计费）。剧变网关实测文案：
+#: `No available channel for model … under group default` / `当前分组 … 无可用渠道` / `可用渠道不存在`。
+_NO_CHANNEL_MARKERS = ("无可用渠道", "可用渠道不存在", "no available channel")
 
-def _is_model_missing(msg: str) -> bool:
-    """该错误是不是"上游没有这个模型名"（→ 值得换候选名再试一次）。"""
+
+def _error_code(body: str) -> str:
+    """响应体里 `error.code`（解析不了就空串）。"""
+    try:
+        err = (json.loads(body) or {}).get("error")
+    except (ValueError, AttributeError):
+        return ""
+    return str(err.get("code") or "") if isinstance(err, dict) else ""
+
+
+def _body_model_missing(body: str) -> bool:
+    """看**完整**响应体（含解析出的 error.code），不看截断后的报错文本 —— 长文案会把标记截掉。"""
+    low = (body or "").lower()
+    return (_error_code(body).lower() == "model_not_found"
+            or any(m in low for m in _MODEL_MISSING_MARKERS))
+
+
+def _body_no_channel(body: str) -> bool:
+    low = (body or "").lower()
+    return any(m in low for m in _NO_CHANNEL_MARKERS)
+
+
+def _is_model_missing(msg: "str | BaseException") -> bool:
+    """该错误是不是"上游没有这个模型名"（→ 值得换候选名再试一次）。
+
+    给异常时优先看它身上的 `model_missing` 标记（由完整响应体判定）。
+    """
+    if isinstance(msg, BaseException):
+        if getattr(msg, "model_missing", False):
+            return True
+        msg = str(msg)
     low = msg.lower()
     return any(m in low for m in _MODEL_MISSING_MARKERS)
+
+
+def _try_next_name(e: BaseException) -> bool:
+    """同一网关、同一把 key 上，换下一个候选名是否**安全**（不会重复计费）。
+
+    只在上游**肯定没受理**这次请求时才换：名字不存在、这个名字下无可用渠道。
+    其余一律不换（2026-11-21 审查）：读超时 / 5xx 时上游可能已经在出图、已经计费；
+    200 但取件失败或没给图时**已经计费**；审核拒绝换名也一样被拒；账号级故障换名也是同一把死 key。
+    """
+    if isinstance(e, ChannelDown) and e.account_level:
+        return False
+    return bool(getattr(e, "no_channel", False)) or _is_model_missing(e)
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -271,10 +367,14 @@ def _is_transient(exc: Exception) -> bool:
     审核拒绝**绝不算瞬态**：它常伪装成 429（api4me 就是），若只匹配 "429"
     字样就会去退避重试 3 次，然后误判"持续限流"把健康渠道冷却掉。
     """
-    if isinstance(exc, ContentRejected):
-        return False
+    if isinstance(exc, (ContentRejected, AcceptedFailure)):
+        return False   # 受理后的失败重发 = 再付一次钱（见 AcceptedFailure）
     if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)):
         return True
+    status = getattr(exc, "status", None)
+    if isinstance(status, int):
+        # 知道状态码就只看状态码：400 的报错正文里出现 "timeout" 字样不算限流（2026-11-21 审查）
+        return status in (408, 429)
     msg = str(exc).lower()
     if any(m in msg for m in _MODERATION_MARKERS):
         return False   # 双保险：漏进这里的审核文案也不许重试
@@ -296,6 +396,14 @@ IMAGE_MODELS: list[dict] = [
     {"id": "gpt-image-2", "label": "GPT Image 2"},
     {"id": "nano-banana-pro", "label": "Nano Banana Pro（Gemini 3）"},
     {"id": "nano-banana-2", "label": "Nano Banana 2（Gemini 3.1）"},
+    # 2026-11-21 剧变网关上架的其余生图模型（用户：「生图模型都接上吧，备用」）：
+    # 可选、不作默认（默认仍是 gpt-image-2）。只走网关那一条（云上 = 剧变），
+    # 同一模型的几条线路互为替补，见 `_GATEWAY_GPT_LINES` / `_GATEWAY_GEMINI`。
+    {"id": "gpt-image-2.5", "label": "GPT Image 2.5"},
+    {"id": "gpt-image-2.6", "label": "GPT Image 2.6"},
+    {"id": "nano-banana", "label": "Nano Banana（Gemini 2.5）"},
+    {"id": "nano-banana-2.1", "label": "Nano Banana 2.1"},
+    {"id": "nano-banana-2-lite", "label": "Nano Banana 2 Lite（Gemini 3.1）"},
     {"id": "z-image", "label": "Z-Image（人像专用）"},
     # Midjourney 只上生图页（`image_page_only`）：本渠道 `--cref` 角色参考不可用
     # （2026-10-06 实测，见 _mj_imagine），资产/首帧这些要"同一张脸"的链路接不住它。
@@ -306,6 +414,32 @@ IMAGE_MODELS: list[dict] = [
 
 #: 只在生图页出现的模型 id（资产相关的模型选择一律排除）。
 IMAGE_PAGE_ONLY = frozenset(m["id"] for m in IMAGE_MODELS if m.get("image_page_only"))
+
+#: 网关上 gpt-image 新版本的线路（2026-11-21 剧变实测）：同一版本有 flare / sunburst
+#: 两家线路，另各有一个 `-high` 名字。四个名字同价（标准画质每张 2 毛），剧变账单里
+#: `-high` 记在不带 `-high` 的名下，看不出画质差别 —— 所以都当作同一模型的候选名，
+#: 用户只见「GPT Image 2.5 / 2.6」。⚠️ 只在上游**没受理**时才换下一个（`_try_next_name`）：
+#: 同一网关同一把 key，超时 / 5xx / 取件失败后再换名，就是一张图付两次钱。
+_GATEWAY_GPT_LINES = ("flare", "sunburst", "flare-high", "sunburst-high")
+
+#: 只在网关上有的 Gemini 生图模型：我们的模型 id → 网关上的名字（2026-11-21 剧变实测都能出图，
+#: native generateContent 直接通）。
+_GATEWAY_GEMINI = {
+    "nano-banana": "gemini-2.5-flash-image",
+    "nano-banana-2.1": "gemini-nano-banana-2.1",
+    "nano-banana-2-lite": "gemini-3.1-flash-lite-image",
+}
+
+
+def _on_jubian(base: str) -> bool:
+    """网关是不是剧变（`*.jubianai.net`）。
+
+    上面这些名字、`gpt-image-2-high`、以及「几个名字同价」的判断都只在剧变上核过；
+    代码默认的网关是 zx1.deepwl.net，那里没有它们，所以只有网关是剧变时才挂上。
+    """
+    from urllib.parse import urlparse
+    host = (urlparse(base or "").hostname or "").lower()
+    return host == "jubianai.net" or host.endswith(".jubianai.net")
 
 
 def _flatten_alpha(raw: bytes) -> bytes:
@@ -365,6 +499,26 @@ async def _download(client: httpx.AsyncClient, url: str) -> bytes:
     r = await client.get(url)
     r.raise_for_status()
     return r.content
+
+
+async def _download_accepted(client: httpx.AsyncClient, urls: list[str], what: str) -> list[bytes]:
+    """提交已受理、任务已出图之后取件：取到几张交几张；一张都取不到 → AcceptedFailure（不重发）。"""
+    got = await asyncio.gather(*(_download(client, u) for u in urls), return_exceptions=True)
+    ok = [g for g in got if isinstance(g, (bytes, bytearray))]
+    if ok:
+        if len(ok) < len(got):
+            logger.warning("%s：%d 张里取回 %d 张", what, len(got), len(ok))
+        return ok
+    first = next((g for g in got if isinstance(g, BaseException)), None)
+    raise _accepted_failure(f"{what}已出图但取不回", first)
+
+
+def _task_failed(what: str, reason: str) -> Exception:
+    """提交已受理、任务本身失败：审核类原因 → ContentRejected，其余 → AcceptedFailure（不重发）。"""
+    rejected = _as_moderation(0, reason)
+    if rejected is not None:
+        return rejected
+    return _accepted_failure(f"{what}：{reason[:160]}")
 
 
 async def _load_ref_bytes(urls: list[str]) -> list[bytes]:
@@ -433,8 +587,11 @@ async def _oai_images(base: str, key: str, model: str | list[str], prompt: str,
     """
     names = [model] if isinstance(model, str) else list(model)
     headers = {"Authorization": f"Bearer {key}"}
+    #: 有图已出、已计费却没取回（取件失败）：不再「补齐 n 张」—— 补发等于为丢掉的那张再付一次
+    lost_after_accept = False
 
     async def _once(want: int, name: str) -> list[bytes]:
+        nonlocal lost_after_accept
         async with http.client("openai-images", timeout=timeout) as client:
             if refs:
                 # 图生图：images/edits multipart（同主平台 image_studio 实测协议）
@@ -452,38 +609,40 @@ async def _oai_images(base: str, key: str, model: str | list[str], prompt: str,
             if resp.status_code != 200:
                 # 渠道级故障（欠费/鉴权/上游没货）抛 ChannelDown → 上层切渠道并冷却；
                 # 其余（如 400 提示词被拒）照常抛，换渠道也是同样结果，白花一次钱。
-                down = _classify_http(resp.status_code, resp.text)
-                if down is not None:
-                    raise down
-                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+                raise _http_fail(resp.status_code, resp.text)
+            # —— 从这里起上游已经受理（已计费）：取件失败、解析失败、没给图都不能重发 ——
             got: list[bytes] = []
-            for item in resp.json().get("data", []) or []:
-                if item.get("b64_json"):
-                    got.append(base64.b64decode(item["b64_json"]))
-                elif item.get("url"):
-                    got.append(await _download(client, item["url"]))
+            try:
+                for item in resp.json().get("data", []) or []:
+                    if item.get("b64_json"):
+                        got.append(base64.b64decode(item["b64_json"]))
+                    elif item.get("url"):
+                        got.append(await _download(client, item["url"]))
+            except (httpx.HTTPError, ValueError, TypeError, AttributeError, KeyError) as e:
+                if got:
+                    lost_after_accept = True
+                    logger.warning("图像取件中途失败，交回已取到的 %d 张：%s", len(got), type(e).__name__)
+                    return got
+                raise _accepted_failure("上游已出图但取不回", e) from e
+            if not got:
+                raise _accepted_failure("上游返回 200 但没有图")
             return got
 
     async def _once_any(want: int) -> list[bytes]:
-        """按候选名链试；只在"这个名字上游没有"时才换下一个。"""
+        """按候选名链试；只在上游**肯定没受理**这次请求时才换下一个（见 `_try_next_name`）。
+
+        ⚠️ 候选名都在同一个网关、同一把 key 上：超时、5xx、200 但取件失败 / 没给图、审核拒绝
+        时上游可能已经收了这次的钱，换名再发就是第二笔（2026-11-21 审查），所以这些情况一律原样抛出。
+        """
         last: Exception | None = None
         for i, name in enumerate(names):
             try:
                 return await _once(want, name)
-            except ChannelDown as e:
-                # 只对**命名类**错误换名。`无可用渠道`（上游没货）换了也一样，
-                # 且换名会让真正的渠道故障被掩盖成"名字不对"，故不等价处理。
-                if i + 1 < len(names) and _is_model_missing(str(e)):
-                    logger.warning("图像渠道模型名 %s 上游不存在，改用候选名 %s",
-                                   name, names[i + 1])
+            except (ChannelDown, RuntimeError) as e:
+                if i + 1 < len(names) and _try_next_name(e):
+                    logger.warning("图像渠道模型名 %s 上游不可用（没受理），改用候选名 %s：%s",
+                                   name, names[i + 1], str(e)[:120])
                     last = e
-                    continue
-                raise
-            except RuntimeError as e:
-                last = e
-                if i + 1 < len(names) and _is_model_missing(str(e)):
-                    logger.warning("图像渠道模型名 %s 上游不存在，改用候选名 %s",
-                                   name, names[i + 1])
                     continue
                 raise
         raise last if last is not None else RuntimeError("候选模型名链为空")
@@ -493,9 +652,9 @@ async def _oai_images(base: str, key: str, model: str | list[str], prompt: str,
     except (httpx.TimeoutException, httpx.TransportError) as e:
         _raise_network_fault(e)
     if not out:
-        raise RuntimeError("no image in response")
+        raise _accepted_failure("上游返回 200 但没有图")
 
-    gap = max(0, n - len(out))
+    gap = 0 if lost_after_accept else max(0, n - len(out))
     if gap:
         # 补发的失败不算数：首张已经成功 = 渠道是好的，能补几张补几张，
         # 让用户拿到"至少一张"而不是整次白跑（异常吞掉但记日志便于追因）。
@@ -538,45 +697,126 @@ def _size_to_tier(size: str) -> str:
     return "4K" if long_edge >= 3200 else "2K" if long_edge >= 2240 else "1K"
 
 
+#: native 200 却没给图时，这些 finishReason / blockReason 说明是被安全审核拦下的（Gemini 原文）。
+_GEMINI_BLOCK_REASONS = frozenset({"SAFETY", "IMAGE_SAFETY", "PROHIBITED_CONTENT",
+                                   "IMAGE_PROHIBITED_CONTENT", "BLOCKLIST", "SPII"})
+
+#: native 失败后可以改走 chat 的状态码：端点 / 请求格式不被接受 —— 上游没受理、没计费。
+_NATIVE_NOT_ACCEPTED = frozenset({400, 404, 405, 415, 422, 501})
+
+
+def _gemini_image_size_ok(model: str) -> bool:
+    """`imageSize`（1K/2K/4K）只给 3.x 一代的 Gemini 生图模型；2.5 那一代没有这个字段。"""
+    return not model.startswith("gemini-2.")
+
+
+def _native_images(data: dict) -> tuple[list[bytes], str, str]:
+    """native 200 的响应 → (图片, 审核拦截原因, 全部 finishReason)。拦截原因空串 = 没被审核拦。"""
+    imgs: list[bytes] = []
+    blocked: list[str] = []
+    finish: list[str] = []
+    block = str((data.get("promptFeedback") or {}).get("blockReason") or "")
+    if block and block != "BLOCK_REASON_UNSPECIFIED":
+        blocked.append(block)
+    for c in data.get("candidates") or []:
+        fr = str(c.get("finishReason") or "")
+        if fr:
+            finish.append(fr)
+            if fr.upper() in _GEMINI_BLOCK_REASONS:
+                blocked.append(fr)
+        for part in ((c.get("content") or {}).get("parts") or []):
+            d = part.get("inlineData") or part.get("inline_data") or {}
+            if d.get("data"):
+                imgs.append(base64.b64decode(d["data"]))
+    return imgs, "、".join(blocked), "、".join(finish)
+
+
 async def _gemini_gen(base: str, key: str, model: str, prompt: str,
                       n: int, size: str, timeout: float = 300.0,
                       refs: list[bytes] | None = None) -> list[bytes]:
-    """native generateContent（硬控比例/画质档）→ 失败回退 chat/completions。
-    refs：参考图 bytes（图生图；native 走 inlineData，chat 走 data-url content 块）。"""
+    """native generateContent（硬控比例/画质档）→ **上游没受理时**才回退 chat/completions。
+    refs：参考图 bytes（图生图；native 走 inlineData，chat 走 data-url content 块）。
+
+    ## 什么时候可以回退 chat（2026-11-21 审查）
+
+    native 和 chat 是同一个网关、同一把 key：native 那次如果上游已经受理（在出图、已计费），
+    再走 chat 就是第二笔钱。以前「native 出任何错都回退」，所以只在**肯定没受理**时回退：
+      · 连不上（ConnectError / ConnectTimeout）；
+      · native 端点 / 请求格式不被接受（400/404/405/415/422/501，且不是审核拒绝）；
+      · 名字不存在 / 这个名字下无可用渠道。
+    读超时、5xx、429（交给上层退避）、账号级故障、200（不论有没有图）一律不回退。
+    native 200 但没图时读 finishReason / blockReason：审核拦截抛 ContentRejected，
+    否则报「没给图」—— 都不重发。
+
+    n>1 时 native 已拿到的图保留，chat 只补剩下的张数；中途失败就交回已有的图。
+    """
+    want = max(1, n)
     out: list[bytes] = []
     async with http.client("gemini", timeout=timeout) as client:
-        try:
-            root = base[:-3] if base.endswith("/v1") else base
-            parts: list[dict] = [{"text": prompt}]
-            for raw in (refs or []):
-                parts.append({"inlineData": {
-                    "mimeType": "image/png",
-                    "data": base64.b64encode(raw).decode()}})
-            gbody = {
-                "contents": [{"parts": parts}],
-                "generationConfig": {
-                    "responseModalities": ["IMAGE"],
-                    "imageConfig": {"aspectRatio": _size_to_aspect(size) or "1:1",
-                                    "imageSize": _size_to_tier(size)},
-                },
-            }
-            gheaders = {"Content-Type": "application/json", "x-goog-api-key": key,
-                        "Authorization": f"Bearer {key}"}
-            for _ in range(max(1, n)):
+        root = base[:-3] if base.endswith("/v1") else base
+        parts: list[dict] = [{"text": prompt}]
+        for raw in (refs or []):
+            parts.append({"inlineData": {
+                "mimeType": "image/png",
+                "data": base64.b64encode(raw).decode()}})
+        image_cfg = {"aspectRatio": _size_to_aspect(size) or "1:1"}
+        if _gemini_image_size_ok(model):
+            image_cfg["imageSize"] = _size_to_tier(size)
+        gbody = {"contents": [{"parts": parts}],
+                 "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": image_cfg}}
+        gheaders = {"Content-Type": "application/json", "x-goog-api-key": key,
+                    "Authorization": f"Bearer {key}"}
+
+        fallback = ""          # 非空 = 上游没受理 native，可以改走 chat（值是原因，记日志用）
+        for _ in range(want):
+            try:
                 resp = await client.post(
                     f"{root}/v1beta/models/{model}:generateContent",
                     headers=gheaders, json=gbody)
-                if resp.status_code != 200:
-                    raise RuntimeError(f"native HTTP {resp.status_code}")
-                for c in resp.json().get("candidates", []) or []:
-                    for part in ((c.get("content") or {}).get("parts") or []):
-                        d = part.get("inlineData") or part.get("inline_data") or {}
-                        if d.get("data"):
-                            out.append(base64.b64decode(d["data"]))
-            if out:
-                return out
-        except Exception:  # noqa: BLE001  native 不通 → chat 回退
-            out = []
+            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                fallback = f"连不上 {type(e).__name__}"
+                break
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                if out:
+                    logger.warning("[gemini] %s native 中途网络异常（%s），交回已有的 %d 张",
+                                   model, type(e).__name__, len(out))
+                    return out
+                _raise_network_fault(e)
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                except ValueError:
+                    data = {}
+                imgs, blocked, finish = _native_images(data if isinstance(data, dict) else {})
+                if imgs:
+                    out.extend(imgs)
+                    continue
+                if out:
+                    logger.warning("[gemini] %s native 有一张没出（%s），交回已有的 %d 张",
+                                   model, blocked or finish or "无原因", len(out))
+                    return out
+                if blocked:
+                    raise ContentRejected(f"内容审核拒绝（Gemini {blocked}）",
+                                          categories=blocked.split("、"))
+                raise _accepted_failure(f"gemini native 200 但没有图（finishReason={finish or '无'}）")
+            err = _http_fail(resp.status_code, resp.text, "native HTTP")
+            not_accepted = (not isinstance(err, ContentRejected)
+                            and not (isinstance(err, ChannelDown) and err.account_level)
+                            and (resp.status_code in _NATIVE_NOT_ACCEPTED or _try_next_name(err)))
+            if not not_accepted:
+                if out:
+                    logger.warning("[gemini] %s native 中途失败（%s），交回已有的 %d 张",
+                                   model, str(err)[:120], len(out))
+                    return out
+                raise err
+            fallback = (f"native HTTP {resp.status_code}"
+                        f"（{_error_code(resp.text) or '无 code'}）")
+            break
+
+        if len(out) >= want:
+            return out
+        logger.info("[gemini] %s native 未受理，改走 chat 补 %d 张：%s",
+                    model, want - len(out), fallback)
         if refs:
             content: object = ([{"type": "text", "text": prompt}]
                 + [{"type": "image_url", "image_url": {
@@ -588,33 +828,63 @@ async def _gemini_gen(base: str, key: str, model: str, prompt: str,
                    "messages": [{"role": "user", "content": content}],
                    "modalities": ["image", "text"]}
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        for _ in range(max(1, n)):
+        for _ in range(want - len(out)):
             try:
                 resp = await client.post(f"{base}/chat/completions",
                                          headers=headers, json=payload)
             except (httpx.TimeoutException, httpx.TransportError) as e:
+                if out:
+                    return out
                 _raise_network_fault(e)
             if resp.status_code != 200:
-                # native 已失败过一轮，chat 再挂基本就是渠道问题（余额/上游没货）
-                down = _classify_http(resp.status_code, resp.text)
-                if down is not None:
-                    raise down
-                raise RuntimeError(f"chat HTTP {resp.status_code}: {resp.text[:200]}")
-            msg = (resp.json().get("choices") or [{}])[0].get("message", {}) or {}
-            text = msg.get("content")
-            if isinstance(text, list):
-                text = " ".join((p.get("text") or "") if isinstance(p, dict) else str(p)
-                                for p in text)
-            for m in _DATA_URL_RE.finditer(text or ""):
-                out.append(base64.b64decode(m.group(1)))
-            for im in msg.get("images") or []:
-                u = (im or {}).get("image_url", {}).get("url") if isinstance(im, dict) else None
-                if u:
-                    for m in _DATA_URL_RE.finditer(u):
-                        out.append(base64.b64decode(m.group(1)))
+                if out:
+                    return out
+                # native 已经没受理过一轮，chat 再挂基本就是渠道问题（余额/上游没货）
+                raise _http_fail(resp.status_code, resp.text, "chat HTTP")
+            # —— chat 200：已受理（已计费），解析失败 / 没给图都不再重发 ——
+            try:
+                msg = (resp.json().get("choices") or [{}])[0].get("message", {}) or {}
+                text = msg.get("content")
+                if isinstance(text, list):
+                    text = " ".join((p.get("text") or "") if isinstance(p, dict) else str(p)
+                                    for p in text)
+                for m in _DATA_URL_RE.finditer(text or ""):
+                    out.append(base64.b64decode(m.group(1)))
+                for im in msg.get("images") or []:
+                    u = (im or {}).get("image_url", {}).get("url") if isinstance(im, dict) else None
+                    if u:
+                        for m in _DATA_URL_RE.finditer(u):
+                            out.append(base64.b64decode(m.group(1)))
+            except (ValueError, TypeError, AttributeError, IndexError) as e:
+                if out:
+                    return out
+                raise _accepted_failure("gemini chat 200 但解析不出图", e) from e
     if not out:
-        raise RuntimeError("gemini no image in response")
+        raise _accepted_failure("gemini chat 200 但没有图")
     return out
+
+
+async def _gemini_any(base: str, key: str, models: list[str], prompt: str,
+                      n: int, size: str, timeout: float = 300.0,
+                      refs: list[bytes] | None = None) -> list[bytes]:
+    """`_gemini_gen` 的候选名链版：只在上游**肯定没受理**时换下一个（`_try_next_name`，同 `_oai_images`）。
+
+    起因（2026-11-21）：nano-banana-pro 在 zx1 叫 `gemini-3-pro-image-preview`，
+    剧变网关上只有 `gemini-3-pro-image`，旧名返回 503 model_not_found —— 云上整个模型不可用，
+    而「首帧精控」旧预设默认用的就是它。
+    """
+    last: Exception | None = None
+    for i, name in enumerate(models):
+        try:
+            return await _gemini_gen(base, key, name, prompt, n, size,
+                                     timeout=timeout, refs=refs)
+        except (ChannelDown, RuntimeError) as e:
+            if i + 1 < len(models) and _try_next_name(e):
+                logger.warning("图像渠道模型名 %s 上游不可用（没受理），改用候选名 %s", name, models[i + 1])
+                last = e
+                continue
+            raise
+    raise last if last is not None else RuntimeError("候选模型名链为空")
 
 
 # ---------- 协议 3：RunningHub v2 文生图（G-2 / N-PRO 低价渠道）----------
@@ -660,13 +930,13 @@ async def _rh_v2_t2i(endpoint: str, prompt: str, n: int, size: str,
                             if isinstance(it, dict) and it.get("url")]
                     break
                 if st in ("FAILED", "ERROR", "CANCELED", "CANCELLED"):
-                    raise RuntimeError(f"RH task {st}: {qj.get('errorMessage')}")
+                    raise _task_failed("RH 任务失败", f"RH task {st}: {qj.get('errorMessage')}")
+            # —— 提交已受理（RunningHub 按机时计费）：超时 / 没产出 / 取件失败都不重发 ——
             if not urls:
-                raise RuntimeError("RH 任务超时或无产出图")
-            for u in urls:
-                out.append(await _download(client, u))
+                raise _accepted_failure("RH 任务超时或无产出图")
+            out.extend(await _download_accepted(client, urls, "RH 任务"))
     if not out:
-        raise RuntimeError("RH no image produced")
+        raise _accepted_failure("RH 没有产出图")
     return out
 
 
@@ -717,13 +987,13 @@ async def _rh_portrait(prompt: str, n: int, size: str,
                                 if isinstance(it, dict) and (it.get("fileUrl") or it.get("url"))]
                     break
                 if st in ("FAILED", "ERROR", "CANCELED", "CANCELLED"):
-                    raise RuntimeError(f"RH portrait task {st}")
+                    raise _accepted_failure(f"RH portrait task {st}")
+            # —— 提交已受理：超时 / 没产出 / 取件失败都不重发 ——
             if not urls:
-                raise RuntimeError("RH portrait 超时或无产出")
-            for u in urls:
-                out.append(await _download(client, u))
+                raise _accepted_failure("RH portrait 超时或无产出")
+            out.extend(await _download_accepted(client, urls, "RH portrait"))
     if not out:
-        raise RuntimeError("RH portrait no image")
+        raise _accepted_failure("RH portrait 没有产出图")
     return out
 
 
@@ -799,22 +1069,23 @@ async def _mj_imagine(root: str, key: str, prompt: str, size: str,
             if task.get("status") in ("SUCCESS", "FAILURE"):
                 break
         else:
-            raise RuntimeError(f"timeout：Midjourney 任务 {tid} 超过 {int(timeout)} 秒仍未完成")
+            # —— 提交已受理：从这里起任何失败都不重发（重新提交 = 再付一次钱，2026-11-21 审查）——
+            raise _accepted_failure(f"Midjourney 任务 {tid} 超过 {int(timeout)} 秒仍未完成")
 
         if task.get("status") == "FAILURE":
             why = str(task.get("failReason") or "未知原因")
             if any(w in why.lower() for w in ("sensitive", "banned", "违规", "敏感")):
                 raise ContentRejected(f"Midjourney 审核未通过：{why[:120]}")
-            raise RuntimeError(f"Midjourney 生成失败：{why[:160]}")
+            raise _task_failed("Midjourney 生成失败", why)
 
         urls = [it.get("url") for it in (task.get("imageUrls") or [])
                 if isinstance(it, dict) and it.get("url") and it.get("status", "ok") == "ok"]
         if not urls and task.get("imageUrl"):
             urls = [task["imageUrl"]]        # 没有分图时退回四宫格整图，总比没有强
         if not urls:
-            raise RuntimeError("Midjourney 返回成功但没有图片地址")
+            raise _accepted_failure("Midjourney 返回成功但没有图片地址")
         async with http.client("image-download", timeout=120, follow_redirects=True) as dl:
-            return list(await asyncio.gather(*(_download(dl, u) for u in urls)))
+            return await _download_accepted(dl, urls, "Midjourney")
 
 
 class ImageProvider:
@@ -855,6 +1126,8 @@ class ImageProvider:
         mv_base = s.modelverse_v1_base
         mv_key = s.modelverse_api_key if mv_base else ""
         chain: list[tuple[str, Callable[[], Awaitable[list[bytes]]]]] = []
+        #: 网关是剧变时，才挂只在剧变上核过的名字（见 `_on_jubian`）
+        jubian = _on_jubian(zx1_base)
 
         if self.model_id == "gpt-image-2":
             # ⚠️ **各渠道的上游模型名不统一，必须分别给候选名链**（2026-10-09 实测）：
@@ -869,6 +1142,10 @@ class ImageProvider:
             zx1_g2 = ["gpt-image-2-c", "gpt-image-2"]
             kege_g2 = ["gpt-image-2-c", "gpt-image-2"]
             mv_g2 = ["gpt-image-2"]
+            if jubian:
+                # 剧变网关上同一模型的另一个名字（2026-11-21：账单记在 gpt-image-2 名下、同价）。
+                # 放进候选名链而不是另开一条渠道：只在上游没受理时才换过去，不会重复计费。
+                zx1_g2 = zx1_g2 + ["gpt-image-2-high"]
             if zx1_img:
                 chain.append(("zx1", lambda: _oai_images(
                     zx1_base, zx1_img, zx1_g2, prompt, n, size, refs=refs)))
@@ -887,8 +1164,10 @@ class ImageProvider:
             gm = "gemini-3-pro-image-preview"
             gm_mv = "gemini-3-pro-image"    # ⚠️ modelverse 上没有 -preview 后缀
             if zx1_llm:
-                chain.append(("zx1", lambda: _gemini_gen(
-                    zx1_base, zx1_llm, gm, prompt, n, size, refs=refs)))
+                # 网关这条给候选名链：zx1 叫 -preview，剧变网关只有不带后缀的（见 `_gemini_any`）
+                chain.append(("zx1", lambda: _gemini_any(
+                    zx1_base, zx1_llm, [gm, gm_mv], prompt, n, size,
+                    timeout=420, refs=refs)))
             if kege_base and s.kege_gemini_api_key:
                 chain.append(("kege", lambda: _gemini_gen(
                     kege_base, s.kege_gemini_api_key, gm, prompt, n, size,
@@ -913,6 +1192,18 @@ class ImageProvider:
                 chain.append(("modelverse", lambda: _gemini_gen(
                     mv_base, mv_key, gm, prompt, n, size,
                     timeout=420, refs=refs)))
+        elif self.model_id in ("gpt-image-2.5", "gpt-image-2.6"):
+            # 只在剧变网关上有；同一版本的几条线路是**候选名链**，只在上游没受理时才换
+            # （见 `_GATEWAY_GPT_LINES` / `_try_next_name`），不会一张图付两次钱。
+            if zx1_img and jubian:
+                names = [f"{self.model_id}-{line}" for line in _GATEWAY_GPT_LINES]
+                chain.append(("zx1", lambda: _oai_images(
+                    zx1_base, zx1_img, names, prompt, n, size, refs=refs)))
+        elif self.model_id in _GATEWAY_GEMINI:
+            gm = _GATEWAY_GEMINI[self.model_id]
+            if zx1_llm and jubian:
+                chain.append(("zx1", lambda: _gemini_gen(
+                    zx1_base, zx1_llm, gm, prompt, n, size, timeout=420, refs=refs)))
         elif self.model_id == "midjourney":
             # 只有 zx1 文本分组 key 有 midjourney（见 _mj_imagine 文档）；不接参考图。
             if zx1_llm and not refs:
@@ -969,6 +1260,11 @@ class ImageProvider:
                     # 渠道级故障：冷却后立刻换下一条，不在这条上继续耗
                     _mark_down(name, self.model_id, s.image_channel_cooldown, e)
                     errs.append(f"{name} → {e}")
+                    break
+                except AcceptedFailure as e:
+                    # 上游已受理（可能已计费）却没拿到图：**不重试**（重发 = 再付一次钱）、
+                    # **不冷却**（渠道是好的）。仍可试下一条渠道——那是别家、另一个账号。
+                    errs.append(f"{name}={str(e)[:150]}")
                     break
                 except ContentRejected as e:
                     # 内容审核拒绝：**不重试**（同样提示词必然同样判定）、
