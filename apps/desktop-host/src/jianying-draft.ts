@@ -3,11 +3,13 @@ import { access, readFile, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
+import { draftDirectory } from '@deepseek-ai/dsh-drama-settings'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, ToolArgsError } from '@deepseek-ai/dsh-tools'
 import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import type { default as SubprocessRuntime, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import z from '@deepseek-ai/schemastery'
+import { defaultNamePrefix, runDraftBatch } from './jianying-batch.ts'
 
 /** Deployment-owned interpreter, process limits and bundled resource location. */
 export interface Config {
@@ -44,6 +46,8 @@ export interface Config {
   readonly graceMs: number
   readonly maxInputBytes: number
   readonly maxOutputBytes: number
+  /** Episodes one batch call generates; the rest are returned as `not_started`. */
+  readonly maxEpisodesPerCall?: number
 }
 
 /** Reject invalid process limits before the draft tool is registered. */
@@ -64,7 +68,11 @@ export const Config: z<Config> = z.object({
   })]),
   timeoutMs: z.number().step(1).min(1).required(), graceMs: z.number().step(1).min(0).required(),
   maxInputBytes: z.number().step(1).min(1).required(), maxOutputBytes: z.number().step(1).min(1).required(),
+  maxEpisodesPerCall: z.number().step(1).min(1).max(100).default(10),
 })
+
+/** Prefix of the reminder `generateJianyingDraft` adds when the request has no usable BGM. */
+const MUSIC_REMINDER = '剪映配乐待完成'
 
 /** One episode request file and the existing editor root returned by drama_draft_dir. */
 export interface DraftInput {
@@ -110,7 +118,7 @@ function resolveDraftRequest(bytes: Buffer): { audioMode: 'embedded' | 'independ
     return { audioMode }
   }
   if (sourceProvided && (!('bgm_role' in request) || request.bgm_role !== 'dialogue_music_mix')) return { audioMode }
-  return { audioMode, musicReminder: '剪映配乐待完成：本次未提供可导入的独立纯音乐 BGM。'
+  return { audioMode, musicReminder: `${MUSIC_REMINDER}：本次未提供可导入的独立纯音乐 BGM。`
     + '请按剧本、对白与采用画面用 bgm_match 选曲，drama_bgm 合成并核验纯音乐底轨，'
     + '将输出绝对路径写入 bgm、bgm_role=music_only 后另存新草稿，并回读实际 BGM 轨道和音量。'
     + '只生成音乐底轨即可，不必先渲染整集 MP4；片尾音不算正文 BGM。'
@@ -232,6 +240,10 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
   return result
 }
 
+/** Model-facing description: the batch call first, then the single-episode request file mode. */
+const DESCRIPTION = '生成可编辑剪映草稿。批量：传 source、project、episodes，可带 switches 与 name_prefix；工具读取 episode_subtitles 写出的字幕时钟回执，镜头时长、画面或声音变化时该集列入 refused（subtitles_stale 与 changed_shots），先重跑 episode_subtitles，不手改偏移；然后准备素材、逐集生成，已生成且输入未变的集返回 existing，输入变化时另存唯一名称的新候选。配乐取 editing/NN-bgm.wav（先用 bgm_match 选曲、drama_bgm 合成纯音乐底轨），缺配乐的集列入 music_missing。'
+  + '单集模式：write JSON 请求文件，包含 project、episode、name_prefix、按镜头顺序的 videos、subtitle_srt、timeline；Windows 保留原视频声音时写 audio_mode=embedded 并省略 audio，使用 aa剪映后端。未声明模式或 audio_mode=independent 时仍用 pyJianYingDraft 并要求 audio 为未混 BGM 的完整主音轨；Mac 暂不支持 embedded。bgm 绝对路径配 bgm_role=music_only；确实不加配乐时写 music_decision=none、decision_reason。可选 ending_audio、ending_effect，以及 ending、watermark 布尔开关（false 去掉片尾或 AI 标识），所有文件用绝对路径。字幕须带同源时钟回执；人工字幕写 subtitle_source=manual。含对白的审查混音不能当配乐重复叠加。只处理指定集，不覆盖已有草稿；质量疑点返回 warnings 与 review_path 供核对。返回草稿路径与实际实现身份；editor_open_verified=false 表示尚未在剪映打开验收。'
+
 /** Loader identity for Desktop's single draft-building entry point. */
 export const name = 'desktop-jianying-draft'
 /** The tool registry, managed process owner and current tool guidance. */
@@ -254,20 +266,72 @@ export function apply(ctx: Context, config: Config): void {
 Windows 保留原视频声音时，请求写 audio_mode="embedded"，省略 audio；由 aa剪映后端直接保留视频声音，BGM 独立；仅 9:16 在整集末尾追加片尾，16:9 不加。未声明模式的旧请求仍走独立主音轨：成功导入后才静音正文源视频，导入失败保留原声并说明缺口。Mac 暂不支持 embedded，不改用独立音轨冒称满足。独立 BGM 必须是纯音乐，不能叠加含对白的审查混音。已有草稿不会自动迁移；修复旧稿时生成唯一名称的新候选，不覆盖原稿。以上为 Agent 操作指导，不新增用户审批，不把保存成功写成剪映打开、播放或听感已验收。
 
 恢复时不强删锁、不移动活动素材目录、不手改 root_meta_info.json；同名并发需等本次实际退出，或另用唯一新名生成候选。Windows 原声生成期间保护活动目录和已保留素材；身份或源时窗明确不符则失败并保留文件，无法读取则保持未验证且不出交付凭据。保存检查不替代剪映裁剪、保存、关闭重开验收，不自动修复旧稿。` })
+  const manifest = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-drama-skills/package.json'))
+    .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
+  const skillsDir = join(dirname(manifest), 'skills')
+  const draftsRoot = async (given: string | undefined, cwd: string): Promise<string> => {
+    if (given !== undefined) return resolve(cwd, given)
+    const settings = ctx.get('settings')
+    const saved = settings === undefined ? undefined : await draftDirectory(settings)
+    if (saved?.status !== 'ready') throw new ToolArgsError(['剪映草稿根目录尚未设置：先调用 drama_draft_dir 取得或设置根目录，或传 drafts_dir。'])
+    return saved.path
+  }
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'jianying_draft',
-    description: '生成一集可编辑剪映草稿，先读 tweet-drama-draft-build 并用 drama_draft_dir 取得根目录。先按剧情选曲、用 drama_bgm 生成纯音乐底轨，再将 bgm 绝对路径和 bgm_role=music_only 一起写入草稿请求；确实不加配乐时写 music_decision=none、decision_reason。缺配乐返回待完成提醒，不自动选曲或把片尾音算作正文 BGM。write JSON 请求文件，包含 project、episode、name_prefix、按镜头顺序的 videos、subtitle_srt、timeline；Windows 保留原视频声音时写 audio_mode=embedded 并省略 audio，使用 aa剪映后端。未声明模式或 audio_mode=independent 时仍用 pyJianYingDraft 并要求 audio 为未混 BGM 的完整主音轨；Mac 暂不支持 embedded。可选 ending_audio、ending_effect，所有文件用绝对路径。Windows 片尾仅在 9:16 末尾追加，16:9 不加。含对白的审查混音不能当配乐重复叠加。字幕复用同源云转写时间轴，对照剧本在派生文件纠错，不均分时间。只处理指定集，不覆盖已有草稿；质量疑点返回 warnings 与 review_path 供核对，不要求提示清零。返回 backend、草稿路径与实际实现身份；editor_open_verified=false 表示尚未在剪映打开验收。',
+    description: DESCRIPTION,
     parameters: {
-      request_file: { type: 'string', required: true, description: 'Existing JSON request file for one selected episode; relative paths use the current workspace.' },
-      drafts_dir: { type: 'string', required: true, description: 'Existing editor root returned by drama_draft_dir.' },
+      source: { type: 'string', enum: ['local', 'jingliu'], description: '批量模式：local=本机项目；jingliu=镜流项目。' },
+      project: { type: 'string', description: '批量模式：本机项目根目录（相对路径以工作区为基准）或镜流项目 ID。' },
+      episodes: { type: 'array', items: { type: 'integer' }, description: `批量模式集号，与 request_file 二选一；每次最多生成 ${String(config.maxEpisodesPerCall ?? 10)} 集，其余列入 not_started。` },
+      switches: { type: 'object', additionalProperties: false, description: '批量模式开关；省略时按项目交付设置。', properties: {
+        subtitles: { type: 'boolean', description: '是否带字幕，默认 true。' },
+        music: { type: 'boolean', description: '是否导入 editing/NN-bgm.wav 配乐，默认 true；false 表示本次不加配乐。' },
+        ending: { type: 'boolean', description: 'false 去掉片尾。' },
+        watermark: { type: 'boolean', description: 'false 去掉 AI 内容标识。' },
+        watermark_text: { type: 'string', description: 'AI 内容标识文字，最多 40 字。' },
+      } },
+      name_prefix: { type: 'string', description: '批量模式草稿名前缀，默认项目目录名加 -。' },
+      request_file: { type: 'string', description: '单集模式：已写好的单集 JSON 请求文件；相对路径以工作区为基准。' },
+      drafts_dir: { type: 'string', description: '剪映草稿根目录；默认取 drama_draft_dir 保存的目录。' },
     },
     output: { schema: { type: 'object', additionalProperties: true },
       render: (_args, result) => [{ type: 'text', text: JSON.stringify(result) }] },
-    execute: (args, exec) => {
+    execute: async (args, exec) => {
       const cwd = exec.agent?.session.header.cwd ?? process.cwd()
-      return generateJianyingDraft(ctx.subprocess, {
-        request_file: resolve(cwd, args.request_file), drafts_dir: resolve(cwd, args.drafts_dir),
-      }, config, exec.signal)
+      if (args.request_file !== undefined) {
+        if (args.episodes !== undefined) throw new ToolArgsError(['request_file 与 episodes 二选一。'])
+        return await generateJianyingDraft(ctx.subprocess, {
+          request_file: resolve(cwd, args.request_file), drafts_dir: await draftsRoot(args.drafts_dir, cwd),
+        }, config, exec.signal)
+      }
+      if (args.episodes === undefined || args.source === undefined || args.project === undefined) {
+        throw new ToolArgsError(['批量模式需要 source、project 和 episodes；单集模式传 request_file。'])
+      }
+      const episodes = args.episodes
+      if (episodes.length === 0 || episodes.length > 100 || new Set(episodes).size !== episodes.length
+        || episodes.some(episode => !Number.isSafeInteger(episode) || episode < 1)) throw new ToolArgsError(['episodes 须为 1–100 个不重复的正整数集号。'])
+      const switches = args.switches ?? {}
+      if (switches.watermark_text !== undefined && Array.from(switches.watermark_text).length > 40) throw new ToolArgsError(['watermark_text 最多 40 字。'])
+      if (args.source === 'jingliu') {
+        return { created: [], existing: [], refused: episodes.map(episode => ({ episode, reason: 'jingliu_outdated' })),
+          needs_review: [], music_missing: [], not_started: [] }
+      }
+      if (switches.subtitles === false) throw new ToolArgsError(['本机项目的批量草稿总是带本集字幕；不需要字幕时请在剪映中关闭字幕轨。'])
+      const project = isAbsolute(args.project) ? args.project : resolve(cwd, args.project)
+      const draftsDir = await draftsRoot(args.drafts_dir, cwd)
+      return await runDraftBatch({ project, display: args.project, episodes, switches,
+        namePrefix: args.name_prefix ?? defaultNamePrefix(project), draftsDir }, {
+        ffmpegPath: config.ffmpegPath ?? 'ffmpeg', ffprobePath: config.ffprobePath ?? 'ffprobe', skillsDir,
+        maxEpisodesPerCall: config.maxEpisodesPerCall ?? 10,
+        ...(config.defaultSubtitleVisual === undefined ? {} : { defaultSubtitleVisual: config.defaultSubtitleVisual }),
+        ...(config.enforceSubtitleVisual === undefined ? {} : { enforceSubtitleVisual: config.enforceSubtitleVisual }),
+        generate: async (requestFile, root, signal) => {
+          const result = await generateJianyingDraft(ctx.subprocess, { request_file: requestFile, drafts_dir: root }, config, signal)
+          const [draft] = result.drafts
+          if (draft === undefined) throw new Error('Draft generator returned no saved draft')
+          return { path: draft.path, musicMissing: result.warnings.some(warning => warning.startsWith(MUSIC_REMINDER)) }
+        },
+      }, exec.signal)
     },
   })))
 }

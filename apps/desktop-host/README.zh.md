@@ -62,7 +62,7 @@ Muse 内置 Codex 订阅插件，并在设置中提供 ChatGPT 登录入口。�
 
 ## 用户返稿对照
 
-Desktop Host 在代码中挂载 Office 组合（`@deepseek-ai/dsh-desktop-host/office`：`manuscript_revision`、`screenplay_export_docx`、`source_recover` 和 `jianying_draft`），以自带的主运行时作为 `source`；不经 Desktop Host 运行这套组合的部署（如云端 Muse）需自行声明这一项，配置相同。Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回的 Markdown、UTF-8 文本或 Word 文稿。同一会话此前交付的文件在下一次真人输入时检测外部变化，修改者保持未确认。改名文件可以通过明确路径关联；缺少基线时如实说明，不声称已经识别历史修改。
+Desktop Host 在代码中挂载 Office 组合（`@deepseek-ai/dsh-desktop-host/office`：`manuscript_revision`、`screenplay_export_docx`、`source_recover`、`jianying_draft` 和 `episode_subtitles`），以自带的主运行时作为 `source`；不经 Desktop Host 运行这套组合的部署（如云端 Muse）需自行声明这一项，配置相同。Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回的 Markdown、UTF-8 文本或 Word 文稿。同一会话此前交付的文件在下一次真人输入时检测外部变化，修改者保持未确认。改名文件可以通过明确路径关联；缺少基线时如实说明，不声称已经识别历史修改。
 
 修改已有稿前，使用 `snapshot` 和明确的 `source_paths`，将完整原件字节保留在工作区 `.muse/manuscript-revisions/versions`。Word 批注和格式保留在这些原件中。`history` 按明确的来源路径返回经过核验的快照路径，当前来源已删除时也可查询；不会根据文件名或历史顺序选择当前稿。后续对照可以将快照路径作为原稿。重复保留相同内容会复用原件，内容不同则分别保留以便恢复。`maxVersions` 和 `maxVersionBytes` 限制保留容量，不淘汰旧版本。原件损坏或超限时明确失败。独立的第一版索引不替换已有对照记录。保存版本不判断剧情质量，也不表示已落实批注。
 
@@ -230,6 +230,8 @@ Muse 建议型 Word 导出固定本次实际 Markdown 输入，通过内置 Pyth
 严格受管交付识别依赖约定的标记和目录；未标记项目，或移出范围且没有记录的文档，无法被识别为视频转剧本。文件系统权限仍可编辑项目与校验文件；这些是一致性记录，不是签名授权。直接文件链接和外部应用不调用 `present`。Agent 仍负责已整理清单之外的画面完整性与含义。建议型采用及交付检查不能证明抽样找到了全部事件，也不能证明创作审校通过。
 
 `jianying_draft` 通过受管子进程调用内置生成器，输入为有大小限制的单集 JSON 请求和已有剪映草稿根目录。Windows 请求指定 `audio_mode: "embedded"` 时选择随包 aa剪映适配器，保留视频原声，BGM 独立；仅 `9:16` 添加片尾，`16:9` 在正文结束。未声明模式或显式使用 `"independent"` 时沿用 pyJianYingDraft，Mac 的 embedded 请求明确报错。Windows 适配器探测已安装 CLI，不用 FFmpeg 渲染替代原生草稿创建。可选 `windowsPowerShellPath`、`windowsCliPath`、`windowsHostPath`、`ffmpegPath` 和 `ffprobePath` 配置已有部署可执行文件。`windowsLandscapeSubtitleSize` 和 `windowsLandscapeSubtitleY` 可覆盖 Windows 16:9 默认字号 7 与剪映界面 Y -879。完成、失败和取消均等待进程退出。启动失败未返回 JSON 时保留受限长度的进程诊断。字幕、配乐和轨道质量疑点通过 `warnings` 与逐稿 `review_path` 返回；技术失败仍拒绝。保存回读不代表原生编辑器打开、播放或声音已验收。
+
+批量形式以 `source`、`project` 和 `episodes` 代替 `request_file`，可选 `switches`（`music`、`ending`、`watermark`）和 `name_prefix`；两种形式的 `drafts_dir` 都默认取 `drama_draft_dir` 保存的根目录。对每个本机集（每次最多 `maxEpisodesPerCall` 集，默认 10），工具读取当前已审核选片和 `episode_subtitles` 写出的第 2 版时钟回执；镜头的时长、画面或声音变化时以 `subtitles_stale` 和 `changed_shots` 拒绝，然后在进程内运行 `prepare`，把请求写到 `drafts/requests/` 并生成草稿。`editing/drafts.json` 按输入摘要记录每份草稿：输入相同时返回 `existing`，输入变化时用新的 `v2-`、`v3-` 前缀另存，不覆盖。配乐取 `editing/NN-bgm.wav`；`switches.music: false` 写入 `music_decision: "none"`。`ending: false` 与 `watermark: false` 传给生成器，由它去掉对应元素；本机项目不支持自定义 `watermark_text`，会报告为 `unsupported`，且本机草稿总带本集字幕。在镜流路径落地之前，`source: "jingliu"` 报告 `jingliu_outdated`。
 
 原生草稿配置 `maxBgmGain` 默认 8（接受 0–8），Muse office 组合选择 1，通过托管子进程设置 `DSH_BGM_MAX_GAIN` 对项目/时间线的实际 BGM 增益封顶。原生草稿的 `ffmpegPath`、`ffprobePath` 将解析后的媒体工具路径传入托管 Python 环境。原声增益独立。独立 Python 生成器在缺少该设置时保留旧上限 8。增益上限 1 只能保留音乐床已有的源曲衰减，不能认证任意导入音频。 创作预设的 BGM 合成与成片渲染直接绑定 Host 已解析的 `DSH_FFMPEG_PATH`、`DSH_FFPROBE_PATH`，自带媒体工具无需加入系统 PATH。
 

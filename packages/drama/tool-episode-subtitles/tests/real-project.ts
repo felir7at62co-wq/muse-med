@@ -36,10 +36,27 @@ export function makeShot(file: string, seconds: number, frequency: number): void
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', file])
 }
 
-/** A local project whose packages are approved selections of real MP4 shots. */
-export async function realProject(initial: readonly string[]) {
+/**
+ * Write one tone as a WAV file.
+ * @param file - Destination WAV.
+ * @param seconds - Duration.
+ * @param frequency - Tone, which makes each file's bytes distinct.
+ * @returns When written.
+ */
+export function makeTone(file: string, seconds: number, frequency: number): void {
+  execFileSync(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi',
+    '-i', `sine=frequency=${String(frequency)}:sample_rate=48000:duration=${String(seconds)}`, '-c:a', 'pcm_s16le', file])
+}
+
+/**
+ * A local project whose packages are approved selections of real MP4 shots.
+ * @param initial - Spoken script line of each package.
+ * @param options - `separateAudio` gives each shot its own WAV sound beside the picture.
+ * @returns The project root and edit helpers.
+ */
+export async function realProject(initial: readonly string[], options: { readonly separateAudio?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'muse-episode-subtitles-real-'))
-  const lines = [...initial], videos: string[] = []
+  const lines = [...initial], videos: string[] = [], audios: (string | undefined)[] = []
   await mkdir(join(root, 'episode_packages', '01'), { recursive: true })
   await mkdir(join(root, 'media', '01'), { recursive: true })
   await mkdir(join(root, 'reviews'), { recursive: true })
@@ -48,19 +65,33 @@ export async function realProject(initial: readonly string[]) {
       shots: lines.map((text, index) => ({ shot: index + 1, voice_type: 'dialogue', speaker: '林晨', text, characters: ['林晨'] })) })
     await writeFile(join(root, 'episode_packages', '01', 'package.json'), plan)
     for (const [index, video] of videos.entries()) {
+      const audio = audios[index]
       await writeFile(join(root, 'reviews', `ep01-p${String(index + 1).padStart(2, '0')}.json`), JSON.stringify({ status: 'approved', episode: '01',
         package: index + 1, package_sha256: sha(plan), video_path: video, video_sha256: sha(await readFile(join(root, video))),
+        ...(audio === undefined ? {} : { audio_path: audio, audio_sha256: sha(await readFile(join(root, audio))) }),
         subtitle_cleanup: 'not_required' }))
     }
   }
-  for (const [index] of lines.entries()) {
-    const video = `media/01/p${String(index + 1)}.mp4`
-    makeShot(join(root, video), 2, 300 + index * 100)
-    videos.push(video)
+  let generation = 0
+  const shoot = (index: number, seconds: number, frequency: number, sound: boolean) => {
+    generation++
+    const video = `media/01/p${String(index + 1)}-g${String(generation)}.mp4`
+    makeShot(join(root, video), seconds, frequency)
+    videos[index] = video
+    if (sound && options.separateAudio === true) {
+      const audio = `media/01/p${String(index + 1)}-g${String(generation)}.wav`
+      makeTone(join(root, audio), 2, frequency + 7)
+      audios[index] = audio
+    }
   }
+  for (const [index] of lines.entries()) shoot(index, 2, 300 + index * 100, true)
   await approve()
-  return { root, videos, audioSha: async (index: number) => sha(await readFile(join(root, videos[index]!))),
-    editLine: async (index: number, text: string) => { lines[index] = text; await approve() } }
+  return { root, audioSha: async (index: number) => sha(await readFile(join(root, audios[index] ?? videos[index] ?? ''))),
+    editLine: async (index: number, text: string) => { lines[index] = text; await approve() },
+    /** Re-export the picture shorter; a separate sound stays the same file. */
+    trim: async (index: number, seconds: number) => { shoot(index, seconds, 300 + index * 100, false); await approve() },
+    /** Replace picture and sound with a new take. */
+    regenerate: async (index: number, frequency: number) => { shoot(index, 2, frequency, true); await approve() } }
 }
 
 /**

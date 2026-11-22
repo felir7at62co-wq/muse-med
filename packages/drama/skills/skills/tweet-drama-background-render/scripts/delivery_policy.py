@@ -153,6 +153,18 @@ def resolve_delivery(timeline: dict, project: Path | None = None) -> dict:
             'add_watermark': medium != 'animation_3d', 'warnings': warnings}
 
 
+def apply_switches(policy: dict, switches: dict | None) -> dict:
+    """Turn off the ending or the AI-content mark when a request asks; a switch never adds what the medium omits."""
+    if not switches:
+        return policy
+    out = dict(policy)
+    if switches.get('ending') is False:
+        out['ending_duration_us'] = 0
+    if switches.get('watermark') is False:
+        out['add_watermark'] = False
+    return out
+
+
 def reject_animation_ending(timeline: dict, end_us: int, policy: dict) -> None:
     """Reject an animation timeline explicitly marking an already included ending."""
     if policy['visual_medium'] != 'animation_3d' or 'body_end' not in timeline:

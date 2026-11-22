@@ -194,13 +194,16 @@ def verify_saved_subtitle_font(content: dict, choice: dict, *, expected_subtitle
     return checked
 
 
-def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
-    """Resolve explicit delivery policy, body clock and a permitted already included ending."""
+def draft_ending_plan(timeline_path, clips: dict, project=None, switches=None) -> dict:
+    """Resolve explicit delivery policy, body clock and a permitted already included ending.
+
+    `switches` are the request's `ending` / `watermark` booleans; false removes that element.
+    """
     payload = json.loads(Path(timeline_path).read_text(encoding="utf-8-sig")) if clips else {}
     end = max((clip["start_us"] + clip["duration_us"] for clip in clips.values()), default=0)
     try:
         clock = _draft_inputs.body_clock(payload, end, TIMELINE_TOLERANCE_US, ENDING_DURATION_US)
-        policy = _delivery_policy.resolve_delivery(payload, project)
+        policy = _delivery_policy.apply_switches(_delivery_policy.resolve_delivery(payload, project), switches)
         audio = _draft_inputs.audio_gains(payload, project)
         effect_fit = _delivery_policy.ending_effect_fit(payload)
         force_portrait = (os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1'
@@ -1661,7 +1664,7 @@ def main_with_args(args, results=None):
         if project is None:
             project = next((path for path in (root, *root.parents)
                             if (path / 'project_config.json').is_file()), None)
-        ending_plan = draft_ending_plan(timeline_path, timeline_clips, project)
+        ending_plan = draft_ending_plan(timeline_path, timeline_clips, project, getattr(args, 'delivery_switches', None))
         for warning in ending_plan['warnings']:
             warn(warning)
         ending_effect = root / "06_ending" / "ending_effect.mp4"
@@ -2253,6 +2256,7 @@ def generate_draft(
     require_bgm: bool = False,
     bgm_role: str = None,
     allow_empty_subtitle_seq: str = None,
+    delivery_switches: dict = None,
 ) -> dict:
     """
     生成剪映草稿（供 DraftGenerator 直接调用）。
@@ -2267,6 +2271,7 @@ def generate_draft(
         require_bgm: 兼容调用方的配乐要求，只追加提示，不因选曲未完成阻断草稿
         bgm_role: music_only 或 dialogue_music_mix 用途声明；不表示已经分析音轨确认无对白
         allow_empty_subtitle_seq: 内部已绑定全烧录字幕报告的唯一集号，仅允许其空白后加 SRT
+        delivery_switches: 请求的 ending / watermark 布尔开关；false 去掉对应片尾或 AI 标识
 
     返回:
         success 仅在至少一个候选完成且全部成功时为 True；drafts_created 只统计保存、回读和请求字体检查均通过的草稿。
@@ -2287,6 +2292,7 @@ def generate_draft(
         require_bgm=require_bgm,
         bgm_role=bgm_role,
         allow_empty_subtitle_seq=allow_empty_subtitle_seq,
+        delivery_switches=delivery_switches,
     )
     results = []
     error = ""

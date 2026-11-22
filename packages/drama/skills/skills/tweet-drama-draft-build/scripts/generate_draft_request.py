@@ -291,6 +291,14 @@ def verify_draft_subtitle_clock(request, clips, videos, overlay):
                                  '请用 episode_subtitles 重建字幕后重新 prepare。', changed or None)
 
 
+def delivery_switches(request):
+    """Read the optional `ending` and `watermark` booleans; false removes that element from the draft."""
+    switches = {key: request[key] for key in ('ending', 'watermark') if key in request}
+    if any(type(value) is not bool for value in switches.values()):
+        raise ValueError('ending and watermark must be true or false')
+    return switches
+
+
 def read_subtitle_overlay_report(request):
     """Bind an optional renderer subtitle decision to this episode's selected SRT and sources."""
     value = request.get('subtitle_overlay_report')
@@ -399,6 +407,7 @@ def generate_request(request, drafts_dir):
         raise ValueError('timeline shots and videos must match one-to-one with distinct positive integer shot IDs')
     overlay = read_subtitle_overlay_report(request)
     verify_draft_subtitle_clock(request, clips, video_paths, overlay)
+    switches = delivery_switches(request)
     # The generator resolves FFmpeg before importing the upstream media classes.
     from draft_generator import DraftGenerator
     generator = DraftGenerator()
@@ -458,6 +467,7 @@ def generate_request(request, drafts_dir):
             retain(paths[field], relative + paths[field].suffix if field == 'bgm' else relative)
     result = generate_draft(str(root), str(stage), name_prefix=prefix, seq=seq, project=str(project),
                             bgm_role=request.get('bgm_role'),
+                            **({'delivery_switches': switches} if switches else {}),
                             **({'allow_empty_subtitle_seq': seq} if empty_overlay else {}))
     if overlay is not None:
         summary = {key: value for key, value in overlay.items() if key not in ('source_path', 'report')}

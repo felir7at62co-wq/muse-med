@@ -30,7 +30,8 @@ sys.path.insert(0, str(CORE_SCRIPTS))
 from video_bans import check_videos, find_project
 from draft_inputs import (audio_gains, body_clock, draft_style, bgm_import, product_subtitle_cues,
                           subtitle_font_request, write_product_subtitles)
-from generate_draft_request import attach_episode_source_receipt, read_subtitle_overlay_report, verify_draft_subtitle_clock
+from generate_draft_request import (attach_episode_source_receipt, delivery_switches, read_subtitle_overlay_report,
+                                    verify_draft_subtitle_clock)
 from draft_stage_guard import BuildLease, DraftStageGuard
 from draft_integrity import (DraftIntegrityUnavailable, verify_saved_identity, verify_embedded_source_ranges,
                              verify_native_material_durations)
@@ -319,7 +320,8 @@ def prepare_plan(request: dict, drafts_dir: str, *, lifetime: ExitStack | None =
         cursor += row['duration_us']
     policy = _policy.resolve_delivery(timeline, project)
     ratio = native_ratio(policy['width'], policy['height'])
-    policy = {**policy, 'ending_duration_us': 2_000_000 if ratio == '9:16' else 0}
+    policy = _policy.apply_switches({**policy, 'ending_duration_us': 2_000_000 if ratio == '9:16' else 0},
+                                    delivery_switches(request))
     if policy['visual_medium'] is None:
         policy['warnings'] = [
             'visual_medium is missing; retaining the legacy AI mark. Windows AA adds an ending only for 9:16.'

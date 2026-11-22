@@ -676,6 +676,7 @@
       "@deepseek-ai/dsh-tool-drama-assets": ["./packages/drama/tool-drama-assets/src"],
       "@deepseek-ai/dsh-tool-drama-tos-upload": ["./packages/drama/tool-drama-tos-upload/src"],
       "@deepseek-ai/dsh-tool-episode-render": ["./packages/drama/tool-episode-render/src"],
+      "@deepseek-ai/dsh-tool-episode-subtitles/selection": ["./packages/drama/tool-episode-subtitles/src/selection-api.ts"],
       "@deepseek-ai/dsh-tool-episode-subtitles": ["./packages/drama/tool-episode-subtitles/src"],
       "@deepseek-ai/dsh-tool-executor-native": ["./packages/core/tool-executor-native/src"],
       "@deepseek-ai/dsh-tool-executor-ptc": ["./packages/core/tool-executor-ptc/src"],

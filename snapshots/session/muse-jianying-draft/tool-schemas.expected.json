@@ -116,23 +116,69 @@
     },
     {
       "name": "jianying_draft",
-      "description": "生成一集可编辑剪映草稿，先读 tweet-drama-draft-build 并用 drama_draft_dir 取得根目录。先按剧情选曲、用 drama_bgm 生成纯音乐底轨，再将 bgm 绝对路径和 bgm_role=music_only 一起写入草稿请求；确实不加配乐时写 music_decision=none、decision_reason。缺配乐返回待完成提醒，不自动选曲或把片尾音算作正文 BGM。write JSON 请求文件，包含 project、episode、name_prefix、按镜头顺序的 videos、subtitle_srt、timeline；Windows 保留原视频声音时写 audio_mode=embedded 并省略 audio，使用 aa剪映后端。未声明模式或 audio_mode=independent 时仍用 pyJianYingDraft 并要求 audio 为未混 BGM 的完整主音轨；Mac 暂不支持 embedded。可选 ending_audio、ending_effect，所有文件用绝对路径。Windows 片尾仅在 9:16 末尾追加，16:9 不加。含对白的审查混音不能当配乐重复叠加。字幕复用同源云转写时间轴，对照剧本在派生文件纠错，不均分时间。只处理指定集，不覆盖已有草稿；质量疑点返回 warnings 与 review_path 供核对，不要求提示清零。返回 backend、草稿路径与实际实现身份；editor_open_verified=false 表示尚未在剪映打开验收。",
+      "description": "生成可编辑剪映草稿。批量：传 source、project、episodes，可带 switches 与 name_prefix；工具读取 episode_subtitles 写出的字幕时钟回执，镜头时长、画面或声音变化时该集列入 refused（subtitles_stale 与 changed_shots），先重跑 episode_subtitles，不手改偏移；然后准备素材、逐集生成，已生成且输入未变的集返回 existing，输入变化时另存唯一名称的新候选。配乐取 editing/NN-bgm.wav（先用 bgm_match 选曲、drama_bgm 合成纯音乐底轨），缺配乐的集列入 music_missing。单集模式：write JSON 请求文件，包含 project、episode、name_prefix、按镜头顺序的 videos、subtitle_srt、timeline；Windows 保留原视频声音时写 audio_mode=embedded 并省略 audio，使用 aa剪映后端。未声明模式或 audio_mode=independent 时仍用 pyJianYingDraft 并要求 audio 为未混 BGM 的完整主音轨；Mac 暂不支持 embedded。bgm 绝对路径配 bgm_role=music_only；确实不加配乐时写 music_decision=none、decision_reason。可选 ending_audio、ending_effect，以及 ending、watermark 布尔开关（false 去掉片尾或 AI 标识），所有文件用绝对路径。字幕须带同源时钟回执；人工字幕写 subtitle_source=manual。含对白的审查混音不能当配乐重复叠加。只处理指定集，不覆盖已有草稿；质量疑点返回 warnings 与 review_path 供核对。返回草稿路径与实际实现身份；editor_open_verified=false 表示尚未在剪映打开验收。",
       "parameters": {
         "type": "object",
         "properties": {
+          "source": {
+            "type": "string",
+            "description": "批量模式：local=本机项目；jingliu=镜流项目。",
+            "enum": [
+              "local",
+              "jingliu"
+            ]
+          },
+          "project": {
+            "type": "string",
+            "description": "批量模式：本机项目根目录（相对路径以工作区为基准）或镜流项目 ID。"
+          },
+          "episodes": {
+            "type": "array",
+            "description": "批量模式集号，与 request_file 二选一；每次最多生成 10 集，其余列入 not_started。",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "switches": {
+            "type": "object",
+            "description": "批量模式开关；省略时按项目交付设置。",
+            "additionalProperties": false,
+            "properties": {
+              "subtitles": {
+                "type": "boolean",
+                "description": "是否带字幕，默认 true。"
+              },
+              "music": {
+                "type": "boolean",
+                "description": "是否导入 editing/NN-bgm.wav 配乐，默认 true；false 表示本次不加配乐。"
+              },
+              "ending": {
+                "type": "boolean",
+                "description": "false 去掉片尾。"
+              },
+              "watermark": {
+                "type": "boolean",
+                "description": "false 去掉 AI 内容标识。"
+              },
+              "watermark_text": {
+                "type": "string",
+                "description": "AI 内容标识文字，最多 40 字。"
+              }
+            }
+          },
+          "name_prefix": {
+            "type": "string",
+            "description": "批量模式草稿名前缀，默认项目目录名加 -。"
+          },
           "request_file": {
             "type": "string",
-            "description": "Existing JSON request file for one selected episode; relative paths use the current workspace."
+            "description": "单集模式：已写好的单集 JSON 请求文件；相对路径以工作区为基准。"
           },
           "drafts_dir": {
             "type": "string",
-            "description": "Existing editor root returned by drama_draft_dir."
+            "description": "剪映草稿根目录；默认取 drama_draft_dir 保存的目录。"
           }
-        },
-        "required": [
-          "request_file",
-          "drafts_dir"
-        ]
+        }
       }
     },
     {
