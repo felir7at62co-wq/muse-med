@@ -19,7 +19,7 @@ This tree is the Workshop source that the cloud runs. It is the Workshop source 
 - 视频转剧本: the factory job `app/factory/video_transcribe.py`, its routes, pipeline step and startup recovery in `app/factory/routes.py`, `app/factory/pipeline.py` and `app/main.py`, and its editor and status in `app/factory/_PipelinePanel.tsx`, `app/factory/page.tsx` and `app/factory/jobs/[id]/`.
 - Script library: `app/script_library.py`, the store of finalized scripts, mounted in `app/main.py`.
 
-`backend/app` equals the application of cloud release `20261120-scripts-01` and `frontend/` equals the source of the live web build, apart from the edits listed below. Left out are the backup's `.legacy_backups/`, `*.backup-*` copies, `public/report/` (weekly report pages and their media), data CSVs, the orchestrator's Dockerfile, demo scripts, SQL file and `.env` examples, `scripts/agent_eval/README.md` and its `long_task.txt` input, `tsconfig.tsbuildinfo`, `node_modules` and build output. `backend/requirements.txt` pins the packages of the cloud runtime from its `pip freeze`.
+`backend/app` equals the application of cloud release `20261120-scripts-01` and `frontend/` equals the source of the live web build, apart from the edits and the undeployed change listed below. Left out are the backup's `.legacy_backups/`, `*.backup-*` copies, `public/report/` (weekly report pages and their media), data CSVs, the orchestrator's Dockerfile, demo scripts, SQL file and `.env` examples, `scripts/agent_eval/README.md` and its `long_task.txt` input, `tsconfig.tsbuildinfo`, `node_modules` and build output. `backend/requirements.txt` pins the packages of the cloud runtime from its `pip freeze`.
 
 The tree matches the backup and the overlays byte for byte apart from these edits:
 
@@ -27,6 +27,8 @@ The tree matches the backup and the overlays byte for byte apart from these edit
 - Comments in `app/config.py` and `scripts/setup_oss_cors.py`, and the help text of `frontend/public/static/download_videos.py`, say `<公网地址>` instead of the server's public IP address.
 - `app/frontcut/routes.py` reads the default Feishu table of the batch reverse page (短剧链接库) from `FEISHU_LINK_LIBRARY_URL`, and `app/feishu/routes.py` reads the fixed production table of the Feishu automation (制作表格) from `FEISHU_PRODUCTION_TABLE_URL`, instead of hardcoding the company tenant's wiki and table IDs. Both settings default to empty; a request that relies on the default table then answers 400 and asks for a table link. Set both on the server to keep today's behaviour.
 - `scripts/setup_oss_cors.py` adds the public origins in `OSS_CORS_PUBLIC_ORIGINS` (comma-separated) instead of the server's hardcoded addresses, and the user download scripts `public/static/download_videos.py` and `public/static/rename_videos_auto.py` take the server address from `--base` or the first `http(s)://` argument, or from `DRAMA_API_BASE`, and stop with a message when none is given.
+
+A change in this tree that the cloud does not run yet: `app/factory/pipeline.py` has one 视频转剧本 step. The release has the step twice because two installer versions each inserted it, and the first copy, which runs, restarts a stopped job by setting it to `pending` and keeps its stop request, so the job stops again at once. The remaining step reopens the job with `video_transcribe.reopen`, which clears the stop request and the previous end and keeps its results and claimed series, as `POST /v1/factory/jobs/{id}/resume` does.
 
 This tree is now the source of truth for Workshop. The cloud release is still built by applying `install.py --audience script-workshop`, `shared-host/prepare_uploads.py`, `shared-host/prepare.py` and the 视频转剧本 and script library installers to the backup; those installers stay until a release is built from this tree.
 
@@ -37,6 +39,7 @@ This tree is now the source of truth for Workshop. The cloud release is still bu
 | `backend/app/` | FastAPI application, served as `app.main:app`, and the job worker `app/worker.py` |
 | `backend/alembic/`, `backend/alembic.ini` | Database migrations |
 | `backend/scripts/` | Migration, seed, verification and evaluation scripts |
+| `backend/tests/` | unittest suite of the 视频转剧本 job and its pipeline step |
 | `backend/pyproject.toml`, `backend/requirements.txt` | Declared dependency ranges and the pinned cloud runtime |
 | `frontend/` | Next.js application with its `package.json` and `pnpm-lock.yaml` |
 
@@ -51,6 +54,8 @@ uv pip install --python ~/.venvs/workshop/bin/python -r requirements.txt
 ```
 
 Importing the application also needs the Muse login settings (`MUSE_WORKBENCH_ISSUER`, `MUSE_WORKBENCH_PUBLIC_ORIGIN`, `MUSE_WORKBENCH_SECRET`, `MUSE_WORKBENCH_BINDINGS`, `MUSE_WORKBENCH_STATE_DB`), `AUTH_REQUIRED=true`, a `JWT_SECRET` of at least 32 characters and `UPLOADS_DIR`. With placeholder values and a bindings file without users, `import app.main` and every module under `app` load without connecting to the database or Redis.
+
+`~/.venvs/workshop/bin/python -m unittest discover -s tests` runs the 视频转剧本 tests from `backend/`. They load `app/factory/video_transcribe.py` and `app/factory/pipeline.py` with in-memory replacements for the database session and models, and run a scripted worker in place of the transcription worker, so they need neither a database nor network access.
 
 Build the frontend from `frontend/` with the pnpm version that wrote the lockfile:
 

@@ -19,7 +19,7 @@
 - 视频转剧本：工厂任务 `app/factory/video_transcribe.py`，`app/factory/routes.py`、`app/factory/pipeline.py` 和 `app/main.py` 中的路由、流水线步骤和启动恢复，以及 `app/factory/_PipelinePanel.tsx`、`app/factory/page.tsx` 和 `app/factory/jobs/[id]/` 中的编辑器和状态显示。
 - 剧本库：定稿剧本库 `app/script_library.py`，挂载在 `app/main.py`。
 
-除下列改动外，`backend/app` 与云端发布 `20261120-scripts-01` 的应用一致，`frontend/` 与线上网页构建的源码一致。未收录备份中的 `.legacy_backups/`、`*.backup-*` 副本、`public/report/`（周报页面及其媒体）、数据 CSV、orchestrator 的 Dockerfile、演示脚本、SQL 文件和 `.env` 示例、`scripts/agent_eval/README.md` 及其输入 `long_task.txt`、`tsconfig.tsbuildinfo`、`node_modules` 和构建产物。`backend/requirements.txt` 按云端运行环境的 `pip freeze` 固定包版本。
+除下列改动和尚未部署的改动外，`backend/app` 与云端发布 `20261120-scripts-01` 的应用一致，`frontend/` 与线上网页构建的源码一致。未收录备份中的 `.legacy_backups/`、`*.backup-*` 副本、`public/report/`（周报页面及其媒体）、数据 CSV、orchestrator 的 Dockerfile、演示脚本、SQL 文件和 `.env` 示例、`scripts/agent_eval/README.md` 及其输入 `long_task.txt`、`tsconfig.tsbuildinfo`、`node_modules` 和构建产物。`backend/requirements.txt` 按云端运行环境的 `pip freeze` 固定包版本。
 
 除以下改动外，本目录与备份及安装改动逐字节一致：
 
@@ -27,6 +27,8 @@
 - `app/config.py` 和 `scripts/setup_oss_cors.py` 的注释以及 `frontend/public/static/download_videos.py` 的帮助文字用 `<公网地址>` 代替服务器的公网 IP。
 - `app/frontcut/routes.py` 从 `FEISHU_LINK_LIBRARY_URL` 读取批量反推页的默认飞书表（短剧链接库），`app/feishu/routes.py` 从 `FEISHU_PRODUCTION_TABLE_URL` 读取飞书自动化的固定制作表格，不再写死公司租户的知识库和数据表 ID。两项设置默认为空；此时依赖默认表的请求返回 400 并要求提供表格链接。在服务器上设置这两项即可保持现有行为。
 - `scripts/setup_oss_cors.py` 从 `OSS_CORS_PUBLIC_ORIGINS`（逗号分隔）添加公网来源，不再写死服务器地址；用户下载脚本 `public/static/download_videos.py` 和 `public/static/rename_videos_auto.py` 从 `--base` 或第一个 `http(s)://` 参数、或 `DRAMA_API_BASE` 取服务器地址，都未提供时给出提示并退出。
+
+本目录中云端尚未运行的改动：`app/factory/pipeline.py` 只有一个视频转剧本步骤。发布版本里该步骤出现两次，因为两个版本的安装脚本各插入了一次；实际运行的第一份把已停止的任务改回 `pending` 重启，却保留了停止请求，任务随即再次停止。保留的步骤用 `video_transcribe.reopen` 重开任务：清除停止请求和上次结束状态，保留已有结果和已领取的剧，与 `POST /v1/factory/jobs/{id}/resume` 一致。
 
 本目录现在是工坊的唯一源码。云端发布仍由 `install.py --audience script-workshop`、`shared-host/prepare_uploads.py`、`shared-host/prepare.py` 以及视频转剧本和剧本库的安装脚本套用到备份上构建；在从本目录构建发布之前，这些安装脚本保留。
 
@@ -37,6 +39,7 @@
 | `backend/app/` | FastAPI 应用，以 `app.main:app` 提供服务；任务 worker 为 `app/worker.py` |
 | `backend/alembic/`、`backend/alembic.ini` | 数据库迁移 |
 | `backend/scripts/` | 迁移、初始化数据、验证和评测脚本 |
+| `backend/tests/` | 视频转剧本任务及其流水线步骤的 unittest 测试 |
 | `backend/pyproject.toml`、`backend/requirements.txt` | 声明的依赖范围和固定的云端运行环境 |
 | `frontend/` | Next.js 应用，含 `package.json` 和 `pnpm-lock.yaml` |
 
@@ -51,6 +54,8 @@ uv pip install --python ~/.venvs/workshop/bin/python -r requirements.txt
 ```
 
 导入应用还需要 Muse 登录设置（`MUSE_WORKBENCH_ISSUER`、`MUSE_WORKBENCH_PUBLIC_ORIGIN`、`MUSE_WORKBENCH_SECRET`、`MUSE_WORKBENCH_BINDINGS`、`MUSE_WORKBENCH_STATE_DB`）、`AUTH_REQUIRED=true`、至少 32 个字符的 `JWT_SECRET` 以及 `UPLOADS_DIR`。使用占位值和不含用户的 bindings 文件时，`import app.main` 和 `app` 下的所有模块均可加载，不连接数据库或 Redis。
+
+在 `backend/` 下运行 `~/.venvs/workshop/bin/python -m unittest discover -s tests` 执行视频转剧本测试。测试以内存中的数据库会话和模型替身加载 `app/factory/video_transcribe.py` 和 `app/factory/pipeline.py`，并用脚本化的 worker 代替转写 worker，因此不需要数据库或网络。
 
 在 `frontend/` 下用写出 lockfile 的 pnpm 版本构建前端：
 
