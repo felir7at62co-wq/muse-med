@@ -8,6 +8,7 @@ import * as screenplayDocx from './screenplay-docx.ts'
 import * as manuscriptRevisions from './manuscript-revisions.ts'
 import * as sourceRecovery from './source-recovery.ts'
 import * as jianyingDraft from './jianying-draft.ts'
+import * as episodeSubtitles from '@deepseek-ai/dsh-tool-episode-subtitles'
 
 /** Loader identity for the application-owned Office composition. */
 export const name = 'desktop-office'
@@ -31,6 +32,8 @@ export interface Config {
   readonly sourceRecovery?: false | Partial<sourceRecovery.Config>
   /** Optional interpreter override and limits for the bundled editable-draft builder. */
   readonly jianyingDraft?: Partial<Omit<jianyingDraft.Config, 'source'>>
+  /** Optional episode subtitle settings; it shares the draft builder's runtime, interpreter and media executables. */
+  readonly episodeSubtitles?: Omit<episodeSubtitles.Config, 'source'>
 }
 
 /**
@@ -41,9 +44,14 @@ export interface Config {
 export async function apply(ctx: Context, config: Config): Promise<void> {
   await ctx.plugin(manuscriptRevisions, config.manuscriptRevisions ?? {})
   if (config.sourceRecovery !== false) await ctx.plugin(sourceRecovery, config.sourceRecovery ?? {})
+  const ffmpegPath = config.jianyingDraft?.ffmpegPath ?? process.env.DSH_FFMPEG_PATH ?? 'ffmpeg'
+  const ffprobePath = config.jianyingDraft?.ffprobePath ?? process.env.DSH_FFPROBE_PATH ?? 'ffprobe'
   await ctx.plugin(jianyingDraft, { source: config.source, timeoutMs: 600_000, graceMs: 1000,
-    ffmpegPath: process.env.DSH_FFMPEG_PATH ?? 'ffmpeg', ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
-    maxInputBytes: 1024 * 1024, maxOutputBytes: 1024 * 1024, maxBgmGain: 1, ...config.jianyingDraft })
+    ffmpegPath, ffprobePath, maxInputBytes: 1024 * 1024, maxOutputBytes: 1024 * 1024, maxBgmGain: 1, ...config.jianyingDraft })
+  // Registered once the Muse account service exists; Desktop provides it application-wide.
+  void ctx.plugin(episodeSubtitles, { source: config.source, ffmpegPath, ffprobePath,
+    ...(config.jianyingDraft?.pythonPath === undefined ? {} : { pythonPath: config.jianyingDraft.pythonPath }),
+    ...config.episodeSubtitles })
   await ctx.plugin(screenplayDocx, { source: config.source,
     reviewMode: config.docxReviewMode ?? 'strict', episodeLayout: config.docxEpisodeLayout ?? 'continuous',
     maxInputBytes: config.docxMaxInputBytes ?? 16 * 1024 * 1024, timeoutMs: config.docxTimeoutMs ?? 120_000,

@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: fc54c47a318f7583
-  zh: 9edd47b396d9d3c8
+  en: 18cc25fb662233a6
+  zh: 4a1029771f7b8be5
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
@@ -96,8 +96,14 @@
   en: efdcf8538d0b69ac
   zh: efdcf8538d0b69ac
 /tool-schema-catalog/deepseek-ai-dsh-tool-audio-transcribe/audio-transcribe:
-  en: 082698ecb466f362
-  zh: 082698ecb466f362
+  en: 4eab2bf9b269e3b2
+  zh: 4eab2bf9b269e3b2
+/tool-schema-catalog/deepseek-ai-dsh-tool-episode-subtitles:
+  en: d4b8c18dc4a271b2
+  zh: d4b8c18dc4a271b2
+/tool-schema-catalog/deepseek-ai-dsh-tool-episode-subtitles/episode-subtitles:
+  en: 87dfcc3652f0fc28
+  zh: 77a6c7b85789216c
 /tool-schema-catalog/deepseek-ai-dsh-tool-drama-tos-upload:
   en: 4481a680f12cf842
   zh: 4481a680f12cf842
@@ -110,6 +116,9 @@
 /tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-image:
   en: ee19bc3ca3ed4286
   zh: ee19bc3ca3ed4286
+/tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-media:
+  en: f0defa65c20c066d
+  zh: f0defa65c20c066d
 /tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-narration:
   en: e91b2518fc02bfc6
   zh: e91b2518fc02bfc6
@@ -522,7 +531,7 @@
   en: 6f86adf127829946
   zh: 6f86adf127829946
 /tool-schema-catalog/deepseek-ai-dsh-tool-shot-script/drama-shot:
-  en: 244fd17d9334c511
+  en: da810d087547fa89
   zh: 244fd17d9334c511
 /tool-schema-catalog/deepseek-ai-dsh-tool-shot-script/muse-production:
   en: 2cefd4d8e5fc6aa9

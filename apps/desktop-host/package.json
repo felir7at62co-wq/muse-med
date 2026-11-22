@@ -96,6 +96,7 @@
     "@deepseek-ai/dsh-tool-character-reference": "workspace:*",
     "@deepseek-ai/dsh-tool-drama-assets": "workspace:*",
     "@deepseek-ai/dsh-tool-episode-render": "workspace:*",
+    "@deepseek-ai/dsh-tool-episode-subtitles": "workspace:*",
     "@deepseek-ai/dsh-tool-jubian": "workspace:*",
     "@deepseek-ai/dsh-tool-present": "workspace:*",
     "@deepseek-ai/dsh-tool-schedule": "workspace:*",

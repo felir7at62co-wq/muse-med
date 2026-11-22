@@ -1,0 +1,49 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/drama/tool-episode-subtitles/README.md
+/:
+  en: b389e6b711a453d4
+  zh: 3b25894b8c5bb324
+/deepseek-ai-dsh-tool-episode-subtitles:
+  en: aabe350808cb8c68
+  zh: ce695d977cd188a7
+/deepseek-ai-dsh-tool-episode-subtitles/summary:
+  en: 9918e2eceb9632fd
+  zh: 530e9acf6f821148
+/deepseek-ai-dsh-tool-episode-subtitles/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: f0f7f88fe2f53b05
+/deepseek-ai-dsh-tool-episode-subtitles/use-this-package:
+  en: 44ae71abae8db213
+  zh: 0b963dbbd9ac6258
+/deepseek-ai-dsh-tool-episode-subtitles/use-this-package/methods-and-files:
+  en: 00ff9813373dd12e
+  zh: dadb80e3ef3465e0
+/deepseek-ai-dsh-tool-episode-subtitles/understand-the-implementation:
+  en: e921602798813d6f
+  zh: 5ace1402b6fa612c
+/deepseek-ai-dsh-tool-episode-subtitles/further-exploration:
+  en: 7224bac4abd1c18e
+  zh: 06f57b7a93ed031c
+/deepseek-ai-dsh-tool-episode-subtitles/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-tool-episode-subtitles/model-experience/the-episode-subtitles-tool-schema:
+  en: 0eeb2b74a4e2926a
+  zh: ce252b17bf672c1d
+/deepseek-ai-dsh-tool-episode-subtitles/model-experience/the-episode-subtitles-tool-schema/what-the-model-sees:
+  en: e5d370bd8e39f755
+  zh: 1a86b66e2901be9b
+/deepseek-ai-dsh-tool-episode-subtitles/model-experience/the-episode-subtitles-tool-schema/token-effect:
+  en: 2a56aa6caaa6803d
+  zh: 6d6c61766987a48f
+/deepseek-ai-dsh-tool-episode-subtitles/model-experience/the-episode-subtitles-tool-schema/kv-cache-effect:
+  en: dd43dc0469d4522b
+  zh: cbd09eeac77fb61d
+/deepseek-ai-dsh-tool-episode-subtitles/known-limitations-and-deferred-work:
+  en: e68a6c3a14b02bb8
+  zh: 40d0008c63437bc1
+/deepseek-ai-dsh-tool-episode-subtitles/known-limitations-and-deferred-work/dev-note:
+  en: f8212e20924ecf07
+  zh: 0ff954abce928a75

@@ -5362,6 +5362,65 @@ export interface DeliverySubtitleVisual {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-episode-render -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-episode-subtitles -->
+<a id="deepseek-aidsh-tool-episode-subtitles"></a>
+
+## `@deepseek-ai/dsh-tool-episode-subtitles`
+
+- `inject`: `tools` · `museAccount` · `subprocess`
+- `source`: [`packages/drama/tool-episode-subtitles/src/index.ts:20`](../packages/drama/tool-episode-subtitles/src/index.ts)
+
+```ts config-catalog
+/** Deployment settings; Desktop passes its bundled runtime and media executables. Omitted limits take the schema defaults. */
+export interface Config extends Partial<EpisodeSubtitlesSettings> {
+  /** Bundled primary runtime directory, used to find the Python that ships `pypinyin`. */
+  readonly source?: string
+  /** Explicit interpreter with `pypinyin==0.55.0`; overrides `source`. */
+  readonly pythonPath?: string
+  /** Effective characters per cue; a space counts as `spaceWidth`. */
+  readonly maxChars?: number
+  /** Width of a space relative to one character when counting cue length. */
+  readonly spaceWidth?: number
+  /** Deadline of one rules process, in milliseconds. */
+  readonly rulesTimeoutMs?: number
+  /** Termination grace of the rules process, in milliseconds. */
+  readonly graceMs?: number
+  /** Largest rules result, in bytes. */
+  readonly maxRulesOutputBytes?: number
+}
+
+/** Deployment settings the call handler reads. */
+export interface EpisodeSubtitlesSettings {
+  /** FFmpeg executable that decodes shot speech for packing and staging. */
+  readonly ffmpegPath: string
+  /** ffprobe executable that measures shot and pack durations. */
+  readonly ffprobePath: string
+  /** Longest packed upload in seconds, silence included; at most the transcription chunk, so a pack is never split. */
+  readonly packSeconds: number
+  /** Digital silence after each shot in a pack, in seconds. */
+  readonly gapSeconds: number
+  /** Most episodes one call accepts. */
+  readonly maxEpisodes: number
+  /** Review items per page. */
+  readonly reviewPageSize: number
+  /** Deadline of one probe or extraction command, in milliseconds. */
+  readonly commandTimeoutMs: number
+  /** Longest pack the transcription runner accepts, in seconds. */
+  readonly maxDurationSeconds: number
+  /** Largest staged pack, in bytes. */
+  readonly maxAudioBytes: number
+  /** Delay between read-only queries of a pending pack, in milliseconds. */
+  readonly pollIntervalMs: number
+  /** Total wait one call spends on `upload_busy` and `request_rate` refusals before reporting them, in milliseconds. */
+  readonly uploadRetryBudgetMs: number
+  /** Packs submitted by one runner batch. */
+  readonly maxBatchInputs: number
+  /** How long a call waits for another build of the same root, in milliseconds. */
+  readonly lockWaitMs: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-episode-subtitles -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-executor-ptc -->
 <a id="deepseek-aidsh-tool-executor-ptc"></a>
 

@@ -24,6 +24,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after an answer or timeout`, `late user/message` | - | ask_user_question keeps the original blocking behavior by default; set `mode: timed` to opt into a foreground timeout and pending result while the question remains answerable. In timed mode, `timeout: -1` keeps that call blocking indefinitely. |
 | `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.agents`, `ctx.sandboxPolicy when filesystem confinement is enabled` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | Source-unit identities, revisions, candidate digests, timestamps and rendered line references are issued by the host. Facts and episode candidates require a different reviewing session before acceptance. |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`, `ctx.museAccount`, `FFmpeg and FFprobe on PATH (or configured)` | `tool/call`, `tool/result`, `transcript/jobs task receipt`, `transcript/raw timed TXT and JSON when complete` | - | `start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway. |
+| `@deepseek-ai/dsh-tool-episode-subtitles` | `episode_subtitles` | `ctx.tools`, `ctx.museAccount`, `ctx.subprocess`, `FFmpeg and FFprobe on PATH (or configured)`, `Python with pypinyin 0.55.0 (source or pythonPath)` | `tool/call`, `tool/result`, `transcript/packs, transcript/jobs and transcript/shots`, `editing/<episode>-shots.json`, `editing/<episode>.srt and its version 2 .clock.json`, `subtitles/<episode>.state.json, .review.json and .decisions.json` | - | `build` packs the shots that miss the transcript cache into a few cloud uploads, splits the words back per shot, corrects them toward the locked script with the rules shared with Jingliu, and lays out the clock from measured durations; repeat the same call until it is not `waiting`. `review` pages pending items and applies `heard`, `script` or `drop` decisions without new recognition. |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`, `TOS access key credential references`, `network access to Volcengine TOS` | `tool/call`, `tool/result`, `public TOS objects below download-video-date/{platform}/{date}/{work_id}/`, `local file deletion only when remove_local is true` | - | Optional package: only the cloud transcription deployment composes it, with its credential references. |
 | `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`, `jingliu_media`, `jingliu_narration`, `jingliu_projects`, `jingliu_run`, `jingliu_studio`, `jingliu_workflows` | `ctx.tools`, `ctx.jingliuConnection`, `ctx.approval for changes and paid workflows` | `tool/call`, `tool/result`, `project updates and jobs on the configured Jingliu service`, `conversation project selections, image and narration job receipts, local Jianying drafts, downloaded studio media under the workspace, and uploads to the Jingliu media store` | - | - |
 | `@deepseek-ai/dsh-tool-workshop` | `script_finalize`, `script_library`, `workshop_video_transcribe` | `ctx.tools`, `ctx.workshopConnection`, `ctx.approval to start a job`, `ctx.fs and ctx.sandboxPolicy for script files` | `tool/call`, `tool/result`, `video_transcribe factory jobs on the configured Script Workshop`, `finalized-script versions and production links in the Workshop library`, `script files under 剧本库/ in the workspace` | - | - |
@@ -1797,7 +1798,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
     },
     "inputs": {
       "type": "array",
-      "description": "start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途收据的集沿用原收据，不重新计费，已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。",
+      "description": "start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途且源文件字节未变的收据沿用原收据，不重新计费；源文件字节变化按新输入提交；已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。",
       "items": {
         "type": "string"
       }
@@ -1837,6 +1838,92 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
 Source: [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/tool-audio-transcribe/src/index.ts)
 
 `start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway.
+
+<a id="deepseek-aidsh-tool-episode-subtitles"></a>
+
+## `@deepseek-ai/dsh-tool-episode-subtitles`
+
+### `episode_subtitles`
+
+按集生成字幕：读取锁定分镜与选定镜头，实测时长，按音频摘要复用或提交云转写，用剧本纠正识别文字，按字词时间排条，写 SRT、时钟回执与待核清单。参数相同重复调用即可续做；只重做变化的镜头。不要自己写台词、对齐或时间。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "description": "build=生成或续做（默认）；review=分页列出待核处，或带 decisions 应用选择并重排，不新转写。",
+      "enum": [
+        "build",
+        "review"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "description": "local=本机项目；jingliu=镜流项目。",
+      "enum": [
+        "local",
+        "jingliu"
+      ]
+    },
+    "project": {
+      "type": "string",
+      "description": "local：项目根目录（相对路径以工作区为基准）；jingliu：项目 ID。"
+    },
+    "episodes": {
+      "type": "array",
+      "description": "集号，1–100 个，不重复。",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "wait_seconds": {
+      "type": "number",
+      "description": "build：在本次调用内等待云转写的秒数，0–30，默认 0。"
+    },
+    "decisions": {
+      "type": "array",
+      "description": "review：用户对待核处的选择；id 取自 review 返回的 items。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "description": "heard=按听到的；script=按剧本；drop=删去这几个字。",
+            "enum": [
+              "heard",
+              "script",
+              "drop"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "action"
+        ]
+      }
+    },
+    "offset": {
+      "type": "integer",
+      "description": "review 分页起点，每页 20 条；用返回的 next_offset。"
+    }
+  },
+  "required": [
+    "source",
+    "project",
+    "episodes"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-episode-subtitles/src/index.ts`](../packages/drama/tool-episode-subtitles/src/index.ts)
+
+`build` packs the shots that miss the transcript cache into a few cloud uploads, splits the words back per shot, corrects them toward the locked script with the rules shared with Jingliu, and lays out the clock from measured durations; repeat the same call until it is not `waiting`. `review` pages pending items and applies `heard`, `script` or `drop` decisions without new recognition.
 
 <a id="deepseek-aidsh-tool-drama-tos-upload"></a>
 
@@ -7371,7 +7458,7 @@ drama_project keeps authoritative JSON, guarded revisions, package identities an
 
 ### `drama_shot`
 
-严格校验镜头脚本的时长、有效字、发声、画外音与资产绑定，分别报告硬失败和警告。compile 通过后写入 matches/<集号>.matched.json、prompts/<集号>.txt 与 episode_packages/<集号>/；报告每包 content_duration_ms、提交整秒时长及素材键顺序；硬失败不写文件、不给分包方案。时长优先用正整数 N秒声明，否则按配置语速估算（默认8 有效字/秒）。动作、发声、反应预算为非负整数秒；表演顺序同时取较长项，先动作后台词或先台词后动作则累加，最后加反应。声明时长容纳不下预算即失败。15 字写作阈值、内建 36 字建议、偏离语速估算、缺风格/负面词、正文秒数仅警告，允许长慢镜头。超过 project_config.json 的 delivery.max_effective_chars_per_shot 则失败：按原文语义拆镜或调整项目要求，不删字、不换序、不换说话人。无声镜写 发声类型：action；动作复杂度 简单/一般/较复杂/复杂 对应1/2/3/4秒，缺省2秒。只在一个镜头块的字段里读到 台词：无、空台词行 或 出镜人物：无 时失败，无声镜应整行省略台词与出镜人物。本说明、技能正文与检查清单里出现这些字样不算脚本违规。导演格式对白必须标说话人，与台词角色前缀冲突即失败，不静默换角色。旁白/解说/心声/画外声/OS 保留原文和说话人，按 vo 画外发声并提醒核对项目配音。只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产。每个入画角色须在自己的 主体状态追踪 中声明 身体状态：【阶段（孕周/年龄段）；服装；发型】；孕八周记孕早期，无体型变化写 非孕期。资产 state_or_costume（含资产名）须登记相同状态维度，episodes 须含本集号或 ["all"]。缺声明、阶段不同或未覆盖本集均失败并点名资产 id；无对应状态资产时给出角色/阶段/服装/集数的补料需求与路径，不静默绑定。按 max_submit_seconds 的有效单包上限，只合并同场连续完整镜头；内容加1秒收束不得超限，超长单镜拒绝，禁止截断。
+严格校验镜头脚本的时长、有效字、发声、画外音与资产绑定，分别报告硬失败和警告。compile 通过后写入 matches/<集号>.matched.json、prompts/<集号>.txt 与 episode_packages/<集号>/；报告每包 content_duration_ms、提交整秒时长及素材键顺序；硬失败不写文件、不给分包方案。时长优先用正整数 N秒声明，否则按配置语速估算（默认7 有效字/秒）。动作、发声、反应预算为非负整数秒；表演顺序同时取较长项，先动作后台词或先台词后动作则累加，最后加反应。声明时长容纳不下预算即失败。15 字写作阈值、内建 36 字建议、偏离语速估算、缺风格/负面词、正文秒数仅警告，允许长慢镜头。超过 project_config.json 的 delivery.max_effective_chars_per_shot 则失败：按原文语义拆镜或调整项目要求，不删字、不换序、不换说话人。无声镜写 发声类型：action；动作复杂度 简单/一般/较复杂/复杂 对应1/2/3/4秒，缺省2秒。只在一个镜头块的字段里读到 台词：无、空台词行 或 出镜人物：无 时失败，无声镜应整行省略台词与出镜人物。本说明、技能正文与检查清单里出现这些字样不算脚本违规。导演格式对白必须标说话人，与台词角色前缀冲突即失败，不静默换角色。旁白/解说/心声/画外声/OS 保留原文和说话人，按 vo 画外发声并提醒核对项目配音。只绑定 official=true 且有剧变 asset/material ID 与 URL 的资产。每个入画角色须在自己的 主体状态追踪 中声明 身体状态：【阶段（孕周/年龄段）；服装；发型】；孕八周记孕早期，无体型变化写 非孕期。资产 state_or_costume（含资产名）须登记相同状态维度，episodes 须含本集号或 ["all"]。缺声明、阶段不同或未覆盖本集均失败并点名资产 id；无对应状态资产时给出角色/阶段/服装/集数的补料需求与路径，不静默绑定。按 max_submit_seconds 的有效单包上限，只合并同场连续完整镜头；内容加1秒收束不得超限，超长单镜拒绝，禁止截断。
 
 ```json
 {

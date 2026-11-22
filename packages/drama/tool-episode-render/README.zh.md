@@ -53,7 +53,7 @@ kind: "package-reference"
 
 上面的字体族是部署默认值，不是模型工具参数。两者都必须是非空白字符串，不能包含逗号或换行；无效值会被 Config 校验拒绝。项目可以按下文覆盖正文字幕字族，但不能覆盖水印字族。提供 Noto Sans CJK SC 的部署可将两个默认值设为 `Noto Sans CJK SC`。选择字族不会修改 `fontsDir` 或安装字体。旧版渲染在 libass 找不到字族时可能回退；启用 `subtitle_visual` 的交付要求实测字体选择与请求字族相符。需要标记与片尾时，拼接后统一烧录一份 ASS，因此片尾全程使用同一水印字体族。
 
-Host 来源核验调用方从 `@deepseek-ai/dsh-tool-episode-render/source-qa` 导入 `preparedSubtitleClockInputs`、`captureEpisodeSourceReview`、`createSourceQaStagedAccess` 及其类型。项目查找与交付检查从 `@deepseek-ai/dsh-tool-episode-render/delivery` 导入 `findShortDramaProject`、`isShortDramaProject`、`createContentReviewVerifier`、`verifyEpisodeContentReview`、`verifyDraftSubtitleFont` 和 `parseSrtDocument`。这些构建后的辅助入口与插件入口共享运行时 chunk，保留既有错误类与来源证据的身份。
+Host 来源核验调用方从 `@deepseek-ai/dsh-tool-episode-render/source-qa` 导入 `preparedSubtitleClockInputs`、`captureEpisodeSourceReview`、`createSourceQaStagedAccess` 及其类型。项目查找与交付检查从 `@deepseek-ai/dsh-tool-episode-render/delivery` 导入 `findShortDramaProject`、`isShortDramaProject`、`createContentReviewVerifier`、`verifyEpisodeContentReview`、`verifyDraftSubtitleFont` 和 `parseSrtDocument`。字幕构建方从 `@deepseek-ai/dsh-tool-episode-render/subtitles` 导入画面时钟（`parseShotManifest`、`resolveShots`、`readProjectDelivery`、`createMediaToolkit`）、时钟回执（`writeSubtitleClock`、`readSubtitleClockReceipt`、`subtitleClockRows`、`sourceClockSha256`、`changedShots`）和 `formatSrtDocument`。这些构建后的辅助入口与插件入口共享运行时 chunk，保留既有错误类与来源证据的身份。
 
 Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，同时保留原项目路径作为证据身份。缺少捕获映射时，在文件访问前拒绝。每次读取核对映射文件的字节；映射本身不授予批准。严格调用方必须提供真实 Session 核验器，并将所有者守卫保持到最终发布。[Desktop 守护者](../../../apps/desktop-host/README.zh.md#episode-execution-supervision)负责这一跨进程组合。
 
@@ -213,7 +213,7 @@ Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，�
 
 有对齐或可读性发现时，工具只在有可用字幕条目时写出 `<subtitle_srt>.draft.srt`，保留已有 SRT。没有可用条目时，只写本次 `<subtitle_srt>.review.txt`，明确提示未生成候选，并保留已有候选及其检查说明。其他情况下，候选有独立检查说明；本次说明也记录中断后的待核状态。`prepare` 和 `render` 将这些说明及旧 `.blocked` 标记作为提醒返回，仍使用明确选择的可读 SRT 继续执行。完整对齐成功后写入目标 SRT 并清除其待核说明。保存、渲染成功及 `ok: true` 都不等于创作验收通过。
 
-每份生成的 SRT 和候选字幕都有相邻的 `.clock.json` 记录，绑定字幕字节、集数、所选音视频字节和按顺序排列的片段时长。请一起保留两份文件。`prepare` 在替换已准备素材前检查记录，并随 SRT 一同安装。`render` 在编码或复用成片前，用准备好的画面、选定的音轨和本次时间线核对所选字幕的记录。如果所选片段或时间发生变化，请用当前清单和同源对齐记录重跑 `subtitles`。需要人工改字幕时，可以另存为手动字幕再明确选择。无记录的 SRT 仍可用，其对齐状态为未验证。
+每份生成的 SRT 和候选字幕都有相邻的 `.clock.json` 记录，绑定字幕字节、集数、所选音视频字节和按顺序排列的片段时长。请一起保留两份文件。`prepare` 在替换已准备素材前检查记录，并随 SRT 一同安装。`render` 在编码或复用成片前，用准备好的画面、选定的音轨和本次时间线核对所选字幕的记录。如果所选片段或时间发生变化，请用当前清单和同源对齐记录重跑 `subtitles`。需要人工改字幕时，可以另存为手动字幕再明确选择。无记录的 SRT 仍可用，其对齐状态为未验证；剪映草稿要求为它声明 `subtitle_source: "manual"`。`episode_subtitles` 写出的第 2 版记录还包含生成方、规则摘要、待核数量和每个镜头的记录行，`changedShots` 据此写出变化的镜头；其 `source_clock_sha256` 与第 1 版计算方式完全相同，两个版本都被接受。
 
 同时向 `prepare` 传入 `lines` 和 `alignment`，可对字节仍匹配原回执、但来源时钟已变的生成字幕自动修复一次。每镜对齐记录的 `source_sha256` 必须匹配当前实际使用的声音文件。修复保留原文字和顺序，将原 SRT 和回执与重建候选一起保存，重新核对时钟后才安装。对齐不全、对白改动或人工修改过的 SRT 进入复核。
 

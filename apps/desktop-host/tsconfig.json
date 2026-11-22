@@ -144,6 +144,9 @@
       "path": "../../packages/drama/tool-episode-render"
     },
     {
+      "path": "../../packages/drama/tool-episode-subtitles"
+    },
+    {
       "path": "../../packages/deliverables/tool-present"
     },
     {

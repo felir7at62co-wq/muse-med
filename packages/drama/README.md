@@ -35,6 +35,7 @@ The `drama/` group holds the short-drama pipeline's formats, operations, and set
 | [`tool-shot-script/`](tool-shot-script/README.md) | The model-facing `drama_shot` tool: strict script compilation by default, or advisory content checks, package suggestions and separate review drafts in Muse Short Drama |
 | [`bgm-license-info/`](bgm-license-info/README.md) | Music-rights declarations, explicit unknown metadata and advisory intended-use conflicts shared by catalog and rendering consumers |
 | [`tool-bgm-compose/`](tool-bgm-compose/README.md) | The model-facing `drama_bgm` tool: source analysis, deterministic crossfaded composition, no-clobber publication, and fixed WAV verification |
+| [`tool-episode-subtitles/`](tool-episode-subtitles/README.md) | The model-facing `episode_subtitles` tool: per-episode subtitles from packed cloud transcription, corrected toward the locked script by the rules shared with Jingliu, with a clock receipt and a review list |
 | [`tool-episode-render/`](tool-episode-render/README.md) | The model-facing `drama_render` tool: the render-input layout, project-canvas delivery with subtitle and audio style, medium-controlled ending and watermark, and the post-render checks |
 | [`drama-settings/`](drama-settings/README.md) | The durable `drama` settings section every other row reads, plus its Web GUI surface: the Settings page and that page's read-only component list |
 | [`character-library/`](character-library/README.md) | Bounded Host-owned browsing, preview and recommendation for character references |

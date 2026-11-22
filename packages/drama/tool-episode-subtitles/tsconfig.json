@@ -1,0 +1,25 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    { "path": "../../../vendor/cosmokit" },
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../core/tools" },
+    { "path": "../../llm/llm" },
+    { "path": "../../subprocess/subprocess" },
+    { "path": "../../util/atomic-write" },
+    { "path": "../../util/error" },
+    { "path": "../../util/values" },
+    { "path": "../../host/muse-account/tsconfig.host.json" },
+    { "path": "../../skill/tool-workspace-dependencies" },
+    { "path": "../tool-audio-transcribe" },
+    { "path": "../tool-episode-render" }
+  ]
+}

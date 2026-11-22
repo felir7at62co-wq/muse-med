@@ -5,6 +5,7 @@ export default defineConfig({
     'index': 'lib/types/index.js',
     'source-qa': 'lib/types/source-qa-api.js',
     'delivery': 'lib/types/delivery-api.js',
+    'subtitles': 'lib/types/subtitles-api.js',
   },
   outDir: 'lib',
   format: ['esm'],

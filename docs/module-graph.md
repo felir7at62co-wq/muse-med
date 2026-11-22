@@ -285,9 +285,12 @@ flowchart TD
     pkg_tool_drama_assets["tool-drama-assets"]
     pkg_tool_drama_tos_upload["tool-drama-tos-upload"]
     pkg_tool_episode_render["tool-episode-render"]
+    pkg_tool_episode_subtitles["tool-episode-subtitles"]
     pkg_tool_hit_queue["tool-hit-queue"]
     pkg_tool_jingliu["tool-jingliu"]
     pkg_tool_shot_script["tool-shot-script"]
+    pkg_tool_workshop["tool-workshop"]
+    pkg_workbench_connection["workbench-connection"]
   end
   subgraph group_experimental["packages/experimental"]
     pkg_action_cards["action-cards"]
@@ -583,6 +586,8 @@ flowchart TD
   pkg_hmr --> pkg_cmdline
   pkg_authorization --> pkg_credentials
   pkg_authorization --> pkg_llm
+  pkg_workbench_connection --> pkg_muse_account
+  pkg_workbench_connection --> pkg_typert_protocol
   pkg_experimental_computer_use_cua_driver_mcp --> pkg_computer_use
   pkg_experimental_forge_github --> pkg_experimental_forge
   pkg_experimental_forge_github --> pkg_subprocess
@@ -966,7 +971,10 @@ flowchart TD
   pkg_tool_str_replace_editor --> pkg_tools
   pkg_tool_skill --> pkg_agent
   pkg_tool_skill --> pkg_llm
+  pkg_tool_skill --> pkg_session
+  pkg_tool_skill --> pkg_session_projection
   pkg_tool_skill --> pkg_skill
+  pkg_tool_skill --> pkg_system_prompt
   pkg_tool_skill --> pkg_tools
   pkg_tool_skill --> pkg_working_directory
   pkg_tool_workspace_dependencies --> pkg_tools
@@ -1044,10 +1052,19 @@ flowchart TD
   pkg_tool_drama_tos_upload --> pkg_credentials
   pkg_tool_drama_tos_upload --> pkg_error
   pkg_tool_drama_tos_upload --> pkg_tools
+  pkg_tool_episode_subtitles --> pkg_llm
+  pkg_tool_episode_subtitles --> pkg_subprocess
+  pkg_tool_episode_subtitles --> pkg_tools
   pkg_tool_hit_queue --> pkg_credentials
   pkg_tool_hit_queue --> pkg_error
   pkg_tool_hit_queue --> pkg_tools
   pkg_tool_hit_queue --> pkg_util_values
+  pkg_tool_workshop --> pkg_error
+  pkg_tool_workshop --> pkg_fs
+  pkg_tool_workshop --> pkg_sandbox_policy
+  pkg_tool_workshop --> pkg_tools
+  pkg_tool_workshop --> pkg_user_approval
+  pkg_tool_workshop --> pkg_util_values
   pkg_action_cards --> pkg_llm
   pkg_action_cards --> pkg_session
   pkg_action_cards --> pkg_tools
@@ -1947,6 +1964,7 @@ flowchart TD
 | [`attachment-local`](../packages/attachment/attachment-local) | `attachment` | [`attachment`](../packages/attachment/attachment), [`home-paths`](../packages/util/home-paths) |
 | [`hmr`](../packages/boot/hmr) | `boot` | [`app-boot`](../packages/boot/app-boot), [`cmdline`](../packages/boot/cmdline) |
 | [`authorization`](../packages/credentials/authorization) | `credentials` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm) |
+| [`workbench-connection`](../packages/drama/workbench-connection) | `drama` | [`muse-account`](../packages/host/muse-account), [`typert-protocol`](../packages/typert/protocol) |
 | [`experimental-computer-use-cua-driver-mcp`](../packages/experimental/computer-use-cua-driver-mcp) | `experimental` | [`computer-use`](../packages/computer-use/computer-use) |
 | [`experimental-forge-github`](../packages/experimental/forge-github) | `experimental` | [`experimental-forge`](../packages/experimental/forge), [`subprocess`](../packages/subprocess/subprocess) |
 | [`experimental-webworker-runtime`](../packages/experimental/webworker-runtime) | `experimental` | [`client-connection`](../packages/client/connection), [`client-modules`](../packages/client/modules), [`host-webserver`](../packages/host/webserver) |
@@ -2047,7 +2065,7 @@ flowchart TD
 | [`tool-fs`](../packages/fs/tool-fs) | `fs` | [`attachment`](../packages/attachment/attachment), [`error`](../packages/util/error), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval), [`working-directory`](../packages/session/working-directory) |
 | [`tool-fs-search`](../packages/fs/tool-fs-search) | `fs` | [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`session`](../packages/core/session), [`spill`](../packages/spill/spill), [`subprocess`](../packages/subprocess/subprocess), [`system-prompt`](../packages/core/system-prompt), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools), [`working-directory`](../packages/session/working-directory) |
 | [`tool-str-replace-editor`](../packages/fs/tool-str-replace-editor) | `fs` | [`fs`](../packages/fs/fs), [`output-retention`](../packages/util/output-retention), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`tools`](../packages/core/tools) |
-| [`tool-skill`](../packages/skill/tool-skill) | `skill` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`skill`](../packages/skill/skill), [`tools`](../packages/core/tools), [`working-directory`](../packages/session/working-directory) |
+| [`tool-skill`](../packages/skill/tool-skill) | `skill` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`skill`](../packages/skill/skill), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`working-directory`](../packages/session/working-directory) |
 | [`tool-workspace-dependencies`](../packages/skill/tool-workspace-dependencies) | `skill` | [`tools`](../packages/core/tools) |
 | [`tool-web`](../packages/web/tool-web) | `web` | [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`web`](../packages/web/web) |
 | [`web-deepseek-api`](../packages/web/web-deepseek-api) | `web` | [`agent`](../packages/core/agent), [`credentials`](../packages/credentials/credentials), [`deepseek-account`](../packages/credentials/deepseek-account), [`launch-environment`](../packages/util/launch-environment), [`llm`](../packages/llm/llm), [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-deepseek-account`](../packages/llm/llm-deepseek-account), [`llm-deepseek-api-key`](../packages/llm/llm-deepseek-api-key), [`session`](../packages/core/session), [`web`](../packages/web/web) |
@@ -2065,7 +2083,9 @@ flowchart TD
 | [`tool-character-reference`](../packages/drama/tool-character-reference) | `drama` | [`attachment`](../packages/attachment/attachment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`tools`](../packages/core/tools) |
 | [`tool-drama-assets`](../packages/drama/tool-drama-assets) | `drama` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-drama-tos-upload`](../packages/drama/tool-drama-tos-upload) | `drama` | [`credentials`](../packages/credentials/credentials), [`error`](../packages/util/error), [`tools`](../packages/core/tools) |
+| [`tool-episode-subtitles`](../packages/drama/tool-episode-subtitles) | `drama` | [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
 | [`tool-hit-queue`](../packages/drama/tool-hit-queue) | `drama` | [`credentials`](../packages/credentials/credentials), [`error`](../packages/util/error), [`tools`](../packages/core/tools), [`util-values`](../packages/util/values) |
+| [`tool-workshop`](../packages/drama/tool-workshop) | `drama` | [`error`](../packages/util/error), [`fs`](../packages/fs/fs), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval), [`util-values`](../packages/util/values) |
 | [`action-cards`](../packages/experimental/action-cards) | `experimental` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |
 | [`creation-recommendations`](../packages/experimental/creation-recommendations) | `experimental` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`skill`](../packages/skill/skill), [`tools`](../packages/core/tools) |
 | [`cua`](../packages/experimental/cua) | `experimental` | [`attachment`](../packages/attachment/attachment), [`ptc-runtime-node`](../packages/ptc-runtime/ptc-runtime-node), [`scope`](../packages/core/scope), [`user-questions`](../packages/interaction/user-questions) |

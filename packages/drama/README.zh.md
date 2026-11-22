@@ -35,6 +35,7 @@ kind: "package-group"
 | [`tool-shot-script/`](tool-shot-script/README.zh.md) | 模型可见的 `drama_shot` 工具：默认严格编译脚本，Muse 短剧模式采用提示型内容检查、分包建议和独立检查草稿 |
 | [`bgm-license-info/`](bgm-license-info/README.zh.md) | 曲库与渲染使用方共享的音乐权利声明、明确的未知元数据及用途冲突提示 |
 | [`tool-bgm-compose/`](tool-bgm-compose/README.zh.md) | 模型可见的 `drama_bgm` 工具：源曲分析、确定性交叉淡化合成、无覆盖发布与固定 WAV 核验 |
+| [`tool-episode-subtitles/`](tool-episode-subtitles/README.zh.md) | 模型可见的 `episode_subtitles` 工具：按集拼包云转写，用与镜流共用的规则对照锁定剧本纠正文字，输出带时钟回执与待核清单的字幕 |
 | [`tool-episode-render/`](tool-episode-render/README.zh.md) | 模型可见的 `drama_render` 工具：渲染输入布局、带字幕与音频样式的项目画布交付、按视觉类型确定片尾和水印，以及渲染后检查 |
 | [`drama-settings/`](drama-settings/README.zh.md) | 其它各行读取的持久 `drama` 设置段，以及它的 Web GUI 界面：设置页与页面上那份只读组件清单 |
 | [`character-library/`](character-library/README.zh.md) | 为人物参考提供有界、由 Host 管理的浏览、预览和推荐能力 |

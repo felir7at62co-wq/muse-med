@@ -107,6 +107,7 @@ import SettingsForms from '@deepseek-ai/dsh-settings'
 import * as ToolBgmCompose from '@deepseek-ai/dsh-tool-bgm-compose'
 import * as PerceptionBgm from '@deepseek-ai/dsh-perception-bgm'
 import * as ToolEpisodeRender from '@deepseek-ai/dsh-tool-episode-render'
+import * as ToolEpisodeSubtitles from '@deepseek-ai/dsh-tool-episode-subtitles'
 import * as ToolDramaAssets from '@deepseek-ai/dsh-tool-drama-assets'
 import * as ToolCharacterReference from '@deepseek-ai/dsh-tool-character-reference'
 
@@ -391,6 +392,23 @@ const TOOL_PACKAGES: ToolPackage[] = [
       '`start` submits compressed speech under the signed-in Muse account and returns a project receipt; '
       + '`status` checks that receipt and publishes timed TXT and JSON when recognition completes. '
       + 'The same tool is available in every Muse mode, with provider credentials held by the account gateway.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-episode-subtitles',
+    dir: 'tool-episode-subtitles',
+    source: 'packages/drama/tool-episode-subtitles/src/index.ts',
+    requires: ['ctx.tools', 'ctx.museAccount', 'ctx.subprocess', 'FFmpeg and FFprobe on PATH (or configured)', 'Python with pypinyin 0.55.0 (source or pythonPath)'],
+    writes: ['tool/call', 'tool/result', 'transcript/packs, transcript/jobs and transcript/shots', 'editing/<episode>-shots.json',
+      'editing/<episode>.srt and its version 2 .clock.json', 'subtitles/<episode>.state.json, .review.json and .decisions.json'],
+    async mount(ctx) {
+      ctx.provide('museAccount', {} as MuseAccountService)
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(ToolEpisodeSubtitles, { pythonPath: 'python3' })
+    },
+    note:
+      '`build` packs the shots that miss the transcript cache into a few cloud uploads, splits the words back per shot, corrects them '
+      + 'toward the locked script with the rules shared with Jingliu, and lays out the clock from measured durations; repeat the same call '
+      + 'until it is not `waiting`. `review` pages pending items and applies `heard`, `script` or `drop` decisions without new recognition.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-drama-tos-upload',
