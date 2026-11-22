@@ -31,7 +31,7 @@ from typing import NamedTuple
 
 from sqlalchemy import func
 
-from .db import Shot, get_session, profile_of
+from .db import Shot, profile_of
 from .providers.registry import registry
 
 logger = logging.getLogger(__name__)
@@ -294,6 +294,42 @@ def subtitle_output_span(shot, offset_sec, dur_sec) -> tuple[float, float]:
     spd = shot_speed(shot)
     return (float(offset_sec or 0.0) / spd,
             float(dur_sec or 0.0) / spd)
+
+
+def subtitle_source_span(shot, start_sec, end_sec) -> tuple[float, float] | None:
+    """`time_base='source'` 字幕的 `(镜内偏移, 显示时长)`：**源文件秒 → 成片秒**；落在取片窗口外返回 None。
+
+    这种字幕（Muse 逐字字幕，2026-11-21）的起止是这一镜**源文件**里的秒：转写的是整个文件，
+    不减取片入点、不除变速。导出时先截到取片窗口 `[入点, 入点+时长)` 里，再减入点、除速度：
+    修剪掉的那段话不出字幕，入点后移不会让字幕整体错位。与老口径 `subtitle_output_span`
+    （偏移相对取片窗口，见那里的说明）是两种数据，按 `SubtitleClip.time_base` 选用，不能混。
+    """
+    cin, dur = shot_source_window(shot)
+    spd = shot_speed(shot)
+    a = max(float(start_sec or 0.0), cin)
+    b = min(float(end_sec or 0.0), cin + dur)
+    if b <= a:
+        return None
+    return (a - cin) / spd, (b - a) / spd
+
+
+def subtitle_place(clip, by_id: dict, by_order: dict) -> tuple[int, float, float] | None:
+    """一条字幕落在哪一镜 → `(镜号, 镜内偏移, 显示时长)`，后两个是成片秒；落不下返回 None。
+
+    镜头：`source_shot_id` 有值时按它找（镜头改过序也是同一镜），否则按 `start_shot_order`。
+    时间：`time_base == "source"` 的走 `subtitle_source_span`（窗口外的、找不到镜头的返回 None），
+    老数据走 `subtitle_output_span`；老数据锚着的镜头不在 `by_order` 里时按原值返回（与改动前相同）。
+    SRT 导出与剪映导出都用它，两处不许各算一份。
+    """
+    sh = by_id.get(clip.source_shot_id) if clip.source_shot_id else by_order.get(clip.start_shot_order or 0)
+    start = float(clip.start_offset_sec or 0.0)
+    if clip.time_base == "source":
+        span = None if sh is None else subtitle_source_span(sh, start, start + float(clip.duration or 0.0))
+        return None if span is None else (sh.order, span[0], span[1])
+    if sh is None:
+        return clip.start_shot_order or 0, start, float(clip.duration or 2.0)
+    off, dur = subtitle_output_span(sh, clip.start_offset_sec, clip.duration or 2.0)
+    return sh.order, off, dur
 
 
 def episode_total_sec(shots) -> float:

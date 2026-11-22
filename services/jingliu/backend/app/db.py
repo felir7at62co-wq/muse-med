@@ -10,7 +10,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import JSON, String, Text, create_engine, event, inspect
+from sqlalchemy import JSON, Index, String, Text, create_engine, event, inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 
@@ -1008,6 +1008,45 @@ class SubtitleClip(Base):
     #: 样式 JSON；None = 用项目默认预设
     style: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    #: 这条字幕是按哪一份素材做的（2026-11-21，Muse 逐字字幕）。四列都为 NULL 的是老数据，
+    #: 状态是 `unverified`（见 `subtitle_status`）。`source_shot_id` 有值时按它找镜头，
+    #: 不按 `start_shot_order`：镜头改序后仍然锚在同一镜上。
+    source_shot_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: 做字幕时这一镜的 `video_url`；与镜头当前的不同 = 换过素材（重新生成、采纳别的版本），字幕过期
+    source_video_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: 做字幕时这一镜采用的版本号（`Shot.adopted_version`），只供人看
+    source_version: Mapped[int | None] = mapped_column(nullable=True)
+    #: 那份素材的 SHA-256（Muse 下载后算的），只供人看与核对
+    source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: `source` = `start_offset_sec` / `duration` 是**源文件**里的秒（不减取片入点、不除变速，
+    #: 导出时经 `shot_timing.subtitle_source_span` 换算）；NULL = 老口径（`subtitle_output_span`）
+    time_base: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    #: `muse`（Muse 送来逐字时间）| `asr`（镜流自己转写）| `manual`（手加的）；NULL = 老数据
+    origin: Mapped[str | None] = mapped_column(String(8), nullable=True)
+
+    __table_args__ = (Index("ix_subtitle_clips_source_shot", "source_shot_id"),)
+
+
+class SubtitleSource(Base):
+    """一镜的字幕最近一次是按哪一份素材做的（Muse 逐字字幕每做一镜写一行，2026-11-21）。
+
+    没有说话声的镜头一条字幕都没有，单看 `subtitle_clips` 分不出「做过、没人说话」和「还没做」；
+    这一行就是「做过」的记录。状态在读取时现算（`subtitle_status`），换素材不用回头改它。
+    """
+
+    __tablename__ = "subtitle_sources"
+
+    shot_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(16), index=True)
+    source_video_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_version: Mapped[int | None] = mapped_column(nullable=True)
+    source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    origin: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    #: 写进字幕轨的条数、还没人选的待核处数、写它的任务
+    cues: Mapped[int] = mapped_column(default=0)
+    review_pending: Mapped[int] = mapped_column(default=0)
+    job_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    updated_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class Transition(Base):

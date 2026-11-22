@@ -15,7 +15,7 @@ from typing import Literal
 from ..db import Asset, AssetStage, Project, Shot, get_session
 from ..shot_timing import (episode_total_sec, shot_output_sec,
                            shot_override_ceiling)
-from .executor import ToolCtx, ToolDenied
+from .executor import ToolCtx
 from .registry import engine_tool, submit_idempotent
 
 logger = logging.getLogger("fw.agent.tools.write")
@@ -2271,7 +2271,8 @@ async def apply_subtitle_plan(ctx: ToolCtx, project_id: str,
                     text=piece, kind=str(c.get("kind") or "subtitle"),
                     start_shot_order=order,
                     start_offset_sec=max(0.0, st),
-                    duration=max(0.1, pdur), style=None, created_at=now))
+                    duration=max(0.1, pdur), style=None, created_at=now,
+                    origin="manual"))
                 made += 1
         s.commit()
 

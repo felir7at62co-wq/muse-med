@@ -1,0 +1,1944 @@
+{
+ "version": 1,
+ "about": "Shared vectors for app/subtitle_cues.py (pytest) and Muse's vendored copy (run.py). Times are shot-local source seconds. space_width is 0.5 in every case.",
+ "space_width": 0.5,
+ "cases": [
+  {
+   "name": "names_and_homophones_take_the_script",
+   "max_chars": 20,
+   "audio_sha": "sha-names_an",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "林",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "辰，",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "你",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "终",
+     "seg": 0
+    },
+    {
+     "start": 1.0,
+     "end": 1.2,
+     "text": "于",
+     "seg": 0
+    },
+    {
+     "start": 1.25,
+     "end": 1.45,
+     "text": "回",
+     "seg": 0
+    },
+    {
+     "start": 1.5,
+     "end": 1.7,
+     "text": "来",
+     "seg": 0
+    },
+    {
+     "start": 1.75,
+     "end": 1.95,
+     "text": "了！",
+     "seg": 0
+    },
+    {
+     "start": 2.4,
+     "end": 2.6,
+     "text": "妈",
+     "seg": 1
+    },
+    {
+     "start": 2.65,
+     "end": 2.85,
+     "text": "说",
+     "seg": 1
+    },
+    {
+     "start": 2.9,
+     "end": 3.1,
+     "text": "林",
+     "seg": 1
+    },
+    {
+     "start": 3.15,
+     "end": 3.35,
+     "text": "辰",
+     "seg": 1
+    },
+    {
+     "start": 3.4,
+     "end": 3.6,
+     "text": "在",
+     "seg": 1
+    },
+    {
+     "start": 3.65,
+     "end": 3.85,
+     "text": "等",
+     "seg": 1
+    },
+    {
+     "start": 3.9,
+     "end": 4.1,
+     "text": "审",
+     "seg": 1
+    },
+    {
+     "start": 4.15,
+     "end": 4.35,
+     "text": "木",
+     "seg": 1
+    }
+   ],
+   "lines": [
+    "林晨，你终于回来了！",
+    "妈说林晨在等沈母。"
+   ],
+   "names": [
+    "林晨",
+    "沈母"
+   ],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "林",
+     "晨，",
+     "你",
+     "终",
+     "于",
+     "回",
+     "来",
+     "了！",
+     "妈",
+     "说",
+     "林",
+     "晨",
+     "在",
+     "等",
+     "沈",
+     "母"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 1.95,
+      "text": "林晨 你终于回来了",
+      "long": false
+     },
+     {
+      "start": 2.4,
+      "end": 4.35,
+      "text": "妈说林晨在等沈母",
+      "long": false
+     }
+    ],
+    "items": [],
+    "pending": 0,
+    "stats": {
+     "similarity": 0.75,
+     "fixed": 4,
+     "kept": 0,
+     "extra": 0,
+     "unspoken": 0,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [
+      {
+       "heard": "辰",
+       "script": "晨"
+      },
+      {
+       "heard": "辰",
+       "script": "晨"
+      },
+      {
+       "heard": "审木",
+       "script": "沈母"
+      }
+     ],
+     "differs": [],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "a_number_split_across_words_is_put_in_the_first_word",
+   "max_chars": 14,
+   "audio_sha": "sha-a_number",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "年",
+     "seg": 0
+    },
+    {
+     "start": 0.2,
+     "end": 0.4,
+     "text": "薪",
+     "seg": 0
+    },
+    {
+     "start": 0.4,
+     "end": 0.6,
+     "text": "3",
+     "seg": 0
+    },
+    {
+     "start": 0.6,
+     "end": 0.9,
+     "text": "18",
+     "seg": 1
+    },
+    {
+     "start": 0.9,
+     "end": 1.1,
+     "text": "万",
+     "seg": 1
+    },
+    {
+     "start": 1.1,
+     "end": 1.3,
+     "text": "是",
+     "seg": 1
+    },
+    {
+     "start": 1.3,
+     "end": 1.5,
+     "text": "真",
+     "seg": 1
+    },
+    {
+     "start": 1.5,
+     "end": 1.7,
+     "text": "的",
+     "seg": 1
+    }
+   ],
+   "lines": [
+    "年薪三百一十八万是真的"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "年",
+     "薪",
+     "三百一十八",
+     "",
+     "万",
+     "是",
+     "真",
+     "的"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 0.6,
+      "text": "年薪三百一十八",
+      "long": false
+     },
+     {
+      "start": 0.6,
+      "end": 1.7,
+      "text": "万是真的",
+      "long": false
+     }
+    ],
+    "items": [],
+    "pending": 0,
+    "stats": {
+     "similarity": 1.0,
+     "fixed": 5,
+     "kept": 0,
+     "extra": 0,
+     "unspoken": 0,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [
+      {
+       "heard": "318",
+       "script": "三百一十八"
+      }
+     ],
+     "differs": [],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "a_same_sounding_negation_is_a_doubt",
+   "max_chars": 14,
+   "audio_sha": "sha-a_same_s",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "这",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "不",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "行",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "啊",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "这步行啊"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "这",
+     "不",
+     "行",
+     "啊"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 0.95,
+      "text": "这不行啊",
+      "long": false
+     }
+    ],
+    "items": [
+     {
+      "id": "81eb20c34536",
+      "kind": "doubt",
+      "heard": "不",
+      "script": "步",
+      "start": 0.25,
+      "end": 0.45,
+      "decision": null
+     }
+    ],
+    "pending": 1,
+    "stats": {
+     "similarity": 0.75,
+     "fixed": 0,
+     "kept": 1,
+     "extra": 0,
+     "unspoken": 1,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [],
+     "doubts": [
+      {
+       "heard": "不",
+       "script": "步"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "a_different_reading_is_a_differ",
+   "max_chars": 14,
+   "audio_sha": "sha-a_differ",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "我",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "不",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "想",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "去",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "我很想去"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "我",
+     "不",
+     "想",
+     "去"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 0.95,
+      "text": "我不想去",
+      "long": false
+     }
+    ],
+    "items": [
+     {
+      "id": "079ab23c1eb7",
+      "kind": "differ",
+      "heard": "不",
+      "script": "很",
+      "start": 0.25,
+      "end": 0.45,
+      "decision": null
+     }
+    ],
+    "pending": 1,
+    "stats": {
+     "similarity": 0.75,
+     "fixed": 0,
+     "kept": 1,
+     "extra": 0,
+     "unspoken": 1,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [
+      {
+       "heard": "不",
+       "script": "很"
+      }
+     ],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "script_decision_inserts_a_dropped_negation",
+   "max_chars": 14,
+   "audio_sha": "sha-script_d",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "他",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "是",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "坏",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "人",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "他不是坏人"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [
+    {
+     "id": "86151c91a3ff",
+     "action": "script"
+    }
+   ],
+   "expect": {
+    "texts": [
+     "他",
+     "不是",
+     "坏",
+     "人"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 0.95,
+      "text": "他不是坏人",
+      "long": false
+     }
+    ],
+    "items": [
+     {
+      "id": "86151c91a3ff",
+      "kind": "doubt",
+      "heard": "",
+      "script": "不",
+      "start": 0.25,
+      "end": 0.25,
+      "decision": "script"
+     }
+    ],
+    "pending": 0,
+    "stats": {
+     "similarity": 0.889,
+     "fixed": 0,
+     "kept": 0,
+     "extra": 0,
+     "unspoken": 1,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [],
+     "doubts": [
+      {
+       "heard": "",
+       "script": "不"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "drop_decision_removes_an_added_negation_and_its_time",
+   "max_chars": 14,
+   "audio_sha": "sha-drop_dec",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "你",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "别",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "走",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "你走"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [
+    {
+     "id": "eab336c31fb6",
+     "action": "drop"
+    }
+   ],
+   "expect": {
+    "texts": [
+     "你",
+     "走"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 0.7,
+      "text": "你走",
+      "long": false
+     }
+    ],
+    "items": [
+     {
+      "id": "eab336c31fb6",
+      "kind": "doubt",
+      "heard": "别",
+      "script": "",
+      "start": 0.25,
+      "end": 0.45,
+      "decision": "drop"
+     }
+    ],
+    "pending": 0,
+    "stats": {
+     "similarity": 0.8,
+     "fixed": 0,
+     "kept": 0,
+     "extra": 1,
+     "unspoken": 0,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [],
+     "doubts": [
+      {
+       "heard": "别",
+       "script": ""
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "heard_decision_keeps_the_text_and_clears_pending",
+   "max_chars": 14,
+   "audio_sha": "sha-heard_de",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "我",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "不",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "想",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "去",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "我很想去"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [
+    {
+     "id": "2d9aa7c7b1c9",
+     "action": "heard"
+    }
+   ],
+   "expect": {
+    "texts": [
+     "我",
+     "不",
+     "想",
+     "去"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 0.95,
+      "text": "我不想去",
+      "long": false
+     }
+    ],
+    "items": [
+     {
+      "id": "2d9aa7c7b1c9",
+      "kind": "differ",
+      "heard": "不",
+      "script": "很",
+      "start": 0.25,
+      "end": 0.45,
+      "decision": "heard"
+     }
+    ],
+    "pending": 0,
+    "stats": {
+     "similarity": 0.75,
+     "fixed": 0,
+     "kept": 1,
+     "extra": 0,
+     "unspoken": 1,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [
+      {
+       "heard": "不",
+       "script": "很"
+      }
+     ],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "script_decision_replaces_a_differ",
+   "max_chars": 14,
+   "audio_sha": "sha-script_d",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "我",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "要",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "买",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "房",
+     "seg": 0
+    },
+    {
+     "start": 1.0,
+     "end": 1.2,
+     "text": "子",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "我要卖房子"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [
+    {
+     "id": "d8d4453d4d7d",
+     "action": "script"
+    }
+   ],
+   "expect": {
+    "texts": [
+     "我",
+     "要",
+     "卖",
+     "房",
+     "子"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 1.2,
+      "text": "我要卖房子",
+      "long": false
+     }
+    ],
+    "items": [
+     {
+      "id": "d8d4453d4d7d",
+      "kind": "differ",
+      "heard": "买",
+      "script": "卖",
+      "start": 0.5,
+      "end": 0.7,
+      "decision": "script"
+     }
+    ],
+    "pending": 0,
+    "stats": {
+     "similarity": 0.8,
+     "fixed": 0,
+     "kept": 1,
+     "extra": 0,
+     "unspoken": 1,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [
+      {
+       "heard": "买",
+       "script": "卖"
+      }
+     ],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "a_shot_that_says_something_else_deviates",
+   "max_chars": 14,
+   "audio_sha": "sha-a_shot_t",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "今",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "天",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "天",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "气",
+     "seg": 0
+    },
+    {
+     "start": 1.0,
+     "end": 1.2,
+     "text": "不",
+     "seg": 0
+    },
+    {
+     "start": 1.25,
+     "end": 1.45,
+     "text": "错",
+     "seg": 0
+    },
+    {
+     "start": 1.5,
+     "end": 1.7,
+     "text": "我",
+     "seg": 0
+    },
+    {
+     "start": 1.75,
+     "end": 1.95,
+     "text": "们",
+     "seg": 0
+    },
+    {
+     "start": 2.0,
+     "end": 2.2,
+     "text": "出",
+     "seg": 0
+    },
+    {
+     "start": 2.25,
+     "end": 2.45,
+     "text": "去",
+     "seg": 0
+    },
+    {
+     "start": 2.5,
+     "end": 2.7,
+     "text": "走",
+     "seg": 0
+    },
+    {
+     "start": 2.75,
+     "end": 2.95,
+     "text": "走",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "你终于回来了"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "今",
+     "天",
+     "天",
+     "气",
+     "不",
+     "错",
+     "我",
+     "们",
+     "出",
+     "去",
+     "走",
+     "走"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 2.95,
+      "text": "今天天气不错我们出去走走",
+      "long": false
+     }
+    ],
+    "items": [
+     {
+      "id": "a947c0ee4e1d",
+      "kind": "deviated",
+      "heard": "今天天气不错我们出去走走",
+      "script": "你终于回来了",
+      "start": 0.0,
+      "end": 2.95,
+      "decision": null
+     }
+    ],
+    "pending": 1,
+    "stats": {
+     "similarity": 0.0,
+     "fixed": 0,
+     "kept": 12,
+     "extra": 0,
+     "unspoken": 6,
+     "deviated": true,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "nothing_heard_is_unheard",
+   "max_chars": 14,
+   "audio_sha": "sha-nothing_",
+   "words": [],
+   "lines": [
+    "你终于回来了"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [],
+    "cues": [],
+    "items": [
+     {
+      "id": "328fed5de87a",
+      "kind": "unheard",
+      "heard": "",
+      "script": "你终于回来了",
+      "start": 0.0,
+      "end": 0.0,
+      "decision": null
+     }
+    ],
+    "pending": 1,
+    "stats": {
+     "similarity": 0.0,
+     "fixed": 0,
+     "kept": 0,
+     "extra": 0,
+     "unspoken": 6,
+     "deviated": false,
+     "unheard": true,
+     "no_script": false,
+     "fixes": [],
+     "differs": [],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "speech_without_script_lines_is_no_script",
+   "max_chars": 14,
+   "audio_sha": "sha-speech_w",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "有",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "人",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "在",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "说",
+     "seg": 0
+    },
+    {
+     "start": 1.0,
+     "end": 1.2,
+     "text": "话",
+     "seg": 0
+    }
+   ],
+   "lines": [],
+   "names": [],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "有",
+     "人",
+     "在",
+     "说",
+     "话"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 1.2,
+      "text": "有人在说话",
+      "long": false
+     }
+    ],
+    "items": [
+     {
+      "id": "e278868751c9",
+      "kind": "no_script",
+      "heard": "有人在说话",
+      "script": "",
+      "start": 0.0,
+      "end": 1.2,
+      "decision": null
+     }
+    ],
+    "pending": 1,
+    "stats": {
+     "similarity": null,
+     "fixed": 0,
+     "kept": 0,
+     "extra": 0,
+     "unspoken": 0,
+     "deviated": false,
+     "unheard": false,
+     "no_script": true,
+     "fixes": [],
+     "differs": [],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "long_speech_breaks_at_punctuation",
+   "max_chars": 14,
+   "audio_sha": "sha-long_spe",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "林",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "小",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "姐，",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "我",
+     "seg": 0
+    },
+    {
+     "start": 1.0,
+     "end": 1.2,
+     "text": "知",
+     "seg": 0
+    },
+    {
+     "start": 1.25,
+     "end": 1.45,
+     "text": "道",
+     "seg": 0
+    },
+    {
+     "start": 1.5,
+     "end": 1.7,
+     "text": "你",
+     "seg": 0
+    },
+    {
+     "start": 1.75,
+     "end": 1.95,
+     "text": "不",
+     "seg": 0
+    },
+    {
+     "start": 2.0,
+     "end": 2.2,
+     "text": "想",
+     "seg": 0
+    },
+    {
+     "start": 2.25,
+     "end": 2.45,
+     "text": "嫁，",
+     "seg": 0
+    },
+    {
+     "start": 2.5,
+     "end": 2.7,
+     "text": "但",
+     "seg": 0
+    },
+    {
+     "start": 2.75,
+     "end": 2.95,
+     "text": "我",
+     "seg": 0
+    },
+    {
+     "start": 3.0,
+     "end": 3.2,
+     "text": "有",
+     "seg": 0
+    },
+    {
+     "start": 3.25,
+     "end": 3.45,
+     "text": "两",
+     "seg": 0
+    },
+    {
+     "start": 3.5,
+     "end": 3.7,
+     "text": "个",
+     "seg": 0
+    },
+    {
+     "start": 3.75,
+     "end": 3.95,
+     "text": "条",
+     "seg": 0
+    },
+    {
+     "start": 4.0,
+     "end": 4.2,
+     "text": "件，",
+     "seg": 0
+    },
+    {
+     "start": 4.25,
+     "end": 4.45,
+     "text": "你",
+     "seg": 0
+    },
+    {
+     "start": 4.5,
+     "end": 4.7,
+     "text": "听",
+     "seg": 0
+    },
+    {
+     "start": 4.75,
+     "end": 4.95,
+     "text": "好",
+     "seg": 0
+    },
+    {
+     "start": 5.0,
+     "end": 5.2,
+     "text": "了。",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "林小姐，我知道你不想嫁，但我有两个条件，你听好了。"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "林",
+     "小",
+     "姐，",
+     "我",
+     "知",
+     "道",
+     "你",
+     "不",
+     "想",
+     "嫁，",
+     "但",
+     "我",
+     "有",
+     "两",
+     "个",
+     "条",
+     "件，",
+     "你",
+     "听",
+     "好",
+     "了。"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 2.45,
+      "text": "林小姐 我知道你不想嫁",
+      "long": false
+     },
+     {
+      "start": 2.5,
+      "end": 5.2,
+      "text": "但我有两个条件 你听好了",
+      "long": false
+     }
+    ],
+    "items": [],
+    "pending": 0,
+    "stats": {
+     "similarity": 1.0,
+     "fixed": 0,
+     "kept": 0,
+     "extra": 0,
+     "unspoken": 0,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "no_punctuation_breaks_at_the_word_that_overflows",
+   "max_chars": 14,
+   "audio_sha": "sha-no_punct",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "我",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "们",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "今",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "天",
+     "seg": 0
+    },
+    {
+     "start": 1.0,
+     "end": 1.2,
+     "text": "下",
+     "seg": 0
+    },
+    {
+     "start": 1.25,
+     "end": 1.45,
+     "text": "午",
+     "seg": 0
+    },
+    {
+     "start": 1.5,
+     "end": 1.7,
+     "text": "一",
+     "seg": 0
+    },
+    {
+     "start": 1.75,
+     "end": 1.95,
+     "text": "起",
+     "seg": 0
+    },
+    {
+     "start": 2.0,
+     "end": 2.2,
+     "text": "出",
+     "seg": 0
+    },
+    {
+     "start": 2.25,
+     "end": 2.45,
+     "text": "去",
+     "seg": 0
+    },
+    {
+     "start": 2.5,
+     "end": 2.7,
+     "text": "走",
+     "seg": 0
+    },
+    {
+     "start": 2.75,
+     "end": 2.95,
+     "text": "走",
+     "seg": 0
+    },
+    {
+     "start": 3.0,
+     "end": 3.2,
+     "text": "吧",
+     "seg": 0
+    },
+    {
+     "start": 3.25,
+     "end": 3.45,
+     "text": "好",
+     "seg": 0
+    },
+    {
+     "start": 3.5,
+     "end": 3.7,
+     "text": "不",
+     "seg": 0
+    },
+    {
+     "start": 3.75,
+     "end": 3.95,
+     "text": "好",
+     "seg": 0
+    },
+    {
+     "start": 4.0,
+     "end": 4.2,
+     "text": "啊",
+     "seg": 0
+    },
+    {
+     "start": 4.25,
+     "end": 4.45,
+     "text": "朋",
+     "seg": 0
+    },
+    {
+     "start": 4.5,
+     "end": 4.7,
+     "text": "友",
+     "seg": 0
+    },
+    {
+     "start": 4.75,
+     "end": 4.95,
+     "text": "们",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "我们今天下午一起出去走走吧好不好啊朋友们"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "我",
+     "们",
+     "今",
+     "天",
+     "下",
+     "午",
+     "一",
+     "起",
+     "出",
+     "去",
+     "走",
+     "走",
+     "吧",
+     "好",
+     "不",
+     "好",
+     "啊",
+     "朋",
+     "友",
+     "们"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 3.45,
+      "text": "我们今天下午一起出去走走吧好",
+      "long": false
+     },
+     {
+      "start": 3.5,
+      "end": 4.95,
+      "text": "不好啊朋友们",
+      "long": false
+     }
+    ],
+    "items": [],
+    "pending": 0,
+    "stats": {
+     "similarity": 1.0,
+     "fixed": 0,
+     "kept": 0,
+     "extra": 0,
+     "unspoken": 0,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "a_space_counts_as_half_a_character",
+   "max_chars": 6,
+   "audio_sha": "sha-a_space_",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "你",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "好 ",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "我",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "来",
+     "seg": 0
+    },
+    {
+     "start": 1.0,
+     "end": 1.2,
+     "text": "了 ",
+     "seg": 0
+    },
+    {
+     "start": 1.25,
+     "end": 1.45,
+     "text": "走",
+     "seg": 0
+    },
+    {
+     "start": 1.5,
+     "end": 1.7,
+     "text": "吧",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "你好，我来了，走吧"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "你",
+     "好 ",
+     "我",
+     "来",
+     "了 ",
+     "走",
+     "吧"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 1.2,
+      "text": "你好 我来了",
+      "long": false
+     },
+     {
+      "start": 1.25,
+      "end": 1.7,
+      "text": "走吧",
+      "long": false
+     }
+    ],
+    "items": [],
+    "pending": 0,
+    "stats": {
+     "similarity": 1.0,
+     "fixed": 0,
+     "kept": 0,
+     "extra": 0,
+     "unspoken": 0,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "cues_never_cross_a_speaker",
+   "max_chars": 20,
+   "audio_sha": "sha-cues_nev",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "你",
+     "seg": 0,
+     "speaker_id": "A"
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "回",
+     "seg": 0,
+     "speaker_id": "A"
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "来",
+     "seg": 0,
+     "speaker_id": "A"
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "了",
+     "seg": 0,
+     "speaker_id": "A"
+    },
+    {
+     "start": 1.4,
+     "end": 1.6,
+     "text": "嗯",
+     "seg": 0,
+     "speaker_id": "B"
+    },
+    {
+     "start": 1.65,
+     "end": 1.85,
+     "text": "我",
+     "seg": 0,
+     "speaker_id": "B"
+    },
+    {
+     "start": 1.9,
+     "end": 2.1,
+     "text": "回",
+     "seg": 0,
+     "speaker_id": "B"
+    },
+    {
+     "start": 2.15,
+     "end": 2.35,
+     "text": "来",
+     "seg": 0,
+     "speaker_id": "B"
+    },
+    {
+     "start": 2.4,
+     "end": 2.6,
+     "text": "了",
+     "seg": 0,
+     "speaker_id": "B"
+    }
+   ],
+   "lines": [
+    "你回来了",
+    "嗯我回来了"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "你",
+     "回",
+     "来",
+     "了",
+     "嗯",
+     "我",
+     "回",
+     "来",
+     "了"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 0.95,
+      "text": "你回来了",
+      "long": false
+     },
+     {
+      "start": 1.4,
+      "end": 2.6,
+      "text": "嗯我回来了",
+      "long": false
+     }
+    ],
+    "items": [],
+    "pending": 0,
+    "stats": {
+     "similarity": 1.0,
+     "fixed": 0,
+     "kept": 0,
+     "extra": 0,
+     "unspoken": 0,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "a_segment_without_word_times_is_one_long_cue",
+   "max_chars": 14,
+   "audio_sha": "sha-a_segmen",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 6.0,
+     "text": "我们今天下午一起出去走走吧好不好啊朋友们",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "我们今天下午一起出去走走吧好不好啊朋友们"
+   ],
+   "names": [],
+   "flags": [],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "我们今天下午一起出去走走吧好不好啊朋友们"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 6.0,
+      "text": "我们今天下午一起出去走走吧好不好啊朋友们",
+      "long": true
+     }
+    ],
+    "items": [
+     {
+      "id": "d116ae1720da",
+      "kind": "long_cue",
+      "heard": "我们今天下午一起出去走走吧好不好啊朋友们",
+      "script": "",
+      "start": 0.0,
+      "end": 6.0,
+      "decision": null
+     }
+    ],
+    "pending": 1,
+    "stats": {
+     "similarity": 1.0,
+     "fixed": 0,
+     "kept": 0,
+     "extra": 0,
+     "unspoken": 0,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [],
+     "doubts": []
+    }
+   }
+  },
+  {
+   "name": "a_boundary_flag_is_listed",
+   "max_chars": 14,
+   "audio_sha": "sha-a_bounda",
+   "words": [
+    {
+     "start": 0.0,
+     "end": 0.2,
+     "text": "你",
+     "seg": 0
+    },
+    {
+     "start": 0.25,
+     "end": 0.45,
+     "text": "终",
+     "seg": 0
+    },
+    {
+     "start": 0.5,
+     "end": 0.7,
+     "text": "于",
+     "seg": 0
+    },
+    {
+     "start": 0.75,
+     "end": 0.95,
+     "text": "回",
+     "seg": 0
+    },
+    {
+     "start": 1.0,
+     "end": 1.2,
+     "text": "来",
+     "seg": 0
+    },
+    {
+     "start": 1.25,
+     "end": 1.45,
+     "text": "了",
+     "seg": 0
+    }
+   ],
+   "lines": [
+    "你终于回来了"
+   ],
+   "names": [],
+   "flags": [
+    {
+     "kind": "boundary",
+     "start": 1.0,
+     "end": 1.4
+    }
+   ],
+   "decisions": [],
+   "expect": {
+    "texts": [
+     "你",
+     "终",
+     "于",
+     "回",
+     "来",
+     "了"
+    ],
+    "cues": [
+     {
+      "start": 0.0,
+      "end": 1.45,
+      "text": "你终于回来了",
+      "long": false
+     }
+    ],
+    "items": [
+     {
+      "id": "d080691827b9",
+      "kind": "boundary",
+      "heard": "来了",
+      "script": "",
+      "start": 1.0,
+      "end": 1.4,
+      "decision": null
+     }
+    ],
+    "pending": 1,
+    "stats": {
+     "similarity": 1.0,
+     "fixed": 0,
+     "kept": 0,
+     "extra": 0,
+     "unspoken": 0,
+     "deviated": false,
+     "unheard": false,
+     "no_script": false,
+     "fixes": [],
+     "differs": [],
+     "doubts": []
+    }
+   }
+  }
+ ],
+ "spans_about": "subtitle_source_span: a cue's [start, end] in source-file seconds -> [offset in the shot on the output timeline, duration], or null when it lies outside the trim window. The window is [clip_in_sec, clip_in_sec + (clip_dur_sec or duration_sec or 5)); speed 1 when null.",
+ "spans": [
+  {
+   "name": "untrimmed_normal_speed",
+   "shot": {
+    "clip_in_sec": null,
+    "clip_dur_sec": null,
+    "duration_sec": 5.0,
+    "speed": null
+   },
+   "start": 1.0,
+   "end": 2.0,
+   "expect": [
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "name": "inside_a_trim_window",
+   "shot": {
+    "clip_in_sec": 2.0,
+    "clip_dur_sec": 3.0,
+    "duration_sec": 3.0,
+    "speed": null
+   },
+   "start": 2.5,
+   "end": 3.5,
+   "expect": [
+    0.5,
+    1.0
+   ]
+  },
+  {
+   "name": "starts_before_the_in_point",
+   "shot": {
+    "clip_in_sec": 2.0,
+    "clip_dur_sec": 3.0,
+    "duration_sec": 3.0,
+    "speed": null
+   },
+   "start": 1.0,
+   "end": 2.5,
+   "expect": [
+    0.0,
+    0.5
+   ]
+  },
+  {
+   "name": "ends_after_the_out_point",
+   "shot": {
+    "clip_in_sec": 2.0,
+    "clip_dur_sec": 3.0,
+    "duration_sec": 3.0,
+    "speed": null
+   },
+   "start": 4.8,
+   "end": 6.0,
+   "expect": [
+    2.8,
+    0.2
+   ]
+  },
+  {
+   "name": "after_the_window_is_dropped",
+   "shot": {
+    "clip_in_sec": 2.0,
+    "clip_dur_sec": 3.0,
+    "duration_sec": 3.0,
+    "speed": null
+   },
+   "start": 5.5,
+   "end": 6.0,
+   "expect": null
+  },
+  {
+   "name": "before_the_window_is_dropped",
+   "shot": {
+    "clip_in_sec": 2.0,
+    "clip_dur_sec": 3.0,
+    "duration_sec": 3.0,
+    "speed": null
+   },
+   "start": 0.5,
+   "end": 1.5,
+   "expect": null
+  },
+  {
+   "name": "double_speed_after_a_trim",
+   "shot": {
+    "clip_in_sec": 1.0,
+    "clip_dur_sec": 4.0,
+    "duration_sec": 4.0,
+    "speed": 2.0
+   },
+   "start": 3.0,
+   "end": 4.0,
+   "expect": [
+    1.0,
+    0.5
+   ]
+  },
+  {
+   "name": "half_speed",
+   "shot": {
+    "clip_in_sec": null,
+    "clip_dur_sec": null,
+    "duration_sec": 6.0,
+    "speed": 0.5
+   },
+   "start": 1.0,
+   "end": 2.0,
+   "expect": [
+    2.0,
+    2.0
+   ]
+  },
+  {
+   "name": "no_duration_uses_five_seconds",
+   "shot": {
+    "clip_in_sec": null,
+    "clip_dur_sec": null,
+    "duration_sec": null,
+    "speed": null
+   },
+   "start": 4.5,
+   "end": 6.0,
+   "expect": [
+    4.5,
+    0.5
+   ]
+  }
+ ]
+}

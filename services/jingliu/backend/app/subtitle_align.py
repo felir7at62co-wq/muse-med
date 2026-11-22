@@ -270,6 +270,24 @@ def _short_mismatch(ops: list, k: int, heard: str, script: str) -> bool:
             and _context_ok(ops, k, len(heard)))
 
 
+def put_text(chars: list[list[str]], spots: list[tuple[int, int]], want: str) -> None:
+    """把 `spots`（`chars[段][字]` 的位置，按顺序）上的字换成 `want`。
+
+    等长时逐字替换；不等长时整段放进第一个字的位置、其余位置清空（「318」→「三百一十八」）。
+    `spots` 为空时不动。`correct_segments` 与 `subtitle_cues.apply_decisions` 都用它，规则只有这一处。
+    """
+    if not spots:
+        return
+    if len(spots) == len(want):
+        for (si, sj), ch in zip(spots, want):
+            chars[si][sj] = ch
+        return
+    (first_seg, first_pos), *rest = spots
+    chars[first_seg][first_pos] = want
+    for si, sj in rest:
+        chars[si][sj] = ""
+
+
 def correct_segments(segments: list[dict], lines: list[str],
                      names: Iterable[str] = ()) -> tuple[list[dict], dict]:
     """返回 (纠正后的分段, 统计)。分段里只改 `text`，时间与条数不变；改过字的分段去掉 `words`。
@@ -286,10 +304,13 @@ def correct_segments(segments: list[dict], lines: list[str],
     `doubts`（读音相同却没能改、只差轻声或「一」「不」的声调、含否定的字、在很短的一镜里，
     而按听到的保留的每一处 `{heard, script}`，没有的一边是空字符串；先后见模块说明）。
     整镜没改时 `differs`、`doubts` 都为空。
+    `spans`：`{fixes, differs, doubts}`，与那三个列表一一对应的 `[i1, i2]`：这一处听到的字在
+    识别结果的**字**（去掉标点与空白，按分段顺序连起来）里的位置，左闭右开；听到的一边为空时
+    `i1 == i2`，是剧本那几个字应在的位置（`subtitle_cues` 用它定位要人看的那一处）。
     """
     stats = {"similarity": None, "fixed": 0, "kept": 0, "extra": 0, "unspoken": 0,
              "deviated": False, "unheard": False, "no_script": False, "fixes": [], "differs": [],
-             "doubts": []}
+             "doubts": [], "spans": {"fixes": [], "differs": [], "doubts": []}}
     chars = [list(seg.get("text") or "") for seg in segments]
     #: 识别结果里的每一个字落在哪：(第几段, 段内第几个字符)
     where = [(i, j) for i, seg in enumerate(chars) for j, ch in enumerate(seg) if _is_content(ch)]
@@ -343,26 +364,22 @@ def correct_segments(segments: list[dict], lines: list[str],
             # 交给人看的几种，先后照模块说明
             if tag == "replace" and _cannot_tell_apart(got, want, heard_sounds[i1:i2],
                                                        script_sounds[j1:j2], in_name[j1:j2]):
-                stats["doubts"].append(piece)
+                listed = "doubts"
             elif near or (tag == "replace" and _sounds_alike(got, want)):
-                stats["differs"].append(piece)
+                listed = "differs"
             elif NEGATION.intersection(got + want) or (tag == "replace" and short_shot):
-                stats["doubts"].append(piece)
+                listed = "doubts"
+            else:
+                continue
+            stats[listed].append(piece)
+            stats["spans"][listed].append([i1, i2])
             continue
         spots = where[i1:i2]
-        if len(got) == len(want):
-            # 等长：逐字替换
-            for (si, sj), ch in zip(spots, want):
-                chars[si][sj] = ch
-        else:
-            # 不等长：整段放进第一个字的位置，其余位置清空
-            (first_seg, first_pos), *rest = spots
-            chars[first_seg][first_pos] = want
-            for si, sj in rest:
-                chars[si][sj] = ""
+        put_text(chars, spots, want)
         touched.update(si for si, _ in spots)
         stats["fixed"] += len(want)
         stats["fixes"].append({"heard": got, "script": want})
+        stats["spans"]["fixes"].append([i1, i2])
 
     out = []
     for i, seg in enumerate(segments):

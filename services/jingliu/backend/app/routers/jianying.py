@@ -42,14 +42,14 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import access
 from ..db import AudioClip, Shot, SubtitleClip, Project, get_session
 from ..media import DATA_DIR
 from ..media_store import commit as commit_media
 from ..shot_timing import (shot_output_sec, shot_source_window, shot_speed,
-                           subtitle_output_span)
+                           subtitle_place)
 
 logger = logging.getLogger(__name__)
 
@@ -272,11 +272,14 @@ _AI_LABEL_DEFAULT = {
 }
 
 
-def _ai_label(proj) -> dict | None:
+def _ai_label(proj, *, enabled: bool | None = None, text: str | None = None) -> dict | None:
     """读项目的 AI 角标配置。没开就返回 None（= 不生成这条轨）。
 
     ⚠️ 与 `_text_style` 不同，这里**默认关闭**：加一条常驻文字轨会改变
     用户已经导出的草稿，那是他们没要求的变更。
+
+    `enabled` / `text` 不为 None 时盖过项目里的开关与文案（Muse 批量出草稿的 `watermark` 开关），
+    字号、颜色、位置仍按项目设置。
     """
     from ..db import profile_of
 
@@ -286,7 +289,12 @@ def _ai_label(proj) -> dict | None:
         if isinstance(raw, dict):
             cfg.update({k: v for k, v in raw.items() if k in cfg})
     except Exception:  # noqa: BLE001 — 坏档案不该让导出挂掉
-        return None
+        if enabled is None:
+            return None
+    if enabled is not None:
+        cfg["enabled"] = enabled
+    if text and text.strip():
+        cfg["text"] = text.strip()
 
     if not cfg.get("enabled"):
         return None
@@ -469,8 +477,13 @@ def detached_shot_ids(auds) -> set[str]:
 
 def _build(session, proj: Project, shots: list[Shot],
            auds: list[AudioClip], subs: list[SubtitleClip], name: str,
-           *, raw: bool = False) -> dict:
-    """排出一份草稿。返回 {script, manifest, cover_src}。
+           *, raw: bool = False, ai_cfg: dict | None | str = "project",
+           fetch_cover: bool = True) -> dict:
+    """排出一份草稿。返回 {script, manifest, cover_src, first_clip, name}。
+
+    `ai_cfg`：AI 角标，`"project"` = 按项目设置（`_ai_label(proj)`），否则就用传进来的配置（None = 不要）。
+    `fetch_cover=False`：素材都不在本地时**不**为封面从桶里拉回文件（批量草稿计划由 Muse 在本机抽封面，
+    服务器的盘上不落媒体）。`first_clip` 是时间轴上第一条视频片段 `{path, name, source_in_us}`。
 
     ## `raw=True`：导出**原片**
 
@@ -538,7 +551,7 @@ def _build(session, proj: Project, shots: list[Shot],
             # `_local` 只在服务端内部用（把草稿里的服务器路径换成占位符+目标文件名），
             # 写进 manifest.json 之前会被剔掉。
             manifest.append({"url": _pub(url), "name": fname,
-                             "size": meta["size"], "_local": str(p)})
+                             "size": meta["size"], "_local": str(p), "_path": url})
         return p, meta
 
     # ---- 视频轨：按 order 首尾相接；入出点交给剪映，不转码 ----
@@ -552,6 +565,7 @@ def _build(session, proj: Project, shots: list[Shot],
     #: 看起来像加密问题，实际只是少了一张 jpg。为这一张图从桶拉回一个文件
     #: 完全划算——相比整次导出白做。
     cover_first: tuple[str, Path] | None = None
+    first_clip: dict | None = None
     for s in shots:
         starts[s.order] = t
         dur = _shot_dur_us(s)
@@ -588,6 +602,8 @@ def _build(session, proj: Project, shots: list[Shot],
             # 同一个除数，否则片段与时间轴错开（越往后错得越多）。
             spd = shot_speed(s)
             out_us = dur if spd == 1.0 else int(round(dur / spd))
+        if first_clip is None:
+            first_clip = {"path": s.video_url, "name": fname, "source_in_us": int(src_in)}
         script.add_segment(draft.VideoSegment(
             mat, Timerange(t, out_us), source_timerange=Timerange(src_in, dur),
             speed=spd,
@@ -727,25 +743,26 @@ def _build(session, proj: Project, shots: list[Shot],
         clip = draft.ClipSettings(transform_y=st["transform_y"])
         cursor = 0
         #: 字幕的偏移/时长按**源秒**记（ASR 转写的是镜头文件本身），导出要换算成
-        #: 成片秒。见 `shot_timing.subtitle_output_span` 的说明 —— 漏掉这一步
+        #: 成片秒。见 `shot_timing.subtitle_place` 的说明 —— 漏掉这一步
         #: 会让变速过的镜头里的字幕整体前移，而不会有任何报错。
         by_order_sh = {s.order: s for s in shots}
-        # 同一镜里按镜内偏移排：id 是随机 uuid12，只按 id 排是随机序，配上下面的
-        # `start = max(base, cursor)` 会把乱序的字幕依次往后推，实测量产工程里一镜最多推歪 40 秒。
-        for c in sorted(subs, key=lambda x: (x.start_shot_order or 0,
-                                             x.start_offset_sec or 0.0, x.id)):
+        by_id_sh = {s.id: s for s in shots}
+        placed = []
+        for c in subs:
             if not (c.text or "").strip():
                 continue
-            sh = by_order_sh.get(c.start_shot_order or 0)
-            off_sec, cue_sec = subtitle_output_span(
-                sh, c.start_offset_sec, c.duration or 2.0) if sh else (
-                    float(c.start_offset_sec or 0.0), float(c.duration or 2.0))
-            base = starts.get(c.start_shot_order or 0, 0) + _us(off_sec)
+            got = subtitle_place(c, by_id_sh, by_order_sh)
+            if got is not None:              # 落在取片窗口外的（修剪掉的那段话）不出字幕
+                placed.append((got, c))
+        # 同一镜里按镜内偏移排：id 是随机 uuid12，只按 id 排是随机序，配上下面的
+        # `start = max(base, cursor)` 会把乱序的字幕依次往后推，实测量产工程里一镜最多推歪 40 秒。
+        for (order, off_sec, cue_sec), c in sorted(placed, key=lambda x: (x[0][0], x[0][1], x[1].id)):
+            base = starts.get(order, 0) + _us(off_sec)
             start = max(base, cursor)
             dur = _us(cue_sec)
             # 一条字幕不许越过它所在镜头的结尾：越界的那部分在画面上已经是下一镜了。
             # 镜头在 `starts` 里没有（没出片的镜头）时不做这个裁剪，交给下面的片尾裁剪。
-            nxt = next((t2 for o2, t2 in shot_starts if o2 > (c.start_shot_order or 0)), total)
+            nxt = next((t2 for o2, t2 in shot_starts if o2 > order), total)
             room = nxt - start
             if room > 0 and dur > room:
                 dur = room
@@ -770,7 +787,7 @@ def _build(session, proj: Project, shots: list[Shot],
     #   · 一条**覆盖全片时长**的文本段，不是每镜复制一份：剪映里改文案只需要
     #     改一处（几十镜各一条的话，改一句要点几十次）；
     #   · 默认关闭（见 `_ai_label`）：常驻文字轨是用户没要求就不该有的变更。
-    ai = None if raw else _ai_label(proj)
+    ai = None if raw else (_ai_label(proj) if ai_cfg == "project" else ai_cfg)
     if ai and total > 0:
         script.add_track(TrackType.text, "AI标识")
         ai_style = draft.TextStyle(
@@ -784,7 +801,7 @@ def _build(session, proj: Project, shots: list[Shot],
             track_name="AI标识")
 
     # 一张本地素材都没有时，为了封面单独拉回一个文件。
-    if cover_src is None and cover_first is not None:
+    if fetch_cover and cover_src is None and cover_first is not None:
         url, dest = cover_first
         rel = url.split("/fw/media/", 1)[1] if "/fw/media/" in url else ""
         try:
@@ -796,21 +813,19 @@ def _build(session, proj: Project, shots: list[Shot],
         except Exception:      # noqa: BLE001
             logger.warning("[export] 封面素材回填失败，草稿将不带封面", exc_info=True)
 
-    return {"script": script, "manifest": manifest, "cover_src": cover_src, "name": name}
+    return {"script": script, "manifest": manifest, "cover_src": cover_src, "name": name,
+            "first_clip": first_clip}
 
 
-def _write_draft(pack: Path, built: dict) -> dict:
-    """把一份草稿落到包里，并把服务端绝对路径换成占位符。"""
+def _draft_json(built: dict) -> tuple[dict, dict]:
+    """一份草稿的 `(draft_content, draft_meta_info)`，服务端绝对路径已换成占位符。不写文件。
+
+    素材路径是「`MAT_TOKEN` + 导入器 / Muse 会用的那个文件名」（manifest 的 `name`），
+    草稿目录与草稿根目录是 `DRAFT_TOKEN` / `ROOT_TOKEN`；`draft_id` 每次新生成，不写封面。
+    """
     name = built["name"]
-    d = pack / "drafts" / name
-    d.mkdir(parents=True, exist_ok=True)
-
     content = json.loads(built["script"].dumps())
     content["name"] = name
-    body = json.dumps(content, ensure_ascii=False)
-    # 两个文件名都写：各版本读哪个没有权威说法
-    (d / "draft_content.json").write_text(body, encoding="utf-8")
-    (d / "draft_info.json").write_text(body, encoding="utf-8")
 
     import pyJianYingDraft as draft
     meta = json.loads((Path(draft.__file__).parent / "assets"
@@ -820,6 +835,36 @@ def _write_draft(pack: Path, built: dict) -> dict:
     meta["draft_fold_path"] = DRAFT_TOKEN
     meta["draft_root_path"] = ROOT_TOKEN
     meta["tm_duration"] = content.get("duration", 0)
+
+    # 服务端的绝对路径不能留在草稿里，换成「占位符 + 导入器会用的那个文件名」。
+    #
+    # ⚠️ 不能只把 DATA_DIR 前缀换成占位符：那样草稿里留下的是
+    # `__SFMAT__/generated/h3_xxx.mp4`（原始文件名 + 子目录），
+    # 而导入器是按 manifest 的 `name`（= shot_id.mp4）平铺下载的——
+    # 两边对不上，在剪映里就是**素材全部丢失**，而且报错前一切看起来都正常。
+    pairs = sorted(((m["_local"], m["name"]) for m in built["manifest"]),
+                   key=lambda kv: -len(kv[0]))     # 长路径优先，避免前缀互相吃掉
+
+    def swap(doc: dict) -> dict:
+        txt = json.dumps(doc, ensure_ascii=False)
+        for local, fname in pairs:
+            txt = txt.replace(json.dumps(local, ensure_ascii=False)[1:-1], f"{MAT_TOKEN}/{fname}")
+        # 还有残留的服务端路径说明漏了某条素材，宁可留占位符也不能留真实路径
+        return json.loads(txt.replace(json.dumps(str(DATA_DIR), ensure_ascii=False)[1:-1], MAT_TOKEN))
+
+    return swap(content), swap(meta)
+
+
+def _write_draft(pack: Path, built: dict) -> dict:
+    """把一份草稿落到包里（内容见 `_draft_json`），并按本地素材抽封面。"""
+    name = built["name"]
+    d = pack / "drafts" / name
+    d.mkdir(parents=True, exist_ok=True)
+    content, meta = _draft_json(built)
+    body = json.dumps(content, ensure_ascii=False)
+    # 两个文件名都写：各版本读哪个没有权威说法
+    (d / "draft_content.json").write_text(body, encoding="utf-8")
+    (d / "draft_info.json").write_text(body, encoding="utf-8")
 
     cover = None
     if built["cover_src"] is not None:
@@ -836,23 +881,6 @@ def _write_draft(pack: Path, built: dict) -> dict:
             cover = None
     (d / "draft_meta_info.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    # 服务端的绝对路径不能留在包里，换成「占位符 + 导入器会用的那个文件名」。
-    #
-    # ⚠️ 不能只把 DATA_DIR 前缀换成占位符：那样草稿里留下的是
-    # `__SFMAT__/generated/h3_xxx.mp4`（原始文件名 + 子目录），
-    # 而导入器是按 manifest 的 `name`（= shot_id.mp4）平铺下载的——
-    # 两边对不上，在剪映里就是**素材全部丢失**，而且报错前一切看起来都正常。
-    pairs = sorted(((m["_local"], m["name"]) for m in built["manifest"]),
-                   key=lambda kv: -len(kv[0]))     # 长路径优先，避免前缀互相吃掉
-    for jf in d.glob("*.json"):
-        txt = jf.read_text(encoding="utf-8")
-        for local, fname in pairs:
-            txt = txt.replace(local, f"{MAT_TOKEN}/{fname}")
-        # 还有残留的服务端路径说明漏了某条素材，宁可留占位符也不能留真实路径
-        txt = txt.replace(str(DATA_DIR), MAT_TOKEN)
-        jf.write_text(txt, encoding="utf-8")
-
     return {"name": name, "cover": cover, "duration_us": content.get("duration", 0)}
 
 
@@ -1082,6 +1110,9 @@ def _export_draft(project_id: str, req: ExportReq) -> dict:
             .filter(SubtitleClip.project_id == project_id).all()
             if (c.start_shot_order or 0) in orders]
 
+        # 换过素材却没重做的字幕照样导出（老行为），但要说出来：时间可能对不上口型
+        warnings = [] if raw else _stale_subtitle_warnings(session, project_id, shots)
+
         ep_tag = f"第{req.episode}集" if req.episode is not None else "全片"
         # 草稿名带上「原片」，否则用户在剪映的工程列表里分不清两个同名工程
         name = f"{proj.title or project_id}-{ep_tag}" + ("-原片" if raw else "")
@@ -1121,8 +1152,8 @@ def _export_draft(project_id: str, req: ExportReq) -> dict:
         if req.single_file:
             # 传长度而不是 shots 本身：会话早已关闭，脱管的 ORM 对象读到
             # 未加载的属性会抛 DetachedInstanceError。
-            return _emit_single_file(pack, pack_name, built, mats,
-                                     len(shots), info)
+            return {**_emit_single_file(pack, pack_name, built, mats, len(shots), info),
+                    "warnings": warnings}
 
         zip_path = EXPORT_DIR / f"{pack_name}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
@@ -1151,7 +1182,159 @@ def _export_draft(project_id: str, req: ExportReq) -> dict:
         # 链接是短命的，必须告诉前端——否则用户过一小时再点只会拿到一个
         # 没头没尾的 404，而真相是"包已按期清掉，重新导一份即可"。
         "expires_in_sec": EXPORT_TTL_SEC,
+        "warnings": warnings,
     }
+
+
+def _stale_subtitle_warnings(session, project_id: str, shots) -> list[str]:
+    """字幕是按旧素材做的镜头（`subtitle_status` 为 stale）→ 一句提示；没有就是空列表。"""
+    from ..subtitle_status import STALE, shot_statuses
+    statuses = shot_statuses(session, project_id, shots)
+    stale = [s.order for s in shots if statuses.get(s.id) == STALE]
+    if not stale:
+        return []
+    named = "、".join(str(o) for o in stale[:20]) + (" 等" if len(stale) > 20 else "")
+    return [f"{len(stale)} 个镜头换过素材，字幕还是按旧素材做的（镜号 {named}），时间可能对不上，请重新生成字幕"]
+
+class PlanSwitches(BaseModel):
+    """批量草稿的开关（与 Muse `jianying_draft` 的 `switches` 同名）。"""
+    #: 台词字幕轨：只放按当前素材做的字幕（`stale` 的那些行不放），老数据照放并在状态里报 `unverified`
+    subtitles: bool = True
+    #: 配乐（`AudioClip.kind == "music"`）；配音、旁白、音效、镜头原声不受影响
+    music: bool = True
+    #: 片尾：镜流的草稿没有片尾，为真时在 `unsupported` 里报出来
+    ending: bool | None = None
+    #: AI 角标：None = 按项目设置，True / False 盖过项目里的开关
+    watermark: bool | None = None
+    #: 角标文案；空 = 项目里的文案
+    watermark_text: str | None = Field(default=None, max_length=40)
+
+
+class PlanReq(BaseModel):
+    #: 集号，一次最多 10 集（每集一份草稿，回包里带整份草稿 JSON）
+    episodes: list[int] = Field(min_length=1, max_length=10)
+    switches: PlanSwitches = Field(default_factory=PlanSwitches)
+    #: 草稿名的前缀；空 = 项目名。草稿名是「前缀-第N集」
+    name_prefix: str | None = Field(default=None, max_length=60)
+
+
+#: 草稿 JSON 里每次随机生成的编号（pyJianYingDraft 的 uuid4 与 hex 形式），算 `draft_sha256` 前按出现顺序换掉
+_RANDOM_ID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
+                        r"|\b[0-9a-f]{32}\b")
+
+
+def _draft_sha256(content: dict, materials: list[dict]) -> str:
+    """同样的输入排出的草稿给同一个摘要：随机编号按第一次出现的先后换成序号后再算。"""
+    import hashlib
+
+    seen: dict[str, str] = {}
+    body = _RANDOM_ID.sub(lambda m: seen.setdefault(m.group(0).lower(), f"#{len(seen)}"),
+                          json.dumps(content, ensure_ascii=False, sort_keys=True))
+    return hashlib.sha256(json.dumps({"content": body, "materials": materials}, ensure_ascii=False,
+                                     sort_keys=True).encode("utf-8")).hexdigest()
+
+
+@router.post("/projects/{project_id}/jianying/plan")
+@access.requires(access.ROLE_VIEWER)
+async def plan_drafts(project_id: str, req: PlanReq) -> dict:
+    """按集排剪映草稿，只回内容（见 `_plan_drafts`）。排草稿是同步 IO（查库、台账），放进长阻塞池。"""
+    from ..executors import run_long_blocking
+    return await run_long_blocking(_plan_drafts, project_id, req)
+
+
+def _plan_drafts(project_id: str, req: PlanReq) -> dict:
+    """Muse 批量出剪映草稿（2026-11-21）：每集一份草稿 JSON + 素材清单，**不落任何文件**。
+
+    与 `export_draft` 用同一个 `_build` 排时间轴，但不建包目录、不打 zip、不拷导入器、不为封面从桶里
+    拉素材：Muse 按 `materials` 从桶里取一次素材，硬链接进每份草稿目录，在本机抽封面、填占位符。
+
+    每集返回：`draft_content` / `draft_meta_info`（路径是 `tokens` 里的占位符：素材 =
+    `<material>/<materials[].name>`，草稿目录 = `<draft>`，草稿根目录 = `<root>`；`draft_cover` 指向
+    `<draft>/draft_cover.jpg`，由 Muse 按 `cover` 抽出来，抽不出就删掉这个键）、`materials`
+    （`[{path, name, size, etag}]`，`path` 是 `/fw/media/...`）、`draft_sha256`（同样的输入同样的值，
+    与随机编号无关）、`subtitles`（这一集的字幕状态，见 `subtitle_status`，外加放进草稿的条数）、
+    `music`、`cover`。没有出片镜头的集只回 `error: "no_shots"`。
+    """
+    from ..media_store import ledger_rows, split_media_path
+    from ..subtitle_status import STALE, episode_summary, shot_statuses
+
+    sw = req.switches
+    with get_session() as session:
+        proj = session.get(Project, project_id)
+        if not proj:
+            raise HTTPException(404, "project not found")
+        from ..nd import is_nd
+        if is_nd(proj):
+            raise HTTPException(422, "解说剧·角色开口的项目按对齐结果排时间轴，还不能批量出草稿计划，"
+                                     "请用 /jianying/export")
+        ai_cfg = "project" if sw.watermark is None else (
+            _ai_label(proj, enabled=True, text=sw.watermark_text) if sw.watermark else None)
+        all_auds = (session.query(AudioClip)
+                    .filter(AudioClip.project_id == project_id,
+                            AudioClip.url.isnot(None), AudioClip.url != "").all())
+        all_subs = (session.query(SubtitleClip)
+                    .filter(SubtitleClip.project_id == project_id).all()) if sw.subtitles else []
+        episodes = []
+        for ep in sorted(set(req.episodes)):
+            shots = (session.query(Shot)
+                     .filter(Shot.project_id == project_id, Shot.episode == ep,
+                             Shot.video_url.isnot(None), Shot.video_url != "",
+                             (Shot.disabled == 0) | (Shot.disabled.is_(None)))
+                     .order_by(Shot.order).all())
+            if not shots:
+                episodes.append({"episode": ep, "error": "no_shots"})
+                continue
+            statuses = shot_statuses(session, project_id, shots)
+            by_id = {s.id: s for s in shots}
+            orders = {s.order for s in shots}
+            auds = [a for a in all_auds if (a.start_shot_order or 0) in orders
+                    and (sw.music or a.kind != "music")]
+            subs = []
+            for c in all_subs:
+                sh = by_id.get(c.source_shot_id) if c.source_shot_id else None
+                if c.source_shot_id and sh is None:
+                    continue
+                if not c.source_shot_id and (c.start_shot_order or 0) not in orders:
+                    continue
+                if sh is not None and c.source_video_url and c.source_video_url != sh.video_url:
+                    continue                     # 按旧素材做的：时间对不上，不放
+                subs.append(c)
+            name = f"{req.name_prefix or proj.title or project_id}-第{ep}集"
+            built = _build(session, proj, shots, auds, subs, name, ai_cfg=ai_cfg, fetch_cover=False)
+            content, meta = _draft_json(built)
+            meta["draft_cover"] = f"{DRAFT_TOKEN}/draft_cover.jpg"
+            rels = {m["_path"]: split_media_path(m["_path"])[0] for m in built["manifest"]}
+            ledger = ledger_rows(sorted({r for r in rels.values() if r}))
+            materials = [{"path": m["_path"], "name": m["name"], "size": m["size"],
+                          "etag": (ledger.get(rels[m["_path"]] or "") or {}).get("etag") or None}
+                         for m in built["manifest"]]
+            first = built["first_clip"]
+            summary = episode_summary(shots, statuses)
+            warnings = []
+            if summary[STALE]:
+                warnings.append(f"镜号 {'、'.join(str(o) for o in summary[STALE][:20])} 的字幕是按旧素材做的，"
+                                "没放进草稿，请重新生成字幕")
+            skipped = [s.order for s in shots if not any(m["_path"] == s.video_url for m in built["manifest"])]
+            if skipped:
+                warnings.append(f"镜号 {'、'.join(str(o) for o in skipped[:20])} 的素材取不到，草稿里是空位")
+            episodes.append({
+                "episode": ep, "name": name,
+                "draft_content": content, "draft_meta_info": meta,
+                "materials": materials,
+                "draft_sha256": _draft_sha256(content, materials),
+                "duration_us": content.get("duration", 0),
+                "shots": len(shots),
+                "subtitles": {**summary, "switch": sw.subtitles,
+                              "cues": sum(1 for c in subs if (c.text or "").strip())},
+                "music": {"switch": sw.music, "clips": sum(1 for a in auds if a.kind == "music")},
+                "cover": None if first is None else {"file": "draft_cover.jpg", **first},
+                "warnings": warnings,
+            })
+    return {"project_id": project_id,
+            "tokens": {"material": MAT_TOKEN, "draft": DRAFT_TOKEN, "root": ROOT_TOKEN},
+            "unsupported": ["ending"] if sw.ending else [],
+            "episodes": episodes}
+
 
 # ---------------------------------------------------------------------------
 # 按集导出镜头文件（2026-10-21）
