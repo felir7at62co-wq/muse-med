@@ -56,6 +56,9 @@ const SHOT_MARKER = /^【镜头(\d+)】[ \t]*$/gm
 /** A standalone scene heading; summaries and mentions inside directions do not match. */
 const SCENE_HEADING = /^场次[ \t]*\d+[-－]\d+[：:][ \t]*([^\r\n]+)\r?$/gm
 
+/** Standalone Markdown headings that begin a review appendix after the last shot. */
+const REVIEW_APPENDIX_HEADING = /^##[ \t]+(?:覆盖表|分包|衔接缺口|风险)(?:[ \t]*(?:（[^）\r\n]*）|\([^)\r\n]*\)))?[ \t]*\r?$/gm
+
 /** Source-scene metadata is prompt context, never visual evidence for asset selection. */
 export const SOURCE_SCENE_PREFIX = '来源场次（原文段落）：'
 
@@ -206,8 +209,11 @@ function splitBlocks(text: string): Block[] {
   const blocks: Block[] = []
   const markers = [...text.matchAll(SHOT_MARKER)]
   const headings = [...text.matchAll(SCENE_HEADING)]
+  const finalMarker = markers.at(-1)?.index ?? text.length
+  const appendix = [...text.matchAll(REVIEW_APPENDIX_HEADING)].find(heading => heading.index > finalMarker)
+  const scriptEnd = appendix?.index ?? text.length
   for (const [index, marker] of markers.entries()) {
-    const nextMarker = markers[index + 1]?.index ?? text.length
+    const nextMarker = markers[index + 1]?.index ?? scriptEnd
     const nextHeading = headings.find(heading => heading.index > marker.index && heading.index < nextMarker)
     const currentHeading = headings.findLast(heading => heading.index < marker.index)
     blocks.push({
@@ -446,8 +452,8 @@ function readDuration(
 
 /**
  * Parse one director-format shot script into its shots and every issue it
- * carries. The text is judged exactly as written: this function reads no other
- * file and performs no I/O.
+ * carries. A recognized trailing review appendix is outside the shot text.
+ * This function reads no other file and performs no I/O.
  * @param text - Contents of the shot script, with or without a byte-order mark.
  * @param options - The compiler default a silent shot without a complexity label takes.
  * @returns Parsed shots in script order plus the complete issue list.
