@@ -1,5 +1,7 @@
 /** Authenticated access to the ShotFlow project and workflow gateway. */
 import { EventEmitter, on } from 'node:events'
+import { join } from 'node:path'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { readSelection, storeSelection } from './project-selection.ts'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
@@ -8,7 +10,7 @@ import type { SelectedProject } from './types.ts'
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { balance, catalog, createdProject, episodeList, episodeShots, library, options, preferences, projectAssets, projectConfig, projectPath, projects, shotMedia, workflowResult } from './browser.ts'
-import type { StudioBalance, StudioCatalog, StudioConfig, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioNewProject, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia } from './types.ts'
+import type { StudioBalance, StudioCatalog, StudioConfig, StudioEpisode, StudioImage, StudioLibrary, StudioLibraryQuery, StudioNewProject, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia, StudioVideoRequest } from './types.ts'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-muse-account'
 import { WorkbenchSessions } from '@deepseek-ai/dsh-workbench-connection'
@@ -16,14 +18,20 @@ import type { WorkbenchDefinition, WorkbenchSession } from '@deepseek-ai/dsh-wor
 import type {} from '@deepseek-ai/dsh-commands'
 import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import { HarnessError } from '@deepseek-ai/dsh-error'
-import { boundedBytes, isRecord, JINGLIU, JingliuHttpError, mediaUrl, studioOrigin } from './http.ts'
+import { boundedBytes, isRecord, JINGLIU, JingliuHttpError, studioOrigin } from './http.ts'
 import type { JingliuRequest } from './http.ts'
+import { JingliuMedia, mediaPath, projectMediaFolder } from './media.ts'
+import type { LocalMedia, UploadedMedia } from './media.ts'
 
-export { JingliuHttpError, boundedBytes }
+export { JingliuHttpError, boundedBytes, mediaPath, projectMediaFolder }
+export type { LocalMedia, UploadedMedia }
 
-// A shot video is a few seconds long; the bound keeps one playback request finite.
+// Without local files, a video and a thumbnail are held in Host memory; the bounds keep one request finite.
 const VIDEO_MAX_BYTES = 64 * 1024 * 1024
+const IMAGE_MAX_BYTES = 8 * 1024 * 1024
 const VIDEO_CHUNK_BYTES = 768 * 1024
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif']
+const VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime']
 export type { JingliuRequest }
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -47,13 +55,55 @@ export interface Config {
   timeoutMs?: number
   /** Read the isolated test session from the Host environment on a loopback deployment. */
   localPreviewToken?: boolean
+  /**
+   * Keep studio media as files on this computer: thumbnails in a Host cache folder, videos and tool downloads in
+   * `<workspace>/jingliu/<project>`. Only the desktop Host enables it; otherwise media is read into memory, within
+   * fixed bounds, and never written to disk.
+   */
+  localMedia?: boolean
+  /** Exact `host[:port]` values of presigned object-storage links the Host may download from or upload to. */
+  mediaHosts?: string[]
+  /** Simultaneous media downloads. */
+  mediaDownloads?: number
+  /** Bytes of viewed media one folder keeps before its least recently used files are removed; tool and draft files never count. */
+  mediaCacheBytes?: number
+  /** Largest download accepted when the studio does not state a file's size. */
+  mediaMaxBytes?: number
+  /** Maximum duration of one media download or upload, in milliseconds. */
+  mediaTimeoutMs?: number
 }
 
 /** One verified user of a specific Jingliu deployment. */
 export interface JingliuSession {
   readonly identity: string
-  /** Read a file returned by the studio and verify its owner upon completion. */
+  /**
+   * Read a file returned by the studio and verify its owner upon completion. The file comes from object storage when the
+   * studio resolves it there, otherwise through the Host; a redirect is followed only to a configured storage host.
+   */
   media?(path: string, signal: AbortSignal, consume: (response: Response) => Promise<void>): Promise<void>
+  /**
+   * Make studio files available in a local media folder, downloading each one at most once. Present only on a Host with
+   * `localMedia`.
+   * @param paths - Stored addresses.
+   * @param folder - Absolute media folder, normally `projectMediaFolder(workspace, project)`.
+   * @param signal - Cancellation.
+   * @returns The kept local file of each normalized address.
+   */
+  download?(paths: readonly string[], folder: string, signal: AbortSignal): Promise<Map<string, LocalMedia>>
+  /**
+   * Link or copy a downloaded file to a second path without another download.
+   * @param file - File returned by `download`.
+   * @param target - New path; it must not exist.
+   */
+  place?(file: LocalMedia, target: string): Promise<void>
+  /**
+   * Upload one local image, audio or video file straight to the studio's object storage.
+   * @param file - Absolute path.
+   * @param projectId - Production the file belongs to, when known.
+   * @param signal - Cancellation.
+   * @returns The uploaded file's permanent address and size.
+   */
+  upload?(file: string, projectId: string | undefined, signal: AbortSignal): Promise<UploadedMedia>
   /** Request a service route as the same user.
    * @param path - Route relative to the deployment's V2 API.
    * @param options - Method, payload and optional cancellation signal.
@@ -75,6 +125,12 @@ export class JingliuConnection extends TypertRemoteService {
     studioOrigin: z.string(),
     timeoutMs: z.number().min(1).max(120000).step(1).default(30000),
     localPreviewToken: z.boolean().default(false),
+    localMedia: z.boolean().default(false),
+    mediaHosts: z.array(z.string().pattern(/^[a-z0-9.-]+(?::\d{1,5})?$|^\[::1\](?::\d{1,5})?$/u)).default([]),
+    mediaDownloads: z.natural().min(1).max(32).default(4),
+    mediaCacheBytes: z.natural().default(2 * 1024 * 1024 * 1024),
+    mediaMaxBytes: z.natural().min(1).default(2 * 1024 * 1024 * 1024),
+    mediaTimeoutMs: z.natural().min(1000).default(30 * 60 * 1000),
   })
 
   private readonly origin: string | undefined
@@ -82,6 +138,9 @@ export class JingliuConnection extends TypertRemoteService {
   private readonly sessions: WorkbenchSessions
   private readonly timeoutMs: number
   private readonly studios = new WeakMap<WorkbenchSession, JingliuSession>()
+  private readonly media: JingliuMedia
+  /** Whether this Host keeps studio media as local files; see `Config.localMedia`. */
+  readonly localMedia: boolean
 
   /** @param ctx - Muse host context.
    * @param config - Jingliu deployment and transport configuration.
@@ -91,6 +150,12 @@ export class JingliuConnection extends TypertRemoteService {
     this.origin = config.studioOrigin ? studioOrigin(config.studioOrigin) : undefined
     const preview = config.localPreviewToken === true
     this.timeoutMs = config.timeoutMs ?? 30_000
+    this.localMedia = config.localMedia === true
+    this.media = new JingliuMedia({
+      hosts: config.mediaHosts ?? [], downloads: config.mediaDownloads ?? 4, cacheBytes: config.mediaCacheBytes ?? 2 * 1024 ** 3,
+      maxBytes: config.mediaMaxBytes ?? 2 * 1024 ** 3, timeoutMs: config.mediaTimeoutMs ?? 30 * 60_000,
+      warn: (message) => { ctx.logger.warn(message) },
+    })
     if (preview && (!this.origin || !['127.0.0.1', '[::1]'].includes(new URL(this.origin).hostname))) {
       throw new HarnessError('本机预览凭据只能用于回环服务。', 'JINGLIU_PREVIEW_ORIGIN_INVALID')
     }
@@ -127,15 +192,17 @@ export class JingliuConnection extends TypertRemoteService {
       identity: session.identity,
       media: async (path: string, signal: AbortSignal, consume: (response: Response) => Promise<void>) => {
         await session.check()
-        const response = await session.fetch(mediaUrl(session.origin, path), { method: 'GET', signal })
-        if (!response.ok) {
-          await response.body?.cancel()
-          throw new JingliuHttpError(response.status, 'JINGLIU_MEDIA_UNAVAILABLE', '镜流素材暂时无法读取。')
-        }
+        const response = await this.media.open(session, path, signal)
         try { await consume(response) }
         finally { if (!response.bodyUsed) await response.body?.cancel() }
         await session.check()
       },
+      ...(this.localMedia && {
+        download: (paths: readonly string[], folder: string, signal: AbortSignal) =>
+          this.media.files(session, paths, folder, { keep: true, evict: false, signal }),
+        place: (file: LocalMedia, target: string) => this.media.place(file, target),
+      }),
+      upload: (file: string, projectId: string | undefined, signal: AbortSignal) => this.media.upload(session, file, { projectId, signal }),
       request: (path: string, options?: JingliuRequest) => session.request(path, options),
     }
     this.studios.set(session, studio)
@@ -266,21 +333,31 @@ export class JingliuConnection extends TypertRemoteService {
   }
 
   /**
-   * Load a bounded thumbnail without exposing the studio credential.
+   * Load a thumbnail without exposing the studio credential. With `localMedia` the image is downloaded once into this
+   * account's cache folder in the Host home, `jingliu/media/<account>`, and returned as that file; otherwise it is returned
+   * inline, up to 8 MiB.
    * @param path - Native thumbnail path in the current library.
    * @param signal - Panel cancellation.
    * @returns A preview image for this account.
    */
   @Remote
-  async thumbnail(path: string, signal: AbortSignal): Promise<string> {
-    const session = await this.connection()
+  async thumbnail(path: string, signal: AbortSignal): Promise<StudioImage> {
+    const studio = await this.sessions.connection()
+    const lifetime = AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)])
+    const invalid = () => new HarnessError('镜流素材没有可显示的缩略图。', 'JINGLIU_INVALID_MEDIA')
+    if (this.localMedia) {
+      const folder = join(resolveDshHome(), 'jingliu', 'media', studio.identity.slice(0, 32))
+      const [file] = (await this.media.files(studio, [path], folder, { keep: false, evict: true, signal: lifetime })).values()
+      if (!file || !IMAGE_TYPES.includes(file.contentType)) throw invalid()
+      return { kind: 'file', path: file.file }
+    }
     let image = ''
-    await session.media?.(path, AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)]), async (response) => {
+    await this.studio(studio).media?.(path, lifetime, async (response) => {
       const type = response.headers.get('content-type')?.split(';')[0]
-      if (!type || !['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif'].includes(type)) throw new HarnessError('镜流素材没有可显示的缩略图。', 'JINGLIU_INVALID_MEDIA')
-      image = 'data:' + type + ';base64,' + (await boundedBytes(response, 8 * 1024 * 1024)).toString('base64')
+      if (!type || !IMAGE_TYPES.includes(type)) throw invalid()
+      image = 'data:' + type + ';base64,' + (await boundedBytes(response, IMAGE_MAX_BYTES)).toString('base64')
     })
-    return image
+    return { kind: 'inline', url: image }
   }
 
   /**
@@ -431,10 +508,33 @@ export class JingliuConnection extends TypertRemoteService {
   }
 
   /**
-   * Stream a studio video for playback without exposing the studio credential.
+   * Download a studio video once into the production's media folder of a conversation's workspace, for playback from
+   * that file. Kept tool and draft files stay; other viewed files beyond `mediaCacheBytes` are removed, oldest first.
+   * @param request - Conversation, production and stored video address.
+   * @param signal - Playback cancellation.
+   * @returns The absolute local file, or null when this Host keeps no local media or the conversation has no workspace.
+   */
+  @Remote
+  async localVideo(request: StudioVideoRequest, signal: AbortSignal): Promise<string | null> {
+    if (!this.localMedia) return null
+    const controller = this.ctx.get('sessionController')
+    if (!controller) throw new HarnessError('当前会话不可用。', 'JINGLIU_SESSION_REQUIRED')
+    const resolved = await controller.resolveAgent(request.sessionId)
+    if ('error' in resolved) throw resolved.error
+    const workspace = resolved.agent.session.header.cwd
+    if (!workspace) return null
+    const studio = await this.sessions.connection()
+    const folder = projectMediaFolder(workspace, request.projectId)
+    const [file] = (await this.media.files(studio, [request.path], folder, { keep: false, evict: true, signal })).values()
+    if (!file || !VIDEO_TYPES.includes(file.contentType)) throw new HarnessError('镜流素材不是可播放的视频。', 'JINGLIU_INVALID_MEDIA')
+    return file.file
+  }
+
+  /**
+   * Stream a studio video for playback without exposing the studio credential, for a Host without local media.
    * @param path - Media path of a video in the current studio.
    * @param signal - Playback cancellation.
-   * @returns The content type first, then base64 chunks of the file.
+   * @returns The content type first, then base64 chunks of the file, up to 64 MiB.
    */
   @Remote({ mode: 'stream' })
   async *video(path: string, signal: AbortSignal): AsyncIterable<string> {
@@ -443,7 +543,7 @@ export class JingliuConnection extends TypertRemoteService {
     let bytes: Buffer | undefined
     await session.media?.(path, AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs * 4)]), async (response) => {
       type = response.headers.get('content-type')?.split(';')[0] ?? ''
-      if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(type)) throw new HarnessError('镜流素材不是可播放的视频。', 'JINGLIU_INVALID_MEDIA')
+      if (!VIDEO_TYPES.includes(type)) throw new HarnessError('镜流素材不是可播放的视频。', 'JINGLIU_INVALID_MEDIA')
       bytes = await boundedBytes(response, VIDEO_MAX_BYTES)
     })
     if (!bytes) throw new HarnessError('镜流没有返回这段视频。', 'JINGLIU_INVALID_MEDIA')

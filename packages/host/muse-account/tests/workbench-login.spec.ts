@@ -31,11 +31,12 @@ it('authenticates only the currently signed-in owner at each mounted workbench p
   const studio = new URL(baseUrl + '/jingliu/fwp/v2/projects')
   const workshop = new URL(baseUrl + '/jubengongfang/v1/factory/video-transcribe/status')
   await client.mounted('jingliu', owner, studio, {})
-  await client.mounted('script-workshop', owner, workshop, { method: 'POST' })
+  await client.mounted('script-workshop', owner, workshop, { method: 'POST', redirect: 'follow' })
+  await client.mounted('jingliu', owner, new URL(baseUrl + '/jingliu/fwp/media/generated/a.png'), { redirect: 'manual' })
   expect(fetched.mock.calls.map(([url, init]) => [
     url instanceof Request ? url.url : new URL(url).href, new Headers(init?.headers).get('cookie'), new Headers(init?.headers).get('origin'), init?.redirect,
-  ]))
-    .toEqual([[studio.href, '__Host-muse=one', baseUrl, 'error'], [workshop.href, '__Host-muse=one', baseUrl, 'error']])
+  ])).toEqual([[studio.href, '__Host-muse=one', baseUrl, 'error'], [workshop.href, '__Host-muse=one', baseUrl, 'error'],
+    [baseUrl + '/jingliu/fwp/media/generated/a.png', '__Host-muse=one', baseUrl, 'manual']])
   await expect(client.mounted('jingliu', owner, workshop, {})).rejects.toThrow()
   await expect(client.mounted('script-workshop', owner, studio, {})).rejects.toThrow()
   await expect(client.mounted('script-workshop', owner, new URL(baseUrl + '/jubengongfang/v1/%2e%2e/admin'), {})).rejects.toThrow()
@@ -46,7 +47,7 @@ it('authenticates only the currently signed-in owner at each mounted workbench p
   await expect(client.mounted('jingliu', owner, new URL('https://studio.example/jingliu/fwp/v2/projects'), {})).rejects.toThrow()
   await signIn('two')
   await expect(client.mounted('jingliu', owner, studio, {})).rejects.toThrow()
-  expect(fetched).toHaveBeenCalledTimes(2)
+  expect(fetched).toHaveBeenCalledTimes(3)
   const global = vi.fn<typeof fetch>(async () => Response.json({ ok: true }))
   vi.stubGlobal('fetch', global)
   const plain = await fixture()

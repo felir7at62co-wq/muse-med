@@ -2375,7 +2375,7 @@ export interface TlsConfig {
 ## `@deepseek-ai/dsh-jingliu-connection`
 
 - `inject`: `commands`
-- `source`: [`packages/drama/jingliu-connection/src/index.ts:43`](../packages/drama/jingliu-connection/src/index.ts)
+- `source`: [`packages/drama/jingliu-connection/src/index.ts:51`](../packages/drama/jingliu-connection/src/index.ts)
 
 ```ts config-catalog
 /** Limits and server address for this installation. */
@@ -2386,6 +2386,22 @@ export interface Config {
   timeoutMs?: number
   /** Read the isolated test session from the Host environment on a loopback deployment. */
   localPreviewToken?: boolean
+  /**
+   * Keep studio media as files on this computer: thumbnails in a Host cache folder, videos and tool downloads in
+   * `<workspace>/jingliu/<project>`. Only the desktop Host enables it; otherwise media is read into memory, within
+   * fixed bounds, and never written to disk.
+   */
+  localMedia?: boolean
+  /** Exact `host[:port]` values of presigned object-storage links the Host may download from or upload to. */
+  mediaHosts?: string[]
+  /** Simultaneous media downloads. */
+  mediaDownloads?: number
+  /** Bytes of viewed media one folder keeps before its least recently used files are removed; tool and draft files never count. */
+  mediaCacheBytes?: number
+  /** Largest download accepted when the studio does not state a file's size. */
+  mediaMaxBytes?: number
+  /** Maximum duration of one media download or upload, in milliseconds. */
+  mediaTimeoutMs?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-jingliu-connection -->

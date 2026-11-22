@@ -46,8 +46,10 @@ export interface WorkbenchSession {
    */
   request(path: string, options?: WorkbenchRequest): Promise<unknown>
   /** Fetch an address of this deployment as this user without checking the login; callers call `check()` around it.
+   * Redirects are refused unless `init.redirect` is `'manual'`, which returns the redirect response unfollowed.
+   * A failed upstream fetch rejects with its own error, never with a Muse login failure.
    * @param url - Address on the deployment origin.
-   * @param init - Request fields; authorization, redirect and lifetime are added.
+   * @param init - Request fields; authorization and lifetime are added.
    * @returns The raw upstream response.
    */
   fetch(url: URL, init: RequestInit): Promise<Response>
@@ -123,7 +125,19 @@ export class WorkbenchSessions {
   }
 
   private transport(owner: string): (url: URL, init: RequestInit) => Promise<Response> {
-    return (url, init) => this.muse(account => account.requestMountedWorkbench(this.definition.audience, owner, url, init))
+    return async (url, init) => {
+      // Only a refusal by the account service names the Muse login; a failed upstream fetch keeps its own error.
+      const outcome = await this.muse(async (account) => {
+        try {
+          return { response: await account.requestMountedWorkbench(this.definition.audience, owner, url, init) }
+        } catch (error) {
+          if (error instanceof Error && error.name === 'MuseGatewayError') throw error
+          return { error }
+        }
+      })
+      if ('error' in outcome) throw outcome.error
+      return outcome.response
+    }
   }
 
   private async call(
@@ -214,7 +228,7 @@ export class WorkbenchSessions {
           const signal = init.signal ? AbortSignal.any([init.signal, this.lifetime.signal]) : this.lifetime.signal
           const merged = new Headers(init.headers)
           if (headers) merged.set('authorization', headers.authorization)
-          return await transport(url, { ...init, headers: merged, redirect: 'error', signal })
+          return await transport(url, { ...init, headers: merged, redirect: init.redirect === 'manual' ? 'manual' : 'error', signal })
         },
         request: async (path: string, options: WorkbenchRequest = {}) => {
           await check()

@@ -153,6 +153,21 @@ it('passes a transport failure through unchanged', async () => {
   await expect(access.connection()).rejects.toBeInstanceOf(TypeError)
 })
 
+it('passes a manual redirect and a mounted transport failure through without naming the Muse login', async () => {
+  const { origin } = await workbench(req => req.url === '/jubengongfang/v1/auth/me' ? [200, { id: 9 }] : [200, {}])
+  const { ctx, account } = await host()
+  const access = sessions(ctx, { origin: origin + '/jubengongfang' })
+  const scope = await access.connection()
+  await scope.fetch(new URL(origin + '/jubengongfang/v1/raw'), { redirect: 'manual' })
+  await scope.fetch(new URL(origin + '/jubengongfang/v1/raw'), { redirect: 'follow' })
+  expect(account.mounted.mock.calls.slice(1).map(([, , , init]) => init.redirect)).toEqual(['manual', 'error'])
+  const unreachable = new TypeError('fetch failed')
+  account.mounted.mockRejectedValueOnce(unreachable)
+  await expect(scope.fetch(new URL(origin + '/jubengongfang/v1/raw'), {})).rejects.toBe(unreachable)
+  account.mounted.mockRejectedValueOnce(Object.assign(new Error('MUSE account gateway: gateway-rejected'), { name: 'MuseGatewayError', code: 'gateway-rejected' }))
+  await expect(scope.fetch(new URL(origin + '/jubengongfang/v1/raw'), {})).rejects.toMatchObject({ code: 'WORKSHOP_MUSE_AUTH_UNAVAILABLE' })
+})
+
 it('authorizes a gateway-mounted deployment with the Muse login instead of a native token', async () => {
   let profile: Reply = [200, { id: 9, username: 'writer' }]
   const { origin, requests } = await workbench(req => req.url === '/jubengongfang/v1/auth/me' ? profile : [200, { path: req.url }])

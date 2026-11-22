@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type { StudioLibraryQuery } from '@deepseek-ai/dsh-jingliu-connection/types'
+import type { StudioImage, StudioLibraryQuery } from '@deepseek-ai/dsh-jingliu-connection/types'
 import remote from '@deepseek-ai/dsh-jingliu-connection/remote'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { Assets, CreditEntry, Environment, ProductionSettings, type ProductionActions } from './Production.tsx'
@@ -56,6 +56,19 @@ async function settled<T>(result: Promise<{ ok: true; value: T } | { ok: false; 
  */
 function param(address: string, name: string): string {
   return new URL(address).searchParams.get(name) ?? ''
+}
+
+/**
+ * The address an image element loads for a studio image: an inline copy as is, a local file through the Host's
+ * authenticated file route.
+ * @param image - Image returned by the Host.
+ * @returns A URL on the current app origin, or the inline data URL.
+ */
+function imageUrl(image: StudioImage): string {
+  if (image.kind === 'inline') return image.url
+  const url = new URL('api/file', document.baseURI)
+  url.searchParams.set('path', image.path)
+  return url.href
 }
 
 /**
@@ -168,7 +181,10 @@ export function installNative(ctx: Context): void {
       host.effect(() => host.resources.register<'jingliu-prefs'>({ protocol: 'jingliu-prefs',
         open: (address, { signal }) => once(signal, () => api.preferences(new URL(address).searchParams.get('id') ?? '', signal)) }))
       host.effect(() => host.resources.register<'jingliu-image'>({ protocol: 'jingliu-image',
-        open: (address, { signal }) => once(signal, () => api.thumbnail(new URL(address).searchParams.get('path') ?? '', signal)) }))
+        open: (address, { signal }) => once(signal, async () => {
+          const image = await api.thumbnail(new URL(address).searchParams.get('path') ?? '', signal)
+          return image.ok ? { ok: true as const, value: imageUrl(image.value) } : image
+        }) }))
       host.effect(() => host.resources.register<'jingliu-config'>({ protocol: 'jingliu-config',
         open: (address, { signal }) => once(signal, () => api.projectConfig(param(address, 'id'), signal)) }))
       host.effect(() => host.resources.register<'jingliu-episodes'>({ protocol: 'jingliu-episodes',
@@ -223,10 +239,19 @@ export function installNative(ctx: Context): void {
           const result = await api.deleteShot(projectId, shotId, new AbortController().signal)
           if (!result.ok) throw result.error
         },
-        loadVideo: async (path, signal) => {
+        loadVideo: async (request, signal) => {
+          // A desktop Host downloads the video into the conversation's workspace once; playback streams that file.
+          const local = await api.localVideo(request, signal)
+          if (!local.ok) throw local.error
+          if (local.value !== null) {
+            const url = new URL('api/video', document.baseURI)
+            url.searchParams.set('sessionId', request.sessionId)
+            url.searchParams.set('path', local.value)
+            return url.href
+          }
           let type = ''
           const parts: Uint8Array<ArrayBuffer>[] = []
-          for await (const chunk of api.video(path, signal)) {
+          for await (const chunk of api.video(request.path, signal)) {
             if (!type) { type = chunk; continue }
             const binary = atob(chunk)
             const bytes = new Uint8Array(new ArrayBuffer(binary.length))

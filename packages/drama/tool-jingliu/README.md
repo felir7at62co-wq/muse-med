@@ -24,6 +24,8 @@ Requests use the signed-in [Jingliu connection](../jingliu-connection/README.md)
 
 The plugin reads the catalog at invocation time. Project workflows use the selected conversation project or an explicit project ID when the conversation has no selection. Muse asks for approval before server-declared mutations, generation or costs. A paid workflow's card includes the server quote. If the service requests separate confirmation for an irreversible change, the user sees its reason before Muse submits the same call again. The desktop agent receives an ID derived from the initiating conversation and tool call. Use a returned job ID to look up or wait for the original job.
 
+`jingliu_media` moves files between the conversation's workspace and the studio. `download` places stored `/fw/media/...` addresses at `<workspace>/jingliu/<project>/<dir>/<name>`, each downloaded once, so local tools such as `jianying_draft` can use them; only the desktop Host keeps local files, and elsewhere the action fails with `JINGLIU_MEDIA_LOCAL_DISABLED`. `upload` sends one local image, audio or video file after the user approves it and returns its `/fw/media/uploads/...` address for workflow arguments that take uploaded media. A Jianying export downloads its materials into the same project folder and links or copies them into the draft, so every episode of a production reuses shots already downloaded. A Host without local media, such as the Web Host, installs no draft and returns the studio's export result.
+
 `jingliu_narration` covers the narration-dialogue production mode. It reads the project state and quality report, sets one of the project's available models, submits dialogue breakdown or production, acknowledges a report item, and exports a Jianying draft. The server quotes each narration job. Muse stores local submission receipts under its private home directory so a replay after an acknowledged submission can reuse the original job ID. If submission was interrupted, reconcile the project job list before another attempt.
 
 ## Model Experience
@@ -32,11 +34,11 @@ The plugin reads the catalog at invocation time. Project workflows use the selec
 
 #### What the model sees
 
-The model uses `jingliu_projects` to confirm a production, `jingliu_studio` to review assets and subtitles, and `jingliu_image` for images. Discovery returns pages of workflow summaries or the complete schema of one named workflow. Execution validates business arguments using that schema and returns the service result with its workflow and project ID. Narration operations use the same project ID and account.
+The model uses `jingliu_projects` to confirm a production, `jingliu_studio` to review assets and subtitles, `jingliu_image` for images, and `jingliu_media` to download or upload files. Discovery returns pages of workflow summaries or the complete schema of one named workflow. Execution validates business arguments using that schema and returns the service result with its workflow and project ID. Narration operations use the same project ID and account.
 
 #### Token effect
 
-Only the selected workflow's arguments and results enter the conversation. The catalog is paginated and no complete catalog is added to the system prompt.
+Only the selected workflow's arguments and results enter the conversation. The catalog is paginated and no complete catalog is added to the system prompt. `jingliu_media` adds one tool definition; its results list only stored addresses, local paths, sizes and media types.
 
 #### KV Cache effect
 
@@ -44,7 +46,7 @@ The tool definitions stay stable when the service catalog changes. Discovery res
 
 ## Known Limitations and Deferred Work
 
-- A Jingliu service exposing the desktop-agent gateway and a working signed-in account are required. Generation runs and media remain on the project server.
+- A Jingliu service exposing the desktop-agent gateway and a working signed-in account are required. Generation runs on the project server; media lives in its object storage and is downloaded to this computer when a tool or view needs it.
 - The narration job route supports active-job deduplication and lacks a durable request key of its own. A lost response can leave a paid outcome unknown.
 
 ### Dev Note

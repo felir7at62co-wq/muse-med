@@ -63,6 +63,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'jingliu_studio',
   'jingliu_run',
   'jingliu_narration',
+  'jingliu_media',
   'list_mcp_resource_templates',
   'list_mcp_resources',
   'manuscript_revision',

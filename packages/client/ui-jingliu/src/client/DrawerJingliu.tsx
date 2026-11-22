@@ -426,7 +426,7 @@ function ShotCard(props: CardProps) {
     </div>
     <div className={css.media}>
       {shot.hasVideo
-        ? <ShotVideo key={shown?.videoPath ?? 'none'} path={shown?.videoPath ?? ''} poster={media.value?.firstFramePath ?? ''} current={current} epoch={epoch} useResource={useResource} loadVideo={loadVideo} t={t} />
+        ? <ShotVideo key={shown?.videoPath ?? 'none'} sessionId={props.sessionId} projectId={projectId} path={shown?.videoPath ?? ''} poster={media.value?.firstFramePath ?? ''} current={current} epoch={epoch} useResource={useResource} loadVideo={loadVideo} t={t} />
         : <div className={css.videoEmpty}>{t('notGenerated')}</div>}
       {versions.length > 1 && <div className={css.versions} role="group" aria-label={t('versions')}>{versions.map(v =>
         <button key={v.number} type="button" aria-pressed={v.number === current} title={t('versionLabel', { number: v.number })} onClick={() => setVersion(v.number)}>{v.number}</button>)}</div>}
@@ -463,11 +463,11 @@ function pickVersion(media: StudioShotMedia, version: number | null): { videoPat
   return picked ? { videoPath: picked.videoPath || media.videoPath, model: picked.model } : { videoPath: media.videoPath, model: '' }
 }
 
-// The first frame until the user plays it; the Host fetches the video on demand and the
-// page holds it as an object URL until the card leaves.
-type VideoProps = { path: string; poster: string; current: number | null; epoch: number; useResource: Read; loadVideo: ProductionActions['loadVideo']; t: Text }
+// The first frame until the user plays it; the Host fetches the video on demand. A desktop Host plays it from the
+// conversation's workspace; otherwise the page holds it as an object URL until the card leaves.
+type VideoProps = { sessionId: Props['sessionId']; projectId: string; path: string; poster: string; current: number | null; epoch: number; useResource: Read; loadVideo: ProductionActions['loadVideo']; t: Text }
 
-function ShotVideo({ path, poster, current, epoch, useResource, loadVideo, t }: VideoProps) {
+function ShotVideo({ sessionId, projectId, path, poster, current, epoch, useResource, loadVideo, t }: VideoProps) {
   const [playing, setPlaying] = useState(false)
   const [url, setUrl] = useState('')
   const [failed, setFailed] = useState(false)
@@ -475,8 +475,9 @@ function ShotVideo({ path, poster, current, epoch, useResource, loadVideo, t }: 
     if (!playing || !path) return undefined
     const controller = new AbortController()
     let made = ''
-    void loadVideo(path, controller.signal).then((next) => {
-      if (controller.signal.aborted) { URL.revokeObjectURL(next); return }
+    const release = (url: string) => { if (url.startsWith('blob:')) URL.revokeObjectURL(url) }
+    void loadVideo({ sessionId, projectId, path }, controller.signal).then((next) => {
+      if (controller.signal.aborted) { release(next); return }
       made = next
       setUrl(next)
     }, () => {
@@ -484,8 +485,8 @@ function ShotVideo({ path, poster, current, epoch, useResource, loadVideo, t }: 
       setFailed(true)
       setPlaying(false)
     })
-    return () => { controller.abort(); if (made) URL.revokeObjectURL(made) }
-  }, [playing, path, loadVideo])
+    return () => { controller.abort(); if (made) release(made) }
+  }, [playing, sessionId, projectId, path, loadVideo])
   if (url) return <video className={css.video} src={url} controls autoPlay playsInline />
   return <button type="button" className={css.poster} disabled={!path || playing} aria-label={failed ? t('videoFailed') : t('playVideo')} title={failed ? t('videoFailed') : undefined} onClick={() => { setFailed(false); setPlaying(true) }}>
     {poster ? <Picture path={poster} epoch={epoch} useResource={useResource} name="" /> : null}

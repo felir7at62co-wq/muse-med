@@ -1,3 +1,5 @@
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+
 /** Project explicitly associated with a local conversation. */
 export interface SelectedProject { id: string; title: string }
 
@@ -181,4 +183,20 @@ export interface StudioAudioClip {
 export interface StudioProjectAssets {
   assets: StudioProjectAsset[]
   audio: StudioAudioClip[]
+}
+
+/**
+ * How the client shows one studio image: an inline copy, or a file on this computer that the client reads through the
+ * Host's authenticated file route. Only a desktop Host returns files.
+ */
+export type StudioImage = { kind: 'inline'; url: string } | { kind: 'file'; path: string }
+
+/** One studio video of a production, to be played from the workspace of a conversation. */
+export interface StudioVideoRequest {
+  /** Conversation whose workspace holds the production's media folder. */
+  sessionId: SessionId
+  /** Production the video belongs to. */
+  projectId: string
+  /** Stored video address. */
+  path: string
 }

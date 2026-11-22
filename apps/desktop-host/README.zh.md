@@ -33,7 +33,7 @@ Desktop 在创作与历史恢复作用域内置[七猫公开元数据工具](../
 
 桌面工具发现策略常驻日常文件、命令、图片、视频查看、搜索、交互和任务工具，以及红果短剧下载工具。专业剧本、资产、制作、采集与交付工具按需通过工具搜索加载；注册及执行权限保持不变。默认产品不包含 Bot 专属定义与偏好服务。
 
-启动桌面版前，将 `MUSE_JINGLIU_ORIGIN` 设为镜流 HTTPS 站点或可信的回环地址。新多媒体项目使用镜流。剧变是可选的第二渠道：它的工具已挂载，只有点名「剧变」的搜索才会找到，并且需要先在**设置 → 连接器 → 剧变**里保存令牌。同一页面还提供剧变的项目视频恢复，对某个项目目录开启前保持关闭。剧变的会话视频模型选择器和整集渲染服务在此桌面配置中仍为归档状态。原有本地文件和历史会话记录仍保存在原处。配置镜流地址后，右侧栏的[镜流原版工作台](../../packages/client/ui-jingliu/README.zh.md)和会话里的[镜流工作流工具](../../packages/drama/tool-jingliu/README.zh.md)使用同一个站点。工作台使用 Muse 登录。会话工具使用桌面当前登录的 Muse 账号访问已注册的镜流服务。服务器管理员需要启用[工作台登录](../../docs/upgrade-guide/v0.2.2-rc.2/workbench-muse-login/guide.zh.md)，并关联已有工作台用户。独立测试环境可设置 `MUSE_JINGLIU_LOCAL_PREVIEW=1`，并按照[镜流账号连接](../../packages/drama/jingliu-connection/README.zh.md)向 Host 提供测试会话。
+启动桌面版前，将 `MUSE_JINGLIU_ORIGIN` 设为镜流 HTTPS 站点或可信的回环地址。桌面 Host 会设置 `MUSE_DESKTOP_HOST=1`，从而开启镜流连接的 `localMedia`：镜流媒体从对象存储下载到本机文件夹。加载同一补丁的 Web Host 只在内存中处理媒体，不向磁盘写入。`MUSE_JINGLIU_MEDIA_HOSTS` 以逗号分隔覆盖允许下载的存储主机，默认 `muse.tos-cn-beijing.volces.com`。新多媒体项目使用镜流。剧变是可选的第二渠道：它的工具已挂载，只有点名「剧变」的搜索才会找到，并且需要先在**设置 → 连接器 → 剧变**里保存令牌。同一页面还提供剧变的项目视频恢复，对某个项目目录开启前保持关闭。剧变的会话视频模型选择器和整集渲染服务在此桌面配置中仍为归档状态。原有本地文件和历史会话记录仍保存在原处。配置镜流地址后，右侧栏的[镜流原版工作台](../../packages/client/ui-jingliu/README.zh.md)和会话里的[镜流工作流工具](../../packages/drama/tool-jingliu/README.zh.md)使用同一个站点。工作台使用 Muse 登录。会话工具使用桌面当前登录的 Muse 账号访问已注册的镜流服务。服务器管理员需要启用[工作台登录](../../docs/upgrade-guide/v0.2.2-rc.2/workbench-muse-login/guide.zh.md)，并关联已有工作台用户。独立测试环境可设置 `MUSE_JINGLIU_LOCAL_PREVIEW=1`，并按照[镜流账号连接](../../packages/drama/jingliu-connection/README.zh.md)向 Host 提供测试会话。
 
 将 `MUSE_SCRIPT_WORKSHOP_ORIGIN` 设为编剧服务源站，可从右侧栏打开「剧本工坊」。剧本工坊与镜流分别配置。
 
