@@ -16,7 +16,7 @@ import { expect, it } from 'vitest'
 import * as EpisodeSubtitles from '../src/index.ts'
 import { hasMedia, realProject, rulesPython, scriptedAccount } from './real-project.ts'
 
-it.runIf(hasMedia && rulesPython !== undefined)('builds corrected subtitles end to end and removes its tool on disposal', async () => {
+it.runIf(hasMedia && rulesPython !== undefined)('builds corrected subtitles end to end and removes its tool and prompt section on disposal', async () => {
   const lines = ['林晨，你终于回来了', '妈说林晨在等你，你买不买']
   const project = await realProject(lines)
   const heard = (text: string) => Array.from(text, (char, index) => ({ start: 0.2 + index * 0.15, end: 0.32 + index * 0.15, text: char }))
@@ -46,6 +46,8 @@ it.runIf(hasMedia && rulesPython !== undefined)('builds corrected subtitles end 
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     await ctx.plugin(NativeToolExecutor)
     const tools = ctx.tools
+    const sections = async () => (await ctx.systemPrompt.assemble()).sections.map(section => section.name)
+    expect(await sections()).toContain('tool:episode_subtitles')
     const call = async (id: string) => await executeModelToolFixture(ctx, { name: 'episode_subtitles', callId: ToolCallId(id),
       signal: new AbortController().signal, arguments: { source: 'local', project: project.root, episodes: [1] } })
     const text = (result: Awaited<ReturnType<typeof call>>) =>
@@ -76,6 +78,7 @@ it.runIf(hasMedia && rulesPython !== undefined)('builds corrected subtitles end 
     const entry = [...ctx.loader.entries()].find(row => row.options.name === '@deepseek-ai/dsh-tool-episode-subtitles')
     await entry?.fiber?.dispose()
     expect(tools.get('episode_subtitles')).toBeUndefined()
+    expect(await sections()).not.toContain('tool:episode_subtitles')
   } finally {
     await ctx.fiber.dispose()
     await rm(project.root, { recursive: true, force: true })

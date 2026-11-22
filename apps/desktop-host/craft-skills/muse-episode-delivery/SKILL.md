@@ -1,8 +1,16 @@
 ---
 name: muse-episode-delivery
-description: 把已确认的镜头合成成片、上字幕、导出剪映草稿或查询镜流远端交付时使用。
+description: 给分集上字幕、导出剪映草稿、把镜头合成成片或查询镜流远端交付时使用。
 ---
 
-# 成片、字幕与剪映草稿
+# 字幕、剪映草稿与成片
 
-短剧需要直出成片时，本地合成采用已确认的镜流媒体和实际时间线，按当前工具 schema 优先使用 drama_render 的 subtitles → prepare → render，而不是沿用历史会话的手写 ASS、FFmpeg 命令或旧脚本；已有同源校订 SRT 可直接复用，不为格式重复转写或覆盖原稿；同一时间线和 prepare 返回的实际字幕候选供成片及可编辑草稿复用，存在源画面字幕覆盖计划时使用对应 resolved SRT 与报告。Muse 短剧产品对竖版新输出统一正文字幕视觉，旧项目和时间线字幕样式不覆盖该配置；横版及方形沿用现有布局规则。剪映草稿保留可编辑性，用户可在剪映调整。适用片尾按媒介和当前工具配置决定。查看 render_preview 和实际画面核对字体、大小、位置、单行、标点及片尾，不能把旧命令或 SRT 文本当作继承样式的证据。长句根据同源词级时间与字形宽度处理，无可靠切点不猜时间。只需草稿时不额外编码整集；工具确有能力缺口时说明并核验替代产物。镜流远端交付按账号目录查询 export_jianying 或 export_srt。
+按集出字幕和剪映草稿只用三步，本机项目与镜流项目相同：
+
+1. `episode_subtitles {method:"build", source, project, episodes}`；`status` 为 `waiting` 时用相同参数再调，直到不再等待。
+2. 有 `needs_review` 时调 `episode_subtitles {method:"review"}` 分页取待核处，用 `show_view` 把听到的与剧本的文字给用户看，把用户的选择作为 `decisions` 传回。不要自己写台词、时间或对齐。
+3. `jianying_draft {source, project, episodes, switches}`。`refused` 为 `subtitles_stale`、`subtitles_missing` 或 `subtitles_unverified` 时回到第 1 步；`music_missing` 按 BGM 步骤补配乐后再导出。
+
+镜头重新生成、换版本或修剪后同样从第 1 步重跑，只重做变化的镜头，不手改偏移。
+
+需要直出成片时，字幕用 `episode_subtitles` 写出的同一份 SRT，经 `drama_render` 的 prepare → render 合成，不沿用历史会话的手写 ASS、FFmpeg 命令或旧脚本；存在源画面字幕覆盖计划时使用对应 resolved SRT 与报告。Muse 短剧产品竖版新输出统一正文字幕视觉，旧项目和时间线字幕样式不覆盖该配置；横版及方形沿用现有布局规则。适用片尾按媒介和当前工具配置决定。查看 render_preview 和实际画面核对字体、大小、位置、单行、标点及片尾。只需草稿时不额外编码整集。镜流远端交付按账号目录查询 export_jianying 或 export_srt。

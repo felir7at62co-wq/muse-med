@@ -5367,8 +5367,8 @@ export interface DeliverySubtitleVisual {
 
 ## `@deepseek-ai/dsh-tool-episode-subtitles`
 
-- `inject`: `tools` · `museAccount` · `subprocess`
-- `source`: [`packages/drama/tool-episode-subtitles/src/index.ts:25`](../packages/drama/tool-episode-subtitles/src/index.ts)
+- `inject`: `tools` · `museAccount` · `subprocess` · `systemPrompt`
+- `source`: [`packages/drama/tool-episode-subtitles/src/index.ts:27`](../packages/drama/tool-episode-subtitles/src/index.ts)
 
 ```ts config-catalog
 /** Deployment settings; Desktop passes its bundled runtime and media executables. Omitted limits take the schema defaults. */

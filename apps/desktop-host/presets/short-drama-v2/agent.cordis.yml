@@ -94,7 +94,7 @@
         skill: muse-video-production
       - tools: ['drama_character_reference*']
         skill: muse-asset-design
-      - tools: [drama_render, jianying_draft, drama_draft_dir]
+      - tools: [episode_subtitles, drama_render, jianying_draft, drama_draft_dir]
         skill: muse-episode-delivery
       - tools: [screenplay_export_docx, script_finalize]
         skill: muse-manuscript-delivery

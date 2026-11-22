@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Desktop mounts the plugin inside its Office composition with the bundled runtime directory and the media executables it gives `jianying_draft`. It needs the tool registry, the Muse account service and a subprocess provider; Jingliu projects also need the optional `jingliuConnection` with local media.
+Desktop mounts the plugin inside its Office composition with the bundled runtime directory and the media executables it gives `jianying_draft`. It needs the tool registry, the system prompt, the Muse account service and a subprocess provider; Jingliu projects also need the optional `jingliuConnection` with local media.
 
 ```yaml
 - id: tool-episode-subtitles
@@ -110,11 +110,11 @@ Corrected words are stored on Jingliu by one `auto_subtitles` segments job per e
 
 #### What the model sees
 
-A mounted row contributes `episode_subtitles`; the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-episode-subtitles) owns the complete parameter and description text. It takes `method`, `source`, `project`, `episodes`, `wait_seconds`, `decisions` and `offset`. A build result groups episodes by status (`ready`, `waiting`, `needs_review`, `blocked`), lists at most ten shots per entry, reports recognition progress and names the next call. A review page carries at most `reviewPageSize` items with the heard and script text and episode-clock times.
+A mounted row contributes `episode_subtitles`; the generated [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-episode-subtitles) owns the complete parameter and description text. It takes `method`, `source`, `project`, `episodes`, `wait_seconds`, `decisions` and `offset`. A build result groups episodes by status (`ready`, `waiting`, `needs_review`, `blocked`), lists at most ten shots per entry, reports recognition progress and names the next call. A review page carries at most `reviewPageSize` items with the heard and script text and episode-clock times. The row also adds the `tool:episode_subtitles` system-prompt section: the three calls `episode_subtitles` build, `episode_subtitles` review and `jianying_draft`, and a rebuild after a shot changes. It keeps that order in a preset that carries few task skills across compaction.
 
 #### Token effect
 
-The request gains one fixed schema. A build result is about 30 bytes per episode and stays under 3 KB for 100 episodes; a review page grows with its items, bounded by the page size.
+The request gains one fixed schema and one short fixed prompt section. A build result is about 30 bytes per episode and stays under 3 KB for 100 episodes; a review page grows with its items, bounded by the page size.
 
 #### KV Cache effect
 

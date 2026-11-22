@@ -11,6 +11,7 @@
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
+    { "path": "../../core/system-prompt" },
     { "path": "../../core/tools" },
     { "path": "../../llm/llm" },
     { "path": "../../subprocess/subprocess" },

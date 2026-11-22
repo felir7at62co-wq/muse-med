@@ -397,9 +397,11 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-episode-subtitles',
     dir: 'tool-episode-subtitles',
     source: 'packages/drama/tool-episode-subtitles/src/index.ts',
-    requires: ['ctx.tools', 'ctx.museAccount', 'ctx.subprocess', 'FFmpeg and FFprobe on PATH (or configured)', 'Python with pypinyin 0.55.0 (source or pythonPath)'],
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.museAccount', 'ctx.subprocess', 'FFmpeg and FFprobe on PATH (or configured)',
+      'Python with pypinyin 0.55.0 (source or pythonPath)', 'ctx.jingliuConnection with local media for Jingliu projects (optional)'],
     writes: ['tool/call', 'tool/result', 'transcript/packs, transcript/jobs and transcript/shots', 'editing/<episode>-shots.json',
-      'editing/<episode>.srt and its version 2 .clock.json', 'subtitles/<episode>.state.json, .review.json and .decisions.json'],
+      'editing/<episode>.srt and its version 2 .clock.json', 'subtitles/<episode>.state.json, .review.json and .decisions.json',
+      'Jingliu projects: media, transcripts and subtitles/ep<episode>.* under jingliu/<project>, and Jingliu auto_subtitles segments jobs'],
     async mount(ctx) {
       ctx.provide('museAccount', {} as MuseAccountService)
       await ctx.plugin(LocalSubprocessRuntime)

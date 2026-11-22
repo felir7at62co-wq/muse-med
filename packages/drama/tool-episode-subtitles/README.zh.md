@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及交给 `jianying_draft` 的同一组媒体程序。它需要工具注册表、Muse 账号服务和 subprocess provider；镜流项目还需要可选的、保存本机素材的 `jingliuConnection`。
+Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及交给 `jianying_draft` 的同一组媒体程序。它需要工具注册表、系统提示、Muse 账号服务和 subprocess provider；镜流项目还需要可选的、保存本机素材的 `jingliuConnection`。
 
 ```yaml
 - id: tool-episode-subtitles
@@ -110,11 +110,11 @@ Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及�
 
 #### 模型看到的内容
 
-挂载后贡献 `episode_subtitles`；完整参数与描述原文以生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-episode-subtitles)为准。参数为 `method`、`source`、`project`、`episodes`、`wait_seconds`、`decisions` 和 `offset`。构建结果按状态（`ready`、`waiting`、`needs_review`、`blocked`）归组各集，每项最多列出十个镜头，报告转写进度并给出下一次调用。待核页最多包含 `reviewPageSize` 条，带听到的文字、剧本文字和整集时钟时间。
+挂载后贡献 `episode_subtitles`；完整参数与描述原文以生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-episode-subtitles)为准。参数为 `method`、`source`、`project`、`episodes`、`wait_seconds`、`decisions` 和 `offset`。构建结果按状态（`ready`、`waiting`、`needs_review`、`blocked`）归组各集，每项最多列出十个镜头，报告转写进度并给出下一次调用。待核页最多包含 `reviewPageSize` 条，带听到的文字、剧本文字和整集时钟时间。 该行还加入 `tool:episode_subtitles` 系统提示段：`episode_subtitles` build、`episode_subtitles` review 与 `jianying_draft` 三步，以及镜头变化后的重跑。在只保留少量任务技能的预设里，压缩后仍按这个顺序进行。
 
 #### Token 影响
 
-请求增加一个固定 schema。构建结果每集约 30 字节，100 集时仍小于 3 KB；待核页随条目增长，以页长为上限。
+请求增加一个固定 schema 和一段简短的固定提示。构建结果每集约 30 字节，100 集时仍小于 3 KB；待核页随条目增长，以页长为上限。
 
 #### KV Cache 影响
 

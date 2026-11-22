@@ -28,7 +28,7 @@
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`、`ctx.userQuestions` | `tool/call`、`tool/result after an answer or timeout`、`late user/message` | - | ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才启用前台超时与 pending 结果，同时问题仍可回答；timed 模式内 `timeout: -1` 让本次调用无限期阻塞。 |
 | `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.sandboxPolicy（文件系统约束开启时）` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | 来源片段编号、修订号、候选摘要、时间和正文引用行号由宿主生成。事实与逐集候选须经另一会话审校后验收。 |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`、`ctx.museAccount`、PATH 中的 FFmpeg 与 FFprobe | `tool/call`、`tool/result`，`transcript/jobs` 中的任务收据，`transcript/raw` 中的 TXT 与 JSON | - | start 使用已登录的 Muse 账号上传压缩音轨并提交云转写；status 根据收据查询同一任务，完成后保存带时间戳的结果。需要可读取的本地音视频与服务端转写配置。 |
-| `@deepseek-ai/dsh-tool-episode-subtitles` | `episode_subtitles` | `ctx.tools`、`ctx.museAccount`、`ctx.subprocess`、PATH 中（或已配置）的 FFmpeg 与 FFprobe、带 pypinyin 0.55.0 的 Python（source 或 pythonPath） | `tool/call`、`tool/result`，`transcript/packs`、`transcript/jobs` 与 `transcript/shots`，`editing/<集>-shots.json`，`editing/<集>.srt` 及其第 2 版 `.clock.json`，`subtitles/<集>.state.json`、`.review.json` 与 `.decisions.json` | - | `build` 把没有转写缓存的镜头拼成少量云端上传，再把字词按镜头拆回，用与镜流共用的规则对照锁定剧本纠正，并按实测时长排布时钟；用相同参数重复调用，直到不再是 `waiting`。`review` 分页列出待核处，并在不新转写的情况下应用 `heard`、`script` 或 `drop` 选择。 |
+| `@deepseek-ai/dsh-tool-episode-subtitles` | `episode_subtitles` | `ctx.tools`、`ctx.systemPrompt`、`ctx.museAccount`、`ctx.subprocess`、PATH 中（或已配置）的 FFmpeg 与 FFprobe、带 pypinyin 0.55.0 的 Python（source 或 pythonPath）、镜流项目需能存本机素材的 `ctx.jingliuConnection`（可选） | `tool/call`、`tool/result`，`transcript/packs`、`transcript/jobs` 与 `transcript/shots`，`editing/<集>-shots.json`，`editing/<集>.srt` 及其第 2 版 `.clock.json`，`subtitles/<集>.state.json`、`.review.json` 与 `.decisions.json`，镜流项目在 `jingliu/<项目>` 下的素材、转写与 `subtitles/ep<集>.*`，以及镜流的 `auto_subtitles` segments 任务 | - | `build` 把没有转写缓存的镜头拼成少量云端上传，再把字词按镜头拆回，用与镜流共用的规则对照锁定剧本纠正，并按实测时长排布时钟；用相同参数重复调用，直到不再是 `waiting`。`review` 分页列出待核处，并在不新转写的情况下应用 `heard`、`script` 或 `drop` 选择。 |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`、TOS 访问密钥的凭据引用、可访问火山引擎 TOS 的网络 | `tool/call`、`tool/result`，`download-video-date/{platform}/{date}/{work_id}/` 下的公开 TOS 对象，`remove_local` 为 true 时删除本地文件 | - | 可选包：只由云端转写部署组合，并由它提供凭据引用。 |
 | `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`、`jingliu_media`、`jingliu_narration`、`jingliu_projects`、`jingliu_run`、`jingliu_studio`、`jingliu_workflows` | `ctx.tools`、`ctx.jingliuConnection`，更改和计费操作需 `ctx.approval` | `tool/call`、`tool/result`、镜流服务的项目更新和任务、会话项目关联、生图与解说剧任务回执、本地剪映草稿 | - | - |
 | `@deepseek-ai/dsh-tool-workshop` | `script_finalize`、`script_library`、`workshop_video_transcribe` | `ctx.tools`、`ctx.workshopConnection`，开始任务需 `ctx.approval`，剧本文件需 `ctx.fs` 与 `ctx.sandboxPolicy` | `tool/call`、`tool/result`，所配置剧本工坊上的 `video_transcribe` 工厂任务、定稿库版本与投产登记，工作区 `剧本库/` 下的剧本文件 | - | - |
@@ -1849,7 +1849,7 @@ Source: [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/
 
 ### `episode_subtitles`
 
-按集生成字幕：读取锁定分镜与选定镜头，实测时长，按音频摘要复用或提交云转写，用剧本纠正识别文字，按字词时间排条，写 SRT、时钟回执与待核清单。参数相同重复调用即可续做；只重做变化的镜头。不要自己写台词、对齐或时间。
+按集生成字幕：读取锁定分镜与选定镜头，实测时长，按音频摘要复用或提交云转写，用剧本纠正识别文字，按字词时间排条，写 SRT、时钟回执与待核清单。参数相同重复调用即可续做；只重做变化的镜头。不要自己写台词、对齐或时间。用户消息里的 json 代码块给出 source、project、episodes 时，照原样传入。
 
 ```json
 {

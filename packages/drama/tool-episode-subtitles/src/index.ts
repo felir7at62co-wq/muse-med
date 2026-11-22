@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-subprocess'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import type {} from '@deepseek-ai/dsh-jingliu-connection'
 import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
@@ -16,10 +17,11 @@ import { runEpisodeSubtitles, type EpisodeSubtitlesSettings } from './tool.ts'
 export const name = 'tool-episode-subtitles'
 
 /**
- * The account supplies the cloud transcription cookie; the subprocess provider owns the rules process. The optional
- * `jingliuConnection` is read per call, and without it Jingliu episodes are `jingliu_outdated`.
+ * The account supplies the cloud transcription cookie; the subprocess provider owns the rules process; the system prompt
+ * carries the three-call delivery rule. The optional `jingliuConnection` is read per call, and without it Jingliu
+ * episodes are `jingliu_outdated`.
  */
-export const inject = ['tools', 'museAccount', 'subprocess']
+export const inject = ['tools', 'museAccount', 'subprocess', 'systemPrompt']
 
 /** Deployment settings; Desktop passes its bundled runtime and media executables. Omitted limits take the schema defaults. */
 export interface Config extends Partial<EpisodeSubtitlesSettings> {
@@ -92,6 +94,16 @@ export function apply(ctx: Context, input: Config): void {
     maxChars, spaceWidth: config.spaceWidth, timeoutMs: config.rulesTimeoutMs, graceMs: config.graceMs,
     maxOutputBytes: config.maxRulesOutputBytes, python })
   const rules = rulesOf(config.maxChars), jingliuRules = rulesOf(config.jingliuMaxChars)
+  // Carried in the prompt so a preset that keeps few task skills still follows the delivery order after compaction.
+  ctx.systemPrompt.section({ name: 'tool:episode_subtitles', order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
+    interpolate: false, text: `## 分集字幕与剪映草稿
+
+按集出字幕和剪映草稿只用三步：
+1. episode_subtitles build；status 为 waiting 时用相同参数再调。
+2. 有 needs_review 时调 episode_subtitles review，用 show_view 把待核处给用户看，把用户的选择作为 decisions 传回。
+3. jianying_draft。refused 为 subtitles_stale、subtitles_missing 或 subtitles_unverified 时回到第 1 步。
+
+镜头重新生成、换版本或修剪后从第 1 步重跑，不手改偏移，不运行 align_subtitles.py。` })
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'episode_subtitles',
     description: DESCRIPTION,

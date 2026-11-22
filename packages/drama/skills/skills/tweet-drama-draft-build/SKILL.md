@@ -15,7 +15,7 @@ Windows 原声草稿按画幅选择片尾：只有 `9:16` 在整集末尾追加�
 
 仅在准备生成剪映草稿时调用 `drama_draft_dir {}`，读取 Settings 的 `jianyingDraftDir`。返回 `ready` 就使用返回的 `path`，不再询问用户；返回 `unconfigured` 或路径失效时，用 `ask_user_question` 询问“请提供本机剪映专业版设置里的草稿保存根目录”。不要猜测其他机器的路径，也不要替用户创建一个假定的编辑器根目录。把用户回答传给 `drama_draft_dir {path: ...}`；工具验证已有绝对目录可读写、保存同一 Settings 字段并回读，成功后才能生成草稿。工具或保存失败时说明原因并修正，不改写其他设置，不用另一份配置文件绕过。这个步骤不阻塞写作、分镜或视频生成。
 
-生成剪映草稿统一调用 `jianying_draft`，将 `drama_draft_dir` 成功结果的 `path` 原样作为 `drafts_dir`，不用让用户手写 PowerShell 或另装 Python。先用 `write` 保存[单集请求文件](references/io-contract.md#desktop-request)，再传其绝对路径为 `request_file`。Windows 原声模式用 aa剪映调用已安装剪映的 CLI；独立音轨请求沿用打包的 `GuanYixuan/pyJianYingDraft`。工具只处理指定一集，返回草稿路径、保留素材目录与实际实现身份。`editor_open_verified=false` 表示尚未在本机剪映打开验证；不能因已有草稿是密文就断言新草稿无法打开，也不能宣称任意版本均兼容。工具失败时按实际错误调查，不静默换引擎。当前实例缺少此工具时，核查 Muse 版本与安装状态。
+生成剪映草稿统一调用 `jianying_draft`，不用让用户手写 PowerShell 或另装 Python。按集出草稿走 `muse-episode-delivery` 的三步（`episode_subtitles` 生成字幕后批量调用 `jianying_draft`），不手写请求文件；只有人工字幕或旧请求才用 `write` 保存[单集请求文件](references/io-contract.md#desktop-request)，再传其绝对路径为 `request_file`。Windows 原声模式用 aa剪映调用已安装剪映的 CLI；独立音轨请求沿用打包的 `GuanYixuan/pyJianYingDraft`。工具只处理指定一集，返回草稿路径、保留素材目录与实际实现身份。`editor_open_verified=false` 表示尚未在本机剪映打开验证；不能因已有草稿是密文就断言新草稿无法打开，也不能宣称任意版本均兼容。工具失败时按实际错误调查，不静默换引擎。当前实例缺少此工具时，核查 Muse 版本与安装状态。
 
 历史会话续做或 Muse 更新后恢复草稿制作时，重新读取本技能，以当前原生工具为准。历史记录中成功过的 `DraftGenerator`、`sys.path`、`.desktop-build` 和绝对开发目录不是当前生成入口；即使仍能启动，也可能绕过现版音轨处理与保存校验。原生工具报错时核查当前错误和打包资源，不静默改用旧脚本或另装依赖。此为 Agent 操作指导，不新增用户审批；不会自动修改已生成草稿，需要修复时另存唯一名称的候选，保留原稿。
 
@@ -35,9 +35,9 @@ Windows 原声生成对同根目录、同名请求互斥；生成期间保护活
 
 字幕覆盖全部真实发声，保留原文与说话人：dialogue/台词、vo/画外音，以及已确认实际发声的 os/心声/旁白/解说。少用旁白是创作建议，不是删除原文的许可；未确认发声时先核查音频，不把心理或叙述说明直接变字幕。动作、表情、场景和摄影说明不出字幕。内嵌字幕与后加字幕分别记录，避免重复。去字幕清理的是源视频中不需要的生成文字，最终设计字幕仍按项目已批准要求制作，clean 不表示最终成片必须无字幕。
 
-只要求草稿时交付可编辑草稿、SRT 和镜头/任务来源映射，不为了验收额外编码整集预览。另需成片时复用相同选源、字幕文字与时间。`drama_render subtitles` 消费台词计划、逐镜来源和已有对齐时间写出 SRT，不执行语音识别或测量发声时间。`scripts/build_spoken_subtitles.py` 只构造 cues；显式草稿可保留标为预估的时间，但预估不等于最终校时。
+只要求草稿时交付可编辑草稿、SRT 和镜头/任务来源映射，不为了验收额外编码整集预览。另需成片时复用相同选源、字幕文字与时间。
 
-字幕检查采用软提示：缺对齐、声文不符、样式问题、配乐不足或未导入均列出具体镜号、路径和原因，由 Muse 自主判断。`drama_render subtitles` 有疑点时写独立 `.draft.srt`，保留原字幕；`.review.txt` 与旧 `.blocked` 只供后续读取提醒，不禁止准备或渲染。检查完整返回的证据和实际草稿，不把保存成功或 `ok: true` 当作质量验收。
+字幕检查采用软提示：待核处、样式问题、配乐不足或未导入均列出具体镜号、路径和原因，由 Muse 自主判断。检查完整返回的证据和实际草稿，不把保存成功或 `ok: true` 当作质量验收。
 
 ## 视频禁用标签
 
@@ -47,16 +47,9 @@ Windows 原声生成对同根目录、同名请求互斥；生成期间保护活
 
 ## 字幕交付样式
 
-- **先复用云端时间轴**：优先查找当前选定视频已有的已完成云转写收据、原始 JSON 与字幕文件，核对源文件 SHA-256 和剪辑位置。同源、时间有效的结果直接复用，不因制作草稿或纠错再提交转写。未结束任务沿原收据查询；缺少可用结果时才按已有费用授权调用 `audio_transcribe start`，用途为 `subtitles`，不换 ID 或用途重复提交。收据映射与现有脚本用法见[云转写字幕](references/cloud-subtitles.md)。
-- **剧本纠字，声音定时间**：先从正式剧本核对逐镜台词计划，不用分镜提示词或转写结果代替剧本。使用随包 `align_subtitles.py` 和 `drama_render subtitles`，不自写脚本把匹配失败的识别文字直接放进成品。等长换字也会列在 `script_text_differences`，时间对齐成功不代表文字一致。核听确认的错字只改派生字幕文字，保留原始收据、识别 JSON 和实测字词时间；实际漏说、改说或额外发声单独记录，不补成未说过的台词。
-- 已核实错字可将[纠错映射](references/cloud-subtitles.md#corrections-and-measured-spans)传给 `align_subtitles.py --corrections`：按原始词序、源视频与转写摘要定位，显式替换错字并保留该词原始时间；这不表示脚本已经核听。
-- **沿真实切点落位**：显示字幕按语义分条，起止取对应的已有字词边界；只有整句时间时先保留整句，不按字数猜内部切点。整集时间由镜头内时间按实际入点裁切、平移，明确变速时按实际速度换算；更换源视频或剪辑时更新受影响的字幕。脚本若因识别错字漏掉句首或句尾，核对原云时间轴后修正派生对齐，不能把缩短后的匹配区间当作完整句时间。文字纠错本身不改变声音时间。
-- **离线只作显式选择**：用户确需离线且自行准备好依赖和模型时，可传 `--model-dir`，或 `--model-url` 与固定 `--model-sha256`。默认安装包不含 Whisper 模型与推理依赖；不自动下载安装。独立脚本仍支持 `MUSE_WHISPER_MODEL_DIR` 的模型解析，以及 `${DSH_HOME:-~/.dsh}/cache/models/faster-whisper` 和 `--cache-dir` 缓存配置。离线识别保持单线程、temperature 0。
+- **字幕由工具生成**：按 `muse-episode-delivery` 的三步调用 `episode_subtitles` 与 `jianying_draft`。文字取自云转写听到的内容并对照锁定剧本纠正，时间是实测字词时间；不自己写台词、对齐、回执或偏移，不运行 `align_subtitles.py`。人工字幕和旧项目的手工流程见[旧流程与人工字幕](references/legacy-manual-subtitles.md)。
 - **单行、无标点、按语义切分**。用空格分隔语义组代替逗号句号；实际可用宽度、字体和字号以当前 `render_preview` 与真实字形测量为准；Muse 短剧产品竖版新输出采用统一视觉，不沿用旧项目或时间线字幕样式。单条建议不超过 14 个有效字（空格按半字计）；超长优先在真实字词切点拆成连续单行；缺切点时保留原句候选并标明待核，不为字数要求编造时间。
 - 不合并不同说话人的句子；动作和未发声的心理描写不出字幕。
-- **逐镜核对覆盖情况**：读取 `subtitle_line_coverage`、`subtitle_timing` 及实际音轨；漏句、额外发声、未核实和阅读速度问题只作提示，Muse 自行选择重听、重对齐或保留候选，不要求警告清零或用户逐项审批。
-
-最终渲染和草稿导入前，先按[完整显示字幕文字核对](references/cloud-subtitles.md#final-display-text-review)比较正式台词和实际选用的 SRT，再对同一份完整显示字幕调用 `drama_render method=speech_coverage`，传同一 `shots`、`timeline`、`subtitle_srt` 和 `speech_transcripts` 收据映射。前者能发现转写和字幕都写错的字；后者比较已有识别词与字幕。核听后补字幕或记录采用真实改说、漏说或额外发声的理由，不改正式剧本。需要保留决定时，用返回的 `evidence_sha256` 绑定 `speech_decisions` 中各 finding ID、decision、reason、observed_text 和实际核听区间；源、转写或 SRT 变化后重新比较，不复用旧决定。没有原稿或未核实的差异时，允许保留待核草稿，不将它标为字幕已核对的最终交付。`listening_verified=false` 表示工具未作声学验收，不自动购买转写。
 
 MP4 与草稿复用同一最终文本和词级时间；长句只在已有同源字词切点按语义分条，不按字数均分，不逐条缩小字号。同一时刻重复 cue 和字幕无发声都需实际复看。保留源画面烧字时，声文核对用包含该文字的完整显示 SRT，真正叠加仍使用 `resolved_srt` 与其报告；不能把已保留的像素文字误报成漏字或再次叠上。
 

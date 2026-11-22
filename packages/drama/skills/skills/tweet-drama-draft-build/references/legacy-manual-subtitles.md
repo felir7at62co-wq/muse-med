@@ -1,4 +1,8 @@
-# Cloud transcript subtitles
+# Legacy and manual subtitles
+
+Episodes built by `episode_subtitles` never need these steps: that tool transcribes, corrects toward the locked script, lays out cues on measured word times and writes the SRT with its clock receipt. Use this reference only for a hand-made subtitle, an old project without episode packages, or a single-episode request with `subtitle_source: "manual"`.
+
+## Cloud transcript subtitles
 
 Use completed cloud recognition for the selected source video. Correct display text against the script and audible performance while retaining measured timing. Keep receipts and raw recognition JSON unchanged; save corrections in derived lines, alignment and SRT files.
 
@@ -47,3 +51,15 @@ python -B <skill-directory>/scripts/align_subtitles.py --project <project> --epi
 ```
 
 The command reads text only and prints JSON. It compares dialogue in order, ignoring spaces, supported punctuation, and line breaks. `text_matches` means the text agrees with the supplied plan; `needs_review` lists differing script and subtitle text, affected script shots, and actual cue times. For omissions, adjacent cues are context, not the time of the missing words. The command does not establish that the supplied plan matches the formal script; it does not listen, rewrite text or certify full-episode timing. It requires explicit nonempty `--lines` and `--review-srt` paths and refuses recognition/alignment options, even with empty values. Explicit `lines: []` declares a silent shot; an empty SRT cannot hide nonempty planned dialogue. Review only flagged passages, preserve measured times when fixing spelling, and rerun the check on the revised SRT. Leave unresolved differences or a missing script marked as unreviewed on the draft; do not present them as verified final subtitles.
+
+## Manual flow checks
+
+Reuse completed cloud recognition first: find the receipt, raw JSON and subtitle of the currently selected video, check its SHA-256 and edit position, and query an unfinished job under its original receipt. Call `audio_transcribe start` with purpose `subtitles` only when no usable result exists and the existing cost authorization covers it; never resubmit under another ID or purpose.
+
+`drama_render subtitles` places the supplied line plan, per-shot sources and alignment into an SRT; it does not recognize speech or measure timing. `scripts/build_spoken_subtitles.py` only builds cues; an explicit draft may keep times marked as estimates, which are not final timing. When the tool has findings it writes a separate `.draft.srt` and keeps the original; `.review.txt` and legacy `.blocked` files are reminders that do not stop prepare or render.
+
+Read `subtitle_line_coverage`, `subtitle_timing` and the actual audio shot by shot. Missing lines, extra speech, unverified passages and reading-speed findings are hints; Muse decides whether to listen again, realign or keep the candidate, without asking the user to approve each one.
+
+Before the final render or draft import, compare the formal lines with the selected SRT as in [final display text review](#final-display-text-review), then call `drama_render method=speech_coverage` on that same full-display subtitle with the same `shots`, `timeline`, `subtitle_srt` and `speech_transcripts` receipt map. To keep a decision, bind each finding ID, decision, reason, observed text and listened span in `speech_decisions` to the returned `evidence_sha256`; compare again after the source, transcript or SRT changes. `listening_verified=false` means the tool did no acoustic acceptance and never buys recognition.
+
+An explicitly offline run is the user's choice: pass `--model-dir`, or `--model-url` with a fixed `--model-sha256`, when the user has prepared the dependencies and model. The default install ships neither Whisper models nor inference dependencies and never downloads them. The standalone script still resolves `MUSE_WHISPER_MODEL_DIR`, `${DSH_HOME:-~/.dsh}/cache/models/faster-whisper` and `--cache-dir`; offline recognition stays single-threaded at temperature 0.

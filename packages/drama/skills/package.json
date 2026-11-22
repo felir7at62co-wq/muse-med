@@ -65,7 +65,7 @@
     "skills/tweet-drama-delivery/scripts/assemble_delivery.py",
     "skills/tweet-drama-draft-build/SKILL.md",
     "skills/tweet-drama-draft-build/agents/openai.yaml",
-    "skills/tweet-drama-draft-build/references/cloud-subtitles.md",
+    "skills/tweet-drama-draft-build/references/legacy-manual-subtitles.md",
     "skills/tweet-drama-draft-build/references/dependencies.md",
     "skills/tweet-drama-draft-build/references/io-contract.md",
     "skills/tweet-drama-draft-build/requirements.txt",

@@ -85,7 +85,7 @@ interface ToolArgsMap {
     project: string;
     /** start 单个输入（与 inputs 二选一）：获授权的本地音频或视频文件路径；相对路径以 project 为基准。 */
     input?: string;
-    /** start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途收据的集沿用原收据，不重新计费，已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。 */
+    /** start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途且源文件字节未变的收据沿用原收据，不重新计费；源文件字节变化按新输入提交；已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。 */
     inputs?: string[];
     /** inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。 */
     wait_seconds?: number;
