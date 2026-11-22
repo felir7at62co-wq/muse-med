@@ -43,7 +43,8 @@ class SubtitleOverlayRequest(unittest.TestCase):
                        'warnings': ['预览源画面文字']}
         self.request = {'project': str(self.project), 'episode': 24, 'name_prefix': 'new-qa-',
                         'videos': [str(self.video)], 'audio': str(self.audio), 'subtitle_srt': str(self.srt),
-                        'timeline': str(self.timeline), 'subtitle_overlay_report': str(self.report_path)}
+                        'timeline': str(self.timeline), 'subtitle_overlay_report': str(self.report_path),
+                        'subtitle_source': 'manual'}
         self.save_report()
 
     def save_report(self):

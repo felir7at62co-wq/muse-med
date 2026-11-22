@@ -108,7 +108,7 @@ class DraftRequestCliTests(unittest.TestCase):
             for index, shot in enumerate(shots)], 'body_end': len(shots),
             'delivery': {'visual_medium': 'animation_3d', 'width': 480, 'height': 854, 'fps': 24},
         }), encoding='utf-8')
-        return {'project': str(project), 'episode': 26, 'name_prefix': 'native-request-',
+        return {'project': str(project), 'episode': 26, 'name_prefix': 'native-request-', 'subtitle_source': 'manual',
                 'videos': videos, 'audio': str(audio), 'subtitle_srt': str(srt), 'timeline': str(timeline)}, drafts
 
     def invoke(self, request, drafts):

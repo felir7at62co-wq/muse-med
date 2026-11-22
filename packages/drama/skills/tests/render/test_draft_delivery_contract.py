@@ -127,7 +127,7 @@ class DraftDeliveryContractTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('draft_request', SCRIPT.with_name('generate_draft_request.py'))
         request_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(request_module)
-        request = {'project': str(root), 'episode': 25, 'name_prefix': '请求-',
+        request = {'project': str(root), 'episode': 25, 'name_prefix': '请求-', 'subtitle_source': 'manual',
                    'audio': str(root / '01_audio/25.wav'),
                    'videos': [str(root / f'02_media/25/p{shot}.mp4') for shot in (1, 2)],
                    'subtitle_srt': str(root / '03_subtitle/25.srt'),
@@ -205,7 +205,7 @@ class DraftDeliveryContractTests(unittest.TestCase):
                     originals = {path: path.read_bytes() for path in (timeline, subtitle)}
                     drafts = root / 'editor'
                     drafts.mkdir()
-                    request = {'project': str(root), 'episode': 25, 'name_prefix': 'BOM-',
+                    request = {'project': str(root), 'episode': 25, 'name_prefix': 'BOM-', 'subtitle_source': 'manual',
                                'audio': str(root / '01_audio/25.wav'),
                                'videos': [str(root / f'02_media/25/p{shot}.mp4') for shot in (1, 2)],
                                'subtitle_srt': str(subtitle), 'timeline': str(timeline)}
@@ -256,7 +256,7 @@ class DraftDeliveryContractTests(unittest.TestCase):
                   'retained_embedded': retained, 'warnings': ['源画面烧录字不可编辑']}
         report_path = root / 'overlay-report.json'
         report_path.write_text(json.dumps(report, ensure_ascii=False), encoding='utf-8')
-        request = {'project': str(root), 'episode': 25, 'name_prefix': '全烧录-',
+        request = {'project': str(root), 'episode': 25, 'name_prefix': '全烧录-', 'subtitle_source': 'manual',
                    'audio': str(root / '01_audio/25.wav'), 'videos': [str(video) for video in videos],
                    'subtitle_srt': str(srt), 'timeline': str(root / '05_timeline/25.timeline.json'),
                    'subtitle_overlay_report': str(report_path)}
@@ -610,7 +610,7 @@ class DraftDeliveryContractTests(unittest.TestCase):
         source_hashes = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
         drafts = root / 'editor'
         drafts.mkdir()
-        request = {'project': str(root), 'episode': 1, 'name_prefix': '单路对白-', 'audio': str(audio),
+        request = {'project': str(root), 'episode': 1, 'name_prefix': '单路对白-', 'subtitle_source': 'manual', 'audio': str(audio),
                    'videos': [str(path) for path in videos], 'subtitle_srt': str(srt), 'timeline': str(timeline_path)}
         with patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]), patch.dict(os.environ), \
                 patch.dict(sys.modules, {'jianying_draft': self.module}):

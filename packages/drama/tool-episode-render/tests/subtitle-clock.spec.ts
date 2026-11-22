@@ -4,8 +4,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ResolvedShot } from '../src/prepare.ts'
-import { StaleSubtitleClockError, subtitleClockPath, verifySubtitleClock, writeDerivedSubtitleClock,
-  writeSubtitleClock } from '../src/subtitle-clock.ts'
+import { changedShots, readSubtitleClockReceipt, StaleSubtitleClockError, subtitleClockPath, subtitleClockRows,
+  verifySubtitleClock, writeDerivedSubtitleClock, writeSubtitleClock, type SubtitleClockReceiptV2 } from '../src/subtitle-clock.ts'
 import { cleanup, tempProject } from './harness.ts'
 
 const roots: string[] = []
@@ -102,4 +102,62 @@ it('does not convert unreadable clock paths into unbound manual subtitles', asyn
   await mkdir(subtitleClockPath(f.source))
   await expect(verifySubtitleClock(f.source, '01', () => f.shots)).rejects.toMatchObject({ code: 'EISDIR' })
   await expect(writeDerivedSubtitleClock(f.source, f.target, text)).rejects.toMatchObject({ code: 'EISDIR' })
+})
+
+const producer = { producer: 'episode_subtitles', rules_sha256: 'e'.repeat(64), review_pending: 3 }
+
+async function threeShots() {
+  const f = await fixture()
+  const shots: ResolvedShot[] = []
+  for (const shot of [1, 2, 3]) {
+    const video = join(f.project, `p${String(shot)}.mp4`), audio = join(f.project, `p${String(shot)}.wav`)
+    await writeFile(video, `picture ${String(shot)}`)
+    await writeFile(audio, `voice ${String(shot)}`)
+    shots.push({ source: { shot, video, audio }, video, audio, durationUs: 1_000_000 * shot })
+  }
+  return { ...f, shots }
+}
+
+it('writes version 2 rows with the same source clock digest version 1 consumers check', async () => {
+  const f = await threeShots()
+  await writeSubtitleClock(f.source, text, '02', f.shots)
+  const v1 = (await readSubtitleClockReceipt(f.source))?.receipt
+  await writeSubtitleClock(f.source, text, '02', f.shots, undefined, { ...producer,
+    jingliu: new Map([[2, { shot_id: 's2', video_path: '/fw/media/p2.mp4', etag: 'x', clip_in_us: 0, speed: 1 }]]) })
+  const v2 = (await readSubtitleClockReceipt(f.source))?.receipt
+  expect(v2).toMatchObject({ version: 2, producer: 'episode_subtitles', episode: '02', review_pending: 3,
+    srt_sha256: v1?.srt_sha256, source_clock_sha256: v1?.source_clock_sha256 })
+  expect(v2?.version === 2 && v2.shots.map(row => [row.shot, row.duration_us, row.audio_sha256, row.jingliu?.shot_id]))
+    .toEqual([[1, 1_000_000, sha('voice 1'), undefined], [2, 2_000_000, sha('voice 2'), 's2'], [3, 3_000_000, sha('voice 3'), undefined]])
+  await expect(verifySubtitleClock(f.source, '02', () => f.shots)).resolves.toBeTypeOf('string')
+  const display = text.replace('现在回去', '现在 回去')
+  await writeFile(f.target, display)
+  await writeDerivedSubtitleClock(f.source, f.target, display)
+  expect((await readSubtitleClockReceipt(f.target))?.receipt).toEqual({ ...v2, srt_sha256: sha(display) })
+})
+
+it('names exactly the shots whose duration, picture or sound changed', async () => {
+  const f = await threeShots()
+  await writeSubtitleClock(f.source, text, '02', f.shots, undefined, producer)
+  const receipt = (await readSubtitleClockReceipt(f.source))?.receipt as SubtitleClockReceiptV2
+  expect(changedShots(receipt, await subtitleClockRows(f.shots))).toEqual([])
+  await writeFile(f.shots[2]!.audio, 'voice 3 regenerated')
+  const trimmed = f.shots.map(shot => shot.source.shot === 1 ? { ...shot, durationUs: 900_000 } : shot)
+  expect(changedShots(receipt, await subtitleClockRows(trimmed))).toEqual([1, 3])
+  expect(changedShots(receipt, await subtitleClockRows(trimmed.slice(0, 2)))).toEqual([1, 3])
+  await expect(verifySubtitleClock(f.source, '02', () => trimmed)).rejects.toBeInstanceOf(StaleSubtitleClockError)
+})
+
+it.each([
+  { version: 3 },
+  { shots: [{ shot: 1, duration_us: 0, video_sha256: 'a'.repeat(64), audio_sha256: 'a'.repeat(64) }] },
+  { shots: 'none' },
+  { review_pending: -1 },
+  { rules_sha256: 'short' },
+])('rejects an invalid version 2 receipt: %j', async (change) => {
+  const f = await fixture()
+  await writeFile(subtitleClockPath(f.source), JSON.stringify({ version: 2, srt_sha256: sha(text), source_clock_sha256: 'a'.repeat(64),
+    producer: 'episode_subtitles', rules_sha256: 'e'.repeat(64), episode: '01', review_pending: 0, shots: [], ...change }))
+  await expect(verifySubtitleClock(f.source, '01', () => f.shots)).rejects.toThrow('生成字幕')
+  await expect(writeDerivedSubtitleClock(f.source, f.target, text)).rejects.toThrow('原字幕或来源时钟已变化')
 })

@@ -62,7 +62,7 @@ it.runIf(process.platform === 'win32' && Boolean(mediaPython && mediaFfmpeg && n
       expect(composed.segments[0]?.applied_gain_db).toBeLessThanOrEqual(-10)
       await writeFile(f.input.request_file, JSON.stringify({ project: f.root, episode: 95,
         name_prefix: `native-bgm-${basename(f.root)}-`, audio_mode: 'embedded', videos: [video],
-        timeline, subtitle_srt: subtitles, bgm: output, bgm_role: 'music_only' }))
+        timeline, subtitle_srt: subtitles, subtitle_source: 'manual', bgm: output, bgm_role: 'music_only' }))
       await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 180000,
         graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536,
         ffmpegPath: mediaFfmpeg, ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
@@ -129,7 +129,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
         } }))
       }
       const request = { project: f.root, episode: 95,
-        name_prefix: 'native-host-', audio, videos: [video], subtitle_srt: subtitles, timeline,
+        name_prefix: 'native-host-', audio, videos: [video], subtitle_srt: subtitles, subtitle_source: 'manual', timeline,
         bgm: composedBgm, bgm_role: 'music_only', ...(photorealistic ? { ending_effect: video,
           ending_audio: resolve('packages/drama/skills/skills/tweet-drama-background-render/assets/ending_audio.mp3') } : {}) }
       await writeFile(f.input.request_file, `${prefix}${JSON.stringify(request)}`)
@@ -271,7 +271,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg))('native-ep10-aac keeps five source
       body_end: 2.5, delivery: { visual_medium: 'animation_3d', width: 480, height: 854, fps: 24 },
     }))
     await writeFile(f.input.request_file, JSON.stringify({ project: f.root, episode: 95,
-      name_prefix: 'native-five-source-', audio, videos, subtitle_srt: subtitles, timeline }))
+      name_prefix: 'native-five-source-', audio, videos, subtitle_srt: subtitles, subtitle_source: 'manual', timeline }))
     const inputs = [...videos, audio, subtitles, timeline, f.input.request_file]
     const sourceBytes = await Promise.all(inputs.map(file => readFile(file)))
     await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,

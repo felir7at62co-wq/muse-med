@@ -245,7 +245,7 @@ class Acceptance:
         drafts = self.output / 'drafts'
         drafts.mkdir()
         request = self.output / 'draft-request.json'
-        write_json(request, {'project': str(project), 'episode': 1, 'name_prefix': 'Mac验收-',
+        write_json(request, {'project': str(project), 'episode': 1, 'name_prefix': 'Mac验收-', 'subtitle_source': 'manual',
                              'videos': [str(project / f'video/01/shot_{shot:03d}.mp4') for shot in (1, 2)],
                              'audio': str(project / 'audio/01.wav'), 'bgm': str(project / 'audio/bgm.wav'),
                              'subtitle_srt': str(srt), 'timeline': str(timeline)})

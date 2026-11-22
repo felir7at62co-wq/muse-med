@@ -827,7 +827,9 @@ def main() -> None:
         request = json.loads(path.read_text(encoding='utf-8-sig'))
         print(json.dumps(generate_request(request, drafts_dir), ensure_ascii=False))
     except Exception as error:
-        print(json.dumps({'success': False, 'backend': 'aa-jianying', 'error': str(error)}, ensure_ascii=False))
+        changed = getattr(error, 'changed_shots', None)
+        print(json.dumps({'success': False, 'backend': 'aa-jianying', 'error': str(error),
+                          **({'changed_shots': changed} if changed else {})}, ensure_ascii=False))
         raise SystemExit(1) from error
 
 

@@ -193,8 +193,36 @@ def attach_episode_source_receipt(candidate, draft, drafts_root, stage, episode,
         return warning
 
 
+class StaleSubtitleClock(ValueError):
+    """Generated subtitles were laid out for other media or cuts; `changed_shots` names them when the receipt lists rows."""
+
+    def __init__(self, message, changed_shots=None):
+        super().__init__(message)
+        self.changed_shots = changed_shots
+
+
+def changed_clock_shots(receipt, clock_rows):
+    """Shots whose duration, picture or sound differs from a version 2 receipt; None for a version 1 receipt."""
+    rows = receipt.get('shots')
+    if receipt.get('version') != 2 or not isinstance(rows, list):
+        return None
+    recorded = {}
+    for row in rows:
+        if not isinstance(row, dict) or type(row.get('shot')) is not int:
+            raise ValueError('剪映草稿的字幕时钟回执逐镜记录无效，请重新生成字幕。')
+        recorded[row['shot']] = [row['shot'], row.get('duration_us'), row.get('video_sha256'), row.get('audio_sha256')]
+    current = {row[0]: row for row in clock_rows}
+    return sorted(shot for shot in set(recorded) | set(current) if recorded.get(shot) != current.get(shot))
+
+
 def verify_draft_subtitle_clock(request, clips, videos, overlay):
-    """Recheck generated subtitles against the requested body before staging either draft backend."""
+    """Recheck generated subtitles against the requested body before staging either draft backend.
+
+    A request without any clock receipt is refused unless it declares `subtitle_source: "manual"`.
+    """
+    manual = request.get('subtitle_source')
+    if manual is not None and manual != 'manual':
+        raise ValueError('subtitle_source 只能是 "manual"（人工字幕，无时钟回执）；生成字幕请省略该字段。')
     subtitle = Path(request['subtitle_srt'])
     inputs = {subtitle: (False, None)}
     if overlay is not None:
@@ -208,13 +236,16 @@ def verify_draft_subtitle_clock(request, clips, videos, overlay):
         except FileNotFoundError:
             continue
         receipt = json.loads(raw)
-        if (not isinstance(receipt, dict) or type(receipt.get('version')) is not int or receipt['version'] != 1
+        if (not isinstance(receipt, dict) or type(receipt.get('version')) is not int or receipt['version'] not in (1, 2)
                 or receipt.get('srt_sha256') != file_sha256(path)
                 or (is_original and original_hash != receipt.get('srt_sha256'))):
             raise ValueError('剪映草稿的生成字幕字节与原回执不一致，请重新选择或核对字幕。')
         clocks.append(receipt)
     if not clocks:
-        return
+        if manual == 'manual':
+            return
+        raise ValueError('剪映草稿字幕缺少时钟回执，不能确认字幕与本集画面和切点同源。'
+                         '请用 episode_subtitles 生成本集字幕；确为人工字幕时在请求写 subtitle_source="manual"。')
 
     episode = str(request['episode']).zfill(2)
     project = Path(request['project'])
@@ -252,8 +283,12 @@ def verify_draft_subtitle_clock(request, clips, videos, overlay):
         clock_rows.append([shot, duration, picture_hash, audio_hash])
     # Match the compact JSON array written by the renderer's subtitle-clock.ts.
     current = hashlib.sha256(json.dumps([episode, clock_rows], separators=(',', ':')).encode('utf-8')).hexdigest()
-    if any(receipt.get('source_clock_sha256') != current for receipt in clocks):
-        raise ValueError('剪映草稿的生成字幕与当前集、分包或切点不一致，请用同源对齐重建字幕后重新 prepare。')
+    stale = [receipt for receipt in clocks if receipt.get('source_clock_sha256') != current]
+    if stale:
+        changed = sorted({shot for receipt in stale for shot in (changed_clock_shots(receipt, clock_rows) or [])})
+        detail = f'（变化镜头：{"、".join(map(str, changed))}）' if changed else ''
+        raise StaleSubtitleClock(f'剪映草稿的生成字幕与当前集、分包或切点不一致{detail}，'
+                                 '请用 episode_subtitles 重建字幕后重新 prepare。', changed or None)
 
 
 def read_subtitle_overlay_report(request):
@@ -463,6 +498,8 @@ def main():
             result = generate_request(request, drafts_dir)
     except Exception as error:
         result = {'success': False, 'drafts_created': 0, 'drafts': [], 'error': str(error)}
+        if isinstance(error, StaleSubtitleClock) and error.changed_shots:
+            result['changed_shots'] = error.changed_shots
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result['success'] else 1
 

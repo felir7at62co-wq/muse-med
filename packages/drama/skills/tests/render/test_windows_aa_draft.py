@@ -99,7 +99,7 @@ Get-CliSha256 $env:MUSE_HASH_INPUT
         self.srt.write_text('1\n00:00:00,123 --> 00:00:00,789\n程昭宁\n\n'
                             '2\n00:00:01,201 --> 00:00:01,899\n五十二\n', encoding='utf-8')
         self.request = {'audio_mode': 'embedded', 'project': str(self.project), 'episode': 2,
-                        'name_prefix': 'AA-EP', 'videos': list(map(str, self.sources)),
+                        'name_prefix': 'AA-EP', 'subtitle_source': 'manual', 'videos': list(map(str, self.sources)),
                         'subtitle_srt': str(self.srt), 'timeline': str(self.timeline)}
         self.probe = patch.object(aa, 'probe', return_value={'duration_us': 2_000_000, 'video': True, 'audio': True,
                                                            'width': 1920, 'height': 1080})
