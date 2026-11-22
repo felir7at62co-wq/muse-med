@@ -31,7 +31,7 @@ from typing import NamedTuple
 
 from sqlalchemy import func
 
-from .db import Shot, get_session, profile_of
+from .db import Shot, profile_of
 from .providers.registry import registry
 
 logger = logging.getLogger(__name__)

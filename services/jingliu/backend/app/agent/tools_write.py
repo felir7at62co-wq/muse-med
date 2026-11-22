@@ -15,7 +15,7 @@ from typing import Literal
 from ..db import Asset, AssetStage, Project, Shot, get_session
 from ..shot_timing import (episode_total_sec, shot_output_sec,
                            shot_override_ceiling)
-from .executor import ToolCtx, ToolDenied
+from .executor import ToolCtx
 from .registry import engine_tool, submit_idempotent
 
 logger = logging.getLogger("fw.agent.tools.write")

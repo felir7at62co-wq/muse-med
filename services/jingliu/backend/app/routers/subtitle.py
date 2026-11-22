@@ -27,7 +27,6 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Optional
 import json
 import uuid
@@ -273,7 +272,6 @@ def bulk_create_subtitle_clips(body: SubtitleBulkIn) -> dict:
 
 @router.patch("/subtitle-clips/{clip_id}")
 def patch_subtitle_clip(clip_id: str, body: SubtitleClipPatch) -> dict:
-    from ..db import SubtitleClip
     with get_session() as session:
         s = access.req_subtitle_clip(session, clip_id)
         if body.text is not None:
@@ -299,7 +297,6 @@ def patch_subtitle_clip(clip_id: str, body: SubtitleClipPatch) -> dict:
 
 @router.delete("/subtitle-clips/{clip_id}")
 def delete_subtitle_clip(clip_id: str) -> dict:
-    from ..db import SubtitleClip
     with get_session() as session:
         s = access.req_subtitle_clip(session, clip_id)
         session.delete(s)
