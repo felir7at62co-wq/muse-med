@@ -51,6 +51,7 @@ from .db import (
     Shot,
     ShotVersion,
     SubtitleClip,
+    SubtitleClipArchive,
     SubtitleSource,
     Transition,
 )
@@ -74,6 +75,7 @@ _PROJECT_TABLES: list[tuple[str, type]] = [
     ("audio_clips", AudioClip),
     ("subtitle_clips", SubtitleClip),
     ("subtitle_sources", SubtitleSource),
+    ("subtitle_clip_archive", SubtitleClipArchive),
     ("transitions", Transition),
     ("jobs", Job),
     # 协作者名册（2026-10-16）。漏了它 = 项目清盘后名册行永久成孤儿，

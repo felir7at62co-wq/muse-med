@@ -702,4 +702,5 @@ def test_transcribed_shot_audio_records_its_source_video(drama):
         (row,) = s.query(SubtitleClip).all()
         assert (row.origin, row.source_shot_id, row.source_video_url, row.time_base) == (
             "asr", sid, "/fw/media/generated/v1.mp4", None)
-        assert shot_statuses(s, PID, s.query(Shot).all()) == {sid: "fresh"}
+        # 老口径时间（不是按源文件秒做的）：草稿不能直接用，状态为 unverified
+        assert shot_statuses(s, PID, s.query(Shot).all()) == {sid: "unverified"}

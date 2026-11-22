@@ -319,7 +319,9 @@ async def run_auto_subtitles(jid: str) -> None:
         return
 
     if "segments" in p:
-        _run_segments(jid, project_id, p)
+        # 一次最多两千镜的纠正与写库是纯 CPU + SQLite：放进长阻塞池，不占住事件循环
+        from .executors import run_long_blocking
+        await run_long_blocking(_run_segments, jid, project_id, p)
         return
 
     asr = pick_asr_provider()
@@ -390,10 +392,12 @@ async def run_auto_subtitles(jid: str) -> None:
         return
 
     if p.get("replace"):
-        # 重跑时先清掉上一轮自动生成的（手工加的字幕不动——它们 kind=normal/title）
+        # 重跑时先清掉上一轮自动生成的（手工加的字幕不动——它们 kind=normal/title，或 origin=manual）
         with get_session() as session:
             q = session.query(SubtitleClip).filter(SubtitleClip.project_id == project_id,
-                                                   SubtitleClip.kind == "subtitle")
+                                                   SubtitleClip.kind == "subtitle",
+                                                   SubtitleClip.origin.is_(None)
+                                                   | (SubtitleClip.origin != "manual"))
             if episode is not None:
                 q = q.filter(SubtitleClip.start_shot_order.in_(sorted(in_scope) or [-1]))
             for old in q.all():
@@ -611,7 +615,11 @@ _FLAG_KIND_MAX = 32
 
 
 def _segment_words(raw) -> list[dict] | None:
-    """Muse 送来的一镜字词 → 校验过的 `[{start, end, text, seg?, speaker_id?}]`（按 start 排）；不合格返回 None。"""
+    """Muse 送来的一镜字词 → 校验过的 `[{start, end, text, seg?, speaker_id?}]`；不合格返回 None。
+
+    保持 Muse 送来的顺序、不按时间重排：Muse 本机的规则拿到的也是这个顺序，两边要人看的编号与切条才一样
+    （两人同时说话时，按时间重排会把两段话的字交错在一起）。
+    """
     import math
 
     if not isinstance(raw, list) or len(raw) > _SEGMENT_WORDS_MAX:
@@ -634,7 +642,7 @@ def _segment_words(raw) -> list[dict] | None:
                     return None
                 word[key] = v
         out.append(word)
-    return sorted(out, key=lambda x: x["start"])
+    return out
 
 
 def _segment_flags(raw) -> list[dict] | None:
@@ -655,39 +663,93 @@ def _segment_flags(raw) -> list[dict] | None:
     return out
 
 
+def _manual_span(row, shot) -> tuple[float, float]:
+    """手加字幕在这一镜**源文件**里的起止秒：`time_base='source'` 的原样，老口径的偏移相对取片入点。"""
+    from .shot_timing import shot_source_window
+    start, dur = float(row.start_offset_sec or 0.0), float(row.duration or 0.0)
+    if row.time_base == "source":
+        return start, start + dur
+    cin, _len = shot_source_window(shot)
+    return cin + start, cin + start + dur
+
+
+def _manual_overlaps(cues: list[dict], manual: list, shot, audio_sha: str, chosen: dict[str, str]):
+    """与手加字幕时间重叠的 Muse 字幕 → (要人看的 `manual_overlap` 各处, 不写的字幕下标)。
+
+    每一处是一条 Muse 字幕对一条手加字幕：`heard` 是 Muse 的字，`script` 是手加的字。编号由种类、
+    音频摘要、手加那一行的编号、Muse 的字与起点算出，重做时不变。选 `drop` 或 `script`（用手加的）
+    这条 Muse 字幕就不写；选 `heard` 两条都留；没选的照写，并算进 `pending`。
+    """
+    import hashlib
+
+    items, skip = [], set()
+    spans = [(row, *_manual_span(row, shot)) for row in manual]
+    for i, cue in enumerate(cues):
+        for row, a, b in spans:
+            if not (cue["start"] < b and cue["end"] > a):
+                continue
+            key = ["manual_overlap", audio_sha, row.id, cue["text"], f"{cue['start']:.3f}"]
+            iid = hashlib.sha256(json.dumps(key, ensure_ascii=False, separators=(",", ":"))
+                                 .encode("utf-8")).hexdigest()[:12]
+            decision = chosen.get(iid)
+            items.append({"id": iid, "kind": "manual_overlap", "heard": cue["text"], "script": row.text or "",
+                          "start": round(cue["start"], 3), "end": round(cue["end"], 3), "decision": decision})
+            if decision in ("drop", "script"):
+                skip.add(i)
+    return items, skip
+
+
+def _archive(session, row, jid: str, reason: str, now: str) -> None:
+    """删一条老字幕之前先抄进 `subtitle_clip_archive`。"""
+    from .db import SubtitleClipArchive
+    session.add(SubtitleClipArchive(
+        id=uuid.uuid4().hex[:12], clip_id=row.id, project_id=row.project_id, text=row.text, kind=row.kind,
+        start_shot_order=row.start_shot_order, start_offset_sec=row.start_offset_sec, duration=row.duration,
+        style=row.style, created_at=row.created_at, source_shot_id=row.source_shot_id,
+        source_video_url=row.source_video_url, source_version=row.source_version,
+        source_sha256=row.source_sha256, time_base=row.time_base, origin=row.origin,
+        job_id=jid, archived_at=now, reason=reason))
+
+
 def _run_segments(jid: str, project_id: str, p: dict) -> None:
     """segments 模式：Muse 送来每一镜的逐字识别结果，这里纠正、切条，**只替换这些镜头**的自动字幕。
 
-    payload：`{project_id, episode?, segments: [{shot_id, video_url, source_sha256?, duration_sec?,
+    payload：`{project_id, episode?, replace_legacy?, segments: [{shot_id, video_url, source_sha256?, duration_sec?,
     words: [{start, end, text, seg?, speaker_id?}], decisions?: [{id, action}], flags?: [{kind, start, end}]}]}`。
-    时间是这一镜**源文件**里的秒，写成 `time_base='source'` 的行（导出时经取片窗口换算）。
+    时间是这一镜**源文件**里的秒，写成 `time_base='source'` 的行（导出时经取片窗口换算）。字词保持送来的顺序。
 
     - 不下载素材、不转写、不剥音轨：媒体不落服务器的盘。
     - 一镜的 `video_url` 与镜头当前的不同（Muse 转写的是旧素材）就不写这一镜，记进 `refused`。
-    - 替换：这些镜头上 `kind='subtitle'`、`origin` 不是 `manual` 的旧字幕（按 `source_shot_id`，
-      老数据按镜号）全部换掉；别的镜头、手加的字幕不动。每一镜在 `subtitle_sources` 记一行，
-      没人说话的镜头也算做过。全部在一个事务里写完。
+    - 替换：这些镜头上 `kind='subtitle'`、`origin` 是 `muse` 或 `asr` 的旧字幕（按 `source_shot_id`，
+      老数据按镜号）全部换掉；手加的（`manual`）永远不动。`origin` 为空的老数据分不出是手加的还是老自动
+      转写的：默认这一镜整镜不写、记进 `refused`（`legacy_subtitles`，带条数），`replace_legacy: true`
+      时才删。删掉的老数据与 `asr` 行先抄进 `subtitle_clip_archive`。每一镜在 `subtitle_sources` 记一行
+      （含当时的台词摘要），没人说话的镜头也算做过。全部在一个事务里写完。
+    - 与手加字幕时间重叠的 Muse 字幕列成 `manual_overlap` 要人看（见 `_manual_overlaps`）。
     - 结果：每一镜的条数、`script_check`（纠正统计）、`items`（要人看的每一处，带稳定编号与已选的
-      `decision`）、`pending`；`refused` 是没写的镜头与原因（`not_found` / `video_changed` / `invalid`）。
+      `decision`）、`pending`；`refused` 是没写的镜头与原因（`not_found` / `video_changed` / `invalid` /
+      `legacy_subtitles`）。
     """
     from datetime import datetime, timezone
 
     from .db import SubtitleClip, SubtitleSource
     from .drama_timing import spoken_lines
     from .jobs import _update, set_job_phase
-    from .subtitle_cues import shot_cues
+    from .subtitle_cues import lines_sha256, shot_cues
+    from .subtitle_status import anchored_rows, is_legacy
 
     items = p.get("segments")
     if not isinstance(items, list) or not items or len(items) > _SEGMENT_SHOTS_MAX:
         _update(jid, status="failed",
                 error=f"segments 必须是 1–{_SEGMENT_SHOTS_MAX} 个镜头的列表")
         return
+    replace_legacy = p.get("replace_legacy") is True
     _update(jid, status="running", progress=1)
     set_job_phase(jid, {"key": "align", "label": "正在按剧本纠正字幕", "done": 0, "total": len(items)})
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     refused: list[dict] = []
     shots_out: list[dict] = []
-    made = 0
+    made = archived = 0
     with get_session() as session:
         ids = [str(it.get("shot_id")) for it in items if isinstance(it, dict)]
         shots = {}
@@ -695,7 +757,10 @@ def _run_segments(jid: str, project_id: str, p: dict) -> None:
             for sh in session.query(Shot).filter(Shot.project_id == project_id, Shot.id.in_(ids[i:i + 500])):
                 shots[sh.id] = sh
         names = project_names(session, project_id, shots.values())
-        done: dict[str, tuple] = {}                  # shot_id → (镜头, shot_cues 的结果, sha)
+        rows = (session.query(SubtitleClip)
+                .filter(SubtitleClip.project_id == project_id, SubtitleClip.kind == "subtitle").all())
+        mine = anchored_rows(list(shots.values()), rows)
+        done: dict[str, tuple] = {}                  # shot_id → (镜头, shot_cues 的结果, sha, 不写的字幕下标)
         for it in items:
             sid = str(it.get("shot_id")) if isinstance(it, dict) else None
             sh = shots.get(sid or "")
@@ -713,33 +778,47 @@ def _run_segments(jid: str, project_id: str, p: dict) -> None:
                     or not (sha is None or (isinstance(sha, str) and len(sha) <= 64)):
                 refused.append({"shot_id": sid, "order": sh.order, "reason": "invalid"})
                 continue
+            legacy = [r for r in mine[sid] if is_legacy(r)]
+            if legacy and not replace_legacy:
+                refused.append({"shot_id": sid, "order": sh.order, "reason": "legacy_subtitles",
+                                "legacy": len(legacy)})
+                continue
             out = shot_cues(words, spoken_lines(sh.script_ref or ""), names, decisions,
                             max_chars=_CUE_MAX_CHARS, audio_sha=sha or "", flags=flags)
-            done[sid] = (sh, out, sha)
+            manual = [r for r in mine[sid] if r.origin == "manual"]
+            chosen = {d.get("id"): d.get("action") for d in decisions if isinstance(d, dict)}
+            overlap, skip = _manual_overlaps(out["cues"], manual, sh, sha or "", chosen)
+            if overlap:
+                out["items"] = sorted(out["items"] + overlap, key=lambda x: (x["start"], x["end"]))
+                out["pending"] += sum(x["decision"] is None for x in overlap)
+            done[sid] = (sh, out, sha, skip)
 
-        orders = {sh.order for sh, _o, _s in done.values()}
-        for old in (session.query(SubtitleClip)
-                    .filter(SubtitleClip.project_id == project_id, SubtitleClip.kind == "subtitle").all()):
-            if old.origin == "manual":
-                continue
-            if (old.source_shot_id in done) if old.source_shot_id else (old.start_shot_order in orders):
+        for sid, _v in done.items():
+            for old in mine[sid]:
+                if old.origin == "manual":
+                    continue
+                if old.origin != "muse":
+                    _archive(session, old, jid, "replace_legacy" if old.origin is None else "replace_asr", now)
+                    archived += 1
                 session.delete(old)
-        for sid, (sh, out, sha) in done.items():
-            for cue in out["cues"]:
+        for sid, (sh, out, sha, skip) in done.items():
+            cues = [c for i, c in enumerate(out["cues"]) if i not in skip]
+            for cue in cues:
                 session.add(SubtitleClip(
                     id=uuid.uuid4().hex[:12], project_id=project_id, text=cue["text"], kind="subtitle",
                     start_shot_order=sh.order, start_offset_sec=cue["start"],
                     duration=max(0.05, cue["end"] - cue["start"]), style=None, created_at=now,
                     source_shot_id=sid, source_video_url=sh.video_url, source_version=sh.adopted_version,
                     source_sha256=sha, time_base="source", origin="muse"))
-            made += len(out["cues"])
+            made += len(cues)
             session.merge(SubtitleSource(
                 shot_id=sid, project_id=project_id, source_video_url=sh.video_url,
                 source_version=sh.adopted_version, source_sha256=sha, origin="muse",
-                cues=len(out["cues"]), review_pending=out["pending"], job_id=jid, updated_at=now))
+                cues=len(cues), review_pending=out["pending"], job_id=jid, updated_at=now,
+                lines_sha256=lines_sha256(spoken_lines(sh.script_ref or ""))))
             st = out["stats"]
             shots_out.append({
-                "shot_id": sid, "order": sh.order, "episode": sh.episode, "cues": len(out["cues"]),
+                "shot_id": sid, "order": sh.order, "episode": sh.episode, "cues": len(cues),
                 "status": "fresh", "pending": out["pending"],
                 "script_check": {k: st[k] for k in ("similarity", "fixed", "kept", "extra", "unspoken",
                                                      "deviated", "unheard", "no_script", "fixes",
@@ -750,13 +829,13 @@ def _run_segments(jid: str, project_id: str, p: dict) -> None:
 
     set_job_phase(jid, None)
     shots_out.sort(key=lambda r: r["order"])
-    result = json.dumps({"mode": "segments", "created": made, "total": len(items),
+    result = json.dumps({"mode": "segments", "created": made, "total": len(items), "archived": archived,
                          "episode": p.get("episode"), "shots": shots_out, "refused": refused},
                         ensure_ascii=False)
     if not shots_out:
         _update(jid, status="failed", progress=100, result=result,
-                error=f"字幕一镜都没写：{len(refused)} 镜被拒（素材已换、镜头不存在或数据不合格），见 refused")
+                error=f"字幕一镜都没写：{len(refused)} 镜被拒（素材已换、镜头不存在、数据不合格或有老字幕），见 refused")
         return
     _update(jid, status="done", progress=100, result=result,
-            error=(f"{len(refused)} 镜没写（素材已换、镜头不存在或数据不合格），见 refused，其余已生成"
+            error=(f"{len(refused)} 镜没写（素材已换、镜头不存在、数据不合格或有老字幕），见 refused，其余已生成"
                    if refused else None))

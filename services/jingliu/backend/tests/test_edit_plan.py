@@ -57,8 +57,8 @@ def test_edit_plan_lists_enabled_shots_with_windows_lines_names_and_status(db, c
         "shot_id": a, "order": 1, "episode": 1, "video_path": V1, "version": 2,
         "video_size": 1234, "video_etag": '"e1"', "clip_in_sec": 1.5, "clip_dur_sec": 3.0, "speed": 1.5,
         "output_sec": 2.0, "lines": ["妈，我回来了。"],
-        "subtitles": {"status": "fresh", "cues": 1, "time_base": "source"}}
-    assert second["lines"] == [] and second["subtitles"] == {"status": "stale", "cues": 0, "time_base": None}
+        "subtitles": {"status": "fresh", "cues": 1, "time_base": "source", "manual": 0, "legacy": 0}}
+    assert second["lines"] == [] and second["subtitles"] == {"status": "stale", "cues": 0, "time_base": None, "manual": 0, "legacy": 0}
     assert second["video_size"] is None and second["clip_in_sec"] == 0.0 and second["clip_dur_sec"] == 4.0
     assert ep1["subtitles"] == {"status": "stale", "stale": [2], "missing": [], "unverified": []}
     (only,) = ep2["shots"]

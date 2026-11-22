@@ -1047,6 +1047,41 @@ class SubtitleSource(Base):
     review_pending: Mapped[int] = mapped_column(default=0)
     job_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
     updated_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    #: 做字幕时这一镜会被念出来的台词的摘要（`subtitle_status.shot_lines_sha256`）；改了剧本就对不上，
+    #: 状态为 `stale`。NULL = 写这一行时还没记（不按台词判断）
+    lines_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class SubtitleClipArchive(Base):
+    """segments 任务删掉的老字幕的存档（2026-11-21）：每删一条先抄一份到这里，删错了能找回。
+
+    只抄不是 Muse 自己写的行（老数据 `origin` 为空的、镜流自己转写的 `asr`）：Muse 的行随时能按
+    Muse 本机的转写缓存重做。列与 `SubtitleClip` 同名同义，另加删除它的任务、时间和原因。
+    """
+
+    __tablename__ = "subtitle_clip_archive"
+
+    id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    #: 原来那一行的 `SubtitleClip.id`
+    clip_id: Mapped[str] = mapped_column(String(16))
+    project_id: Mapped[str] = mapped_column(String(16), index=True)
+    text: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[str] = mapped_column(String(16), default="subtitle")
+    start_shot_order: Mapped[int] = mapped_column(default=1)
+    start_offset_sec: Mapped[float] = mapped_column(default=0.0)
+    duration: Mapped[float] = mapped_column(default=3.0)
+    style: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_shot_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    source_video_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_version: Mapped[int | None] = mapped_column(nullable=True)
+    source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    time_base: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    origin: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    #: 被哪个任务删的、什么时候、为什么（`replace_legacy` | `replace_asr`）
+    job_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    archived_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class Transition(Base):

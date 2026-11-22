@@ -64,24 +64,51 @@ class SubtitleClipPatch(BaseModel):
 _SUB_KINDS = ("normal", "subtitle", "title")
 
 
-def _sub_out(s) -> dict:
+def _legacy_units(s, shot) -> tuple[int, float, float]:
+    """一条 `time_base='source'` 字幕换成老口径 → `(镜号, 镜内偏移, 时长)`。
+
+    老口径的偏移是相对取片入点的**源秒**（不除变速，见 `shot_timing.subtitle_output_span`）；源时间先截到取片
+    窗口里，整条在窗口外时偏移按 0 截、时长原样。找不到来源镜头时原样返回。
+    """
+    from ..shot_timing import shot_source_window
+    start, dur = float(s.start_offset_sec or 0.0), float(s.duration or 0.0)
+    if shot is None:
+        return s.start_shot_order, start, dur
+    cin, length = shot_source_window(shot)
+    a, b = max(start, cin), min(start + dur, cin + length)
+    if b <= a:
+        return shot.order, max(0.0, start - cin), dur
+    return shot.order, round(a - cin, 3), round(b - a, 3)
+
+
+def _sub_out(s, shots_by_id: dict | None = None) -> dict:
+    """一条字幕给旧网页界面看的样子：镜号与偏移一律是老口径。
+
+    `time_base='source'` 的行（Muse 逐字字幕）按 `source_shot_id` 在 `shots_by_id` 里找到镜头、换成老口径
+    （`_legacy_units`）；只有老口径的行时可以不给。
+    """
+    order, offset, duration = s.start_shot_order, s.start_offset_sec, s.duration
+    if s.time_base == "source":
+        order, offset, duration = _legacy_units(s, (shots_by_id or {}).get(s.source_shot_id or ""))
     return {"id": s.id, "text": s.text, "kind": s.kind,
-            "start_shot_order": s.start_shot_order,
-            "start_offset_sec": s.start_offset_sec,
-            "duration": s.duration,
+            "start_shot_order": order,
+            "start_offset_sec": offset,
+            "duration": duration,
             "style": json.loads(s.style) if s.style else None,
-            "created_at": s.created_at}
+            "created_at": s.created_at,
+            "origin": s.origin}
 
 
 @router.get("/projects/{project_id}/subtitle-clips")
 def list_subtitle_clips(project_id: str) -> dict:
     from ..db import SubtitleClip
     with get_session() as session:
+        shots = {sh.id: sh for sh in session.query(Shot).filter(Shot.project_id == project_id)}
         rows = (session.query(SubtitleClip)
                 .filter(SubtitleClip.project_id == project_id)
                 .order_by(SubtitleClip.start_shot_order,
                           SubtitleClip.start_offset_sec).all())
-        return {"clips": [_sub_out(s) for s in rows]}
+        return {"clips": [_sub_out(s, shots) for s in rows]}
 
 
 @router.get("/projects/{project_id}/spoken-lines")
@@ -141,7 +168,7 @@ def edit_plan(project_id: str, body: EditPlanIn) -> dict:
     from ..media_store import ledger_rows, split_media_path
     from ..shot_timing import shot_output_sec, shot_source_window, shot_speed
     from ..subtitle_jobs import project_names
-    from ..subtitle_status import anchored_rows, episode_summary, shot_statuses
+    from ..subtitle_status import anchored_rows, episode_summary, is_legacy, shot_statuses
 
     episodes = sorted({int(e) for e in body.episodes})
     if episodes[0] < 1:
@@ -170,6 +197,7 @@ def edit_plan(project_id: str, body: EditPlanIn) -> dict:
                 cin, cdur = shot_source_window(sh)
                 led = ledger.get(rels.get(sh.id) or "") or {}
                 mine = grouped[sh.id]
+                manual = sum(r.origin == "manual" for r in mine)
                 items.append({
                     "shot_id": sh.id, "order": sh.order, "episode": sh.episode,
                     "video_path": sh.video_url or None, "version": sh.adopted_version,
@@ -179,7 +207,8 @@ def edit_plan(project_id: str, body: EditPlanIn) -> dict:
                     "lines": spoken_lines(sh.script_ref or ""),
                     "subtitles": {"status": statuses[sh.id], "cues": len(mine),
                                   "time_base": "source" if any(r.time_base == "source" for r in mine)
-                                  else (None if not mine else "legacy")},
+                                  else (None if not mine else "legacy"),
+                                  "manual": manual, "legacy": sum(is_legacy(r) for r in mine)},
                 })
             out.append({"episode": ep, "shots": items,
                         "subtitles": episode_summary(by_ep[ep], statuses)})
@@ -272,6 +301,13 @@ def bulk_create_subtitle_clips(body: SubtitleBulkIn) -> dict:
 
 @router.patch("/subtitle-clips/{clip_id}")
 def patch_subtitle_clip(clip_id: str, body: SubtitleClipPatch) -> dict:
+    """改一条字幕。镜号与偏移按老口径收（与 `_sub_out` 给出的一致）。
+
+    改了文字或时间的字幕算用户手改的：`origin` 记成 `manual`，以后 Muse 重做这一镜时不删它
+    （重叠处列进待核）。改时间的 `time_base='source'` 行先换成老口径（`_legacy_units`），再清掉
+    `source_shot_id` / `time_base`：从此按镜号锚定，与手加的字幕一样。
+    """
+    timing = any(v is not None for v in (body.start_shot_order, body.start_offset_sec, body.duration))
     with get_session() as session:
         s = access.req_subtitle_clip(session, clip_id)
         if body.text is not None:
@@ -282,6 +318,12 @@ def patch_subtitle_clip(clip_id: str, body: SubtitleClipPatch) -> dict:
             if body.kind not in _SUB_KINDS:
                 raise HTTPException(status_code=400, detail=f"kind 只能是 {'/'.join(_SUB_KINDS)}")
             s.kind = body.kind
+        if timing and s.time_base == "source":
+            shot = session.get(Shot, s.source_shot_id) if s.source_shot_id else None
+            s.start_shot_order, s.start_offset_sec, s.duration = _legacy_units(s, shot)
+            s.source_shot_id, s.time_base = None, None
+        if body.text is not None or timing:
+            s.origin = "manual"
         if body.start_shot_order is not None:
             s.start_shot_order = _clamp_anchor(session, s.project_id,
                                                body.start_shot_order)
@@ -292,7 +334,8 @@ def patch_subtitle_clip(clip_id: str, body: SubtitleClipPatch) -> dict:
         if body.style is not None:
             s.style = json.dumps(body.style, ensure_ascii=False)
         session.commit()
-        return {"ok": True, **_sub_out(s)}
+        shot = session.get(Shot, s.source_shot_id) if s.source_shot_id else None
+        return {"ok": True, **_sub_out(s, {shot.id: shot} if shot is not None else None)}
 
 
 @router.delete("/subtitle-clips/{clip_id}")

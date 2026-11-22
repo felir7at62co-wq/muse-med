@@ -114,15 +114,17 @@ def test_only_the_sent_shots_are_replaced_and_hand_added_subtitles_stay(no_media
                    SubtitleClip(id="title1", project_id=PID, text="片名", kind="title", start_shot_order=1)])
         s.commit()
     job, result = _job([{"shot_id": a, "video_url": V1, "words": _words("我不想去")},
-                        {"shot_id": b, "video_url": V2, "words": _words("走吧")}])
+                        {"shot_id": b, "video_url": V2, "words": _words("走吧")}], replace_legacy=True)
     assert job.status == "done"
-    (item,) = result["shots"][0]["items"]
+    (item,) = [x for x in result["shots"][0]["items"] if x["kind"] == "differ"]
 
-    # 第二次只送第一镜，并选了「换成剧本的字」：第二镜、别的镜头、手加的都不动
+    # 第二次只送第一镜，并选了「换成剧本的字」：第二镜、别的镜头、手加的都不动；
+    # 与手加字幕重叠的那条还等人选
     job, result = _job([{"shot_id": a, "video_url": V1, "words": _words("我不想去"),
                          "decisions": [{"id": item["id"], "action": "script"}]}])
-    assert job.status == "done" and result["shots"][0]["pending"] == 0
-    assert result["shots"][0]["items"][0]["decision"] == "script"
+    assert job.status == "done" and result["shots"][0]["pending"] == 1
+    assert {x["kind"]: x["decision"] for x in result["shots"][0]["items"]} == {
+        "differ": "script", "manual_overlap": None}
     with db() as s:
         texts = sorted((c.start_shot_order, c.text, c.origin) for c in s.query(SubtitleClip).all())
     assert texts == [(1, "我很想去", "muse"), (1, "手加的", "manual"), (1, "片名", None),

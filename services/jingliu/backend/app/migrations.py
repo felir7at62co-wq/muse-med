@@ -58,6 +58,8 @@ _COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("time_base", "time_base VARCHAR(8)"),
         ("origin", "origin VARCHAR(8)"),
     ],
+    # 做字幕时的台词摘要（2026-11-21），见 db.SubtitleSource.lines_sha256
+    "subtitle_sources": [("lines_sha256", "lines_sha256 VARCHAR(64)")],
     "jobs": [
         ("created_at", "created_at VARCHAR(32)"),
         ("updated_at", "updated_at VARCHAR(32)"),
@@ -432,7 +434,31 @@ _TABLES: dict[str, str] = {
           cues INTEGER DEFAULT 0,
           review_pending INTEGER DEFAULT 0,
           job_id VARCHAR(16),
-          updated_at VARCHAR(32)
+          updated_at VARCHAR(32),
+          lines_sha256 VARCHAR(64)
+        )""",
+    # segments 任务删掉的老字幕的存档（2026-11-21），见 db.SubtitleClipArchive
+    "subtitle_clip_archive": """
+        CREATE TABLE IF NOT EXISTS subtitle_clip_archive (
+          id VARCHAR(16) PRIMARY KEY,
+          clip_id VARCHAR(16) NOT NULL,
+          project_id VARCHAR(16) NOT NULL,
+          text TEXT DEFAULT '',
+          kind VARCHAR(16) DEFAULT 'subtitle',
+          start_shot_order INTEGER DEFAULT 1,
+          start_offset_sec REAL DEFAULT 0,
+          duration REAL DEFAULT 3,
+          style TEXT,
+          created_at TEXT,
+          source_shot_id VARCHAR(16),
+          source_video_url TEXT,
+          source_version INTEGER,
+          source_sha256 VARCHAR(64),
+          time_base VARCHAR(8),
+          origin VARCHAR(8),
+          job_id VARCHAR(16),
+          archived_at VARCHAR(32),
+          reason VARCHAR(16)
         )""",
     # 首帧流水线防偏移核心：每 (项目,集,场景) 一张"场景基准帧"。
     # 同场景所有镜头的首帧都以它为参考图 → 陈设/光线/机位基调统一，
@@ -607,6 +633,8 @@ _INDEXES: list[str] = [
     "ON subtitle_clips (source_shot_id)",
     "CREATE INDEX IF NOT EXISTS ix_subtitle_sources_project_id "
     "ON subtitle_sources (project_id)",
+    "CREATE INDEX IF NOT EXISTS ix_subtitle_clip_archive_project_id "
+    "ON subtitle_clip_archive (project_id)",
 
     # ---- 巡检的瞬时态扫描（2026-10-24 审计）----
     #

@@ -36,7 +36,7 @@ import uuid
 from typing import Any
 
 from . import stale as stale_mod
-from .db import AudioClip, Shot, SubtitleClip
+from .db import AudioClip, Shot, SubtitleClip, SubtitleSource
 from .shot_timing import (remap_anchors_by_identity, remap_stage_ranges_by_identity,
                           snapshot_anchors, snapshot_stage_ranges)
 
@@ -609,16 +609,29 @@ def merge_shots(session, project_id: str, shot_ids, *, force: bool = False) -> d
     # 被并掉的镜头上锚着的音频/字幕：挪到留下的那一镜，偏移加上它前面各段的时长。
     # ⚠️ 必须在取锚点快照**之前**做：快照记的是「锚点镜号 → 镜头身份」，先挪好，
     # 这些段落才会跟着留下的那一镜走。
+    # Muse 逐字字幕（`time_base='source'`）按 `source_shot_id` 锚定、时间是被并掉那一镜自己源文件里的秒：
+    # 不加偏移，只改锚到留下的那一镜。它们记着被并掉那一镜的素材，与留下那一镜的不同；留下那一镜的剧本
+    # 也变了（`subtitle_sources.lines_sha256` 对不上）→ 状态 `stale`，草稿不收，重做字幕时被替换。
+    # 被并掉的镜头的 `subtitle_sources` 行一并删掉。
+    rest_ids = {s.id for s in rest}
     before = 0.0
     for s, d in zip(rows, durs):
         if s is not head:
             for model in (AudioClip, SubtitleClip):
-                for c in (session.query(model)
-                          .filter(model.project_id == project_id,
-                                  model.start_shot_order == s.order).all()):
+                q = session.query(model).filter(model.project_id == project_id,
+                                                model.start_shot_order == s.order)
+                for c in q.all():
+                    if model is SubtitleClip and c.time_base == "source":
+                        continue
                     c.start_shot_order = head.order
                     c.start_offset_sec = round(float(c.start_offset_sec or 0) + before, 3)
         before += d
+    for c in (session.query(SubtitleClip)
+              .filter(SubtitleClip.project_id == project_id,
+                      SubtitleClip.source_shot_id.in_(rest_ids)).all()):
+        c.source_shot_id, c.start_shot_order = head.id, head.order
+    session.query(SubtitleSource).filter(SubtitleSource.shot_id.in_(rest_ids)).delete(
+        synchronize_session=False)
 
     head.script_ref = "\n".join((s.script_ref or "").strip() for s in rows
                                 if (s.script_ref or "").strip())
@@ -639,7 +652,6 @@ def merge_shots(session, project_id: str, shot_ids, *, force: bool = False) -> d
     mark_edited(head)
 
     removed = [{"shot_id": s.id, "order": s.order} for s in rest]
-    rest_ids = {s.id for s in rest}
     session.flush()
     snap = snapshot_anchors(session, project_id)
     snap_st = snapshot_stage_ranges(session, project_id)
