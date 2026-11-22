@@ -594,6 +594,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     await chmod(jobs, 0o700)
   }
   let finished: { file: string; receipt: Receipt } | undefined
+  let unproven: string | undefined
   // A receipt describes the bytes it staged; the same path with other bytes is a different input.
   let current: Promise<string> | undefined
   const sourceDigest = (): Promise<string> => current ??= digest(source, signal)
@@ -618,13 +619,19 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
       }
       return { result: storedResult(file, prior), refused: false }
     }
-    // A legacy receipt without a source digest cannot prove it transcribed the current bytes.
-    if (batch && prior.sourceSha256 !== undefined && prior.accountUsername === identity.username
-      && (prior.purpose ?? 'subtitles') === resolvedPurpose
-      && (finished === undefined || prior.version > finished.receipt.version)) finished = { file, receipt: prior }
+    if (batch && prior.accountUsername === identity.username && (prior.purpose ?? 'subtitles') === resolvedPurpose) {
+      // A legacy receipt without a source digest cannot prove it transcribed the current bytes.
+      if (prior.sourceSha256 === undefined) unproven ??= file
+      else if (finished === undefined || prior.version > finished.receipt.version) finished = { file, receipt: prior }
+    }
   }
   // A resent batch must not pay again for a source whose same-purpose task already ended.
   if (finished !== undefined) return { result: storedResult(finished.file, finished.receipt), refused: false }
+  // Nor may it pay again, unasked, for a source an older ended task may already cover.
+  if (unproven !== undefined) {
+    throw new Error(`An ended transcription receipt without a source digest exists for this input (${unproven}); it cannot show whether it `
+      + 'transcribed the current file. Read its result with status, or start this input alone to transcribe the current file again (charged).')
+  }
   const stem = basename(source).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_').slice(0, 80) || 'media'
   signal?.throwIfAborted()
   const duration = await probe(source, signal)

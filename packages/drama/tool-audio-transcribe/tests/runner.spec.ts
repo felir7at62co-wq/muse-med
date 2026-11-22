@@ -1328,6 +1328,22 @@ it('returns the latest complete same-purpose version of a source from a batch', 
   expect({ encodes: f.calls.encodes.length, submits: f.calls.submits.length }).toEqual(before)
 })
 
+it('refuses a batch input whose ended receipt has no source digest instead of paying again', async () => {
+  const f = await episodes(2)
+  const legacy = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)
+  f.accepted.set(legacy.job_id, { id: legacy.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: 'speech' }] })
+  await finishAudioTranscription(f.project, legacy.receipt, f.account, undefined, false)
+  const receipt = JSON.parse(await readFile(legacy.receipt, 'utf8')) as Record<string, unknown>
+  delete receipt.sourceSha256
+  await writeFile(legacy.receipt, JSON.stringify(receipt))
+  const before = { encodes: f.calls.encodes.length, submits: f.calls.submits.length }
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
+  expect(result.items).toEqual([{ input: f.inputs[0], error: expect.stringContaining('without a source digest') }])
+  expect(result.not_started).toEqual([f.inputs[1]])
+  expect({ encodes: f.calls.encodes.length, submits: f.calls.submits.length }).toEqual(before)
+  expect((await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)).receipt).toContain('ep1-v2.json')
+})
+
 it('reuses a legacy complete receipt without a purpose as subtitles and starts a separate screenplay version', async () => {
   const f = await episodes(1)
   const legacy = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)
@@ -1545,7 +1561,7 @@ it('does not return a pending receipt for bytes that no longer exist at its path
   expect(f.counts().submits).toBe(2)
 })
 
-it('does not reuse a finished legacy receipt that cannot prove which bytes it transcribed', async () => {
+it('neither reuses nor silently pays again over a finished legacy receipt that cannot prove which bytes it transcribed', async () => {
   const f = await setup()
   const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
   f.setJob({ id: first.job_id, status: 'silent' })
@@ -1554,6 +1570,9 @@ it('does not reuse a finished legacy receipt that cannot prove which bytes it tr
   delete receipt.sourceSha256
   await writeFile(first.receipt, JSON.stringify(receipt))
   const next = (await startAudioTranscriptionBatch(f.project, [f.input], 'zh', f.account, config, shortMedia)).items[0]
-  expect(next).toMatchObject({ receipt: join(f.project, 'transcript', 'jobs', 'clip-v2.json') })
+  expect(next).toMatchObject({ input: f.input, error: expect.stringContaining(first.receipt) })
+  expect(f.counts().submits).toBe(1)
+  expect((await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)).receipt)
+    .toBe(join(f.project, 'transcript', 'jobs', 'clip-v2.json'))
   expect(f.counts().submits).toBe(2)
 })
