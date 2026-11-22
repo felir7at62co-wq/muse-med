@@ -2,6 +2,7 @@
 
 `GET    /v2/projects/{pid}/subtitle-clips`
 `GET    /v2/projects/{pid}/spoken-lines`     —— 会被念出来的台词原文（本地强制对齐用）
+`POST   /v2/projects/{pid}/edit-plan`        —— 按集给 Muse 做字幕的镜头、取片窗口、台词、人名与字幕状态
 `POST   /v2/subtitle-clips`
 `POST   /v2/subtitle-clips/bulk`
 `PATCH  /v2/subtitle-clips/{clip_id}`
@@ -32,7 +33,7 @@ import json
 import uuid
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import access   # 多用户隔离：归属校验（2026-10-09）
 from ..db import Project, Shot, SubtitleClip, get_session, profile_of
@@ -120,6 +121,70 @@ def list_spoken_lines(project_id: str) -> dict:
                 "text": "\n".join(lines),
             })
         return {"shots": out}
+
+
+class EditPlanIn(BaseModel):
+    #: 要哪几集（集号，从 1 起）；一次最多 100 集
+    episodes: list[int] = Field(min_length=1, max_length=100)
+
+
+@router.post("/projects/{project_id}/edit-plan")
+@access.requires(access.ROLE_VIEWER)
+def edit_plan(project_id: str, body: EditPlanIn) -> dict:
+    """Muse 按集做逐字字幕要的全部输入（2026-11-21）。只查库：不读文件、不签链接、不花钱。
+
+    每一集返回启用中的镜头（按镜号；没出片的 `video_path` 为 null），每镜给：素材地址、采用的版本、
+    台账里的大小与 ETag、取片窗口（`clip_in_sec` 起、`clip_dur_sec` 长，源文件秒）、速度、
+    成片里占的秒数、会被念出来的台词（`list_spoken_lines` 同一个来源）和这一镜的字幕状态
+    （`subtitle_status`）。`names` 是这些集里的人名（角色资产与剧本说话人），纠正人名时不比声调。
+    """
+    from ..drama_timing import spoken_lines
+    from ..media_store import ledger_rows, split_media_path
+    from ..shot_timing import shot_output_sec, shot_source_window, shot_speed
+    from ..subtitle_jobs import project_names
+    from ..subtitle_status import anchored_rows, episode_summary, shot_statuses
+
+    episodes = sorted({int(e) for e in body.episodes})
+    if episodes[0] < 1:
+        raise HTTPException(status_code=422, detail="集号从 1 起")
+    with get_session() as session:
+        if not session.get(Project, project_id):
+            raise HTTPException(status_code=404, detail="project not found")
+        shots = (session.query(Shot)
+                 .filter(Shot.project_id == project_id, Shot.episode.in_(episodes),
+                         (Shot.disabled == 0) | (Shot.disabled.is_(None)))
+                 .order_by(Shot.order).all())
+        statuses = shot_statuses(session, project_id, shots)
+        rows = (session.query(SubtitleClip)
+                .filter(SubtitleClip.project_id == project_id, SubtitleClip.kind == "subtitle").all())
+        grouped = anchored_rows(shots, rows)
+        rels = {sh.id: split_media_path(sh.video_url)[0] for sh in shots if sh.video_url}
+        ledger = ledger_rows(sorted({r for r in rels.values() if r}))
+        names = sorted(project_names(session, project_id, shots))
+        by_ep: dict[int, list] = {e: [] for e in episodes}
+        for sh in shots:
+            by_ep[sh.episode].append(sh)
+        out = []
+        for ep in episodes:
+            items = []
+            for sh in by_ep[ep]:
+                cin, cdur = shot_source_window(sh)
+                led = ledger.get(rels.get(sh.id) or "") or {}
+                mine = grouped[sh.id]
+                items.append({
+                    "shot_id": sh.id, "order": sh.order, "episode": sh.episode,
+                    "video_path": sh.video_url or None, "version": sh.adopted_version,
+                    "video_size": led.get("size"), "video_etag": led.get("etag") or None,
+                    "clip_in_sec": cin, "clip_dur_sec": cdur, "speed": shot_speed(sh),
+                    "output_sec": round(shot_output_sec(sh), 3),
+                    "lines": spoken_lines(sh.script_ref or ""),
+                    "subtitles": {"status": statuses[sh.id], "cues": len(mine),
+                                  "time_base": "source" if any(r.time_base == "source" for r in mine)
+                                  else (None if not mine else "legacy")},
+                })
+            out.append({"episode": ep, "shots": items,
+                        "subtitles": episode_summary(by_ep[ep], statuses)})
+        return {"project_id": project_id, "names": names, "episodes": out}
 
 
 @router.post("/subtitle-clips")
