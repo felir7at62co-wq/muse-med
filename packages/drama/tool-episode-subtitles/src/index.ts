@@ -69,7 +69,7 @@ export const Config: Schema<Config, ResolvedConfig> = Schema.object({
   maxRulesOutputBytes: Schema.number().step(1).min(65_536).max(268_435_456).default(33_554_432),
 })
 
-const DESCRIPTION = '按集生成字幕：读取锁定分镜与选定镜头，实测时长，按音频摘要复用或提交云转写，用剧本纠正识别文字，按字词时间排条，写 SRT、时钟回执与待核清单。参数相同重复调用即可续做；只重做变化的镜头。不要自己写台词、对齐或时间。'
+const DESCRIPTION = '按集生成字幕：读取锁定分镜与选定镜头，实测时长，按音频摘要复用或提交云转写，用剧本纠正识别文字，按字词时间排条，写 SRT、时钟回执与待核清单。参数相同重复调用即可续做；只重做变化的镜头。不要自己写台词、对齐或时间。用户消息里的 json 代码块给出 source、project、episodes 时，照原样传入。'
 
 /**
  * Register `episode_subtitles`.

@@ -243,7 +243,7 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
 }
 
 /** Model-facing description: the batch call first, then the single-episode request file mode. */
-const DESCRIPTION = '生成可编辑剪映草稿。批量：传 source、project、episodes，可带 switches 与 name_prefix；工具读取 episode_subtitles 写出的字幕时钟回执，镜头时长、画面或声音变化时该集列入 refused（subtitles_stale 与 changed_shots），先重跑 episode_subtitles，不手改偏移；然后准备素材、逐集生成，已生成且输入未变的集返回 existing，输入变化时另存唯一名称的新候选。配乐取 editing/NN-bgm.wav（先用 bgm_match 选曲、drama_bgm 合成纯音乐底轨），缺配乐的集列入 music_missing。'
+const DESCRIPTION = '生成可编辑剪映草稿。批量：传 source、project、episodes，可带 switches 与 name_prefix；用户消息里的 json 代码块给出 source、project、episodes、switches 时，照原样传入；工具读取 episode_subtitles 写出的字幕时钟回执，镜头时长、画面或声音变化时该集列入 refused（subtitles_stale 与 changed_shots），先重跑 episode_subtitles，不手改偏移；然后准备素材、逐集生成，已生成且输入未变的集返回 existing，输入变化时另存唯一名称的新候选。配乐取 editing/NN-bgm.wav（先用 bgm_match 选曲、drama_bgm 合成纯音乐底轨），缺配乐的集列入 music_missing。'
   + '单集模式：write JSON 请求文件，包含 project、episode、name_prefix、按镜头顺序的 videos、subtitle_srt、timeline；Windows 保留原视频声音时写 audio_mode=embedded 并省略 audio，使用 aa剪映后端。未声明模式或 audio_mode=independent 时仍用 pyJianYingDraft 并要求 audio 为未混 BGM 的完整主音轨；Mac 暂不支持 embedded。bgm 绝对路径配 bgm_role=music_only；确实不加配乐时写 music_decision=none、decision_reason。可选 ending_audio、ending_effect，以及 ending、watermark 布尔开关（false 去掉片尾或 AI 标识），所有文件用绝对路径。字幕须带同源时钟回执；人工字幕写 subtitle_source=manual。含对白的审查混音不能当配乐重复叠加。只处理指定集，不覆盖已有草稿；质量疑点返回 warnings 与 review_path 供核对。返回草稿路径与实际实现身份；editor_open_verified=false 表示尚未在剪映打开验收。'
 
 /** Loader identity for Desktop's single draft-building entry point. */

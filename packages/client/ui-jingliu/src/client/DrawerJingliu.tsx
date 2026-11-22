@@ -289,7 +289,7 @@ function Workbench(props: BenchProps) {
         ? <AssetsPage t={t} useResource={useResource} epoch={epoch} projectId={projectId} quote={props.quote} onPoster={() => setCard('poster')} />
         : <VideosPage {...props} config={config.value ?? null} generation={generation} />}
     </div>
-    {card === 'export' && <ExportCard t={t} episodes={episodes.value ?? []} compose={props.compose} onClose={() => setCard(null)} />}
+    {card === 'export' && <ExportCard t={t} projectId={projectId} episodes={episodes.value ?? []} compose={props.compose} onClose={() => setCard(null)} />}
     {card === 'poster' && <PosterCard t={t} title={title} leads={characters} compose={props.compose} onClose={() => setCard(null)} />}
   </>
 }
@@ -497,22 +497,30 @@ function ShotVideo({ sessionId, projectId, path, poster, current, epoch, useReso
 
 // --- floating cards ----------------------------------------------------------------------------
 
-type ExportProps = { t: Text; episodes: StudioEpisode[]; compose: (text: string) => void; onClose: () => void }
+type ExportProps = { t: Text; projectId: string; episodes: StudioEpisode[]; compose: (text: string) => void; onClose: () => void }
 
-function ExportCard({ t, episodes, compose, onClose }: ExportProps) {
+/** The switches of a batch export, keyed exactly as `jianying_draft` names them. */
+type ExportSwitches = { subtitles: boolean; music: boolean; ending: boolean; watermark: boolean; watermark_text?: string }
+
+// The request reads as one sentence for the user and carries one fenced JSON line that the tools take as their arguments.
+function ExportCard({ t, projectId, episodes, compose, onClose }: ExportProps) {
   const ready = episodes.filter(e => e.hasShots).map(e => e.number)
   const missing = episodes.filter(e => !e.hasShots).map(e => e.number)
   const [picked, setPicked] = useState<number[]>(ready)
-  const [options, setOptions] = useState({ subtitles: true, music: true, ending: true, watermark: true })
+  const [options, setOptions] = useState<Omit<ExportSwitches, 'watermark_text'>>({ subtitles: true, music: true, ending: true, watermark: true })
   const [mark, setMark] = useState(t('watermarkDefault'))
   const all = picked.length === ready.length && ready.length > 0
   const toggle = (number: number) => {
     setPicked(list => list.includes(number) ? list.filter(n => n !== number) : [...list, number].sort((a, b) => a - b))
   }
   const send = () => {
+    const text = mark.trim()
     const extras = [options.subtitles && t('exportSubtitles'), options.music && t('exportMusic'), options.ending && t('exportEnding'),
-      options.watermark && t('exportWatermark', { text: mark.trim() || t('watermarkDefault') })].filter(Boolean).join(t('listJoin'))
-    compose(t('exportRequest', { episodes: picked.join(t('listJoin')), extras: extras || t('exportNothing') }))
+      options.watermark && t('exportWatermark', { text: text || t('watermarkDefault') })].filter(Boolean).join(t('listJoin'))
+    // The default text leaves the project's own watermark text in place.
+    const switches: ExportSwitches = { ...options, ...(options.watermark && text && text !== t('watermarkDefault') ? { watermark_text: text } : {}) }
+    const block = JSON.stringify({ source: 'jingliu', project: projectId, episodes: picked, switches })
+    compose(`${t('exportRequest', { episodes: picked.join(t('listJoin')), extras: extras || t('exportNothing') })}\n\n\`\`\`json\n${block}\n\`\`\``)
     onClose()
   }
   const option = (key: keyof typeof options, label: string, extra?: ReactNode) => <div className={css.option}>

@@ -143,7 +143,25 @@ it('prepares a batch export request for the episodes that have video, with the w
   expect((view.getByRole('button', { name: 'Episode 2, no video yet' }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.click(view.getByRole('switch', { name: 'Ending' }))
   fireEvent.click(view.getByRole('button', { name: 'Export CapCut drafts' }))
-  expect(props.compose).toHaveBeenCalledWith('Export episodes 1 as CapCut drafts, with subtitles, background music, the “AI generated” watermark.')
+  expect(props.compose).toHaveBeenCalledWith('Export episodes 1 as CapCut drafts, with subtitles, background music, the “AI generated” watermark.'
+    + '\n\n```json\n{"source":"jingliu","project":"p1","episodes":[1],"switches":{"subtitles":true,"music":true,"ending":false,"watermark":true}}\n```')
+  view.unmount()
+})
+
+it('carries a changed watermark text and every switch in the batch export block', () => {
+  const { props } = setup({ id: 'p1', title: 'Bridge Lions' })
+  const view = render(<DrawerJingliu {...props} />)
+  fireEvent.click(view.getByRole('button', { name: 'Batch export' }))
+  const card = within(view.getByRole('dialog', { name: 'Batch export' }))
+  expect(card.getAllByRole('switch').map(item => item.getAttribute('aria-checked'))).toEqual(['true', 'true', 'true', 'true'])
+  fireEvent.change(card.getByRole('textbox', { name: 'Watermark text' }), { target: { value: ' 镜流出品 ' } })
+  fireEvent.click(card.getByRole('switch', { name: 'BGM' }))
+  fireEvent.click(card.getByRole('button', { name: 'Export CapCut drafts' }))
+  const text = vi.mocked(props.compose).mock.calls[0]![0]
+  const [sentence, fence] = text.split('\n\n')
+  expect(sentence).toBe('Export episodes 1 as CapCut drafts, with subtitles, the ending card, the “镜流出品” watermark.')
+  expect(JSON.parse(fence!.replace(/^```json\n|\n```$/gu, ''))).toEqual({ source: 'jingliu', project: 'p1', episodes: [1],
+    switches: { subtitles: true, music: false, ending: true, watermark: true, watermark_text: '镜流出品' } })
   view.unmount()
 })
 
