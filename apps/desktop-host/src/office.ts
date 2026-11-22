@@ -42,16 +42,21 @@ export interface Config {
  * @param config - Bundled payload source and creative tool settings.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  await ctx.plugin(manuscriptRevisions, config.manuscriptRevisions ?? {})
-  if (config.sourceRecovery !== false) await ctx.plugin(sourceRecovery, config.sourceRecovery ?? {})
   const ffmpegPath = config.jianyingDraft?.ffmpegPath ?? process.env.DSH_FFMPEG_PATH ?? 'ffmpeg'
   const ffprobePath = config.jianyingDraft?.ffprobePath ?? process.env.DSH_FFPROBE_PATH ?? 'ffprobe'
+  const subtitles = { source: config.source, ffmpegPath, ffprobePath,
+    ...(config.jianyingDraft?.pythonPath === undefined ? {} : { pythonPath: config.jianyingDraft.pythonPath }),
+    ...config.episodeSubtitles }
+  // The subtitle row waits for the Muse account service and is not awaited, so its settings are checked here: a
+  // misconfiguration fails the Office composition at load instead of only reaching the log once that service exists.
+  episodeSubtitles.Config(subtitles)
+  await ctx.plugin(manuscriptRevisions, config.manuscriptRevisions ?? {})
+  if (config.sourceRecovery !== false) await ctx.plugin(sourceRecovery, config.sourceRecovery ?? {})
   await ctx.plugin(jianyingDraft, { source: config.source, timeoutMs: 600_000, graceMs: 1000,
     ffmpegPath, ffprobePath, maxInputBytes: 1024 * 1024, maxOutputBytes: 1024 * 1024, maxBgmGain: 1, ...config.jianyingDraft })
-  // Registered once the Muse account service exists; Desktop provides it application-wide.
-  void ctx.plugin(episodeSubtitles, { source: config.source, ffmpegPath, ffprobePath,
-    ...(config.jianyingDraft?.pythonPath === undefined ? {} : { pythonPath: config.jianyingDraft.pythonPath }),
-    ...config.episodeSubtitles })
+  // Registered once the Muse account service exists; Desktop provides it application-wide. Its fiber logs a later
+  // startup failure; awaiting it here would hold the Office composition until that service exists.
+  void ctx.plugin(episodeSubtitles, subtitles)
   await ctx.plugin(screenplayDocx, { source: config.source,
     reviewMode: config.docxReviewMode ?? 'strict', episodeLayout: config.docxEpisodeLayout ?? 'continuous',
     maxInputBytes: config.docxMaxInputBytes ?? 16 * 1024 * 1024, timeoutMs: config.docxTimeoutMs ?? 120_000,

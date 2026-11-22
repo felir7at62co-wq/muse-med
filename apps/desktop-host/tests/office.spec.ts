@@ -114,3 +114,10 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
       await rm(root, { recursive: true, force: true })
     }
   })
+
+it('rejects Desktop Office whose episode subtitle settings are invalid before registering any tool', async () => {
+  const ctx = new Context()
+  const plugin = vi.spyOn(ctx, 'plugin')
+  await expect(desktopOffice.apply(ctx, { source: '/runtime/primary-runtime', episodeSubtitles: { packSeconds: 1 } })).rejects.toThrow()
+  expect(plugin).not.toHaveBeenCalled()
+})
