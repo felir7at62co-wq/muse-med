@@ -5,13 +5,17 @@
  * The per-shot cache key is the transcript, lines, names, rules and the shot's own decisions. New audio redoes
  * recognition for that shot only; a script edit redoes correction only; a trim or reorder redoes only the clock.
  * The SRT and its version 2 receipt are published only when every shot is terminal; an episode with recognition
- * pending or blocked keeps its previous files.
+ * pending or blocked keeps its previous files. The receipt records the digests of the lines, names and decisions, so a
+ * script edit or a new decision makes the published SRT stale for drafts. An SRT at the canonical path that no
+ * `episode_subtitles` receipt covers (made or edited by hand) is moved aside to `NN.srt.manual-<stamp>`, with its
+ * receipt, before a new one is published.
  */
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFile, rename, stat } from 'node:fs/promises'
+import { relative } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
-import { cueRateFindings, formatSrtDocument, readSubtitleClockReceipt, sourceClockSha256, subtitleClockRows,
-  writeSubtitleClock } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
+import { cueRateFindings, formatSrtDocument, InvalidSubtitleClockError, readSubtitleClockReceipt, sourceClockSha256,
+  subtitleClockPath, subtitleClockRows, writeSubtitleClock, type SubtitleClockInputs } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
 import { readShotTranscript, transcribeShots, type AsrDeps, type AsrOutcome, type AsrRequest } from './asr.ts'
 import { placeShotCues, sourceSpan } from './clock.ts'
 import type { HashCache } from './hash-cache.ts'
@@ -33,7 +37,23 @@ export interface BuildDeps {
 
 /** One episode's outcome. */
 export type EpisodeOutcome =
-  | { readonly episode: number; readonly status: 'ready' | 'needs_review'; readonly pending: number; readonly changed: readonly number[] }
+  | {
+    readonly episode: number
+    readonly status: 'ready' | 'needs_review'
+    readonly pending: number
+    readonly changed: readonly number[]
+    /** Where a hand-made SRT that was at the canonical path now is, relative to the source root. */
+    readonly kept?: string
+  }
+  /** Jingliu kept legacy rows on these shots; the user chooses to keep them or replace them. */
+  | {
+    readonly episode: number
+    readonly status: 'unverified'
+    readonly shots: readonly number[]
+    readonly pending: number
+    readonly changed: readonly number[]
+    readonly kept?: string
+  }
   | { readonly episode: number; readonly status: 'waiting'; readonly changed: readonly number[] }
   | { readonly episode: number; readonly status: 'blocked'; readonly reason: BlockReason; readonly shots: readonly number[] }
 
@@ -89,7 +109,7 @@ export async function readDecisions(file: string): Promise<Map<string, DecisionA
  * @returns When written.
  */
 export async function writeDecisions(file: string, decisions: ReadonlyMap<string, DecisionAction>): Promise<void> {
-  await writeJson(file, { version: 1, decisions: Object.fromEntries([...decisions].sort(([a], [b]) => a.localeCompare(b))) })
+  await writeJson(file, { version: 1, decisions: Object.fromEntries(sortedDecisions(decisions)) })
 }
 
 /**
@@ -131,6 +151,24 @@ export interface BuildRequest {
   readonly waitMs: number
   /** Whether shots without a transcript may be transcribed in this call. */
   readonly allowAsr: boolean
+  /** Whether Jingliu may archive and replace legacy rows; only the user's choice sets it. */
+  readonly replaceLegacy: boolean
+}
+
+function sortedDecisions(decisions: ReadonlyMap<string, DecisionAction>): [string, DecisionAction][] {
+  return [...decisions].sort(([a], [b]) => a.localeCompare(b))
+}
+
+/**
+ * Digests of the non-media inputs of an episode's subtitles, as its clock receipt records them.
+ * @param episode - Shot lines and names of the resolved episode.
+ * @param decisions - Episode decisions by item ID.
+ * @returns Lowercase SHA-256 digests of the lines by shot, the names and the sorted decisions.
+ */
+export function subtitleInputs(episode: Pick<ResolvedEpisode, 'shots' | 'names'>,
+  decisions: ReadonlyMap<string, DecisionAction>): SubtitleClockInputs {
+  return { lines_sha256: sha(episode.shots.map(shot => [shot.shot, shot.lines])), names_sha256: sha(episode.names),
+    decisions_sha256: sha(sortedDecisions(decisions)) }
 }
 
 function workOf(episode: ResolvedEpisode): { shot: SourceShot; durationUs: number }[] {
@@ -236,9 +274,11 @@ export async function buildEpisodes(deps: BuildDeps, request: BuildRequest, sign
       return { item, state: item.before }
     })
     let states = computed.map(row => row.state)
+    let legacy: readonly number[] = []
     if (deps.source.store !== undefined) {
       const stored = await deps.source.store(episode,
-        computed.map(({ item, state }) => ({ shot: item.shot, rules: item.rules, state })), signal)
+        computed.map(({ item, state }) => ({ shot: item.shot, rules: item.rules, state })),
+        { replaceLegacy: request.replaceLegacy }, signal)
       if (stored.kind === 'blocked') {
         outcomes.set(episode.episode, { episode: episode.episode, status: 'blocked', reason: stored.reason, shots: stored.shots })
         continue
@@ -252,14 +292,17 @@ export async function buildEpisodes(deps: BuildDeps, request: BuildRequest, sign
         const row = stored.shots.get(state.shot)
         return row === undefined ? state : { ...state, items: row.items, stored: row.stored }
       })
+      legacy = stored.legacy
     }
     const { text, review } = layoutEpisode(episode, shots, states, decisions, deps.source.clockReview)
     const pending = review.filter(row => row.decision === null).length
-    await publish(episode, text, rulesSha, pending, deps.hash, signal)
+    const moved = await publish(episode, text, rulesSha, subtitleInputs(episode, decisions), pending, deps.hash, signal)
     await writeJson(episode.files.state, { version: 1, episode: episode.code, rules_sha256: rulesSha, shots: states })
     await writeJson(episode.files.review, { version: 1, episode: episode.code, pending, items: review })
-    outcomes.set(episode.episode, { episode: episode.episode, status: pending > 0 ? 'needs_review' : 'ready', pending,
-      changed: [...changed].sort((a, b) => a - b) })
+    const common = { episode: episode.episode, pending, changed: [...changed].sort((a, b) => a - b),
+      ...(moved === undefined ? {} : { kept: relative(deps.source.root, moved) }) }
+    outcomes.set(episode.episode, legacy.length > 0 ? { ...common, status: 'unverified', shots: legacy }
+      : { ...common, status: pending > 0 ? 'needs_review' : 'ready' })
   }
   return { episodes: request.episodes.map((episode) => {
     const outcome = outcomes.get(episode)
@@ -330,17 +373,59 @@ function layoutEpisode(episode: ResolvedEpisode, shots: readonly ReadyShot[], st
   return { text: formatSrtDocument(placedCues.map((cue, index) => ({ index: index + 1, ...cue }))), review }
 }
 
-async function publish(episode: ResolvedEpisode, text: string, rulesSha: string, pending: number, hash: HashCache,
-  signal?: AbortSignal): Promise<void> {
+/**
+ * Move an SRT at the canonical path that no `episode_subtitles` receipt covers to `<srt>.manual-<stamp>`, with its receipt.
+ * @param srt - Canonical SRT path.
+ * @param signal - Owning call cancellation.
+ * @returns The new path of a moved SRT, or undefined when nothing was there or the SRT is this tool's own.
+ */
+async function setAsideManualSrt(srt: string, signal?: AbortSignal): Promise<string | undefined> {
+  let current: Buffer
+  try { current = await readFile(srt) }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+  let receipt
+  try { receipt = (await readSubtitleClockReceipt(srt, signal))?.receipt }
+  catch (error) {
+    // An unreadable receipt covers nothing; it moves aside with its SRT.
+    if (!(error instanceof InvalidSubtitleClockError)) throw error
+  }
+  if (receipt?.version === 2 && receipt.producer === PRODUCER
+    && receipt.srt_sha256 === createHash('sha256').update(current).digest('hex')) return undefined
+  const stamp = new Date().toISOString().replace(/[-:.]/gu, '')
+  let target = `${srt}.manual-${stamp}`
+  for (let copy = 2; await exists(target) || await exists(subtitleClockPath(target)); copy++) target = `${srt}.manual-${stamp}-${String(copy)}`
+  await rename(srt, target)
+  if (await exists(subtitleClockPath(srt))) await rename(subtitleClockPath(srt), subtitleClockPath(target))
+  return target
+}
+
+async function exists(file: string): Promise<boolean> {
+  try { await stat(file); return true }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+}
+
+async function publish(episode: ResolvedEpisode, text: string, rulesSha: string, inputs: SubtitleClockInputs, pending: number,
+  hash: HashCache, signal?: AbortSignal): Promise<string | undefined> {
   const hashFile = (file: string, hashSignal?: AbortSignal) => hash.sha256(file, hashSignal)
+  const moved = await setAsideManualSrt(episode.files.srt, signal)
   let current: string | undefined
   try { current = await readFile(episode.files.srt, 'utf8') }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
   const receipt = current === text ? (await readSubtitleClockReceipt(episode.files.srt, signal))?.receipt : undefined
   if (receipt?.version === 2 && receipt.rules_sha256 === rulesSha && receipt.review_pending === pending
-    && receipt.source_clock_sha256 === sourceClockSha256(episode.code, await subtitleClockRows(episode.clock, signal, hashFile))) return
+    && JSON.stringify(receipt.inputs) === JSON.stringify(inputs)
+    && receipt.source_clock_sha256 === sourceClockSha256(episode.code, await subtitleClockRows(episode.clock, signal, hashFile))) {
+    return moved
+  }
   const jingliu = new Map(episode.shots.flatMap(shot => shot.jingliu === undefined ? [] : [[shot.shot, shot.jingliu] as const]))
   await writeSubtitleClock(episode.files.srt, text, episode.code, episode.clock, undefined,
-    { producer: PRODUCER, rules_sha256: rulesSha, review_pending: pending, ...(jingliu.size === 0 ? {} : { jingliu }) }, hashFile)
+    { producer: PRODUCER, rules_sha256: rulesSha, review_pending: pending, inputs, ...(jingliu.size === 0 ? {} : { jingliu }) }, hashFile)
   await writeFileAtomic(episode.files.srt, text, { mode: 0o600, dirMode: 0o700 })
+  return moved
 }

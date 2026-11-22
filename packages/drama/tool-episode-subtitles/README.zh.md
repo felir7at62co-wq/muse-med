@@ -55,17 +55,17 @@ Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及�
 
 没有转写缓存（`transcript/shots/<audio_sha256>.json`）的镜头会拼进 `transcript/packs/` 下按内容命名的 WAV，通过 `audio_transcribe` 的执行器以 `subtitles` 用途转写。待完成的拼包只按其收据查询或续传；失败或状态不确定的拼包会阻止其镜头，且这些镜头不会再被拼包。字词按中点归回所在镜头，落在间隔里或跨越镜头边界的字词列为 `boundary` 待核项。
 
-纠正和切条每次调用只运行一次随附的 `subtitle_rules/run.py`。每个镜头的结果缓存在 `subtitles/NN.state.json`，键由它的转写、台词、人名、规则摘要和它自己的选择构成。时钟每次调用都重新排布：超出裁剪后镜头的字幕会被截短或删除并列为 `cut_by_trim`，快于渲染器阅读上限的字幕列为 `too_fast`。只有所有镜头都到达终态时，SRT 与第 2 版回执才发布到 `editing/NN.srt`；仍在转写或被阻止的集保留原有文件。
+纠正和切条每次调用只运行一次随附的 `subtitle_rules/run.py`。每个镜头的结果缓存在 `subtitles/NN.state.json`，键由它的转写、台词、人名、规则摘要和它自己的选择构成。时钟每次调用都重新排布：超出裁剪后镜头的字幕会被截短或删除并列为 `cut_by_trim`，快于渲染器阅读上限的字幕列为 `too_fast`。只有所有镜头都到达终态时，SRT 与第 2 版回执才发布到 `editing/NN.srt`；仍在转写或被阻止的集保留原有文件。回执还记下本集台词、人名和选择的摘要，所以改了剧本后即使素材没变，草稿也会拒绝这份 SRT。该路径上已有、却没有 `episode_subtitles` 回执覆盖的 SRT（手做或手改过的）会连同其回执移到 `NN.srt.manual-<时间>`，再发布新的，结果在 `manual_srt_kept` 里写出它。
 
 `review` 分页列出 `subtitles/NN.review.json` 中的待核项。带 `decisions` 时写入 `subtitles/NN.decisions.json`，并在不新转写的情况下重排受影响的集。选择按待核项 ID 保存，因此其他镜头修改后仍然有效，自身镜头变化后自动失效。
 
-草稿构建方通过 `@deepseek-ai/dsh-tool-episode-subtitles/selection` 的 `localEpisodeSelection` 读取一集当前的已审核选片和实测时钟，它执行相同的检查并重写同一份清单。
+草稿构建方通过 `@deepseek-ai/dsh-tool-episode-subtitles/selection` 的 `localEpisodeSelection` 读取一集当前的已审核选片、实测时钟和字幕输入摘要，它执行相同的检查并重写同一份清单。同一子路径还导出 `legacyChoice`，即两个工具向用户提出的保留或重做问题。
 
 ### 镜流项目
 
 `source: "jingliu"` 时，`project` 是镜流项目 ID，所有文件都在 `<workspace>/jingliu/<project>` 下。`build` 先读 `POST /projects/{pid}/edit-plan`，取得启用的镜头、取片窗口、速度、会被念出的台词、人名和已存字幕的状态；没有这条路由的服务器回 404，所有集都报 `jingliu_outdated`，因此字幕任务绝不会发给会自己做识别的旧服务器。每镜视频只下载一次到项目文件夹，它也是这一镜的声音；有镜头尚未出片的集报 `video_missing`，读不到的文件报 `media_unavailable`。识别的打包方式与本机项目完全相同。
 
-纠正后的字词以每集一个 `auto_subtitles` segments 任务存到镜流，经 `subtitles/jobs/` 里的只提交一次回执发送，携带每镜的音频摘要、字词、选择和标记。镜流用同一套规则、按自己的每条字数纠正并切条，只替换这些镜头的自动字幕，并返回待核清单。同样的音频摘要与字词下，其编号与本机规则的编号相同，所以选择可以往返。只有字词、台词、选择或视频变了，或镜流不再报告 `fresh` 时，这一镜才会重发；只有手加字幕的镜头从不发送。任务因视频已换而拒绝某镜时，该集为 `waiting`，下一次 build 会下载新视频。预览 SRT 与回执（`subtitles/epNN.srt`）把同一套规则的字幕经取片窗口和速度排上时间轴；被裁掉或过快的字幕在这里不列为待核项，因为存储的字幕由镜流自己排位。
+纠正后的字词以每集一个 `auto_subtitles` segments 任务存到镜流，经 `subtitles/jobs/` 里的只提交一次回执发送，携带每镜的音频摘要、字词、选择和标记。镜流用同一套规则、按自己的每条字数纠正并切条，只替换这些镜头的自动字幕，保留手加的字幕并把与之重叠的 Muse 字幕列为 `manual_overlap` 待核项，并返回待核清单。同样的音频摘要与字词下，其编号与本机规则的编号相同，所以选择可以往返。只有字词、台词、选择或视频变了，或镜流不再报告 `fresh` 时，这一镜才会重发。有老数据行（镜流记录字幕来源之前写的，可能是手加的）的镜头不发送：该集为 `unverified`，结果的 `ask` 给出让用户选的问题，且不给 `next`。保留就调 `jianying_draft` 并带 `keep_legacy_subtitles: true`；重做就带 `replace_legacy: true` 再 build，镜流随即存档并替换这些行。segments 提交的答复丢失、或任务失败且没有结果时，只要同一次调用里剪辑计划已应答，就换新的尝试键重发，最多三次；云转写从不重发。任务因视频已换而拒绝某镜时，该集为 `waiting`，下一次 build 会下载新视频。预览 SRT 与回执（`subtitles/epNN.srt`）把同一套规则的字幕经取片窗口和速度排上时间轴；被裁掉或过快的字幕在这里不列为待核项，因为存储的字幕由镜流自己排位。
 
 -----
 
@@ -110,7 +110,7 @@ Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及�
 
 #### 模型看到的内容
 
-挂载后贡献 `episode_subtitles`；完整参数与描述原文以生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-episode-subtitles)为准。参数为 `method`、`source`、`project`、`episodes`、`wait_seconds`、`decisions` 和 `offset`。构建结果按状态（`ready`、`waiting`、`needs_review`、`blocked`）归组各集，每项最多列出十个镜头，报告转写进度并给出下一次调用。待核页最多包含 `reviewPageSize` 条，带听到的文字、剧本文字和整集时钟时间。 该行还加入 `tool:episode_subtitles` 系统提示段：`episode_subtitles` build、`episode_subtitles` review 与 `jianying_draft` 三步，以及镜头变化后的重跑。在只保留少量任务技能的预设里，压缩后仍按这个顺序进行。
+挂载后贡献 `episode_subtitles`；完整参数与描述原文以生成的[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-episode-subtitles)为准。参数为 `method`、`source`、`project`、`episodes`、`wait_seconds`、`decisions`、`offset` 和 `replace_legacy`。构建结果按状态（`ready`、`waiting`、`needs_review`、`unverified`、`blocked`）归组各集，每项最多列出十个镜头，报告转写进度并给出下一次调用；有 `unverified` 的集等用户决定时，总的 `status` 为 `needs_choice`，`ask` 带问题和两种调用，不给下一次调用。系统提示段也要求任一工具返回 `ask` 时去问用户。待核页最多包含 `reviewPageSize` 条，带听到的文字、剧本文字和整集时钟时间。 该行还加入 `tool:episode_subtitles` 系统提示段：`episode_subtitles` build、`episode_subtitles` review 与 `jianying_draft` 三步，以及镜头变化后的重跑。在只保留少量任务技能的预设里，压缩后仍按这个顺序进行。
 
 #### Token 影响
 
@@ -127,7 +127,9 @@ Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及�
 - **拼包识别可能跨镜头带入上下文** —— 镜头之间的静音不会重置识别器；这对文字的影响尚未在真实剧集上测量。
 - **没有重新转写选项** —— 拼包失败或状态不确定的镜头保持阻止；不提供单独重转一个镜头。
 - **没有字词时间的分段保持每段一条字幕** —— 这样的字幕列为 `long_cue`，不按估算切分。
-- **中断的镜流提交保持阻塞** —— segments 任务已发出但答复丢失时，该集对这份载荷报 `subtitle_job_unknown`；只有字词、选择或视频变化后才会解除。
+- **镜流提交最多重试三次** —— 同一份载荷第三次答复丢失或任务失败后，该集保持 `subtitle_job_unknown` 或 `subtitle_job_failed`，直到字词、选择或视频变化。
+- **镜流预览不看手加的行** —— 用户选了手加字幕、镜流因此没写某条 Muse 字幕时，预览 SRT 仍显示它。
+- **回滚与旧服务器** —— 旧版 Muse 读这些第 2 版回执时忽略其中的输入摘要。剪辑计划不统计老数据行的镜流服务器上，每个 `unverified` 的镜头都按有老数据处理，只有用户选了重做才发送。规则照旧需要随附运行时里的 `pypinyin==0.55.0`。
 - **镜流人名来自剪辑计划** —— 预览用所请求各集的人名，而镜流按每个任务所含镜头的人名纠正；待核清单始终以镜流为准。
 
 <a id="dev-note"></a>

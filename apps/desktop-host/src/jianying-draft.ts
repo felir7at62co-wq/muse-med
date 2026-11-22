@@ -243,7 +243,7 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
 }
 
 /** Model-facing description: the batch call first, then the single-episode request file mode. */
-const DESCRIPTION = '生成可编辑剪映草稿。批量：传 source、project、episodes，可带 switches 与 name_prefix；用户消息里的 json 代码块给出 source、project、episodes、switches 时，照原样传入；工具读取 episode_subtitles 写出的字幕时钟回执，镜头时长、画面或声音变化时该集列入 refused（subtitles_stale 与 changed_shots），先重跑 episode_subtitles，不手改偏移；然后准备素材、逐集生成，已生成且输入未变的集返回 existing，输入变化时另存唯一名称的新候选。配乐取 editing/NN-bgm.wav（先用 bgm_match 选曲、drama_bgm 合成纯音乐底轨），缺配乐的集列入 music_missing。'
+const DESCRIPTION = '生成可编辑剪映草稿。批量：传 source、project、episodes，可带 switches 与 name_prefix；用户消息里的 json 代码块给出 source、project、episodes、switches 时，照原样传入；工具读取 episode_subtitles 写出的字幕时钟回执，镜头时长、画面或声音变化时该集列入 refused（subtitles_stale 与 changed_shots），台词、人名、待核选择或字幕规则变化时为 subtitles_stale 与 changed_inputs，先重跑 episode_subtitles，不手改偏移；镜流项目的 subtitles_unverified 是来源不明的旧字幕，结果带 ask：把 question 问用户，用户要保留就按 keep 的调用传 keep_legacy_subtitles=true，要重做就按 remake 的调用重跑 episode_subtitles，不要替用户选；然后准备素材、逐集生成，已生成且输入未变的集返回 existing，输入变化时另存唯一名称的新候选。配乐取 editing/NN-bgm.wav（先用 bgm_match 选曲、drama_bgm 合成纯音乐底轨），缺配乐的集列入 music_missing。'
   + '单集模式：write JSON 请求文件，包含 project、episode、name_prefix、按镜头顺序的 videos、subtitle_srt、timeline；Windows 保留原视频声音时写 audio_mode=embedded 并省略 audio，使用 aa剪映后端。未声明模式或 audio_mode=independent 时仍用 pyJianYingDraft 并要求 audio 为未混 BGM 的完整主音轨；Mac 暂不支持 embedded。bgm 绝对路径配 bgm_role=music_only；确实不加配乐时写 music_decision=none、decision_reason。可选 ending_audio、ending_effect，以及 ending、watermark 布尔开关（false 去掉片尾或 AI 标识），所有文件用绝对路径。字幕须带同源时钟回执；人工字幕写 subtitle_source=manual。含对白的审查混音不能当配乐重复叠加。只处理指定集，不覆盖已有草稿；质量疑点返回 warnings 与 review_path 供核对。返回草稿路径与实际实现身份；editor_open_verified=false 表示尚未在剪映打开验收。'
 
 /** Loader identity for Desktop's single draft-building entry point. */
@@ -289,6 +289,7 @@ export function apply(ctx: Context, config: Config): void {
         watermark_text: { type: 'string', description: 'AI 内容标识文字，最多 40 字。' },
       } },
       name_prefix: { type: 'string', description: '批量模式草稿名前缀，默认项目目录名加 -。' },
+      keep_legacy_subtitles: { type: 'boolean', description: '镜流批量：用户对 ask 选了保留旧字幕时传 true，subtitles_unverified 的集照旧字幕出草稿。' },
       request_file: { type: 'string', description: '单集模式：已写好的单集 JSON 请求文件；相对路径以工作区为基准。' },
       drafts_dir: { type: 'string', description: '剪映草稿根目录；默认取 drama_draft_dir 保存的目录。' },
     },
@@ -323,11 +324,13 @@ export function apply(ctx: Context, config: Config): void {
         if (selected !== null && selected.id !== args.project) throw new HarnessError('这个操作指向另一个云项目，请先确认要切换的项目。', 'JINGLIU_INVALID_PROJECT')
         const prefix = args.name_prefix?.replace(/-+$/u, '').trim()
         return await runJingliuDraftBatch({ session, project: args.project, workspace, episodes, switches,
+          keepLegacy: args.keep_legacy_subtitles === true,
           namePrefix: prefix === undefined || prefix === '' ? undefined : prefix, draftsDir: await draftsRoot(args.drafts_dir, cwd) }, {
           ffmpegPath: config.ffmpegPath ?? 'ffmpeg', ffprobePath: config.ffprobePath ?? 'ffprobe',
           maxEpisodesPerCall: config.maxEpisodesPerCall ?? 10 }, exec.signal)
       }
       if (switches.subtitles === false) throw new ToolArgsError(['本机项目的批量草稿总是带本集字幕；不需要字幕时请在剪映中关闭字幕轨。'])
+      if (args.keep_legacy_subtitles !== undefined) throw new ToolArgsError(['keep_legacy_subtitles 只用于镜流项目。'])
       const project = isAbsolute(args.project) ? args.project : resolve(cwd, args.project)
       const draftsDir = await draftsRoot(args.drafts_dir, cwd)
       return await runDraftBatch({ project, display: args.project, episodes, switches,

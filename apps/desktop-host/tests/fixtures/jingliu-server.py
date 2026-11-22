@@ -8,7 +8,9 @@ usage: python -I jingliu-server.py <backend dir> <data dir> <port> <seed.json>
 seed.json: ``{"token", "project", "title", "characters": [...], "shots": [{"order", "episode", "file", "line",
 "clip_in_sec", "clip_dur_sec", "speed", "duration_sec"}]}``; each ``file`` is copied into the studio's generated media.
 
-Test-only route: ``POST /fwp/__test/shots/{order}/video {"file"}`` gives a shot a new video, as regenerating it would.
+Test-only routes: ``POST /fwp/__test/shots/{order}/video {"file"}`` gives a shot a new video, as regenerating it would;
+``POST /fwp/__test/subtitles/legacy {"order", "text"}`` adds a subtitle row as a release before the subtitle columns
+wrote it (no origin, no source).
 """
 import json
 import os
@@ -98,6 +100,17 @@ def regenerate(order: int, body: dict = Body(...)) -> dict:
         shot.adopted_version = (shot.adopted_version or 1) + 1
         s.commit()
         return {"video_url": shot.video_url}
+
+
+@studio.post("/__test/subtitles/legacy")
+def legacy_subtitle(body: dict = Body(...)) -> dict:
+    from app.db import SubtitleClip
+    with get_session() as s:
+        row = SubtitleClip(id=uuid.uuid4().hex[:12], project_id=seed["project"], text=body["text"], kind="subtitle",
+                           start_shot_order=body["order"], start_offset_sec=0.0, duration=1.0)
+        s.add(row)
+        s.commit()
+        return {"id": row.id}
 
 
 async def gateway(scope, receive, send):

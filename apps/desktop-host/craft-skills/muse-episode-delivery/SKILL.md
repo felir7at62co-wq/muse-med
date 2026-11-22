@@ -9,7 +9,9 @@ description: 给分集上字幕、导出剪映草稿、把镜头合成成片或�
 
 1. `episode_subtitles {method:"build", source, project, episodes}`；`status` 为 `waiting` 时用相同参数再调，直到不再等待。
 2. 有 `needs_review` 时调 `episode_subtitles {method:"review"}` 分页取待核处，用 `show_view` 把听到的与剧本的文字给用户看，把用户的选择作为 `decisions` 传回。不要自己写台词、时间或对齐。
-3. `jianying_draft {source, project, episodes, switches}`。`refused` 为 `subtitles_stale`、`subtitles_missing` 或 `subtitles_unverified` 时回到第 1 步；`music_missing` 按 BGM 步骤补配乐后再导出。
+3. `jianying_draft {source, project, episodes, switches}`。`refused` 为 `subtitles_stale`、`subtitles_missing`，或本机项目的 `subtitles_unverified` 时回到第 1 步；`music_missing` 按 BGM 步骤补配乐后再导出。
+
+任一步结果带 `ask` 时（镜流里有来源不明的旧字幕，可能是用户手加的），把 `question` 问用户，用户要保留就照 `keep` 给出的调用传 `keep_legacy_subtitles: true`，要重做就照 `remake` 给出的调用传 `replace_legacy: true`；不要替用户选。手做的本机 SRT 会被移到 `manual_srt_kept` 写出的位置，告诉用户它还在。
 
 镜头重新生成、换版本或修剪后同样从第 1 步重跑，只重做变化的镜头，不手改偏移。
 

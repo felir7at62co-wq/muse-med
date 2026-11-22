@@ -93,6 +93,20 @@ it.runIf(hasMedia && draftPython !== undefined)('refuses a stale episode by chan
     expect(second).toMatchObject({ created: [{ episode: 1 }], refused: [] })
     expect((second.created as { path: string }[])[0]!.path).not.toBe(path)
 
+    // The draft digest covers the resolved delivery settings, so a changed project delivery makes a new candidate.
+    expect(await draft()).toMatchObject({ created: [], existing: [{ episode: 1 }] })
+    await writeFile(join(project.root, 'project_config.json'), JSON.stringify({ project_bible: { visual_medium: 'photorealistic' } }))
+    expect(await draft()).toMatchObject({ created: [{ episode: 1 }], existing: [] })
+
+    // A script edit changes no media, yet the receipt's line digest no longer matches: rebuild without recognition.
+    await project.editLine(1, '妈在等你呀')
+    expect(await draft()).toMatchObject({ created: [], refused: [{ episode: 1, reason: 'subtitles_stale', changed_inputs: ['lines'] }],
+      next: { tool: 'episode_subtitles', args: { episodes: [1] } } })
+    expect(await subtitles()).toMatchObject({ asr: { new_seconds: 0, pending_packs: 0 }, changed: { 1: [2] } })
+    expect(gateway.submits).toHaveLength(2)
+    // The heard text already read as the old line, so the rebuilt SRT is the same and the draft is the existing one.
+    expect(await draft()).toMatchObject({ created: [], existing: [{ episode: 1 }], refused: [] })
+
     const switched = await run('jianying_draft', { source: 'local', project: project.root, episodes: [1, 2], drafts_dir: drafts,
       switches: { music: false, ending: false, watermark: false, watermark_text: '自定义' } })
     expect(switched).toMatchObject({ created: [{ episode: 1 }], music_missing: [], unsupported: ['watermark_text'],

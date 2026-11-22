@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.2/episode-subtitles-legacy-choice/guide.md
+/:
+  en: 75bd9686646977ab
+  zh: 8801ecfc48e3ba82
+/legacy-subtitles-become-a-user-choice:
+  en: a0b59ab3c4944bdd
+  zh: 3662090cd41021fe
+/legacy-subtitles-become-a-user-choice/change:
+  en: 5e725987e12630b1
+  zh: ce6b8cdb0a5e1341
+/legacy-subtitles-become-a-user-choice/migration:
+  en: 2bea41dfcb2a2a33
+  zh: 754d4a5b92e4cc4e

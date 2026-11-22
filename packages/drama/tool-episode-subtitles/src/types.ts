@@ -50,8 +50,11 @@ export interface SourceShot {
 /** Jingliu's subtitle status of one shot, computed by the server when the edit plan was read. */
 export interface RemoteSubtitles {
   readonly status: 'fresh' | 'stale' | 'unverified' | 'missing'
-  /** Only hand-added subtitles exist; corrected subtitles are not sent, so they never duplicate those. */
-  readonly manualOnly: boolean
+  /**
+   * Rows written before Jingliu recorded where a subtitle came from; they may have been added by hand, so the shot is
+   * sent only when the call allows replacing them.
+   */
+  readonly legacy: number
 }
 
 /** Where one episode's outputs live. */
@@ -112,10 +115,17 @@ export interface EpisodeSource {
    * the stored form. A shot left out of the returned map keeps its cached items and stored mark.
    * @param episode - Resolved episode.
    * @param shots - Every shot of the episode with its current correction input and cached state.
+   * @param options - Whether legacy rows may be replaced.
    * @param signal - Owning call cancellation.
    * @returns The stored shots' review items, or why the episode must wait or is blocked.
    */
-  store?(episode: ResolvedEpisode, shots: readonly StoreShot[], signal?: AbortSignal): Promise<StoreOutcome>
+  store?(episode: ResolvedEpisode, shots: readonly StoreShot[], options: StoreOptions, signal?: AbortSignal): Promise<StoreOutcome>
+}
+
+/** What one build allows {@link EpisodeSource.store} to do. */
+export interface StoreOptions {
+  /** Whether a shot's legacy rows may be archived and replaced; the user chooses this. */
+  readonly replaceLegacy: boolean
 }
 
 /** One shot handed to {@link EpisodeSource.store}. */
@@ -133,13 +143,18 @@ export interface StoredMark {
   readonly video_path: string
   /** Correction key of the stored subtitles. */
   readonly key: string
-  /** Job that wrote them; `manual` when only hand-added subtitles exist and nothing was sent. */
+  /** Job that wrote them. */
   readonly job: string
 }
 
 /** Result of storing one episode. */
 export type StoreOutcome =
-  | { readonly kind: 'stored'; readonly shots: ReadonlyMap<number, { readonly items: readonly ReviewItem[]; readonly stored: StoredMark }> }
+  | {
+    readonly kind: 'stored'
+    readonly shots: ReadonlyMap<number, { readonly items: readonly ReviewItem[]; readonly stored: StoredMark }>
+    /** Shots not stored because they keep legacy rows; the user chooses to keep or replace them. */
+    readonly legacy: readonly number[]
+  }
   /** The store is still working, or refused shots whose video changed since they were resolved; build again. */
   | { readonly kind: 'waiting'; readonly changed: readonly number[] }
   | { readonly kind: 'blocked'; readonly reason: BlockReason; readonly shots: readonly number[] }

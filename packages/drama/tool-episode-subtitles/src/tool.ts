@@ -10,6 +10,7 @@ import { createMediaToolkit, type MediaToolkit } from '@deepseek-ai/dsh-tool-epi
 import type { AudioAccount, AudioMediaOperations } from '@deepseek-ai/dsh-tool-audio-transcribe/runner'
 import { buildEpisodes, readDecisions, readReview, writeDecisions, type BuildOutcome, type EpisodeReviewItem } from './build.ts'
 import { HashCache } from './hash-cache.ts'
+import { legacyChoice } from './legacy.ts'
 import { localSource } from './shots.ts'
 import { jingliuSource, unavailableJingliuSource } from './source.ts'
 import { projectMediaFolder, type JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
@@ -28,6 +29,8 @@ export interface EpisodeSubtitlesArgs {
   readonly wait_seconds?: number | undefined
   readonly decisions?: readonly { readonly id: string; readonly action: DecisionAction }[] | undefined
   readonly offset?: number | undefined
+  /** Build of a Jingliu project: archive and replace legacy rows; only the user's answer to the legacy choice sets it. */
+  readonly replace_legacy?: boolean | undefined
 }
 
 /** Deployment settings the call handler reads. */
@@ -101,6 +104,7 @@ function check(args: EpisodeSubtitlesArgs, settings: EpisodeSubtitlesSettings): 
   if (args.wait_seconds !== undefined && (!Number.isFinite(args.wait_seconds) || args.wait_seconds < 0 || args.wait_seconds > 30)) problems.push('wait_seconds must be 0 to 30')
   if (args.offset !== undefined && (!Number.isSafeInteger(args.offset) || args.offset < 0)) problems.push('offset must be a non-negative integer')
   if ((args.method ?? 'build') === 'build' && (args.decisions !== undefined || args.offset !== undefined)) problems.push('decisions and offset belong to method review')
+  if (args.replace_legacy !== undefined && ((args.method ?? 'build') !== 'build' || args.source !== 'jingliu')) problems.push('replace_legacy belongs to method build of source jingliu')
   if (!args.project.trim()) problems.push('project must name a project')
   if (problems.length > 0) throw new ToolArgsError(problems)
 }
@@ -147,7 +151,8 @@ export async function runEpisodeSubtitles(args: EpisodeSubtitlesArgs, settings: 
         ...(services.media === undefined ? {} : { media: services.media }) } }
       if ((args.method ?? 'build') === 'build') {
         const waitMs = (args.wait_seconds ?? 0) * 1000
-        const outcome = await buildEpisodes(deps, { episodes: args.episodes, waitMs, allowAsr: true }, signal)
+        const outcome = await buildEpisodes(deps, { episodes: args.episodes, waitMs, allowAsr: true,
+          replaceLegacy: args.replace_legacy === true }, signal)
         return buildResult(outcome, args, source.filesPattern)
       }
       return await review(args, settings, deps, signal)
@@ -180,7 +185,9 @@ async function review(args: EpisodeSubtitlesArgs, settings: EpisodeSubtitlesSett
       const paths = files.get(episode)
       if (paths !== undefined) await writeDecisions(paths.decisions, map)
     }
-    if (changes.size > 0) outcome = await buildEpisodes(deps, { episodes: [...changes.keys()], waitMs: 0, allowAsr: false }, signal)
+    if (changes.size > 0) {
+      outcome = await buildEpisodes(deps, { episodes: [...changes.keys()], waitMs: 0, allowAsr: false, replaceLegacy: false }, signal)
+    }
   }
   const pendingItems: EpisodeReviewItem[] = []
   for (const episode of args.episodes) {
@@ -202,13 +209,17 @@ async function review(args: EpisodeSubtitlesArgs, settings: EpisodeSubtitlesSett
       args: { source: args.source, project: args.project, episodes: [...args.episodes] } } satisfies NextCall } : {}) }
 }
 
-function overallStatus(outcome: BuildOutcome): 'ready' | 'waiting' | 'needs_review' | 'blocked' {
+function overallStatus(outcome: BuildOutcome): 'ready' | 'waiting' | 'needs_review' | 'needs_choice' | 'blocked' {
   const statuses = new Set(outcome.episodes.map(episode => episode.status))
-  return statuses.has('waiting') ? 'waiting' : statuses.has('needs_review') ? 'needs_review' : statuses.has('blocked') ? 'blocked' : 'ready'
+  return statuses.has('waiting') ? 'waiting' : statuses.has('needs_review') ? 'needs_review'
+    : statuses.has('unverified') ? 'needs_choice' : statuses.has('blocked') ? 'blocked' : 'ready'
 }
 
 /**
  * Shape a build outcome for the model: grouped by status, at most ten shots per list, about 30 bytes per episode.
+ *
+ * Episodes whose Jingliu shots keep legacy rows are listed under `unverified` with the user's keep-or-remake choice in
+ * `ask`; no `next` is suggested while that choice is open, so the model never rebuilds over them on its own.
  * @param outcome - Per-episode outcome and recognition summary.
  * @param args - The call's source and project, repeated in the next call.
  * @param files - SRT path pattern.
@@ -216,22 +227,30 @@ function overallStatus(outcome: BuildOutcome): 'ready' | 'waiting' | 'needs_revi
  */
 export function buildResult(outcome: BuildOutcome, args: Pick<EpisodeSubtitlesArgs, 'source' | 'project'>, files: string): JsonObject {
   const ready: number[] = [], waiting: number[] = [], needsReview: Record<string, number> = {}, changed: Record<string, number[]> = {}
-  const blocked: JsonObject[] = []
+  const blocked: JsonObject[] = [], unverified: JsonObject[] = [], legacy: number[] = [], kept: Record<string, string> = {}
   for (const episode of outcome.episodes) {
     if (episode.status === 'blocked') { blocked.push({ episode: episode.episode, reason: episode.reason, ...capped(episode.shots) }); continue }
     if (episode.changed.length > 0) changed[String(episode.episode)] = episode.changed.slice(0, LIST_LIMIT)
+    if (episode.status !== 'waiting' && episode.kept !== undefined) kept[String(episode.episode)] = episode.kept
     if (episode.status === 'waiting') waiting.push(episode.episode)
+    else if (episode.status === 'unverified') {
+      unverified.push({ episode: episode.episode, ...capped(episode.shots) })
+      legacy.push(episode.episode)
+    }
     else if (episode.status === 'needs_review') needsReview[String(episode.episode)] = episode.pending
     else ready.push(episode.episode)
   }
   const base = { source: args.source, project: args.project }
+  const choice = legacy.length === 0 ? undefined : legacyChoice(args.project, legacy)
   const next: NextCall | undefined = waiting.length > 0 ? { tool: 'episode_subtitles', args: { method: 'build', ...base, episodes: waiting, wait_seconds: 30 } }
     : Object.keys(needsReview).length > 0 ? { tool: 'episode_subtitles', args: { method: 'review', ...base, episodes: Object.keys(needsReview).map(Number) } }
-      : ready.length > 0 ? { tool: 'jianying_draft', args: { ...base, episodes: ready } } : undefined
+      : choice === undefined && ready.length > 0 ? { tool: 'jianying_draft', args: { ...base, episodes: ready } } : undefined
   return { status: overallStatus(outcome),
     ...(ready.length === 0 ? {} : { ready }), ...(waiting.length === 0 ? {} : { waiting }),
     ...(Object.keys(needsReview).length === 0 ? {} : { needs_review: needsReview }), ...(blocked.length === 0 ? {} : { blocked }),
+    ...(unverified.length === 0 ? {} : { unverified }), ...(choice === undefined ? {} : { ask: choice }),
     ...(Object.keys(changed).length === 0 ? {} : { changed }),
+    ...(Object.keys(kept).length === 0 ? {} : { manual_srt_kept: kept }),
     asr: { new_seconds: outcome.asr.newSeconds, pending_packs: outcome.asr.pendingPacks,
       ...(outcome.asr.retryAfter === undefined ? {} : { retry_after: outcome.asr.retryAfter }) },
     files, ...(next === undefined ? {} : { next }) }

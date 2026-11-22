@@ -3,7 +3,9 @@
  *
  * Version 1 receipts carry only the SRT digest and one `source_clock_sha256` over the ordered shot rows.
  * Version 2 adds the producer, rules identity, pending review count and the rows themselves, so a reader can
- * name exactly which shots changed; `source_clock_sha256` is computed identically in both versions.
+ * name exactly which shots changed; `source_clock_sha256` is computed identically in both versions. A version 2
+ * receipt may also carry the digests of the script lines, names and review decisions the text was made from, so a
+ * script edit or a new decision makes the SRT stale even when no media changed.
  */
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
@@ -35,6 +37,16 @@ export interface SubtitleClockRow {
   readonly jingliu?: SubtitleClockJingliuSource
 }
 
+/** Digests of the non-media inputs the producer made the text from; each is lowercase SHA-256. */
+export interface SubtitleClockInputs {
+  /** Spoken script lines of every shot, by shot. */
+  readonly lines_sha256: string
+  /** Names the correction treats as names. */
+  readonly names_sha256: string
+  /** Review decisions of the episode. */
+  readonly decisions_sha256: string
+}
+
 /** Producer facts a version 2 receipt adds to the version 1 fields. */
 export interface SubtitleClockProducer {
   /** Tool that laid out the cues, for example `episode_subtitles`. */
@@ -45,6 +57,8 @@ export interface SubtitleClockProducer {
   readonly review_pending: number
   /** Jingliu source identities by shot number, when the shots came from Jingliu. */
   readonly jingliu?: ReadonlyMap<number, SubtitleClockJingliuSource>
+  /** Non-media inputs of the text; absent for producers that do not track them. */
+  readonly inputs?: SubtitleClockInputs
 }
 
 /** A parsed version 1 receipt. */
@@ -62,6 +76,7 @@ export interface SubtitleClockReceiptV2 extends Omit<SubtitleClockReceiptV1, 've
   readonly episode: string
   readonly review_pending: number
   readonly shots: readonly SubtitleClockRow[]
+  readonly inputs?: SubtitleClockInputs
 }
 
 /** Either accepted receipt version. */
@@ -123,6 +138,26 @@ export function changedShots(receipt: SubtitleClockReceiptV2, current: readonly 
     .filter(shot => recorded.get(shot) !== now.get(shot)).sort((left, right) => left - right)
 }
 
+/** A non-media input of a version 2 receipt's text. */
+export type SubtitleClockInput = 'rules' | 'lines' | 'names' | 'decisions'
+
+/**
+ * Name the non-media inputs whose digest differs from a version 2 receipt.
+ * @param receipt - Version 2 receipt read from disk.
+ * @param current - Current rules digest and input digests.
+ * @returns Changed inputs in a fixed order; a receipt without input digests reports lines, names and decisions.
+ */
+export function changedInputs(receipt: SubtitleClockReceiptV2,
+  current: SubtitleClockInputs & { readonly rules_sha256: string }): SubtitleClockInput[] {
+  const recorded = receipt.inputs
+  return [
+    ...(receipt.rules_sha256 === current.rules_sha256 ? [] : ['rules' as const]),
+    ...(recorded?.lines_sha256 === current.lines_sha256 ? [] : ['lines' as const]),
+    ...(recorded?.names_sha256 === current.names_sha256 ? [] : ['names' as const]),
+    ...(recorded?.decisions_sha256 === current.decisions_sha256 ? [] : ['decisions' as const]),
+  ]
+}
+
 /**
  * Get the adjacent file recording the edit clock of a generated subtitle.
  * @param srt - Subtitle artifact path.
@@ -167,8 +202,13 @@ export function parseSubtitleClockReceipt(value: unknown): SubtitleClockReceipt 
     || !Array.isArray(value.shots)) return undefined
   const shots = value.shots.map(clockRow)
   if (shots.some(row => row === undefined)) return undefined
+  const inputs = value.inputs
+  if (inputs !== undefined && (!record(inputs) || [inputs.lines_sha256, inputs.names_sha256, inputs.decisions_sha256]
+    .some(field => typeof field !== 'string' || !SHA256.test(field)))) return undefined
   return { version: 2, ...base, producer: value.producer, rules_sha256: value.rules_sha256, episode: value.episode,
-    review_pending: value.review_pending as number, shots: shots as SubtitleClockRow[] }
+    review_pending: value.review_pending as number, shots: shots as SubtitleClockRow[],
+    ...(record(inputs) ? { inputs: { lines_sha256: inputs.lines_sha256 as string, names_sha256: inputs.names_sha256 as string,
+      decisions_sha256: inputs.decisions_sha256 as string } } : {}) }
 }
 
 /**
@@ -222,7 +262,7 @@ export async function writeSubtitleClock(srt: string, text: string, episode: str
     shots: rows.map((row) => {
       const source = producer.jingliu?.get(row.shot)
       return source === undefined ? row : { ...row, jingliu: source }
-    }) }
+    }), ...(producer.inputs === undefined ? {} : { inputs: producer.inputs }) }
   const receipt = subtitleClockPath(srt)
   await writeFileAtomic(receipt, `${JSON.stringify(content)}\n`, { mode: 0o600, dirMode: 0o700 })
   return receipt

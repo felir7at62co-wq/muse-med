@@ -1,5 +1,5 @@
 /** The build reuses transcripts by audio digest, corrections by content key, and lays out the clock on every call. */
-import { readFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { changedShots, readSubtitleClockReceipt, subtitleClockRows, type SubtitleClockReceiptV2 } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
@@ -118,4 +118,41 @@ it('pages review items and rebuilds with decisions without new recognition', asy
   expect(rules.calls.at(-1)?.map(shot => shot.decisions)).toEqual([[{ id, action: 'drop' }]])
   expect(await readFile(srt, 'utf8')).toContain('你在\n')
   expect((await readSubtitleClockReceipt(srt))?.receipt).toMatchObject({ review_pending: 0 })
+})
+
+it('moves a hand-made or hand-edited SRT aside with its receipt before publishing and reports where it went', async () => {
+  const { f, g, build, srt } = await setup(2)
+  await mkdir(join(f.root, 'editing'), { recursive: true })
+  const manual = '1\n00:00:00,500 --> 00:00:02,000\n用户手改过的字幕\n'
+  await writeFile(srt, manual)
+  await build(); g.complete()
+  const first = await build()
+  const kept = (first.manual_srt_kept as Record<string, string>)['1']!
+  expect(kept).toMatch(/^editing\/01\.srt\.manual-\d{8}T\d{9}Z$/u)
+  expect(await readFile(join(f.root, kept), 'utf8')).toBe(manual)
+  expect(await readFile(srt, 'utf8')).not.toContain('用户手改过的字幕')
+
+  const published = await readFile(srt, 'utf8')
+  expect(await build()).not.toHaveProperty('manual_srt_kept')
+  await writeFile(srt, published.replace('第1句台词', '第1句台词（手改）'))
+  const second = await build()
+  const edited = (second.manual_srt_kept as Record<string, string>)['1']!
+  expect(edited).not.toBe(kept)
+  expect(await readFile(join(f.root, edited), 'utf8')).toContain('（手改）')
+  expect((await readSubtitleClockReceipt(join(f.root, edited)))?.receipt).toMatchObject({ version: 2, producer: 'episode_subtitles' })
+  expect(await readFile(srt, 'utf8')).toBe(published)
+  expect((await readdir(join(f.root, 'editing'))).filter(name => name.includes('.manual-'))).toHaveLength(3)
+})
+
+it('records the line, name and decision digests in the receipt so a script edit changes it without new media', async () => {
+  const { f, g, build, srt } = await setup(2)
+  await build(); g.complete(); await build()
+  const before = (await readSubtitleClockReceipt(srt))?.receipt as SubtitleClockReceiptV2
+  expect(before.inputs).toMatchObject({ lines_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) })
+  await f.editLine(2, '第2句改过的台词')
+  await build()
+  const after = (await readSubtitleClockReceipt(srt))?.receipt as SubtitleClockReceiptV2
+  expect(after.inputs?.lines_sha256).not.toBe(before.inputs?.lines_sha256)
+  expect(after.inputs?.names_sha256).toBe(before.inputs?.names_sha256)
+  expect(after.source_clock_sha256).toBe(before.source_clock_sha256)
 })

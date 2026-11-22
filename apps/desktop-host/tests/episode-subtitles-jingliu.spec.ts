@@ -185,6 +185,27 @@ it.runIf(hasMedia && jingliuPython !== undefined)('stores Jingliu subtitles, ins
     const second = await draft()
     expect(second).toMatchObject({ refused: [], created: [{ episode: 1 }] })
     expect((second.created as { path: string }[])[0]!.path).not.toBe(path)
+
+    // A row from before the subtitle columns may be hand-added: both tools ask, and nothing replaces it unasked.
+    const legacy = await studio('/__test/subtitles/legacy', { order: 1, text: '老字幕' })
+    await studio('/v2/subtitle-clips', { project_id: 'p1', text: '三年后', start_shot_order: 1, start_offset_sec: 0, duration: 2 })
+    const asked = await draft()
+    expect(asked).toMatchObject({ created: [], refused: [{ episode: 1, reason: 'subtitles_unverified', shots: [1] }],
+      ask: { keep: { args: { keep_legacy_subtitles: true } }, remake: { args: { replace_legacy: true } } } })
+    expect(asked).not.toHaveProperty('next')
+    expect(await subtitles()).toMatchObject({ status: 'needs_choice', unverified: [{ episode: 1, shots: [1] }] })
+    const kept = await run('jianying_draft', { source: 'jingliu', project: 'p1', episodes: [1], drafts_dir: drafts, keep_legacy_subtitles: true })
+    expect(kept).toMatchObject({ refused: [], created: [{ episode: 1 }] })
+    expect(await readFile(join((kept.created as { path: string }[])[0]!.path, 'draft_content.json'), 'utf8')).toContain('老字幕')
+
+    const remade = await subtitles({ replace_legacy: true })
+    expect(remade.status).toBe('needs_review')
+    const overlap = await subtitles({ method: 'review' })
+    expect((overlap.items as { kind: string; script: string }[]).filter(item => item.kind === 'manual_overlap').map(item => item.script))
+      .toContain('三年后')
+    const texts = ((await studio('/v2/projects/p1/subtitle-clips')).clips as { id: string; text: string; origin: string | null }[])
+    expect(texts.find(clip => clip.id === legacy.id)).toBeUndefined()
+    expect(texts.filter(clip => clip.origin === 'manual').map(clip => clip.text)).toEqual(['三年后'])
   } finally {
     await ctx.fiber.dispose()
     server.kill()

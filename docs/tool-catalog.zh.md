@@ -1849,7 +1849,7 @@ Source: [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/
 
 ### `episode_subtitles`
 
-按集生成字幕：读取锁定分镜与选定镜头，实测时长，按音频摘要复用或提交云转写，用剧本纠正识别文字，按字词时间排条，写 SRT、时钟回执与待核清单。参数相同重复调用即可续做；只重做变化的镜头。不要自己写台词、对齐或时间。用户消息里的 json 代码块给出 source、project、episodes 时，照原样传入。
+按集生成字幕：读取锁定分镜与选定镜头，实测时长，按音频摘要复用或提交云转写，用剧本纠正识别文字，按字词时间排条，写 SRT、时钟回执与待核清单。参数相同重复调用即可续做；只重做变化的镜头。不要自己写台词、对齐或时间。手做的 SRT 会移到 NN.srt.manual-<时间> 并在 manual_srt_kept 报出。结果带 ask 时（镜流旧字幕来源不明）把 question 原样问用户，按用户的回答调 keep 或 remake 给出的调用，不要替用户选。用户消息里的 json 代码块给出 source、project、episodes 时，照原样传入。
 
 ```json
 {
@@ -1915,6 +1915,10 @@ Source: [`packages/drama/tool-audio-transcribe/src/index.ts`](../packages/drama/
     "offset": {
       "type": "integer",
       "description": "review 分页起点，每页 20 条；用返回的 next_offset。"
+    },
+    "replace_legacy": {
+      "type": "boolean",
+      "description": "build、jingliu：把来源不明的旧字幕存档后删掉、按声音重做。只在用户对 ask 选了重做时传 true。"
     }
   },
   "required": [
@@ -2231,7 +2235,7 @@ Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jing
 
 ### `jingliu_studio`
 
-镜流共享素材搜索与导入、查看剧本分集原文、逐条审校字幕、回写字幕的文本或时间、查看高清产物。
+镜流共享素材搜索与导入、查看剧本分集原文、逐条查看字幕、回写一条字幕的文字（edit_subtitle 只改文字；字幕的时间与按声音重做用 episode_subtitles，待核处用它的 review）、查看高清产物。
 
 ```json
 {
@@ -2276,12 +2280,6 @@ Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jing
     },
     "text": {
       "type": "string"
-    },
-    "duration": {
-      "type": "number"
-    },
-    "start_offset_sec": {
-      "type": "number"
     }
   },
   "required": [

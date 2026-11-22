@@ -7,13 +7,24 @@
  */
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { default as SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import type { RulesShot, RulesShotResult, SubtitleRules } from './types.ts'
 
 /** Files whose bytes define the rules, in digest order; must match `RULE_FILES` in `run.py`. */
 export const RULE_FILES = ['subtitle_align.py', 'subtitle_cues.py', 'run.py'] as const
+
+/**
+ * Locate the vendored rules shipped in `@deepseek-ai/dsh-drama-skills`, outside `app.asar` in a packaged Desktop.
+ * @returns The `subtitle_rules` directory.
+ */
+export function bundledRulesDirectory(): string {
+  const manifest = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-drama-skills/package.json'))
+    .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
+  return join(dirname(manifest), 'skills', 'tweet-drama-draft-build', 'scripts', 'subtitle_rules')
+}
 
 /**
  * Digest the rule files of one directory.

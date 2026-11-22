@@ -8,16 +8,20 @@
  * width and returns the review items, whose IDs match the local rules for the same audio digest and words. A server
  * without the edit-plan route answers 404, and every episode is then `jingliu_outdated`: the segments job is never
  * sent to it, because an old server would run its own recognition instead.
+ *
+ * A shot with legacy rows (written before Jingliu recorded where a subtitle came from, so possibly added by hand) is
+ * sent only when the call allows replacing them; otherwise it is reported for the user to choose. Hand-added rows are
+ * never replaced, so every shot is sent whatever hand-added rows it has.
  */
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { mediaPath, type JingliuSession, type LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
-import { missingRoute, submitOnce } from '@deepseek-ai/dsh-tool-jingliu/library'
+import { existingSubmission, missingRoute, submitOnce } from '@deepseek-ai/dsh-tool-jingliu/library'
 import { episodeNumberOf, type ResolvedShot } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
 import type { BlockedEpisode, BlockReason, DecisionAction, EpisodeFiles, EpisodeSource, RemoteSubtitles, ResolvedEpisode,
-  ReviewItem, SourceShot, StoredMark, StoreOutcome, StoreShot } from './types.ts'
+  ReviewItem, SourceShot, StoredMark, StoreOptions, StoreOutcome, StoreShot } from './types.ts'
 
 /**
  * Provider used when this Host has no Jingliu connection.
@@ -51,6 +55,9 @@ const isFields = (value: unknown): value is Fields => typeof value === 'object' 
 const invalidPlan = () => new HarnessError('镜流返回的剪辑计划无效，请稍后重试或更新镜流服务。', 'EPISODE_SUBTITLES_JINGLIU_INVALID')
 const STATUSES = new Set<RemoteSubtitles['status']>(['fresh', 'stale', 'unverified', 'missing'])
 const ACTIONS = new Set<DecisionAction>(['heard', 'script', 'drop'])
+/** Submissions of one segments payload: the first, then resubmissions after a lost answer or a failed job. */
+const MAX_ATTEMPTS = 3
+const outcomeUnknown = (error: unknown) => error instanceof HarnessError && error.code === 'JINGLIU_JOB_OUTCOME_UNKNOWN'
 
 interface PlanShot {
   readonly shotId: string
@@ -74,14 +81,16 @@ function planShot(value: unknown): PlanShot {
   if (!isFields(value) || typeof value.shot_id !== 'string' || !value.shot_id || !Number.isSafeInteger(value.order)
     || !(value.video_path === null || typeof value.video_path === 'string') || !Array.isArray(value.lines)
     || !value.lines.every(line => typeof line === 'string') || !isFields(value.subtitles)) throw invalidPlan()
-  const { status, cues, time_base: timeBase } = value.subtitles
-  if (typeof status !== 'string' || !STATUSES.has(status as RemoteSubtitles['status']) || typeof cues !== 'number') throw invalidPlan()
+  const { status, legacy } = value.subtitles
+  if (typeof status !== 'string' || !STATUSES.has(status as RemoteSubtitles['status'])
+    || !(legacy === undefined || Number.isSafeInteger(legacy))) throw invalidPlan()
   const speed = finite(value.speed, 0)
   if (speed <= 0) throw invalidPlan()
   return { shotId: value.shot_id, order: value.order as number, videoPath: value.video_path ? mediaPath(value.video_path).path : null,
     etag: typeof value.video_etag === 'string' ? value.video_etag : '', clipInSec: finite(value.clip_in_sec, 0),
     clipDurSec: finite(value.clip_dur_sec, 0), speed, outputSec: finite(value.output_sec, 0), lines: value.lines as string[],
-    remote: { status: status as RemoteSubtitles['status'], manualOnly: status === 'fresh' && cues > 0 && timeBase !== 'source' } }
+    // A server that does not count legacy rows reports them only as `unverified`; treat that as legacy rows.
+    remote: { status: status as RemoteSubtitles['status'], legacy: typeof legacy === 'number' ? legacy : status === 'unverified' ? 1 : 0 } }
 }
 
 function episodeFiles(root: string, code: string): EpisodeFiles {
@@ -146,58 +155,96 @@ export function jingliuSource(options: JingliuSourceOptions): EpisodeSource {
     return { kind: 'ok', episode, code, shots: sources, clock, names, files: episodeFiles(root, code) }
   }
 
-  const store = async (episode: ResolvedEpisode, shots: readonly StoreShot[], signal: AbortSignal): Promise<StoreOutcome> => {
+  // Set once the edit plan answered in this call: Jingliu is reachable and the shots' videos are the ones resolved.
+  let planned = false
+  const readJob = async (id: string, signal: AbortSignal): Promise<Fields> => {
+    const job = await session.request(`/jobs/${encodeURIComponent(id)}`, { signal })
+    if (!isFields(job) || typeof job.status !== 'string') throw invalidPlan()
+    return job
+  }
+  const segmentsResult = (job: Fields): { readonly shots: readonly unknown[]; readonly refused: readonly unknown[] } | undefined => {
+    let result: unknown
+    try { result = typeof job.result === 'string' ? JSON.parse(job.result) : undefined }
+    catch (error) { throw new HarnessError('镜流字幕任务返回的结果无法读取。', 'EPISODE_SUBTITLES_JINGLIU_INVALID', { cause: error }) }
+    return isFields(result) && result.mode === 'segments' && Array.isArray(result.shots) && Array.isArray(result.refused)
+      ? { shots: result.shots, refused: result.refused } : undefined
+  }
+
+  const store = async (episode: ResolvedEpisode, shots: readonly StoreShot[], choice: StoreOptions,
+    signal: AbortSignal): Promise<StoreOutcome> => {
     const kept = new Map<number, { items: readonly ReviewItem[]; stored: StoredMark }>()
-    const send: StoreShot[] = []
+    const send: StoreShot[] = [], legacy: number[] = []
     for (const row of shots) {
       const { shot, state } = row
       const videoPath = shot.jingliu?.video_path ?? ''
       const current = state.stored?.key === state.key && state.stored.video_path === videoPath
       if (shot.remote?.status === 'fresh' && current) continue
-      if (shot.remote?.manualOnly === true && state.stored === undefined) {
-        kept.set(shot.shot, { items: [], stored: { video_path: videoPath, key: state.key, job: 'manual' } })
-        continue
-      }
+      if ((shot.remote?.legacy ?? 0) > 0 && !choice.replaceLegacy) { legacy.push(shot.shot); continue }
       send.push(row)
     }
-    if (send.length === 0) return { kind: 'stored', shots: kept }
+    if (send.length === 0) return { kind: 'stored', shots: kept, legacy }
     const byId = new Map(send.map(row => [row.shot.jingliu?.shot_id ?? '', row]))
     const segments = send.map(({ shot, rules }) => ({ shot_id: shot.jingliu?.shot_id ?? '', video_url: shot.jingliu?.video_path ?? '',
       source_sha256: rules.audio_sha256, words: rules.words, decisions: rules.decisions, flags: rules.flags }))
-    const digest = createHash('sha256').update(JSON.stringify(segments)).digest('hex')
+    const payload = { project_id: project, episode: episode.episode, ...(choice.replaceLegacy ? { replace_legacy: true } : {}), segments }
+    const digest = createHash('sha256').update(JSON.stringify(payload)).digest('hex')
     // A shot whose stored rows vanished is sent again with the same payload; the prior job IDs make that a new submission.
     const prior = send.map(row => row.state.stored?.job ?? '').sort()
-    let receipt
-    try {
-      receipt = await submitOnce(join(root, 'subtitles', 'jobs'), [session.identity, project, String(episode.episode), digest, ...prior],
-        [session.identity, project, episode.episode, digest], async () => await session.request('/jobs', { method: 'POST', signal,
-          body: { kind: 'auto_subtitles', payload: { project_id: project, episode: episode.episode, segments } } }))
-    } catch (error) {
-      if (error instanceof HarnessError && error.code === 'JINGLIU_JOB_OUTCOME_UNKNOWN') {
-        return { kind: 'blocked', reason: 'subtitle_job_unknown', shots: send.map(row => row.shot.shot) }
+    const dir = join(root, 'subtitles', 'jobs')
+    const base = [session.identity, project, String(episode.episode), digest, ...prior]
+    const input = [session.identity, project, episode.episode, digest]
+    const sent = send.map(row => row.shot.shot)
+    // The segments job is free and replaces only these shots' rows, so once the edit plan answered in this call, an earlier
+    // submission whose answer was lost or whose job failed is sent again under the next attempt key. Paid recognition never
+    // takes this path: its receipts are only queried or resumed.
+    let receipt: Fields | undefined, job: Fields | undefined
+    let lost = false
+    for (let attempt = 0; receipt === undefined; attempt++) {
+      if (attempt >= MAX_ATTEMPTS || (attempt > 0 && !planned)) {
+        return { kind: 'blocked', reason: lost ? 'subtitle_job_unknown' : 'subtitle_job_failed', shots: sent }
       }
-      throw error
+      const key = attempt === 0 ? base : [...base, `attempt:${String(attempt)}`]
+      let saved: Fields | undefined
+      try { saved = await existingSubmission(dir, key, input) }
+      catch (error) {
+        if (!outcomeUnknown(error)) throw error
+        lost = true
+        continue
+      }
+      if (saved === undefined) {
+        try {
+          receipt = await submitOnce(dir, key, input, async () => await session.request('/jobs', { method: 'POST', signal,
+            body: { kind: 'auto_subtitles', payload } }))
+        } catch (error) {
+          if (outcomeUnknown(error)) return { kind: 'blocked', reason: 'subtitle_job_unknown', shots: sent }
+          throw error
+        }
+        break
+      }
+      const previous = await readJob(String(saved.job_id), signal)
+      lost = false
+      if (previous.status === 'failed' && segmentsResult(previous) === undefined) continue
+      receipt = saved
+      job = previous
     }
     const deadline = Date.now() + options.jobWaitMs
-    let job: unknown
-    for (;;) {
-      job = await session.request(`/jobs/${encodeURIComponent(String(receipt.job_id))}`, { signal })
-      if (!isFields(job) || typeof job.status !== 'string') throw invalidPlan()
-      if (job.status !== 'pending' && job.status !== 'running') break
-      if (Date.now() + options.pollIntervalMs > deadline) return { kind: 'waiting', changed: [] }
-      await sleep(options.pollIntervalMs, undefined, { signal })
+    while (job === undefined || job.status === 'pending' || job.status === 'running') {
+      if (job !== undefined) {
+        if (Date.now() + options.pollIntervalMs > deadline) return { kind: 'waiting', changed: [] }
+        await sleep(options.pollIntervalMs, undefined, { signal })
+      }
+      job = await readJob(String(receipt.job_id), signal)
     }
-    let result: unknown
-    try { result = typeof job.result === 'string' ? JSON.parse(job.result) : undefined }
-    catch (error) { throw new HarnessError('镜流字幕任务返回的结果无法读取。', 'EPISODE_SUBTITLES_JINGLIU_INVALID', { cause: error }) }
-    if (!isFields(result) || result.mode !== 'segments' || !Array.isArray(result.shots) || !Array.isArray(result.refused)) {
-      return { kind: 'blocked', reason: job.status === 'done' ? 'jingliu_outdated' : 'subtitle_job_failed', shots: send.map(row => row.shot.shot) }
+    const result = segmentsResult(job)
+    if (result === undefined) {
+      return { kind: 'blocked', reason: job.status === 'done' ? 'jingliu_outdated' : 'subtitle_job_failed', shots: sent }
     }
     const changed: number[] = [], failed: number[] = []
     for (const refused of result.refused) {
       const row = isFields(refused) && typeof refused.shot_id === 'string' ? byId.get(refused.shot_id) : undefined
-      if (row === undefined) throw invalidPlan()
-      if (isFields(refused) && refused.reason === 'video_changed') changed.push(row.shot.shot)
+      if (row === undefined || !isFields(refused)) throw invalidPlan()
+      if (refused.reason === 'video_changed') changed.push(row.shot.shot)
+      else if (refused.reason === 'legacy_subtitles') legacy.push(row.shot.shot)
       else failed.push(row.shot.shot)
     }
     if (changed.length > 0) return { kind: 'waiting', changed: changed.sort((a, b) => a - b) }
@@ -208,9 +255,9 @@ export function jingliuSource(options: JingliuSourceOptions): EpisodeSource {
       kept.set(row.shot.shot, { items: written.items.map(reviewItem),
         stored: { video_path: row.shot.jingliu?.video_path ?? '', key: row.state.key, job: String(receipt.job_id) } })
     }
-    const unwritten = send.filter(row => !kept.has(row.shot.shot)).map(row => row.shot.shot)
+    const unwritten = send.filter(row => !kept.has(row.shot.shot) && !legacy.includes(row.shot.shot)).map(row => row.shot.shot)
     if (unwritten.length > 0) return { kind: 'blocked', reason: 'subtitle_job_failed', shots: unwritten }
-    return { kind: 'stored', shots: kept }
+    return { kind: 'stored', shots: kept, legacy: legacy.sort((a, b) => a - b) }
   }
 
   const call = (signal?: AbortSignal) => signal ?? new AbortController().signal
@@ -222,6 +269,7 @@ export function jingliuSource(options: JingliuSourceOptions): EpisodeSource {
         if (!missingRoute(error)) throw error
         return episodes.map(episode => ({ kind: 'blocked', episode, reason: 'jingliu_outdated', shots: [] }))
       }
+      planned = true
       if (!isFields(plan) || !Array.isArray(plan.names) || !Array.isArray(plan.episodes)) throw invalidPlan()
       const names = plan.names.filter((name): name is string => typeof name === 'string')
       const rows = new Map(plan.episodes.map((row) => {
@@ -236,5 +284,5 @@ export function jingliuSource(options: JingliuSourceOptions): EpisodeSource {
       }
       return out
     },
-    store: async (episode, shots, signal) => await store(episode, shots, call(signal)) }
+    store: async (episode, shots, storeOptions, signal) => await store(episode, shots, storeOptions, call(signal)) }
 }
