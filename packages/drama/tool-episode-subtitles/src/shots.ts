@@ -158,7 +158,7 @@ Promise<ResolvedEpisode | BlockedEpisode> {
  * @returns The episode source for `source: "local"`.
  */
 export function localSource(project: string, display: string, hash: HashCache, toolkit: MediaToolkit): EpisodeSource {
-  return { kind: 'local', root: project, filesPattern: `${display.replace(/\/+$/u, '')}/editing/NN.srt`,
+  return { kind: 'local', root: project, clockReview: true, filesPattern: `${display.replace(/\/+$/u, '')}/editing/NN.srt`,
     resolve: async (episodes) => {
       const out: (ResolvedEpisode | BlockedEpisode)[] = []
       for (const episode of episodes) out.push(await resolveLocalEpisode(project, episode, hash, toolkit))

@@ -1,10 +1,15 @@
 /**
- * Batch Jianying drafts for local projects: one verified, prepared and generated draft per episode.
+ * Batch Jianying drafts: one verified, prepared and generated draft per episode of a local project, or one
+ * Jingliu-planned draft per episode of a Jingliu project.
  *
  * Each episode needs the version 2 clock receipt `episode_subtitles` wrote. A shot whose duration, picture or sound
  * changed since that build refuses the episode with `subtitles_stale` and the changed shots; offsets are never
  * patched here. Generated drafts are recorded in `editing/drafts.json` by input digest, so repeating a call returns
  * `existing` and changed inputs create a new, uniquely named candidate without overwriting any draft.
+ *
+ * A Jingliu project's drafts come from Jingliu's draft plans, which refuse an episode whose stored subtitles are stale,
+ * missing or unverified by shot order; materials are downloaded once into `<workspace>/jingliu/<project>` and linked into
+ * each draft, and the cover is cut here with FFmpeg.
  */
 import { createHash } from 'node:crypto'
 import { copyFile, mkdir, readFile, stat } from 'node:fs/promises'
@@ -14,6 +19,8 @@ import { changedShots, createMediaToolkit, ENDING_AUDIO_ASSET, ENDING_EFFECT_ASS
   prepareEpisode, readSubtitleClockReceipt, subtitleClockPath, subtitleClockRows, type MediaToolkit }
   from '@deepseek-ai/dsh-tool-episode-render/subtitles'
 import { localEpisodeSelection } from '@deepseek-ai/dsh-tool-episode-subtitles/selection'
+import { projectMediaFolder, type JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
+import { plannedDrafts } from '@deepseek-ai/dsh-tool-jingliu/library'
 
 /** Switches of one batch; omitted values keep the project's delivery policy. */
 export interface DraftSwitches {
@@ -170,4 +177,54 @@ export async function runDraftBatch(batch: DraftBatch, services: DraftBatchServi
  */
 export function defaultNamePrefix(project: string): string {
   return `${basename(project)}-`
+}
+
+/** One Jingliu batch after argument checks. */
+export interface JingliuDraftBatch {
+  readonly session: JingliuSession
+  readonly project: string
+  /** Session workspace; media go to `<workspace>/jingliu/<project>`. */
+  readonly workspace: string
+  readonly episodes: readonly number[]
+  readonly switches: DraftSwitches
+  /** Draft name prefix without the trailing hyphen Jingliu adds; omitted, Jingliu uses the project title. */
+  readonly namePrefix?: string | undefined
+  readonly draftsDir: string
+}
+
+/**
+ * Install Jingliu-planned drafts for the requested episodes, up to the per-call limit.
+ * @param batch - Signed-in session, project, workspace, episodes, switches and draft root.
+ * @param services - FFmpeg for the cover and the per-call limit.
+ * @param signal - Owning call cancellation.
+ * @returns Episodes grouped by outcome, with the next call when work remains.
+ */
+export async function runJingliuDraftBatch(batch: JingliuDraftBatch,
+  services: Pick<DraftBatchServices, 'toolkit' | 'ffmpegPath' | 'ffprobePath' | 'maxEpisodesPerCall'>,
+  signal: AbortSignal): Promise<{ [key: string]: Json }> {
+  const toolkit = services.toolkit ?? createMediaToolkit({ ffmpeg: services.ffmpegPath, ffprobe: services.ffprobePath })
+  const now = batch.episodes.slice(0, services.maxEpisodesPerCall), later = batch.episodes.slice(services.maxEpisodesPerCall)
+  const folder = projectMediaFolder(batch.workspace, batch.project)
+  const outcome = await plannedDrafts(batch.session, { project: batch.project, episodes: now, switches: batch.switches,
+    namePrefix: batch.namePrefix, root: batch.draftsDir, mediaFolder: folder,
+    cover: async (video, seconds, target) => {
+      const run = await toolkit.channel.run(toolkit.ffmpeg, ['-y', '-v', 'error', '-ss', seconds.toFixed(3), '-i', video,
+        '-frames:v', '1', '-vf', 'scale=356:-1', target])
+      return run.code === 0 && await exists(target) && (await stat(target)).size > 0
+    } }, signal)
+  const needsReview: number[] = []
+  for (const row of [...outcome.created, ...outcome.existing]) {
+    const episode = row.episode
+    if (typeof episode !== 'number') continue
+    const receipt = await readSubtitleClockReceipt(join(folder, 'subtitles', `ep${episodeNumberOf(episode)}.srt`), signal)
+    if (receipt?.receipt.version === 2 && receipt.receipt.review_pending > 0) needsReview.push(episode)
+  }
+  const stale = outcome.refused.flatMap(row => typeof row.episode === 'number'
+    && (row.reason === 'subtitles_stale' || row.reason === 'subtitles_missing' || row.reason === 'subtitles_unverified') ? [row.episode] : [])
+  const next = later.length > 0 ? { tool: 'jianying_draft', args: { source: 'jingliu', project: batch.project, episodes: later } }
+    : stale.length > 0 ? { tool: 'episode_subtitles', args: { method: 'build', source: 'jingliu', project: batch.project, episodes: stale } }
+      : undefined
+  return { created: outcome.created, existing: outcome.existing, refused: outcome.refused, needs_review: needsReview,
+    music_missing: outcome.music_missing, not_started: later,
+    ...(outcome.unsupported.length === 0 ? {} : { unsupported: outcome.unsupported }), ...(next === undefined ? {} : { next }) }
 }

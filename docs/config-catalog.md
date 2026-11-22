@@ -5366,7 +5366,7 @@ export interface DeliverySubtitleVisual {
 ## `@deepseek-ai/dsh-tool-episode-subtitles`
 
 - `inject`: `tools` · `museAccount` · `subprocess`
-- `source`: [`packages/drama/tool-episode-subtitles/src/index.ts:20`](../packages/drama/tool-episode-subtitles/src/index.ts)
+- `source`: [`packages/drama/tool-episode-subtitles/src/index.ts:25`](../packages/drama/tool-episode-subtitles/src/index.ts)
 
 ```ts config-catalog
 /** Deployment settings; Desktop passes its bundled runtime and media executables. Omitted limits take the schema defaults. */
@@ -5379,6 +5379,8 @@ export interface Config extends Partial<EpisodeSubtitlesSettings> {
   readonly maxChars?: number
   /** Width of a space relative to one character when counting cue length. */
   readonly spaceWidth?: number
+  /** Effective characters per cue of a Jingliu project's preview, equal to the width Jingliu lays its cues out with. */
+  readonly jingliuMaxChars?: number
   /** Deadline of one rules process, in milliseconds. */
   readonly rulesTimeoutMs?: number
   /** Termination grace of the rules process, in milliseconds. */
@@ -5415,6 +5417,8 @@ export interface EpisodeSubtitlesSettings {
   readonly maxBatchInputs: number
   /** How long a call waits for another build of the same root, in milliseconds. */
   readonly lockWaitMs: number
+  /** Longest wait for one Jingliu subtitle job inside a call, in milliseconds. */
+  readonly jingliuJobWaitMs: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-episode-subtitles -->

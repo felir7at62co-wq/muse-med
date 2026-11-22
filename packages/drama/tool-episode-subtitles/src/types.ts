@@ -18,6 +18,11 @@ export type BlockReason =
   | 'asr_uncertain'
   | 'asr_error'
   | 'jingliu_outdated'
+  | 'shots_missing'
+  | 'video_missing'
+  | 'media_unavailable'
+  | 'subtitle_job_failed'
+  | 'subtitle_job_unknown'
 
 /** The source-file range of one shot that the episode plays, in microseconds of the source file. */
 export interface ShotWindow {
@@ -28,7 +33,7 @@ export interface ShotWindow {
 
 /** One shot of a resolved episode, in clip order. */
 export interface SourceShot {
-  /** Clip order inside the episode, starting at 1. */
+  /** Shot number: the package number of a local episode, the production-wide shot order of a Jingliu episode. */
   readonly shot: number
   /** Absolute path of the sound whose words become this shot's subtitles. */
   readonly audio: string
@@ -38,6 +43,15 @@ export interface SourceShot {
   readonly window: ShotWindow
   /** Jingliu identity recorded in the clock receipt for a Jingliu shot. */
   readonly jingliu?: SubtitleClockJingliuSource
+  /** What Jingliu reported about the shot's stored subtitles when the episode was resolved. */
+  readonly remote?: RemoteSubtitles
+}
+
+/** Jingliu's subtitle status of one shot, computed by the server when the edit plan was read. */
+export interface RemoteSubtitles {
+  readonly status: 'fresh' | 'stale' | 'unverified' | 'missing'
+  /** Only hand-added subtitles exist; corrected subtitles are not sent, so they never duplicate those. */
+  readonly manualOnly: boolean
 }
 
 /** Where one episode's outputs live. */
@@ -74,7 +88,7 @@ export interface BlockedEpisode {
   readonly shots: readonly number[]
 }
 
-/** The provider of episodes for one `source` value; M6 adds the Jingliu provider behind the same methods. */
+/** The provider of episodes for one `source` value. */
 export interface EpisodeSource {
   readonly kind: EpisodeSourceKind
   /** Root directory of `transcript/` and the hash cache. */
@@ -82,13 +96,53 @@ export interface EpisodeSource {
   /** Model-facing pattern of the SRT paths, for the result. */
   readonly filesPattern: string
   /**
+   * Whether cues the clock clips (`cut_by_trim`) or reads too fast (`too_fast`) become review items. False where the
+   * source places stored cues itself, so a decision on them could not reach the delivered subtitles.
+   */
+  readonly clockReview: boolean
+  /**
    * Resolve the requested episodes; an episode that cannot be built is returned blocked, never thrown.
    * @param episodes - Episode numbers in request order.
    * @param signal - Owning call cancellation.
    * @returns One entry per episode, in request order.
    */
   resolve(episodes: readonly number[], signal?: AbortSignal): Promise<(ResolvedEpisode | BlockedEpisode)[]>
+  /**
+   * Store an episode's corrected shots where the source keeps its subtitles; absent for a local project, whose SRT is
+   * the stored form. A shot left out of the returned map keeps its cached items and stored mark.
+   * @param episode - Resolved episode.
+   * @param shots - Every shot of the episode with its current correction input and cached state.
+   * @param signal - Owning call cancellation.
+   * @returns The stored shots' review items, or why the episode must wait or is blocked.
+   */
+  store?(episode: ResolvedEpisode, shots: readonly StoreShot[], signal?: AbortSignal): Promise<StoreOutcome>
 }
+
+/** One shot handed to {@link EpisodeSource.store}. */
+export interface StoreShot {
+  readonly shot: SourceShot
+  /** Correction input: digest, words, lines, names, decisions and flags. */
+  readonly rules: RulesShot
+  /** Correction state this call computed or reused. */
+  readonly state: ShotState
+}
+
+/** Where a shot's corrected subtitles were stored. */
+export interface StoredMark {
+  /** Stored address of the video the subtitles were made from. */
+  readonly video_path: string
+  /** Correction key of the stored subtitles. */
+  readonly key: string
+  /** Job that wrote them; `manual` when only hand-added subtitles exist and nothing was sent. */
+  readonly job: string
+}
+
+/** Result of storing one episode. */
+export type StoreOutcome =
+  | { readonly kind: 'stored'; readonly shots: ReadonlyMap<number, { readonly items: readonly ReviewItem[]; readonly stored: StoredMark }> }
+  /** The store is still working, or refused shots whose video changed since they were resolved; build again. */
+  | { readonly kind: 'waiting'; readonly changed: readonly number[] }
+  | { readonly kind: 'blocked'; readonly reason: BlockReason; readonly shots: readonly number[] }
 
 /** One measured word in shot-local source seconds. */
 export interface TimedWord {
@@ -149,6 +203,8 @@ export interface ShotState {
   readonly key: string
   readonly cues: readonly ShotCue[]
   readonly items: readonly ReviewItem[]
+  /** Where the source stored these subtitles; only sources with {@link EpisodeSource.store} set it. */
+  readonly stored?: StoredMark
 }
 
 /** One shot of a rules request. */

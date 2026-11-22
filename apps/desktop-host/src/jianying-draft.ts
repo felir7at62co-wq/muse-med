@@ -5,11 +5,13 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { draftDirectory } from '@deepseek-ai/dsh-drama-settings'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-jingliu-connection'
+import { HarnessError } from '@deepseek-ai/dsh-error'
 import { defineTool, ToolArgsError } from '@deepseek-ai/dsh-tools'
 import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import type { default as SubprocessRuntime, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import z from '@deepseek-ai/schemastery'
-import { defaultNamePrefix, runDraftBatch } from './jianying-batch.ts'
+import { defaultNamePrefix, runDraftBatch, runJingliuDraftBatch } from './jianying-batch.ts'
 
 /** Deployment-owned interpreter, process limits and bundled resource location. */
 export interface Config {
@@ -313,8 +315,21 @@ Windows 保留原视频声音时，请求写 audio_mode="embedded"，省略 audi
       const switches = args.switches ?? {}
       if (switches.watermark_text !== undefined && Array.from(switches.watermark_text).length > 40) throw new ToolArgsError(['watermark_text 最多 40 字。'])
       if (args.source === 'jingliu') {
-        return { created: [], existing: [], refused: episodes.map(episode => ({ episode, reason: 'jingliu_outdated' })),
-          needs_review: [], music_missing: [], not_started: [] }
+        const connection = ctx.get('jingliuConnection')
+        if (connection === undefined) {
+          return { created: [], existing: [], refused: episodes.map(episode => ({ episode, reason: 'jingliu_outdated' })),
+            needs_review: [], music_missing: [], not_started: [] }
+        }
+        const workspace = exec.agent?.session.header.cwd
+        if (workspace === undefined) throw new ToolArgsError(['镜流项目的批量草稿需要本会话的工作区来存放下载的素材。'])
+        const session = await connection.connection()
+        const selected = exec.agent === undefined ? null : await connection.selected(exec.agent.session.id, session.identity)
+        if (selected !== null && selected.id !== args.project) throw new HarnessError('这个操作指向另一个云项目，请先确认要切换的项目。', 'JINGLIU_INVALID_PROJECT')
+        const prefix = args.name_prefix?.replace(/-+$/u, '').trim()
+        return await runJingliuDraftBatch({ session, project: args.project, workspace, episodes, switches,
+          namePrefix: prefix === undefined || prefix === '' ? undefined : prefix, draftsDir: await draftsRoot(args.drafts_dir, cwd) }, {
+          ffmpegPath: config.ffmpegPath ?? 'ffmpeg', ffprobePath: config.ffprobePath ?? 'ffprobe',
+          maxEpisodesPerCall: config.maxEpisodesPerCall ?? 10 }, exec.signal)
       }
       if (switches.subtitles === false) throw new ToolArgsError(['本机项目的批量草稿总是带本集字幕；不需要字幕时请在剪映中关闭字幕轨。'])
       const project = isAbsolute(args.project) ? args.project : resolve(cwd, args.project)

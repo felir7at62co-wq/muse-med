@@ -11,7 +11,8 @@ import type { AudioAccount, AudioMediaOperations } from '@deepseek-ai/dsh-tool-a
 import { buildEpisodes, readDecisions, readReview, writeDecisions, type BuildOutcome, type EpisodeReviewItem } from './build.ts'
 import { HashCache } from './hash-cache.ts'
 import { localSource } from './shots.ts'
-import { unavailableJingliuSource } from './source.ts'
+import { jingliuSource, unavailableJingliuSource } from './source.ts'
+import { projectMediaFolder, type JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { DecisionAction, EpisodeSource, EpisodeSourceKind, SubtitleRules } from './types.ts'
 
@@ -57,12 +58,22 @@ export interface EpisodeSubtitlesSettings {
   readonly maxBatchInputs: number
   /** How long a call waits for another build of the same root, in milliseconds. */
   readonly lockWaitMs: number
+  /** Longest wait for one Jingliu subtitle job inside a call, in milliseconds. */
+  readonly jingliuJobWaitMs: number
 }
 
 /** Services of one call. */
 export interface EpisodeSubtitlesServices {
   readonly account: AudioAccount
   readonly rules: SubtitleRules
+  /** Rules with Jingliu's cue width, for the preview of a Jingliu project; `rules` when omitted. */
+  readonly jingliuRules?: SubtitleRules
+  /**
+   * Signed-in Jingliu session for the project the call names.
+   * @param project - Jingliu project ID.
+   * @returns The session, or undefined when this Host has no Jingliu connection.
+   */
+  readonly jingliu?: (project: string) => Promise<JingliuSession | undefined>
   /** Session workspace; relative project paths resolve against it. */
   readonly cwd: string | undefined
   /** Deterministic media replacements in tests; production uses FFmpeg and ffprobe from the settings. */
@@ -97,7 +108,7 @@ function check(args: EpisodeSubtitlesArgs, settings: EpisodeSubtitlesSettings): 
 function projectRoot(args: EpisodeSubtitlesArgs, cwd: string | undefined): string {
   if (args.source === 'jingliu') {
     if (cwd === undefined) throw new ToolArgsError(['source jingliu needs a Session workspace for downloaded media'])
-    return join(cwd, 'jingliu', args.project)
+    return projectMediaFolder(cwd, args.project)
   }
   if (isAbsolute(args.project)) return args.project
   if (cwd === undefined) throw new ToolArgsError([`project "${args.project}" is relative but this Session has no workspace; pass an absolute project path`])
@@ -122,9 +133,13 @@ export async function runEpisodeSubtitles(args: EpisodeSubtitlesArgs, settings: 
     try {
       const toolkit = hash.memoizeProbes(services.media?.toolkit
         ?? createMediaToolkit({ ffmpeg: settings.ffmpegPath, ffprobe: settings.ffprobePath }))
+      const session = args.source === 'jingliu' ? await services.jingliu?.(args.project) : undefined
       const source: EpisodeSource = args.source === 'local' ? localSource(root, args.project, hash, toolkit)
-        : unavailableJingliuSource(root, args.project)
-      const deps = { source, rules: services.rules, hash, asr: { root, account: services.account,
+        : session === undefined ? unavailableJingliuSource(root, args.project)
+          : jingliuSource({ root, project: args.project, session, jobWaitMs: settings.jingliuJobWaitMs,
+            pollIntervalMs: settings.pollIntervalMs })
+      const rules = args.source === 'jingliu' ? services.jingliuRules ?? services.rules : services.rules
+      const deps = { source, rules, hash, asr: { root, account: services.account,
         runner: { ffmpegPath: settings.ffmpegPath, ffprobePath: settings.ffprobePath, commandTimeoutMs: settings.commandTimeoutMs,
           maxDurationSeconds: settings.maxDurationSeconds, maxAudioBytes: settings.maxAudioBytes },
         pacing: { retryBudgetMs: settings.uploadRetryBudgetMs }, pollIntervalMs: settings.pollIntervalMs,

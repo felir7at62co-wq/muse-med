@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及交给 `jianying_draft` 的同一组媒体程序。它需要工具注册表、Muse 账号服务和 subprocess provider。
+Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及交给 `jianying_draft` 的同一组媒体程序。它需要工具注册表、Muse 账号服务和 subprocess provider；镜流项目还需要可选的、保存本机素材的 `jingliuConnection`。
 
 ```yaml
 - id: tool-episode-subtitles
@@ -42,6 +42,8 @@ Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及�
 | `packSeconds` | `600` | 一次拼包上传的最长时长（含静音），等于转写分段长度，因此拼包不会被再切分 |
 | `gapSeconds` | `0.8` | 拼包中每个镜头之后的数字静音 |
 | `maxChars` / `spaceWidth` | `14` / `0.5` | 每条字幕的有效字数；空格按 `spaceWidth` 计 |
+| `jingliuMaxChars` | `20` | 镜流项目预览的每条字数，与镜流存储的宽度相同 |
+| `jingliuJobWaitMs` | `60000` | 一次调用内等待一个镜流字幕任务的最长时间 |
 | `maxEpisodes` / `reviewPageSize` | `100` / `20` | 每次调用的集数和每页待核条数 |
 | `rulesTimeoutMs` | `300000` | 规则进程的时限 |
 
@@ -59,7 +61,11 @@ Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及�
 
 草稿构建方通过 `@deepseek-ai/dsh-tool-episode-subtitles/selection` 的 `localEpisodeSelection` 读取一集当前的已审核选片和实测时钟，它执行相同的检查并重写同一份清单。
 
-`source: "jingliu"` 留给镜流项目；在镜流 provider 挂载之前，这类集都报告 `jingliu_outdated`。
+### 镜流项目
+
+`source: "jingliu"` 时，`project` 是镜流项目 ID，所有文件都在 `<workspace>/jingliu/<project>` 下。`build` 先读 `POST /projects/{pid}/edit-plan`，取得启用的镜头、取片窗口、速度、会被念出的台词、人名和已存字幕的状态；没有这条路由的服务器回 404，所有集都报 `jingliu_outdated`，因此字幕任务绝不会发给会自己做识别的旧服务器。每镜视频只下载一次到项目文件夹，它也是这一镜的声音；有镜头尚未出片的集报 `video_missing`，读不到的文件报 `media_unavailable`。识别的打包方式与本机项目完全相同。
+
+纠正后的字词以每集一个 `auto_subtitles` segments 任务存到镜流，经 `subtitles/jobs/` 里的只提交一次回执发送，携带每镜的音频摘要、字词、选择和标记。镜流用同一套规则、按自己的每条字数纠正并切条，只替换这些镜头的自动字幕，并返回待核清单。同样的音频摘要与字词下，其编号与本机规则的编号相同，所以选择可以往返。只有字词、台词、选择或视频变了，或镜流不再报告 `fresh` 时，这一镜才会重发；只有手加字幕的镜头从不发送。任务因视频已换而拒绝某镜时，该集为 `waiting`，下一次 build 会下载新视频。预览 SRT 与回执（`subtitles/epNN.srt`）把同一套规则的字幕经取片窗口和速度排上时间轴；被裁掉或过快的字幕在这里不列为待核项，因为存储的字幕由镜流自己排位。
 
 -----
 
@@ -73,7 +79,7 @@ Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及�
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件配置、解释器解析和 `episode_subtitles` schema |
 | [`src/tool.ts`](src/tool.ts) | 参数检查、按根目录的构建锁、待核分页、选择和精简结果 |
-| [`src/source.ts`](src/source.ts) | `source` 开关和尚不可用的镜流 provider |
+| [`src/source.ts`](src/source.ts) | 镜流 provider：剪辑计划、素材、segments 任务与待核清单，以及没有连接时使用的 provider |
 | [`src/shots.ts`](src/shots.ts) | 本地分包、已审核选片、镜头清单、时长、台词与人名 |
 | [`src/hash-cache.ts`](src/hash-cache.ts) | `<root>/.muse-hash-cache.json` 中按文件状态缓存的摘要和按摘要缓存的探测结果 |
 | [`src/asr-pack.ts`](src/asr-pack.ts) | 纯函数的拼包规划、标点附着和按中点拆分 |
@@ -121,7 +127,8 @@ Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及�
 - **拼包识别可能跨镜头带入上下文** —— 镜头之间的静音不会重置识别器；这对文字的影响尚未在真实剧集上测量。
 - **没有重新转写选项** —— 拼包失败或状态不确定的镜头保持阻止；不提供单独重转一个镜头。
 - **没有字词时间的分段保持每段一条字幕** —— 这样的字幕列为 `long_cue`，不按估算切分。
-- **尚未构建镜流项目** —— 在 edit-plan provider 落地之前，`source: "jingliu"` 报告 `jingliu_outdated`。
+- **中断的镜流提交保持阻塞** —— segments 任务已发出但答复丢失时，该集对这份载荷报 `subtitle_job_unknown`；只有字词、选择或视频变化后才会解除。
+- **镜流人名来自剪辑计划** —— 预览用所请求各集的人名，而镜流按每个任务所含镜头的人名纠正；待核清单始终以镜流为准。
 
 <a id="dev-note"></a>
 ### 开发备注

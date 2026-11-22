@@ -28,6 +28,8 @@ The plugin reads the catalog at invocation time. Project workflows use the selec
 
 `jingliu_narration` covers the narration-dialogue production mode. It reads the project state and quality report, sets one of the project's available models, submits dialogue breakdown or production, acknowledges a report item, and exports a Jianying draft. The server quotes each narration job. Muse stores local submission receipts under its private home directory so a replay after an acknowledged submission can reuse the original job ID. If submission was interrupted, reconcile the project job list before another attempt.
 
+Other Host tools use `@deepseek-ai/dsh-tool-jingliu/library`. `plannedDrafts` installs batch Jianying drafts from `POST /projects/{pid}/jianying/plan`, at most ten episodes per request: it refuses an episode whose stored subtitles are stale, missing or unverified and names the shot orders, downloads each material once into `<workspace>/jingliu/<project>`, links it into each draft, cuts the cover with the caller's FFmpeg and installs the draft by rename. A draft's fingerprint is the account, project, episode and the plan's `draft_sha256`, so a repeated call returns the installed draft and a changed plan installs a new one beside it; a server without the route makes every episode `jingliu_outdated`. `submitOnce` is the once-only job submission the narration and image tools use. `jingliu_run export_jianying` keeps installing the studio's zip package.
+
 ## Model Experience
 
 ### Finding and running workflows

@@ -29,6 +29,8 @@ description: "在 Muse 会话中查找并调用镜流影视制作工作流。"
 
 `jingliu_narration` 支持解说剧·角色开口流程，包括读取状态和核对报告、切换项目可用模型、拆台词、出片或单镜重做、接受单句差异和导出剪映草稿。拆解与出片使用服务端报价。Muse 在自身私有目录记录任务提交，同一调用重新执行时可取回已确认的任务编号。提交中断时，应先核对项目里的任务。
 
+其他 Host 工具使用 `@deepseek-ai/dsh-tool-jingliu/library`。`plannedDrafts` 按 `POST /projects/{pid}/jianying/plan` 安装批量剪映草稿，每次请求最多十集：已存字幕过期、缺失或未核验的集被拒绝并列出镜号；每个素材只下载一次到 `<工作区>/jingliu/<项目>`，再链接进各份草稿，封面用调用方的 FFmpeg 抽取，草稿以重命名方式装入。草稿指纹由账号、项目、集号和计划的 `draft_sha256` 组成，所以重复调用返回已装好的草稿，计划变化时在旁边装一份新的；没有这条路由的服务器使所有集报 `jingliu_outdated`。`submitOnce` 是解说剧与生图工具使用的只提交一次的任务提交。`jingliu_run export_jianying` 仍安装镜流的 zip 草稿包。
+
 <a id="model-experience"></a>
 ## 模型体验
 

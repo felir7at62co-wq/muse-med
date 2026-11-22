@@ -10230,6 +10230,9 @@ importers:
       '@deepseek-ai/dsh-error':
         specifier: workspace:*
         version: link:../../util/error
+      '@deepseek-ai/dsh-jingliu-connection':
+        specifier: workspace:*
+        version: link:../jingliu-connection
       '@deepseek-ai/dsh-muse-account':
         specifier: workspace:*
         version: link:../../host/muse-account
@@ -10239,6 +10242,9 @@ importers:
       '@deepseek-ai/dsh-tool-episode-render':
         specifier: workspace:*
         version: link:../tool-episode-render
+      '@deepseek-ai/dsh-tool-jingliu':
+        specifier: workspace:*
+        version: link:../tool-jingliu
       '@deepseek-ai/dsh-tool-workspace-dependencies':
         specifier: workspace:*
         version: link:../../skill/tool-workspace-dependencies

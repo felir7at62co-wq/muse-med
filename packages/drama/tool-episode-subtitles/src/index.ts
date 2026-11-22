@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-subprocess'
+import { HarnessError } from '@deepseek-ai/dsh-error'
+import type {} from '@deepseek-ai/dsh-jingliu-connection'
 import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependencies'
@@ -13,7 +15,10 @@ import { runEpisodeSubtitles, type EpisodeSubtitlesSettings } from './tool.ts'
 /** Cordis row name. */
 export const name = 'tool-episode-subtitles'
 
-/** The account supplies the cloud transcription cookie; the subprocess provider owns the rules process. */
+/**
+ * The account supplies the cloud transcription cookie; the subprocess provider owns the rules process. The optional
+ * `jingliuConnection` is read per call, and without it Jingliu episodes are `jingliu_outdated`.
+ */
 export const inject = ['tools', 'museAccount', 'subprocess']
 
 /** Deployment settings; Desktop passes its bundled runtime and media executables. Omitted limits take the schema defaults. */
@@ -26,6 +31,8 @@ export interface Config extends Partial<EpisodeSubtitlesSettings> {
   readonly maxChars?: number
   /** Width of a space relative to one character when counting cue length. */
   readonly spaceWidth?: number
+  /** Effective characters per cue of a Jingliu project's preview, equal to the width Jingliu lays its cues out with. */
+  readonly jingliuMaxChars?: number
   /** Deadline of one rules process, in milliseconds. */
   readonly rulesTimeoutMs?: number
   /** Termination grace of the rules process, in milliseconds. */
@@ -36,7 +43,7 @@ export interface Config extends Partial<EpisodeSubtitlesSettings> {
 
 /** Settings after defaults. */
 type ResolvedConfig = Config & EpisodeSubtitlesSettings
-  & Required<Pick<Config, 'maxChars' | 'spaceWidth' | 'rulesTimeoutMs' | 'graceMs' | 'maxRulesOutputBytes'>>
+  & Required<Pick<Config, 'maxChars' | 'spaceWidth' | 'jingliuMaxChars' | 'rulesTimeoutMs' | 'graceMs' | 'maxRulesOutputBytes'>>
 
 /** Validated settings; `source` or `pythonPath` is required. */
 export const Config: Schema<Config, ResolvedConfig> = Schema.object({
@@ -45,6 +52,7 @@ export const Config: Schema<Config, ResolvedConfig> = Schema.object({
   packSeconds: Schema.number().min(10).max(600).default(600),
   gapSeconds: Schema.number().min(0).max(5).default(0.8),
   maxChars: Schema.number().min(4).max(40).default(14),
+  jingliuMaxChars: Schema.number().min(4).max(40).default(20),
   spaceWidth: Schema.number().min(0).max(1).default(0.5),
   maxEpisodes: Schema.number().step(1).min(1).max(100).default(100),
   reviewPageSize: Schema.number().step(1).min(1).max(100).default(20),
@@ -55,6 +63,7 @@ export const Config: Schema<Config, ResolvedConfig> = Schema.object({
   uploadRetryBudgetMs: Schema.number().step(1).min(0).max(600_000).default(120_000),
   maxBatchInputs: Schema.number().step(1).min(1).max(100).default(10),
   lockWaitMs: Schema.number().step(1).min(1000).max(3_600_000).default(300_000),
+  jingliuJobWaitMs: Schema.number().step(1).min(0).max(600_000).default(60_000),
   rulesTimeoutMs: Schema.number().step(1).min(1000).max(3_600_000).default(300_000),
   graceMs: Schema.number().step(1).min(1).max(60_000).default(1000),
   maxRulesOutputBytes: Schema.number().step(1).min(65_536).max(268_435_456).default(33_554_432),
@@ -78,9 +87,11 @@ export function apply(ctx: Context, input: Config): void {
       : async () => process.platform === 'win32' ? join(dirname(source), 'media', 'python', 'python.exe')
         : (await resolvePrimaryRuntime(source)).python
   if (python === undefined) throw new Error('tool-episode-subtitles needs source (bundled runtime) or pythonPath')
-  const rules = pythonRules({ subprocess: ctx.subprocess, directory: join(dirname(manifest), 'skills', 'tweet-drama-draft-build', 'scripts', 'subtitle_rules'),
-    maxChars: config.maxChars, spaceWidth: config.spaceWidth, timeoutMs: config.rulesTimeoutMs, graceMs: config.graceMs,
+  const rulesOf = (maxChars: number) => pythonRules({ subprocess: ctx.subprocess,
+    directory: join(dirname(manifest), 'skills', 'tweet-drama-draft-build', 'scripts', 'subtitle_rules'),
+    maxChars, spaceWidth: config.spaceWidth, timeoutMs: config.rulesTimeoutMs, graceMs: config.graceMs,
     maxOutputBytes: config.maxRulesOutputBytes, python })
+  const rules = rulesOf(config.maxChars), jingliuRules = rulesOf(config.jingliuMaxChars)
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'episode_subtitles',
     description: DESCRIPTION,
@@ -98,7 +109,15 @@ export function apply(ctx: Context, input: Config): void {
     },
     output: { schema: { type: 'object', additionalProperties: true },
       render: (_args, result) => [{ type: 'text', text: JSON.stringify(result) }] },
-    execute: async (args, exec) => await runEpisodeSubtitles(args, config,
-      { account, rules, cwd: exec.agent?.session.header.cwd }, exec.signal),
+    execute: async (args, exec) => await runEpisodeSubtitles(args, config, { account, rules, jingliuRules,
+      cwd: exec.agent?.session.header.cwd,
+      jingliu: async (project) => {
+        const connection = ctx.get('jingliuConnection')
+        if (connection === undefined) return undefined
+        const session = await connection.connection()
+        const selected = exec.agent === undefined ? null : await connection.selected(exec.agent.session.id, session.identity)
+        if (selected !== null && selected.id !== project) throw new HarnessError('这个操作指向另一个云项目，请先确认要切换的项目。', 'JINGLIU_INVALID_PROJECT')
+        return session
+      } }, exec.signal),
   })))
 }

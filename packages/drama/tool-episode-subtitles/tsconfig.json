@@ -19,7 +19,9 @@
     { "path": "../../util/values" },
     { "path": "../../host/muse-account/tsconfig.host.json" },
     { "path": "../../skill/tool-workspace-dependencies" },
+    { "path": "../jingliu-connection" },
     { "path": "../tool-audio-transcribe" },
-    { "path": "../tool-episode-render" }
+    { "path": "../tool-episode-render" },
+    { "path": "../tool-jingliu" }
   ]
 }

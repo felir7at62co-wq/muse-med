@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Desktop mounts the plugin inside its Office composition with the bundled runtime directory and the media executables it gives `jianying_draft`. It needs the tool registry, the Muse account service and a subprocess provider.
+Desktop mounts the plugin inside its Office composition with the bundled runtime directory and the media executables it gives `jianying_draft`. It needs the tool registry, the Muse account service and a subprocess provider; Jingliu projects also need the optional `jingliuConnection` with local media.
 
 ```yaml
 - id: tool-episode-subtitles
@@ -42,6 +42,8 @@ Desktop mounts the plugin inside its Office composition with the bundled runtime
 | `packSeconds` | `600` | Longest packed upload, silence included; equal to the transcription chunk so a pack is never split |
 | `gapSeconds` | `0.8` | Digital silence after each shot in a pack |
 | `maxChars` / `spaceWidth` | `14` / `0.5` | Effective characters per cue; a space counts as `spaceWidth` |
+| `jingliuMaxChars` | `20` | Cue width of a Jingliu project's preview, equal to the width Jingliu stores |
+| `jingliuJobWaitMs` | `60000` | Longest wait for one Jingliu subtitle job inside a call |
 | `maxEpisodes` / `reviewPageSize` | `100` / `20` | Episodes per call and review items per page |
 | `rulesTimeoutMs` | `300000` | Deadline of the rules process |
 
@@ -59,7 +61,11 @@ Correction and layout run once per call through the vendored `subtitle_rules/run
 
 Draft builders read an episode's current approved selection and measured clock with `localEpisodeSelection` from `@deepseek-ai/dsh-tool-episode-subtitles/selection`, which applies the same checks and rewrites the same manifest.
 
-`source: "jingliu"` is reserved for Jingliu projects; until the Jingliu provider is mounted every such episode is reported `jingliu_outdated`.
+### Jingliu projects
+
+With `source: "jingliu"`, `project` is the Jingliu project ID and every file lives under `<workspace>/jingliu/<project>`. `build` first reads `POST /projects/{pid}/edit-plan` for the enabled shots, their trim windows, speed, spoken lines, names and stored subtitle status; a server without that route answers 404 and every episode is `jingliu_outdated`, so no subtitle job ever reaches a server that would run its own recognition. Each shot's video is downloaded once into the project folder and is also its sound; an episode with an ungenerated shot is `video_missing`, and an unreadable file is `media_unavailable`. Recognition is packed exactly as for a local project.
+
+Corrected words are stored on Jingliu by one `auto_subtitles` segments job per episode, sent through the once-only submission receipts in `subtitles/jobs/` and carrying each shot's audio digest, words, decisions and flags. Jingliu corrects and lays them out with the same rules at its own cue width, replaces only those shots' automatic subtitles, and returns the review items. Their IDs equal the local rules' IDs for the same audio digest and words, so decisions round-trip. A shot is sent again only when its words, lines, decisions or video changed or Jingliu no longer reports it `fresh`; a shot with only hand-added subtitles is never sent. A job that refuses a shot because its video changed leaves the episode `waiting`, and the next build downloads the new video. The preview SRT and receipt (`subtitles/epNN.srt`) place the same rules' cues through the trim window and speed; clipped or fast cues are not review items there, because Jingliu places the stored cues itself.
 
 -----
 
@@ -73,7 +79,7 @@ Draft builders read an episode's current approved selection and measured clock w
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin configuration, interpreter resolution and the `episode_subtitles` schema |
 | [`src/tool.ts`](src/tool.ts) | Argument checks, the per-root build lock, review paging, decisions and compact results |
-| [`src/source.ts`](src/source.ts) | The `source` switch and the unavailable Jingliu provider |
+| [`src/source.ts`](src/source.ts) | The Jingliu provider: edit plan, media, segments job and review items, and the provider used without a connection |
 | [`src/shots.ts`](src/shots.ts) | Local package plan, approved selections, shot manifest, durations, lines and names |
 | [`src/hash-cache.ts`](src/hash-cache.ts) | Stat-keyed digests and digest-keyed probe memo in `<root>/.muse-hash-cache.json` |
 | [`src/asr-pack.ts`](src/asr-pack.ts) | Pure pack planning, punctuation attachment and midpoint splitting |
@@ -121,7 +127,8 @@ Append-only. A stable mount keeps the request prefix reusable; changing the desc
 - **Packed recognition can carry context across shots** — the silence between shots does not reset the recognizer; how often this changes text has not been measured on real episodes.
 - **No re-transcription option** — a shot whose pack failed or became uncertain stays blocked; re-transcribing one shot alone is not offered.
 - **Segments without word times keep one cue per segment** — such cues are listed as `long_cue` instead of being split by estimate.
-- **Jingliu projects are not built yet** — `source: "jingliu"` reports `jingliu_outdated` until the edit-plan provider lands.
+- **An interrupted Jingliu submission stays blocked** — when a segments job was sent but its answer was lost, the episode reports `subtitle_job_unknown` for that payload; it clears only when the words, decisions or video change.
+- **Jingliu names come from the edit plan** — the preview uses the names of all requested episodes, while Jingliu corrects with the names of the shots in each job; the review list is always Jingliu's.
 
 <a id="dev-note"></a>
 ### Dev Note

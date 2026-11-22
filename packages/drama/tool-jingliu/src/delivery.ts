@@ -12,8 +12,17 @@ import { boundedBytes, mediaPath } from '@deepseek-ai/dsh-jingliu-connection'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { isFields } from './catalog.ts'
 
-const invalid = () => new HarnessError('镜流草稿包或素材清单不完整，请检查云项目和导出结果。', 'JINGLIU_INVALID_DRAFT')
-const leaf = (v: unknown): v is string => typeof v === 'string' && !!v && v.length <= 180 && !/[\\/:*?"<>|\x00-\x1f]/u.test(v) && !/[. ]$/u.test(v) && !/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/iu.test(v)
+/**
+ * The failure of an incomplete draft package or material list.
+ * @returns A coded error.
+ */
+export const invalid = (): HarnessError => new HarnessError('镜流草稿包或素材清单不完整，请检查云项目和导出结果。', 'JINGLIU_INVALID_DRAFT')
+/**
+ * Whether a value is a file name valid on every platform.
+ * @param v - Candidate name.
+ * @returns Whether it is a non-empty name without separators, reserved characters or a trailing dot or space.
+ */
+export const leaf = (v: unknown): v is string => typeof v === 'string' && !!v && v.length <= 180 && !/[\\/:*?"<>|\x00-\x1f]/u.test(v) && !/[. ]$/u.test(v) && !/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/iu.test(v)
 
 function nativeMedia(input: string): string {
   const url = new URL(input, 'https://studio.invalid')
@@ -23,7 +32,13 @@ function nativeMedia(input: string): string {
   return path
 }
 
-function fill(value: JsonValue, paths: Record<string, string>): JsonValue {
+/**
+ * Replace the studio's draft placeholders in every string of a draft document.
+ * @param value - Draft document or one of its values.
+ * @param paths - Local path of each placeholder.
+ * @returns The document with local paths.
+ */
+export function fill(value: JsonValue, paths: Record<string, string>): JsonValue {
   if (typeof value === 'string') return value.replace(/__SFMAT__|__SFDRAFT__|__SFROOT__/gu, token => paths[token] ?? token)
   if (Array.isArray(value)) return value.map(v => fill(v, paths))
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k,v]) => [k, fill(v, paths)]))
@@ -84,33 +99,30 @@ export async function installDraft(
   if (!Array.isArray(content.tracks) || !content.tracks.some(t => isFields(t) && t.type === 'video' && Array.isArray(t.segments) && t.segments.length)) throw invalid()
   const fingerprint = createHash('sha256').update(session.identity + ':' + receipt).digest('hex')
   const directory = join(resolve(root), name.slice(0,90) + ' - Muse ' + fingerprint.slice(0,10))
-  const receiptFile = '.muse-jingliu.json'
-  try {
-    const old: unknown = JSON.parse(await readFile(join(directory, receiptFile), 'utf8'))
-    if (!isFields(old) || old.fingerprint !== fingerprint || old.path !== directory) throw invalid()
-    return old
-  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
-  const stage = await mkdtemp(join(resolve(root), '.muse-draft-'))
-  try {
+  const old = await installedDraft(directory, fingerprint)
+  if (old) return old
+  const declared = manifest.materials, shots = result.shots
+  const media = session.media, download = session.download, place = session.place
+  return await commitDraft(root, directory, async (stage) => {
     const mediaDir = join(stage, 'media')
     await mkdir(mediaDir)
     const names = new Set<string>()
-    const materials = manifest.materials.map((file) => {
+    const materials = declared.map((file) => {
       if (!isFields(file) || !leaf(file.name) || typeof file.url !== 'string' || typeof file.size !== 'number' || !Number.isSafeInteger(file.size) ||
           file.size < 1 || names.has(file.name.toLowerCase())) throw invalid()
       names.add(file.name.toLowerCase())
       return { target: join(mediaDir, file.name), path: nativeMedia(file.url), size: file.size }
     })
-    if (mediaFolder !== undefined && session.download && session.place) {
-      const local = await session.download(materials.map(m => m.path), mediaFolder, signal)
+    if (mediaFolder !== undefined && download && place) {
+      const local = await download(materials.map(m => m.path), mediaFolder, signal)
       for (const material of materials) {
         const file = local.get(mediaPath(material.path).path)
-        if (file?.size !== material.size) throw invalid()
-        await session.place(file, material.target)
+        if (file === undefined || file.size !== material.size) throw invalid()
+        await place(file, material.target)
       }
     } else {
       for (const { target, path, size } of materials) {
-        await session.media(path, signal, async (response) => {
+        await media(path, signal, async (response) => {
           if (!response.body) throw invalid()
           let received = 0
           const meter = new Transform({ transform(chunk: Buffer, _encoding, next) {
@@ -124,7 +136,7 @@ export async function installDraft(
     }
     let bytes = 0
     for (const { target } of materials) bytes += (await stat(target)).size
-    const paths = { __SFMAT__: join(directory, 'media').split(sep).join('/'), __SFDRAFT__: directory.split(sep).join('/'), __SFROOT__: resolve(root).split(sep).join('/') }
+    const paths = placeholderPaths(root, directory)
     content.name = basename(directory)
     metadata.draft_name = basename(directory)
     metadata.draft_id = randomUUID().toUpperCase()
@@ -134,14 +146,70 @@ export async function installDraft(
     const cover = files[prefix + 'draft_cover.jpg']
     if (cover) await writeFile(join(stage,'draft_cover.jpg'), cover)
     if (typeof result.materials_bytes === 'number' && bytes !== result.materials_bytes) throw invalid()
-    const receiptData = { fingerprint, path: directory, name: basename(directory), shots: result.shots, materials: names.size, bytes,
-      tracks: content.tracks.filter(isFields).map(t => ({
-        type: t.type ?? null, segments: Array.isArray(t.segments) ? t.segments.length : 0,
-      })),
-    }
-    await writeFile(join(stage, receiptFile), JSON.stringify(receiptData), { flag: 'wx', mode: 0o600 })
+    return { fingerprint, path: directory, name: basename(directory), shots, materials: names.size, bytes,
+      tracks: trackCounts(content) }
+  }, signal)
+}
+
+/**
+ * Local paths of the studio's draft placeholders, with forward slashes on every platform.
+ * @param root - User's draft root.
+ * @param directory - Final draft directory.
+ * @returns Path of the material folder, the draft and the root by placeholder.
+ */
+export function placeholderPaths(root: string, directory: string): Record<string, string> {
+  return { __SFMAT__: join(directory, 'media').split(sep).join('/'), __SFDRAFT__: directory.split(sep).join('/'),
+    __SFROOT__: resolve(root).split(sep).join('/') }
+}
+
+/** File inside an installed draft that records which export it came from. */
+const RECEIPT_FILE = '.muse-jingliu.json'
+
+/**
+ * Read the receipt of a draft this installer already wrote.
+ * @param directory - Final draft directory.
+ * @param fingerprint - Identity of the export the caller is about to install.
+ * @returns The receipt, or undefined when the directory does not exist.
+ */
+export async function installedDraft(directory: string, fingerprint: string): Promise<Record<string, JsonValue> | undefined> {
+  try {
+    const old: unknown = JSON.parse(await readFile(join(directory, RECEIPT_FILE), 'utf8'))
+    if (!isFields(old) || old.fingerprint !== fingerprint || old.path !== directory) throw invalid()
+    return old
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return undefined
+  }
+}
+
+/**
+ * Track types and segment counts of a draft, as receipts report them.
+ * @param content - Draft content document.
+ * @returns One row per track.
+ */
+export function trackCounts(content: Record<string, JsonValue>): JsonValue[] {
+  return Array.isArray(content.tracks) ? content.tracks.filter(isFields).map(t => ({
+    type: t.type ?? null, segments: Array.isArray(t.segments) ? t.segments.length : 0,
+  })) : []
+}
+
+/**
+ * Write a draft in a hidden stage directory under the draft root and rename it into place with its receipt, so a
+ * cancelled or failed install leaves no partial draft.
+ * @param root - User's draft root.
+ * @param directory - Final draft directory; it must not exist.
+ * @param write - Fills the stage directory and returns the receipt fields.
+ * @param signal - Cancellation, checked before the rename.
+ * @returns The receipt.
+ */
+export async function commitDraft(root: string, directory: string,
+  write: (stage: string) => Promise<Record<string, JsonValue>>, signal: AbortSignal): Promise<Record<string, JsonValue>> {
+  const stage = await mkdtemp(join(resolve(root), '.muse-draft-'))
+  try {
+    const receipt = await write(stage)
+    await writeFile(join(stage, RECEIPT_FILE), JSON.stringify(receipt), { flag: 'wx', mode: 0o600 })
     signal.throwIfAborted()
     await rename(stage, directory)
-    return receiptData
+    return receipt
   } finally { await rm(stage, { recursive: true, force: true }) }
 }

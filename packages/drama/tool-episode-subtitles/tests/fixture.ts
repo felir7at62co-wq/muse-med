@@ -14,7 +14,7 @@ const sha = (bytes: Buffer | string) => createHash('sha256').update(bytes).diges
 /** Settings with test-sized limits. */
 export const settings: EpisodeSubtitlesSettings = { ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', packSeconds: 600, gapSeconds: 0.8,
   maxEpisodes: 100, reviewPageSize: 20, commandTimeoutMs: 10_000, maxDurationSeconds: 18_000, maxAudioBytes: 100_000_000,
-  pollIntervalMs: 1000, uploadRetryBudgetMs: 0, maxBatchInputs: 10, lockWaitMs: 10_000 }
+  pollIntervalMs: 1000, uploadRetryBudgetMs: 0, maxBatchInputs: 10, lockWaitMs: 10_000, jingliuJobWaitMs: 0 }
 
 /** Fake video: a text file whose duration the fake ffprobe reports. */
 function videoBytes(seconds: number, tag: string): string { return `VIDEO:${String(seconds)}:${tag}` }

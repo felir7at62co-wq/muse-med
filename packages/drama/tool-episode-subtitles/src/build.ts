@@ -113,6 +113,7 @@ interface ReadyShot {
   readonly durationUs: number
   readonly audioSha: string
   readonly key: string
+  readonly rules: RulesShot
   readonly before?: ShotState
 }
 
@@ -212,11 +213,10 @@ export async function buildEpisodes(deps: BuildDeps, request: BuildRequest, sign
       }).sort((left, right) => left.id.localeCompare(right.id))
       const key = sha([sha256, item.shot.lines, episode.names, rulesSha, own])
       if (before !== undefined && before.key !== key) changed.push(item.shot.shot)
-      if (before?.key !== key && !requests.has(key)) {
-        requests.set(key, { key, audio_sha256: item.audioSha, words: transcript.words, lines: item.shot.lines, names: episode.names,
-          decisions: own, flags: transcript.flags })
-      }
-      readyShots.push({ shot: item.shot, durationUs: item.durationUs, audioSha: item.audioSha, key,
+      const rules: RulesShot = { key, audio_sha256: item.audioSha, words: transcript.words, lines: item.shot.lines, names: episode.names,
+        decisions: own, flags: transcript.flags }
+      if (before?.key !== key && !requests.has(key)) requests.set(key, rules)
+      readyShots.push({ shot: item.shot, durationUs: item.durationUs, audioSha: item.audioSha, key, rules,
         ...(before === undefined ? {} : { before }) })
     }
     ready.push({ episode, shots: readyShots, decisions, changed })
@@ -225,15 +225,35 @@ export async function buildEpisodes(deps: BuildDeps, request: BuildRequest, sign
   const ran = requests.size === 0 ? [] : await deps.rules.run([...requests.values()], signal)
   const results = new Map(ran.map(result => [result.key, result]))
   for (const { episode, shots, decisions, changed } of ready) {
-    const states = shots.map((item): ShotState => {
+    const computed = shots.map((item) => {
       const result = results.get(item.key)
       if (result !== undefined) {
-        return { shot: item.shot.shot, audio_sha256: item.audioSha, key: item.key, cues: result.cues, items: result.items }
+        const state: ShotState = { shot: item.shot.shot, audio_sha256: item.audioSha, key: item.key, cues: result.cues,
+          items: result.items }
+        return { item, state }
       }
       if (item.before === undefined) throw new Error(`EP${episode.code} 镜头 ${String(item.shot.shot)} 缺少字幕规则结果。`)
-      return item.before
+      return { item, state: item.before }
     })
-    const { text, review } = layoutEpisode(episode, shots, states, decisions)
+    let states = computed.map(row => row.state)
+    if (deps.source.store !== undefined) {
+      const stored = await deps.source.store(episode,
+        computed.map(({ item, state }) => ({ shot: item.shot, rules: item.rules, state })), signal)
+      if (stored.kind === 'blocked') {
+        outcomes.set(episode.episode, { episode: episode.episode, status: 'blocked', reason: stored.reason, shots: stored.shots })
+        continue
+      }
+      if (stored.kind === 'waiting') {
+        outcomes.set(episode.episode, { episode: episode.episode, status: 'waiting',
+          changed: [...new Set([...changed, ...stored.changed])].sort((a, b) => a - b) })
+        continue
+      }
+      states = states.map((state) => {
+        const row = stored.shots.get(state.shot)
+        return row === undefined ? state : { ...state, items: row.items, stored: row.stored }
+      })
+    }
+    const { text, review } = layoutEpisode(episode, shots, states, decisions, deps.source.clockReview)
     const pending = review.filter(row => row.decision === null).length
     await publish(episode, text, rulesSha, pending, deps.hash, signal)
     await writeJson(episode.files.state, { version: 1, episode: episode.code, rules_sha256: rulesSha, shots: states })
@@ -255,10 +275,11 @@ export async function buildEpisodes(deps: BuildDeps, request: BuildRequest, sign
  * @param shots - Shots in clip order with measured durations.
  * @param states - Correction results in the same order.
  * @param decisions - Episode decisions by item ID.
+ * @param clockReview - Whether clipped and too-fast cues become review items.
  * @returns SRT text and review items on the episode clock.
  */
 function layoutEpisode(episode: ResolvedEpisode, shots: readonly ReadyShot[], states: readonly ShotState[],
-  decisions: ReadonlyMap<string, DecisionAction>): { text: string; review: EpisodeReviewItem[] } {
+  decisions: ReadonlyMap<string, DecisionAction>, clockReview: boolean): { text: string; review: EpisodeReviewItem[] } {
   const placedCues: { startSeconds: number; endSeconds: number; text: string }[] = []
   const review: EpisodeReviewItem[] = []
   let clipStartUs = 0
@@ -282,6 +303,11 @@ function layoutEpisode(episode: ResolvedEpisode, shots: readonly ReadyShot[], st
     }
     const { placed, cut } = placeShotCues(state.cues, shot.window, clipStart)
     const dropped = new Set<number>()
+    if (!clockReview) {
+      for (const cue of placed) placedCues.push(cue)
+      clipStartUs += durationUs
+      continue
+    }
     for (const row of cut) {
       const entry = clockItem('cut_by_trim', row)
       review.push(entry)
