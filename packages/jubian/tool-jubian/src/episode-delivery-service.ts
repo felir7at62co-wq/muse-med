@@ -10,7 +10,8 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import { z } from 'zod'
 import { assertApprovedEpisodePlan, readApprovedEpisodePlan, episodePlanDigest, type ApprovedEpisodePlan } from './approved-episode-plan.ts'
 import { attemptIdentitySchema, createEpisodeDeliveryJob, parseEpisodeDeliveryJobRecord, episodeHashSchema, executionDrainSchema,
-  hashEpisodeFile, assertEpisodeFileVersion, readEpisodeBytes, readEpisodeRecord, readEpisodeStateSnapshot, runningExecutionSchema } from './episode-delivery.ts'
+  EpisodeJournalReplacementError, hashEpisodeFile, assertEpisodeFileVersion, readEpisodeBytes, readEpisodeRecord,
+  readEpisodeStateSnapshot, runningExecutionSchema } from './episode-delivery.ts'
 import type { ApprovedEpisodeRendererCapture, ApprovedEpisodeCandidate, AttemptIdentity, EpisodeAttemptId,
   EpisodeCancellationReason, EpisodeExecutionId, EpisodeFileVersion, EpisodeRenderResult, Sha256 } from './episode-delivery.ts'
 import { ApprovedSourceCancellationError } from './video-recovery-service.ts'
@@ -508,7 +509,18 @@ export class JubianEpisodeDelivery extends TypertRemoteService {
   }
 
   private async previousDrain(intent: Intent, root: string): Promise<{ running: boolean; unarmed?: boolean; proof?: import('./episode-delivery.ts').ExecutionDrain }> {
-    const rawJob = await readEpisodeRecord(join(root, 'job.json'), this.options.recordBytes)
+    let rawJob: unknown
+    let replaced = false
+    for (;;) {
+      try { rawJob = await readEpisodeRecord(join(root, 'job.json'), this.options.recordBytes); break }
+      catch (error) {
+        if (!(error instanceof EpisodeJournalReplacementError)) throw error
+        // Arming atomically replaces the job. One strict reread may see its complete next version.
+        if (replaced) return { running: true }
+        replaced = true
+      }
+    }
+    if (replaced && rawJob === undefined) return { running: true }
     const record = rawJob === undefined ? undefined : parseEpisodeDeliveryJobRecord(rawJob)
     if (record !== undefined && (record.projectDir !== intent.projectDir || !this.sameAttempt(record.identity, intent.identity))) {
       throw new Error('Episode job identity changed')
