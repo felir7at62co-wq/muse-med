@@ -114,6 +114,8 @@ function authoredUnknownCasts(file: string, text: string, origin: RetainedPlugin
 function isSource(file: string): boolean {
   return /\.(?:[cm]?[jt]s|[jt]sx)$/u.test(file)
     && !file.startsWith('vendor/')
+    // Imported Script Workshop sources keep their upstream casts until the cut-down rewrite.
+    && !file.startsWith('services/workshop/')
     // These exact source snapshots are pinned in sources.json; owned sibling adapters remain scanned.
     && !file.startsWith('third_party/plugins/dsh-feishu/')
     && !file.startsWith('third_party/plugins/dsh-im/')

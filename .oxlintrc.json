@@ -13,6 +13,7 @@
   },
   "ignorePatterns": [
     "**/lib/**",
+    "services/workshop/**", // Imported Script Workshop keeps its own lint setup until it is cut down.
     "**/node_modules/**",
     "**/.sessions/**",
     ".claude/**", // Harness-local state belongs to other checkouts, not this checkout's sources.

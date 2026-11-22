@@ -112,6 +112,3 @@ wrapt==1.16.0
 xxhash==4.1.0
 yt-dlp==2026.10.26
 zstandard==0.25.0
-langgraph==1.2.13
-langgraph-checkpoint==4.3.0
-langgraph-checkpoint-postgres==3.2.0

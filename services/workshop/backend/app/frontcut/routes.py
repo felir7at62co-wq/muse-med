@@ -344,6 +344,8 @@ async def feishu_reverse(body: FeishuReverseIn, user: User = Depends(get_current
             token, table_from_url = feishu.parse_bitable_ref(body.source_ref)
             app_token = await feishu.resolve_app_token(token)
         table_id = body.table_id or _default_table_id()
+        if not table_id:
+            raise HTTPException(400, "缺少飞书数据表：请传 table_id，或在设置里填 FEISHU_LINK_LIBRARY_URL")
         field_map = dict(body.field_map or DEFAULT_FIELD_MAP)
     else:
         app_token, table_id = await _resolve_default()
