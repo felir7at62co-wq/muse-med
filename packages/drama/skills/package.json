@@ -83,6 +83,7 @@
     "skills/tweet-drama-draft-build/scripts/paths.py",
     "skills/tweet-drama-draft-build/scripts/subtitle_rules/run.py",
     "skills/tweet-drama-draft-build/scripts/subtitle_rules/subtitle_align.py",
+    "skills/tweet-drama-draft-build/scripts/subtitle_rules/subtitle_cues.py",
     "skills/tweet-drama-key-manager/SKILL.md",
     "skills/tweet-drama-key-manager/scripts/check_keys.py",
     "skills/tweet-drama-project-bible/SKILL.md",

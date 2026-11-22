@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { compareSubtitleRuleCopies, JINGLIU_RULES_DIR, MUSE_RULES_DIR } from './verify-subtitle-rules-copy.ts'
+import { compareSubtitleRuleCopies, JINGLIU_RULES_DIR, MUSE_RULES_DIR, SHARED_RULE_VECTORS } from './verify-subtitle-rules-copy.ts'
 
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
@@ -10,8 +10,12 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 function tree(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), 'dsh-subtitle-rules-'))
   roots.push(root)
-  for (const dir of [JINGLIU_RULES_DIR, MUSE_RULES_DIR]) mkdirSync(join(root, dir), { recursive: true })
-  for (const [path, text] of Object.entries(files)) writeFileSync(join(root, path), text)
+  for (const path of [JINGLIU_RULES_DIR, MUSE_RULES_DIR, `${SHARED_RULE_VECTORS.source}/..`, `${SHARED_RULE_VECTORS.copy}/..`]) {
+    mkdirSync(join(root, path), { recursive: true })
+  }
+  for (const [path, text] of Object.entries({ [SHARED_RULE_VECTORS.source]: '{}', [SHARED_RULE_VECTORS.copy]: '{}', ...files })) {
+    writeFileSync(join(root, path), text)
+  }
   return root
 }
 
@@ -28,6 +32,12 @@ describe('subtitle rules copy gate', () => {
   it('rejects a one-byte difference', () => {
     expect(compareSubtitleRuleCopies(tree(both('align\r\n', 'cues\n')))).toEqual([
       `${MUSE_RULES_DIR}/subtitle_align.py differs from ${JINGLIU_RULES_DIR}/subtitle_align.py; copy it byte for byte.`,
+    ])
+  })
+
+  it('rejects differing vectors', () => {
+    expect(compareSubtitleRuleCopies(tree({ ...both('align\n', 'cues\n'), [SHARED_RULE_VECTORS.copy]: '{"cases":[]}' }))).toEqual([
+      `${SHARED_RULE_VECTORS.copy} differs from ${SHARED_RULE_VECTORS.source}; copy it byte for byte.`,
     ])
   })
 

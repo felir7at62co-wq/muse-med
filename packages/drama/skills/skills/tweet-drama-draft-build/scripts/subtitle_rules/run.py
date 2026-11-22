@@ -1,16 +1,17 @@
 """Apply the vendored Jingliu subtitle rules to one JSON request read from stdin.
 
-Request: ``{"layout": {"max_chars": 14, ...}, "shots": [{"key", "identity", "words", "lines", "names",
-"decisions"}]}``. ``identity`` carries ``audio_sha256``, ``transcript_sha256`` and ``lines_sha256`` for
-stable review-item IDs; ``words`` are measured ``{start, end, text, seg, speaker?}`` rows in shot-local
-seconds; ``decisions`` are ``{id, action}`` rows with ``action`` in ``heard``, ``script`` or ``drop``.
+Request: ``{"max_chars": 14, "space_width": 0.5, "shots": [{"key", "audio_sha256", "words", "lines", "names",
+"decisions", "flags"}]}``. ``words`` are measured ``{start, end, text, seg?, speaker_id?}`` rows in shot-local
+source seconds; ``decisions`` are ``{id, action}`` rows with ``action`` in ``heard``, ``script`` or ``drop``;
+``flags`` are caller findings ``{kind, start, end}`` listed as review items.
 
-Result on stdout: ``{"rules_sha256", "pypinyin", "shots": [{"key", "cues", "stats", "items"}]}``.
-A missing rule module or a different ``pypinyin`` prints ``{"error": {"code", "message", "python"}}``
-and exits 3, so a runtime that cannot apply the shared rules never produces subtitles.
+Result on stdout: ``{"rules_sha256", "pypinyin", "shots": [{"key", "cues", "items", "pending", "stats"}]}``,
+with cues ``{start, end, text}`` and items ``{id, kind, heard, script, start, end, decision}``. A missing rule
+module or another ``pypinyin`` version prints ``{"error": {"code", "message", "python"}}`` and exits 3, so a
+runtime that cannot apply the shared rules never produces subtitles.
 
-The two rule modules are byte copies of ``services/jingliu/backend/app``; ``verify-subtitle-rules-copy``
-rejects any difference. This file only moves JSON between the caller and those modules.
+``subtitle_align.py`` and ``subtitle_cues.py`` are byte copies of ``services/jingliu/backend/app``;
+``verify-subtitle-rules-copy`` rejects any difference. This file only moves JSON in and out of ``shot_cues``.
 """
 import hashlib
 import json
@@ -20,7 +21,7 @@ import sys
 HERE = Path(__file__).resolve().parent
 RULE_FILES = ('subtitle_align.py', 'subtitle_cues.py', 'run.py')
 PYPINYIN_VERSION = '0.55.0'
-ACTIONS = ('heard', 'script', 'drop')
+STATS = ('similarity', 'fixed', 'kept', 'extra', 'unspoken', 'deviated', 'unheard', 'no_script')
 
 
 def rules_sha256():
@@ -39,8 +40,9 @@ def refuse(code, message):
 
 def load_rules():
     """Import the rule modules from this directory, or describe why they are unusable."""
-    if str(HERE) not in sys.path:
-        sys.path.insert(0, str(HERE))
+    for name in RULE_FILES:
+        if not (HERE / name).is_file():
+            return None, ('rules_missing', f'字幕规则文件缺失：{HERE / name}')
     try:
         import importlib.metadata
         version = importlib.metadata.version('pypinyin')
@@ -48,28 +50,22 @@ def load_rules():
         return None, ('pypinyin_missing', f'字幕规则需要 pypinyin=={PYPINYIN_VERSION}：{error}')
     if version != PYPINYIN_VERSION:
         return None, ('pypinyin_version', f'字幕规则需要 pypinyin=={PYPINYIN_VERSION}，当前为 {version}。')
-    # TODO: subtitle_cues.py arrives with the Jingliu J1 commit (branch muse/jingliu-subtitles); until then
-    # every call refuses here instead of producing subtitles from partial rules.
-    for name in RULE_FILES:
-        if not (HERE / name).is_file():
-            return None, ('rules_missing', f'字幕规则文件缺失：{HERE / name}')
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
     import subtitle_cues
     return subtitle_cues, None
 
 
-def shot_result(cues_module, shot, layout):
-    """Correct one shot's measured words toward its script, apply decisions and lay out cues."""
-    identity = shot['identity']
-    words, stats = cues_module.correct_words(shot['words'], shot['lines'], shot['names'])
-    items = cues_module.review_items(stats, words, audio_sha256=identity['audio_sha256'],
-                                     transcript_sha256=identity['transcript_sha256'],
-                                     lines_sha256=identity['lines_sha256'])
-    decisions = [row for row in shot.get('decisions', []) if row.get('action') in ACTIONS]
-    words = cues_module.apply_decisions(words, items, decisions)
-    cues = cues_module.layout_cues(words, **layout)
-    decided = {row['id'] for row in decisions}
-    return {'key': shot['key'], 'cues': cues, 'stats': stats,
-            'items': [{**item, 'decided': item['id'] in decided} for item in items]}
+def shot_result(cues_module, shot, max_chars, space_width):
+    """Correct one shot's words toward its script, apply decisions and lay out cues."""
+    out = cues_module.shot_cues(shot['words'], shot['lines'], shot['names'], shot.get('decisions') or [],
+                                max_chars=max_chars, space_width=space_width, audio_sha=shot['audio_sha256'],
+                                flags=shot.get('flags') or [])
+    return {'key': shot['key'],
+            'cues': [{'start': cue['start'], 'end': cue['end'], 'text': cue['text']} for cue in out['cues']],
+            'items': [{key: item[key] for key in ('id', 'kind', 'heard', 'script', 'start', 'end', 'decision')}
+                      for item in out['items']],
+            'pending': out['pending'], 'stats': {key: out['stats'][key] for key in STATS}}
 
 
 def main():
@@ -78,8 +74,8 @@ def main():
     cues_module, problem = load_rules()
     if problem is not None:
         return refuse(*problem)
-    layout = request.get('layout') or {}
-    shots = [shot_result(cues_module, shot, layout) for shot in request['shots']]
+    max_chars, space_width = request['max_chars'], request.get('space_width', 0.5)
+    shots = [shot_result(cues_module, shot, max_chars, space_width) for shot in request['shots']]
     print(json.dumps({'rules_sha256': rules_sha256(), 'pypinyin': PYPINYIN_VERSION, 'shots': shots},
                      ensure_ascii=False, separators=(',', ':')))
     return 0

@@ -15,6 +15,11 @@ export const JINGLIU_RULES_DIR = 'services/jingliu/backend/app'
 export const MUSE_RULES_DIR = 'packages/drama/skills/skills/tweet-drama-draft-build/scripts/subtitle_rules'
 /** Modules that must be identical in both directories. */
 export const SHARED_RULE_MODULES = ['subtitle_align.py', 'subtitle_cues.py'] as const
+/** Shared test vectors: Jingliu's pytest fixture and the Muse copy its runner tests read. */
+export const SHARED_RULE_VECTORS = {
+  source: 'services/jingliu/backend/tests/fixtures/subtitle_rules_vectors.json',
+  copy: 'packages/drama/skills/tests/fixtures/subtitle_rules_vectors.json',
+} as const
 
 function read(root: string, path: string): Buffer | undefined {
   try { return readFileSync(resolve(root, path)) }
@@ -30,8 +35,9 @@ function read(root: string, path: string): Buffer | undefined {
  * @returns One repository-relative diagnostic per missing or differing module; empty when all match.
  */
 export function compareSubtitleRuleCopies(root: string): string[] {
-  return SHARED_RULE_MODULES.flatMap((name) => {
-    const source = `${JINGLIU_RULES_DIR}/${name}`, copy = `${MUSE_RULES_DIR}/${name}`
+  const pairs = [...SHARED_RULE_MODULES.map(name => ({ source: `${JINGLIU_RULES_DIR}/${name}`, copy: `${MUSE_RULES_DIR}/${name}` })),
+    SHARED_RULE_VECTORS]
+  return pairs.flatMap(({ source, copy }) => {
     const original = read(root, source), vendored = read(root, copy)
     if (original === undefined) return [`${source} is missing; the vendored rules have no source to match.`]
     if (vendored === undefined) return [`${copy} is missing; copy ${source} byte for byte.`]
@@ -43,5 +49,5 @@ if (import.meta.main) {
   const failures = compareSubtitleRuleCopies(resolve(import.meta.dirname, '..'))
   for (const failure of failures) console.error(`verify-subtitle-rules-copy: ${failure}`)
   if (failures.length > 0) process.exit(1)
-  console.log(`verify-subtitle-rules-copy: ${String(SHARED_RULE_MODULES.length)} rule modules match.`)
+  console.log(`verify-subtitle-rules-copy: ${String(SHARED_RULE_MODULES.length)} rule modules and the vectors match.`)
 }
