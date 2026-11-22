@@ -392,6 +392,10 @@
     {
       "url": "https://files.pythonhosted.org/packages/89/9c/d0bc1fb69ad22a04bdc01dd9b5613a2ebc4d02ba1ec24b02127dc93791ba/comtypes-1.4.17-py3-none-any.whl",
       "sha256": "4e0a221dde2c589b82977bed802efd71cd5eb67a380347b732e02735e597f586"
+    },
+    {
+      "url": "https://files.pythonhosted.org/packages/b9/7b/4cabc76fcc21c3c7d5c671d8783984d30ac9d3bb387c4ba784fca3cdfa3a/pypinyin-0.55.0-py2.py3-none-any.whl",
+      "sha256": "d53b1e8ad2cdb815fb2cb604ed3123372f5a28c6f447571244aca36fc62a286f"
     }
   ],
   "pythonPackages": {
@@ -437,6 +441,7 @@
     "uiautomation": "2.0.29",
     "comtypes": "1.4.17",
     "pymediainfo": "7.0.1",
-    "pycryptodome": "3.23.0"
+    "pycryptodome": "3.23.0",
+    "pypinyin": "0.55.0"
   }
 }

@@ -15,6 +15,7 @@ from rapidocr import RapidOCR
 import rapidocr
 import pyJianYingDraft as draft
 from pymediainfo import MediaInfo
+from pypinyin import Style, pinyin
 from Crypto.Cipher import AES
 from Crypto.Util._file_system import pycryptodome_filename
 
@@ -80,6 +81,8 @@ def main():
         notice = next(file for path, file in files.items() if path.endswith(".dist-info/" + license_file))
         assert "Mozilla Public" in distribution.locate_file(notice).read_text(encoding="utf-8"), str(notice)
     assert numpy.arange(4).sum() == 6
+    # Subtitle correction compares phrase-aware tone readings; the phrase dictionary must ship.
+    assert pinyin("银行行长", style=Style.TONE3) == [["yin2"], ["hang2"], ["hang2"], ["zhang3"]]
     assert pandas.DataFrame({"n": [1, 2]}).n.sum() == 3
     cipher = AES.new(bytes(16), AES.MODE_ECB)
     assert cipher.decrypt(cipher.encrypt(bytes(range(16)))) == bytes(range(16))

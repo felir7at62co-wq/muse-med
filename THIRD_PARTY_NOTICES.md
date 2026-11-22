@@ -348,6 +348,7 @@ The [Python source distribution decision](.agents/notes/implemented/process/2026
 | [`pydub`](https://github.com/jiaaro/pydub) | 0.25.1 | MIT |
 | [`pyjianyingdraft`](https://github.com/GuanYixuan/pyJianYingDraft) | 0.3.1 | MIT |
 | [`pymediainfo`](https://github.com/sbraz/pymediainfo) | 7.0.1 | MIT |
+| [`pypinyin`](https://github.com/mozillazg/python-pinyin) | 0.55.0 | MIT |
 | [`pyreadline3`](https://github.com/pyreadline3/pyreadline3) | 3.5.6 | BSD-3-Clause |
 | [`python-dateutil`](https://github.com/dateutil/dateutil) | 2.9.0.post0 | Apache-2.0 OR BSD-3-Clause |
 | [`python-docx`](https://github.com/python-openxml/python-docx) | 1.2.0 | MIT |

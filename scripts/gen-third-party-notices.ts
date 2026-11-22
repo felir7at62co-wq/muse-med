@@ -127,6 +127,7 @@ const PYTHON_METADATA: Record<string, { license: string; repo: string; role?: st
   pydub: { license: 'MIT', repo: 'https://github.com/jiaaro/pydub' },
   pyjianyingdraft: { license: 'MIT', repo: 'https://github.com/GuanYixuan/pyJianYingDraft' },
   pymediainfo: { license: 'MIT', repo: 'https://github.com/sbraz/pymediainfo' },
+  pypinyin: { license: 'MIT', repo: 'https://github.com/mozillazg/python-pinyin' },
   pyreadline3: { license: 'BSD-3-Clause', repo: 'https://github.com/pyreadline3/pyreadline3' },
   pyyaml: { license: 'MIT', repo: 'https://github.com/yaml/pyyaml' },
   rapidocr: { license: 'Apache-2.0', repo: 'https://github.com/RapidAI/RapidOCR' },

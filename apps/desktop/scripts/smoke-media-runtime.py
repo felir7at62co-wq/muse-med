@@ -37,11 +37,15 @@ def main():
                 continue
             actual = importlib.metadata.version(req.name)
             assert actual in req.specifier, (dist.metadata['Name'], declared, actual)
-    for name in ['docx', 'pydub', 'pymediainfo', 'pyJianYingDraft', 'requests', 'PIL', 'zhconv', 'cv2', 'scipy']:
+    for name in ['docx', 'pydub', 'pymediainfo', 'pyJianYingDraft', 'requests', 'PIL', 'zhconv', 'cv2', 'scipy', 'pypinyin']:
         module = importlib.import_module(name)
         assert Path(module.__file__).resolve().is_relative_to(expected), name
     from zhconv import convert
     assert convert('繁體字幕', 'zh-cn') == '繁体字幕'
+    from pypinyin import Style, pinyin
+    assert importlib.metadata.version('pypinyin') == '0.55.0'
+    # Subtitle correction compares phrase-aware tone readings; the phrase dictionary must ship.
+    assert pinyin('银行行长', style=Style.TONE3) == [['yin2'], ['hang2'], ['hang2'], ['zhang3']]
     ffmpeg = str(root / 'ffmpeg' / 'bin' / 'ffmpeg.exe')
     ffprobe = str(root / 'ffmpeg' / 'bin' / 'ffprobe.exe')
     with tempfile.TemporaryDirectory(prefix='muse-media-smoke-') as temporary:

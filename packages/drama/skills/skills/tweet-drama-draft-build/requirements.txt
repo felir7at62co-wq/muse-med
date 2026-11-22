@@ -1,1 +1,3 @@
 # No additional pip dependencies are required for the core spoken-subtitle builder.
+# scripts/subtitle_rules applies the shared Jingliu correction rules and needs the same reading dictionary.
+pypinyin==0.55.0
