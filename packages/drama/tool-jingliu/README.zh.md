@@ -9,7 +9,7 @@ description: "在 Muse 会话中查找并调用镜流影视制作工作流。"
 
 ## 概述
 
-在会话中用 `jingliu_projects` 搜索并确认制片项目。`jingliu_studio` 可回读分集、导入共享素材和校对字幕文字与时间，`jingliu_image` 默认使用 GPT Image 2。通过 `jingliu_workflows` 和 `jingliu_run` 调用镜流制片流程。Muse 撰写并锁定分镜提示词后提交已审校的镜头。导出剪映时，工具将可编辑轨道和经核验的媒体放入指定的本机草稿目录，在聊天中返回路径。
+在会话中用 `jingliu_projects` 搜索并确认制片项目。`jingliu_studio` 可回读分集、导入共享素材、列出字幕并改一条字幕的文字（字幕时间由 `episode_subtitles` 生成），`jingliu_image` 默认使用 GPT Image 2。通过 `jingliu_workflows` 和 `jingliu_run` 调用镜流制片流程。Muse 撰写并锁定分镜提示词后提交已审校的镜头。导出剪映时，工具将可编辑轨道和经核验的媒体放入指定的本机草稿目录，在聊天中返回路径。
 
 请求使用当前账号的[镜流连接](../jingliu-connection/README.zh.md)。
 
@@ -29,7 +29,7 @@ description: "在 Muse 会话中查找并调用镜流影视制作工作流。"
 
 `jingliu_narration` 支持解说剧·角色开口流程，包括读取状态和核对报告、切换项目可用模型、拆台词、出片或单镜重做、接受单句差异和导出剪映草稿。拆解与出片使用服务端报价。Muse 在自身私有目录记录任务提交，同一调用重新执行时可取回已确认的任务编号。提交中断时，应先核对项目里的任务。
 
-其他 Host 工具使用 `@deepseek-ai/dsh-tool-jingliu/library`。`plannedDrafts` 按 `POST /projects/{pid}/jianying/plan` 安装批量剪映草稿，每次请求最多十集：已存字幕过期、缺失或未核验的集被拒绝并列出镜号；每个素材只下载一次到 `<工作区>/jingliu/<项目>`，再链接进各份草稿，封面用调用方的 FFmpeg 抽取，草稿以重命名方式装入。草稿指纹由账号、项目、集号和计划的 `draft_sha256` 组成，所以重复调用返回已装好的草稿，计划变化时在旁边装一份新的；没有这条路由的服务器使所有集报 `jingliu_outdated`。`submitOnce` 是解说剧与生图工具使用的只提交一次的任务提交。`jingliu_run export_jianying` 仍安装镜流的 zip 草稿包。
+其他 Host 工具使用 `@deepseek-ai/dsh-tool-jingliu/library`。`plannedDrafts` 按 `POST /projects/{pid}/jianying/plan` 安装批量剪映草稿，每次请求最多十集：已存字幕过期、缺失或未核验的集被拒绝并列出镜号，调用方为选择保留老数据的用户设了 `keepLegacy` 时接受未核验的集；每个素材只下载一次到 `<工作区>/jingliu/<项目>`，再链接进各份草稿，封面用调用方的 FFmpeg 抽取，草稿以重命名方式装入。草稿指纹由账号、项目、集号和计划的 `draft_sha256` 组成，所以重复调用返回已装好的草稿，计划变化时在旁边装一份新的；没有这条路由的服务器使所有集报 `jingliu_outdated`。`submitOnce` 是解说剧与生图工具使用的只提交一次的任务提交。`jingliu_run export_jianying` 仍安装镜流的 zip 草稿包。
 
 <a id="model-experience"></a>
 ## 模型体验

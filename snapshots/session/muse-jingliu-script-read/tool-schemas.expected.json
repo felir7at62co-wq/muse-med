@@ -1405,7 +1405,7 @@
     },
     {
       "name": "jingliu_studio",
-      "description": "镜流共享素材搜索与导入、查看剧本分集原文、逐条审校字幕、回写字幕的文本或时间、查看高清产物。",
+      "description": "镜流共享素材搜索与导入、查看剧本分集原文、逐条查看字幕、回写一条字幕的文字（edit_subtitle 只改文字；字幕的时间与按声音重做用 episode_subtitles，待核处用它的 review）、查看高清产物。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1448,12 +1448,6 @@
           },
           "text": {
             "type": "string"
-          },
-          "duration": {
-            "type": "number"
-          },
-          "start_offset_sec": {
-            "type": "number"
           }
         },
         "required": [

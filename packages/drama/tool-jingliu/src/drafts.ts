@@ -39,6 +39,11 @@ export interface PlannedDraftBatch {
   readonly namePrefix?: string | undefined
   /** User's Jianying draft root. */
   readonly root: string
+  /**
+   * Accept an episode whose only subtitle problem is `unverified`: legacy or older-path rows the user chose to keep.
+   * Only the user's answer to the legacy-subtitle choice sets it.
+   */
+  readonly keepLegacy?: boolean | undefined
   /** The production's local media folder, `<workspace>/jingliu/<project>`. */
   readonly mediaFolder: string
   /**
@@ -208,7 +213,7 @@ export async function plannedDrafts(session: JingliuSession, batch: PlannedDraft
       if (plan === undefined) throw invalid()
       if ('error' in plan) { refuse('not_selected', { detail: plan.error }); continue }
       const lists = plan.subtitles
-      if (batch.switches.subtitles !== false && lists.status !== 'fresh') {
+      if (batch.switches.subtitles !== false && lists.status !== 'fresh' && !(lists.status === 'unverified' && batch.keepLegacy === true)) {
         if (lists.status === 'stale') refuse('subtitles_stale', { changed_shots: lists.stale })
         else if (lists.status === 'unverified') refuse('subtitles_unverified', { shots: lists.unverified })
         else refuse('subtitles_missing', { shots: lists.missing })

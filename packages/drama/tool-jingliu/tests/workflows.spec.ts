@@ -80,6 +80,14 @@ describe('Jingliu workflow gateway', () => {
     await expect(f.call('jingliu_studio', args)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_ARGUMENTS' })
     f.request.mockResolvedValueOnce({ clips: [{ id: 'a' }] }).mockResolvedValueOnce({ id: 'a', text: '小舟' })
     await expect(f.call('jingliu_studio', args)).resolves.toMatchObject({ id: 'a', text: '小舟' })
+    expect(f.request.mock.calls.at(-1)?.[1]?.body).toEqual({ text: '小舟' })
+  })
+  it('edits only the text of a subtitle; times belong to episode_subtitles', async () => {
+    const f = fixture()
+    f.request.mockResolvedValueOnce({ clips: [{ id: 'a' }] })
+    await expect(f.call('jingliu_studio', { action: 'edit_subtitle', project_id: 'film', clip_id: 'a', text: '  ' }))
+      .rejects.toMatchObject({ code: 'JINGLIU_INVALID_ARGUMENTS' })
+    expect(f.request).toHaveBeenCalledTimes(1)
   })
   it('discovers a workflow added by the server and returns its exact nested schema', async () => {
     const f = fixture()

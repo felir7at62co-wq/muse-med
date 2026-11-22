@@ -98,3 +98,12 @@ it('splits episodes into plan requests of ten and reports an old Jingliu as outd
   expect(await plannedDrafts(session, batch([1, 2]), new AbortController().signal)).toMatchObject({ created: [],
     refused: [{ episode: 1, reason: 'jingliu_outdated' }, { episode: 2, reason: 'jingliu_outdated' }] })
 })
+
+it('refuses unverified subtitles unless the user chose to keep the legacy rows', async () => {
+  const { session, state, batch } = await setup()
+  state.episodes.set(4, plan(4, 'd', { status: 'unverified', stale: [], missing: [], unverified: [7] }))
+  expect(await plannedDrafts(session, batch([4]), new AbortController().signal)).toMatchObject({ created: [],
+    refused: [{ episode: 4, reason: 'subtitles_unverified', shots: [7] }] })
+  const kept = await plannedDrafts(session, { ...batch([4]), keepLegacy: true }, new AbortController().signal)
+  expect(kept).toMatchObject({ refused: [], created: [{ episode: 4 }] })
+})
