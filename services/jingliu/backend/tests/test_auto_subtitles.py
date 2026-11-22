@@ -690,3 +690,16 @@ def test_muse_tool_passes_episode_and_alignment(drama):
     from app.agent import registry
     props = set(registry.get_spec("run_auto_subtitles").args_schema.model_fields)
     assert props == {"project_id", "replace", "episode", "align_script"}
+
+
+def test_transcribed_shot_audio_records_its_source_video(drama):
+    from app.db import Shot, SubtitleClip
+    from app.subtitle_status import shot_statuses
+    db, shot = drama
+    sid = shot(1, 1, "沈母：你好。", [{"start": 0.0, "end": 1.0, "text": "你好"}])
+    assert _run_job({}).status == "done"
+    with db() as s:
+        (row,) = s.query(SubtitleClip).all()
+        assert (row.origin, row.source_shot_id, row.source_video_url, row.time_base) == (
+            "asr", sid, "/fw/media/generated/v1.mp4", None)
+        assert shot_statuses(s, PID, s.query(Shot).all()) == {sid: "fresh"}

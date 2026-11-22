@@ -49,7 +49,7 @@ from ..db import AudioClip, Shot, SubtitleClip, Project, get_session
 from ..media import DATA_DIR
 from ..media_store import commit as commit_media
 from ..shot_timing import (shot_output_sec, shot_source_window, shot_speed,
-                           subtitle_output_span)
+                           subtitle_place)
 
 logger = logging.getLogger(__name__)
 
@@ -727,25 +727,26 @@ def _build(session, proj: Project, shots: list[Shot],
         clip = draft.ClipSettings(transform_y=st["transform_y"])
         cursor = 0
         #: 字幕的偏移/时长按**源秒**记（ASR 转写的是镜头文件本身），导出要换算成
-        #: 成片秒。见 `shot_timing.subtitle_output_span` 的说明 —— 漏掉这一步
+        #: 成片秒。见 `shot_timing.subtitle_place` 的说明 —— 漏掉这一步
         #: 会让变速过的镜头里的字幕整体前移，而不会有任何报错。
         by_order_sh = {s.order: s for s in shots}
-        # 同一镜里按镜内偏移排：id 是随机 uuid12，只按 id 排是随机序，配上下面的
-        # `start = max(base, cursor)` 会把乱序的字幕依次往后推，实测量产工程里一镜最多推歪 40 秒。
-        for c in sorted(subs, key=lambda x: (x.start_shot_order or 0,
-                                             x.start_offset_sec or 0.0, x.id)):
+        by_id_sh = {s.id: s for s in shots}
+        placed = []
+        for c in subs:
             if not (c.text or "").strip():
                 continue
-            sh = by_order_sh.get(c.start_shot_order or 0)
-            off_sec, cue_sec = subtitle_output_span(
-                sh, c.start_offset_sec, c.duration or 2.0) if sh else (
-                    float(c.start_offset_sec or 0.0), float(c.duration or 2.0))
-            base = starts.get(c.start_shot_order or 0, 0) + _us(off_sec)
+            got = subtitle_place(c, by_id_sh, by_order_sh)
+            if got is not None:              # 落在取片窗口外的（修剪掉的那段话）不出字幕
+                placed.append((got, c))
+        # 同一镜里按镜内偏移排：id 是随机 uuid12，只按 id 排是随机序，配上下面的
+        # `start = max(base, cursor)` 会把乱序的字幕依次往后推，实测量产工程里一镜最多推歪 40 秒。
+        for (order, off_sec, cue_sec), c in sorted(placed, key=lambda x: (x[0][0], x[0][1], x[1].id)):
+            base = starts.get(order, 0) + _us(off_sec)
             start = max(base, cursor)
             dur = _us(cue_sec)
             # 一条字幕不许越过它所在镜头的结尾：越界的那部分在画面上已经是下一镜了。
             # 镜头在 `starts` 里没有（没出片的镜头）时不做这个裁剪，交给下面的片尾裁剪。
-            nxt = next((t2 for o2, t2 in shot_starts if o2 > (c.start_shot_order or 0)), total)
+            nxt = next((t2 for o2, t2 in shot_starts if o2 > order), total)
             room = nxt - start
             if room > 0 and dur > room:
                 dur = room

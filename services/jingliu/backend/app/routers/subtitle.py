@@ -36,7 +36,7 @@ from pydantic import BaseModel
 
 from .. import access   # 多用户隔离：归属校验（2026-10-09）
 from ..db import Project, Shot, SubtitleClip, get_session, profile_of
-from ..shot_timing import _clamp_anchor, subtitle_output_span
+from ..shot_timing import _clamp_anchor, subtitle_place
 
 router = APIRouter(prefix="/v2", tags=["subtitle"])
 
@@ -405,18 +405,21 @@ def export_subtitles_srt(project_id: str) -> dict:
                 .order_by(SubtitleClip.start_shot_order,
                           SubtitleClip.start_offset_sec).all())
         #: 锚点镜号 → 镜头。字幕的偏移是**源秒**，SRT 要的是成片秒，差一个 speed。
-        #: 与导出剪映调的是同一个函数（`subtitle_output_span`），两处不许各算一份
+        #: 与导出剪映调的是同一个函数（`subtitle_place`），两处不许各算一份
         #: —— 2026-10-24 用户报"字幕时间位置全错"就是导出侧漏了这一步。
+        #: `time_base='source'` 的字幕（Muse 逐字字幕）按来源镜头找、经取片窗口换算，见 `subtitle_place`。
         sh_by_order = {sh.order: sh for sh in shots}
-        lines, n = [], 0
+        sh_by_id = {sh.id: sh for sh in shots}
+        placed = []
         for c in rows:
-            base = offsets.get(c.start_shot_order)
-            if base is None:      # 锚定镜头被删/停用 → 该字幕无处安放，跳过
-                continue
-            sh = sh_by_order.get(c.start_shot_order)
-            off_sec, cue_sec = subtitle_output_span(
-                sh, c.start_offset_sec, c.duration or 3.0)
-            start = base + off_sec
+            if c.start_shot_order not in offsets and not c.source_shot_id:
+                continue          # 锚定镜头被删/停用 → 该字幕无处安放，跳过
+            got = subtitle_place(c, sh_by_id, sh_by_order)
+            if got is not None and got[0] in offsets:
+                placed.append((got, c))
+        lines, n = [], 0
+        for (order, off_sec, cue_sec), c in sorted(placed, key=lambda x: (x[0][0], x[0][1], x[1].id)):
+            start = offsets[order] + off_sec
             n += 1
             lines.append(f"{n}\n{_ts(start)} --> {_ts(start + cue_sec)}\n"
                          f"{c.text}\n")

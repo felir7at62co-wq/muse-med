@@ -313,6 +313,25 @@ def subtitle_source_span(shot, start_sec, end_sec) -> tuple[float, float] | None
     return (a - cin) / spd, (b - a) / spd
 
 
+def subtitle_place(clip, by_id: dict, by_order: dict) -> tuple[int, float, float] | None:
+    """一条字幕落在哪一镜 → `(镜号, 镜内偏移, 显示时长)`，后两个是成片秒；落不下返回 None。
+
+    镜头：`source_shot_id` 有值时按它找（镜头改过序也是同一镜），否则按 `start_shot_order`。
+    时间：`time_base == "source"` 的走 `subtitle_source_span`（窗口外的、找不到镜头的返回 None），
+    老数据走 `subtitle_output_span`；老数据锚着的镜头不在 `by_order` 里时按原值返回（与改动前相同）。
+    SRT 导出与剪映导出都用它，两处不许各算一份。
+    """
+    sh = by_id.get(clip.source_shot_id) if clip.source_shot_id else by_order.get(clip.start_shot_order or 0)
+    start = float(clip.start_offset_sec or 0.0)
+    if clip.time_base == "source":
+        span = None if sh is None else subtitle_source_span(sh, start, start + float(clip.duration or 0.0))
+        return None if span is None else (sh.order, span[0], span[1])
+    if sh is None:
+        return clip.start_shot_order or 0, start, float(clip.duration or 2.0)
+    off, dur = subtitle_output_span(sh, clip.start_offset_sec, clip.duration or 2.0)
+    return sh.order, off, dur
+
+
 def episode_total_sec(shots) -> float:
     """一批镜头在成片里的总时长（秒）。**停用/没出片的不算**。
 
