@@ -1,0 +1,647 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+
+  /* ============================================================
+   * 主题 token (channel 形式 "R G B", 供 tailwind 语义色 + opacity 修饰符使用)
+   * 默认基线 = 暗色 + 深蓝主色; html.light 覆盖中性色; applyTheme 注入主色。
+   * 详见 docs/PLAN-script-view-theme-import.md 需求2。
+   * ============================================================ */
+
+  /* 主色 / 强调色 (深蓝默认; 运行时由 applyTheme 覆盖) */
+  --c-primary: 59 130 246;          /* #3b82f6 */
+  --c-primary-hover: 96 165 250;    /* #60a5fa */
+  --c-accent: 6 182 212;            /* #06b6d4 */
+  --c-accent-hover: 34 211 238;     /* #22d3ee */
+
+  /* 兼容旧变量 (旧 globals.css 规则 + theme.ts 历史逻辑仍引用) */
+  --color-primary: var(--c-primary);
+  --color-primary-hex: #3b82f6;
+  --color-accent: var(--c-accent);
+  --color-accent-hex: #06b6d4;
+
+  /* 状态色 (明暗共用同色相) */
+  --c-success: 34 197 94;
+  --c-warning: 245 158 11;
+  --c-danger: 239 68 68;
+  --c-info: 59 130 246;
+
+  /* —— 暗色基线 (默认) —— */
+  --c-text-primary: 248 250 252;
+  --c-text-secondary: 203 213 225;
+  --c-text-muted: 148 163 184;
+  --c-text-disabled: 100 116 139;
+  --c-bg: 7 10 20;
+  --c-bg-elevated: 14 19 36;
+  --c-bg-card: 18 24 43;
+  --c-bg-card-hover: 28 36 64;
+  --c-bg-input: 15 23 42;
+  --c-bg-overlay: 7 10 20;
+  --c-line: rgba(148, 163, 184, 0.18);
+  --c-line-hover: rgba(148, 163, 184, 0.32);
+
+  --bg-image: none;
+  --bg-solid: transparent;
+  --bg-overlay-opacity: 0.3;
+  --bg-blur: 0px;
+}
+
+/* —— 浅色基线: 覆盖中性色 (底浅字深), 主色/状态色沿用 —— */
+html.light {
+  --c-text-primary: 15 23 42;
+  --c-text-secondary: 51 65 85;
+  --c-text-muted: 100 116 139;
+  --c-text-disabled: 148 163 184;
+  --c-bg: 248 250 252;
+  --c-bg-raised: 255 255 255;
+  --c-bg-elevated: 255 255 255;
+  --c-bg-card: 255 255 255;
+  --c-bg-card-hover: 241 245 249;
+  --c-bg-input: 255 255 255;
+  --c-bg-overlay: 241 245 249;
+  --c-line: rgba(15, 23, 42, 0.12);
+  --c-line-hover: rgba(15, 23, 42, 0.22);
+  --c-line-strong: rgba(15, 23, 42, 0.28);
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+}
+
+/* 自定义背景层 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background: var(--bg-solid);
+  background-image: var(--bg-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: blur(var(--bg-blur));
+  pointer-events: none;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: rgba(0, 0, 0, var(--bg-overlay-opacity));
+  pointer-events: none;
+}
+
+html:not([data-bg-custom="true"]) body::before,
+html:not([data-bg-custom="true"]) body::after {
+  display: none;
+}
+
+html.dark { color-scheme: dark; }
+html.dark body { color: rgb(226 232 240); }
+html.light { color-scheme: light; }
+html.light body { color: rgb(15 23 42); background: rgb(248 250 252); }
+
+/* ========= 纸感主题 (data-theme="paper") =========
+
+   为什么需要一整套中性色基线, 而不只是换主色:
+   现有机制只切「明暗模式 × 主色」(见 lib/theme.ts 的 PRESET_COLORS —— 五项全是主色),
+   中性色来自 :root(暗) 与 html.light(冷灰白)。所以光把 primary 换成赭石棕,
+   得到的是"冷白底 + 棕按钮", 不是书页。
+
+   书页的质感来自「暖色中性」: 底色是米白纸、文字是暖黑、描边是淡褐。
+   所以这里覆盖的是 --c-bg / --c-text / --c-line 这一整组, 而不是主色。
+
+   色值取自设计方案 (docs/PLAN-剧本平台全面升级.md §6.1):
+     纸底 #FAF7F1 / 卡片本白 #FFFDF9 / 淡褐描边 #E7DED1
+     墨黑正文 #2B2622 / 次级文字 #6B6156 / 赭石棕主色 #8B5E34
+
+   与 html.light 是**互斥**的两套基线: applyTheme 会同时设置 data-theme 与
+   light/dark class, 而 paper 需要 light 的 color-scheme 与 light 类下的
+   大量既有适配规则(表单控件、选项弹层等), 所以 paper 状态下**同时带 html.light**,
+   由本段在其后覆盖中性色 —— 顺序很重要, 必须排在 html.light 之后。 */
+html.paper {
+  color-scheme: light;
+
+  /* 文字: 暖黑而非冷黑 */
+  --c-text-primary: 43 38 34;      /* #2B2622 墨黑正文 */
+  --c-text-secondary: 107 97 86;   /* #6B6156 次级文字 */
+  --c-text-muted: 138 128 116;
+  --c-text-disabled: 170 161 150;
+
+  /* 表面: 纸 */
+  --c-bg: 250 247 241;             /* #FAF7F1 纸底 */
+  --c-bg-raised: 255 253 249;      /* #FFFDF9 卡片本白 */
+  --c-bg-elevated: 255 253 249;
+  --c-bg-card: 255 253 249;
+  --c-bg-card-hover: 247 243 236;
+  --c-bg-input: 255 253 249;
+  --c-bg-overlay: 247 243 236;
+
+  /* 描边: 淡褐 */
+  --c-line: rgba(231, 222, 209, 1);        /* #E7DED1 */
+  --c-line-hover: rgba(205, 192, 174, 1);
+  --c-line-strong: rgba(180, 165, 145, 1);
+
+  /* 状态色: 压低饱和, 避免在暖底上刺眼 */
+  --c-success: 122 139 111;   /* #7A8B6F 暖灰绿 */
+  --c-warning: 192 138 46;    /* #C08A2E 警示琥珀 */
+  --c-danger: 178 74 62;
+  --c-info: 139 94 52;
+}
+html.paper body { color: rgb(43 38 34); background: rgb(250 247 241); }
+
+
+/* ========= 纸感·深色（"墨夜"） =========
+   2026-09-24 用户需求："主题设置里调整浅色或深色，V2 也需要一套深色系配色"。
+
+   ## 为什么原来选深色没反应
+   `applyTheme` 里有一句 `useLight = isPaper || mode !== "dark"` ——
+   纸感基线**强制走 light**，于是 v2 用户点「深色」毫无变化。
+   那句 hack 的本意是"paper 是浅色的"，但它把"暖色中性"和"亮"绑死了，
+   而这两件事本来正交：暖色完全可以是暗的（墨、宣纸的夜灯观感）。
+
+   ## 为什么不直接复用 :root 的暗色基线
+   `:root` 是**冷蓝**暗色（#0F172A 一路），配赭石棕主色会变成"冷底+棕按钮"，
+   跟 paper 当初要解决的问题一模一样。所以这里给一套**暖**的暗色中性：
+   底不是蓝黑而是墨褐，字不是纯白而是米白，描边带一点褐。
+
+   选择器是 `html.paper.dark`（两个类）→ 特异性高于 `html.paper`，
+   且排在其后，能稳定覆盖上面那段浅色中性。
+   深色下**不带 `html.light` 类**，所以 168 行起那一大片
+   "强制白底"的遗留适配不会来捣乱（那层曾把透明 textarea 涂成白色）。 */
+html.paper.dark {
+  color-scheme: dark;
+
+  /* 文字: 米白而非纯白，降低暗底上的眩光 */
+  --c-text-primary: 237 230 218;   /* #EDE6DA 米白正文 */
+  --c-text-secondary: 186 176 162; /* #BAB0A2 次级 */
+  --c-text-muted: 143 134 122;
+  --c-text-disabled: 107 99 90;
+
+  /* 表面: 墨褐，逐层提亮（底 < 卡片 < 浮层） */
+  --c-bg: 26 23 21;                /* #1A1715 墨底 */
+  --c-bg-raised: 34 30 27;         /* #221E1B 卡片 */
+  --c-bg-elevated: 40 35 31;       /* #28231F 浮层/抽屉 */
+  --c-bg-card: 34 30 27;
+  --c-bg-card-hover: 45 40 35;
+  --c-bg-input: 30 27 24;
+  --c-bg-overlay: 45 40 35;
+
+  /* 描边: 带褐的暗灰，不用纯黑（暗底上纯黑等于没有边） */
+  --c-line: rgba(64 57 50 / 1);
+  --c-line-hover: rgba(88 78 68 / 1);
+  --c-line-strong: rgba(122 109 95 / 1);
+
+  /* 状态色: 暗底上要**提亮**，浅色那套压低饱和的值在这里会看不见 */
+  --c-success: 154 176 138;   /* 暖灰绿提亮 */
+  --c-warning: 224 173 76;    /* 琥珀提亮 */
+  --c-danger: 214 108 94;
+  --c-info: 194 150 104;
+}
+html.paper.dark body { color: rgb(237 230 218); background: rgb(26 23 21); }
+
+/* 纸感深色下，正文编辑区那个"隐形 textarea"必须继续透明。
+   浅色时靠 `html.light textarea.inline-editor` 压掉遗留白底；
+   深色不带 .light，但仍要显式声明，免得将来有人在 :root 层加回背景色。 */
+html.paper.dark textarea.inline-editor,
+html.paper.dark textarea.inline-editor:focus {
+  background-color: transparent !important;
+  color: rgb(var(--c-text-primary)) !important;
+}
+
+
+/* ========= 原生 select 选项可读性修复 (全平台) =========
+   原生 <select> 展开的 <option> 弹层由操作系统/浏览器绘制,
+   不继承 text-ink-primary 的白色文本却用系统白底, 导致白字白底不可分辨。
+   显式给 option/optgroup 指定背景与文字色, 暗色/亮色各自适配。 */
+select option,
+select optgroup {
+  background-color: #1e1f2b;
+  color: rgb(226 232 240);
+}
+html.light select option,
+html.light select optgroup {
+  background-color: #ffffff;
+  color: rgb(15 23 42);
+}
+
+/* ========= 浅色模式样式覆盖 ========= */
+
+/* 主容器渐变→浅色 */
+html.light .min-h-screen.bg-gradient-to-br,
+html.light .min-h-screen[class*="bg-gradient"] {
+  background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 50%, #faf5ff 100%) !important;
+  color: rgb(15 23 42) !important;
+}
+
+/* 所有深色背景全部覆盖为浅色+阴影+边框 */
+html.light [class*="bg-slate-800"],
+html.light [class*="bg-slate-900"],
+html.light [class*="bg-slate-700"] {
+  background-color: rgb(255 255 255 / 0.9) !important;
+  color: rgb(15 23 42);
+  backdrop-filter: blur(8px);
+}
+
+/* 卡片(草稿卡等)加阴影+浅色边框 */
+html.light .rounded-xl[class*="border-purple"],
+html.light .rounded-xl[class*="bg-slate"],
+html.light .rounded-lg[class*="bg-slate"],
+html.light .backdrop-blur {
+  border-color: rgb(229 231 235) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+html.light .rounded-xl:hover,
+html.light .rounded-lg:hover {
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.15);
+}
+
+/* 搜索框/input背景 */
+html.light input,
+html.light textarea,
+html.light select {
+  background-color: white !important;
+  color: rgb(15 23 42) !important;
+  border-color: rgb(203 213 225) !important;
+}
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: rgb(148 163 184) !important;
+}
+
+/* 新版工作台正文的「隐形编辑器」——点一下就地改，视觉上只多一个光标。
+   ⚠️ 必须写在这儿、且带 !important、且选择器比上面那条更具体：
+   `html.light textarea { background-color: white !important }` 是历史遗留的
+   全局 !important 层，会把**任何** textarea 涂成白底+灰边 ——
+   于是"点击即编辑"会当场蹦出一个白盒子（2026-09-21 实测，用户明确否掉）。
+   不动那条规则（一堆老页面的输入框靠它撑样式），只给这个类开一道口子。 */
+html.light textarea.inline-editor,
+textarea.inline-editor {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  color: inherit !important;
+}
+
+/* ============================================================
+   工作台字号档位（用户 2026-09-21：右上角 5 挡、且默认偏小）
+   ============================================================
+   ## 为什么不用"改 html 根字号"这种常规做法
+   Tailwind 的 `text-sm` 是 rem，理论上跟着根字号缩放 —— 但本项目大量使用
+   **任意值 px**（`text-[11px]` / `text-[10px]`）以及固定高度（`h-14`），
+   px 不会跟着根字号动。结果会是"正文变大、小标签不变、行高错乱"，
+   而且会连带影响所有页面的间距与栏宽（rem 的 padding/width 一起放大）。
+
+   所以改成**只缩放字号本身**：三档语义类 × 一个 `--fs-scale` 乘子。
+   - `.fs-body` 正文（14px 基准，行高用 em 所以自动跟着缩放）
+   - `.fs-ui`   界面文字（12px：页签、按钮）
+   - `.fs-meta` 附属信息（11px：集号、状态、树图）
+   组件里把原来的 `text-sm/text-xs/text-[11px]` 换成这三个类，
+   层级关系固定、不会像 em 那样逐层相乘。
+   ⚠️ 新增工作台里的文字请沿用这三个类，别再写死 px，否则调字号时它不动。 */
+.fs-body {
+  font-size: calc(14px * var(--fs-scale, 1));
+  line-height: 2em;
+}
+.fs-ui {
+  font-size: calc(12px * var(--fs-scale, 1));
+  line-height: 1.5em;
+}
+.fs-meta {
+  font-size: calc(11px * var(--fs-scale, 1));
+  line-height: 1.45em;
+}
+
+/* 边框色 */
+html.light [class*="border-slate-7"],
+html.light [class*="border-slate-6"],
+html.light [class*="border-purple-500/20"],
+html.light [class*="border-purple-500/30"],
+html.light [class*="border-purple-500/50"] {
+  border-color: rgb(226 232 240) !important;
+}
+
+/* 文字色 */
+html.light [class*="text-slate-3"] { color: rgb(51 65 85) !important; }
+html.light [class*="text-slate-4"] { color: rgb(71 85 105) !important; }
+html.light [class*="text-slate-5"] { color: rgb(100 116 139) !important; }
+html.light .text-white { color: rgb(15 23 42) !important; }
+
+/* hover深色 → hover浅灰 */
+html.light [class*="hover:bg-slate-"]:hover {
+  background-color: rgb(241 245 249) !important;
+}
+
+/* 主操作按钮(purple系)保持彩色 */
+html.light button[class*="bg-purple-6"],
+html.light button[class*="bg-cyan-6"],
+html.light button[class*="bg-indigo-6"],
+html.light button[class*="from-purple-6"],
+html.light .bg-red-700,
+html.light .bg-red-600,
+html.light .bg-yellow-600 {
+  color: white !important;
+}
+
+/* 侧边栏标签项默认浅色 */
+html.light .bg-slate-800\/30 {
+  background-color: rgb(255 255 255 / 0.85) !important;
+  border-color: rgb(226 232 240) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* 选中态 */
+html.light .bg-purple-600\/30,
+html.light [class*="bg-purple-6"][class*="/30"] {
+  background-color: rgba(139, 92, 246, 0.15) !important;
+  color: rgb(139 92 246) !important;
+}
+
+/* 半透明叠加条 */
+html.light [class*="bg-amber-9"][class*="/3"],
+html.light [class*="bg-red-9"][class*="/3"],
+html.light [class*="bg-blue-9"][class*="/3"] {
+  background-color: rgb(254 249 195) !important;
+  color: rgb(120 53 15) !important;
+  border-color: rgb(252 211 77) !important;
+}
+
+/* 渐变按钮(登录注册页)保留 */
+html.light [class*="bg-gradient-to-r"][class*="from-purple"] {
+  color: white !important;
+}
+
+/* tags颜色徽章保持彩色(样式是inline的) */
+
+/* Modal遮罩(保持深色) */
+html.light .bg-black\/60 {
+  background-color: rgba(15, 23, 42, 0.4) !important;
+}
+/* Modal本体 */
+html.light .bg-slate-800.rounded-2xl,
+html.light .bg-slate-800.rounded-xl {
+  background: white !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+}
+
+/* 深/浅色模式共用的按钮主色(用CSS变量) */
+.btn-primary {
+  background-color: rgb(var(--color-primary));
+  color: white;
+}
+.btn-primary:hover { filter: brightness(1.1); }
+
+/* react-colorful */
+.react-colorful {
+  width: 100% !important;
+  height: 180px !important;
+}
+
+/* 顶部fixed用户菜单 在浅色下调色 */
+html.light .fixed.top-3 button[class*="bg-slate-8"],
+html.light .fixed.top-3 button[class*="bg-slate-9"] {
+  background: white !important;
+  border-color: rgb(226 232 240) !important;
+  color: rgb(15 23 42) !important;
+}
+
+/* ========= 主色动态应用(CSS变量驱动,高优先级覆盖Tailwind) ========= */
+/* 实色按钮 */
+.bg-purple-500,
+.bg-purple-600,
+.bg-purple-700,
+.hover\:bg-purple-500:hover,
+.hover\:bg-purple-600:hover,
+.hover\:bg-purple-700:hover {
+  background-color: rgb(var(--color-primary)) !important;
+}
+.hover\:bg-purple-700:hover,
+.hover\:bg-purple-600:hover {
+  filter: brightness(0.9);
+}
+.hover\:bg-purple-500:hover {
+  filter: brightness(1.1);
+}
+
+/* 半透明紫色背景(标签选中、卡片背景等) */
+.bg-purple-500\/10 { background-color: rgb(var(--color-primary) / 0.1) !important; }
+.bg-purple-500\/20,
+.bg-purple-600\/20 { background-color: rgb(var(--color-primary) / 0.2) !important; }
+.bg-purple-500\/30,
+.bg-purple-600\/30 { background-color: rgb(var(--color-primary) / 0.3) !important; }
+
+/* pink/accent色 */
+.bg-pink-500,
+.bg-pink-600,
+.hover\:bg-pink-500:hover,
+.hover\:bg-pink-600:hover {
+  background-color: rgb(var(--color-accent)) !important;
+}
+
+/* 渐变按钮 from-purple to-pink */
+.bg-gradient-to-r.from-purple-500,
+.bg-gradient-to-r.from-purple-600 {
+  background: linear-gradient(to right, rgb(var(--color-primary)), rgb(var(--color-accent))) !important;
+}
+.bg-gradient-to-br.from-purple-500,
+.bg-gradient-to-br.from-purple-600 {
+  background: linear-gradient(to bottom right, rgb(var(--color-primary)), rgb(var(--color-accent))) !important;
+}
+.hover\:from-purple-500:hover,
+.hover\:from-purple-600:hover {
+  filter: brightness(1.1);
+}
+
+/* 文字主色 */
+.text-purple-300,
+.text-purple-400,
+.text-purple-500,
+.text-purple-600 {
+  color: rgb(var(--color-primary)) !important;
+}
+
+/* 边框主色(包括focus) */
+.border-purple-500,
+.border-purple-600,
+.focus\:border-purple-500:focus,
+.focus\:border-purple-400:focus {
+  border-color: rgb(var(--color-primary)) !important;
+}
+.border-purple-500\/20,
+.border-purple-500\/30,
+.border-purple-500\/40,
+.border-purple-500\/50 {
+  border-color: rgb(var(--color-primary) / 0.3) !important;
+}
+
+/* range slider */
+input[type=range].accent-purple-500,
+input[type=range].accent-purple-600 {
+  accent-color: rgb(var(--color-primary)) !important;
+}
+
+/* 复选框/单选的accent */
+input[type=checkbox].accent-purple-500,
+input[type=radio].accent-purple-500 {
+  accent-color: rgb(var(--color-primary)) !important;
+}
+
+/* ring效果(focus时) */
+.ring-purple-500,
+.focus\:ring-purple-500:focus {
+  --tw-ring-color: rgb(var(--color-primary)) !important;
+}
+
+/* ========= 自定义背景启用时,让出主容器渐变 ========= */
+/* 页面渐变让位给body自定义背景 */
+html[data-bg-custom="true"] .min-h-screen.bg-gradient-to-br,
+html[data-bg-custom="true"] .min-h-screen[class*="bg-gradient"] {
+  background: transparent !important;
+}
+
+/* ============================================================
+ * Kit v2 — Phase 1 新设计系统 (PLAN_UI_REVAMP §37)
+ *
+ * 目标:
+ *  - 与上方旧主题系统完全隔离, 不互相覆盖
+ *  - 新组件库 (components/ui/*) 使用 .kit-* 命名空间或新颜色 token
+ *  - 旧页面继续工作, Phase 2-5 各阶段逐页迁移
+ *
+ * 永远不要在这里写覆盖旧 .bg-purple-* / .bg-slate-* 的规则
+ * ============================================================ */
+
+/* 滚动条 (深色主题) — 仅在新组件容器里启用 */
+.kit-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.32) transparent;
+}
+.kit-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.kit-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.kit-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
+}
+.kit-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(148, 163, 184, 0.42);
+}
+
+/* Skeleton shimmer 渐变 (供 components/ui/Skeleton 用) */
+.kit-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.06) 0%,
+    rgba(148, 163, 184, 0.18) 50%,
+    rgba(148, 163, 184, 0.06) 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* Toast / ConfirmDialog / Modal 容器层 z-index 规范 */
+.kit-z-toast { z-index: 9000; }
+.kit-z-modal { z-index: 8500; }
+.kit-z-drawer { z-index: 8000; }
+.kit-z-popover { z-index: 7500; }
+.kit-z-tooltip { z-index: 9500; }
+
+/* 半透明玻璃卡片 (新组件 Card 用) — 跟随主题 token, 暗色玻璃质感 / 浅色白底。
+   原先写死 rgba(18,24,43) 导致浅色模式下卡片仍是深底(本次主题修复关键)。 */
+.kit-card {
+  background-color: rgb(var(--c-bg-card) / 0.92);
+  border: 1px solid var(--c-line);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.kit-card:hover {
+  background-color: rgb(var(--c-bg-card-hover) / 0.96);
+}
+
+/* 触控最小区域 (mobile) */
+@media (max-width: 767px) {
+  .kit-touch {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* 焦点环 — 给新表单组件用, 与浏览器默认 outline 区分 */
+.kit-focus-ring:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.72);
+  outline-offset: 2px;
+}
+
+/* ──────────────────────────────────────────────────────────
+ * Phase 3 全局视觉统一 (9 个 panel 一次性吃到 token v2)
+ * 不改 panel 文件本身, 只对老类名做样式叠加, 提升对比度 / 圆角 / 玻璃质感
+ * ────────────────────────────────────────────────────────── */
+.bg-slate-800\/50 {
+  background-color: rgba(20, 26, 46, 0.72) !important;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.bg-slate-800\/40 {
+  background-color: rgba(20, 26, 46, 0.6) !important;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.bg-slate-800\/30 {
+  background-color: rgba(20, 26, 46, 0.42) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.bg-slate-900\/50,
+.bg-slate-900\/40,
+.bg-slate-900\/30 {
+  background-color: rgba(11, 16, 32, 0.66) !important;
+}
+/* 边框统一为更柔和的紫蓝色, 减少多 panel 拼接时的硬切感 */
+.border-purple-500\/20,
+.border-purple-500\/30 {
+  border-color: rgba(139, 92, 246, 0.22) !important;
+}
+.border-slate-700 {
+  border-color: rgba(60, 70, 100, 0.55) !important;
+}
+.border-slate-700\/30,
+.border-slate-700\/50 {
+  border-color: rgba(60, 70, 100, 0.32) !important;
+}
+/* 提示色块统一 (yellow / amber / red / blue 状态条) */
+.bg-yellow-900\/20 { background-color: rgba(120, 80, 12, 0.18) !important; }
+.bg-amber-900\/30 { background-color: rgba(120, 70, 12, 0.28) !important; }
+.bg-red-900\/30   { background-color: rgba(124, 36, 36, 0.28) !important; }
+.bg-green-900\/30 { background-color: rgba(20, 90, 60, 0.28) !important; }
+.bg-blue-900\/30  { background-color: rgba(20, 60, 110, 0.28) !important; }
+
+/* 章节 / 段落卡片悬浮微动效
+ * 限定: 只对老 panel 里 bg-slate-800/* 玻璃卡生效, 不影响 Modal/Drawer/Tooltip/Toast/新 Card 等弹层
+ * 也跳过 .kit-card (新组件已有自己的 hover 规则)
+ */
+.rounded-xl.border[class*="bg-slate-800"]:not(.kit-card):not([role="dialog"]):not([role="alertdialog"]):not([role="tooltip"]):not([role="menu"]):hover {
+  border-color: rgba(139, 92, 246, 0.4);
+  box-shadow: 0 4px 18px -8px rgba(139, 92, 246, 0.18);
+  transition: border-color 180ms ease-out, box-shadow 180ms ease-out;
+}
+
+/* 减弱动效（PLAN-页面切换动画 §2）——系统开了"减少动态效果"就全部关掉。
+   这是无障碍要求，也是 iOS/macOS 的系统级约定：有前庭失调的人看整屏动画会不适。
+   放在文件末尾，确保排在所有动画类之后。 */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-slide-up,
+  .animate-slide-down,
+  .animate-slide-in-right,
+  .animate-breathe,
+  .animate-shimmer {
+    animation: none !important;
+  }
+}

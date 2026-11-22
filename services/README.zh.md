@@ -20,3 +20,5 @@ kind: "reference"
 [工作台登录适配器](muse-workbenches/README.zh.md)通过 Muse 网关将用户登录到剧本工坊和镜流原有的业务账号。
 
 [`jingliu`](jingliu/README.zh.md) 收录 Muse 制片引擎镜流的后端：云端发布的后端去掉登录适配，再加上其 README 列出的尚未部署的改动。
+
+[`workshop`](workshop/README.zh.md) 收录剧本工坊的源码：Muse 存放定稿剧本的云端剧本工作台，含 FastAPI 后端和 Next.js 前端。

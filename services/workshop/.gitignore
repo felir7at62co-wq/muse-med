@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.db
+*.sqlite*
+.env
+.env.*
+/backend/uploads/
+/frontend/node_modules/
+/frontend/.next/
+*.tsbuildinfo
+# The root `lib/` rule targets build output; the frontend's lib/ is source.
+!/frontend/lib/

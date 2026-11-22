@@ -20,3 +20,5 @@ English | [中文](README.zh.md)
 The [workbench login adapters](muse-workbenches/README.md) sign Script workshop and Jingliu users into their original business accounts through the Muse account gateway.
 
 [`jingliu`](jingliu/README.md) holds the backend of Jingliu, Muse's production engine: the cloud release's backend without the login overlay, plus the changes its README lists as not yet deployed.
+
+[`workshop`](workshop/README.md) holds the source of Script Workshop, the cloud script studio where Muse stores finalized scripts: its FastAPI backend and its Next.js frontend.

@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write services/workshop/README.md
+/script-workshop:
+  en: 6861c7f576fffa95
+  zh: 5f7e5462e3d84415
+/script-workshop/how-it-runs-in-the-cloud:
+  en: 5bd5abb2a66d43f7
+  zh: 5af263034b12ff51
+/script-workshop/source:
+  en: 3d1e2bad863414da
+  zh: d6c3b541b3c2ad5b
+/script-workshop/layout:
+  en: bff1c0b078bd3034
+  zh: 95b7f74d0d13e2fe
+/script-workshop/tests-and-checks:
+  en: 411127f4d3de2b68
+  zh: 2ef3e33e015491bf
+/script-workshop/repository-attributes:
+  en: 27ab34539101bd01
+  zh: 8c65957ce5fce88a
+/script-workshop/not-in-this-repository:
+  en: a101a9b4d6c7b416
+  zh: ac50709f36e99aa4

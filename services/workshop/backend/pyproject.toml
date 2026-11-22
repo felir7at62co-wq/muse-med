@@ -1,0 +1,63 @@
+[project]
+name = "orchestrator"
+version = "0.1.0"
+description = "Drama Script System - LangGraph + FastAPI orchestration engine"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "python-docx>=1.1.0",
+    "chardet>=5.2.0",
+    "pypdf>=4.0.0",
+    "pdfplumber>=0.11.0",
+    "bcrypt>=4.0",
+    "psutil>=5.9",
+    "Pillow>=10.0",
+    "python-jose[cryptography]>=3.3",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.2.0",
+    # Agent 引擎（2026-10-18 实测版本，升级须重跑 agent_engine 的故障注入与回归测试）
+    "langgraph==1.2.13",
+    "langgraph-checkpoint==4.3.0",
+    "langgraph-checkpoint-postgres==3.2.0",
+    "redis>=5.0.0",
+    "httpx>=0.27.0",
+    "sse-starlette>=2.1.0",
+    "python-multipart>=0.0.9",
+    "orjson>=3.10.0",
+    "structlog>=24.1.0",
+    # 必须带 [asyncio]：SQLAlchemy 2.1 起 greenlet 由硬依赖降级为 asyncio extra，
+    # 裸写 sqlalchemy 会装上 2.1 却不带 greenlet，启动时 app/db/session.py 直接 ImportError。
+    # 上限钉 <2.1 以保持在已验证的 2.0.54（prod 也是这个版本）。
+    "sqlalchemy[asyncio]>=2.0.0,<2.1",
+    "psycopg[binary]>=3.2.0",
+    "alembic>=1.13.0",
+    "minio>=7.2.0",
+    "oss2>=2.18.0",
+    "tos>=2.6.0",
+    "yt-dlp>=2024.0.0",
+    "faster-whisper>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
