@@ -1808,5 +1808,137 @@
     }
    }
   }
+ ],
+ "spans_about": "subtitle_source_span: a cue's [start, end] in source-file seconds -> [offset in the shot on the output timeline, duration], or null when it lies outside the trim window. The window is [clip_in_sec, clip_in_sec + (clip_dur_sec or duration_sec or 5)); speed 1 when null.",
+ "spans": [
+  {
+   "name": "untrimmed_normal_speed",
+   "shot": {
+    "clip_in_sec": null,
+    "clip_dur_sec": null,
+    "duration_sec": 5.0,
+    "speed": null
+   },
+   "start": 1.0,
+   "end": 2.0,
+   "expect": [
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "name": "inside_a_trim_window",
+   "shot": {
+    "clip_in_sec": 2.0,
+    "clip_dur_sec": 3.0,
+    "duration_sec": 3.0,
+    "speed": null
+   },
+   "start": 2.5,
+   "end": 3.5,
+   "expect": [
+    0.5,
+    1.0
+   ]
+  },
+  {
+   "name": "starts_before_the_in_point",
+   "shot": {
+    "clip_in_sec": 2.0,
+    "clip_dur_sec": 3.0,
+    "duration_sec": 3.0,
+    "speed": null
+   },
+   "start": 1.0,
+   "end": 2.5,
+   "expect": [
+    0.0,
+    0.5
+   ]
+  },
+  {
+   "name": "ends_after_the_out_point",
+   "shot": {
+    "clip_in_sec": 2.0,
+    "clip_dur_sec": 3.0,
+    "duration_sec": 3.0,
+    "speed": null
+   },
+   "start": 4.8,
+   "end": 6.0,
+   "expect": [
+    2.8,
+    0.2
+   ]
+  },
+  {
+   "name": "after_the_window_is_dropped",
+   "shot": {
+    "clip_in_sec": 2.0,
+    "clip_dur_sec": 3.0,
+    "duration_sec": 3.0,
+    "speed": null
+   },
+   "start": 5.5,
+   "end": 6.0,
+   "expect": null
+  },
+  {
+   "name": "before_the_window_is_dropped",
+   "shot": {
+    "clip_in_sec": 2.0,
+    "clip_dur_sec": 3.0,
+    "duration_sec": 3.0,
+    "speed": null
+   },
+   "start": 0.5,
+   "end": 1.5,
+   "expect": null
+  },
+  {
+   "name": "double_speed_after_a_trim",
+   "shot": {
+    "clip_in_sec": 1.0,
+    "clip_dur_sec": 4.0,
+    "duration_sec": 4.0,
+    "speed": 2.0
+   },
+   "start": 3.0,
+   "end": 4.0,
+   "expect": [
+    1.0,
+    0.5
+   ]
+  },
+  {
+   "name": "half_speed",
+   "shot": {
+    "clip_in_sec": null,
+    "clip_dur_sec": null,
+    "duration_sec": 6.0,
+    "speed": 0.5
+   },
+   "start": 1.0,
+   "end": 2.0,
+   "expect": [
+    2.0,
+    2.0
+   ]
+  },
+  {
+   "name": "no_duration_uses_five_seconds",
+   "shot": {
+    "clip_in_sec": null,
+    "clip_dur_sec": null,
+    "duration_sec": null,
+    "speed": null
+   },
+   "start": 4.5,
+   "end": 6.0,
+   "expect": [
+    4.5,
+    0.5
+   ]
+  }
  ]
 }

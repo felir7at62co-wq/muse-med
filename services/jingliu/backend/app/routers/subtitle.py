@@ -142,6 +142,7 @@ def create_subtitle_clip(body: SubtitleClipIn) -> dict:
             duration=max(0.1, body.duration),
             style=json.dumps(body.style, ensure_ascii=False) if body.style else None,
             created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            origin="manual",          # 手加的：不参与「按哪份素材做的」判断（见 subtitle_status）
         )
         session.add(s)
         session.commit()

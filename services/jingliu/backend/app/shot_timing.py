@@ -296,6 +296,23 @@ def subtitle_output_span(shot, offset_sec, dur_sec) -> tuple[float, float]:
             float(dur_sec or 0.0) / spd)
 
 
+def subtitle_source_span(shot, start_sec, end_sec) -> tuple[float, float] | None:
+    """`time_base='source'` 字幕的 `(镜内偏移, 显示时长)`：**源文件秒 → 成片秒**；落在取片窗口外返回 None。
+
+    这种字幕（Muse 逐字字幕，2026-11-21）的起止是这一镜**源文件**里的秒：转写的是整个文件，
+    不减取片入点、不除变速。导出时先截到取片窗口 `[入点, 入点+时长)` 里，再减入点、除速度：
+    修剪掉的那段话不出字幕，入点后移不会让字幕整体错位。与老口径 `subtitle_output_span`
+    （偏移相对取片窗口，见那里的说明）是两种数据，按 `SubtitleClip.time_base` 选用，不能混。
+    """
+    cin, dur = shot_source_window(shot)
+    spd = shot_speed(shot)
+    a = max(float(start_sec or 0.0), cin)
+    b = min(float(end_sec or 0.0), cin + dur)
+    if b <= a:
+        return None
+    return (a - cin) / spd, (b - a) / spd
+
+
 def episode_total_sec(shots) -> float:
     """一批镜头在成片里的总时长（秒）。**停用/没出片的不算**。
 

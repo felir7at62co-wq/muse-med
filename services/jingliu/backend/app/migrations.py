@@ -48,6 +48,16 @@ _COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("fade_in_sec", "fade_in_sec REAL"),
         ("fade_out_sec", "fade_out_sec REAL"),
     ],
+    # 字幕的素材身份与时间口径（2026-11-21，Muse 逐字字幕），见 db.SubtitleClip。
+    # 都不给默认值：NULL 就是「老数据，不知道按哪份素材做的」（状态 unverified）。
+    "subtitle_clips": [
+        ("source_shot_id", "source_shot_id VARCHAR(16)"),
+        ("source_video_url", "source_video_url TEXT"),
+        ("source_version", "source_version INTEGER"),
+        ("source_sha256", "source_sha256 VARCHAR(64)"),
+        ("time_base", "time_base VARCHAR(8)"),
+        ("origin", "origin VARCHAR(8)"),
+    ],
     "jobs": [
         ("created_at", "created_at VARCHAR(32)"),
         ("updated_at", "updated_at VARCHAR(32)"),
@@ -402,7 +412,27 @@ _TABLES: dict[str, str] = {
           start_offset_sec REAL DEFAULT 0,
           duration REAL DEFAULT 3,
           style TEXT,
-          created_at TEXT DEFAULT (datetime('now'))
+          created_at TEXT DEFAULT (datetime('now')),
+          source_shot_id VARCHAR(16),
+          source_video_url TEXT,
+          source_version INTEGER,
+          source_sha256 VARCHAR(64),
+          time_base VARCHAR(8),
+          origin VARCHAR(8)
+        )""",
+    # 一镜的字幕最近一次按哪份素材做的（2026-11-21），见 db.SubtitleSource
+    "subtitle_sources": """
+        CREATE TABLE IF NOT EXISTS subtitle_sources (
+          shot_id VARCHAR(16) PRIMARY KEY,
+          project_id VARCHAR(16) NOT NULL,
+          source_video_url TEXT,
+          source_version INTEGER,
+          source_sha256 VARCHAR(64),
+          origin VARCHAR(8),
+          cues INTEGER DEFAULT 0,
+          review_pending INTEGER DEFAULT 0,
+          job_id VARCHAR(16),
+          updated_at VARCHAR(32)
         )""",
     # 首帧流水线防偏移核心：每 (项目,集,场景) 一张"场景基准帧"。
     # 同场景所有镜头的首帧都以它为参考图 → 陈设/光线/机位基调统一，
@@ -572,6 +602,11 @@ _INDEXES: list[str] = [
     # 老库走的是 ALTER TABLE ADD COLUMN，不会带出索引。
     "CREATE INDEX IF NOT EXISTS ix_audio_clips_source_shot "
     "ON audio_clips (source_shot_id)",
+    # 字幕按来源镜头找（2026-11-21）：Muse 逐字字幕按镜头替换、按镜头算新旧
+    "CREATE INDEX IF NOT EXISTS ix_subtitle_clips_source_shot "
+    "ON subtitle_clips (source_shot_id)",
+    "CREATE INDEX IF NOT EXISTS ix_subtitle_sources_project_id "
+    "ON subtitle_sources (project_id)",
 
     # ---- 巡检的瞬时态扫描（2026-10-24 审计）----
     #

@@ -2271,7 +2271,8 @@ async def apply_subtitle_plan(ctx: ToolCtx, project_id: str,
                     text=piece, kind=str(c.get("kind") or "subtitle"),
                     start_shot_order=order,
                     start_offset_sec=max(0.0, st),
-                    duration=max(0.1, pdur), style=None, created_at=now))
+                    duration=max(0.1, pdur), style=None, created_at=now,
+                    origin="manual"))
                 made += 1
         s.commit()
 

@@ -1082,6 +1082,9 @@ def _export_draft(project_id: str, req: ExportReq) -> dict:
             .filter(SubtitleClip.project_id == project_id).all()
             if (c.start_shot_order or 0) in orders]
 
+        # 换过素材却没重做的字幕照样导出（老行为），但要说出来：时间可能对不上口型
+        warnings = [] if raw else _stale_subtitle_warnings(session, project_id, shots)
+
         ep_tag = f"第{req.episode}集" if req.episode is not None else "全片"
         # 草稿名带上「原片」，否则用户在剪映的工程列表里分不清两个同名工程
         name = f"{proj.title or project_id}-{ep_tag}" + ("-原片" if raw else "")
@@ -1121,8 +1124,8 @@ def _export_draft(project_id: str, req: ExportReq) -> dict:
         if req.single_file:
             # 传长度而不是 shots 本身：会话早已关闭，脱管的 ORM 对象读到
             # 未加载的属性会抛 DetachedInstanceError。
-            return _emit_single_file(pack, pack_name, built, mats,
-                                     len(shots), info)
+            return {**_emit_single_file(pack, pack_name, built, mats, len(shots), info),
+                    "warnings": warnings}
 
         zip_path = EXPORT_DIR / f"{pack_name}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
@@ -1151,7 +1154,19 @@ def _export_draft(project_id: str, req: ExportReq) -> dict:
         # 链接是短命的，必须告诉前端——否则用户过一小时再点只会拿到一个
         # 没头没尾的 404，而真相是"包已按期清掉，重新导一份即可"。
         "expires_in_sec": EXPORT_TTL_SEC,
+        "warnings": warnings,
     }
+
+
+def _stale_subtitle_warnings(session, project_id: str, shots) -> list[str]:
+    """字幕是按旧素材做的镜头（`subtitle_status` 为 stale）→ 一句提示；没有就是空列表。"""
+    from ..subtitle_status import STALE, shot_statuses
+    statuses = shot_statuses(session, project_id, shots)
+    stale = [s.order for s in shots if statuses.get(s.id) == STALE]
+    if not stale:
+        return []
+    named = "、".join(str(o) for o in stale[:20]) + (" 等" if len(stale) > 20 else "")
+    return [f"{len(stale)} 个镜头换过素材，字幕还是按旧素材做的（镜号 {named}），时间可能对不上，请重新生成字幕"]
 
 # ---------------------------------------------------------------------------
 # 按集导出镜头文件（2026-10-21）
