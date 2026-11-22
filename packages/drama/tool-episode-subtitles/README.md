@@ -57,6 +57,8 @@ Correction and layout run once per call through the vendored `subtitle_rules/run
 
 `review` pages the items in `subtitles/NN.review.json`. With `decisions` it writes `subtitles/NN.decisions.json` and rebuilds the affected episodes without new recognition. Decisions are keyed by item ID, so they survive edits to other shots and stop applying when their own shot changes.
 
+Draft builders read an episode's current approved selection and measured clock with `localEpisodeSelection` from `@deepseek-ai/dsh-tool-episode-subtitles/selection`, which applies the same checks and rewrites the same manifest.
+
 `source: "jingliu"` is reserved for Jingliu projects; until the Jingliu provider is mounted every such episode is reported `jingliu_outdated`.
 
 -----

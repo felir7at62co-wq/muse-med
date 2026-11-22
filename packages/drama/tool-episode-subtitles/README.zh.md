@@ -57,6 +57,8 @@ Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及�
 
 `review` 分页列出 `subtitles/NN.review.json` 中的待核项。带 `decisions` 时写入 `subtitles/NN.decisions.json`，并在不新转写的情况下重排受影响的集。选择按待核项 ID 保存，因此其他镜头修改后仍然有效，自身镜头变化后自动失效。
 
+草稿构建方通过 `@deepseek-ai/dsh-tool-episode-subtitles/selection` 的 `localEpisodeSelection` 读取一集当前的已审核选片和实测时钟，它执行相同的检查并重写同一份清单。
+
 `source: "jingliu"` 留给镜流项目；在镜流 provider 挂载之前，这类集都报告 `jingliu_outdated`。
 
 -----
