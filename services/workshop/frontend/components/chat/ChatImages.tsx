@@ -14,7 +14,7 @@
  * 把几 MB 的图塞进发消息的请求体，会让流式回复迟迟不开始，用户看到的是
  * "点了发送没反应"。先传可以和打字并行完成。
  *
- * ## 为什么不能直接 <img src="/v1/agent/images/1">
+ * ## 为什么不能直接 <img src="/jubengongfang/v1/agent/images/1">
  * 那个接口要 Bearer 鉴权（截图里常有隐私，不能做成公开静态文件），
  * 而 <img> 标签不会带 Authorization 头。所以用 authFetch 取成 blob，
  * 再给 <img> 一个 objectURL。见 AuthImage。

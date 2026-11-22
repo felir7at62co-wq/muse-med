@@ -37,7 +37,7 @@ type WorkspaceState = {
 };
 
 const JOB_TYPE_LABELS: Record<string, string> = {
-  create_spawn: "从零创作", import_spawn: "导入裂变", batch_to_video: "批量转视频",
+  create_spawn: "从零创作", import_spawn: "导入裂变", batch_to_video: "批量转视频", video_transcribe: "视频转剧本",
 };
 const STAGE_LABELS: Record<string, string> = {
   brainstorm: "创意", outline: "大纲", check: "质检",
@@ -405,7 +405,7 @@ type TabKey = "production" | "assets" | "cost";
 export default function FactoryPage() {
   if (typeof window !== "undefined") {
     if (!getUser()) {
-      window.location.href = "/login?from=/factory";
+      window.location.href = "/jubengongfang/login?from=/factory";
       return null;
     }
   }

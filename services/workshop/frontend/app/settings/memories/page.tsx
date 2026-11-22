@@ -48,7 +48,7 @@ type Profile = {
 };
 
 export default function MemoriesPage() {
-  if (typeof window !== "undefined" && !getUser()) { window.location.href = "/login"; return null; }
+  if (typeof window !== "undefined" && !getUser()) { window.location.href = "/jubengongfang/login"; return null; }
   const router = useRouter();
 
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -233,7 +233,7 @@ export default function MemoriesPage() {
               ) : memories.length === 0 ? (
                 <div className="text-center py-16 text-ink-secondary">
                   <img
-                    src="/brand/empty-no-memories.webp"
+                    src="/jubengongfang/brand/empty-no-memories.webp"
                     alt=""
                     className="w-40 h-28 object-contain mx-auto mb-4 select-none"
                   />

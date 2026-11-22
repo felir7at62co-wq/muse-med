@@ -135,7 +135,7 @@ export function DramaCard({
 
         {runtime.status === "submitted" && runtime.draftId && (
           <a
-            href={`/drafts/${runtime.draftId}`}
+            href={`/jubengongfang/drafts/${runtime.draftId}`}
             target="_blank"
             rel="noreferrer"
             className="text-caption text-primary hover:underline shrink-0"

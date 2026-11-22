@@ -182,7 +182,7 @@ export function useV2Href(logicalPath: string): string {
 export function draftPath(id: number | string): string {
   const onV2 =
     typeof window !== "undefined" &&
-    (window.location.pathname === "/v2" || window.location.pathname.startsWith("/v2/"));
+    (window.location.pathname === "/jubengongfang/v2" || window.location.pathname.startsWith("/jubengongfang/v2/"));
   return onV2 ? `/v2/drafts/${id}` : `/drafts/${id}`;
 }
 

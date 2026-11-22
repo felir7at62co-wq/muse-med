@@ -40,7 +40,7 @@ export default function FeishuClaimPage() {
     window.history.replaceState(null, "", "/auth/feishu/claim");
     (async () => {
       try {
-        const r = await fetch(`/v1/auth/feishu/claim/info?claim_token=${encodeURIComponent(t)}`,
+        const r = await fetch(`/jubengongfang/v1/auth/feishu/claim/info?claim_token=${encodeURIComponent(t)}`,
                               { cache: "no-store" });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j?.detail || "认领链接已失效，请重新扫码");
@@ -62,7 +62,7 @@ export default function FeishuClaimPage() {
     setBusy(true);
     setErr("");
     try {
-      const r = await fetch("/v1/auth/feishu/claim/new", {
+      const r = await fetch("/jubengongfang/v1/auth/feishu/claim/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ claim_token: token }),
@@ -82,7 +82,7 @@ export default function FeishuClaimPage() {
     setBusy(true);
     setErr("");
     try {
-      const r = await fetch("/v1/auth/feishu/claim/existing", {
+      const r = await fetch("/jubengongfang/v1/auth/feishu/claim/existing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ claim_token: token, username, password }),

@@ -161,7 +161,7 @@ function SuperAgentInner() {
               ))}
               <button onClick={() => setIframeKey((x) => x + 1)} className="ml-auto p-1" title="刷新"><RefreshCw className="w-3.5 h-3.5" /></button>
             </div>
-            <iframe key={iframeKey} src={`/drafts/${draftId}?embed=1&bare=1&tab=${tab}`} className="flex-1 w-full bg-surface-base" title="草稿" />
+            <iframe key={iframeKey} src={`/jubengongfang/drafts/${draftId}?embed=1&bare=1&tab=${tab}`} className="flex-1 w-full bg-surface-base" title="草稿" />
           </aside>
         )}
 

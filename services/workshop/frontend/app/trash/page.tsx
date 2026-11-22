@@ -11,7 +11,7 @@ const BASE = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "";
 export default function TrashPage() {
   const router = useRouter();
   if (typeof window !== "undefined" && !getUser()) {
-    window.location.href = "/login";
+    window.location.href = "/jubengongfang/login";
     return null;
   }
 
@@ -91,7 +91,7 @@ export default function TrashPage() {
           ) : items.length === 0 ? (
             <div className="text-center text-ink-secondary py-20">
               <img
-                src="/brand/empty-trash.webp"
+                src="/jubengongfang/brand/empty-trash.webp"
                 alt=""
                 className="w-40 h-28 object-contain mx-auto mb-4 select-none"
               />

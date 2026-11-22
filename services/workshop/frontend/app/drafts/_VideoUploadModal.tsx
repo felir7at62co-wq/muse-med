@@ -1,4 +1,5 @@
 "use client";
+import { submitWorkshopVideo } from "@/lib/workshop_video_intake";
 import { authFetch, getToken } from "../../lib/auth";
 import { draftPath } from "@/components/VersionSwitcher";
 import {
@@ -84,6 +85,7 @@ export function VideoUploadModal({
   const [picked, setPicked] = useState<Record<string, number>>({});
 
   const ctrlsRef = useRef<Map<string, UploadController>>(new Map());
+  const serverUpload = useRef<AbortController | null>(null);
 
   // ===== 贴链接: 从一个或多个链接(每行一个)下载→反推 =====
   async function submitUrls(rawUrls: string[]) {
@@ -265,42 +267,47 @@ export function VideoUploadModal({
 
     const uploadIds: string[] = [];
     try {
-      for (let i = 0; i < files.length; i++) {
-        const item = files[i];
-        if (item.status === "done" && item.upload_id) {
-          uploadIds.push(item.upload_id);
-          continue;
-        }
-        updateFile(item.id, { status: "uploading", error: undefined });
-        appendLog(`第${i + 1}集 [${item.file.name}] 开始上传 (${formatBytes(item.file.size)})`);
+      const controller = new AbortController();
+      serverUpload.current = controller;
+      const r = await submitWorkshopVideo(
+        BASE, token, files.map(item => item.file), title, concurrency, controller.signal, async () => {
+        for (let i = 0; i < files.length; i++) {
+          const item = files[i];
+          if (item.status === "done" && item.upload_id) {
+            uploadIds.push(item.upload_id);
+            continue;
+          }
+          updateFile(item.id, { status: "uploading", error: undefined });
+          appendLog(`第${i + 1}集 [${item.file.name}] 开始上传 (${formatBytes(item.file.size)})`);
 
-        const ctrl = uploadToOss({
-          file: item.file,
-          token,
-          namespace: "video",
-          extra: { episode_index: i + 1 },
-          kind: "auto",
-          concurrency: 4,
-          onProgress: (p) => updateFile(item.id, { progress: p }),
-          onLog: (m) => appendLog(`第${i + 1}集 ${m}`),
+          const ctrl = uploadToOss({
+            file: item.file,
+            token,
+            namespace: "video",
+            extra: { episode_index: i + 1 },
+            kind: "auto",
+            concurrency: 4,
+            onProgress: (p) => updateFile(item.id, { progress: p }),
+            onLog: (m) => appendLog(`第${i + 1}集 ${m}`),
+          });
+          ctrlsRef.current.set(item.id, ctrl);
+          try {
+            const result = await ctrl.promise;
+            uploadIds.push(result.upload_id);
+            updateFile(item.id, { status: "done", upload_id: result.upload_id });
+          } finally {
+            ctrlsRef.current.delete(item.id);
+          }
+        }
+
+        setPhase("creating");
+        appendLog(`全部 ${files.length} 集已上传, 正在创建草稿...`);
+
+        return fetch(`${BASE}/v1/video/from-oss`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ upload_ids: uploadIds, title: title.trim() || undefined, concurrency }),
         });
-        ctrlsRef.current.set(item.id, ctrl);
-        try {
-          const result = await ctrl.promise;
-          uploadIds.push(result.upload_id);
-          updateFile(item.id, { status: "done", upload_id: result.upload_id });
-        } finally {
-          ctrlsRef.current.delete(item.id);
-        }
-      }
-
-      setPhase("creating");
-      appendLog(`全部 ${files.length} 集已上传, 正在创建草稿...`);
-
-      const r = await fetch(`${BASE}/v1/video/from-oss`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ upload_ids: uploadIds, title: title.trim() || undefined, concurrency }),
       });
       if (!r.ok) {
         const txt = await r.text();
@@ -342,6 +349,7 @@ export function VideoUploadModal({
     }
   }
   function cancelAll() {
+    serverUpload.current?.abort();
     for (const ctrl of ctrlsRef.current.values()) ctrl.abort();
     ctrlsRef.current.clear();
     setPhase("idle");
@@ -393,7 +401,7 @@ export function VideoUploadModal({
           <Film className="w-6 h-6 text-primary" />
           从视频反推剧本
           <span className="text-xs font-normal text-ink-muted ml-2">
-            OSS 直传 · 支持 50GB 大文件 · 支持断点续传
+            按列表顺序逐集反推
           </span>
         </span>
       }

@@ -44,7 +44,7 @@ function fmtNum(n?: number): string {
 
 export default function MarketDataPage() {
   if (typeof window !== "undefined" && !getUser()) {
-    window.location.href = "/login?from=/market-data";
+    window.location.href = "/jubengongfang/login?from=/market-data";
     return null;
   }
   const router = useRouter();

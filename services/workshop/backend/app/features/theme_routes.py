@@ -17,7 +17,7 @@ router = APIRouter(prefix="/v1", tags=["theme"])
 logger = logging.getLogger("theme")
 
 # 容器内路径
-UPLOAD_ROOT = Path("/app/uploads")
+UPLOAD_ROOT = Path(os.environ["UPLOADS_DIR"])
 THEMES_DIR = UPLOAD_ROOT / "themes"
 PRESETS_DIR = UPLOAD_ROOT / "preset-backgrounds"
 for d in [THEMES_DIR, PRESETS_DIR]:
@@ -112,7 +112,7 @@ async def upload_theme_bg(file: UploadFile = File(...), user: User = Depends(get
     filepath = user_dir / fname
     filepath.write_bytes(compressed)
     
-    url = f"/v1/uploads/themes/{user.id}/{fname}"
+    url = f"/jubengongfang/v1/uploads/themes/{user.id}/{fname}"
     
     # 更新theme_config
     async with session_scope() as s:
@@ -190,8 +190,8 @@ async def upload_preset(
     (PRESETS_DIR / fname).write_bytes(compressed)
     (PRESETS_DIR / thumb_fname).write_bytes(thumb_bytes)
     
-    url = f"/v1/uploads/preset-backgrounds/{fname}"
-    thumb_url = f"/v1/uploads/preset-backgrounds/{thumb_fname}"
+    url = f"/jubengongfang/v1/uploads/preset-backgrounds/{fname}"
+    thumb_url = f"/jubengongfang/v1/uploads/preset-backgrounds/{thumb_fname}"
     
     async with session_scope() as s:
         result = await s.execute(

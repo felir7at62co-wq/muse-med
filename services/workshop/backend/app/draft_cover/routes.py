@@ -32,7 +32,7 @@ logger = logging.getLogger("draft_cover")
 router = APIRouter(prefix="/v1/drafts", tags=["draft-cover"])
 
 # 静态目录: 与 uploads 卷一致, 通过 /v1/drafts/uploads/draft-covers/* 暴露
-OUTPUT_DIR = Path("/app/uploads/draft-covers")
+OUTPUT_DIR = (Path(os.environ["UPLOADS_DIR"]) / "draft-covers")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # 单张生成的并发与重试
@@ -72,7 +72,7 @@ def _svg_path(draft_id: int) -> Path:
 
 
 def _public_url(filename: str) -> str:
-    return f"/v1/drafts/uploads/draft-covers/{filename}"
+    return f"/jubengongfang/v1/drafts/uploads/draft-covers/{filename}"
 
 
 # ────────────────────── SVG fallback (内容相关的纯程序化封面) ──────────────────────

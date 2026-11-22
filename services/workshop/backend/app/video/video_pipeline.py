@@ -30,7 +30,7 @@ from ..stages.log_helper import save_log
 from ..factory.usage import set_usage_context
 # 引擎: 豆包(方舟)视频反推 — TOS + Files API 整片上传(2GB), 原画质, 无需本地降规格/切片。
 # 旧 gemini_video(base64 内联, 128MB 限制, 需降帧率切片)已停用, 保留文件供参考。
-from .doubao_video import analyze_video_file
+from ..muse_reverse import analyze_video_file, reserve_revisions
 
 logger = logging.getLogger("video.pipeline")
 
@@ -46,6 +46,7 @@ async def _process_single_episode(
     known_characters: list[dict],
     model: str = "",
     *,
+    revision: str | None = None,
     source_kind: str = "local",  # "local"=本地文件路径 / "oss"=TOS 对象 key
     user_id: int | None = None,
 ) -> dict[str, Any]:
@@ -62,7 +63,7 @@ async def _process_single_episode(
                    "log", episode_order)
     t0 = time.time()
 
-    max_attempts = 2
+    max_attempts = 1
     last_err: Exception | None = None
     result = None
     for attempt in range(1, max_attempts + 1):
@@ -72,13 +73,13 @@ async def _process_single_episode(
                     draft_title=draft_title,
                     episode_order=episode_order,
                     known_characters=known_characters,
-                    oss_key=video_source,
+                    oss_key=video_source, revision=revision,
                     user_id=user_id,
                     draft_id=draft_id,
                 )
             else:
                 result = await analyze_video_file(
-                    video_path=video_source,
+                    video_path=video_source, revision=revision,
                     draft_title=draft_title,
                     episode_order=episode_order,
                     known_characters=known_characters,
@@ -128,6 +129,20 @@ async def _process_single_episode(
 
     # 落库 chapter + storyboard
     async with session_scope() as s:
+        draft = await s.get(ScriptDraft, draft_id, with_for_update=True)
+        outline = dict(draft.outline or {})
+        pending = dict(outline.get("muse_reverse_pending") or {})
+        expected = pending.pop(str(episode_order), None)
+        if expected and expected != result["muse_materials"]["revision"]:
+            raise RuntimeError("本集已有更新的反推任务")
+        if pending:
+            outline["muse_reverse_pending"] = pending
+        else:
+            outline.pop("muse_reverse_pending", None)
+        outputs = dict(outline.get("muse_reverse") or {})
+        outputs[str(episode_order)] = result["muse_materials"]
+        outline["muse_reverse"] = outputs
+        draft.outline = outline
         # chapter(如果已存在就覆盖)
         existing_ch = (await s.execute(
             select(ScriptChapter).where(
@@ -238,6 +253,7 @@ async def run_video_to_script_pipeline(
     episode_oss_keys: dict[int, str] | None = None,
     user_id: int | None = None,
     skip_existing: bool = False,
+    revision: str | None = None,
 ) -> None:
     """一个 draft 下的多集视频并发分析(豆包整片反推),全部落库。
 
@@ -281,6 +297,8 @@ async def run_video_to_script_pipeline(
 
     if not items:
         return
+    if revision:
+        await reserve_revisions(draft_id, [item[0] for item in items], revision)
 
     # 断点续跑: 已经有正文的集直接从待办里摘掉。
     # ⚠️ 必须在"写日志"之前摘, 否则日志里会出现"共 60 集"而实际只跑 3 集,
@@ -330,7 +348,7 @@ async def run_video_to_script_pipeline(
             try:
                 ep_chars = await _process_single_episode(
                     draft_id, order, src, draft_title, all_characters,
-                    model=model, source_kind=kind, user_id=user_id,
+                    model=model, source_kind=kind, user_id=user_id, revision=revision,
                 )
                 all_characters = _merge_characters(all_characters, ep_chars)
                 success_count += 1
@@ -359,7 +377,7 @@ async def run_video_to_script_pipeline(
                 try:
                     ep_chars = await _process_single_episode(
                         draft_id, order, src, draft_title, baseline_chars,
-                        model=model, source_kind=kind, user_id=user_id,
+                        model=model, source_kind=kind, user_id=user_id, revision=revision,
                     )
                     success_count += 1
                     success_orders.add(order)
@@ -454,7 +472,9 @@ async def orders_with_text(draft_id: int) -> set[int]:
             select(ScriptChapter.chapter_order, ScriptChapter.full_text)
             .where(ScriptChapter.draft_id == draft_id)
         )).all()
-    return {int(o) for o, t in rows if o is not None and (t or "").strip()}
+        draft = await s.get(ScriptDraft, draft_id)
+        pending = ((draft.outline or {}).get("muse_reverse_pending") or {}) if draft else {}
+    return {int(o) for o, t in rows if o is not None and (t or "").strip() and str(o) not in pending}
 
 
 # 旧名保留: 同模块内的流水线跳过逻辑仍按原名调用

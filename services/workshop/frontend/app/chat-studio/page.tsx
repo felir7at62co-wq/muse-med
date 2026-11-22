@@ -365,7 +365,7 @@ export default function ChatStudioPage() {
 
   useEffect(() => {
     if (!getUser()) {
-      window.location.href = "/login?from=" + encodeURIComponent("/chat-studio");
+      window.location.href = "/jubengongfang/login?from=" + encodeURIComponent("/chat-studio");
       return;
     }
     setAuthed(true);
@@ -2416,7 +2416,7 @@ export default function ChatStudioPage() {
           </div>
 
           {/* 草稿产物面板（B11 / PLAN §4.5.7）。
-              此前这里是 `<iframe src="/drafts/{id}?embed=1">` —— 把整个工作台塞进来，
+              此前这里是 `<iframe src="/jubengongfang/drafts/{id}?embed=1">` —— 把整个工作台塞进来，
               用户想看"我正在写的那份东西"却拿到一整套后台（总览/预览/分析/生图/
               提示词/导出…）。用户原话："只是粗暴的把页面塞了进去"。
 
@@ -3278,7 +3278,7 @@ function SettingsPanel() {
         {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
         {savedTip ? "✓ 已保存" : "保存"}
       </button>
-      <a href="/settings/memories" className="block text-center py-2 bg-surface-overlay hover:bg-surface-raised border border-line rounded text-primary transition">
+      <a href="/jubengongfang/settings/memories" className="block text-center py-2 bg-surface-overlay hover:bg-surface-raised border border-line rounded text-primary transition">
         完整记忆管理 →
       </a>
     </div>

@@ -12,6 +12,7 @@ import { Button, Card, Badge, Progress } from "@/components/ui";
 import { KanbanView } from "./_KanbanView";
 import { OutlineDetailModal } from "./_OutlineDetailModal";
 import { DistributeModal } from "./_DistributeModal";
+import { TranscribeStatus } from "./_TranscribeStatus";
 
 const BASE = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "";
 const API = `${BASE}/v1/factory`;
@@ -65,7 +66,8 @@ type JobDetail = {
   finished_at?: string;
   steps: ExecutionStep[];
   products: Product[];
-  progress?: { status_message?: string; percent?: number };
+  progress?: { status_message?: string; percent?: number; slots?: any[] };
+  result?: any;
   total_tokens?: number;
   total_cost?: number;
   target_episodes?: number;
@@ -77,6 +79,7 @@ type JobDetail = {
 const JOB_TYPE_LABELS: Record<string, string> = {
   create_spawn: "从零创作",
   import_spawn: "导入剧本",
+  video_transcribe: "视频转剧本",
   batch_to_video: "批量转视频",
 };
 
@@ -165,7 +168,7 @@ const STEP_LABELS: Record<string, string> = {
 export default function JobDetailPage() {
   if (typeof window !== "undefined") {
     if (!getUser()) {
-      window.location.href = "/login?from=/factory";
+      window.location.href = "/jubengongfang/login?from=/factory";
       return null;
     }
   }
@@ -686,6 +689,10 @@ export default function JobDetailPage() {
                   })}
                 </div>
               </Card>
+            )}
+
+            {job.job_type === "video_transcribe" && (
+              <TranscribeStatus progress={job.progress} result={job.result} running={job.status === "running"} />
             )}
 
             {/* V4大纲生产看板 - 仅对create_spawn任务显示,任务进行中自动轮询 */}

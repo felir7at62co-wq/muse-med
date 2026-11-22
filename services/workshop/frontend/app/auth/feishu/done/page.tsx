@@ -67,7 +67,7 @@ export default function FeishuDonePage() {
         try {
           const token = getToken();
           if (!token) throw new Error("登录态已失效，请重新登录后再绑定");
-          const r = await fetch("/v1/auth/feishu/link", {
+          const r = await fetch("/jubengongfang/v1/auth/feishu/link", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -102,7 +102,7 @@ export default function FeishuDonePage() {
     (async () => {
       try {
         // fragment 里只有 token，用户信息再拉一次（顺带验证 token 有效）
-        const r = await fetch("/v1/auth/me", {
+        const r = await fetch("/jubengongfang/v1/auth/me", {
           headers: { Authorization: `Bearer ${at}` },
           cache: "no-store",
         });
@@ -125,7 +125,7 @@ export default function FeishuDonePage() {
     try {
       const token = getToken();
       if (!token) throw new Error("登录态已失效，请重新登录后再试");
-      const r = await fetch("/v1/auth/feishu/merge", {
+      const r = await fetch("/jubengongfang/v1/auth/feishu/merge", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

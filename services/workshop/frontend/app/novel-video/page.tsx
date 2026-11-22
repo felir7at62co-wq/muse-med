@@ -64,12 +64,12 @@ type FileItem = { name: string; text: string; refKeys?: string[] };
 export default function NovelVideoPage() {
   if (typeof window !== "undefined") {
     if (!getUser()) {
-      window.location.href = "/login?from=/novel-video";
+      window.location.href = "/jubengongfang/login?from=/novel-video";
       return null;
     }
     // 无"小说转视频"权限的普通用户直接挡回首页(后端也有 require_novel_video 兜底)
     if (!canNovelVideo()) {
-      window.location.href = "/";
+      window.location.href = "/jubengongfang/";
       return null;
     }
   }

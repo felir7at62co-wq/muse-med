@@ -28,7 +28,10 @@ from ..video import (
     run_video_to_script_pipeline,
 )
 
+from ..reverse_routes import require_reverse, router as muse_materials_router
+
 router = APIRouter(prefix="/v1", tags=["video"])
+router.include_router(muse_materials_router)
 logger = logging.getLogger("features.video")
 
 # 视频临时存储目录(落地在容器内,任务完成后由流水线清理)
@@ -42,11 +45,11 @@ _bg_tasks: dict[int, asyncio.Task] = {}
 # ---------------------------------------------------------------------------
 # 1. 上传 + 启动
 # ---------------------------------------------------------------------------
-@router.post("/video/upload")
+@router.post("/video/upload", dependencies=[Depends(require_reverse)])
 async def upload_videos(
     files: list[UploadFile] = File(..., description="按集顺序的视频文件列表"),
     title: str = Form("", description="剧名(可选,不填则取第一个文件名)"),
-    model: str = Form("", description="留空即用 ark_video_understand_model(豆包)"),
+    model: str = Form("", description="兼容已有客户端，反推使用工坊的 Muse 模型配置"),
     concurrency: int = Form(1, ge=1, le=5, description="并发集数,默认串行保证角色一致性"),
     user: User = Depends(get_current_user),
 ):
@@ -167,15 +170,8 @@ async def upload_videos(
         except Exception as e:
             logger.exception("video pipeline crashed: %s", e)
         finally:
-            # 清理批次目录(成功集的本地文件已被 cleanup_files 删, 这里兜底清剩余大文件 + 空目录)
-            try:
-                for p in saved_paths:
-                    pp = Path(p)
-                    if pp.exists():
-                        pp.unlink()
-            except Exception: pass
-            try: batch_dir.rmdir()
-            except Exception: pass
+            if batch_dir.is_dir() and not any(batch_dir.iterdir()):
+                batch_dir.rmdir()
             _bg_tasks.pop(draft_id, None)
 
     task = asyncio.create_task(_run())
@@ -206,7 +202,7 @@ class ProbeUrlIn(BaseModel):
 class FromUrlIn(BaseModel):
     urls: list[str] = Field(..., min_length=1, max_length=20, description="按集顺序的视频链接列表")
     title: str = Field("", description="剧名(可选, 不填用第一条视频标题)")
-    model: str = Field("", description="留空即用 ark_video_understand_model(豆包)")
+    model: str = Field("", description="兼容已有客户端，反推使用工坊的 Muse 模型配置")
     delete_source_after: bool = Field(True, description="反推完成后删除本地原始视频(仅留分析文本)")
 
 
@@ -290,7 +286,7 @@ async def search_videos_endpoint(payload: SearchVideosIn, user: User = Depends(g
     return {"ok": True, "supported": True, "platform": platform, "results": results}
 
 
-@router.post("/video/from-url")
+@router.post("/video/from-url", dependencies=[Depends(require_reverse)])
 async def create_draft_from_url(payload: FromUrlIn, user: User = Depends(get_current_user)):
     """从一个或多个视频链接下载 → 切分 → 反推剧本(后台)。
 
@@ -399,26 +395,15 @@ async def create_draft_from_url(payload: FromUrlIn, user: User = Depends(get_cur
                 draft_title=(draft_title or "链接视频反推"),
                 model=model,
                 concurrency=1,
-                cleanup_files=True,
+                cleanup_files=delete_source,
                 user_id=user_id,
             )
         except Exception as e:
             logger.exception("from-url pipeline crashed: %s", e)
         finally:
-            # 反推后清理原始下载文件(delete_source=只留分析, 不留片源)
-            if delete_source:
-                for p in saved_paths:
-                    try:
-                        pp = Path(p)
-                        if pp.exists():
-                            pp.unlink()
-                    except Exception:
-                        pass
-            try:
-                import shutil
-                shutil.rmtree(batch_dir, ignore_errors=True)
-            except Exception:
-                pass
+            # 用户选择保留片源时保留下载目录。
+            if batch_dir.is_dir() and not any(batch_dir.iterdir()):
+                batch_dir.rmdir()
             _bg_tasks.pop(draft_id, None)
 
     task = asyncio.create_task(_run_from_url())
@@ -444,7 +429,7 @@ class FromOssIn(BaseModel):
     concurrency: int = Field(default=1, ge=1, le=5)
 
 
-@router.post("/video/from-oss")
+@router.post("/video/from-oss", dependencies=[Depends(require_reverse)])
 async def create_draft_from_oss(payload: FromOssIn, user: User = Depends(get_current_user)):
     """从已通过 /v1/oss/* 直传完成的视频创建草稿并启动反推。
 
@@ -527,7 +512,7 @@ async def create_draft_from_oss(payload: FromOssIn, user: User = Depends(get_cur
     try:
         await save_log(
             draft_id, "video_ingest",
-            f"OSS 直传完成, 共 {len(oss_keys)} 集, 即将用豆包原画质整片反推(直读 TOS)...",
+            f"OSS 直传完成, 共 {len(oss_keys)} 集, 即将用 Muse 核对原声、字幕与画面...",
             "log", 0, {"source_oss_keys": oss_keys, "total_bytes": total_bytes_estimated},
         )
     except Exception:
@@ -559,7 +544,7 @@ async def create_draft_from_oss(payload: FromOssIn, user: User = Depends(get_cur
 
             await save_log(
                 draft_id, "video_ingest",
-                f"共 {total_segments} 集, 豆包原画质整片反推(直读 TOS, 无需切片)已启动",
+                f"共 {total_segments} 集, Muse 逐集反推已启动",
                 "log", 0, {"episode_count": total_segments},
             )
 
@@ -715,7 +700,7 @@ class RetryFailedIn(BaseModel):
     concurrency: int = 1
 
 
-@router.post("/video/drafts/{draft_id}/retry-failed")
+@router.post("/video/drafts/{draft_id}/retry-failed", dependencies=[Depends(require_reverse)])
 async def retry_failed_episodes(
     draft_id: int,
     payload: RetryFailedIn,
@@ -801,7 +786,7 @@ class ResumeIn(BaseModel):
     redo_done: bool = False
 
 
-@router.post("/video/drafts/{draft_id}/resume")
+@router.post("/video/drafts/{draft_id}/resume", dependencies=[Depends(require_reverse)])
 async def resume_interrupted(
     draft_id: int,
     payload: ResumeIn,
@@ -867,6 +852,7 @@ async def resume_interrupted(
                 user_id=user_id,
                 # 用户明确要"全部重跑"时才重烧已完成的集
                 skip_existing=not payload.redo_done,
+                revision=uuid.uuid4().hex if payload.redo_done else None,
             )
         except Exception as e:
             logger.exception("resume pipeline crashed: %s", e)

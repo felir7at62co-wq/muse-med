@@ -162,7 +162,7 @@ async def run_pipeline(run_id: int, pipeline_id: int, user_id: int, resume: bool
                 jid = e.get("job_id")
                 if jid:
                     all_job_ids.append(jid)
-                    if e.get("type") == "create_spawn":
+                    if e.get("type") in ("create_spawn", "video_transcribe"):
                         prev_script_ids = await _job_scripts(jid)
             else:
                 resume_job_id = e.get("job_id")
@@ -206,6 +206,85 @@ async def run_pipeline(run_id: int, pipeline_id: int, user_id: int, resume: bool
                 entry["summary"] = f"产出剧本 {len(prev_script_ids)} 部"
                 if status not in ("completed", "succeeded") and not prev_script_ids:
                     raise RuntimeError(f"创作步骤失败(status={status})")
+
+            elif stype == "video_transcribe":
+                from .video_transcribe import run_video_transcribe_job
+                scfg.setdefault("task_name", f"[自动流]{pl.name}")
+                if resume and resume_job_id:
+                    job_id = resume_job_id
+                    resume_job_id = None
+                    async for session in get_session():
+                        job = (await session.execute(
+                            select(FactoryJob).where(FactoryJob.id == job_id)
+                        )).scalar_one_or_none()
+                        if job and job.status != "running":
+                            job.status = "pending"
+                            await session.commit()
+                        break
+                else:
+                    async for session in get_session():
+                        job = FactoryJob(user_id=user_id, job_type="video_transcribe",
+                                         status="pending", config=scfg, progress={}, result={})
+                        session.add(job)
+                        await session.commit()
+                        await session.refresh(job)
+                        job_id = job.id
+                        break
+                entry["job_id"] = job_id
+                await _update_run(run_id, step_runs=list(step_runs))
+                task = asyncio.create_task(run_video_transcribe_job(job_id, scfg, user_id))
+                status = await _wait_job(job_id, timeout=float("inf"))
+                entry["status"] = status
+                prev_script_ids = await _job_scripts(job_id)
+                all_job_ids.append(job_id)
+                entry["summary"] = f"出稿 {len(prev_script_ids)} 部"
+                if status == "stopped":
+                    entry["finished_at"] = datetime.utcnow().isoformat()
+                    await _update_run(run_id, status="stopped", step_runs=list(step_runs),
+                                      finished_at=datetime.utcnow())
+                    return
+                if status not in ("completed", "succeeded") and not prev_script_ids:
+                    raise RuntimeError(f"视频转剧本步骤失败(status={status})")
+
+            elif stype == "video_transcribe":
+                from .video_transcribe import run_video_transcribe_job
+                scfg.setdefault("task_name", f"[自动流]{pl.name}")
+                if resume and resume_job_id:
+                    job_id = resume_job_id
+                    resume_job_id = None
+                    async for session in get_session():
+                        job = (await session.execute(
+                            select(FactoryJob).where(FactoryJob.id == job_id)
+                        )).scalar_one_or_none()
+                        if job and job.status != "running":
+                            from .video_transcribe import reopen
+                            reopen(job)
+                            await session.commit()
+                        break
+                else:
+                    async for session in get_session():
+                        job = FactoryJob(user_id=user_id, job_type="video_transcribe",
+                                         status="pending", config=scfg, progress={}, result={})
+                        session.add(job)
+                        await session.commit()
+                        await session.refresh(job)
+                        job_id = job.id
+                        break
+                entry["job_id"] = job_id
+                await _update_run(run_id, step_runs=list(step_runs))
+                task = asyncio.create_task(run_video_transcribe_job(job_id, scfg, user_id))
+                status = await _wait_job(job_id, timeout=float("inf"))
+                entry["status"] = status
+                prev_script_ids = await _job_scripts(job_id)
+                all_job_ids.append(job_id)
+                entry["summary"] = f"出稿 {len(prev_script_ids)} 部"
+                if status == "stopped":
+                    entry["finished_at"] = datetime.utcnow().isoformat()
+                    await _update_run(run_id, status="stopped", step_runs=list(step_runs),
+                                      finished_at=datetime.utcnow())
+                    return
+                if status not in ("completed", "succeeded") and not prev_script_ids:
+                    raise RuntimeError(f"视频转剧本步骤失败(status={status})")
 
             elif stype == "import_spawn":
                 if not prev_script_ids:

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthExpiryGuard } from "./_AuthExpiryGuard";
-import { FeishuBindBanner } from "@/components/auth/FeishuBindBanner";
 import { KitProviders } from "@/components/_KitProviders";
 
 export const metadata: Metadata = {
@@ -26,13 +25,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
+      <head><script src="/jubengongfang/v1/auth/muse/storage.js"></script></head>
       <body className="min-h-screen bg-surface-base text-ink-primary antialiased dark:bg-surface-base dark:text-ink-primary">
         {/* Kit v2 全局 Provider (Toast / Confirm) — 不影响旧页面渲染 */}
         <KitProviders>
           {/* 全局登录态守卫: 刷新/路由切换时检测 token 过期, 自动跳登录 */}
           <AuthExpiryGuard />
-          {/* 过渡期: 未绑定飞书的存量用户顶部持续提醒(绑定后自动消失) */}
-          <FeishuBindBanner />
           {children}
           {/* 旧的右下角"Agent 助手"和"问题反馈"悬浮按钮已移除;
               问题反馈入口改到右上角用户头像下拉菜单(见 _UserNav)。 */}

@@ -3,7 +3,7 @@
  * 草稿产物面板 —— 对话工坊右侧「我正在写的那份东西」（PLAN §4.5.7 / B11）
  *
  * ## 它取代了什么
- * 此前右栏是一个 `<iframe src="/drafts/{id}?embed=1">` —— 把**整个工作台**塞进来，
+ * 此前右栏是一个 `<iframe src="/jubengongfang/drafts/{id}?embed=1">` —— 把**整个工作台**塞进来，
  * 于是用户拿到的是总览、预览、分析、生图、提示词、导出……一整套后台，
  * 而他此刻想看的只是"我正在写的这份东西"。用户原话：
  * "现在的对话工坊右半侧只是粗暴的把页面塞了进去。"
@@ -168,7 +168,7 @@ export function DraftProductPane({
         {/* 只读页签的出口：要改原文/小说/推文就去工作台对应 tab。
             ⚠️ 这里**不**做"能编辑"的假象 —— 见文件顶部注释。 */}
         <a
-          href={`/drafts/${draftId}?tab=${kind}`}
+          href={`/jubengongfang/drafts/${draftId}?tab=${kind}`}
           target="_blank"
           rel="noopener noreferrer"
           className="p-1 rounded hover:bg-surface-overlay text-ink-muted hover:text-ink-primary transition-colors"

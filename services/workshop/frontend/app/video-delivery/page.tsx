@@ -64,7 +64,7 @@ function tagClass(tag: string): string {
 
 export default function VideoDeliveryPage() {
   if (typeof window !== "undefined" && !getUser()) {
-    window.location.href = "/login?from=/video-delivery";
+    window.location.href = "/jubengongfang/login?from=/video-delivery";
     return null;
   }
   const router = useRouter();

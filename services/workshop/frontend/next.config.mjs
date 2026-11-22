@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // 关掉 StrictMode：在 dev 下会让副作用跑 2 次，导致 SSE reader 被意外 abort
+  basePath: "/jubengongfang",
+  output: "standalone",
   reactStrictMode: false,
   env: {
     // 默认空字符串 = 走同源相对路径 + next rewrites 代理

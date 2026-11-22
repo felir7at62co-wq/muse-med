@@ -8,6 +8,7 @@ const BASE = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "";
 const API = `${BASE}/v1/factory`;
 
 const STEP_LABELS: Record<string, string> = {
+  video_transcribe: "视频转剧本",
   create_spawn: "从零创作",
   import_spawn: "裂变",
   distribute: "分发",
@@ -16,6 +17,16 @@ const PROVIDERS = ["gemini", "qwen", "deepseek", "gpt5", "claude"];
 const STAGE_LABELS: Record<string, string> = {
   brainstorm: "创意", outline: "大纲", check: "质检", script: "剧本", novel: "小说", tweet: "推文",
 };
+
+type HitStatus = { ready: boolean; error?: string; queue?: Record<string, number>; maxSlots?: number };
+const HIT_DEFAULTS = { count: 0, concurrency: 1, quality: "720p", publish: false, only_series: "" };
+const hitSummary = (c: any) => [
+  c?.count ? `${c.count}部` : "持续",
+  `同时${c?.concurrency ?? 1}部`,
+  c?.quality || "720p",
+  c?.publish ? "自动上架" : "",
+  (c?.only_series || []).length ? `指定${c.only_series.length}部` : "",
+].filter(Boolean).join(" · ");
 
 export function PipelinePanel() {
   const authHeaders = () => ({ Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" });
@@ -28,6 +39,9 @@ export function PipelinePanel() {
 
   // 编辑器状态
   const [pName, setPName] = useState("");
+  const [enableHit, setEnableHit] = useState(false);
+  const [hitCfg, setHitCfg] = useState(HIT_DEFAULTS);
+  const [hitStatus, setHitStatus] = useState<HitStatus | null>(null);
   const [enableCreate, setEnableCreate] = useState(true);
   const [createCfg, setCreateCfg] = useState({ total_scripts: 10, episodes: 50, words_per_chapter: 1000, theme: "" });
   const [enableSpawn, setEnableSpawn] = useState(false);
@@ -56,6 +70,11 @@ export function PipelinePanel() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!showEditor) return;
+    fetch(`${API}/video-transcribe/status`, { headers: authHeaders() })
+      .then((r) => r.ok ? r.json() : null).then(setHitStatus).catch(() => setHitStatus(null));
+  }, [showEditor]);
   // 有运行中的流时轮询
   useEffect(() => {
     if (!runs.some((r) => r.status === "running")) return;
@@ -66,6 +85,7 @@ export function PipelinePanel() {
   const handleSave = async () => {
     if (!pName.trim()) { alert("请填预设名称"); return; }
     const steps: any[] = [];
+    if (enableHit) steps.push({ type: "video_transcribe", config: { ...hitCfg, only_series: hitCfg.only_series.split(/[\s,，、]+/).filter(Boolean) } });
     if (enableCreate) steps.push({ type: "create_spawn", config: { ...createCfg } });
     if (enableSpawn) steps.push({ type: "import_spawn", config: { spawn_config: { novel: { enabled: spawnNovel, count: 1 }, tweet: { enabled: spawnTweet, count: 1 }, video: { enabled: false } } } });
     if (enableDist && distTargetId) {
@@ -89,6 +109,7 @@ export function PipelinePanel() {
 
   const closeEditor = () => {
     setShowEditor(false); setEditingId(null); setPName("");
+    setEnableHit(false); setHitCfg(HIT_DEFAULTS);
     setEnableCreate(true); setCreateCfg({ total_scripts: 10, episodes: 50, words_per_chapter: 1000, theme: "" });
     setEnableSpawn(false); setSpawnNovel(true); setSpawnTweet(true);
     setEnableDist(false); setDistTargetId(0);
@@ -100,6 +121,9 @@ export function PipelinePanel() {
     // 把既有预设的steps回填到编辑器
     setEditingId(p.id); setPName(p.name || "");
     const steps: any[] = p.steps || [];
+    const vt = steps.find((s) => s.type === "video_transcribe");
+    setEnableHit(!!vt);
+    setHitCfg(vt ? { ...HIT_DEFAULTS, ...vt.config, only_series: (vt.config?.only_series || []).join(", ") } : HIT_DEFAULTS);
     const cs = steps.find((s) => s.type === "create_spawn");
     setEnableCreate(!!cs);
     if (cs) setCreateCfg({
@@ -142,6 +166,13 @@ export function PipelinePanel() {
     } catch (e: any) { alert(`❌ ${e.message}`); }
   };
 
+  const handleStop = async (run: any) => {
+    const step = (run.step_runs || []).find((s: any) => s.status === "running" && s.job_id);
+    if (!step || !confirm(`停止「${run.pipeline_name}」？正在转写的剧会保留进度，断点续跑时接着转。`)) return;
+    await fetch(`${API}/jobs/${step.job_id}/stop`, { method: "POST", headers: authHeaders() });
+    await load();
+  };
+
   const handleDelete = async (id: number, name: string) => {
     if (!confirm(`删除预设「${name}」？`)) return;
     await fetch(`${API}/pipelines/${id}`, { method: "DELETE", headers: authHeaders() });
@@ -175,7 +206,9 @@ export function PipelinePanel() {
                   <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
                   {r.pipeline_name}
                 </span>
-                <span className="text-xs text-ink-secondary">步骤 {Math.min(r.current_step + 1, r.total_steps)}/{r.total_steps}</span>
+                <span className="flex items-center gap-2 text-xs text-ink-secondary">步骤 {Math.min(r.current_step + 1, r.total_steps)}/{r.total_steps}
+                  <button onClick={() => handleStop(r)} className="px-1.5 py-0.5 rounded border border-red-300 text-red-600 hover:bg-red-50">停止</button>
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 {(r.step_runs || []).map((s: any, i: number) => (
@@ -188,7 +221,7 @@ export function PipelinePanel() {
                     <div className="font-medium">{STEP_LABELS[s.type] || s.type}</div>
                     <div className="mt-0.5">{s.status === "running" ? "执行中..." : (s.summary || s.status)}</div>
                     {s.job_id && (
-                      <a href={`/factory/jobs/${s.job_id}`} className="text-primary hover:underline">查看任务 #{s.job_id}</a>
+                      <a href={`/jubengongfang/factory/jobs/${s.job_id}`} className="text-primary hover:underline">查看任务 #{s.job_id}</a>
                     )}
                   </div>
                 ))}
@@ -208,6 +241,7 @@ export function PipelinePanel() {
         <div className="space-y-2">
           {pipelines.map((p) => {
             const steps: any[] = p.steps || [];
+            const vt = steps.find((s: any) => s.type === "video_transcribe");
             const cs = steps.find((s: any) => s.type === "create_spawn");
             const sp = steps.find((s: any) => s.type === "import_spawn");
             const ds = steps.find((s: any) => s.type === "distribute");
@@ -224,6 +258,11 @@ export function PipelinePanel() {
                   <div className="font-medium text-sm">{p.name}</div>
                   {/* 步骤要点标签: 一眼看清这条流水线做什么 */}
                   <div className="text-xs mt-1 flex items-center gap-1.5 flex-wrap">
+                    {vt && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-700">
+                        转写 {hitSummary(vt.config)}
+                      </span>
+                    )}
                     {cs && (
                       <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700">
                         创作 {cs.config?.total_scripts ?? "?"}部×{cs.config?.episodes ?? "?"}集×{cs.config?.words_per_chapter ?? "?"}字/集
@@ -303,10 +342,29 @@ export function PipelinePanel() {
             onChange={(e) => setPName(e.target.value)}
           />
 
+          {/* 剧本来源: 视频转剧本 */}
+          <div className={`p-3 rounded-lg border ${enableHit ? "border-amber-300 bg-amber-50/40" : "border-line"}`}>
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input type="checkbox" checked={enableHit} onChange={(e) => { setEnableHit(e.target.checked); if (e.target.checked) setEnableCreate(false); }} />
+              ① 视频转剧本
+              {hitStatus?.ready && hitStatus.queue && <span className="text-xs font-normal text-ink-secondary">队列 {hitStatus.queue.queued ?? 0} 部</span>}
+            </label>
+            {enableHit && hitStatus && !hitStatus.ready && <p className="text-xs text-red-500 mt-2">{hitStatus.error}</p>}
+            {enableHit && (
+              <div className="grid grid-cols-4 gap-2 mt-2 text-xs">
+                <label>部数<input type="number" min={0} className="w-full border border-line rounded px-2 py-1 mt-0.5" placeholder="0 = 持续" value={hitCfg.count} onChange={(e) => setHitCfg({ ...hitCfg, count: Math.max(0, parseInt(e.target.value) || 0) })} /></label>
+                <label>同时转写<input type="number" min={1} max={hitStatus?.maxSlots ?? 4} className="w-full border border-line rounded px-2 py-1 mt-0.5" value={hitCfg.concurrency} onChange={(e) => setHitCfg({ ...hitCfg, concurrency: Math.min(hitStatus?.maxSlots ?? 4, Math.max(1, parseInt(e.target.value) || 1)) })} /></label>
+                <label>画质<select className="w-full border border-line rounded px-2 py-1 mt-0.5" value={hitCfg.quality} onChange={(e) => setHitCfg({ ...hitCfg, quality: e.target.value })}><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+                <label className="flex items-end gap-1 pb-1"><input type="checkbox" checked={hitCfg.publish} onChange={(e) => setHitCfg({ ...hitCfg, publish: e.target.checked })} />通过检查后上架</label>
+                <label className="col-span-4">只转这些剧<input className="w-full border border-line rounded px-2 py-1 mt-0.5" placeholder="红果作品编号，留空按队列" value={hitCfg.only_series} onChange={(e) => setHitCfg({ ...hitCfg, only_series: e.target.value })} /></label>
+              </div>
+            )}
+          </div>
+
           {/* 步骤1: 从零创作 */}
           <div className={`p-3 rounded-lg border ${enableCreate ? "border-blue-300 bg-blue-50/40" : "border-line"}`}>
             <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-              <input type="checkbox" checked={enableCreate} onChange={(e) => setEnableCreate(e.target.checked)} />
+              <input type="checkbox" checked={enableCreate} onChange={(e) => { setEnableCreate(e.target.checked); if (e.target.checked) setEnableHit(false); }} />
               ① 从零创作
             </label>
             {enableCreate && (

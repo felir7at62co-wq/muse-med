@@ -10,16 +10,25 @@ The cloud serves Workshop on the shared Muse workbench host at `/jubengongfang/`
 
 ## Source
 
-This tree is the Workshop source of the November 17, 2026 workbench backup: `01-drama/code/services/orchestrator` as `backend/` and `01-drama/code/apps/web` as `frontend/`, including the web lockfile. Left out are the backup's `.legacy_backups/`, `*.backup-*` copies, `public/report/` (weekly report pages and their media), data CSVs, the orchestrator's Dockerfile, demo scripts, SQL file and `.env` examples, `scripts/agent_eval/README.md` and its `long_task.txt` input, `tsconfig.tsbuildinfo`, `node_modules` and build output. `backend/requirements.txt` pins the packages of the cloud runtime from its `pip freeze`.
+This tree is the Workshop source that the cloud runs. It is the Workshop source of the November 17, 2026 workbench backup, `01-drama/code/services/orchestrator` as `backend/` and `01-drama/code/apps/web` as `frontend/` including the web lockfile, with the Muse changes that the install-time overlays in [`../muse-workbenches`](../muse-workbenches/README.md) add:
 
-The tree matches the backup byte for byte apart from these edits:
+- Muse login: `app/muse_login.py`, `app/muse_login.js` and `app/muse_storage.js`, mounted in `app/main.py`, with the frontend's login, register and Feishu pages and `lib/auth.ts` sending users through it.
+- Muse video reverse: `app/muse_reverse.py`, `app/reverse_routes.py` and `app/reverse_storage.py`, used by `app/features/video_routes.py`, `app/video/video_pipeline.py` and `app/tikhub/routes.py`, with the upload dialog and `lib/workshop_video_intake.ts`.
+- Upload paths: `app/agent/images.py`, `app/dev_ab_deai.py`, `app/dev_image/routes.py`, `app/draft_cover/routes.py`, `app/features/theme_routes.py` and `app/production_image/routes.py` write under `UPLOADS_DIR` instead of `/app/uploads`.
+- Base path: `next.config.mjs` sets `basePath: "/jubengongfang"` and `output: "standalone"`, and pages that build absolute links or call `/v1/` directly include the prefix.
+- 视频转剧本: the factory job `app/factory/video_transcribe.py`, its routes, pipeline step and startup recovery in `app/factory/routes.py`, `app/factory/pipeline.py` and `app/main.py`, and its editor and status in `app/factory/_PipelinePanel.tsx`, `app/factory/page.tsx` and `app/factory/jobs/[id]/`.
+- Script library: `app/script_library.py`, the store of finalized scripts, mounted in `app/main.py`.
+
+`backend/app` equals the application of cloud release `20261120-scripts-01` and `frontend/` equals the source of the live web build, apart from the edits listed below. Left out are the backup's `.legacy_backups/`, `*.backup-*` copies, `public/report/` (weekly report pages and their media), data CSVs, the orchestrator's Dockerfile, demo scripts, SQL file and `.env` examples, `scripts/agent_eval/README.md` and its `long_task.txt` input, `tsconfig.tsbuildinfo`, `node_modules` and build output. `backend/requirements.txt` pins the packages of the cloud runtime from its `pip freeze`.
+
+The tree matches the backup and the overlays byte for byte apart from these edits:
 
 - Comments and docstrings in `app/agent/chat_jobs.py`, `app/agent/chat_skills.py`, `app/agent/job_status.py`, `app/agent/routes.py`, `app/agent_engine/tools.py`, `app/features/preview_routes.py`, `app/stages/adaptation.py`, `app/stages/drama_gate.py`, `app/stages/router.py`, `app/stages/user_plan.py`, `alembic/versions/20261011_history_job_id.py` and `frontend/components/workbench/ChatColumn.tsx` say 用户甲 instead of a user's name.
 - Comments in `app/config.py` and `scripts/setup_oss_cors.py`, and the help text of `frontend/public/static/download_videos.py`, say `<公网地址>` instead of the server's public IP address.
 - `app/frontcut/routes.py` reads the default Feishu table of the batch reverse page (短剧链接库) from `FEISHU_LINK_LIBRARY_URL`, and `app/feishu/routes.py` reads the fixed production table of the Feishu automation (制作表格) from `FEISHU_PRODUCTION_TABLE_URL`, instead of hardcoding the company tenant's wiki and table IDs. Both settings default to empty; a request that relies on the default table then answers 400 and asks for a table link. Set both on the server to keep today's behaviour.
 - `scripts/setup_oss_cors.py` adds the public origins in `OSS_CORS_PUBLIC_ORIGINS` (comma-separated) instead of the server's hardcoded addresses, and the user download scripts `public/static/download_videos.py` and `public/static/rename_videos_auto.py` take the server address from `--base` or the first `http(s)://` argument, or from `DRAMA_API_BASE`, and stop with a message when none is given.
 
-The cloud release is not built from this tree yet. It is this source after the install-time overlays in [`../muse-workbenches`](../muse-workbenches/README.md): `install.py --audience script-workshop` adds the Muse login and the Muse video reverse runner, `shared-host/prepare_uploads.py` moves the upload paths under `UPLOADS_DIR`, `shared-host/prepare.py` sets the `/jubengongfang` base path, and the 视频转剧本 and script library installers add their routes and pages.
+This tree is now the source of truth for Workshop. The cloud release is still built by applying `install.py --audience script-workshop`, `shared-host/prepare_uploads.py`, `shared-host/prepare.py` and the 视频转剧本 and script library installers to the backup; those installers stay until a release is built from this tree.
 
 ## Layout
 
@@ -40,6 +49,8 @@ uv venv --python 3.12 ~/.venvs/workshop
 uv pip install --python ~/.venvs/workshop/bin/python -r requirements.txt
 ~/.venvs/workshop/bin/python -m compileall -q app
 ```
+
+Importing the application also needs the Muse login settings (`MUSE_WORKBENCH_ISSUER`, `MUSE_WORKBENCH_PUBLIC_ORIGIN`, `MUSE_WORKBENCH_SECRET`, `MUSE_WORKBENCH_BINDINGS`, `MUSE_WORKBENCH_STATE_DB`), `AUTH_REQUIRED=true`, a `JWT_SECRET` of at least 32 characters and `UPLOADS_DIR`. With placeholder values and a bindings file without users, `import app.main` and every module under `app` load without connecting to the database or Redis.
 
 Build the frontend from `frontend/` with the pnpm version that wrote the lockfile:
 

@@ -243,7 +243,7 @@ type Draft = {
 };
 
 export default function DraftDetailPage() {
-  if (typeof window !== "undefined" && !getUser()) { window.location.href = "/login"; return null; }
+  if (typeof window !== "undefined" && !getUser()) { window.location.href = "/jubengongfang/login"; return null; }
 
   const params = useParams();
   const router = useRouter();
@@ -2109,7 +2109,7 @@ export default function DraftDetailPage() {
           onClose={() => setAdaptOpen(false)}
           onDone={(newDraftId) => {
             setAdaptOpen(false);
-            if (newDraftId) window.location.href = `/drafts/${newDraftId}`;
+            if (newDraftId) window.location.href = `/jubengongfang/drafts/${newDraftId}`;
           }}
         />
 
@@ -2120,7 +2120,7 @@ export default function DraftDetailPage() {
           onClose={() => setSpawnOpen(false)}
           initialWordTarget={draft?.chapter_word_target || 900}
           onOpenDraft={(newDraftId) => {
-            if (newDraftId) window.location.href = `/drafts/${newDraftId}`;
+            if (newDraftId) window.location.href = `/jubengongfang/drafts/${newDraftId}`;
           }}
         />
 

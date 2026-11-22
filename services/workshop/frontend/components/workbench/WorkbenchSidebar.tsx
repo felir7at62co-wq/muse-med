@@ -231,7 +231,7 @@ export function WorkbenchSidebar({
           <div className="mx-2 border-t border-line my-2" />
           <Tooltip content="去味 / 精修 / 体检都在对话工坊，点这里带着本剧过去" side="right">
             <a
-              href={`/chat-studio?draft=${draftId}`}
+              href={`/jubengongfang/chat-studio?draft=${draftId}`}
               className={cn(
                 'group flex rounded-md transition-colors text-ink-secondary hover:text-primary hover:bg-primary-subtle',
                 collapsed

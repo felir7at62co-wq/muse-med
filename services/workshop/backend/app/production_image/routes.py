@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -38,7 +39,7 @@ router = APIRouter(
 logger = logging.getLogger("production_image")
 
 # 输出目录（与 dev_image 隔离，方便 admin 一次清理）
-OUTPUT_DIR = Path("/app/uploads/production-images")
+OUTPUT_DIR = (Path(os.environ["UPLOADS_DIR"]) / "production-images")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # 状态: key -> {status, started_at, finished_at, error, size_bytes, ...}
@@ -175,7 +176,7 @@ async def list_static_assets():
                 "status": status,
                 "error": st.get("error"),
                 "size_bytes": path.stat().st_size if path.exists() else None,
-                "image_url": f"/v1/admin-api/production-images/static/{spec.key}/image"
+                "image_url": f"/jubengongfang/v1/admin-api/production-images/static/{spec.key}/image"
                 if path.exists()
                 else None,
                 "prompt_preview": spec.prompt[:140] + ("..." if len(spec.prompt) > 140 else ""),

@@ -50,6 +50,7 @@ from .db.models_phase5 import AgentDocument as _AgentDocument, AgentDocumentChap
 # 图落在 /app/uploads/chat-images/。只在"发送这一轮"取出喂给多模态模型，
 # 之后的历史轮次只留一行文字引用 —— 图片每轮重发会把上下文撑爆。
 from .db.models_phase5 import AgentImage as _AgentImage  # noqa: F401  触发 create_all 建 agent_images 表
+from .script_library import ScriptEntry as _ScriptEntry, ScriptVersion as _ScriptVersion  # noqa: F401  触发 create_all 建定稿剧本库表
 from .dev_image import design_router as dev_design_v2_router  # 工作台改版方案 v2 效果图 (临时)
 from .dev_image import router as dev_image_router
 from .production_image.routes import router as production_image_router
@@ -113,6 +114,9 @@ async def lifespan(app: FastAPI):
                 logger.info(f"[startup] Recovering factory job {_j.id} type={_j.job_type}")
                 if _j.job_type == "create_spawn": _asyncio.create_task(_rcs(_j.id, _j.config or {}, _j.user_id))
                 elif _j.job_type == "import_spawn": _asyncio.create_task(_ris(_j.id, _j.config or {}, _j.user_id))
+                elif _j.job_type == "video_transcribe":
+                    from .factory.video_transcribe import run_video_transcribe_job as _rvt
+                    _asyncio.create_task(_rvt(_j.id, _j.config or {}, _j.user_id))
         await _recover()
         logger.info("Factory job recovery done")
     except Exception as _e:
@@ -548,6 +552,8 @@ def create_app() -> FastAPI:
     )
 
     # Routes
+    from .muse_login import configure_muse_login
+    configure_muse_login(app, "script-workshop")
     app.include_router(auth_router)  # 新版auth自带/v1/auth prefix
     app.include_router(admin_new_router)  # 新admin管理API(/v1/admin-api)
     app.include_router(public_router_v2)  # 公开API(/v1/public,含公告/settings)
@@ -593,6 +599,8 @@ def create_app() -> FastAPI:
     app.include_router(spawn_router)  # DNA 裂变工厂: 从原作提取爆款DNA→批量裂变出N个各具新意的完整新作(大纲级)
     from .factory.routes import router as factory_router
     app.include_router(factory_router)  # 内容裂变工厂: 从零创作→导入→批量转视频完整工作流
+    from .script_library import router as script_library_router
+    app.include_router(script_library_router)  # 定稿剧本库: Muse 定稿上传, 全员可看, 组长选用
     from .narrative import narrative_router
     app.include_router(narrative_router)  # 叙事健康度: 事件时间轴 + 实体负荷检测(读 state_ledger, 零新表)
     from .rewrite import rewrite_router

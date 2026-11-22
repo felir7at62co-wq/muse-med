@@ -52,7 +52,7 @@ type FeishuImport = {
 export default function BatchVideoPage() {
   if (typeof window !== "undefined") {
     if (!getUser()) {
-      window.location.href = "/login?from=/factory/batch-video"
+      window.location.href = "/jubengongfang/login?from=/factory/batch-video"
       return null
     }
   }

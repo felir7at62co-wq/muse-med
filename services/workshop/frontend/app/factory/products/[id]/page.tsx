@@ -77,7 +77,7 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
 export default function ProductTracePage() {
   if (typeof window !== "undefined") {
     if (!getUser()) {
-      window.location.href = "/login?from=/factory";
+      window.location.href = "/jubengongfang/login?from=/factory";
       return null;
     }
   }

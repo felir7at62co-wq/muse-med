@@ -33,7 +33,7 @@ type LibraryScript = {
 export default function ImportSpawnPage() {
   if (typeof window !== "undefined") {
     if (!getUser()) {
-      window.location.href = "/login?from=/factory/import-spawn";
+      window.location.href = "/jubengongfang/login?from=/factory/import-spawn";
       return null;
     }
   }

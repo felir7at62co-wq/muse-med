@@ -81,8 +81,8 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
   if (res.status === 401) {
     // token失效,清除并跳登录
     clearAuth();
-    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-      window.location.href = "/login?from=" + encodeURIComponent(window.location.pathname);
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/jubengongfang/login")) {
+      window.location.href = "/jubengongfang/login?from=" + encodeURIComponent(window.location.pathname);
     }
   }
   return res;
@@ -134,5 +134,5 @@ export async function logout() {
     await authFetch(`${BASE}/v1/auth/logout`, { method: "POST" });
   } catch {}
   clearAuth();
-  if (typeof window !== "undefined") window.location.href = "/login";
+  if (typeof window !== "undefined") window.location.href = "/jubengongfang/login";
 }

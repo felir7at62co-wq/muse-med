@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import os
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -37,7 +38,7 @@ router = APIRouter(prefix="/v1/dev/ui-mockups", tags=["dev_image"])
 logger = logging.getLogger("dev_image")
 
 # 输出目录 (容器内). compose 已把 /app/uploads 映射到宿主.
-OUTPUT_DIR = Path("/app/uploads/ui-mockups")
+OUTPUT_DIR = (Path(os.environ["UPLOADS_DIR"]) / "ui-mockups")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # 状态: mockup_id -> {"status": "...", "started_at": ..., "finished_at": ..., "error": ...}
@@ -129,7 +130,7 @@ async def api_list_mockups():
             "status": status,
             "error": st.get("error"),
             "size_bytes": path.stat().st_size if path.exists() else None,
-            "image_url": f"/v1/dev/ui-mockups/{mid}/image" if path.exists() else None,
+            "image_url": f"/jubengongfang/v1/dev/ui-mockups/{mid}/image" if path.exists() else None,
         })
     return result
 
@@ -183,7 +184,7 @@ async def api_status(mockup_id: int):
         return {
             "status": "done",
             "size_bytes": path.stat().st_size,
-            "image_url": f"/v1/dev/ui-mockups/{mockup_id}/image",
+            "image_url": f"/jubengongfang/v1/dev/ui-mockups/{mockup_id}/image",
         }
     return {"status": st.get("status", "idle"), **st}
 
@@ -287,7 +288,7 @@ async def api_v2_list():
             "status": status,
             "error": st.get("error"),
             "size_bytes": path.stat().st_size if path.exists() else None,
-            "image_url": f"/v1/dev/design-v2/{mid}/image" if path.exists() else None,
+            "image_url": f"/jubengongfang/v1/dev/design-v2/{mid}/image" if path.exists() else None,
         })
     return result
 
@@ -340,7 +341,7 @@ async def api_v2_status(design_id: int):
         return {
             "status": "done",
             "size_bytes": path.stat().st_size,
-            "image_url": f"/v1/dev/design-v2/{design_id}/image",
+            "image_url": f"/jubengongfang/v1/dev/design-v2/{design_id}/image",
         }
     return {"status": st.get("status", "idle"), **st}
 

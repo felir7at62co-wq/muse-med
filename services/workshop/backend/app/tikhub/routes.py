@@ -153,6 +153,9 @@ async def _download_and_ingest(video: dict, *, user_id: int, is_public: bool, ca
 
 @router.post("/download")
 async def download(payload: DownloadIn, user: User = Depends(get_current_user)):
+    if payload.mode == "draft":
+        from ..reverse_routes import require_reverse
+        require_reverse()
     if not payload.share_url and not payload.aweme_id:
         raise HTTPException(status_code=400, detail="需要 share_url 或 aweme_id 之一")
     try:
@@ -251,7 +254,8 @@ async def _download_to_draft(video: dict, *, user_id: int) -> int:
         finally:
             try:
                 import shutil
-                shutil.rmtree(batch_dir, ignore_errors=True)
+                if batch_dir.is_dir() and not any(batch_dir.iterdir()):
+                    batch_dir.rmdir()
             except Exception:
                 pass
 

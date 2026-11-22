@@ -1150,7 +1150,7 @@ export function ScriptPane({
         </button>
         {!tab.editable && (
           <a
-            href={`/drafts/${draftId}?tab=${kind}`}
+            href={`/jubengongfang/drafts/${draftId}?tab=${kind}`}
             target="_blank"
             rel="noopener noreferrer"
             className="p-1 rounded text-ink-muted hover:text-ink-primary hover:bg-surface-overlay"

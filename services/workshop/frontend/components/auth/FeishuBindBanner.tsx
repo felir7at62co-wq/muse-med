@@ -42,7 +42,7 @@ export function FeishuBindBanner() {
       const token = getToken();
       if (!token) { setState("off"); return; }   // 未登录页面不显示
       try {
-        const r = await fetch("/v1/auth/me", {
+        const r = await fetch("/jubengongfang/v1/auth/me", {
           headers: { Authorization: `Bearer ${token}` },
           cache: "no-store",
         });
@@ -171,7 +171,7 @@ function ClaimLegacyModal({ onClose }: { onClose: () => void }) {
     try {
       const token = getToken();
       if (!token) throw new Error("登录态已失效，请重新登录");
-      const r = await fetch("/v1/auth/feishu/claim-legacy", {
+      const r = await fetch("/jubengongfang/v1/auth/feishu/claim-legacy", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -188,7 +188,7 @@ function ClaimLegacyModal({ onClose }: { onClose: () => void }) {
       setAuth(j.user, j.access_token, j.refresh_token);
       setDone(j.message || "合并完成");
       // 整页刷新，让所有列表按新账号重新拉一遍
-      setTimeout(() => { window.location.href = "/drafts"; }, 1200);
+      setTimeout(() => { window.location.href = "/jubengongfang/drafts"; }, 1200);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setBusy(false);

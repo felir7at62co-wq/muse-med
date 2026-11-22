@@ -70,7 +70,7 @@ export function FeishuQRLogin({
         // 1) 取授权 URL(后端签发 state 防 CSRF)。
         //    purpose=link 时后端会在回调里只回传 code, 不做建号/换登录态。
         const r = await fetch(
-          `/v1/auth/feishu/login-url?purpose=${mode === "link" ? "link" : "auto_login"}`,
+          `/jubengongfang/v1/auth/feishu/login-url?purpose=${mode === "link" ? "link" : "auto_login"}`,
           { cache: "no-store" },
         );
         if (!r.ok) throw new Error(`取授权地址失败(${r.status})`);

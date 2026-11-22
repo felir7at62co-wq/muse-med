@@ -23,7 +23,7 @@ export function AnnouncementBar() {
     } catch {}
 
     // 拉取公告
-    fetch("/v1/public/announcements")
+    fetch("/jubengongfang/v1/public/announcements")
       .then((r) => r.ok ? r.json() : [])
       .then((data) => setAnns(data || []))
       .catch(() => {});

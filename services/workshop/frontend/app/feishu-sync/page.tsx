@@ -38,8 +38,8 @@ const RATIO_WH: Record<string, [number, number]> = { "9:16": [9, 16], "16:9": [1
 
 export default function FeishuSyncPage() {
   if (typeof window !== "undefined") {
-    if (!getUser()) { window.location.href = "/login?from=/feishu-sync"; return null; }
-    if (!canNovelVideo()) { window.location.href = "/"; return null; }
+    if (!getUser()) { window.location.href = "/jubengongfang/login?from=/feishu-sync"; return null; }
+    if (!canNovelVideo()) { window.location.href = "/jubengongfang/"; return null; }
   }
   const router = useRouter();
   const authHeaders = () => ({ Authorization: `Bearer ${getToken()}` });

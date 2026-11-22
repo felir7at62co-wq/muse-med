@@ -35,6 +35,7 @@ import asyncio
 import io
 import logging
 import uuid
+import os
 from pathlib import Path
 
 from sqlalchemy import select
@@ -46,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 #: 图片落盘目录。与其它上传（draft-covers / themes）同放在 /app/uploads 下，
 #: 这个目录是 compose 里 bind-mount 进来的持久卷。
-IMAGE_DIR = Path("/app/uploads/chat-images")
+IMAGE_DIR = (Path(os.environ["UPLOADS_DIR"]) / "chat-images")
 
 #: 单张原图上限。10MB 与 .docx 上传保持一致，不必让用户记两套数字。
 MAX_IMAGE_BYTES = 10 * 1024 * 1024

@@ -84,6 +84,9 @@ async def create_factory_job(
         if not job_type:
             raise HTTPException(status_code=400, detail="缺少 job_type")
 
+    if job_type == "video_transcribe":
+        from .video_transcribe import checked_config
+        config = checked_config(config)
     async with get_async_session() as session:
         job = FactoryJob(
             user_id=user.id,
@@ -101,7 +104,10 @@ async def create_factory_job(
         
     logger.info(f"[Job {job_id}] Created {job_type}")
     
-    if job_type == "create_spawn":
+    if job_type == "video_transcribe":
+        from .video_transcribe import run_video_transcribe_job
+        background_tasks.add_task(run_video_transcribe_job, job_id, config, user.id)
+    elif job_type == "create_spawn":
         background_tasks.add_task(run_create_spawn_job, job_id, config, user.id)
     elif job_type == "import_spawn":
         background_tasks.add_task(run_import_spawn_job, job_id, config, user.id)
@@ -791,6 +797,9 @@ async def resume_job(
         
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
+        if job.job_type == "video_transcribe":
+            from .video_transcribe import resume_job as resume_transcribe
+            return await resume_transcribe(job, session, background_tasks)
         
         # 找出ready_for_script的大纲
         oresult = await session.execute(
@@ -848,7 +857,7 @@ async def stop_job(
         if job.status not in ["pending", "running"]:
             raise HTTPException(status_code=400, detail=f"Cannot stop job with status: {job.status}")
         
-        result_data = job.result or {}
+        result_data = dict(job.result or {})
         result_data["manual_stop_requested"] = True
         job.result = result_data
         await session.commit()
@@ -1307,6 +1316,8 @@ async def create_pipeline(req: PipelineRequest, user: User = Depends(get_current
     from .pipeline import FactoryPipeline
     if not req.name.strip() or not req.steps:
         raise HTTPException(status_code=400, detail="名称与步骤不能为空")
+    from .video_transcribe import checked_steps
+    req.steps = checked_steps(req.steps)
     async with get_async_session() as session:
         p = FactoryPipeline(user_id=user.id, name=req.name.strip(),
                             steps=req.steps, model_config=req.model_config_map or {})
@@ -1325,8 +1336,9 @@ async def update_pipeline(pipeline_id: int, req: PipelineRequest, user: User = D
         )).scalar_one_or_none()
         if not p:
             raise HTTPException(status_code=404, detail="预设不存在")
+        from .video_transcribe import checked_steps
         p.name = req.name.strip()
-        p.steps = req.steps
+        p.steps = checked_steps(req.steps)
         p.model_config = req.model_config_map or {}
         await session.commit()
         return {"id": p.id, "name": p.name}
@@ -1678,3 +1690,10 @@ async def workspace_state(user: User = Depends(get_current_user)):
         "events": events[:30],
         "ts": now.isoformat(),
     }
+
+
+@router.get("/video-transcribe/status")
+async def video_transcribe_status(user: User = Depends(get_current_user)):
+    """视频转剧本是否可用、数据站队列和可用执行位。"""
+    from .video_transcribe import status
+    return await status()

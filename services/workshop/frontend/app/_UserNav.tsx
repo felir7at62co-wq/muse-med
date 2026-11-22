@@ -276,7 +276,7 @@ export function UserNav() {
                       );
                       if (item.href) {
                         return (
-                          <a key={idx} href={item.href} className={cls}>
+                          <a key={idx} href={item.href?.startsWith("/") ? "/jubengongfang" + item.href : item.href} className={cls}>
                             {inner}
                           </a>
                         );

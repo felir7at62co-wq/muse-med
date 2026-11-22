@@ -33,13 +33,14 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 
 from .defaults import DEFAULT_CHAPTER_WORD_TARGET
 
 logger = logging.getLogger("ab_deai")
 
-OUT_DIR = Path("/app/uploads/ab_deai")
+OUT_DIR = (Path(os.environ["UPLOADS_DIR"]) / "ab_deai")
 
 
 async def _gen_one(draft_id: int, order: int, *, with_rules: bool) -> str:
