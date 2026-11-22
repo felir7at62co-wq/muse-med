@@ -129,7 +129,7 @@ export function apply(ctx: Context, config: Config): void {
       method: { type: 'string', required: true, enum: ['start', 'inspect', 'status'], description: 'start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。' },
       project: { type: 'string', required: true, description: '项目根目录，保存 transcript/jobs 收据及 transcript/raw 版本结果。' },
       input: { type: 'string', description: 'start 单个输入（与 inputs 二选一）：获授权的本地音频或视频文件路径；相对路径以 project 为基准。' },
-      inputs: { type: 'array', items: { type: 'string' }, description: `start 多集输入（与 input 二选一，1–${config.maxBatchInputs} 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途收据的集沿用原收据，不重新计费，已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。` },
+      inputs: { type: 'array', items: { type: 'string' }, description: `start 多集输入（与 input 二选一，1–${config.maxBatchInputs} 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途且源文件字节未变的收据沿用原收据，不重新计费；源文件字节变化按新输入提交；已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。` },
       wait_seconds: { type: 'number', description: 'inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。' },
       receipt: { type: 'string', description: 'inspect/status 必填：start 返回的 transcript/jobs 收据路径；相对路径以 project 为基准。' },
       language: { type: 'string', enum: ['zh', 'auto'], description: 'start 识别语种；默认 zh。' },

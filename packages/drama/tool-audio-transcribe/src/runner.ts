@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import { chmod, link, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
-import { MuseAsrError, parseMuseAsrMetadata, type MuseAsrMetadata, type MuseAsrJob, type MuseAsrPurpose, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
+import { MuseAsrError, parseMuseAsrMetadata, type MuseAsrMetadata, type MuseAsrJob, type MuseAsrPurpose, type MuseAsrSegment, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
 
 /** Host-only account service methods consumed by the model tool. */
 export interface AudioAccount {
@@ -152,6 +152,60 @@ export async function probeMediaDuration(source: string, config: AudioRunnerConf
   const seconds = Number((await command(config.ffprobePath, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', source], config.commandTimeoutMs, signal)).trim())
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Invalid media duration')
   return seconds
+}
+
+/** Sample rate of every speech track staged for cloud transcription. */
+export const SPEECH_SAMPLE_RATE = 16_000
+
+/**
+ * Decode one local media file's speech track to raw 16 kHz mono signed 16-bit little-endian PCM,
+ * the same decoding a receipt stages, so packed tracks and single inputs hear identical samples.
+ * @param source - Local media to read without changing it.
+ * @param target - Raw PCM destination; an existing file is replaced.
+ * @param config - Executable path and command deadline.
+ * @param signal - Cancellation of the owned subprocess.
+ * @returns When FFmpeg has exited successfully.
+ */
+export async function extractSpeechPcm(source: string, target: string, config: AudioRunnerConfig, signal?: AbortSignal): Promise<void> {
+  await command(config.ffmpegPath, ['-nostdin', '-y', '-hide_banner', '-loglevel', 'error', '-i', source, '-vn', '-ac', '1',
+    '-ar', String(SPEECH_SAMPLE_RATE), '-c:a', 'pcm_s16le', '-f', 's16le', target], config.commandTimeoutMs, signal)
+}
+
+/**
+ * Build the 44-byte RIFF header of a 16 kHz mono 16-bit PCM WAV.
+ * @param dataBytes - Length of the PCM payload that follows the header.
+ * @returns Header bytes.
+ */
+export function speechWavHeader(dataBytes: number): Buffer {
+  if (!Number.isSafeInteger(dataBytes) || dataBytes < 0 || dataBytes % 2 !== 0 || dataBytes > 0xffff_ffff - 36) {
+    throw new Error('Invalid speech PCM length')
+  }
+  const header = Buffer.alloc(44)
+  header.write('RIFF', 0, 'ascii'); header.writeUInt32LE(36 + dataBytes, 4); header.write('WAVE', 8, 'ascii')
+  header.write('fmt ', 12, 'ascii'); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22)
+  header.writeUInt32LE(SPEECH_SAMPLE_RATE, 24); header.writeUInt32LE(SPEECH_SAMPLE_RATE * 2, 28); header.writeUInt16LE(2, 32)
+  header.writeUInt16LE(16, 34); header.write('data', 36, 'ascii'); header.writeUInt32LE(dataBytes, 40)
+  return header
+}
+
+/**
+ * Read the timed segments a completed receipt published.
+ * @param file - `output_json` of a complete result.
+ * @param signal - Cancellation of the read.
+ * @returns Segments in time order, with optional speaker labels and words.
+ * @throws {Error} When the file is not a nonempty array of timed text segments.
+ */
+export async function readPublishedSegments(file: string, signal?: AbortSignal): Promise<MuseAsrSegment[]> {
+  const rows: unknown = JSON.parse(await readFile(file, { encoding: 'utf8', signal }))
+  const span = (value: unknown): value is { start: number; end: number; text: string } => typeof value === 'object' && value !== null
+    && 'start' in value && 'end' in value && 'text' in value && typeof value.start === 'number' && typeof value.end === 'number'
+    && Number.isFinite(value.start) && Number.isFinite(value.end) && value.end >= value.start && typeof value.text === 'string'
+  if (!Array.isArray(rows) || rows.length === 0 || !rows.every((row: unknown) => span(row)
+    && (!('speaker_id' in row) || row.speaker_id === undefined || typeof row.speaker_id === 'string')
+    && (!('words' in row) || row.words === undefined || (Array.isArray(row.words) && row.words.every(span))))) {
+    throw new Error(`Published transcription JSON is not a list of timed segments: ${file}`)
+  }
+  return rows as MuseAsrSegment[]
 }
 
 interface AudioPart extends MuseAsrMetadata {
@@ -540,12 +594,16 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     await chmod(jobs, 0o700)
   }
   let finished: { file: string; receipt: Receipt } | undefined
+  // A receipt describes the bytes it staged; the same path with other bytes is a different input.
+  let current: Promise<string> | undefined
+  const sourceDigest = (): Promise<string> => current ??= digest(source, signal)
   for (const name of await readdir(jobs)) {
     if (!name.endsWith('.json')) continue
     const file = join(jobs, name)
     const prior = await readReceipt(file)
     signal?.throwIfAborted()
     if (prior.source !== source) continue
+    if (prior.sourceSha256 !== undefined && prior.sourceSha256 !== await sourceDigest()) continue
     if (!['complete', 'silent', 'failed'].includes(prior.status) || prior.recovery?.next_action === 'resume_upload') {
       if (prior.accountUsername !== identity.username) throw new Error('Existing transcription receipt belongs to another Muse account')
       if ((prior.purpose ?? 'subtitles') !== resolvedPurpose) {
@@ -560,7 +618,9 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
       }
       return { result: storedResult(file, prior), refused: false }
     }
-    if (batch && prior.accountUsername === identity.username && (prior.purpose ?? 'subtitles') === resolvedPurpose
+    // A legacy receipt without a source digest cannot prove it transcribed the current bytes.
+    if (batch && prior.sourceSha256 !== undefined && prior.accountUsername === identity.username
+      && (prior.purpose ?? 'subtitles') === resolvedPurpose
       && (finished === undefined || prior.version > finished.receipt.version)) finished = { file, receipt: prior }
   }
   // A resent batch must not pay again for a source whose same-purpose task already ended.
@@ -578,7 +638,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     if (!existing.some(Boolean)) break
     version += 1
   }
-  const sourceSha256 = await digest(source, signal)
+  const sourceSha256 = await sourceDigest()
   const chunkSeconds = config.chunkSeconds ?? 600
   if (!Number.isSafeInteger(chunkSeconds) || chunkSeconds < 1 || chunkSeconds > 7200) throw new Error('Invalid cloud audio chunk duration')
   if (duration > chunkSeconds) {

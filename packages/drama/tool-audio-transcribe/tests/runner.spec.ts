@@ -1516,3 +1516,44 @@ it.each([false, true])('still fails inspect of a never-accepted %s-part task who
   await expect(finishAudioTranscription(f.project, start.receipt, f.account, undefined, false)).rejects.toMatchObject({ code: 'job-not-found' })
   expect(f.calls.submits).toHaveLength(split ? 2 : 1)
 })
+
+it('starts a new version when a regenerated source keeps its path but changes its bytes', async () => {
+  const f = await setup()
+  const first = (await startAudioTranscriptionBatch(f.project, [f.input], 'zh', f.account, config, shortMedia)).items[0]
+  f.setJob({ id: first && 'job_id' in first ? first.job_id : '', status: 'complete', segments: [{ start: 0, end: 1, text: '旧镜头' }] })
+  await finishAudioTranscription(f.project, (first as { receipt: string }).receipt, f.account)
+  const reused = (await startAudioTranscriptionBatch(f.project, [f.input], 'zh', f.account, config, shortMedia)).items[0]
+  expect(reused).toMatchObject({ status: 'complete', receipt: join(f.project, 'transcript', 'jobs', 'clip-v1.json') })
+  expect(f.counts().submits).toBe(1)
+
+  await writeFile(f.input, 'regenerated video fixture')
+  const fresh = (await startAudioTranscriptionBatch(f.project, [f.input], 'zh', f.account, config, shortMedia)).items[0]
+  expect(fresh).toMatchObject({ status: 'processing', receipt: join(f.project, 'transcript', 'jobs', 'clip-v2.json') })
+  expect(f.counts().submits).toBe(2)
+  expect(JSON.parse(await readFile(join(f.project, 'transcript', 'jobs', 'clip-v2.json'), 'utf8')))
+    .toMatchObject({ version: 2, source: f.input })
+})
+
+it('does not return a pending receipt for bytes that no longer exist at its path', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  expect((await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)).receipt).toBe(first.receipt)
+  await writeFile(f.input, 'regenerated video fixture')
+  const second = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  expect(second.receipt).toBe(join(f.project, 'transcript', 'jobs', 'clip-v2.json'))
+  expect(second.job_id).not.toBe(first.job_id)
+  expect(f.counts().submits).toBe(2)
+})
+
+it('does not reuse a finished legacy receipt that cannot prove which bytes it transcribed', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  f.setJob({ id: first.job_id, status: 'silent' })
+  await finishAudioTranscription(f.project, first.receipt, f.account)
+  const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
+  delete receipt.sourceSha256
+  await writeFile(first.receipt, JSON.stringify(receipt))
+  const next = (await startAudioTranscriptionBatch(f.project, [f.input], 'zh', f.account, config, shortMedia)).items[0]
+  expect(next).toMatchObject({ receipt: join(f.project, 'transcript', 'jobs', 'clip-v2.json') })
+  expect(f.counts().submits).toBe(2)
+})
