@@ -41,6 +41,54 @@ services/jingliu/backend/app/providers/video_runninghub.py whitespace=-blank-at-
 services/jingliu/backend/app/routes_v2.py whitespace=-blank-at-eof
 services/jingliu/backend/app/shot_timing.py whitespace=-blank-at-eof
 
+# Script Workshop's imported files keep the whitespace of the November 17 source and the deployed release.
+services/workshop/backend/alembic/versions/20260729_add_factory_tables.py whitespace=-blank-at-eol
+services/workshop/backend/alembic/versions/23008b1c2d4c_baseline_full_schema.py whitespace=-blank-at-eol
+services/workshop/backend/app/auth/admin_routes.py whitespace=-blank-at-eol
+services/workshop/backend/app/auth/routes.py whitespace=-blank-at-eol
+services/workshop/backend/app/db/models.py whitespace=-blank-at-eol
+services/workshop/backend/app/factory/create_spawn.py whitespace=-blank-at-eol
+services/workshop/backend/app/factory/models.py whitespace=-blank-at-eol
+services/workshop/backend/app/factory/outline_check.py whitespace=-blank-at-eol
+services/workshop/backend/app/factory/routes.py whitespace=-blank-at-eol
+services/workshop/backend/app/features/admin_analytics_routes.py whitespace=-blank-at-eol
+services/workshop/backend/app/features/preview_routes.py whitespace=-blank-at-eol
+services/workshop/backend/app/features/theme_routes.py whitespace=-blank-at-eol
+services/workshop/backend/app/features/user_features_routes.py whitespace=-blank-at-eol
+services/workshop/backend/app/feishu/client.py whitespace=-blank-at-eol
+services/workshop/backend/app/feishu/service.py whitespace=-blank-at-eol
+services/workshop/backend/app/frontcut/prompts.py whitespace=-blank-at-eof
+services/workshop/backend/app/oss/client.py whitespace=-blank-at-eol
+services/workshop/backend/app/seedance_pe/skill_assets/references/typical-effect-cases.txt whitespace=-blank-at-eof
+services/workshop/backend/app/seedance_pe/skill_assets/SKILL.txt whitespace=-blank-at-eof
+services/workshop/backend/app/stages/batch_gen.py whitespace=-blank-at-eol
+services/workshop/backend/app/stages/context_builder.py whitespace=-blank-at-eol
+services/workshop/backend/app/stages/export_docx.py whitespace=-blank-at-eol
+services/workshop/backend/app/stages/file_upload.py whitespace=-blank-at-eol
+services/workshop/backend/app/stages/import_script.py whitespace=-blank-at-eol
+services/workshop/backend/app/stages/log_helper.py whitespace=-blank-at-eol
+services/workshop/backend/app/stages/router_m5_enhanced.py whitespace=-blank-at-eol
+services/workshop/backend/app/stages/router_m5_regenerate.py whitespace=-blank-at-eol
+services/workshop/backend/app/stages/router.py whitespace=-blank-at-eol
+services/workshop/backend/app/video_delivery/routes.py whitespace=-blank-at-eol
+services/workshop/backend/scripts/migrate_m5_enhancement.py whitespace=-blank-at-eol
+services/workshop/frontend/app/drafts/\[id\]/outline/page.tsx whitespace=-blank-at-eol
+services/workshop/frontend/app/drafts/\[id\]/page.tsx whitespace=-blank-at-eol
+services/workshop/frontend/app/factory/batch-video/page.tsx whitespace=-blank-at-eol
+services/workshop/frontend/app/factory/import-spawn/page.tsx whitespace=-blank-at-eol
+services/workshop/frontend/app/factory/jobs/\[id\]/_KanbanView.tsx whitespace=-blank-at-eol
+services/workshop/frontend/app/factory/jobs/\[id\]/_OutlineDetailModal.tsx whitespace=-blank-at-eol
+services/workshop/frontend/app/factory/jobs/\[id\]/page.tsx whitespace=-blank-at-eol
+services/workshop/frontend/app/factory/page.tsx whitespace=-blank-at-eof
+services/workshop/frontend/app/factory/products/\[id\]/page.tsx whitespace=-blank-at-eol
+services/workshop/frontend/components/factory/ValidationStandardCard.tsx whitespace=-blank-at-eol
+services/workshop/frontend/components/factory/VideoConfigCard.tsx whitespace=-blank-at-eol
+services/workshop/frontend/components/FeishuFieldMapping.tsx whitespace=-blank-at-eol
+services/workshop/frontend/public/static/rename_videos.py whitespace=-blank-at-eol
+# Script Workshop images are binary.
+services/workshop/frontend/**/*.png binary
+services/workshop/frontend/**/*.webp binary
+
 # The persistence catalog is the readable projection of these generated schemas.
 docs/persistence-schema.json linguist-generated=true
 docs/persistence-changes/*.schema.json linguist-generated=true
