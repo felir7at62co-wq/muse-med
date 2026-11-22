@@ -23,6 +23,8 @@ import logging
 import uuid
 
 from .db import Shot, get_session
+# 洗标点与 Muse 共用的逐字切条（`subtitle_cues`）是同一个函数，规则只有那一处。
+from .subtitle_cues import _wash_punct
 # ⚠️ **不在这里** `from .jobs import ...`。模块图必须是单向的：
 # jobs（文件末尾）→ subtitle_jobs，反向只能发生在**调用时**。写成模块级
 # 双向 import 的话，谁先被 import 谁就炸 —— 实测 `verify_asr_subtitles.py`
@@ -40,28 +42,6 @@ _CUE_MIN_SEC = 0.5
 #: 断句点。**空格也算**：Whisper 中文分段的 text 常用空格分隔小句
 #: （实测 "林小姐 我知道你不想嫁 但我有两个条件"），不认它就切不开。
 _CUE_BREAKS = "，。！？；：、,.!?;: …—\n\t "
-#: 出字幕前要洗掉的符号。**烧进画面的字幕不带标点**是短剧字幕的通行做法：
-#: 一行只有十几个字、停顿由分条本身表达，标点只是占位置的噪点。
-#: 想要标点的用户可以在文本面板里自己加（手动添加的字幕一个字都不动）。
-#:
-#: 只洗"断句/引述"这一类。**刻意保留** `·`（人名里的间隔号，「阿·晨」）、
-#: `%`、`+`、`-`、`&`、`#`、`/`、字母与数字 —— 那些是内容，不是标点。
-_CUE_DROP_PUNCT = (
-    "，。！？；：、…‥—～﹏"                        # 中文断句
-    "\"'“”‘’「」『』《》〈〉【】〔〕（）()[]{}"      # 引号与括号
-    ",.!?;:"                                       # 半角断句
-)
-
-
-def _wash_punct(s: str) -> str:
-    """洗掉标点，只留能读的内容。
-
-    标点位置换成一个空格而不是直接删：句中的停顿（「朋友啊，快坐」）删掉逗号后
-    要是粘成「朋友啊快坐」就读不出那个停顿了，留个空格正好是字幕里表达停顿的写法。
-    首尾的空格随后被 strip 掉，所以「你就不再是我爹了。」出来就是干净一句。
-    """
-    out = "".join(" " if ch in _CUE_DROP_PUNCT else ch for ch in s)
-    return " ".join(out.split())
 
 
 def _split_cue(text: str, start: float, span: float) -> list[tuple[str, float, float]]:
