@@ -1,0 +1,14 @@
+version: 1
+scenario: muse-production-duplicate-shot
+profile: headless
+composition: muse-production-duplicate-shot
+recording: authored
+writerOutput: true
+header:
+  class: muse-production-duplicate-shot
+  pin: true
+  toolSchemasSource: muse-production-packaging
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-production
+workspace:
+  final: true
