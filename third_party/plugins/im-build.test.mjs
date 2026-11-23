@@ -90,6 +90,8 @@ test('packs a reproducible native IM client and Muse migration entry without mod
     const client = member(archives[0], 'lib/client.js')
     assert.match(client, /window\.__ModuleLoader__\.load\(/u)
     assert.match(client, /id: "@xmanrui\/dsh-im"/u)
+    assert.match(client, /\.bxf-error \{[^}]*grid-template-columns: minmax\(0, 1fr\)/u)
+    assert.doesNotMatch(client, /\.bxf-error \{[^}]*grid-template-columns: 44px/u)
     assert.match(member(archives[0], 'plugin-src/client/channels/feishu/index.js'), /同一机器人的私聊和群聊共用此工作区，聊天记录各自独立。/u)
     assert.match(member(archives[0], 'plugin-src/client/i18n.js'), /This bot’s direct and group chats share this workspace; each chat keeps its own history\./u)
     const metadata = JSON.parse(member(archives[0], 'SOURCE.json'))
