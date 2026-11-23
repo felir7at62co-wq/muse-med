@@ -20,6 +20,8 @@ pre-commit:
         - 'vendor/*/src/**'
         # Script Workshop's imported frontend keeps the source that the cloud builds.
         - 'services/workshop/frontend/**'
+        # The imported data station keeps the source that the cloud builds.
+        - 'services/data-station/**'
       run: node_modules/.bin/tsx scripts/run-oxlint.ts --config .oxlintrc.staged.json --fix --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
 

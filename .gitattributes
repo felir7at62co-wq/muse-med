@@ -89,6 +89,10 @@ services/workshop/frontend/public/static/rename_videos.py whitespace=-blank-at-e
 services/workshop/frontend/**/*.png binary
 services/workshop/frontend/**/*.webp binary
 
+# The imported data station files keep the whitespace of the source the cloud runs.
+services/data-station/docs/hit-transcription.md whitespace=-blank-at-eol
+services/data-station/src/server/novels/README.md whitespace=-blank-at-eof
+
 # The persistence catalog is the readable projection of these generated schemas.
 docs/persistence-schema.json linguist-generated=true
 docs/persistence-changes/*.schema.json linguist-generated=true
