@@ -36,6 +36,26 @@ OPERATIONS = ("reserve", "claim", "status", "publish", "release")
 RESUME_BOT = ("刚才你这一轮被中断了（云端服务重启或模型调用出错），不是你做错了。先看工作区和 drama_status，"
               "从缺的地方接着做这部剧；做完一批照常入库。用户不在线，不要等回复。")
 INTERRUPTED = ("aborted", "error", "unfinished")
+USAGE_FIELDS = ("input", "cacheRead", "cacheWrite", "output", "calls")
+
+
+def usage_delta(now, then):
+    return {field: (now or {}).get(field, 0) - (then or {}).get(field, 0) for field in USAGE_FIELDS}
+
+
+def compactions(lines):
+    """Times (epoch ms) of the finished context compactions in a session log."""
+    found = []
+    for line in lines:
+        if '"compaction/end"' not in line:
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "compaction/end":
+            found.append(event.get("time"))
+    return found
 HOLDING = ("preparing", "ready")
 MAX_REQUEST = 16 * 1024
 #: Episodes listed one by one in a status reply; the rest are counted.
@@ -83,6 +103,13 @@ class Desk:
         print(json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), **fields}, ensure_ascii=False), flush=True)
 
     # --- bots ---
+
+    def bot_usage(self, bot_id):
+        """The Bot's model usage over the last 30 days (DS Bot's usage summary), or None when it cannot be read."""
+        try:
+            return (self.muse.bot("usage-summary", {"botId": bot_id, "timeZone": "Asia/Shanghai"}) or {}).get("month")
+        except WorkError:
+            return None
 
     def bots(self):
         value = self.muse.bot("state", {})
@@ -132,7 +159,7 @@ class Desk:
             work = claim.get("work") or {}
             desk = {"seriesId": key, "title": work.get("title") or key, "episodes": work.get("episodes"), "bot": name,
                     "botId": bot["id"], "state": "preparing", "claimedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "work": work, "review": claim.get("review") or {}}
+                    "work": work, "review": claim.get("review") or {}, "model": bot.get("model"), "usageAtClaim": self.bot_usage(bot["id"])}
             self.save(key, desk)
             self.hold(key, claim["lease"])
             self.log(event="claimed", series=key, title=desk["title"], bot=name)
@@ -223,13 +250,34 @@ class Desk:
                 open_rows.append({"episode": number, "advice": advised})
         reply.update(done=done, total=total, open=open_rows[:STATUS_ROWS], openMore=max(0, len(open_rows) - STATUS_ROWS),
                      publishable=done == total, firstDone=min((desk.get("doneAt") or {}).values(), default=None),
-                     lastDone=max((desk.get("doneAt") or {}).values(), default=None), nudges=(desk.get("watch") or {}).get("nudges", 0))
+                     lastDone=max((desk.get("doneAt") or {}).values(), default=None), nudges=(desk.get("watch") or {}).get("nudges", 0),
+                     usage=self.usage(desk, done), quality=quality_by_phase(desk))
         if lease and not lease.fault:
             try:
                 lease.update(state="transcribing", episode=leading, totalEpisodes=total, message=f"{desk['bot']} 转写中，已完成 {done}/{total} 集")
             except WorkError:
                 reply["lease"] = "lost"
         return reply
+
+    def usage(self, desk, done):
+        """Model tokens the Bot used since it took this drama (it holds one drama at a time), in all and per episode
+        done, and the speech minutes the drama needs; spend in yuan when `prices` names the Bot's model."""
+        if desk.get("usageAtClaim") is None:
+            return None
+        now = self.bot_usage(desk["botId"])
+        if now is None:
+            return None
+        used = usage_delta(now, desk["usageAtClaim"])
+        row = {"tokens": used, "perEpisode": {field: round(value / done) for field, value in used.items()} if done else None}
+        state_path = self.root / desk["seriesId"] / "state.json"
+        media = (read(state_path) if state_path.is_file() else {}).get("media") or []
+        row["speechMinutes"] = round(sum(item.get("durationSeconds") or 0 for item in media) / 60, 1)
+        price = (self.cfg.get("prices") or {}).get(desk.get("model") or "")
+        if price:
+            yuan = sum(used[field] * price.get(field, 0) for field in USAGE_FIELDS if field != "calls") / 1_000_000
+            row["yuan"] = round(yuan, 2)
+            row["yuanPerEpisode"] = round(yuan / done, 2) if done else None
+        return row
 
     def publish(self, args):
         key = work_key(args.get("work_id"))
@@ -323,14 +371,24 @@ class Desk:
                 continue
             key, now = desk["seriesId"], time.time()
             workspace, total = Path(desk["workspace"]), desk["episodes"]
-            done_at = desk.setdefault("doneAt", {})
-            done = 0
-            for number in range(1, total + 1):
-                if not check_episode(workspace, number, self.cfg["minSpeechCoverage"])[0]:
-                    done += 1
-                    done_at.setdefault(str(number), time.strftime("%Y-%m-%d %H:%M:%S"))
             bot = bots.get(desk.get("botId")) or {}
             session = bot.get("sessionId")
+            parts = desk.setdefault("parts", [])
+            if session and (not parts or parts[-1]["session"] != session):
+                parts.append({"session": session, "at": time.strftime("%Y-%m-%d %H:%M:%S"), "compactions": []})
+            if session:
+                parts[-1]["compactions"] = compactions(self.muse.log_lines(session))
+            phase = {"part": len(parts), "compactions": len(parts[-1]["compactions"]) if parts else 0}
+            done_at = desk.setdefault("doneAt", {})
+            measured = desk.setdefault("measures", {})
+            done = 0
+            for number in range(1, total + 1):
+                required, advised, measures = check_episode(workspace, number, self.cfg["minSpeechCoverage"])
+                if not required:
+                    done += 1
+                    if str(number) not in done_at:
+                        done_at[str(number)] = time.strftime("%Y-%m-%d %H:%M:%S")
+                        measured[str(number)] = {**measures, "qa": not any(item.startswith("缺 qa/") for item in advised), **phase}
             watch = desk.setdefault("watch", {"idle": 0, "nudges": 0, "lastNudge": 0})
             if done == total or not session or session in running:
                 watch["idle"] = 0
@@ -348,7 +406,7 @@ class Desk:
             with self.lock:
                 current = self.load(key)
                 if current and current.get("state") == "ready":
-                    current.update(doneAt=done_at, watch=watch, done=done)
+                    current.update(doneAt=done_at, measures=measured, parts=parts, watch=watch, done=done)
                     self.save(key, current)
 
     def watch(self, stop):
@@ -367,6 +425,22 @@ class Desk:
     def close(self):
         for key in list(self.leases):
             self.leases.pop(key).__exit__(None, None, None)
+
+
+def quality_by_phase(desk):
+    """Episodes grouped by the Bot's part and the compactions before them, with their mean speech coverage and the
+    share with a 待核 file: whether quality holds after the Bot's context moved on."""
+    groups = {}
+    for number, row in (desk.get("measures") or {}).items():
+        key = (row.get("part", 0), row.get("compactions", 0))
+        groups.setdefault(key, []).append((int(number), row))
+    phases = []
+    for (part, count), rows in sorted(groups.items()):
+        coverage = [row["speechCoverage"] for _, row in rows if row.get("speechCoverage") is not None]
+        phases.append({"part": part, "compactionsBefore": count, "episodes": sorted(n for n, _ in rows),
+                       "meanCoverage": round(sum(coverage) / len(coverage), 3) if coverage else None,
+                       "qaShare": round(sum(1 for _, row in rows if row.get("qa")) / len(rows), 2)})
+    return phases
 
 
 class Handler(socketserver.StreamRequestHandler):

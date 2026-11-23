@@ -18,10 +18,16 @@ class FakeBots:
 
     def __init__(self):
         self.updates, self.sent, self.running, self.turns = [], [], set(), {}
+        self.chats = {"bot-1": "chat-1", "bot-2": "chat-2"}
+        self.month = {"input": 1000, "cacheRead": 0, "cacheWrite": 0, "output": 100, "calls": 1}
+        self.logs = {}
 
     def bot(self, endpoint, payload):
         if endpoint == "state":
-            return {"bots": [{"id": "bot-1", "name": "转写1", "sessionId": "chat-1"}, {"id": "bot-2", "name": "转写2", "sessionId": "chat-2"}]}
+            return {"bots": [{"id": "bot-1", "name": "转写1", "sessionId": self.chats["bot-1"], "model": "m/flash"},
+                             {"id": "bot-2", "name": "转写2", "sessionId": self.chats["bot-2"], "model": "m/flash"}]}
+        if endpoint == "usage-summary":
+            return {"botId": payload["botId"], "month": dict(self.month)}
         if endpoint == "update-bot":
             self.updates.append(payload)
             return {"id": payload["id"]}
@@ -35,6 +41,9 @@ class FakeBots:
 
     def last_turn(self, session):
         return self.turns.get(session, ("completed", None))
+
+    def log_lines(self, session):
+        return self.logs.get(session, [])
 
 
 class DeskCase(unittest.TestCase):
@@ -172,6 +181,29 @@ class WatchTest(DeskCase):
         row = self.desk.status({"work_id": KEY})
         self.assertEqual((row["done"], row["nudges"]), (1, 1))
         self.assertIsNotNone(row["firstDone"])
+
+
+class MeasureTest(DeskCase):
+    def test_spend_per_episode_and_quality_by_part_and_compaction_are_reported(self):
+        self.cfg["prices"] = {"m/flash": {"input": 2, "cacheRead": 0.5, "output": 8}}
+        self.desk.claim({"work_id": KEY, "bot": "转写1"})
+        workspace = Path(self.ready(KEY)["workspace"])
+        write_episode(workspace, 1)
+        self.desk.watch_once()
+        self.bots.logs["chat-1"] = [json.dumps({"type": "compaction/end", "time": 1})]
+        write_episode(workspace, 2)
+        self.desk.watch_once()
+        self.bots.chats["bot-1"] = "chat-1b"
+        write_episode(workspace, 3, qa=False)
+        self.desk.watch_once()
+        self.bots.month = {"input": 301000, "cacheRead": 0, "cacheWrite": 0, "output": 30100, "calls": 31}
+        row = self.desk.status({"work_id": KEY})
+        self.assertEqual(row["usage"]["tokens"], {"input": 300000, "cacheRead": 0, "cacheWrite": 0, "output": 30000, "calls": 30})
+        self.assertEqual(row["usage"]["perEpisode"]["output"], 10000)
+        self.assertEqual((row["usage"]["yuan"], row["usage"]["yuanPerEpisode"]), (0.84, 0.28))
+        self.assertEqual(row["usage"]["speechMinutes"], 3.0)
+        self.assertEqual([(q["part"], q["compactionsBefore"], q["episodes"], q["qaShare"]) for q in row["quality"]],
+                         [(1, 0, [1], 1.0), (1, 1, [2], 1.0), (2, 0, [3], 0.0)])
 
 
 class ToolsTest(unittest.TestCase):
