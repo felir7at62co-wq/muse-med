@@ -200,10 +200,14 @@ class Desk:
             lease.update(state="downloading", message=f"准备原片，交给 {desk['bot']}")
             media = self.production.media(key, desk["work"], review, state)
             workspace = self.production.place(key, desk["title"], media, state)
+            if (self.load(key) or {}).get("state") != "preparing":
+                return  # handed back while the series was being prepared; the Bot keeps its folder
             self.muse.bot("update-bot", {"id": desk["botId"], "workDir": str(workspace)})
             lease.update(state="transcribing", episode=0, totalEpisodes=len(media), message=f"{desk['bot']} 转写中")
             with self.lock:
                 desk = self.load(key)
+                if desk.get("state") != "preparing":
+                    return
                 desk.update(state="ready", workspace=str(workspace), episodes=len(media), readyAt=time.strftime("%Y-%m-%d %H:%M:%S"))
                 desk.pop("error", None)
                 self.save(key, desk)

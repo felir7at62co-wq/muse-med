@@ -142,6 +142,23 @@ class DeskTest(DeskCase):
         self.assertEqual(json.loads((self.root / "state" / KEY / "station-outcome.json").read_text())["state"], "needs-attention")
         self.assertEqual(self.desk.claim({"work_id": SECOND, "bot": "转写1"})["state"], "preparing")
 
+    def test_a_drama_handed_back_while_it_is_prepared_never_becomes_ready(self):
+        started, finish = threading.Event(), threading.Event()
+        original = self.desk.production.media
+
+        def slow_media(*args):
+            started.set()
+            finish.wait(5)
+            return original(*args)
+        self.desk.production.media = slow_media
+        self.desk.claim({"work_id": KEY, "bot": "转写1"})
+        self.assertTrue(started.wait(5))
+        self.assertEqual(self.desk.release({"work_id": KEY, "reason": "下载工具在修"})["state"], "released")
+        finish.set()
+        self.desk.threads[KEY].join(5)
+        self.assertEqual(self.desk.status({"work_id": KEY})["state"], "released")
+        self.assertEqual(self.bots.updates, [])
+
     def test_a_restarted_desk_claims_its_dramas_again_and_keeps_their_leases(self):
         self.desk.claim({"work_id": KEY, "bot": "转写1"})
         self.ready(KEY)
