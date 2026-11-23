@@ -645,7 +645,7 @@ Source: [`packages/jubian/tool-jubian/src/token.ts`](../../packages/jubian/tool-
 
 ### `ctx.workshopConnection` — `WorkshopConnection`
 
-Opens Script Workshop sessions as the signed-in Muse user and serves the Client's 剧本 tab from the finalized-script library; native tokens never reach model input or output.
+Opens Script Workshop sessions as the signed-in Muse user and serves the Client's draft editor and finalized-script library; native tokens never reach model input or output.
 
 ```ts cordis-catalog
 /** Resolve the active Muse account on the configured Workshop.
@@ -680,6 +680,55 @@ async connection(): Promise<WorkbenchSession>
  * @returns The script's card, now in production.
  */
 @Remote('scriptProduction') async scriptProduction(request: ScriptProductionRequest): Promise<ScriptSummary>
+
+/** List accessible draft cards for the signed-in editor.
+ * @param request - Search and page.
+ * @returns Drafts and the next offset.
+ */
+@Remote async scriptDrafts(request: ScriptDraftListRequest): Promise<ScriptDraftList>
+
+/** Read a draft's editable episodes and context.
+ * @param request - Draft to open.
+ * @returns Episode directory, context, and publication revision.
+ */
+@Remote async scriptDraft(request: ScriptDraftRequest): Promise<ScriptDraft>
+
+/** Read the saved text of one episode and the editor's pending candidate.
+ * @param request - Draft and episode to open.
+ * @returns The saved text, revision and candidate if present.
+ */
+@Remote async scriptDraftEpisode(request: ScriptDraftEpisodeRequest): Promise<ScriptDraftEpisode>
+
+/** Stage one chat-generated candidate for human review.
+ * @param request - Exact base revision, proposed episode text and summary.
+ * @param signal - Cancellation of the tool call.
+ * @returns The pending candidate.
+ */
+async stageScriptDraftCandidate(request: ScriptDraftStageRequest, signal?: AbortSignal): Promise<ScriptDraftCandidate>
+
+/** Apply the exact candidate reviewed in the editor.
+ * @param request - Episode and candidate ID.
+ * @returns The newly saved episode.
+ */
+@Remote async applyScriptDraftCandidate(request: ScriptDraftCandidateRequest): Promise<ScriptDraftEpisode>
+
+/** Discard the exact pending candidate without editing the saved episode.
+ * @param request - Episode and candidate ID.
+ * @returns The saved episode.
+ */
+@Remote async discardScriptDraftCandidate(request: ScriptDraftCandidateRequest): Promise<ScriptDraftEpisode>
+
+/** Save a manual edit to one episode.
+ * @param request - Episode, displayed revision, and updated text.
+ * @returns The saved episode.
+ */
+@Remote async saveScriptDraftEpisode(request: ScriptDraftSaveRequest): Promise<ScriptDraftEpisode>
+
+/** Publish a reviewed draft revision to the finalized library.
+ * @param request - Draft, revision, and publication metadata reviewed by the user.
+ * @returns The finalized library card.
+ */
+@Remote async finalizeScriptDraft(request: ScriptDraftFinalizeRequest): Promise<ScriptSummary>
 ```
 
 Source: [`packages/drama/workbench-connection/src/index.ts`](../../packages/drama/workbench-connection/src/index.ts)

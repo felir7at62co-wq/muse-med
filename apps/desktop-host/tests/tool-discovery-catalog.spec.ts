@@ -124,6 +124,12 @@ it('loads the Script Workshop 视频转剧本 tool on demand from the short-dram
   }
   expect(config.alwaysLoad).not.toContain('workshop_video_transcribe')
   expect(capabilityMemberships('workshop_video_transcribe', config.capabilities ?? [])).toEqual(['script-workshop'])
+  expect(schemas.has('workshop_script_editor')).toBe(true)
+  for (const query of ['打开剧本草稿', '精修剧本', '按集改稿']) {
+    expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain('workshop_script_editor')
+  }
+  expect(config.alwaysLoad).not.toContain('workshop_script_editor')
+  expect(capabilityMemberships('workshop_script_editor', config.capabilities ?? [])).toEqual(['script-workshop'])
 })
 
 it('recalls the account data-station Douyin downloader without making it resident or keeping local task controls', () => {

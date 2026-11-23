@@ -8,6 +8,10 @@
 
 云端在 Muse 共享工作台主机的 `/jubengongfang/` 路径下提供工坊。后端以 `app.main:app` 在 uvicorn 下运行，配有独立的 PostgreSQL 数据库、Redis 和任务 worker，上传目录为 `UPLOADS_DIR`。前端是 base path 为 `/jubengongfang` 的 Next.js standalone 构建，构建时设置 `NEXT_PUBLIC_ORCHESTRATOR_URL=/jubengongfang`。[`../muse-workbenches/shared-host`](../muse-workbenches/shared-host/nginx_locations.py) 中的路径代理对每个业务请求检查 Muse 会话和账号映射。
 
+## Muse 草稿编辑
+
+`/v1/script-editor` 以现有工坊账号提供草稿正文接口。草稿所有者和管理员可读写，完整草稿由所有者定稿。每位编辑在每集保留一份待采纳候选稿。保存和采纳均校验该集读取时的版本，并在同一事务中归档修改前的正文。定稿校验整稿版本并复用该草稿的定稿库条目，已选用的版本保持有效。结构化分场剧本沿用工坊原有接口。
+
 ## 来源
 
 本目录是云端运行的工坊源码，即 2026 年 11 月 17 日工作台备份中的工坊源码（`01-drama/code/services/orchestrator` 作为 `backend/`，`01-drama/code/apps/web` 作为 `frontend/`，含网页的 lockfile），加上 [`../muse-workbenches`](../muse-workbenches/README.zh.md) 中安装时套用的 Muse 改动：
@@ -39,7 +43,7 @@
 | `backend/app/` | FastAPI 应用，以 `app.main:app` 提供服务；任务 worker 为 `app/worker.py` |
 | `backend/alembic/`、`backend/alembic.ini` | 数据库迁移 |
 | `backend/scripts/` | 迁移、初始化数据、验证和评测脚本 |
-| `backend/tests/` | 视频转剧本任务及其流水线步骤的 unittest 测试 |
+| `backend/tests/` | 视频转剧本和 Muse 草稿编辑的 unittest 测试 |
 | `backend/pyproject.toml`、`backend/requirements.txt` | 声明的依赖范围和固定的云端运行环境 |
 | `frontend/` | Next.js 应用，含 `package.json` 和 `pnpm-lock.yaml` |
 
@@ -55,7 +59,7 @@ uv pip install --python ~/.venvs/workshop/bin/python -r requirements.txt
 
 导入应用还需要 Muse 登录设置（`MUSE_WORKBENCH_ISSUER`、`MUSE_WORKBENCH_PUBLIC_ORIGIN`、`MUSE_WORKBENCH_SECRET`、`MUSE_WORKBENCH_BINDINGS`、`MUSE_WORKBENCH_STATE_DB`）、`AUTH_REQUIRED=true`、至少 32 个字符的 `JWT_SECRET` 以及 `UPLOADS_DIR`。使用占位值和不含用户的 bindings 文件时，`import app.main` 和 `app` 下的所有模块均可加载，不连接数据库或 Redis。
 
-在 `backend/` 下运行 `~/.venvs/workshop/bin/python -m unittest discover -s tests` 执行视频转剧本测试。测试以内存中的数据库会话和模型替身加载 `app/factory/video_transcribe.py` 和 `app/factory/pipeline.py`，并用脚本化的 worker 代替转写 worker，因此不需要数据库或网络。
+在 `backend/` 下运行 `~/.venvs/workshop/bin/python -m unittest discover -s tests` 执行视频转剧本和草稿编辑测试。草稿编辑测试使用临时 SQLite 文件，需要 `aiosqlite` 开发依赖。将 `MUSE_SCRIPT_EDITOR_TEST_POSTGRES_URL` 指向使用 `postgresql+psycopg` 和 `127.0.0.1` 的临时 PostgreSQL，即可在独立 schema 中验证并发保存和定稿。
 
 在 `frontend/` 下用写出 lockfile 的 pnpm 版本构建前端：
 

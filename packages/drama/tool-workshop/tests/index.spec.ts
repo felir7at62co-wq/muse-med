@@ -43,7 +43,9 @@ async function bench(route: Route, options: { approval?: string | null; connecti
   if (options.approval !== null) await ctx.plugin(Approval)
   const service = options.connection === false ? undefined : ctx.plugin(Connection)
   await service?.await()
-  const fiber = ctx.plugin({ name: plugin.name, inject: plugin.inject, Config: plugin.Config, apply: plugin.apply }, options.config ?? {})
+  const fiber = ctx.plugin({ name: plugin.name, inject: plugin.inject, Config: plugin.Config, apply: plugin.apply }, {
+    autoStartNamedSeries: false, ...options.config,
+  })
   await fiber.await()
   const call = (args: unknown, agent = true) => executeToolFixture(ctx, {
     name: 'workshop_video_transcribe', arguments: args, callId: ToolCallId('workshop-call'), signal: new AbortController().signal,

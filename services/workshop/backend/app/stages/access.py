@@ -45,7 +45,7 @@ def is_admin_role(role: str | None) -> bool:
     return (role or "").strip().lower() in ADMIN_ROLES
 
 
-async def check_draft_access(s, draft_id: int, user: User, for_write: bool = False):
+async def check_draft_access(s, draft_id: int, user: User, for_write: bool = False, *, lock: bool = False):
     """检查用户对 draft 的访问权限，返回 draft 对象。无权限抛 HTTPException。
 
     admin / superadmin 放行任意草稿；普通用户只能碰 `user_id` 等于自己的。
@@ -53,7 +53,7 @@ async def check_draft_access(s, draft_id: int, user: User, for_write: bool = Fal
     ⚠️ `user_id IS NULL` 的历史草稿（dev 库有 3 条，2026-05 遗留）对普通用户一律 403。
     这与仓库里其它早就带鉴权的端点行为一致，不是本次改造引入的新限制。
     """
-    row = await s.get(ScriptDraft, draft_id)
+    row = await s.get(ScriptDraft, draft_id, with_for_update=lock)
     if not row:
         raise HTTPException(404, "draft not found")
     if not is_admin_role(user.role) and row.user_id != user.id:

@@ -601,6 +601,8 @@ def create_app() -> FastAPI:
     app.include_router(factory_router)  # 内容裂变工厂: 从零创作→导入→批量转视频完整工作流
     from .script_library import router as script_library_router
     app.include_router(script_library_router)  # 定稿剧本库: Muse 定稿上传, 全员可看, 组长选用
+    from .script_editor import router as script_editor_router
+    app.include_router(script_editor_router)
     from .narrative import narrative_router
     app.include_router(narrative_router)  # 叙事健康度: 事件时间轴 + 实体负荷检测(读 state_ledger, 零新表)
     from .rewrite import rewrite_router

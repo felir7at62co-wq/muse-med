@@ -16,6 +16,7 @@ import { DrawerLibrary } from './DrawerLibrary.tsx'
 import { DrawerJingliu } from './DrawerJingliu.tsx'
 import { DrawerData } from './DrawerData.tsx'
 import { DrawerScripts } from './DrawerScripts.tsx'
+import type { DraftActions } from './DrawerScriptDraft.tsx'
 import type {} from '@deepseek-ai/dsh-muse-account/remote'
 import type { MuseDataPlatform, MuseDataStockRequest } from '@deepseek-ai/dsh-muse-account/types'
 import workshopRemote from '@deepseek-ai/dsh-workbench-connection/remote'
@@ -126,7 +127,7 @@ export function installNative(ctx: Context): void {
       name: 'bot.drawer.data', locale: 'jingliuStudio', inject: () => ({ hooks: { accountEpoch: epoch }, rush }),
     }, DrawerData))
   })
-  // The 剧本 tab reads Script Workshop's finalized-script library as the signed-in member.
+  // The 剧本 tab opens cloud drafts and finalized scripts as the signed-in member.
   ctx.inject(['remote', 'resources'], async (scope) => {
     const unmount = await scope.remote.$mount(workshopRemote)
     scope.effect(() => unmount, 'workshop: script library remote')
@@ -149,10 +150,33 @@ export function installNative(ctx: Context): void {
           const version = Number(param(address, 'version'))
           return api.script({ id: Number(param(address, 'id')), ...(Number.isSafeInteger(version) && version > 0 ? { version } : {}) })
         }) }))
+      host.effect(() => host.resources.register<'workshop-drafts'>({ protocol: 'workshop-drafts',
+        open: (address, { signal }) => once(signal, () => api.scriptDrafts({
+          query: param(address, 'query'), offset: Number(param(address, 'offset')), limit: Number(param(address, 'limit')),
+        })) }))
+      host.effect(() => host.resources.register<'workshop-draft'>({ protocol: 'workshop-draft',
+        open: (address, { signal }) => once(signal, () => api.scriptDraft({ draftId: Number(param(address, 'id')) })) }))
+      host.effect(() => host.resources.register<'workshop-draft-episode'>({ protocol: 'workshop-draft-episode',
+        open: (address, { signal }) => once(signal, () => api.scriptDraftEpisode({
+          draftId: Number(param(address, 'id')), episode: Number(param(address, 'episode')),
+        })) }))
+      const inAccount = async <T>(call: () => Promise<T>): Promise<T> => {
+        const account = epoch.getSnapshot()
+        const value = await call()
+        if (epoch.getSnapshot() !== account) throw new Error('Workshop account changed')
+        return value
+      }
+      const draftActions: DraftActions = {
+        saveEpisode: request => inAccount(() => settled(api.saveScriptDraftEpisode(request))),
+        applyCandidate: request => inAccount(() => settled(api.applyScriptDraftCandidate(request))),
+        discardCandidate: request => inAccount(() => settled(api.discardScriptDraftCandidate(request))),
+        finalizeDraft: request => inAccount(() => settled(api.finalizeScriptDraft(request))),
+      }
       const inject = () => ({
         hooks: { accountEpoch: epoch },
         pick: async (request: { id: number; version: number }) => { await settled(api.pickScript(request)) },
         link: async (request: { id: number; projectId: string; projectTitle: string }) => { await settled(api.scriptProduction(request)) },
+        draftActions,
       })
       host.slots.inject('bot.drawer.scripts', () => host.slots.register({ name: 'bot.drawer.scripts', locale: 'jingliuStudio', inject }, DrawerScripts))
     })

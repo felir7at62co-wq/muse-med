@@ -9,7 +9,7 @@ import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/clie
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SelectedProject, StudioAsset, StudioBalance, StudioCatalog, StudioConfig, StudioNewProject, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia, StudioVideoRequest } from '@deepseek-ai/dsh-jingliu-connection/types'
 import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataStock, MuseDataWorkDetail, MuseDataWorks } from '@deepseek-ai/dsh-muse-account/types'
-import type { ScriptDetail, ScriptList } from '@deepseek-ai/dsh-workbench-connection/types'
+import type { ScriptDetail, ScriptDraft, ScriptDraftEpisode, ScriptDraftList, ScriptList } from '@deepseek-ai/dsh-workbench-connection/types'
 import css from './Production.module.css'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -38,7 +38,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     }
     /**
      * The Bot team's details drawer: the 剧本 tabs of the Bot or group whose conversation is `sessionId`.
-     * `script` is the finalized script the tab in view shows, or null on the tab that lists them;
+     * `script` identifies the open script or draft, or is null on the tab that lists them;
      * `openScript` opens one in a tab of its own. `quote` and `compose` act as on the Jingliu tabs.
      */
     'bot.drawer.scripts': {
@@ -91,6 +91,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'muse-data-works': MuseDataWorks
     'workshop-scripts': ScriptList
     'workshop-script': ScriptDetail
+    'workshop-drafts': ScriptDraftList
+    'workshop-draft': ScriptDraft
+    'workshop-draft-episode': ScriptDraftEpisode
   }
 }
 

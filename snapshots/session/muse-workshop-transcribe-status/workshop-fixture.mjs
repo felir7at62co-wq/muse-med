@@ -33,9 +33,14 @@ export const name = 'workshop-transcribe-status'
 /** Host services exercised by this Headless scenario. */
 export const inject = ['agentPresets', 'agents', 'llm', 'systemPrompt', 'tools', 'workingDirectory']
 
-/** @param {import('@deepseek-ai/cordis').Context} ctx - Shipped Headless services. */
-export async function apply(ctx) {
-  const patches = loadOverlayPatches('workshop-transcribe-status', overlay)
+/**
+ * Mount the real Workshop connection and Desktop short-drama preset against fixture routes.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - Shipped Headless services.
+ * @param {{ scenario: string, tool: string, keyword: string, routes: Record<string, { name: string, response: unknown, body?: unknown }> }} options
+ * @returns {Promise<string[]>} Requests in arrival order.
+ */
+export async function mountWorkshopFixture(ctx, options) {
+  const patches = loadOverlayPatches(options.scenario, overlay)
   const rows = composeEntries([patches])
   const registry = patches.find(row => row.id === 'agent-preset-registry')?.config
   const connectionRow = rows.find(row => row.id === 'workshop-connection')
@@ -46,8 +51,8 @@ export async function apply(ctx) {
   assert.ok(registry?.selectablePresets.includes(preset), 'Existing Sessions can keep the short-drama preset')
   assert.equal(connectionRow?.name, '@deepseek-ai/dsh-workbench-connection')
   assert.ok(!connectionRow.disabled, 'Desktop mounts the Script Workshop connection')
-  assert.ok(!discovery.config.alwaysLoad.includes('workshop_video_transcribe'), 'The Workshop tool loads on demand')
-  assert.ok(discovery.config.keywords.workshop_video_transcribe.includes('视频转剧本'))
+  assert.ok(!discovery.config.alwaysLoad.includes(options.tool), 'The Workshop tool loads on demand')
+  assert.ok(discovery.config.keywords[options.tool].includes(options.keyword))
   const { default: WorkshopConnection } = await importSnapshotModule(
     new URL('../../../packages/drama/workbench-connection/src/index.ts', import.meta.url),
     new URL('../../../packages/drama/workbench-connection/lib/index.js', import.meta.url),
@@ -69,20 +74,18 @@ export async function apply(ctx) {
     onCleanup: () => { if (failure) throw failure },
     async requestListener(req, res) {
       try {
-        for await (const _chunk of req) { /* GET requests carry no body. */ }
-        assert.equal(req.method, 'GET')
         assert.equal(req.headers.cookie, cookie)
         assert.equal(req.headers.origin, gateway)
         assert.equal(req.headers.authorization, undefined)
-        const routes = {
-          '/jubengongfang/v1/auth/me': ['me', user],
-          '/jubengongfang/v1/factory/video-transcribe/status': ['status', readiness],
-          '/jubengongfang/v1/factory/jobs?limit=50': ['jobs', jobs],
-        }
-        const route = routes[req.url]
+        const route = req.url === '/jubengongfang/v1/auth/me' && req.method === 'GET'
+          ? { name: 'me', response: user }
+          : options.routes[req.method + ' ' + req.url]
         assert.ok(route, 'Unexpected Workshop request ' + req.url)
-        calls.push(route[0])
-        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(route[1]))
+        const chunks = []
+        for await (const chunk of req) chunks.push(chunk)
+        assert.deepEqual(chunks.length === 0 ? undefined : JSON.parse(Buffer.concat(chunks).toString('utf8')), route.body)
+        calls.push(route.name)
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(route.response))
       } catch (error) {
         failure = error
         res.writeHead(500, { 'content-type': 'application/json' }).end('{"detail":"Unexpected fixture request"}')
@@ -101,9 +104,24 @@ export async function apply(ctx) {
   }))
   await ctx.plugin(WorkshopConnection, { workshopOrigin: gateway + '/jubengongfang' })
   await mountPreset(ctx.isolate('museAccount'), { presetId: preset, hidePlatformShellTools: true })
-  let modelSawStatus = false
   ctx.on('llm/stream', async function* (options, next) {
     assert.ok(!JSON.stringify(options.messages).includes(cookie), 'Private login data in model input')
+    yield* next()
+  })
+  return calls
+}
+
+/** @param {import('@deepseek-ai/cordis').Context} ctx - Shipped Headless services. */
+export async function apply(ctx) {
+  const calls = await mountWorkshopFixture(ctx, {
+    scenario: 'workshop-transcribe-status', tool: 'workshop_video_transcribe', keyword: '视频转剧本',
+    routes: {
+      'GET /jubengongfang/v1/factory/video-transcribe/status': { name: 'status', response: readiness },
+      'GET /jubengongfang/v1/factory/jobs?limit=50': { name: 'jobs', response: jobs },
+    },
+  })
+  let modelSawStatus = false
+  ctx.on('llm/stream', async function* (options, next) {
     assert.ok(options.tools.some(tool => tool.name === 'workshop_video_transcribe'), 'The short-drama preset registers the Workshop tool')
     const result = options.messages.find(message => message.role === 'tool' && message.toolCallId === 'workshop-status')
     if (result) {

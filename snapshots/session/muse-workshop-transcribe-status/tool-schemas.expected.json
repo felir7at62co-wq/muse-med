@@ -2578,6 +2578,60 @@
       }
     },
     {
+      "name": "workshop_script_editor",
+      "description": "在 Muse 中查找、阅读和精修云端剧本草稿。先打开目标草稿取得分集和项目设定，再读取本轮涉及的集。只为用户指定的一集提交候选稿，由编辑在「剧本」面板审核采纳。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "list 按名称查找；open 看分集和设定；read 读一集；propose 提交候选稿。",
+            "enum": [
+              "list",
+              "open",
+              "read",
+              "propose"
+            ]
+          },
+          "query": {
+            "type": "string",
+            "description": "list 按草稿标题搜索，可省略。"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "list 分页，用上次返回的 next_offset。"
+          },
+          "draft_id": {
+            "type": "integer",
+            "description": "open、read 和 propose 使用 list 返回的草稿编号。"
+          },
+          "episode": {
+            "type": "integer",
+            "description": "read 和 propose 使用实际集号。阅读相关前后集做承接核对，提交时只写用户指定的一集。"
+          },
+          "read_candidate": {
+            "type": "boolean",
+            "description": "read 时，用户要求继续改待审候选稿才设为 true。"
+          },
+          "base_revision": {
+            "type": "string",
+            "description": "propose 必填。原样使用目标集刚读取的 revision。"
+          },
+          "content": {
+            "type": "string",
+            "description": "propose 必填。该集完整正文，沿用当前稿件格式并保留用户指定的人物、情节和对白。"
+          },
+          "summary": {
+            "type": "string",
+            "description": "propose 必填。简要说明改动，供编辑审阅。"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
       "name": "workshop_video_transcribe",
       "description": "剧本工坊的视频转剧本任务：从数据站爆款队列领剧，经 AI 观众选材、红果整剧下载和云端 Muse 逐集转写，出稿存为工坊剧本。status 查看是否就绪、队列和任务进度；start 按参数开始一个任务，resume 沿用原参数续跑已停止的任务，两者都会产生下载与转写费用，提交前请用户确认；stop 停止任务，已领取的剧保留进度。",
       "parameters": {
