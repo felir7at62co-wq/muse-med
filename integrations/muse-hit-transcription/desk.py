@@ -36,6 +36,9 @@ OPERATIONS = ("reserve", "claim", "status", "publish", "release")
 RESUME_BOT = ("刚才你这一轮被中断了（云端服务重启或模型调用出错），不是你做错了。先看工作区和 drama_status，"
               "从缺的地方接着做这部剧；做完一批照常入库。用户不在线，不要等回复。")
 INTERRUPTED = ("aborted", "error", "unfinished")
+#: Sent to a Bot moved to a fresh part because its conversation grew too large.
+FRESH_PART_BOT = ("你的对话太长了，我把你换到了一个新的对话里接着做（交接说明已带过来），不是你做错了。先看工作区和 drama_status，"
+                  "从缺的地方接着做这部剧，每集照常交给子代理。用户不在线，不要等回复。")
 #: DS Bot capabilities a Bot needs to work a drama from the desk: these tools and the transcription skill.
 BOT_CAPABILITIES = ("transcription-desk", "drama-transcribing")
 USAGE_FIELDS = ("input", "cacheRead", "cacheWrite", "output", "calls")
@@ -402,7 +405,9 @@ class Desk:
         a Bot whose last turn an interruption ended (after two idle passes, with a doubling wait between nudges)."""
         try:
             bots = {bot["id"]: bot for bot in self.muse.bot("state", {}).get("bots", [])}
-            running = {item.get("sessionId") for item in self.muse.sessions() if item.get("running")}
+            sessions = self.muse.sessions()
+            running = {item.get("sessionId") for item in sessions if item.get("running")}
+            busy_folders = {item.get("cwd") for item in sessions if item.get("running")}
             started = self.muse.started_at()
         except WorkError as error:
             self.log(event="watch-skipped", code=error.code)
@@ -441,7 +446,20 @@ class Desk:
             else:
                 lines = self.muse.log_lines(session)
                 kind, detail = self.muse.last_turn(session)
-                if started and last_event_ms(lines) < started * 1000 and watch.get("restartSeen") != started:
+                tokens = context_tokens(lines)
+                if (kind == "completed" and tokens >= self.cfg.get("partTokenLimit", 300_000)
+                        and str(workspace) not in busy_folders and total - done >= self.cfg.get("freshPartMinLeft", 3)):
+                    # Between turns, with none of its sub-agents running and real work left (a drama down to its
+                    # last episodes may be on hold): every further call would resend this whole context, so the Bot
+                    # goes on in a fresh part (DS Bot's handoff note carries over).
+                    try:
+                        self.muse.bot("bot-new-part", {"botId": desk["botId"]})
+                        self.muse.bot("send", {"sessionId": desk["botId"], "text": FRESH_PART_BOT})
+                        watch["freshParts"] = watch.get("freshParts", 0) + 1
+                        self.log(event="bot-fresh-part", series=key, bot=desk.get("bot"), contextTokens=tokens, reason="between turns")
+                    except WorkError as error:
+                        self.log(event="bot-fresh-part-failed", series=key, code=error.code)
+                elif started and last_event_ms(lines) < started * 1000 and watch.get("restartSeen") != started:
                     # Cloud Muse restarted after the Bot last did anything: its sub-agents are gone and will not
                     # report, so even a Bot whose own turn completed is waiting for nothing.
                     watch["restartSeen"] = started

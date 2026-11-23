@@ -19,6 +19,7 @@ class FakeBots:
     def __init__(self):
         self.updates, self.sent, self.running, self.turns, self.attached, self.fresh = [], [], set(), {}, [], []
         self.chats = {"bot-1": "chat-1", "bot-2": "chat-2"}
+        self.cwds = {}
         self.month = {"input": 1000, "cacheRead": 0, "cacheWrite": 0, "output": 100, "calls": 1}
         self.logs = {}
 
@@ -44,7 +45,7 @@ class FakeBots:
         raise AssertionError(endpoint)
 
     def sessions(self):
-        return [{"sessionId": sid, "running": True} for sid in self.running]
+        return [{"sessionId": sid, "running": True, "cwd": self.cwds.get(sid)} for sid in self.running]
 
     def last_turn(self, session):
         return self.turns.get(session, ("completed", None))
@@ -246,6 +247,34 @@ class FreshPartTest(DeskCase):
         self.desk.watch_once()
         self.desk.watch_once()
         self.assertEqual(self.bots.fresh, ["bot-1"], "a small context is resumed in place")
+
+
+class BetweenTurnsTest(DeskCase):
+    def test_a_large_conversation_moves_to_a_fresh_part_only_when_no_sub_agent_runs(self):
+        self.cfg.update(watchSeconds=0, partTokenLimit=300_000)
+        self.desk.claim({"work_id": KEY, "bot": "转写1"})
+        workspace = self.ready(KEY)["workspace"]
+        self.bots.logs["chat-1"] = [json.dumps({"type": "request/context", "data": {"workingContextTokens": 334_532}})]
+        self.bots.running.add("sub-1")
+        self.bots.cwds["sub-1"] = workspace
+        self.desk.watch_once()
+        self.assertEqual(self.bots.fresh, [], "a running sub-agent would die with the part")
+        self.bots.running.clear()
+        self.desk.watch_once()
+        self.assertEqual(self.bots.fresh, ["bot-1"])
+        self.assertTrue(self.bots.sent[-1]["text"].startswith("你的对话太长了"))
+        self.bots.logs["chat-1"] = [json.dumps({"type": "request/context", "data": {"workingContextTokens": 40_000}})]
+        self.desk.watch_once()
+        self.assertEqual(self.bots.fresh, ["bot-1"])
+
+    def test_a_drama_down_to_its_last_episodes_is_left_alone(self):
+        self.cfg.update(watchSeconds=0, partTokenLimit=300_000, freshPartMinLeft=3)
+        self.desk.claim({"work_id": KEY, "bot": "转写1"})
+        workspace = Path(self.ready(KEY)["workspace"])
+        write_episode(workspace, 1)
+        self.bots.logs["chat-1"] = [json.dumps({"type": "request/context", "data": {"workingContextTokens": 334_532}})]
+        self.desk.watch_once()
+        self.assertEqual(self.bots.fresh, [], "two episodes left, which may be on hold")
 
 
 class MeasureTest(DeskCase):
