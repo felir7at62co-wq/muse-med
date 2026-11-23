@@ -9,7 +9,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { TerminalViewState } from '@deepseek-ai/dsh-api-terminal-controller/client'
 import type { WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { PanelTerminal, TerminalBody, type TerminalBodyProps } from '../src/client/terminal.tsx'
+import { PanelTerminal, TerminalBody, type PanelTerminalProps, type TerminalBodyProps } from '../src/client/terminal.tsx'
 import { TerminalTitle } from '../src/client/TerminalTitle.tsx'
 import { en, zh } from '../src/client/locales.ts'
 
@@ -514,11 +514,14 @@ it('shows a Bot panel tab\'s terminal, looks its model up once per tab and opens
     preference: 'light', fontSizes: { text: 14, code: 11, terminal: 13 }, fontFamilies: { text: '', code: '', terminal: '' },
     active: { id: 'light', colorScheme: 'light', tokens: {} }, themes: [], revision: 0,
   }
-  // The test supplies the owner share and the model lookup; the remaining slot props are framework-owned.
-  const panel = (tabId: string) => <PanelTerminal {...{
-    sessionId: 'session', tabId, visible: true, replace, panelView,
-    useTheme: (select: (value: ThemeSnapshot) => unknown) => select(theme), t: makeTranslate(en),
-  } as never} />
+  // The test supplies the owner share and model; the remaining slot props are framework-owned.
+  const panel = (tabId: string) => {
+    const props: PanelTerminalProps = {
+      sessionId: 'session', tabId, visible: true, replace, panelView,
+      useTheme: (select: (value: ThemeSnapshot) => unknown) => select(theme), t: makeTranslate(en),
+    } as never
+    return <PanelTerminal {...props} />
+  }
   const view = render(panel('bot-terminal:1'))
   expect(panelView).toHaveBeenCalledExactlyOnceWith('session', 'bot-terminal:1', undefined)
   expect(model.mount).toHaveBeenCalledOnce()

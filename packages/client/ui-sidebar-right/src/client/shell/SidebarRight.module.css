@@ -169,6 +169,48 @@
   min-height: 0;
 }
 
+.panelBody :global([data-dockkit-strip]) {
+  box-sizing: content-box;
+  height: 32px;
+  padding-block: 6px;
+  border-bottom: 1px solid var(--dsw-alias-border-l4);
+}
+
+.panelBody :global([data-dockkit-tab]) {
+  height: 32px;
+}
+
+.panelBody :global([data-dockkit-tab-close]) {
+  inset-block-start: 6px;
+}
+
+.panelBody :global([data-dockkit-tab] [data-dockkit-tab-title]):has(> .tabName) {
+  margin-inline-end: 16px;
+  mask-image: none;
+}
+
+.tabInitial {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 16px;
+  block-size: 16px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tabInitial::before {
+  content: attr(data-initial);
+}
+
+.tabName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (pointer: coarse) {
   /* Retain the footprint so hiding the control cannot change its room measurement. */
   .panelBody :global([data-dockkit-split-control]:has(> [data-dockkit-split-blocked])) {

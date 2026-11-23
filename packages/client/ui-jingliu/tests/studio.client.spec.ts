@@ -4,6 +4,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { SidebarRightTabRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/tab-registry.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { IndexInjection, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import { studioUrl } from '../src/config.ts'
@@ -63,6 +64,40 @@ it('resolves studio and workshop pages only on dedicated origins', () => {
     expect(() => studioUrl(origin)).toThrow()
     expect(() => studioUrl(origin, 'workshop')).toThrow()
   }
+})
+
+it('opens and removes the workspace tab independently of the studio connection', async () => {
+  vi.stubGlobal(STUDIO_URL_GLOBAL, 'https://muse.test/jingliu/')
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  await ctx.plugin(SlotRegistry).await()
+  ctx.provide('locale', new LocaleRuntime(ctx))
+  ctx.locale.setLocale('zh')
+  ctx.provide('sidebarRightTabs', new SidebarRightTabRegistry(ctx))
+  const slots = ctx.get('slots') as SlotRegistry
+  slots.register({ name: 'root', children: { 'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session' } } } as never, () => null)
+
+  const active = ctx.plugin(studio)
+  await active.await()
+
+  const list = createSnapshotStore({ items: [] })
+  const create = vi.fn().mockResolvedValue({ workspaceId: 'new-workspace' })
+  const openWorkspace = vi.fn().mockResolvedValue(undefined)
+  ctx.provide('workspaces', { list, create })
+  ctx.provide('uiWorkspace', { openWorkspace })
+  await vi.waitFor(() => {
+    expect(ctx.sidebarRightTabs.guide().map(entry => [entry.kind, entry.title()])).toEqual([['muse-workspace', '工作间']])
+  })
+  const entry = slots.entries('sidebar.right.pane.tab')[0]
+  expect(entry?.options).toMatchObject({ key: ctx.sidebarRightTabs.get('muse-workspace')?.id })
+  const injected = entry?.inject?.() as { addWorkspace(path: string): Promise<void> }
+  await injected.addWorkspace('/workspace/story')
+  expect(create).toHaveBeenCalledExactlyOnceWith({ path: '/workspace/story' })
+  expect(openWorkspace).toHaveBeenCalledExactlyOnceWith('new-workspace')
+
+  await active.dispose()
+  expect(ctx.sidebarRightTabs.guide()).toHaveLength(0)
+  expect(slots.entries('sidebar.right.pane.tab')).toHaveLength(0)
 })
 
 it('binds each iframe to its configured audience and replaces all open documents on account or connection changes', async () => {

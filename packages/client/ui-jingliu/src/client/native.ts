@@ -11,7 +11,8 @@ import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { StudioImage, StudioLibraryQuery } from '@deepseek-ai/dsh-jingliu-connection/types'
 import remote from '@deepseek-ai/dsh-jingliu-connection/remote'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { Assets, CreditEntry, Environment, ProductionSettings, type ProductionActions } from './Production.tsx'
+import { IconFolderOpenOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Assets, CreditEntry, WorkspaceTab, ProductionSettings, type ProductionActions } from './Production.tsx'
 import { DrawerLibrary } from './DrawerLibrary.tsx'
 import { DrawerJingliu } from './DrawerJingliu.tsx'
 import { DrawerData } from './DrawerData.tsx'
@@ -73,11 +74,37 @@ function imageUrl(image: StudioImage): string {
 }
 
 /**
- * Mount the production catalog, environment and settings in the local client.
+ * Mount the production catalog, workspace tab and settings in the local client.
  * @param ctx - Client shell and authenticated remote namespaces.
  */
 export function installNative(ctx: Context): void {
   const epoch = createSnapshotStore(0)
+  const locale = 'jingliuStudio'
+  ctx.inject(['workspaces', 'uiWorkspace'], (scope) => {
+    const id = '@deepseek-ai/dsh-client-ui-jingliu/workspace'
+    const t = ctx.locale.bind(locale)
+    const workspaceTitle = () => t('workspaceTab')
+    const pickerSlot = 'workspace.environment.directoryFlow'
+    const directoryFlow = {
+      getSnapshot: () => scope.slots.entries(pickerSlot).length > 0,
+      subscribe: (listener: () => void) => scope.slots.subscribe(pickerSlot, listener),
+    }
+    scope.effect(() => ctx.sidebarRightTabs.register({
+      id, kind: 'muse-workspace', priority: 'builtin', title: workspaceTitle,
+      guide: [{ id: 'workspace', order: 15, title: workspaceTitle, description: () => t('workspaceTabDescription'), icon: IconFolderOpenOutlineRegular }],
+    }), 'jingliu: workspace tab')
+    scope.slots.inject('sidebar.right.pane.tab', () => scope.slots.register({
+      name: 'sidebar.right.pane.tab', key: id, locale,
+      inject: () => ({
+        hooks: { workspaceList: scope.workspaces.list, directoryFlow },
+        addWorkspace: async (path: string) => {
+          const workspace = await scope.workspaces.create({ path })
+          await scope.uiWorkspace.openWorkspace(workspace.workspaceId)
+        },
+      }),
+      children: { 'workspace.environment.directoryFlow': { kind: 'single', scope: 'root' } },
+    }, WorkspaceTab))
+  })
   ctx.slots.inject('character-library.shared', () => ctx.slots.register({
     name: 'character-library.shared', locale: 'jingliuStudio', inject: () => ({ hooks: { accountEpoch: epoch } }),
   }, Assets))
@@ -181,7 +208,7 @@ export function installNative(ctx: Context): void {
       host.slots.inject('bot.drawer.scripts', () => host.slots.register({ name: 'bot.drawer.scripts', locale: 'jingliuStudio', inject }, DrawerScripts))
     })
   })
-  ctx.inject(['remote', 'layout', 'resources', 'uiWorkspace', 'sessions', 'conversation', 'workspaces'], async (scope) => {
+  ctx.inject(['remote', 'layout', 'resources', 'sessions', 'conversation'], async (scope) => {
     const unmount = await scope.remote.$mount(remote)
     scope.effect(() => unmount, 'jingliu: studio remote')
     scope.inject(['remote.jingliuConnection'], (host) => {
@@ -234,11 +261,7 @@ export function installNative(ctx: Context): void {
       const locale = 'jingliuStudio'
       const t = host.locale.bind(locale)
       const actions: ProductionActions = {
-        hooks: { accountEpoch: epoch, workspaceList: host.workspaces.list },
-        addWorkspace: async (path) => {
-          const workspace = await host.workspaces.create({ path })
-          await host.uiWorkspace.openWorkspace(workspace.workspaceId)
-        },
+        hooks: { accountEpoch: epoch },
         chooseProject: async (sessionId, project) => {
           const signedIn = epoch.getSnapshot()
           const selection = await api.selectProject(sessionId, project.id, new AbortController().signal)
@@ -296,8 +319,6 @@ export function installNative(ctx: Context): void {
         },
       }
       const inject = () => actions
-      host.slots.inject('sidebar.right.environment', () => host.slots.register({ name: 'sidebar.right.environment', locale, inject,
-        children: { 'workspace.environment.directoryFlow': { kind: 'single', scope: 'root' } } }, Environment))
       host.slots.inject('bot.drawer.jingliu', () => host.slots.register({ name: 'bot.drawer.jingliu', locale, inject }, DrawerJingliu))
       host.slots.inject('settings.section', () => host.slots.register({ name: 'settings.section', id: 'jingliu', order: 24, locale, label: () => t('studioSettings'), inject }, ProductionSettings))
       host.slots.inject('sidebar.footer.action', () => host.slots.register({ name: 'sidebar.footer.action', id: 'jingliu-credit', order: 30, locale, inject }, CreditEntry))
