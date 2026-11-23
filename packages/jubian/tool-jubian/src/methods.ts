@@ -13,7 +13,7 @@
  * `generate` routes to native preparation or submission; its historical keys
  * return only the original ledger record without querying the provider.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { downloadedMediaPath, resumeMediaDownload } from './media-download.ts'
 import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
@@ -29,7 +29,7 @@ import {
 import { AUTOMATIC_ERASE_MODEL, MEDIAKIT_UPSCALE_MODEL, resolvePostProcessModel, SUBTITLE_ERASE_MODELS } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, ImageStyle, MediaKind,
   SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
-import { positiveInteger, prepareVideoMethod, recoverVideoSubmission, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
+import { positiveInteger, prepareVideoMethod, recoverVideoSubmission, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod, validateProjectBinding } from './native.ts'
 import type { VideoBatchItem, VideoBatchOptions } from './native.ts'
 import { createFolderMethod, moveMethod, renameMethod } from './folders.ts'
 import { composedAssetName, resolveNaming, taskPrefix } from './naming.ts'
@@ -298,6 +298,8 @@ function imageSelection(args: { image_model_id?: string; image_platform_id?: str
 
 /** The seams a method needs besides the provider transport, injectable for tests. */
 export interface MethodDeps {
+  /** Effective Session directory used for creation when it contains a project binding. */
+  creationWorkspaceDir?: string | undefined
   /** Bounded read-only discovery of existing sources on an original card. */
   videoSources?: VideoSourceOptions
   /** Foreground cancellation for image-reference reads and reservation. */
@@ -1421,6 +1423,18 @@ function assertNewStoryboard(body: Record<string, unknown>): void {
   }
 }
 
+/** Prefer an explicit target. A generic session directory may have no project binding. */
+async function storyboardCreationDirectory(explicit: string | undefined, workspace: string | undefined): Promise<string | undefined> {
+  if (explicit !== undefined || workspace === undefined) return explicit
+  try {
+    await lstat(resolve(workspace, 'project_config.json'))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return undefined
+  }
+  return workspace
+}
+
 /**
  * `jubian_storyboard` — storyboard reads, the free saves, the paid generation,
  * the erasure and the storyboard-native video channel.
@@ -1455,6 +1469,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     case 'create_batch': {
       const limits = deps.storyboardBatch ?? resolveStoryboardBatchOptions()
       const scriptId = positiveInteger(need(args.script_id, 'script_id'))
+      const projectDir = await storyboardCreationDirectory(args.project_dir, deps.creationWorkspaceDir)
+      if (projectDir !== undefined) await validateProjectBinding(projectDir, scriptId)
       const items = need(args.storyboards, 'storyboards')
       if (!items.length || items.length > limits.maxItems) {
         throw new JubianError('INVALID_ARGUMENT', `storyboards must contain 1..${limits.maxItems} items`)
@@ -1541,8 +1557,17 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new JubianError('INVALID_ARGUMENT')
         body = parsed as Record<string, unknown>
       }
-      assertNewStoryboard(need(body))
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_create', () => ({ ...need(body), isGenerate: 0 }),
+      const request = need(body)
+      assertNewStoryboard(request)
+      const projectDir = await storyboardCreationDirectory(args.project_dir, deps.creationWorkspaceDir)
+      if (args.script_id !== undefined || projectDir !== undefined) {
+        const scriptId = positiveInteger(need(request.scriptId, 'body.scriptId'))
+        if (args.script_id !== undefined && positiveInteger(args.script_id) !== scriptId) {
+          throw new JubianError('INVALID_ARGUMENT', 'Storyboard belongs to another project')
+        }
+        if (projectDir !== undefined) await validateProjectBinding(projectDir, scriptId)
+      }
+      const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_create', () => ({ ...request, isGenerate: 0 }),
         sent => client.request({ method: 'POST', path: '/aigc/storyboard', body: need(sent) }))
       return { ...result }
     }

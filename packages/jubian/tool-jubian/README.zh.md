@@ -268,6 +268,8 @@ inherited process environment (read-only, highest)
 
 `create_batch` 接收一个项目的 `script_id` 和 `storyboards` 数组，每项独立 key，并提供 `body` 或 `body_path`。工具先读取并检查所有项，再以 `isGenerate=0` 并发 POST；`storyboardBatchConcurrency` 默认 4，范围 1–8；`storyboardBatchMaxItems` 默认 1000，范围 1–1000。结果逐项保留序号、名称、key 与账本结果。部分失败或结果不明时沿用原 key 对账，已成功项不重建。每条创建后回读，再选材和准备整批视频。
 
+`create` 和 `create_batch` 在记账或发送前核对目标项目。优先读取显式 `project_dir` 的 `project_config.json`，否则在当前会话目录存在该文件时读取。每个请求体的项目 ID 须和传入的 `script_id` 一致。发现矛盾时整次操作不写入。会话没有本地绑定时，可直接指定远端项目 ID。
+
 写镜头脚本或视频包提示词时，先按剧情、对白、表演与节奏确定内容分包，再映射到当前分集已有视频卡。列出并读取卡片后默认原位填写，已有卡数量不决定包数，多余空卡保留不用。本地新建视频包不代表远端需要新建卡。单卡用 `edit_preview` 提供一个 `storyboard_id`，或用 `edit_batch_preview` 提供含明确 ID 与 `changes` 的 `edits` 数组；两者都要求绑定的 `script_id` 与 `project_dir`。Changes 接受提示词、已存模型设置、`name`、`episode_id` 与 `sort_order`。提示词写入 `modelConfig`；旧卡片缺少配置时，预览和执行会按相同的请求字段顺序补齐。显式修复分集归属时，ID 必须属于当前项目的实时分集目录。两种预览都在 `next` 简短提醒按系统提示词的固定自检清单核对本次修改。Agent 自主检查后，用返回的 `preview_path` 与 `idempotency_key=fingerprint` 调用 `edit_apply`；提醒不增加审校批准、令牌或工具步骤。编辑拒绝过期卡片，保留身份、有序素材和其他服务端字段，并按创建批次上限只发免费 `isGenerate=0` PUT。回读核验已存值与保留素材。提示词标记变化返回 `needs_reselect`：保存批准的文本并保留素材。当前账号的本地账本会阻止准备和新提交，直到 `select_assets` 核验映射；同一 key 改名称也需要重新选源。这项记录只作用于当前账本，不跨设备同步。结果不明时用原 preview 和 key 对账；重放不发送请求。编辑应用先校验预览文件的固定路径并拒绝符号链接，再读取预览。仅已有视频卡不足或用户明确要求新增时才创建。
 
 提示词保存于 `modelConfig.prompt`，不是顶层 `prompt`。每镜用到的已有角色、场景、道具、音频，都在对应画面、动作或声音描述中内联使用 `@[名称](material_key)` 并明确用途；后续镜头再次提及时继续引用，包首清单不能代替正文引用。原文对白内部不插入标记。名称和 key 来自实际查询并与选材绑定一致，不依赖其他包的引用。图片按 key 首次出现顺序去重选材一次，重复引用不重复绑定；音频沿专用工具处理。不添加未用素材，不为补引用新增资产。`get.material_keys` 表示已经绑定的素材行；新分镜该字段为空不能证明提示词不存在。
