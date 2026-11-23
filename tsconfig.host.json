@@ -299,7 +299,8 @@
     "third_party/plugins/dsh-visualize/src/**/*.ts",
     "snapshots/session/subagent-child-question-rejection/assertions.ts",
     "snapshots/session/managed-subagent-assertions.ts",
-    "snapshots/session/muse-production-delivery/assertions.ts"
+    "snapshots/session/muse-production-delivery/assertions.ts",
+    "snapshots/session/muse-source-character-observation/assertions.ts"
   ],
   "exclude": [
     "apps/desktop/tests/keyboard.spec.ts",
