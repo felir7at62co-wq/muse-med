@@ -2247,10 +2247,10 @@ describe('image style at the billed request', () => {
     expect(calls.filter(call => call.path.endsWith('/aigc/script/2708')).map(call => call.method)).toEqual(['GET'])
     const writes = calls.filter(call => call.method !== 'GET' && call.path.endsWith('/aigc/asset'))
     expect(writes).toHaveLength(3)
-    expect(Object.fromEntries(writes.map(call => [
-      String(call.body?.assetName),
-      { method: call.method, config: JSON.parse(String(call.body?.modelConfig)) as unknown },
-    ]))).toMatchObject({
+    expect(Object.fromEntries(writes.map((call) => {
+      const config: unknown = JSON.parse(String(call.body?.modelConfig))
+      return [String(call.body?.assetName), { method: call.method, config }]
+    }))).toMatchObject({
       lead: { method: 'POST', config: { style: 3, prompt: '人物设定图。' } },
       scene: { method: 'PUT', config: { style: 3, prompt: '场景设定图。' } },
       prop: { method: 'POST', config: { style: 1, prompt: '道具设定图。' } },
