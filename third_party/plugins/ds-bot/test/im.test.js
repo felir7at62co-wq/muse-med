@@ -2310,6 +2310,66 @@ test('an owner\'s private chat bound by hand keeps its binding', async (t) => {
   assert.equal(s.rt.state.im.connections[conn.id].chats['dm-u1'].auto, undefined)
 })
 
+test('a private chat set to follow the connection Bot keeps following on its next message', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  await dm(s, 'u1', 'first')
+  assert.ok(botNamed(s, 'u1'), 'the chat had a Bot of its own')
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'dm-u1', target: null })
+  const chat = () => s.rt.state.im.connections[conn.id].chats['dm-u1']
+  assert.equal(chat().manual, true)
+  assert.equal(chat().botName, undefined)
+  const before = Object.keys(s.rt.state.bots).length
+  await dm(s, 'u1', 'to the connection Bot')
+  assert.equal(s.prompts.at(-1).sessionId, 'a')
+  assert.equal(Object.keys(s.rt.state.bots).length, before, 'no Bot was made')
+  assert.equal(chat().target, undefined)
+  assert.equal(chat().manual, true)
+})
+
+test('a group set to not bound stays unbound, while a new group still gets a Bot of its own', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  await gm(s, 'u1', 'hi')
+  assert.ok(botNamed(s, 'Group One'))
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'g1', target: null })
+  const before = Object.keys(s.rt.state.bots).length
+  const prompts = s.prompts.length
+  await gm(s, 'u1', 'again')
+  assert.equal(Object.keys(s.rt.state.bots).length, before, 'no Bot was made')
+  assert.equal(s.prompts.length, prompts)
+  assert.match(s.fake.sent.at(-1).text, /not bound/)
+  assert.equal(s.rt.state.im.connections[conn.id].chats.g1.target, undefined)
+  await gm(s, 'u1', 'hello', { chat: { key: 'g2', kind: 'group', title: 'Group Two' } })
+  const second = botNamed(s, 'Group Two')
+  assert.ok(second, 'a chat seen for the first time gets a Bot of its own')
+  assert.deepEqual(s.rt.state.im.connections[conn.id].chats.g2.target, { botId: second.id })
+  assert.equal(s.prompts.at(-1).sessionId, second.id)
+})
+
+test('binding a chat set to no target clears that choice', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  s.rt.state.im.connections[conn.id].chats = {
+    'dm-u1': { kind: 'direct', title: 'u1', manual: true, at: 1 },
+    g1: { kind: 'group', title: 'Group One', manual: true, at: 1 },
+  }
+  await s.rt.save()
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'dm-u1', target: { botId: 'b' } })
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'g1', target: { roomId: 'r1' } })
+  const { chats } = s.rt.state.im.connections[conn.id]
+  assert.deepEqual([chats['dm-u1'].target, chats['dm-u1'].manual], [{ botId: 'b' }, undefined])
+  assert.deepEqual([chats.g1.target, chats.g1.manual], [{ roomId: 'r1' }, undefined])
+  await dm(s, 'u1', 'to the writer')
+  assert.equal(s.prompts.at(-1).sessionId, 'b')
+})
+
 test('with chat Bots off, private chats stay with the connection Bot', async (t) => {
   const s = await start()
   t.after(s.stop)

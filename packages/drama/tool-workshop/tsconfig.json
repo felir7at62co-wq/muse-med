@@ -9,9 +9,6 @@
   ],
   "references": [
     {
-      "path": "../../../vendor/schemastery"
-    },
-    {
       "path": "../../../vendor/cosmokit"
     },
     {
@@ -19,9 +16,6 @@
     },
     {
       "path": "../../core/tools"
-    },
-    {
-      "path": "../../interaction/user-approval"
     },
     {
       "path": "../../util/error"

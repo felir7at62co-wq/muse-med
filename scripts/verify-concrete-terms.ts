@@ -10,6 +10,7 @@ import { historicalSchemaRegion } from './historical-schema-region.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const blockedTerm = 'prove' + 'nance'
+const pngSignature = Buffer.from('89504e470d0a1a0a', 'hex')
 const excludedPrefixes = ['vendor/', '.agents/notes/archived/'] as const
 
 /** One blocked term occurrence in a tracked path or text line. */
@@ -47,7 +48,7 @@ export function findConcreteTermViolations(file: string, source: string): Concre
     return []
   }
   if (file === 'third_party/plugins/muse-hongguo-download/upstream/engine.cjs') {
-    if (createHash('sha256').update(source).digest('hex') !== '13c93ea532c2e46d5329635a2fe9a16f5c576dd267b87d2cf4c7f1a5d2070cf2') {
+    if (createHash('sha256').update(source).digest('hex') !== '0d5ca53dcf2f21b3ff83b6d7b0824161e63d1aaf39c5415703a29094e0df6286') {
       throw new Error('verify-concrete-terms: pinned upstream Hongguo engine changed')
     }
     return []
@@ -84,14 +85,16 @@ function trackedFiles(repoRoot: string): string[] {
  * Read one tracked file without following a symlink to its target.
  * @param repoRoot - Repository root containing the tracked path.
  * @param file - Repository-relative tracked path.
- * @returns File text, the symlink target, or undefined when the path is absent or not a file.
+ * @returns File text, empty text for PNG image bytes, a symlink target, or undefined if absent or not a file.
  */
 export function readTrackedSource(repoRoot: string, file: string): string | undefined {
   const path = resolve(repoRoot, file)
   const stat = lstatSync(path, { throwIfNoEntry: false })
   if (stat === undefined) return undefined
   if (stat.isSymbolicLink()) return readlinkSync(path)
-  return stat.isFile() ? readFileSync(path, 'utf8') : undefined
+  if (!stat.isFile()) return undefined
+  const bytes = readFileSync(path)
+  return bytes.subarray(0, pngSignature.length).equals(pngSignature) ? '' : bytes.toString('utf8')
 }
 
 /**

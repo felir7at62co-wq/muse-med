@@ -41,7 +41,9 @@ Desktop 启用已有的[打开方式控件](../../packages/client/ui-open-in-app
 
 Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../packages/drama/drama-settings/README.zh.md)。剪映专业版草稿根目录保存在用户配置中，并在重启后恢复；显式 home 和命令行覆盖仍保持优先级。保存此设置不授予草稿导出的文件系统访问权限。
 
-桌面账号组合通过 [`excludedProviderIds`](../../packages/host/muse-account/README.zh.md#minimal-configuration) 排除独立 Gemini 提供方 `aa`，将 `yunying` 加入 `hiddenProviderIds`，并通过 `visibleModels` 允许精确组合 `yunying/gemini-3.1-pro` 和 `yunying/gpt-6.1-sol`：网关提供这些模型时可在新模型选择器中选择，其他云映模型仍隐藏，已注册路由仍供保存的 Session 使用。个人提供方及其他已注册提供方保持不变。已有对话若选用了独立 Gemini，须在下次请求前选择可用模型；操作见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.zh.md)。桌面版还为 `muse-cloud-yunying`/`gemini-3.1-pro` 挂载 [`prompt-usage-guard`](../../packages/guard/prompt-usage/README.zh.md)：这个中转有时由丢掉了工具定义和工具调用记录的线路作答；并把 `PROMPT_USAGE_SHORTFALL` 加入 `muse-account` 的模型重试策略和目标的暂时性错误续跑代码，这类回复因此会被丢弃，请求会重新发送。
+桌面账号组合通过 [`excludedProviderIds`](../../packages/host/muse-account/README.zh.md#minimal-configuration) 排除独立 Gemini 提供方 `aa`，将 `yunying` 加入 `hiddenProviderIds`，并通过 `visibleModels` 允许精确组合 `yunying/gemini-3.1-pro` 和 `yunying/gpt-6.1-sol`：网关提供这些模型时可在新模型选择器中选择，其他云映模型仍隐藏，已注册路由仍供保存的 Session 使用。个人提供方及其他已注册提供方保持不变。已有对话若选用了独立 Gemini，须在下次请求前选择可用模型；操作见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.zh.md)。
+
+桌面版为 `muse-cloud-yunying`/`gemini-3.1-pro` 挂载 [`prompt-usage-guard`](../../packages/guard/prompt-usage/README.zh.md)。`muse-account` 的常规步骤重试预算内设置 `consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1 }`。若这次重试仍报同一错误，本轮以该错误结束，目标也停止自动续跑。其他可重试错误沿用原有步骤预算和目标恢复规则。
 
 桌面账号组合还从新会话可选目录精确排除云映的 `claude-opus-5-5`、`claude-fable-5-1`、`gpt-6-astra`、`glm-5.3-flash`。网关私有目录及其他提供方（包括智谱官方 GLM 路由）保持不变。已有会话保留原模型 ID；当目录不再提供该路由时，选择器提示先切换模型。
 
@@ -110,7 +112,7 @@ Desktop Host 在代码中挂载 Office 组合（`@deepseek-ai/dsh-desktop-host/o
 
 ## 用户 Skill 目录
 
-Desktop 扫描内置资源、`<Muse home>/skills`、显式配置的 `customSkillDirs`，以及当前项目的 `.muse/skills`、`.dsh/skills`、`.agents/skills`。启动时在既有产品／用户根后保留额外目录，不复制、删除或替换用户文件。字面路径会规范化并去重，`!!js` 目录表达式仍由 Loader 在激活时求值。共享用户 `.agents/skills` 与旧环境目录仍保持隔离，除非用户显式配置。通过 `includeProjectRoots: true` 单独启用项目发现，不需要将 `includeDefaultRoots: false` 改为开启。`cloud-skills/` 存放云端 Bot 团队的技能（监管视频转剧本生产，以及早先调度和转写 Bot 的停用说明）；桌面端从不扫描它，只有云端部署通过 `customSkillDirs` 加入。
+Desktop 扫描内置资源、`<Muse home>/skills`、显式配置的 `customSkillDirs`，以及当前项目的 `.muse/skills`、`.dsh/skills`、`.agents/skills`。启动时在既有产品／用户根后保留额外目录，不复制、删除或替换用户文件。字面路径会规范化并去重，`!!js` 目录表达式仍由 Loader 在激活时求值。共享用户 `.agents/skills` 与旧环境目录仍保持隔离，除非用户显式配置。通过 `includeProjectRoots: true` 单独启用项目发现，不需要将 `includeDefaultRoots: false` 改为开启。`cloud-skills/` 存放只有云端部署通过 `customSkillDirs` 加入的技能；目前为空，桌面端从不扫描它。
 
 Creation 保留原有经允许的全局内置 Skill 与用户目录来源，同时按请求 Agent 日志中的发布集合加载显式启用的市场 Skill。选定的市场版本仅在该 Session 中覆盖同名可变原文件；归档资源缺失时会拒绝加载，不会改用原文件。卸载激活插件会移除这些限定作用域的版本并恢复原目录视图。
 

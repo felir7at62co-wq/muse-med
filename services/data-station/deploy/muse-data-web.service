@@ -1,0 +1,37 @@
+[Unit]
+Description=Muse Data Web isolated data service
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=muse-data-web
+Group=muse-data-web
+WorkingDirectory=/srv/muse-data-web/app
+EnvironmentFile=/srv/muse-data-web/access/server.env
+Environment=PATH=/srv/muse-data-web/runtime:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStartPre=/usr/bin/test -d /srv/muse-data-web/app/.data/live
+ExecStart=/srv/muse-data-web/runtime/node /srv/muse-data-web/app/dist-server/main.js
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=60s
+KillSignal=SIGTERM
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/srv/muse-data-web/app/.data
+MemoryMax=2G
+CPUQuota=200%
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=muse-data-web
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=200
+
+[Install]
+WantedBy=multi-user.target

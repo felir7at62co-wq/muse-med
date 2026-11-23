@@ -107,7 +107,7 @@ it('tells the model when a drama cannot be requeued or the outcome is unknown', 
   f.rush.mockRejectedValueOnce(new MuseDataError('not-requeueable'))
   const busy = await f.requeue({ id: 'hongguo:1' })
   expect(busy).toMatchObject({ state: 'error', code: 'not-requeueable' })
-  expect(JSON.stringify(busy)).toContain('workshop_video_transcribe status')
+  expect(JSON.stringify(busy)).toContain('转写进度在数据站的储备看板里')
   f.rush.mockRejectedValueOnce(new MuseDataError('unconfirmed'))
   expect(await f.requeue({ id: 'hongguo:1' })).toMatchObject({ state: 'error', code: 'unconfirmed' })
 })

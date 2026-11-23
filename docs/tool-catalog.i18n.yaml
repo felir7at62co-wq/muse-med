@@ -9,14 +9,14 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: f62fb42f9a610d13
-  zh: 512f86c5109361af
+  en: 5917fa225fa1459f
+  zh: d1b4068825bbac8d
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
 /tool-schema-catalog/deepseek-ai-dsh-muse-account/data-station-requeue:
-  en: 7104f9d3063252f8
-  zh: 9e5b50bd886d76ce
+  en: b69b0c9ced05bcf7
+  zh: fceeb6bb9ac70b9a
 /tool-schema-catalog/deepseek-ai-dsh-muse-account/data-station-search:
   en: 7bad531105e3beab
   zh: 740d32e914ffdb3d
@@ -147,11 +147,8 @@
   en: 84bc83b8bec482d1
   zh: c5c4d211bcd1b4c8
 /tool-schema-catalog/deepseek-ai-dsh-tool-workshop/workshop-script-editor:
-  en: f19dc0ea2d6164d2
-  zh: 215ab2a11d277569
-/tool-schema-catalog/deepseek-ai-dsh-tool-workshop/workshop-video-transcribe:
-  en: 3f57a0f43ae9769d
-  zh: 3f57a0f43ae9769d
+  en: 72bce43afa1c67cb
+  zh: 08e1bae619095635
 /tool-schema-catalog/deepseek-ai-dsh-tool-hit-queue:
   en: d472e2a550629ed4
   zh: d472e2a550629ed4

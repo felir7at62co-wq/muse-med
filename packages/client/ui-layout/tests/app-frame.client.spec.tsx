@@ -310,6 +310,44 @@ describe('AppFrame', () => {
     }
   })
 
+  it('removes the web rail track while a shell hides it, over a retained rail and across responsive collapse', () => {
+    const { frame, instance, sidebarOwner, getByTestId, queryByTestId } = mountFrame()
+    const layout = new LayoutController(instance.actions, () => true, {
+      getSnapshot: () => instance.getSnapshot().panelInfo, subscribe: listener => instance.subscribe(listener),
+    })
+    act(() => { layout.toggleSidebar() })
+    expect(tracks(frame)[0]).toBe(56)
+    let hide = () => {}
+    act(() => { hide = layout.hideSidebarRail() })
+    expect(tracks(frame)[0]).toBe(0)
+    expect(sidebarOwner()).toEqual({ collapsed: true, width: 0, drawer: false })
+    expect(frame.dataset.sidebarHidden).toBe('true')
+    expect(frame.hasAttribute('data-sidebar-rail')).toBe(false)
+    expect(getByTestId('sidebar-content')).toBeTruthy()
+    // A shell that hides the rail draws its own opener; the web frame mounts none.
+    expect(queryByTestId('shell.leading-content')).toBeNull()
+    let retain = () => {}
+    act(() => { retain = layout.retainSidebarRail() })
+    expect(tracks(frame)[0]).toBe(0)
+    resize(900)
+    expect(tracks(frame)[0]).toBe(0)
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(false)
+    // The phone drawer is unchanged: it never reserved a track.
+    resize(700)
+    expect(tracks(frame)[0]).toBe(0)
+    expect(frame.dataset.sidebarDrawer).toBe('true')
+    resize(1920)
+    act(() => { layout.toggleSidebar() })
+    expect(tracks(frame)[0]).toBe(280)
+    act(() => { layout.toggleSidebar() })
+    act(hide)
+    expect(tracks(frame)[0]).toBe(56)
+    act(retain)
+    expect(tracks(frame)[0]).toBe(56)
+    expect(frame.dataset.sidebarRail).toBe('true')
+    expect(instance.getSnapshot().layoutInfo.sidebar).toBe(0)
+  })
+
   it('keeps retained rail geometry across responsive collapse and preserves the expanded width preference', () => {
     document.documentElement.dataset.platform = 'darwin'
     const { frame, instance, queryByTestId } = mountFrame()

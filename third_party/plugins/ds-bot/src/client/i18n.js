@@ -177,6 +177,7 @@ const ZH = {
   'Only me': '只有我',
   'A Bot for each chat': '每个聊天一个 Bot',
   'Not bound': '未绑定',
+  'Follows “Talks to”': '跟随对话对象',
   Direct: '私聊',
   Chats: '聊天',
   Deny: '拒绝',

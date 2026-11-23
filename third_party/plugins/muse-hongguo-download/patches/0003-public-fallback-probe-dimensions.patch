@@ -1,0 +1,26 @@
+diff --git a/src/native/hongguo.js b/src/native/hongguo.js
+--- a/src/native/hongguo.js
++++ b/src/native/hongguo.js
+@@ -302,8 +302,6 @@
+     source: 'web',
+     vid: String(vid),
+     quality: '360p',
+-    width: 360,
+-    height: 640,
+     userAgent: WEB_UA,
+     referer: WEB_REFERER,
+   };
+diff --git a/src/native/hongguo-public-fallback.test.cjs b/src/native/hongguo-public-fallback.test.cjs
+--- a/src/native/hongguo-public-fallback.test.cjs
++++ b/src/native/hongguo-public-fallback.test.cjs
+@@ -19,8 +19,8 @@
+   assert.equal(result.url, media);
+   assert.equal(result.source, 'web');
+   assert.equal(result.quality, '360p');
+-  assert.equal(result.width, 360);
+-  assert.equal(result.height, 640);
++  assert.equal(result.width, undefined);
++  assert.equal(result.height, undefined);
+   assert.equal(f.calls.length, 1);
+   assert.equal(f.calls[0].method, 'POST');
+   assert.equal(new URL(f.calls[0].url).pathname, '/api/video/protected/fallback-play-info');

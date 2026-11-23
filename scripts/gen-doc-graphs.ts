@@ -1753,13 +1753,33 @@ function listenerPackages(listeners: Set<string>, pkgsByShort: Map<string, Pkg>)
   return [...listeners].sort().map(pkg => pkgLink(pkgsByShort.get(pkg), pkg)).join(', ')
 }
 
+/** Match literal Context emits in the embedded plugin's JavaScript handoff module. */
+function botHandoffEmitters(): Map<string, string> {
+  const file = 'third_party/plugins/ds-bot/src/host/parts.js'
+  const source = ts.createSourceFile(file, readFileSync(resolve(root, file), 'utf8'), ts.ScriptTarget.Latest, true)
+  const emitters = new Map<string, string>()
+  function visit(node: ts.Node): void {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const { expression: receiver, name } = node.expression
+      const [event] = node.arguments
+      if (ts.isIdentifier(receiver) && receiver.text === 'ctx' && name.text === 'emit' && event && ts.isStringLiteralLike(event)) {
+        emitters.set(event.text, `${repoLink(file, '`ds-bot`')} (\`emit\`)`)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return emitters
+}
+
 function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): string {
   const relations = collectEventRelations()
+  const botEmitters = botHandoffEmitters()
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
-  const maintenance = 'generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program'
+  const maintenance = 'generated: Cordis declarations and event relations come from the TypeScript program and the embedded Bot handoff module'
   const lines = generatedHeader('Event Producer And Consumer Matrix')
   lines.push(
-    'This matrix shows which packages dispatch each harness-owned event and which packages listen to it. Events are many-to-many, so the dense relation data is presented as a table rather than one large graph. Receiver and event-name types also cover contained dispatch sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.',
+    'This matrix shows which packages dispatch each harness-owned event and which packages listen to it. Events are many-to-many, so the dense relation data is presented as a table rather than one large graph. Receiver and event-name types also cover contained dispatch sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment. The matrix also records dispatches from the embedded Bot conversation handoff.',
     '',
     'Application listeners are outside this package matrix. Desktop Host subscribes to `plugin-manager/operation` through [`installOperationDiagnostics`](../apps/desktop-host/src/operation-diagnostics.ts) and forwards bounded records to the shell.',
     '',
@@ -1767,7 +1787,10 @@ function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): strin
   const rows = ['| Event | Mode | Declared in | Dispatchers | Listeners |', '| --- | --- | --- | --- | --- |']
   for (const event of [...events].sort((a, b) => a.name.localeCompare(b.name))) {
     const relation = relations.get(event.name) ?? { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
-    rows.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
+    const dispatchers = relationPackages(relation.dispatchers, pkgsByShort)
+    const botEmitter = botEmitters.get(event.name)
+    const dispatcherList = botEmitter ? (dispatchers === '-' ? botEmitter : `${dispatchers}, ${botEmitter}`) : dispatchers
+    rows.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${dispatcherList} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
   lines.push(renderGeneratedRegion('event-producer-consumer:events', rows.join('\n')))
   // Every declared event needs a dispatcher: zero means dead vocabulary or an
@@ -1777,7 +1800,7 @@ function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): strin
   // Context merges collide), so client dispatch sites are structurally
   // invisible here; their rows stay in the table for the declarations' sake.
   const undispatched = [...events]
-    .filter(event => !event.source.startsWith('packages/client/'))
+    .filter(event => !event.source.startsWith('packages/client/') && !botEmitters.has(event.name))
     .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
     .map(event => event.name)
     .sort()

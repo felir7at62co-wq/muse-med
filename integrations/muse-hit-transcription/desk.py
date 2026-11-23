@@ -36,11 +36,27 @@ OPERATIONS = ("reserve", "claim", "status", "publish", "release")
 RESUME_BOT = ("刚才你这一轮被中断了（云端服务重启或模型调用出错），不是你做错了。先看工作区和 drama_status，"
               "从缺的地方接着做这部剧；做完一批照常入库。用户不在线，不要等回复。")
 INTERRUPTED = ("aborted", "error", "unfinished")
+#: DS Bot capabilities a Bot needs to work a drama from the desk: these tools and the transcription skill.
+BOT_CAPABILITIES = ("transcription-desk", "drama-transcribing")
 USAGE_FIELDS = ("input", "cacheRead", "cacheWrite", "output", "calls")
 
 
 def usage_delta(now, then):
     return {field: (now or {}).get(field, 0) - (then or {}).get(field, 0) for field in USAGE_FIELDS}
+
+
+def context_tokens(lines):
+    """The working context size of the session's latest model request, or 0 when none is logged."""
+    for line in reversed(lines):
+        if '"workingContextTokens"' not in line:
+            continue
+        try:
+            value = (json.loads(line).get("data") or {}).get("workingContextTokens")
+        except ValueError:
+            continue
+        if isinstance(value, int):
+            return value
+    return 0
 
 
 def compactions(lines):
@@ -151,6 +167,9 @@ class Desk:
             for other in self.dramas():
                 if other.get("bot") == name and other.get("state") in HOLDING:
                     raise WorkError("BOT_BUSY", f"{name} 手上还有《{other.get('title')}》，做完上架或退回后再派新剧")
+            for capability in BOT_CAPABILITIES:
+                if capability not in (bot.get("capabilities") or []):
+                    self.muse.bot("bot-capability", {"botId": bot["id"], "name": capability, "attached": True})
             claim = self.station.claim(self.worker, key)
             job = claim.get("job")
             if (not isinstance(job, dict) or job.get("workId") != "hongguo:" + key or job.get("state") not in ACTIVE or
@@ -200,10 +219,14 @@ class Desk:
             lease.update(state="downloading", message=f"准备原片，交给 {desk['bot']}")
             media = self.production.media(key, desk["work"], review, state)
             workspace = self.production.place(key, desk["title"], media, state)
+            if (self.load(key) or {}).get("state") != "preparing":
+                return  # handed back while the series was being prepared; the Bot keeps its folder
             self.muse.bot("update-bot", {"id": desk["botId"], "workDir": str(workspace)})
             lease.update(state="transcribing", episode=0, totalEpisodes=len(media), message=f"{desk['bot']} 转写中")
             with self.lock:
                 desk = self.load(key)
+                if desk.get("state") != "preparing":
+                    return
                 desk.update(state="ready", workspace=str(workspace), episodes=len(media), readyAt=time.strftime("%Y-%m-%d %H:%M:%S"))
                 desk.pop("error", None)
                 self.save(key, desk)
@@ -393,11 +416,19 @@ class Desk:
             if done == total or not session or session in running:
                 watch["idle"] = 0
             else:
+                lines = self.muse.log_lines(session)
                 kind, detail = self.muse.last_turn(session)
                 watch["idle"] = watch["idle"] + 1 if kind in INTERRUPTED else 0
                 wait = min(self.cfg.get("watchSeconds", 300) * 2 ** watch["nudges"], self.cfg.get("resumeBackoffMaxSeconds", 1800))
                 if watch["idle"] >= 2 and now - watch["lastNudge"] >= wait:
                     try:
+                        tokens = context_tokens(lines)
+                        if tokens >= self.cfg.get("partTokenLimit", 300_000):
+                            # A context this large is what the model route rejects; go on in a fresh part,
+                            # which carries DS Bot's handoff note, rather than resending it.
+                            self.muse.bot("bot-new-part", {"botId": desk["botId"]})
+                            watch["freshParts"] = watch.get("freshParts", 0) + 1
+                            self.log(event="bot-fresh-part", series=key, bot=desk.get("bot"), contextTokens=tokens)
                         self.muse.bot("send", {"sessionId": desk["botId"], "text": RESUME_BOT})
                         watch.update(idle=0, nudges=watch["nudges"] + 1, lastNudge=now, lastTurn=kind, detail=(detail or "")[:160])
                         self.log(event="bot-nudged", series=key, bot=desk.get("bot"), lastTurn=kind, detail=(detail or "")[:120])

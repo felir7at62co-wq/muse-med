@@ -218,7 +218,7 @@ export class ClientTerminals extends Service {
    * @param tabs - that layout's complete terminal-kind membership.
    * @param layout - layout that owns the list; the right sidebar is `sidebar`, and another host of terminal views names itself.
    */
-  retainTabs(tabs: readonly { sessionId: SessionId; tabId: string; contentId: string }[], layout = 'sidebar'): void {
+  retainTabs(tabs: readonly { sessionId: SessionId; tabId: string; contentId: string }[], layout: string = 'sidebar'): void {
     if (tabs.length === 0) this.openTabs.delete(layout)
     else this.openTabs.set(layout, tabs)
     this.reconcileHolds()

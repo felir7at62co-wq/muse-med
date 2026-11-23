@@ -491,6 +491,27 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     expect(tripwire.warnings).toEqual([])
   }, 120_000)
 
+  it.skipIf(MODE === 'record')('shows the sent retry count and the terminal prompt usage failure', async () => {
+    const failure: ReplayEntry = {
+      kind: 'throw', chunks: [], message: 'Input usage fell below the minimum', code: 'PROMPT_USAGE_SHORTFALL',
+    }
+    await launch(() => [failure, failure], {
+      mode: 'normal', maxRetries: 8, retryableCodes: ['PROMPT_USAGE_SHORTFALL'],
+      consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1 },
+      backoff: { initialDelayMs: 25, maxDelayMs: 50, jitterRatio: 0 },
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    const { settled } = await sendPrompt(30_000)
+    await settled
+    const retry = page.getByRole('status').filter({ hasText: '1 retries sent' })
+    const error = page.getByRole('status').filter({ hasText: 'The model relay reported unexpectedly low input usage.' })
+    await retry.waitFor({ state: 'visible' })
+    await error.waitFor({ state: 'visible' })
+    expect(await error.textContent()).toContain(failure.message)
+    expect(sessionEvents.filter(event => event.type === 'llm/retry-started')).toHaveLength(1)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
       'session.v3.jsonl', 'cancel.expected.md', 'cancel-expanded.expected.md',

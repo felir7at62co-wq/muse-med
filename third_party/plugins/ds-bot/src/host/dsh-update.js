@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path'
 
 import {
   CHECK_TTL_MS, cleanVersion, encodeName, fetchJson, installSpecOf,
-  newer, registryPlan, repoSlug, sourceOf,
+  newer, registryPlan, repoSlug, sourceOf, updateChecksOn,
 } from './update.js'
 
 const PKG = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
@@ -21,7 +21,9 @@ const DSH_PACKAGE = '@deepseek-ai/dsh'
 
 export function install(rt) {
   const { ctx, config } = rt
-  const enabled = config.updateCheck !== false
+  // The same switch as the DS Bot check: off unless the config sets `updateCheck: true`,
+  // so the `npm install -g` below is never offered otherwise.
+  const enabled = updateChecksOn(config)
 
   const status = {
     current: null, verified: null, kind: 'npm', blockedBy: null,

@@ -2005,13 +2005,8 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
         doc: 'Display text where the owner projects one (nav rows, tabs). A thunk is re-read on every projection, so localized text follows the active locale without re-registering.',
       },
     ],
-    ownerProps: [
-      '/** JSON object fields returned to the model. */\nexport type Fields = { [key: string]: JsonValue }',
-      '/** Canonical value of one call: the action and its report fields. */\nexport type Report = { action: typeof ACTIONS[number] } & Fields',
-    ],
-    ownerPropsReferences: [
-      'JsonValue',
-    ],
+    ownerProps: [],
+    ownerPropsReferences: [],
     standardProps: [
       'useRemoteAccess: (action: RemoteEndpoint) => boolean',
       'useResource: UseResource',
@@ -5002,7 +4997,6 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     ownerPropsReferences: [
       'DocumentContent',
-      'Report',
     ],
     standardProps: [
       'useRemoteAccess: (action: RemoteEndpoint) => boolean',
@@ -5063,7 +5057,6 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     ownerPropsReferences: [
       'DocumentTextPage',
-      'Report',
     ],
     standardProps: [
       'useRemoteAccess: (action: RemoteEndpoint) => boolean',
@@ -5176,7 +5169,6 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     ownerPropsReferences: [
       'DocumentContent',
-      'Report',
     ],
     standardProps: [
       'useRemoteAccess: (action: RemoteEndpoint) => boolean',

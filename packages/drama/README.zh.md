@@ -31,7 +31,7 @@ kind: "package-group"
 | [`tool-drama-tos-upload/`](tool-drama-tos-upload/README.zh.md) | 模型可见的 `drama_tos_upload` 工具：把一部作品的原始素材和剧本（红果剧的原片和转写材料，或番茄、七猫小说的原文和剧本）存进火山引擎 TOS 的平台与日期目录，不覆盖也不删除远端对象 |
 | [`tool-hit-queue/`](tool-hit-queue/README.zh.md) | 模型可见的 `drama_hit_queue` 工具：转写工人从数据站任务队列领取红果爆款、上报进度、登记已存原片并发布剧本 |
 | [`workbench-connection/`](workbench-connection/README.zh.md) | 以当前 Muse 用户身份连接剧本工坊，并提供与镜流连接共用的 Muse 账号登录和请求核心 |
-| [`tool-workshop/`](tool-workshop/README.zh.md) | 模型可见的 `workshop_video_transcribe` 工具：按流水线卡片的参数查看、开始、停止和续跑剧本工坊的视频转剧本工厂任务 |
+| [`tool-workshop/`](tool-workshop/README.zh.md) | 模型可见的剧本工坊工具：`script_finalize` 与 `script_library` 处理定稿库，`workshop_script_editor` 为云端草稿提交单集修改 |
 | [`tool-shot-script/`](tool-shot-script/README.zh.md) | 模型可见的 `drama_shot` 工具：默认严格编译脚本，Muse 短剧模式采用提示型内容检查、分包建议和独立检查草稿 |
 | [`bgm-license-info/`](bgm-license-info/README.zh.md) | 曲库与渲染使用方共享的音乐权利声明、明确的未知元数据及用途冲突提示 |
 | [`tool-bgm-compose/`](tool-bgm-compose/README.zh.md) | 模型可见的 `drama_bgm` 工具：源曲分析、确定性交叉淡化合成、无覆盖发布与固定 WAV 核验 |

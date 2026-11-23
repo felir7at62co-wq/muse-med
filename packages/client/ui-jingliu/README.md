@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-With `studioOrigin` mounted at `/jingliu/` on the Muse account gateway, production projects, shared assets, balance and project settings appear in Muse. Choose **Workspace** from the right sidebar's **+** menu to see the current folder or add a workspace through the folder picker. A dedicated studio origin uses the original studio tab. The script workshop opens its writing workspace in a separate tab.
+With `studioOrigin` mounted at `/jingliu/` on the Muse account gateway, production projects, shared assets, balance and project settings appear in Muse. Open **Workspace** from the right sidebar's **+** menu to see the current folder or pick another. Dedicated studio origins use the original studio tab. The script workshop opens separately.
 
 **Shared assets → Characters** shows the studio’s original reference images and descriptions.
 

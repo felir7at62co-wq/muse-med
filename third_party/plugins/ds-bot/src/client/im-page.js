@@ -91,20 +91,31 @@ const Dot = ({ state }) => h('span', { className: 'bt-im-dot', 'data-state': sta
 
 const Tick = ({ on }) => h('span', { className: 'bt-model-tick', 'aria-hidden': true }, on ? h(CheckIcon) : null)
 
-// Who an IM bot or an IM group talks to: a Bot, or with `rooms` also a group chat.
-function TargetMenu({ value, roster, rooms = false, label, onPick, disabled = false }) {
+// Who an IM bot or an IM chat talks to: a Bot, or with `rooms` also a group chat.
+// `fallback` is the Bot a chat without a target of its own answers through; the value and
+// the empty choice then show that Bot, marked as following Talks to.
+function TargetMenu({ value, roster, rooms = false, fallback, label, onPick, disabled = false }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
   const bot = value?.botId !== undefined ? roster.bots.find(entry => entry.id === value.botId) : undefined
   const room = value?.roomId !== undefined ? roster.rooms.find(entry => entry.id === value.roomId) : undefined
+  const follows = fallback !== undefined && value === null
+  const empty = fallback !== undefined ? follows : !bot && !room
   const pick = (next) => { close(); onPick(next) }
-  const shown = bot ? h(BotAvatar, { bot, size: 20, badge: false, live: false }) : room ? h('span', { className: 'bt-im-room' }, h(ChatsIcon)) : null
+  const named = bot ?? (follows ? fallback : undefined)
+  const shown = named ? h(BotAvatar, { bot: named, size: 20, badge: false, live: false }) : room ? h('span', { className: 'bt-im-room' }, h(ChatsIcon)) : null
+  const followMark = h('span', { className: 'bt-model-provider' }, t('Follows “Talks to”'))
   return h(Fragment, null,
     h('button', { ref: button, type: 'button', className: 'bt-model-trigger bt-im-target', 'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': label, disabled, onClick: () => (isOpen ? close() : open()) },
       shown,
-      h('span', { className: 'bt-model-name' }, bot?.name ?? room?.name ?? t('Not bound')),
+      h('span', { className: 'bt-model-name' }, named?.name ?? room?.name ?? t('Not bound')),
+      follows ? followMark : null,
       h(Caret)),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu bt-im-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': label, style: shownPlace, 'data-leaving': leaving || undefined },
-      rooms ? h('button', { type: 'button', role: 'menuitemradio', 'aria-checked': !bot && !room, onClick: () => pick(null) }, h('span', { className: 'bt-menu-label' }, t('Not bound')), h(Tick, { on: !bot && !room })) : null,
+      rooms || fallback !== undefined ? h('button', { type: 'button', role: 'menuitemradio', 'aria-checked': empty, onClick: () => pick(null) },
+        fallback !== undefined ? h(BotAvatar, { bot: fallback, size: 20, badge: false, live: false }) : null,
+        h('span', { className: 'bt-menu-label' }, fallback?.name ?? t('Not bound')),
+        fallback !== undefined ? followMark : null,
+        h(Tick, { on: empty })) : null,
       rooms ? h('div', { className: 'bt-model-group', role: 'presentation' }, t('Bots')) : null,
       roster.bots.map(entry => h('button', { key: entry.id, type: 'button', role: 'menuitemradio', 'aria-checked': entry.id === bot?.id, onClick: () => pick({ botId: entry.id }) },
         h(BotAvatar, { bot: entry, size: 20, badge: false, live: false }), h('span', { className: 'bt-menu-label' }, entry.name), h(Tick, { on: entry.id === bot?.id }))),
@@ -358,9 +369,12 @@ function DetailView({ conn, status, roster, actions, onBack, renderFeishuSetting
             h('span', { className: 'bt-im-name' }, chatName(conn, key, chat)),
             h('span', { className: 'bt-tag' }, chat.kind === 'group' ? t('Group') : t('Direct'))),
           h('span', { className: 'bt-set-control' },
-            chat.kind === 'group'
-              ? h(TargetMenu, { value: chat.target ?? null, roster, rooms: true, label: t('Bound to'), disabled: busy, onPick: target => run(actions.imChat(conn.id, { chatKey: key, target })) })
-              : null,
+            h(TargetMenu, {
+              value: chat.target ?? null, roster, rooms: true, label: t('Bound to'), disabled: busy,
+              // A private chat without a target of its own answers through the IM bot's Bot.
+              fallback: chat.kind === 'direct' ? roster.bots.find(bot => bot.id === conn.botId) : undefined,
+              onPick: target => run(actions.imChat(conn.id, { chatKey: key, target })),
+            }),
             h('button', { type: 'button', className: 'bt-mini bt-im-danger', 'data-confirm': confirm === `c:${key}` || undefined, disabled: busy, onClick: () => ask(`c:${key}`, () => actions.imChat(conn.id, { chatKey: key, remove: true })) }, confirm === `c:${key}` ? t('Remove?') : t('Remove'))))))) : null,
     feishu ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Feishu settings')),

@@ -26,7 +26,7 @@ const failureGuidance: Record<MuseDataFailure, string> = {
   unconfirmed: '没有取得数据站的结果。稍后重试。',
   timeout: '数据站请求超时，没有取得结果。稍后重试。',
   unavailable: '暂时无法连接数据站，没有取得结果。稍后重试。',
-  'not-requeueable': '这部剧正在转写或已经有剧本，数据站没有重新排队。用 workshop_video_transcribe status 查看它的进度。',
+  'not-requeueable': '这部剧正在转写或已经有剧本，数据站没有重新排队。转写进度在数据站的储备看板里。',
 }
 
 function failed(error: unknown) {
@@ -86,7 +86,7 @@ export function mountMuseDataTools(ctx: Context, client: Pick<MuseDataStationCli
     name: 'data_station_requeue', deferLoading: true,
     description: '把一部红果短剧放回数据站转写队列最前（立即转写），使用当前登录的 Muse 账号，记在这个账号名下。'
       + '用于待处理、失败或被淘汰的剧再转一次：已下载的原片和已通过的集沿用，没通过的集再给一轮。正在转写或已有剧本的剧不会重新排队。'
-      + '排队后由转写任务领取；负责这部剧的视频转剧本任务已经结束时，要续跑它才会接着转。',
+      + '排队后由云端 Muse 的转写 Bot 领取。',
     parameters: {
       id: { type: 'string', required: true, description: '数据站编号，形如 hongguo:7550544718799588376。' },
     },

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-server/
+.data/
+.env
+.env.*
+playwright-report/
+test-results/
+artifacts/
+*.log
+# The repository's `lib/` rule targets build output; the Fanqie signer's lib/ is source.
+!/third_party/fanqie-original/vendor/signer/lib/

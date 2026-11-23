@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `jingliu_projects` to search and confirm a production for this conversation. `jingliu_studio` reads episodes, imports shared assets, lists subtitles and corrects one subtitle's text; subtitle times come from `episode_subtitles`. `jingliu_image` defaults to GPT Image 2. Use `jingliu_workflows` and `jingliu_run` for the studio's production operations. Muse writes and locks video prompts before submitting reviewed shots. Jianying exports install editable tracks and their verified media under the chosen local draft directory and return the resulting path in chat.
+Use `jingliu_projects` to find and confirm a production. `jingliu_studio` reads episodes, imports assets, lists subtitles and edits subtitle text. `episode_subtitles` sets subtitle timing. `jingliu_image` defaults to GPT Image 2. Find and run workflows with `jingliu_workflows` and `jingliu_run`. Muse writes and locks reviewed video prompts before submission. Jianying exports place editable tracks and verified media in the local draft directory and return its path.
 
 Requests use the signed-in [Jingliu connection](../jingliu-connection/README.md).
 

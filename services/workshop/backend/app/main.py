@@ -115,8 +115,9 @@ async def lifespan(app: FastAPI):
                 if _j.job_type == "create_spawn": _asyncio.create_task(_rcs(_j.id, _j.config or {}, _j.user_id))
                 elif _j.job_type == "import_spawn": _asyncio.create_task(_ris(_j.id, _j.config or {}, _j.user_id))
                 elif _j.job_type == "video_transcribe":
-                    from .factory.video_transcribe import run_video_transcribe_job as _rvt
-                    _asyncio.create_task(_rvt(_j.id, _j.config or {}, _j.user_id))
+                    # 视频转剧本 is archived: a job the restart interrupted ends instead of running again.
+                    from .factory.video_transcribe import end_interrupted as _evt
+                    _asyncio.create_task(_evt(_j.id))
         await _recover()
         logger.info("Factory job recovery done")
     except Exception as _e:

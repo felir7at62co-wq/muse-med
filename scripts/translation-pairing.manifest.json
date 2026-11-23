@@ -8,6 +8,10 @@
     "docs/cordis-api/inherited.md",
     "docs/i18n/style-samples.md",
     "docs/i18n/terminology.md",
-    "docs/i18n/translation-prompt.md"
+    "docs/i18n/translation-prompt.md",
+    "services/data-station/deploy/README.md",
+    "services/data-station/mac-collectors/",
+    "services/data-station/src/",
+    "services/data-station/third_party/"
   ]
 }

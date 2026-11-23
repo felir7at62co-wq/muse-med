@@ -6429,26 +6429,6 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-workflow -->
 
-<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-workshop -->
-<a id="deepseek-aidsh-tool-workshop"></a>
-
-## `@deepseek-ai/dsh-tool-workshop`
-
-- `inject`: `tools`
-- `source`: [`packages/drama/tool-workshop/src/index.ts:30`](../packages/drama/tool-workshop/src/index.ts)
-
-```ts config-catalog
-/** Deployment choice for unattended transcription. */
-export interface Config {
-  /**
-   * Start or resume a job that names its dramas (`only_series`) without asking, for a deployment where Bots run
-   * transcription unattended within the Workshop's slot limit. A job without named dramas still asks.
-   */
-  readonly autoStartNamedSeries: boolean
-}
-```
-<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-workshop -->
-
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-workspace-dependencies -->
 <a id="deepseek-aidsh-tool-workspace-dependencies"></a>
 
@@ -6717,7 +6697,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-workbench-connection`
 
-- `source`: [`packages/drama/workbench-connection/src/index.ts:32`](../packages/drama/workbench-connection/src/index.ts)
+- `source`: [`packages/drama/workbench-connection/src/index.ts:45`](../packages/drama/workbench-connection/src/index.ts)
 
 ```ts config-catalog
 /** Server address and limits for this installation, after `WorkshopConnection.Config` applied its defaults. */
@@ -6928,6 +6908,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-tool-jingliu` | `tools` · `jingliuConnection` | [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts) |
 | `@deepseek-ai/dsh-tool-schedule` | `tools` · `systemPrompt` | [`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts) |
 | `@deepseek-ai/dsh-tool-working-directory` | `tools` · `workingDirectory` | [`packages/session/tool-working-directory/src/index.ts`](../packages/session/tool-working-directory/src/index.ts) |
+| `@deepseek-ai/dsh-tool-workshop` | `tools` | [`packages/drama/tool-workshop/src/index.ts`](../packages/drama/tool-workshop/src/index.ts) |
 | `@deepseek-ai/dsh-tools` | `systemPrompt` | [`packages/core/tools/src/index.ts`](../packages/core/tools/src/index.ts) |
 | `@deepseek-ai/dsh-user-questions` | — | [`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts) |
 | `@deepseek-ai/dsh-webhook` | `agents` · `agentDefaultModel` · `agentPresets` · `permissionPresets` · `sessionTitle` · `workspaceRegistry` | [`packages/experimental/webhook/src/index.ts`](../packages/experimental/webhook/src/index.ts) |

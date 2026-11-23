@@ -50,7 +50,7 @@ export function applyImDesktopCompatibility(directory) {
     ['        harness: workspaceScope.harness,\n        state: workspaceScope.state,', '        harness: sessionScope.harness,\n        state: sessionScope.state,'],
     ['        accessPolicy: accessPolicyProvider(workspaces, id, {', '        museAdmission: sessionScope.admission ?? config.museAdmission?.forBot(id, workspaces),\n        accessPolicy: accessPolicyProvider(workspaces, id, {'],
   ])
-  edit(directory, 'plugin-src/client/channels/feishu/index.js', '0e7242c2a957c8bf928633e023402bb4d1be69aa99c290b770d8cffee13db12f', [
+  edit(directory, 'plugin-src/client/channels/feishu/index.js', '2eb0fe8ec73d9bb683690dc04b9916a27a9eadd1bc0d1889fcecc33083c3d3d5', [
     ['          onSave: onWorkspaceSave,\n        }),', '          onSave: onWorkspaceSave,\n        }),\n      h("p", { className: "dim-help" }, "同一机器人的私聊和群聊共用此工作区，聊天记录各自独立。"),'],
     [`        h("h3", null, "无法读取飞书机器人"),
         h(ConnectionError, { error: error }),
@@ -64,7 +64,7 @@ export function applyImDesktopCompatibility(directory) {
 .bxf-error > div { width: 100%; min-width: 0; }
 .bxf-error h3 { margin: 0; font-size: 17px; line-height: 25px; font-weight: 500; }`],
   ])
-  edit(directory, 'plugin-src/client/i18n.js', '1b785ceca110674f02b3d0ccb56684216e6c2fc8b1a8b267d46db96a02243200', [
+  edit(directory, 'plugin-src/client/i18n.js', '9e44153d1146704295095bbff615045e7165c4c887fd70f05bb0ff99769e632b', [
     ["  '当前工作区': 'Current workspace',", "  '当前工作区': 'Current workspace',\n  '同一机器人的私聊和群聊共用此工作区，聊天记录各自独立。': 'This bot’s direct and group chats share this workspace; each chat keeps its own history.',"],
     ["  '$locale': 'en',", `  '$locale': 'en',
   '无法访问 DSH 管理接口，请检查 DSH 连接或重新登录后重试。': 'Cannot access the Muse management API. Check your connection or sign in again.',
@@ -79,7 +79,7 @@ export function applyImDesktopCompatibility(directory) {
   'DSH 版本': 'Muse 内核版本',
 });`],
   ])
-  edit(directory, 'src/channels/shared/workspace-command.mjs', 'f0418bb8cfe3066decb8cbb34f9a36979b3ad385c08cf7cb7d1fc02c322a6994', [
+  edit(directory, 'src/channels/shared/workspace-command.mjs', '1ce531c936fe105fde966749c4e037bf56f432742294dbd0fdd948e47406c699', [
     ['function sessionBindErrorMessage(error) {', `function sessionBindErrorMessage(error) {
   if (['muse-workspace-session-foreign', 'muse-workspace-session-in-use', 'muse-workspace-session-unavailable'].includes(error?.code)) {
     return safeDisplayText(error.message);
@@ -88,7 +88,7 @@ export function applyImDesktopCompatibility(directory) {
     ["      return commandResult(t('已清除对话专属工作区，当前使用 bot 默认工作区：{workspace}（之后默认工作区的变化会同步到本对话）', { workspace: current }));", "      return commandResult(harness.workspaceScope === 'bot'\n        ? harness.sharedWorkspaceMessage('clear', current)\n        : t('已清除对话专属工作区，当前使用 bot 默认工作区：{workspace}（之后默认工作区的变化会同步到本对话）', { workspace: current }));"],
     ["    return commandResult(t('当前对话工作区已切换为：{workspace}', { workspace: current }));", "    return commandResult(harness.workspaceScope === 'bot'\n      ? harness.sharedWorkspaceMessage('switched', current)\n      : t('当前对话工作区已切换为：{workspace}', { workspace: current }));"],
   ])
-  edit(directory, 'src/channels/feishu/feishu-runtime.mjs', '903f35ed7c2296e034233b0b293717c8062ed01988ee29a06c557108dae8b74c', [
+  edit(directory, 'src/channels/feishu/feishu-runtime.mjs', '243fb6f7ae15ce6c116abfd4f1bbc0fd93763b63499dcde417bda1e3fa744f43', [
     ["import { createConnectionDiagnostics, atConnectionStage } from '../shared/connection-error.mjs';", "import { closeMuseImSocket } from '../../../lib/muse-im-socket.mjs';\nimport { createConnectionDiagnostics, atConnectionStage } from '../shared/connection-error.mjs';"],
     ['  #botOpenId;', '  #botOpenId;\n  #museAdmission;'],
     ['    botOpenId,', '    botOpenId,\n    museAdmission,'],
@@ -109,7 +109,7 @@ export function applyImDesktopCompatibility(directory) {
     if (failures.length) throw new AggregateError(failures, 'Muse IM shutdown failed after draining admitted work');
     return this.status;`],
   ])
-  edit(directory, 'src/channels/feishu/bridge.mjs', '2bf5173d6b6e9a92659b05c8443f2fedb392ea43e6ac869545121c2214f65e1c', [
+  edit(directory, 'src/channels/feishu/bridge.mjs', '9326a9e09c675bfa5f561481358e81f25bfda3cf46ef437b84ccca3e0ee0d113', [
     ['  #resolveKey(event) {', '  #resolveKey(event) {\n    const canonical = this.#museAdmission?.conversationKey?.(event);\n    if (canonical !== undefined) return canonical;'],
     ['  #rememberTopicReply(messageId, key) {', '  #rememberTopicReply(messageId, key, threaded = false) {'],
     ['    this.#anchorTopicReply.set(messageId, isTopicKey(key));', `    const inThread = threaded || isTopicKey(key) || this.#anchorTopicReply.get(messageId) === true
@@ -158,7 +158,7 @@ export function applyImDesktopCompatibility(directory) {
     ["        } else {\n          // issue #162：pending 已清除时区分", "        } else if (pending && pending.actor !== actor) {\n          await reply(t('请由当前任务发起人回答这个问题。')).catch(() => undefined);\n        } else {\n          // issue #162：pending 已清除时区分"],
     ["        } else if (!pending && this.#isAnsweredInteraction(interactionId)) {", "        } else if (pending && pending.actor !== actor) {\n          await reply(t('请由当前任务发起人回答这个问题。')).catch(() => undefined);\n        } else if (!pending && this.#isAnsweredInteraction(interactionId)) {"],
   ])
-  edit(directory, 'src/channels/shared/i18n-en/feishu.mjs', '834d21b7aa856ec656ada206b488ac55ee062828160fa8ce233ec28a7914c58f', [
+  edit(directory, 'src/channels/shared/i18n-en/feishu.mjs', 'c3481b7f115b422e21aad8809fb794d296fbe47d594bb5600f558278e7cdecda', [
     ['export default {', "export default {\n  '请由当前任务发起人回答这个问题。': 'Only the person who started this task can answer this question.',"],
   ])
   edit(directory, 'plugin-src/host/channels/shared/access-policy-production.mjs', '73177cf116e079045659a285ab3a9800188197734ec2c6af9b07f006dcdb4ba0', [

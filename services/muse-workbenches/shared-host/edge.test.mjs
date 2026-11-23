@@ -21,7 +21,7 @@ test('a live Muse session and an app-specific native owner are required for ever
     if (url === 'http://muse.test/api/muse/identity') {
       identityChecks++
       assert.equal(request.headers.cookie, 'muse=current')
-      return signedIn ? Response.json({ accountId: 'author' }) : new Response(null, { status: 401 })
+      return signedIn ? Response.json({ accountId: 'author', username: 'Author' }) : new Response(null, { status: 401 })
     }
     assert.equal(url, local.nativeLogin)
     assert.equal(request.headers.authorization, 'Bearer private')
@@ -51,7 +51,11 @@ test('a live Muse session and an app-specific native owner are required for ever
   signedIn = false
   assert.equal((await fetch(base + '/check/jingliu', { headers })).status, 401)
   signedIn = true
+  // Without company tenants a subject outside the bindings file never reaches the workbench.
   await writeFile(bindings, JSON.stringify({ issuer: origin, users: {} }))
+  for (const mount of ['jubengongfang', 'jingliu']) assert.equal((await fetch(base + '/check/' + mount, { headers })).status, 403)
+  assert.equal(tickets, 2)
+  await writeFile(bindings, JSON.stringify({ issuer: 'https://other.example', users: {} }))
   assert.equal((await fetch(base + '/check/jingliu', { headers })).status, 403)
 })
 
@@ -112,4 +116,76 @@ test('archiving the Workshop web keeps native APIs open to the linked editor', a
   admin = false
   assert.equal((await request('/check-web/jubengongfang', 'admin')).status, 403)
   assert.equal((await request('/check/jubengongfang', 'admin', 'GET', api)).status, 204)
+})
+
+test('a company account outside the bindings file reads the Workshop library and nothing else', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'muse-wb-reader-'))
+  t.after(() => rm(dir, { force: true, recursive: true }))
+  const origin = 'https://muse.example'
+  const bindings = join(dir, 'bindings.json')
+  await writeFile(bindings, JSON.stringify({ issuer: origin, users: { editor: 27 } }))
+  const workshop = { secret: 'workshop', nativeLogin: 'http://workshop.test/session', bindings, autoAccounts: { feishuTenants: ['company'] } }
+  const jingliu = { secret: 'jingliu', nativeLogin: 'http://jingliu.test/session', bindings }
+  let tenant = 'elsewhere'
+  let readerId = 31
+  let profiles = 0
+  const logins = []
+  const edge = createEdge({ origin, gateway: 'http://muse.test', cookieName: 'muse', apps: { 'script-workshop': workshop, jingliu } }, async (url, request) => {
+    const accountId = request.headers.cookie?.slice('muse='.length)
+    if (url === 'http://muse.test/api/muse/identity') return Response.json({ accountId, username: accountId === 'reader' ? '林晨' : 'Editor' })
+    if (url === 'http://muse.test/api/muse/profile') {
+      profiles++
+      return Response.json({ version: 1, account: { id: accountId, feishuIdentities: [{ name: '林晨', tenantKey: tenant }] } })
+    }
+    const body = JSON.parse(request.body)
+    logins.push([url, body])
+    return Response.json({ access_token: body.sub + '-token', user: { id: body.sub === 'editor' ? 27 : readerId } })
+  })
+  edge.listen(0, '127.0.0.1')
+  await once(edge, 'listening')
+  t.after(() => new Promise(resolve => edge.close(resolve)))
+  const base = 'http://127.0.0.1:' + edge.address().port
+  function check(path, { account = 'reader', method = 'GET', kind = 'check', mount = 'jubengongfang' } = {}) {
+    return fetch(base + '/' + kind + '/' + mount, {
+      method: kind === 'session' ? 'POST' : 'GET',
+      headers: { origin, cookie: 'muse=' + account, 'x-workbench-method': method, 'x-workbench-origin': origin, 'x-workbench-path': path },
+    })
+  }
+  const list = '/jubengongfang/v1/script-library?status=waiting&page=1'
+  assert.equal((await check(list)).status, 403)
+  assert.deepEqual([profiles, logins.length], [1, 0])
+  tenant = 'company'
+  const reader = await check(list)
+  assert.equal(reader.status, 204)
+  assert.equal(reader.headers.get('x-workbench-authorization'), 'Bearer reader-token')
+  assert.deepEqual(logins, [['http://workshop.test/session', { sub: 'reader', username: '林晨', company: true }]])
+  for (const [path, method] of [
+    ['/jubengongfang/v1/script-library/1?version=2', 'GET'], ['/jubengongfang/api/v1/auth/me', 'GET'],
+    ['/jubengongfang/v1/script-library', 'HEAD'], ['/jubengongfang/v1/script-library', 'POST'],
+    ['/jubengongfang/v1/script-library/1/pick', 'POST'], ['/jubengongfang/api/v1/script-library/1/production', 'POST'],
+  ]) assert.equal((await check(path, { method })).status, 204, method + ' ' + path)
+  for (const [path, method] of [
+    ['/jubengongfang/v1/script-editor/drafts', 'GET'], ['/jubengongfang/v1/factory/jobs', 'GET'],
+    ['/jubengongfang/v1/admin-api/users', 'GET'], ['/jubengongfang/v2', 'GET'], ['/jubengongfang/', 'GET'],
+    ['/jubengongfang/v1/script-library/1/pick', 'GET'], ['/jubengongfang/v1/script-library/1', 'DELETE'],
+    ['/jubengongfang/v1/script-library/../admin-api/users', 'GET'], ['/jubengongfang/v1/script-library/%2e%2e/admin-api/users', 'GET'],
+    ['/jubengongfang/v1//script-library', 'GET'], ['/jubengongfang/v1/script-library/01', 'GET'],
+  ]) assert.equal((await check(path, { method })).status, 403, method + ' ' + path)
+  assert.equal((await check(list, { kind: 'check-web' })).status, 403)
+  assert.equal((await check(list, { kind: 'session' })).status, 403)
+  assert.equal((await check('/jingliu/fwp/v2/projects', { mount: 'jingliu' })).status, 403)
+  assert.deepEqual([profiles, logins.length], [2, 1])
+  // A bound account keeps every route and is never asked for its profile.
+  assert.equal((await check('/jubengongfang/v1/script-editor/drafts', { account: 'editor' })).status, 204)
+  assert.deepEqual(logins.at(-1), ['http://workshop.test/session', { sub: 'editor' }])
+  assert.equal(profiles, 2)
+  // Signing out drops the cached session; Workshop must then answer with an account that no binding owns.
+  assert.equal((await check('/jubengongfang/v1/auth/logout', { method: 'POST' })).status, 204)
+  readerId = 27
+  assert.equal((await check(list)).status, 503)
+  readerId = 0
+  assert.equal((await check(list)).status, 503)
+  for (const autoAccounts of [{ feishuTenants: [] }, { feishuTenants: [''] }, { feishuTenants: ['company'], roles: ['user'] }]) {
+    assert.throws(() => createEdge({ origin, apps: { 'script-workshop': { ...workshop, autoAccounts } } }), TypeError)
+  }
 })

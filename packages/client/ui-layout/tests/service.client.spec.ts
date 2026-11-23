@@ -10,6 +10,7 @@ function fakePanels(): PanelActions {
     setSidebar: vi.fn(),
     toggleSidebar: vi.fn(),
     setSidebarRailRetained: vi.fn(),
+    setSidebarRailHidden: vi.fn(),
     setViewportWidth: vi.fn(),
     setRightbar: vi.fn(),
     openRightbar: vi.fn(),
@@ -69,6 +70,39 @@ describe('LayoutController', () => {
     release()
     expect(panels.setSidebarRailRetained).toHaveBeenCalledTimes(2)
     expect(panels.setSidebarRailRetained).toHaveBeenLastCalledWith(false)
+    expect(panels.setSidebarRailHidden).not.toHaveBeenCalled()
+  })
+
+  it('hides the compact rail for multiple owners apart from retention and releases each owner only once', () => {
+    const panels = fakePanels()
+    const service = new LayoutController(panels, () => true, createSnapshotStore({ activePanelId: null }))
+    const first = service.hideSidebarRail()
+    const second = service.hideSidebarRail()
+    const retained = service.retainSidebarRail()
+    expect(panels.setSidebarRailHidden).toHaveBeenCalledExactlyOnceWith(true)
+    expect(panels.setSidebarRailRetained).toHaveBeenCalledExactlyOnceWith(true)
+    first(); first()
+    expect(panels.setSidebarRailHidden).toHaveBeenCalledTimes(1)
+    second(); second()
+    expect(panels.setSidebarRailHidden).toHaveBeenNthCalledWith(2, false)
+    expect(panels.setSidebarRailHidden).toHaveBeenCalledTimes(2)
+    expect(panels.setSidebarRailRetained).toHaveBeenCalledTimes(1)
+    retained()
+    expect(panels.setSidebarRailRetained).toHaveBeenLastCalledWith(false)
+    expect(panels.setSidebar).not.toHaveBeenCalled()
+    expect(panels.toggleSidebar).not.toHaveBeenCalled()
+  })
+
+  it('releases hidden rails on layout disposal without later owner writes', () => {
+    const panels = fakePanels()
+    const service = new LayoutController(panels, () => true, createSnapshotStore({ activePanelId: null }))
+    const release = service.hideSidebarRail()
+    service.dispose()
+    service.dispose()
+    release()
+    expect(panels.setSidebarRailHidden).toHaveBeenCalledTimes(2)
+    expect(panels.setSidebarRailHidden).toHaveBeenLastCalledWith(false)
+    expect(panels.setSidebarRailRetained).not.toHaveBeenCalled()
   })
 
   it('forwards panel selection and returning to the Conversation without changing geometry', () => {

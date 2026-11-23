@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Rendered by install.sh: @ROOT@ is the install directory. One process runs the WeChat guardian, scheduler and uploader. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>cn.muse.lvpaopao.collector</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@ROOT@/venv/bin/python3</string>
+    <string>-m</string>
+    <string>lvpaopao_collector</string>
+    <string>--config</string>
+    <string>@ROOT@/config.json</string>
+    <string>run</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>@ROOT@/app</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>@ROOT@/app</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>LANG</key>
+    <string>zh_CN.UTF-8</string>
+  </dict>
+  <!-- Accessibility clicks and window capture need the logged-in GUI session. -->
+  <key>LimitLoadToSessionType</key>
+  <string>Aqua</string>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <!-- SIGTERM grace: cancel the current call, close the helper, flush state. -->
+  <key>ExitTimeOut</key>
+  <integer>60</integer>
+  <!-- The isolated WeChat runs in its own session and must survive collector restarts (it is adopted again). -->
+  <key>AbandonProcessGroup</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>@ROOT@/logs/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>@ROOT@/logs/launchd.log</string>
+</dict>
+</plist>

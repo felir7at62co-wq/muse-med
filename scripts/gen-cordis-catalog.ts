@@ -1084,6 +1084,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   MarketReviewAction: 'Cloud review actions are owned by packages/host/muse-market/README.md and src/cloud-protocol.ts',
   SelectedProject: 'Jingliu project and asset fields are owned by packages/drama/jingliu-connection/README.md and src/types.ts',
   StudioBalance: 'Jingliu project and asset fields are owned by packages/drama/jingliu-connection/README.md and src/types.ts',
+  StudioBillingDetails: 'Jingliu billing fields are owned by packages/drama/jingliu-connection/README.md and src/types.ts',
   StudioLibrary: 'Jingliu project and asset fields are owned by packages/drama/jingliu-connection/README.md and src/types.ts',
   StudioLibraryQuery: 'Jingliu project and asset fields are owned by packages/drama/jingliu-connection/README.md and src/types.ts',
   StudioOptions: 'Jingliu project and asset fields are owned by packages/drama/jingliu-connection/README.md and src/types.ts',

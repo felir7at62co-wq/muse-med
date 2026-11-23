@@ -148,18 +148,19 @@ describe('ui-layout client apply', () => {
     expect(pending.aborted).toBe(true)
   })
 
-  it('releases a shell rail request when its Cordis owner unloads', async () => {
+  it('releases shell rail requests when their Cordis owner unloads', async () => {
     const { ctx, slots } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
     const handle = slots.entries('root')[0]!.store as ReturnType<typeof createLayoutStore>
     const instance = handle.create()
     const consumer = ctx.plugin({ inject: ['layout'], apply: (scope) => {
       scope.effect(() => scope.layout.retainSidebarRail(), 'fixture: compact rail')
+      scope.effect(() => scope.layout.hideSidebarRail(), 'fixture: own column')
     } })
     await consumer.await()
-    expect(instance.getSnapshot().layoutInfo.sidebarRailRetained).toBe(true)
+    expect(instance.getSnapshot().layoutInfo).toMatchObject({ sidebarRailRetained: true, sidebarRailHidden: true })
     await consumer.dispose()
-    expect(instance.getSnapshot().layoutInfo.sidebarRailRetained).toBe(false)
+    expect(instance.getSnapshot().layoutInfo).toMatchObject({ sidebarRailRetained: false, sidebarRailHidden: false })
   })
 
   it('theme presenter applies the initial snapshot, follows theme/change, and unwinds on dispose', async () => {

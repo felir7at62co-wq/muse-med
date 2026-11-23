@@ -166,7 +166,10 @@ export class MuseDataStationClient {
     return works.parse(await this.exchange(`/works?${query}`))
   }
 
-  /** @returns The 绿泡泡 collector's state, label and message. */
+  /**
+   * Read the 绿泡泡 collector's current status from the data station.
+   * @returns The collector state, label and message.
+   */
   async collector(): Promise<MuseDataCollector> {
     return collector.parse(await this.exchange('/lvpaopao/status'))
   }

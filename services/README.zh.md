@@ -22,3 +22,5 @@ kind: "reference"
 [`jingliu`](jingliu/README.zh.md) 收录 Muse 制片引擎镜流的后端：云端发布的后端去掉登录适配，再加上其 README 列出的尚未部署的改动。
 
 [`workshop`](workshop/README.zh.md) 收录剧本工坊的源码：Muse 存放定稿剧本的云端剧本工作台，含 FastAPI 后端和 Next.js 前端。
+
+[`data-station`](data-station/README.zh.md) 收录 `/data/` 数据站的源码：提供平台榜单、抖音搜索与下载，以及为每日爆款转写供片的储备看板。

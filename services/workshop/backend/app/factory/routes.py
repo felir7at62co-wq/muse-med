@@ -85,8 +85,8 @@ async def create_factory_job(
             raise HTTPException(status_code=400, detail="缺少 job_type")
 
     if job_type == "video_transcribe":
-        from .video_transcribe import checked_config
-        config = checked_config(config)
+        from .video_transcribe import archived
+        raise archived()
     async with get_async_session() as session:
         job = FactoryJob(
             user_id=user.id,
@@ -104,10 +104,7 @@ async def create_factory_job(
         
     logger.info(f"[Job {job_id}] Created {job_type}")
     
-    if job_type == "video_transcribe":
-        from .video_transcribe import run_video_transcribe_job
-        background_tasks.add_task(run_video_transcribe_job, job_id, config, user.id)
-    elif job_type == "create_spawn":
+    if job_type == "create_spawn":
         background_tasks.add_task(run_create_spawn_job, job_id, config, user.id)
     elif job_type == "import_spawn":
         background_tasks.add_task(run_import_spawn_job, job_id, config, user.id)
@@ -798,8 +795,8 @@ async def resume_job(
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         if job.job_type == "video_transcribe":
-            from .video_transcribe import resume_job as resume_transcribe
-            return await resume_transcribe(job, session, background_tasks)
+            from .video_transcribe import archived
+            raise archived()
         
         # 找出ready_for_script的大纲
         oresult = await session.execute(
@@ -1694,6 +1691,6 @@ async def workspace_state(user: User = Depends(get_current_user)):
 
 @router.get("/video-transcribe/status")
 async def video_transcribe_status(user: User = Depends(get_current_user)):
-    """视频转剧本是否可用、数据站队列和可用执行位。"""
+    """视频转剧本已归档：始终返回不可用及归档说明。"""
     from .video_transcribe import status
     return await status()

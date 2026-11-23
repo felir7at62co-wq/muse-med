@@ -8,8 +8,11 @@ import { HarnessError } from '@deepseek-ai/dsh-error'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { defineTool, ToolArgsError, type ToolDefinition, type ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { scriptList, scriptOf, type ScriptSummary, type WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
-import type { Fields } from './jobs.ts'
+
+/** JSON object fields returned to the model. */
+export type Fields = { [key: string]: JsonValue }
 
 /** Rights the library records, as the model names them. */
 export const RIGHTS = { 原创: 'original', 授权改编: 'licensed' } as const

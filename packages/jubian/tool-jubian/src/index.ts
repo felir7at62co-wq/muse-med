@@ -527,6 +527,18 @@ const QA_READ_METHODS = {
   jubian_video: new Set(['task', 'tasks', 'subtasks', 'sources', 'unresolved']),
 } as const
 
+function videoOperationArguments(input: MethodArgs): MethodArgs {
+  const { character_reference: reference, ...readArgs } = input
+  if (reference === undefined || input.method === 'image_generate') return input
+  if (!QA_READ_METHODS.jubian_video.has(input.method)
+    || (reference.authorization_version !== 0 && reference.authorization_version !== 1)
+    || reference.authorization_id !== '' || reference.character_id !== ''
+    || reference.catalog_asset_id !== '' || reference.image_sha256 !== '' || reference.managed_reference_id !== '') {
+    throw new Error('Managed character references are supported only by image_generate.')
+  }
+  return readArgs
+}
+
 function methodArgument(args: Record<string, unknown>): string | undefined {
   const method = args['method']
   return typeof method === 'string' ? method : undefined
@@ -1446,10 +1458,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       idempotency_key: ARGS.idempotency_key,
     },
     output: VIDEO_OUTPUT,
-    execute: async (args, exec) => await guarded('jubian_video', async (input) => {
-      if (input.character_reference !== undefined && input.method !== 'image_generate') {
-        throw new Error('Managed character references are supported only by image_generate.')
-      }
+    execute: async (args, exec) => await guarded('jubian_video', async (received) => {
+      const input = videoOperationArguments(received)
       const characterReferenceGeneration = input.character_reference === undefined
         ? undefined
         : await (async () => {

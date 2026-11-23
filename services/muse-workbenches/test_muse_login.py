@@ -131,6 +131,94 @@ class Workbench(unittest.TestCase):
                     self.assertEqual(client.post(prefix + "/exchange", json={"requestId": attempt["requestId"], "code": "y"*43}).status_code, 403)
                 self.assertEqual(mint.await_count, 2)
 
+    def test_jingliu_opens_an_account_for_a_subject_outside_the_bindings_file(self):
+        """Jingliu accounts are opened on first sign-in; Workshop admits only the bindings file."""
+        opened = []
+
+        class AccountError(Exception):
+            def __init__(self, status, code, message):
+                super().__init__(message)
+                self.status, self.code, self.message = status, code, message
+
+        def resolve_or_provision(subject, username):
+            opened.append((subject, username))
+            if subject == "broken":
+                raise AccountError(503, "bindings_invalid", "Muse 账号绑定文件内容不对")
+            return None if subject == "switched-off" else 1000001
+
+        accounts = types.SimpleNamespace(AccountError=AccountError, resolve_or_provision=resolve_or_provision)
+        mint = AsyncMock(return_value={"token": "workbench-only", "user": {"id": 1000001}})
+        with patch.dict(os.environ, {"MUSE_WORKBENCH_SHARED_HOST": "1"}), \
+                patch.dict(sys.modules, {"test_app.muse_accounts": accounts}), \
+                patch.object(adapter, "issue_native_session", mint):
+            for audience, prefix in (("jingliu", "/v2/auth/muse"), ("script-workshop", "/v1/auth/muse")):
+                client = self.client(audience)
+                def ask(sub, **extra):
+                    return client.post(prefix + "/internal-session", json={"sub": sub, **extra},
+                                       headers={"Authorization": "Bearer " + self.priv})
+                if audience == "jingliu":
+                    self.assertEqual(ask("muse-new", username="林晨").json()["user"]["id"], 1000001)
+                    mint.assert_awaited_with("jingliu", 1000001, None)
+                    self.assertEqual(ask("switched-off").status_code, 403)
+                    broken = ask("broken")
+                    self.assertEqual((broken.status_code, broken.json()["detail"]), (503, "Muse 账号绑定文件内容不对"))
+                    self.assertEqual(opened, [("muse-new", "林晨"), ("switched-off", None), ("broken", None)])
+                    # Only a printable name of at most 64 characters reaches the native account.
+                    for odd in ("x" * 65, "林\n晨", " ", "\u200b"):
+                        ask("muse-new", username=odd)
+                        self.assertIsNone(opened.pop()[1], repr(odd))
+                    ask("muse-new", username=" 林 晨 ")
+                    self.assertEqual(opened.pop()[1], "林 晨")
+                else:
+                    self.assertEqual(ask("muse-new", username="林晨").status_code, 403)
+                    self.assertEqual(len(opened), 3)            # Workshop never opens an account
+                # The bindings file still wins, and a missing subject is refused before anything is opened.
+                self.assertEqual(ask("muse-a").status_code, 200)
+                mint.assert_awaited_with(audience, 7, None)
+                self.assertEqual(ask("").status_code, 403)
+                self.assertEqual(len(opened), 3)
+        # Without the Jingliu module the adapter admits only file bindings.
+        with patch.dict(os.environ, {"MUSE_WORKBENCH_SHARED_HOST": "1"}):
+            client = self.client("jingliu")
+            refused = client.post("/v2/auth/muse/internal-session", json={"sub": "muse-new"},
+                                  headers={"Authorization": "Bearer " + self.priv})
+            self.assertEqual(refused.status_code, 403)
+
+    def test_workshop_opens_a_library_reader_only_for_a_company_account_from_the_edge(self):
+        """Workshop opens a reader only when the shared-host edge sends `company: true`; the bindings file wins."""
+        opened = []
+
+        async def resolve_or_provision(subject, username, bound_owners):
+            opened.append((subject, username, bound_owners))
+            return 31
+
+        readers = types.SimpleNamespace(resolve_or_provision=resolve_or_provision)
+        mint = AsyncMock(return_value={"access_token": "workbench-only", "user": {"id": 31}})
+        with patch.dict(os.environ, {"MUSE_WORKBENCH_SHARED_HOST": "1"}), \
+                patch.dict(sys.modules, {"test_app.muse_readers": readers}), \
+                patch.object(adapter, "issue_native_session", mint):
+            client = self.client("script-workshop")
+
+            def ask(secret=self.priv, **body):
+                return client.post("/v1/auth/muse/internal-session", json=body, headers={"Authorization": "Bearer " + secret})
+            for vouch in (None, False, "true", 1):
+                self.assertEqual(ask(sub="muse-new", username="林晨", company=vouch).status_code, 403)
+            self.assertEqual(ask(secret="y" * 43, sub="muse-new", company=True).status_code, 403)
+            self.assertEqual(opened, [])
+            self.assertEqual(ask(sub="muse-new", username=" 林晨 ", company=True).json()["user"]["id"], 31)
+            self.assertEqual(opened, [("muse-new", "林晨", {7})])
+            mint.assert_awaited_with("script-workshop", 31, None)
+            self.assertEqual(ask(sub="muse-new", username="林\n晨", company=True).status_code, 200)
+            self.assertIsNone(opened.pop()[1])
+            self.assertEqual(ask(sub="muse-a", company=True).status_code, 200)
+            mint.assert_awaited_with("script-workshop", 7, None)
+            self.assertEqual(len(opened), 1)
+        # Without the reader module the Workshop admits only file bindings.
+        with patch.dict(os.environ, {"MUSE_WORKBENCH_SHARED_HOST": "1"}):
+            refused = self.client("script-workshop").post("/v1/auth/muse/internal-session", json={"sub": "muse-new", "company": True},
+                                                          headers={"Authorization": "Bearer " + self.priv})
+            self.assertEqual(refused.status_code, 403)
+
     def test_install_is_repeatable_and_validates_frontend_before_writing(self):
         root, front = self.root / "backend", self.root / "front"
         (root / "app").mkdir(parents=True)

@@ -1,4 +1,5 @@
-"""Behavior of the Workshop 视频转剧本 factory job and its pipeline step against a scripted worker and an in-memory job table."""
+"""Behavior of the archived Workshop 视频转剧本 factory job against a scripted worker and an in-memory job table, and the
+refusals of its archived job API, pipeline step and startup recovery."""
 import asyncio
 from contextlib import asynccontextmanager
 import importlib
@@ -325,49 +326,30 @@ class VideoTranscribeTest(unittest.TestCase):
         job = self.run_job({"count": 1})
         self.assertEqual(job.result["attention"][0]["reason"], "原片缺集")
 
-    def test_steps_validation_keeps_other_steps(self):
-        steps = self.vt.checked_steps([{"type": "video_transcribe", "config": {"count": 2, "task_name": "t"}},
-                                       {"type": "distribute", "config": {"target_id": 3}}])
-        self.assertEqual(steps[0]["config"]["count"], 2)
-        self.assertEqual(steps[0]["config"]["task_name"], "t")
-        self.assertEqual(steps[1], {"type": "distribute", "config": {"target_id": 3}})
-        with self.assertRaises(HTTPException):
-            self.vt.checked_steps([{"type": "video_transcribe", "config": {"concurrency": 9}}])
-
-    def test_resume_continues_a_stopped_job_in_place(self):
-        job = self.job(delivered=[{"series_id": SERIES[0], "title": "剧0", "episodes": 2, "published": False}])
-        job.status, job.finished_at, job.error_message = "stopped", "2026-11-20T01:00:00", "old"
-        job.config, job.user_id = {"count": 2, "task_name": "t"}, 7
-        tasks = BackgroundTasks()
-        reply = asyncio.run(self.vt.resume_job(job, Session(), tasks))
-        self.assertEqual(reply, {"job_id": 1, "resumed": True, "message": "已续跑视频转剧本任务"})
-        self.assertEqual((job.status, job.finished_at, job.error_message), ("pending", None, None))
-        [(function, args)] = tasks.tasks
-        self.assertIs(function, self.vt.run_video_transcribe_job)
-        self.assertEqual(args[0], 1)
-        self.assertEqual(args[1]["count"], 2)
-        self.assertEqual(args[1]["task_name"], "t")
-        self.assertEqual(args[2], 7)
-        self.scenario(("deliver", SERIES[1]))
-        asyncio.run(asyncio.wait_for(function(*args), 30))
-        self.assertEqual(job.status, "completed")
-        self.assertEqual([r["series_id"] for r in job.result["delivered"]], [SERIES[0], SERIES[1]])
-
-    def test_resume_refuses_an_active_job_or_an_invalid_saved_config(self):
-        job = self.job()
-        job.config, job.user_id = {"count": 1}, 7
-        for status, result, detail in (("running", {}, "任务正在运行，无需续跑"), ("pending", {}, "任务正在运行，无需续跑"),
-                                       ("running", {"manual_stop_requested": True}, "任务正在停止，停下后再续跑")):
-            job.status, job.result = status, result
-            with self.assertRaises(HTTPException) as caught:
-                asyncio.run(self.vt.resume_job(job, Session(), BackgroundTasks()))
-            self.assertEqual((caught.exception.status_code, caught.exception.detail), (409, detail))
-        job.status, job.config = "failed", {"concurrency": 9}
-        tasks = BackgroundTasks()
+    def test_steps_refuse_the_archived_step_and_keep_other_steps(self):
+        other = [{"type": "create_spawn", "config": {"total_scripts": 2}}, {"type": "distribute", "config": {"target_id": 3}}]
+        self.assertEqual(self.vt.checked_steps(other), other)
+        self.assertEqual(self.vt.checked_steps(None), [])
         with self.assertRaises(HTTPException) as caught:
-            asyncio.run(self.vt.resume_job(job, Session(), tasks))
-        self.assertEqual(caught.exception.status_code, 400)
-        self.assertEqual((job.status, tasks.tasks), ("failed", []))
+            self.vt.checked_steps([*other, {"type": "video_transcribe", "config": {"count": 2}}])
+        self.assertEqual((caught.exception.status_code, caught.exception.detail), (410, self.vt.ARCHIVED))
+
+    def test_status_reports_the_archived_step(self):
+        self.assertEqual(asyncio.run(self.vt.status()), {"ready": False, "error": "视频转剧本已归档：转写改由云端 Muse 的转写 Bot 完成"})
+        refusal = self.vt.archived()
+        self.assertEqual((refusal.status_code, refusal.detail), (410, self.vt.ARCHIVED))
+
+    def test_startup_recovery_ends_an_interrupted_job(self):
+        running = self.job(1, delivered=[{"series_id": SERIES[0]}])
+        running.status = "running"
+        stopped = self.job(2)
+        stopped.status = "stopped"
+        for job_id in (1, 2, 3):
+            asyncio.run(self.vt.end_interrupted(job_id))
+        self.assertEqual((running.status, running.error_message), ("failed", self.vt.ARCHIVED))
+        self.assertIsNotNone(running.finished_at)
+        self.assertEqual(running.result["delivered"], [{"series_id": SERIES[0]}])
+        self.assertEqual((stopped.status, stopped.error_message, stopped.finished_at), ("stopped", None, None))
 
     def test_restart_keeps_a_stop_requested_before_it(self):
         job = self.job(manual_stop_requested=True, delivered=[{"series_id": SERIES[0]}])
@@ -379,34 +361,36 @@ class VideoTranscribeTest(unittest.TestCase):
         self.assertEqual([r["series_id"] for r in job.result["delivered"]], [SERIES[0]])
         self.assertEqual(json.loads(self.scenarios.read_text()), [["deliver", SERIES[1]]])
 
-    def resume_pipeline(self, job):
-        """Resume a one-step 视频转剧本 pipeline run whose step stopped on `job`."""
+    def run_pipeline(self, run, resume):
+        """Run or resume a one-step 视频转剧本 pipeline run."""
         pipeline = load_pipeline()
         pipeline.select = PipelineQuery
-        wait_job = pipeline._wait_job
-        pipeline._wait_job = lambda job_id, timeout: wait_job(job_id, poll=0.05, timeout=timeout)
-        run = types.SimpleNamespace(id=1, status="stopped", step_runs=[{"type": "video_transcribe", "job_id": job.id, "status": "stopped"}])
         PipelineSession.rows = {
             pipeline.FactoryPipeline: types.SimpleNamespace(id=1, name="自动流", model_config={},
-                                                            steps=[{"type": "video_transcribe", "config": dict(job.config)}]),
+                                                            steps=[{"type": "video_transcribe", "config": {"count": 2}}]),
             pipeline.FactoryPipelineRun: run,
         }
-        asyncio.run(asyncio.wait_for(pipeline.run_pipeline(1, 1, 7, resume=True), 30))
-        return run
+        updates = []
 
-    def test_pipeline_resume_continues_a_stopped_job_in_place(self):
-        job = self.job(manual_stop_requested=True, delivered=[{"series_id": SERIES[0], "title": "剧0", "episodes": 2, "published": False}])
-        job.status, job.finished_at, job.error_message = "stopped", "2026-11-20T01:00:00", "old"
-        job.config, job.user_id = {"count": 2}, 7
-        self.scenario(("deliver", SERIES[1]))
-        run = self.resume_pipeline(job)
+        async def update_run(run_id, **fields):
+            updates.append(fields)
+            run.__dict__.update(fields)
+        pipeline._update_run = update_run
+        asyncio.run(asyncio.wait_for(pipeline.run_pipeline(1, 1, 7, resume=resume), 30))
+        return updates
+
+    def test_pipeline_step_fails_without_starting_or_reopening_a_job(self):
+        job = self.job(delivered=[{"series_id": SERIES[0]}])
+        job.status = "stopped"
+        for resume in (False, True):
+            run = types.SimpleNamespace(id=1, status="stopped", step_runs=[{"type": "video_transcribe", "job_id": job.id, "status": "stopped"}])
+            self.run_pipeline(run, resume)
+            self.assertEqual((run.status, run.error_message), ("failed", self.vt.ARCHIVED))
+            self.assertEqual([(s["type"], s["job_id"], s["status"], s["summary"]) for s in run.step_runs],
+                             [("video_transcribe", None, "failed", self.vt.ARCHIVED)])
         self.assertEqual(list(Store.jobs), [1])
-        self.assertEqual(job.status, "completed")
-        self.assertNotIn("manual_stop_requested", job.result)
-        self.assertEqual([r["series_id"] for r in job.result["delivered"]], [SERIES[0], SERIES[1]])
-        self.assertEqual(run.status, "completed")
-        self.assertEqual([(s["job_id"], s["status"]) for s in run.step_runs], [(1, "completed")])
-
+        self.assertEqual(job.status, "stopped")
+        self.assertEqual(Store.products, [])
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tool-workshop",
-  "description": "Start, stop and report Script Workshop's video-to-screenplay job, and finalize scripts into its library, from a Muse conversation",
+  "description": "Finalize scripts into Script Workshop's library, read them back for production, and stage cloud draft revisions from a Muse conversation",
   "version": "0.2.2-rc.2",
   "publishConfig": {
     "access": "public"
@@ -32,8 +32,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@deepseek-ai/dsh-workbench-connection": "workspace:*",
-    "@deepseek-ai/schemastery": "workspace:~"
+    "@deepseek-ai/dsh-workbench-connection": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -41,7 +40,6 @@
     "@deepseek-ai/dsh-fs": "workspace:*",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*",
-    "@deepseek-ai/dsh-user-approval": "workspace:*",
     "@deepseek-ai/dsh-util-values": "workspace:*"
   },
   "devDependencies": {
@@ -54,7 +52,6 @@
     "@deepseek-ai/dsh-tool-executor-native": "workspace:*",
     "@deepseek-ai/dsh-tool-testkit": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*",
-    "@deepseek-ai/dsh-user-approval": "workspace:*",
     "@deepseek-ai/dsh-util-values": "workspace:*"
   }
 }

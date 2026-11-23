@@ -9,7 +9,7 @@ description: "在 Muse 会话中查找并调用镜流影视制作工作流。"
 
 ## 概述
 
-在会话中用 `jingliu_projects` 搜索并确认制片项目。`jingliu_studio` 可回读分集、导入共享素材、列出字幕并改一条字幕的文字（字幕时间由 `episode_subtitles` 生成），`jingliu_image` 默认使用 GPT Image 2。通过 `jingliu_workflows` 和 `jingliu_run` 调用镜流制片流程。Muse 撰写并锁定分镜提示词后提交已审校的镜头。导出剪映时，工具将可编辑轨道和经核验的媒体放入指定的本机草稿目录，在聊天中返回路径。
+用 `jingliu_projects` 搜索并确认制片项目。`jingliu_studio` 可回读分集、导入素材、列出和编辑字幕文字。`episode_subtitles` 设置字幕时间。`jingliu_image` 默认使用 GPT Image 2。通过 `jingliu_workflows` 和 `jingliu_run` 查找并运行工作流。Muse 写好并锁定已审校的提示词后提交镜头。剪映导出将可编辑轨道与经核验的媒体放入本机草稿目录，并返回路径。
 
 请求使用当前账号的[镜流连接](../jingliu-connection/README.zh.md)。
 

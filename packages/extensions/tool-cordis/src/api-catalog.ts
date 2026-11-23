@@ -2242,6 +2242,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'The current Jingliu account allowance.',
       },
       {
+        signature: '@Remote async billingDetails(signal: AbortSignal): Promise<StudioBillingDetails>',
+        description: 'Read the current account\'s credit and recent balance movements.',
+        parameters: [{ name: 'signal', description: 'Caller cancellation.' }],
+        returns: 'The balance and up to 50 recent entries, or a null ledger when the account has none available.',
+      },
+      {
         signature: '@Remote async preferences(projectId: string, signal: AbortSignal): Promise<StudioPreferences>',
         description: 'Read the native settings of one production.',
         parameters: [{ name: 'projectId', description: 'Selected cloud project.' }, { name: 'signal', description: 'Panel cancellation.' }],
@@ -10423,7 +10429,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RequestErrorAction',
-    declaration: 'export type RequestErrorAction = {\n    kind: \'retry\';\n} | {\n    kind: \'switch\';\n    selection: ModelSelection;\n} | undefined;',
+    declaration: 'export type RequestErrorAction = {\n    kind: \'retry\';\n    onDispatch?: () => void;\n} | {\n    kind: \'switch\';\n    selection: ModelSelection;\n} | undefined;',
   },
   {
     name: 'RequestHeaderReason',
@@ -10455,7 +10461,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResolvedNormalRetryPolicy',
-    declaration: 'export interface ResolvedNormalRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'normal\';\n    readonly maxRetries: number;\n    readonly retryableCodes: readonly string[];\n}',
+    declaration: 'export interface ResolvedNormalRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'normal\';\n    readonly maxRetries: number;\n    readonly retryableCodes: readonly string[];\n    readonly consecutiveRetryLimits?: Readonly<Record<string, number>>;\n}',
   },
   {
     name: 'ResolvedRetryBackoff',
@@ -11880,6 +11886,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StudioBalance',
     declaration: 'export interface StudioBalance {\n    unlimited: boolean;\n    available: string;\n    usedFen: number;\n    heldFen: number;\n    enforced: boolean | null;\n}',
+  },
+  {
+    name: 'StudioBillingDetails',
+    declaration: 'export interface StudioBillingDetails {\n    balance: StudioBalance;\n    ledger: StudioBillingEntry[] | null;\n}',
+  },
+  {
+    name: 'StudioBillingEntry',
+    declaration: 'export interface StudioBillingEntry {\n    time: string;\n    kind: \'adjust\' | \'allot\' | \'grant\' | \'hold\' | \'other\' | \'reclaim\' | \'refund\' | \'revoke\' | \'settle\' | \'spend\';\n    amountFen: number;\n}',
   },
   {
     name: 'StudioCatalog',

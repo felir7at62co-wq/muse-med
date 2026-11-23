@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Script Workshop (剧本工坊) is the cloud script studio beside Muse. Its FastAPI backend holds drafts, outlines, finalized scripts, the factory jobs that create, adapt, distribute and transcribe scripts, and the accounts and credits of its users. Its Next.js frontend is the studio web page. Muse signs users in through the [workbench login adapter](../muse-workbenches/README.md), runs 视频转剧本 as a Workshop factory job and stores finalized scripts in Workshop.
+Script Workshop (剧本工坊) is the cloud script studio beside Muse. Its FastAPI backend holds drafts, outlines, finalized scripts, the factory jobs that create, adapt, distribute and transcribe scripts, and the accounts and credits of its users. Its Next.js frontend is the studio web page. Muse signs users in through the [workbench login adapter](../muse-workbenches/README.md) and stores finalized scripts in Workshop.
 
 ## How it runs in the cloud
 
@@ -14,6 +14,14 @@ The cloud serves Workshop on the shared Muse workbench host at `/jubengongfang/`
 
 Draft owners and administrators can edit episode text and structured scenes, preview the history of either layer, restore a saved version, and export Word, Markdown, or plain text files. Saving, applying a text candidate, and restoring require the current revision and save the prior version in the same transaction. Only the owner can publish a complete draft. Publication checks the complete draft revision, reuses its library entry, and keeps any previously selected version.
 
+## Finalized-script library readers
+
+A company Muse account outside the bindings file gets a library reader on its first sign-in through the shared host. `app/muse_readers.py` opens one Workshop user per Muse account, with `login_id` `muse:<account ID>`, role `user`, no password and no feature flags. The [shared-host edge](../muse-workbenches/README.md#company-accounts) lets a reader reach only the library and its own profile. A reader lists and reads every finalized script, picks with `script_pick` and publishes a finalized script with `script_finalize`.
+
+## Archived 视频转剧本 step
+
+The 视频转剧本 factory step is archived; cloud Muse's transcription Bots transcribe videos instead. Creating a `video_transcribe` job with `POST /v1/factory/jobs`, saving a pipeline preset that contains the step, and resuming such a job answer HTTP 410 with 「视频转剧本已归档：转写改由云端 Muse 的转写 Bot 完成」. `GET /v1/factory/video-transcribe/status` reports `ready: false` with the same message, and a pipeline run that reaches the step fails with it. Startup recovery marks a job that was still running as failed instead of restarting it. The pipeline editor no longer offers the step, while earlier jobs and their results still display.
+
 ## Source
 
 This tree is the Workshop source that the cloud runs. It is the Workshop source of the November 17, 2026 workbench backup, `01-drama/code/services/orchestrator` as `backend/` and `01-drama/code/apps/web` as `frontend/` including the web lockfile, with the Muse changes that the install-time overlays in [`../muse-workbenches`](../muse-workbenches/README.md) add:
@@ -22,7 +30,7 @@ This tree is the Workshop source that the cloud runs. It is the Workshop source 
 - Muse video reverse: `app/muse_reverse.py`, `app/reverse_routes.py` and `app/reverse_storage.py`, used by `app/features/video_routes.py`, `app/video/video_pipeline.py` and `app/tikhub/routes.py`, with the upload dialog and `lib/workshop_video_intake.ts`.
 - Upload paths: `app/agent/images.py`, `app/dev_ab_deai.py`, `app/dev_image/routes.py`, `app/draft_cover/routes.py`, `app/features/theme_routes.py` and `app/production_image/routes.py` write under `UPLOADS_DIR` instead of `/app/uploads`.
 - Base path: `next.config.mjs` sets `basePath: "/jubengongfang"` and `output: "standalone"`, and pages that build absolute links or call `/v1/` directly include the prefix.
-- 视频转剧本: the factory job `app/factory/video_transcribe.py`, its routes, pipeline step and startup recovery in `app/factory/routes.py`, `app/factory/pipeline.py` and `app/main.py`, and its editor and status in `app/factory/_PipelinePanel.tsx`, `app/factory/page.tsx` and `app/factory/jobs/[id]/`.
+- 视频转剧本: the factory job `app/factory/video_transcribe.py`, its routes, pipeline step and startup recovery in `app/factory/routes.py`, `app/factory/pipeline.py` and `app/main.py`, and its editor and status in `app/factory/_PipelinePanel.tsx`, `app/factory/page.tsx` and `app/factory/jobs/[id]/`. This tree archives the step, as the previous section describes.
 - Script library: `app/script_library.py`, the store of finalized scripts, mounted in `app/main.py`.
 
 `backend/app` equals the application of cloud release `20261120-scripts-01` and `frontend/` equals the source of the live web build, apart from the edits and the undeployed change listed below. Left out are the backup's `.legacy_backups/`, `*.backup-*` copies, `public/report/` (weekly report pages and their media), data CSVs, the orchestrator's Dockerfile, demo scripts, SQL file and `.env` examples, `scripts/agent_eval/README.md` and its `long_task.txt` input, `tsconfig.tsbuildinfo`, `node_modules` and build output. `backend/requirements.txt` pins the packages of the cloud runtime from its `pip freeze`.
@@ -34,7 +42,7 @@ The tree matches the backup and the overlays byte for byte apart from these edit
 - `app/frontcut/routes.py` reads the default Feishu table of the batch reverse page (短剧链接库) from `FEISHU_LINK_LIBRARY_URL`, and `app/feishu/routes.py` reads the fixed production table of the Feishu automation (制作表格) from `FEISHU_PRODUCTION_TABLE_URL`, instead of hardcoding the company tenant's wiki and table IDs. Both settings default to empty; a request that relies on the default table then answers 400 and asks for a table link. Set both on the server to keep today's behaviour.
 - `scripts/setup_oss_cors.py` adds the public origins in `OSS_CORS_PUBLIC_ORIGINS` (comma-separated) instead of the server's hardcoded addresses, and the user download scripts `public/static/download_videos.py` and `public/static/rename_videos_auto.py` take the server address from `--base` or the first `http(s)://` argument, or from `DRAMA_API_BASE`, and stop with a message when none is given.
 
-A change in this tree that the cloud does not run yet: `app/factory/pipeline.py` has one 视频转剧本 step. The release has the step twice because two installer versions each inserted it, and the first copy, which runs, restarts a stopped job by setting it to `pending` and keeps its stop request, so the job stops again at once. The remaining step reopens the job with `video_transcribe.reopen`, which clears the stop request and the previous end and keeps its results and claimed series, as `POST /v1/factory/jobs/{id}/resume` does.
+A change in this tree that the cloud does not run yet: the archived 视频转剧本 step described above. The cloud release still has the step's job routes and two copies of its pipeline step, because two installer versions each inserted it; there the step is switched off because its worker configuration is not installed.
 
 This tree is now the source of truth for Workshop. The cloud release is still built by applying `install.py --audience script-workshop`, `shared-host/prepare_uploads.py`, `shared-host/prepare.py` and the 视频转剧本 and script library installers to the backup; those installers stay until a release is built from this tree.
 
@@ -45,7 +53,7 @@ This tree is now the source of truth for Workshop. The cloud release is still bu
 | `backend/app/` | FastAPI application, served as `app.main:app`, and the job worker `app/worker.py` |
 | `backend/alembic/`, `backend/alembic.ini` | Database migrations |
 | `backend/scripts/` | Migration, seed, verification and evaluation scripts |
-| `backend/tests/` | unittest suite for 视频转剧本 and the Muse draft editor |
+| `backend/tests/` | unittest suite for the archived 视频转剧本 step, the Muse draft editor and library readers |
 | `backend/pyproject.toml`, `backend/requirements.txt` | Declared dependency ranges and the pinned cloud runtime |
 | `frontend/` | Next.js application with its `package.json` and `pnpm-lock.yaml` |
 
@@ -61,7 +69,7 @@ uv pip install --python ~/.venvs/workshop/bin/python -r requirements.txt
 
 Importing the application also needs the Muse login settings (`MUSE_WORKBENCH_ISSUER`, `MUSE_WORKBENCH_PUBLIC_ORIGIN`, `MUSE_WORKBENCH_SECRET`, `MUSE_WORKBENCH_BINDINGS`, `MUSE_WORKBENCH_STATE_DB`), `AUTH_REQUIRED=true`, a `JWT_SECRET` of at least 32 characters and `UPLOADS_DIR`. With placeholder values and a bindings file without users, `import app.main` and every module under `app` load without connecting to the database or Redis.
 
-`~/.venvs/workshop/bin/python -m unittest discover -s tests` runs the 视频转剧本 and editor tests from `backend/`. The editor tests run against a temporary SQLite file and require the `aiosqlite` development dependency. Set `MUSE_SCRIPT_EDITOR_TEST_POSTGRES_URL` to a disposable local PostgreSQL connection using `postgresql+psycopg` and `127.0.0.1` to also verify concurrent saves and publication in isolated PostgreSQL schemas.
+`~/.venvs/workshop/bin/python -m unittest discover -s tests` runs the 视频转剧本, editor and library reader tests from `backend/`. The editor and reader tests run against a temporary SQLite file and require the `aiosqlite` development dependency. Set `MUSE_SCRIPT_EDITOR_TEST_POSTGRES_URL` to a disposable local PostgreSQL connection using `postgresql+psycopg` and `127.0.0.1` to also verify concurrent saves and publication in isolated PostgreSQL schemas.
 
 Build the frontend from `frontend/` with the pnpm version that wrote the lockfile:
 

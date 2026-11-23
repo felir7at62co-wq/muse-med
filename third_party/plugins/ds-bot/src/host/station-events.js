@@ -45,7 +45,7 @@ export function describeEvent(event) {
 }
 
 export function describeDelivery(events) {
-  return ['【储备变化】数据站自动通知，不是用户发的消息；按技能 transcription-supervision 处理。', ...events.map(event => `- ${describeEvent(event)}`)].join('\n')
+  return ['【储备变化】数据站自动通知，不是用户发的消息；按技能 transcription-assigning 处理。', ...events.map(event => `- ${describeEvent(event)}`)].join('\n')
 }
 
 function validEvents(value) {

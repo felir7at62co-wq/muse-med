@@ -1391,6 +1391,9 @@ export function apply(ctx) {
   const installShell = () => [
     () => { shellSheets += 1; return () => { shellSheets -= 1 } },
     ...SHELL_SHEETS.map(([text, tag]) => () => installCompiledStyles(text, tag)),
+    // Our own column takes the collapsed shell sidebar's place, so the shell keeps no
+    // rail track under it: on the web as in the desktop apps, at every width.
+    () => ctx.layout.hideSidebarRail(),
     () => installFrameWatch(frame),
     () => installFrameSync(),
     () => installTheme(),

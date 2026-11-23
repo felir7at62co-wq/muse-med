@@ -572,6 +572,13 @@ async inheritProject(worker: SessionId, project: SelectedProject & { owner: stri
 @Remote async balance(signal: AbortSignal): Promise<StudioBalance>
 
 /**
+ * Read the current account's credit and recent balance movements.
+ * @param signal - Caller cancellation.
+ * @returns The balance and up to 50 recent entries, or a null ledger when the account has none available.
+ */
+@Remote async billingDetails(signal: AbortSignal): Promise<StudioBillingDetails>
+
+/**
  * Read the native settings of one production.
  * @param projectId - Selected cloud project.
  * @param signal - Panel cancellation.

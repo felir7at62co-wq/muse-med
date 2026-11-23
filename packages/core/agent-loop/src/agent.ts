@@ -463,6 +463,7 @@ export class ReactLoopAgent implements Agent {
     const { assembly } = decision
     const renderedPrompt = renderPrompt(assembly)
     let firstAttempt = true
+    let onRetryDispatch: (() => void) | undefined
     while (true) {
       const { config, preparedCall } = await this.prepareRequest(turn, step, decision.selection, signal)
       const currentContext = this.loopCtx.systemPrompt.refreshContext(assembly, {
@@ -515,6 +516,11 @@ export class ReactLoopAgent implements Agent {
         signal.throwIfAborted()
         live.start()
         started = true
+        if (onRetryDispatch !== undefined) {
+          signal.throwIfAborted()
+          onRetryDispatch()
+          onRetryDispatch = undefined
+        }
         for await (const chunk of stream) {
           signal.throwIfAborted()
           live.push(chunk)
@@ -597,6 +603,7 @@ export class ReactLoopAgent implements Agent {
           if (action?.kind !== 'retry') {
             throw LlmError.fromFailure(finish.failure)
           }
+          onRetryDispatch = action.onDispatch
           continue
         }
 

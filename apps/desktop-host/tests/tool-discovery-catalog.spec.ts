@@ -123,21 +123,15 @@ it('keeps native delivery, project and memory tools deferred while giving each a
   expect(config.alwaysLoad).toContain('present')
 })
 
-it('loads the Script Workshop 视频转剧本 tool on demand from the short-drama preset and recalls it in Chinese', async () => {
+it('loads the Script Workshop draft editor on demand from the short-drama preset and recalls it in Chinese', async () => {
   const source = await readFile(new URL('../presets/short-drama/agent.cordis.yml', import.meta.url), 'utf8')
   expect(packagesFromRows(yaml.load(source, { schema: entryListSchema }))).toContain('@deepseek-ai/dsh-tool-workshop')
   const connection = loadOverlayPatches('desktop-workshop-composition', patchPath)
     .flatMap(patch => patch.insert ?? []).find(entry => entry.id === 'workshop-connection')
   expect(connection?.name).toBe('@deepseek-ai/dsh-workbench-connection')
   const schemas = new Map(catalog.flatMap(entry => entry.schemas).map(schema => [schema.name, schema]))
-  expect(schemas.has('workshop_video_transcribe')).toBe(true)
   const index = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] ?? [] })),
     { k1: config.k1 ?? 1.2, b: config.b ?? 0.75 })
-  for (const query of ['剧本工坊视频转剧本', '开始批量转写', '停止转写任务', '看看转写进度', '工坊流水线']) {
-    expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain('workshop_video_transcribe')
-  }
-  expect(config.alwaysLoad).not.toContain('workshop_video_transcribe')
-  expect(capabilityMemberships('workshop_video_transcribe', config.capabilities ?? [])).toEqual(['script-workshop'])
   expect(schemas.has('workshop_script_editor')).toBe(true)
   for (const query of ['打开剧本草稿', '精修剧本', '按集改稿']) {
     expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain('workshop_script_editor')

@@ -116,6 +116,8 @@ function isSource(file: string): boolean {
     && !file.startsWith('vendor/')
     // Imported Script Workshop sources keep their upstream casts until the cut-down rewrite.
     && !file.startsWith('services/workshop/')
+    // The imported data station keeps the casts of the source that the cloud builds.
+    && !file.startsWith('services/data-station/')
     // These exact source snapshots are pinned in sources.json; owned sibling adapters remain scanned.
     && !file.startsWith('third_party/plugins/dsh-feishu/')
     && !file.startsWith('third_party/plugins/dsh-im/')

@@ -25,6 +25,8 @@ type LayoutInfo = {
   sidebar: number
   /** A mounted navigation shell requests the standard compact rail on desktop. */
   sidebarRailRetained: boolean
+  /** A mounted navigation shell that draws its own column requests no compact rail on any platform. */
+  sidebarRailHidden: boolean
   /** Last positive frame measurement; window width bootstraps the first render. */
   viewportWidth: number
   narrowExpanded: boolean
@@ -63,6 +65,7 @@ type LayoutActions = {
   setSidebar: (draft: LayoutState, px: number) => void
   toggleSidebar: (draft: LayoutState) => void
   setSidebarRailRetained: (draft: LayoutState, retained: boolean) => void
+  setSidebarRailHidden: (draft: LayoutState, hidden: boolean) => void
   setViewportWidth: (draft: LayoutState, width: number) => void
   setRightbar: (draft: LayoutState, px: number) => void
   openRightbar: (draft: LayoutState, track: boolean, fullscreen: boolean) => void
@@ -85,6 +88,7 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
       layoutInfo: {
         sidebar: SIDEBAR_DEFAULT,
         sidebarRailRetained: false,
+        sidebarRailHidden: false,
         viewportWidth: window.innerWidth,
         narrowExpanded: false,
         rightbar: null,
@@ -110,6 +114,9 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
       },
       setSidebarRailRetained: (d, retained: boolean) => {
         d.layoutInfo.sidebarRailRetained = retained
+      },
+      setSidebarRailHidden: (d, hidden: boolean) => {
+        d.layoutInfo.sidebarRailHidden = hidden
       },
       // Narrow toggles flip only the override: the width preference survives
       // untouched, so re-widening restores the pre-squeeze layout.

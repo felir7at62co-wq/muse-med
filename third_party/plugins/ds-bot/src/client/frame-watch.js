@@ -16,11 +16,6 @@ export const dshCollapsed = () => {
   return column ? column.closest('[data-sidebar-collapsed]') !== null : null
 }
 
-// The track the collapsed shell sidebar keeps: nothing under a frameless window
-// (Windows title bar, macOS desktop), its icon rail elsewhere.
-export const collapsedTrackWidth = () =>
-  document.documentElement.hasAttribute('data-windows-titlebar') || document.documentElement.dataset.platform === 'darwin' ? 0 : 56
-
 // The conversation column's margins live in one rule of our own, matched on the
 // column's exact class. A custom property on <body> would restyle the whole page,
 // tens of milliseconds a write. A changed rule still restyles the column's
@@ -69,7 +64,9 @@ export const chatRoom = {
 // sidebar slide does not always come with a window event, so the track width
 // comes off a ResizeObserver and the flag off a MutationObserver.
 export function installFrameWatch(frame) {
-  let collapsedWidth = collapsedTrackWidth()
+  // The Bot view hides the shell's collapsed rail on every platform (index.js), so
+  // until the collapsed sidebar is measured its track counts as empty.
+  let collapsedWidth = 0
   let raf = 0
   const watched = new Set()
   const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => schedule()) : null

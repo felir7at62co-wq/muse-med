@@ -7,5 +7,3 @@ writerOutput: true
 header:
   class: muse-workshop-script-editor
   pin: true
-  systemPromptSource: muse-workshop-transcribe-status
-  toolSchemasSource: muse-workshop-transcribe-status

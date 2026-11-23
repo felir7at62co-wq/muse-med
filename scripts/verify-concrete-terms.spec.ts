@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -48,6 +48,23 @@ describe('concrete terminology policy', () => {
   it('scans text that contains an embedded NUL', () => {
     expect(findConcreteTermViolations('packages/example/src/source.ts', `scope\0${blockedTerm}`))
       .toEqual([{ file: 'packages/example/src/source.ts', line: 1 }])
+  })
+
+  it('checks PNG paths and skips image metadata regardless of the extension', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'dsh-concrete-terms-'))
+    try {
+      const file = `${blockedTerm}.webp`
+      const asset = join(repoRoot, file)
+      const signature = Buffer.from('89504e470d0a1a0a', 'hex')
+      writeFileSync(asset, Buffer.concat([signature, Buffer.from(blockedTerm)]))
+      expect(findConcreteTermViolations(file, readTrackedSource(repoRoot, file) ?? ''))
+        .toEqual([{ file, line: null }])
+      writeFileSync(asset, blockedTerm)
+      expect(findConcreteTermViolations(file, readTrackedSource(repoRoot, file) ?? ''))
+        .toEqual([{ file, line: null }, { file, line: 1 }])
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
   })
 
   it('normalizes compatibility characters before scanning', () => {

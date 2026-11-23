@@ -10,7 +10,7 @@
 
 ## 安装
 
-在从备份提取的发布副本运行。镜流后端源码位于 [`../jingliu`](../jingliu/README.zh.md)，`install.py --audience jingliu` 把此适配写入其发布副本。工坊源码位于 [`../workshop`](../workshop/README.zh.md)，已含 `--audience script-workshop` 及上传路径、base path、视频转剧本和剧本库的改动；在从该源码构建发布之前，工坊的安装路径保留。脚本会预先核对挂载位置，重复运行可更新适配代码。工坊修改 Next 源码后须使用原项目的构建方式重新构建，镜流直接发布修改后的静态目录。生产运行原 FastAPI、Web 及工作队列，适配器随业务后端加载。
+在从备份提取的发布副本运行。镜流后端源码位于 [`../jingliu`](../jingliu/README.zh.md)，`install.py --audience jingliu` 把此适配写入其发布副本。工坊源码位于 [`../workshop`](../workshop/README.zh.md)，已含 `--audience script-workshop` 及上传路径、base path 和剧本库的改动，其视频转剧本工厂步骤已归档；在从该源码构建发布之前，工坊的安装路径保留。脚本会预先核对挂载位置，重复运行可更新适配代码。工坊修改 Next 源码后须使用原项目的构建方式重新构建，镜流直接发布修改后的静态目录。生产运行原 FastAPI、Web 及工作队列，适配器随业务后端加载。
 
 ```sh
 python3 install.py --audience script-workshop \
@@ -40,7 +40,7 @@ HTTP 开发地址限本机回环。工坊须配置 `AUTH_REQUIRED=true`、独立
 
 ### 旧账号关联
 
-请管理员从 Muse 账号记录核对稳定的账户 ID，从原业务库核对工坊 `users.id` 或镜流 `known_users.user_id`。每个服务维护自己的映射，同一个 Muse 用户可在两份数据库中对应不同编号。新团队成员先在业务库中由管理员建立或确认个人账户，再加入对应绑定。原库中的同名、邮箱和飞书标识均不会触发自动认领。未绑定或被禁用的工坊用户登录时会收到明确提示。
+请管理员从 Muse 账号记录核对稳定的账户 ID，从原业务库核对工坊 `users.id` 或镜流 `known_users.user_id`。每个服务维护自己的映射，同一个 Muse 用户可在两份数据库中对应不同编号。绑定文件优先于自动开通的账号，管理员随时可以把某个 Muse 账号绑到已有账号上。没有自动开通时，新成员先在业务库中由管理员建立或确认个人账户，再加入对应绑定。原库中的同名、邮箱和飞书标识均不会触发自动认领。未绑定或被禁用的用户登录时会收到明确提示。镜流后端开启自动开通（`FW_MUSE_AUTO_PROVISION`，默认开启）时，绑定文件里没有的 Muse 账号第一次登录镜流即开通一个积分为 0 的账号，记在镜流自己的库里。同域部署时，绑定文件里没有的账号只能作为[公司账号](#company-accounts)进入工作台。
 
 ```json
 {"issuer":"https://accounts.example.com","users":{"verified-muse-subject":74111}}
@@ -70,6 +70,13 @@ location /fwp/ { proxy_pass http://jingliu_api/; }
 
 用 [prepare.py](shared-host/prepare.py) 适配两套原版前端，用 [prepare_uploads.py](shared-host/prepare_uploads.py) 配置工坊上传目录，再以 `NEXT_PUBLIC_ORCHESTRATOR_URL=/jubengongfang` 构建 Next。服务器上的 [provision.py](shared-host/provision.py) 在 `/srv/muse-workbenches/config` 下初始化各服务凭据和首名已核验成员。账号代理和业务接口共用各应用的 `bindings/*.json` 文件。工坊使用独立的 PostgreSQL、Redis 和任务进程。镜流将 SQLite 和素材保存在自己的数据目录。桌面和网页共用已登录账号的素材目录。已有部署先运行 `install.py --audience jingliu --library-only --backend <backend> --frontend <studio-site>`，再使用镜流服务的环境和 Python 路径运行 `import_character_references.py <verified-export>`。导入会校验每张原图的摘要、保留元数据和使用范围，重复执行时跳过相同记录。[activate.py](shared-host/activate.py) 检查生成的路径配置后平滑重载现有 Muse HTTPS 站点。
 
+<a id="company-accounts"></a>
+### 同域部署的公司账号
+
+只有当边缘 JSON 中该应用的条目列出公司的飞书租户标识时，同域边缘代理才放行工作台映射之外的公司 Muse 账号，例如在 `apps["script-workshop"]` 下写 `"autoAccounts": {"feishuTenants": ["<租户标识>"]}`。租户标识就是 Muse 账号页上飞书身份旁显示的组织标识。没有 `autoAccounts` 时，未映射的账号一律拒绝。对未映射的账号，边缘代理用该账号自己的 Muse cookie 读取 `/api/muse/profile`，只有其中某个飞书身份属于所列租户才继续。随后它把 `company: true` 和 Muse 用户名交给工作台的 internal-session，并且只接受没有被任何映射占用的原生用户。缓存的原生会话五分钟后过期，届时重新检查。
+
+剧本工坊用 `app/muse_readers.py` 返回一个定稿剧本库读者：每个 Muse 账号一个工坊用户，`login_id` 为 `muse:<账户 ID>`，角色 `user`，没有密码和功能开关。边缘代理只为读者转发 `GET /v1/auth/me`、`POST /v1/auth/logout`、`/v1/script-library` 的列表和阅读、定稿上传，以及对单个剧本的选用和投产登记。读者的网页入口、浏览器会话和其余 API 一律拒绝。工坊要求选用须有 `script_pick`，读者定稿上传须有 `script_finalize`。管理员通过 `PATCH /v1/admin-api/users/{id}` 提交完整的 `feature_flags` 开通权限，把读者状态设为 `disabled` 即停用。把该账号加入映射（映射到读者账号或其他用户）即解除边缘代理的限制；读者账号定稿上传仍需 `script_finalize`。镜流后端能自动开通账号后也接受同样的 `autoAccounts` 条目，边缘代理不限制镜流的路径。
+
 ### Muse 桌面与独立站
 
 工坊面板以 `/v1/auth/muse/embed`、镜流面板以 `/fwp/v2/auth/muse/embed` 启动。Muse 切换账号或退出时，宿主销毁当前 iframe。重新进入时，新文档从空白登录页获取挑战，经父页面确认当前 Muse 会话后换取业务凭据，再跳到工坊的 `/v2` 或镜流的 `/sfp/`。嵌入页只接受来自配置的父 origin 和父窗口的响应。其本地存储按浏览器标签页、工作台、已绑定的业务用户隔离。独立打开网页时通过顶层浏览器跳转，在 Muse 登录、确认，再回到原工作台，沿用原站原生存储。
@@ -78,7 +85,7 @@ location /fwp/ { proxy_pass http://jingliu_api/; }
 
 ## Muse 视频反推
 
-工坊的本地上传、视频链接、TOS 直传、失败续跑及抖音导入草稿，统一调用数据站使用的 [Muse 逐集反推](../../integrations/muse-hit-transcription/native.py)。工坊继续保存草稿归属。续跑沿用原 Muse 会话、原片摘要和参考内容，明确选择全部重做才创建新版本。语音识别、全片字幕识别、画面审查、对白比对和 Word 校验完成后，工坊在同一次数据库事务中写入可编辑的章节和本集素材索引。
+工坊的本地上传、视频链接、TOS 直传、失败续跑及抖音导入草稿，统一调用 [Muse 逐集反推](../../integrations/muse-hit-transcription/native.py)。工坊继续保存草稿归属。续跑沿用原 Muse 会话、原片摘要和参考内容，明确选择全部重做才创建新版本。语音识别、全片字幕识别、画面审查、对白比对和 Word 校验完成后，工坊在同一次数据库事务中写入可编辑的章节和本集素材索引。
 
 已有部署使用 `install.py --audience script-workshop --reverse-only --backend <工坊目录>` 更新反推入口。[配置脚本](shared-host/configure_reverse.py)根据管理员授权的云端转写配置安装指定版本的执行程序，为工坊建立独立的 Muse 账号目录。把 `MUSE_WORKSHOP_REVERSE_CONFIG` 指向生成的私有配置文件，`VIDEO_TMP_DIR` 指向工坊上传卷内的持久目录。使用同一卷的工坊进程共用配置中的并发名额。登录后通过 `GET /v1/video/jobs/{draft_id}/episodes/{episode}/materials` 查看本集清单，按返回的序号在该路径下下载。
 

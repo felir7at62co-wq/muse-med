@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh the data station's Muse-to-Feishu account links every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

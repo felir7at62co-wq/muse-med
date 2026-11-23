@@ -8,11 +8,11 @@
     personaPrefix: ''
     includeHarnessIdentity: false
 
-# Unattended whole-series goals resume after a model outage, or after replies discarded by
-# prompt-usage-guard, that outlasts provider retries.
+# Unattended whole-series goals resume after a model outage that outlasts provider retries.
+# Prompt-usage validation failures stop after the model's bounded recovery.
 - id: goal-round-driver
   config:
-    transientErrorResume: { maxAttempts: 3, delayMs: 120000, codes: [SERVER, TIMEOUT, TRANSPORT, STREAM_CLOSED, PROMPT_USAGE_SHORTFALL] }
+    transientErrorResume: { maxAttempts: 3, delayMs: 120000, codes: [SERVER, TIMEOUT, TRANSPORT, STREAM_CLOSED] }
 
 # New tasks use one unified creative Agent; legacy preset ids remain recoverable.
 - id: agent-preset-registry
@@ -267,18 +267,18 @@
           - { providerId: yunying, modelId: gemini-3.1-pro }
           - { providerId: yunying, modelId: gpt-6.1-sol }
         requestTimeoutMs: 60000
-        # Gateway outages of a few minutes and replies discarded by prompt-usage-guard are retried
-        # inside the same step; the list restates the defaults because it replaces them.
+        # Keep the outage budget. A reply discarded by prompt-usage-guard gets one recovery
+        # before a consecutive shortfall ends the step.
         modelRetryPolicy:
           mode: normal
           maxRetries: 8
           retryableCodes: [EMPTY_RESPONSE, INVALID_TOOL_ARGUMENTS, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, PROMPT_USAGE_SHORTFALL]
+          consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1 }
           backoff: { initialDelayMs: 2000, maxDelayMs: 60000 }
         remoteAccess: true
 
-    # The Yunying gemini-3.1-pro relay intermittently answers from an upstream lane that drops tool
-    # definitions and tool history. Discard such a tool-less reply before it is committed; the
-    # muse-account model retry policy above resends the same request.
+    # Discard tool-less replies with unexplained prompt usage on the affected Yunying route
+    # before committing them. The model retry policy above permits a single consecutive retry.
     - id: prompt-usage-guard
       name: '@deepseek-ai/dsh-prompt-usage'
       config:
@@ -323,7 +323,6 @@
           jubian_video: [剧变出片, 剧变视频生成, 剧变视频任务]
           jubian_catalog: [剧变模型, 剧变报价, 剧变分集列表]
           jubian_media: [剧变超分, 剧变擦字幕]
-          workshop_video_transcribe: [剧本工坊, 视频转剧本, 批量转写, 爆款转写, 转写任务, 停止转写, 转写进度, 工坊流水线]
           workshop_script_editor: [剧本草稿, 打开草稿, 精修剧本, 改剧本, 按集改稿, 剧本候选稿]
           script_finalize: [定稿, 剧本定稿, 上传定稿, 定稿上传, 定稿库, 交稿给组长]
           script_library: [剧本库, 定稿剧本, 取出剧本, 选用剧本, 投产, 登记投产, 剧本建镜流项目]
@@ -380,7 +379,7 @@
             tools: ['jubian_*']
           - id: script-workshop
             title: 剧本工坊
-            description: 开始、停止和查看剧本工坊的视频转剧本任务；定稿上传、取出定稿剧本、登记投产。
+            description: 查找和精修剧本草稿；定稿上传、取出定稿剧本、登记投产。
             tools: ['workshop_*', 'script_finalize', 'script_library']
           - id: interaction
             title: 对话交互与反馈

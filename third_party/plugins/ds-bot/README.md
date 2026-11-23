@@ -85,7 +85,7 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     memory: true                    # false turns memory off: no memory tools, section or panel
     memoryReview: true              # false leaves memory to the Bots' own remember calls
     diagnosticsFile: false          # keep the error log in memory only; default <home>/logs/diagnostics.jsonl
-    updateCheck: true               # look for a newer DS Bot when a window opens; default true
+    updateCheck: true               # look for a newer DS Bot and a verified DSH when a window opens; default off
     updateRegistry: https://registry.example/   # ask only this npm registry for updates
     github: false                   # hide the GitHub connector; default shown in Connectors
     taskRouting:                    # optional Main Bot routing for independent tasks
@@ -115,7 +115,7 @@ Install `@xmanrui/dsh-im` in the same Host. Set `deliveryHttp: false` on the dsh
 
 Open **Settings → IM** and select the mapped Feishu account to manage paired people, chats and Feishu settings in the same view. Model and working folder changes use the selected Muse Bot’s settings, so they also apply when working with that Bot in Muse. The Feishu process card reports tool activity and completion. Text replies and interactive approvals still use their original delivery paths. Voice is optional, requires the configured DashScope credential and ffmpeg, and sends audio only after the original voice message’s text reply is confirmed.
 
-Each Feishu group or private chat keeps its DS Bot binding and uses that Bot's current chat part. With **A Bot for each chat** on, a chat without a binding, the owner's private chat included, gets a Bot of its own named after the group or person when it next writes; the connection's Bot can still send to the owner's private chat with `im_send`. Existing automatically named Bots follow names available to the Feishu app. A reply uses the original Feishu message and topic. `/new` starts a fresh chat part on the same Bot. With `muse-rich-consumer` support from the legacy Host, the mapped connection also receives images and handles Muse approval and question card callbacks. It uses the Feishu account's group response mode for already bound groups and keeps the Muse pairing and access checks. Card edits and proactive `im_send` use the same verified Feishu account over REST. The dsh-im account remains in external-consumer mode after the Host stops, so changing back to standalone also requires switching the account mode before reconnecting.
+Each Feishu group or private chat keeps its DS Bot binding and uses that Bot's current chat part. With **A Bot for each chat** on, a chat without a binding, the owner's private chat included, gets a Bot of its own named after the group or person when it next writes; the connection's Bot can still send to the owner's private chat with `im_send`. In **Settings → IM**, each chat's picker binds it to a Bot or a group chat. A private chat set to follow **Talks to**, or a group set to **Not bound**, keeps that choice and gets no Bot of its own until someone binds it. Existing automatically named Bots follow names available to the Feishu app. A reply uses the original Feishu message and topic. `/new` starts a fresh chat part on the same Bot. With `muse-rich-consumer` support from the legacy Host, the mapped connection also receives images and handles Muse approval and question card callbacks. It uses the Feishu account's group response mode for already bound groups and keeps the Muse pairing and access checks. Card edits and proactive `im_send` use the same verified Feishu account over REST. The dsh-im account remains in external-consumer mode after the Host stops, so changing back to standalone also requires switching the account mode before reconnecting.
 
 In Bot details, **Sessions** lists the current and earlier conversations. Select a row to open it or choose **New session** to start another conversation with the same Bot.
 
@@ -304,6 +304,8 @@ dev/check.sh                             # all checks (see below)
 | `web-search.js` | The `auto` search provider; independent of the team code |
 | `test/` | Unit tests and fixtures |
 | `dev/characters.mjs` | Builds the characters (small 3D models traced to outlines) into the `CHARACTERS` table in `src/client/characters.js` |
+| `dev/spider.mjs` | Traces the Muse spider artwork (`packages/client/ui-muse-market/src/client/assets/muse-purple-spider.png`) into the `SPIDER` layers in `src/client/muse-spider.js`; `--check` prints how far the layers are from the artwork |
+| `dev/trace.mjs` | Contour tracing and path writing shared by `dev/characters.mjs` and `dev/spider.mjs` |
 | `dev/` | Mock model, test benches, smoke test, Desktop scripts, real-model tools (steward evaluation, logging pass-through) |
 
 ## License

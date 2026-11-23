@@ -17,15 +17,22 @@ class FakeBots:
     messages are recorded."""
 
     def __init__(self):
-        self.updates, self.sent, self.running, self.turns = [], [], set(), {}
+        self.updates, self.sent, self.running, self.turns, self.attached, self.fresh = [], [], set(), {}, [], []
         self.chats = {"bot-1": "chat-1", "bot-2": "chat-2"}
         self.month = {"input": 1000, "cacheRead": 0, "cacheWrite": 0, "output": 100, "calls": 1}
         self.logs = {}
 
     def bot(self, endpoint, payload):
         if endpoint == "state":
-            return {"bots": [{"id": "bot-1", "name": "转写1", "sessionId": self.chats["bot-1"], "model": "m/flash"},
+            return {"bots": [{"id": "bot-1", "name": "转写1", "sessionId": self.chats["bot-1"], "model": "m/flash",
+                              "capabilities": ["transcription-desk", "drama-transcribing"]},
                              {"id": "bot-2", "name": "转写2", "sessionId": self.chats["bot-2"], "model": "m/flash"}]}
+        if endpoint == "bot-new-part":
+            self.fresh.append(payload["botId"])
+            return True
+        if endpoint == "bot-capability":
+            self.attached.append((payload["botId"], payload["name"], payload["attached"]))
+            return []
         if endpoint == "usage-summary":
             return {"botId": payload["botId"], "month": dict(self.month)}
         if endpoint == "update-bot":
@@ -131,6 +138,8 @@ class DeskTest(DeskCase):
             self.desk.claim({"work_id": SECOND, "bot": "转写1"})
         self.assertEqual(busy.exception.code, "BOT_BUSY")
         self.assertEqual(self.desk.claim({"work_id": SECOND, "bot": "转写2"})["bot"], "转写2")
+        # 转写2 was made without the desk tools and the skill; the claim gives them to it, 转写1 already had them.
+        self.assertEqual(self.bots.attached, [("bot-2", "transcription-desk", True), ("bot-2", "drama-transcribing", True)])
 
     def test_a_released_drama_goes_back_for_attention_and_keeps_its_work(self):
         self.desk.claim({"work_id": KEY, "bot": "转写1"})
@@ -141,6 +150,23 @@ class DeskTest(DeskCase):
         self.assertTrue((workspace / "episodes" / "第1集.md").is_file())
         self.assertEqual(json.loads((self.root / "state" / KEY / "station-outcome.json").read_text())["state"], "needs-attention")
         self.assertEqual(self.desk.claim({"work_id": SECOND, "bot": "转写1"})["state"], "preparing")
+
+    def test_a_drama_handed_back_while_it_is_prepared_never_becomes_ready(self):
+        started, finish = threading.Event(), threading.Event()
+        original = self.desk.production.media
+
+        def slow_media(*args):
+            started.set()
+            finish.wait(5)
+            return original(*args)
+        self.desk.production.media = slow_media
+        self.desk.claim({"work_id": KEY, "bot": "转写1"})
+        self.assertTrue(started.wait(5))
+        self.assertEqual(self.desk.release({"work_id": KEY, "reason": "下载工具在修"})["state"], "released")
+        finish.set()
+        self.desk.threads[KEY].join(5)
+        self.assertEqual(self.desk.status({"work_id": KEY})["state"], "released")
+        self.assertEqual(self.bots.updates, [])
 
     def test_a_restarted_desk_claims_its_dramas_again_and_keeps_their_leases(self):
         self.desk.claim({"work_id": KEY, "bot": "转写1"})
@@ -181,6 +207,24 @@ class WatchTest(DeskCase):
         row = self.desk.status({"work_id": KEY})
         self.assertEqual((row["done"], row["nudges"]), (1, 1))
         self.assertIsNotNone(row["firstDone"])
+
+
+class FreshPartTest(DeskCase):
+    def test_a_bot_stopped_with_an_oversized_context_goes_on_in_a_fresh_part(self):
+        self.cfg.update(watchSeconds=0, partTokenLimit=300_000)
+        self.desk.claim({"work_id": KEY, "bot": "转写1"})
+        self.ready(KEY)
+        self.bots.turns["chat-1"] = ("error", "INVALID_REQUEST Upstream rejected the model request.")
+        self.bots.logs["chat-1"] = [json.dumps({"type": "request/context", "data": {"workingContextTokens": 435_730}})]
+        self.desk.watch_once()
+        self.desk.watch_once()
+        self.assertEqual(self.bots.fresh, ["bot-1"])
+        self.assertEqual(len(self.bots.sent), 1)
+        self.bots.turns["chat-1"] = ("aborted", "disposed")
+        self.bots.logs["chat-1"] = [json.dumps({"type": "request/context", "data": {"workingContextTokens": 80_000}})]
+        self.desk.watch_once()
+        self.desk.watch_once()
+        self.assertEqual(self.bots.fresh, ["bot-1"], "a small context is resumed in place")
 
 
 class MeasureTest(DeskCase):

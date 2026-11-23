@@ -487,6 +487,40 @@ describe('prepared-route prompt admission', () => {
     })
   })
 
+  it('keeps an admitted request on its adapter and uses a mid-turn selection for the next turn', async () => {
+    const h = await harness()
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    h.ctx.on('llm/stream', async function* (request, next) {
+      for await (const chunk of next()) {
+        if (request.provider === 'capable' && chunk.type === 'block-start') {
+          entered.resolve(undefined)
+          await release.promise
+        }
+        yield chunk
+      }
+    })
+    const initial = { provider: 'capable', model: 'model' }
+    const selected = { provider: 'plain', model: 'next-model' }
+    const first = send(h.agent, 'start with the original model')
+    try {
+      await entered.promise
+      h.agent.model.select(selected)
+      expect(h.ctx.sessionProjections.snapshot(h.agent.session).values.modelSelection)
+        .toEqual({ lastUsed: initial, next: selected })
+      expect(h.plain.requests).toHaveLength(0)
+    } finally {
+      release.resolve(undefined)
+      await first
+    }
+
+    await send(h.agent, 'use the selected model')
+    expect(h.capable.requests).toHaveLength(1)
+    expect(h.plain.requests[0]).toMatchObject(selected)
+    expect(h.ctx.sessionProjections.snapshot(h.agent.session).values.modelSelection)
+      .toEqual({ lastUsed: selected, next: selected })
+  })
+
   it('retains the captured selection for a retry and uses a pending choice on the next step', async () => {
     const adapter = new MockAdapter([
       () => { throw new LlmError('retry this request', 'SERVER') },
