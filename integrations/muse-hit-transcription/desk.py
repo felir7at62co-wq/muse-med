@@ -404,14 +404,19 @@ class Desk:
             phase = {"part": len(parts), "compactions": len(parts[-1]["compactions"]) if parts else 0}
             done_at = desk.setdefault("doneAt", {})
             measured = desk.setdefault("measures", {})
-            done = 0
+            done, usage_now = 0, None
             for number in range(1, total + 1):
                 required, advised, measures = check_episode(workspace, number, self.cfg["minSpeechCoverage"])
                 if not required:
                     done += 1
                     if str(number) not in done_at:
                         done_at[str(number)] = time.strftime("%Y-%m-%d %H:%M:%S")
-                        measured[str(number)] = {**measures, "qa": not any(item.startswith("缺 qa/") for item in advised), **phase}
+                        if usage_now is None:
+                            usage_now = self.bot_usage(desk["botId"]) or {}
+                        # The Bot's usage when this episode first passed: the difference to the episode before it
+                        # is that episode's share of the spend.
+                        measured[str(number)] = {**measures, "qa": not any(item.startswith("缺 qa/") for item in advised),
+                                                 **phase, "usage": usage_now}
             watch = desk.setdefault("watch", {"idle": 0, "nudges": 0, "lastNudge": 0})
             if done == total or not session or session in running:
                 watch["idle"] = 0
