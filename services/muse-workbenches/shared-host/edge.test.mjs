@@ -14,6 +14,7 @@ test('a live Muse session and an app-specific native owner are required for ever
   await writeFile(bindings, JSON.stringify({ issuer: origin, users: { author: 27 } }))
   let signedIn = true
   let nativeOwner = 27
+  let nativeRefuses = false
   let tickets = 0
   let identityChecks = 0
   const local = { secret: 'private', nativeLogin: 'http://native.test/session', bindings }
@@ -21,13 +22,14 @@ test('a live Muse session and an app-specific native owner are required for ever
     if (url === 'http://muse.test/api/muse/identity') {
       identityChecks++
       assert.equal(request.headers.cookie, 'muse=current')
-      return signedIn ? Response.json({ accountId: 'author' }) : new Response(null, { status: 401 })
+      return signedIn ? Response.json({ accountId: 'author', username: 'Author' }) : new Response(null, { status: 401 })
     }
     assert.equal(url, local.nativeLogin)
     assert.equal(request.headers.authorization, 'Bearer private')
     assert.equal(request.headers.cookie, undefined)
-    assert.deepEqual(JSON.parse(request.body), { sub: 'author' })
+    assert.deepEqual(JSON.parse(request.body), { sub: 'author', username: 'Author' })
     tickets++
+    if (nativeRefuses) return new Response(null, { status: 403 })
     return Response.json({ token: 'studio-token', access_token: 'workshop-token', user: { id: nativeOwner } })
   })
   edge.listen(0, '127.0.0.1')
@@ -51,7 +53,18 @@ test('a live Muse session and an app-specific native owner are required for ever
   signedIn = false
   assert.equal((await fetch(base + '/check/jingliu', { headers })).status, 401)
   signedIn = true
+  // Outside the bindings file the workbench decides: Workshop refuses, Jingliu opens an account.
   await writeFile(bindings, JSON.stringify({ issuer: origin, users: {} }))
+  nativeRefuses = true
+  assert.equal((await fetch(base + '/check/jubengongfang', { headers })).status, 403)
+  nativeRefuses = false
+  nativeOwner = 1000001
+  const opened = await fetch(base + '/check/jingliu', { headers })
+  assert.equal(opened.status, 204)
+  assert.equal(opened.headers.get('x-workbench-authorization'), 'Bearer studio-token')
+  nativeOwner = 0
+  assert.equal((await fetch(base + '/check/jubengongfang', { headers })).status, 503)
+  await writeFile(bindings, JSON.stringify({ issuer: 'https://other.example', users: {} }))
   assert.equal((await fetch(base + '/check/jingliu', { headers })).status, 403)
 })
 

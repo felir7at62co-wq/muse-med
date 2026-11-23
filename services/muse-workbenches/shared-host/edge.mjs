@@ -60,8 +60,11 @@ export function createEdge(config, transport = fetch) {
       if (entering) return entryPage()
       const client = config.apps[app]
       const bindings = JSON.parse(await readFile(client.bindings, 'utf8'))
+      // A subject outside the bindings file is still offered to the workbench: Jingliu opens an account on
+      // first sign-in, Workshop refuses it. A listed subject must come back as exactly its listed owner.
       const owner = Object.hasOwn(bindings.users, user.accountId) ? bindings.users[user.accountId] : null
-      if (bindings.issuer !== config.origin || !Number.isSafeInteger(owner) || owner < 1) return reply(res, 403)
+      if (bindings.issuer !== config.origin || (owner !== null && (!Number.isSafeInteger(owner) || owner < 1))) return reply(res, 403)
+      const username = typeof user.username === 'string' ? user.username : undefined
       const key = createHash('sha256').update(JSON.stringify([app, cookie[0], user.accountId, owner])).digest('hex')
       const now = Date.now()
       for (const [id, value] of cache) if (value.deadline <= now) cache.delete(id)
@@ -69,11 +72,12 @@ export function createEdge(config, transport = fetch) {
       if (!entry) {
         if (cache.size >= 512) return reply(res, 503)
         const result = (async () => {
-          const r = await transport(client.nativeLogin, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000), headers: { 'content-type': 'application/json', authorization: 'Bearer ' + client.secret }, body: JSON.stringify({ sub: user.accountId }) })
+          const r = await transport(client.nativeLogin, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000), headers: { 'content-type': 'application/json', authorization: 'Bearer ' + client.secret }, body: JSON.stringify({ sub: user.accountId, username }) })
           if (!r.ok) { await r.body?.cancel(); throw Object.assign(Error('Native login rejected'), { status: r.status === 403 ? 403 : 503 }) }
           const value = await r.json()
           const token = app === 'jingliu' ? value?.token : value?.access_token
-          if (value?.user?.id !== owner || typeof token !== 'string' || !token || /[\s\x00-\x1f]/.test(token)) throw Error('Invalid native session')
+          const id = value?.user?.id
+          if ((owner === null ? !(Number.isSafeInteger(id) && id > 0) : id !== owner) || typeof token !== 'string' || !token || /[\s\x00-\x1f]/.test(token)) throw Error('Invalid native session')
           return { token, value }
         })()
         entry = { deadline: now + 5 * 60_000, result }

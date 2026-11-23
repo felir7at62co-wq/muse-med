@@ -40,7 +40,7 @@ Register `script-workshop` and `jingliu` under `MUSE_WORKBENCH_LOGIN_CONFIG` at 
 
 ### Existing accounts
 
-Verify Muse's stable account ID against the original Workshop `users.id` or Jingliu `known_users.user_id`. Maintain one mapping per service. New members need an existing, verified native account before sign-in. Unmatched subjects are denied. A mapping file can contain the following data.
+Verify Muse's stable account ID against the original Workshop `users.id` or Jingliu `known_users.user_id`. Maintain one mapping per service. New Workshop members need an existing, verified native account before sign-in, and unmatched Workshop subjects are denied. A Jingliu backend with automatic accounts (`FW_MUSE_AUTO_PROVISION`, on by default) opens an account with zero credit for an unmatched subject on first sign-in and records it in its own database; the mapping file keeps precedence, so an administrator can still link a subject to an existing account. A mapping file can contain the following data.
 
 ```json
 {"issuer":"https://accounts.example.com","users":{"verified-muse-subject":74111}}
