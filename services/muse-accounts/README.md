@@ -246,6 +246,10 @@ The Desktop catalog hides the two source entries and any optional `hide` referen
 
 Test with a separate gateway, account store, and model directory. Add `deepseek-v4-pro` under the `jubian-pro` provider in that directory to use the DS Bot default Pro card. The Flash environment variable and the DS Bot `taskRouting` setting independently enable the two features.
 
+### Jubian automatic model pilot
+
+Use `node services/muse-accounts/prepare-selected-models.mjs --source <private-directory-file> --output <private-pilot-file> --append-jubian-tested <credential-reference>` to prepare a separate native model directory. The reference must already be bound to a Jubian provider in the source directory. The command preserves the source, credential bindings, existing models and default. The added `jubian-tested` route sends only the pilot's listed models to Jubian. Use a separate gateway and test account to load the output. The DS Bot profile enables automatic dispatch with `taskRouting.enabled: true` and `taskRouting.mode: auto`.
+
 ### Model key pools
 
 Zhipu array credentials share one gateway admission pool across Desktop and cloud-workspace requests. `MUSE_ZHIPU_KEY_CONCURRENCY` (default 20), `MUSE_ZHIPU_QUEUE_LIMIT` (1000), and `MUSE_ZHIPU_QUEUE_TIMEOUT_MS` (120000) configure it. Queue overflow or timeout fails before supplier dispatch; an ambiguous acquisition is not automatically retried.

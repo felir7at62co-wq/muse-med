@@ -36,6 +36,28 @@ test('offline CLI creates owner-only candidate and exact backup without modifyin
  assert.deepEqual((await readdir(f.root)).filter(name=>name.endsWith('.tmp')),[]);
 });
 
+test('Jubian pilot appends its tested route without changing existing models or credential bindings',async t=>{
+ const f=await fixture(t),source=JSON.parse(f.raw);
+ source.providers.jubian={api:'openai-completions',baseURL:'https://gw.jubianai.net/v1',apiKeyEnv:'JUBIAN_TEST',models:[{id:'already-configured'}]};
+ source.credentials.JUBIAN_TEST='private-jubian-fixture';
+ const original=JSON.stringify(source)+'\n';
+ await writeFile(f.source,original,{mode:0o600});
+ const args=['--source',f.source,'--output',f.output,'--append-jubian-tested'];
+ await assert.rejects(prepareSelectedModelsFiles([...args,'OLD_KEY'],{}),/bound to the Jubian origin/);
+ await assert.rejects(prepareSelectedModelsFiles([...args,'unknown'],{}),/private credential reference/);
+ const result=await run(process.execPath,[cli,...args,'JUBIAN_TEST'],{env:{},timeout:20000});
+ assert.doesNotMatch(result.stdout,/private-|gw\.jubianai\.net/);
+ const receipt=JSON.parse(result.stdout),candidate=JSON.parse(await readFile(f.output,'utf8'));
+ assert.equal(receipt.default,undefined);
+ assert.deepEqual(candidate.providers.old,source.providers.old);
+ assert.deepEqual(candidate.providers.jubian,source.providers.jubian);
+ assert.deepEqual(candidate.credentials,source.credentials);
+ assert.equal(candidate.providers['jubian-tested'].apiKeyEnv,'JUBIAN_TEST');
+ assert.ok(candidate.providers['jubian-tested'].models.some(model=>model.id==='claude-sonnet-5-5'&&model.reasoningEfforts===false));
+ assert.equal(await readFile(f.source,'utf8'),original);
+ assert.equal(await readFile(f.output+'.source-backup','utf8'),original);
+});
+
 test('operator environment credentials and explicit supplier settings need no local user configuration',async t=>{
  const f=await fixture(t),receipt=await prepareSelectedModelsFiles(['--source',f.source,'--output',f.output,
   '--yunying-base-url','https://wy6688.token6688.com/override/v1'],{DEEPSEEK_API_KEY:'environment-official',MUSE_YUNYING_API_KEY:'environment-cloud',MUSE_ZHIPU_API_KEY:'environment-zhipu'});

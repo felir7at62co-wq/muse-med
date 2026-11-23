@@ -29,7 +29,7 @@ function keyed(ctx, stored, records) {
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
 // With `keys`, the models' route takes an API key and these are the ones set.
 let rt
-function start(team, { models = [], reasoning = {}, archiveError, keys, selection, lock } = {}) {
+function start(team, { models = [], reasoning = {}, archiveError, keys, selection, lock, taskRouting } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   // A lock another dsh holds, written before this host loads the team.
@@ -83,7 +83,7 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
     route = options
     return register(options)
   }
-  rt = createRuntime(ctx, { home })
+  rt = createRuntime(ctx, { home, ...(taskRouting === undefined ? {} : { taskRouting }) })
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
@@ -113,6 +113,8 @@ test('the first Main Bot waits for the user to pick a model, then greets', async
   let main = team.bots.find(bot => bot.id === team.mainBotId)
   await settle()
   assert.equal(main.model, undefined)
+  assert.equal(main.modelMode, undefined)
+  assert.equal(team.autoModels, undefined)
   assert.equal(main.waiting, true)
   assert.equal(main.kickoff, undefined)
   assert.equal(sent.length, 0)
@@ -135,6 +137,37 @@ test('the first Main Bot waits for the user to pick a model, then greets', async
   await call('update-bot', { id: main.id, model: 'deepseek/deepseek-v4-flash' })
   await settle()
   assert.equal(sent.length, 1)
+})
+
+test('the pilot defaults to Auto with a concrete chat model and preserves manual choices until reset', async (t) => {
+  const flash = 'deepseek/deepseek-v4-flash'
+  const pro = 'deepseek/deepseek-v4-pro'
+  const { call, stop, home } = start(undefined, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'], taskRouting: { enabled: true, mode: 'auto' } })
+  t.after(stop)
+  const team = (await call('state', {})).value
+  const main = team.bots.find(bot => bot.id === team.mainBotId)
+  assert.equal(team.autoModels, true)
+  assert.equal(main.modelMode, 'auto')
+  assert.equal(main.model, flash)
+  assert.equal(main.waiting, undefined)
+
+  const created = await call('create-bot', { name: 'Piloted writer', model: flash, modelMode: 'auto' })
+  assert.equal(created.ok, true)
+  const id = created.value.id
+  const view = async () => (await call('state', {})).value.bots.find(bot => bot.id === id)
+  assert.equal((await view()).modelMode, 'auto')
+  assert.equal((await call('update-bot', { id, model: pro })).ok, true)
+  assert.equal((await view()).modelMode, 'manual')
+  assert.equal(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).bots[id].modelMode, 'manual')
+  assert.equal((await call('update-bot', { id, modelMode: 'random' })).ok, false)
+  assert.equal((await view()).modelMode, 'manual')
+
+  assert.equal((await call('update-bot', { id, modelMode: 'auto' })).ok, true)
+  assert.equal((await view()).modelMode, 'auto')
+  assert.equal((await view()).model, pro)
+  assert.equal(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).bots[id].modelMode, undefined)
+  rt.state.bots[id].openParts = [{ sessionId: 'task', taskModel: flash, taskEffort: 'low' }]
+  assert.deepEqual((await view()).openParts, [{ sessionId: 'task', startedAt: 0, parts: [], taskModel: flash, taskEffort: 'low' }])
 })
 
 test('other Bots start on the default model and greet at once', async (t) => {

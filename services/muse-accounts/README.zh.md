@@ -247,6 +247,10 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 用独立网关、账号存储与模型目录测试。在测试目录的 `jubian-pro` 供应商下添加 `deepseek-v4-pro`，即可使用 DS Bot 的默认 Pro 档案。Flash 环境变量与 DS Bot `taskRouting` 配置分别启用对应功能。
 
+### 剧变自动选模试点
+
+运行 `node services/muse-accounts/prepare-selected-models.mjs --source <私有目录文件> --output <私有试点文件> --append-jubian-tested <凭据引用>` 可以准备单独的原生模型目录。凭据引用须已在源目录中绑定到剧变供应商。命令保留源文件、凭据绑定、现有模型和默认选择。新增的 `jubian-tested` 线路将试点名单中的模型请求发往剧变。用独立网关和测试账号加载输出。在 DS Bot 配置中设置 `taskRouting.enabled: true` 和 `taskRouting.mode: auto` 即可启用自动派单。
+
 ### 模型 Key 资源池
 
 智谱数组凭据让桌面和云端工作间请求共用一个网关并发池，由 `MUSE_ZHIPU_KEY_CONCURRENCY`（默认 20）、`MUSE_ZHIPU_QUEUE_LIMIT`（1000）和 `MUSE_ZHIPU_QUEUE_TIMEOUT_MS`（120000）配置。队列满或等待超时会在调用供应商前失败；领取结果不明时不会自动重试。

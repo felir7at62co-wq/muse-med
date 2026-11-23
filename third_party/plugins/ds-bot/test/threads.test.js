@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { currentSession, focusOpenPart, isOpenPart, openSessions, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadOf } from '../src/host/threads.js'
+import { currentSession, focusOpenPart, isOpenPart, openSessions, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, taskRouteOf, threadCurrent, threadOf } from '../src/host/threads.js'
 
 // #1501: a Bot's own chat can keep a second part live while the first one runs. Each
 // thread (the current one and each open part) has its own earlier parts, so a handoff
@@ -89,4 +89,19 @@ test('a part that became a background thread while it moved records that thread 
   const fg = { id: 'w1', sessionId: 'w2', segments: [] }
   pushThreadPart(fg, 'w2', 'w5', { sessionId: 'w2', endedAt: 9 })
   assert.equal(successorOfMovedPart(fg, 'w5'), undefined)
+})
+
+test('the delegated model and thinking follow their thread across focus, a new chat and handoff', () => {
+  const b = bot()
+  const picked = { ref: 'provider/writer', effort: 'high' }
+  Object.assign(b.openParts[0], { taskModel: picked.ref, taskEffort: picked.effort })
+  assert.equal(focusOpenPart(b, 'w3'), true)
+  assert.deepEqual(taskRouteOf(b, 'w3'), picked)
+  startOpenPart(b, 'w5')
+  assert.equal(taskRouteOf(b, 'w5'), undefined)
+  assert.deepEqual(taskRouteOf(b, 'w3'), picked)
+  assert.equal(pushThreadPart(b, 'w3', 'w6', { sessionId: 'w3', endedAt: 9 }), true)
+  assert.deepEqual(taskRouteOf(b, 'w6'), picked)
+  assert.equal(focusOpenPart(b, 'w2'), true)
+  assert.equal(taskRouteOf(b, 'w2'), undefined)
 })

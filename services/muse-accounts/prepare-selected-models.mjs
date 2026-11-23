@@ -4,9 +4,10 @@ import {open,lstat,realpath,link,unlink} from 'node:fs/promises';
 import {dirname,isAbsolute,relative,resolve,sep} from 'node:path';
 import {createHash,randomBytes} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
+import {addJubianTestedModels} from './jubian-tested-models.mjs';
 import {prepareSelectedModels} from './selected-models.mjs';
 
-const options = new Set(['source','output','deepseek-key-file','yunying-key-file','zhipu-key-file','yunying-base-url']);
+const options = new Set(['source','output','deepseek-key-file','yunying-key-file','zhipu-key-file','yunying-base-url','append-jubian-tested']);
 const distributionDirectory=/^(?:\.artifacts|artifacts|build|dist|downloads|node_modules|out|public|publish|release|releases|win-unpacked|mac(?:-arm64)?|.*\.app)$/i;
 
 async function candidateDirectory(path){
@@ -96,18 +97,25 @@ export async function prepareSelectedModelsFiles(args,environment=process.env){
  await candidateDirectory(output);
  await refuseExistingOutput(output);await refuseExistingOutput(backup);
  const original=await readPrivateModelFile(parsed.source);
- const deepseekKey=parsed['deepseek-key-file']?(await readPrivateModelFile(parsed['deepseek-key-file'])).trim():environment.DEEPSEEK_API_KEY;
- const yunyingKey=parsed['yunying-key-file']?(await readPrivateModelFile(parsed['yunying-key-file'])).trim():environment.MUSE_YUNYING_API_KEY;
- const zhipuKey=parsed['zhipu-key-file']?zhipuKeyFile(await readPrivateModelFile(parsed['zhipu-key-file'])):zhipuKeyEnvironment(environment);
+ const pilotKeyRef=parsed['append-jubian-tested'];
+ if(pilotKeyRef!==undefined&&Object.keys(parsed).length!==3)throw Error('Jubian pilot requires only source, output, and its credential reference');
  let current;
  try{current=JSON.parse(original);}catch(_error){throw Error('Private model input must contain valid JSON');}
- const prepared=prepareSelectedModels(current,{deepseekKey,yunyingKey,zhipuKey,yunyingBaseURL:parsed['yunying-base-url']});
+ let prepared;
+ if(pilotKeyRef!==undefined){
+  prepared=addJubianTestedModels(current,{credentialRef:pilotKeyRef});
+ }else{
+  const deepseekKey=parsed['deepseek-key-file']?(await readPrivateModelFile(parsed['deepseek-key-file'])).trim():environment.DEEPSEEK_API_KEY;
+  const yunyingKey=parsed['yunying-key-file']?(await readPrivateModelFile(parsed['yunying-key-file'])).trim():environment.MUSE_YUNYING_API_KEY;
+  const zhipuKey=parsed['zhipu-key-file']?zhipuKeyFile(await readPrivateModelFile(parsed['zhipu-key-file'])):zhipuKeyEnvironment(environment);
+  prepared=prepareSelectedModels(current,{deepseekKey,yunyingKey,zhipuKey,yunyingBaseURL:parsed['yunying-base-url']});
+ }
  const candidate=JSON.stringify(prepared,null,2)+'\n';
  await publishNewPrivateFile(backup,original);
  await publishNewPrivateFile(output,candidate);
  return {prepared:true,deployed:false,revision:prepared.revision,metadataRevision:prepared.metadataRevision,
   sourceSha256:createHash('sha256').update(original).digest('hex'),candidateSha256:createHash('sha256').update(candidate).digest('hex'),
-  default:{provider:'deepseek-official',model:'deepseek-flash'},
+  ...(pilotKeyRef===undefined?{default:{provider:'deepseek-official',model:'deepseek-flash'}}:{}),
   providers:Object.entries(prepared.providers).map(([id,provider])=>({id,models:provider.models.map(model=>model.id)}))};
 }
 

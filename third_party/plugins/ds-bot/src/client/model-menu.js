@@ -447,11 +447,13 @@ export function useAgentModels(actions) {
 }
 
 // What the model picker reads from the Bot and the roster; the popup and the inline form share it.
-function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withEfforts }) {
+function useModelPicker({ bot, roster, actions, run, onPick, onPickAuto, onPickEffort, withEfforts }) {
   const [reading, readModels] = useAgentModels(actions)
   const shown = modelOf(bot, roster)
   const current = bot.model ?? bot.appliedModel
   const local = isLocalRoute(current)
+  const offerAuto = !local && (bot.modelMode === 'auto' || bot.modelMode === 'manual') && (!onPick || !!onPickAuto)
+  const automatic = offerAuto && bot.modelMode === 'auto'
   const served = servedOf(roster, current)
   const reasoning = useEfforts(served, withEfforts ? current : undefined, actions)
   // The level the Bot runs on: its pick when the model serves it, else the model's own.
@@ -465,9 +467,9 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
   const [opening, setOpening] = useState(0)
   const models = modelsFor(roster.models, current)
   return {
-    bot, roster, shown, current, local, reasoning, picked, effortLabel, models, opening, reading, withEfforts,
+    bot, roster, shown, current, local, reasoning, picked, effortLabel, models, opening, reading, withEfforts, offerAuto, automatic,
     manage: local ? undefined : manageModels(actions),
-    hasEfforts: withEfforts && effortStops(reasoning).length > 0,
+    hasEfforts: !automatic && withEfforts && effortStops(reasoning).length > 0,
     // DSH settings can change the list at any time, so opening asks again.
     opened: () => {
       if (local) readModels(routeOf(current))
@@ -476,7 +478,12 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
     },
     choose: (ref) => {
       if (onPick) onPick(ref)
-      else if (ref !== current || !bot.model) void run(actions.updateBot(bot.id, { model: ref }))
+      else if (automatic || ref !== current || !bot.model) void run(actions.updateBot(bot.id, { model: ref }))
+    },
+    chooseAuto: () => {
+      if (automatic) return
+      if (onPickAuto) onPickAuto()
+      else void run(actions.updateBot(bot.id, { modelMode: 'auto' }))
     },
     // Hands the save back, so the slider can tell when the Bot has caught up with its pick.
     chooseEffort: effort => (onPickEffort ? onPickEffort(effort) : run(actions.updateBot(bot.id, { effort: effort ?? null }))),
@@ -485,22 +492,31 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
 
 // The trigger shows the model name with its group and thinking level.
 const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
-  const { shown, models, withEfforts, effortLabel } = picker
+  const { shown, models, withEfforts, effortLabel, automatic } = picker
+  const label = automatic ? t('Auto') : shown?.name
+  const chatModel = shown?.served ? shown.name : undefined
+  const subtitle = automatic ? chatModel === undefined ? undefined : t('Chat model: {model}', { model: chatModel })
+    : shown === undefined ? undefined
+      : shown.served || models.length === 0
+        ? (!withEfforts || effortLabel === undefined ? shown.groupName : `${shown.groupName} · ${effortLabel}`)
+        : t('{provider} · not available', { provider: shown.groupName })
   return h('button', {
     ref: button, type: 'button', className: 'bt-model-trigger', 'data-wide': wide || undefined,
-    'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': t('Model: {model}', { model: shown?.name ?? t('none') }),
-    'data-missing': shown !== undefined && !shown.served && models.length > 0 ? '' : undefined, onClick,
+    'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': t('Model: {model}', { model: label ?? t('none') }),
+    'data-missing': !automatic && shown !== undefined && !shown.served && models.length > 0 ? '' : undefined, onClick,
   },
   h('span', { className: 'bt-model-copy' },
-    h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
-    shown ? h('span', { className: 'bt-model-provider' }, shown.served || models.length === 0
-      ? (!withEfforts || effortLabel === undefined ? shown.groupName : `${shown.groupName} · ${effortLabel}`)
-      : t('{provider} · not available', { provider: shown.groupName })) : null),
+    h('span', { className: 'bt-model-name' }, label ?? t('Choose a model')),
+    subtitle === undefined ? null : h('span', { className: 'bt-model-provider' }, subtitle)),
   h(Caret))
 }
 
-const modelScroll = ({ roster, models, current, local, reading, opening }, pick) => h('div', { className: 'bt-model-scroll' },
-  models.length > 0 ? h(ModelRows, { roster: { ...roster, models }, current, onPick: pick, opening })
+const modelScroll = ({ roster, models, current, local, reading, opening, offerAuto, automatic }, pick, pickAuto) => h('div', { className: 'bt-model-scroll' },
+  offerAuto ? h('button', { type: 'button', role: 'menuitemradio', 'aria-checked': automatic, onClick: pickAuto },
+    h('span', { className: 'bt-menu-label' }, t('Auto')),
+    h('span', { className: 'bt-menu-hint' }, t('For assigned tasks')),
+    h('span', { className: 'bt-model-tick', 'aria-hidden': true }, automatic ? h(CheckIcon) : null)) : null,
+  models.length > 0 ? h(ModelRows, { roster: { ...roster, models, defaultModel: offerAuto ? undefined : roster.defaultModel }, current: automatic ? undefined : current, onPick: pick, opening })
     : local ? null : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.')),
   reading ? h('div', { className: 'bt-model-none' }, t('Reading models…')) : null)
 
@@ -518,9 +534,9 @@ export function ModelMenu(props) {
 }
 
 // A Thinking section at the foot of the menu lists the levels of the shown model when it has them.
-function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true }) {
+function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickAuto, onPickEffort, withEfforts = true }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
-  const picker = useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withEfforts })
+  const picker = useModelPicker({ bot, roster, actions, run, onPick, onPickAuto, onPickEffort, withEfforts })
   const { manage, hasEfforts } = picker
   const toggle = () => {
     if (isOpen) { close(); return }
@@ -534,7 +550,7 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
   return h(Fragment, null,
     modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': modelMenuLabel(bot), style: shownPlace, 'data-leaving': leaving || undefined },
-      modelScroll(picker, pick),
+      modelScroll(picker, pick, () => { close(); picker.chooseAuto() }),
       hasEfforts || manage ? h('div', { className: 'bt-model-foot' },
         hasEfforts ? h(EffortBar, { reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort }) : null,
         hasEfforts && manage ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
@@ -543,9 +559,9 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
 
 // The list opens under the trigger and pushes what follows it down; the Thinking slider
 // stays under the trigger, or under the list while it is open.
-function InlineModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true }) {
+function InlineModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickAuto, onPickEffort, withEfforts = true }) {
   const { isOpen, root, button, menu, open, close } = useInlineMenu()
-  const picker = useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withEfforts })
+  const picker = useModelPicker({ bot, roster, actions, run, onPick, onPickAuto, onPickEffort, withEfforts })
   const { manage, hasEfforts } = picker
   const toggle = () => {
     if (isOpen) { close(); return }
@@ -561,7 +577,7 @@ function InlineModelMenu({ bot, roster, actions, run, wide = false, onPick, onPi
     modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
     h(Collapse, { open: isOpen },
       h('div', { ref: menu, className: 'bt-menu bt-model-menu bt-model-inline-menu', role: 'menu', 'aria-label': modelMenuLabel(bot) },
-        modelScroll(picker, pick),
+        modelScroll(picker, pick, () => { close(); button.current?.focus(); picker.chooseAuto() }),
         manage ? h('div', { className: 'bt-model-foot' }, manageButton(manage, close)) : null)),
     h(Collapse, { open: hasEfforts },
       hasEfforts ? h('div', { className: 'bt-model-effort' }, h(EffortBar, { reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort })) : null))

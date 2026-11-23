@@ -236,12 +236,13 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
   ]
 }
 
-function BotSessions({ bot, part, run, useSessions, actions, running, readOnly, openCurrent }) {
+function BotSessions({ bot, part, roster, run, useSessions, actions, running, readOnly, openCurrent }) {
   const runningOf = id => running?.[id] === true
-  const open = (bot.openParts ?? []).map(entry => ({ id: entry.sessionId, open: true, running: runningOf(entry.sessionId) }))
+  const assignment = entry => roster.autoModels === true && entry.taskModel ? { model: entry.taskModel, effort: entry.taskEffort } : undefined
+  const open = (bot.openParts ?? []).map(entry => ({ id: entry.sessionId, open: true, running: runningOf(entry.sessionId), task: assignment(entry) }))
   const backgroundRunning = open.some(entry => entry.running)
   const entries = [
-    { id: part, current: true, running: runningOf(part) },
+    { id: part, current: true, running: runningOf(part), task: assignment(bot) },
     ...open,
     ...(bot.parts ?? []).filter(id => id !== part && !open.some(entry => entry.id === id)).reverse().map(id => ({ id })),
   ]
@@ -265,13 +266,20 @@ function BotSessions({ bot, part, run, useSessions, actions, running, readOnly, 
       const when = row?.updatedAt ?? row?.createdAt
       const label = row?.title && row.title.trim() !== '' ? row.title : t('Session {number}', { number: total - index })
       const title = entry.current ? t('Current session') : entry.open && entry.running ? t('Open this running session') : entry.open ? t('Open this session') : t('Open this earlier session')
+      const model = entry.task === undefined ? undefined : modelOf(entry.task, roster)
+      const effort = entry.task?.effort
+      const thinking = model && (roster.models ?? []).find(candidate => candidate.ref === model.ref)?.reasoning?.efforts
+      const selection = model ? `${model.name} · ${effort === undefined ? t('Default') : thinking?.find(level => level.id === effort)?.name ?? effort}` : undefined
       return h('button', {
         key: entry.id, type: 'button', 'aria-current': entry.current || undefined,
         disabled: readOnly && !entry.current,
         className: `bt-agent-session${entry.current ? ' is-current' : ''}${entry.running ? ' is-running' : ''}`,
         title, onClick: openPart(entry),
       },
-        h('span', { className: 'bt-agent-session-name' }, label),
+        selection === undefined ? h('span', { className: 'bt-agent-session-name' }, label)
+          : h('span', { className: 'bt-agent-session-copy' },
+              h('span', { className: 'bt-agent-session-name' }, label),
+              h('span', { className: 'bt-agent-session-name bt-agent-session-model', title: selection }, selection)),
         h('span', { className: 'bt-agent-session-meta' },
           entry.running ? h('span', { className: 'bt-agent-session-run', role: 'status' }, t('Running'))
             : entry.current ? t('Current')
@@ -430,7 +438,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
       })) : null,
       bot && tab === 'details' ? [
         h(BotSessions, {
-          key: 'sessions', bot, part, run, useSessions, actions,
+          key: 'sessions', bot, part, roster, run, useSessions, actions,
           running: roster.partsRunning, readOnly: roster.readOnly,
           openCurrent: () => { close(); actions.openSession(part ?? sessionId) },
         }),

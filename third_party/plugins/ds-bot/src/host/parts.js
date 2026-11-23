@@ -25,7 +25,7 @@ import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { focusOpenPart, isOpenPart, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, taskModelOf, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
+import { focusOpenPart, isOpenPart, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, taskModelOf, taskRouteOf, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -1170,8 +1170,8 @@ export function install(rt) {
   // earlier part's route. That route is what its last request used, which misses a model
   // the user picked since. A group's own Session has no Bot: see selectRoomSession.
   async function freshRoute(bot, session, { carryTask = true } = {}) {
-    const task = taskModelOf(bot, session.id)
-    if (carryTask && task !== undefined) return { ref: task, task: true }
+    const task = taskRouteOf(bot, session.id)
+    if (carryTask && task !== undefined) return { ...task, task: true }
     const ref = await rt.desiredModel(bot)
     if (ref !== undefined) return { ref, effort: await rt.desiredEffort(bot, ref) }
     if (task !== undefined) return undefined
@@ -1285,7 +1285,7 @@ export function install(rt) {
     const picked = bot === undefined ? undefined : await freshRoute(bot, session)
     if (picked?.task === true) {
       try {
-        await rt.selectTaskSessionModel(freshId, picked.ref)
+        await rt.selectTaskSessionModel(freshId, picked)
       } catch (error) {
         await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
           .catch(archiveError => rt.warn('ds-bot: unused task of %s not archived: %s', name, archiveError))

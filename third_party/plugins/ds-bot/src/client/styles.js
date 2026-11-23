@@ -1508,6 +1508,8 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-agent-session:hover:not(:disabled){background:var(--bt-hover)}
 .bt-agent-session.is-current{background:var(--bt-hover);cursor:default;font-weight:600}
 .bt-agent-session-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.bt-agent-session-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bt-agent-session-model{font-size:12px;font-weight:400;color:var(--bt-ink-2)}
 .bt-agent-session-meta{flex:0 0 auto;font-size:12px;font-weight:400;color:var(--bt-ink-3,var(--bt-ink-2))}
 .bt-agent-activity{display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;max-width:100%}
 .bt-agent-act{display:flex;align-items:center;gap:8px;min-height:22px;font-size:12.5px;line-height:18px;color:var(--bt-ink-2);min-width:0}

@@ -747,6 +747,10 @@ var JA = {
   "{provider} · not available": "{provider} · 利用不可",
   "Model for {name}": "{name} のモデル",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness にはまだモデルが設定されていません。",
+  "Auto": "自動",
+  "Chat model: {model}": "チャットモデル：{model}",
+  "For assigned tasks": "割り当てられたタスク",
+  "The Main Bot chooses a model and thinking level for each assignment.": "メイン Bot がタスクごとにモデルと思考レベルを選びます。",
   "Other models": "その他のモデル",
   "Model settings…": "モデル設定…",
   "Models": "モデル",
@@ -3239,6 +3243,10 @@ var KO = {
   "{provider} · not available": "{provider} · 사용 불가",
   "Model for {name}": "{name}의 모델",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness에 아직 설정된 모델이 없습니다.",
+  "Auto": "자동",
+  "Chat model: {model}": "채팅 모델: {model}",
+  "For assigned tasks": "할당된 작업에 적용",
+  "The Main Bot chooses a model and thinking level for each assignment.": "메인 봇이 작업마다 모델과 사고 수준을 선택합니다.",
   "Other models": "기타 모델",
   "Model settings…": "모델 설정…",
   Models: "모델",
@@ -5761,6 +5769,10 @@ var ES = {
   "{provider} · not available": "{provider} · no disponible",
   "Model for {name}": "Modelo para {name}",
   "No models are set up in DeepSeek Harness yet.": "Aún no hay modelos configurados en DeepSeek Harness.",
+  "Auto": "Automático",
+  "Chat model: {model}": "Modelo del chat: {model}",
+  "For assigned tasks": "Para tareas asignadas",
+  "The Main Bot chooses a model and thinking level for each assignment.": "El bot principal elige el modelo y el nivel de razonamiento de cada tarea.",
   "Other models": "Otros modelos",
   "Model settings…": "Ajustes de modelos…",
   Models: "Modelos",
@@ -8268,6 +8280,10 @@ var FR = {
   "{provider} · not available": "{provider} · indisponible",
   "Model for {name}": "Modèle pour {name}",
   "No models are set up in DeepSeek Harness yet.": "Aucun modèle n’est encore configuré dans DeepSeek Harness.",
+  "Auto": "Automatique",
+  "Chat model: {model}": "Modèle de la conversation : {model}",
+  "For assigned tasks": "Pour les tâches attribuées",
+  "The Main Bot chooses a model and thinking level for each assignment.": "Le bot principal choisit le modèle et le niveau de raisonnement pour chaque tâche.",
   "Other models": "Autres modèles",
   "Model settings…": "Paramètres des modèles…",
   "Models": "Modèles",
@@ -10760,6 +10776,10 @@ var DE = {
   "{provider} · not available": "{provider} · nicht verfügbar",
   "Model for {name}": "Modell für {name}",
   "No models are set up in DeepSeek Harness yet.": "In DeepSeek Harness sind noch keine Modelle eingerichtet.",
+  "Auto": "Automatisch",
+  "Chat model: {model}": "Chatmodell: {model}",
+  "For assigned tasks": "Für zugewiesene Aufgaben",
+  "The Main Bot chooses a model and thinking level for each assignment.": "Der Haupt-Bot wählt für jede Aufgabe das Modell und die Denkstufe.",
   "Other models": "Weitere Modelle",
   "Model settings…": "Modelleinstellungen…",
   Models: "Modelle",
@@ -13258,6 +13278,10 @@ var ZH = {
   "{provider} · not available": "{provider} · 不可用",
   "Model for {name}": "{name} 的模型",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness 里还没有设置模型。",
+  "Auto": "自动",
+  "Chat model: {model}": "对话模型：{model}",
+  "For assigned tasks": "用于派单",
+  "The Main Bot chooses a model and thinking level for each assignment.": "主 Bot 为每项派单选择模型和思考强度。",
   "Other models": "其他模型",
   "Model settings…": "模型设置…",
   Models: "模型",
@@ -18335,6 +18359,8 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-agent-session:hover:not(:disabled){background:var(--bt-hover)}
 .bt-agent-session.is-current{background:var(--bt-hover);cursor:default;font-weight:600}
 .bt-agent-session-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.bt-agent-session-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bt-agent-session-model{font-size:12px;font-weight:400;color:var(--bt-ink-2)}
 .bt-agent-session-meta{flex:0 0 auto;font-size:12px;font-weight:400;color:var(--bt-ink-3,var(--bt-ink-2))}
 .bt-agent-activity{display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;max-width:100%}
 .bt-agent-act{display:flex;align-items:center;gap:8px;min-height:22px;font-size:12.5px;line-height:18px;color:var(--bt-ink-2);min-width:0}
@@ -22219,11 +22245,13 @@ function useAgentModels(actions) {
   };
   return [reading, read];
 }
-function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts }) {
+function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickAuto, onPickEffort, withEfforts }) {
   const [reading, readModels] = useAgentModels(actions);
   const shown = modelOf(bot, roster);
   const current2 = bot.model ?? bot.appliedModel;
   const local = isLocalRoute(current2);
+  const offerAuto = !local && (bot.modelMode === "auto" || bot.modelMode === "manual") && (!onPick || !!onPickAuto);
+  const automatic = offerAuto && bot.modelMode === "auto";
   const served = servedOf(roster, current2);
   const reasoning = useEfforts(served, withEfforts ? current2 : void 0, actions);
   const picked = reasoning?.efforts?.some((effort) => effort.id === bot.effort) ? bot.effort : void 0;
@@ -22244,8 +22272,10 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     opening,
     reading,
     withEfforts,
+    offerAuto,
+    automatic,
     manage: local ? void 0 : manageModels(actions),
-    hasEfforts: withEfforts && effortStops(reasoning).length > 0,
+    hasEfforts: !automatic && withEfforts && effortStops(reasoning).length > 0,
     // DSH settings can change the list at any time, so opening asks again.
     opened: () => {
       if (local) readModels(routeOf(current2));
@@ -22254,14 +22284,22 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     },
     choose: (ref) => {
       if (onPick) onPick(ref);
-      else if (ref !== current2 || !bot.model) void run2(actions.updateBot(bot.id, { model: ref }));
+      else if (automatic || ref !== current2 || !bot.model) void run2(actions.updateBot(bot.id, { model: ref }));
+    },
+    chooseAuto: () => {
+      if (automatic) return;
+      if (onPickAuto) onPickAuto();
+      else void run2(actions.updateBot(bot.id, { modelMode: "auto" }));
     },
     // Hands the save back, so the slider can tell when the Bot has caught up with its pick.
     chooseEffort: (effort) => onPickEffort ? onPickEffort(effort) : run2(actions.updateBot(bot.id, { effort: effort ?? null }))
   };
 }
 var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
-  const { shown, models, withEfforts, effortLabel } = picker;
+  const { shown, models, withEfforts, effortLabel, automatic } = picker;
+  const label = automatic ? t("Auto") : shown?.name;
+  const chatModel = shown?.served ? shown.name : void 0;
+  const subtitle = automatic ? chatModel === void 0 ? void 0 : t("Chat model: {model}", { model: chatModel }) : shown === void 0 ? void 0 : shown.served || models.length === 0 ? !withEfforts || effortLabel === void 0 ? shown.groupName : `${shown.groupName} · ${effortLabel}` : t("{provider} · not available", { provider: shown.groupName });
   return (0, import_react17.createElement)(
     "button",
     {
@@ -22271,23 +22309,30 @@ var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
       "data-wide": wide || void 0,
       "aria-haspopup": "menu",
       "aria-expanded": isOpen,
-      "aria-label": t("Model: {model}", { model: shown?.name ?? t("none") }),
-      "data-missing": shown !== void 0 && !shown.served && models.length > 0 ? "" : void 0,
+      "aria-label": t("Model: {model}", { model: label ?? t("none") }),
+      "data-missing": !automatic && shown !== void 0 && !shown.served && models.length > 0 ? "" : void 0,
       onClick
     },
     (0, import_react17.createElement)(
       "span",
       { className: "bt-model-copy" },
-      (0, import_react17.createElement)("span", { className: "bt-model-name" }, shown?.name ?? t("Choose a model")),
-      shown ? (0, import_react17.createElement)("span", { className: "bt-model-provider" }, shown.served || models.length === 0 ? !withEfforts || effortLabel === void 0 ? shown.groupName : `${shown.groupName} · ${effortLabel}` : t("{provider} · not available", { provider: shown.groupName })) : null
+      (0, import_react17.createElement)("span", { className: "bt-model-name" }, label ?? t("Choose a model")),
+      subtitle === void 0 ? null : (0, import_react17.createElement)("span", { className: "bt-model-provider" }, subtitle)
     ),
     (0, import_react17.createElement)(Caret)
   );
 };
-var modelScroll = ({ roster, models, current: current2, local, reading, opening }, pick2) => (0, import_react17.createElement)(
+var modelScroll = ({ roster, models, current: current2, local, reading, opening, offerAuto, automatic }, pick2, pickAuto) => (0, import_react17.createElement)(
   "div",
   { className: "bt-model-scroll" },
-  models.length > 0 ? (0, import_react17.createElement)(ModelRows, { roster: { ...roster, models }, current: current2, onPick: pick2, opening }) : local ? null : (0, import_react17.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
+  offerAuto ? (0, import_react17.createElement)(
+    "button",
+    { type: "button", role: "menuitemradio", "aria-checked": automatic, onClick: pickAuto },
+    (0, import_react17.createElement)("span", { className: "bt-menu-label" }, t("Auto")),
+    (0, import_react17.createElement)("span", { className: "bt-menu-hint" }, t("For assigned tasks")),
+    (0, import_react17.createElement)("span", { className: "bt-model-tick", "aria-hidden": true }, automatic ? (0, import_react17.createElement)(CheckIcon) : null)
+  ) : null,
+  models.length > 0 ? (0, import_react17.createElement)(ModelRows, { roster: { ...roster, models, defaultModel: offerAuto ? void 0 : roster.defaultModel }, current: automatic ? void 0 : current2, onPick: pick2, opening }) : local ? null : (0, import_react17.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
   reading ? (0, import_react17.createElement)("div", { className: "bt-model-none" }, t("Reading models…")) : null
 );
 var manageButton = (manage, close) => (0, import_react17.createElement)(
@@ -22303,9 +22348,9 @@ var modelMenuLabel = (bot) => t("Model for {name}", { name: bot.name });
 function ModelMenu(props) {
   return props.inline ? (0, import_react17.createElement)(InlineModelMenu, props) : (0, import_react17.createElement)(PopupModelMenu, props);
 }
-function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true }) {
+function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickAuto, onPickEffort, withEfforts = true }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
-  const picker = useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts });
+  const picker = useModelPicker({ bot, roster, actions, run: run2, onPick, onPickAuto, onPickEffort, withEfforts });
   const { manage, hasEfforts } = picker;
   const toggle = () => {
     if (isOpen) {
@@ -22326,7 +22371,10 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
     shownPlace ? (0, import_react_dom2.createPortal)((0, import_react17.createElement)(
       "div",
       { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": modelMenuLabel(bot), style: shownPlace, "data-leaving": leaving || void 0 },
-      modelScroll(picker, pick2),
+      modelScroll(picker, pick2, () => {
+        close();
+        picker.chooseAuto();
+      }),
       hasEfforts || manage ? (0, import_react17.createElement)(
         "div",
         { className: "bt-model-foot" },
@@ -22337,9 +22385,9 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
     ), document.body) : null
   );
 }
-function InlineModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true }) {
+function InlineModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickAuto, onPickEffort, withEfforts = true }) {
   const { isOpen, root, button, menu, open, close } = useInlineMenu();
-  const picker = useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts });
+  const picker = useModelPicker({ bot, roster, actions, run: run2, onPick, onPickAuto, onPickEffort, withEfforts });
   const { manage, hasEfforts } = picker;
   const toggle = () => {
     if (isOpen) {
@@ -22364,7 +22412,11 @@ function InlineModelMenu({ bot, roster, actions, run: run2, wide = false, onPick
       (0, import_react17.createElement)(
         "div",
         { ref: menu, className: "bt-menu bt-model-menu bt-model-inline-menu", role: "menu", "aria-label": modelMenuLabel(bot) },
-        modelScroll(picker, pick2),
+        modelScroll(picker, pick2, () => {
+          close();
+          button.current?.focus();
+          picker.chooseAuto();
+        }),
         manage ? (0, import_react17.createElement)("div", { className: "bt-model-foot" }, manageButton(manage, close)) : null
       )
     ),
@@ -22650,10 +22702,11 @@ function startModel(roster) {
   const usable = modelsFor(roster.models).filter((model) => model.needsKey !== true);
   return (usable.find((model) => model.ref === roster.prefs?.defaultBotModel) ?? usable.find((model) => model.ref === roster.defaultModel) ?? usable[0])?.ref ?? "";
 }
-function createPayload({ name, look, image, model, effort, brief, ownLook = false, sectionId }) {
+function createPayload({ name, look, image, model, modelMode, effort, brief, ownLook = false, sectionId }) {
   const badge = !image && !ownLook && isLocalRoute(model) ? agentAvatar(String(model).split("/")[0]) : void 0;
   const payload = { name, color: look.color, avatar: image ? { shape: look.shape, image } : badge !== void 0 ? { shape: look.shape, image: badge.image } : { shape: look.shape } };
   if (model) payload.model = model;
+  if (modelMode !== void 0) payload.modelMode = modelMode;
   if (effort !== void 0) payload.effort = effort;
   if (brief) payload.brief = brief;
   if (sectionId) payload.sectionId = sectionId;
@@ -33349,12 +33402,13 @@ function GroupOverview({ room: room2, roster, actions, usage, useWork, openSetti
     ) : null
   ];
 }
-function BotSessions({ bot, part, run: run2, useSessions, actions, running, readOnly, openCurrent }) {
+function BotSessions({ bot, part, roster, run: run2, useSessions, actions, running, readOnly, openCurrent }) {
   const runningOf = (id) => running?.[id] === true;
-  const open = (bot.openParts ?? []).map((entry) => ({ id: entry.sessionId, open: true, running: runningOf(entry.sessionId) }));
+  const assignment = (entry) => roster.autoModels === true && entry.taskModel ? { model: entry.taskModel, effort: entry.taskEffort } : void 0;
+  const open = (bot.openParts ?? []).map((entry) => ({ id: entry.sessionId, open: true, running: runningOf(entry.sessionId), task: assignment(entry) }));
   const backgroundRunning = open.some((entry) => entry.running);
   const entries2 = [
-    { id: part, current: true, running: runningOf(part) },
+    { id: part, current: true, running: runningOf(part), task: assignment(bot) },
     ...open,
     ...(bot.parts ?? []).filter((id) => id !== part && !open.some((entry) => entry.id === id)).reverse().map((id) => ({ id }))
   ];
@@ -33384,6 +33438,10 @@ function BotSessions({ bot, part, run: run2, useSessions, actions, running, read
       const when3 = row?.updatedAt ?? row?.createdAt;
       const label = row?.title && row.title.trim() !== "" ? row.title : t("Session {number}", { number: total - index });
       const title = entry.current ? t("Current session") : entry.open && entry.running ? t("Open this running session") : entry.open ? t("Open this session") : t("Open this earlier session");
+      const model = entry.task === void 0 ? void 0 : modelOf(entry.task, roster);
+      const effort = entry.task?.effort;
+      const thinking = model && (roster.models ?? []).find((candidate) => candidate.ref === model.ref)?.reasoning?.efforts;
+      const selection = model ? `${model.name} · ${effort === void 0 ? t("Default") : thinking?.find((level) => level.id === effort)?.name ?? effort}` : void 0;
       return (0, import_react47.createElement)(
         "button",
         {
@@ -33395,7 +33453,12 @@ function BotSessions({ bot, part, run: run2, useSessions, actions, running, read
           title,
           onClick: openPart(entry)
         },
-        (0, import_react47.createElement)("span", { className: "bt-agent-session-name" }, label),
+        selection === void 0 ? (0, import_react47.createElement)("span", { className: "bt-agent-session-name" }, label) : (0, import_react47.createElement)(
+          "span",
+          { className: "bt-agent-session-copy" },
+          (0, import_react47.createElement)("span", { className: "bt-agent-session-name" }, label),
+          (0, import_react47.createElement)("span", { className: "bt-agent-session-name bt-agent-session-model", title: selection }, selection)
+        ),
         (0, import_react47.createElement)(
           "span",
           { className: "bt-agent-session-meta" },
@@ -33619,6 +33682,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, projects:
           key: "sessions",
           bot,
           part,
+          roster,
           run: run2,
           useSessions,
           actions,
@@ -35631,6 +35695,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
   const [name, setName] = (0, import_react51.useState)(start?.name ?? "");
   const [mode, setMode] = (0, import_react51.useState)("model");
   const [model, setModel] = (0, import_react51.useState)(() => startModel(roster));
+  const [pickedMode, setPickedMode] = (0, import_react51.useState)(void 0);
   const [agentModel, setAgentModel] = (0, import_react51.useState)("");
   const [ownLook, setOwnLook] = (0, import_react51.useState)(false);
   const [effort, setEffort] = (0, import_react51.useState)(void 0);
@@ -35642,6 +35707,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
   const [reading, readModels] = useAgentModels(actions);
   const local = mode === "local";
   const chosen = local ? agentModel : model;
+  const modelMode = !local && roster.autoModels === true ? pickedMode ?? "auto" : void 0;
   useEscape(onBack);
   (0, import_react51.useEffect)(() => {
     if (inline) frame.current?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -35656,7 +35722,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
     setError("");
     setBusy(true);
     try {
-      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, effort: local ? void 0 : effort, brief, ownLook, sectionId: start?.sectionId }));
+      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, modelMode, effort: local ? void 0 : effort, brief, ownLook, sectionId: start?.sectionId }));
       onCreated(bot);
     } catch (failure) {
       setError(failure?.message ?? String(failure));
@@ -35761,15 +35827,28 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
       "div",
       { className: "bt-field" },
       (0, import_react51.createElement)("span", { className: "bt-field-label" }, t("Model"), local && reading ? (0, import_react51.createElement)(ReadingModels) : null),
-      (0, import_react51.createElement)(ModelMenu, { bot: { id: "new-bot", name: finalName, model: chosen || void 0, effort: local ? void 0 : effort }, roster, actions, wide: true, onPick: (ref) => {
-        if (local) {
-          setAgentModel(ref);
-          return;
-        }
-        setModel(ref);
-        setEffort(void 0);
-      }, onPickEffort: (picked) => setEffort(picked ?? null) }),
-      (0, import_react51.createElement)("span", { className: "bt-note" }, chosen ? t("The Bot runs on this model. You can change it later in its details.") : modelsFor(roster.models).length > 0 ? t("Pick a model here, or the Bot asks for one in its chat.") : t("Add a provider and a model in DeepSeek Harness first, or pick one in the Bot's chat later."))
+      (0, import_react51.createElement)(ModelMenu, {
+        bot: { id: "new-bot", name: finalName, model: chosen || void 0, modelMode, effort: local ? void 0 : effort },
+        roster,
+        actions,
+        wide: true,
+        onPick: (ref) => {
+          if (local) {
+            setAgentModel(ref);
+            return;
+          }
+          setModel(ref);
+          setPickedMode("manual");
+          setEffort(void 0);
+        },
+        onPickAuto: () => {
+          setModel(startModel(roster));
+          setPickedMode("auto");
+          setEffort(void 0);
+        },
+        onPickEffort: (picked) => setEffort(picked ?? null)
+      }),
+      (0, import_react51.createElement)("span", { className: "bt-note" }, modelMode === "auto" ? t("The Main Bot chooses a model and thinking level for each assignment.") : chosen ? t("The Bot runs on this model. You can change it later in its details.") : modelsFor(roster.models).length > 0 ? t("Pick a model here, or the Bot asks for one in its chat.") : t("Add a provider and a model in DeepSeek Harness first, or pick one in the Bot's chat later."))
     ) : null,
     error ? (0, import_react51.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null,
     (0, import_react51.createElement)(
